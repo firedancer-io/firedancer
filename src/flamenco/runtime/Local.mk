@@ -5,6 +5,9 @@ $(call add-objs,fd_acc_mgr,fd_flamenco)
 $(call add-hdrs,fd_account.h)
 $(call add-objs,fd_account,fd_flamenco)
 
+$(call add-hdrs,fd_blockstore.h fd_readwrite_lock.h)
+$(call add-objs,fd_blockstore,fd_flamenco)
+
 $(call add-hdrs,fd_borrowed_account.h)
 $(call add-objs,fd_borrowed_account,fd_flamenco)
 
@@ -30,3 +33,8 @@ $(call add-hdrs,fd_system_ids.h)
 $(call add-objs,fd_system_ids,fd_flamenco)
 $(call make-unit-test,test_system_ids,test_system_ids,fd_flamenco fd_util fd_ballet)
 $(call run-unit-test,test_system_ids,)
+
+ifdef FD_HAS_ROCKSDB
+$(call add-hdrs,fd_rocksdb.h)
+$(call add-objs,fd_rocksdb,fd_flamenco)
+endif

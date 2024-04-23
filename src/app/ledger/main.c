@@ -7,6 +7,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
+#include "../../disco/fd_disco.h"
+#include "../../disco/tvu/fd_tvu.h"
 #include "../../util/fd_util.h"
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/nanopb/pb_decode.h"
@@ -21,7 +23,9 @@
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_snapshot_loader.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
+#include "../../flamenco/runtime/program/fd_builtin_programs.h"
 #include "../../flamenco/shredcap/fd_shredcap.h"
+#include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 
 extern void fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx, uchar const       pubkey[ static 32 ], char const *      data, ulong             sz );
 
@@ -30,7 +34,7 @@ static void usage(char const * progname) {
   fprintf(stderr, " --cmd ingest --snapshotfile <file>               ingest solana snapshot file\n");
   fprintf(stderr, "              --incremental <file>                also ingest incremental snapshot file\n");
   fprintf(stderr, "              --rocksdb <file>                    also ingest a rocks database file\n");
-  fprintf(stderr, "                --txnstatus true                  also ingest transaction status from rocksdb\n");
+  fprintf(stderr, "              --txnstatus true                    also ingest transaction status from rocksdb\n");
   fprintf(stderr, "              --genesis <file>                    also ingest a genesis file\n");
   fprintf(stderr, "              --shredcap <directory>              also ingest a shredcap\n");
   fprintf(stderr, "              --trashhash <slot>                  use trashhash for invalid test cases\n");
@@ -39,6 +43,14 @@ static void usage(char const * progname) {
   fprintf(stderr, "              --startslot <slot>                  start slot (only used for minify)");
   fprintf(stderr, "              --endslot <slot>                    end slot");
   fprintf(stderr, "              --copytxnstatus true                copy over transaction statuses\n");
+  fprintf(stderr, " --cmd prune                                      prune funk to end slot\n");
+  fprintf(stderr, "              --snapshotfile <file>               ingest solana snapshot file\n");
+  fprintf(stderr, "              --rocksdb <file>                    also ingest a rocks database file\n");
+  fprintf(stderr, "              --endslot <slot>                    last slot to replay up to\n");
+  fprintf(stderr, "              --indexmaxunpruned <count>          indexmax for the unpruned funk\n");
+  fprintf(stderr, "              --indexmax <count>                  indexmax for the pruned funk\n");
+  fprintf(stderr, "              --backup <file>                     make a backup file\n");
+  fprintf(stderr, "              --startslot <slot>                  verify database integrity\n");
   fprintf(stderr, " --verifyfunky true                               verify database integrity\n");
   fprintf(stderr, " --wksp <name>                                    workspace name\n");
   fprintf(stderr, " --pages <count>                                  number of gigantic pages in anonymous workspace\n");
@@ -146,37 +158,46 @@ main( int     argc,
   fd_boot( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
-  char const * wkspname       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",          NULL, NULL      );
-  ulong        pages          = fd_env_strip_cmdline_ulong( &argc, &argv, "--pages",         NULL, ULONG_MAX );
-  if( pages == ULONG_MAX )
-    pages                     = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",      NULL, 5 );
-  char const * reset          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",         NULL, "false"   );
-  char const * cmd            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",           NULL, NULL      );
-  ulong        index_max      = fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmax",      NULL, 450000000 );
-  ulong        xactions_max   = fd_env_strip_cmdline_ulong( &argc, &argv, "--txnmax",        NULL,      1000 );
-  char const * verifyfunky    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyfunky",   NULL, "false"   );
-  char const * snapshotfile   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--snapshotfile",  NULL, NULL      );
-  char const * incremental    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--incremental",   NULL, NULL      );
-  char const * genesis        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--genesis",       NULL, NULL      );
-  char const * rocksdb_dir    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",       NULL, NULL      );
-  char const * txnstatus      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txnstatus",     NULL, "false"   );
-  ulong    slot_history_max   = fd_env_strip_cmdline_ulong( &argc, &argv, "--slothistory",   NULL, FD_BLOCKSTORE_SLOT_HISTORY_MAX );
-  ulong        shred_max      = fd_env_strip_cmdline_ulong( &argc, &argv, "--shredmax",      NULL, 1UL << 17 );
-  ulong        start_slot     = fd_env_strip_cmdline_ulong( &argc, &argv, "--startslot",     NULL, 0UL );
-  ulong        end_slot       = fd_env_strip_cmdline_ulong( &argc, &argv, "--endslot",       NULL, ULONG_MAX );
-  char const * verifyhash     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyhash",    NULL, NULL      );
-  char const * verifyacchash  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyacchash", NULL, NULL      );
-  char const * backup         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--backup",        NULL, NULL      );
-  char const * capture_fpath  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",       NULL, NULL      );
-  char const * checkacchash   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkacchash",  NULL, NULL      );
-  char const * shredcap       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--shredcap",      NULL, NULL      );
-  ulong        trashhash      = fd_env_strip_cmdline_ulong( &argc, &argv, "--trashhash",     NULL, ULONG_MAX );
-  char const * mini_db_dir    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--minidb",        NULL, "false"   );
-  char const * copy_txnstatus = fd_env_strip_cmdline_cstr ( &argc, &argv, "--copytxnstatus", NULL, "true"    );
+  char const * wkspname           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",             NULL, NULL      );
+  ulong        pages              = fd_env_strip_cmdline_ulong( &argc, &argv, "--pages",            NULL, ULONG_MAX );
+  if( pages == ULONG_MAX )    
+    pages                         = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",         NULL, 5         );
+  char const * reset              = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",            NULL, "false"   );
+  char const * cmd                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",              NULL, NULL      );
+  ulong        index_max          = fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmax",         NULL, 450000000 );
+  ulong        xactions_max       = fd_env_strip_cmdline_ulong( &argc, &argv, "--txnmax",           NULL,      1000 );
+  char const * verifyfunky        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyfunky",      NULL, "false"   );
+  char const * snapshotfile       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--snapshotfile",     NULL, NULL      );
+  char const * incremental        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--incremental",      NULL, NULL      );
+  char const * genesis            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--genesis",          NULL, NULL      );
+  char const * rocksdb_dir        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",          NULL, NULL      );
+  char const * txnstatus          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txnstatus",        NULL, "false"   );
+  ulong    slot_history_max       = fd_env_strip_cmdline_ulong( &argc, &argv, "--slothistory",      NULL, FD_BLOCKSTORE_SLOT_HISTORY_MAX );
+  ulong        shred_max          = fd_env_strip_cmdline_ulong( &argc, &argv, "--shredmax",         NULL, 1UL << 17 );
+  ulong        start_slot         = fd_env_strip_cmdline_ulong( &argc, &argv, "--startslot",        NULL, 0UL       );
+  ulong        end_slot           = fd_env_strip_cmdline_ulong( &argc, &argv, "--endslot",          NULL, ULONG_MAX );
+  char const * verifyhash         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyhash",       NULL, NULL      );
+  char const * verifyacchash      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyacchash",    NULL, NULL      );
+  char const * backup             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--backup",           NULL, NULL      );
+  char const * capture_fpath      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",          NULL, NULL      );
+  char const * checkacchash       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkacchash",     NULL, NULL      );
+  char const * shredcap           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--shredcap",         NULL, NULL      );
+  ulong        trashhash          = fd_env_strip_cmdline_ulong( &argc, &argv, "--trashhash",        NULL, ULONG_MAX );
+  char const * mini_db_dir        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--minidb",           NULL, "false"   );
+  char const * copy_txnstatus     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--copytxnstatus",    NULL, "true"    );
+  ulong        index_max_unpruned = fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmaxunpruned", NULL, 450000000 );
+  ulong        pages_pruned       = fd_env_strip_cmdline_ulong( &argc, &argv, "--pagespruned",      NULL, ULONG_MAX );
+
 #ifdef _ENABLE_LTHASH
-  char const * lthash         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",        NULL, "false"   );
+  char const * lthash             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",           NULL, "false"   );
 #endif
 
+  int is_pruned = cmd != NULL && strcmp(cmd, "prune") == 0;
+  if ( is_pruned && (pages_pruned == ULONG_MAX || index_max_unpruned == ULONG_MAX) ) {
+    FD_LOG_ERR(( "pruning requires --pagespruned and --indexmaxunpruned" ));
+  }
+  
+  /* Setup wksp(s) */
   fd_wksp_t* wksp;
   if (wkspname == NULL) {
     FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
@@ -189,6 +210,15 @@ main( int     argc,
   }
   if (wksp == NULL)
     FD_LOG_ERR(( "failed to attach to workspace %s", wkspname ));
+
+  /* Setup pruned wksp */
+  fd_wksp_t * pruned_wksp = NULL;
+  if ( is_pruned ) {
+    pruned_wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, pages_pruned, 0, "prunedwksp", 0UL );
+    if ( pruned_wksp == NULL ) {
+      FD_LOG_ERR(( "failed to create and attach to a pruned_wksp" ));
+    }
+  }
 
   char hostname[64];
   gethostname(hostname, sizeof(hostname));
@@ -210,11 +240,14 @@ main( int     argc,
 
   if( FD_UNLIKELY( !cmd ) ) FD_LOG_ERR(( "no command specified" ));
 
+  /* Setup Funk(s). If we are pruning, setup funk on the pruned_wksp*/
+  fd_wksp_t * funk_wksp = is_pruned ? pruned_wksp : wksp;
+
   void* shmem;
   fd_wksp_tag_query_info_t info;
   ulong tag = FD_FUNK_MAGIC;
-  if (fd_wksp_tag_query(wksp, &tag, 1, &info, 1) > 0) {
-    shmem = fd_wksp_laddr_fast( wksp, info.gaddr_lo );
+  if (fd_wksp_tag_query(funk_wksp, &tag, 1, &info, 1) > 0) {
+    shmem = fd_wksp_laddr_fast( funk_wksp, info.gaddr_lo );
     funk = fd_funk_join(shmem);
     if (funk == NULL)
       FD_LOG_ERR(( "failed to join a funky" ));
@@ -222,18 +255,19 @@ main( int     argc,
       if (fd_funk_verify(funk))
         FD_LOG_ERR(( "verification failed" ));
   } else {
-    shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
+    shmem = fd_wksp_alloc_laddr( funk_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
     if (shmem == NULL)
       FD_LOG_ERR(( "failed to allocate a funky" ));
     funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
+    
     if (funk == NULL) {
       fd_wksp_free_laddr(shmem);
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
   }
+  FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( funk_wksp, shmem ) ));
 
-  FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
-
+  /* Setup blockstore */
   fd_blockstore_t * blockstore;
 
   tag = FD_BLOCKSTORE_MAGIC;
@@ -258,39 +292,317 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "blockstore at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
 
+  /* Create a duplicate blockstore for pruning in the pruned wksp. Otherwise ignore. */
+  fd_blockstore_t * pruned_blockstore = NULL;
+  if ( is_pruned ) {
+    shmem = fd_wksp_alloc_laddr( pruned_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );  
+    if ( shmem == NULL ) {
+      FD_LOG_ERR(( "failed to allocate a blockstore" ));
+    }
+    int lg_txn_max = 22;
+    pruned_blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, hashseed, shred_max, 
+                                                               slot_history_max, lg_txn_max ) );
+    if ( pruned_blockstore == NULL ) {
+      fd_wksp_free_laddr( shmem );
+      FD_LOG_ERR(( "failed to allocate a blockstore" ));
+    }
+    FD_LOG_NOTICE(( "pruned blockstore at global address 0x%016lx", fd_wksp_gaddr_fast( pruned_wksp, shmem ) ));
+  }
+
+  fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( funk_wksp, funk->alloc_gaddr ), 0UL );
+  if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", funk->alloc_gaddr ));
+
   uchar epoch_ctx_mem[FD_EXEC_EPOCH_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_EPOCH_CTX_ALIGN)));
   fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
 
   uchar slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN)));
-  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
+  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
   slot_ctx->epoch_ctx = epoch_ctx;
 
-  fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( wksp, funk->alloc_gaddr ), 0UL );
-  if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", funk->alloc_gaddr ));
-  /* TODO leave */
-
   epoch_ctx->valloc = fd_alloc_virtual( alloc );
-  slot_ctx->valloc = fd_alloc_virtual( alloc );
 
   fd_acc_mgr_t mgr[1];
   slot_ctx->acc_mgr = fd_acc_mgr_new( mgr, funk );
-  slot_ctx->blockstore = blockstore;
+  
+  slot_ctx->blockstore = is_pruned ? pruned_blockstore : blockstore;
 
-  ulong tcnt = fd_tile_cnt();
-  uchar tpool_mem[ FD_TPOOL_FOOTPRINT(FD_TILE_MAX) ] __attribute__((aligned(FD_TPOOL_ALIGN)));
   fd_tpool_t * tpool = NULL;
-  if ( tcnt > 1) {
-    tpool = fd_tpool_init(tpool_mem, tcnt);
-    if ( tpool == NULL )
-      FD_LOG_ERR(("failed to create thread pool"));
-    for ( ulong i = 1; i <= tcnt-1; ++i ) {
-      if ( fd_tpool_worker_push( tpool, i, NULL, 0UL ) == NULL )
-        FD_LOG_ERR(("failed to launch worker"));
-    }
-  }
 
   if (cmd == NULL) {
     // Do nothing
+
+  } else if ( strcmp(cmd, "prune") == 0 ) {
+    /* build/native/clang/bin/fd_frank_ledger --cmd prune --indexmax <index max for pruned funk> 
+       --indexmaxunpruned <index max for unpruned funk> --pages <PAGES> --rocksdb <ROCKSDB>
+       --snapshotfile <SNAPSHOT> --backup <BACKUP> --endslot <END_SLOT> 
+       --pagespruned <num pages in checkpt> */
+
+    if ( pruned_blockstore == NULL ) { /* Should never happen */
+      FD_LOG_ERR(( "pruned blockstore not initialized" ));
+    } else if ( snapshotfile == NULL ) {
+      FD_LOG_ERR(("missing snapshot file"));
+    } else if ( rocksdb_dir == NULL ) {
+      FD_LOG_ERR(("missing rocksdb directory"));
+    }
+      
+    /* Setup a temporary funk with all accounts. This will be deleted and not checkpointed. */
+    fd_funk_t * unpruned_funk;
+    shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC ); // TODO: maybe delete this
+    if ( shmem == NULL ) {
+      FD_LOG_ERR(( "failed to allocate a funky" ));
+    }
+    unpruned_funk = fd_funk_join( fd_funk_new( shmem, FD_FUNK_MAGIC, hashseed, 
+                                               xactions_max, index_max_unpruned ) );
+    if ( unpruned_funk == NULL ) {
+      fd_wksp_free_laddr( shmem );
+      FD_LOG_ERR(( "failed to allocate a funky" ));
+    }
+    FD_LOG_NOTICE(( "unpruned funky at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
+
+    /* Set up slot and epoch contexts used for execution (unpruned). */
+    fd_alloc_t * alloc_unpruned = fd_alloc_join( fd_wksp_laddr_fast( wksp, unpruned_funk->alloc_gaddr ), 0UL );
+    if( FD_UNLIKELY( !alloc_unpruned ) ) { 
+      FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", unpruned_funk->alloc_gaddr ));
+    }
+
+    uchar epoch_ctx_mem_unpruned[FD_EXEC_EPOCH_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_EPOCH_CTX_ALIGN)));
+    fd_exec_epoch_ctx_t * epoch_ctx_unpruned = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem_unpruned ) );
+
+    uchar slot_ctx_mem_unpruned[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN)));
+    fd_exec_slot_ctx_t * slot_ctx_unpruned = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem_unpruned, fd_alloc_virtual( alloc_unpruned ) ) );
+    slot_ctx_unpruned->epoch_ctx = epoch_ctx_unpruned;
+
+    epoch_ctx_unpruned->valloc = fd_alloc_virtual( alloc_unpruned );
+    slot_ctx_unpruned->valloc = fd_alloc_virtual( alloc_unpruned );
+
+    fd_acc_mgr_t mgr_unpruned[1];
+    slot_ctx_unpruned->acc_mgr = fd_acc_mgr_new( mgr_unpruned, unpruned_funk );
+    slot_ctx_unpruned->blockstore = blockstore;
+
+    fd_funk_leave( funk );
+
+    /* Load in snapshot and rocksdb */
+    fd_snapshot_load( snapshotfile, slot_ctx_unpruned, verifyacchash != NULL,
+                      checkacchash != NULL, FD_SNAPSHOT_TYPE_FULL );
+    FD_LOG_NOTICE(("imported %lu records from snapshot", 
+                   fd_funk_rec_cnt( fd_funk_rec_map ( unpruned_funk, wksp ))));
+
+    if( incremental ) {
+      fd_snapshot_load( incremental, slot_ctx_unpruned, (verifyacchash != NULL), (checkacchash != NULL), FD_SNAPSHOT_TYPE_INCREMENTAL );
+      FD_LOG_NOTICE(("imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map ( unpruned_funk, wksp ))));
+    }
+
+    if ( end_slot >= slot_ctx_unpruned->slot_bank.slot + slot_history_max ) {
+      end_slot = slot_ctx->slot_bank.slot + slot_history_max - 1;
+    }
+
+    ingest_rocksdb( slot_ctx_unpruned, rocksdb_dir, end_slot, blockstore, 0, trashhash );
+    FD_LOG_NOTICE(("imported unpruned rocksdb"));
+
+    slot_ctx->slot_bank.slot = slot_ctx_unpruned->slot_bank.slot;
+    ingest_rocksdb( slot_ctx, rocksdb_dir, end_slot, pruned_blockstore,
+                    strcmp( txnstatus, "true" ) == 0, trashhash );
+    FD_LOG_NOTICE(("imported pruned rocksdb"));
+
+    fd_scratch_detach( NULL ); 
+
+    /* Replay to get all accounts that are touched (r/w) during execution */
+    fd_runtime_args_t args;
+    fd_memset( &args, 0, sizeof(args) );
+    args.end_slot = end_slot;
+    args.pruned_funk = funk;
+    args.cmd = "replay";
+    args.allocator = "wksp";
+
+    fd_runtime_ctx_t state;
+    fd_memset( &state, 0, sizeof(state) );
+
+    fd_tvu_gossip_deliver_arg_t gossip_deliver_arg[1];
+    fd_tvu_main_setup( &state, NULL, NULL, NULL, 0, wksp, &args, gossip_deliver_arg );
+
+    args.tcnt = fd_tile_cnt();
+    if( args.tcnt > 1 ) {
+      tpool = fd_tpool_init( state.tpool_mem, args.tcnt );
+      if( tpool == NULL ) { 
+        FD_LOG_ERR(( "failed to create thread pool" ));
+      }
+      for( ulong i = 1; i < args.tcnt; ++i ) {
+        if( fd_tpool_worker_push( tpool, i, NULL, fd_scratch_smem_footprint( 256UL<<20UL ) ) == NULL ) {
+          FD_LOG_ERR(( "failed to launch worker" ));
+        }
+        else {
+          FD_LOG_NOTICE(( "launched worker" ));
+        }
+      }
+    }
+    state.tpool       = tpool;
+    state.max_workers = args.tcnt;
+    
+    /* Junk xid for pruning transaction */ // TODO: factor out the xid nicelY
+    fd_funk_txn_xid_t prune_xid;
+    fd_memset( &prune_xid, 0x42, sizeof(fd_funk_txn_xid_t));
+    fd_funk_txn_t * prune_txn = fd_funk_txn_prepare( funk, NULL, &prune_xid, 1 );
+    FD_TEST(( !!prune_txn ));
+
+    int err = fd_runtime_replay( &state, &args );
+    if( err != 0 ) {
+      fd_tvu_main_teardown( &state, NULL );
+      return err;
+    }
+
+    /* Reset the wksp and load in funk again. */
+    /* TODO: A better implementation of this would be to just rollback the 
+       funk transactions. This can be done by publishing all funk transactions
+       into a parent and then cancelling the parent after execution is complete. */
+
+    fd_wksp_reset( wksp, (uint)hashseed );
+
+    shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
+    if ( shmem == NULL ) {
+      FD_LOG_ERR(( "failed to allocate a funky" ));
+    }
+    unpruned_funk = fd_funk_join( fd_funk_new( shmem, FD_FUNK_MAGIC, hashseed, 
+                                               xactions_max, index_max_unpruned ) );
+    fd_scratch_detach( NULL );
+    smem = fd_wksp_alloc_laddr( wksp, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax   ), 421UL );
+    fmem = fd_wksp_alloc_laddr( wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ), 421UL );
+    FD_TEST( (!!smem) & (!!fmem) );
+    fd_scratch_attach( smem, fmem, smax, sdepth );
+
+    alloc_unpruned = fd_alloc_join( fd_wksp_laddr_fast( wksp, unpruned_funk->alloc_gaddr ), 0UL );
+    if( FD_UNLIKELY( !alloc_unpruned ) ) { 
+      FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", unpruned_funk->alloc_gaddr ));
+    }
+    epoch_ctx_unpruned = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem_unpruned ) );
+    slot_ctx_unpruned = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem_unpruned, fd_alloc_virtual( alloc_unpruned ) ) );
+    slot_ctx_unpruned->epoch_ctx = epoch_ctx_unpruned;
+
+    epoch_ctx_unpruned->valloc = fd_alloc_virtual( alloc_unpruned );
+    slot_ctx_unpruned->valloc = fd_alloc_virtual( alloc_unpruned );
+
+    fd_acc_mgr_t mgr_unpruned_new[1];
+    slot_ctx_unpruned->acc_mgr = fd_acc_mgr_new( mgr_unpruned_new, unpruned_funk );
+    fd_snapshot_load( snapshotfile, slot_ctx_unpruned, verifyacchash != NULL,
+                      checkacchash != NULL, FD_SNAPSHOT_TYPE_FULL );
+
+    if( incremental ) {
+      fd_snapshot_load( incremental, slot_ctx_unpruned, (verifyacchash != NULL), (checkacchash != NULL), FD_SNAPSHOT_TYPE_INCREMENTAL );
+    }
+
+    FD_LOG_NOTICE(("imported %lu records from snapshot", 
+                   fd_funk_rec_cnt( fd_funk_rec_map ( unpruned_funk, wksp ))));
+
+    /* After replaying, update all touched accounts to contain the data that is
+       present before execution begins. Look up the corresponding account in the
+       unpruned funk and copy over the contents */
+    fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, pruned_wksp );
+    for ( const fd_funk_rec_t * rec = fd_funk_txn_rec_head( prune_txn, rec_map ); 
+          rec; rec = fd_funk_txn_next_rec( funk, rec ) ) {
+            
+      const fd_funk_rec_t * original_rec = fd_funk_rec_query_global( unpruned_funk, NULL, rec->pair.key );
+      if ( original_rec != NULL ) {
+        fd_funk_rec_t * mod_rec = fd_funk_rec_modify( funk, rec );
+        mod_rec = fd_funk_val_copy( mod_rec, fd_funk_val_const( original_rec, wksp ), 
+                                    fd_funk_val_sz( original_rec ),fd_funk_val_sz( original_rec ), 
+                                    fd_funk_alloc( funk, pruned_wksp ), pruned_wksp, NULL );
+        FD_TEST(( memcmp( fd_funk_val( original_rec, wksp ), fd_funk_val_const( rec, pruned_wksp ), 
+                          fd_funk_val_sz( original_rec ) ) == 0 ));      
+      } else {
+        fd_funk_rec_t * mod_rec = fd_funk_rec_modify( funk, rec );
+        int res = fd_funk_rec_remove( funk, mod_rec, 1 );
+        FD_TEST(( res == 0 ));
+      }
+    }
+    FD_LOG_NOTICE(("Copied over all records from transactions"));
+
+    /* Repeat above steps with all features */
+    for ( fd_feature_id_t const * id = fd_feature_iter_init();
+          !fd_feature_iter_done( id ); id = fd_feature_iter_next( id ) ) {
+
+      fd_pubkey_t const *   pubkey      = (fd_pubkey_t *) id->id.key;
+      fd_funk_rec_key_t     feature_id  = fd_acc_funk_key( pubkey );
+      fd_funk_rec_t const * feature_rec = fd_funk_rec_query_global( unpruned_funk, NULL, &feature_id );
+      if ( !feature_rec ) {
+        FD_LOG_DEBUG(("Feature is not present; pubkey=%32J", &feature_id));
+        continue;
+      }
+      fd_funk_rec_t * new_feature_rec = fd_funk_rec_write_prepare( funk, prune_txn, &feature_id, 
+                                                                   0, 1, NULL, NULL );
+      FD_TEST(( !!new_feature_rec ));
+      new_feature_rec = fd_funk_val_copy( new_feature_rec, fd_funk_val_const( feature_rec, wksp ), 
+                                          fd_funk_val_sz( feature_rec ), fd_funk_val_sz( feature_rec ), 
+                                          fd_funk_alloc( funk, pruned_wksp ), pruned_wksp, NULL );
+      FD_TEST(( !!new_feature_rec ));
+    }
+    FD_LOG_NOTICE(("Copied over all features"));
+
+    /* Do the same with the epoch/slot bank keys and sysvars */
+    fd_funk_rec_key_t id_epoch_bank       = fd_runtime_epoch_bank_key();
+    fd_funk_rec_key_t id_slot_bank        = fd_runtime_slot_bank_key();
+    fd_funk_rec_key_t recent_block_hashes = fd_acc_funk_key( &fd_sysvar_recent_block_hashes_id );
+    fd_funk_rec_key_t clock               = fd_acc_funk_key( &fd_sysvar_clock_id );
+    fd_funk_rec_key_t slot_history        = fd_acc_funk_key( &fd_sysvar_slot_history_id );
+    fd_funk_rec_key_t slot_hashes         = fd_acc_funk_key( &fd_sysvar_slot_hashes_id );
+    fd_funk_rec_key_t epoch_schedule      = fd_acc_funk_key( &fd_sysvar_epoch_schedule_id );
+    fd_funk_rec_key_t epoch_rewards       = fd_acc_funk_key( &fd_sysvar_epoch_rewards_id );
+    fd_funk_rec_key_t sysvar_fees         = fd_acc_funk_key( &fd_sysvar_fees_id );
+    fd_funk_rec_key_t rent                = fd_acc_funk_key( &fd_sysvar_rent_id );
+    fd_funk_rec_key_t stake_history       = fd_acc_funk_key( &fd_sysvar_stake_history_id );
+    fd_funk_rec_key_t owner               = fd_acc_funk_key( &fd_sysvar_owner_id );
+    fd_funk_rec_key_t last_restart_slot   = fd_acc_funk_key( &fd_sysvar_last_restart_slot_id );
+    fd_funk_rec_key_t instructions        = fd_acc_funk_key( &fd_sysvar_instructions_id );
+    fd_funk_rec_key_t incinerator         = fd_acc_funk_key( &fd_sysvar_incinerator_id );
+
+    fd_funk_rec_key_t records[15] = { id_epoch_bank, id_slot_bank, recent_block_hashes, clock, slot_history, 
+                                      slot_hashes, epoch_schedule, epoch_rewards, sysvar_fees, rent, 
+                                      stake_history, owner, last_restart_slot, instructions, incinerator };
+    for ( uint i = 0; i < sizeof( records ) / sizeof( fd_funk_rec_key_t ); ++i ) {
+      fd_funk_rec_t const * original_rec = fd_funk_rec_query_global( unpruned_funk, NULL, &records[i] );
+      if ( !original_rec ) {
+        /* Some sysvars aren't touched during execution. Not a problem. */
+        FD_LOG_DEBUG(("Record is not in account pubkey=%32J", &records[i]));
+        continue;
+      }
+      fd_funk_rec_t * new_rec = fd_funk_rec_write_prepare( funk, prune_txn, &records[i], 0, 1, NULL, NULL );
+      FD_TEST(( !!new_rec ));
+      new_rec = fd_funk_val_copy( new_rec, fd_funk_val_const( original_rec, wksp ), 
+                                  fd_funk_val_sz( original_rec ), fd_funk_val_sz( original_rec ), 
+                                  fd_funk_alloc( funk, pruned_wksp ), pruned_wksp, NULL );
+      FD_TEST(( !!new_rec ));
+    }
+    FD_LOG_NOTICE(("Copied over all sysvars and bank keys"));
+
+    /* Publish transaction with pruned records to the root of funk */
+    if ( fd_funk_txn_publish( funk, prune_txn, 1 ) == 0 ) {
+      FD_LOG_ERR(("failed to publish transaction into pruned funk"));
+    }
+
+    /* Verify that the pruned records are in the funk */
+    FD_LOG_NOTICE(("Pruned funk record count is %lu", fd_funk_rec_global_cnt( funk, pruned_wksp )));
+
+    fd_scratch_detach( NULL );
+    fd_funk_leave( unpruned_funk );
+
+    if ( fd_funk_verify( funk ) ) {
+      FD_LOG_ERR(( "pruned funk verification failed" ));
+    }
+
+    if ( tpool ) {
+      fd_tpool_fini( tpool );
+    }
+
+    fd_wksp_free_laddr( smem );
+    fd_wksp_free_laddr( fmem );
+
+    if ( backup ) {
+      FD_LOG_NOTICE(( "writing %s", backup ));
+      unlink( backup );
+      int err = fd_wksp_checkpt( pruned_wksp, backup, 0666, 0, NULL );
+      if ( err ) {
+        FD_LOG_ERR(( "backup failed: error %d", err ));
+      }
+    }
+    return 0;
 
   } else if (strcmp(cmd, "minify") == 0) {
     /* Example commmand:
@@ -436,7 +748,7 @@ main( int     argc,
           rec->meta->dlen            = a->account.data_len;
           rec->meta->info.lamports   = a->account.lamports;
           rec->meta->info.rent_epoch = a->account.rent_epoch;
-          rec->meta->info.executable = (char)a->account.executable;
+          rec->meta->info.executable = !!a->account.executable;
           memcpy( rec->meta->info.owner, a->account.owner.key, 32UL );
           if( a->account.data_len )
             memcpy( rec->data, a->account.data, a->account.data_len );
@@ -572,6 +884,8 @@ main( int     argc,
 
   fd_funk_log_mem_usage( funk );
   fd_blockstore_log_mem_usage( blockstore );
+
+  fd_alloc_leave( alloc );
 
   fd_scratch_detach( NULL );
   fd_wksp_free_laddr( smem );

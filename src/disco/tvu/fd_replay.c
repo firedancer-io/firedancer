@@ -2,6 +2,9 @@
 #include "../../flamenco/runtime/program/fd_vote_program.h"
 #include "../shred/fd_shred_cap.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 void *
 fd_replay_new( void * mem ) {
 

@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_context_fd_exec_slot_ctx_h
 #define HEADER_fd_src_flamenco_runtime_context_fd_exec_slot_ctx_h
 
+#include "../fd_blockstore.h"
 #include "../../../funk/fd_funk.h"
 #include "../../../util/rng/fd_rng.h"
 #include "../../../util/wksp/fd_wksp.h"
@@ -40,7 +41,7 @@ fd_pubkey_eq( fd_pubkey_t const * key1, fd_pubkey_t const * key2 ) {
 
 static ulong
 fd_pubkey_hash( fd_pubkey_t const * key, ulong seed ) {
-  return fd_hash( seed, key->key, sizeof(fd_pubkey_t) );
+  return fd_hash( seed, key->key, sizeof(fd_pubkey_t) ); 
 }
 
 static void
@@ -67,6 +68,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 
   fd_funk_txn_t *          funk_txn;
   fd_acc_mgr_t *           acc_mgr;
+  fd_blockstore_t *        blockstore;
   fd_valloc_t              valloc;
 
   fd_slot_bank_t           slot_bank;

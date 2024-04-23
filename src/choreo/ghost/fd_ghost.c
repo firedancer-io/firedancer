@@ -2,6 +2,9 @@
 #include "stdio.h"
 #include <string.h>
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 void *
 fd_ghost_new( void * shmem, ulong node_max, ulong vote_max, ulong seed ) {
 
