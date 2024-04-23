@@ -112,11 +112,8 @@ sol_compat_instr_execute_v1( uchar *       out,
     ulong out_used = fd_exec_instr_test_run( runner, input, &output, out0, out_bufsz );
     if( FD_UNLIKELY( !out_used ) ) {
       output = NULL;
-      fd_scratch_cancel();
       break;
     }
-
-    fd_scratch_publish( (void *)( (ulong)out + out_used ) );
   } while(0);
 
   int ok = 0;

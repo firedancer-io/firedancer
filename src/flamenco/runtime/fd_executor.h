@@ -5,6 +5,7 @@
 #include "../../ballet/block/fd_microblock.h"
 #include "../../ballet/pack/fd_microblock.h"
 #include "../../ballet/poh/fd_poh.h"
+#include "tests/fd_exec_test.pb.h"
 
 /* Instruction error codes */
 
@@ -85,6 +86,11 @@
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)
 
 FD_PROTOTYPES_BEGIN
+
+void 
+fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context, 
+                                                 fd_exec_txn_ctx_t *txn_ctx, 
+                                                 fd_instr_info_t *instr );
 
 /* fd_exec_instr_fn_t processes an instruction.  Returns an error code
    in FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}. */
