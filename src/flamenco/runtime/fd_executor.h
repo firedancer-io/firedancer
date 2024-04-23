@@ -1,8 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_executor_h
 #define HEADER_fd_src_flamenco_runtime_fd_executor_h
 
-#include "fd_runtime.h"
+#include "context/fd_exec_instr_ctx.h"
 #include "../../ballet/block/fd_microblock.h"
+#include "../../ballet/pack/fd_microblock.h"
 #include "../../ballet/poh/fd_poh.h"
 
 /* Instruction error codes */

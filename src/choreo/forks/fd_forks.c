@@ -2,6 +2,7 @@
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
 #include "../../flamenco/runtime/fd_borrowed_account.h"
+#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/program/fd_program_util.h"
 #include "../../flamenco/runtime/program/fd_vote_program.h"
 

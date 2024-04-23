@@ -4,7 +4,6 @@
 #include "../../util/fd_util.h"
 #include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/repair/fd_repair.h"
-#include "../rpc/fd_rpc_service.h"
 #include "../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
@@ -36,7 +35,7 @@ typedef struct {
 typedef struct {
   fd_gossip_t *      gossip;
   fd_repair_t *      repair;
-  fd_replay_t *      replay; 
+  fd_replay_t *      replay;
 } fd_tvu_gossip_ctx_t;
 
 void

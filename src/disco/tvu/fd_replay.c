@@ -2,6 +2,9 @@
 #include "../../flamenco/runtime/program/fd_vote_program.h"
 #include "../shred/fd_shred_cap.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 void *
 fd_replay_new( void * mem ) {
 
@@ -376,7 +379,7 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   child->slot_ctx.slot_bank.collected_rent = 0;
 
   FD_LOG_NOTICE( ( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
-                   "executed: %d, caught up: %d",
+                   "executed: %lu, caught up: %d",
                    replay->first_turbine_slot,
                    replay->curr_turbine_slot,
                    replay->curr_turbine_slot - slot,
@@ -547,7 +550,7 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
       replay->first_turbine_slot = shred->slot;
     }
     fd_shred_t * parity_shred = (fd_shred_t *)fd_type_pun( out_fec_set->parity_shreds[0] );
-    FD_LOG_DEBUG( ( "slot: %lu. parity: %lu. data: %lu",
+    FD_LOG_DEBUG( ( "slot: %lu. parity: %u. data: %u",
                     parity_shred->slot,
                     parity_shred->code.code_cnt,
                     parity_shred->code.data_cnt ) );

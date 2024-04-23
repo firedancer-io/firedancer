@@ -1,13 +1,12 @@
 #include "fd_executor.h"
 #include "fd_acc_mgr.h"
 #include "fd_hashes.h"
-#include "fd_runtime.h"
+#include "fd_runtime_err.h"
 #include "context/fd_exec_slot_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
 #include "context/fd_exec_instr_ctx.h"
 
 #include "../../util/rng/fd_rng.h"
-#include "../nanopb/pb_encode.h"
 #include "fd_system_ids.h"
 #include "fd_account.h"
 #include "program/fd_address_lookup_table_program.h"
@@ -37,6 +36,9 @@
 #include <fcntl.h>   /* openat(2) */
 #include <unistd.h>  /* write(3) */
 #include <time.h>
+
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 #define MAX_COMPUTE_UNITS_PER_BLOCK                (48000000UL)
 #define MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT (12000000UL)

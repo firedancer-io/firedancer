@@ -93,6 +93,9 @@
 #include <unistd.h>
 #include <pthread.h>
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 #define FD_TVU_TILE_SLOT_DELAY 32
 
 static int gossip_sockfd = -1;
@@ -402,21 +405,21 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
   /* FIXME: replace with real tile */
   struct fd_turbine_thread_args ttarg =
     { .tvu_fd = tvu_fd, .replay = replay };
-  fd_tile_exec_t * tile = fd_tile_exec_new( 1, fd_turbine_thread, 0, (char**)&ttarg );
+  fd_tile_exec_t * tile = fd_tile_exec_new( 1, fd_turbine_thread, 0, fd_type_pun( &ttarg ) );
   if( tile == NULL )
     FD_LOG_ERR( ( "error creating turbine thread" ) );
 
   /* FIXME: replace with real tile */
   struct fd_repair_thread_args reparg =
     { .repair_fd = repair_fd, .replay = replay };
-  tile = fd_tile_exec_new( 2, fd_repair_thread, 0, (char**)&reparg );
+  tile = fd_tile_exec_new( 2, fd_repair_thread, 0, fd_type_pun( &reparg ) );
   if( tile == NULL )
     FD_LOG_ERR( ( "error creating repair thread:" ) );
 
   /* FIXME: replace with real tile */
   struct fd_gossip_thread_args gosarg =
     { .gossip_fd = gossip_fd, .replay = replay };
-  tile = fd_tile_exec_new( 3, fd_gossip_thread, 0, (char**)&gosarg );
+  tile = fd_tile_exec_new( 3, fd_gossip_thread, 0, fd_type_pun( &gosarg ) );
   if( tile == NULL )
     FD_LOG_ERR( ( "error creating repair thread" ) );
 
@@ -709,7 +712,7 @@ void solcap_setup( char const * capture_fpath, fd_valloc_t valloc, solcap_setup_
   FD_TEST( fd_solcap_writer_init( out->capture_ctx->capture, out->capture_file ) );
 }
 
-void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args, 
+void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args,
                         solcap_setup_t * solcap_setup_out, fd_valloc_t valloc ) {
   runtime_ctx->capture_ctx  = NULL;
   runtime_ctx->capture_file = NULL;
