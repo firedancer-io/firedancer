@@ -1623,7 +1623,8 @@ fd_vm_syscall_cpi_c(
   ctx->instr_ctx->txn_ctx->compute_meter = ctx->compute_meter;
   int err_exec = fd_execute_instr( ctx->instr_ctx->txn_ctx, &cpi_instr );
   ulong instr_exec_res = (ulong)err_exec;
-  // FD_LOG_WARNING(( "CPI CUs CONSUMED: %lu %lu %lu ", ctx->compute_meter, ctx->instr_ctx->txn_ctx->compute_meter, ctx->compute_meter - ctx->instr_ctx->txn_ctx->compute_meter));
+  // uchar * sig = (uchar *)ctx->instr_ctx->txn_ctx->_txn_raw->raw + ctx->instr_ctx->txn_ctx->txn_descriptor->signature_off;
+  // FD_LOG_WARNING(( "CPI CUs CONSUMED: %lu %lu %lu %64J", ctx->compute_meter, ctx->instr_ctx->txn_ctx->compute_meter, ctx->compute_meter - ctx->instr_ctx->txn_ctx->compute_meter, sig));
   ctx->compute_meter = ctx->instr_ctx->txn_ctx->compute_meter;
   // FD_LOG_WARNING(( "AFTER CPI: %lu CUs: %lu Err: %d", *pr0, ctx->compute_meter, err_exec ));
 
@@ -1780,7 +1781,8 @@ fd_vm_syscall_cpi_rust(
   int err_exec = fd_execute_instr( ctx->instr_ctx->txn_ctx, &cpi_instr );
   ulong instr_exec_res = (ulong)err_exec;
   #ifdef VLOG
-  FD_LOG_WARNING(( "CPI CUs CONSUMED: %lu %lu %lu ", ctx->compute_meter, ctx->instr_ctx->txn_ctx->compute_meter, ctx->compute_meter - ctx->instr_ctx->txn_ctx->compute_meter));
+  uchar * sig = (uchar *)ctx->instr_ctx->txn_ctx->_txn_raw->raw + ctx->instr_ctx->txn_ctx->txn_descriptor->signature_off;
+//  FD_LOG_WARNING(( "CPI CUs CONSUMED: %lu %lu %lu %64J", ctx->compute_meter, ctx->instr_ctx->txn_ctx->compute_meter, ctx->compute_meter - ctx->instr_ctx->txn_ctx->compute_meter, sig));
   #endif
   ctx->compute_meter = ctx->instr_ctx->txn_ctx->compute_meter;
   #ifdef VLOG
