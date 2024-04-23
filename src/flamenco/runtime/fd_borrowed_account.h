@@ -26,7 +26,8 @@ struct __attribute__((aligned(8UL))) fd_borrowed_account {
 
   ulong                       starting_dlen;
   ulong                       starting_lamports;
-  ulong                       starting_owner_dlen;  /* TODO(lheeger) document */
+
+  ulong starting_owner_dlen;
 
   /* Provide read/write mutual exclusion semantics.
      Used for single-threaded logic only, thus not comparable to a
@@ -60,11 +61,13 @@ fd_borrowed_account_raw_size( fd_borrowed_account_t const * borrowed_account ) {
 
 fd_borrowed_account_t *
 fd_borrowed_account_make_modifiable( fd_borrowed_account_t * borrowed_account,
-                                     void *                  buf );
+                                     void * buf );
 
-void
-fd_borrowed_account_destroy( fd_borrowed_account_t * borrowed_account,
-                             fd_valloc_t             valloc );
+void *
+fd_borrowed_account_restore( fd_borrowed_account_t * borrowed_account );
+
+void *
+fd_borrowed_account_destroy( fd_borrowed_account_t * borrowed_account );
 
 /* fd_borrowed_account_acquire_{read,write}_is_safe returns 1 if
    fd_borrowed_account_acquire_{read,write} will be successful for the

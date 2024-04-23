@@ -3,7 +3,7 @@
 
 /* fd_acc_mgr provides APIs for the Solana account database. */
 
-#include "fd_runtime.h"
+#include "../fd_flamenco_base.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../funk/fd_funk.h"
 #include "fd_borrowed_account.h"
@@ -16,6 +16,10 @@
 #define FD_ACC_MGR_ERR_WRITE_FAILED    (-2)
 #define FD_ACC_MGR_ERR_READ_FAILED     (-3)
 #define FD_ACC_MGR_ERR_WRONG_MAGIC     (-4)
+
+/* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */
+
+#define FD_ACC_SZ_MAX (10UL<<20) /* 10MiB */
 
 /* fd_acc_mgr_t translates between the runtime account DB abstraction
    and the actual funk database.  Also manages rent collection.
@@ -30,8 +34,7 @@
    The memory layout of the acc_mgr funk record data is
    (fd_account_meta_t, padding, account data). */
 
-#define FD_ACC_MGR_ALIGN (16UL)
-struct __attribute__((aligned(FD_ACC_MGR_ALIGN))) fd_acc_mgr {
+struct __attribute__((aligned(16UL))) fd_acc_mgr {
   fd_funk_t * funk;
 
   ulong slots_per_epoch;  /* see epoch schedule.  do not update directly */
@@ -46,12 +49,15 @@ struct __attribute__((aligned(FD_ACC_MGR_ALIGN))) fd_acc_mgr {
      behavior during eager rent collection passes. */
 
   uchar skip_rent_rewrites : 1;
+
+  uint is_locked;
 };
 
 /* FD_ACC_MGR_{ALIGN,FOOTPRINT} specify the parameters for the memory
    region backing an fd_acc_mgr_t. */
 
-#define FD_ACC_MGR_FOOTPRINT (sizeof(fd_acc_mgr_t))
+#define FD_ACC_MGR_ALIGN     (alignof(fd_acc_mgr_t))
+#define FD_ACC_MGR_FOOTPRINT ( sizeof(fd_acc_mgr_t))
 
 FD_PROTOTYPES_BEGIN
 
@@ -99,6 +105,7 @@ FD_FN_CONST static inline fd_pubkey_t const *
 fd_funk_key_to_acc( fd_funk_rec_key_t const * id ) {
   return (fd_pubkey_t const *)fd_type_pun_const( id->c );
 }
+
 
 /* Account Access API *************************************************/
 
@@ -194,7 +201,7 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
 
    On success:
    - If opt_out_rec!=NULL, sets *opt_out_rec to a pointer to writable
-     funk rec.
+     funk rec.  Suitable as rec parameter to fd_acc_mgr_commit_raw.
    - Returns pointer to mutable account metadata and data analogous to
      fd_acc_mgr_view_raw.
    - IMPORTANT:  Return value may point to the same memory region as a
@@ -227,18 +234,28 @@ fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
 
 int
 fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
-                 fd_funk_txn_t *         txn,
-                 fd_valloc_t             valloc,
                  fd_borrowed_account_t * account );
+
+/* This version of save is for old code written before tpool integration */
+
+int
+fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
+                           fd_funk_txn_t *         txn,
+                           fd_borrowed_account_t * account );
 
 int
 fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *           acc_mgr,
                             fd_funk_txn_t *          txn,
-                            fd_valloc_t              valloc,
                             fd_borrowed_account_t ** accounts,
                             ulong                    accounts_cnt,
                             fd_tpool_t *             tpool,
                             ulong                    max_workers );
+
+void
+fd_acc_mgr_lock( fd_acc_mgr_t * acc_mgr );
+
+void
+fd_acc_mgr_unlock( fd_acc_mgr_t * acc_mgr );
 
 /* fd_acc_mgr_set_slots_per_epoch updates the slots_per_epoch setting
    and rebalances rent partitions.  No-op unless 'skip_rent_rewrites'

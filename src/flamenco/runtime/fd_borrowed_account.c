@@ -76,11 +76,23 @@ fd_borrowed_account_make_modifiable( fd_borrowed_account_t * borrowed_account,
   return borrowed_account;
 }
 
-void
-fd_borrowed_account_destroy( fd_borrowed_account_t * borrowed_account,
-                             fd_valloc_t valloc ) {
-  uint is_changed = borrowed_account->data != borrowed_account->orig_data;
+void *
+fd_borrowed_account_restore( fd_borrowed_account_t * borrowed_account ) {
+  fd_account_meta_t * meta = borrowed_account->meta;
+  uint is_changed = meta != borrowed_account->orig_meta;
+
+  borrowed_account->const_meta = borrowed_account->orig_meta;
+  borrowed_account->const_data = borrowed_account->orig_data;
+  borrowed_account->const_rec = borrowed_account->orig_rec;
+
   if( is_changed ) {
-    fd_valloc_free( valloc, borrowed_account->meta );
+    return meta;
   }
+
+  return NULL;
+}
+
+void *
+fd_borrowed_account_destroy( fd_borrowed_account_t * borrowed_account ) {
+  return borrowed_account->meta;
 }
