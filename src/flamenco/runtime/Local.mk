@@ -11,6 +11,9 @@ $(call add-objs,fd_borrowed_account,fd_flamenco)
 $(call add-hdrs,fd_executor.h)
 $(call add-objs,fd_executor,fd_flamenco)
 
+$(call add-hdrs,fd_hashes.h)
+$(call add-objs,fd_hashes,fd_flamenco)
+
 $(call add-hdrs,fd_pubkey_utils.h)
 $(call add-objs,fd_pubkey_utils,fd_flamenco)
 
