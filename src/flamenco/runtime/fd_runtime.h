@@ -115,6 +115,8 @@ struct fd_runtime_args {
   ulong        checkpt_slot;
   char const * checkpt_path;
   fd_funk_t *  pruned_funk;
+  int          dump_instructions_to_protobuf;
+  char const * instruction_dump_signature_filter;
 };
 typedef struct fd_runtime_args fd_runtime_args_t;
 

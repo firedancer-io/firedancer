@@ -76,6 +76,8 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 
   uchar dirty_vote_acc  : 1;  /* 1 if this transaction maybe modified a vote account */
   uchar dirty_stake_acc : 1;  /* 1 if this transaction maybe modified a stake account */
+
+  fd_capture_ctx_t *    capture_ctx;
 };
 
 #define FD_EXEC_TXN_CTX_ALIGN     (alignof(fd_exec_txn_ctx_t))

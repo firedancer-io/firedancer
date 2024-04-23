@@ -1408,10 +1408,11 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
     ulong incomplete_txn_idxs_cnt = txn_cnt;
     ulong incomplete_accounts_cnt = 0;
 
-    /* Setup all txns as incomplete */
+    /* Setup all txns as incomplete and set the capture context */
     for( ulong i = 0; i < txn_cnt; i++ ) {
       incomplete_txn_idxs[i] = i;
       incomplete_accounts_cnt += task_infos[i].txn_ctx->accounts_cnt;
+      task_infos[i].txn_ctx->capture_ctx = capture_ctx;
     }
 
     ulong * next_incomplete_txn_idxs = fd_scratch_alloc( 8UL, txn_cnt * sizeof(ulong) );
