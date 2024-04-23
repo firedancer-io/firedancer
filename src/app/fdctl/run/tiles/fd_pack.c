@@ -413,6 +413,7 @@ after_credit( void *             _ctx,
       fd_txn_t   const * insert_txn = TXN(insert);
       fd_memcpy( spot->payload, insert->payload, insert->payload_sz                                                           );
       fd_memcpy( TXN(spot),     insert_txn,      fd_txn_footprint( insert_txn->instr_cnt, insert_txn->addr_table_lookup_cnt ) );
+      spot->payload_sz = insert->payload_sz;
       extra_txn_deq_remove_head( ctx->extra_txn_deq );
 
 
