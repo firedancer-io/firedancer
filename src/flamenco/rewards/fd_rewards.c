@@ -4,6 +4,10 @@
 
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
+#include "../runtime/context/fd_exec_slot_ctx.h"
+
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 static double
 total( fd_inflation_t const * inflation, double year ) {

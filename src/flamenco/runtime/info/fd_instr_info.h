@@ -9,6 +9,8 @@
 #define FD_INSTR_ACCT_FLAGS_IS_SIGNER   (0x01U)
 #define FD_INSTR_ACCT_FLAGS_IS_WRITABLE (0x02U)
 
+#define FD_INSTR_ACCT_MAX (256)
+
 struct fd_instr_info {
   uchar                 program_id;
   ushort                data_sz;
@@ -17,12 +19,12 @@ struct fd_instr_info {
   uchar *               data;
   fd_pubkey_t           program_id_pubkey;
 
-  uchar                 acct_txn_idxs[256];
-  uchar                 acct_flags[256];
-  fd_pubkey_t           acct_pubkeys[256];
-  uchar                 is_duplicate[256];
+  uchar                 acct_txn_idxs[FD_INSTR_ACCT_MAX];
+  uchar                 acct_flags[FD_INSTR_ACCT_MAX];
+  fd_pubkey_t           acct_pubkeys[FD_INSTR_ACCT_MAX];
+  uchar                 is_duplicate[FD_INSTR_ACCT_MAX];
 
-  fd_borrowed_account_t * borrowed_accounts[256];
+  fd_borrowed_account_t * borrowed_accounts[FD_INSTR_ACCT_MAX];
 
   ulong starting_lamports;
 };
@@ -89,7 +91,12 @@ FD_FN_PURE int
 fd_instr_any_signed( fd_instr_info_t const * info,
                      fd_pubkey_t const *     pubkey );
 
-ulong
+/* fd_instr_info_sum_account_lamports returns the sum of lamport account
+   balances of all instruction accounts in the context.
+
+   Aborts on integer overflow. */
+
+FD_FN_PURE ulong
 fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr );
 
 static inline void
