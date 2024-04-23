@@ -764,7 +764,8 @@ set_vote_account_state( ulong                       vote_acct_idx,
     ulong vsz = size_of_versioned( 1 );
 
     int resize_needed      = vote_account->const_meta->dlen < vsz;
-    int resize_rent_exempt = fd_rent_exempt_minimum_balance2( &ctx->epoch_ctx->epoch_bank.rent, vsz ) <= vote_account->const_meta->info.lamports;
+    fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( ctx->epoch_ctx );
+    int resize_rent_exempt = fd_rent_exempt_minimum_balance2( &epoch_bank->rent, vsz ) <= vote_account->const_meta->info.lamports;
 
     /* The resize operation itself is part of the horrible conditional,
        but behind a short-circuit operator. */
@@ -2509,7 +2510,8 @@ remove_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
   fd_vote_accounts_pair_t_mapnode_t key;
   fd_memcpy( key.elem.key.uc, vote_account->pubkey->uc, sizeof(fd_pubkey_t) );
 
-  fd_vote_accounts_t * epoch_vote_accounts = &slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts;
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_vote_accounts_t * epoch_vote_accounts = &epoch_bank->stakes.vote_accounts;
   if (epoch_vote_accounts->vote_accounts_pool == NULL) {
     FD_LOG_DEBUG(("Vote accounts pool does not exist"));
     return;
@@ -2550,7 +2552,8 @@ upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
 
 
     if ( vote_state_versions_is_correct_and_initialized( vote_account ) ) {
-      fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
+      fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+      fd_stakes_t * stakes = &epoch_bank->stakes;
 
       fd_vote_accounts_pair_t_mapnode_t key;
       fd_memcpy(&key.elem.key, vote_account->pubkey->uc, sizeof(fd_pubkey_t));
@@ -2561,7 +2564,8 @@ upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
       }
 
       if ( vote_state_versions_is_correct_and_initialized( vote_account ) ) {
-        fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
+        fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+        fd_stakes_t * stakes = &epoch_bank->stakes;
 
         fd_vote_accounts_pair_t_mapnode_t key;
         fd_memcpy(&key.elem.key, vote_account->pubkey->uc, sizeof(fd_pubkey_t));

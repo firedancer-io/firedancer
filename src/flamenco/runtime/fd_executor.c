@@ -363,7 +363,8 @@ fd_set_exempt_rent_epoch_max( fd_exec_txn_ctx_t * txn_ctx,
     return;
   }
 
-  if( rec->const_meta->info.lamports < fd_rent_exempt_minimum_balance2( &txn_ctx->slot_ctx->epoch_ctx->epoch_bank.rent,rec->const_meta->dlen ) )
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( txn_ctx->slot_ctx->epoch_ctx );
+  if( rec->const_meta->info.lamports < fd_rent_exempt_minimum_balance2( &epoch_bank->rent,rec->const_meta->dlen ) )
     return;
   if( rec->const_meta->info.rent_epoch == ULONG_MAX )
     return;
@@ -444,7 +445,8 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t *          slot_ctx,
   }
 
   if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) {
-    if( FD_LIKELY( rec->const_meta->info.lamports >= fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent,rec->const_meta->dlen ) ) ) {
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+    if( FD_LIKELY( rec->const_meta->info.lamports >= fd_rent_exempt_minimum_balance2( &epoch_bank->rent,rec->const_meta->dlen ) ) ) {
       if( !fd_pubkey_is_sysvar_id( rec->pubkey ) ) {
         rec->meta->info.rent_epoch = ULONG_MAX;
       }

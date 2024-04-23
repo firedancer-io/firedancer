@@ -26,7 +26,8 @@ fd_sysvar_set( fd_exec_slot_ctx_t * slot_ctx,
   // solana code base?  Do I only adjust the lamports if the data
   // increases but not decreases?  I am inventing money here...
   fd_acc_lamports_t lamports_before = rec->meta->info.lamports;
-  rec->meta->info.lamports = (lamports == 0UL) ? fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent, sz ) : lamports;
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  rec->meta->info.lamports = (lamports == 0UL) ? fd_rent_exempt_minimum_balance2( &epoch_bank->rent, sz ) : lamports;
   slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(
       fd_ulong_sat_add(
         slot_ctx->slot_bank.capitalization,
