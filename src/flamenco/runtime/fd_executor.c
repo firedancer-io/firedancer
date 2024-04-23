@@ -41,6 +41,8 @@
 #define MAX_COMPUTE_UNITS_PER_BLOCK                (48000000UL)
 #define MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT (12000000UL)
 
+static int nop_fn( fd_exec_instr_ctx_t ctx ) { (void)ctx; return 0; }
+
 fd_exec_instr_fn_t
 fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
   /* TODO: replace with proper lookup table */
@@ -62,6 +64,8 @@ fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
     return fd_bpf_loader_v2_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_bpf_loader_deprecated_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_bpf_loader_v1_program_execute;
+  } else if ( !memcmp( pubkey, fd_solana_compute_budget_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+    return nop_fn;
   } else if( !memcmp( pubkey, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return fd_address_lookup_table_program_execute;
   //} else if( !memcmp( pubkey, fd_solana_zk_token_proof_program_id.key, sizeof(fd_pubkey_t) ) ) {
