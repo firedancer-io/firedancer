@@ -349,7 +349,7 @@ BRANCH_PRE_CODE
 
   /* check CUs */
 
-  if( FD_UNLIKELY( due_insn_cnt > previous_instruction_meter ) ) {
+  if( FD_UNLIKELY( due_insn_cnt >= previous_instruction_meter ) ) {
     goto interp_fault;
   }
 
@@ -424,10 +424,10 @@ BRANCH_PRE_CODE
   register_file[10] -= 0x2000;
   // FIXME: stack underflow fault.
   if( ctx->stack.frames_used==0 ) {
+    due_insn_cnt += (ulong)insns - skipped_insns;
     if (due_insn_cnt > previous_instruction_meter) {
       goto interp_fault;
     }
-    due_insn_cnt += (ulong)insns - skipped_insns;
     goto JT_RET_LOC;
   }
   fd_vm_stack_pop( &ctx->stack, (ulong *)&pc, &register_file[6] );
