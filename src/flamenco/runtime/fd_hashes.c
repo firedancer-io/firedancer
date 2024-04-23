@@ -61,9 +61,8 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_
   for( ulong i = 0; i < pairs_len; ++i ) {
 #ifdef VLOG
     {
-    // if ( slot_ctx->slot_bank.slot == 240182076 ) {
+    //if ( slot_ctx->slot_bank.slot == 257040000 )
       FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%32J\", \"hash\":\"%32J\" },", i, pairs[i].pubkey->key, pairs[i].hash->hash));
-
       /*
       pubkey
       slot

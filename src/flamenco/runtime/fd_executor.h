@@ -175,6 +175,9 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
 FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );
 
+int
+fd_executor_check_txn_accounts( fd_exec_txn_ctx_t * txn_ctx );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_executor_h */

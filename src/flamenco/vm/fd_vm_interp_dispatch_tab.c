@@ -370,15 +370,17 @@ BRANCH_PRE_CODE
     if( fd_sbpf_calldests_test( ctx->calldests, target_pc ) && target_pc < ctx->instrs_sz) {
       pc = (long)(target_pc) - 1L;
     } else if( instr.imm==0x71e3cf81 ) {
-      pc = (long)ctx->entrypoint;  /* TODO subtract 1 here? */
+      pc = (long)ctx->entrypoint;  /* TODO: subtract 1 here? */
     } else {
       // TODO: real error for nonexistent func
       cond_fault = 1;
     }
   } else {
     ctx->compute_meter = compute_meter;
+    //FD_LOG_WARNING(("CUs! (TAB21) consumed %lu", ctx->compute_meter));
     cond_fault = ((fd_vm_syscall_fn_ptr_t)( syscall_entry_imm->func_ptr ))(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
     compute_meter = ctx->compute_meter;
+    //FD_LOG_WARNING(("CUs! (TAB22) consumed %lu", ctx->compute_meter));
   }
   previous_instruction_meter = compute_meter;
   ctx->previous_instruction_meter = previous_instruction_meter;
@@ -404,8 +406,8 @@ BRANCH_PRE_CODE
   cond_fault = fd_vm_stack_push( &ctx->stack, (ulong)pc, &register_file[6] );
   pc = (long)((start_addr / 8UL)-1);
   pc -= (long)ctx->instrs_offset / 8;
-  /* TODO verify that program counter is within bounds */
-  /* TODO when static_syscalls are enabled, check that the call destination is valid */
+  /* TODO: verify that program counter is within bounds */
+  /* TODO: when static_syscalls are enabled, check that the call destination is valid */
   goto *((cond_fault == 0) ? &&fallthrough_0x8d : &&JT_RET_LOC);
 }
 fallthrough_0x8d:
@@ -425,6 +427,7 @@ BRANCH_PRE_CODE
     if (due_insn_cnt > previous_instruction_meter) {
       goto interp_fault;
     }
+    due_insn_cnt += (ulong)insns - skipped_insns;
     goto JT_RET_LOC;
   }
   fd_vm_stack_pop( &ctx->stack, (ulong *)&pc, &register_file[6] );

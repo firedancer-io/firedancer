@@ -283,6 +283,7 @@ fd_solcap_flush_account_table( fd_solcap_writer_t * writer ) {
 
   /* Skip if table was overflowed. */
 
+  /* FIXME: This breaks account recording for epoch boundaries and needs to be fixed */
   if( writer->account_idx >= FD_SOLCAP_ACC_TBL_CNT ) {
     writer->account_idx = 0UL;
     return 0;

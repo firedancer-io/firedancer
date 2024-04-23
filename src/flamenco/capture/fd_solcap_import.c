@@ -247,11 +247,12 @@ void write_slots( const char * in_path,
     fd_solcap_writer_set_slot( writer, preimg->slot );
 
     cJSON * json_acc = cJSON_GetObjectItem( json, "accounts" );
+    cJSON * acc = cJSON_GetArrayItem( json_acc, 0 );
     int n = cJSON_GetArraySize( json_acc );
+
     for( int i=0; i<n; i++ ) {
       fd_scratch_push();
 
-      cJSON * acc = cJSON_GetArrayItem( json_acc, i );
       fd_solcap_account_tbl_t  rec[1]; memset( rec,  0, sizeof(fd_solcap_account_tbl_t) );
       fd_solcap_AccountMeta   meta[1]; memset( meta, 0, sizeof(fd_solcap_AccountMeta  ) );
       void * data = unmarshal_account( acc, rec, meta );
@@ -259,6 +260,8 @@ void write_slots( const char * in_path,
       FD_TEST( 0==fd_solcap_write_account2( writer, rec, meta, data, meta->data_sz ) );
 
       fd_scratch_pop();
+
+      acc = acc->next;
     }
 
     FD_TEST( 0==fd_solcap_write_bank_preimage2( writer, preimg ) );
