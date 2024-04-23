@@ -1080,17 +1080,17 @@ redelegate_stake( fd_exec_instr_ctx_t const *   ctx,
                                           stake_history,
                                           fd_ptr_if( is_some, &new_rate_activation_epoch, NULL ) )
            .effective != 0 ) {
-    int  stake_lamports_FD_PROGRAM_OK;
+    int  stake_lamports_ok;
     // FIXME FD_LIKELY
     if( FD_FEATURE_ACTIVE( ctx->slot_ctx, stake_redelegate_instruction ) ) {
-      stake_lamports_FD_PROGRAM_OK = stake_lamports >= stake->delegation.stake;
+      stake_lamports_ok = stake_lamports >= stake->delegation.stake;
     } else {
-      stake_lamports_FD_PROGRAM_OK = 1;
+      stake_lamports_ok = 1;
     }
 
     // FIXME FD_LIKELY
     if( 0 == memcmp( &stake->delegation.voter_pubkey, voter_pubkey, sizeof( fd_pubkey_t ) ) &&
-         clock->epoch == stake->delegation.deactivation_epoch && stake_lamports_FD_PROGRAM_OK ) {
+         clock->epoch == stake->delegation.deactivation_epoch && stake_lamports_ok ) {
       stake->delegation.deactivation_epoch = ULONG_MAX;
       return 0;
     } else {

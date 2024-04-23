@@ -3,6 +3,7 @@
 
 #include "../../ballet/txn/fd_txn.h"
 #include "program/fd_program_util.h"
+#include "sysvar/fd_sysvar_rent.h"
 #include "fd_system_ids.h"
 #include "fd_runtime.h"
 #include <assert.h>

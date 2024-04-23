@@ -192,12 +192,12 @@ validate_fee_payer( fd_borrowed_account_t * account, fd_rent_t const * rent, ulo
   if ( checked_arithmetic_feature ) {
     ulong out = ULONG_MAX;
     int cf = fd_ulong_checked_sub( account->const_meta->info.lamports, min_balance, &out);
-    if ( cf != FD_PROGRAM_OK ) {
+    if ( cf != FD_EXECUTOR_INSTR_SUCCESS ) {
       return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE;
     }
 
     cf = fd_ulong_checked_sub( out, fee, &out );
-    if ( cf != FD_PROGRAM_OK ) {
+    if ( cf != FD_EXECUTOR_INSTR_SUCCESS ) {
       return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE;
     }
   } else {
