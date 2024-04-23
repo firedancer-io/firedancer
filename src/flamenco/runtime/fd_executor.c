@@ -519,16 +519,6 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       ctx->instr_err        = (uint)( -exec_result - 1 );
     }
 
-#ifdef VLOG
-  if ( 250555489 == ctx->slot_ctx->slot_bank.slot ) {
-    if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
-    } else {
-      FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
-    }
-  }
-#endif
-
     txn_ctx->instr_stack_sz--;
 
     /* TODO: sanity before/after checks: total lamports unchanged etc */
