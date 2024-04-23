@@ -26,6 +26,9 @@
 #include <netdb.h>
 #include <stdlib.h>
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 // SIGINT signal handler
 volatile int stopflag = 0;
 static void stop(int sig) { (void)sig; stopflag = 1; }
