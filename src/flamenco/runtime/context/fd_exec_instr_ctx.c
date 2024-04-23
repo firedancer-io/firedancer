@@ -2,6 +2,9 @@
 #include "fd_exec_txn_ctx.h"
 #include "../fd_acc_mgr.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 void *
 fd_exec_instr_ctx_new( void * mem ) {
   if( FD_UNLIKELY( !mem ) ) {

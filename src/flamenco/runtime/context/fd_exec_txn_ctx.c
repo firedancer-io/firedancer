@@ -1,4 +1,5 @@
 #include "fd_exec_txn_ctx.h"
+#include "fd_exec_slot_ctx.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_executor.h"
 #include "../../vm/fd_vm_context.h"
