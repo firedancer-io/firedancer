@@ -28,11 +28,28 @@
 #define FD_FLAMENCO_TYPE_HASH256   (0x0e)  /* pubkey, account */
 #define FD_FLAMENCO_TYPE_SIG512    (0x0f)
 #define FD_FLAMENCO_TYPE_CSTR      (0x10)
+#define FD_FLAMENCO_TYPE_HASH1024  (0x11)
+#define FD_FLAMENCO_TYPE_HASH16384 (0x12)
 
 #define FD_FLAMENCO_TYPE_ARR       (0x20)
 #define FD_FLAMENCO_TYPE_ARR_END   (0x21)
 #define FD_FLAMENCO_TYPE_MAP       (0x22)
 #define FD_FLAMENCO_TYPE_MAP_END   (0x23)
+
+/* TODO: This should be called fd_types_vtable_t. */
+
+struct fd_types_funcs {
+  int   (*decode_fun)(void* self, fd_bincode_decode_ctx_t *);
+  int   (*encode_fun)(void const * self, fd_bincode_encode_ctx_t * ctx);
+  int   (*walk_fun)(void * w, void * self, fd_types_walk_fn_t, const char *, uint);
+  ulong (*align_fun)( void );
+  ulong (*footprint_fun)( void );
+  ulong (*size_fun)(void const * self);
+  void  (*destroy_fun)(void* self, fd_bincode_destroy_ctx_t * ctx);
+  void* (*new_fun)(void *);
+};
+
+typedef struct fd_types_funcs fd_types_funcs_t;
 
 FD_PROTOTYPES_BEGIN
 
