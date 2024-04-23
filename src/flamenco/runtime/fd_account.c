@@ -103,9 +103,6 @@ fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
 
   if( lamports == account->const_meta->info.lamports ) return 0;
 
-  /* TODO: Call fd_account_touch.  This seems to have some side effect
-          checking the number of accounts?  Unclear... */
-
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, 0UL, &account );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
