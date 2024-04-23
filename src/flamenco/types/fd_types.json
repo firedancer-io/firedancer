@@ -78,12 +78,22 @@
       ]
     },
     {
-      "name": "block_hash_queue",
+      "name": "block_hash_vec",
       "type": "struct",
       "fields": [
         { "name": "last_hash_index", "type": "ulong" },
         { "name": "last_hash", "type": "option", "element": "hash" },
         { "name": "ages", "type": "vector", "element": "hash_hash_age_pair" },
+        { "name": "max_age", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "block_hash_queue",
+      "type": "struct",
+      "fields": [
+        { "name": "last_hash_index", "type": "ulong" },
+        { "name": "last_hash", "type": "option", "element": "hash" },
+        { "name": "ages", "type": "map", "element": "hash_hash_age_pair", "key": "key", "minalloc": 400 },
         { "name": "max_age", "type": "ulong" }
       ]
     },
@@ -390,7 +400,7 @@
       "type": "struct",
       "alignment": "16",
       "fields": [
-        { "name": "blockhash_queue",       "type": "block_hash_queue" },
+        { "name": "blockhash_queue",       "type": "block_hash_vec" },
         { "name": "ancestors",             "type": "vector", "element": "slot_pair" },
         { "name": "hash",                  "type": "hash" },
         { "name": "parent_hash",           "type": "hash" },
@@ -1022,7 +1032,9 @@
         { "name": "stake_account_keys",    "type": "stake_accounts"},
         { "name": "vote_account_keys",     "type": "vote_accounts" },
         { "name": "lamports_per_signature","type": "ulong" },
-        { "name": "transaction_count",     "type": "ulong" }
+        { "name": "transaction_count",     "type": "ulong" },
+        { "name": "lthash",                "type": "uchar[2048]" },
+        { "name": "block_hash_queue",      "type": "block_hash_queue" }
       ]
     },
     {
@@ -1656,6 +1668,7 @@
     {
       "name": "gossip_ip_addr",
       "type": "enum",
+      "zerocopy": false,
       "variants": [
         {
           "name": "ip4",
@@ -1769,6 +1782,7 @@
     {
       "name": "gossip_slots_enum",
       "type": "enum",
+      "zerocopy": false,
       "variants": [
         { "name": "flate2", "type": "gossip_flate2_slots" },
         { "name": "uncompressed", "type": "gossip_slots" }
