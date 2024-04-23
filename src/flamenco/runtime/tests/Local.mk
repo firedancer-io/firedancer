@@ -2,9 +2,6 @@
 
 ifdef FD_HAS_ROCKSDB
 
-$(call make-lib,fd_sol_tests)
-$(call add-objs,$(patsubst src/flamenco/runtime/tests/%.c,%,$(wildcard src/flamenco/runtime/tests/generated/*.c)),fd_sol_tests)
-
 $(call make-unit-test,test_native_programs,test_native_programs fd_tests,fd_ballet fd_funk fd_util fd_sol_tests fd_flamenco)
 $(call run-unit-test,test_native_programs)
 $(call make-unit-test,test_sign_programs,test_sign_programs fd_tests,fd_ballet fd_funk fd_util fd_flamenco)
@@ -34,7 +31,7 @@ run-runtime-test-2: $(OBJDIR)/unit-test/test_native_programs $(OBJDIR)/unit-test
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-586 -s snapshot-253151900-HVhfam8TtRFVwFto5fWkhgR4mbBJmUxcnxeKZoW5MrSD.tar.zst  -p 64 -m 5000000 -e 253152100
 
 run-runtime-test-3: $(OBJDIR)/unit-test/test_native_programs $(OBJDIR)/unit-test/test_runtime $(OBJDIR)/bin/fd_frank_ledger
-	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -C mainnet-250553924 -e 250558000 -p 64 -S 
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -C mainnet-250553924 -e 250558000 -p 64 -S
 
 endif
 
