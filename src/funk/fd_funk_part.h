@@ -59,6 +59,10 @@ void fd_funk_repartition(fd_funk_t *            funk,
                          fd_funk_repartition_cb cb,
                          void *                 cb_arg);
 
+/* Resize the partition vector but don't reassign any records. */
+void fd_funk_set_num_partitions( fd_funk_t * funk,
+                                 uint        num_part );
+
 /* Get the first record in the partition. Used for iteration. */
 FD_FN_PURE static inline fd_funk_rec_t const *
 fd_funk_part_head( fd_funk_partvec_t *   partvec,
