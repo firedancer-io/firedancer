@@ -186,7 +186,7 @@ JT_START;
 JT_END;
 
   ctx->compute_meter = compute_meter;
-  ctx->due_insn_cnt = fd_ulong_sat_add( due_insn_cnt, 1 );
+  ctx->due_insn_cnt = due_insn_cnt; 
   ctx->previous_instruction_meter = previous_instruction_meter;
 
   ctx->compute_meter = fd_ulong_sat_sub(ctx->compute_meter, ctx->due_insn_cnt);
@@ -256,7 +256,7 @@ JT_END;
   ctx->compute_meter = compute_meter;
   ctx->due_insn_cnt = due_insn_cnt;
   ctx->previous_instruction_meter = previous_instruction_meter;
-
+  /* Subtract final accumulated due_insn_cnt */
   ctx->compute_meter = fd_ulong_sat_sub(ctx->compute_meter, ctx->due_insn_cnt);
   ctx->due_insn_cnt = 0;
   ctx->previous_instruction_meter = ctx->compute_meter;

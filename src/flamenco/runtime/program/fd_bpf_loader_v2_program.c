@@ -199,7 +199,7 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
 #ifdef FD_DEBUG_SBPF_TRACES
 uchar * signature = (uchar*)vm_ctx.instr_ctx->txn_ctx->_txn_raw->raw + vm_ctx.instr_ctx->txn_ctx->txn_descriptor->signature_off;
 uchar sig[64];
-fd_base58_decode_64( "4HydfWFZwN67UWTXQWBShcPLofLEePTekfzb1k8CwfiN3RN5hWgHRkDqq4D81aMZYkWgwnDDXMk3Uuhxxcgct8Z6", sig);
+fd_base58_decode_64( "2f3MQXT1hPA28DCrF7Rdr9XcYfUzUDWqTL2mNmTSG5ZeVzpQo5nhzfAm2ZAY6kS81NRrHGwEocz3EbGvzK8caDjW", sig);
 if (memcmp(signature, sig, 64) == 0) {
   trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( ctx.txn_ctx->valloc, 8UL, trace_sz * sizeof(fd_vm_trace_entry_t));
   // trace = (fd_vm_trace_entry_t *)malloc( trace_sz * sizeof(fd_vm_trace_entry_t));

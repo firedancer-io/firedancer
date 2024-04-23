@@ -710,6 +710,29 @@ fd_runtime_prepare_txns_phase2( fd_exec_slot_ctx_t * slot_ctx,
   /* Loop across transactions */
   for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
     fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
+
+    int err;
+    fd_nonce_state_versions_t state;
+    int is_nonce = fd_load_nonce_account(txn_ctx, &state, txn_ctx->valloc, &err);
+    if ((NULL == txn_ctx->txn_descriptor) || !is_nonce) {
+      if ( txn_ctx->_txn_raw->raw == NULL ) {
+        return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+      }
+      fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
+
+      fd_hash_hash_age_pair_t_mapnode_t key;
+      fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
+
+      if ( fd_hash_hash_age_pair_t_map_find( slot_ctx->slot_bank.block_hash_queue.ages_pool, slot_ctx->slot_bank.block_hash_queue.ages_root, &key ) == NULL ) {
+        return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+      }
+    }
+
+    err = fd_executor_check_txn_accounts( txn_ctx );
+    if ( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
+      return err;
+    }
+
     // FD_LOG_DEBUG(("preparing txn (phase 2) - slot: %lu, txn_idx: %lu, sig: %64J", slot_ctx->slot_bank.slot, txn_idx, (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off));
 
     int res = fd_execute_txn_prepare_phase2( slot_ctx, txn_ctx );
@@ -779,6 +802,28 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
     /* Loop across transactions */
     for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
+
+      int err;
+      fd_nonce_state_versions_t state;
+      int is_nonce = fd_load_nonce_account(txn_ctx, &state, txn_ctx->valloc, &err);
+      if ((NULL == txn_ctx->txn_descriptor) || !is_nonce) {
+        if ( txn_ctx->_txn_raw->raw == NULL ) {
+          return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+        }
+        fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
+
+        fd_hash_hash_age_pair_t_mapnode_t key;
+        fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
+
+        if ( fd_hash_hash_age_pair_t_map_find( slot_ctx->slot_bank.block_hash_queue.ages_pool, slot_ctx->slot_bank.block_hash_queue.ages_root, &key ) == NULL ) {
+          return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+        }
+      }
+
+      err = fd_executor_check_txn_accounts( txn_ctx );
+      if ( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
+        return err;
+      }
 
       fee_payer_accs[txn_idx] = fd_borrowed_account_init( &collect_fee_task_infos[txn_idx].fee_payer_rec );
       collect_fee_task_infos[txn_idx].txn_ctx = txn_ctx;
@@ -1119,9 +1164,35 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
       int exec_txn_err = task_info[txn_idx].exec_res;
 
       for ( ulong i = 0; i < txn_ctx->accounts_cnt; i++) {
+        /* Even if a transaction fails, we still include the nonce account if it
+           was part of the transaction. However, there is an exception to this:
+           if a recent blockhash is found then we do not include the nonce account */
         if ( txn_ctx->nonce_accounts[i] ) {
-          fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
-          accounts_to_save[accounts_to_save_idx++] = acc_rec;
+          int skip_hash = 0;
+          ushort recent_blockhash_off = task_info[txn_idx].txn_ctx->txn_descriptor->recent_blockhash_off;
+          /* If the transaction fails */
+          if ( exec_txn_err != 0 ) {
+            /* Look up the transactions blockhash */
+            fd_hash_t * recent_blockhash = (fd_hash_t *)((uchar *)task_info[txn_idx].txn_ctx->_txn_raw->raw + recent_blockhash_off);
+            fd_block_block_hash_entry_t * hashes_deque = slot_ctx->slot_bank.recent_block_hashes.hashes;
+            for ( deq_fd_block_block_hash_entry_t_iter_t iter = deq_fd_block_block_hash_entry_t_iter_init( hashes_deque );
+                  !deq_fd_block_block_hash_entry_t_iter_done( hashes_deque, iter );
+                  iter = deq_fd_block_block_hash_entry_t_iter_next( hashes_deque, iter ) ) {
+              /* If the block hash entry matches the transactions recent block hash, we skip thje hash */  
+              fd_block_block_hash_entry_t * entry = deq_fd_block_block_hash_entry_t_iter_ele( hashes_deque, iter );
+              if ( memcmp( entry->blockhash.hash, recent_blockhash->hash, sizeof(fd_hash_t) ) == 0 ) {
+                skip_hash = 1;
+                accounts_to_save_cnt--;
+                break;
+              }
+            }
+          }
+
+          /* Only save if a hash didn't match */
+          if ( !skip_hash ) {
+            fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
+            accounts_to_save[accounts_to_save_idx++] = acc_rec;
+          }
         }
       }
 
@@ -3628,7 +3699,7 @@ void fd_process_new_epoch(
   if ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
     begin_partitioned_rewards( slot_ctx, parent_epoch );
   } else {
-    update_rewards( slot_ctx, parent_epoch);
+    update_rewards( slot_ctx, parent_epoch );
   }
 
   fd_update_stake_delegations( slot_ctx );

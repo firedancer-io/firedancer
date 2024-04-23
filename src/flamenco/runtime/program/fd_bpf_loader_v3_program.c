@@ -208,7 +208,7 @@ fd_bpf_loader_v3_user_execute( fd_exec_instr_ctx_t ctx ) {
 
 uchar * signature = (uchar*)vm_ctx.instr_ctx->txn_ctx->_txn_raw->raw + vm_ctx.instr_ctx->txn_ctx->txn_descriptor->signature_off;
 uchar sig[64];
-fd_base58_decode_64("4HydfWFZwN67UWTXQWBShcPLofLEePTekfzb1k8CwfiN3RN5hWgHRkDqq4D81aMZYkWgwnDDXMk3Uuhxxcgct8Z6", sig);
+fd_base58_decode_64("2f3MQXT1hPA28DCrF7Rdr9XcYfUzUDWqTL2mNmTSG5ZeVzpQo5nhzfAm2ZAY6kS81NRrHGwEocz3EbGvzK8caDjW", sig);
 if (FD_UNLIKELY(memcmp(signature, sig, 64) == 0)) {
 
   trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( ctx.txn_ctx->valloc, 8UL, trace_sz * sizeof(fd_vm_trace_entry_t));
@@ -335,7 +335,7 @@ if (FD_UNLIKELY(memcmp(signature, sig, 64) == 0)) {
 
   #ifdef VLOG
   if (ctx.txn_ctx->slot_ctx->slot_bank.slot == 250555489) {
-    FD_LOG_WARNING(( "fd_vm_interp_instrs() success: %lu, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", interp_res, vm_ctx.instruction_counter, vm_ctx.program_counter, vm_ctx.entrypoint, vm_ctx.register_file[0], vm_ctx.cond_fault, vm_ctx.compute_meter ));
+   FD_LOG_WARNING(( "fd_vm_interp_instrs() success: %lu, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", interp_res, vm_ctx.instruction_counter, vm_ctx.program_counter, vm_ctx.entrypoint, vm_ctx.register_file[0], vm_ctx.cond_fault, vm_ctx.compute_meter ));
   }
   #endif
 

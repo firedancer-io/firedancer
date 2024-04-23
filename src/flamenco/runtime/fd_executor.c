@@ -503,6 +503,8 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       exec_result = FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
 
+    // FD_LOG_NOTICE(("COMPUTE METER END %lu %lu %lu %64J", before_instr_cus - txn_ctx->compute_meter, txn_ctx->compute_meter, txn_ctx->compute_unit_limit, sig ));
+
     if( exec_result == FD_EXECUTOR_INSTR_SUCCESS ) {
       ulong ending_lamports = fd_instr_info_sum_account_lamports( instr );
       // FD_LOG_WARNING(("check lamports %lu %lu %lu", starting_lamports, instr->starting_lamports, ending_lamports ));
@@ -522,6 +524,16 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       txn_ctx->failed_instr = ctx;
       ctx->instr_err        = (uint)( -exec_result - 1 );
     }
+
+#ifdef VLOG
+  if ( 257035230 == ctx->slot_ctx->slot_bank.slot ) {
+    if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
+    } else {
+      FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
+    }
+  }
+#endif
 
     txn_ctx->instr_stack_sz--;
 
@@ -626,17 +638,6 @@ fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
 
   fd_executor_setup_accessed_accounts_for_txn( txn_ctx );
   int compute_budget_status = fd_executor_compute_budget_program_execute_instructions( txn_ctx, txn_ctx->_txn_raw );
-  err = fd_executor_check_txn_accounts( txn_ctx );
-  if ( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
-    return err;
-  }
-
-#ifdef VLOG
-  fd_txn_t const *txn = txn_ctx->txn_descriptor;
-  fd_rawtxn_b_t const *raw_txn = txn_ctx->_txn_raw;
-  uchar * sig = (uchar *)raw_txn->raw + txn->signature_off;
-  FD_LOG_WARNING(("Preparing Transaction %64J", sig));
-#endif
 
   if ((NULL != txn_descriptor) && is_nonce) {
     uchar found_fee_payer = 0;
@@ -852,10 +853,11 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
 
     for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
-  #ifdef VLOG
-        if ( FD_UNLIKELY( 250555489 == txn_ctx->slot_ctx->slot_bank.slot ) )
+#ifdef VLOG
+        if ( FD_UNLIKELY( 257037453 == txn_ctx->slot_ctx->slot_bank.slot ) )
           FD_LOG_WARNING(("Start of transaction for %d for %64J", i, sig));
-  #endif
+#endif
+
       if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
         ret = fd_sysvar_instructions_update_current_instr_idx( txn_ctx, i );
         if( ret != FD_ACC_MGR_SUCCESS ) {
@@ -868,7 +870,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
       if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
   #ifdef VLOG
-        if ( 250555489 == txn_ctx->slot_ctx->slot_bank.slot ) {
+        if ( 257037453 == txn_ctx->slot_ctx->slot_bank.slot ) {
   #endif
           if (exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
   #ifdef VLOG

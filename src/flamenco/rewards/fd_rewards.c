@@ -449,7 +449,7 @@ calculate_reward_points_partitioned(
     ) {
         fd_pubkey_t const * voter_acc = &n->elem.delegation.voter_pubkey;
         fd_pubkey_t const * stake_acc = &n->elem.account;
-        // FD_LOG_WARNING(("STAKE ACC1: %32J, %32J", stake_acc->key, voter_acc->key));
+        //  FD_LOG_WARNING(("STAKE ACC1: %32J, %32J", stake_acc->key, voter_acc->key));
         calculate_reward_points_account( slot_ctx, stake_history, voter_acc, stake_acc, &points, &actual_len );
     }
     // FD_LOG_HEXDUMP_WARNING(( "POINTS 1", &points, 16 ));
@@ -510,8 +510,8 @@ calculate_stake_vote_rewards_account(
     FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
     int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, stake_acc_rec);
     if (FD_UNLIKELY(err != FD_ACC_MGR_SUCCESS)) {
-        FD_LOG_DEBUG(("stake_state::stake_state_redeem_rewards() %32J not found", stake_acc->key ));
-        return;
+      FD_LOG_DEBUG(("stake_state::stake_state_redeem_rewards() %32J not found", stake_acc ));
+      return;
     }
 
     if (stake_acc_rec->const_meta->info.lamports == 0) return;
@@ -519,14 +519,14 @@ calculate_stake_vote_rewards_account(
     fd_stake_state_v2_t stake_state = {0};
     int rc = fd_stake_get_state(stake_acc_rec, &slot_ctx->valloc, &stake_state);
     if ( rc != 0 ) {
-    //   FD_LOG_ERR(("failed to read"));
-        return;
+      // FD_LOG_ERR(("failed to read"));
+      return;
     }
 
     if (FD_FEATURE_ACTIVE(slot_ctx, stake_minimum_delegation_for_rewards)) {
-        if (stake_state.inner.stake.stake.delegation.stake < min_stake_delegation) {
-            return;
-        }
+      if (stake_state.inner.stake.stake.delegation.stake < min_stake_delegation) {
+        return;
+      }
     }
 
     fd_vote_accounts_pair_t_mapnode_t key;
@@ -534,13 +534,13 @@ calculate_stake_vote_rewards_account(
 
     if (fd_vote_accounts_pair_t_map_find(epoch_bank->stakes.vote_accounts.vote_accounts_pool, epoch_bank->stakes.vote_accounts.vote_accounts_root, &key) == NULL
         && fd_vote_accounts_pair_t_map_find(slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, slot_ctx->slot_bank.vote_account_keys.vote_accounts_root, &key) == NULL) {
-        return;
+      return;
     }
 
     FD_BORROWED_ACCOUNT_DECL(voter_acc_rec);
     int read_err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, voter_acc, voter_acc_rec );
     if( read_err!=0 || 0!=memcmp( &voter_acc_rec->const_meta->info.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
-        return;
+      return;
     }
 
     /* Read vote account */
@@ -553,7 +553,7 @@ calculate_stake_vote_rewards_account(
     fd_bincode_destroy_ctx_t destroy = {.valloc = slot_ctx->valloc};
     fd_vote_state_versioned_t vote_state_versioned[1] = {0};
     if( fd_vote_state_versioned_decode( vote_state_versioned, &decode ) != 0 ) {
-        return;
+      return;
     }
 
     uchar commission = 0U;
