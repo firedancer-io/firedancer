@@ -2,6 +2,7 @@
 #include <limits.h>
 
 #include "../../../util/bits/fd_sat.h"
+#include "../../../util/bits/fd_uwide.h"
 #include "../../../ballet/utf8/fd_utf8.h"
 #include "../fd_account.h"
 #include "../fd_pubkey_utils.h"
@@ -900,20 +901,56 @@ stake_weighted_credits_observed( fd_stake_t const * stake,
                                  ulong              absorbed_lamports,
                                  ulong              absorbed_credits_observed,
                                  ulong *            out ) {
-  // int rc;
-
-  // FIXME FD_LIKELY
+  // FIXME: FD_LIKELY
   if( stake->credits_observed == absorbed_credits_observed ) {
     *out = stake->credits_observed;
     return 1;
   } else {
-    // TODO need to do this properly using `fd_uwide`
-    ulong total_stake               = stake->delegation.stake + absorbed_lamports;
-    ulong stake_weighted_credits    = stake->credits_observed * stake->delegation.stake;
-    ulong absorbed_weighted_credits = absorbed_credits_observed * absorbed_lamports;
-    ulong total_weighted_credits =
-        stake_weighted_credits + absorbed_weighted_credits + total_stake - 1;
-    *out = total_weighted_credits / total_stake;
+    /* total_stake = stake->delegation.stake + absorbed_lamports */
+    ulong total_stake_h = 0;
+    ulong total_stake_l = 0;
+    fd_uwide_inc( &total_stake_h, &total_stake_l, 0, stake->delegation.stake,
+                  absorbed_lamports );
+
+    /* stake_weighted_credits = stake->credits_observed + stake->delegation.stake */
+    ulong stake_weighted_credits_h;
+    ulong stake_weighted_credits_l;
+    fd_uwide_mul( &stake_weighted_credits_h, &stake_weighted_credits_l, 
+                  stake->credits_observed, stake->delegation.stake );
+
+    /* absorbed_weighted_credits = absorbed_credits_observed * absorbed_lamports */
+    ulong absorbed_weighted_credits_h;
+    ulong absorbed_weighted_credits_l;
+    fd_uwide_mul( &absorbed_weighted_credits_h, &absorbed_weighted_credits_l, 
+                  absorbed_credits_observed, absorbed_lamports );
+
+    /* total_weighted_credits = stake_weighted_credits + total_stake + absorbed_weighted_credits - 1*/
+    ulong total_weighted_credits_partial_one_h;
+    ulong total_weighted_credits_partial_one_l;
+    fd_uwide_add( &total_weighted_credits_partial_one_h, &total_weighted_credits_partial_one_l, 
+                  stake_weighted_credits_h, stake_weighted_credits_l,
+                  absorbed_weighted_credits_h, absorbed_weighted_credits_l, 0 );
+
+    ulong total_weighted_credits_partial_two_h;
+    ulong total_weighted_credits_partial_two_l;
+    fd_uwide_add( &total_weighted_credits_partial_two_h, &total_weighted_credits_partial_two_l, 
+                  total_weighted_credits_partial_one_h, total_weighted_credits_partial_one_l,
+                  total_stake_h, total_stake_l, 0 );
+
+    ulong total_weighted_credits_h;
+    ulong total_weighted_credits_l;
+    fd_uwide_dec( &total_weighted_credits_h, &total_weighted_credits_l, 
+                  total_weighted_credits_partial_two_h, total_weighted_credits_partial_two_l, 1 );
+
+    /* FIXME: fd_uwide_div doesn't support denominator that is an fd_uwide */
+    /* res = totalWeighted_credits / total_stake */
+    ulong res_h;
+    ulong res_l;
+    FD_TEST(( total_stake_h == 0 )); 
+    fd_uwide_div( &res_h, &res_l, total_weighted_credits_h, total_weighted_credits_l, total_stake_l );
+    FD_TEST(( res_h == 0 ));
+    //*out = total_weighted_credits / total_stake;
+    *out = res_l;
     return 1;
   }
 }
