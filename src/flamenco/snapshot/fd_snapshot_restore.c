@@ -12,7 +12,7 @@
 
 /* Snapshot Restore Buffer Handling ***********************************/
 
-static void
+void
 fd_snapshot_restore_discard_buf( fd_snapshot_restore_t * self ) {
   /* self->buf might be NULL */
   fd_valloc_free( self->valloc, self->buf );
