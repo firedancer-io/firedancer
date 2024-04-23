@@ -8,6 +8,9 @@
 #include <unistd.h>
 #include "../../util/bits/fd_bits.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 char *
 fd_rocksdb_init( fd_rocksdb_t * db,
                  char const *   db_name ) {

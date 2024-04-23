@@ -5,6 +5,9 @@
 #include "../../flamenco/runtime/program/fd_program_util.h"
 #include "../../flamenco/runtime/program/fd_vote_program.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 void *
 fd_forks_new( void * shmem, ulong max, ulong seed ) {
 
