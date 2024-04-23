@@ -4,6 +4,9 @@
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
 
+#define FD_BLOCKHASH_QUEUE_MAX_ENTRIES       (300UL)
+#define FD_RECENT_BLOCKHASHES_MAX_ENTRIES    (150UL)
+
 FD_PROTOTYPES_BEGIN
 
 ulong
