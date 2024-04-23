@@ -224,8 +224,9 @@ spy_cmd_fn( args_t *         args,
       fd_valloc_malloc( valloc, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
       stdout );
   gconfig.deliver_fun = print_data;
-  gconfig.fun_arg = yamldump;
-  gconfig.send_fun = send_packet;
+  gconfig.deliver_arg = yamldump;
+  gconfig.send_fun    = send_packet;
+  gconfig.send_arg    = NULL;
 
   void * shm = fd_valloc_malloc(valloc, fd_gossip_align(), fd_gossip_footprint());
   fd_gossip_t * glob = fd_gossip_join(fd_gossip_new(shm, seed, valloc));
