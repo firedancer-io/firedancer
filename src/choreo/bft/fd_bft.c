@@ -8,6 +8,9 @@
 #include "../ghost/fd_ghost.h"
 #include "fd_bft.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 void *
 fd_bft_new( void * shmem ) {
   if( FD_UNLIKELY( !shmem ) ) {
