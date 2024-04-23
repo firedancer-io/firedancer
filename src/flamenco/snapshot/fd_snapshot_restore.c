@@ -2,6 +2,7 @@
 #include "../../util/archive/fd_tar.h"
 #include "../types/fd_types.h"
 #include "../runtime/fd_acc_mgr.h"
+#include "../runtime/fd_account.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -252,17 +253,11 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
      heap.  Once the epoch context heap is separated out, we need to
      revisit this. */
 
-  fd_exec_slot_ctx_t * slot_ctx = (fd_exec_slot_ctx_t *)restore->cb_manifest_ctx;
-  fd_valloc_t slot_valloc;
-  if ( slot_ctx != NULL )
-    slot_valloc = slot_ctx->valloc;
-  else
-    slot_valloc = restore->valloc;
   fd_solana_manifest_t manifest[1];
   fd_bincode_decode_ctx_t decode =
       { .data    = restore->buf,
         .dataend = restore->buf + restore->buf_sz,
-        .valloc  = slot_valloc };
+        .valloc  = restore->valloc };
   int decode_err = fd_solana_manifest_decode( manifest, &decode );
   if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
     /* TODO: The types generator does not yet handle OOM correctly.
@@ -293,7 +288,7 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
 
   /* Discard superfluous fields that the callback didn't move */
 
-  fd_bincode_destroy_ctx_t destroy = { .valloc = slot_valloc };
+  fd_bincode_destroy_ctx_t destroy = { .valloc = restore->valloc };
   fd_solana_accounts_db_fields_destroy( &accounts_db, &destroy );
 
   /* Discard buffer to reclaim heap space (which could be used by
