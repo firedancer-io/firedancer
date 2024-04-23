@@ -16,7 +16,6 @@ jobs:
           - linux_gcc_noarch64    # least capable target
           - linux_gcc_icelake     # most capable target
           - linux_clang_x86_64
-          - linux_clang_haswell
           - linux_clang_icelake
         # Attach additional params to machine types
         include:
@@ -25,7 +24,8 @@ jobs:
           - machine: linux_gcc_icelake
             group: rhel85-icelake
           - machine: linux_clang_x86_64
-          - machine: linux_clang_haswell
+          - machine: native
+            env: CC=clang
           - machine: linux_clang_icelake
             group: rhel85-icelake
             extras: asan ubsan
@@ -46,4 +46,5 @@ jobs:
           MACHINES=${{ matrix.machine }} \
           EXTRAS="${{ matrix.extras || '' }}" \
           NOTEST=${{ matrix.notest || '' }} \
+          ${{ matrix.env || '' }} \
           contrib/test/ci_tests.sh

@@ -99,3 +99,10 @@ endif
 
 include config/extra/with-secp256k1.mk
 include config/extra/with-zstd.mk
+
+# Detect if RocksDB dependency is installed
+ifneq (,$(wildcard opt/lib/librocksdb.a))
+ifneq (,$(wildcard opt/lib/libsnappy.a))
+include config/extra/with-rocksdb.mk
+endif
+endif
