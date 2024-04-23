@@ -1,5 +1,6 @@
 #include "fd_exec_epoch_ctx.h"
 
+
 void *
 fd_exec_epoch_ctx_new( void * mem ) {
   if( FD_UNLIKELY( !mem ) ) {
@@ -16,8 +17,8 @@ fd_exec_epoch_ctx_new( void * mem ) {
 
   fd_exec_epoch_ctx_t * self = (fd_exec_epoch_ctx_t *) mem;
 
-  // all features are disabled by default.
   fd_features_disable_all(&self->features);
+  fd_features_enable_hardcoded(&self->features);
 
   fd_epoch_bank_new(&self->epoch_bank);
 
@@ -86,4 +87,14 @@ fd_exec_epoch_ctx_delete( void * mem ) {
   FD_COMPILER_MFENCE();
 
   return mem;
+}
+
+void
+fd_exec_epoch_ctx_free( fd_exec_epoch_ctx_t * epoch_ctx ) {
+  fd_bincode_destroy_ctx_t ctx;
+  ctx.valloc = epoch_ctx->valloc;
+  fd_epoch_bank_destroy( &epoch_ctx->epoch_bank, &ctx );
+
+  if (NULL != epoch_ctx->leaders)
+    fd_valloc_free(epoch_ctx->valloc, epoch_ctx->leaders);
 }

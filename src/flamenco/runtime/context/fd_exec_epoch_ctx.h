@@ -1,9 +1,10 @@
 #ifndef HEADER_fd_src_flamenco_runtime_context_fd_exec_epoch_ctx_h
 #define HEADER_fd_src_flamenco_runtime_context_fd_exec_epoch_ctx_h
 
-#include "../fd_runtime.h"
 #include "../../features/fd_features.h"
 #include "../../leaders/fd_leaders.h"
+#include "../fd_bank_hash_cmp.h"
+#include "../fd_rent_lists.h"
 
 /* fd_exec_epoch_ctx_t is the context that stays constant throughout
    an entire epoch. */
@@ -17,6 +18,7 @@ struct __attribute__((aligned(8UL))) fd_exec_epoch_ctx {
   fd_epoch_leaders_t * leaders;  /* Current epoch only */
   fd_features_t        features;
   fd_epoch_bank_t      epoch_bank;
+  fd_bank_hash_cmp_t * bank_hash_cmp;
 };
 
 #define FD_EXEC_EPOCH_CTX_ALIGN     (alignof(fd_exec_epoch_ctx_t))
@@ -36,6 +38,10 @@ fd_exec_epoch_ctx_leave( fd_exec_epoch_ctx_t * ctx );
 
 void *
 fd_exec_epoch_ctx_delete( void * mem );
+
+/* Free all allocated memory within a epoch ctx */
+void
+fd_exec_epoch_ctx_free( fd_exec_epoch_ctx_t * ctx );
 
 FD_PROTOTYPES_END
 
