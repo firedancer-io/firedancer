@@ -1,5 +1,4 @@
 #include "fd_pubkey_utils.h"
-#include "context/fd_exec_txn_ctx.h"
 
 int
 fd_pubkey_create_with_seed( fd_exec_instr_ctx_t const * ctx,
