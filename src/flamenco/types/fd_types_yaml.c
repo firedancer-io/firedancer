@@ -5,6 +5,9 @@
 #include <ctype.h>
 #include <stdio.h>
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 #define FD_FLAMENCO_YAML_INDENT_BUFSZ (2UL*FD_FLAMENCO_YAML_MAX_INDENT+1UL)
 
 /* STATE_{...} identify the state of the YAML writer.  This is used

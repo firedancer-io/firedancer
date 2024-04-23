@@ -7,6 +7,9 @@
 #include "sysvar/fd_sysvar_rent.h"
 #include <assert.h>
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 fd_acc_mgr_t *
 fd_acc_mgr_new( void *      mem,
                 fd_funk_t * funk ) {

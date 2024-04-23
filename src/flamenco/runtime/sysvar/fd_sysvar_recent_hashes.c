@@ -4,6 +4,7 @@
 #include "fd_sysvar.h"
 #include "../fd_runtime.h"
 #include "../fd_system_ids.h"
+#include "../context/fd_exec_slot_ctx.h"
 
 #define FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE  sizeof(ulong) + FD_RECENT_BLOCKHASHES_MAX_ENTRIES * (sizeof(fd_hash_t) + sizeof(ulong))
 

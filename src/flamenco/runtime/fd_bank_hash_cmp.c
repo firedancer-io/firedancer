@@ -1,5 +1,8 @@
 #include "fd_bank_hash_cmp.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 void *
 fd_bank_hash_cmp_new( void * mem, int lg_slot_cnt ) {
 
