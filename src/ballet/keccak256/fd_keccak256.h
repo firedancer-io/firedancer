@@ -126,9 +126,6 @@ fd_keccak256_hash( void const * data,
                    ulong        sz,
                    void *       hash );
 
-void
-fd_keccak256_core( ulong * state );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_keccak256_fd_keccak256_h */

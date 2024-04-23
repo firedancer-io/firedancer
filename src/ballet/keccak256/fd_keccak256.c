@@ -105,7 +105,7 @@ fd_keccak256_delete( void * shsha ) {
    implementations that target specific machine capabilities without
    requiring any changes to caller code. */
 
-void
+static void
 fd_keccak256_core( ulong * state ) {
  ulong const round_consts[24] = {
     0x0000000000000001UL, 0x0000000000008082UL, 0x800000000000808AUL, 0x8000000080008000UL,
