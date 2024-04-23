@@ -48,7 +48,6 @@ include config/extra/with-brutality.mk
 include config/extra/with-optimization.mk
 include config/extra/with-debug.mk
 include config/extra/with-security.mk
-include config/extra/with-ucontext.mk
 
 $(call map-define,FD_HAS_SHANI, __SHA__)
 $(call map-define,FD_HAS_INT128, __SIZEOF_INT128__)
@@ -91,18 +90,4 @@ $(info Using FD_HAS_AVX512=$(FD_HAS_AVX512) $(FD_HAS_AVX512_MESSAGE))
 $(info Using FD_HAS_GFNI=$(FD_HAS_GFNI))
 $(info Using FD_HAS_SHANI=$(FD_HAS_SHANI))
 $(info Using FD_HAS_AESNI=$(FD_HAS_AESNI))
-endif
-
-ifdef FD_HAS_OPENSSL
-include config/extra/with-openssl.mk
-endif
-
-include config/extra/with-secp256k1.mk
-include config/extra/with-zstd.mk
-
-# Detect if RocksDB dependency is installed
-ifneq (,$(wildcard opt/lib/librocksdb.a))
-ifneq (,$(wildcard opt/lib/libsnappy.a))
-include config/extra/with-rocksdb.mk
-endif
 endif

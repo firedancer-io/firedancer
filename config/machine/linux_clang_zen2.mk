@@ -8,9 +8,6 @@ include config/extra/with-debug.mk
 include config/extra/with-brutality.mk
 include config/extra/with-optimization.mk
 include config/extra/with-threads.mk
-include config/extra/with-ucontext.mk
-include config/extra/with-openssl.mk
-include config/extra/with-zstd.mk
 
 # Clang 15 does not support znver2 yet.
 CPPFLAGS+=-march=znver1 -mtune=znver1
