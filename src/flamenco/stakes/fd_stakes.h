@@ -3,9 +3,7 @@
 
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
-#include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../runtime/fd_borrowed_account.h"
-
 
 FD_PROTOTYPES_BEGIN
 

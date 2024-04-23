@@ -5,6 +5,7 @@
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
+#include "sysvar/fd_sysvar_stake_history.h"
 #include "sysvar/fd_sysvar.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/txn/fd_txn.h"

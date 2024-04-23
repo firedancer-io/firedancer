@@ -1,6 +1,12 @@
 #include "fd_stakes.h"
 #include "../runtime/fd_system_ids.h"
+#include "../runtime/context/fd_exec_epoch_ctx.h"
+#include "../runtime/context/fd_exec_slot_ctx.h"
 #include "../runtime/program/fd_stake_program.h"
+#include "../runtime/sysvar/fd_sysvar_stake_history.h"
+
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 /* fd_stakes_accum_by_node converts Stakes (unordered list of (vote acc,
    active stake) tuples) to StakedNodes (rbtree mapping (node identity)
@@ -465,5 +471,5 @@ write_stake_state( fd_exec_slot_ctx_t *   global,
     memcpy( &stake_acc_rec->meta->info.owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) );
   }
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return 0;
 }
