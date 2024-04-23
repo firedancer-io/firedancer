@@ -7,7 +7,6 @@
 #include "context/fd_exec_instr_ctx.h"
 
 #include "../../util/rng/fd_rng.h"
-#include "../nanopb/pb_encode.h"
 #include "fd_system_ids.h"
 #include "fd_account.h"
 #include "program/fd_address_lookup_table_program.h"

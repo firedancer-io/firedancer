@@ -2,6 +2,7 @@
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
 #include "../../flamenco/runtime/fd_borrowed_account.h"
+#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/program/fd_program_util.h"
 #include "../../flamenco/runtime/program/fd_vote_program.h"
 
@@ -118,7 +119,7 @@ fd_forks_delete( void * forks ) {
 fd_fork_t *
 fd_forks_rollback( fd_forks_t * forks, ulong slot ) {
   fd_fork_t *          fork     = fd_fork_pool_ele_acquire( forks->pool );
-  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx ) );
+  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx, forks->valloc ) );
   if( FD_UNLIKELY( !slot_ctx ) ) FD_LOG_ERR( ( "failed to new and join slot_ctx" ) );
   fork->slot = slot;
 

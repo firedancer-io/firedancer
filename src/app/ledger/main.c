@@ -27,6 +27,9 @@
 #include "../../flamenco/shredcap/fd_shredcap.h"
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 extern void fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx, uchar const       pubkey[ static 32 ], char const *      data, ulong             sz );
 
 static void usage(char const * progname) {
@@ -160,7 +163,7 @@ main( int     argc,
 
   char const * wkspname           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",             NULL, NULL      );
   ulong        pages              = fd_env_strip_cmdline_ulong( &argc, &argv, "--pages",            NULL, ULONG_MAX );
-  if( pages == ULONG_MAX )    
+  if( pages == ULONG_MAX )
     pages                         = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",         NULL, 5         );
   char const * reset              = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",            NULL, "false"   );
   char const * cmd                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",              NULL, NULL      );
@@ -196,7 +199,7 @@ main( int     argc,
   if ( is_pruned && (pages_pruned == ULONG_MAX || index_max_unpruned == ULONG_MAX) ) {
     FD_LOG_ERR(( "pruning requires --pagespruned and --indexmaxunpruned" ));
   }
-  
+
   /* Setup wksp(s) */
   fd_wksp_t* wksp;
   if (wkspname == NULL) {
@@ -259,7 +262,7 @@ main( int     argc,
     if (shmem == NULL)
       FD_LOG_ERR(( "failed to allocate a funky" ));
     funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
-    
+
     if (funk == NULL) {
       fd_wksp_free_laddr(shmem);
       FD_LOG_ERR(( "failed to allocate a funky" ));
@@ -295,12 +298,12 @@ main( int     argc,
   /* Create a duplicate blockstore for pruning in the pruned wksp. Otherwise ignore. */
   fd_blockstore_t * pruned_blockstore = NULL;
   if ( is_pruned ) {
-    shmem = fd_wksp_alloc_laddr( pruned_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );  
+    shmem = fd_wksp_alloc_laddr( pruned_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
     if ( shmem == NULL ) {
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
     }
     int lg_txn_max = 22;
-    pruned_blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, hashseed, shred_max, 
+    pruned_blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, hashseed, shred_max,
                                                                slot_history_max, lg_txn_max ) );
     if ( pruned_blockstore == NULL ) {
       fd_wksp_free_laddr( shmem );
@@ -323,7 +326,7 @@ main( int     argc,
 
   fd_acc_mgr_t mgr[1];
   slot_ctx->acc_mgr = fd_acc_mgr_new( mgr, funk );
-  
+
   slot_ctx->blockstore = is_pruned ? pruned_blockstore : blockstore;
 
   fd_tpool_t * tpool = NULL;
@@ -332,9 +335,9 @@ main( int     argc,
     // Do nothing
 
   } else if ( strcmp(cmd, "prune") == 0 ) {
-    /* build/native/clang/bin/fd_frank_ledger --cmd prune --indexmax <index max for pruned funk> 
+    /* build/native/clang/bin/fd_frank_ledger --cmd prune --indexmax <index max for pruned funk>
        --indexmaxunpruned <index max for unpruned funk> --pages <PAGES> --rocksdb <ROCKSDB>
-       --snapshotfile <SNAPSHOT> --backup <BACKUP> --endslot <END_SLOT> 
+       --snapshotfile <SNAPSHOT> --backup <BACKUP> --endslot <END_SLOT>
        --pagespruned <num pages in checkpt> */
 
     if ( pruned_blockstore == NULL ) { /* Should never happen */
@@ -344,14 +347,14 @@ main( int     argc,
     } else if ( rocksdb_dir == NULL ) {
       FD_LOG_ERR(("missing rocksdb directory"));
     }
-      
+
     /* Setup a temporary funk with all accounts. This will be deleted and not checkpointed. */
     fd_funk_t * unpruned_funk;
     shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC ); // TODO: maybe delete this
     if ( shmem == NULL ) {
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
-    unpruned_funk = fd_funk_join( fd_funk_new( shmem, FD_FUNK_MAGIC, hashseed, 
+    unpruned_funk = fd_funk_join( fd_funk_new( shmem, FD_FUNK_MAGIC, hashseed,
                                                xactions_max, index_max_unpruned ) );
     if ( unpruned_funk == NULL ) {
       fd_wksp_free_laddr( shmem );
@@ -361,7 +364,7 @@ main( int     argc,
 
     /* Set up slot and epoch contexts used for execution (unpruned). */
     fd_alloc_t * alloc_unpruned = fd_alloc_join( fd_wksp_laddr_fast( wksp, unpruned_funk->alloc_gaddr ), 0UL );
-    if( FD_UNLIKELY( !alloc_unpruned ) ) { 
+    if( FD_UNLIKELY( !alloc_unpruned ) ) {
       FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", unpruned_funk->alloc_gaddr ));
     }
 
@@ -384,7 +387,7 @@ main( int     argc,
     /* Load in snapshot and rocksdb */
     fd_snapshot_load( snapshotfile, slot_ctx_unpruned, verifyacchash != NULL,
                       checkacchash != NULL, FD_SNAPSHOT_TYPE_FULL );
-    FD_LOG_NOTICE(("imported %lu records from snapshot", 
+    FD_LOG_NOTICE(("imported %lu records from snapshot",
                    fd_funk_rec_cnt( fd_funk_rec_map ( unpruned_funk, wksp ))));
 
     if( incremental ) {
@@ -404,7 +407,7 @@ main( int     argc,
                     strcmp( txnstatus, "true" ) == 0, trashhash );
     FD_LOG_NOTICE(("imported pruned rocksdb"));
 
-    fd_scratch_detach( NULL ); 
+    fd_scratch_detach( NULL );
 
     /* Replay to get all accounts that are touched (r/w) during execution */
     fd_runtime_args_t args;
@@ -423,7 +426,7 @@ main( int     argc,
     args.tcnt = fd_tile_cnt();
     if( args.tcnt > 1 ) {
       tpool = fd_tpool_init( state.tpool_mem, args.tcnt );
-      if( tpool == NULL ) { 
+      if( tpool == NULL ) {
         FD_LOG_ERR(( "failed to create thread pool" ));
       }
       for( ulong i = 1; i < args.tcnt; ++i ) {
@@ -437,7 +440,7 @@ main( int     argc,
     }
     state.tpool       = tpool;
     state.max_workers = args.tcnt;
-    
+
     /* Junk xid for pruning transaction */ // TODO: factor out the xid nicelY
     fd_funk_txn_xid_t prune_xid;
     fd_memset( &prune_xid, 0x42, sizeof(fd_funk_txn_xid_t));
@@ -451,7 +454,7 @@ main( int     argc,
     }
 
     /* Reset the wksp and load in funk again. */
-    /* TODO: A better implementation of this would be to just rollback the 
+    /* TODO: A better implementation of this would be to just rollback the
        funk transactions. This can be done by publishing all funk transactions
        into a parent and then cancelling the parent after execution is complete. */
 
@@ -461,7 +464,7 @@ main( int     argc,
     if ( shmem == NULL ) {
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
-    unpruned_funk = fd_funk_join( fd_funk_new( shmem, FD_FUNK_MAGIC, hashseed, 
+    unpruned_funk = fd_funk_join( fd_funk_new( shmem, FD_FUNK_MAGIC, hashseed,
                                                xactions_max, index_max_unpruned ) );
     fd_scratch_detach( NULL );
     smem = fd_wksp_alloc_laddr( wksp, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax   ), 421UL );
@@ -470,7 +473,7 @@ main( int     argc,
     fd_scratch_attach( smem, fmem, smax, sdepth );
 
     alloc_unpruned = fd_alloc_join( fd_wksp_laddr_fast( wksp, unpruned_funk->alloc_gaddr ), 0UL );
-    if( FD_UNLIKELY( !alloc_unpruned ) ) { 
+    if( FD_UNLIKELY( !alloc_unpruned ) ) {
       FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", unpruned_funk->alloc_gaddr ));
     }
     epoch_ctx_unpruned = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem_unpruned ) );
@@ -489,24 +492,24 @@ main( int     argc,
       fd_snapshot_load( incremental, slot_ctx_unpruned, (verifyacchash != NULL), (checkacchash != NULL), FD_SNAPSHOT_TYPE_INCREMENTAL );
     }
 
-    FD_LOG_NOTICE(("imported %lu records from snapshot", 
+    FD_LOG_NOTICE(("imported %lu records from snapshot",
                    fd_funk_rec_cnt( fd_funk_rec_map ( unpruned_funk, wksp ))));
 
     /* After replaying, update all touched accounts to contain the data that is
        present before execution begins. Look up the corresponding account in the
        unpruned funk and copy over the contents */
     fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, pruned_wksp );
-    for ( const fd_funk_rec_t * rec = fd_funk_txn_rec_head( prune_txn, rec_map ); 
+    for ( const fd_funk_rec_t * rec = fd_funk_txn_rec_head( prune_txn, rec_map );
           rec; rec = fd_funk_txn_next_rec( funk, rec ) ) {
-            
+
       const fd_funk_rec_t * original_rec = fd_funk_rec_query_global( unpruned_funk, NULL, rec->pair.key );
       if ( original_rec != NULL ) {
         fd_funk_rec_t * mod_rec = fd_funk_rec_modify( funk, rec );
-        mod_rec = fd_funk_val_copy( mod_rec, fd_funk_val_const( original_rec, wksp ), 
-                                    fd_funk_val_sz( original_rec ),fd_funk_val_sz( original_rec ), 
+        mod_rec = fd_funk_val_copy( mod_rec, fd_funk_val_const( original_rec, wksp ),
+                                    fd_funk_val_sz( original_rec ),fd_funk_val_sz( original_rec ),
                                     fd_funk_alloc( funk, pruned_wksp ), pruned_wksp, NULL );
-        FD_TEST(( memcmp( fd_funk_val( original_rec, wksp ), fd_funk_val_const( rec, pruned_wksp ), 
-                          fd_funk_val_sz( original_rec ) ) == 0 ));      
+        FD_TEST(( memcmp( fd_funk_val( original_rec, wksp ), fd_funk_val_const( rec, pruned_wksp ),
+                          fd_funk_val_sz( original_rec ) ) == 0 ));
       } else {
         fd_funk_rec_t * mod_rec = fd_funk_rec_modify( funk, rec );
         int res = fd_funk_rec_remove( funk, mod_rec, 1 );
@@ -526,11 +529,11 @@ main( int     argc,
         FD_LOG_DEBUG(("Feature is not present; pubkey=%32J", &feature_id));
         continue;
       }
-      fd_funk_rec_t * new_feature_rec = fd_funk_rec_write_prepare( funk, prune_txn, &feature_id, 
+      fd_funk_rec_t * new_feature_rec = fd_funk_rec_write_prepare( funk, prune_txn, &feature_id,
                                                                    0, 1, NULL, NULL );
       FD_TEST(( !!new_feature_rec ));
-      new_feature_rec = fd_funk_val_copy( new_feature_rec, fd_funk_val_const( feature_rec, wksp ), 
-                                          fd_funk_val_sz( feature_rec ), fd_funk_val_sz( feature_rec ), 
+      new_feature_rec = fd_funk_val_copy( new_feature_rec, fd_funk_val_const( feature_rec, wksp ),
+                                          fd_funk_val_sz( feature_rec ), fd_funk_val_sz( feature_rec ),
                                           fd_funk_alloc( funk, pruned_wksp ), pruned_wksp, NULL );
       FD_TEST(( !!new_feature_rec ));
     }
@@ -553,8 +556,8 @@ main( int     argc,
     fd_funk_rec_key_t instructions        = fd_acc_funk_key( &fd_sysvar_instructions_id );
     fd_funk_rec_key_t incinerator         = fd_acc_funk_key( &fd_sysvar_incinerator_id );
 
-    fd_funk_rec_key_t records[15] = { id_epoch_bank, id_slot_bank, recent_block_hashes, clock, slot_history, 
-                                      slot_hashes, epoch_schedule, epoch_rewards, sysvar_fees, rent, 
+    fd_funk_rec_key_t records[15] = { id_epoch_bank, id_slot_bank, recent_block_hashes, clock, slot_history,
+                                      slot_hashes, epoch_schedule, epoch_rewards, sysvar_fees, rent,
                                       stake_history, owner, last_restart_slot, instructions, incinerator };
     for ( uint i = 0; i < sizeof( records ) / sizeof( fd_funk_rec_key_t ); ++i ) {
       fd_funk_rec_t const * original_rec = fd_funk_rec_query_global( unpruned_funk, NULL, &records[i] );
@@ -565,8 +568,8 @@ main( int     argc,
       }
       fd_funk_rec_t * new_rec = fd_funk_rec_write_prepare( funk, prune_txn, &records[i], 0, 1, NULL, NULL );
       FD_TEST(( !!new_rec ));
-      new_rec = fd_funk_val_copy( new_rec, fd_funk_val_const( original_rec, wksp ), 
-                                  fd_funk_val_sz( original_rec ), fd_funk_val_sz( original_rec ), 
+      new_rec = fd_funk_val_copy( new_rec, fd_funk_val_const( original_rec, wksp ),
+                                  fd_funk_val_sz( original_rec ), fd_funk_val_sz( original_rec ),
                                   fd_funk_alloc( funk, pruned_wksp ), pruned_wksp, NULL );
       FD_TEST(( !!new_rec ));
     }

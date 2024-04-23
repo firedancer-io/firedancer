@@ -13,7 +13,7 @@ fd_shred_cap_mark_stable( fd_replay_t * replay, ulong slot ) {
     replay->stable_slot_end = slot;
 
   if (replay->stable_slot_start + MAX_STABLE_PREFIX < replay->stable_slot_end) {
-    FD_LOG_WARNING( ("reaching max stable prefix length (%u..%u more than %u slots) in shred_cap",
+    FD_LOG_WARNING( ("reaching max stable prefix length (%lu..%lu more than %u slots) in shred_cap",
                      replay->stable_slot_start,
                      replay->stable_slot_end,
                      MAX_STABLE_PREFIX) );
@@ -31,7 +31,7 @@ fd_shred_cap_archive( fd_replay_t * replay, fd_shred_t const * shred, uchar flag
   fwrite( &cap_header, sizeof( fd_shred_cap_hdr_t ), 1UL, replay->shred_cap );
 
   if( FD_UNLIKELY( fwrite( shred, sizeof( uchar ), n, replay->shred_cap ) != n ) ) {
-    FD_LOG_WARNING( ( "failed at logging shred idx=%d for slot#%d", shred->idx, shred->slot ) );
+    FD_LOG_WARNING( ( "failed at logging shred idx=%d for slot#%lu", shred->idx, shred->slot ) );
     return FD_SHRED_CAP_ERR;
   }
   // FD_LOG_NOTICE( ( "logging shred idx=%d for slot#%u", shred->idx, shred->slot ) );

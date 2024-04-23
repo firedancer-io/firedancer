@@ -1,6 +1,7 @@
 ifdef FD_HAS_INT128
 $(call add-objs,fd_shred_dest,fd_disco)
 $(call add-objs,fd_shredder,fd_disco)
+$(call add-objs,fd_shred_cap,fd_disco,fd_flamenco)
 $(call add-objs,fd_fec_resolver,fd_disco)
 $(call add-objs,fd_stake_ci,fd_disco)
 $(call make-unit-test,test_shred_dest,test_shred_dest,fd_ballet fd_util fd_flamenco fd_disco)
