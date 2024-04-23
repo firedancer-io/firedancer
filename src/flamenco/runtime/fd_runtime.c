@@ -25,7 +25,7 @@
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
 #include "program/fd_bpf_program_util.h"
-#include "program/fd_bpf_upgradeable_loader_program.h"
+#include "program/fd_bpf_loader_v3_program.h"
 
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_fees.h"
@@ -876,14 +876,14 @@ fd_runtime_copy_program_data_acc_to_pruned_funk( fd_funk_t * pruned_funk,
     return;
   }
 
-  fd_account_meta_t const * program_acc = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, NULL, 
+  fd_account_meta_t const * program_acc = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, NULL,
                                                                program_pubkey, NULL, NULL );
   fd_bincode_decode_ctx_t ctx = {
     .data    = (uchar *)program_acc + program_acc->hlen,
     .dataend = (char *) ctx.data + program_acc->dlen,
     .valloc  = slot_ctx->valloc,
   };
-  
+
   fd_bpf_upgradeable_loader_state_t loader_state;
   if ( fd_bpf_upgradeable_loader_state_decode( &loader_state, &ctx ) ) {
     FD_LOG_ERR(( "fd_bpf_upgradeable_loader_state_decode failed" ));
@@ -897,7 +897,7 @@ fd_runtime_copy_program_data_acc_to_pruned_funk( fd_funk_t * pruned_funk,
   fd_funk_rec_key_t programdata_reckey = fd_acc_funk_key( programdata_pubkey );
 
   /* Copy over programdata record */
-  fd_funk_rec_t * new_rec_pd = fd_funk_rec_write_prepare( pruned_funk, prune_txn, &programdata_reckey, 
+  fd_funk_rec_t * new_rec_pd = fd_funk_rec_write_prepare( pruned_funk, prune_txn, &programdata_reckey,
                                                           0, 1, NULL, NULL );
   FD_TEST(( !!new_rec_pd ));
 }
@@ -907,8 +907,8 @@ fd_runtime_copy_accounts_to_pruned_funk( fd_funk_t * pruned_funk,
                                          fd_funk_txn_t * prune_txn,
                                          fd_exec_slot_ctx_t * slot_ctx,
                                          fd_exec_txn_ctx_t * txn_ctx ) {
-  /* This function is only responsible for copying over the account ids that are 
-     touched. The account data is copied over after execution is complete. */                
+  /* This function is only responsible for copying over the account ids that are
+     touched. The account data is copied over after execution is complete. */
 
   /* Copy over ALUTs */
   fd_txn_acct_addr_lut_t * addr_luts = fd_txn_get_address_tables( (fd_txn_t *) txn_ctx->txn_descriptor );
@@ -953,7 +953,7 @@ fd_runtime_copy_accounts_to_pruned_funk( fd_funk_t * pruned_funk,
 void
 fd_runtime_write_transaction_status( fd_capture_ctx_t * capture_ctx,
                                      fd_exec_slot_ctx_t * slot_ctx,
-                                     fd_exec_txn_ctx_t * txn_ctx, 
+                                     fd_exec_txn_ctx_t * txn_ctx,
                                      int exec_txn_err) {
   /* Look up solana-side transaction status details */
   fd_blockstore_t * blockstore = txn_ctx->slot_ctx->blockstore;
@@ -2671,7 +2671,7 @@ fd_runtime_collect_rent_accounts_prune( ulong slot, fd_exec_slot_ctx_t * slot_ct
 
     fd_pubkey_t const * key = fd_type_pun_const(rec_ro->pair.key[0].uc);
     fd_funk_rec_key_t rec_key = fd_acc_funk_key( key );
-    
+
     fd_funk_txn_xid_t prune_xid;
     fd_memset( &prune_xid, 0x42, sizeof(fd_funk_txn_xid_t));
 
@@ -2682,7 +2682,7 @@ fd_runtime_collect_rent_accounts_prune( ulong slot, fd_exec_slot_ctx_t * slot_ct
     FD_TEST(( !!rec ));
 
     int res = fd_funk_part_set( capture_ctx->pruned_funk, rec, (uint)off );
-    FD_TEST(( res == 0 ));   
+    FD_TEST(( res == 0 ));
   }
 }
 

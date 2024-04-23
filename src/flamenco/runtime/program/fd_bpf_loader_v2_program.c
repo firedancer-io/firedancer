@@ -1,4 +1,4 @@
-#include "fd_bpf_loader_program.h"
+#include "fd_bpf_loader_v2_program.h"
 
 #include "../fd_account.h"
 #include "../../../ballet/base58/fd_base58.h"

@@ -1,6 +1,6 @@
 #include "fd_bpf_program_util.h"
-#include "fd_bpf_loader_program.h"
-#include "fd_bpf_upgradeable_loader_program.h"
+#include "fd_bpf_loader_v2_program.h"
+#include "fd_bpf_loader_v3_program.h"
 #include "../../vm/fd_vm_syscalls.h"
 
 #include <assert.h>
