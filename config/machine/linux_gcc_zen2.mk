@@ -8,9 +8,6 @@ include config/extra/with-debug.mk
 include config/extra/with-brutality.mk
 include config/extra/with-optimization.mk
 include config/extra/with-threads.mk
-include config/extra/with-ucontext.mk
-include config/extra/with-openssl.mk
-include config/extra/with-zstd.mk
 
 # GCC 8 (Firedancer's minimum supported GCC version) only supports znver1.
 ifeq ($(shell $(CC) -dumpversion),8)
