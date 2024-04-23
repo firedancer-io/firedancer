@@ -24,29 +24,6 @@
 
 #include <assert.h>
 
-/* demote_program_id() in https://github.com/solana-labs/solana/blob/061bed0a8ca80afb97f4438155e8a6b47bbf7f6d/sdk/program/src/message/versions/v0/loaded.rs#L150 */
-static inline int
-fd_txn_account_is_demotion( fd_exec_txn_ctx_t * txn_ctx,
-                            int                 idx ) {
-  uint is_program = 0;
-  for ( ulong j = 0; j < txn_ctx->txn_descriptor->instr_cnt; j++ ) {
-    if ( txn_ctx->txn_descriptor->instr[j].program_id == idx ) {
-      is_program = 1;
-      break;
-    }
-  }
-
-  uint bpf_upgradeable_in_txn = 0;
-  for( ulong j = 0; j < txn_ctx->accounts_cnt; j++ ) {
-    const fd_pubkey_t * acc = &txn_ctx->accounts[j];
-    if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {
-      bpf_upgradeable_in_txn = 1;
-      break;
-    }
-  }
-  return (is_program && !bpf_upgradeable_in_txn);
-}
-
 fd_exec_instr_fn_t
 fd_executor_lookup_native_program( fd_pubkey_t const * program_id ) {
 
@@ -501,8 +478,8 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
     fd_instr_info_t instrs[txn_ctx->txn_descriptor->instr_cnt];
     for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
-      fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[i];
-      fd_convert_txn_instr_to_instr( txn_ctx->txn_descriptor, txn_ctx->_txn_raw, txn_instr, txn_ctx->accounts, txn_ctx->borrowed_accounts, &instrs[i] );
+      //fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[i];
+      //fd_convert_txn_instr_to_instr( txn_ctx->txn_descriptor, txn_ctx->_txn_raw, txn_instr, txn_ctx->accounts, txn_ctx->borrowed_accounts, &instrs[i] );
     }
 
     int ret = 0;
