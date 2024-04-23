@@ -1,15 +1,61 @@
 #ifndef HEADER_fd_src_flamenco_runtime_context_fd_exec_slot_ctx_h
 #define HEADER_fd_src_flamenco_runtime_context_fd_exec_slot_ctx_h
 
-#include "../fd_runtime.h"
 #include "../../../funk/fd_funk.h"
 #include "../../../util/rng/fd_rng.h"
 #include "../../../util/wksp/fd_wksp.h"
 
-//#include "../../rewards/fd_rewards_types.h"
+#include "../../rewards/fd_rewards_types.h"
+#include "../sysvar/fd_sysvar_cache.h"
+#include "../sysvar/fd_sysvar_cache_old.h"
 #include "../../types/fd_types.h"
 
-#include "../sysvar/fd_sysvar_cache.h"
+/* fd_tower is represents a given pubkey's vote tower. */
+
+struct fd_tower {
+   fd_pubkey_t node_pubkey;
+   fd_pubkey_t vote_acc_addr;
+   fd_option_slot_t root;
+   ulong slots[32];
+   ulong cnt;
+};
+typedef struct fd_tower fd_tower_t;
+
+#define DEQUE_NAME fd_tower_deque
+#define DEQUE_T    fd_tower_t
+#define DEQUE_MAX  10000UL
+#include "../../../util/tmpl/fd_deque.c"
+
+struct fd_account_compute_elem {
+  fd_pubkey_t key;
+  ulong next;
+  ulong cu_consumed;
+};
+typedef struct fd_account_compute_elem fd_account_compute_elem_t;
+
+static int
+fd_pubkey_eq( fd_pubkey_t const * key1, fd_pubkey_t const * key2 ) {
+  return memcmp( key1->key, key2->key, sizeof(fd_pubkey_t) ) == 0;
+}
+
+static ulong
+fd_pubkey_hash( fd_pubkey_t const * key, ulong seed ) {
+  return fd_hash( seed, key->key, sizeof(fd_pubkey_t) );
+}
+
+static void
+fd_pubkey_copy( fd_pubkey_t * keyd, fd_pubkey_t const * keys ) {
+  memcpy( keyd->key, keys->key, sizeof(fd_pubkey_t) );
+}
+
+/* Contact info table */
+#define MAP_NAME     fd_account_compute_table
+#define MAP_KEY_T    fd_pubkey_t
+#define MAP_KEY_EQ   fd_pubkey_eq
+#define MAP_KEY_HASH fd_pubkey_hash
+#define MAP_KEY_COPY fd_pubkey_copy
+#define MAP_T        fd_account_compute_elem_t
+#include "../../../util/tmpl/fd_map_giant.c"
 
 /* fd_exec_slot_ctx_t is the context that stays constant during all
    transactions in a block. */
@@ -23,17 +69,22 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_acc_mgr_t *           acc_mgr;
   fd_valloc_t              valloc;
 
-  fd_rng_t                 rnd_mem;
-  fd_rng_t *               rng;
+  fd_slot_bank_t           slot_bank;
+  fd_sysvar_cache_old_t    sysvar_cache_old; // TODO make const
+  fd_pubkey_t const *      leader; /* Current leader */
+  ulong                    total_compute_units_requested;
 
-  //fd_epoch_reward_status_t epoch_reward_status;
+  /* TODO figure out what to do with this */
+  fd_epoch_reward_status_t epoch_reward_status;
+
+  /* TODO remove this stuff */
   ulong                    signature_cnt;
   fd_hash_t                account_delta_hash;
   fd_hash_t                prev_banks_hash;
 
-  fd_pubkey_t const *      leader; /* Current leader */
-  fd_slot_bank_t           slot_bank;
+  fd_tower_t * towers;
   fd_sysvar_cache_t *      sysvar_cache;
+  fd_account_compute_elem_t * account_compute_table;
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))
@@ -75,15 +126,10 @@ fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   ctx,
                           fd_solana_manifest_t * manifest );
 
-static inline ulong
-fd_runtime_lamports_per_signature( fd_slot_bank_t const * slot_bank ) {
-  // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
-  return slot_bank->fee_rate_governor.target_lamports_per_signature / 2;
-}
 
-ulong
-fd_runtime_lamports_per_signature_for_blockhash( fd_exec_slot_ctx_t const * slot_ctx,
-                                                 fd_hash_t const *          blockhash );
+/* Free all allocated memory within a slot ctx */
+void
+fd_exec_slot_ctx_free(fd_exec_slot_ctx_t * ctx);
 
 FD_PROTOTYPES_END
 

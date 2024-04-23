@@ -1,6 +1,7 @@
 #include "fd_exec_slot_ctx.h"
 #include "fd_exec_epoch_ctx.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
+#include "../program/fd_vote_program.h"
 
 #include <assert.h>
 #include <time.h>
@@ -20,13 +21,13 @@ fd_exec_slot_ctx_new( void *      mem,
 
   fd_memset(mem, 0, FD_EXEC_SLOT_CTX_FOOTPRINT);
 
-  fd_exec_slot_ctx_t * self = (fd_exec_slot_ctx_t *)mem;
+  fd_exec_slot_ctx_t * self = (fd_exec_slot_ctx_t *) mem;
   self->valloc = valloc;
-
-  self->rng = fd_rng_join( fd_rng_new(&self->rnd_mem, (uint) time(0), 0) );
+  self->towers = NULL;
 
   fd_slot_bank_new(&self->slot_bank);
   self->sysvar_cache = fd_sysvar_cache_new( fd_valloc_malloc( valloc, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() ), valloc );
+  self->account_compute_table = fd_account_compute_table_join( fd_account_compute_table_new( fd_valloc_malloc( valloc, fd_account_compute_table_align(), fd_account_compute_table_footprint( 10000 ) ), 10000, 0 ) );
 
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_SLOT_CTX_MAGIC;
@@ -102,17 +103,16 @@ fd_exec_slot_ctx_delete( void * mem ) {
    accounts in current epoch stakes. */
 
 static int
-recover_clock( fd_exec_slot_ctx_t *   slot_ctx,
-               fd_solana_manifest_t * manifest ) {
+recover_clock( fd_exec_slot_ctx_t * slot_ctx ) {
 
-  fd_vote_accounts_t const * vote_accounts = &manifest->bank.stakes.vote_accounts;
+  fd_vote_accounts_t const * vote_accounts = &slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts;
+
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = vote_accounts->vote_accounts_pool;
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = vote_accounts->vote_accounts_root;
 
   for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(vote_accounts_pool, vote_accounts_root);
        n;
        n = fd_vote_accounts_pair_t_map_successor( vote_accounts_pool, n ) ) {
-
     /* Extract vote timestamp of account */
 
     fd_vote_block_timestamp_t vote_state_timestamp;
@@ -143,13 +143,12 @@ recover_clock( fd_exec_slot_ctx_t *   slot_ctx,
       default:
         __builtin_unreachable();
       }
-    }
-    FD_SCRATCH_SCOPE_END;
 
-    /* Record timestamp */
-
-    (void)slot_ctx;
-    (void)vote_state_timestamp;
+      /* Record timestamp */
+      if( vote_state_timestamp.slot != 0 || n->elem.stake != 0 ) {
+        fd_vote_record_timestamp_vote_with_slot(slot_ctx, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot);
+      }
+    } FD_SCRATCH_SCOPE_END;
   }
 
   return 1;
@@ -185,8 +184,6 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
   /* Index vote accounts */
 
-  recover_clock( slot_ctx, manifest );
-
   /* Copy over fields */
 
   if( oldbank->blockhash_queue.last_hash )
@@ -217,6 +214,24 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   slot_bank->capitalization = oldbank->capitalization;
   slot_bank->block_height = oldbank->block_height;
   slot_bank->transaction_count = oldbank->transaction_count;
+  if ( oldbank->blockhash_queue.last_hash ) {
+    slot_bank->block_hash_queue.last_hash = fd_valloc_malloc( slot_ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+    fd_memcpy( slot_bank->block_hash_queue.last_hash, oldbank->blockhash_queue.last_hash, sizeof(fd_hash_t) );
+  } else {
+    slot_bank->block_hash_queue.last_hash = NULL;
+  }
+  slot_bank->block_hash_queue.last_hash_index = oldbank->blockhash_queue.last_hash_index;
+  slot_bank->block_hash_queue.max_age = oldbank->blockhash_queue.max_age;
+  slot_bank->block_hash_queue.ages_root = NULL;
+  slot_bank->block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( slot_ctx->valloc, 400 );
+  for ( ulong i = 0; i < oldbank->blockhash_queue.ages_len; i++ ) {
+    fd_hash_hash_age_pair_t * elem = &oldbank->blockhash_queue.ages[i];
+    fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( slot_bank->block_hash_queue.ages_pool );
+    fd_memcpy( &node->elem, elem, FD_HASH_HASH_AGE_PAIR_FOOTPRINT );
+    fd_hash_hash_age_pair_t_map_insert( slot_bank->block_hash_queue.ages_pool, &slot_bank->block_hash_queue.ages_root, node );
+  }
+
+  recover_clock( slot_ctx );
 
   /* Update last restart slot
      https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152
@@ -228,12 +243,12 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   do {
     slot_bank->last_restart_slot.slot = 0UL;
     if( FD_UNLIKELY( oldbank->hard_forks.hard_forks_len == 0 ) ) {
-      FD_LOG_WARNING(("Snapshot missing hard forks. What is the correct 'last restart slot' value?"));
+      /* SIMD-0047: The first restart slot should be `0` */
       break;
     }
 
-    fd_slot_pair_t const *head = oldbank->hard_forks.hard_forks;
-    fd_slot_pair_t const *tail = head + oldbank->hard_forks.hard_forks_len - 1UL;
+    fd_slot_pair_t const * head = oldbank->hard_forks.hard_forks;
+    fd_slot_pair_t const * tail = head + oldbank->hard_forks.hard_forks_len - 1UL;
 
     for( fd_slot_pair_t const *pair = tail; pair >= head; pair-- ) {
       if( pair->slot <= slot_bank->slot ) {
@@ -298,28 +313,20 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   slot_ctx,
   return res;
 }
 
-ulong
-fd_runtime_lamports_per_signature_for_blockhash( fd_exec_slot_ctx_t const * slot_ctx,
-                                                 fd_hash_t const *          blockhash ) {
+void
+fd_exec_slot_ctx_free( fd_exec_slot_ctx_t * slot_ctx ) {
+  fd_bincode_destroy_ctx_t ctx;
+  ctx.valloc = slot_ctx->valloc;
+  fd_slot_bank_destroy( &slot_ctx->slot_bank, &ctx );
 
-  // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
+  /* only the slot hashes needs freeing in sysvar cache */
+  fd_slot_hashes_destroy( slot_ctx->sysvar_cache_old.slot_hashes, &ctx );
 
-  // https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/runtime/src/blockhash_queue.rs#L55
-  ulong default_fee = slot_ctx->slot_bank.fee_rate_governor.target_lamports_per_signature / 2;
+  /* leader points to a caller-allocated leader schedule */
 
-  if( blockhash == NULL ) {
-    return default_fee;
-  }
+  /* free vec in stake rewards*/
+  if( NULL != slot_ctx->epoch_reward_status.stake_rewards_by_partition )
+    fd_stake_rewards_vector_destroy( slot_ctx->epoch_reward_status.stake_rewards_by_partition );
 
-  fd_block_block_hash_entry_t *hashes = slot_ctx->slot_bank.recent_block_hashes.hashes;
-  for( deq_fd_block_block_hash_entry_t_iter_t iter = deq_fd_block_block_hash_entry_t_iter_init(hashes);
-       !deq_fd_block_block_hash_entry_t_iter_done(hashes, iter);
-       iter = deq_fd_block_block_hash_entry_t_iter_next(hashes, iter) ) {
-    fd_block_block_hash_entry_t *curr_elem = deq_fd_block_block_hash_entry_t_iter_ele(hashes, iter);
-    if (memcmp(&curr_elem->blockhash, blockhash, sizeof(fd_hash_t)) == 0) {
-      return curr_elem->fee_calculator.lamports_per_signature;
-    }
-  }
-
-  return default_fee;
+  fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( slot_ctx ) );
 }
