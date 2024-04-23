@@ -25,6 +25,9 @@ $(call add-objs,fd_sysvar_instructions,fd_flamenco)
 $(call add-hdrs,fd_sysvar_last_restart_slot.h)
 $(call add-objs,fd_sysvar_last_restart_slot,fd_flamenco)
 
+$(call add-hdrs,fd_sysvar_recent_hashes.h)
+$(call add-objs,fd_sysvar_recent_hashes,fd_flamenco)
+
 $(call add-hdrs,fd_sysvar_rent.h)
 $(call add-objs,fd_sysvar_rent,fd_flamenco)
 $(call make-unit-test,test_sysvar_rent,test_sysvar_rent,fd_flamenco fd_funk fd_ballet fd_util)
