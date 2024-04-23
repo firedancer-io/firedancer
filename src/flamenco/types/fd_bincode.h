@@ -1,7 +1,16 @@
 #ifndef HEADER_fd_src_util_encoders_fd_bincode_h
 #define HEADER_fd_src_util_encoders_fd_bincode_h
 
+#include "../../util/fd_util.h"
 #include "../../util/valloc/fd_valloc.h"
+
+typedef void
+(* fd_types_walk_fn_t)( void *       self,
+                        void const * arg,
+                        char const * name,
+                        int          type,
+                        char const * type_name,
+                        uint         level );
 
 typedef void
 (* fd_types_walk_fn_t)( void *       self,
@@ -19,21 +28,6 @@ struct fd_bincode_encode_ctx {
   void * dataend;
 };
 typedef struct fd_bincode_encode_ctx fd_bincode_encode_ctx_t;
-
-FD_PROTOTYPES_BEGIN
-
-static inline fd_bincode_encode_ctx_t
-fd_bincode_encode_ctx( void * buf,
-                       ulong  sz ) {
-  return (fd_bincode_encode_ctx_t){ buf, (uchar *)buf + sz };
-}
-
-FD_FN_PURE static inline ulong
-fd_bincode_encode_sz( fd_bincode_encode_ctx_t const * ctx ) {
-  return (ulong)( (uchar *)ctx->data - (uchar *)ctx->dataend );
-}
-
-FD_PROTOTYPES_END
 
 /* Context argument used for decoding */
 struct fd_bincode_decode_ctx {

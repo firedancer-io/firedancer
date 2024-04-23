@@ -28,6 +28,7 @@ typedef union fd_hash fd_hash_t;
 typedef union fd_hash fd_pubkey_t;
 
 static const fd_pubkey_t pubkey_null = { 0 };
+static const fd_hash_t   hash_null   = { 0 };
 
 union fd_signature {
   uchar uc[ 64 ];
@@ -52,6 +53,12 @@ FD_PROTOTYPES_BEGIN
 #define fd_pubkey_set_zero         fd_hash_set_zero
 #define fd_pubkey_walk             fd_hash_walk
 
+struct __attribute__((aligned(8UL))) fd_option_slot {
+  uchar is_some;
+  ulong slot;
+};
+typedef struct fd_option_slot fd_option_slot_t;
+
 /* Index structure needed for transaction status (metadata) blocks */
 struct fd_txnstatusidx {
     fd_ed25519_sig_t sig;
@@ -62,6 +69,7 @@ typedef struct fd_txnstatusidx fd_txnstatusidx_t;
 
 /* IPv4 ***************************************************************/
 
+typedef uint fd_gossip_ip4_addr_t;
 typedef uint fd_gossip_ip4_addr_t;
 
 /* IPv6 ***************************************************************/
