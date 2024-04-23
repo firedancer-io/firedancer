@@ -55,7 +55,7 @@ fd_vote_reward_t_map_alloc( fd_valloc_t valloc, int lg_slot_cnt ) {
 
 #define DEQUE_NAME deq_fd_stake_reward_t
 #define DEQUE_T    fd_stake_reward_t
-#define DEQUE_MAX  1000000UL
+#define DEQUE_MAX  2000000UL
 #include "../../util/tmpl/fd_deque.c"
 static inline fd_stake_reward_t *
 deq_fd_stake_reward_t_alloc( fd_valloc_t valloc ) {
