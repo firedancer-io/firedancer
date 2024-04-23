@@ -802,16 +802,19 @@ fd_solcap_transaction_solana_diff( fd_solcap_Transaction * transaction,
     return;
   }
 
-  /* Not included */
   if ( transaction->solana_txn_err == ULONG_MAX && transaction->solana_cus_used == ULONG_MAX ) {
+    /* If solana_txn_err and solana_cus_used are both not populated, don't print diff */
     return;
+  } else if ( transaction->solana_txn_err == ULONG_MAX ) {
+    /* Print diff if the solana_txn_err is not set (txn executed successfully) */
+    transaction->solana_txn_err = 0;
   }
 
   /* Only print a diff if cus or transaction result is different */
   /* FIXME: replace with this once CU issue is fixed */
   // if ( !!(meta.fd_txn_err) != !!(meta.solana_txn_err) ||
   //       meta.fd_cus_used != meta.solana_cus_used ) {
-  if ( !!(transaction->fd_txn_err) != !!(transaction->solana_txn_err) || 1 ) {
+  if ( !!(transaction->fd_txn_err) != !!(transaction->solana_txn_err) ) {
     printf(
       "slot:                    %lu\n"
       "txn_sig:                '%64J'\n"
