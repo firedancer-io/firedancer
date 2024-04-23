@@ -6,6 +6,7 @@
 #include "context/fd_exec_txn_ctx.h"
 #include "context/fd_exec_instr_ctx.h"
 
+#include "../nanopb/pb_encode.h"
 #include "../../util/rng/fd_rng.h"
 #include "fd_system_ids.h"
 #include "fd_account.h"
@@ -29,6 +30,13 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/pack/fd_pack.h"
 #include "../../ballet/pack/fd_pack_cost.h"
+
+#define SORT_NAME        sort_uint64_t
+#define SORT_KEY_T       uint64_t
+#define SORT_BEFORE(a,b) (a)<(b)
+#include "../../util/tmpl/fd_sort.c"
+
+#define FD_PROTOBUF_MSG_OUTPUT_DIR "protobuf_tests_from_executed_instr"
 
 #include <assert.h>
 #include <errno.h>
@@ -444,6 +452,159 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t *          slot_ctx,
   }
 
   return 0;
+}
+
+void 
+fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context, 
+                                                    fd_exec_txn_ctx_t *txn_ctx, 
+                                                    fd_instr_info_t *instr ) {
+  /*
+  NOTE: Calling this function requires the caller to have a scratch frame ready (see dump_instr_to_protobuf)
+  */
+
+  /* Program ID */
+  instr_context->has_program_id = true;
+  fd_memcpy(instr_context->program_id, &instr->program_id_pubkey, sizeof(fd_pubkey_t));
+
+  /* Loader ID */
+  instr_context->has_loader_id = true;
+  // For now, the loader ID will be the owner of the program ID
+  fd_memcpy(&instr_context->loader_id, txn_ctx->borrowed_accounts[instr->program_id].const_meta->info.owner, sizeof(fd_pubkey_t));
+
+  /* Accounts */
+  instr_context->accounts_count = (pb_size_t) txn_ctx->accounts_cnt;
+  instr_context->accounts = fd_scratch_alloc(alignof(fd_exec_test_acct_state_t), instr_context->accounts_count * sizeof(fd_exec_test_acct_state_t));
+  for (ulong i = 0; i < txn_ctx->accounts_cnt; ++i) {
+    fd_exec_test_acct_state_t * output_account = &instr_context->accounts[i];
+    fd_borrowed_account_t * borrowed_account = &txn_ctx->borrowed_accounts[i];
+
+    // Address
+    output_account->has_address = true;
+    fd_memcpy(output_account->address, borrowed_account->pubkey, sizeof(fd_pubkey_t));
+
+    // Lamports
+    output_account->has_lamports = true;
+    output_account->lamports = (uint64_t) borrowed_account->const_meta->info.lamports;
+
+    // Data
+    output_account->data = fd_scratch_alloc(alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(borrowed_account->const_meta->dlen));
+    output_account->data->size = (pb_size_t) borrowed_account->const_meta->dlen;
+    fd_memcpy(output_account->data->bytes, borrowed_account->const_data, borrowed_account->const_meta->dlen);
+
+    // Executable
+    output_account->has_executable = true;
+    output_account->executable = (bool) borrowed_account->const_meta->info.executable;
+
+    // Rent epoch
+    output_account->has_rent_epoch = true;
+    output_account->rent_epoch = (uint64_t) borrowed_account->const_meta->info.rent_epoch;
+
+    // Owner
+    output_account->has_owner = true;
+    fd_memcpy(output_account->owner, borrowed_account->const_meta->info.owner, sizeof(fd_pubkey_t));
+  }
+
+  /* Instruction Accounts */
+  instr_context->instr_accounts_count = (pb_size_t) instr->acct_cnt;
+  instr_context->instr_accounts = fd_scratch_alloc(alignof(fd_exec_test_instr_acct_t), instr_context->instr_accounts_count * sizeof(fd_exec_test_instr_acct_t));
+  for (ushort i = 0; i < instr->acct_cnt; ++i) {
+    fd_exec_test_instr_acct_t * output_instr_account = &instr_context->instr_accounts[i];
+
+    uchar account_flag = instr->acct_flags[i];
+    bool is_writable = account_flag & FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
+    bool is_signer = account_flag & FD_INSTR_ACCT_FLAGS_IS_SIGNER;
+
+    output_instr_account->has_index = true;
+    output_instr_account->index = instr->acct_txn_idxs[i];
+
+    output_instr_account->has_is_writable = true;
+    output_instr_account->is_writable = is_writable;
+
+    output_instr_account->has_is_signer = true;
+    output_instr_account->is_signer = is_signer;
+  }
+
+  /* Data */
+  instr_context->data = fd_scratch_alloc(alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(instr->data_sz));
+  instr_context->data->size = (pb_size_t) instr->data_sz;
+  fd_memcpy(instr_context->data->bytes, instr->data, instr->data_sz);
+
+  /* Compute Units */
+  instr_context->has_cu_avail = true;
+  instr_context->cu_avail = txn_ctx->compute_meter;
+
+  /* Txn Context */
+  instr_context->has_txn_context = true;
+  // TODO: Fill in transaction context whenever it becomes supported
+
+  /* Slot Context */
+  instr_context->has_slot_context = true;
+
+  /* Epoch Context */
+  uint64_t * features = fd_scratch_alloc(alignof(uint64_t), FD_FEATURE_ID_CNT * sizeof(uint64_t));
+  ulong num_features = 0;
+  for (const fd_feature_id_t * current_feature = fd_feature_iter_init(); !fd_feature_iter_done(current_feature); current_feature = fd_feature_iter_next(current_feature)) {
+    if (txn_ctx->epoch_ctx->features.f[current_feature->index] != FD_FEATURE_DISABLED) {
+      features[num_features++] = (uint64_t) current_feature->id.ul[0];
+    }
+  }
+  // Sort the features
+  void * scratch = fd_scratch_alloc(sort_uint64_t_stable_scratch_align(), sort_uint64_t_stable_scratch_footprint(num_features));
+  uint64_t * sorted_features = sort_uint64_t_stable_fast(features, num_features, scratch);
+
+  instr_context->has_epoch_context = true;
+  instr_context->epoch_context.has_features = true;
+  instr_context->epoch_context.features.features_count = (pb_size_t) num_features;
+  instr_context->epoch_context.features.features = sorted_features;
+}
+
+static void 
+dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, 
+                        fd_instr_info_t *instr, 
+                        ushort instruction_idx ) {
+  FD_SCRATCH_SCOPE_BEGIN {
+    // Get base58-encoded tx signature
+    const fd_ed25519_sig_t * signatures = fd_txn_get_signatures(txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw);
+    fd_ed25519_sig_t signature; fd_memcpy(signature, signatures[0], sizeof(fd_ed25519_sig_t));
+    char encoded_signature[FD_BASE58_ENCODED_64_SZ];
+    ulong out_size;
+    fd_base58_encode_64(signature, &out_size, encoded_signature);
+
+    if (txn_ctx->capture_ctx->instruction_dump_signature_filter) {
+      ulong filter_strlen = (ulong) strlen(txn_ctx->capture_ctx->instruction_dump_signature_filter);
+
+      // Terminate early if the signature does not match
+      if (txn_ctx->capture_ctx->instruction_dump_signature_filter &&
+          memcmp(txn_ctx->capture_ctx->instruction_dump_signature_filter, encoded_signature, filter_strlen < out_size ? filter_strlen : out_size)) {
+        return;
+      }
+    }
+
+    fd_exec_test_instr_context_t instr_context = FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT;
+    fd_create_instr_context_protobuf_from_instructions(&instr_context, txn_ctx, instr);
+
+    /* Output to file */
+    ulong out_buf_size = 100 * 1024 * 1024;
+    uint8_t * out = fd_scratch_alloc(alignof(uint8_t), out_buf_size); 
+    pb_ostream_t stream = pb_ostream_from_buffer(out, out_buf_size);
+    if (pb_encode(&stream, FD_EXEC_TEST_INSTR_CONTEXT_FIELDS, &instr_context)) {
+      char output_filepath[256]; fd_memset(output_filepath, 0, sizeof(output_filepath));
+      char * position = fd_cstr_init(output_filepath);
+      position = fd_cstr_append_cstr(position, FD_PROTOBUF_MSG_OUTPUT_DIR);
+      position = fd_cstr_append_cstr(position, "/instr-");
+      position = fd_cstr_append_cstr(position, encoded_signature);
+      position = fd_cstr_append_cstr(position, "-");
+      position = fd_cstr_append_ushort_as_text(position, '0', 0, instruction_idx, 3); // Assume max 3 digits
+      position = fd_cstr_append_cstr(position, ".bin");
+      fd_cstr_fini(position);
+
+      FILE * file = fopen(output_filepath, "wb");
+      if (file) {
+        fwrite(out, 1, stream.bytes_written, file);
+        fclose(file);
+      }
+    }
+  } FD_SCRATCH_SCOPE_END;
 }
 
 int
@@ -864,8 +1025,12 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
         }
       }
 
-      int exec_result = fd_execute_instr( txn_ctx, &instrs[i] );
+      if (txn_ctx->capture_ctx && txn_ctx->capture_ctx->dump_instructions_to_protobuf) {
+        // Capture the input and convert it into a Protobuf message
+        dump_instr_to_protobuf(txn_ctx, &instrs[i], i);
+      }
 
+      int exec_result = fd_execute_instr( txn_ctx, &instrs[i] );
       if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
   #ifdef VLOG
         if ( 250555489 == txn_ctx->slot_ctx->slot_bank.slot ) {
