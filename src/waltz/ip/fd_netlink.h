@@ -27,7 +27,7 @@
 
 /* Defined the buffer space used in netlink calls
    We are not expecting many routing entries or ARP cache entries */
-#define FD_NL_BUF_SZ 4096UL
+#define FD_NL_BUF_SZ (1UL<<16UL)
 
 struct fd_nl {
   int   fd;   /* netlink socket */
