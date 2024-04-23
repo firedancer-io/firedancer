@@ -354,7 +354,7 @@ calculate_reward_points_account(
     uint128 * points,
     ulong * actual_len
  ) {
-    fd_epoch_bank_t const * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
+    fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
     ulong min_stake_delegation = 1000000000;
 
     FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
@@ -441,7 +441,7 @@ calculate_reward_points_partitioned(
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2961-L3018 */
     uint128 points = 0;
     ulong actual_len = 0;
-    fd_epoch_bank_t const * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
+    fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
     FD_LOG_DEBUG(("Delegations len %lu, slot del len %lu", fd_delegation_pair_t_map_size( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root ), fd_stake_accounts_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root )));
     for( fd_delegation_pair_t_mapnode_t const * n = fd_delegation_pair_t_map_minimum_const( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root );
          n;
@@ -504,7 +504,7 @@ calculate_stake_vote_rewards_account(
     fd_vote_reward_t_mapnode_t * vote_reward_map,
     fd_acc_lamports_t *          total_stake_rewards
 ) {
-    fd_epoch_bank_t const * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
+    fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
     ulong min_stake_delegation = 1000000000;
 
     FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
@@ -639,7 +639,7 @@ calculate_stake_vote_rewards(
     fd_validator_reward_calculation_t * result
 ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L3062-L3192 */
-    fd_epoch_bank_t const * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
+    fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
     fd_acc_lamports_t total_stake_rewards = 0;
     fd_stake_reward_t * stake_reward_deq = deq_fd_stake_reward_t_alloc( slot_ctx->valloc );
     fd_vote_reward_t_mapnode_t * vote_reward_map = fd_vote_reward_t_map_alloc( slot_ctx->valloc, 24 );  /* 2^24 slots */
@@ -789,7 +789,7 @@ calculate_rewards_for_partitioning(
 ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2356-L2403 */
     fd_prev_epoch_inflation_rewards_t rewards;
-    fd_epoch_bank_t const * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
+    fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
     fd_slot_bank_t const * slot_bank = &slot_ctx->slot_bank;
     calculate_previous_epoch_inflation_rewards( slot_ctx, epoch_bank, slot_bank->slot, slot_bank->capitalization, prev_epoch, &rewards );
 
@@ -853,7 +853,8 @@ calculate_rewards_and_distribute_vote_rewards(
     // update_reward_history();
 
     // This is for vote rewards only.
-    ulong new_vote_balance_and_staked = vote_balance_and_staked( slot_ctx, &slot_ctx->epoch_ctx->epoch_bank.stakes );
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+    ulong new_vote_balance_and_staked = vote_balance_and_staked( slot_ctx, &epoch_bank->stakes );
     ulong validator_rewards_paid = fd_ulong_sat_sub(new_vote_balance_and_staked, rewards_calc_result->old_vote_balance_and_staked);
 
     // verify that we didn't pay any more than we expected to
@@ -950,7 +951,7 @@ pay_validator_rewards(
         validator_rewards_paid = fd_ulong_sat_add(validator_rewards_paid, ref[i].vote_rewards);
     }
 
-    fd_epoch_bank_t const * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
+    fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
     FD_LOG_DEBUG(("Num stake rewards %lu", deq_fd_stake_reward_t_cnt( rewards_calc_result->stake_reward_deq )));
     /* store stake accounts */
     for (
@@ -1011,7 +1012,7 @@ update_rewards(
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2515-L2599 */
     /* calculate_previous_epoch_inflation_rewards */
     fd_prev_epoch_inflation_rewards_t rewards;
-    fd_epoch_bank_t const * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
+    fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
     fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
     calculate_previous_epoch_inflation_rewards( slot_ctx, epoch_bank, slot_bank->slot, slot_bank->capitalization, prev_epoch, &rewards);
     /* pay_validator_rewards_with_thread_pool */
@@ -1059,7 +1060,7 @@ distribute_partitioned_epoch_rewards(
 
     ulong validator_rewards_paid = 0;
 
-    fd_epoch_bank_t const * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
+    fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
     fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
 
     ulong credit_start = slot_ctx->epoch_reward_status.start_block_height + REWARD_CALCULATION_NUM_BLOCK;
@@ -1132,7 +1133,7 @@ distribute_partitioned_epoch_rewards(
 
 void
 calculate_inflation_rates( fd_exec_slot_ctx_t * slot_ctx, fd_inflation_rates_t * rates ) {
-  fd_epoch_bank_t const * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   ulong slot_idx = 0;
   rates->epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
   ulong num_slots = get_inflation_num_slots( slot_ctx, &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot );

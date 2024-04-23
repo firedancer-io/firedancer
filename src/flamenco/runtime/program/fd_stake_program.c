@@ -3003,7 +3003,8 @@ fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_ac
 static void
 fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account ) {
   FD_TEST( stake_account->const_meta->info.lamports != 0 );
-  fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_stakes_t * stakes = &epoch_bank->stakes;
 
   fd_delegation_pair_t_mapnode_t key;
   fd_memcpy(&key.elem.account, stake_account->pubkey->uc, sizeof(fd_pubkey_t));

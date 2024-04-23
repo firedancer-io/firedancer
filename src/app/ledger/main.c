@@ -315,14 +315,12 @@ main( int     argc,
   fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( funk_wksp, funk->alloc_gaddr ), 0UL );
   if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", funk->alloc_gaddr ));
 
-  uchar epoch_ctx_mem[FD_EXEC_EPOCH_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_EPOCH_CTX_ALIGN)));
+  uchar * epoch_ctx_mem = fd_wksp_alloc_laddr( wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint(), FD_EXEC_EPOCH_CTX_MAGIC );
   fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
 
   uchar slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN)));
   fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
   slot_ctx->epoch_ctx = epoch_ctx;
-
-  epoch_ctx->valloc = fd_alloc_virtual( alloc );
 
   fd_acc_mgr_t mgr[1];
   slot_ctx->acc_mgr = fd_acc_mgr_new( mgr, funk );
@@ -375,7 +373,6 @@ main( int     argc,
     fd_exec_slot_ctx_t * slot_ctx_unpruned = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem_unpruned, fd_alloc_virtual( alloc_unpruned ) ) );
     slot_ctx_unpruned->epoch_ctx = epoch_ctx_unpruned;
 
-    epoch_ctx_unpruned->valloc = fd_alloc_virtual( alloc_unpruned );
     slot_ctx_unpruned->valloc = fd_alloc_virtual( alloc_unpruned );
 
     fd_acc_mgr_t mgr_unpruned[1];
@@ -480,7 +477,6 @@ main( int     argc,
     slot_ctx_unpruned = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem_unpruned, fd_alloc_virtual( alloc_unpruned ) ) );
     slot_ctx_unpruned->epoch_ctx = epoch_ctx_unpruned;
 
-    epoch_ctx_unpruned->valloc = fd_alloc_virtual( alloc_unpruned );
     slot_ctx_unpruned->valloc = fd_alloc_virtual( alloc_unpruned );
 
     fd_acc_mgr_t mgr_unpruned_new[1];
@@ -719,9 +715,9 @@ main( int     argc,
       fd_hash_t genesis_hash;
       fd_sha256_hash( buf, (ulong)n, genesis_hash.uc );
       FD_LOG_NOTICE(( "Genesis Hash: %32J", &genesis_hash ));
-
-      fd_memcpy( slot_ctx->epoch_ctx->epoch_bank.genesis_hash.uc, genesis_hash.uc, 32U );
-      slot_ctx->epoch_ctx->epoch_bank.cluster_type = genesis_block.cluster_type;
+      fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+      fd_memcpy( epoch_bank->genesis_hash.uc, genesis_hash.uc, 32U );
+      epoch_bank->cluster_type = genesis_block.cluster_type;
 
       free(buf);
 
@@ -893,6 +889,7 @@ main( int     argc,
   fd_scratch_detach( NULL );
   fd_wksp_free_laddr( smem );
   fd_wksp_free_laddr( fmem );
+  fd_wksp_free_laddr( epoch_ctx_mem );
 
   if (backup) {
     /* Copy the entire workspace into a file in the most naive way */

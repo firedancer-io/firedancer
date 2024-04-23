@@ -11,18 +11,19 @@
 
 struct __attribute__((aligned(8UL))) fd_exec_epoch_ctx {
   ulong magic; /* ==FD_EXEC_EPOCH_CTX_MAGIC */
-
-  /* TODO: Epoch context should preallocate instead of using dynamic allocs */
-  fd_valloc_t valloc;
-
-  fd_epoch_leaders_t * leaders;  /* Current epoch only */
   fd_features_t        features;
-  fd_epoch_bank_t      epoch_bank;
-  fd_bank_hash_cmp_t * bank_hash_cmp;
+  ulong epoch_bank_off;
+  ulong stake_votes_off;
+  ulong stake_delegations_off;
+  ulong stake_history_treap_off;
+  ulong stake_history_pool_off;
+  ulong next_epoch_stakes_off;
+  ulong leaders_off; /* Current epoch only */
+  ulong bank_hash_cmp_off;
 };
 
-#define FD_EXEC_EPOCH_CTX_ALIGN     (alignof(fd_exec_epoch_ctx_t))
-#define FD_EXEC_EPOCH_CTX_FOOTPRINT ( sizeof(fd_exec_epoch_ctx_t))
+#define FD_EXEC_EPOCH_CTX_ALIGN     ( 4096UL )
+#define FD_EXEC_EPOCH_CTX_FOOTPRINT ( fd_exec_epoch_ctx_footprint() )
 #define FD_EXEC_EPOCH_CTX_MAGIC (0x3E64F44C9F44366AUL) /* random */
 
 FD_PROTOTYPES_BEGIN
@@ -39,9 +40,54 @@ fd_exec_epoch_ctx_leave( fd_exec_epoch_ctx_t * ctx );
 void *
 fd_exec_epoch_ctx_delete( void * mem );
 
-/* Free all allocated memory within a epoch ctx */
-void
-fd_exec_epoch_ctx_free( fd_exec_epoch_ctx_t * ctx );
+ulong fd_exec_epoch_ctx_align( void );
+
+ulong fd_exec_epoch_ctx_footprint( void );
+
+FD_FN_PURE static inline fd_epoch_bank_t *
+fd_exec_epoch_ctx_epoch_bank( fd_exec_epoch_ctx_t * ctx ) {
+  return (fd_epoch_bank_t *)((uchar *)ctx + ctx->epoch_bank_off);
+}
+
+FD_FN_PURE static inline fd_epoch_bank_t const *
+fd_exec_epoch_ctx_epoch_bank_const( fd_exec_epoch_ctx_t const * ctx ) {
+  return (fd_epoch_bank_t *)((uchar *)ctx + ctx->epoch_bank_off);
+}
+
+FD_FN_PURE static inline void *
+fd_exec_epoch_ctx_stake_votes_mem( fd_exec_epoch_ctx_t * ctx ) {
+  return ((uchar *)ctx + ctx->stake_votes_off);
+}
+
+FD_FN_PURE static inline void *
+fd_exec_epoch_ctx_stake_delegations_mem( fd_exec_epoch_ctx_t * ctx ) {
+  return ((uchar *)ctx + ctx->stake_delegations_off);
+}
+
+FD_FN_PURE static inline void *
+fd_exec_epoch_ctx_stake_history_treap_mem( fd_exec_epoch_ctx_t * ctx ) {
+  return ((uchar *)ctx + ctx->stake_history_treap_off);
+}
+
+FD_FN_PURE static inline void *
+fd_exec_epoch_ctx_stake_history_pool_mem( fd_exec_epoch_ctx_t * ctx ) {
+  return ((uchar *)ctx + ctx->stake_history_pool_off);
+}
+
+FD_FN_PURE static inline void *
+fd_exec_epoch_ctx_next_epoch_stakes_mem( fd_exec_epoch_ctx_t * ctx ) {
+  return ((uchar *)ctx + ctx->next_epoch_stakes_off);
+}
+
+FD_FN_PURE static inline fd_epoch_leaders_t *
+fd_exec_epoch_ctx_leaders( fd_exec_epoch_ctx_t * ctx ) {
+  return (fd_epoch_leaders_t *)((uchar *)ctx + ctx->leaders_off);
+}
+
+FD_FN_PURE static inline fd_bank_hash_cmp_t *
+fd_exec_epoch_ctx_bank_hash_cmp( fd_exec_epoch_ctx_t * ctx ) {
+  return (fd_bank_hash_cmp_t *)((uchar *)ctx + ctx->bank_hash_cmp_off);
+}
 
 FD_PROTOTYPES_END
 

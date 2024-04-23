@@ -66,24 +66,24 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->slot_bank.lamports_per_signature = 5000;
 
   fd_poh_config_t *poh = &genesis_block->poh_config;
-
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   if (poh->has_hashes_per_tick)
-    slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick = poh->hashes_per_tick;
+    epoch_bank->hashes_per_tick = poh->hashes_per_tick;
   else
-    slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick = 0;
-  slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot = genesis_block->ticks_per_slot;
-  slot_ctx->epoch_ctx->epoch_bank.genesis_creation_time = genesis_block->creation_time;
+    epoch_bank->hashes_per_tick = 0;
+  epoch_bank->ticks_per_slot = genesis_block->ticks_per_slot;
+  epoch_bank->genesis_creation_time = genesis_block->creation_time;
   uint128 target_tick_duration = ((uint128)poh->target_tick_duration.seconds * 1000000000UL + (uint128)poh->target_tick_duration.nanoseconds);
-  slot_ctx->epoch_ctx->epoch_bank.ns_per_slot = target_tick_duration * slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot;
+  epoch_bank->ns_per_slot = target_tick_duration * epoch_bank->ticks_per_slot;
 
 #define SECONDS_PER_YEAR ((double)(365.242199 * 24.0 * 60.0 * 60.0))
 
-  slot_ctx->epoch_ctx->epoch_bank.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot;
-  slot_ctx->epoch_ctx->epoch_bank.genesis_creation_time = genesis_block->creation_time;
-  slot_ctx->slot_bank.max_tick_height = slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot * (slot_ctx->slot_bank.slot + 1);
-  slot_ctx->epoch_ctx->epoch_bank.epoch_schedule = genesis_block->epoch_schedule;
-  slot_ctx->epoch_ctx->epoch_bank.inflation = genesis_block->inflation;
-  slot_ctx->epoch_ctx->epoch_bank.rent = genesis_block->rent;
+  epoch_bank->slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)epoch_bank->ticks_per_slot;
+  epoch_bank->genesis_creation_time = genesis_block->creation_time;
+  slot_ctx->slot_bank.max_tick_height = epoch_bank->ticks_per_slot * (slot_ctx->slot_bank.slot + 1);
+  epoch_bank->epoch_schedule = genesis_block->epoch_schedule;
+  epoch_bank->inflation = genesis_block->inflation;
+  epoch_bank->rent = genesis_block->rent;
   slot_ctx->slot_bank.block_height = 0UL;
 
   fd_block_block_hash_entry_t *hashes = slot_ctx->slot_bank.recent_block_hashes.hashes =
@@ -118,16 +118,20 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t * slot_ctx,
       vote_acc_cnt++;
   }
 
-  fd_vote_accounts_pair_t_mapnode_t *vacc_pool =
-      fd_vote_accounts_pair_t_map_alloc(slot_ctx->valloc, vote_acc_cnt++);
+  void * shmem = fd_exec_epoch_ctx_stake_votes_mem( slot_ctx->epoch_ctx );
+  void * sh = fd_vote_accounts_pair_t_map_new( shmem, vote_acc_cnt++ );
+  fd_vote_accounts_pair_t_mapnode_t *vacc_pool = fd_vote_accounts_pair_t_map_join( sh );
+
   FD_TEST(vacc_pool);
   fd_vote_accounts_pair_t_mapnode_t *vacc_root = NULL;
 
-  fd_delegation_pair_t_mapnode_t *sacc_pool = fd_delegation_pair_t_map_alloc(slot_ctx->valloc, 10000);
+  fd_delegation_pair_t_mapnode_t *sacc_pool = fd_delegation_pair_t_map_join(fd_delegation_pair_t_map_new( fd_exec_epoch_ctx_stake_delegations_mem( slot_ctx->epoch_ctx ), 100000));;
   fd_delegation_pair_t_mapnode_t *sacc_root = NULL;
 
-  fd_stake_history_treap_t *stake_history_treap = fd_stake_history_treap_alloc(slot_ctx->valloc);
-  fd_stake_history_entry_t *stake_history_pool = fd_stake_history_pool_alloc(slot_ctx->valloc);
+  fd_stake_history_treap_t *stake_history_treap = fd_stake_history_treap_join( fd_stake_history_treap_new( fd_exec_epoch_ctx_stake_history_treap_mem( slot_ctx->epoch_ctx ), FD_STAKE_HISTORY_MAX ) );
+  fd_stake_history_entry_t *stake_history_pool  = fd_stake_history_pool_join( fd_stake_history_pool_new( 
+                                                                        fd_exec_epoch_ctx_stake_history_pool_mem( slot_ctx->epoch_ctx ), 
+                                                                        FD_STAKE_HISTORY_MAX ) );
 
   fd_acc_lamports_t capitalization = 0UL;
 
@@ -260,19 +264,30 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t * slot_ctx,
       }
     }
   }
+  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool;
+  vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );
+  slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = NULL;
+  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = slot_ctx->slot_bank.epoch_stakes.vote_accounts_root;
 
+  for( fd_vote_accounts_pair_t_mapnode_t *n = fd_vote_accounts_pair_t_map_minimum( vacc_pool, vacc_root );
+        n;
+        n = fd_vote_accounts_pair_t_map_successor( vacc_pool, n )) {
+    fd_vote_accounts_pair_t_mapnode_t * e = fd_vote_accounts_pair_t_map_acquire( vote_accounts_pool );
+    fd_memcpy( &e->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+    fd_vote_accounts_pair_t_map_insert( vote_accounts_pool, &vote_accounts_root, e );
+  }
   slot_ctx->slot_bank.epoch_stakes = (fd_vote_accounts_t){
-      .vote_accounts_pool = vacc_pool,
-      .vote_accounts_root = vacc_root,
+      .vote_accounts_pool = vote_accounts_pool,
+      .vote_accounts_root = vote_accounts_root,
   };
 
-  slot_ctx->epoch_ctx->epoch_bank.next_epoch_stakes = (fd_vote_accounts_t){
+  epoch_bank->next_epoch_stakes = (fd_vote_accounts_t){
     .vote_accounts_pool = vacc_pool,
     .vote_accounts_root = vacc_root,
   };
 
   /* Initializes the stakes cache in the Bank structure. */
-  slot_ctx->epoch_ctx->epoch_bank.stakes = (fd_stakes_t){
+  epoch_bank->stakes = (fd_stakes_t){
       .stake_delegations_pool = sacc_pool,
       .stake_delegations_root = sacc_root,
       .epoch = 0,
@@ -1547,8 +1562,9 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx ) {
 int
 fd_runtime_block_update_current_leader( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong slot_rel;
-  fd_slot_to_epoch(&slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, &slot_rel);
-  slot_ctx->leader = fd_epoch_leaders_get(slot_ctx->epoch_ctx->leaders, slot_ctx->slot_bank.slot);
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_slot_to_epoch(&epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot, &slot_rel);
+  slot_ctx->leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot_ctx->slot_bank.slot );
   if( slot_ctx->leader == NULL ) {
     return -1;
   }
@@ -1561,8 +1577,9 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
   // TODO: this is not part of block execution, move it.
   if( slot_ctx->slot_bank.slot != 0 ) {
     ulong slot_idx;
-    ulong prev_epoch = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.prev_slot, &slot_idx );
-    ulong new_epoch = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+    ulong prev_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.prev_slot, &slot_idx );
+    ulong new_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
     if (slot_idx==1UL && new_epoch==0UL) {
       /* the block after genesis has a height of 1*/
       slot_ctx->slot_bank.block_height = 1UL;
@@ -2150,7 +2167,7 @@ fd_runtime_block_verify(fd_block_info_t const *block_info,
 // fd_runtime_slot_bank_from_parent(child_slot_ctx ) {
 //   child_slot_bank.collected_fees = 0;
 //   child_slot_ctx->slot_bank.collected_rent = 0;
-//   child_slot_ctx->slot_bank.max_tick_height = (slot + 1) * slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot;
+//   child_slot_ctx->slot_bank.max_tick_height = (slot + 1) * slot_ctx->epoch_ctx->epoch_bank->ticks_per_slot;
 // }
 
 int
@@ -2178,9 +2195,10 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
       }
 
       if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
-        if (txn->xid.ul[0] >= slot_ctx->epoch_ctx->epoch_bank.eah_start_slot) {
+        fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+        if (txn->xid.ul[0] >= epoch_bank->eah_start_slot) {
           fd_accounts_hash( slot_ctx, &slot_ctx->slot_bank.epoch_account_hash, NULL, 0, 0 );
-          slot_ctx->epoch_ctx->epoch_bank.eah_start_slot = ULONG_MAX;
+          epoch_bank->eah_start_slot = ULONG_MAX;
         }
       }
 
@@ -2569,10 +2587,11 @@ fd_runtime_collect_rent_account( fd_exec_slot_ctx_t * slot_ctx,
   if (0 == memcmp(key, &incinerator, sizeof(fd_pubkey_t)))
     return 0;
 
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   long due = fd_rent_due(acc, epoch + 1,
-                         &slot_ctx->epoch_ctx->epoch_bank.rent,
-                         &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule,
-                         slot_ctx->epoch_ctx->epoch_bank.slots_per_year);
+                         &epoch_bank->rent,
+                         &epoch_bank->epoch_schedule,
+                         epoch_bank->slots_per_year);
 
   if (!FD_FEATURE_ACTIVE(slot_ctx, skip_rent_rewrites) || !(due == 0 && info->rent_epoch != 0)) {
     // By changing the slot, this forces the account to be updated
@@ -2695,7 +2714,8 @@ static void
 fd_runtime_collect_rent( fd_exec_slot_ctx_t * slot_ctx ) {
   // Bank::collect_rent_eagerly (enter)
 
-  fd_epoch_schedule_t const * schedule = &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule;
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
 
   // Bank::rent_collection_partitions              (enter)
   // Bank::variable_cycle_partitions               (enter)
@@ -2729,8 +2749,8 @@ fd_runtime_collect_rent_accounts_prune( ulong slot, fd_exec_slot_ctx_t * slot_ct
   /* As a note, the number of partitions are determined before execution begins.
      The rent accounts for each slot are added to the pruned funk. The data in
      the accounts is populated after execution is completed. */
-
-  fd_epoch_schedule_t const * schedule = &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule;
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx );
+  fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
 
   ulong off;
 
@@ -2799,8 +2819,9 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
   FD_SCRATCH_SCOPE_BEGIN {
     ulong total_staked = 0;
 
-    fd_vote_accounts_pair_t_mapnode_t *vote_accounts_pool = slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool;
-    fd_vote_accounts_pair_t_mapnode_t *vote_accounts_root = slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root;
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+    fd_vote_accounts_pair_t_mapnode_t *vote_accounts_pool = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
+    fd_vote_accounts_pair_t_mapnode_t *vote_accounts_root = epoch_bank->stakes.vote_accounts.vote_accounts_root;
 
     ulong num_validator_stakes = fd_vote_accounts_pair_t_map_size( vote_accounts_pool, vote_accounts_root );
     fd_validator_stake_pair_t * validator_stakes = fd_scratch_alloc( 8UL, sizeof(fd_validator_stake_pair_t) * num_validator_stakes );
@@ -2911,7 +2932,8 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_runtime_distribute_rent( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong total_rent_collected = slot_ctx->slot_bank.collected_rent;
-  ulong burned_portion = fd_runtime_calculate_rent_burn( total_rent_collected, &slot_ctx->epoch_ctx->epoch_bank.rent );
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  ulong burned_portion = fd_runtime_calculate_rent_burn( total_rent_collected, &epoch_bank->rent );
   slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub( slot_ctx->slot_bank.capitalization, burned_portion );
   ulong rent_to_be_distributed = total_rent_collected - burned_portion;
 
@@ -3039,7 +3061,8 @@ fd_runtime_slot_bank_key( void ) {
 
 int
 fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
-  ulong sz = fd_epoch_bank_size(&slot_ctx->epoch_ctx->epoch_bank);
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  ulong sz = fd_epoch_bank_size(epoch_bank);
   fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
   int opt_err = 0;
   fd_funk_rec_t *rec = fd_funk_rec_write_prepare(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err);
@@ -3054,7 +3077,8 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
       .data = buf,
       .dataend = buf + sz,
   };
-  if (FD_UNLIKELY(fd_epoch_bank_encode(&slot_ctx->epoch_ctx->epoch_bank, &ctx) != FD_BINCODE_SUCCESS))
+
+  if (FD_UNLIKELY(fd_epoch_bank_encode(epoch_bank, &ctx) != FD_BINCODE_SUCCESS))
   {
     FD_LOG_WARNING(("fd_runtime_save_banks: fd_firedancer_banks_encode failed"));
     return -1;
@@ -3102,247 +3126,6 @@ int fd_runtime_save_slot_bank(fd_exec_slot_ctx_t *slot_ctx)
   }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
-}
-
-static int
-fd_global_import_stakes(fd_exec_slot_ctx_t *slot_ctx, fd_solana_manifest_t *manifest) {
-  // ulong epoch = fd_slot_to_epoch( &slot_ctx->slot_bank.epoch_schedule, slot_ctx->slot_bank.slot, NULL );
-  // fd_epoch_stakes_t const * stakes = NULL;
-  // fd_epoch_epoch_stakes_pair_t const * epochs = manifest->bank.epoch_stakes;
-  // for( ulong i=0; i < manifest->bank.epoch_stakes_len; i++ ) {
-  //   if( epochs[ i ].key==epoch ) {
-  //     stakes = &epochs[i].value;
-  //     break;
-  //   }
-  // }
-
-  ulong raw_stakes_sz = fd_stakes_size(&manifest->bank.stakes);
-  void *raw_stakes = fd_valloc_malloc(slot_ctx->valloc, 1UL, raw_stakes_sz);
-  fd_memset(raw_stakes, 0, raw_stakes_sz);
-
-  fd_bincode_encode_ctx_t encode_ctx = {
-      .data = raw_stakes,
-      .dataend = (void *)((ulong)raw_stakes + raw_stakes_sz)};
-  if (FD_UNLIKELY(0 != fd_stakes_encode(&manifest->bank.stakes, &encode_ctx)))
-  {
-    FD_LOG_ERR(("fd_stakes_encode failed"));
-  }
-
-  fd_bincode_decode_ctx_t decode_ctx = {
-      .data = raw_stakes,
-      .dataend = (void const *)((ulong)raw_stakes + raw_stakes_sz),
-      /* TODO: Make this a instruction-scoped allocator */
-      .valloc = slot_ctx->valloc,
-  };
-  if (FD_UNLIKELY(0 != fd_stakes_decode(&slot_ctx->epoch_ctx->epoch_bank.stakes, &decode_ctx)))
-  {
-    FD_LOG_ERR(("fd_stakes_decode failed"));
-  }
-
-  fd_vote_accounts_pair_t_mapnode_t const *vote_accounts_pool = slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool;
-  fd_vote_accounts_pair_t_mapnode_t const *vote_accounts_root = slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root;
-
-  for (fd_vote_accounts_pair_t_mapnode_t const *n = fd_vote_accounts_pair_t_map_minimum_const(vote_accounts_pool, vote_accounts_root);
-       n;
-       n = fd_vote_accounts_pair_t_map_successor_const(vote_accounts_pool, n))
-  {
-    /* Deserialize content */
-    fd_bincode_decode_ctx_t vote_state_decode_ctx = {
-        .data = n->elem.value.data,
-        .dataend = (void const *)((ulong)n->elem.value.data + n->elem.value.data_len),
-        /* TODO: Make this a instruction-scoped allocator */
-        .valloc = slot_ctx->valloc,
-    };
-
-    fd_vote_state_versioned_t vote_state_versioned;
-    if (FD_UNLIKELY(0 != fd_vote_state_versioned_decode(&vote_state_versioned, &vote_state_decode_ctx))) {
-      FD_LOG_ERR(("fd_vote_state_versioned_decode failed"));
-    }
-
-    fd_vote_block_timestamp_t vote_state_timestamp;
-    switch (vote_state_versioned.discriminant)
-    {
-    case fd_vote_state_versioned_enum_current:
-      vote_state_timestamp = vote_state_versioned.inner.current.last_timestamp;
-      break;
-    case fd_vote_state_versioned_enum_v0_23_5:
-      vote_state_timestamp = vote_state_versioned.inner.v0_23_5.last_timestamp;
-      break;
-    case fd_vote_state_versioned_enum_v1_14_11:
-      vote_state_timestamp = vote_state_versioned.inner.v1_14_11.last_timestamp;
-      break;
-    default:
-      __builtin_unreachable();
-    }
-
-    if (vote_state_timestamp.slot != 0 || n->elem.stake != 0) {
-      fd_vote_record_timestamp_vote_with_slot(slot_ctx, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot);
-    }
-  }
-
-  fd_valloc_free(slot_ctx->valloc, raw_stakes);
-
-  return 0;
-}
-
-int fd_global_import_solana_manifest(fd_exec_slot_ctx_t *slot_ctx,
-                                     fd_solana_manifest_t *manifest)
-{
-  /* Clean out prior bank */
-  fd_bincode_destroy_ctx_t ctx = {.valloc = slot_ctx->valloc};
-  fd_slot_bank_t *slot_bank = &slot_ctx->slot_bank;
-  fd_slot_bank_destroy(slot_bank, &ctx);
-  fd_slot_bank_new(slot_bank);
-
-  fd_epoch_bank_t *epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
-  fd_epoch_bank_destroy(epoch_bank, &ctx);
-  fd_epoch_bank_new(epoch_bank);
-
-  fd_deserializable_versioned_bank_t *oldbank = &manifest->bank;
-  fd_global_import_stakes(slot_ctx, manifest);
-
-  if (oldbank->blockhash_queue.last_hash)
-    fd_memcpy(&slot_bank->poh, oldbank->blockhash_queue.last_hash, FD_SHA256_HASH_SZ);
-  slot_bank->slot = oldbank->slot;
-  slot_bank->prev_slot = oldbank->parent_slot;
-  fd_memcpy(&slot_bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
-  fd_memcpy(&slot_bank->fee_rate_governor, &oldbank->fee_rate_governor, sizeof(oldbank->fee_rate_governor));
-
-  slot_bank->lamports_per_signature = oldbank->fee_calculator.lamports_per_signature;
-  if (oldbank->hashes_per_tick)
-    epoch_bank->hashes_per_tick = *oldbank->hashes_per_tick;
-  else
-    epoch_bank->hashes_per_tick = 0;
-  epoch_bank->ticks_per_slot = oldbank->ticks_per_slot;
-  fd_memcpy(&epoch_bank->ns_per_slot, &oldbank->ns_per_slot, sizeof(oldbank->ns_per_slot));
-  epoch_bank->genesis_creation_time = oldbank->genesis_creation_time;
-  epoch_bank->slots_per_year = oldbank->slots_per_year;
-  slot_bank->max_tick_height = oldbank->max_tick_height;
-  epoch_bank->inflation = oldbank->inflation;
-  epoch_bank->epoch_schedule = oldbank->rent_collector.epoch_schedule;
-  epoch_bank->rent = oldbank->rent_collector.rent;
-
-  if (NULL != manifest->epoch_account_hash)
-    fd_memcpy(&slot_bank->epoch_account_hash, manifest->epoch_account_hash, FD_SHA256_HASH_SZ);
-
-  slot_bank->collected_rent = oldbank->collected_rent;
-  slot_bank->collected_fees = oldbank->collector_fees;
-  slot_bank->capitalization = oldbank->capitalization;
-  slot_bank->block_height = oldbank->block_height;
-  slot_bank->transaction_count = oldbank->transaction_count;
-
-  /* Update last restart slot
-     https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152
-
-     oldbank->hard_forks is sorted ascending by slot number.
-     To find the last restart slot, take the highest hard fork slot
-     number that is less or equal than the current slot number.
-     (There might be some hard forks in the future, ignore these) */
-  do
-  {
-    slot_bank->last_restart_slot.slot = 0UL;
-    if (FD_UNLIKELY(oldbank->hard_forks.hard_forks_len == 0))
-    {
-      FD_LOG_WARNING(("Snapshot missing hard forks. What is the correct 'last restart slot' value?"));
-      break;
-    }
-
-    fd_slot_pair_t const *head = oldbank->hard_forks.hard_forks;
-    fd_slot_pair_t const *tail = head + oldbank->hard_forks.hard_forks_len - 1UL;
-
-    for (fd_slot_pair_t const *pair = tail; pair >= head; pair--)
-    {
-      if (pair->slot <= slot_bank->slot)
-      {
-        slot_bank->last_restart_slot.slot = pair->slot;
-        break;
-      }
-    }
-  } while (0);
-
-  /* Find EpochStakes for next slot */
-  {
-    FD_SCRATCH_SCOPE_BEGIN
-    {
-
-      ulong epoch = fd_slot_to_epoch(&epoch_bank->epoch_schedule, slot_bank->slot, NULL);
-      fd_epoch_stakes_t const *stakes = NULL;
-      fd_epoch_epoch_stakes_pair_t const *epochs = oldbank->epoch_stakes;
-      for (ulong i = 0; i < manifest->bank.epoch_stakes_len; i++)
-      {
-        if (epochs[i].key == epoch)
-        {
-          stakes = &epochs[i].value;
-          break;
-        }
-      }
-
-      if (FD_UNLIKELY(!stakes))
-        FD_LOG_ERR(("Snapshot missing EpochStakes for epoch %lu", epoch));
-
-      /* TODO Hacky way to copy by serialize/deserialize :( */
-      fd_vote_accounts_t const *vaccs = &stakes->stakes.vote_accounts;
-      ulong bufsz = fd_vote_accounts_size(vaccs);
-      uchar *buf = fd_scratch_alloc(1UL, bufsz);
-      fd_bincode_encode_ctx_t encode_ctx = {
-          .data = buf,
-          .dataend = (void *)((ulong)buf + bufsz)};
-      FD_TEST(fd_vote_accounts_encode(vaccs, &encode_ctx) == FD_BINCODE_SUCCESS);
-      fd_bincode_decode_ctx_t decode_ctx = {
-          .data = buf,
-          .dataend = (void const *)((ulong)buf + bufsz),
-          .valloc = slot_ctx->valloc,
-      };
-      FD_TEST(fd_vote_accounts_decode(&slot_bank->epoch_stakes, &decode_ctx) == FD_BINCODE_SUCCESS);
-    }
-    FD_SCRATCH_SCOPE_END;
-  }
-
-  // Stash epoch stakes for next epoch
-  {
-    FD_SCRATCH_SCOPE_BEGIN
-    {
-      ulong epoch = fd_slot_to_epoch(&epoch_bank->epoch_schedule, slot_bank->slot, NULL) + 1;
-      fd_epoch_stakes_t const *stakes = NULL;
-      fd_epoch_epoch_stakes_pair_t const *epochs = oldbank->epoch_stakes;
-      for (ulong i = 0; i < manifest->bank.epoch_stakes_len; i++)
-      {
-        if (epochs[i].key == epoch)
-        {
-          stakes = &epochs[i].value;
-          break;
-        }
-      }
-
-      if (FD_UNLIKELY(!stakes))
-        FD_LOG_ERR(("Snapshot missing EpochStakes for epoch %lu", epoch));
-
-      /* TODO Hacky way to copy by serialize/deserialize :( */
-      fd_vote_accounts_t const *vaccs = &stakes->stakes.vote_accounts;
-      ulong bufsz = fd_vote_accounts_size(vaccs);
-      uchar *buf = fd_scratch_alloc(1UL, bufsz);
-      fd_bincode_encode_ctx_t encode_ctx = {
-          .data = buf,
-          .dataend = (void *)((ulong)buf + bufsz)};
-      FD_TEST(fd_vote_accounts_encode(vaccs, &encode_ctx) == FD_BINCODE_SUCCESS);
-      fd_bincode_decode_ctx_t decode_ctx = {
-          .data = buf,
-          .dataend = (void const *)((ulong)buf + bufsz),
-          .valloc = slot_ctx->epoch_ctx->valloc,
-      };
-      FD_TEST(fd_vote_accounts_decode(&epoch_bank->next_epoch_stakes, &decode_ctx) == FD_BINCODE_SUCCESS);
-    }
-    FD_SCRATCH_SCOPE_END;
-  }
-
-  int result = fd_runtime_save_epoch_bank(slot_ctx);
-  if (result != FD_EXECUTOR_INSTR_SUCCESS)
-  {
-    FD_LOG_WARNING(("save epoch bank failed"));
-    return result;
-  }
-
-  return fd_runtime_save_slot_bank(slot_ctx);
 }
 
 /* fd_feature_restore loads a feature from the accounts database and
@@ -3499,13 +3282,13 @@ void fd_runtime_update_leaders(fd_exec_slot_ctx_t *slot_ctx, ulong slot)
     FD_LOG_INFO(("epoch_leaders_footprint=%lu", epoch_leaders_footprint));
     if (FD_LIKELY(epoch_leaders_footprint))
     {
-      void *epoch_leaders_mem = fd_valloc_malloc(slot_ctx->valloc, fd_epoch_leaders_align(), epoch_leaders_footprint);
-      if (NULL != slot_ctx->epoch_ctx->leaders)
-        fd_valloc_free(slot_ctx->valloc, slot_ctx->epoch_ctx->leaders);
-      slot_ctx->epoch_ctx->leaders = fd_epoch_leaders_join(fd_epoch_leaders_new(epoch_leaders_mem, epoch, slot0, slot_cnt, stake_weight_cnt, epoch_weights));
-      FD_TEST(slot_ctx->epoch_ctx->leaders);
+      FD_TEST( stake_weight_cnt <= MAX_PUB_CNT );
+      FD_TEST( slot_cnt <= MAX_SLOTS_CNT );
+      void *epoch_leaders_mem = fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx );
+      fd_epoch_leaders_t * leaders = fd_epoch_leaders_join(fd_epoch_leaders_new(epoch_leaders_mem, epoch, slot0, slot_cnt, stake_weight_cnt, epoch_weights));
+      FD_TEST(leaders);
       /* Derive */
-      fd_epoch_leaders_derive(slot_ctx->epoch_ctx->leaders, epoch_weights, epoch);
+      fd_epoch_leaders_derive(leaders, epoch_weights, epoch);
     }
   }
   FD_SCRATCH_SCOPE_END;
@@ -3522,7 +3305,9 @@ the cache only at epoch boundaries.
 
 https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L65 */
 void fd_update_stake_delegations(fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
+FD_SCRATCH_SCOPE_BEGIN {
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_stakes_t * stakes = &epoch_bank->stakes;
 
   // TODO: do we need to update the vote accounts as well? Trying to update them breaks things
 
@@ -3534,7 +3319,7 @@ void fd_update_stake_delegations(fd_exec_slot_ctx_t * slot_ctx ) {
 
   // Create a new epoch stake delegations cache, which will hold the union of the slot and epoch caches.
   fd_delegation_pair_t_mapnode_t * new_stake_root = NULL;
-  fd_delegation_pair_t_mapnode_t * new_stake_pool = fd_delegation_pair_t_map_alloc( slot_ctx->epoch_ctx->valloc, stake_delegations_size );
+  fd_delegation_pair_t_mapnode_t * new_stake_pool = fd_delegation_pair_t_map_alloc( fd_scratch_virtual(), stake_delegations_size );
 
   // Add the stake delegations from the epoch bank to the new epoch stake delegations cache.
   for( fd_delegation_pair_t_mapnode_t const * n = fd_delegation_pair_t_map_minimum_const( stakes->stake_delegations_pool, stakes->stake_delegations_root );
@@ -3599,26 +3384,30 @@ void fd_update_stake_delegations(fd_exec_slot_ctx_t * slot_ctx ) {
   fd_vote_accounts_destroy( &slot_ctx->slot_bank.vote_account_keys, &destroy_slot );
   fd_stake_accounts_destroy(&slot_ctx->slot_bank.stake_account_keys, &destroy_slot );
 
-  fd_bincode_destroy_ctx_t destroy_epoch = {.valloc = slot_ctx->epoch_ctx->valloc};
-  for ( fd_delegation_pair_t_mapnode_t* n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
-    fd_delegation_pair_destroy(&n->elem, &destroy_epoch);
-  }
-  fd_valloc_free( slot_ctx->epoch_ctx->valloc, fd_delegation_pair_t_map_delete(fd_delegation_pair_t_map_leave( stakes->stake_delegations_pool) ) );
+  fd_delegation_pair_t_map_delete( fd_delegation_pair_t_map_leave( stakes->stake_delegations_pool ) );
+  stakes->stake_delegations_pool = fd_delegation_pair_t_map_join( fd_delegation_pair_t_map_new( fd_exec_epoch_ctx_stake_delegations_mem( slot_ctx->epoch_ctx ), stake_delegations_size ) );
+  stakes->stake_delegations_root = NULL;
 
-  stakes->stake_delegations_root = new_stake_root;
-  stakes->stake_delegations_pool = new_stake_pool;
+  for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum( new_stake_pool, new_stake_root ); n; n = fd_delegation_pair_t_map_successor( new_stake_pool, n ) ) {
+    fd_delegation_pair_t_mapnode_t * e = fd_delegation_pair_t_map_acquire( stakes->stake_delegations_pool );
+    fd_memcpy( &e->elem.account, &n->elem.account, sizeof(fd_pubkey_t));
+    fd_memcpy( &e->elem.delegation, &n->elem.delegation, sizeof(fd_delegation_t));
+    fd_delegation_pair_t_map_insert( stakes->stake_delegations_pool, &stakes->stake_delegations_root, e );
+  }
 
   slot_ctx->slot_bank.stake_account_keys.stake_accounts_root = NULL;
   slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool = fd_stake_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );
 
   slot_ctx->slot_bank.vote_account_keys.vote_accounts_root = NULL;
   slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );
+} FD_SCRATCH_SCOPE_END;
 }
 
 void fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_SCRATCH_SCOPE_BEGIN
   {
-    fd_vote_accounts_t const * vaccs = &slot_ctx->epoch_ctx->epoch_bank.next_epoch_stakes;
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+    fd_vote_accounts_t const * vaccs = &epoch_bank->next_epoch_stakes;
     ulong bufsz = fd_vote_accounts_size(vaccs);
     uchar *buf = fd_scratch_alloc(1UL, bufsz);
     fd_bincode_encode_ctx_t encode_ctx = {
@@ -3634,23 +3423,20 @@ void fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
     fd_vote_accounts_destroy(&slot_ctx->slot_bank.epoch_stakes, &slot_destroy);
     FD_TEST(fd_vote_accounts_decode(&slot_ctx->slot_bank.epoch_stakes, &decode_ctx) == FD_BINCODE_SUCCESS);
 
-    fd_bincode_destroy_ctx_t epoch_destroy = {.valloc = slot_ctx->epoch_ctx->valloc};
-    fd_vote_accounts_destroy(&slot_ctx->epoch_ctx->epoch_bank.next_epoch_stakes, &epoch_destroy);
+    fd_vote_accounts_pair_t_mapnode_t * pool = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
+    fd_vote_accounts_pair_t_mapnode_t * root = epoch_bank->stakes.vote_accounts.vote_accounts_root;
+    ulong next_sz = fd_vote_accounts_pair_t_map_size( pool, root );
 
-    ulong next_bufsz = fd_vote_accounts_size(&slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts);
-    uchar * next_buf = fd_scratch_alloc(1UL, next_bufsz);
-    fd_bincode_encode_ctx_t next_encode = {
-      .data = next_buf,
-      .dataend = (void *)((ulong)next_buf + next_bufsz)
-    };
-    FD_TEST(fd_vote_accounts_encode(&slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts, &next_encode) == FD_BINCODE_SUCCESS);
-    fd_bincode_decode_ctx_t next_decode = {
-      .data = buf,
-      .dataend = (void *)((ulong)next_buf + next_bufsz),
-      .valloc = slot_ctx->epoch_ctx->valloc
-    };
-    FD_TEST(fd_vote_accounts_decode(&slot_ctx->epoch_ctx->epoch_bank.next_epoch_stakes, &next_decode) == FD_BINCODE_SUCCESS);
+    // Reset vote accounts in next epoch stakes
+    fd_vote_accounts_pair_t_map_delete( fd_vote_accounts_pair_t_map_leave( epoch_bank->next_epoch_stakes.vote_accounts_pool ) );
+    epoch_bank->next_epoch_stakes.vote_accounts_pool = fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( fd_exec_epoch_ctx_next_epoch_stakes_mem( slot_ctx->epoch_ctx ), next_sz ) );
+    epoch_bank->next_epoch_stakes.vote_accounts_root = NULL;
 
+    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(pool, root); n; n = fd_vote_accounts_pair_t_map_successor(pool, n) ) {
+      fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire( epoch_bank->next_epoch_stakes.vote_accounts_pool );
+      fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+      fd_vote_accounts_pair_t_map_insert( epoch_bank->next_epoch_stakes.vote_accounts_pool, &epoch_bank->next_epoch_stakes.vote_accounts_root, elem );
+    }
   }
   FD_SCRATCH_SCOPE_END;
 }
@@ -3661,7 +3447,8 @@ void fd_process_new_epoch(
     ulong parent_epoch )
 {
   ulong slot;
-  ulong epoch = fd_slot_to_epoch(&slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, &slot);
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  ulong epoch = fd_slot_to_epoch(&epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot, &slot);
   (void)epoch;
 
   // activate feature flags
@@ -3670,15 +3457,15 @@ void fd_process_new_epoch(
 
   // Change the speed of the poh clock
   if (FD_FEATURE_ACTIVE(slot_ctx, update_hashes_per_tick6))
-    slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick = UPDATED_HASHES_PER_TICK6;
+    epoch_bank->hashes_per_tick = UPDATED_HASHES_PER_TICK6;
   else if (FD_FEATURE_ACTIVE(slot_ctx, update_hashes_per_tick5))
-    slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick = UPDATED_HASHES_PER_TICK5;
+    epoch_bank->hashes_per_tick = UPDATED_HASHES_PER_TICK5;
   else if (FD_FEATURE_ACTIVE(slot_ctx, update_hashes_per_tick4))
-    slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick = UPDATED_HASHES_PER_TICK4;
+    epoch_bank->hashes_per_tick = UPDATED_HASHES_PER_TICK4;
   else if (FD_FEATURE_ACTIVE(slot_ctx, update_hashes_per_tick3))
-    slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick = UPDATED_HASHES_PER_TICK3;
+    epoch_bank->hashes_per_tick = UPDATED_HASHES_PER_TICK3;
   else if (FD_FEATURE_ACTIVE(slot_ctx, update_hashes_per_tick2))
-    slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick = UPDATED_HASHES_PER_TICK2;
+    epoch_bank->hashes_per_tick = UPDATED_HASHES_PER_TICK2;
 
   // Add new entry to stakes.stake_history, set appropriate epoch and
   // update vote accounts with warmed up stakes before saving a
@@ -3706,11 +3493,11 @@ void fd_process_new_epoch(
   fd_update_stake_delegations( slot_ctx );
 
   fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
-    if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
+  if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   refresh_vote_accounts( slot_ctx, history );
 
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
-  FD_LOG_WARNING(("Leader schedule epoch %lu", fd_slot_to_leader_schedule_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot)));
+  FD_LOG_WARNING(("Leader schedule epoch %lu", fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot)));
   fd_update_epoch_stakes( slot_ctx );
 
   fd_runtime_update_leaders(slot_ctx, slot_ctx->slot_bank.slot);
@@ -3722,10 +3509,11 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first ) {
   fd_funk_txn_t * txn = slot_ctx->funk_txn;
 
   {
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
     if ( delete_first ) {
       fd_bincode_destroy_ctx_t ctx;
       ctx.valloc  = slot_ctx->valloc;
-      fd_epoch_bank_destroy(&slot_ctx->epoch_ctx->epoch_bank, &ctx);
+      fd_epoch_bank_destroy(epoch_bank, &ctx);
     }
     fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
     fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
@@ -3737,7 +3525,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first ) {
     ctx.data = val;
     ctx.dataend = (uchar*)val + fd_funk_val_sz( rec );
     ctx.valloc  = slot_ctx->valloc;
-    FD_TEST( fd_epoch_bank_decode(&slot_ctx->epoch_ctx->epoch_bank, &ctx )==FD_BINCODE_SUCCESS );
+    FD_TEST( fd_epoch_bank_decode( epoch_bank, &ctx )==FD_BINCODE_SUCCESS );
 
     FD_LOG_NOTICE(( "recovered epoch_bank" ));
   }
@@ -3775,7 +3563,8 @@ fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx ) {
   {
     fd_bincode_destroy_ctx_t ctx;
     ctx.valloc  = slot_ctx->valloc;
-    fd_epoch_bank_destroy(&slot_ctx->epoch_ctx->epoch_bank, &ctx);
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+    fd_epoch_bank_destroy(epoch_bank, &ctx);
   }
 
   {

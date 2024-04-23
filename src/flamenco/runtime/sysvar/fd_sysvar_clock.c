@@ -24,8 +24,9 @@
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2200 */
 static long
 timestamp_from_genesis( fd_exec_slot_ctx_t * slot_ctx ) {
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   /* TODO: maybe make types of timestamps the same throughout the runtime codebase. as Solana uses a signed representation */
-  return (long)( slot_ctx->epoch_ctx->epoch_bank.genesis_creation_time + ( ( slot_ctx->slot_bank.slot * slot_ctx->epoch_ctx->epoch_bank.ns_per_slot ) / NS_IN_S ) );
+  return (long)( epoch_bank->genesis_creation_time + ( ( slot_ctx->slot_bank.slot * epoch_bank->ns_per_slot ) / NS_IN_S ) );
 }
 
 static void
@@ -86,7 +87,8 @@ bound_timestamp_estimate( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Determine offsets from start of epoch */
   /* TODO: handle epoch boundary case */
-  uint128 poh_estimate_offset = slot_ctx->epoch_ctx->epoch_bank.ns_per_slot * slot_ctx->slot_bank.slot;
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  uint128 poh_estimate_offset = epoch_bank->ns_per_slot * slot_ctx->slot_bank.slot;
   uint128 estimate_offset = (uint128)( ( estimate - epoch_start_timestamp ) * NS_IN_S );
 
   uint128 max_delta_fast = ( poh_estimate_offset * MAX_ALLOWABLE_DRIFT_FAST ) / 100;
@@ -121,7 +123,8 @@ estimate_timestamp( fd_exec_slot_ctx_t * slot_ctx ) {
   /* TODO: actually take the stake-weighted median. For now, just use the root node. */
   fd_clock_timestamp_vote_t * head = &votes->elem;
   ulong slots = slot_ctx->slot_bank.slot - head->slot;
-  uint128 ns_correction = slot_ctx->epoch_ctx->epoch_bank.ns_per_slot * slots;
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  uint128 ns_correction = epoch_bank->ns_per_slot * slots;
   return head->timestamp  + (long) (ns_correction / NS_IN_S) ;
 }
 
@@ -170,8 +173,8 @@ fd_calculate_stake_weighted_timestamp(
   uint fix_estimate_into_u64
  ) {
   FD_SCRATCH_SCOPE_BEGIN {
-
-  ulong slot_duration = (ulong)( slot_ctx->epoch_ctx->epoch_bank.ns_per_slot );
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  ulong slot_duration = (ulong)( epoch_bank->ns_per_slot );
   fd_sol_sysvar_clock_t clock;
   fd_sysvar_clock_read( &clock, slot_ctx );
   // get the unique timestamps
@@ -274,7 +277,8 @@ fd_calculate_stake_weighted_timestamp(
     // }
 
     ulong slot_delta = fd_ulong_sat_sub(slot_ctx->slot_bank.slot, vote_slot);
-    if (slot_delta > slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.slots_per_epoch) {
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+    if (slot_delta > epoch_bank->epoch_schedule.slots_per_epoch) {
       continue;
     }
 
@@ -391,7 +395,8 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx ) {
   clock.slot  = slot_ctx->slot_bank.slot;
 
   ulong epoch_old = clock.epoch;
-  ulong epoch_new = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, clock.slot, NULL );
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  ulong epoch_new = fd_slot_to_epoch( &epoch_bank->epoch_schedule, clock.slot, NULL );
   FD_LOG_DEBUG(("Epoch old %lu new %lu slot %lu", epoch_old, epoch_new, clock.slot));
   clock.epoch = epoch_new;
   if( epoch_old != epoch_new ) {
@@ -399,7 +404,7 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx ) {
     fd_calculate_stake_weighted_timestamp( slot_ctx, &timestamp_estimate, FD_FEATURE_ACTIVE( slot_ctx, warp_timestamp_again ) );
     clock.unix_timestamp = fd_long_max( timestamp_estimate, ancestor_timestamp );
     clock.epoch_start_timestamp = clock.unix_timestamp;
-    clock.leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot );
+    clock.leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot );
   }
 
   FD_LOG_DEBUG(( "Updated clock at slot %lu", slot_ctx->slot_bank.slot ));
@@ -422,7 +427,7 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx ) {
   if( fd_sol_sysvar_clock_encode( &clock, &e_ctx ) )
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
-  ulong lamps = (sz + 128) * ((ulong) ((double)slot_ctx->epoch_ctx->epoch_bank.rent.lamports_per_uint8_year * slot_ctx->epoch_ctx->epoch_bank.rent.exemption_threshold));
+  ulong lamps = (sz + 128) * ((ulong) ((double)epoch_bank->rent.lamports_per_uint8_year * epoch_bank->rent.exemption_threshold));
   if( acc->meta->info.lamports < lamps )
     acc->meta->info.lamports = lamps;
 

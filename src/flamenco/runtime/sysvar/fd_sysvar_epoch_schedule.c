@@ -71,7 +71,8 @@ fd_sysvar_epoch_schedule_read( fd_epoch_schedule_t * result,
 
 void
 fd_sysvar_epoch_schedule_init( fd_exec_slot_ctx_t * slot_ctx ) {
-  write_epoch_schedule( slot_ctx, &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule );
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  write_epoch_schedule( slot_ctx, &epoch_bank->epoch_schedule );
 }
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L105 */

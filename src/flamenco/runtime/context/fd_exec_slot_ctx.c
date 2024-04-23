@@ -105,7 +105,8 @@ fd_exec_slot_ctx_delete( void * mem ) {
 static int
 recover_clock( fd_exec_slot_ctx_t * slot_ctx ) {
 
-  fd_vote_accounts_t const * vote_accounts = &slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts;
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_vote_accounts_t const * vote_accounts = &epoch_bank->stakes.vote_accounts;
 
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = vote_accounts->vote_accounts_pool;
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = vote_accounts->vote_accounts_root;
@@ -172,8 +173,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   fd_slot_bank_destroy( slot_bank, &destroy );
   fd_slot_bank_new( slot_bank );
 
-  fd_epoch_bank_t * epoch_bank = &epoch_ctx->epoch_bank;
-  fd_epoch_bank_destroy( epoch_bank, &destroy );
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
   fd_epoch_bank_new( epoch_bank );
 
   /* Move stakes data structure */
@@ -283,7 +283,18 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
     /* Move next EpochStakes
        TODO Can we derive this instead of trusting the snapshot? */
-    epoch_bank->next_epoch_stakes = stakes1->stakes.vote_accounts;
+
+    fd_vote_accounts_pair_t_mapnode_t * pool = stakes1->stakes.vote_accounts.vote_accounts_pool;
+    fd_vote_accounts_pair_t_mapnode_t * root = stakes1->stakes.vote_accounts.vote_accounts_root;
+    ulong next_sz = fd_vote_accounts_pair_t_map_size( pool, root );
+    epoch_bank->next_epoch_stakes.vote_accounts_pool = fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( fd_exec_epoch_ctx_next_epoch_stakes_mem( slot_ctx->epoch_ctx ), next_sz ) );
+    epoch_bank->next_epoch_stakes.vote_accounts_root = NULL;
+
+    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(pool, root); n; n = fd_vote_accounts_pair_t_map_successor(pool, n) ) {
+      fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire( epoch_bank->next_epoch_stakes.vote_accounts_pool );
+      fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+      fd_vote_accounts_pair_t_map_insert( epoch_bank->next_epoch_stakes.vote_accounts_pool, &epoch_bank->next_epoch_stakes.vote_accounts_root, elem );
+    }
     fd_memset( &stakes1->stakes.vote_accounts, 0, sizeof(fd_vote_accounts_t) );
   } while(0);
 

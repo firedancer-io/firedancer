@@ -50,7 +50,7 @@
 
 struct fd_runtime_ctx {
   /* Private variables needed to construct objects */
-  uchar                 epoch_ctx_mem[FD_EXEC_EPOCH_CTX_FOOTPRINT] __attribute__( ( aligned( FD_EXEC_EPOCH_CTX_ALIGN ) ) );
+  uchar               * epoch_ctx_mem;
   fd_exec_epoch_ctx_t * epoch_ctx;
   uchar                 slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__( ( aligned( FD_EXEC_SLOT_CTX_ALIGN ) ) );
   fd_exec_slot_ctx_t *  slot_ctx;
@@ -217,9 +217,9 @@ fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx );
 int
 fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx );
 
-int
-fd_global_import_solana_manifest( fd_exec_slot_ctx_t * slot_ctx,
-                                  fd_solana_manifest_t * manifest);
+// int
+// fd_global_import_solana_manifest( fd_exec_slot_ctx_t * slot_ctx,
+//                                   fd_solana_manifest_t * manifest);
 
 /* fd_features_restore loads all known feature accounts from the
    accounts database.  This is used when initializing bank from a

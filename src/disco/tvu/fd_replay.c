@@ -390,7 +390,7 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   fork->head->bank_hash       = *bank_hash;
   FD_LOG_NOTICE( ( "bank hash: %32J", bank_hash->hash ) );
 
-  fd_bank_hash_cmp_t * bank_hash_cmp = child->slot_ctx.epoch_ctx->bank_hash_cmp;
+  fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( child->slot_ctx.epoch_ctx );
   fd_bank_hash_cmp_lock( bank_hash_cmp );
   fd_bank_hash_cmp_insert( bank_hash_cmp, slot, bank_hash, 1 );
 
@@ -506,7 +506,7 @@ fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t
 
   FD_TEST( fd_slot_bank_decode( &slot_ctx->slot_bank, &ctx ) == FD_BINCODE_SUCCESS );
   FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx ) );
-  slot_ctx->leader = fd_epoch_leaders_get( slot_ctx->epoch_ctx->leaders, slot );
+  slot_ctx->leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot );
 
   // TODO how do i get this info, ignoring rewards for now
   // slot_ctx->epoch_reward_status = ???
@@ -536,7 +536,7 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
                   fd_shred_type( shred->variant ) & FD_SHRED_TYPEMASK_DATA,
                   shred->slot,
                   shred->idx ) );
-  fd_pubkey_t const * leader = fd_epoch_leaders_get( replay->epoch_ctx->leaders, shred->slot );
+  fd_pubkey_t const * leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( replay->epoch_ctx ), shred->slot );
   if( FD_UNLIKELY( !leader ) ) {
     FD_LOG_WARNING( ( "unable to get current leader, ignoring turbine packet" ) );
     return;

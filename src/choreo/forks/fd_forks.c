@@ -152,7 +152,8 @@ fd_forks_rollback( fd_forks_t * forks, ulong slot ) {
 
   FD_TEST( fd_slot_bank_decode( &slot_ctx->slot_bank, &ctx ) == FD_BINCODE_SUCCESS );
   FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx ) );
-  slot_ctx->leader = fd_epoch_leaders_get( slot_ctx->epoch_ctx->leaders, slot );
+
+  slot_ctx->leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot );
 
   // TODO how do i get this info, ignoring rewards for now
   // slot_ctx->epoch_reward_status = ???
