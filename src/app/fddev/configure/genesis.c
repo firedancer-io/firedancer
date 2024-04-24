@@ -69,7 +69,6 @@ default_enable_features( fd_features_t * features ) {
   features->enable_big_mod_exp_syscall = 0UL;
   features->enable_alt_bn128_compression_syscall = 0UL;
   features->update_hashes_per_tick2 = 0UL;
-  features->include_loaded_accounts_data_size_in_fee_calculation = 0UL;
   features->bpf_account_data_direct_mapping = 0UL;
   features->relax_authority_signer_check_for_lookup_table_creation = 0UL;
   features->update_hashes_per_tick6 = 0UL;
