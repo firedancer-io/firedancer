@@ -38,12 +38,6 @@ main( int argc, char **argv ) {
   fd_ip_t * ip = fd_ip_join( mem );
   FD_TEST( ip );
 
-#define IP_FMT          "%3u.%3u.%3u.%3u"
-#define IP_VAR(IP) (((IP)>>030) & 0xffU), \
-                   (((IP)>>020) & 0xffU), \
-                   (((IP)>>010) & 0xffU), \
-                   (((IP)>>000) & 0xffU)
-
   /* route table */
 
   fd_ip_route_entry_t * route_table = fd_ip_route_table_get( ip );
