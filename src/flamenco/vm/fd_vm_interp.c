@@ -1,4 +1,4 @@
-#include "fd_vm_interp.h"
+#include "fd_vm.h"
 
 /* TODO: consider doing renaming read/write -> ld/st */
 

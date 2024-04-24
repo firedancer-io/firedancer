@@ -1,5 +1,4 @@
-#include "fd_vm_interp.h"
-#include "syscall/fd_vm_syscall.h" /* FIXME: HMMM ... MAYBE INTERP AND SYSCALLS SHOULD BE COMBINED */
+#include "fd_vm.h"
 
 #define FD_MAX_COMPUTE_UNIT_LIMIT (1400000)     /* Max compute unit limit */
 
