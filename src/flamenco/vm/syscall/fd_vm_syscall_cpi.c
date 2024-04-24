@@ -103,8 +103,6 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       }
     }
 
-    FD_LOG_DEBUG(( "Duplicate index %lu for %32J", duplicate_index, callee_pubkey->uc ));
-
     /* If this was account referenced in a previous iteration, update the flags to include those set
        in this iteration. This ensures that after all the iterations, the de-duplicated account flags 
        for each account are the union of all the flags in all the references to that account in this instruction. */
@@ -167,7 +165,6 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
 
     /* If the account is signed in the callee, it must be signed by the caller or the program */
     if ( FD_UNLIKELY( instruction_account->is_signer && !(fd_instr_acc_is_signer(instr_ctx->instr, pubkey) || fd_vm_syscall_cpi_is_signer(pubkey, signers, signers_cnt)) ) ) {
-      FD_LOG_DEBUG(( "PREP: %32J %lu %lu %lu %lu", pubkey->uc, instruction_account->is_signer, fd_instr_acc_is_signer(instr_ctx->instr, pubkey), fd_vm_syscall_cpi_is_signer(pubkey, signers, signers_cnt), signers_cnt ));
       /* TODO: return InstructionError::PrivilegeEscalation */
       return 1;
     }
@@ -203,7 +200,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
 
   fd_account_meta_t const * program_meta = program_rec->const_meta;
 
-  if( FD_UNLIKELY( !fd_account_is_executable(instr_ctx, program_meta, NULL) ) ) {
+  if( FD_UNLIKELY( !fd_account_is_executable( program_meta ) ) ) {
     /* TODO: log "Account {} is not executable" */
     /* TODO: return InstructionError::AccountNotExecutable */
     return 1;
