@@ -23,6 +23,7 @@ jobs:
 
       - name: build
         run: |
+          . /opt/rh/gcc-toolset-12/enable
           ./contrib/make-j all
 
       - name: make ${{ matrix.test_case }}
