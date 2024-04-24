@@ -78,6 +78,10 @@ FD_PROTOTYPES_BEGIN
 
    FIXME: CONST CORRECT VERSIONS? */
 
+#ifdef FD_HAS_DEEPASAN
+#define FD_ASAN_ALIGN (8UL)
+#endif 
+
 #if FD_HAS_ASAN
 
 /* These are for internal use only */
