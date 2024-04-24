@@ -9,6 +9,7 @@
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../../../funk/fd_funk.h"
+#include "../../../util/bits/fd_float.h"
 #include <assert.h>
 
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
@@ -73,6 +74,7 @@ fd_exec_instr_test_runner_new( void * mem,
     FD_LOG_WARNING(( "fd_funk_new() failed" ));
     return NULL;
   }
+  fd_funk_start_write( funk );
 
   fd_exec_instr_test_runner_t * runner = runner_mem;
   runner->funk = funk;
@@ -88,12 +90,18 @@ fd_exec_instr_test_runner_delete( fd_exec_instr_test_runner_t * runner ) {
 }
 
 static int
-fd_double_is_normal( double x ) {
-	union {
-    double d;
-    ulong  ul;
-  } u = { .d = x };
-  return !( (!(u.ul>>52 & 0x7ff)) && (u.ul<<1) );
+fd_double_is_normal( double dbl ) {
+  ulong x = fd_dblbits( dbl );
+  int is_denorm =
+    ( fd_dblbits_bexp( x ) == 0 ) |
+    ( fd_dblbits_mant( x ) != 0 );
+  int is_inf =
+    ( fd_dblbits_bexp( x ) == 2047 ) &
+    ( fd_dblbits_mant( x ) ==    0 );
+  int is_nan =
+    ( fd_dblbits_bexp( x ) == 2047 ) &
+    ( fd_dblbits_mant( x ) !=    0 );
+  return !( is_denorm | is_inf | is_nan );
 }
 
 static int
@@ -158,8 +166,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   fd_scratch_push();
 
   /* Allocate contexts */
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 5, 0, "wksp", 0UL );
-  uchar *               epoch_ctx_mem = fd_wksp_alloc_laddr( wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint(), FD_EXEC_EPOCH_CTX_MAGIC );;
+  uchar *               epoch_ctx_mem = fd_scratch_alloc( fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint() );
   uchar *               slot_ctx_mem  = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
   uchar *               txn_ctx_mem   = fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
 
@@ -351,7 +358,6 @@ _context_destroy( fd_exec_instr_test_runner_t * runner,
 
   fd_exec_slot_ctx_delete ( fd_exec_slot_ctx_leave ( slot_ctx  ) );
   fd_exec_epoch_ctx_delete( fd_exec_epoch_ctx_leave( epoch_ctx ) );
-  fd_wksp_free_laddr( epoch_ctx );
   fd_acc_mgr_delete( acc_mgr );
   fd_scratch_pop();
   fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
