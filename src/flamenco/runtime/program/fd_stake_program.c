@@ -915,38 +915,38 @@ stake_weighted_credits_observed( fd_stake_t const * stake,
     /* stake_weighted_credits = stake->credits_observed + stake->delegation.stake */
     ulong stake_weighted_credits_h;
     ulong stake_weighted_credits_l;
-    fd_uwide_mul( &stake_weighted_credits_h, &stake_weighted_credits_l, 
+    fd_uwide_mul( &stake_weighted_credits_h, &stake_weighted_credits_l,
                   stake->credits_observed, stake->delegation.stake );
 
     /* absorbed_weighted_credits = absorbed_credits_observed * absorbed_lamports */
     ulong absorbed_weighted_credits_h;
     ulong absorbed_weighted_credits_l;
-    fd_uwide_mul( &absorbed_weighted_credits_h, &absorbed_weighted_credits_l, 
+    fd_uwide_mul( &absorbed_weighted_credits_h, &absorbed_weighted_credits_l,
                   absorbed_credits_observed, absorbed_lamports );
 
     /* total_weighted_credits = stake_weighted_credits + total_stake + absorbed_weighted_credits - 1*/
     ulong total_weighted_credits_partial_one_h;
     ulong total_weighted_credits_partial_one_l;
-    fd_uwide_add( &total_weighted_credits_partial_one_h, &total_weighted_credits_partial_one_l, 
+    fd_uwide_add( &total_weighted_credits_partial_one_h, &total_weighted_credits_partial_one_l,
                   stake_weighted_credits_h, stake_weighted_credits_l,
                   absorbed_weighted_credits_h, absorbed_weighted_credits_l, 0 );
 
     ulong total_weighted_credits_partial_two_h;
     ulong total_weighted_credits_partial_two_l;
-    fd_uwide_add( &total_weighted_credits_partial_two_h, &total_weighted_credits_partial_two_l, 
+    fd_uwide_add( &total_weighted_credits_partial_two_h, &total_weighted_credits_partial_two_l,
                   total_weighted_credits_partial_one_h, total_weighted_credits_partial_one_l,
                   total_stake_h, total_stake_l, 0 );
 
     ulong total_weighted_credits_h;
     ulong total_weighted_credits_l;
-    fd_uwide_dec( &total_weighted_credits_h, &total_weighted_credits_l, 
+    fd_uwide_dec( &total_weighted_credits_h, &total_weighted_credits_l,
                   total_weighted_credits_partial_two_h, total_weighted_credits_partial_two_l, 1 );
 
     /* FIXME: fd_uwide_div doesn't support denominator that is an fd_uwide */
     /* res = totalWeighted_credits / total_stake */
     ulong res_h;
     ulong res_l;
-    FD_TEST(( total_stake_h == 0 )); 
+    FD_TEST(( total_stake_h == 0 ));
     fd_uwide_div( &res_h, &res_l, total_weighted_credits_h, total_weighted_credits_l, total_stake_l );
     FD_TEST(( res_h == 0 ));
     //*out = total_weighted_credits / total_stake;
@@ -1234,7 +1234,6 @@ authorize( fd_exec_instr_ctx_t const *   ctx,
            fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
            fd_pubkey_t const *           new_authority,
            fd_stake_authorize_t const *  stake_authorize,
-           int                           require_custodian_for_locked_stake_authorize,
            fd_sol_sysvar_clock_t const * clock,
            fd_pubkey_t const *           custodian,
            uint *                        custom_err ) {
@@ -1255,7 +1254,7 @@ authorize( fd_exec_instr_ctx_t const *   ctx,
         signers,
         new_authority,
         stake_authorize,
-        fd_ptr_if( require_custodian_for_locked_stake_authorize, &lockup_custodian_args, NULL ),
+        &lockup_custodian_args,
         custom_err );
     if( FD_UNLIKELY( rc ) ) return rc;
 
@@ -1271,7 +1270,7 @@ authorize( fd_exec_instr_ctx_t const *   ctx,
         signers,
         new_authority,
         stake_authorize,
-        fd_ptr_if( require_custodian_for_locked_stake_authorize, &lockup_custodian_args, NULL ),
+        &lockup_custodian_args,
         custom_err );
     if( FD_UNLIKELY( rc ) ) return rc;
 
@@ -1294,7 +1293,6 @@ authorize_with_seed( fd_exec_instr_ctx_t const *   ctx,
                      fd_pubkey_t const *           authority_owner,
                      fd_pubkey_t const *           new_authority,
                      fd_stake_authorize_t const *  stake_authorize,
-                     int                           require_custodian_for_locked_stake_authorize,
                      fd_sol_sysvar_clock_t const * clock,
                      fd_pubkey_t const *           custodian ) {
   int                 rc;
@@ -1321,7 +1319,6 @@ authorize_with_seed( fd_exec_instr_ctx_t const *   ctx,
                     signers,
                     new_authority,
                     stake_authorize,
-                    require_custodian_for_locked_stake_authorize,
                     clock,
                     custodian,
                     &ctx->txn_ctx->custom_err );
@@ -2323,42 +2320,24 @@ fd_stake_program_execute( fd_exec_instr_ctx_t ctx ) {
     rc = get_stake_account( &ctx, &me );
     if( FD_UNLIKELY( rc ) ) return rc;
 
-    int require_custodian_for_locked_stake_authorize =
-        FD_FEATURE_ACTIVE( ctx.slot_ctx, require_custodian_for_locked_stake_authorize );
+    fd_sol_sysvar_clock_t const * clock = fd_sysvar_from_instr_acct_clock( &ctx, 1, &rc );
+    if( FD_UNLIKELY( !clock ) ) return rc;
 
-    if( FD_LIKELY( require_custodian_for_locked_stake_authorize ) ) {
-      fd_sol_sysvar_clock_t const * clock = fd_sysvar_from_instr_acct_clock( &ctx, 1, &rc );
-      if( FD_UNLIKELY( !clock ) ) return rc;
+    if( FD_UNLIKELY( ctx.instr->acct_cnt < 3 ) )
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
-      if( FD_UNLIKELY( ctx.instr->acct_cnt < 3 ) )
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-
-      fd_pubkey_t const * custodian_pubkey = NULL;
-      rc = get_optional_pubkey( ctx, 3, 0, &custodian_pubkey );
-      if( FD_UNLIKELY( rc ) ) return rc;
-      rc = authorize( &ctx,
-                      me,
-                      0,
-                      signers,
-                      authorized_pubkey,
-                      stake_authorize,
-                      require_custodian_for_locked_stake_authorize,
-                      clock,
-                      custodian_pubkey,
-                      &ctx.txn_ctx->custom_err );
-    } else {
-      fd_sol_sysvar_clock_t clock_default = { 0 };
-      rc = authorize( &ctx,
-                      me,
-                      0,
-                      signers,
-                      authorized_pubkey,
-                      stake_authorize,
-                      require_custodian_for_locked_stake_authorize,
-                      &clock_default,
-                      NULL,
-                      &ctx.txn_ctx->custom_err );
-    }
+    fd_pubkey_t const * custodian_pubkey = NULL;
+    rc = get_optional_pubkey( ctx, 3, 0, &custodian_pubkey );
+    if( FD_UNLIKELY( rc ) ) return rc;
+    rc = authorize( &ctx,
+                    me,
+                    0,
+                    signers,
+                    authorized_pubkey,
+                    stake_authorize,
+                    clock,
+                    custodian_pubkey,
+                    &ctx.txn_ctx->custom_err );
 
     fd_borrowed_account_release_write( me );  /* implicit drop */
     break;
@@ -2384,32 +2363,24 @@ fd_stake_program_execute( fd_exec_instr_ctx_t ctx ) {
     if( ctx.instr->acct_cnt < 2 )
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
-    int  require_custodian_for_locked_stake_authorize =
-        FD_FEATURE_ACTIVE( ctx.slot_ctx, require_custodian_for_locked_stake_authorize );
+    fd_sol_sysvar_clock_t const * clock = fd_sysvar_from_instr_acct_clock( &ctx, 2, &rc );
+    if( FD_UNLIKELY( !clock ) ) return rc;
 
-    if( FD_LIKELY( require_custodian_for_locked_stake_authorize ) ) {
-      fd_sol_sysvar_clock_t const * clock = fd_sysvar_from_instr_acct_clock( &ctx, 2, &rc );
-      if( FD_UNLIKELY( !clock ) ) return rc;
+    fd_pubkey_t const * custodian_pubkey = NULL;
+    rc = get_optional_pubkey( ctx, 3, 0, &custodian_pubkey );
+    if( FD_UNLIKELY( rc ) ) return rc;
 
-      fd_pubkey_t const * custodian_pubkey = NULL;
-      rc = get_optional_pubkey( ctx, 3, 0, &custodian_pubkey );
-      if( FD_UNLIKELY( rc ) ) return rc;
-
-      rc = authorize_with_seed( &ctx,
-                                me,
-                                0,
-                                1,
-                                (char const *)args.authority_seed,
-                                args.authority_seed_len,
-                                &args.authority_owner,
-                                &args.new_authorized_pubkey,
-                                &args.stake_authorize,
-                                require_custodian_for_locked_stake_authorize,
-                                clock,
-                                custodian_pubkey );
-    } else {
-      rc = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-    }
+    rc = authorize_with_seed( &ctx,
+                              me,
+                              0,
+                              1,
+                              (char const *)args.authority_seed,
+                              args.authority_seed_len,
+                              &args.authority_owner,
+                              &args.new_authorized_pubkey,
+                              &args.stake_authorize,
+                              clock,
+                              custodian_pubkey );
 
     fd_borrowed_account_release_write( me );  /* implicit drop */
     break;
@@ -2706,7 +2677,6 @@ fd_stake_program_execute( fd_exec_instr_ctx_t ctx ) {
                       signers,
                       authorized_pubkey,
                       stake_authorize,
-                      1,
                       clock,
                       custodian_pubkey,
                       &ctx.txn_ctx->custom_err );
@@ -2765,7 +2735,6 @@ fd_stake_program_execute( fd_exec_instr_ctx_t ctx ) {
                                 &args->authority_owner,
                                 authorized_pubkey,
                                 &args->stake_authorize,
-                                1,
                                 clock,
                                 custodian_pubkey );
     } else {
