@@ -178,7 +178,6 @@ static int parse_key_value( config_t *   config,
   ENTRY_STR   ( , ,                     user                                                      );
   ENTRY_STR   ( , ,                     scratch_directory                                         );
   ENTRY_STR   ( , ,                     dynamic_port_range                                        );
-  ENTRY_STR   ( , ,                     topology                                                  );
 
   ENTRY_STR   ( ., log,                 path                                                      );
   ENTRY_STR   ( ., log,                 colorize                                                  );
@@ -274,6 +273,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_BOOL  ( ., development,         no_clone                                                  );
   ENTRY_BOOL  ( ., development,         no_solana_labs                                            );
   ENTRY_BOOL  ( ., development,         bootstrap                                                 );
+  ENTRY_STR   ( ., development,         topology                                                  );
 
   ENTRY_BOOL  ( ., development.netns,   enabled                                                   );
   ENTRY_STR   ( ., development.netns,   interface0                                                );
@@ -629,9 +629,8 @@ fdctl_tile_run( fd_topo_tile_t * tile ) {
    after Firedancer is booted. */
 static void
 topo_initialize( config_t * config ) {
-  fd_topo_config_fn * topo_config_fn = fd_topo_kind_str_to_topo_config_fn( config->topology );
-
-  FD_LOG_NOTICE(( "initializing topology - kind: %s", config->topology ));
+  fd_topo_config_fn * topo_config_fn = fd_topo_kind_str_to_topo_config_fn( config->development.topology );
+  FD_LOG_NOTICE(( "initializing topology - kind: %s", config->development.topology ));
   topo_config_fn( config );
 }
 

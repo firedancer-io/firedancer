@@ -36,7 +36,6 @@ typedef struct {
 
   char dynamic_port_range[ 32 ];
 
-  char topology[ 32 ];
   struct {
     char path[ PATH_MAX ];
     char colorize[ 6 ];
@@ -137,6 +136,7 @@ typedef struct {
     int no_solana_labs;
     int bootstrap;
     uint debug_tile;
+    char topology[ 32 ];
 
     struct {
       int  enabled;
