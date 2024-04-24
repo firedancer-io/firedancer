@@ -1,10 +1,9 @@
-#ifndef HEADER_fd_src_flamenco_vm_fd_vm_context_h
-#define HEADER_fd_src_flamenco_vm_fd_vm_context_h
+#ifndef HEADER_fd_src_flamenco_vm_fd_vm_h
+#define HEADER_fd_src_flamenco_vm_fd_vm_h
 
 #include "fd_vm_cpi.h"
 
 /* FIXME: NEGATIVE INTEGER ERROR CODES */
-/* FIXME: UNIFY THE ERROR CODES */
 /* FIXME: HAVE AN ERROR CODE CSTR */
 
 /* sBPF instruction validation error codes */
@@ -329,6 +328,41 @@ fd_vm_translate_slice_vm_to_host_const( fd_vm_exec_context_t * ctx,
   return (fd_vm_vec_t const *) fd_vm_translate_vm_to_host_const(ctx, vm_addr, sz, align);
 }
 
+/* fd_vm_interp_instrs runs the sBPF program from the context until
+   completion or a fault occurs.  Returns 0UL success or an error/fault
+   code. */
+
+ulong
+fd_vm_interp_instrs( fd_vm_exec_context_t * ctx );
+
+ulong
+fd_vm_interp_instrs_trace( fd_vm_exec_context_t * ctx );
+
+/* syscall/fd_vm_syscall_admin ****************************************/
+
+/* FIXME: MOVE FD_SBPF_SYSCALLS_T INTO VM_CONTEXT? */
+/* FIXME: DOCUMENT IN MORE DETAIL */
+
+/* Registers a syscall by name to an execution context. */
+
+void
+fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
+                        char const *           name,
+                        fd_sbpf_syscall_func_t func );
+
+/* fd_vm_syscall_register_slot registers all syscalls appropriate for a
+   slot context. */
+
+void
+fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
+                             fd_exec_slot_ctx_t const * slot_ctx );
+
+/* fd_vm_syscall_register all reigsters all syscalls implemented.  May
+   change between Firedancer versions without warning. */
+
+void
+fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls );
+
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_vm_fd_vm_context_h */
+#endif /* HEADER_fd_src_flamenco_vm_fd_vm_h */
