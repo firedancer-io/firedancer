@@ -19,10 +19,11 @@ fd_ip_footprint( ulong arp_entries,
   ulong l;
 
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, sizeof(fd_ip_t)                             );
-  l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, sizeof(fd_nl_t)                             );
-  l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, arp_entries   * sizeof(fd_nl_arp_entry_t)   );
-  l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, route_entries * sizeof(fd_nl_route_entry_t) );
+  l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, sizeof(fd_ip_t)                                 );
+  l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, sizeof(fd_nl_t)                                 );
+  /* allocate enough space for two of each kind of table */
+  l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, 2 * arp_entries   * sizeof(fd_nl_arp_entry_t)   );
+  l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, 2 * route_entries * sizeof(fd_nl_route_entry_t) );
 
   return FD_LAYOUT_FINI( l, FD_IP_ALIGN );
 }
@@ -53,10 +54,10 @@ fd_ip_new( void * shmem,
   l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, sizeof(fd_nl_t)                             );
 
   ulong ofs_arp_table   = FD_ULONG_ALIGN_UP( l, FD_IP_ALIGN );
-  l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, arp_entries   * sizeof(fd_nl_arp_entry_t)   );
+  l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, 2 * arp_entries   * sizeof(fd_nl_arp_entry_t)   );
 
   ulong ofs_route_table = FD_ULONG_ALIGN_UP( l, FD_IP_ALIGN );
-  l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, route_entries * sizeof(fd_nl_route_entry_t) );
+  l = FD_LAYOUT_APPEND( l, FD_IP_ALIGN, 2 * route_entries * sizeof(fd_nl_route_entry_t) );
 
   ulong mem_sz = FD_LAYOUT_FINI( l, FD_IP_ALIGN );
 
@@ -69,6 +70,8 @@ fd_ip_new( void * shmem,
   ip->ofs_netlink          = ofs_netlink;
   ip->ofs_arp_table        = ofs_arp_table;
   ip->ofs_route_table      = ofs_route_table;
+  ip->arp_table_idx        = 0;
+  ip->route_table_idx      = 0;
 
   /* set magic last, after a fence */
   FD_COMPILER_MFENCE();
@@ -139,36 +142,88 @@ fd_ip_netlink_get( fd_ip_t * ip ) {
 }
 
 
-/* get pointer to start of routing table */
+/* get pointer to start of current routing table */
 fd_ip_route_entry_t *
 fd_ip_route_table_get( fd_ip_t * ip ) {
   ulong mem = (ulong)ip;
 
-  return (fd_ip_route_entry_t*)( mem + ip->ofs_route_table );
+  /* find the first table from the offset */
+  fd_ip_route_entry_t * first_table = (fd_ip_route_entry_t*)( mem + ip->ofs_route_table );
+
+  /* find the table index */
+  uint idx = ip->route_table_idx;
+
+  /* offset to the current table */
+  return first_table + ( idx * ip->num_route_entries );
 }
 
 
-/* get pointer to start of arp table */
+/* get pointer to start of alternate routing table */
+fd_ip_route_entry_t *
+fd_ip_route_table_get_alt( fd_ip_t * ip ) {
+  ulong mem = (ulong)ip;
+
+  /* find the first table from the offset */
+  fd_ip_route_entry_t * first_table = (fd_ip_route_entry_t*)( mem + ip->ofs_route_table );
+
+  /* find the table index of the alternate table */
+  uint idx = !ip->route_table_idx;
+
+  /* offset to the alternate table */
+  return first_table + ( idx * ip->num_route_entries );
+}
+
+
+/* get pointer to start of current arp table */
 fd_ip_arp_entry_t *
 fd_ip_arp_table_get( fd_ip_t * ip ) {
   ulong mem = (ulong)ip;
 
-  return (fd_ip_arp_entry_t*)( mem + ip->ofs_arp_table );
+  /* find the table from the offset */
+  fd_ip_arp_entry_t * first_table = (fd_ip_arp_entry_t*)( mem + ip->ofs_arp_table );
+
+  /* find the table index */
+  uint idx = ip->arp_table_idx;
+
+  /* offset to the current table */
+  return first_table + ( idx * ip->num_arp_entries );
+}
+
+
+/* get pointer to start of alternate arp table */
+fd_ip_arp_entry_t *
+fd_ip_arp_table_get_alt( fd_ip_t * ip ) {
+  ulong mem = (ulong)ip;
+
+  /* find the table from the offset */
+  fd_ip_arp_entry_t * first_table = (fd_ip_arp_entry_t*)( mem + ip->ofs_arp_table );
+
+  /* find the table index */
+  uint idx = !ip->arp_table_idx;
+
+  /* offset to the alternate table */
+  return first_table + ( idx * ip->num_arp_entries );
 }
 
 
 void
 fd_ip_arp_fetch( fd_ip_t * ip ) {
-  fd_ip_arp_entry_t * arp_table     = fd_ip_arp_table_get( ip );
+  /* we fetch into a temp space. If it is successful we switch temp and current */
+
+  /* get pointer to alt table */
+  fd_ip_arp_entry_t * alt_arp_table = fd_ip_arp_table_get_alt( ip );
   ulong               arp_table_cap = ip->num_arp_entries;
   fd_nl_t *           netlink       = fd_ip_netlink_get( ip );
 
-  long num_entries = fd_nl_load_arp_table( netlink, arp_table, arp_table_cap );
+  long num_entries = fd_nl_load_arp_table( netlink, alt_arp_table, arp_table_cap );
 
-  if( num_entries < 0L ) {
+  if( num_entries <= 0L ) {
+    /* don't switch */
     return;
   }
 
+  /* success - switch to other table */
+  ip->arp_table_idx      ^= 1;
   ip->cur_num_arp_entries = (ulong)num_entries;
 }
 
@@ -256,16 +311,25 @@ fd_ip_arp_gen_arp_probe( uchar *         buf,
 
 void
 fd_ip_route_fetch( fd_ip_t * ip ) {
-  fd_ip_route_entry_t * route_table     = fd_ip_route_table_get( ip );
+  fd_ip_route_entry_t * alt_route_table = fd_ip_route_table_get_alt( ip );
   ulong                 route_table_cap = ip->num_route_entries;
   fd_nl_t *             netlink         = fd_ip_netlink_get( ip );
 
-  long num_entries = fd_nl_load_route_table( netlink, route_table, route_table_cap );
+  long num_entries = fd_nl_load_route_table( netlink, alt_route_table, route_table_cap );
 
-  if( num_entries < 0L ) {
+  if( FD_UNLIKELY( num_entries < 0 ) ) {
+    /* as a workaround for some systems that return EBUSY, but succeed
+     * immediately after, we will retry once */
+    num_entries = fd_nl_load_route_table( netlink, alt_route_table, route_table_cap );
+  }
+
+  if( FD_UNLIKELY( num_entries <= 0L ) ) {
+    /* don't switch */
     return;
   }
 
+  /* switch to new table */
+  ip->route_table_idx      ^= 1U;
   ip->cur_num_route_entries = (ulong)num_entries;
 }
 
