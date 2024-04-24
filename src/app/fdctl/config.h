@@ -136,6 +136,7 @@ typedef struct {
     int no_solana_labs;
     int bootstrap;
     uint debug_tile;
+    char topology[ 32 ];
 
     struct {
       int  enabled;
