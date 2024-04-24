@@ -11,7 +11,7 @@ $(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION
 
 # fdctl core
 $(call add-objs,main1 config caps utility keys ready mem spy help,fd_fdctl)
-$(call add-objs,run/run run/run1 run/run_solana,fd_fdctl)
+$(call add-objs,run/run run/run1 run/run_solana run/topos/topos,fd_fdctl)
 $(call add-objs,monitor/monitor monitor/helper,fd_fdctl)
 
 # fdctl tiles

@@ -36,6 +36,7 @@ typedef struct {
 
   char dynamic_port_range[ 32 ];
 
+  char topology[ 32 ];
   struct {
     char path[ PATH_MAX ];
     char colorize[ 6 ];
