@@ -19,7 +19,7 @@ fd_vm_syscall_sol_curve_validate_point( /**/            void *  _vm,
                                         FD_PARAM_UNUSED ulong   arg3,
                                         FD_PARAM_UNUSED ulong   arg4,
                                         /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   switch( curve_id ) {
 
@@ -63,7 +63,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
                                   ulong   in1_addr,
                                   ulong   out_addr,
                                   ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* FIXME: consider flattening into a single switch */
   /* FIXME: do the out_addr translateion need to be after the expensive
@@ -349,7 +349,7 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
                                          ulong   point_cnt,
                                          ulong   result_point_addr,
                                          ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   ulong ret = 1UL;
 

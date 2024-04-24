@@ -1,29 +1,27 @@
 #include "fd_vm_syscall.h"
 
 static void
-set_vm_read_only_memory_region( fd_vm_exec_context_t * vm_ctx ) {
-  for( ulong i=0UL; i<vm_ctx->read_only_sz; i++ ) vm_ctx->read_only[i] = (uchar) (i % (UCHAR_MAX + 1));
+set_vm_read_only_memory_region( fd_vm_t * vm ) {
+  for( ulong i=0UL; i<vm->read_only_sz; i++ ) vm->read_only[i] = (uchar) (i % (UCHAR_MAX + 1));
 }
 
 static void
-test_vm_syscall_sol_curve_multiscalar_mul(
-    char *                test_case_name,
-    fd_vm_exec_context_t *vm_ctx,
-    ulong                 curve_id,
-    ulong                 scalar_vm_addr,
-    ulong                 point_vm_addr,
-    ulong                 point_cnt,
-    ulong                 result_point_vm_addr,
-    ulong                 expected_ret_code,
-    int                   expected_syscall_ret,
-    void *                expected_result_host_ptr
-) {
+test_vm_syscall_sol_curve_multiscalar_mul( char const * test_case_name,
+                                           fd_vm_t *    vm,
+                                           ulong        curve_id,
+                                           ulong        scalar_vaddr,
+                                           ulong        point_vaddr,
+                                           ulong        point_cnt,
+                                           ulong        result_point_vaddr,
+                                           ulong        expected_ret_code,
+                                           int          expected_syscall_ret,
+                                           void *       expected_result_host_ptr ) {
     ulong ret_code = 0UL;
-    int   syscall_ret = fd_vm_syscall_sol_curve_multiscalar_mul((void *) vm_ctx, curve_id, scalar_vm_addr, point_vm_addr, point_cnt, result_point_vm_addr, &ret_code);
+    int   syscall_ret = fd_vm_syscall_sol_curve_multiscalar_mul((void *) vm, curve_id, scalar_vaddr, point_vaddr, point_cnt, result_point_vaddr, &ret_code);
     FD_TEST( ret_code == expected_ret_code );
     FD_TEST( syscall_ret == expected_syscall_ret );
 
-    void * result_point_host_addr = fd_vm_translate_vm_to_host( vm_ctx, result_point_vm_addr, 32, 1 );
+    void * result_point_host_addr = fd_vm_translate_vm_to_host( vm, result_point_vaddr, 32, 1 );
     if (ret_code == 0 && syscall_ret == 0) {
         FD_TEST( memcmp( result_point_host_addr, expected_result_host_ptr, 32 ) == 0 );
     }
@@ -32,24 +30,22 @@ test_vm_syscall_sol_curve_multiscalar_mul(
 }
 
 static void
-test_fd_vm_syscall_sol_curve_group_op(
-    char *                test_case_name,
-    fd_vm_exec_context_t *vm_ctx,
-    ulong                 curve_id,
-    ulong                 op_id,
-    ulong                 in0_vm_addr,
-    ulong                 in1_vm_addr,
-    ulong                 result_point_vm_addr,
-    ulong                 expected_ret_code,
-    int                   expected_syscall_ret,
-    void *                expected_result_host_ptr
-) {
+test_fd_vm_syscall_sol_curve_group_op( char const * test_case_name,
+                                       fd_vm_t *    vm,
+                                       ulong        curve_id,
+                                       ulong        op_id,
+                                       ulong        in0_vaddr,
+                                       ulong        in1_vaddr,
+                                       ulong        result_point_vaddr,
+                                       ulong        expected_ret_code,
+                                       int          expected_syscall_ret,
+                                       void *       expected_result_host_ptr ) {
     ulong ret_code = 0UL;
-    int   syscall_ret = fd_vm_syscall_sol_curve_group_op((void *) vm_ctx, curve_id, op_id, in0_vm_addr, in1_vm_addr, result_point_vm_addr, &ret_code);
+    int   syscall_ret = fd_vm_syscall_sol_curve_group_op((void *) vm, curve_id, op_id, in0_vaddr, in1_vaddr, result_point_vaddr, &ret_code);
     FD_TEST( ret_code == expected_ret_code );
     FD_TEST( syscall_ret == expected_syscall_ret );
 
-    void * result_point_host_addr = fd_vm_translate_vm_to_host( vm_ctx, result_point_vm_addr, 32, 1 );
+    void * result_point_host_addr = fd_vm_translate_vm_to_host( vm, result_point_vaddr, 32, 1 );
     if (ret_code == 0 && syscall_ret == 0) {
         FD_TEST( memcmp( result_point_host_addr, expected_result_host_ptr, 32 ) == 0 );
     }
@@ -66,7 +62,7 @@ main( int     argc,
   ulong const read_only_sz = 500UL;
   uchar read_only_prog[read_only_sz];
 
-  fd_vm_exec_context_t vm_ctx = {
+  fd_vm_t vm = {
     .entrypoint          = 0,
     .program_counter     = 0,
     .instruction_counter = 0,
@@ -82,24 +78,24 @@ main( int     argc,
     .heap_sz             = FD_VM_DEFAULT_HEAP_SZ,
   };
 
-  set_vm_read_only_memory_region( &vm_ctx );
+  set_vm_read_only_memory_region( &vm );
 
-  ulong scalar_vm_addr = 0;
-  ulong point_vm_addr = 0;
-  ulong result_point_vm_addr = 0;
-  ulong in0_vm_addr = 0;
-  ulong in1_vm_addr = 0;
+  ulong scalar_vaddr = 0;
+  ulong point_vaddr = 0;
+  ulong result_point_vaddr = 0;
+  ulong in0_vaddr = 0;
+  ulong in1_vaddr = 0;
   void * expected_result_host_ptr = NULL;
 
   // invalid
   test_vm_syscall_sol_curve_multiscalar_mul(
     "test_vm_syscall_sol_curve_multiscalar_mul: invalid",
-    &vm_ctx,
+    &vm,
     FD_VM_SYSCALL_SOL_CURVE_ECC_ED25519,
-    scalar_vm_addr,
-    point_vm_addr,
+    scalar_vaddr,
+    point_vaddr,
     0UL, // point_cnt
-    result_point_vm_addr,
+    result_point_vaddr,
     0UL, // ret_code
     FD_VM_ERR_PERM, // syscall_ret
     expected_result_host_ptr
@@ -127,22 +123,22 @@ main( int     argc,
       172, 185, 75, 244, 26, 70, 18, 248, 46, 207, 184, 235, 60,
     };
 
-    memcpy( &vm_ctx.heap[0], scalars, 64 );
-    memcpy( &vm_ctx.heap[64], points, 64 );
+    memcpy( &vm.heap[0], scalars, 64 );
+    memcpy( &vm.heap[64], points, 64 );
 
-    scalar_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START;
-    point_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
-    result_point_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 128UL;
+    scalar_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START;
+    point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
+    result_point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 128UL;
     expected_result_host_ptr = _expected;
 
     test_vm_syscall_sol_curve_multiscalar_mul(
       "test_vm_syscall_sol_curve_multiscalar_mul: ed25519",
-      &vm_ctx,
+      &vm,
       FD_VM_SYSCALL_SOL_CURVE_ECC_ED25519,
-      scalar_vm_addr,
-      point_vm_addr,
+      scalar_vaddr,
+      point_vaddr,
       2UL,
-      result_point_vm_addr,
+      result_point_vaddr,
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
@@ -169,22 +165,22 @@ main( int     argc,
       94, 84, 118, 92, 140, 120, 81, 30, 246, 173, 140, 195, 86,
     };
 
-    memcpy( &vm_ctx.heap[0], scalars, 64 );
-    memcpy( &vm_ctx.heap[64], points, 64 );
+    memcpy( &vm.heap[0], scalars, 64 );
+    memcpy( &vm.heap[64], points, 64 );
 
-    scalar_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START;
-    point_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
-    result_point_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 128UL;
+    scalar_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START;
+    point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
+    result_point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 128UL;
     expected_result_host_ptr = _expected;
 
     test_vm_syscall_sol_curve_multiscalar_mul(
       "test_vm_syscall_sol_curve_multiscalar_mul: ristretto255",
-      &vm_ctx,
+      &vm,
       FD_VM_SYSCALL_SOL_CURVE_ECC_RISTRETTO255,
-      scalar_vm_addr,
-      point_vm_addr,
+      scalar_vaddr,
+      point_vaddr,
       2UL,
-      result_point_vm_addr,
+      result_point_vaddr,
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
@@ -205,21 +201,21 @@ main( int     argc,
       141, 113, 125, 215, 161, 71, 49, 176, 87, 38, 180, 177, 39, 78,
     };
 
-    memcpy( &vm_ctx.heap[0], points, 64 );
+    memcpy( &vm.heap[0], points, 64 );
 
-    in0_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START;
-    in1_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 32UL;
-    result_point_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
+    in0_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START;
+    in1_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 32UL;
+    result_point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
     expected_result_host_ptr = _expected;
 
     test_fd_vm_syscall_sol_curve_group_op(
       "fd_vm_syscall_sol_curve_group_op: ristretto255, add 0 + P",
-      &vm_ctx,
+      &vm,
       FD_VM_SYSCALL_SOL_CURVE_ECC_RISTRETTO255,
       FD_VM_SYSCALL_SOL_CURVE_ECC_G_ADD,
-      in0_vm_addr,
-      in1_vm_addr,
-      result_point_vm_addr,
+      in0_vaddr,
+      in1_vaddr,
+      result_point_vaddr,
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
@@ -242,21 +238,21 @@ main( int     argc,
       141, 113, 125, 215, 161, 71, 49, 176, 87, 38, 180, 177, 39, 78,
     };
 
-    memcpy( &vm_ctx.heap[0], points, 64 );
+    memcpy( &vm.heap[0], points, 64 );
 
-    in0_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START;
-    in1_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 32UL;
-    result_point_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
+    in0_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START;
+    in1_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 32UL;
+    result_point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
     expected_result_host_ptr = _expected;
 
     test_fd_vm_syscall_sol_curve_group_op(
       "fd_vm_syscall_sol_curve_group_op: ristretto255, add",
-      &vm_ctx,
+      &vm,
       FD_VM_SYSCALL_SOL_CURVE_ECC_RISTRETTO255,
       FD_VM_SYSCALL_SOL_CURVE_ECC_G_ADD,
-      in0_vm_addr,
-      in1_vm_addr,
-      result_point_vm_addr,
+      in0_vaddr,
+      in1_vaddr,
+      result_point_vaddr,
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
@@ -276,21 +272,21 @@ main( int     argc,
       146, 110, 128, 24, 151, 187, 144, 108, 233, 221, 208, 157, 52,
     };
 
-    memcpy( &vm_ctx.heap[0], points, 64 );
+    memcpy( &vm.heap[0], points, 64 );
 
-    in0_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START;
-    in1_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 32UL;
-    result_point_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
+    in0_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START;
+    in1_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 32UL;
+    result_point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
     expected_result_host_ptr = _expected;
 
     test_fd_vm_syscall_sol_curve_group_op(
       "fd_vm_syscall_sol_curve_group_op: ristretto255, sub",
-      &vm_ctx,
+      &vm,
       FD_VM_SYSCALL_SOL_CURVE_ECC_RISTRETTO255,
       FD_VM_SYSCALL_SOL_CURVE_ECC_G_SUB,
-      in0_vm_addr,
-      in1_vm_addr,
-      result_point_vm_addr,
+      in0_vaddr,
+      in1_vaddr,
+      result_point_vaddr,
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
@@ -313,22 +309,22 @@ main( int     argc,
       21, 101, 124, 80, 19, 119, 100, 77, 108, 65, 187, 228, 5,
     };
 
-    memcpy( &vm_ctx.heap[0], scalars, 32 );
-    memcpy( &vm_ctx.heap[32], points, 32 );
+    memcpy( &vm.heap[0], scalars, 32 );
+    memcpy( &vm.heap[32], points, 32 );
 
-    in0_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START;
-    in1_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 32UL;
-    result_point_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
+    in0_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START;
+    in1_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 32UL;
+    result_point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
     expected_result_host_ptr = _expected;
 
     test_fd_vm_syscall_sol_curve_group_op(
       "fd_vm_syscall_sol_curve_group_op: ristretto255, mul",
-      &vm_ctx,
+      &vm,
       FD_VM_SYSCALL_SOL_CURVE_ECC_RISTRETTO255,
       FD_VM_SYSCALL_SOL_CURVE_ECC_G_MUL,
-      in0_vm_addr,
-      in1_vm_addr,
-      result_point_vm_addr,
+      in0_vaddr,
+      in1_vaddr,
+      result_point_vaddr,
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
