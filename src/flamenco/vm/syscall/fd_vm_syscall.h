@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_vm_syscall_fd_vm_syscall_h
 #define HEADER_fd_src_flamenco_vm_syscall_fd_vm_syscall_h
 
-#include "../fd_vm_context.h"
+#include "../fd_vm.h"
 
 /* FIXME: CONSIDER NOT PREFIXING SYSCALLS WITH SOL_? (OR MAYBE THIS
    IS NECESSARY TO DISAMBIGUATE SOLANA SYSCALLS FROM NON-SOLANA?
@@ -24,32 +24,6 @@ fd_vm_syscall_##name( void *  _vm,  \
                       ulong * _ret )
 
 FD_PROTOTYPES_BEGIN
-
-/* fd_vm_syscall_admin ************************************************/
-
-/* FIXME: MOVE THESE TO SOMETHING LIKE VM.C? */
-/* FIXME: MOVE FD_SBPF_SYSCALLS_T INTO VM_CONTEXT? */
-/* FIXME: DOCUMENT IN MORE DETAIL */
-
-/* Registers a syscall by name to an execution context. */
-
-void
-fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
-                        char const *           name,
-                        fd_sbpf_syscall_func_t func );
-
-/* fd_vm_syscall_register_slot registers all syscalls appropriate for a
-   slot context. */
-
-void
-fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
-                             fd_exec_slot_ctx_t const * slot_ctx );
-
-/* fd_vm_syscall_register all reigsters all syscalls implemented.  May
-   change between Firedancer versions without warning. */
-
-void
-fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls );
 
 /* fd_vm_syscall_util *************************************************/
 
@@ -724,4 +698,4 @@ FD_VM_SYSCALL_DECL( sol_curve_multiscalar_mul );
 
 FD_PROTOTYPES_END
 
-#endif /*HEADER_src_flamenco_vm_syscall_fd_vm_syscall_h */
+#endif /* HEADER_src_flamenco_vm_syscall_fd_vm_syscall_h */
