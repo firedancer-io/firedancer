@@ -28,6 +28,9 @@ $(call add-objs,run/tiles/fd_shred,fd_fdctl)
 $(call add-objs,run/tiles/fd_store,fd_fdctl)
 $(call add-objs,run/tiles/fd_sign,fd_fdctl)
 
+# fdctl topologies
+$(call add-objs,run/topos/fd_frankendancer,fd_fdctl)
+
 # fdctl configure stages
 $(call add-objs,configure/configure,fd_fdctl)
 $(call add-objs,configure/hugetlbfs,fd_fdctl)

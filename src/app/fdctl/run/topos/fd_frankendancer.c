@@ -1,5 +1,11 @@
+#include "../tiles/tiles.h"
 #include "../../config.h"
 #include "../../../../ballet/shred/fd_shred.h"
+#include "../../../../disco/topo/fd_topob.h"
+#include "../../../../disco/topo/fd_pod_format.h"
+#include "../../../../util/tile/fd_tile_private.h"
+#include <sys/sysinfo.h>
+
 
 void
 fd_topo_frankendancer( config_t * config ) { 
