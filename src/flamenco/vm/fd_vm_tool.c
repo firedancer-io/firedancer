@@ -85,11 +85,11 @@ fd_vm_tool_prog_free( fd_vm_tool_prog_t * prog ) {
 
 int
 cmd_disasm( char const * bin_path ) {
+
   fd_vm_tool_prog_t tool_prog;
   fd_vm_tool_prog_create( &tool_prog, bin_path ); /* FIXME: RENAME INIT? */
-  FD_LOG_NOTICE(( "Loading sBPF program: %s", bin_path ));
 
-  fd_vm_exec_context_t ctx = {
+  fd_vm_t vm = {
     .entrypoint          = (long)tool_prog.prog->entry_pc,
     .program_counter     = 0,
     .instruction_counter = 0,
@@ -106,7 +106,7 @@ cmd_disasm( char const * bin_path ) {
   if( FD_UNLIKELY( !out ) ) FD_LOG_ERR(( "malloc failed" ));
   out[0] = '\0';
 
-  int err = fd_vm_disasm_program( ctx.instrs, ctx.instrs_sz, tool_prog.syscalls, out, out_max, &out_len );
+  int err = fd_vm_disasm_program( vm.instrs, vm.instrs_sz, tool_prog.syscalls, out, out_max, &out_len );
 
   puts( out );
 
@@ -119,11 +119,11 @@ cmd_disasm( char const * bin_path ) {
 
 int
 cmd_validate( char const * bin_path ) {
+
   fd_vm_tool_prog_t tool_prog;
   fd_vm_tool_prog_create( &tool_prog, bin_path );
-  FD_LOG_NOTICE(( "Loading sBPF program: %s", bin_path ));
 
-  fd_vm_exec_context_t ctx = {
+  fd_vm_t vm = {
     .entrypoint          = (long)tool_prog.prog->entry_pc,
     .program_counter     = 0,
     .instruction_counter = 0,
@@ -133,23 +133,17 @@ cmd_validate( char const * bin_path ) {
     .calldests           = tool_prog.prog->calldests,
     .syscall_map         = tool_prog.syscalls,
   };
-  ulong res = fd_vm_context_validate( &ctx );
 
-  if( res == FD_VM_SBPF_VALIDATE_SUCCESS ) {
-    FD_LOG_NOTICE(( "validate succeeded" ));
-    return 1;
-  }
+  int err = fd_vm_validate( &vm );
 
   fd_vm_tool_prog_free( &tool_prog );
 
-  return 0;
+  return err;
 }
 
 static uchar *
 read_input_file( char const * input_path, ulong * _input_sz ) {
-  if( _input_sz==NULL ) {
-    FD_LOG_ERR(( "input_sz cannot be NULL" ));
-  }
+  if( FD_UNLIKELY( !_input_sz ) ) FD_LOG_ERR(( "input_sz cannot be NULL" ));
 
   /* Open file */
 
@@ -187,7 +181,6 @@ cmd_trace( char const * bin_path,
 
   fd_vm_tool_prog_t tool_prog;
   fd_vm_tool_prog_create( &tool_prog, bin_path );
-  FD_LOG_NOTICE(( "Loading sBPF program: %s", bin_path ));
 
   ulong   input_sz = 0UL;
   uchar * input    = read_input_file( input_path, &input_sz ); /* FIXME: WHERE IS INPUT FREED? */
@@ -196,10 +189,10 @@ cmd_trace( char const * bin_path,
   ulong event_data_max = 2048UL;  /* 2 KiB memory range captures by default */
   fd_vm_trace_t * trace = fd_vm_trace_join( fd_vm_trace_new( aligned_alloc(
     fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max ) ); /* logs details */
-  if( FD_UNLIKELY( !trace ) ) return FD_VM_ERR_FULL;
+  if( FD_UNLIKELY( !trace ) ) FD_LOG_ERR(( "Unable to construct trace" ));
 
   /* FIXME: Gross init */
-  fd_vm_exec_context_t ctx = {
+  fd_vm_t vm = {
     .entrypoint          = (long)tool_prog.prog->entry_pc,
     .program_counter     = 0,
     .instruction_counter = 0,
@@ -215,37 +208,39 @@ cmd_trace( char const * bin_path,
     .trace               = trace
   };
 
-  ctx.register_file[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
-  ctx.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
+  vm.register_file[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
+  vm.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
   long dt = -fd_log_wallclock();
-  ulong interp_res = fd_vm_interp_instrs_trace( &ctx ); /* FIXME: ERROR CODE */
+  int err = fd_vm_interp_instrs_trace( &vm );
   dt += fd_log_wallclock();
 
   printf( "Frame 0\n" );
+  int trace_err = fd_vm_trace_printf( vm.trace, vm.instrs, vm.instrs_sz, vm.syscall_map ); /* logs details */
+  if( FD_UNLIKELY( trace_err ) ) FD_LOG_WARNING(( "fd_vm_trace_printf failed (%i-%s)", trace_err, fd_vm_strerror( trace_err ) ));
 
-  int err = fd_vm_trace_printf( ctx.trace, ctx.instrs, ctx.instrs_sz, ctx.syscall_map ); /* logs details */
-
-  printf( "Interp_res:          %lu\n", interp_res              );
-  printf( "Return value:        %lu\n", ctx.register_file[0]    );
-  printf( "Fault code:          %lu\n", ctx.cond_fault          );
-  printf( "Instruction counter: %lu\n", ctx.instruction_counter );
-  printf( "Time:                %lu\n", dt                      );
+  printf( "Interp_res:          %i (%s)\n", err, fd_vm_strerror( err ) );
+  printf( "Return value:        %lu\n",     vm.register_file[0]        );
+  printf( "Fault code:          %lu\n",     vm.cond_fault              );
+  printf( "Instruction counter: %lu\n",     vm.instruction_counter     );
+  printf( "Time:                %lu\n",     dt                         );
 
   free( fd_vm_trace_delete( fd_vm_trace_leave( trace ) ) ); /* logs details */
+
   return err;
 }
 
-int cmd_run( char const * bin_path, char const * input_path ) {
+int
+cmd_run( char const * bin_path,
+         char const * input_path ) {
 
   fd_vm_tool_prog_t tool_prog;
   fd_vm_tool_prog_create( &tool_prog, bin_path );
-  FD_LOG_NOTICE(( "Loading sBPF program: %s", bin_path ));
 
-  ulong input_sz = 0;
-  uchar * input = read_input_file( input_path, &input_sz );
+  ulong   input_sz = 0UL;
+  uchar * input    = read_input_file( input_path, &input_sz ); /* FIXME: WHERE IS INPUT FREED? */
 
-  fd_vm_exec_context_t ctx = {
+  fd_vm_t vm = {
     .entrypoint          = (long)tool_prog.prog->entry_pc,
     .program_counter     = 0,
     .instruction_counter = 0,
@@ -260,23 +255,20 @@ int cmd_run( char const * bin_path, char const * input_path ) {
     .read_only_sz        = tool_prog.prog->rodata_sz
   };
 
-  ctx.register_file[1] = FD_VM_MEM_MAP_INPUT_REGION_START;
-  ctx.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
+  vm.register_file[1]  = FD_VM_MEM_MAP_INPUT_REGION_START;
+  vm.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
-  long  dt = -fd_log_wallclock();
-  ulong interp_res = fd_vm_interp_instrs( &ctx );
+  long dt = -fd_log_wallclock();
+  int err = fd_vm_interp_instrs( &vm );
   dt += fd_log_wallclock();
 
-  if( interp_res != 0 ) {
-    return 1;
-  }
+  printf( "Interp_res:          %i (%s)\n", err, fd_vm_strerror( err ) );
+  printf( "Return value:        %lu\n", vm.register_file[0]    );
+  printf( "Fault code:          %lu\n", vm.cond_fault          );
+  printf( "Instruction counter: %lu\n", vm.instruction_counter );
+  printf( "Time:                %lu\n", dt                     );
 
-  fprintf(stdout, "Return value: %lu\n", ctx.register_file[0]);
-  fprintf(stdout, "Fault code: %lu\n", ctx.cond_fault);
-  fprintf(stdout, "Instruction counter: %lu\n", ctx.instruction_counter);
-  fprintf(stdout, "Time: %lu\n", dt);
-
-  return 0;
+  return err;
 }
 
 int
@@ -285,63 +277,68 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   char const * cmd = fd_env_strip_cmdline_cstr( &argc, &argv, "--cmd", NULL, NULL );
-  if( FD_UNLIKELY( !cmd ) ) {
-    FD_LOG_ERR(( "missing command" ));
-    fd_halt();
-    return 1;
-  }
+  if( FD_UNLIKELY( !cmd ) ) FD_LOG_ERR(( "Please specify a command" ));
 
   if( !strcmp( cmd, "disasm" ) ) {
+
     char const * program_file = fd_env_strip_cmdline_cstr( &argc, &argv, "--program-file", NULL, NULL );
 
-    if( FD_UNLIKELY( program_file==NULL ) ) {
-      FD_LOG_ERR(( "Please specify a --program-file" ));
-    }
+    if( FD_UNLIKELY( program_file==NULL ) ) FD_LOG_ERR(( "Please specify a --program-file" ));
+
+    FD_LOG_NOTICE(( "disasm --program-file %s", program_file ));
 
     int err = cmd_disasm( program_file );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "error during disassembly (%i)", err )); /* FIXME: ERR CSTR */
+
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "disasm failed (%i-%s)", err, fd_vm_strerror( err ) ));
+    FD_LOG_NOTICE(( "disasm success" ));
 
   } else if( !strcmp( cmd, "validate" ) ) {
+
     char const * program_file = fd_env_strip_cmdline_cstr( &argc, &argv, "--program-file", NULL, NULL );
 
-    if( FD_UNLIKELY( program_file==NULL ) ) {
-      FD_LOG_ERR(( "Please specify a --program-file" ));
-    }
+    if( FD_UNLIKELY( !program_file ) ) FD_LOG_ERR(( "Please specify a --program-file" ));
 
-    if( FD_UNLIKELY( !cmd_validate( program_file ) ) ) {
-      FD_LOG_ERR(( "error during validation" ));
-    }
+    FD_LOG_NOTICE(( "validate --program-file %s", program_file ));
+
+    int err = cmd_validate( program_file );
+
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "validate failed (%i-%s)", err, fd_vm_strerror( err ) ));
+    FD_LOG_NOTICE(( "validate success" ));
+
   } else if( !strcmp( cmd, "trace" ) ) {
+
     char const * program_file = fd_env_strip_cmdline_cstr( &argc, &argv, "--program-file", NULL, NULL );
-    char const * input_file = fd_env_strip_cmdline_cstr( &argc, &argv, "--input-file", NULL, NULL );
+    char const * input_file   = fd_env_strip_cmdline_cstr( &argc, &argv, "--input-file", NULL, NULL );
 
-    if( FD_UNLIKELY( program_file==NULL ) ) {
-      FD_LOG_ERR(( "Please specify a --program-file" ));
-    }
+    if( FD_UNLIKELY( !program_file ) ) FD_LOG_ERR(( "Please specify a --program-file" ));
+    if( FD_UNLIKELY( !input_file   ) ) FD_LOG_ERR(( "Please specify a --input-file"   ));
 
-    if( FD_UNLIKELY( input_file==NULL ) ) {
-      FD_LOG_ERR(( "Please specify a --input-file" ));
-    }
+    FD_LOG_NOTICE(( "trace --program-file %s --input-file %s", program_file, input_file ));
 
-    if( FD_UNLIKELY( cmd_trace( program_file, input_file ) ) ) FD_LOG_ERR(( "cmd trace failed" ));
+    int err = cmd_trace( program_file, input_file );
+
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "trace failed (%i-%s)", err, fd_vm_strerror( err ) ));
+    FD_LOG_NOTICE(( "trace success" ));
 
   } else if( !strcmp( cmd, "run" ) ) {
+
     char const * program_file = fd_env_strip_cmdline_cstr( &argc, &argv, "--program-file", NULL, NULL );
-    char const * input_file = fd_env_strip_cmdline_cstr( &argc, &argv, "--input-file", NULL, NULL );
+    char const * input_file   = fd_env_strip_cmdline_cstr( &argc, &argv, "--input-file",   NULL, NULL );
 
-    if( FD_UNLIKELY( program_file==NULL ) ) {
-      FD_LOG_ERR(( "Please specify a --program-file" ));
-    }
+    if( FD_UNLIKELY( !program_file ) ) FD_LOG_ERR(( "Please specify a --program-file" ));
+    if( FD_UNLIKELY( !input_file   ) ) FD_LOG_ERR(( "Please specify a --input-file"   ));
 
-    if( FD_UNLIKELY( input_file==NULL ) ) {
-      FD_LOG_ERR(( "Please specify a --input-file" ));
-    }
+    FD_LOG_NOTICE(( "run --program-file %s --input-file %s", program_file, input_file ));
 
-    if( FD_UNLIKELY( cmd_run( program_file, input_file ) ) ) {
-      FD_LOG_ERR(( "error during run" ));
-    }
+    int err = cmd_run( program_file, input_file );
+
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "run failed (%i-%s)", err, fd_vm_strerror( err ) ));
+    FD_LOG_NOTICE(( "run success" ));
+
   } else {
+
     FD_LOG_ERR(( "unknown command: %s", cmd ));
+
   }
 
   fd_halt();

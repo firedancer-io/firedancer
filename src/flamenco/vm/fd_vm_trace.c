@@ -1,23 +1,5 @@
 #include "fd_vm_base.h"
 
-/* FIXME: MOVE TO A BETTER LOCATION */
-char const *
-fd_vm_strerror( int err ) {
-  switch( err ) {
-  case FD_VM_SUCCESS:   return "SUCCESS success";
-  case FD_VM_ERR_INVAL: return "INVAL invalid request";
-  case FD_VM_ERR_UNSUP: return "UNSUP unsupported request";
-  case FD_VM_ERR_PERM:  return "PERM unauthorized request";
-  case FD_VM_ERR_FULL:  return "FULL storage full";
-  case FD_VM_ERR_EMPTY: return "EMPTY nothing to do";
-  case FD_VM_ERR_IO:    return "IO input-output error";
-  case FD_VM_ERR_AGAIN: return "AGAIN try again later";
-  /* FIXME: ADD COVERAGE OF OTHER ERR CODES */
-  default: break;
-  }
-  return "unknown";
-}
-
 ulong
 fd_vm_trace_align( void ) {
   return 8UL;

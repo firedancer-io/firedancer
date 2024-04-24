@@ -3,211 +3,64 @@
 
 #include "fd_vm_cpi.h"
 
-/* FIXME: NEGATIVE INTEGER ERROR CODES */
-/* FIXME: HAVE AN ERROR CODE CSTR */
-
-/* sBPF instruction validation error codes */
-#define FD_VM_SBPF_VALIDATE_SUCCESS               (0UL)  /* Program is valid. */
-#define FD_VM_SBPF_VALIDATE_ERR_INVALID_OPCODE    (1UL)  /* An invalid opcode was used. */
-#define FD_VM_SBPF_VALIDATE_ERR_INVALID_SRC_REG   (2UL)  /* An invalid source register was used. */
-#define FD_VM_SBPF_VALIDATE_ERR_INVALID_DST_REG   (3UL)  /* An invalid destination register was used. */
-#define FD_VM_SBPF_VALIDATE_ERR_INF_LOOP          (4UL)  /* An infinite loop was detected. */
-#define FD_VM_SBPF_VALIDATE_ERR_JMP_OUT_OF_BOUNDS (5UL)  /* An out of bounds jump was detected. */
-#define FD_VM_SBPF_VALIDATE_ERR_JMP_TO_ADDL_IMM   (6UL)  /* A jump to a FD_BPF_INSTR_ADDL_IMM was detected. */
-#define FD_VM_SBPF_VALIDATE_ERR_INVALID_END_IMM   (7UL)  /* An invalid immediate was used for an endianness conversion instruction. */
-#define FD_VM_SBPF_VALIDATE_ERR_INCOMPLETE_LDQ    (8UL)  /* The program ends with an FD_BPF_INSTR_LDQ. */
-#define FD_VM_SBPF_VALIDATE_ERR_LDQ_NO_ADDL_IMM   (9UL)  /* An FD_BPF_INSTR_LDQ did not have an FD_BPF_ADDL_IMM after it. */
-#define FD_VM_SBPF_VALIDATE_ERR_NO_SUCH_EXT_CALL  (10UL) /* An FD_BPF_INSTR_CALL had an immediate but no function was registered for that immediate. */
-
-#define FD_VM_COND_FAULT_FLAG_NONE        (0x0UL)
-#define FD_VM_COND_FAULT_FLAG_MEM_TRANS   (0x1UL)
-#define FD_VM_COND_FAULT_FLAG_BAD_CALL    (0x2UL)
+#define FD_VM_COND_FAULT_FLAG_NONE      (0x0UL)
+#define FD_VM_COND_FAULT_FLAG_MEM_TRANS (0x1UL)
+#define FD_VM_COND_FAULT_FLAG_BAD_CALL  (0x2UL)
 
 /* VM memory map constants */
-#define FD_VM_MEM_MAP_PROGRAM_REGION_START   (0x100000000UL)
-#define FD_VM_MEM_MAP_STACK_REGION_START     (0x200000000UL)
-#define FD_VM_MEM_MAP_HEAP_REGION_START      (0x300000000UL)
-#define FD_VM_MEM_MAP_INPUT_REGION_START     (0x400000000UL)
-#define FD_VM_MEM_MAP_REGION_SZ              (0x0FFFFFFFFUL)
-#define FD_VM_MEM_MAP_REGION_MASK            (~FD_VM_MEM_MAP_REGION_SZ)
-#define FD_VM_MEM_MAP_REGION_VIRT_ADDR_BITS  (32)
-#define FD_VM_MAX_HEAP_SZ (256*1024)
-#define FD_VM_DEFAULT_HEAP_SZ (32*1024)
 
-/* fd_vm_heap_allocator_t provides the allocator backing the
-   sol_alloc_free_ syscall.
+#define FD_VM_MEM_MAP_PROGRAM_REGION_START  (0x100000000UL)
+#define FD_VM_MEM_MAP_STACK_REGION_START    (0x200000000UL)
+#define FD_VM_MEM_MAP_HEAP_REGION_START     (0x300000000UL)
+#define FD_VM_MEM_MAP_INPUT_REGION_START    (0x400000000UL)
+#define FD_VM_MEM_MAP_REGION_SZ             (0x0FFFFFFFFUL)
+#define FD_VM_MEM_MAP_REGION_MASK           (~FD_VM_MEM_MAP_REGION_SZ)
+#define FD_VM_MEM_MAP_REGION_VIRT_ADDR_BITS (32)
+#define FD_VM_MAX_HEAP_SZ                   (256UL*1024UL)
+#define FD_VM_DEFAULT_HEAP_SZ               (32UL*1024UL)
 
-   IMPORANT SAFETY TIP!  THE BEHAVIOR OF THIS HEAP ALLOCATOR MUST MATCH
-   THE SOLANA VALIDATOR HEAP ALLOCATOR:
+/* FIXME: THE HEAP IS RESIZEABLE AT INVOCATION ~~ugh~~ */
 
-   https://github.com/solana-labs/solana/blob/v1.17.23/program-runtime/src/invoke_context.rs#L122-L148
+/* The sBPF execution context. This is the primary data structure that
+   is evolved before, during and after contract execution. */
 
-   BIT-FOR-BIT AND BUG-FOR-BUG.  SEE THE SYSCALL_ALLOC_FREE FOR MORE
-   DETAILS.
+struct fd_vm {
 
-   Like many syscalls, the same allocation logic could trivially be
-   implemented in on-chain bytecode. */
+  /* FIXME: ORGANIZATION FOR PERFORMANCE */
 
-struct fd_vm_heap_allocator {
-  ulong offset; /* Points to beginning of free region within heap, relative to start of heap region. */
-};
+  /* Read-only VM parameters */
+  long                    entrypoint;    /* The initial program counter to start at */ /* FIXME: WHY LONG? */
+  fd_sbpf_syscalls_t *    syscall_map;   /* The map of syscalls that can be called into */ /* FIXME: NAME? */
+  ulong *                 calldests;     /* The bit vector of local functions that can be called into  (FIXME: SIZE?) */
+  fd_sbpf_instr_t const * instrs;        /* The program instructions */ /* FIXME: NAME?  ULONG? */
+  ulong                   instrs_sz;     /* The number of program instructions */ /* FIXME: this should be _cnt, not _sz */
+  ulong                   instrs_offset; /* This is the relocation offset we must apply to indirect calls (callx/CALL_REGs) */
+  uint                    check_align;   /* If non-zero, VM does alignment checks where necessary (syscalls) */ /* FIXME: INT? */
+  uint                    check_size;    /* If non-zero, VM does size checks where necessary (syscalls) */ /* FIXME: INT? */
 
-typedef struct fd_vm_heap_allocator fd_vm_heap_allocator_t;
+  /* Writable VM parameters */
+  ulong                 register_file[11];          /* The sBPF register file */ /* FIXME: MAGIC NUMBER */
+  ulong                 program_counter;            /* The current instruction index being executed */
+  ulong                 instruction_counter;        /* The number of instructions which have been executed */
+  fd_vm_log_collector_t log_collector[1];           /* The log collector used by `sol_log_*` syscalls */
+  ulong                 compute_meter;              /* The remaining CUs left for the transaction */
+  ulong                 due_insn_cnt;               /* Currently executed instructions */ /* FIXME: DOCUMENT */
+  ulong                 previous_instruction_meter; /* Last value of remaining compute units */
+  int                   cond_fault;                 /* If non-zero, indicates a fault occured during execution */
 
-/* FIXME: SHOULD COMPUTE BUDGET BE COMPILE TIME? */
-
-struct fd_vm_exec_compute_budget {
-    /// Number of compute units that a transaction or individual instruction is
-    /// allowed to consume. Compute units are consumed by program execution,
-    /// resources they use, etc...
-    ulong compute_unit_limit;
-    /// Number of compute units consumed by a log_u64 call
-    ulong log_64_units;
-    /// Number of compute units consumed by a create_program_address call
-    ulong create_program_address_units;
-    /// Number of compute units consumed by an invoke call (not including the cost incurred by
-    /// the called program)
-    ulong invoke_units;
-    /// Maximum cross-program invocation depth allowed
-    ulong max_invoke_depth;
-    /// Base number of compute units consumed to call SHA256
-    ulong sha256_base_cost;
-    /// Incremental number of units consumed by SHA256 (based on bytes)
-    ulong sha256_byte_cost;
-    /// Maximum number of slices hashed per syscall
-    ulong sha256_max_slices;
-    /// Maximum BPF to BPF call depth
-    ulong max_call_depth;
-    /// Size of a stack frame in bytes, must match the size specified in the LLVM BPF backend
-    ulong stack_frame_size;
-    /// Number of compute units consumed by logging a `Pubkey`
-    ulong log_pubkey_units;
-    /// Maximum cross-program invocation instruction size
-    ulong max_cpi_instruction_size;
-    /// Number of account data bytes per compute unit charged during a cross-program invocation
-    ulong cpi_bytes_per_unit;
-    /// Base number of compute units consumed to get a sysvar
-    ulong sysvar_base_cost;
-    /// Number of compute units consumed to call secp256k1_recover
-    ulong secp256k1_recover_cost;
-    /// Number of compute units consumed to do a syscall without any work
-    ulong syscall_base_cost;
-    /// Number of compute units consumed to validate a curve25519 edwards point
-    ulong curve25519_edwards_validate_point_cost;
-    /// Number of compute units consumed to add two curve25519 edwards points
-    ulong curve25519_edwards_add_cost;
-    /// Number of compute units consumed to subtract two curve25519 edwards points
-    ulong curve25519_edwards_subtract_cost;
-    /// Number of compute units consumed to multiply a curve25519 edwards point
-    ulong curve25519_edwards_multiply_cost;
-    /// Number of compute units consumed for a multiscalar multiplication (msm) of edwards points.
-    /// The total cost is calculated as `msm_base_cost + (length - 1) * msm_incremental_cost`.
-    ulong curve25519_edwards_msm_base_cost;
-    /// Number of compute units consumed for a multiscalar multiplication (msm) of edwards points.
-    /// The total cost is calculated as `msm_base_cost + (length - 1) * msm_incremental_cost`.
-    ulong curve25519_edwards_msm_incremental_cost;
-    /// Number of compute units consumed to validate a curve25519 ristretto point
-    ulong curve25519_ristretto_validate_point_cost;
-    /// Number of compute units consumed to add two curve25519 ristretto points
-    ulong curve25519_ristretto_add_cost;
-    /// Number of compute units consumed to subtract two curve25519 ristretto points
-    ulong curve25519_ristretto_subtract_cost;
-    /// Number of compute units consumed to multiply a curve25519 ristretto point
-    ulong curve25519_ristretto_multiply_cost;
-    /// Number of compute units consumed for a multiscalar multiplication (msm) of ristretto points.
-    /// The total cost is calculated as `msm_base_cost + (length - 1) * msm_incremental_cost`.
-    ulong curve25519_ristretto_msm_base_cost;
-    /// Number of compute units consumed for a multiscalar multiplication (msm) of ristretto points.
-    /// The total cost is calculated as `msm_base_cost + (length - 1) * msm_incremental_cost`.
-    ulong curve25519_ristretto_msm_incremental_cost;
-    /// Optional program heap region size, if `None` then loader default
-    ulong heap_size;
-    /// Number of compute units per additional 32k heap above the default (~.5
-    /// us per 32k at 15 units/us rounded up)
-    ulong heap_cost;
-    /// Memory operation syscall base cost
-    ulong mem_op_base_cost;
-    /// Maximum accounts data size, in bytes, that a transaction is allowed to load; The
-    /// value is capped by MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES to prevent overuse of memory.
-    ulong loaded_accounts_data_size_limit;
-};
-typedef struct fd_vm_exec_compute_budget fd_vm_exec_compute_budget_t;
-
-#define MAX_COMPUTE_UNIT_LIMIT 1400000
-#define MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES (64 * 1024 * 1024)
-static const fd_vm_exec_compute_budget_t vm_compute_budget = {
-  .compute_unit_limit = MAX_COMPUTE_UNIT_LIMIT,
-  .log_64_units = 100,
-  .create_program_address_units = 1500,
-  .invoke_units = 1000,
-  .max_invoke_depth = 4,
-  .sha256_base_cost = 85,
-  .sha256_byte_cost = 1,
-  .sha256_max_slices = 20000,
-  .max_call_depth = 64,
-  .stack_frame_size = 4096,
-  .log_pubkey_units = 100,
-  .max_cpi_instruction_size = 1280, // IPv6 Min MTU size
-  .cpi_bytes_per_unit = 250,        // ~50MB at 200,000 units
-  .sysvar_base_cost = 100,
-  .secp256k1_recover_cost = 25000,
-  .syscall_base_cost = 100,
-  .curve25519_edwards_validate_point_cost = 159,
-  .curve25519_edwards_add_cost = 473,
-  .curve25519_edwards_subtract_cost = 475,
-  .curve25519_edwards_multiply_cost = 2177,
-  .curve25519_edwards_msm_base_cost = 2273,
-  .curve25519_edwards_msm_incremental_cost = 758,
-  .curve25519_ristretto_validate_point_cost = 169,
-  .curve25519_ristretto_add_cost = 521,
-  .curve25519_ristretto_subtract_cost = 519,
-  .curve25519_ristretto_multiply_cost = 2208,
-  .curve25519_ristretto_msm_base_cost = 2303,
-  .curve25519_ristretto_msm_incremental_cost = 788,
-  // .heap_size = NULL,
-  .heap_cost = 8,
-  .mem_op_base_cost = 10,
-  .loaded_accounts_data_size_limit = MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES, // 64MiB
-};
-
-
-// FIXME: THE HEAP IS RESIZEABLE AT INVOCATION ~~ugh~~
-/* The sBPF execution context. This is the primary data structure that is evolved before, during
-   and after contract execution. */
-struct fd_vm_exec_context {
-  /* Read-only VM parameters: */
-  long                        entrypoint;     /* The initial program counter to start at */
-  fd_sbpf_syscalls_t *        syscall_map;    /* The map of syscalls that can be called into */
-  ulong *                     calldests;      /* The bit vector of local functions that can be called into */
-  fd_sbpf_instr_t const *     instrs;         /* The program instructions */
-  ulong                       instrs_sz;      /* The number of program instructions FIXME this should be _cnt, not _sz */
-  ulong                       instrs_offset;  /* This is the relocation offset we must apply to indirect calls (callx/CALL_REGs) */
-  uint                        check_align;    /* If non-zero, VM does alignment checks where necessary (syscalls) */
-  uint                        check_size;     /* If non-zero, VM does size checks where necessary (syscalls) */
-
-  /* Writable VM parameters: */
-  ulong                 register_file[11];           /* The sBPF register file */
-  ulong                 program_counter;             /* The current instruction index being executed */
-  ulong                 instruction_counter;         /* The number of instructions which have been executed */
-  fd_vm_log_collector_t log_collector[1];            /* The log collector used by `sol_log_*` syscalls */
-  ulong                 compute_meter;               /* The remaining CUs left for the transaction */
-  ulong                 due_insn_cnt;                /* Currently executed instructions */
-  ulong                 previous_instruction_meter;  /* Last value of remaining compute units */
-  int                   cond_fault;                  /* If non-zero, indicates a fault occured during execution */
-
-  /* Memory regions: */
-  uchar *       read_only;                /* The read-only memory region, typically just the relocated program binary blob */
-  ulong         read_only_sz;             /* The read-only memory region size */
-  uchar *       input;                    /* The program input memory region */
-  ulong         input_sz;                 /* The program input memory region size */
-  fd_vm_stack_t stack[1];                 /* The sBPF call frame stack */
-  ulong         heap_sz;                  /* The configured size of the heap */
-  uchar         heap[FD_VM_MAX_HEAP_SZ];  /* The heap memory allocated by the bump allocator syscall */
+  /* Memory regions */
+  uchar *       read_only;                 /* The read-only memory region, typically just the relocated program binary blob */
+  ulong         read_only_sz;              /* The read-only memory region size */
+  uchar *       input;                     /* The program input memory region */
+  ulong         input_sz;                  /* The program input memory region size */
+  fd_vm_stack_t stack[1];                  /* The sBPF call frame stack */ /* FIXME: SEPARATE STACK AND SHADOW STACK */
+  ulong         heap_sz;                   /* The configured size of the heap */
+  uchar         heap[ FD_VM_MAX_HEAP_SZ ]; /* The heap memory allocated by the bump allocator syscall */
 
   /* Runtime context */
   fd_exec_instr_ctx_t * instr_ctx;
 
-  /* Miscellaneous native state:
+  /* Miscellaneous native state
 
      Below contains state of syscall logic for the lifetime of the
      execution context.  FIXME: Consider separating this out from the
@@ -218,50 +71,53 @@ struct fd_vm_exec_context {
   fd_vm_trace_t * trace;
 };
 
-typedef struct fd_vm_exec_context fd_vm_exec_context_t;
+typedef struct fd_vm fd_vm_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_vm_consume_compute consumes `cost` compute units from ctx.
-   Returns FD_VM_SUCCESS (0) on success and FD_VM_ERR_BUDGET (negative)
-   on failure. */
-/* FIXME: NAME */
+extern fd_vm_exec_compute_budget_t const vm_compute_budget; /* FIXME: IF NOT COMPILE TIME MACROS, SHOULD THIS BE AN ELEMENT OF FD_VM_T */
+
+/* FIXME: FD_VM_T NEEDS PROPER CONSTRUCTORS */
+
+/* fd_vm_consume_compute consumes `cost` compute units from vm.  Returns
+   FD_VM_SUCCESS (0) on success and FD_VM_ERR_BUDGET (negative) on
+   failure.  On return, the compute_meter is updated (to zero in the
+   ERR_BUDGET case). */
+
+/* FIXME: OPTIMIZE FUNCTION SIGNATURE FOR USE CASE */
 
 static inline int
-fd_vm_consume_compute( fd_vm_exec_context_t * ctx,
-                       ulong                  cost ) {
-  ulong compute_meter = ctx->compute_meter;
+fd_vm_consume_compute( fd_vm_t * vm,
+                       ulong     cost ) {
+  ulong compute_meter = vm->compute_meter;
   ulong consumed      = fd_ulong_min( cost, compute_meter );
-  ctx->compute_meter  = compute_meter - consumed;
+  vm->compute_meter   = compute_meter - consumed;
   return consumed<=cost ? FD_VM_SUCCESS : FD_VM_ERR_BUDGET; /* cmov */
 }
 
 /* fd_vm_consume_mem consumes 'sz' bytes equivalent compute units from
-   ctx.  Returns FD_VM_SUCCESS (0) on success and FD_VM_ERR_BUDGET
-   (negative) on failure.  FIXME: IT IS HIGHLY DEBATABLE SZ 0 SHOULD
-   HAVE ZERO COST DUE TO THINGS LIKE ADDRESS TRANSLATIONS AND WHAT NOT. */
-/* FIXME: NAME */
+   vm.  Returns FD_VM_SUCCESS (0) on success and FD_VM_ERR_BUDGET
+   (negative) on failure.  On return, the compute_meter is updated (to
+   zero in the ERR_BUDGET case).  FIXME: double check that sz 0 should
+   have zero cost due to things like address translation costs and what
+   not. */
+
+/* FIXME: OPTIMIZE FUNCTION SIGNATURE FOR USE CASE */
 
 static inline int
-fd_vm_consume_mem( fd_vm_exec_context_t * ctx,
-                   ulong                  sz ) {
+fd_vm_consume_mem( fd_vm_t * vm,
+                   ulong     sz ) {
   ulong cost = fd_ulong_max( vm_compute_budget.mem_op_base_cost, sz / vm_compute_budget.cpi_bytes_per_unit );
-  return fd_vm_consume_compute( ctx, cost );
+  return fd_vm_consume_compute( vm, cost );
 }
 
-/* Validates the sBPF program from the given context. Returns success or an error code. */
-FD_FN_PURE ulong
-fd_vm_context_validate( fd_vm_exec_context_t const * ctx );
-
-/* fd_vm_translate_vm_to_host{_const} translates a virtual memory area
-   into the local address space.  ctx is the current execution context.
-   vm_addr points to the region's first byte in VM address space.  sz is
-   the number of bytes in the requested access.  align is the required
-   alignment for vm_addr (2^n where n in [1,63) and may not be zero).
-   Returns pointer to same memory region in local address space on
-   success.  On failure, returns NULL.  Reasons for failure include
-   access violation (out-of-bounds access, write requested on read-only
-   region).
+/* fd_vm_translate_vm_to_host{_const} translates a vm memory area into
+   the caller's local address space.  [vaddr,vaddr+sz) are the memory
+   area in the virtual address space.  align is vaddr's required
+   alignment (integer power of two).  Returns a pointer to same memory
+   region in local address space on success.  On failure, returns NULL.
+   Reasons for failure include access violation (out-of-bounds access,
+   write requested on read-only region).
 
    fd_vm_translate_vm_to_host checks whether the target area is writable
    and returns a pointer to a mutable data region.
@@ -270,80 +126,62 @@ fd_vm_context_validate( fd_vm_exec_context_t const * ctx );
    checks for a read-only or writable data region.
 
    Security note: Watch out for pointer aliasing when translating
-                  multiple user-specified data types. */
-
-ulong
-fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t * ctx,
-                                    ulong                  vm_addr,
-                                    ulong                  sz,
-                                    int                    write );
-
-/* TODO: WHY IS CTX->CHECK_ALIGN / CTX->CHECK_SIZE A THING?  CONSIDERING
-   REMOVING THESE OR MAKING A COMPILE TIME OPTION (WITH A DEFAULT OF
-   TRUE). */
-
+   multiple user-specified data types. */
+/* FIXME: NAME? */
+/* FIXME: INLINE? */
+/* FIXME: SZ==0 HANDLING? */
+/* FIXME: FUNC SIGNATURE? */
 /* FIXME: ARG ORDERING CONVENTION IS ALIGN/SZ */
 
+ulong
+fd_vm_translate_vm_to_host_private( fd_vm_t * vm,
+                                    ulong     vaddr,
+                                    ulong     sz,
+                                    int       write );
+
 static inline void *
-fd_vm_translate_vm_to_host( fd_vm_exec_context_t * ctx,
-                            ulong                  vm_addr,
-                            ulong                  sz,
-                            ulong                  align ) {
-  if( FD_UNLIKELY( ctx->check_align && !fd_ulong_is_aligned( vm_addr, align ) ) ) {
-    return NULL;
-  }
-  return (void *)fd_vm_translate_vm_to_host_private( ctx, vm_addr, sz, 1 );
+fd_vm_translate_vm_to_host( fd_vm_t * vm,
+                            ulong     vaddr,
+                            ulong     sz,
+                            ulong     align ) {
+  if( vm->check_align && FD_UNLIKELY( !fd_ulong_is_aligned( vaddr, align ) ) ) return NULL;
+  return (void *)fd_vm_translate_vm_to_host_private( vm, vaddr, sz, 1 );
 }
 
 static inline void const *
-fd_vm_translate_vm_to_host_const( fd_vm_exec_context_t * ctx,
-                                  ulong                  vm_addr,
-                                  ulong                  sz,
-                                  ulong                  align ) {
-  if( ctx->check_align && FD_UNLIKELY( !fd_ulong_is_aligned( vm_addr, align ) ) ) {
-    return NULL;
-  }
-  return (void const *)fd_vm_translate_vm_to_host_private( ctx, vm_addr, sz, 0 );
+fd_vm_translate_vm_to_host_const( fd_vm_t * vm,
+                                  ulong     vaddr,
+                                  ulong     sz,
+                                  ulong     align ) {
+  if( vm->check_align && FD_UNLIKELY( !fd_ulong_is_aligned( vaddr, align ) ) ) return NULL;
+  return (void const *)fd_vm_translate_vm_to_host_private( vm, vaddr, sz, 0 );
 }
 
 static inline fd_vm_vec_t *
-fd_vm_translate_slice_vm_to_host( fd_vm_exec_context_t * ctx,
-                                  ulong                  vm_addr,
-                                  ulong                  sz,
-                                  ulong                  align) {
-  if ( ctx->check_size  && FD_UNLIKELY(fd_ulong_sat_mul( sz, sizeof(fd_vm_vec_t) ) > LONG_MAX )) {
-    return NULL;
-  }
-  return (fd_vm_vec_t *) fd_vm_translate_vm_to_host(ctx, vm_addr, sz, align);
+fd_vm_translate_slice_vm_to_host( fd_vm_t * vm,
+                                  ulong     vaddr,
+                                  ulong     sz,
+                                  ulong     align ) {
+  if( vm->check_size && FD_UNLIKELY( fd_ulong_sat_mul( sz, sizeof(fd_vm_vec_t) )>LONG_MAX ) ) return NULL;
+  return (fd_vm_vec_t *)fd_vm_translate_vm_to_host( vm, vaddr, sz, align );
 }
 
 static inline fd_vm_vec_t const *
-fd_vm_translate_slice_vm_to_host_const( fd_vm_exec_context_t * ctx,
-                                  ulong                  vm_addr,
-                                  ulong                  sz,
-                                  ulong                  align) {
-  if ( ctx->check_size  && FD_UNLIKELY(fd_ulong_sat_mul( sz, sizeof(fd_vm_vec_t) ) > LONG_MAX )) {
-    return NULL;
-  }
-  return (fd_vm_vec_t const *) fd_vm_translate_vm_to_host_const(ctx, vm_addr, sz, align);
+fd_vm_translate_slice_vm_to_host_const( fd_vm_t * vm,
+                                        ulong     vaddr,
+                                        ulong     sz,
+                                        ulong     align ) {
+  if( vm->check_size && FD_UNLIKELY( fd_ulong_sat_mul( sz, sizeof(fd_vm_vec_t) )>LONG_MAX ) ) return NULL;
+  return (fd_vm_vec_t const *)fd_vm_translate_vm_to_host_const( vm, vaddr, sz, align );
 }
-
-/* fd_vm_interp_instrs runs the sBPF program from the context until
-   completion or a fault occurs.  Returns 0UL success or an error/fault
-   code. */
-
-ulong
-fd_vm_interp_instrs( fd_vm_exec_context_t * ctx );
-
-ulong
-fd_vm_interp_instrs_trace( fd_vm_exec_context_t * ctx );
 
 /* syscall/fd_vm_syscall_admin ****************************************/
 
-/* FIXME: MOVE FD_SBPF_SYSCALLS_T INTO VM_CONTEXT? */
+/* FIXME: SHOULD THESE TAKE A FD_VM_EXEC_CONTEXT_T? MOVE TO VM_BASE? */
 /* FIXME: DOCUMENT IN MORE DETAIL */
 
-/* Registers a syscall by name to an execution context. */
+/* fd_vm_syscall_register registers a syscall by name to an execution
+   context. */
 
 void
 fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
@@ -363,6 +201,30 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
 void
 fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls );
 
+/* fd_vm_validate validates the sBPF program in the given vm.  Returns
+ * success or an error code.  Called before executing a sBPF
+   program. */
+
+FD_FN_PURE int
+fd_vm_validate( fd_vm_t const * vm );
+
+/* fd_vm_interp_instrs runs the sBPF program from the context until
+   completion or a fault occurs.  Returns 0UL success or an error/fault
+   code. */
+/* FIXME: NAME? */
+/* FIXME: PASS TRACE AS FLAG?  USE TRACE!=NULL IN VM TO INDICATE
+   TRACING?  REMOVE TRACE FROM VM AND PASS TRACE TO INTERP?  MAKE
+   TRACING COMPILE TIME? */
+
+int
+fd_vm_interp_instrs( fd_vm_t * vm );
+
+int
+fd_vm_interp_instrs_trace( fd_vm_t * vm );
+
 FD_PROTOTYPES_END
+
+/* FIXME: TEMPORARY SCAFFOLDING */
+#define fd_vm_exec_context_t fd_vm_t
 
 #endif /* HEADER_fd_src_flamenco_vm_fd_vm_h */

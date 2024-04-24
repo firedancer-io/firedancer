@@ -28,27 +28,45 @@
 
 /* "Standard" Firedancer error codes (FIXME: harmonize and consolidate) */
 
-#define FD_VM_SUCCESS   (  0) /* success */
-#define FD_VM_ERR_INVAL ( -1) /* invalid request */
-#define FD_VM_ERR_AGAIN ( -2) /* try again later */
-#define FD_VM_ERR_UNSUP ( -3) /* unsupported request */
-#define FD_VM_ERR_PERM  ( -4) /* unauthorized request */
-#define FD_VM_ERR_FULL  ( -5) /* storage full */
-#define FD_VM_ERR_EMPTY ( -6) /* nothing to do */
-#define FD_VM_ERR_IO    ( -7) /* input-output error */
+#define FD_VM_SUCCESS   ( 0) /* success */
+#define FD_VM_ERR_INVAL (-1) /* invalid request */
+#define FD_VM_ERR_AGAIN (-2) /* try again later */
+#define FD_VM_ERR_UNSUP (-3) /* unsupported request */
+#define FD_VM_ERR_PERM  (-4) /* unauthorized request */
+#define FD_VM_ERR_FULL  (-5) /* storage full */
+#define FD_VM_ERR_EMPTY (-6) /* nothing to do */
+#define FD_VM_ERR_IO    (-7) /* input-output error */
 
-/* VM syscall related error codes */
+/* VM syscall error codes.  These are only produced by fd_vm_syscall
+   implementations.  FIXME: Consider having syscalls return standard
+   error codes and then provide detail like this through an info arg.
+   FIXME: Are these exact matches to Solana?  If so, provide link?  If
+   not document and refine names / consolidate further. */
 
-/* FIXME: Specify exactly how these map onto Labs SyscallError (and/or
-   provide full coverage of Lab SyscallErrors) */
+#define FD_VM_ERR_BUDGET                       ( -8) /* compute budget exceeded (FIXME: probably more a "standard" error) */
+#define FD_VM_ERR_ABORT                        ( -9) /* FIXME: descrption */
+#define FD_VM_ERR_PANIC                        (-10) /* FIXME: descrption */
+#define FD_VM_ERR_MEM_OVERLAP                  (-11) /* FIXME: descrption */
+#define FD_VM_ERR_INSTR_ERR                    (-12) /* FIXME: descrption */
+#define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-13) /* FIXME: descrption */
+#define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-14) /* FIXME: descrption */
 
-#define FD_VM_ERR_BUDGET                       ( -8) /* compute budget exceeded */
-#define FD_VM_ERR_ABORT                        ( -9)
-#define FD_VM_ERR_PANIC                        (-10)
-#define FD_VM_ERR_MEM_OVERLAP                  (-11)
-#define FD_VM_ERR_INSTR_ERR                    (-12)
-#define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-13)
-#define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-14)
+/* sBPF validation error codes.  These are only produced by
+   fd_vm_validate.  FIXME: Consider having fd_vm_validate return
+   standard error codes and then provide detail like this through an
+   info arg.  FIXME: Are these exact matches to Solana?  If so, provide
+   link, if not, document and refine name / consolidate further. */
+
+#define FD_VM_ERR_INVALID_OPCODE    (-15) /* detected an invalid opcode */
+#define FD_VM_ERR_INVALID_SRC_REG   (-16) /* detected an invalid source register */
+#define FD_VM_ERR_INVALID_DST_REG   (-17) /* detected an invalid destination register */
+#define FD_VM_ERR_INF_LOOP          (-18) /* detected an infinite loop */
+#define FD_VM_ERR_JMP_OUT_OF_BOUNDS (-19) /* detected an out of bounds jump */
+#define FD_VM_ERR_JMP_TO_ADDL_IMM   (-20) /* detected a jump to an addl imm */
+#define FD_VM_ERR_INVALID_END_IMM   (-21) /* detected an invalid immediate for an endianness conversion instruction */
+#define FD_VM_ERR_INCOMPLETE_LDQ    (-22) /* detected an incomplete ldq at program end */
+#define FD_VM_ERR_LDQ_NO_ADDL_IMM   (-23) /* detected a ldq without an addl imm following it */
+#define FD_VM_ERR_NO_SUCH_EXT_CALL  (-24) /* detected a call imm with no function was registered for that immediate */
 
 FD_PROTOTYPES_BEGIN
 
@@ -251,6 +269,95 @@ fd_vm_stack_pop( fd_vm_stack_t * stack,
 }
 
 FD_PROTOTYPES_END
+
+/* fd_vm_heap_allocator API *******************************************/
+
+/* fd_vm_heap_allocator_t provides the allocator backing the
+   sol_alloc_free_ syscall.
+
+   IMPORANT SAFETY TIP!  THE BEHAVIOR OF THIS HEAP ALLOCATOR MUST MATCH
+   THE SOLANA VALIDATOR HEAP ALLOCATOR:
+
+   https://github.com/solana-labs/solana/blob/v1.17.23/program-runtime/src/invoke_context.rs#L122-L148
+
+   BIT-FOR-BIT AND BUG-FOR-BUG.  SEE THE SYSCALL_ALLOC_FREE FOR MORE
+   DETAILS.
+
+   Like many syscalls, the same allocation logic could trivially be
+   implemented in on-chain bytecode. */
+
+struct fd_vm_heap_allocator {
+  ulong offset; /* Points to beginning of free region within heap, relative to start of heap region. */
+};
+
+typedef struct fd_vm_heap_allocator fd_vm_heap_allocator_t;
+
+/* FIXME: WRAP UP USAGE HERE AND ADD UNIT TEST COVERAGE? */
+
+/* fd_vm_cu API *******************************************************/
+
+/* FIXME: DO THESE MIRROR THE SOLANA NAMES?  IF SO, LINK CORRESPONDING
+   SOLANA CODE.  IF NOT, ADJUST TO FD CONVENTIONS. */
+/* FIXME: PREFIX? */
+/* FIXME: REPLACE WITH COMPILE TIME MACROS FOR PERFORMANCE AND SECURITY */
+/* FIXME: MOVE TO SBPF? */
+
+#define FD_VM_MAX_COMPUTE_UNIT_LIMIT              (1400000UL)
+#define FD_VM_MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES (64UL*1024UL*1024UL)
+
+struct fd_vm_exec_compute_budget {
+  ulong compute_unit_limit;                        /* Number of compute units that a transaction or individual instruction is
+                                                      allowed to consume.  Compute units are consumed by program execution,
+                                                      resources they use, etc ... */
+  ulong log_64_units;                              /* Number of compute units consumed by a log_u64 call */ /* FIXME: NAME? */
+  ulong create_program_address_units;              /* Number of compute units consumed by a create_program_address call */
+  ulong invoke_units;                              /* Number of compute units consumed by an invoke call (not including the cost
+                                                      incurred by the called program */
+  ulong max_invoke_depth;                          /* Maximum cross-program invocation depth allowed */
+  ulong sha256_base_cost;                          /* Base number of compute units consumed to call SHA256 */
+  ulong sha256_byte_cost;                          /* Incremental number of units consumed by SHA256 (based on bytes) */
+  ulong sha256_max_slices;                         /* Maximum number of slices hashed per syscall */
+  ulong max_call_depth;                            /* Maximum BPF to BPF call depth */
+  ulong stack_frame_size;                          /* Size of a stack frame in bytes, must match the size specified in the LLVM BPF
+                                                      backend */
+  ulong log_pubkey_units;                          /* Number of compute units consumed by logging a `Pubkey` */
+  ulong max_cpi_instruction_size;                  /* Maximum cross-program invocation instruction size */
+  ulong cpi_bytes_per_unit;                        /* Number of account data bytes per compute unit charged during a cross-program
+                                                      invocation */
+  ulong sysvar_base_cost;                          /* Base number of compute units consumed to get a sysvar */
+  ulong secp256k1_recover_cost;                    /* Number of compute units consumed to call secp256k1_recover */
+  ulong syscall_base_cost;                         /* Number of compute units consumed to do a syscall without any work */
+  ulong curve25519_edwards_validate_point_cost;    /* Number of compute units consumed to validate a curve25519 edwards point */
+  ulong curve25519_edwards_add_cost;               /* Number of compute units consumed to add two curve25519 edwards points */
+  ulong curve25519_edwards_subtract_cost;          /* Number of compute units consumed to subtract two curve25519 edwards points */
+  ulong curve25519_edwards_multiply_cost;          /* Number of compute units consumed to multiply a curve25519 edwards point */
+  ulong curve25519_edwards_msm_base_cost;          /* Number of compute units consumed for a multiscalar multiplication (msm) of
+                                                      edwards points.  The total cost is calculated as
+                                                      `msm_base_cost + (length - 1) * msm_incremental_cost`. */
+  ulong curve25519_edwards_msm_incremental_cost;   /* Number of compute units consumed for a multiscalar multiplication (msm) of
+                                                      edwards points.  The total cost is calculated as
+                                                      `msm_base_cost + (length - 1) * msm_incremental_cost`. */
+  ulong curve25519_ristretto_validate_point_cost;  /* Number of compute units consumed to validate a curve25519 ristretto point */
+  ulong curve25519_ristretto_add_cost;             /* Number of compute units consumed to add two curve25519 ristretto points */
+  ulong curve25519_ristretto_subtract_cost;        /* Number of compute units consumed to subtract two curve25519 ristretto
+                                                      points */
+  ulong curve25519_ristretto_multiply_cost;        /* Number of compute units consumed to multiply a curve25519 ristretto point */
+  ulong curve25519_ristretto_msm_base_cost;        /* Number of compute units consumed for a multiscalar multiplication (msm) of
+                                                      ristretto points.  The total cost is calculated as
+                                                      `msm_base_cost + (length - 1) * msm_incremental_cost`. */
+  ulong curve25519_ristretto_msm_incremental_cost; /* Number of compute units consumed for a multiscalar multiplication (msm) of
+                                                      ristretto points.  The total cost is calculated as
+                                                      `msm_base_cost + (length - 1) * msm_incremental_cost`. */
+  ulong heap_size;                                 /* Optional program heap region size, if 0 then loader default */
+  ulong heap_cost;                                 /* Number of compute units per additional 32k heap above the default
+                                                      (~.5 us per 32k at 15 units/us rounded up) */
+  ulong mem_op_base_cost;                          /* Memory operation syscall base cost */
+  ulong loaded_accounts_data_size_limit;           /* Maximum accounts data size, in bytes, that a transaction is allowed to load; the
+                                                      value is capped by MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES to prevent overuse of
+                                                      memory. */
+};
+
+typedef struct fd_vm_exec_compute_budget fd_vm_exec_compute_budget_t;
 
 /* fd_vm_disasm API ***************************************************/
 

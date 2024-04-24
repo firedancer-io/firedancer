@@ -1,14 +1,32 @@
 #include "fd_vm_base.h"
 
-FD_STATIC_ASSERT( FD_VM_SUCCESS  ==  0, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INVAL== -1, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_AGAIN== -2, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_UNSUP== -3, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_PERM == -4, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_FULL == -5, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_EMPTY== -6, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_IO   == -7, vm_err );
-/* FIXME: ADD COVERAGE OF OTHER ERR CODES */
+FD_STATIC_ASSERT( FD_VM_SUCCESS                         ==  0, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INVAL                       == -1, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_AGAIN                       == -2, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_UNSUP                       == -3, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_PERM                        == -4, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_FULL                        == -5, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_EMPTY                       == -6, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_IO                          == -7, vm_err );
+
+FD_STATIC_ASSERT( FD_VM_ERR_BUDGET                      == -8, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_ABORT                       == -9, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_PANIC                       ==-10, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_MEM_OVERLAP                 ==-11, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INSTR_ERR                   ==-12, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED==-13, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_RETURN_DATA_TOO_LARGE       ==-14, vm_err );
+
+FD_STATIC_ASSERT( FD_VM_ERR_INVALID_OPCODE              ==-15, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INVALID_SRC_REG             ==-16, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INVALID_DST_REG             ==-17, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INF_LOOP                    ==-18, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_JMP_OUT_OF_BOUNDS           ==-19, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_JMP_TO_ADDL_IMM             ==-20, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INVALID_END_IMM             ==-21, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INCOMPLETE_LDQ              ==-22, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_LDQ_NO_ADDL_IMM             ==-23, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_NO_SUCH_EXT_CALL            ==-24, vm_err );
 
 FD_STATIC_ASSERT( FD_VM_LOG_COLLECTOR_BUF_MAX==10000UL, vm_log_collector );
 
@@ -39,16 +57,34 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-# define TEST( err ) FD_LOG_NOTICE(( "Testing fd_vm_strerror( %-15s ) (%i-%s)", #err, err, fd_vm_strerror( err ) ))
-  TEST( FD_VM_SUCCESS   );
-  TEST( FD_VM_ERR_INVAL );
-  TEST( FD_VM_ERR_AGAIN );
-  TEST( FD_VM_ERR_UNSUP );
-  TEST( FD_VM_ERR_PERM  );
-  TEST( FD_VM_ERR_FULL  );
-  TEST( FD_VM_ERR_EMPTY );
-  TEST( FD_VM_ERR_IO    );
-  /* FIXME: ADD COVERAGE OF OTHER ERR CODES */
+# define TEST( err ) FD_LOG_NOTICE(( "Testing fd_vm_strerror( %-38s ) (%i-%s)", #err, err, fd_vm_strerror( err ) ))
+  TEST( FD_VM_SUCCESS                          );
+  TEST( FD_VM_ERR_INVAL                        );
+  TEST( FD_VM_ERR_AGAIN                        );
+  TEST( FD_VM_ERR_UNSUP                        );
+  TEST( FD_VM_ERR_PERM                         );
+  TEST( FD_VM_ERR_FULL                         );
+  TEST( FD_VM_ERR_EMPTY                        );
+  TEST( FD_VM_ERR_IO                           );
+
+  TEST( FD_VM_ERR_BUDGET                       );
+  TEST( FD_VM_ERR_ABORT                        );
+  TEST( FD_VM_ERR_PANIC                        );
+  TEST( FD_VM_ERR_MEM_OVERLAP                  );
+  TEST( FD_VM_ERR_INSTR_ERR                    );
+  TEST( FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED );
+  TEST( FD_VM_ERR_RETURN_DATA_TOO_LARGE        );
+
+  TEST( FD_VM_ERR_INVALID_OPCODE               );
+  TEST( FD_VM_ERR_INVALID_SRC_REG              );
+  TEST( FD_VM_ERR_INVALID_DST_REG              );
+  TEST( FD_VM_ERR_INF_LOOP                     );
+  TEST( FD_VM_ERR_JMP_OUT_OF_BOUNDS            );
+  TEST( FD_VM_ERR_JMP_TO_ADDL_IMM              );
+  TEST( FD_VM_ERR_INVALID_END_IMM              );
+  TEST( FD_VM_ERR_INCOMPLETE_LDQ               );
+  TEST( FD_VM_ERR_LDQ_NO_ADDL_IMM              );
+  TEST( FD_VM_ERR_NO_SUCH_EXT_CALL             );
 # undef TEST
 
   FD_LOG_NOTICE(( "Testing fd_vm_log_collector" ));
