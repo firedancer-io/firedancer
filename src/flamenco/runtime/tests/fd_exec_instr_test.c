@@ -1,4 +1,5 @@
 #include "fd_exec_test.pb.h"
+#undef FD_SCRATCH_USE_HANDHOLDING
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #include "fd_exec_instr_test.h"
 #include "../fd_acc_mgr.h"
@@ -157,8 +158,8 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   fd_scratch_push();
 
   /* Allocate contexts */
-
-  uchar *               epoch_ctx_mem = fd_scratch_alloc( FD_EXEC_EPOCH_CTX_ALIGN, FD_EXEC_EPOCH_CTX_FOOTPRINT );
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 5, 0, "wksp", 0UL );
+  uchar *               epoch_ctx_mem = fd_wksp_alloc_laddr( wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint(), FD_EXEC_EPOCH_CTX_MAGIC );;
   uchar *               slot_ctx_mem  = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
   uchar *               txn_ctx_mem   = fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
 
@@ -166,16 +167,14 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_scratch_virtual() ) );
   fd_exec_txn_ctx_t *   txn_ctx       = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem   ) );
 
-  epoch_ctx->valloc = fd_scratch_virtual();
-
   assert( epoch_ctx );
   assert( slot_ctx  );
 
   /* Set up epoch context */
-
-  epoch_ctx->epoch_bank.rent.lamports_per_uint8_year = 3480;
-  epoch_ctx->epoch_bank.rent.exemption_threshold = 2;
-  epoch_ctx->epoch_bank.rent.burn_percent = 50;
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
+  epoch_bank->rent.lamports_per_uint8_year = 3480;
+  epoch_bank->rent.exemption_threshold = 2;
+  epoch_bank->rent.burn_percent = 50;
 
   /* Restore feature flags */
 
@@ -246,6 +245,14 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   fd_borrowed_account_t * borrowed_accts = txn_ctx->borrowed_accounts;
   fd_memset( borrowed_accts, 0, test_ctx->accounts_count * sizeof(fd_borrowed_account_t) );
   txn_ctx->accounts_cnt = test_ctx->accounts_count;
+  for ( uint i = 0; i < test_ctx->accounts_count; i++ ) {
+    memcpy( &(txn_ctx->accounts[i]), test_ctx->accounts[i].address, sizeof(fd_pubkey_t) );
+  }
+  fd_txn_t * txn_descriptor = (fd_txn_t *) fd_scratch_alloc( fd_txn_align(), fd_txn_footprint(0, 0) );
+  fd_memset(txn_descriptor, 0, sizeof(txn_descriptor));
+  txn_descriptor->acct_addr_cnt = (ushort) test_ctx->accounts_count;
+  txn_descriptor->addr_table_adtl_cnt = 0;
+  txn_ctx->txn_descriptor = txn_descriptor;
 
   /* Load accounts into database */
 
@@ -271,7 +278,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
       return 0;
 
     /* Override epoch bank settings */
-    epoch_ctx->epoch_bank.rent = *rent;
+    epoch_bank->rent = *rent;
   }
 
   /* Override most recent blockhash if given */
@@ -309,6 +316,18 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   }
   info->acct_cnt = (uchar)test_ctx->instr_accounts_count;
 
+  bool found_program_id = false;
+  for (uint i = 0; i < test_ctx->accounts_count; i++) {
+    if ( 0 == memcmp(test_ctx->accounts[i].address, test_ctx->program_id, sizeof(fd_pubkey_t)) ) {
+      info->program_id = (uchar) i;
+      found_program_id = true;
+      break;
+    }
+  }
+  if (!found_program_id) {
+    FD_LOG_WARNING(("Unable to find program_id in accounts"));
+  }
+
   ctx->epoch_ctx = epoch_ctx;
   ctx->slot_ctx  = slot_ctx;
   ctx->txn_ctx   = txn_ctx;
@@ -332,6 +351,7 @@ _context_destroy( fd_exec_instr_test_runner_t * runner,
 
   fd_exec_slot_ctx_delete ( fd_exec_slot_ctx_leave ( slot_ctx  ) );
   fd_exec_epoch_ctx_delete( fd_exec_epoch_ctx_leave( epoch_ctx ) );
+  fd_wksp_free_laddr( epoch_ctx );
   fd_acc_mgr_delete( acc_mgr );
   fd_scratch_pop();
   fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
@@ -587,6 +607,31 @@ fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
   return !has_diff;
 }
 
+FD_FN_PURE static bool
+fd_instr_info_sum_account_lamports_no_crash( fd_instr_info_t const * instr ) {
+  ulong total_lamports = 0;
+
+  for( ulong i = 0; i < instr->acct_cnt; i++ ) {
+
+    if( instr->borrowed_accounts[i] == NULL ) {
+      continue;
+    }
+
+    if( ( instr->is_duplicate[i]                          ) |
+        ( instr->borrowed_accounts[i]->const_meta == NULL ) ) {
+      continue;
+    }
+
+    ulong acct_lamports = instr->borrowed_accounts[i]->const_meta->info.lamports;
+
+    if( FD_UNLIKELY( __builtin_uaddl_overflow( total_lamports, acct_lamports, &total_lamports ) ) ) {
+      FD_LOG_WARNING(("Sum of lamports exceeds UL MAX", total_lamports));
+      return false;
+    }
+  }
+  return true;
+}
+
 ulong
 fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
                         fd_exec_test_instr_context_t const * input,
@@ -600,34 +645,16 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
   if( !_context_create( runner, ctx, input ) )
     return 0UL;
 
-  fd_pubkey_t program_id[1];  memcpy( program_id, input->program_id, sizeof(fd_pubkey_t) );
-  fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( program_id );
+  fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
 
-  if( FD_UNLIKELY( !native_prog_fn ) ) {
-    char program_id_cstr[ FD_BASE58_ENCODED_32_SZ ];
-    REPORTV( NOTICE, "execution failed (program %s not found)",
-             fd_acct_addr_cstr( program_id_cstr, input->program_id ) );
+  /* Check lamports beforehand to ensure we don't crash during test execution */
+  if (!fd_instr_info_sum_account_lamports_no_crash(instr)) {
     _context_destroy( runner, ctx );
     return 0UL;
   }
 
-  /* TODO: Agave currently fails with UnsupportedProgramId if the
-           owner of the native program is weird. */
-  do {
-    FD_BORROWED_ACCOUNT_DECL( prog_acct );
-    int err = fd_acc_mgr_view( ctx->acc_mgr, ctx->funk_txn, program_id, prog_acct );
-    if( err==FD_ACC_MGR_SUCCESS ) {
-      if( ( 0!=memcmp( prog_acct->const_meta->info.owner, fd_solana_native_loader_id.uc, sizeof(fd_pubkey_t) ) ) |
-          ( !prog_acct->const_meta->info.executable ) ) {
-        _context_destroy( runner, ctx );
-        return 0;
-      }
-    }
-  } while(0);
-
   /* Execute the test */
-
-  int exec_result = native_prog_fn( *ctx );
+  int exec_result = fd_execute_instr(ctx->txn_ctx, instr);
 
   /* Allocate space to capture outputs */
 

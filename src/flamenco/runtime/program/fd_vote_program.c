@@ -58,22 +58,10 @@
 /* size_of                                                            */
 /**********************************************************************/
 
-// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/vote_state_1_14_11.rs#L45-L49
-static inline ulong
-size_of_1_14_11( void ) {
-  return 3731UL;
-}
-
-// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L338-L342
-static inline ulong
-size_of( void ) {
-  return 3762UL;
-}
-
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/vote_state_versions.rs#L78
 static inline ulong
 size_of_versioned( int is_current ) {
-  return fd_ulong_if( is_current, size_of(), size_of_1_14_11() );
+  return fd_ulong_if( is_current, FD_VOTE_STATE_V3_SZ, FD_VOTE_STATE_V2_SZ );
 }
 
 /**********************************************************************/
@@ -776,7 +764,8 @@ set_vote_account_state( ulong                       vote_acct_idx,
     ulong vsz = size_of_versioned( 1 );
 
     int resize_needed      = vote_account->const_meta->dlen < vsz;
-    int resize_rent_exempt = fd_rent_exempt_minimum_balance2( &ctx->epoch_ctx->epoch_bank.rent, vsz ) <= vote_account->const_meta->info.lamports;
+    fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( ctx->epoch_ctx );
+    int resize_rent_exempt = fd_rent_exempt_minimum_balance2( &epoch_bank->rent, vsz ) <= vote_account->const_meta->info.lamports;
 
     /* The resize operation itself is part of the horrible conditional,
        but behind a short-circuit operator. */
@@ -1999,7 +1988,7 @@ uint vote_state_versions_is_correct_and_initialized( fd_borrowed_account_t * vot
   // VoteState::is_correct_size_and_initialized
   // https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/mod.rs#L696
 
-  uint data_len_check = vote_account->const_meta->dlen == size_of();
+  uint data_len_check = vote_account->const_meta->dlen == FD_VOTE_STATE_V3_SZ;
   uchar test_data[DEFAULT_PRIOR_VOTERS_OFFSET] = {0};
   uint data_check = memcmp((
     (uchar*)vote_account->const_data + VERSION_OFFSET), test_data, DEFAULT_PRIOR_VOTERS_OFFSET) != 0;
@@ -2009,7 +1998,7 @@ uint vote_state_versions_is_correct_and_initialized( fd_borrowed_account_t * vot
 
   // VoteState1_14_11::is_correct_size_and_initialized
   // https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/vote_state_1_14_11.rs#L51
-  data_len_check = vote_account->const_meta->dlen == size_of_1_14_11();
+  data_len_check = vote_account->const_meta->dlen == FD_VOTE_STATE_V2_SZ;
   uchar test_data_1_14_11[DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11] = {0};
   data_check = memcmp(
     ((uchar*)vote_account->const_data + VERSION_OFFSET), test_data_1_14_11, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11) != 0;
@@ -2544,7 +2533,8 @@ remove_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
   fd_vote_accounts_pair_t_mapnode_t key;
   fd_memcpy( key.elem.key.uc, vote_account->pubkey->uc, sizeof(fd_pubkey_t) );
 
-  fd_vote_accounts_t * epoch_vote_accounts = &slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts;
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_vote_accounts_t * epoch_vote_accounts = &epoch_bank->stakes.vote_accounts;
   if (epoch_vote_accounts->vote_accounts_pool == NULL) {
     FD_LOG_DEBUG(("Vote accounts pool does not exist"));
     return;
@@ -2585,7 +2575,8 @@ upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
 
 
     if ( vote_state_versions_is_correct_and_initialized( vote_account ) ) {
-      fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
+      fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+      fd_stakes_t * stakes = &epoch_bank->stakes;
 
       fd_vote_accounts_pair_t_mapnode_t key;
       fd_memcpy(&key.elem.key, vote_account->pubkey->uc, sizeof(fd_pubkey_t));
@@ -2596,7 +2587,8 @@ upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
       }
 
       if ( vote_state_versions_is_correct_and_initialized( vote_account ) ) {
-        fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
+        fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+        fd_stakes_t * stakes = &epoch_bank->stakes;
 
         fd_vote_accounts_pair_t_mapnode_t key;
         fd_memcpy(&key.elem.key, vote_account->pubkey->uc, sizeof(fd_pubkey_t));

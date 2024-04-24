@@ -1,16 +1,22 @@
 #include "fd_vm_syscalls.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 #include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include "fd_vm_context.h"
 #include "fd_vm_cpi.h"
-#include "../runtime/sysvar/fd_sysvar.h"
+#include "../runtime/sysvar/fd_sysvar_clock.h"
+#include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../runtime/sysvar/fd_sysvar_fees.h"
 #include "../runtime/fd_account.h"
 #include "../runtime/context/fd_exec_txn_ctx.h"
 #include "../runtime/context/fd_exec_instr_ctx.h"
 #include "../../ballet/ed25519/fd_curve25519.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 
 /* FIXME: Temporary scaffolding */
@@ -1208,6 +1214,34 @@ fd_vm_cpi_update_caller_account_c( fd_vm_exec_context_t * ctx,
   return 0;
 }
 
+/* Mirrors solana_bpf_loader_program::syscalls::cpi:update_callee_account.
+
+   This function is called just before a CPI is initiated.
+   In this context, the "caller" is a VM that is about to create a
+   child instruction, the "callee".
+
+   Recall that the fd_borrowed_account_t in the transaction context is
+   what is shared between different instructions.  Also recall that the
+   VM operates on a local copy of the account in VM memory.
+
+   In order to correctly do a CPI, we have to flush the changes in VM
+   memory back up to the transaction context before executing the callee
+   instruction.
+
+   This is what this function does.
+
+   ctx is the callee's instruction context.
+   callee_acc_idx is some instruction account index in that context.
+   caller_account contain the caller's local changes to that account
+   (same address/pubkey)
+
+   Returns an FD_EXECUTOR_INSTR_ERR_{...} code if permission checks
+   fail, in which case the transaction account state is undefined.
+   On success, the caller_account changes are replicated to the callee
+   account changes, and returns FD_EXECUTOR_INSTR_SUCCESS.Lo
+
+   https://github.com/solana-labs/solana/blob/v1.18.9/programs/bpf_loader/src/syscalls/cpi.rs#L1165-L1240 */
+
 FD_FN_UNUSED static ulong
 fd_vm_cpi_update_callee_account( fd_vm_exec_context_t * ctx,
                                  fd_caller_account_t const * caller_account,
@@ -1271,11 +1305,13 @@ fd_vm_cpi_update_callee_account( fd_vm_exec_context_t * ctx,
   return 0;
 }
 
-static bool check_id(uchar const * program_id, uchar const * loader) {
+static int
+check_id(uchar const * program_id, uchar const * loader) {
   return memcmp(program_id, loader, sizeof(fd_pubkey_t)) == 0;
 }
 
-static bool is_precompile(const uchar * program_id) {
+static int
+is_precompile(const uchar * program_id) {
   return check_id(program_id, fd_solana_keccak_secp_256k_program_id.key) ||
          check_id(program_id, fd_solana_ed25519_sig_verify_program_id.key);
 }
@@ -1424,7 +1460,7 @@ translate_and_update_accounts(
       if ( FD_UNLIKELY( err ) ) return err;
     } else {
       uint found = 0;
-      for (ulong j = 0; j < account_info_cnt; j++) {
+      for (ulong j = 0; j < account_info_cnt && !found; j++) {
         if (memcmp(account_key->uc, account_info_keys[j].uc, sizeof(fd_pubkey_t)) == 0) {
           fd_caller_account_t caller_account;
           ulong err;
@@ -1587,7 +1623,8 @@ fd_vm_syscall_cpi_c(
   ctx->instr_ctx->txn_ctx->compute_meter = ctx->compute_meter;
   int err_exec = fd_execute_instr( ctx->instr_ctx->txn_ctx, &cpi_instr );
   ulong instr_exec_res = (ulong)err_exec;
-  // FD_LOG_WARNING(( "CPI CUs CONSUMED: %lu %lu %lu ", ctx->compute_meter, ctx->instr_ctx->txn_ctx->compute_meter, ctx->compute_meter - ctx->instr_ctx->txn_ctx->compute_meter));
+  // uchar * sig = (uchar *)ctx->instr_ctx->txn_ctx->_txn_raw->raw + ctx->instr_ctx->txn_ctx->txn_descriptor->signature_off;
+  // FD_LOG_WARNING(( "CPI CUs CONSUMED: %lu %lu %lu %64J", ctx->compute_meter, ctx->instr_ctx->txn_ctx->compute_meter, ctx->compute_meter - ctx->instr_ctx->txn_ctx->compute_meter, sig));
   ctx->compute_meter = ctx->instr_ctx->txn_ctx->compute_meter;
   // FD_LOG_WARNING(( "AFTER CPI: %lu CUs: %lu Err: %d", *pr0, ctx->compute_meter, err_exec ));
 
@@ -1744,7 +1781,8 @@ fd_vm_syscall_cpi_rust(
   int err_exec = fd_execute_instr( ctx->instr_ctx->txn_ctx, &cpi_instr );
   ulong instr_exec_res = (ulong)err_exec;
   #ifdef VLOG
-  FD_LOG_WARNING(( "CPI CUs CONSUMED: %lu %lu %lu ", ctx->compute_meter, ctx->instr_ctx->txn_ctx->compute_meter, ctx->compute_meter - ctx->instr_ctx->txn_ctx->compute_meter));
+  uchar * sig = (uchar *)ctx->instr_ctx->txn_ctx->_txn_raw->raw + ctx->instr_ctx->txn_ctx->txn_descriptor->signature_off;
+//  FD_LOG_WARNING(( "CPI CUs CONSUMED: %lu %lu %lu %64J", ctx->compute_meter, ctx->instr_ctx->txn_ctx->compute_meter, ctx->compute_meter - ctx->instr_ctx->txn_ctx->compute_meter, sig));
   #endif
   ctx->compute_meter = ctx->instr_ctx->txn_ctx->compute_meter;
   #ifdef VLOG

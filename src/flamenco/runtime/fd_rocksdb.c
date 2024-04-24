@@ -8,6 +8,9 @@
 #include <unistd.h>
 #include "../../util/bits/fd_bits.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 char *
 fd_rocksdb_init( fd_rocksdb_t * db,
                  char const *   db_name ) {
@@ -360,6 +363,21 @@ fd_rocksdb_get_slot( ulong cf_idx, char const * key ) {
   return fd_ulong_bswap( *((ulong *)key) );
 }
 
+void
+fd_rocksdb_iter_seek_to_slot_if_possible( rocksdb_iterator_t * iter, const ulong cf_idx, const ulong slot ) {
+  ulong k = fd_ulong_bswap(slot);
+  switch (cf_idx) {
+    /* These cfs do not have the slot at the start, we can't seek based on slot prefix */
+    case FD_ROCKSDB_CFIDX_TRANSACTION_STATUS:
+    case FD_ROCKSDB_CFIDX_ADDRESS_SIGNATURES:
+      rocksdb_iter_seek_to_first( iter );
+      break;
+    default: /* all other cfs have the slot at the start, seek based on slot prefix */
+      rocksdb_iter_seek( iter, (const char *)&k, 8);
+      break;
+  }
+}
+
 int
 fd_rocksdb_copy_over_slot_indexed_range( fd_rocksdb_t * src,
                                          fd_rocksdb_t * dst,
@@ -381,7 +399,7 @@ fd_rocksdb_copy_over_slot_indexed_range( fd_rocksdb_t * src,
     FD_LOG_ERR(("rocksdb_create_iterator_cf failed for cf_idx=%lu", cf_idx));
   }
 
-  for ( rocksdb_iter_seek_to_first( iter ); rocksdb_iter_valid( iter ); rocksdb_iter_next( iter ) ) {
+  for ( fd_rocksdb_iter_seek_to_slot_if_possible( iter, cf_idx, start_slot ); rocksdb_iter_valid( iter ); rocksdb_iter_next( iter ) ) {
     ulong klen = 0;
     char const * key = rocksdb_iter_key( iter, &klen ); // There is no need to free key
 

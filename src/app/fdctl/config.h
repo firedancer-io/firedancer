@@ -166,7 +166,10 @@ typedef struct {
     struct {
       ushort regular_transaction_listen_port;
       ushort quic_transaction_listen_port;
-
+      ushort vote_transaction_listen_port;
+      char regular_transaction_my_addr[ 22 ];
+      char quic_transaction_my_addr[ 22 ];
+      char vote_transaction_my_addr[ 22 ];
       uint txn_reassembly_count;
       uint max_concurrent_connections;
       uint max_concurrent_streams_per_connection;
@@ -175,7 +178,6 @@ typedef struct {
       uint max_inflight_quic_packets;
       uint tx_buf_size;
       uint idle_timeout_millis;
-
     } quic;
 
     struct {
@@ -238,6 +240,21 @@ typedef struct {
       ushort repair_intake_listen_port;
       ushort repair_serve_listen_port;
     } repair;
+
+    struct {
+      char  genesis[ PATH_MAX ];
+      char  snapshot[ PATH_MAX ];
+      char  incremental[ PATH_MAX ];
+      ulong pages;
+      ulong txn_max;
+      ulong index_max;
+      ulong shred_max;
+      ulong slot_history_max;
+    } replay;
+
+    struct {
+      ulong snapshot_slot;
+    } store;
   } tiles;
 } config_t;
 

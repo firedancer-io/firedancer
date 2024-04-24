@@ -12,6 +12,9 @@
 
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 /* Maximum size of a network packet */
 #define PACKET_DATA_SIZE 1232
 /* Max number of validators that can be actively queried */
@@ -391,7 +394,7 @@ fd_repair_send_requests( fd_repair_t * glob ) {
     fd_dupdetect_table_remove( glob->dupdetect, &ele->dupkey );
     fd_needed_table_remove( glob->needed, &n );
   }
-  glob->oldest_nonce = n;  
+  glob->oldest_nonce = n;
 
   /* Send requests starting where we left off last time */
   if ( (int)(n - glob->current_nonce) < 0 )
@@ -409,7 +412,7 @@ fd_repair_send_requests( fd_repair_t * glob ) {
       fd_needed_table_remove( glob->needed, &n );
       continue;
     }
-    if(j == 100U) break; 
+    if(j == 100U) break;
     ++j;
 
     /* Track statistics */
@@ -734,7 +737,7 @@ fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) 
   fd_repair_lock( glob );
   fd_active_elem_t * peer = actives_sample( glob );
   if (!peer) {
-    FD_LOG_WARNING( ( "failed to find a good peer." ) );
+    FD_LOG_DEBUG( ( "failed to find a good peer." ) );
     fd_repair_unlock( glob );
     return -1;
   };
@@ -745,14 +748,14 @@ fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) 
     return 0;
   }
   fd_dupdetect_table_insert( glob->dupdetect, &dupkey );
-  
+
   if (fd_needed_table_is_full(glob->needed)) {
     fd_repair_unlock( glob );
     FD_LOG_NOTICE(("table full"));
     ( *glob->deliver_fail_fun )(&peer->key, slot, shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED );
     return -1;
   }
-  
+
   fd_repair_nonce_t key = glob->next_nonce++;
   fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
   fd_hash_copy(&val->id, id);
@@ -767,7 +770,7 @@ fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_
   fd_repair_lock( glob );
   fd_active_elem_t * peer = actives_sample( glob );
   if (!peer) {
-    FD_LOG_WARNING( ( "failed to find a good peer." ) );
+    FD_LOG_DEBUG( ( "failed to find a good peer." ) );
     fd_repair_unlock( glob );
     return -1;
   };
@@ -779,13 +782,13 @@ fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_
     return 0;
   }
   fd_dupdetect_table_insert( glob->dupdetect, &dupkey );
-  
+
   if (fd_needed_table_is_full(glob->needed)) {
     fd_repair_unlock( glob );
     ( *glob->deliver_fail_fun )(id, slot, shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED );
     return -1;
   }
-  
+
   fd_repair_nonce_t key = glob->next_nonce++;
   fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
   fd_hash_copy(&val->id, id);
@@ -800,7 +803,7 @@ fd_repair_need_orphan( fd_repair_t * glob, ulong slot ) {
   fd_repair_lock( glob );
   fd_active_elem_t * peer = actives_sample( glob );
   if (!peer) {
-    FD_LOG_WARNING( ( "failed to find a good peer." ) );
+    FD_LOG_DEBUG( ( "failed to find a good peer." ) );
     fd_repair_unlock( glob );
     return -1;
   };
@@ -812,7 +815,7 @@ fd_repair_need_orphan( fd_repair_t * glob, ulong slot ) {
     return 0;
   }
   fd_dupdetect_table_insert( glob->dupdetect, &dupkey );
-  
+
   if (fd_needed_table_is_full(glob->needed)) {
     fd_repair_unlock( glob );
     ( *glob->deliver_fail_fun )(id, slot, UINT_MAX, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED );
@@ -869,8 +872,8 @@ void fd_repair_set_permanent( fd_repair_t * glob, fd_pubkey_t const * id ) {
   fd_repair_unlock( glob );
 }
 
-void 
-fd_repair_set_stake_weights( fd_repair_t * repair, 
+void
+fd_repair_set_stake_weights( fd_repair_t * repair,
                              fd_stake_weight_t const * stake_weights,
                              ulong stake_weights_cnt ) {
   if( stake_weights == NULL ) {

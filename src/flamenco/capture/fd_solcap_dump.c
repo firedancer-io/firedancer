@@ -151,7 +151,7 @@ main( int     argc,
 
   char *d = fd_valloc_malloc( decode.valloc, f.align_fun(), f.footprint_fun() );
   if (NULL == d)
-    FD_LOG_ERR (( "valloc_malloc failed for %s", f.footprint_fun()));
+    FD_LOG_ERR (( "valloc_malloc failed for %lu", f.footprint_fun()));
 
   f.new_fun(d);
   int err = f.decode_fun( d, &decode );

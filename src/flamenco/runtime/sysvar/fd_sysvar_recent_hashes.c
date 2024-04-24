@@ -4,6 +4,9 @@
 #include "fd_sysvar.h"
 #include "../fd_runtime.h"
 #include "../fd_system_ids.h"
+#include "../context/fd_exec_slot_ctx.h"
+
+#define FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE  sizeof(ulong) + FD_RECENT_BLOCKHASHES_MAX_ENTRIES * (sizeof(fd_hash_t) + sizeof(ulong))
 
 // run --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 2 --end-slot 2 --start-id 35 --end-id 37
 // run --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd replay --pages 15 --index-max 120000000 --start-slot 0 --end-slot 3
@@ -23,8 +26,8 @@ void fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t* slot_ctx ) {
     return;
 
   ulong sz = fd_recent_block_hashes_size(&slot_ctx->slot_bank.recent_block_hashes);
-  if (sz < 6008)
-    sz = 6008;
+  if (sz < FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE)
+    sz = FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE;
   unsigned char *enc = fd_alloca(1, sz);
   memset(enc, 0, sz);
   fd_bincode_encode_ctx_t ctx;
@@ -33,7 +36,30 @@ void fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t* slot_ctx ) {
   if ( fd_recent_block_hashes_encode(&slot_ctx->slot_bank.recent_block_hashes, &ctx) )
     FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
 
-  fd_sysvar_set(slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot, NULL );
+  fd_sysvar_set(slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot, 0UL );
+}
+
+void register_blockhash( fd_exec_slot_ctx_t* slot_ctx, fd_hash_t const * hash ) {
+  fd_block_hash_queue_t * queue = &slot_ctx->slot_bank.block_hash_queue;
+  queue->last_hash_index++;
+  if ( fd_hash_hash_age_pair_t_map_size( queue->ages_pool, queue->ages_root ) >= queue->max_age ) {
+    fd_hash_hash_age_pair_t_mapnode_t * nn;
+    for ( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
+      nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
+      if ( queue->last_hash_index - n->elem.val.hash_index > queue->max_age ) {
+        fd_hash_hash_age_pair_t_map_remove( queue->ages_pool, &queue->ages_root, n );
+        fd_hash_hash_age_pair_t_map_release( queue->ages_pool, n );
+      }
+    }
+  }
+
+  fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( queue->ages_pool );
+  node->elem = (fd_hash_hash_age_pair_t){
+    .key = *hash,
+    .val = (fd_hash_age_t){ .hash_index = queue->last_hash_index, .fee_calculator = (fd_fee_calculator_t){.lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature}, .timestamp = (ulong)fd_log_wallclock() }
+  };
+  fd_hash_hash_age_pair_t_map_insert( slot_ctx->slot_bank.block_hash_queue.ages_pool, &slot_ctx->slot_bank.block_hash_queue.ages_root, node );
+  fd_memcpy( queue->last_hash, hash, sizeof(fd_hash_t) );
 }
 
 void fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t* slot_ctx ) {
@@ -42,7 +68,7 @@ void fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t* slot_ctx ) {
 
   fd_block_block_hash_entry_t * hashes = slot_ctx->slot_bank.recent_block_hashes.hashes;
   fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };
-  while (deq_fd_block_block_hash_entry_t_cnt(hashes) >= 150)
+  while (deq_fd_block_block_hash_entry_t_cnt(hashes) >= FD_RECENT_BLOCKHASHES_MAX_ENTRIES)
     fd_block_block_hash_entry_destroy( deq_fd_block_block_hash_entry_t_pop_tail_nocopy( hashes ), &ctx2 );
 
   FD_TEST( !deq_fd_block_block_hash_entry_t_full(hashes) );
@@ -54,8 +80,8 @@ void fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t* slot_ctx ) {
   elem->fee_calculator.lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature;
 
   ulong sz = fd_recent_block_hashes_size(&slot_ctx->slot_bank.recent_block_hashes);
-  if (sz < 6008)
-    sz = 6008;
+  if (sz < FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE)
+    sz = FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE;
   unsigned char *enc = fd_alloca(1, sz);
   memset(enc, 0, sz);
   fd_bincode_encode_ctx_t ctx;
@@ -64,5 +90,7 @@ void fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t* slot_ctx ) {
   if ( fd_recent_block_hashes_encode(&slot_ctx->slot_bank.recent_block_hashes, &ctx) )
     FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
 
-  fd_sysvar_set(slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot, NULL);
+  fd_sysvar_set(slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot, 0UL);
+
+  register_blockhash( slot_ctx, &slot_ctx->slot_bank.poh );
 }

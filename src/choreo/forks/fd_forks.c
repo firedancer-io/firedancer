@@ -2,8 +2,12 @@
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
 #include "../../flamenco/runtime/fd_borrowed_account.h"
+#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/program/fd_program_util.h"
 #include "../../flamenco/runtime/program/fd_vote_program.h"
+
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 void *
 fd_forks_new( void * shmem, ulong max, ulong seed ) {
@@ -148,7 +152,8 @@ fd_forks_rollback( fd_forks_t * forks, ulong slot ) {
 
   FD_TEST( fd_slot_bank_decode( &slot_ctx->slot_bank, &ctx ) == FD_BINCODE_SUCCESS );
   FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx ) );
-  slot_ctx->leader = fd_epoch_leaders_get( slot_ctx->epoch_ctx->leaders, slot );
+
+  slot_ctx->leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot );
 
   // TODO how do i get this info, ignoring rewards for now
   // slot_ctx->epoch_reward_status = ???

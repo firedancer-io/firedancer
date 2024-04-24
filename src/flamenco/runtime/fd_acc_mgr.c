@@ -7,6 +7,9 @@
 #include "sysvar/fd_sysvar_rent.h"
 #include <assert.h>
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 fd_acc_mgr_t *
 fd_acc_mgr_new( void *      mem,
                 fd_funk_t * funk ) {
@@ -61,7 +64,8 @@ fd_rent_lists_cb( fd_funk_rec_t * rec,
       void const * data = fd_funk_val( rec, fd_funk_wksp(acc_mgr->funk) );
       fd_account_meta_t const * metadata = fd_type_pun_const( data );
 
-      ulong required_balance = fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent, metadata->dlen);
+      fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+      ulong required_balance = fd_rent_exempt_minimum_balance2( &epoch_bank->rent, metadata->dlen);
       if( required_balance <= metadata->info.lamports )
         return FD_FUNK_PART_NULL;
     }

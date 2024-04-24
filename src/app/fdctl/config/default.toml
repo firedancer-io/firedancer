@@ -646,6 +646,9 @@ topology = "tvu"
         # transaction_listen_port.
         quic_transaction_listen_port = 19007
 
+        # Which port to listen on for incoming votes.
+        vote_transaction_listen_port = 19001
+
         # Maximum number of simultaneous QUIC connections which can be
         # open.  New connections which would exceed this limit will not
         # be accepted.
@@ -790,10 +793,21 @@ topology = "tvu"
         gossip_listen_port = 8010
 
     [tiles.repair]
-        repair_my_intake_addr = "147.75.87.77:8011"
-        repair_my_serve_addr = "147.75.87.77:8012"
-        repair_intake_listen_port = 8011
-        repair_serve_listen_port = 8012
+        repair_my_intake_addr = "147.75.87.77:8012"
+        repair_my_serve_addr = "147.75.87.77:8011"
+        repair_intake_listen_port = 8012
+        repair_serve_listen_port = 8011
+
+    [tiles.replay]
+        genesis = ""
+        snapshot = ""
+        incremental = ""
+        pages = 5
+        txn_max = 100
+        index_max = 100000
+        shred_max = 65536
+        slot_history_max = 16384
+
 
     # The pack tile takes incoming transactions that have been verified
     # by the verify tile and then deduplicated, and attempts to order

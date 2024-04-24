@@ -4,15 +4,14 @@
 #include "../../fd_flamenco_base.h"
 #include "../../../ballet/block/fd_microblock.h"
 #include "../../../ballet/txn/fd_txn.h"
+#include "../../../ballet/pack/fd_microblock.h"
 
 struct fd_microblock_info {
   fd_microblock_hdr_t microblock_hdr;
   ulong signature_cnt;
   ulong account_cnt;
 
-  fd_rawtxn_b_t * raw_txns;
-  fd_txn_t * * txn_ptrs;
-  void * txn_buf;
+  fd_txn_p_t * txns;
 
   void const * raw_microblock;
   ulong raw_microblock_sz;

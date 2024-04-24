@@ -1,9 +1,11 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_executor_h
 #define HEADER_fd_src_flamenco_runtime_fd_executor_h
 
-#include "fd_runtime.h"
+#include "context/fd_exec_instr_ctx.h"
 #include "../../ballet/block/fd_microblock.h"
+#include "../../ballet/pack/fd_microblock.h"
 #include "../../ballet/poh/fd_poh.h"
+#include "tests/fd_exec_test.pb.h"
 
 /* Instruction error codes */
 
@@ -85,6 +87,11 @@
 
 FD_PROTOTYPES_BEGIN
 
+void 
+fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context, 
+                                                 fd_exec_txn_ctx_t *txn_ctx, 
+                                                 fd_instr_info_t *instr );
+
 /* fd_exec_instr_fn_t processes an instruction.  Returns an error code
    in FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}. */
 
@@ -116,7 +123,8 @@ fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
                                fd_exec_txn_ctx_t * txn_ctx );
 int
 fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t *  slot_ctx,
-                               fd_exec_txn_ctx_t * txn_ctx );
+                               fd_exec_txn_ctx_t * txn_ctx,
+                               fd_txn_p_t * txn );
 
 int
 fd_execute_txn_prepare_phase4( fd_exec_slot_ctx_t * slot_ctx,
@@ -166,6 +174,9 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
 
 FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );
+
+int
+fd_executor_check_txn_accounts( fd_exec_txn_ctx_t * txn_ctx );
 
 FD_PROTOTYPES_END
 

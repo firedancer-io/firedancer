@@ -69,7 +69,8 @@ fd_epoch_leaders_new( void                    * shmem,
   FD_TEST( laddr+fd_wsample_footprint( pub_cnt, 0 )<=(ulong)wsample_mem + fd_epoch_leaders_footprint( pub_cnt, slot_cnt ) );
 
   /* Create and seed ChaCha20Rng */
-  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( fd_alloca(alignof(fd_chacha20rng_t), sizeof(fd_chacha20rng_t)), FD_CHACHA20RNG_MODE_MOD ) );
+  fd_chacha20rng_t _rng[1];
+  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_MOD ) );
   uchar key[ 32 ] = {0};
   memcpy( key, &epoch, sizeof(ulong) );
   fd_chacha20rng_init( rng, key );

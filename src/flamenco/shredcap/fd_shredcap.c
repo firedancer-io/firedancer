@@ -14,11 +14,11 @@ set_file_name( char * file_name_ptr, ulong start_slot, ulong end_slot ) {
   fd_memset( file_name_ptr, '\0', FD_SHREDCAP_CAPTURE_FILE_NAME_LENGTH );
   fd_cstr_append_ulong_as_text( file_name_ptr, '0', '\0', start_slot, FILE_SLOT_NUM_DIGITS );
   fd_cstr_append_char( file_name_ptr + FILE_SLOT_NUM_DIGITS, '_' );
-  fd_cstr_append_ulong_as_text( file_name_ptr + FILE_SLOT_NUM_DIGITS + 1, 
+  fd_cstr_append_ulong_as_text( file_name_ptr + FILE_SLOT_NUM_DIGITS + 1,
                                 '0', '\0', end_slot, FILE_SLOT_NUM_DIGITS );
 }
 
-void 
+void
 fd_shredcap_concat( char * buf, const char * dir, const char * file ) {
   fd_memset( buf, '\0', FD_SHREDCAP_CAPTURE_PATH_NAME_LENGTH );
   fd_cstr_append_cstr( buf, dir );
@@ -26,7 +26,7 @@ fd_shredcap_concat( char * buf, const char * dir, const char * file ) {
 }
 
 /**** Ingest ******************************************************************/
-void 
+void
 fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
                                          const char * capture_dir,
                                          ulong        max_file_sz,
@@ -72,7 +72,7 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
   fd_shredcap_concat( manifest_path_buf, capture_dir, "manifest" );
   int manifest_fd = open( manifest_path_buf, O_CREAT|O_WRONLY, (mode_t)0666 );
   if( FD_UNLIKELY( manifest_fd == -1 ) ) {
-    FD_LOG_WARNING(( "open(\"%s\",O_CREAT|O_WRONLY|,0%03lo) failed (%i-%s)",
+    FD_LOG_WARNING(( "open(\"%s\",O_CREAT|O_WRONLY|,0%03o) failed (%i-%s)",
                      manifest_path_buf, 0666, errno, fd_io_strerror( errno ) ));
     return;
   }
@@ -87,7 +87,7 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
   manifest_hdr.num_files  = UINT_MAX; /* This is written after the fact */
   manifest_hdr.start_slot = start_slot;
   manifest_hdr.end_slot   = end_slot;
-  err = fd_io_buffered_ostream_write( manifest_ostream, &manifest_hdr, 
+  err = fd_io_buffered_ostream_write( manifest_ostream, &manifest_hdr,
                                       FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT );
   if ( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "error writing manifest header" ));
@@ -98,7 +98,7 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
   fd_shredcap_concat( bank_hash_path_buf, capture_dir, "bank_hash" );
   int bank_hash_fd = open( bank_hash_path_buf, O_CREAT|O_WRONLY, (mode_t)0666 );
   if( FD_UNLIKELY( bank_hash_fd == -1 ) ) {
-    FD_LOG_WARNING(( "open(\"%s\",O_CREAT|O_WRONLY|,0%03lo) failed (%i-%s)",
+    FD_LOG_WARNING(( "open(\"%s\",O_CREAT|O_WRONLY|,0%03o) failed (%i-%s)",
                      bank_hash_path_buf, 0666, errno, fd_io_strerror( errno ) ));
     FD_LOG_ERR(( "can't create and open bank hash file" ));
   }
@@ -111,14 +111,14 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
   bank_hash_hdr.version    = FD_SHREDCAP_BANK_HASH_VERSION;
   bank_hash_hdr.start_slot = start_slot;
   bank_hash_hdr.end_slot   = end_slot;
-  err = fd_io_buffered_ostream_write( bank_hash_ostream, &bank_hash_hdr, 
+  err = fd_io_buffered_ostream_write( bank_hash_ostream, &bank_hash_hdr,
                                       FD_SHREDCAP_BANK_HASH_HDR_FOOTPRINT );
   if ( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "error writing bank hash file header" ));
   }
 
   /* The file size limit should be able to hold at least one full sized block (~40MiB) */
-  long real_max_file_sz = (long)fd_ulong_if( max_file_sz < FD_SHREDCAP_MAX_BLOCK_STORAGE_FOOTPRINT, 
+  long real_max_file_sz = (long)fd_ulong_if( max_file_sz < FD_SHREDCAP_MAX_BLOCK_STORAGE_FOOTPRINT,
                                              FD_SHREDCAP_MAX_BLOCK_STORAGE_FOOTPRINT, max_file_sz );
   uint num_files = 0;
   ulong block_count = 0;
@@ -139,7 +139,7 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
     ulong file_block_count = 0;
     int fd = open( tmp_path_buf, O_CREAT|O_WRONLY, (mode_t)0666 );
     if( FD_UNLIKELY( fd == -1 ) ) {
-      FD_LOG_ERR(( "open(\"%s\",O_CREAT|O_WRONLY|,0%03lo) failed (%i-%s)", 
+      FD_LOG_ERR(( "open(\"%s\",O_CREAT|O_WRONLY|,0%03o) failed (%i-%s)",
                    tmp_path_buf, 0666, errno, fd_io_strerror( errno ) ));
     }
     fd_io_buffered_ostream_t ostream[ 1 ];
@@ -156,25 +156,25 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
     if ( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "error writing capture file header" ));
     }
-    
+
     /* Start iterating through slots*/
     ulong file_start_slot = metadata.slot;
     ulong file_end_slot   = 0;
 
-    /* Keep adding to the file unless max file size is exceeded or current slot 
+    /* Keep adding to the file unless max file size is exceeded or current slot
        exceeeds the range */
     while ( metadata.slot < end_slot && lseek( ostream->fd, 0, SEEK_CUR ) < real_max_file_sz  ) {
       ulong cur_slot = metadata.slot;
       /* Import shreds for entire slot */
-      
+
       int err = fd_rocksdb_import_block_shredcap( &rocks_db, &metadata, ostream, bank_hash_ostream );
-      if( FD_UNLIKELY( err ) ) { 
+      if( FD_UNLIKELY( err ) ) {
         FD_LOG_ERR(( "fd_rocksdb_get_block failed at slot=%lu", cur_slot ));
       }
 
       file_end_slot = metadata.slot;
       ++file_block_count;
-      
+
       fd_bincode_destroy_ctx_t ctx = { .valloc = valloc };
       fd_slot_meta_destroy( &metadata, &ctx );
 
@@ -191,7 +191,7 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
     block_count += file_block_count;
 
     /* To finish out writing to capture file, copy the header into the footer,
-       flush the buffer. The header needs to be updated to include the payload 
+       flush the buffer. The header needs to be updated to include the payload
        size. Clear any fd_io and close the fd. Rename the file. */
     file_hdr.end_slot   = file_end_slot;
     file_hdr.num_blocks = file_block_count;
@@ -209,7 +209,7 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
     if ( FD_UNLIKELY( file_start_offset == -1 ) ) {
       FD_LOG_ERR(( "lseek error when moving to start of file" ));
     }
-    err = fd_io_write( ostream->fd, &file_hdr, FD_SHREDCAP_FILE_FTR_FOOTPRINT, 
+    err = fd_io_write( ostream->fd, &file_hdr, FD_SHREDCAP_FILE_FTR_FOOTPRINT,
                        FD_SHREDCAP_FILE_FTR_FOOTPRINT, &sz );
     if ( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "error when writing to update file header" ));
@@ -217,7 +217,7 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
     if ( FD_UNLIKELY( sz != FD_SHREDCAP_FILE_FTR_FOOTPRINT ) ) {
       FD_LOG_ERR(( "unexpected size written when updating file header" ));
     }
-      
+
     if ( FD_UNLIKELY( close( fd ) ) ) {
       FD_LOG_ERR(( "error while closing file descriptor" ));
     }
@@ -233,7 +233,7 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
     manifest_entry.start_slot = file_start_slot;
     manifest_entry.end_slot   = file_end_slot;
     fd_memcpy( &manifest_entry.path, &new_path_buf, strlen( new_path_buf ) );
-    err = fd_io_buffered_ostream_write( manifest_ostream, &manifest_entry, 
+    err = fd_io_buffered_ostream_write( manifest_ostream, &manifest_entry,
                                         FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT );
     if ( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "error writing manifest entry" ));
@@ -244,26 +244,26 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
 
   /* Write manifest footer and update header */
   manifest_hdr.num_files = num_files;
-  err = fd_io_buffered_ostream_write( manifest_ostream, &manifest_hdr, 
+  err = fd_io_buffered_ostream_write( manifest_ostream, &manifest_hdr,
                                       FD_SHREDCAP_MANIFEST_FTR_FOOTPRINT );
   if ( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "error writing manifest footer" ));
   }
   fd_io_buffered_ostream_flush( manifest_ostream );
   fd_io_buffered_ostream_fini( manifest_ostream );
-  
+
   file_start_offset = lseek( manifest_fd, 0, SEEK_SET );
   if ( FD_UNLIKELY( file_start_offset == -1 ) ) {
-    FD_LOG_ERR(( "lseek failed when seeking to start of manifest", file_start_offset ));
+    FD_LOG_ERR(( "lseek failed when seeking to start of manifest" ));
   }
 
-  err = fd_io_write( manifest_fd, &manifest_hdr, FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT, 
+  err = fd_io_write( manifest_fd, &manifest_hdr, FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT,
                      FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT, &sz );
   if ( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "unable to write num_files=%lu to manifest header", num_files ));
+    FD_LOG_ERR(( "unable to write num_files=%u to manifest header", num_files ));
   }
   if ( FD_UNLIKELY( sz != FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT ) ) {
-    FD_LOG_ERR(( "size=%lu doesn't match expected size of manifest header=%lu", 
+    FD_LOG_ERR(( "size=%lu doesn't match expected size of manifest header=%lu",
                  sz, FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT ));
   }
   if ( FD_UNLIKELY( close( manifest_fd ) ) ) {
@@ -272,7 +272,7 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
 
   /* Write bank hash footer and update header */
   bank_hash_hdr.num_blocks = block_count;
-  err = fd_io_buffered_ostream_write( bank_hash_ostream, &bank_hash_hdr, 
+  err = fd_io_buffered_ostream_write( bank_hash_ostream, &bank_hash_hdr,
                                       FD_SHREDCAP_BANK_HASH_FTR_FOOTPRINT );
   if ( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "error writing bank hash file footer" ));
@@ -285,13 +285,13 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
     FD_LOG_ERR(( "lseek error when seeking to start of bank hash" ));
   }
 
-  err = fd_io_write( bank_hash_fd, &bank_hash_hdr, FD_SHREDCAP_BANK_HASH_HDR_FOOTPRINT, 
+  err = fd_io_write( bank_hash_fd, &bank_hash_hdr, FD_SHREDCAP_BANK_HASH_HDR_FOOTPRINT,
                                FD_SHREDCAP_BANK_HASH_HDR_FOOTPRINT, &sz );
   if ( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "unable to write num_blocks=%lu for bank hash file header", num_files ));
+    FD_LOG_ERR(( "unable to write num_blocks=%u for bank hash file header", num_files ));
   }
   if ( FD_UNLIKELY( sz != FD_SHREDCAP_BANK_HASH_HDR_FOOTPRINT ) ) {
-    FD_LOG_ERR(( "size=%lu doesn't match expected size of bank hash header=%lu", 
+    FD_LOG_ERR(( "size=%lu doesn't match expected size of bank hash header=%lu",
                  sz, FD_SHREDCAP_BANK_HASH_HDR_FOOTPRINT ));
   }
   if ( FD_UNLIKELY( close( bank_hash_fd ) ) ) {
@@ -299,27 +299,27 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
   }
 
   fd_rocksdb_root_iter_destroy( &iter );
-  fd_rocksdb_destroy( &rocks_db );                             
+  fd_rocksdb_destroy( &rocks_db );
 }
 
 /***************** Verify Helpers *********************************************/
 void
-fd_shredcap_verify_slot( fd_shredcap_slot_hdr_t * slot_hdr, 
+fd_shredcap_verify_slot( fd_shredcap_slot_hdr_t * slot_hdr,
                            fd_blockstore_t *          blockstore,
-                           int                        fd, 
+                           int                        fd,
                            char *                     rbuf ) {
 
-          
+
   if ( FD_UNLIKELY( slot_hdr->magic != FD_SHREDCAP_SLOT_HDR_MAGIC ) ) {
     FD_LOG_ERR(( "slot header magic=%lu doesn't match expected magic=%lu",
                   slot_hdr->magic, FD_SHREDCAP_SLOT_HDR_MAGIC ));
   }
   if ( FD_UNLIKELY( slot_hdr->version != FD_SHREDCAP_SLOT_HDR_VERSION ) ) {
-    FD_LOG_ERR(( "slot header version=%lu doesn't match expected version=%lu",
+    FD_LOG_ERR(( "slot header version=%u doesn't match expected version=%lu",
                   slot_hdr->version, FD_SHREDCAP_SLOT_HDR_VERSION ));
   }
   if ( FD_UNLIKELY( slot_hdr->payload_sz == ULONG_MAX ) ) {
-    FD_LOG_ERR(( "slot payload_sz=%lu is at default value=%lu", slot_hdr->payload_sz ));
+    FD_LOG_ERR(( "slot payload_sz=%lu is at default value", slot_hdr->payload_sz ));
   }
 
   ulong slot       = slot_hdr->slot;
@@ -330,13 +330,13 @@ fd_shredcap_verify_slot( fd_shredcap_slot_hdr_t * slot_hdr,
   ulong sz;
   for ( ulong idx = 0; idx < max_idx; ++idx ) {
     /* Read shred header */
-    err = fd_io_read( fd, rbuf, FD_SHREDCAP_SHRED_HDR_FOOTPRINT, 
+    err = fd_io_read( fd, rbuf, FD_SHREDCAP_SHRED_HDR_FOOTPRINT,
                       FD_SHREDCAP_SHRED_HDR_FOOTPRINT, &sz );
     if ( FD_UNLIKELY( err != 0 ) ) {
       FD_LOG_ERR(( "unable to read shred hdr" ));
     }
     if ( FD_UNLIKELY( sz != FD_SHREDCAP_SHRED_HDR_FOOTPRINT ) ) {
-      FD_LOG_ERR(( "read in size=%lu not equal to shred header footprint=%lu",
+      FD_LOG_ERR(( "read in size=%lu not equal to shred header footprint=%u",
                    sz, FD_SHREDCAP_SHRED_HDR_FOOTPRINT ));
     }
 
@@ -380,7 +380,7 @@ fd_shredcap_verify_slot( fd_shredcap_slot_hdr_t * slot_hdr,
   fd_shredcap_slot_ftr_t * slot_ftr = (fd_shredcap_slot_ftr_t*)rbuf;
 
   if ( FD_UNLIKELY( slot_ftr->magic != FD_SHREDCAP_SLOT_FTR_MAGIC ) ) {
-    FD_LOG_ERR(( "slot footer's magic=%lu doesn't match expected magic=%lu", 
+    FD_LOG_ERR(( "slot footer's magic=%lu doesn't match expected magic=%lu",
                  slot_ftr->magic, FD_SHREDCAP_SLOT_FTR_MAGIC ));
   }
   if ( FD_UNLIKELY( slot_ftr->payload_sz != payload_sz ) ) {
@@ -389,9 +389,9 @@ fd_shredcap_verify_slot( fd_shredcap_slot_hdr_t * slot_hdr,
   }
 }
 
-void 
+void
 fd_shredcap_verify_capture_file( const char *      capture_dir,
-                                   const char *      capture_file, 
+                                   const char *      capture_file,
                                    fd_blockstore_t * blockstore,
                                    ulong             expected_start_slot,
                                    ulong             expected_end_slot,
@@ -401,7 +401,7 @@ fd_shredcap_verify_capture_file( const char *      capture_dir,
 
   char capture_file_buf[ FD_SHREDCAP_CAPTURE_PATH_NAME_LENGTH ];
   fd_shredcap_concat( capture_file_buf, capture_dir, capture_file );
-  
+
   int capture_fd = open( capture_file_buf, O_RDONLY, (mode_t)0 );
   if( FD_UNLIKELY( capture_fd == -1 ) ) {
     FD_LOG_WARNING(( "open(\"%s\",O_RDONLY,0) failed (%i-%s)", capture_file_buf, errno, fd_io_strerror( errno ) ));
@@ -428,7 +428,7 @@ fd_shredcap_verify_capture_file( const char *      capture_dir,
                  file_hdr_ptr->magic, FD_SHREDCAP_FILE_MAGIC ));
   }
   if ( FD_UNLIKELY( file_hdr_ptr->version != FD_SHREDCAP_FILE_VERSION ) ) {
-    FD_LOG_ERR(( "file header version=%lu doesn't match expected version=%lu",
+    FD_LOG_ERR(( "file header version=%u doesn't match expected version=%lu",
                  file_hdr_ptr->version, FD_SHREDCAP_FILE_VERSION ));
   }
   if ( FD_UNLIKELY( file_hdr_ptr->start_slot != expected_start_slot ) ) {
@@ -439,7 +439,7 @@ fd_shredcap_verify_capture_file( const char *      capture_dir,
     FD_LOG_ERR(( "file header end_slot=%lu doesn't match manifest entry's end_slot=%lu",
                  file_hdr_ptr->end_slot, expected_end_slot ));
   }
-  
+
   fd_shredcap_file_hdr_t file_hdr;
   fd_memcpy( &file_hdr, file_hdr_ptr, FD_SHREDCAP_FILE_HDR_FOOTPRINT );
 
@@ -447,7 +447,7 @@ fd_shredcap_verify_capture_file( const char *      capture_dir,
   ulong cur_slot = 0;
   while( cur_slot < expected_end_slot ) {
     ++(*slots_seen);
-    err = fd_io_read( capture_fd, rbuf, FD_SHREDCAP_SLOT_HDR_FOOTPRINT, 
+    err = fd_io_read( capture_fd, rbuf, FD_SHREDCAP_SLOT_HDR_FOOTPRINT,
                       FD_SHREDCAP_SLOT_HDR_FOOTPRINT, &sz );
     if ( FD_UNLIKELY( err != 0 ) ) {
       FD_LOG_ERR(( "unable to read slot header" ));
@@ -462,7 +462,7 @@ fd_shredcap_verify_capture_file( const char *      capture_dir,
     cur_slot = slot_hdr->slot;
     fd_shredcap_verify_slot( slot_hdr, blockstore, capture_fd, rbuf );
 
-    err = fd_io_read( bank_hash_fd, bank_hash_buf, FD_SHREDCAP_BANK_HASH_ENTRY_FOOTPRINT, 
+    err = fd_io_read( bank_hash_fd, bank_hash_buf, FD_SHREDCAP_BANK_HASH_ENTRY_FOOTPRINT,
                       FD_SHREDCAP_BANK_HASH_ENTRY_FOOTPRINT, &sz );
     if ( FD_UNLIKELY( err != 0 ) ) {
       FD_LOG_ERR(( "unable to read bank hash entry" ));
@@ -480,7 +480,7 @@ fd_shredcap_verify_capture_file( const char *      capture_dir,
 
   /* Verify num blocks */
   if ( FD_UNLIKELY( file_hdr.num_blocks != *slots_seen ) ) {
-    FD_LOG_ERR(( "file header num_blocks=%lu not equal to number of seen slots=%lu", 
+    FD_LOG_ERR(( "file header num_blocks=%lu not equal to number of seen slots=%lu",
                  file_hdr.num_blocks, *slots_seen ));
   }
 
@@ -501,7 +501,7 @@ fd_shredcap_verify_capture_file( const char *      capture_dir,
                  file_hdr.magic, file_ftr->magic ));
   }
   if ( FD_UNLIKELY( file_hdr.version != file_ftr->version ) ) {
-    FD_LOG_ERR(( "file header version=%lu doesn't match file footer version=%lu",
+    FD_LOG_ERR(( "file header version=%u doesn't match file footer version=%u",
                  file_hdr.version, file_ftr->version ));
   }
   if ( FD_UNLIKELY( file_hdr.start_slot != file_ftr->start_slot ) ) {
@@ -522,7 +522,7 @@ fd_shredcap_verify_capture_file( const char *      capture_dir,
   }
 }
 
-void 
+void
 fd_shredcap_verify( const char * capture_dir, fd_blockstore_t * blockstore ) {
   FD_LOG_NOTICE(( "starting verify" ));
   /* Take the manifest file as the source of truth for what files we expect to
@@ -536,30 +536,30 @@ fd_shredcap_verify( const char * capture_dir, fd_blockstore_t * blockstore ) {
      maps back to a manifest entry */
   int manifest_fd = open( manifest_file_buf, O_RDONLY, (mode_t)0 );
   if( FD_UNLIKELY( manifest_fd == -1 ) ) {
-    FD_LOG_WARNING(( "open(\"%s\",O_RDONLY,0) failed (%i-%s)", 
+    FD_LOG_WARNING(( "open(\"%s\",O_RDONLY,0) failed (%i-%s)",
                      manifest_file_buf, errno, fd_io_strerror( errno ) ));
     FD_LOG_ERR(( "can't open manifest file, may not exist" ));
   }
 
-  /* Iterate through each entry on the bank_hash file and ensure that there is 
+  /* Iterate through each entry on the bank_hash file and ensure that there is
      a corresponding 1-to-1 entry for the capture*/
   char bank_hash_file_buf[ FD_SHREDCAP_CAPTURE_PATH_NAME_LENGTH ];
   fd_shredcap_concat( bank_hash_file_buf, capture_dir, "bank_hash" );
 
   int bank_hash_fd = open( bank_hash_file_buf, O_RDONLY, (mode_t)0 );
   if( FD_UNLIKELY( bank_hash_fd == -1 ) ) {
-    FD_LOG_WARNING(( "open(\"%s\",O_RDONLY,0) failed (%i-%s)", 
+    FD_LOG_WARNING(( "open(\"%s\",O_RDONLY,0) failed (%i-%s)",
                      bank_hash_file_buf, errno, fd_io_strerror( errno ) ));
     FD_LOG_ERR(( "can't open manifest file, may not exist" ));
   }
 
   char manifest_rbuf[ MANIFEST_BUF_FOOTPRINT ] __attribute__((aligned(BUF_ALIGN)));
   char bank_hash_rbuf[ BANK_HASH_BUF_FOOTPRINT ] __attribute__((aligned(BUF_ALIGN)));
-  
+
   /* Read in manifest header */
   ulong sz;
   int err;
-  err = fd_io_read( manifest_fd, &manifest_rbuf, FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT, 
+  err = fd_io_read( manifest_fd, &manifest_rbuf, FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT,
                     FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT, &sz );
   if ( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "unable to read manifest header" ));
@@ -580,7 +580,7 @@ fd_shredcap_verify( const char * capture_dir, fd_blockstore_t * blockstore ) {
   }
 
   /* Read in bank hash header*/
-  err = fd_io_read( bank_hash_fd, &bank_hash_rbuf, FD_SHREDCAP_BANK_HASH_HDR_FOOTPRINT, 
+  err = fd_io_read( bank_hash_fd, &bank_hash_rbuf, FD_SHREDCAP_BANK_HASH_HDR_FOOTPRINT,
                     FD_SHREDCAP_BANK_HASH_HDR_FOOTPRINT, &sz );
   if ( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "unable to read bank hash header" ));
@@ -596,7 +596,7 @@ fd_shredcap_verify( const char * capture_dir, fd_blockstore_t * blockstore ) {
                  bank_hash_hdr->magic, FD_SHREDCAP_BANK_HASH_MAGIC ));
   }
   if ( FD_UNLIKELY( bank_hash_hdr->version != FD_SHREDCAP_BANK_HASH_VERSION ) ) {
-    FD_LOG_ERR(( "bank hash header version=%lu is not equal to the expected version=%lu",
+    FD_LOG_ERR(( "bank hash header version=%u is not equal to the expected version=%lu",
                  bank_hash_hdr->version, FD_SHREDCAP_BANK_HASH_VERSION ));
   }
   if ( FD_UNLIKELY( manifest_hdr->start_slot != bank_hash_hdr->start_slot ) ) {
@@ -616,7 +616,7 @@ fd_shredcap_verify( const char * capture_dir, fd_blockstore_t * blockstore ) {
   uint  num_files  = manifest_hdr->num_files;
 
   for ( ulong i = 0; i < num_files; ++i ) {
-    err = fd_io_read( manifest_fd, &manifest_rbuf, FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT, 
+    err = fd_io_read( manifest_fd, &manifest_rbuf, FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT,
                       FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT, &sz );
     if ( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "unable to read manifest entry" ));
@@ -629,7 +629,7 @@ fd_shredcap_verify( const char * capture_dir, fd_blockstore_t * blockstore ) {
     FD_TEST( sz == FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT );
     fd_shredcap_manifest_entry_t * entry = (fd_shredcap_manifest_entry_t*)manifest_rbuf;
     ulong file_slots_seen = 0;
-    fd_shredcap_verify_capture_file( capture_dir, entry->path, blockstore, 
+    fd_shredcap_verify_capture_file( capture_dir, entry->path, blockstore,
                                        entry->start_slot, entry->end_slot,
                                        bank_hash_fd, bank_hash_rbuf, &file_slots_seen );
     slots_seen += file_slots_seen;
@@ -639,7 +639,7 @@ fd_shredcap_verify( const char * capture_dir, fd_blockstore_t * blockstore ) {
     FD_LOG_ERR(( "expected block count=%lu, seen=%lu", num_blocks, slots_seen ));
   }
 
-  err = fd_io_read( manifest_fd, &manifest_rbuf, FD_SHREDCAP_MANIFEST_FTR_FOOTPRINT, 
+  err = fd_io_read( manifest_fd, &manifest_rbuf, FD_SHREDCAP_MANIFEST_FTR_FOOTPRINT,
                     FD_SHREDCAP_MANIFEST_FTR_FOOTPRINT, &sz );
   if ( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "unable to read manifest footer" ));
@@ -667,7 +667,7 @@ fd_shredcap_verify( const char * capture_dir, fd_blockstore_t * blockstore ) {
                  end_slot, manifest_ftr->end_slot ));
   }
   if ( FD_UNLIKELY( num_files != manifest_ftr->num_files ) ) {
-    FD_LOG_ERR(( "manifest footer end_slot=%lu doesn't match manifest footer end_slot=%lu",
+    FD_LOG_ERR(( "manifest footer end_slot=%u doesn't match manifest footer num_files=%u",
                  num_files, manifest_ftr->num_files ));
   }
 
@@ -722,14 +722,14 @@ fd_shredcap_manifest_seek_range( const char * capture_dir,
 
   *manifest_fd = open( manifest_file_buf, O_RDONLY, (mode_t)0 );
   if( FD_UNLIKELY( *manifest_fd == -1 ) ) {
-    FD_LOG_WARNING(( "open(\"%s\",O_RDONLY,0) failed (%i-%s)", 
+    FD_LOG_WARNING(( "open(\"%s\",O_RDONLY,0) failed (%i-%s)",
                      manifest_file_buf, errno, fd_io_strerror( errno ) ));
     FD_LOG_ERR(( "unable to open manifest file for blockstore range" ));
   }
 
   ulong sz;
   int err;
-  err = fd_io_read( *manifest_fd, manifest_buf, FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT, 
+  err = fd_io_read( *manifest_fd, manifest_buf, FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT,
                     FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT, &sz );
   if ( FD_UNLIKELY( err != 0 ) ) {
     FD_LOG_ERR(( "unable to read manifest header" ));
@@ -738,13 +738,13 @@ fd_shredcap_manifest_seek_range( const char * capture_dir,
     FD_LOG_ERR(( "read in size=%lu not equal to manifest header footprint=%lu",
                   sz, FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT ));
   }
-    
+
   /* Do basic checks on user input */
   fd_shredcap_manifest_hdr_t * manifest_hdr = (fd_shredcap_manifest_hdr_t*)manifest_buf;
   ulong num_files = manifest_hdr->num_files;
 
   if ( FD_UNLIKELY( start_slot < manifest_hdr->start_slot ) ) {
-    FD_LOG_ERR(( "start_slot=%lu is less than the capture's first slot=%lu", 
+    FD_LOG_ERR(( "start_slot=%lu is less than the capture's first slot=%lu",
                  start_slot, manifest_hdr->start_slot ));
   }
   if ( FD_UNLIKELY( start_slot > manifest_hdr->end_slot ) ) {
@@ -766,14 +766,14 @@ fd_shredcap_manifest_seek_range( const char * capture_dir,
   while ( left < right ) {
     ulong middle = ( left + right ) / 2;
     /* Seek to correct offset */
-    ulong middle_offset = middle * FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT + 
+    ulong middle_offset = middle * FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT +
                           FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT;
     long offset = lseek( *manifest_fd, (long)middle_offset, SEEK_SET );
     if ( FD_UNLIKELY( offset == -1 ) ) {
       FD_LOG_ERR(( "unable to lseek to manifest entry offset=%ld", middle_offset ));
     }
 
-    err = fd_io_read( *manifest_fd, manifest_buf, FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT, 
+    err = fd_io_read( *manifest_fd, manifest_buf, FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT,
                       FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT, &sz );
     if ( FD_UNLIKELY( err != 0 ) ) {
       FD_LOG_ERR(( "unable to read manifest entry for file index=%lu", middle ));
@@ -799,14 +799,14 @@ fd_shredcap_manifest_seek_range( const char * capture_dir,
   while ( left < right ) {
     ulong middle = ( left + right ) / 2;
     /* Seek to correct offset */
-    ulong middle_offset = middle * FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT + 
+    ulong middle_offset = middle * FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT +
                           FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT;
     long offset = lseek( *manifest_fd, (long)middle_offset, SEEK_SET );
     if ( FD_UNLIKELY( offset == -1 ) ) {
       FD_LOG_ERR(( "unable to lseek to manifest entry offset=%ld", middle_offset ));
     }
 
-    err = fd_io_read( *manifest_fd, manifest_buf, FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT, 
+    err = fd_io_read( *manifest_fd, manifest_buf, FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT,
                       FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT, &sz );
     if ( FD_UNLIKELY( err != 0 ) ) {
       FD_LOG_ERR(( "unable to read manifest entry for file index=%lu", middle ));
@@ -816,7 +816,7 @@ fd_shredcap_manifest_seek_range( const char * capture_dir,
                    sz, FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT ));
     }
     fd_shredcap_manifest_entry_t * entry = (fd_shredcap_manifest_entry_t*)manifest_buf;
-    
+
     if ( end_slot <= entry->end_slot ) {
       right = middle;
     }
@@ -840,14 +840,14 @@ fd_shredcap_bank_hash_seek_first( const char * capture_dir,
 
   *bank_hash_fd = open( bank_hash_file_buf, O_RDONLY, (mode_t)0 );
   if( FD_UNLIKELY( *bank_hash_fd == -1 ) ) {
-    FD_LOG_WARNING(( "open(\"%s\",O_RDONLY,0) failed (%i-%s)", 
+    FD_LOG_WARNING(( "open(\"%s\",O_RDONLY,0) failed (%i-%s)",
                      bank_hash_file_buf, errno, fd_io_strerror( errno ) ));
     FD_LOG_ERR(( "unable to open bank hash file for blockstore range" ));
   }
 
   ulong sz;
   int err;
-  err = fd_io_read( *bank_hash_fd, bank_hash_buf, FD_SHREDCAP_BANK_HASH_HDR_FOOTPRINT, 
+  err = fd_io_read( *bank_hash_fd, bank_hash_buf, FD_SHREDCAP_BANK_HASH_HDR_FOOTPRINT,
                     FD_SHREDCAP_BANK_HASH_HDR_FOOTPRINT, &sz );
   if ( FD_UNLIKELY( err != 0 ) ) {
     FD_LOG_ERR(( "unable to read bank hash header" ));
@@ -856,7 +856,7 @@ fd_shredcap_bank_hash_seek_first( const char * capture_dir,
     FD_LOG_ERR(( "read in size=%lu not equal to bank hash header footprint=%lu",
                  sz, FD_SHREDCAP_BANK_HASH_HDR_FOOTPRINT ));
   }
-    
+
   /* Do basic checks on user input */
   fd_shredcap_bank_hash_hdr_t * bank_hash_hdr = (fd_shredcap_bank_hash_hdr_t*)bank_hash_buf;
   ulong num_blocks = bank_hash_hdr->num_blocks;
@@ -864,7 +864,7 @@ fd_shredcap_bank_hash_seek_first( const char * capture_dir,
   /* Leaving these as warnings because bank hashes aren't needed to populate a
      blockstore. This should really not be happening however. */
   if ( FD_UNLIKELY( start_slot < bank_hash_hdr->start_slot ) ) {
-    FD_LOG_WARNING(( "start_slot=%lu is less than the bank_hash's first slot=%lu", 
+    FD_LOG_WARNING(( "start_slot=%lu is less than the bank_hash's first slot=%lu",
                  start_slot, bank_hash_hdr->start_slot ));
   }
   if ( FD_UNLIKELY( start_slot > bank_hash_hdr->end_slot ) ) {
@@ -886,14 +886,14 @@ fd_shredcap_bank_hash_seek_first( const char * capture_dir,
   while ( left < right ) {
     ulong middle = ( left + right ) / 2;
     /* Seek to correct offset*/
-    ulong middle_offset = middle * FD_SHREDCAP_BANK_HASH_ENTRY_FOOTPRINT + 
+    ulong middle_offset = middle * FD_SHREDCAP_BANK_HASH_ENTRY_FOOTPRINT +
                           FD_SHREDCAP_BANK_HASH_HDR_FOOTPRINT;
     long offset = lseek( *bank_hash_fd, (long)middle_offset, SEEK_SET );
     if ( FD_UNLIKELY( offset == -1 ) ) {
       FD_LOG_ERR(( "unable to lseek to bank hash file offset=%ld", offset ));
     }
 
-    err = fd_io_read( *bank_hash_fd, bank_hash_buf, FD_SHREDCAP_BANK_HASH_ENTRY_FOOTPRINT, 
+    err = fd_io_read( *bank_hash_fd, bank_hash_buf, FD_SHREDCAP_BANK_HASH_ENTRY_FOOTPRINT,
                       FD_SHREDCAP_BANK_HASH_ENTRY_FOOTPRINT, &sz );
     if ( FD_UNLIKELY( err != 0 ) ) {
       FD_LOG_ERR(( "unable to read bank hash entry at slot index=%lu", middle ));
@@ -918,8 +918,8 @@ fd_shredcap_bank_hash_seek_first( const char * capture_dir,
 }
 
 void
-fd_shredcap_populate_blockstore( const char *      capture_dir, 
-                                   fd_blockstore_t * blockstore, 
+fd_shredcap_populate_blockstore( const char *      capture_dir,
+                                   fd_blockstore_t * blockstore,
                                    ulong             start_slot,
                                    ulong             end_slot ) {
   if ( FD_UNLIKELY( start_slot > end_slot ) ) {
@@ -931,18 +931,18 @@ fd_shredcap_populate_blockstore( const char *      capture_dir,
   ulong start_file_idx;
   ulong end_file_idx;
   int manifest_fd;
-  fd_shredcap_manifest_seek_range( capture_dir, manifest_buf, start_slot, end_slot, 
+  fd_shredcap_manifest_seek_range( capture_dir, manifest_buf, start_slot, end_slot,
                                    &start_file_idx, &end_file_idx, &manifest_fd );
 
   /* Get first relevant slot and idx from the bank hash file */
   char bank_hash_buf[ BANK_HASH_BUF_FOOTPRINT ];
   ulong first_slot_idx;
   int bank_hash_fd;
-  fd_shredcap_bank_hash_seek_first( capture_dir, bank_hash_buf, start_slot, end_slot, 
+  fd_shredcap_bank_hash_seek_first( capture_dir, bank_hash_buf, start_slot, end_slot,
                                     &first_slot_idx, &bank_hash_fd );
   ulong cur_bank_hash_slot_idx = first_slot_idx;
 
-  char capture_buf[ RBUF_FOOTPRINT ];  
+  char capture_buf[ RBUF_FOOTPRINT ];
 
   ulong sz;
   int err;
@@ -950,14 +950,14 @@ fd_shredcap_populate_blockstore( const char *      capture_dir,
 
   /* Open and iterate through as many files as necesary to build up blockstore */
   for ( ulong file_idx = start_file_idx; file_idx <= end_file_idx; ++file_idx ) {
-    ulong file_offset = file_idx * FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT + 
+    ulong file_offset = file_idx * FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT +
                         FD_SHREDCAP_MANIFEST_HDR_FOOTPRINT;
     offset = lseek( manifest_fd, (long)file_offset, SEEK_SET );
     if ( FD_UNLIKELY( offset == -1 ) ) {
       FD_LOG_ERR(( "unable to seek to offset=%lu in manifest", file_offset ));
     }
 
-    err = fd_io_read( manifest_fd, manifest_buf, FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT, 
+    err = fd_io_read( manifest_fd, manifest_buf, FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT,
                       FD_SHREDCAP_MANIFEST_ENTRY_FOOTPRINT, &sz );
     if ( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "error when reading manifest entry" ));
@@ -975,12 +975,12 @@ fd_shredcap_populate_blockstore( const char *      capture_dir,
 
     int capture_fd = open( file_path_buf, O_RDONLY, (mode_t)0 );
     if( FD_UNLIKELY( capture_fd == -1 ) ) {
-      FD_LOG_WARNING(( "open(\"%s\",O_RDONLY,0) failed (%i-%s)", 
+      FD_LOG_WARNING(( "open(\"%s\",O_RDONLY,0) failed (%i-%s)",
                        file_path_buf, errno, fd_io_strerror( errno ) ));
       FD_LOG_ERR(( "unable to open capture file for blockstore range" ));
     }
 
-    err = fd_io_read( capture_fd, capture_buf, FD_SHREDCAP_FILE_HDR_FOOTPRINT, 
+    err = fd_io_read( capture_fd, capture_buf, FD_SHREDCAP_FILE_HDR_FOOTPRINT,
                       FD_SHREDCAP_FILE_HDR_FOOTPRINT, &sz );
     if ( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "error when reading shredcap file header" ));
@@ -996,7 +996,7 @@ fd_shredcap_populate_blockstore( const char *      capture_dir,
 
     while ( cur_slot < file_end_slot ) {
       /* Read in block header */
-      err = fd_io_read( capture_fd, capture_buf, FD_SHREDCAP_SLOT_HDR_FOOTPRINT, 
+      err = fd_io_read( capture_fd, capture_buf, FD_SHREDCAP_SLOT_HDR_FOOTPRINT,
                         FD_SHREDCAP_SLOT_HDR_FOOTPRINT, &sz );
       if ( FD_UNLIKELY( err ) ) {
         FD_LOG_ERR(( "error when reading shredcap slot header" ));
@@ -1004,7 +1004,7 @@ fd_shredcap_populate_blockstore( const char *      capture_dir,
       if ( FD_UNLIKELY( sz != FD_SHREDCAP_SLOT_HDR_FOOTPRINT ) ) {
         FD_LOG_ERR(( "unexpected size read=%lu for capture slot header", sz ));
       }
-                        
+
       fd_shredcap_slot_hdr_t * slot_hdr = (fd_shredcap_slot_hdr_t*)capture_buf;
       cur_slot = slot_hdr->slot;
       ulong max_idx = slot_hdr->received;
@@ -1024,7 +1024,7 @@ fd_shredcap_populate_blockstore( const char *      capture_dir,
 
       /* Read in shreds and assemble */
       for ( ulong shred_idx = 0; shred_idx < max_idx; ++shred_idx ) {
-        err = fd_io_read( capture_fd, capture_buf, FD_SHREDCAP_SHRED_HDR_FOOTPRINT, 
+        err = fd_io_read( capture_fd, capture_buf, FD_SHREDCAP_SHRED_HDR_FOOTPRINT,
                           FD_SHREDCAP_SHRED_HDR_FOOTPRINT, &sz );
         if ( FD_UNLIKELY( err ) ) {
           FD_LOG_ERR(( "error when reading shredcap shred header" ));
@@ -1043,7 +1043,7 @@ fd_shredcap_populate_blockstore( const char *      capture_dir,
         if ( FD_UNLIKELY( sz != shred_boundary_sz ) ) {
           FD_LOG_ERR(( "unexpected size read=%lu for shred", sz ));
         }
-        
+
         fd_shred_t * shred = (fd_shred_t*)capture_buf;
         fd_blockstore_shred_insert( blockstore, shred );
       }
@@ -1054,14 +1054,14 @@ fd_shredcap_populate_blockstore( const char *      capture_dir,
       }
 
       /* Populate bank hash for each slot */
-      ulong cur_bank_hash_slot_offset = cur_bank_hash_slot_idx * FD_SHREDCAP_BANK_HASH_ENTRY_FOOTPRINT + 
+      ulong cur_bank_hash_slot_offset = cur_bank_hash_slot_idx * FD_SHREDCAP_BANK_HASH_ENTRY_FOOTPRINT +
                                 FD_SHREDCAP_BANK_HASH_HDR_FOOTPRINT;
       offset = lseek( bank_hash_fd, (long)cur_bank_hash_slot_offset, SEEK_SET );
       if ( FD_UNLIKELY( offset == -1 ) ) {
         FD_LOG_ERR(( "unable to lseek to bank hash_slot at index=%lu", cur_bank_hash_slot_idx ));
       }
 
-      err = fd_io_read( bank_hash_fd, bank_hash_buf, FD_SHREDCAP_BANK_HASH_ENTRY_FOOTPRINT, 
+      err = fd_io_read( bank_hash_fd, bank_hash_buf, FD_SHREDCAP_BANK_HASH_ENTRY_FOOTPRINT,
                         FD_SHREDCAP_BANK_HASH_ENTRY_FOOTPRINT, &sz );
       if ( FD_UNLIKELY( err ) ) {
         FD_LOG_ERR(( "error when reading bank hash entry" ));

@@ -1,7 +1,9 @@
 #include "fd_sysvar_epoch_schedule.h"
 #include "fd_sysvar.h"
-#include "../../../flamenco/types/fd_types.h"
+#include "../../types/fd_types.h"
 #include "../fd_system_ids.h"
+#include "../context/fd_exec_epoch_ctx.h"
+#include "../context/fd_exec_slot_ctx.h"
 
 fd_epoch_schedule_t *
 fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
@@ -45,7 +47,7 @@ write_epoch_schedule( fd_exec_slot_ctx_t  * slot_ctx,
   if ( fd_epoch_schedule_encode( epoch_schedule, &ctx ) )
     FD_LOG_ERR(("fd_epoch_schedule_encode failed"));
 
-  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_epoch_schedule_id, enc, sz, slot_ctx->slot_bank.slot, NULL );
+  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_epoch_schedule_id, enc, sz, slot_ctx->slot_bank.slot, 0UL );
 }
 
 fd_epoch_schedule_t *
@@ -69,7 +71,8 @@ fd_sysvar_epoch_schedule_read( fd_epoch_schedule_t * result,
 
 void
 fd_sysvar_epoch_schedule_init( fd_exec_slot_ctx_t * slot_ctx ) {
-  write_epoch_schedule( slot_ctx, &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule );
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  write_epoch_schedule( slot_ctx, &epoch_bank->epoch_schedule );
 }
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L105 */

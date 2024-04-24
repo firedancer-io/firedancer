@@ -30,28 +30,25 @@ include config/base.mk
 	CXX:=g++
 	LD:=g++
   FD_COMPILER_MAJOR_VERSION:=$(shell echo | $(CC) -march=native -E -dM - | grep __GNUC__ | awk '{print $$3}')
+include config/extra/with-gcc.mk
 else ifdef FD_USING_CLANG
 include config/base.mk
 	CC=clang
 	CXX=clang++
 	LD=clang++
   FD_COMPILER_MAJOR_VERSION:=$(shell echo | $(CC) -march=native -E -dM - | grep __clang_major__ |  awk '{print $$3}')
+include config/extra/with-clang.mk
 endif
 
 BUILDDIR?=native/$(CC)
 CPPFLAGS+=-march=native -mtune=native
+RUSTFLAGS+=-C target-cpu=native
 
 include config/extra/with-brutality.mk
 include config/extra/with-optimization.mk
 include config/extra/with-debug.mk
 include config/extra/with-security.mk
 include config/extra/with-ucontext.mk
-
-ifdef FD_USING_GCC
-include config/extra/with-gcc.mk
-else ifdef FD_USING_CLANG
-include config/extra/with-clang.mk
-endif
 
 $(call map-define,FD_HAS_SHANI, __SHA__)
 $(call map-define,FD_HAS_INT128, __SIZEOF_INT128__)
@@ -102,7 +99,6 @@ endif
 
 include config/extra/with-zstd.mk
 include config/extra/with-secp256k1.mk
-include config/extra/with-bz2.mk
 include config/extra/with-rocksdb.mk
 include config/extra/with-libff.mk
 include config/extra/with-libmicrohttp.mk

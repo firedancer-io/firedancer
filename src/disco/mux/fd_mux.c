@@ -627,11 +627,12 @@ fd_mux_tile( fd_cnc_t *              cnc,
     FD_COMPILER_MFENCE();
 
     int filter = 0;
+    // if (sig == 50) FD_LOG_WARNING(("Mux: %lu %lu", sz, seq_found));
     if( FD_LIKELY( callbacks->during_frag ) ) callbacks->during_frag( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, &filter );
 
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */
       this_in->seq = seq_test; /* Resume from here (probably reasonably current, could query in mcache sync instead) */
-      this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ]++;
+//      this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ]++;
       /* Don't bother with spin as polling multiple locations */
       long next = fd_tickcount();
       fd_histf_sample( hist_ovrnr_ticks, (ulong)(next - now) );
@@ -675,7 +676,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
     ulong diag_idx = FD_METRICS_COUNTER_LINK_PUBLISHED_COUNT_OFF + 2UL*(ulong)filter;
     this_in->accum[ diag_idx     ]++;
     this_in->accum[ diag_idx+1UL ] += (uint)sz;
-    
+
     fd_histf_t * hist_ticks = fd_ptr_if( filter, (fd_histf_t*)hist_filter2_ticks,   (fd_histf_t*)hist_fin_ticks );
     fd_histf_t * hist_sz    = fd_ptr_if( filter, (fd_histf_t*)hist_filter2_frag_sz, (fd_histf_t*)hist_fin_frag_sz );
     fd_histf_sample( hist_ticks, (ulong)(next - now) );

@@ -109,13 +109,14 @@ fd_shmem_numa_validate( void const * mem,
 
 /* SHMEM REGION CREATION AND DESTRUCTION ******************************/
 
-int
-fd_shmem_create_multi( char const *  name,
-                       ulong         page_sz,
-                       ulong         sub_cnt,
-                       ulong const * _sub_page_cnt,
-                       ulong const * _sub_cpu_idx,
-                       ulong         mode ) {
+static int
+fd_shmem_create_multi_flags( char const *  name,
+                             ulong         page_sz,
+                             ulong         sub_cnt,
+                             ulong const * _sub_page_cnt,
+                             ulong const * _sub_cpu_idx,
+                             ulong         mode,
+                             int           open_flags ) {
 
   /* Check input args */
 
@@ -182,9 +183,9 @@ fd_shmem_create_multi( char const *  name,
 
   /* Create the region */
 
-  fd = open( fd_shmem_private_path( name, page_sz, path ), O_RDWR | O_CREAT | O_EXCL, (mode_t)mode );
+  fd = open( fd_shmem_private_path( name, page_sz, path ), open_flags, (mode_t)mode );
   if( FD_UNLIKELY( fd==-1 ) ) {
-    FD_LOG_WARNING(( "open(\"%s\",O_RDWR|O_CREAT|O_EXCL,0%03lo) failed (%i-%s)", path, mode, errno, fd_io_strerror( errno ) ));
+    FD_LOG_WARNING(( "open(\"%s\",%#x,0%03lo) failed (%i-%s)", path, open_flags, mode, errno, fd_io_strerror( errno ) ));
     ERROR( restore );
   }
 
@@ -298,7 +299,7 @@ fd_shmem_create_multi( char const *  name,
     /* And since the fd_numa_mbind still often will ignore requests, we
        double check that the pages are in the right place. */
 
-    int warn = fd_shmem_numa_validate( sub_shmem, page_sz, sub_page_cnt, sub_numa_idx ); /* logs details */
+    int warn = fd_shmem_numa_validate( sub_shmem, page_sz, sub_page_cnt, sub_cpu_idx ); /* logs details */
     if( FD_UNLIKELY( warn ) )
       FD_LOG_WARNING(( "sub[%lu]: mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,MAP_SHARED,\"%s\",0) numa binding failed (%i-%s)",
                        sub_idx, sub_sz>>10, path, warn, fd_io_strerror( warn ) ));
@@ -328,6 +329,26 @@ restore:
 done:
   FD_SHMEM_UNLOCK;
   return err;
+}
+
+int
+fd_shmem_create_multi( char const *  name,
+                       ulong         page_sz,
+                       ulong         sub_cnt,
+                       ulong const * _sub_page_cnt,
+                       ulong const * _sub_cpu_idx,
+                       ulong         mode ) {
+  return fd_shmem_create_multi_flags( name, page_sz, sub_cnt, _sub_page_cnt, _sub_cpu_idx, mode, O_RDWR | O_CREAT | O_EXCL );
+}
+
+int
+fd_shmem_update_multi( char const *  name,
+                       ulong         page_sz,
+                       ulong         sub_cnt,
+                       ulong const * _sub_page_cnt,
+                       ulong const * _sub_cpu_idx,
+                       ulong         mode ) {
+  return fd_shmem_create_multi_flags( name, page_sz, sub_cnt, _sub_page_cnt, _sub_cpu_idx, mode, O_RDWR );
 }
 
 int
@@ -520,7 +541,7 @@ fd_shmem_acquire_multi( ulong         page_sz,
       ERROR( unmap );
     }
 
-    int warn = fd_shmem_numa_validate( sub_mem, page_sz, sub_page_cnt, sub_numa_idx ); /* logs details */
+    int warn = fd_shmem_numa_validate( sub_mem, page_sz, sub_page_cnt, sub_cpu_idx ); /* logs details */
     if( FD_UNLIKELY( warn ) )
       FD_LOG_WARNING(( "sub[%lu]: mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) numa binding failed (%i-%s)",
                        sub_idx, sub_sz>>10, flags, warn, fd_io_strerror( warn ) ));

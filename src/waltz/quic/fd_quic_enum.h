@@ -26,6 +26,10 @@
    and L3 headers. */
 #define FD_QUIC_MTU (1500)
 
+/* FD_QUIC_SHORTEST_PKT is the smallest possible byte size of a QUIC v1
+   packet. */
+#define FD_QUIC_SHORTEST_PKT (16)
+
 /* FD_QUIC_INITIAL_PAYLOAD_SZ_MIN is the min byte size of the UDP payload
    of Initial-type packets.  Mandated for both clients and servers as a
    form of MTU discovery and to mitigate amplification attacks.  See

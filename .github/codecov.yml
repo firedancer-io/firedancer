@@ -3,3 +3,7 @@ coverage:
     project: off
     patch: off
 comment: false
+flags:
+  clusterfuzz:
+    # We only report ClusterFuzz coverage nightly
+    carryforward: true

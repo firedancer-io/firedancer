@@ -1,8 +1,10 @@
 #include "fd_sysvar_clock.h"
+#include "fd_sysvar_epoch_schedule.h"
 #include "fd_sysvar.h"
 #include "../fd_executor.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
+#include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L14 */
@@ -17,13 +19,14 @@
 /* The target tick duration, derived from the target tick rate.
  https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/poh_config.rs#L32
   */
-#define DEFAULT_TARGET_TICK_DURATION_NS ( NS_IN_S / DEFAULT_TICKS_PER_SECOND )
+#define DEFAULT_TARGET_TICK_DURATION_NS ( NS_IN_S / FD_SYSVAR_CLOCK_DEFAULT_HASHES_PER_TICK )
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2200 */
 static long
 timestamp_from_genesis( fd_exec_slot_ctx_t * slot_ctx ) {
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   /* TODO: maybe make types of timestamps the same throughout the runtime codebase. as Solana uses a signed representation */
-  return (long)( slot_ctx->epoch_ctx->epoch_bank.genesis_creation_time + ( ( slot_ctx->slot_bank.slot * slot_ctx->epoch_ctx->epoch_bank.ns_per_slot ) / NS_IN_S ) );
+  return (long)( epoch_bank->genesis_creation_time + ( ( slot_ctx->slot_bank.slot * epoch_bank->ns_per_slot ) / NS_IN_S ) );
 }
 
 static void
@@ -38,7 +41,7 @@ write_clock( fd_exec_slot_ctx_t *    slot_ctx,
   if( fd_sol_sysvar_clock_encode( clock, &ctx ) )
     FD_LOG_ERR(("fd_sol_sysvar_clock_encode failed"));
 
-  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, (fd_pubkey_t *) &fd_sysvar_clock_id, enc, sz, slot_ctx->slot_bank.slot, NULL );
+  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, (fd_pubkey_t *) &fd_sysvar_clock_id, enc, sz, slot_ctx->slot_bank.slot, 0UL );
 }
 
 
@@ -84,7 +87,8 @@ bound_timestamp_estimate( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Determine offsets from start of epoch */
   /* TODO: handle epoch boundary case */
-  uint128 poh_estimate_offset = slot_ctx->epoch_ctx->epoch_bank.ns_per_slot * slot_ctx->slot_bank.slot;
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  uint128 poh_estimate_offset = epoch_bank->ns_per_slot * slot_ctx->slot_bank.slot;
   uint128 estimate_offset = (uint128)( ( estimate - epoch_start_timestamp ) * NS_IN_S );
 
   uint128 max_delta_fast = ( poh_estimate_offset * MAX_ALLOWABLE_DRIFT_FAST ) / 100;
@@ -119,9 +123,47 @@ estimate_timestamp( fd_exec_slot_ctx_t * slot_ctx ) {
   /* TODO: actually take the stake-weighted median. For now, just use the root node. */
   fd_clock_timestamp_vote_t * head = &votes->elem;
   ulong slots = slot_ctx->slot_bank.slot - head->slot;
-  uint128 ns_correction = slot_ctx->epoch_ctx->epoch_bank.ns_per_slot * slots;
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  uint128 ns_correction = epoch_bank->ns_per_slot * slots;
   return head->timestamp  + (long) (ns_correction / NS_IN_S) ;
 }
+
+#define CIDX_T ulong
+#define VAL_T  long
+struct stake_ts_ele {
+  CIDX_T parent_cidx;
+  CIDX_T left_cidx;
+  CIDX_T right_cidx;
+  CIDX_T prio_cidx;
+  VAL_T timestamp;
+  unsigned long stake;
+};
+
+typedef struct stake_ts_ele stake_ts_ele_t;
+
+#define POOL_NAME  stake_ts_pool
+#define POOL_T     stake_ts_ele_t
+#define POOL_IDX_T CIDX_T
+#define POOL_NEXT  parent_cidx
+#include "../../../util/tmpl/fd_pool.c"
+
+FD_FN_CONST static inline int valcmp (VAL_T a, VAL_T b) {
+  int val = (a < b) ? -1 : 1;
+  return (a == b) ? 0 : val;
+}
+
+#define TREAP_NAME       stake_ts_treap
+#define TREAP_T          stake_ts_ele_t
+#define TREAP_QUERY_T    VAL_T
+#define TREAP_CMP(q,e)   valcmp(q, e->timestamp)
+#define TREAP_LT(e0,e1)  (((VAL_T)((e0)->timestamp)) < ((VAL_T)((e1)->timestamp)))
+#define TREAP_IDX_T      CIDX_T
+#define TREAP_PARENT     parent_cidx
+#define TREAP_LEFT       left_cidx
+#define TREAP_RIGHT      right_cidx
+#define TREAP_PRIO       prio_cidx
+#define TREAP_IMPL_STYLE 0
+#include "../../../util/tmpl/fd_treap.c"
 
 /* https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/bank.rs#L3600 */
 static void
@@ -130,16 +172,19 @@ fd_calculate_stake_weighted_timestamp(
   long * result_timestamp,
   uint fix_estimate_into_u64
  ) {
-  ulong slot_duration = (ulong)( slot_ctx->epoch_ctx->epoch_bank.ns_per_slot );
+  FD_SCRATCH_SCOPE_BEGIN {
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  ulong slot_duration = (ulong)( epoch_bank->ns_per_slot );
   fd_sol_sysvar_clock_t clock;
   fd_sysvar_clock_read( &clock, slot_ctx );
   // get the unique timestamps
   /* stake per timestamp */
-  treap_t _treap[1];
+  stake_ts_treap_t _treap[1];
   void * shmem = (void *)_treap;
-  void * shtreap = treap_new( shmem, 10240UL );
-  treap_t * treap = treap_join( shtreap );
-  ele_t * pool = pool_join( pool_new( scratch, 10240UL ) );
+  void * shtreap = stake_ts_treap_new( shmem, 10240UL );
+  stake_ts_treap_t * treap = stake_ts_treap_join( shtreap );
+  uchar * scratch = fd_scratch_alloc( stake_ts_pool_align(), stake_ts_pool_footprint( 10240UL ) );
+  stake_ts_ele_t * pool = stake_ts_pool_join( stake_ts_pool_new( scratch, 10240UL ) );
   ulong total_stake = 0;
 
   fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root = slot_ctx->slot_bank.timestamp_votes.votes_root;
@@ -232,7 +277,8 @@ fd_calculate_stake_weighted_timestamp(
     // }
 
     ulong slot_delta = fd_ulong_sat_sub(slot_ctx->slot_bank.slot, vote_slot);
-    if (slot_delta > slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.slots_per_epoch) {
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+    if (slot_delta > epoch_bank->epoch_schedule.slots_per_epoch) {
       continue;
     }
 
@@ -240,14 +286,14 @@ fd_calculate_stake_weighted_timestamp(
     long estimate = (long)vote_timestamp + (long)(offset / NS_IN_S);
     /* get stake */
     total_stake += n->elem.stake;
-    ulong treap_idx = treap_idx_query( treap, estimate, pool );
+    ulong treap_idx = stake_ts_treap_idx_query( treap, estimate, pool );
     if ( FD_LIKELY( treap_idx < ULONG_MAX ) ) {
       pool[ treap_idx ].stake += n->elem.stake;
     } else {
-      ulong idx = pool_idx_acquire( pool );
+      ulong idx = stake_ts_pool_idx_acquire( pool );
       pool[ idx ].timestamp = estimate;
       pool[ idx ].stake = n->elem.stake;
-      treap_idx_insert( treap, idx, pool );
+      stake_ts_treap_idx_insert( treap, idx, pool );
     }
   }
 
@@ -258,10 +304,10 @@ fd_calculate_stake_weighted_timestamp(
 
   // FIXME: this should be a uint128
   ulong stake_accumulator = 0;
-  for (treap_fwd_iter_t iter = treap_fwd_iter_init ( treap, pool);
-       !treap_fwd_iter_done( iter );
-       iter = treap_fwd_iter_next( iter, pool ) ) {
-    ulong idx = treap_fwd_iter_idx( iter );
+  for (stake_ts_treap_fwd_iter_t iter = stake_ts_treap_fwd_iter_init ( treap, pool);
+       !stake_ts_treap_fwd_iter_done( iter );
+       iter = stake_ts_treap_fwd_iter_next( iter, pool ) ) {
+    ulong idx = stake_ts_treap_fwd_iter_idx( iter );
     stake_accumulator = fd_ulong_sat_add(stake_accumulator, pool[ idx ].stake);
     // FD_LOG_WARNING(("Ts %ld Elem stake %lu Curr stake %lu Total stake cmp %lu", pool[ idx ].timestamp, pool[ idx ].stake, stake_accumulator, total_stake/2));
     if (stake_accumulator > (total_stake / 2)) {
@@ -295,6 +341,9 @@ fd_calculate_stake_weighted_timestamp(
     *result_timestamp = clock.unix_timestamp;
   }
   return;
+
+  }
+  FD_SCRATCH_SCOPE_END;
 }
 
 int
@@ -346,7 +395,8 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx ) {
   clock.slot  = slot_ctx->slot_bank.slot;
 
   ulong epoch_old = clock.epoch;
-  ulong epoch_new = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, clock.slot, NULL );
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  ulong epoch_new = fd_slot_to_epoch( &epoch_bank->epoch_schedule, clock.slot, NULL );
   FD_LOG_DEBUG(("Epoch old %lu new %lu slot %lu", epoch_old, epoch_new, clock.slot));
   clock.epoch = epoch_new;
   if( epoch_old != epoch_new ) {
@@ -354,7 +404,7 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx ) {
     fd_calculate_stake_weighted_timestamp( slot_ctx, &timestamp_estimate, FD_FEATURE_ACTIVE( slot_ctx, warp_timestamp_again ) );
     clock.unix_timestamp = fd_long_max( timestamp_estimate, ancestor_timestamp );
     clock.epoch_start_timestamp = clock.unix_timestamp;
-    clock.leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot );
+    clock.leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot );
   }
 
   FD_LOG_DEBUG(( "Updated clock at slot %lu", slot_ctx->slot_bank.slot ));
@@ -377,7 +427,7 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx ) {
   if( fd_sol_sysvar_clock_encode( &clock, &e_ctx ) )
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
-  ulong lamps = (sz + 128) * ((ulong) ((double)slot_ctx->epoch_ctx->epoch_bank.rent.lamports_per_uint8_year * slot_ctx->epoch_ctx->epoch_bank.rent.exemption_threshold));
+  ulong lamps = (sz + 128) * ((ulong) ((double)epoch_bank->rent.lamports_per_uint8_year * epoch_bank->rent.exemption_threshold));
   if( acc->meta->info.lamports < lamps )
     acc->meta->info.lamports = lamps;
 

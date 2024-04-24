@@ -34,6 +34,9 @@
 #define FD_VOTE_ERR_ACTIVE_VOTE_ACCOUNT_CLOSE       ( 18 )
 #define FD_VOTE_ERR_COMMISSION_UPDATE_TOO_LATE      ( 19 )
 
+#define FD_VOTE_STATE_V2_SZ (3731UL)
+#define FD_VOTE_STATE_V3_SZ (3762UL)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_vote_program_execute is the instruction processing entrypoint

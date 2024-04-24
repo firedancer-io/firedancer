@@ -3,9 +3,7 @@
 
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
-#include "../runtime/sysvar/fd_sysvar.h"
-
-
+#include "../runtime/fd_borrowed_account.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -51,7 +49,9 @@ fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_ac
 void
 fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account, ulong * new_rate_activation_epoch );
 
-void refresh_vote_accounts( fd_exec_slot_ctx_t *  slot_ctx, fd_stake_history_t * history );
+void
+refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
+                       fd_stake_history_t const * history );
 
 FD_PROTOTYPES_END
 

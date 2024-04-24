@@ -2,6 +2,9 @@
 // https://github.com/solana-labs/solana/blob/master/sdk/src/secp256k1_instruction.rs#L932
 
 #include "fd_secp256k1_program.h"
+#include "../../features/fd_features.h"
+#include "../context/fd_exec_epoch_ctx.h"
+#include "../context/fd_exec_slot_ctx.h"
 
 #if !FD_HAS_SECP256K1
 int

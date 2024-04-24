@@ -96,11 +96,52 @@ typedef struct fd_hash_hash_age_pair_off fd_hash_hash_age_pair_off_t;
 #define FD_HASH_HASH_AGE_PAIR_OFF_ALIGN (8UL)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_block_hash_queue {
+struct __attribute__((aligned(8UL))) fd_block_hash_vec {
   ulong last_hash_index;
   fd_hash_t* last_hash;
   ulong ages_len;
   fd_hash_hash_age_pair_t* ages;
+  ulong max_age;
+};
+typedef struct fd_block_hash_vec fd_block_hash_vec_t;
+#define FD_BLOCK_HASH_VEC_FOOTPRINT sizeof(fd_block_hash_vec_t)
+#define FD_BLOCK_HASH_VEC_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_block_hash_vec_off {
+  uint last_hash_index_off;
+  uint last_hash_off;
+  uint ages_off;
+  uint max_age_off;
+};
+typedef struct fd_block_hash_vec_off fd_block_hash_vec_off_t;
+#define FD_BLOCK_HASH_VEC_OFF_FOOTPRINT sizeof(fd_block_hash_vec_off_t)
+#define FD_BLOCK_HASH_VEC_OFF_ALIGN (8UL)
+
+typedef struct fd_hash_hash_age_pair_t_mapnode fd_hash_hash_age_pair_t_mapnode_t;
+#define REDBLK_T fd_hash_hash_age_pair_t_mapnode_t
+#define REDBLK_NAME fd_hash_hash_age_pair_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
+struct fd_hash_hash_age_pair_t_mapnode {
+    fd_hash_hash_age_pair_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_hash_hash_age_pair_t_mapnode_t *
+fd_hash_hash_age_pair_t_map_alloc( fd_valloc_t valloc, ulong len ) {
+  void * mem = fd_valloc_malloc( valloc, fd_hash_hash_age_pair_t_map_align(), fd_hash_hash_age_pair_t_map_footprint(len));
+  return fd_hash_hash_age_pair_t_map_join(fd_hash_hash_age_pair_t_map_new(mem, len));
+}
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_block_hash_queue {
+  ulong last_hash_index;
+  fd_hash_t* last_hash;
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool;
+  fd_hash_hash_age_pair_t_mapnode_t * ages_root;
   ulong max_age;
 };
 typedef struct fd_block_hash_queue fd_block_hash_queue_t;
@@ -847,7 +888,7 @@ typedef struct fd_unused_accounts_off fd_unused_accounts_off_t;
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/bank.rs#L967 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(16UL))) fd_deserializable_versioned_bank {
-  fd_block_hash_queue_t blockhash_queue;
+  fd_block_hash_vec_t blockhash_queue;
   ulong ancestors_len;
   fd_slot_pair_t* ancestors;
   fd_hash_t hash;
@@ -1196,7 +1237,8 @@ typedef struct fd_rust_duration_off fd_rust_duration_off_t;
 struct __attribute__((aligned(8UL))) fd_poh_config {
   fd_rust_duration_t target_tick_duration;
   ulong* target_tick_count;
-  ulong* hashes_per_tick;
+  ulong hashes_per_tick;
+  uchar has_hashes_per_tick;
 };
 typedef struct fd_poh_config fd_poh_config_t;
 #define FD_POH_CONFIG_FOOTPRINT sizeof(fd_poh_config_t)
@@ -2268,6 +2310,7 @@ struct __attribute__((aligned(16UL))) fd_slot_bank {
   ulong lamports_per_signature;
   ulong transaction_count;
   uchar lthash[2048];
+  fd_block_hash_queue_t block_hash_queue;
 };
 typedef struct fd_slot_bank fd_slot_bank_t;
 #define FD_SLOT_BANK_FOOTPRINT sizeof(fd_slot_bank_t)
@@ -2294,6 +2337,7 @@ struct __attribute__((aligned(16UL))) fd_slot_bank_off {
   uint lamports_per_signature_off;
   uint transaction_count_off;
   uint lthash_off;
+  uint block_hash_queue_off;
 };
 typedef struct fd_slot_bank_off fd_slot_bank_off_t;
 #define FD_SLOT_BANK_OFF_FOOTPRINT sizeof(fd_slot_bank_off_t)
@@ -4368,6 +4412,18 @@ void fd_hash_hash_age_pair_walk(void * w, fd_hash_hash_age_pair_t const * self, 
 ulong fd_hash_hash_age_pair_size(fd_hash_hash_age_pair_t const * self);
 ulong fd_hash_hash_age_pair_footprint( void );
 ulong fd_hash_hash_age_pair_align( void );
+
+void fd_block_hash_vec_new(fd_block_hash_vec_t* self);
+int fd_block_hash_vec_decode(fd_block_hash_vec_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_block_hash_vec_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_block_hash_vec_decode_unsafe(fd_block_hash_vec_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_block_hash_vec_decode_offsets(fd_block_hash_vec_off_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_block_hash_vec_encode(fd_block_hash_vec_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_block_hash_vec_destroy(fd_block_hash_vec_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_block_hash_vec_walk(void * w, fd_block_hash_vec_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_block_hash_vec_size(fd_block_hash_vec_t const * self);
+ulong fd_block_hash_vec_footprint( void );
+ulong fd_block_hash_vec_align( void );
 
 void fd_block_hash_queue_new(fd_block_hash_queue_t* self);
 int fd_block_hash_queue_decode(fd_block_hash_queue_t* self, fd_bincode_decode_ctx_t * ctx);

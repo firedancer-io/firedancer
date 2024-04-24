@@ -1,6 +1,5 @@
 #include "fd_address_lookup_table_program.h"
 #include "fd_program_util.h"
-#include "fd_zk_token_proof_program.h"
 #include "../fd_executor.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../fd_acc_mgr.h"
@@ -8,10 +7,11 @@
 #include "../fd_account.h"
 #include "../sysvar/fd_sysvar_clock.h"
 #include "../sysvar/fd_sysvar_slot_hashes.h"
-#include <string.h>
 #include "../../../ballet/ed25519/fd_curve25519.h"
 #include "../../vm/fd_vm_syscalls.h"
 #include "../../vm/fd_vm_cpi.h"
+
+#include <string.h>
 
 struct fd_addrlut {
   fd_address_lookup_table_state_t state;
@@ -197,7 +197,7 @@ static int execute_system_program_instruction(fd_exec_instr_ctx_t * ctx,
   ctx2.data = buf;
   ctx2.dataend = (uchar*)ctx2.data + sizeof(fd_system_program_instruction_t);
   int err = fd_system_program_instruction_encode(instr, &ctx2);
-  if (err != FD_PROGRAM_OK) {
+  if (err != FD_EXECUTOR_INSTR_SUCCESS) {
     FD_LOG_WARNING(("Encode failed"));
     return err;
   }
@@ -205,7 +205,7 @@ static int execute_system_program_instruction(fd_exec_instr_ctx_t * ctx,
   instr_info->data = buf;
   instr_info->data_sz = (ushort) sizeof(fd_system_program_instruction_t);
   ulong exec_err = fd_vm_prepare_instruction(ctx->instr, instr_info, ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_cnt);
-  if( exec_err != FD_PROGRAM_OK ) {
+  if( exec_err != FD_EXECUTOR_INSTR_SUCCESS ) {
     FD_LOG_WARNING(("PREPARE FAILED"));
     return (int)exec_err;
   }
@@ -596,7 +596,6 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L216 */
     int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
     if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "fd_instr_borrowed_account_modify_idx(%32J) failed", lut_acct->pubkey->key ));
       err = FD_EXECUTOR_INSTR_ERR_FATAL; break;
     }
 
@@ -737,7 +736,6 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
     new_table_data_sz = FD_ADDRLUT_META_SZ + new_addr_cnt * sizeof(fd_pubkey_t);
     int modify_err = fd_instr_borrowed_account_modify( ctx, lut_acct->pubkey, new_table_data_sz, &lut_acct );
     if( FD_UNLIKELY( modify_err ) ) {
-      FD_LOG_WARNING(( "fd_instr_borrowed_account_modify(%32J) failed (%d)", lut_acct->pubkey->key, modify_err ));
       err = FD_EXECUTOR_INSTR_ERR_FATAL; break;
     }
 
@@ -917,7 +915,6 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L384 */
     int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
     if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "fd_instr_borrowed_account_modify_idx(%32J) failed", lut_acct->pubkey->key ));
       err = FD_EXECUTOR_INSTR_ERR_FATAL; break;
     }
 
@@ -1088,7 +1085,6 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L459 */
   int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_RECIPIENT, /* min_data_sz */ 0UL, &recipient_acct );
   if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_instr_borrowed_account_modify_idx(%32J) failed", recipient_acct->pubkey->key ));
     return FD_EXECUTOR_INSTR_ERR_FATAL;
   }
   /* TODO handle is_early_verification_of_account_modifications_enabled */
@@ -1104,7 +1100,6 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* todo is_early_verification_of_account_modifications_enabled */
   modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
   if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_instr_borrowed_account_modify_idx(%32J) failed", lut_acct->pubkey->key ));
     return FD_EXECUTOR_INSTR_ERR_FATAL;
   }
   lut_acct->meta->dlen          = 0UL;
@@ -1117,7 +1112,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 }
 
 int
-fd_executor_address_lookup_table_program_execute_instruction( fd_exec_instr_ctx_t _ctx ) {
+fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t _ctx ) {
 
   fd_exec_instr_ctx_t * ctx = &_ctx;
   uchar const * instr_data    = ctx->instr->data;

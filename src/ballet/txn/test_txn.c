@@ -106,101 +106,101 @@ test_iter( fd_txn_t * txn,
            ulong      wa,
            ulong      ra ) {
 
-  ulong expected[128];
+  ulong expected[128] = { 0 };
   ulong expected_cnt = 0UL;
 
-  fd_txn_acct_iter_t ctrl;
-  ulong i;
+  fd_txn_acct_iter_t i;
 
-  ulong j, _j;
+  ulong j=0UL, _j=0UL;
 #define RESET() j=0UL; _j=0UL; expected_cnt=0UL
 #define INCLUDE(cnt) for( ulong i=0UL; i<(cnt); i++ ) { expected[ expected_cnt++ ]=_j+i; } _j += (cnt)
 #define SKIP(cnt)    _j+=(cnt)
 
-  i=fd_txn_acct_iter_init( txn, 0, &ctrl );
+  i=fd_txn_acct_iter_init( txn, 0 );
   RESET(); SKIP(ws); SKIP(rs); SKIP(wi); SKIP(ri); SKIP(wa); SKIP(ra);
-  for( ; i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) { FD_TEST( expected[ j++ ]==i ); }
+  for( ; i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) { FD_TEST( expected[ j++ ]==fd_txn_acct_iter_idx( i ) ); }
   FD_TEST( j==expected_cnt );
 
-  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE_SIGNER, &ctrl );
+  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE_SIGNER );
   RESET(); INCLUDE(ws); SKIP(rs); SKIP(wi); SKIP(ri); SKIP(wa); SKIP(ra);
-  for( ; i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) { FD_TEST( expected[ j++ ]==i ); }
+  for( ; i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) { FD_TEST( expected[ j++ ]==fd_txn_acct_iter_idx( i ) ); }
   FD_TEST( j==expected_cnt );
 
-  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY_SIGNER, &ctrl );
+  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY_SIGNER );
   RESET(); SKIP(ws); INCLUDE(rs); SKIP(wi); SKIP(ri); SKIP(wa); SKIP(ra);
-  for( ; i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) { FD_TEST( expected[ j++ ]==i ); }
+  for( ; i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) { FD_TEST( expected[ j++ ]==fd_txn_acct_iter_idx( i ) ); }
   FD_TEST( j==expected_cnt );
 
-  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE_NONSIGNER_IMM, &ctrl );
+  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE_NONSIGNER_IMM );
   RESET(); SKIP(ws); SKIP(rs); INCLUDE(wi); SKIP(ri); SKIP(wa); SKIP(ra);
-  for( ; i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) { FD_TEST( expected[ j++ ]==i ); }
+  for( ; i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) { FD_TEST( expected[ j++ ]==fd_txn_acct_iter_idx( i ) ); }
   FD_TEST( j==expected_cnt );
 
-  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY_NONSIGNER_IMM, &ctrl );
+  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY_NONSIGNER_IMM );
   RESET(); SKIP(ws); SKIP(rs); SKIP(wi); INCLUDE(ri); SKIP(wa); SKIP(ra);
-  for( ; i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) { FD_TEST( expected[ j++ ]==i ); }
+  for( ; i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) { FD_TEST( expected[ j++ ]==fd_txn_acct_iter_idx( i ) ); }
   FD_TEST( j==expected_cnt );
 
-  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE_ALT, &ctrl );
+  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE_ALT );
   RESET(); SKIP(ws); SKIP(rs); SKIP(wi); SKIP(ri); INCLUDE(wa); SKIP(ra);
-  for( ; i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) { FD_TEST( expected[ j++ ]==i ); }
+  for( ; i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) { FD_TEST( expected[ j++ ]==fd_txn_acct_iter_idx( i ) ); }
   FD_TEST( j==expected_cnt );
 
-  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY_ALT, &ctrl );
+  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY_ALT );
   RESET(); SKIP(ws); SKIP(rs); SKIP(wi); SKIP(ri); SKIP(wa); INCLUDE(ra);
-  for( ; i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) { FD_TEST( expected[ j++ ]==i ); }
+  for( ; i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) { FD_TEST( expected[ j++ ]==fd_txn_acct_iter_idx( i ) ); }
   FD_TEST( j==expected_cnt );
 
-  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_IMM, &ctrl );
+  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_IMM );
   RESET(); INCLUDE(ws); INCLUDE(rs); INCLUDE(wi); INCLUDE(ri); SKIP(wa); SKIP(ra);
-  for( ; i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) { FD_TEST( expected[ j++ ]==i ); }
+  for( ; i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) { FD_TEST( expected[ j++ ]==fd_txn_acct_iter_idx( i ) ); }
   FD_TEST( j==expected_cnt );
 
-  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_SIGNER, &ctrl );
+  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_SIGNER );
   RESET(); INCLUDE(ws); INCLUDE(rs); SKIP(wi); SKIP(ri); SKIP(wa); SKIP(ra);
-  for( ; i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) { FD_TEST( expected[ j++ ]==i ); }
+  for( ; i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) { FD_TEST( expected[ j++ ]==fd_txn_acct_iter_idx( i ) ); }
   FD_TEST( j==expected_cnt );
 
-  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_NONSIGNER, &ctrl );
+  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_NONSIGNER );
   RESET(); SKIP(ws); SKIP(rs); INCLUDE(wi); INCLUDE(ri); INCLUDE(wa); INCLUDE(ra);
-  for( ; i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) { FD_TEST( expected[ j++ ]==i ); }
+  for( ; i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) { FD_TEST( expected[ j++ ]==fd_txn_acct_iter_idx( i ) ); }
   FD_TEST( j==expected_cnt );
 
-  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM, &ctrl );
+  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
   RESET(); INCLUDE(ws); SKIP(rs); INCLUDE(wi); SKIP(ri); SKIP(wa); SKIP(ra);
-  for( ; i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) { FD_TEST( expected[ j++ ]==i ); }
+  for( ; i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) { FD_TEST( expected[ j++ ]==fd_txn_acct_iter_idx( i ) ); }
   FD_TEST( j==expected_cnt );
 
-  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM, &ctrl );
+  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
   RESET(); SKIP(ws); INCLUDE(rs); SKIP(wi); INCLUDE(ri); SKIP(wa); SKIP(ra);
-  for( ; i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) { FD_TEST( expected[ j++ ]==i ); }
+  for( ; i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) { FD_TEST( expected[ j++ ]==fd_txn_acct_iter_idx( i ) ); }
   FD_TEST( j==expected_cnt );
 
-  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE, &ctrl );
+  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
   RESET(); INCLUDE(ws); SKIP(rs); INCLUDE(wi); SKIP(ri); INCLUDE(wa); SKIP(ra);
-  for( ; i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) { FD_TEST( expected[ j++ ]==i ); }
+  for( ; i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) { FD_TEST( expected[ j++ ]==fd_txn_acct_iter_idx( i ) ); }
   FD_TEST( j==expected_cnt );
 
-  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY, &ctrl );
+  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY );
   RESET(); SKIP(ws); INCLUDE(rs); SKIP(wi); INCLUDE(ri); SKIP(wa); INCLUDE(ra);
-  for( ; i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) { FD_TEST( expected[ j++ ]==i ); }
+  for( ; i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) { FD_TEST( expected[ j++ ]==fd_txn_acct_iter_idx( i ) ); }
   FD_TEST( j==expected_cnt );
 
-  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALT, &ctrl );
+  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALT );
   RESET(); SKIP(ws); SKIP(rs); SKIP(wi); SKIP(ri); INCLUDE(wa); INCLUDE(ra);
-  for( ; i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) { FD_TEST( expected[ j++ ]==i ); }
+  for( ; i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) { FD_TEST( expected[ j++ ]==fd_txn_acct_iter_idx( i ) ); }
   FD_TEST( j==expected_cnt );
 
-  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_NONE, &ctrl );
+  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_NONE );
   RESET(); SKIP(ws); SKIP(rs); SKIP(wi); SKIP(ri); SKIP(wa); SKIP(ra);
-  for( ; i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) { FD_TEST( expected[ j++ ]==i ); }
+  for( ; i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) { FD_TEST( expected[ j++ ]==fd_txn_acct_iter_idx( i ) ); }
   FD_TEST( j==expected_cnt );
 
-  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALL, &ctrl );
+  i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALL );
   RESET(); INCLUDE(ws); INCLUDE(rs); INCLUDE(wi); INCLUDE(ri); INCLUDE(wa); INCLUDE(ra);
-  for( ; i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) { FD_TEST( expected[ j++ ]==i ); }
+  for( ; i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) { FD_TEST( expected[ j++ ]==fd_txn_acct_iter_idx( i ) ); }
   FD_TEST( j==expected_cnt );
+
 }
 
 
@@ -211,8 +211,9 @@ main( int     argc,
   /* TODO? Add tests for the offsets of fields? */
 
   fd_txn_t txn1 = {0};
-  FD_TEST( (char *)fd_txn_get_address_tables( &txn1 ) == (char *)&txn1 + sizeof(fd_txn_t)                          );
-  FD_TEST(         fd_txn_footprint(       0UL, 0UL ) ==                 sizeof(fd_txn_t)                          );
+  FD_TEST( (char *)fd_txn_get_address_tables      ( &txn1 ) == (char *)&txn1 + sizeof(fd_txn_t)                          );
+  FD_TEST( (char *)fd_txn_get_address_tables_const( &txn1 ) == (char *)&txn1 + sizeof(fd_txn_t)                          );
+  FD_TEST(         fd_txn_footprint(             0UL, 0UL ) ==                 sizeof(fd_txn_t)                          );
 
 
   fd_txn_t txn2 = {0};
@@ -220,8 +221,9 @@ main( int     argc,
   txn2.addr_table_lookup_cnt  = 3;
   const ulong instr_sz    = 4UL*sizeof(fd_txn_instr_t);
   const ulong addr_lut_sz = 3UL*sizeof(fd_txn_acct_addr_lut_t);
-  FD_TEST( (char *)fd_txn_get_address_tables( &txn2 ) == (char *)&txn2 + sizeof(fd_txn_t) + instr_sz               );
-  FD_TEST(         fd_txn_footprint(       4UL, 3UL ) ==                 sizeof(fd_txn_t) + instr_sz + addr_lut_sz );
+  FD_TEST( (char *)fd_txn_get_address_tables      ( &txn2 ) == (char *)&txn2 + sizeof(fd_txn_t) + instr_sz               );
+  FD_TEST( (char *)fd_txn_get_address_tables_const( &txn2 ) == (char *)&txn2 + sizeof(fd_txn_t) + instr_sz               );
+  FD_TEST(         fd_txn_footprint(             4UL, 3UL ) ==                 sizeof(fd_txn_t) + instr_sz + addr_lut_sz );
 
   for( ulong instr_cnt=0UL; instr_cnt<=FD_TXN_INSTR_MAX; instr_cnt++ )
     for( ulong alt_cnt=0UL; alt_cnt<=FD_TXN_ADDR_TABLE_LOOKUP_MAX; alt_cnt++ )

@@ -294,13 +294,10 @@ static inline void
 handle_new_repair_requests( fd_repair_tile_ctx_t * ctx,
                             uchar const    * buf,
                             ulong buf_sz ) {
-  if( ( buf_sz & ( sizeof(fd_repair_request_t) - 1UL ) ) != 0 ) {
-    FD_LOG_ERR(( "bad sz for repair requests: %lu", buf_sz ));
-  }
 
   fd_repair_request_t const * repair_reqs = (fd_repair_request_t const *)fd_type_pun_const( buf );
-  ulong repair_req_cnt = buf_sz / sizeof(fd_repair_request_t);
-
+  ulong repair_req_cnt = buf_sz;
+  // FD_LOG_WARNING(("Repair requests %lu received %lu", repair_req_cnt, buf_sz));
   for( ulong i = 0; i < repair_req_cnt; i++ ) {
     fd_repair_request_t const * repair_req = &repair_reqs[i];
     int rc = 0;
@@ -538,6 +535,8 @@ privileged_init( fd_topo_t *      topo,
 static void
 during_housekeeping( void * _ctx ) {
   fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *)_ctx;
+
+  fd_mcache_seq_update( ctx->store_out_sync, ctx->store_out_seq );
 
   fd_repair_settime( ctx->repair, fd_log_wallclock() );
   fd_repair_continue( ctx->repair );

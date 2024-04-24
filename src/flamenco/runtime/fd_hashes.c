@@ -1,15 +1,20 @@
 #include "fd_hashes.h"
-#include "../../ballet/blake3/fd_blake3.h"
-#include "../../ballet/sha256/fd_sha256.h"
-#include <assert.h>
-#include <stdio.h>
-#include "../../ballet/lthash/fd_lthash.h"
-#include "../../ballet/base58/fd_base58.h"
 #include "fd_acc_mgr.h"
 #include "fd_runtime.h"
 #include "fd_account.h"
 #include "context/fd_capture_ctx.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
+#include "../capture/fd_solcap_writer.h"
+#include "../../ballet/base58/fd_base58.h"
+#include "../../ballet/blake3/fd_blake3.h"
+#include "../../ballet/lthash/fd_lthash.h"
+#include "../../ballet/sha256/fd_sha256.h"
+
+#include <assert.h>
+#include <stdio.h>
+
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 #define SORT_NAME sort_pubkey_hash_pair
 #define SORT_KEY_T fd_pubkey_hash_pair_t
@@ -186,10 +191,11 @@ fd_calculate_epoch_accounts_hash_values(fd_exec_slot_ctx_t * slot_ctx) {
     return;
 
   ulong slot_idx = 0;
-  ulong epoch = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
 
-  ulong slots_per_epoch = fd_epoch_slot_cnt( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, epoch );
-  ulong first_slot_in_epoch           = fd_epoch_slot0   ( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, epoch );
+  ulong slots_per_epoch = fd_epoch_slot_cnt( &epoch_bank->epoch_schedule, epoch );
+  ulong first_slot_in_epoch           = fd_epoch_slot0   ( &epoch_bank->epoch_schedule, epoch );
 
   ulong calculation_offset_start = slots_per_epoch / 4;
   ulong calculation_offset_stop = slots_per_epoch / 4 * 3;
@@ -201,19 +207,19 @@ fd_calculate_epoch_accounts_hash_values(fd_exec_slot_ctx_t * slot_ctx) {
   const ulong MINIMUM_CALCULATION_INTERVAL = MAX_LOCKOUT_HISTORY + CALCULATION_INTERVAL_BUFFER;
 
   if (calculation_interval < MINIMUM_CALCULATION_INTERVAL) {
-    slot_ctx->epoch_ctx->epoch_bank.eah_start_slot = ULONG_MAX;
-    slot_ctx->epoch_ctx->epoch_bank.eah_stop_slot = ULONG_MAX;
-    slot_ctx->epoch_ctx->epoch_bank.eah_interval = ULONG_MAX;
+    epoch_bank->eah_start_slot = ULONG_MAX;
+    epoch_bank->eah_stop_slot = ULONG_MAX;
+    epoch_bank->eah_interval = ULONG_MAX;
     return;
   }
 
-  slot_ctx->epoch_ctx->epoch_bank.eah_start_slot = first_slot_in_epoch + calculation_offset_start;
-  if (slot_ctx->slot_bank.slot > slot_ctx->epoch_ctx->epoch_bank.eah_start_slot)
-    slot_ctx->epoch_ctx->epoch_bank.eah_start_slot = ULONG_MAX;
-  slot_ctx->epoch_ctx->epoch_bank.eah_stop_slot = first_slot_in_epoch + calculation_offset_stop;
-  if (slot_ctx->slot_bank.slot > slot_ctx->epoch_ctx->epoch_bank.eah_stop_slot)
-    slot_ctx->epoch_ctx->epoch_bank.eah_stop_slot = ULONG_MAX;
-  slot_ctx->epoch_ctx->epoch_bank.eah_interval = calculation_interval;
+  epoch_bank->eah_start_slot = first_slot_in_epoch + calculation_offset_start;
+  if (slot_ctx->slot_bank.slot > epoch_bank->eah_start_slot)
+    epoch_bank->eah_start_slot = ULONG_MAX;
+  epoch_bank->eah_stop_slot = first_slot_in_epoch + calculation_offset_stop;
+  if (slot_ctx->slot_bank.slot > epoch_bank->eah_stop_slot)
+    epoch_bank->eah_stop_slot = ULONG_MAX;
+  epoch_bank->eah_interval = calculation_interval;
 }
 
 // https://github.com/solana-labs/solana/blob/b0dcaf29e358c37a0fcb8f1285ce5fff43c8ec55/runtime/src/bank/epoch_accounts_hash_utils.rs#L13
@@ -222,7 +228,8 @@ fd_should_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
   if( !FD_FEATURE_ACTIVE( slot_ctx, epoch_accounts_hash ) )
     return 0;
 
-  ulong calculation_stop = slot_ctx->epoch_ctx->epoch_bank.eah_stop_slot;
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  ulong calculation_stop = epoch_bank->eah_stop_slot;
   return slot_ctx->slot_bank.prev_slot < calculation_stop && (slot_ctx->slot_bank.slot >= calculation_stop);
 }
 
@@ -231,10 +238,12 @@ fd_should_snapshot_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
   if( !FD_FEATURE_ACTIVE( slot_ctx, epoch_accounts_hash ) )
     return 0;
 
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+
   // We need to find the correct logic
-  if (slot_ctx->epoch_ctx->epoch_bank.eah_start_slot != ULONG_MAX)
+  if (epoch_bank->eah_start_slot != ULONG_MAX)
     return 0;
-  if (slot_ctx->epoch_ctx->epoch_bank.eah_stop_slot == ULONG_MAX)
+  if (epoch_bank->eah_stop_slot == ULONG_MAX)
     return 0;
   return 1;
 }
@@ -293,7 +302,7 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     fd_sha256_fini( &sha, hash->hash );
   }
 
-  if( capture_ctx != NULL ) {
+  if( capture_ctx != NULL && capture_ctx->capture != NULL ) {
     fd_solcap_write_bank_preimage(
         capture_ctx->capture,
         hash->hash,
@@ -491,7 +500,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
     dirty_entry->hash = (fd_hash_t const *)acc_rec->meta->hash;
 
 
-    if( capture_ctx != NULL ) {
+    if( capture_ctx != NULL && capture_ctx->capture != NULL ) {
       fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn, task_info->acc_pubkey, &task_info->rec, &err);
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "failed to view account during capture" ));
@@ -764,7 +773,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     dirty_entry->hash = (fd_hash_t const *)acc_rec->meta->hash;
 
     /* Add to capture */
-    if( capture_ctx != NULL ) {
+    if( capture_ctx != NULL && capture_ctx->capture != NULL ) {
       err = fd_solcap_write_account(
           capture_ctx->capture,
           acc_key->uc,
@@ -791,11 +800,11 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
   FD_TEST( 0==memcmp( slot_ctx->slot_bank.lthash, slot_ctx->account_delta_hash.hash, sizeof(fd_hash_t) ) );
 #endif
 
-
-  if (slot_ctx->slot_bank.slot >= slot_ctx->epoch_ctx->epoch_bank.eah_start_slot) {
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  if (slot_ctx->slot_bank.slot >= epoch_bank->eah_start_slot) {
     if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
       fd_accounts_hash(slot_ctx, &slot_ctx->slot_bank.epoch_account_hash, NULL, 0, 0);
-      slot_ctx->epoch_ctx->epoch_bank.eah_start_slot = ULONG_MAX;
+      epoch_bank->eah_start_slot = ULONG_MAX;
     }
   }
 
@@ -822,7 +831,7 @@ fd_hash_account_v0( uchar                     hash[ static 32 ],
   uchar         executable = m->info.executable & 0x1;
   uchar const * owner      = (uchar const *)m->info.owner;
 
-  fd_blake3_t *b3 = fd_alloca(alignof(fd_blake3_t), sizeof(fd_blake3_t));
+  fd_blake3_t b3[1];
   fd_blake3_init  ( b3 );
   fd_blake3_append( b3, &lamports,   sizeof( ulong ) );
   fd_blake3_append( b3, &slot,       sizeof( ulong ) );
@@ -847,7 +856,7 @@ fd_hash_account_v1( uchar                     hash[ static 32 ],
   uchar         executable = m->info.executable & 0x1;
   uchar const * owner      = (uchar const *)m->info.owner;
 
-  fd_blake3_t *b3 = fd_alloca(alignof(fd_blake3_t), sizeof(fd_blake3_t));
+  fd_blake3_t b3[1];
   fd_blake3_init  ( b3 );
   fd_blake3_append( b3, &lamports,   sizeof( ulong ) );
   fd_blake3_append( b3, &rent_epoch, sizeof( ulong ) );

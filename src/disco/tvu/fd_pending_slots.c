@@ -173,3 +173,9 @@ fd_pending_slots_add( fd_pending_slots_t * pending_slots,
 
   fd_pending_slots_unlock( pending_slots );
 }
+
+void
+fd_pending_slots_set_lo_wmark( fd_pending_slots_t * pending_slots,
+                               ulong slot ) {
+  pending_slots->lo_wmark = slot;
+}

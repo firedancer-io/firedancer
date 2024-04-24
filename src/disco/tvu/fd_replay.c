@@ -2,6 +2,9 @@
 #include "../../flamenco/runtime/program/fd_vote_program.h"
 #include "../shred/fd_shred_cap.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 void *
 fd_replay_new( void * mem ) {
 
@@ -376,7 +379,7 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   child->slot_ctx.slot_bank.collected_rent = 0;
 
   FD_LOG_NOTICE( ( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
-                   "executed: %d, caught up: %d",
+                   "executed: %lu, caught up: %d",
                    replay->first_turbine_slot,
                    replay->curr_turbine_slot,
                    replay->curr_turbine_slot - slot,
@@ -387,7 +390,7 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   fork->head->bank_hash       = *bank_hash;
   FD_LOG_NOTICE( ( "bank hash: %32J", bank_hash->hash ) );
 
-  fd_bank_hash_cmp_t * bank_hash_cmp = child->slot_ctx.epoch_ctx->bank_hash_cmp;
+  fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( child->slot_ctx.epoch_ctx );
   fd_bank_hash_cmp_lock( bank_hash_cmp );
   fd_bank_hash_cmp_insert( bank_hash_cmp, slot, bank_hash, 1 );
 
@@ -476,6 +479,7 @@ void
 fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t * slot_ctx ) {
   fd_funk_txn_t *   txn_map    = fd_funk_txn_map( replay->funk, fd_funk_wksp( replay->funk ) );
   fd_hash_t const * block_hash = fd_blockstore_block_hash_query( replay->blockstore, slot );
+  FD_LOG_WARNING(("Current slot %lu", slot));
   if( !block_hash ) FD_LOG_ERR( ( "missing block hash of slot we're trying to restore" ) );
   fd_funk_txn_xid_t xid;
   fd_memcpy( xid.uc, block_hash, sizeof( fd_funk_txn_xid_t ) );
@@ -502,7 +506,7 @@ fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t
 
   FD_TEST( fd_slot_bank_decode( &slot_ctx->slot_bank, &ctx ) == FD_BINCODE_SUCCESS );
   FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx ) );
-  slot_ctx->leader = fd_epoch_leaders_get( slot_ctx->epoch_ctx->leaders, slot );
+  slot_ctx->leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot );
 
   // TODO how do i get this info, ignoring rewards for now
   // slot_ctx->epoch_reward_status = ???
@@ -532,7 +536,7 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
                   fd_shred_type( shred->variant ) & FD_SHRED_TYPEMASK_DATA,
                   shred->slot,
                   shred->idx ) );
-  fd_pubkey_t const * leader = fd_epoch_leaders_get( replay->epoch_ctx->leaders, shred->slot );
+  fd_pubkey_t const * leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( replay->epoch_ctx ), shred->slot );
   if( FD_UNLIKELY( !leader ) ) {
     FD_LOG_WARNING( ( "unable to get current leader, ignoring turbine packet" ) );
     return;
@@ -546,7 +550,7 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
       replay->first_turbine_slot = shred->slot;
     }
     fd_shred_t * parity_shred = (fd_shred_t *)fd_type_pun( out_fec_set->parity_shreds[0] );
-    FD_LOG_DEBUG( ( "slot: %lu. parity: %lu. data: %lu",
+    FD_LOG_DEBUG( ( "slot: %lu. parity: %u. data: %u",
                     parity_shred->slot,
                     parity_shred->code.code_cnt,
                     parity_shred->code.data_cnt ) );
@@ -617,4 +621,42 @@ fd_replay_repair_rx( fd_replay_t * replay, fd_shred_t const * shred ) {
     fd_replay_add_pending( replay, shred->slot, FD_REPAIR_BACKOFF_TIME );
   }
   // return rc;
+}
+
+fd_fork_t *
+fd_replay_prepare_ctx( fd_replay_t * replay,
+                       ulong parent_slot ) {
+
+  /* Query for the fork to execute the block on in the frontier */
+
+  fd_fork_t * fork = fd_fork_frontier_ele_query(
+      replay->forks->frontier, &parent_slot, NULL, replay->forks->pool );
+
+  /* If the parent block is both present and executed (see earlier conditionals), but isn't in the
+     frontier, that means this block is starting a new fork and needs to be added to the
+     frontier. This requires rolling back to that txn in funk. */
+
+  if( FD_UNLIKELY( !fork ) ) {
+
+    /* Alloc a new slot_ctx */
+
+    fork       = fd_fork_pool_ele_acquire( replay->forks->pool );
+    fork->slot = parent_slot;
+
+    /* Format and join the slot_ctx */
+
+    fd_exec_slot_ctx_t * slot_ctx =
+        fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx, replay->valloc ) );
+    if( FD_UNLIKELY( !slot_ctx ) ) { FD_LOG_ERR( ( "failed to new and join slot_ctx" ) ); }
+
+    /* Restore and decode w/ funk */
+
+    fd_replay_slot_ctx_restore( replay, fork->slot, slot_ctx );
+
+    /* Add to frontier */
+
+    fd_fork_frontier_ele_insert( replay->forks->frontier, fork, replay->forks->pool );
+  }
+
+  return fork;
 }

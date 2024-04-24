@@ -12,7 +12,6 @@ include config/extra/with-ucontext.mk
 include config/extra/with-openssl.mk
 include config/extra/with-zstd.mk
 include config/extra/with-secp256k1.mk
-include config/extra/with-bz2.mk
 include config/extra/with-rocksdb.mk
 include config/extra/with-libff.mk
 include config/extra/with-libmicrohttp.mk
@@ -24,9 +23,10 @@ include config/extra/with-libmicrohttp.mk
 # -falign-functions=32 -falign-jumps=32 -falign-labels=32 -falign-loops=32
 # -mbranch-cost=5
 
-CPPFLAGS+=-fomit-frame-pointer -march=icelake-server -mtune=icelake-server -mfpmath=sse \
-	  -DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1 -DFD_HAS_X86=1 -DFD_HAS_SSE=1 -DFD_HAS_AVX=1 \
-	  -DFD_HAS_SHANI=1 -DFD_HAS_GFNI=1 -DFD_HAS_AESNI=1 -DFD_HAS_AVX512=1
+CPPFLAGS+=-march=icelake-server -mtune=icelake-server -mfpmath=sse \
+		-DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1 -DFD_HAS_X86=1 -DFD_HAS_SSE=1 -DFD_HAS_AVX=1 \
+		-DFD_HAS_SHANI=1 -DFD_HAS_GFNI=1 -DFD_HAS_AESNI=1 -DFD_HAS_AVX512=1 \
+		-DFD_USE_ARCH_MEMCPY=1 -DFD_USE_ARCH_MEMSET=1
 
 FD_HAS_INT128:=1
 FD_HAS_DOUBLE:=1

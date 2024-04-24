@@ -31,6 +31,9 @@ typedef struct fd_exec_instr_ctx fd_exec_instr_ctx_t;
 struct fd_acc_mgr;
 typedef struct fd_acc_mgr fd_acc_mgr_t;
 
+struct fd_capture_ctx;
+typedef struct fd_capture_ctx fd_capture_ctx_t;
+
 /* fd_rawtxn_b_t is a convenience type to store a pointer to a
    serialized transaction.  Should probably be removed in the future. */
 
@@ -50,6 +53,30 @@ static inline char *
 fd_acct_addr_cstr( char        cstr[ static FD_BASE58_ENCODED_32_SZ ],
                    uchar const addr[ static 32 ] ) {
   return fd_base58_encode_32( addr, NULL, cstr );
+}
+
+/* fd_pod utils */
+
+FD_FN_UNUSED static fd_pubkey_t *
+fd_pod_query_pubkey( uchar const * pod,
+                     char const *  path,
+                     fd_pubkey_t * val ) {
+
+  ulong        bufsz = 0UL;
+  void const * buf   = fd_pod_query_buf( pod, path, &bufsz );
+
+  if( FD_UNLIKELY( (!buf) | (bufsz!=sizeof(fd_pubkey_t)) ) )
+    return NULL;
+
+  memcpy( val->uc, buf, sizeof(fd_pubkey_t) );
+  return val;
+}
+
+static inline ulong
+fd_pod_insert_pubkey( uchar *             pod,
+                      char const *        path,
+                      fd_pubkey_t const * val ) {
+  return fd_pod_insert_buf( pod, path, val->uc, sizeof(fd_pubkey_t) );
 }
 
 FD_PROTOTYPES_END

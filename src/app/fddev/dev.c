@@ -70,6 +70,8 @@ parent_signal( int sig ) {
   fd_log_private_shared_lock = oldlock;
 
   fd_tile_shutdown_flag = 1;
+  if( FD_LIKELY( sig==SIGINT ) ) exit_group( 128+SIGINT  );
+  else                           exit_group( 128+SIGTERM );
 }
 
 static void

@@ -1,19 +1,21 @@
-#include <stdio.h>
-#include <sys/types.h>
-#include <sys/stat.h>
+#include "fd_snapshot_loader.h"
+
+#include "fd_acc_mgr.h"
+#include "fd_hashes.h"
+#include "fd_runtime.h"
+#include "fd_system_ids.h"
+#include "context/fd_exec_epoch_ctx.h"
+#include "context/fd_exec_slot_ctx.h"
+#include "../snapshot/fd_snapshot_restore.h"
+#include "../../ballet/zstd/fd_zstd.h"
+
+#include <assert.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
-#include "context/fd_exec_slot_ctx.h"
-#include "fd_hashes.h"
-#include "fd_acc_mgr.h"
-#include "fd_runtime.h"
-#include "fd_system_ids.h"
-#include "../../util/fd_util.h"
-#include "fd_snapshot_loader.h"
-#include "../snapshot/fd_snapshot_restore.h"
-#include "../../ballet/zstd/fd_zstd.h"
-#include <assert.h>
+
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 extern void
 fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx,
@@ -43,7 +45,7 @@ load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "insufficient scratch space for snapshot restore" ));
   uchar * zstd_mem = fd_scratch_alloc( fd_zstd_dstream_align(), fd_zstd_dstream_footprint( max_window_sz ) );
 
-  fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, slot_ctx->acc_mgr, slot_ctx->funk_txn, fd_libc_alloc_virtual(), slot_ctx, restore_manifest );
+  fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, slot_ctx->acc_mgr, slot_ctx->funk_txn, slot_ctx->valloc, slot_ctx, restore_manifest );
   assert( restore );
 
   fd_tar_reader_t reader_[1];

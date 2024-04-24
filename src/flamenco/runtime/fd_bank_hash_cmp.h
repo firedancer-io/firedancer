@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_fd_bank_hash_cmp_h
 
 #include "../fd_flamenco_base.h"
-#include "fd_blockstore.h"
 
 struct fd_bank_hash_cmp_entry {
   ulong     slot;

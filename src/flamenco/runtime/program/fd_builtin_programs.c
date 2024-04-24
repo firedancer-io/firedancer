@@ -1,5 +1,8 @@
 #include "fd_builtin_programs.h"
+#include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
+#include "../context/fd_exec_epoch_ctx.h"
+#include "../context/fd_exec_slot_ctx.h"
 
 /* BuiltIn programs need "bogus" executable accounts to exist.
    These are loaded and ignored during execution.
@@ -10,9 +13,9 @@
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/native_loader.rs#L19 */
 void
 fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx,
-                                uchar const       pubkey[ static 32 ],
-                                char const *      data,
-                                ulong             sz ) {
+                                uchar const          pubkey[ static 32 ],
+                                char const *         data,
+                                ulong                sz ) {
 
   fd_acc_mgr_t *      acc_mgr = slot_ctx->acc_mgr;
   fd_funk_txn_t *     txn     = slot_ctx->funk_txn;
@@ -38,7 +41,8 @@ fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx,
 void
 write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
   // really?! really!?
-  if (slot_ctx->epoch_ctx->epoch_bank.cluster_type != 3)
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  if (epoch_bank->cluster_type != 3)
     return;
 
   fd_acc_mgr_t *      acc_mgr = slot_ctx->acc_mgr;

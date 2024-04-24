@@ -123,6 +123,11 @@ clone_labs_memory_space_tiles( config_t * const config ) {
     FD_LOG_ERR(( "fd_setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
+static int _fd_ext_larger_max_cost_per_block, _fd_ext_larger_shred_limits_per_block;
+
+int fd_ext_larger_max_cost_per_block    ( void ) { return _fd_ext_larger_max_cost_per_block;     }
+int fd_ext_larger_shred_limits_per_block( void ) { return _fd_ext_larger_shred_limits_per_block; }
+
 void
 solana_labs_boot( config_t * config ) {
   uint idx = 0;

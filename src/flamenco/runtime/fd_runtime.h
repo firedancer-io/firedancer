@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_h
 
 #include "../fd_flamenco_base.h"
+#include "fd_runtime_err.h"
 #include "fd_rocksdb.h"
 #include "fd_acc_mgr.h"
 #include "../features/fd_features.h"
@@ -15,9 +16,8 @@
 #include "info/fd_instr_info.h"
 #include "../gossip/fd_gossip.h"
 #include "../repair/fd_repair.h"
+#include "../../ballet/pack/fd_microblock.h"
 
-#define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
-#define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
 #define MAX_PERMITTED_DATA_LENGTH ( 10 * 1024 * 1024 )
 
 #define DEFAULT_HASHES_PER_TICK  12500
@@ -32,6 +32,8 @@
 #define FD_RUNTIME_TRACE_SAVE   (1)
 #define FD_RUNTIME_TRACE_REPLAY (2)
 
+#define FD_RUNTIME_NUM_ROOT_BLOCKS (32UL)
+
 #define FD_FEATURE_ACTIVE(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features. _feature_name)
 
 /* FD_BLOCK_BANKS_TYPE stores fd_firedancer_banks_t bincode encoded (obsolete)*/
@@ -43,9 +45,12 @@
 /* FD_BLOCK_EPOCH_BANK_TYPE stores fd_epoch_bank_t bincode encoded */
 #define FD_BLOCK_EPOCH_BANK_TYPE ((uchar)7)
 
+#define FD_BLOCKHASH_QUEUE_MAX_ENTRIES       (300UL)
+#define FD_RECENT_BLOCKHASHES_MAX_ENTRIES    (150UL)
+
 struct fd_runtime_ctx {
   /* Private variables needed to construct objects */
-  uchar                 epoch_ctx_mem[FD_EXEC_EPOCH_CTX_FOOTPRINT] __attribute__( ( aligned( FD_EXEC_EPOCH_CTX_ALIGN ) ) );
+  uchar               * epoch_ctx_mem;
   fd_exec_epoch_ctx_t * epoch_ctx;
   uchar                 slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__( ( aligned( FD_EXEC_SLOT_CTX_ALIGN ) ) );
   fd_exec_slot_ctx_t *  slot_ctx;
@@ -109,8 +114,18 @@ struct fd_runtime_args {
   ushort       rpc_port;
   ulong        checkpt_slot;
   char const * checkpt_path;
+  fd_funk_t *  pruned_funk;
+  int          dump_instructions_to_protobuf;
+  char const * instruction_dump_signature_filter;
 };
 typedef struct fd_runtime_args fd_runtime_args_t;
+
+struct fd_execute_txn_task_info {
+  fd_exec_txn_ctx_t * txn_ctx;
+  fd_txn_p_t * txn;
+  int exec_res;
+};
+typedef struct fd_execute_txn_task_info fd_execute_txn_task_info_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -129,6 +144,9 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx );
+
+int
+fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t *slot_ctx );
 
 int
 fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
@@ -158,6 +176,10 @@ fd_runtime_block_prepare( void const * buf,
                           ulong buf_sz,
                           fd_valloc_t valloc,
                           fd_block_info_t * out_block_info );
+
+ulong
+fd_runtime_block_collect_txns( fd_block_info_t const * block_info,
+                               fd_txn_p_t * out_txns );
 
 int
 fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
@@ -195,9 +217,9 @@ fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx );
 int
 fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx );
 
-int
-fd_global_import_solana_manifest( fd_exec_slot_ctx_t * slot_ctx,
-                                  fd_solana_manifest_t * manifest);
+// int
+// fd_global_import_solana_manifest( fd_exec_slot_ctx_t * slot_ctx,
+//                                   fd_solana_manifest_t * manifest);
 
 /* fd_features_restore loads all known feature accounts from the
    accounts database.  This is used when initializing bank from a
@@ -270,6 +292,28 @@ fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx );
 
 void
 fd_runtime_cleanup_incinerator( fd_exec_slot_ctx_t * slot_ctx );
+
+int
+fd_runtime_prepare_txns( fd_exec_slot_ctx_t * slot_ctx,
+                         fd_execute_txn_task_info_t * task_info,
+                         fd_txn_p_t * txns,
+                         ulong txn_cnt );
+
+int
+fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                               fd_capture_ctx_t * capture_ctx,
+                               fd_txn_p_t * txns,
+                               ulong txn_cnt,
+                               fd_execute_txn_task_info_t * task_infos,
+                               fd_tpool_t * tpool,
+                               ulong max_workers );
+
+int
+fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                                         fd_capture_ctx_t * capture_ctx,
+                                         fd_block_info_t const * block_info,
+                                         fd_tpool_t * tpool,
+                                         ulong max_workers );
 
 FD_PROTOTYPES_END
 

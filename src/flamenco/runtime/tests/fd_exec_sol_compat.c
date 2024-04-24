@@ -22,6 +22,18 @@ static ulong hardcoded_features[] =
 static ulong supported_features[] =
   { 0xe8f97382b03240a1,  // system_transfer_zero_check
     0x10a1e092dd7f1573,  // dedupe_config_program_signers
+    0xfba69c4970d7ad9d,  // vote_stake_checked_instructions
+    0x65b79c7f3e7441b3,  // require_custodian_for_locked_stake_authorize
+    0x74b022574093eeec,  // reduce_stake_warmup_cooldown
+    0xd56fc1708dc98c13,  // stake_redelegate_instruction
+    0x6d22c4ce75df6f0b,  // stake_merge_with_unmatched_credits_observed
+    0x4b241cb4c6f3b3b2,  // require_rent_exempt_split_destination
+    0x74326f811fd7d861,  // vote_state_add_vote_latency
+    0x86fa44f01141c71a,  // timely_vote_credits
+    0x5795654d01457757,  // vote_authorize_with_seed
+    0x8a8eb9085ca2bb0b,  // commission_updates_only_allowed_in_first_half_of_epoch
+    0x7bc99a080444c8d9,  // allow_votes_to_directly_update_vote_state
+    0x2ca5833736ba5c69,  // compact_vote_state_updates
   };
 
 static       uchar *     smem;
@@ -100,11 +112,8 @@ sol_compat_instr_execute_v1( uchar *       out,
     ulong out_used = fd_exec_instr_test_run( runner, input, &output, out0, out_bufsz );
     if( FD_UNLIKELY( !out_used ) ) {
       output = NULL;
-      fd_scratch_cancel();
       break;
     }
-
-    fd_scratch_publish( (void *)( (ulong)out + out_used ) );
   } while(0);
 
   int ok = 0;

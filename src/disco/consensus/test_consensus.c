@@ -100,11 +100,10 @@ main( int argc, char ** argv ) {
   /* epoch_ctx */
 
   uchar * epoch_ctx_mem =
-      fd_wksp_alloc_laddr( wksp, FD_EXEC_EPOCH_CTX_ALIGN, FD_EXEC_EPOCH_CTX_FOOTPRINT, 1UL );
+      fd_wksp_alloc_laddr( wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint(), 1UL );
   fd_exec_epoch_ctx_t * epoch_ctx =
       fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
   FD_TEST( epoch_ctx );
-  epoch_ctx->valloc = valloc;
 
   /* forks */
 
@@ -171,6 +170,7 @@ main( int argc, char ** argv ) {
 
   fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
   FD_TEST( snapshot_slot_ctx->funk_txn );
+
 
   ulong snapshot_slot = snapshot_slot_ctx->slot_bank.slot;
   FD_LOG_NOTICE( ( "snapshot_slot: %lu", snapshot_slot ) );

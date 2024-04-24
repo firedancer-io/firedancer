@@ -77,6 +77,7 @@
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "fd_replay.h"
 #ifdef FD_HAS_LIBMICROHTTP
 #include "../rpc/fd_rpc_service.h"
 #endif
@@ -91,6 +92,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <pthread.h>
+
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 #define FD_TVU_TILE_SLOT_DELAY 32
 
@@ -317,6 +321,7 @@ fd_tvu_create_socket( fd_gossip_peer_addr_t * addr ) {
 struct fd_turbine_thread_args {
   int            tvu_fd;
   fd_replay_t *  replay;
+  fd_store_t *   store;
 };
 
 static int fd_turbine_thread( int argc, char ** argv );
@@ -400,21 +405,21 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
   /* FIXME: replace with real tile */
   struct fd_turbine_thread_args ttarg =
     { .tvu_fd = tvu_fd, .replay = replay };
-  fd_tile_exec_t * tile = fd_tile_exec_new( 1, fd_turbine_thread, 0, (char**)&ttarg );
+  fd_tile_exec_t * tile = fd_tile_exec_new( 1, fd_turbine_thread, 0, fd_type_pun( &ttarg ) );
   if( tile == NULL )
     FD_LOG_ERR( ( "error creating turbine thread" ) );
 
   /* FIXME: replace with real tile */
   struct fd_repair_thread_args reparg =
     { .repair_fd = repair_fd, .replay = replay };
-  tile = fd_tile_exec_new( 2, fd_repair_thread, 0, (char**)&reparg );
+  tile = fd_tile_exec_new( 2, fd_repair_thread, 0, fd_type_pun( &reparg ) );
   if( tile == NULL )
     FD_LOG_ERR( ( "error creating repair thread:" ) );
 
   /* FIXME: replace with real tile */
   struct fd_gossip_thread_args gosarg =
     { .gossip_fd = gossip_fd, .replay = replay };
-  tile = fd_tile_exec_new( 3, fd_gossip_thread, 0, (char**)&gosarg );
+  tile = fd_tile_exec_new( 3, fd_gossip_thread, 0, fd_type_pun( &gosarg ) );
   if( tile == NULL )
     FD_LOG_ERR( ( "error creating repair thread" ) );
 
@@ -659,7 +664,7 @@ void funk_setup( fd_wksp_t *  wksp,
     if( out->funk == NULL ) FD_LOG_ERR( ( "failed to join a funky" ) );
   } else {
     void * shmem =
-        fd_wksp_alloc_laddr( funk_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
+        fd_wksp_alloc_laddr( funk_wksp, fd_funk_align(), fd_funk_footprint(), funk_tag );
     if( shmem == NULL ) FD_LOG_ERR( ( "failed to allocate a funky" ) );
     out->funk = fd_funk_join( fd_funk_new( shmem, 1, out->hashseed, txn_max, rec_max ) );
     if( out->funk == NULL ) {
@@ -706,6 +711,50 @@ void solcap_setup( char const * capture_fpath, fd_valloc_t valloc, solcap_setup_
 
   FD_TEST( fd_solcap_writer_init( out->capture_ctx->capture, out->capture_file ) );
 }
+
+void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args,
+                        solcap_setup_t * solcap_setup_out, fd_valloc_t valloc ) {
+  runtime_ctx->capture_ctx  = NULL;
+  runtime_ctx->capture_file = NULL;
+
+  /* If a capture path is passed in, setup solcap, but nothing else in capture_ctx*/
+  if( args->capture_fpath && args->capture_fpath[0] != '\0' ) {
+    solcap_setup( args->capture_fpath, valloc, solcap_setup_out );
+    runtime_ctx->capture_file = solcap_setup_out->capture_file;
+    runtime_ctx->capture_ctx  = solcap_setup_out->capture_ctx;
+    runtime_ctx->capture_ctx->capture_txns = args->capture_txns && strcmp( "true", args->capture_txns ) ? 0 : 1;
+
+    runtime_ctx->capture_ctx->checkpt_path = NULL;
+    runtime_ctx->capture_ctx->checkpt_slot = 0;
+    runtime_ctx->capture_ctx->pruned_funk  = NULL;
+  }
+
+  int has_checkpt_dump = args->checkpt_path && args->checkpt_path[0] != '\0' && args->checkpt_slot;
+  int has_prune        = args->pruned_funk != NULL;
+  int dump_to_protobuf = args->dump_instructions_to_protobuf;
+
+  /* If not using solcap, but setting up checkpoint dump or prune OR dumping to Protobuf, allocate memory for capture_ctx */
+  if( ( has_checkpt_dump || has_prune || dump_to_protobuf ) && runtime_ctx->capture_ctx == NULL ) {
+    /* Initialize capture_ctx if it doesn't exist */
+    void * capture_ctx_mem = fd_valloc_malloc( valloc, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
+    FD_TEST( !!capture_ctx_mem );
+    runtime_ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
+    runtime_ctx->capture_ctx->capture = NULL;
+  }
+
+  if ( has_checkpt_dump ) {
+    runtime_ctx->capture_ctx->checkpt_slot = args->checkpt_slot;
+    runtime_ctx->capture_ctx->checkpt_path = args->checkpt_path;
+  }
+  if ( has_prune ) {
+    runtime_ctx->capture_ctx->pruned_funk = args->pruned_funk;
+  }
+  if ( dump_to_protobuf ) {
+    runtime_ctx->capture_ctx->dump_instructions_to_protobuf = args->dump_instructions_to_protobuf;
+    runtime_ctx->capture_ctx->instruction_dump_signature_filter = args->instruction_dump_signature_filter;
+  }
+}
+
 typedef struct {
   fd_blockstore_t * blockstore;
 } blockstore_setup_t;
@@ -839,7 +888,6 @@ void slot_ctx_setup( fd_valloc_t valloc,
   FD_TEST( out->exec_slot_ctx );
 
   out->exec_slot_ctx->epoch_ctx = out->exec_epoch_ctx;
-  out->exec_epoch_ctx->valloc = valloc;
   out->exec_slot_ctx->valloc  = valloc;
 
   out->exec_slot_ctx->acc_mgr      = fd_acc_mgr_new( acc_mgr, funk );
@@ -891,8 +939,9 @@ void snapshot_setup( char const * snapshot,
       FD_LOG_ERR( ( "--incremental value is badly formatted: %s", snapshot ) );
     if( i != exec_slot_ctx->slot_bank.slot )
       FD_LOG_ERR( ( "ledger slot number does not match --incremental-snapshot, %lu %lu %s", i, exec_slot_ctx->slot_bank.slot, p ) );
-    if( fd_slot_to_epoch( &exec_slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, i, NULL ) !=
-        fd_slot_to_epoch( &exec_slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, j, NULL ) )
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( exec_slot_ctx->epoch_ctx );
+    if( fd_slot_to_epoch( &epoch_bank->epoch_schedule, i, NULL ) !=
+        fd_slot_to_epoch( &epoch_bank->epoch_schedule, j, NULL ) )
       FD_LOG_ERR( ( "we do not support an incremental snapshot spanning an epoch boundary" ) );
     out->snapshot_slot = j;
   } else {
@@ -945,8 +994,8 @@ snapshot_insert( fd_fork_t *        fork,
   replay->bft->snapshot_slot = snapshot_slot;
 
   /* Add snapshot slot to bash hash cmp. */
-
-  replay->epoch_ctx->bank_hash_cmp->slot = snapshot_slot;
+  fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( replay->epoch_ctx );
+  bank_hash_cmp->slot = snapshot_slot;
 
   /* Set the SMR on replay.*/
 
@@ -979,7 +1028,7 @@ fd_tvu_late_incr_snap( fd_runtime_ctx_t *  runtime_ctx,
 
   snapshot_slot = replay->smr = slot_ctx->slot_bank.slot;
 
-  slot_ctx->leader = fd_epoch_leaders_get( replay->epoch_ctx->leaders, snapshot_slot );
+  slot_ctx->leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( replay->epoch_ctx ), snapshot_slot );
   slot_ctx->slot_bank.collected_fees = 0;
   slot_ctx->slot_bank.collected_rent = 0;
 
@@ -1030,18 +1079,9 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
 
   fd_valloc_t valloc = allocator_setup( wksp, args->allocator );
 
-  solcap_setup_t solcap_setup_out = {0};
-  runtime_ctx->capture_ctx = NULL;
-  runtime_ctx->capture_file = NULL;
-  if( args->capture_fpath && args->capture_fpath[0] != '\0' ) {
-    solcap_setup( args->capture_fpath, valloc, &solcap_setup_out );
-    runtime_ctx->capture_file = solcap_setup_out.capture_file;
-    runtime_ctx->capture_ctx  = solcap_setup_out.capture_ctx;
-    runtime_ctx->capture_ctx->capture_txns = strcmp( "true", args->capture_txns ) ? 0 : 1;
-
-    runtime_ctx->capture_ctx->checkpt_slot = args->checkpt_slot;
-    runtime_ctx->capture_ctx->checkpt_path = args->checkpt_path;
-  }
+  /* Sets up solcap, checkpoint dumps, and/or pruning */
+  solcap_setup_t solcap_setup = {0};
+  capture_ctx_setup( runtime_ctx, args, &solcap_setup, valloc );
 
   blockstore_setup_t blockstore_setup_out = {0};
   blockstore_setup( wksp, funk_setup_out.hashseed, &blockstore_setup_out );
@@ -1073,7 +1113,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   forks->funk = funk_setup_out.funk;
   forks->valloc = valloc;
   replay_setup_out.replay->forks = forks;
-
+  runtime_ctx->epoch_ctx_mem = fd_wksp_alloc_laddr( wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint(), FD_EXEC_EPOCH_CTX_MAGIC );
   slot_ctx_setup_t slot_ctx_setup_out = {0};
   slot_ctx_setup( valloc,
                   runtime_ctx->epoch_ctx_mem,
@@ -1181,6 +1221,19 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     replay_setup_out.replay->bft = bft;
 
     /**********************************************************************/
+    /* Store                                                              */
+    /**********************************************************************/
+    ulong snapshot_slot = slot_ctx_setup_out.exec_slot_ctx->slot_bank.slot;
+    void *        store_mem = fd_valloc_malloc( valloc, fd_store_align(), fd_store_footprint() );
+    fd_store_t * store     = fd_store_join( fd_store_new( store_mem, snapshot_slot ) );
+    store->blockstore = blockstore_setup_out.blockstore;
+    store->smr = snapshot_slot;
+    store->snapshot_slot = snapshot_slot;
+    store->valloc = valloc;
+
+    // repair_ctx->store = store;
+
+    /**********************************************************************/
     /* Gossip                                                             */
     /**********************************************************************/
 
@@ -1217,8 +1270,9 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     /***********************************************************************/
     /* Prepare                                                             */
     /***********************************************************************/
-    fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = slot_ctx_setup_out.exec_epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool;
-    fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = slot_ctx_setup_out.exec_epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root;
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx_setup_out.exec_epoch_ctx );
+    fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
+    fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = epoch_bank->stakes.vote_accounts.vote_accounts_root;
 
     ulong stake_weights_cnt = fd_vote_accounts_pair_t_map_size( vote_accounts_pool, vote_accounts_root );
     ulong stake_weight_idx = 0;
@@ -1274,12 +1328,9 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     /* bank hash cmp */
 
     int    bank_hash_cmp_lg_slot_cnt = 10; /* max vote lag 512 => fill ratio 0.5 => 1024 */
-    void * bank_hash_cmp_mem =
-        fd_wksp_alloc_laddr( wksp,
-                             fd_bank_hash_cmp_align(),
-                             fd_bank_hash_cmp_footprint( bank_hash_cmp_lg_slot_cnt ),
-                             42UL );
-    replay_setup_out.replay->epoch_ctx->bank_hash_cmp = fd_bank_hash_cmp_join(
+    void * bank_hash_cmp_mem = fd_exec_epoch_ctx_bank_hash_cmp( replay_setup_out.replay->epoch_ctx );
+
+    fd_bank_hash_cmp_join(
         fd_bank_hash_cmp_new( bank_hash_cmp_mem, bank_hash_cmp_lg_slot_cnt ) );
 
     /* bootstrap replay with the snapshot slot */
@@ -1379,6 +1430,11 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
       (uchar)fd_env_strip_cmdline_int( &argc, &argv, "--abort-on-mismatch", NULL, 0 );
   args->checkpt_slot = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-slot", NULL, 0 );
   args->checkpt_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--checkpt-path", NULL, NULL );
+  args->dump_instructions_to_protobuf = fd_env_strip_cmdline_int( &argc, &argv, "--dump-instructions-to-protobuf", NULL, 0 );
+  args->instruction_dump_signature_filter = fd_env_strip_cmdline_cstr( &argc, &argv, "--instruction-dump-signature-filter", NULL, NULL );
+
+  /* These argument(s) should never be modified via the command line */
+  args->pruned_funk = NULL;
 
   return 0;
 }
@@ -1421,6 +1477,5 @@ fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args, fd_replay_t * replay ) {
 
   /* Some replay paths don't use frontiers */
   if( tvu_args->slot_ctx ) fd_exec_slot_ctx_free( tvu_args->slot_ctx );
-
-  fd_exec_epoch_ctx_free( tvu_args->epoch_ctx );
+  fd_wksp_free_laddr(tvu_args->epoch_ctx_mem);
 }

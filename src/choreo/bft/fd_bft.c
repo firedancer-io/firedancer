@@ -9,6 +9,9 @@
 #include "../tower/fd_tower.h"
 #include "fd_bft.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 void *
 fd_bft_new( void * shmem ) {
   if( FD_UNLIKELY( !shmem ) ) {
@@ -114,11 +117,11 @@ count_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 
     fd_slot_hash_t slot_hash = { .slot = latest_vote_slot, .hash = *bank_hash };
     fd_pubkey_t *  pubkey    = &latest_vote->node_pubkey;
-
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx.epoch_ctx );
     fd_vote_accounts_pair_t_mapnode_t * root =
-        fork->slot_ctx.epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root;
+        epoch_bank->stakes.vote_accounts.vote_accounts_root;
     fd_vote_accounts_pair_t_mapnode_t * pool =
-        fork->slot_ctx.epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool;
+        epoch_bank->stakes.vote_accounts.vote_accounts_pool;
     fd_vote_accounts_pair_t_mapnode_t key = { 0 };
     key.elem.key                          = *pubkey;
     fd_vote_accounts_pair_t_mapnode_t * vote_node =
@@ -358,10 +361,11 @@ fd_bft_commitment_update( FD_FN_UNUSED fd_bft_t * forks, FD_FN_UNUSED fd_fork_t 
 void
 fd_bft_epoch_stake_update( fd_bft_t * bft, fd_exec_epoch_ctx_t * epoch_ctx ) {
   ulong                               epoch_stake = 0;
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
   fd_vote_accounts_pair_t_mapnode_t * pool =
-      epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool;
+      epoch_bank->stakes.vote_accounts.vote_accounts_pool;
   fd_vote_accounts_pair_t_mapnode_t * root =
-      epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root;
+      epoch_bank->stakes.vote_accounts.vote_accounts_root;
   for( fd_vote_accounts_pair_t_mapnode_t * node = fd_vote_accounts_pair_t_map_minimum( pool, root );
        node;
        node = fd_vote_accounts_pair_t_map_successor( pool, node ) ) {

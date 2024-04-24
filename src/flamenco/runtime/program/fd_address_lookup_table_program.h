@@ -10,7 +10,7 @@
 FD_PROTOTYPES_BEGIN
 
 int
-fd_executor_address_lookup_table_program_execute_instruction( fd_exec_instr_ctx_t ctx );
+fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t ctx );
 
 FD_PROTOTYPES_END
 

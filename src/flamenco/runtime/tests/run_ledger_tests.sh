@@ -27,14 +27,17 @@ LEDGER="v18-small"
 SNAPSHOT=""
 INC_SNAPSHOT=""
 END_SLOT="--end-slot 1010"
-PAGES="--page-cnt 5"
+PAGES="--page-cnt 20"
 IMAX="--indexmax 100000"
 START="--start 241819853"
-HISTORY="--slothistory 3000"
+HISTORY="--slothistory 5000"
 END=""
 TRASHHASH=""
 EXPECTED="0"
 LOG="/tmp/ledger_log$$"
+TXN_STATUS="--txnstatus false"
+SKIP_INGEST=0
+CHECKPT="test_ledger_backup"
 SOLCAP=""
 
 POSITION_ARGS=()
@@ -93,6 +96,11 @@ while [[ $# -gt 0 ]]; do
        shift
        shift
        ;;
+    -t|--txnstatus)
+       TXN_STATUS="--txnstatus $2"
+       shift
+       shift
+       ;;
     -l|--log)
        LOG="$2"
        shift
@@ -106,8 +114,21 @@ while [[ $# -gt 0 ]]; do
         ZST=1
         shift
         ;;
+    -S|--skipingest)
+        SKIP_INGEST=1
+        shift
+        ;;
+    -C|--checkpoint)
+        CHECKPT="$2"
+        shift
+        ;;
     -c|--capture)
         SOLCAP="--capture $2"
+        shift
+        shift
+        ;;
+    -L|--log)
+        LOG="$2"
         shift
         shift
         ;;
@@ -122,7 +143,25 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [ ! -e dump/$LEDGER ]; then
+
+if [[ ! -e dump/$CHECKPT && SKIP_INGEST -eq 1 ]]; then
+  mkdir -p dump
+  echo "Downloading gs://firedancer-ci-resources/$CHECKPT.zst"
+  if [ "`gcloud auth list |& grep  firedancer-scratch | wc -l`" == "0" ]; then
+    if [ "`gcloud auth list |& grep  firedancer-ci | wc -l`" == "0" ]; then
+      if [ -f /etc/firedancer-scratch-bucket-key.json ]; then
+        gcloud auth activate-service-account --key-file /etc/firedancer-scratch-bucket-key.json
+      fi
+      if [ -f /etc/firedancer-ci-78fff3e07c8b.json ]; then
+        gcloud auth activate-service-account --key-file /etc/firedancer-ci-78fff3e07c8b.json
+      fi
+    fi
+  fi
+
+  gcloud storage cat gs://firedancer-ci-resources/$CHECKPT.zst | zstd -d > ./dump/$CHECKPT
+fi
+
+if [[ ! -e dump/$LEDGER && SKIP_INGEST -eq 0 ]]; then
   mkdir -p dump
   if [[ -n "$ZST" ]]; then
     echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.zst"
@@ -151,40 +190,41 @@ if [ "" == "$SNAPSHOT" ]; then
   SNAPSHOT="--genesis dump/$LEDGER/genesis.bin"
 fi
 
-set -x
+if [[ $SKIP_INGEST = 0 ]]; then
+  set -x
+  "$OBJDIR"/bin/fd_frank_ledger \
+    --reset true \
+    --cmd ingest \
+    --rocksdb dump/$LEDGER/rocksdb \
+    $TRASHHASH \
+    $IMAX \
+    $END \
+    --txnmax 100 \
+    --backup dump/test_ledger_backup \
+    $PAGES \
+    $SNAPSHOT \
+    $INC_SNAPSHOT \
+    $HISTORY \
+    $TXN_STATUS
 
-"$OBJDIR"/bin/fd_frank_ledger \
-  --reset true \
-  --cmd ingest \
-  --rocksdb dump/$LEDGER/rocksdb \
-  $TRASHHASH \
-  $IMAX \
-  $END \
-  --txnmax 100 \
-  --backup test_ledger_backup \
-  $PAGES \
-  $SNAPSHOT \
-  $INC_SNAPSHOT \
-  $HISTORY \
-  --txnstatus true
+  status=$?
 
-status=$?
+  if [ $status -ne 0 ]
+  then
+    if [ "$status" -eq "$EXPECTED" ]; then
+      echo "inverted test passed"
+      exit 0
+    fi
+    echo 'ledger test failed: $status'
+    exit $status
+  fi
 
-if [ $status -ne 0 ]
-then
-  if [ "$status" -eq "$EXPECTED" ]; then
-    echo "inverted test passed"
+  if [[ -n "$NOREPLAY" ]]; then
     exit 0
   fi
-  echo 'ledger test failed: $status'
-  exit $status
 fi
 
-if [[ -n "$NOREPLAY" ]]; then
-  exit 0
-fi
-
-ARGS=" --load test_ledger_backup \
+ARGS=" --load dump/$CHECKPT \
   --cmd replay \
   $PAGES \
   --validate true \
@@ -193,7 +233,7 @@ ARGS=" --load test_ledger_backup \
   $END_SLOT \
   --log-level-logfile 2 \
   --log-level-stderr 2 \
-  --allocator libc \
+  --allocator wksp \
   --tile-cpus 5-21"
 
 if [ -e dump/$LEDGER/capitalization.csv ]
@@ -201,6 +241,7 @@ then
   ARGS="$ARGS --cap dump/$LEDGER/capitalization.csv"
 fi
 
+set -x
 "$OBJDIR"/unit-test/test_runtime $ARGS >& $LOG
 
 status=$?

@@ -342,7 +342,7 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
 
   uchar * data = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->data_gaddr );
   ulong   sz   = block->data_sz;
-  FD_LOG_DEBUG( ( "scanning slot %lu, ptr 0x%lx, sz %lu", slot, data, sz ) );
+  FD_LOG_DEBUG( ( "scanning slot %lu, ptr %p, sz %lu", slot, (void *)data, sz ) );
 
   ulong blockoff = 0;
   while( blockoff < sz ) {
@@ -439,6 +439,7 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
 /* Remove a slot from blockstore */
 int
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
+  FD_LOG_WARNING(("REMOVE SLOT %lu", slot));
   fd_wksp_t *                wksp       = fd_blockstore_wksp( blockstore );
   fd_blockstore_slot_map_t * slot_map   = fd_wksp_laddr_fast( wksp, blockstore->slot_map_gaddr );
   fd_blockstore_slot_map_t * slot_entry = fd_blockstore_slot_map_query( slot_map, slot, NULL );
@@ -719,7 +720,7 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
   /* update shred window metadata: consumed, received, last_index */
 
   FD_LOG_DEBUG( ( "slot_meta->consumed: %lu, shred->slot: %lu, slot_meta->received: %lu, "
-                  "shred->idx: %lu, slot_meta->last_index: %lu",
+                  "shred->idx: %u, slot_meta->last_index: %lu",
                   slot_meta->consumed,
                   shred->slot,
                   slot_meta->received,
@@ -999,7 +1000,7 @@ fd_blockstore_snapshot_insert( fd_blockstore_t * blockstore, fd_slot_bank_t cons
       fd_blockstore_slot_map_insert( fd_blockstore_slot_map( blockstore ), snapshot_slot_bank->slot );
   
   /* fake the snapshot slot meta */
-  
+
   fd_slot_meta_t * slot_meta = &slot_entry->slot_meta;
   slot_meta->slot                  = snapshot_slot_bank->slot;
   slot_meta->consumed              = 0;

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 # Change into Firedancer root directory
 cd "$(dirname "${BASH_SOURCE[0]}")"
-
-set -euo pipefail
 
 # Load OS information
 OS="$(uname -s)"
@@ -33,6 +33,8 @@ fi
 # Install prefix
 PREFIX="$(pwd)/opt"
 
+DEVMODE=0
+
 help () {
 cat <<EOF
 
@@ -58,8 +60,6 @@ cat <<EOF
     - Fetches dependencies from Git repos into $(pwd)/opt/git
 
     install
-    - Runs 'fetch'
-    - Runs 'check'
     - Builds dependencies
     - Installs all project dependencies into prefix $(pwd)/opt
 
@@ -91,7 +91,7 @@ checkout_repo () {
   echo "[~] Checking out $1 $3"
   (
     cd ./opt/git/"$1"
-    git fetch origin "$3" --depth=1
+    git fetch origin "$3" --tags --depth=1
     git -c advice.detachedHead=false checkout "$3"
   )
   echo
@@ -113,10 +113,9 @@ fetch () {
   mkdir -pv ./opt/git
 
   checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
-  checkout_repo bzip2     https://sourceware.org/git/bzip2.git      "bzip2-1.0.8"
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.5"
-  checkout_repo openssl   https://github.com/quictls/openssl.git    "openssl-3.2.1"
-  checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
+  checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.0"
+  checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.1.0"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
   checkout_repo snappy    https://github.com/google/snappy          "1.1.10"
   checkout_repo libff     https://github.com/firedancer-io/libff.git "develop"
@@ -126,7 +125,7 @@ fetch () {
 }
 
 check_fedora_pkgs () {
-  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang gmp-devel )
+  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang gmp-devel protobuf-compiler llvm-toolset lcov )
 
   echo "[~] Checking for required RPM packages"
 
@@ -198,7 +197,7 @@ check_alpine_pkgs () {
 }
 
 check_macos_pkgs () {
-  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison )
+  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison protobuf )
 
   echo "[~] Checking for required brew formulae"
 
@@ -269,14 +268,6 @@ install_zlib () {
   echo "[+] Installing zlib to $PREFIX"
   make install -j
   echo "[+] Successfully installed zlib"
-}
-
-install_bzip2 () {
-  cd ./opt/git/bzip2
-
-  echo "[+] Installing bzip2 to $PREFIX"
-  "${MAKE[@]}" PREFIX="$PREFIX" install
-  echo "[+] Successfully installed bzip2"
 }
 
 install_zstd () {
@@ -401,42 +392,23 @@ install_openssl () {
 
 install_rocksdb () {
   cd ./opt/git/rocksdb
-  mkdir -p build
-  cd build
-  cmake .. \
-    -G"Unix Makefiles" \
-    -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
-    -DCMAKE_INSTALL_LIBDIR="lib" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DROCKSDB_BUILD_SHARED=ON \
-    -DWITH_GFLAGS=OFF \
-    -DWITH_LIBURING=OFF \
-    -DWITH_BZ2=OFF \
-    -DWITH_SNAPPY=ON \
-    -DWITH_ZLIB=ON \
-    -DWITH_ZSTD=ON \
-    -DWITH_ALL_TESTS=OFF \
-    -DWITH_BENCHMARK_TOOLS=OFF \
-    -DWITH_CORE_TOOLS=OFF \
-    -DWITH_RUNTIME_DEBUG=OFF \
-    -DWITH_TESTS=OFF \
-    -DWITH_TOOLS=ON \
-    -DWITH_TRACE_TOOLS=OFF \
-    -DZLIB_ROOT="$PREFIX" \
-    -DBZIP2_LIBRARIES="$PREFIX/lib/libbz2.a" \
-    -DBZIP2_INCLUDE_DIR="$PREFIX/include" \
-    -Dzstd_ROOT_DIR="$PREFIX" \
-    -DSnappy_LIBRARIES="$PREFIX/lib" \
-    -DSnappy_INCLUDE_DIRS="$PREFIX/include" \
-    -DUSE_RTTI=ON \
-    -DCMAKE_CXX_FLAGS_RELEASE="-march=native" \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-
   local NJOBS
   NJOBS=$(( $(nproc) / 2 ))
   NJOBS=$((NJOBS>0 ? NJOBS : 1))
-  make -j $NJOBS
-  make install
+  make clean
+
+  ROCKSDB_DISABLE_NUMA=1 \
+  ROCKSDB_DISABLE_ZLIB=1 \
+  ROCKSDB_DISABLE_BZIP=1 \
+  ROCKSDB_DISABLE_LZ4=1 \
+  ROCKSDB_DISABLE_GFLAGS=1 \
+  PORTABLE=haswell \
+  CFLAGS="-isystem $(pwd)/../../include -g0 -DSNAPPY -DZSTD" \
+  make -j $NJOBS \
+    LITE=1 \
+    V=1 \
+    static_lib
+  make install-static DESTDIR="$PREFIX"/ PREFIX= LIBDIR=lib
 }
 
 install_libmicrohttpd () {
@@ -464,7 +436,7 @@ install_snappy () {
     -DCMAKE_INSTALL_PREFIX:PATH="" \
     -DCMAKE_INSTALL_LIBDIR=lib \
     -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_SHARED_LIBS=ON \
+    -DBUILD_SHARED_LIBS=OFF \
     -DSNAPPY_BUILD_TESTS=OFF \
     -DSNAPPY_BUILD_BENCHMARKS=OFF \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON
@@ -510,15 +482,19 @@ install () {
   cc="$CC"
   export CC
   export cc
+
+  mkdir -p ./opt/{include,lib}
+
   ( install_zlib      )
-  ( install_bzip2     )
   ( install_zstd      )
   ( install_secp256k1 )
-  ( install_snappy    )
-  ( install_rocksdb   )
   ( install_openssl   )
-  ( install_libmicrohttpd )
-  ( install_libff     )
+  if [[ $DEVMODE ]]; then
+    ( install_snappy  )
+    ( install_rocksdb )
+    ( install_libff   )
+    ( install_libmicrohttpd )
+  fi
 
   # Remove cmake and pkgconfig files, so we don't accidentally
   # depend on them.
@@ -537,11 +513,48 @@ install () {
   echo "[~] Done!"
 }
 
-if [[ $# -eq 0 ]]; then
+ACTION=0
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -h|--help|help)
+      help
+      ;;
+    "+dev")
+      shift
+      DEVMODE=1
+      ;;
+    nuke)
+      shift
+      nuke
+      ACTION=1
+      ;;
+    fetch)
+      shift
+      fetch
+      ACTION=1
+      ;;
+    check)
+      shift
+      check
+      ACTION=1
+      ;;
+    install)
+      shift
+      install
+      ACTION=1
+      ;;
+    *)
+      echo "Unknown command: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ $ACTION == 0 ]]; then
   echo "[~] This will fetch, build, and install Firedancer's dependencies into $(pwd)/opt"
   echo "[~] For help, run: $0 help"
   echo
-  echo "[~] Running $0 install"
+  echo "[~] Running $0 fetch check install"
 
   read -r -p "[?] Continue? (y/N) " choice
   case "$choice" in
@@ -556,33 +569,3 @@ if [[ $# -eq 0 ]]; then
       exit 1
   esac
 fi
-
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    -h|--help|help)
-      help
-      ;;
-    nuke)
-      shift
-      nuke
-      ;;
-    fetch)
-      shift
-      fetch
-      ;;
-    check)
-      shift
-      check
-      ;;
-    install)
-      shift
-      fetch
-      check
-      install
-      ;;
-    *)
-      echo "Unknown command: $1" >&2
-      exit 1
-      ;;
-  esac
-done

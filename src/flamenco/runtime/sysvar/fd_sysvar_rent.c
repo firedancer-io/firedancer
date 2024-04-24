@@ -50,12 +50,13 @@ write_rent( fd_exec_slot_ctx_t * slot_ctx,
   if( fd_rent_encode( rent, &ctx ) )
     FD_LOG_ERR(("fd_rent_encode failed"));
 
-  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_rent_id, enc, sz, slot_ctx->slot_bank.slot, NULL );
+  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_rent_id, enc, sz, slot_ctx->slot_bank.slot, 0UL );
 }
 
 void
 fd_sysvar_rent_init( fd_exec_slot_ctx_t * slot_ctx ) {
-  write_rent( slot_ctx, &slot_ctx->epoch_ctx->epoch_bank.rent );
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  write_rent( slot_ctx, &epoch_bank->rent );
 }
 
 /* TODO: handle update */
@@ -70,10 +71,7 @@ fd_rent_exempt_minimum_balance2( fd_rent_t const * rent,
 ulong
 fd_rent_exempt_minimum_balance( fd_exec_slot_ctx_t * slot_ctx,
                                 ulong                data_len ) {
-  /* TODO wire up with sysvar cache */
-  fd_rent_t rent;
-  fd_rent_new( &rent );
-  fd_rent_t * result = fd_sysvar_rent_read( &rent, slot_ctx );
-  assert( result );
-  return fd_rent_exempt_minimum_balance2( &rent, data_len );
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_rent_t const * rent = &epoch_bank->rent;
+  return fd_rent_exempt_minimum_balance2( rent, data_len );
 }

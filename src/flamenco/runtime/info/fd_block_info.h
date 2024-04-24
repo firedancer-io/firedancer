@@ -21,20 +21,4 @@ struct fd_block_info {
 };
 typedef struct fd_block_info fd_block_info_t;
 
-FD_PROTOTYPES_BEGIN
-
-void *
-fd_block_info_new( void * mem );
-
-fd_block_info_t *
-fd_block_info_join( void * mem );
-
-void *
-fd_block_info_leave( fd_block_info_t * info );
-
-void *
-fd_block_info_delete( void * mem );
-
-FD_PROTOTYPES_END
-
 #endif /* HEADER_fd_src_flamenco_runtime_info_fd_block_info_h */

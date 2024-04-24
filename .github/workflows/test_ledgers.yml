@@ -13,6 +13,7 @@ jobs:
         test_case:
           - run-runtime-test-1
           - run-runtime-test-2
+          - run-runtime-test-3
     steps:
       - uses: actions/checkout@v4
         with:

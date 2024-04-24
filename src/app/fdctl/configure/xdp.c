@@ -89,6 +89,7 @@ init( config_t * const config ) {
                          config->tiles.tvu.repair_listen_port,
                          config->tiles.tvu.tvu_port,
                          config->tiles.tvu.tvu_fwd_port,
+                         config->tiles.quic.vote_transaction_listen_port,
                        };
   if( FD_UNLIKELY( fd_xdp_listen_udp_ports( config->name,
                                             config->tiles.net.ip_addr,

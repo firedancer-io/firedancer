@@ -735,7 +735,6 @@ MAP_(pop_free_ele)( MAP_T * join ) {
      succeed as per contract) */
 
   ulong ele_idx = MAP_(private_unbox_idx)( map->free_stack );
-  FD_TEST(ele_idx != MAP_IDX_NULL);
   MAP_T * ele = join + ele_idx;
   map->free_stack = ele->MAP_NEXT; /* already tagged free */
 
@@ -895,7 +894,7 @@ FD_FN_PURE MAP_IMPL_STATIC int
 MAP_(verify)( MAP_T const * join ) {
 
 # define MAP_TEST(c) do {                                                        \
-    if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); __asm("int $3"); return -1; } \
+    if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return -1; } \
   } while(0)
 
   MAP_TEST( join );

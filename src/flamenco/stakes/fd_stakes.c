@@ -1,6 +1,12 @@
 #include "fd_stakes.h"
 #include "../runtime/fd_system_ids.h"
+#include "../runtime/context/fd_exec_epoch_ctx.h"
+#include "../runtime/context/fd_exec_slot_ctx.h"
 #include "../runtime/program/fd_stake_program.h"
+#include "../runtime/sysvar/fd_sysvar_stake_history.h"
+
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 /* fd_stakes_accum_by_node converts Stakes (unordered list of (vote acc,
    active stake) tuples) to StakedNodes (rbtree mapping (node identity)
@@ -181,8 +187,11 @@ of delegated stake each vote account has, using the current delegation values fr
 stake account.
 
 https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L562 */
-void refresh_vote_accounts( fd_exec_slot_ctx_t *  slot_ctx, fd_stake_history_t * history ) {
-  fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
+void
+refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
+                       fd_stake_history_t const * history ) {
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_stakes_t * stakes = &epoch_bank->stakes;
 
   FD_SCRATCH_SCOPE_BEGIN {
 
@@ -298,16 +307,17 @@ void refresh_vote_accounts( fd_exec_slot_ctx_t *  slot_ctx, fd_stake_history_t *
 void
 fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
                           ulong                 next_epoch ) {
-
-  fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
+  
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_stakes_t * stakes = &epoch_bank->stakes;
 
   /* Current stake delegations: list of all current delegations in stake_delegations
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L180 */
   /* Add a new entry to the Stake History sysvar for the previous epoch
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
 
-  fd_stake_history_t history;
-  fd_sysvar_stake_history_read( &history, slot_ctx, &slot_ctx->valloc );
+  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+    if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
 
   fd_stake_history_entry_t accumulator = {
     .effective = 0,
@@ -333,7 +343,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
     }
 
     fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
-    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, stakes->epoch, &history, new_rate_activation_epoch );
+    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, stakes->epoch, history, new_rate_activation_epoch );
     accumulator.effective += new_entry.effective;
     accumulator.activating += new_entry.activating;
     accumulator.deactivating += new_entry.deactivating;
@@ -368,7 +378,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
     }
 
     fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
-    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, stakes->epoch, &history, new_rate_activation_epoch );
+    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, stakes->epoch, history, new_rate_activation_epoch );
     accumulator.effective += new_entry.effective;
     accumulator.activating += new_entry.activating;
     accumulator.deactivating += new_entry.deactivating;
@@ -405,7 +415,6 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   // Update the list of vote accounts in the epoch stake cache
   // https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L314
   // refresh_vote_accounts( slot_ctx, &history );
-  fd_sysvar_stake_history_destroy( &history, slot_ctx );
 
   // TODO: Update epoch stakes?
   // refresh_vote_accounts( slot_ctx, &history );
@@ -464,5 +473,5 @@ write_stake_state( fd_exec_slot_ctx_t *   global,
     memcpy( &stake_acc_rec->meta->info.owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) );
   }
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return 0;
 }

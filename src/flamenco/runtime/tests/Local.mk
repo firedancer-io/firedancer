@@ -2,9 +2,6 @@
 
 ifdef FD_HAS_ROCKSDB
 
-$(call make-lib,fd_sol_tests)
-$(call add-objs,$(patsubst src/flamenco/runtime/tests/%.c,%,$(wildcard src/flamenco/runtime/tests/generated/*.c)),fd_sol_tests)
-
 $(call make-unit-test,test_native_programs,test_native_programs fd_tests,fd_ballet fd_funk fd_util fd_sol_tests fd_flamenco)
 $(call run-unit-test,test_native_programs)
 $(call make-unit-test,test_sign_programs,test_sign_programs fd_tests,fd_ballet fd_funk fd_util fd_flamenco)
@@ -12,6 +9,7 @@ $(call make-unit-test,test_rent_lists,test_rent_lists,fd_flamenco fd_funk fd_bal
 $(call make-unit-test,test_hashes,test_hashes,fd_ballet fd_funk fd_util fd_flamenco)
 $(call make-unit-test,bench_tps,bench_tps,fd_waltz fd_aio fd_quic fd_tls fd_ballet fd_util)
 
+# TODO: add run-runtime-test-3 to the list of run-runtime-test after big merge is done
 run-runtime-test: run-runtime-test-1 run-runtime-test-2
 
 run-runtime-test-big: $(OBJDIR)/unit-test/test_native_programs $(OBJDIR)/unit-test/test_runtime $(OBJDIR)/bin/fd_frank_ledger
@@ -31,6 +29,14 @@ run-runtime-test-2: $(OBJDIR)/unit-test/test_native_programs $(OBJDIR)/unit-test
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-254462437 -s snapshot-254462620-BEn8r5dNrKtaKo92pCXx2ZGrHm6cv6UrQ3ePmByEjj34.tar.zst -p 64 -m 20000000 -e 254462622 --zst
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-254462437 -s snapshot-254462437-9HqBi19BJJRZfHeBS3ZpkeP9B5SAxBxz6Kwug29yLHac.tar.zst -p 64 -m 20000000 -e 254463436 --zst
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-586 -s snapshot-253151900-HVhfam8TtRFVwFto5fWkhgR4mbBJmUxcnxeKZoW5MrSD.tar.zst  -p 64 -m 5000000 -e 253152100
+
+run-runtime-test-3: $(OBJDIR)/unit-test/test_native_programs $(OBJDIR)/unit-test/test_runtime $(OBJDIR)/bin/fd_frank_ledger
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257039990 -s snapshot-257039990-BSgErEc6ppN4p91meqPvUiXPiEhbakBNHMQQ4wKmceYv.tar.zst -p 64 -m 20000000 -e 257040010 --zst
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257037451 -s snapshot-257037451-36ERh35nFMRFB8sLHLTUnAd41TuzKYSTyxsa2bgBoMEj.tar.zst -p 16 -m 5000000 -e 257037545 --zst
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257035225 -s snapshot-257035225-EgwCNhhmffR38XWBXVp3GFs6fmtHKgzw5vEcD9e2oz14.tar.zst -p 32 -m 5000000 -e 257035233 --zst
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257465453 -s snapshot-257465452-3QExADnJwC756Law388ELX6xhtjnBGwToKVoQUFDcQfn.tar.zst  -p 64 -m 80000000 -e 257485154 --zst
+# OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -C mainnet-250553924 -e 250558000 -p 64 -S
+
 endif
 
 # New executor tests

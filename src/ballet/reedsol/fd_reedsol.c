@@ -13,7 +13,7 @@ FD_IMPORT_BINARY( fd_reedsol_arith_consts_gfni_mul, "src/ballet/reedsol/constant
 void
 fd_reedsol_encode_fini( fd_reedsol_t * rs ) {
 
-# if FD_REEDSOL_ARITH_IMPL==2
+# if FD_REEDSOL_ARITH_IMPL==3
   if( FD_LIKELY( (rs->data_shred_cnt==32UL) & (rs->parity_shred_cnt==32UL ) ) )
     fd_reedsol_private_encode_32_32( rs->shred_sz, rs->encode.data_shred, rs->encode.parity_shred, rs->scratch );
   else

@@ -332,10 +332,10 @@ run_monitor( config_t * const config,
         switch( link->kind ) {
           /* Special case Solana produced link names for now since we can't find them
              in the topology. */
-          case FD_TOPO_LINK_KIND_STAKE_TO_OUT: {
-            producer = "stakes";
-            break;
-          }
+          // case FD_TOPO_LINK_KIND_STAKE_TO_OUT: {
+          //   producer = "stakes";
+          //   break;
+          // }
           case FD_TOPO_LINK_KIND_GOSSIP_TO_PACK: {
             producer = "gossip";
             break;

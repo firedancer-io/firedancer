@@ -163,7 +163,7 @@ end:
   fd_blockstore_end_read( store->blockstore );
 
   for (uint i = 0; i < re_adds_cnt; ++i)
-    fd_pending_slots_add( store->pending_slots, re_adds[i], store->now + FD_REPAIR_BACKOFF_TIME );
+    fd_pending_slots_add( store->pending_slots, re_adds[i], store->now + FD_REPAIR_BACKOFF_TIME / 3 );
 
   return rc;
 }
@@ -195,7 +195,7 @@ fd_store_shred_insert( fd_store_t * store,
   } else if ( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
     fd_pending_slots_add( store->pending_slots, shred->slot, store->now );
   } else {
-    fd_pending_slots_add( store->pending_slots, shred->slot, store->now + FD_REPAIR_BACKOFF_TIME );
+    fd_pending_slots_add( store->pending_slots, shred->slot, store->now + 3 * FD_REPAIR_BACKOFF_TIME );
   }
   return rc;
 }
@@ -286,7 +286,7 @@ fd_store_slot_repair( fd_store_t * store,
       repair_req->type = FD_REPAIR_REQ_TYPE_NEED_WINDOW_INDEX;
     }
     if( repair_req_cnt ) {
-      FD_LOG_NOTICE( ( "[repair] need %lu [%lu, %lu], sent %lu requests", slot, slot_meta->consumed + 1, last_index, repair_req_cnt ) );
+      FD_LOG_DEBUG( ( "[repair] need %lu [%lu, %lu], sent %lu requests", slot, slot_meta->consumed + 1, last_index, repair_req_cnt ) );
     }
   }
     

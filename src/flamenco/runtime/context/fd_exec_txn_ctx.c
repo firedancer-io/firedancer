@@ -1,4 +1,5 @@
 #include "fd_exec_txn_ctx.h"
+#include "fd_exec_slot_ctx.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_executor.h"
 #include "../../vm/fd_vm_context.h"
@@ -202,7 +203,8 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
   txn_ctx->loaded_accounts_data_size_limit = MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES;
 
   txn_ctx->txn_descriptor = txn_descriptor;
-  txn_ctx->_txn_raw = txn_raw;
+  txn_ctx->_txn_raw->raw = txn_raw->raw;
+  txn_ctx->_txn_raw->txn_sz = txn_raw->txn_sz;
 
   txn_ctx->num_instructions = 0;
   memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
