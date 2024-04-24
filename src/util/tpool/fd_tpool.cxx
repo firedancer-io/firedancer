@@ -1,4 +1,5 @@
 #include "fd_tpool.h"
+#include <stdlib.h>
 
 struct fd_tpool_private_worker_cfg {
   fd_tpool_t * tpool;
@@ -29,11 +30,20 @@ fd_tpool_private_worker( int     argc,
   FD_VOLATILE( worker->state ) = FD_TPOOL_WORKER_STATE_BOOT;
   FD_COMPILER_MFENCE();
 
+  if( scratch_sz ) {
+    if( !scratch ) {
+      scratch = aligned_alloc( FD_SCRATCH_SMEM_ALIGN, fd_ulong_align_up( scratch_sz, FD_SCRATCH_SMEM_ALIGN ) );
+      if( FD_UNLIKELY( !scratch ) ) {
+        FD_LOG_WARNING(( "failed to allocate scratch" ));
+        return 0;
+      }
+    }
+    fd_scratch_attach( scratch, fd_tpool_private_scratch_frame, scratch_sz, FD_TPOOL_WORKER_SCRATCH_DEPTH );
+  }
+
   worker->tile_idx   = (uint)tile_idx;
   worker->scratch    = scratch;
   worker->scratch_sz = scratch_sz;
-
-  if( scratch_sz ) fd_scratch_attach( scratch, fd_tpool_private_scratch_frame, scratch_sz, FD_TPOOL_WORKER_SCRATCH_DEPTH );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( worker->state ) = FD_TPOOL_WORKER_STATE_IDLE;
@@ -77,7 +87,10 @@ fd_tpool_private_worker( int     argc,
 
   /* state is HALT, clean up and then reset back to BOOT */
 
-  if( scratch_sz ) fd_scratch_detach( NULL );
+  if( scratch_sz ) {
+    fd_scratch_detach( NULL );
+    if( scratch != cfg->scratch ) free( scratch );
+  }
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( worker->state ) = FD_TPOOL_WORKER_STATE_BOOT;
@@ -179,12 +192,7 @@ fd_tpool_worker_push( fd_tpool_t * tpool,
   }
 
   if( FD_UNLIKELY( scratch_sz ) ) {
-    if( FD_UNLIKELY( !scratch ) ) {
-      FD_LOG_WARNING(( "NULL scratch" ));
-      return NULL;
-    }
-
-    if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)scratch, FD_SCRATCH_SMEM_ALIGN ) ) ) {
+    if( FD_UNLIKELY( scratch && !fd_ulong_is_aligned( (ulong)scratch, FD_SCRATCH_SMEM_ALIGN ) ) ) {
       FD_LOG_WARNING(( "misaligned scratch" ));
       return NULL;
     }
