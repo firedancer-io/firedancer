@@ -1,4 +1,5 @@
 #include "fd_vm_syscall.h"
+#include "../../runtime/context/fd_exec_instr_ctx.h"
 
 static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
