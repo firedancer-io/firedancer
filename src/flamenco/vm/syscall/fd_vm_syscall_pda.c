@@ -12,12 +12,12 @@
    include out-of-bounds memory access or invalid seed list. */
 
 static fd_sha256_t *
-fd_vm_partial_derive_address( fd_vm_exec_context_t * vm,
-                              fd_sha256_t *          sha,
-                              ulong                  program_id_vaddr,
-                              ulong                  seed_vaddr,
-                              ulong                  seed_cnt,
-                              uchar *                bump_seed ) {
+fd_vm_partial_derive_address( fd_vm_t *     vm,
+                              fd_sha256_t * sha,
+                              ulong         program_id_vaddr,
+                              ulong         seed_vaddr,
+                              ulong         seed_cnt,
+                              uchar *       bump_seed ) {
   if( FD_UNLIKELY( seed_cnt>FD_VM_CPI_SEED_MAX ) ) return NULL;
 
   /* FIXME: WHAT'S THE EXPECTED BEHAVIOR IF SEED_CNT==0 */
@@ -56,7 +56,7 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
                                           /**/            ulong   out_vaddr,
                                           FD_PARAM_UNUSED ulong   arg4,
                                           /**/            ulong * _ret )  {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   int err = fd_vm_consume_compute( vm, vm_compute_budget.create_program_address_units );
   if( FD_UNLIKELY( err ) ) return err;
@@ -103,7 +103,7 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
                                             ulong   out_vaddr,
                                             ulong   bump_seed_vaddr,
                                             ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* FIXME: DOUBLE CHECK COST MODEL (WEIRD CHARGE) */
   int err = fd_vm_consume_compute( vm, vm_compute_budget.create_program_address_units );
