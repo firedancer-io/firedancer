@@ -1,5 +1,4 @@
-#include "fd_vm_interp.h"    /* FIXME: COMBINE FD_VM_INTERP / SYSCALLS INTO SINGLE HEADER? */
-#include "syscall/fd_vm_syscall.h"
+#include "fd_vm.h"
 
 #include <errno.h>
 #include <sys/stat.h>
