@@ -255,9 +255,9 @@ fd_nl_read_socket( int fd, uchar * buf, ulong buf_sz ) {
   long len = -1;
   do {
     len = recv( fd, buf, buf_sz, 0 );
-  } while( len <= 0 && errno == EINTR );
+  } while( FD_UNLIKELY( ( len < 0 && errno == EINTR ) || len == 0 ) );
 
-  if( len < 0 ) {
+  if( FD_UNLIKELY( len < 0 ) ) {
     if( errno == EAGAIN ) {
       /* EAGAIN means no data. We can simply try again later */
       return -1;
@@ -381,12 +381,18 @@ fd_nl_load_route_table( fd_nl_t *             nl,
       return -1; /* return failure */
     }
 
-    if( h->nlmsg_type == NLMSG_ERROR ) {
+    if( FD_UNLIKELY( h->nlmsg_type == NLMSG_ERROR ) ) {
       struct nlmsgerr * err = (struct nlmsgerr*)NLMSG_DATA(h);
 
       /* acknowledgements have no error */
-      if( !err->error ) {
+      if( FD_LIKELY( !err->error ) ) {
         continue;
+      }
+
+      if( FD_LIKELY( err->error == -EBUSY ) ) {
+        /* a workaround for some systems which return EBUSY, we will
+         * not log, but instead retry one more time */
+        return -1;
       }
 
       FD_LOG_WARNING(( "netlink returned data with error: %d %s", -err->error, strerror( -err->error) ));
@@ -488,9 +494,8 @@ fd_nl_load_route_table( fd_nl_t *             nl,
                   FD_NL_RT_FLAGS_OIF;
       uint rqd1 = FD_NL_RT_FLAGS_NH_IP_ADDR  |
                   FD_NL_RT_FLAGS_OIF;
-      uint rqd_mask = rqd0 | rqd1;
-      uint flags = entry->flags & rqd_mask;
-      if( flags == rqd0 || flags == rqd1 ) {
+      uint flags = entry->flags;
+      if( ( flags & rqd0 ) == rqd0 || ( flags & rqd1 ) == rqd1 ) {
         entry->flags |= FD_NL_RT_FLAGS_USED;
         route_entry_idx++;
       }
@@ -661,8 +666,6 @@ fd_nl_load_arp_table( fd_nl_t *           nl,
            NUD_PROBE        being reprobed, so it's probably valid
            NUD_PERMANENT    a static entry, so use it */
 
-    struct rtattr * saved_rat       = rat;
-    long            saved_ratmsglen = ratmsglen;
     while( RTA_OK( rat, ratmsglen ) ) {
       uchar * rta_data    = RTA_DATA( rat );
       ulong   rta_data_sz = RTA_PAYLOAD( rat );
@@ -670,9 +673,7 @@ fd_nl_load_arp_table( fd_nl_t *           nl,
       switch( rat->rta_type ) {
         case NDA_DST:
           if( rta_data_sz != 4 ) {
-            FD_LOG_WARNING(( "Neighbor entry has IP address with other than"
-                  " 4 byte address" ));
-            fd_nl_dump_rat( saved_rat, saved_ratmsglen );
+            /* we only support IPv4 */
             entry->flags |= FD_NL_ARP_FLAGS_UNSUPPORTED;
           } else {
             uint dst_ip_addr;
@@ -685,11 +686,8 @@ fd_nl_load_arp_table( fd_nl_t *           nl,
 
         case NDA_LLADDR:
           if( FD_UNLIKELY( rta_data_sz != 6 ) ) {
-            if( rta_data_sz != 0 ) {
-              FD_LOG_WARNING(( "Neighbor entry has LL address with other than"
-                    " 6 byte MAC address" ));
-              fd_nl_dump_rat( saved_rat, saved_ratmsglen );
-            }
+            /* we only support ethernet, but these entries are found */
+            /* on some machines, so silently skip them */
             entry->flags |= FD_NL_ARP_FLAGS_UNSUPPORTED;
           } else {
             memcpy( &entry->mac_addr[0], rta_data, 6 );
