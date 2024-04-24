@@ -152,6 +152,13 @@
 
     mymap_t const * mymap_query_const( mymap_t const * join, ulong const * key, mymap_t const * sentinel );
 
+    // mymap_query_safe is the same as mymap_query_const but with
+    // additional safety checks. If a concurrent write is occuring,
+    // this API will still return a resonable map entry without
+    // crashing, even if it is wrong.
+
+    mymap_t const * mymap_query_safe( mymap_t const * join, ulong const * key, mymap_t const * sentinel );
+
     // mymap_iter_* allow for iteration over all the keys inserted into
     // a mymap.  The iteration will be in a random order but the order
     // will be identical if repeated with no insert/remove/query
@@ -504,6 +511,11 @@ MAP_(query2)( MAP_T *           join,
 
 FD_FN_PURE MAP_T const *
 MAP_(query_const)( MAP_T const *     join,
+                   MAP_KEY_T const * key,
+                   MAP_T const *     null );
+
+FD_FN_PURE MAP_T const *
+MAP_(query_safe)( MAP_T const *     join,
                    MAP_KEY_T const * key,
                    MAP_T const *     null );
 
@@ -880,6 +892,33 @@ MAP_(query_const)( MAP_T const *     join,
   for(;;) {
     ulong ele_idx = MAP_(private_unbox_idx)( *cur );
     if( FD_UNLIKELY( MAP_(private_is_null)( ele_idx ) ) ) break; /* optimize for found */
+    MAP_T const * ele = join + ele_idx;
+    if( FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) return ele; /* optimize for found */
+    cur = &ele->MAP_NEXT;
+  }
+
+  /* Not found */
+
+  return sentinel;
+}
+
+FD_FN_PURE MAP_IMPL_STATIC MAP_T const *
+MAP_(query_safe)( MAP_T const *     join,
+                   MAP_KEY_T const * key,
+                   MAP_T const *     sentinel ) {
+  MAP_(private_t) const * map = MAP_(private_const)( join );
+
+  ulong         list_cnt = map->list_cnt;
+  ulong const * list     = MAP_(private_list_const)( map );
+  ulong         key_max  = map->key_max;
+
+  /* Find the key */
+
+  ulong const * head = list + MAP_(private_list_idx)( key, map->seed, list_cnt );
+  ulong const * cur  = head;
+  for( ulong i = 0; i < key_max; ++i ) {
+    ulong ele_idx = MAP_(private_unbox_idx)( *cur );
+    if( FD_UNLIKELY( MAP_(private_is_null)( ele_idx ) || ele_idx >= key_max ) ) break; /* optimize for found */    
     MAP_T const * ele = join + ele_idx;
     if( FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) return ele; /* optimize for found */
     cur = &ele->MAP_NEXT;

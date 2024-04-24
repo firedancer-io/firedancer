@@ -65,6 +65,8 @@ main( int     argc,
                                                 wksp_tag, seed, txn_max, rec_max ) );
   if( FD_UNLIKELY( !funk ) ) FD_LOG_ERR(( "Unable to create funk" ));
 
+  fd_funk_start_write( funk );
+
   fd_funk_txn_t * map = fd_funk_txn_map( funk, wksp );
 
   for( ulong rem=1000000UL; rem; rem-- ) {
@@ -313,6 +315,8 @@ main( int     argc,
 
     FD_TEST( !fd_funk_verify( funk ) );
   }
+
+  fd_funk_end_write( funk );
 
   fd_wksp_free_laddr( fd_funk_delete( fd_funk_leave( funk ) ) );
   if( name ) fd_wksp_detach( wksp );

@@ -1360,7 +1360,9 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   fd_features_restore( slot_ctx_setup_out.exec_slot_ctx );
   fd_runtime_update_leaders( slot_ctx_setup_out.exec_slot_ctx, slot_ctx_setup_out.exec_slot_ctx->slot_bank.slot );
   fd_calculate_epoch_accounts_hash_values( slot_ctx_setup_out.exec_slot_ctx );
+  fd_funk_start_write( funk_setup_out.funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx_setup_out.exec_slot_ctx, slot_ctx_setup_out.exec_slot_ctx->funk_txn );
+  fd_funk_end_write( funk_setup_out.funk );
 
   if( FD_LIKELY( snapshot_setup_out.snapshot_slot != 0 ) ) {
     blockstore_setup_out.blockstore->root = snapshot_setup_out.snapshot_slot;

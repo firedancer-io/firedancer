@@ -213,11 +213,13 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
 
     if( val_sz ) fd_memcpy( new_val, val, val_sz ); /* Copy the existing value */
     fd_memset( new_val + val_sz, 0, new_val_max - val_sz ); /* Clear out trailing padding to be on the safe side */
-    if( val ) fd_alloc_free( alloc, val ); /* Free the old value (if any) */
 
+    /* Order of updates is important for fd_funk_val_safe */
+    rec->val_gaddr = fd_wksp_gaddr_fast( wksp, new_val );
     rec->val_sz    = (uint)new_val_sz;
     rec->val_max   = (uint)fd_ulong_min( new_val_max, FD_FUNK_REC_VAL_MAX );
-    rec->val_gaddr = fd_wksp_gaddr_fast( wksp, new_val );
+
+    if( val ) fd_alloc_free( alloc, val ); /* Free the old value (if any) */
 
   } else {
 
@@ -246,18 +248,34 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
 
       fd_memcpy( new_val, val, new_val_sz ); /* Copy the (truncated) existing value */
       fd_memset( new_val + new_val_sz, 0, new_val_max - new_val_sz ); /* Clear out the trailing padding to be on the safe side */
-      if( val ) fd_alloc_free( alloc, val ); /* Free the old value (if any) */
 
+      /* Order of updates is important for fd_funk_val_safe */
       rec->val_sz    = (uint)new_val_sz;
       rec->val_max   = (uint)fd_ulong_min( new_val_max, FD_FUNK_REC_VAL_MAX );
       rec->val_gaddr = fd_wksp_gaddr_fast( wksp, new_val );
 
+      if( val ) fd_alloc_free( alloc, val ); /* Free the old value (if any) */
     }
 
   }
 
   fd_int_store_if( !!opt_err, opt_err, FD_FUNK_SUCCESS );
   return rec;
+}
+
+void *
+fd_funk_val_safe( fd_funk_rec_t const * rec,     /* Assumes pointer in caller's address space to a live funk record */
+                  fd_wksp_t const *     wksp,
+                  fd_valloc_t           valloc,
+                  ulong *               result_len ) {
+  uint val_sz = rec->val_sz;
+  *result_len = val_sz;
+  if( !val_sz ) return NULL;
+  void * res = fd_valloc_malloc( valloc, 1U, val_sz );
+  /* Note that this memcpy may copy recently freed memory, but it
+     won't crash, which is the important thing */
+  fd_memcpy( res, fd_wksp_laddr_fast( wksp, rec->val_gaddr ), val_sz );
+  return res;
 }
 
 int

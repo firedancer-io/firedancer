@@ -167,7 +167,7 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
   ulong wksp_tag;   /* Tag to use for wksp allocations, positive */
   ulong seed;       /* Seed for various hashing function used under the hood, arbitrary */
   ulong cycle_tag;  /* Next cycle_tag to use, used internally for various data integrity checks */
-  volatile int readonly; /* Read-only flag on database */
+  volatile ulong write_lock; /* Incremented at the start of a write operation, and again at the end */
 
   /* The funk transaction map stores the details about transactions
      in preparation and their relationships to each other.  This is a
@@ -349,10 +349,6 @@ FD_FN_PURE static inline ulong fd_funk_seed( fd_funk_t * funk ) { return funk->s
 
 FD_FN_PURE static inline ulong fd_funk_txn_max( fd_funk_t * funk ) { return funk->txn_max; }
 
-/* Set/clear the readonly flag, which marks the entire database as
- * read-only. Any writes will fail. */
-static inline void fd_funk_set_readonly( fd_funk_t * funk, int flag ) { funk->readonly = flag; }
-
 /* fd_funk_txn_map returns a pointer in the caller's address space to
    the funk's transaction map. */
 
@@ -500,6 +496,18 @@ fd_funk_verify( fd_funk_t * funk );
 
 void
 fd_funk_log_mem_usage( fd_funk_t * funk );
+
+/* APIs for marking the start and end of an operation that modifies
+   the database. These should be called by the application before and
+   after doing an update. */
+
+void fd_funk_start_write( fd_funk_t * funk );
+void fd_funk_end_write( fd_funk_t * funk );
+
+/* Checks that we are inside a start_write/end_write block. Fails if
+ * we are not. */
+
+void fd_funk_check_write( fd_funk_t * funk );
 
 FD_PROTOTYPES_END
 

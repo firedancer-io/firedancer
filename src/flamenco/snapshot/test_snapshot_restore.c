@@ -65,6 +65,8 @@ main( int     argc,
   fd_funk_t * funk = fd_funk_join( fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), funk_tag ), funk_tag, funk_seed, txn_max, rec_max ) );
   FD_TEST( funk );
 
+  fd_funk_start_write( funk );
+  
   fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_wksp_alloc_laddr( wksp, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT, static_tag ), funk );
   FD_TEST( acc_mgr );
 
@@ -552,6 +554,8 @@ main( int     argc,
 # undef NEW_RESTORE_POST_MANIFEST
 
   /* Clean up */
+
+  fd_funk_end_write( funk );
 
   fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
   fd_wksp_free_laddr( restore_mem );

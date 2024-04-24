@@ -88,6 +88,8 @@ main( int     argc,
 #define NUM_PART 8
   fd_funk_repartition(funk, NUM_PART, random_part, rng);
 
+  fd_funk_start_write(funk);
+  
   for( ulong iter=0UL; iter<iter_max; iter++ ) {
     uint r = fd_rng_uint( rng );
     int op = (int)(r & 7U); r >>= 3;
@@ -152,6 +154,8 @@ main( int     argc,
 
     FD_TEST( !fd_funk_verify( funk ) );
   }
+
+  fd_funk_end_write(funk);
 
   fd_wksp_free_laddr( fd_funk_delete( fd_funk_leave( funk ) ) );
   if( name ) fd_wksp_detach( wksp );

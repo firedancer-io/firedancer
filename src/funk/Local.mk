@@ -15,3 +15,4 @@ $(call make-unit-test,test_funk_part,test_funk_part test_funk_common,fd_funk fd_
 $(call run-unit-test,test_funk_part)
 $(call make-unit-test,test_funk,test_funk,fd_funk fd_util)
 $(call run-unit-test,test_funk)
+$(call make-unit-test,test_funk_concur,test_funk_concur,fd_funk fd_util)

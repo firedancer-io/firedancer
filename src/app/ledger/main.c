@@ -721,6 +721,8 @@ main( int     argc,
 
       free(buf);
 
+      fd_funk_start_write( funk );
+        
       /* If we are loading from a snapshot, do not overwrite from genesis */
       if ( !snapshotfile ) {
         fd_runtime_init_bank_from_genesis( slot_ctx, &genesis_block, &genesis_hash );
@@ -774,6 +776,8 @@ main( int     argc,
       FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_epoch_bank( slot_ctx ) );
 
       FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_slot_bank( slot_ctx ) );
+
+      fd_funk_end_write( funk );
 
       fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };
       fd_genesis_solana_destroy(&genesis_block, &ctx2);
@@ -893,8 +897,10 @@ main( int     argc,
 
   if (backup) {
     /* Copy the entire workspace into a file in the most naive way */
+    fd_funk_start_write( funk );
     FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_epoch_bank( slot_ctx ) );
     FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_slot_bank( slot_ctx ) );
+    fd_funk_end_write( funk );
     FD_LOG_NOTICE(("writing %s", backup));
     unlink(backup);
     int err = fd_wksp_checkpt(wksp, backup, 0666, 0, NULL);

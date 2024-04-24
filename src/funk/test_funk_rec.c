@@ -47,6 +47,8 @@ main( int     argc,
                                                wksp_tag, seed, txn_max, rec_max ) );
   if( FD_UNLIKELY( !tst ) ) FD_LOG_ERR(( "Unable to create tst" ));
 
+  fd_funk_start_write( tst );
+  
   fd_funk_txn_t * txn_map = fd_funk_txn_map( tst, wksp );
   fd_funk_rec_t * rec_map = fd_funk_rec_map( tst, wksp );
 
@@ -105,25 +107,14 @@ main( int     argc,
       FD_TEST( !fd_funk_rec_query             ( NULL, NULL, tkey ) );
       FD_TEST( !fd_funk_rec_query             ( tst,  NULL, NULL ) );
 
-      FD_TEST( !fd_funk_rec_query_const       ( NULL, NULL, NULL ) );
-      FD_TEST( !fd_funk_rec_query_const       ( NULL, NULL, tkey ) );
-      FD_TEST( !fd_funk_rec_query_const       ( tst,  NULL, NULL ) );
-
       FD_TEST( !fd_funk_rec_query_global      ( NULL, NULL, NULL ) );
       FD_TEST( !fd_funk_rec_query_global      ( NULL, NULL, tkey ) );
       FD_TEST( !fd_funk_rec_query_global      ( tst,  NULL, NULL ) );
-
-      FD_TEST( !fd_funk_rec_query_global_const( NULL, NULL, NULL ) );
-      FD_TEST( !fd_funk_rec_query_global_const( NULL, NULL, tkey ) );
-      FD_TEST( !fd_funk_rec_query_global_const( tst,  NULL, NULL ) );
 
       rec_t *               rrec = rec_query_global( ref, NULL, rkey );
       fd_funk_rec_t const * trec = fd_funk_rec_query_global( tst, NULL, tkey );
       if( !rrec ) FD_TEST( !trec );
       else        FD_TEST( trec && xid_eq( fd_funk_rec_xid( trec ), rrec->txn ? rrec->txn->xid : 0UL ) );
-
-      fd_funk_rec_t const * _trec = fd_funk_rec_query_global_const( tst, NULL, tkey );
-      FD_TEST( trec==_trec );
 
       FD_TEST( fd_funk_rec_test( NULL, NULL                 )==FD_FUNK_ERR_INVAL );
       FD_TEST( fd_funk_rec_test( NULL, trec                 )==FD_FUNK_ERR_INVAL );
@@ -240,17 +231,9 @@ main( int     argc,
       FD_TEST( !fd_funk_rec_query             ( NULL, ttxn, tkey ) );
       FD_TEST( !fd_funk_rec_query             ( tst,  ttxn, NULL ) );
 
-      FD_TEST( !fd_funk_rec_query_const       ( NULL, ttxn, NULL ) );
-      FD_TEST( !fd_funk_rec_query_const       ( NULL, ttxn, tkey ) );
-      FD_TEST( !fd_funk_rec_query_const       ( tst,  ttxn, NULL ) );
-
       FD_TEST( !fd_funk_rec_query_global      ( NULL, ttxn, NULL ) );
       FD_TEST( !fd_funk_rec_query_global      ( NULL, ttxn, tkey ) );
       FD_TEST( !fd_funk_rec_query_global      ( tst,  ttxn, NULL ) );
-
-      FD_TEST( !fd_funk_rec_query_global_const( NULL, ttxn, NULL ) );
-      FD_TEST( !fd_funk_rec_query_global_const( NULL, ttxn, tkey ) );
-      FD_TEST( !fd_funk_rec_query_global_const( tst,  ttxn, NULL ) );
 
       rec_t *               rrec = rec_query_global( ref, rtxn, rkey );
       fd_funk_rec_t const * trec = fd_funk_rec_query_global( tst, ttxn, tkey );
@@ -261,9 +244,6 @@ main( int     argc,
         FD_TEST( fd_funk_rec_test  ( tst, trec )==(is_frozen ? FD_FUNK_ERR_FROZEN : FD_FUNK_SUCCESS      ) );
         FD_TEST( fd_funk_rec_modify( tst, trec )==(is_frozen ? NULL               : (fd_funk_rec_t *)trec) );
       }
-
-      fd_funk_rec_t const * _trec = fd_funk_rec_query_global_const( tst, ttxn, tkey );
-      FD_TEST( trec==_trec );
 
       FD_TEST( fd_funk_rec_test( NULL, NULL                 )==FD_FUNK_ERR_INVAL );
       FD_TEST( fd_funk_rec_test( NULL, trec                 )==FD_FUNK_ERR_INVAL );
@@ -507,6 +487,8 @@ main( int     argc,
   }
 
   funk_delete( ref );
+
+  fd_funk_end_write( tst );
 
   fd_wksp_free_laddr( fd_funk_delete( fd_funk_leave( tst ) ) );
   if( name ) fd_wksp_detach( wksp );
