@@ -1,6 +1,5 @@
 #include "tiles.h"
 
-
 static void
 before_frag( void * _ctx    FD_PARAM_UNUSED,
              ulong  in_idx  FD_PARAM_UNUSED,
@@ -24,10 +23,19 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
-fd_tile_config_t fd_tile_blackhole = {
+static long
+lazy( fd_topo_tile_t * tile ) {
+  (void)tile;
+  /* See explanation in fd_pack */
+  return 128L * 300L;
+}
+
+fd_topo_run_tile_t fd_tile_blackhole = {
+  .name                     = "blackhole",
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .mux_before_frag          = before_frag,
+  .lazy                     = lazy,
   .populate_allowed_fds     = populate_allowed_fds,
   .privileged_init          = NULL,
 };
