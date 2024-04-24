@@ -7,7 +7,7 @@
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
-#include "../../vm/fd_vm_interp.h"
+#include "../../vm/fd_vm.h"
 #include "fd_bpf_loader_serialization.h"
 #include "fd_bpf_program_util.h"
 #include "fd_native_cpi.h"
