@@ -3,7 +3,7 @@
 #define FD_MAX_COMPUTE_UNIT_LIMIT (1400000)     /* Max compute unit limit */
 
 static int
-accumulator_syscall( FD_PARAM_UNUSED void *  _ctx,
+accumulator_syscall( FD_PARAM_UNUSED void *  _vm,
                      /**/            ulong   arg0,
                      /**/            ulong   arg1,
                      /**/            ulong   arg2,
@@ -26,7 +26,7 @@ test_program_success( char *            test_case_name,
 
   fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall );
 
-  fd_vm_exec_context_t ctx = {
+  fd_vm_t vm = {
     .entrypoint = 0,
     .program_counter = 0,
     .instruction_counter = 0,
@@ -40,28 +40,25 @@ test_program_success( char *            test_case_name,
     .alloc               = { {.offset = 0} }
   };
 
-  ulong validation_res = fd_vm_context_validate( &ctx );
-  if (validation_res != 0) {
-    FD_LOG_WARNING(( "VAL_RES: %lu", validation_res ));
-  }
-  FD_TEST( validation_res==FD_VM_SBPF_VALIDATE_SUCCESS );
+  int err = fd_vm_validate( &vm );
+  if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "validation failed: %i-%s", err, fd_vm_strerror( err ) ));
 
   long dt = -fd_log_wallclock();
-  fd_vm_interp_instrs( &ctx );
+  fd_vm_interp_instrs( &vm );
   dt += fd_log_wallclock();
 
   free( syscalls );
-  if (expected_result != ctx.register_file[0]) {
-    // FD_LOG_WARNING(( "RET: %lu 0x%lx", ctx.register_file[0], ctx.register_file[0] ));
-    // FD_LOG_WARNING(( "PC: %lu 0x%lx", ctx.program_counter, ctx.program_counter ));
-    // FD_LOG_WARNING(( "Cond fault: %d", ctx.cond_fault));
-    // FD_LOG_WARNING(( "IC: %lu 0x%lx", ctx.instruction_counter, ctx.instruction_counter));
+  if (expected_result != vm.register_file[0]) {
+    FD_LOG_WARNING(( "RET: %lu 0x%lx", vm.register_file[0], vm.register_file[0] ));
+    FD_LOG_WARNING(( "PC: %lu 0x%lx", vm.program_counter, vm.program_counter ));
+    FD_LOG_WARNING(( "Cond fault: %d", vm.cond_fault));
+    FD_LOG_WARNING(( "IC: %lu 0x%lx", vm.instruction_counter, vm.instruction_counter));
   }
-  FD_TEST( ctx.register_file[0]==expected_result );
-//FD_LOG_NOTICE(( "Instr counter: %lu", ctx.instruction_counter ));
+  FD_TEST( vm.register_file[0]==expected_result );
+//FD_LOG_NOTICE(( "Instr counter: %lu", vm.instruction_counter ));
   FD_LOG_NOTICE(( "%-20s %11li ns", test_case_name, dt ));
-//FD_LOG_NOTICE(( "Time/Instr: %f ns", (double)dt / (double)ctx.instruction_counter ));
-//FD_LOG_NOTICE(( "Mega Instr/Sec: %f", 1000.0 * ((double)ctx.instruction_counter / (double) dt)));
+//FD_LOG_NOTICE(( "Time/Instr: %f ns", (double)dt / (double)vm.instruction_counter ));
+//FD_LOG_NOTICE(( "Mega Instr/Sec: %f", 1000.0 * ((double)vm.instruction_counter / (double) dt)));
 }
 
 #define TEST_PROGRAM_SUCCESS(test_case_name, expected_result, instrs_sz, ...) { \

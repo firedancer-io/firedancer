@@ -165,7 +165,7 @@ fd_bpf_loader_v3_user_execute( fd_exec_instr_ctx_t ctx ) {
   }
 
   // FD_LOG_DEBUG(("Starting CUs %lu", ctx.txn_ctx->compute_meter));
-  fd_vm_exec_context_t vm_ctx = {
+  fd_vm_t vm = {
     .entrypoint          = (long)prog->entry_pc,
     .program_counter     = 0,
     .instruction_counter = 0,
@@ -189,65 +189,57 @@ fd_bpf_loader_v3_user_execute( fd_exec_instr_ctx_t ctx ) {
   };
 
 #ifdef FD_DEBUG_SBPF_TRACES
-uchar * signature = (uchar*)vm_ctx.instr_ctx->txn_ctx->_txn_raw->raw + vm_ctx.instr_ctx->txn_ctx->txn_descriptor->signature_off;
+uchar * signature = (uchar*)vm.instr_ctx->txn_ctx->_txn_raw->raw + vm.instr_ctx->txn_ctx->txn_descriptor->signature_off;
 uchar   sig[64];
 fd_base58_decode_64( "mu7GV8tiEU58hnugxCcuuGh11MvM5tb2ib2qqYu9WYKHhc9Jsm187S31nEX1fg9RYM1NwWJiJkfXNNK21M6Yd8u", sig );
 if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
   ulong event_max      = 1UL<<30;
   ulong event_data_max = 2048UL;
-  vm_ctx.trace = fd_vm_trace_join( fd_vm_trace_new( fd_valloc_malloc(
+  vm.trace = fd_vm_trace_join( fd_vm_trace_new( fd_valloc_malloc(
     ctx.txn_ctx->valloc, fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max ) );
-  if( FD_UNLIKELY( !vm_ctx.trace ) ) FD_LOG_ERR(( "unable to create trace" ));
+  if( FD_UNLIKELY( !vm.trace ) ) FD_LOG_ERR(( "unable to create trace" ));
 }
 #endif
 
-  memset(vm_ctx.register_file, 0, sizeof(vm_ctx.register_file));
-  vm_ctx.register_file[1] = FD_VM_MEM_MAP_INPUT_REGION_START;
-  vm_ctx.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
+  memset( vm.register_file, 0, sizeof(vm.register_file) );
+  vm.register_file[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
+  vm.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
+//int err = fd_vm_validate( &vm );
+//if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_vm_validate failed (%i-%s)", err, fd_vm_strerror( err ) ));
+//FD_LOG_WARNING(( "fd_vm_validate success" ));
 
-  // ulong validate_result = fd_vm_context_validate( &vm_ctx );
-  // if (validate_result != FD_VM_SBPF_VALIDATE_SUCCESS) {
-  //   FD_LOG_ERR(( "fd_vm_context_validate() failed: %lu", validate_result ));
-  // }
-
-  // FD_LOG_WARNING(( "fd_vm_context_validate() success" ));
-  ulong interp_res;
+  int err;
 
 #ifdef FD_DEBUG_SBPF_TRACES
-  if( FD_UNLIKELY( !memcmp(signature, sig, 64UL ) ) ) interp_res = fd_vm_interp_instrs_trace( &vm_ctx );
-  else                                                interp_res = fd_vm_interp_instrs      ( &vm_ctx );
+  if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) err = fd_vm_interp_instrs_trace( &vm );
+  else                                                 err = fd_vm_interp_instrs      ( &vm );
 #else
-  interp_res = fd_vm_interp_instrs( &vm_ctx );
+  err = fd_vm_interp_instrs( &vm );
 #endif
-  if( FD_UNLIKELY( interp_res ) ) FD_LOG_ERR(( "fd_vm_interp_instrs() failed: %lu", interp_res ));
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_vm_interp_instrs failed (%i-%s)", err, fd_vm_strerror( err ) ));
 
 #ifdef FD_DEBUG_SBPF_TRACES
 if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
-  int err = fd_vm_trace_printf( vm_ctx.trace, vm_ctx.instrs, vm_ctx.instrs_sz, vm_ctx.syscall_map );
-  if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_vm_trace_printf failed %i", err )); /* FIXME: PRETTY PRINT ERROR STRING */
-  fd_valloc_free( ctx.txn_ctx->valloc, fd_vm_trace_delete( fd_vm_trace_leave( vm_ctx.trace ) ) );
+  err = fd_vm_trace_printf( vm.trace, vm.instrs, vm.instrs_sz, vm.syscall_map );
+  if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_vm_trace_printf failed (%i-%s)", err, fd_vm_strerror( err ) ));
+  fd_valloc_free( ctx.txn_ctx->valloc, fd_vm_trace_delete( fd_vm_trace_leave( vm.trace ) ) );
 }
 #endif
 
-  ctx.txn_ctx->compute_meter = vm_ctx.compute_meter;
+  ctx.txn_ctx->compute_meter = vm.compute_meter;
 
-  #ifdef VLOG
-  if (ctx.txn_ctx->slot_ctx->slot_bank.slot == 250555489) {
-   FD_LOG_WARNING(( "fd_vm_interp_instrs() success: %lu, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", interp_res, vm_ctx.instruction_counter, vm_ctx.program_counter, vm_ctx.entrypoint, vm_ctx.register_file[0], vm_ctx.cond_fault, vm_ctx.compute_meter ));
-  }
-  #endif
+  // FD_LOG_DEBUG(( "fd_vm_interp_instrs() success: %i, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", err, vm.instruction_counter, vm.program_counter, vm.entrypoint, vm.register_file[0], vm.cond_fault, vm.compute_meter ));
+  // FD_LOG_WARNING(( "log coll - len: %lu %s", vm.log_collector.buf ));
 
-  // FD_LOG_WARNING(( "log coll - len: %lu %s", vm_ctx.log_collector.buf ));
-
-  if( vm_ctx.register_file[0]!=0 ) {
+  if( vm.register_file[0]!=0 ) {
     fd_valloc_free( ctx.valloc, input);
     //FD_LOG_WARNING((" register_file[0] fail "));
     // TODO: vm should report this error
     return -1;
   }
 
-  if( vm_ctx.cond_fault ) {
+  if( vm.cond_fault ) {
     fd_valloc_free( ctx.valloc, input);
     //FD_LOG_WARNING(("cond_fault fail"));
     // TODO: vm should report this error
@@ -299,7 +291,7 @@ setup_program( fd_exec_instr_ctx_t * ctx,
     FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
   }
 
-  fd_vm_exec_context_t vm_ctx = {
+  fd_vm_t vm = {
     .entrypoint          = (long)prog->entry_pc,
     .program_counter     = 0,
     .instruction_counter = 0,
@@ -317,10 +309,8 @@ setup_program( fd_exec_instr_ctx_t * ctx,
     .instr_ctx           = ctx,
   };
 
-  ulong validate_result = fd_vm_context_validate( &vm_ctx );
-  if (validate_result != FD_VM_SBPF_VALIDATE_SUCCESS) {
-    FD_LOG_ERR(( "fd_vm_context_validate() failed: %lu", validate_result ));
-  }
+  int err = fd_vm_validate( &vm );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_vm_validate failed (%i-%s)", err, fd_vm_strerror( err ) ));
 
   fd_valloc_free( ctx->valloc,  fd_sbpf_program_delete( prog ) );
   fd_valloc_free( ctx->valloc,  fd_sbpf_syscalls_delete( syscalls ) );
