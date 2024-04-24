@@ -35,7 +35,7 @@ fd_vm_syscall_sol_blake3( /**/            void *  _vm,
                           FD_PARAM_UNUSED ulong   arg3,
                           FD_PARAM_UNUSED ulong   arg4,
                           /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* Note: Solana uses the sha256 cost model currently for blake3.
      FIXME: PROVIDE LINK TO SOLANA CODE HERE */
@@ -87,7 +87,7 @@ fd_vm_syscall_sol_keccak256( /**/            void *  _vm,
                              FD_PARAM_UNUSED ulong   arg3,
                              FD_PARAM_UNUSED ulong   arg4,
                              /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* Note: Solana uses the sha256 cost model currently for blake3.
      FIXME: PROVIDE LINK TO SOLANA CODE HERE */
@@ -142,7 +142,7 @@ fd_vm_syscall_sol_sha256( /**/            void *  _vm,
                           FD_PARAM_UNUSED ulong   arg3,
                           FD_PARAM_UNUSED ulong   arg4,
                           /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* Note: Solana uses the sha256 cost model currently for blake3.
      FIXME: PROVIDE LINK TO SOLANA CODE HERE */
@@ -207,7 +207,7 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
                             ulong   vals_len,
                             ulong   result_addr,
                             ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   *_ret = 0UL;
 
@@ -288,7 +288,7 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
                                      /**/            ulong   result_vaddr,
                                      FD_PARAM_UNUSED ulong   arg3,
                                      /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   int err = fd_vm_consume_compute( vm, vm_compute_budget.secp256k1_recover_cost );
   if( FD_UNLIKELY( err ) ) return err;
