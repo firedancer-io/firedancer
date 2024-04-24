@@ -6,6 +6,7 @@
 
 #include "../fd_choreo_base.h"
 #include "../ghost/fd_ghost.h"
+#include "../tower/fd_tower.h"
 #include "fd_bft.h"
 
 void *
@@ -74,10 +75,12 @@ fd_bft_delete( void * bft ) {
 
 static void
 count_votes( fd_bft_t * bft, fd_fork_t * fork ) {
-  for( fd_latest_vote_deque_iter_t iter = fd_latest_vote_deque_iter_init( fork->slot_ctx.latest_votes );
+  for( fd_latest_vote_deque_iter_t iter =
+           fd_latest_vote_deque_iter_init( fork->slot_ctx.latest_votes );
        !fd_latest_vote_deque_iter_done( fork->slot_ctx.latest_votes, iter );
        iter = fd_latest_vote_deque_iter_next( fork->slot_ctx.latest_votes, iter ) ) {
-    fd_latest_vote_t * latest_vote = fd_latest_vote_deque_iter_ele( fork->slot_ctx.latest_votes, iter );
+    fd_latest_vote_t * latest_vote =
+        fd_latest_vote_deque_iter_ele( fork->slot_ctx.latest_votes, iter );
 
     ulong latest_vote_slot = latest_vote->slot_hash.slot;
 
@@ -87,7 +90,8 @@ count_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 
     /* Look up _our_ bank hash for this vote slot. */
 
-    fd_hash_t const * bank_hash = fd_blockstore_bank_hash_query( bft->blockstore, latest_vote_slot );
+    fd_hash_t const * bank_hash =
+        fd_blockstore_bank_hash_query( bft->blockstore, latest_vote_slot );
 
     /* TODO we need to implement repair logic here */
 
@@ -109,7 +113,7 @@ count_votes( fd_bft_t * bft, fd_fork_t * fork ) {
     /* Look up the stake for this pubkey. */
 
     fd_slot_hash_t slot_hash = { .slot = latest_vote_slot, .hash = *bank_hash };
-    fd_pubkey_t * pubkey = &latest_vote->node_pubkey;
+    fd_pubkey_t *  pubkey    = &latest_vote->node_pubkey;
 
     fd_vote_accounts_pair_t_mapnode_t * root =
         fork->slot_ctx.epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root;
@@ -135,8 +139,8 @@ count_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 
     /* Set the stake. */
 
-    ulong             stake      = vote_node->elem.stake;
-    fd_ghost_node_t * node = fd_ghost_node_query( bft->ghost, &slot_hash );
+    ulong             stake = vote_node->elem.stake;
+    fd_ghost_node_t * node  = fd_ghost_node_query( bft->ghost, &slot_hash );
 
     /* This slot hash must have been inserted, because ghost only processes replay votes. */
 
@@ -177,7 +181,7 @@ fd_bft_fork_update( fd_bft_t * bft, fd_fork_t * fork ) {
 
   /* Get the parent key. Every block must have a parent (except genesis or snapshot block). */
 
-  ulong parent_slot = fd_blockstore_parent_slot_query(bft->blockstore, fork->slot);
+  ulong parent_slot = fd_blockstore_parent_slot_query( bft->blockstore, fork->slot );
 
   /* Insert this fork into bft. */
 
@@ -253,7 +257,7 @@ fd_bft_fork_choice( fd_bft_t * bft ) {
     fd_slot_hash_t    key  = { .slot = fork->slot, .hash = fork->slot_ctx.slot_bank.banks_hash };
     fd_ghost_node_t * node = fd_ghost_node_query( ghost, &key );
 
-    #if FD_BFT_USE_HANDHOLDING
+#if FD_BFT_USE_HANDHOLDING
 
     /* invariant: node must have been inserted by now */
 
@@ -268,7 +272,10 @@ fd_bft_fork_choice( fd_bft_t * bft ) {
 
   if( heaviest_fork_key ) {
     double pct = (double)heaviest_fork_weight / (double)bft->epoch_stake;
-    FD_LOG_NOTICE( ( "[bft] voting for heaviest fork %lu %lu (%lf)", heaviest_fork_key->slot, heaviest_fork_weight, pct ) );
+    FD_LOG_NOTICE( ( "[bft] voting for heaviest fork %lu %lu (%lf)",
+                     heaviest_fork_key->slot,
+                     heaviest_fork_weight,
+                     pct ) );
     // fd_ghost_print( ghost );
   }
 
