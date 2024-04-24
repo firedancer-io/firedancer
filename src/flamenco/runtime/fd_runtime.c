@@ -40,7 +40,7 @@
 #include "../types/fd_solana_block.pb.h"
 
 #include "fd_system_ids.h"
-#include "../vm/fd_vm_context.h"
+#include "../vm/fd_vm.h"
 #include "fd_blockstore.h"
 #include "../../ballet/pack/fd_pack.h"
 
