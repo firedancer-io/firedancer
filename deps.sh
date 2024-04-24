@@ -459,12 +459,12 @@ install () {
 
   ( install_zlib      )
   ( install_zstd      )
-  ( install_secp256k1 )
   #( install_openssl   )
   if [[ $DEVMODE == 1 ]]; then
-    ( install_snappy  )
-    ( install_rocksdb )
-    #( install_libff   )
+    ( install_secp256k1 )
+    ( install_snappy    )
+    ( install_rocksdb   )
+    #( install_libff     )
   fi
 
   # Remove cmake and pkgconfig files, so we don't accidentally
