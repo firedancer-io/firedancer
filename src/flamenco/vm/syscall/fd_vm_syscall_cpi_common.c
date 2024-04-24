@@ -45,7 +45,6 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
   fd_pubkey_t * txn_accs = vm->instr_ctx->txn_ctx->accounts;
   for( ulong i=0UL; i < vm->instr_ctx->txn_ctx->accounts_cnt; i++ ) {
     if( !memcmp( program_id, &txn_accs[i], sizeof( fd_pubkey_t ) ) ) {
-      FD_LOG_DEBUG(( "CPI PI: %lu %32J", i, program_id ));
       out_instr->program_id = (uchar)i;
       out_instr->program_id_pubkey = txn_accs[i];
       break;
@@ -132,7 +131,8 @@ Paramaters:
 static int
 VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
                                       VM_SYSCALL_CPI_ACC_INFO_T const * account_info,
-                                      fd_pubkey_t const * callee_acc_pubkey ) {
+                                      fd_pubkey_t const * callee_acc_pubkey,
+                                      ulong callee_acc_idx ) {
 
   fd_borrowed_account_t * callee_acc = NULL;
   int err = fd_instr_borrowed_account_modify(vm->instr_ctx, callee_acc_pubkey, 0, &callee_acc);
@@ -143,7 +143,6 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
 
   if( FD_UNLIKELY( !callee_acc->meta ) ) {
     /* If the account is not modifiable, we can't change it (and it can't have been changed by the callee) */
-    FD_LOG_DEBUG(( "account is not modifiable - key: %32J", callee_acc_pubkey ));
     return FD_VM_SUCCESS;
   }
   
@@ -160,8 +159,9 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
   /* Update the account data, if the account data can be changed */
   int err1;
   int err2;
-  if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, caller_acc_data_len, &err1 ) &&
-      fd_account_can_data_be_changed( vm->instr_ctx, callee_acc->meta, callee_acc_pubkey, &err2 ) ) {
+  /* FIXME: double-check these permissions, especially the callee_acc_idx */
+  if( fd_account_can_data_be_resized( vm->instr_ctx->instr, callee_acc->meta, caller_acc_data_len, &err1 ) &&
+      fd_account_can_data_be_changed( vm->instr_ctx->instr, callee_acc_idx, &err2 ) ) {
       /* We must ignore the errors here, as they are informational and do not mean the result is invalid. */
       /* TODO: not pass informational errors like this? */
     callee_acc->meta->dlen = caller_acc_data_len;
@@ -170,9 +170,9 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
 
   int is_disable_cpi_setting_executable_and_rent_epoch_active = FD_FEATURE_ACTIVE(vm->instr_ctx->slot_ctx, disable_cpi_setting_executable_and_rent_epoch);
   if( !is_disable_cpi_setting_executable_and_rent_epoch_active &&
-      fd_account_is_executable(vm->instr_ctx, callee_acc->meta, NULL)!=account_info->executable ) {
-    fd_pubkey_t const * program_acc = &vm->instr_ctx->instr->acct_pubkeys[vm->instr_ctx->instr->program_id];
-    fd_account_set_executable(vm->instr_ctx, program_acc, callee_acc->meta, (char)account_info->executable);
+      fd_account_is_executable( callee_acc->meta )!=account_info->executable ) {
+    /* FIXME: double-check this */
+    fd_account_set_executable(vm->instr_ctx, vm->instr_ctx->instr->program_id, (char)account_info->executable);
   }
 
   uchar const * caller_acc_owner = FD_VM_MEM_HADDR_LD( vm, account_info->owner_addr, alignof(uchar), sizeof(fd_pubkey_t) );
@@ -247,7 +247,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
 
     /* If the account is known and executable, we only need to consume the compute units.
        Executable accounts can't be modified, so we don't need to update the callee account. */
-    if( known_account && fd_account_is_executable(vm->instr_ctx, acc_meta, NULL) ) {
+    if( known_account && fd_account_is_executable( acc_meta ) ) {
       FD_VM_CU_MEM_UPDATE( vm, acc_meta->dlen );
       continue;
     }
@@ -272,7 +272,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       found = 1;
 
       /* Update the callee account to reflect any changes the caller has made */
-      if( FD_UNLIKELY( acc_meta && VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC(vm, &account_infos[j], callee_account) ) ) {
+      if( FD_UNLIKELY( acc_meta && VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC(vm, &account_infos[j], callee_account, i) ) ) {
         
         return 1001;
       }
@@ -342,8 +342,6 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                  vm,
     /* FIXME: do we need to zero the memory that was previously used, if the new data_len is smaller?
       https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1361
       I don't think we do but need to double-check. */
-
-    FD_LOG_DEBUG(( "account size mismatch while updating CPI caller account - key: %32J, caller: %lu, callee: %lu", pubkey, caller_acc_data_len, updated_data_len ));
 
     VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, caller_acc_info, caller_acc_data, updated_data_len );
 
