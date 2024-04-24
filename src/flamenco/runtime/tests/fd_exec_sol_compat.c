@@ -17,13 +17,13 @@ static ulong hardcoded_features[] =
   { 0xd924059c5749c4c1,  // secp256k1_program_enabled
     0x8f688d4e3ab17a60,  // enable_early_verification_of_account_modifications
     0x50a615bae8ca3874,  // native_programs_consume_cu
+    0x65b79c7f3e7441b3,  // require_custodian_for_locked_stake_authorize
   };
 
 static ulong supported_features[] =
   { 0xe8f97382b03240a1,  // system_transfer_zero_check
     0x10a1e092dd7f1573,  // dedupe_config_program_signers
     0xfba69c4970d7ad9d,  // vote_stake_checked_instructions
-    0x65b79c7f3e7441b3,  // require_custodian_for_locked_stake_authorize
     0x74b022574093eeec,  // reduce_stake_warmup_cooldown
     0xd56fc1708dc98c13,  // stake_redelegate_instruction
     0x6d22c4ce75df6f0b,  // stake_merge_with_unmatched_credits_observed
