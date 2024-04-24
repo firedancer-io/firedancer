@@ -233,7 +233,9 @@ ARGS=" --load dump/$CHECKPT \
   $END_SLOT \
   --log-level-logfile 2 \
   --log-level-stderr 2 \
-  --allocator wksp
+  --allocator wksp"
+
+#  --tile-cpus 5-21
 
 if [ -e dump/$LEDGER/capitalization.csv ]
 then
