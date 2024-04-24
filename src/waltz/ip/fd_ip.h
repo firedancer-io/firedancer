@@ -48,6 +48,12 @@ struct fd_ip {
   ulong cur_num_arp_entries;
   ulong cur_num_route_entries;
 
+  /* table index */
+  /* there are two arp tables and two route tables */
+  /* these indicate whether the current table is the first or second */
+  uint  arp_table_idx;
+  uint  route_table_idx;
+
   ulong ofs_netlink;
   ulong ofs_arp_table;
   ulong ofs_route_table;
@@ -139,18 +145,32 @@ fd_nl_t *
 fd_ip_netlink_get( fd_ip_t * ip );
 
 
-/* get pointer to start of routing table
+/* get pointer to start of current routing table
    this is used internally
    probably best not to modify the data */
 fd_ip_route_entry_t *
 fd_ip_route_table_get( fd_ip_t * ip );
 
 
-/* get pointer to start of arp table
+/* get pointer to start of alternate routing table
+   this is used internally
+   probably best not to modify the data */
+fd_ip_route_entry_t *
+fd_ip_route_table_get_alt( fd_ip_t * ip );
+
+
+/* get pointer to start of current arp table
    this is used internally
    probably best not to modify the data */
 fd_ip_arp_entry_t *
 fd_ip_arp_table_get( fd_ip_t * ip );
+
+
+/* get pointer to start of alternate arp table
+   this is used internally
+   probably best not to modify the data */
+fd_ip_arp_entry_t *
+fd_ip_arp_table_get_alt( fd_ip_t * ip );
 
 
 /* fetch the ARP table from the kernel
