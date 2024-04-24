@@ -334,32 +334,10 @@ INSTR_POST_CODE
 JT_CASE_END
 /* 0x85 */ JT_CASE(0x85) // FD_BPF_OP_CALL_IMM
 BRANCH_PRE_CODE
-  /* CALL_IMM is special: It could execute a cross-program invocation!
-     We need to flush whatever intermediate CU state we have _before_
-     calling the child instruction.  Intermediate state is buffered in
-     these variables:  due_insn_cnt, start_pc, and skipped_insns.
-     These all need to be flushed. */
-
-  /* tally the current basic block */
-
-  due_insn_cnt  += (ulong)insns - skipped_insns;
-  insns          = 0UL;
-  skipped_insns  = 0UL;
-  start_pc       = pc;
-
-  /* check CUs */
-
-  if( FD_UNLIKELY( due_insn_cnt > previous_instruction_meter ) ) {
-    goto interp_fault;
-  }
-
-  /* charge CUs */
-
-  compute_meter -= due_insn_cnt;
+  compute_meter = fd_ulong_sat_sub(compute_meter, due_insn_cnt);
+  ctx->compute_meter = compute_meter;
   due_insn_cnt = 0;
   ctx->due_insn_cnt = 0;
-  ctx->previous_instruction_meter = previous_instruction_meter = ctx->compute_meter = compute_meter;
-
   fd_sbpf_syscalls_t * syscall_entry_imm = fd_sbpf_syscalls_query( ctx->syscall_map, instr.imm, NULL );
   if( syscall_entry_imm==NULL ) {
     // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
@@ -391,12 +369,6 @@ BRANCH_PRE_CODE
       cond_fault = syscall_entry_imm->func( ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0] );
       compute_meter = ctx->compute_meter;
     }
-  } else {
-    ctx->compute_meter = compute_meter;
-    //FD_LOG_WARNING(("CUs! (TAB21) consumed %lu", ctx->compute_meter));
-    cond_fault = ((fd_vm_syscall_fn_ptr_t)( syscall_entry_imm->func_ptr ))(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
-    compute_meter = ctx->compute_meter;
-    //FD_LOG_WARNING(("CUs! (TAB22) consumed %lu", ctx->compute_meter));
   }
   goto *(!cond_fault ? &&fallthrough_0x85 : &&JT_RET_LOC);
 fallthrough_0x85:
