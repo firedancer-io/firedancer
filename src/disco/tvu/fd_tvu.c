@@ -99,7 +99,8 @@
 #define FD_TVU_TILE_SLOT_DELAY 32
 
 static int gossip_sockfd = -1;
-static int repair_sockfd = -1;
+static int repair_clnt_sockfd = -1;
+static int repair_serv_sockfd = -1;
 
 /* FIXME don't hardcode this */
 #define vote_acct_max (2000000UL)
@@ -216,12 +217,12 @@ repair_from_sockaddr( fd_repair_peer_addr_t * dst, uchar const * src ) {
 }
 
 static void
-send_packet( uchar const * data, size_t sz, fd_repair_peer_addr_t const * addr, void * arg ) {
+repair_clnt_send_packet( uchar const * data, size_t sz, fd_repair_peer_addr_t const * addr, void * arg ) {
   // FD_LOG_HEXDUMP_NOTICE( ( "send: ", data, sz ) );
   (void)arg;
   uchar saddr[sizeof( struct sockaddr_in )];
   int   saddrlen = repair_to_sockaddr( saddr, addr );
-  if( sendto( repair_sockfd,
+  if( sendto( repair_clnt_sockfd,
               data,
               sz,
               MSG_DONTWAIT,
@@ -229,6 +230,59 @@ send_packet( uchar const * data, size_t sz, fd_repair_peer_addr_t const * addr, 
               (socklen_t)saddrlen ) < 0 ) {
     FD_LOG_WARNING( ( "sendto failed: %s", strerror( errno ) ) );
   }
+}
+
+static void
+repair_serv_send_packet( uchar const * data, size_t sz, fd_repair_peer_addr_t const * addr, void * arg ) {
+  // FD_LOG_HEXDUMP_NOTICE( ( "send: ", data, sz ) );
+  (void)arg;
+  uchar saddr[sizeof( struct sockaddr_in )];
+  int   saddrlen = repair_to_sockaddr( saddr, addr );
+  if( sendto( repair_serv_sockfd,
+              data,
+              sz,
+              MSG_DONTWAIT,
+              (const struct sockaddr *)saddr,
+              (socklen_t)saddrlen ) < 0 ) {
+    FD_LOG_WARNING( ( "sendto failed: %s", strerror( errno ) ) );
+  }
+}
+
+static long
+repair_serv_get_shred( ulong slot, int shred_idx, void * buf, ulong buf_max, void * arg ) {
+  fd_replay_t * replay = (fd_replay_t *)arg;
+  fd_blockstore_t * blockstore = replay->blockstore;
+  fd_blockstore_start_read( blockstore );
+
+  if( shred_idx < 0 ) {
+    fd_slot_meta_t * meta = fd_blockstore_slot_meta_query( blockstore, slot );
+    if( meta == NULL ) {
+      fd_blockstore_end_read( blockstore );
+      return -1L;
+    }
+    shred_idx = (int)meta->last_index;
+  }
+  long sz = fd_blockstore_shred_query_copy_data( blockstore, slot, (uint)shred_idx, buf, buf_max );
+
+  fd_blockstore_end_read( blockstore );
+  return sz;
+}
+
+static long
+repair_serv_get_parent( ulong slot, void * arg ) {
+  fd_replay_t * replay = (fd_replay_t *)arg;
+  fd_blockstore_t * blockstore = replay->blockstore;
+  fd_blockstore_start_read( blockstore );
+
+  fd_slot_meta_t * meta = fd_blockstore_slot_meta_query( blockstore, slot );
+  if( meta == NULL ) {
+    fd_blockstore_end_read( blockstore );
+    return -1L;
+  }
+  long res = (long)meta->parent_slot;
+
+  fd_blockstore_end_read( blockstore );
+  return res;
 }
 
 /* Convert a host:port string to a repair network address. If host is
@@ -330,7 +384,8 @@ struct fd_turbine_thread_args {
 static int fd_turbine_thread( int argc, char ** argv );
 
 struct fd_repair_thread_args {
-  int            repair_fd;
+  int            repair_clnt_fd;
+  int            repair_serv_fd;
   fd_replay_t *  replay;
 };
 
@@ -367,8 +422,10 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
   fd_gossip_start( runtime_ctx->gossip );
 
   /* initialize repair */
-  int repair_fd = fd_tvu_create_socket( &runtime_ctx->repair_config.intake_addr );
-  repair_sockfd = repair_fd;
+  int repair_clnt_fd = fd_tvu_create_socket( &runtime_ctx->repair_config.intake_addr );
+  repair_clnt_sockfd = repair_clnt_fd;
+  int repair_serv_fd = fd_tvu_create_socket( &runtime_ctx->repair_config.service_addr );
+  repair_serv_sockfd = repair_serv_fd;
   fd_repair_update_addr(
       replay->repair, &runtime_ctx->repair_config.intake_addr, &runtime_ctx->repair_config.service_addr );
   if( fd_gossip_update_repair_addr( runtime_ctx->gossip, &runtime_ctx->repair_config.service_addr ) )
@@ -414,7 +471,7 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
 
   /* FIXME: replace with real tile */
   struct fd_repair_thread_args reparg =
-    { .repair_fd = repair_fd, .replay = replay };
+    { .repair_clnt_fd = repair_clnt_fd, .repair_serv_fd = repair_serv_fd, .replay = replay };
   tile = fd_tile_exec_new( 2, fd_repair_thread, 0, fd_type_pun( &reparg ) );
   if( tile == NULL )
     FD_LOG_ERR( ( "error creating repair thread:" ) );
@@ -482,7 +539,8 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
 
 // shutdown:
   close( gossip_fd );
-  close( repair_fd );
+  close( repair_clnt_fd );
+  close( repair_serv_fd );
   close( tvu_fd );
   return 0;
 }
@@ -546,7 +604,8 @@ static int
 fd_repair_thread( int argc, char ** argv ) {
   (void)argc;
   struct fd_repair_thread_args * args = (struct fd_repair_thread_args *)argv;
-  int repair_fd = args->repair_fd;
+  int repair_clnt_fd = args->repair_clnt_fd;
+  int repair_serv_fd = args->repair_serv_fd;
   fd_repair_t * repair = args->replay->repair;
 
   fd_tvu_setup_scratch( args->replay->valloc );
@@ -555,7 +614,11 @@ fd_repair_thread( int argc, char ** argv ) {
   struct iovec   iovecs[VLEN];
   uchar          bufs[VLEN][FD_ETH_PAYLOAD_MAX];
   uchar sockaddrs[VLEN][sizeof( struct sockaddr_in6 )]; /* sockaddr is smaller than sockaddr_in6 */
-  while( FD_LIKELY( 1 /* !fd_tile_shutdown_flag */ ) ) {
+  int which_fd = 0;
+  for (;;) {
+    /* Alternate handling client and service packets */
+    which_fd = ~which_fd;
+
     long now = fd_log_wallclock();
     fd_repair_settime( repair, now );
 
@@ -564,7 +627,7 @@ fd_repair_thread( int argc, char ** argv ) {
 
     /* Read more packets */
     CLEAR_MSGS;
-    int repair_rc = recvmmsg( repair_fd, msgs, VLEN, MSG_DONTWAIT, NULL );
+    int repair_rc = recvmmsg( (which_fd ? repair_clnt_fd : repair_serv_fd) , msgs, VLEN, MSG_DONTWAIT, NULL );
     if( repair_rc < 0 ) {
       if( errno == EINTR || errno == EWOULDBLOCK ) continue;
       FD_LOG_ERR( ( "recvmmsg failed: %s", strerror( errno ) ) );
@@ -574,7 +637,10 @@ fd_repair_thread( int argc, char ** argv ) {
     for( uint i = 0; i < (uint)repair_rc; ++i ) {
       fd_repair_peer_addr_t from;
       repair_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
-      fd_repair_recv_packet( repair, bufs[i], msgs[i].msg_len, &from );
+      if( which_fd )
+        fd_repair_recv_clnt_packet( repair, bufs[i], msgs[i].msg_len, &from );
+      else
+        fd_repair_recv_serv_packet( repair, bufs[i], msgs[i].msg_len, &from );
     }
   }
   return 0;
@@ -1170,9 +1236,12 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     runtime_ctx->repair_config.service_addr.port = 0; /* pick a port */
 
     runtime_ctx->repair_config.deliver_fun      = repair_deliver_fun;
-    runtime_ctx->repair_config.send_fun         = send_packet;
+    runtime_ctx->repair_config.clnt_send_fun    = repair_clnt_send_packet;
+    runtime_ctx->repair_config.serv_send_fun    = repair_serv_send_packet;
     runtime_ctx->repair_config.deliver_fail_fun = repair_deliver_fail_fun;
-    runtime_ctx->repair_config.fun_arg = replay_setup_out.replay;
+    runtime_ctx->repair_config.serv_get_shred_fun = repair_serv_get_shred;
+    runtime_ctx->repair_config.serv_get_parent_fun = repair_serv_get_parent;
+    runtime_ctx->repair_config.fun_arg          = replay_setup_out.replay;
     runtime_ctx->repair_config.sign_fun         = NULL;
     runtime_ctx->repair_config.sign_arg         = NULL;
 
