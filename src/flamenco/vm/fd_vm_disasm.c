@@ -1,4 +1,5 @@
 #include "fd_vm_base.h"
+#include <stdarg.h>
 
 /* fd_vm_disasm_printf appends to the *_len string in the max byte
    buffer buf the printf of the remaining args.  On input, assumes *_len
