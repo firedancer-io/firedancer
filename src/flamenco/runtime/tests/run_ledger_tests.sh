@@ -144,7 +144,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 
-if [ ! -e dump/$CHECKPT ]; then
+if [[ ! -e dump/$CHECKPT && SKIP_INGEST -eq 1 ]]; then
   mkdir -p dump
   echo "Downloading gs://firedancer-ci-resources/$CHECKPT.zst"
   if [ "`gcloud auth list |& grep  firedancer-scratch | wc -l`" == "0" ]; then
@@ -161,7 +161,7 @@ if [ ! -e dump/$CHECKPT ]; then
   gcloud storage cat gs://firedancer-ci-resources/$CHECKPT.zst | zstd -d > ./dump/$CHECKPT
 fi
 
-if [[ ! -e dump/$LEDGER ]]; then
+if [[ ! -e dump/$LEDGER && SKIP_INGEST -eq 0 ]]; then
   mkdir -p dump
   if [[ -n "$ZST" ]]; then
     echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.zst"
@@ -233,9 +233,8 @@ ARGS=" --load dump/$CHECKPT \
   $END_SLOT \
   --log-level-logfile 2 \
   --log-level-stderr 2 \
-  --allocator wksp"
-
-#  --tile-cpus 5-21
+  --allocator wksp \
+  --tile-cpus 5-21"
 
 if [ -e dump/$LEDGER/capitalization.csv ]
 then
