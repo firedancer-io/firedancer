@@ -5,7 +5,7 @@
 #include "../context/fd_exec_txn_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_epoch_ctx.h"
-#include "../../vm/fd_vm_context.h"
+#include "../../vm/fd_vm.h"
 
 #define DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT  (200000)
 #define DEFAULT_COMPUTE_UNITS                   (150UL)

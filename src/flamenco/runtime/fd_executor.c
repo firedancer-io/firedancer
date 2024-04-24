@@ -24,8 +24,6 @@
 
 #include "sysvar/fd_sysvar_instructions.h"
 
-#include "../vm/fd_vm_context.h"
-
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/pack/fd_pack.h"
 #include "../../ballet/pack/fd_pack_cost.h"
