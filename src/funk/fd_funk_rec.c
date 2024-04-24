@@ -79,14 +79,15 @@ fd_funk_rec_query_global( fd_funk_t *               funk,
 
 void *
 fd_funk_rec_query_safe( fd_funk_t *               funk,
-                        fd_funk_txn_t const *     txn,
                         fd_funk_rec_key_t const * key,
                         fd_valloc_t               valloc,
                         ulong *                   result_len ) {
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
-  fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
   
+  fd_funk_xid_key_pair_t pair[1];
+  fd_funk_xid_key_pair_init( pair, fd_funk_root( funk ), key );
+
   for(;;) {
     ulong lock_start;
     for(;;) {
@@ -96,78 +97,11 @@ fd_funk_rec_query_safe( fd_funk_t *               funk,
       FD_SPIN_PAUSE();
     }
     FD_COMPILER_MFENCE();
-
-    fd_funk_xid_key_pair_t pair[1];
-    if( txn != NULL ) {
-      ulong txn_max = funk->txn_max;
-      ulong txn_idx = (ulong)(txn - txn_map);
-      if( FD_UNLIKELY( (txn_idx>=txn_max) /* Out of map (incl NULL) */ | (txn!=(txn_map+txn_idx)) /* Bad alignment */ ) ) {
-        return NULL;
-      }
-      fd_funk_xid_key_pair_init( pair, fd_funk_txn_xid( txn ), key );
-    } else {
-      fd_funk_xid_key_pair_init( pair, fd_funk_root( funk ), key );
-    }
 
     fd_funk_rec_t const * rec = fd_funk_rec_map_query_safe( rec_map, pair, NULL );
     if( FD_UNLIKELY( rec == NULL ) ) {
       FD_COMPILER_MFENCE();
       if( lock_start == funk->write_lock ) return NULL;
-    } else {
-      void * res = fd_funk_val_safe( rec, wksp, valloc, result_len );
-      FD_COMPILER_MFENCE();
-      if( lock_start == funk->write_lock ) return res;
-      fd_valloc_free( valloc, res );
-    }
-    
-    /* else try again */
-    FD_SPIN_PAUSE();
-  }
-}
-
-void *
-fd_funk_rec_query_global_safe( fd_funk_t *               funk,
-                               fd_funk_txn_t const *     txn,
-                               fd_funk_rec_key_t const * key,
-                               fd_valloc_t               valloc,
-                               ulong *                   result_len ) {
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
-  fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
-
-  for(;;) {
-    ulong lock_start;
-    for(;;) {
-      lock_start = funk->write_lock;
-      if( FD_LIKELY(!(lock_start&1UL)) ) break;
-      /* Funk is currently write locked */
-      FD_SPIN_PAUSE();
-    }
-    FD_COMPILER_MFENCE();
-
-    fd_funk_xid_key_pair_t pair[1];
-    if( txn != NULL ) {
-      ulong txn_max = funk->txn_max;
-      ulong txn_idx = (ulong)(txn - txn_map);
-      if( FD_UNLIKELY( (txn_idx>=txn_max) /* Out of map (incl NULL) */ | (txn!=(txn_map+txn_idx)) /* Bad alignment */ ) ) {
-        return NULL;
-      }
-      fd_funk_xid_key_pair_init( pair, fd_funk_txn_xid( txn ), key );
-    } else {
-      fd_funk_xid_key_pair_init( pair, fd_funk_root( funk ), key );
-    }
-
-    fd_funk_rec_t const * rec = fd_funk_rec_map_query_safe( rec_map, pair, NULL );
-    if( rec == NULL ) {
-      if( txn == NULL ) return NULL; /* At the root */
-      ulong par_idx = fd_funk_txn_idx( txn->parent_cidx );
-      FD_COMPILER_MFENCE();
-      if( lock_start == funk->write_lock ) {
-        /* Walk up to the parent transaction */
-        txn = ( par_idx == FD_FUNK_TXN_IDX_NULL ? NULL : txn_map + par_idx );
-        continue;
-      }
-      
     } else {
       void * res = fd_funk_val_safe( rec, wksp, valloc, result_len );
       FD_COMPILER_MFENCE();

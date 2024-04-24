@@ -170,25 +170,17 @@ fd_funk_rec_query_global( fd_funk_t *               funk,
                           fd_funk_txn_t const *     txn,
                           fd_funk_rec_key_t const * key );
 
-/* fd_funk_rec_query_safe and fd_funk_rec_query_global_safe are
-   queries that are safe in the presence of concurrent writes. The
-   result data is copied into a buffer allocated by the given
-   valloc and should be freed with the same valloc. NULL is returned
-   if the query fails. */
+/* fd_funk_rec_query_safe is a query that is safe in the presence of
+   concurrent writes. The result data is copied into a buffer
+   allocated by the given valloc and should be freed with the same
+   valloc. NULL is returned if the query fails. The query is always
+   against the root transaction. */
   
 FD_FN_PURE void *
 fd_funk_rec_query_safe( fd_funk_t *               funk,
-                        fd_funk_txn_t const *     txn,
                         fd_funk_rec_key_t const * key,
                         fd_valloc_t               valloc,
                         ulong *                   result_len );
-
-FD_FN_PURE void *
-fd_funk_rec_query_global_safe( fd_funk_t *               funk,
-                               fd_funk_txn_t const *     txn,
-                               fd_funk_rec_key_t const * key,
-                               fd_valloc_t               valloc,
-                               ulong *                   result_len );
 
 /* fd_funk_rec_test tests the record pointed to by rec.  Returns
    FD_FUNK_SUCCESS (0) if rec appears to be a live unfrozen record in

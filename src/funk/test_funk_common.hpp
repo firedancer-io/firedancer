@@ -321,24 +321,11 @@ struct fake_funk {
     }
 
     void random_safe_read() {
-      fake_txn* list[MAX_TXNS];
-      uint listlen = 0;
-      for (auto i : _txns)
-        list[listlen++] = i.second;
-      auto * txn = list[((uint)lrand48())%listlen];
-      
-      fake_rec* list2[MAX_CHILDREN];
-      uint list2len = 0;
-      for (auto i : txn->_recs)
-        if (!i.second->_erased)
-          list2[list2len++] = i.second;
-      if (!list2len) return;
-      auto* rec = list2[((uint)lrand48())%list2len];
-
-      fd_funk_txn_t * txn2 = get_real_txn(txn);
-      auto key = rec->real_id();
+      fd_funk_rec_key_t i;
+      memset(&i, 0, sizeof(i));
+      i.ul[0] = ((ulong)lrand48())%MAX_CHILDREN;
       ulong datalen;
-      auto* data = fd_funk_rec_query_safe(_real, txn2, &key, fd_libc_alloc_virtual(), &datalen);
+      auto* data = fd_funk_rec_query_safe(_real, &i, fd_libc_alloc_virtual(), &datalen);
       if( data ) free(data);
     }
     
