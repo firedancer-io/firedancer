@@ -30,7 +30,7 @@ fd_vm_syscall_sol_panic( /**/            void *  _vm,
                          FD_PARAM_UNUSED ulong   arg3,
                          FD_PARAM_UNUSED ulong   arg4,
                          FD_PARAM_UNUSED ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   int err = fd_vm_consume_compute( vm, msg_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -72,7 +72,7 @@ fd_vm_syscall_sol_log( /**/            void *  _vm,
                        FD_PARAM_UNUSED ulong   arg3,
                        FD_PARAM_UNUSED ulong   arg4,
                        /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   int err = fd_vm_consume_compute( vm, fd_ulong_max( msg_sz, vm_compute_budget.syscall_base_cost ) );
   if( FD_UNLIKELY( err ) ) return err;
@@ -97,7 +97,7 @@ fd_vm_syscall_sol_log_64( void *  _vm,
                           ulong   arg3,
                           ulong   arg4,
                           ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   int err = fd_vm_consume_compute( vm, vm_compute_budget.log_64_units );
   if( FD_UNLIKELY( err ) ) return err;
@@ -125,7 +125,7 @@ fd_vm_syscall_sol_log_pubkey( /**/            void *  _vm,
                               FD_PARAM_UNUSED ulong   arg3,
                               FD_PARAM_UNUSED ulong   arg4,
                               /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   int err = fd_vm_consume_compute( vm, vm_compute_budget.log_pubkey_units );
   if( FD_UNLIKELY( err ) ) return err;
@@ -163,7 +163,7 @@ fd_vm_syscall_sol_log_compute_units( /**/            void *  _vm,
                                      FD_PARAM_UNUSED ulong   arg3,
                                      FD_PARAM_UNUSED ulong   arg4,
                                      /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
   if( FD_UNLIKELY( !vm ) ) return FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED;
 
   int err = fd_vm_consume_compute( vm, vm_compute_budget.syscall_base_cost );
@@ -191,7 +191,7 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
                             FD_PARAM_UNUSED ulong   arg3,
                             FD_PARAM_UNUSED ulong   arg4,
                             /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   int err = fd_vm_consume_compute( vm, vm_compute_budget.syscall_base_cost );
   if( FD_UNLIKELY( err ) ) return err;
@@ -251,7 +251,7 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
                               FD_PARAM_UNUSED ulong   arg3,
                               FD_PARAM_UNUSED ulong   arg4,
                               /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* This syscall is ... uh ... problematic.  But the community has
      already recognized this and deprecated it:
@@ -342,7 +342,7 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
                           FD_PARAM_UNUSED ulong   arg3,
                           FD_PARAM_UNUSED ulong   arg4,
                           /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   int err = fd_vm_consume_mem( vm, sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -383,7 +383,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
                           /**/            ulong   out_vaddr,
                           FD_PARAM_UNUSED ulong   arg4,
                           /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   int err = fd_vm_consume_mem( vm, sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -425,7 +425,7 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
                           FD_PARAM_UNUSED ulong   arg3,
                           FD_PARAM_UNUSED ulong   arg4,
                           /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   int err = fd_vm_consume_mem( vm, sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -448,7 +448,7 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
                            FD_PARAM_UNUSED ulong   arg3,
                            FD_PARAM_UNUSED ulong   arg4,
                            /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   int err = fd_vm_consume_mem( vm, sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -473,7 +473,7 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
                                     FD_PARAM_UNUSED ulong   arg3,
                                     FD_PARAM_UNUSED ulong   arg4,
                                     /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* FIXME: DON'T USE FD_TEST HERE ... SHOULD ONLY BE FOR UNIT TESTS,
      NOT SURE WHAT THIS IS */
@@ -508,7 +508,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
                                              FD_PARAM_UNUSED ulong   arg3,
                                              FD_PARAM_UNUSED ulong   arg4,
                                              /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* FIXME: DON'T USE FD_TEST HERE ... SHOULD ONLY BE FOR UNIT TESTS,
      NOT SURE WHAT THIS IS */
@@ -543,7 +543,7 @@ fd_vm_syscall_sol_get_fees_sysvar( /**/            void *  _vm,
                                    FD_PARAM_UNUSED ulong   arg3,
                                    FD_PARAM_UNUSED ulong   arg4,
                                    /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* FIXME: DON'T USE FD_TEST HERE ... SHOULD ONLY BE FOR UNIT TESTS,
      NOT SURE WHAT THIS IS */
@@ -578,7 +578,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
                                    FD_PARAM_UNUSED ulong   arg3,
                                    FD_PARAM_UNUSED ulong   arg4,
                                    /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* FIXME: DON'T USE FD_TEST HERE ... SHOULD ONLY BE FOR UNIT TESTS,
      NOT SURE WHAT THIS IS */
@@ -613,7 +613,7 @@ fd_vm_syscall_sol_get_stack_height( /**/            void *  _vm,
                                     FD_PARAM_UNUSED ulong   arg3,
                                     FD_PARAM_UNUSED ulong   arg4,
                                     /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   int err = fd_vm_consume_compute( vm, vm_compute_budget.syscall_base_cost );
   if( FD_UNLIKELY( err ) ) return err;
@@ -641,7 +641,7 @@ fd_vm_syscall_sol_get_return_data( /**/            void *  _vm,
                                    FD_PARAM_UNUSED ulong   arg3,
                                    FD_PARAM_UNUSED ulong   arg4,
                                    /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   int err = fd_vm_consume_compute( vm, vm_compute_budget.syscall_base_cost );
   if( FD_UNLIKELY( err ) ) return err;
@@ -689,7 +689,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
                                    FD_PARAM_UNUSED ulong   arg3,
                                    FD_PARAM_UNUSED ulong   arg4,
                                    /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+  fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* FIXME: Assumes non-zero denom */
   ulong cost = fd_ulong_sat_add( src_sz / vm_compute_budget.cpi_bytes_per_unit, vm_compute_budget.syscall_base_cost );
