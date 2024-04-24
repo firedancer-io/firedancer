@@ -13,9 +13,12 @@ jobs:
         test_case:
           - run-runtime-test-1
           - run-runtime-test-2
+          - run-runtime-test-3
+          - run-runtime-native
     steps:
       - uses: actions/checkout@v4
         with:
+          lfs:        true
           submodules: recursive
 
       - uses: ./.github/actions/deps
@@ -29,4 +32,5 @@ jobs:
       - name: make ${{ matrix.test_case }}
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
+          . /opt/rh/gcc-toolset-12/enable
           make ${{ matrix.test_case }}
