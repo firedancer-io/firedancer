@@ -33,6 +33,10 @@ typedef fd_gossip_peer_addr_t fd_repair_peer_addr_t;
 /* Callback when a new shred is received */
 typedef void (*fd_repair_shred_deliver_fun)( fd_shred_t const * shred, ulong shred_len, fd_repair_peer_addr_t const * from, fd_pubkey_t const * id, void * arg );
 
+/* Callbacks when a repair is requested. shred_idx==-1 means the last index. */
+typedef long (*fd_repair_serv_get_shred_fun)( ulong slot, int shred_idx, void * buf, ulong buf_max, void * arg );
+typedef long (*fd_repair_serv_get_parent_fun)( ulong slot, void * arg );
+
 /* Callback for sending a packet. addr is the address of the destination. */
 typedef void (*fd_repair_send_packet_fun)( uchar const * msg, size_t msglen, fd_repair_peer_addr_t const * addr, void * arg );
 
@@ -48,7 +52,10 @@ struct fd_repair_config {
     fd_repair_peer_addr_t service_addr;
     fd_repair_peer_addr_t intake_addr;
     fd_repair_shred_deliver_fun deliver_fun;
-    fd_repair_send_packet_fun send_fun;
+    fd_repair_serv_get_shred_fun serv_get_shred_fun;
+    fd_repair_serv_get_parent_fun serv_get_parent_fun;
+    fd_repair_send_packet_fun clnt_send_fun; /* sending client requests */
+    fd_repair_send_packet_fun serv_send_fun; /* sending service responses */
     fd_repair_shred_deliver_fail_fun deliver_fail_fun;
     void * fun_arg;
     fd_repair_sign_fun sign_fun;
@@ -78,8 +85,11 @@ int fd_repair_start( fd_repair_t * glob );
  * called inside the main spin loop. calling settime first is recommended. */
 int fd_repair_continue( fd_repair_t * glob );
 
-/* Pass a raw repair packet into the protocol. addr is the address of the sender */
-int fd_repair_recv_packet( fd_repair_t * glob, uchar const * msg, ulong msglen, fd_repair_peer_addr_t const * addr );
+/* Pass a raw client response packet into the protocol. addr is the address of the sender */
+int fd_repair_recv_clnt_packet( fd_repair_t * glob, uchar const * msg, ulong msglen, fd_repair_peer_addr_t const * addr );
+
+/* Pass a raw service request packet into the protocol. addr is the address of the sender */
+int fd_repair_recv_serv_packet( fd_repair_t * glob, uchar const * msg, ulong msglen, fd_repair_peer_addr_t const * addr );
 
 /* Determine if the request queue is full */
 int fd_repair_is_full( fd_repair_t * glob );
