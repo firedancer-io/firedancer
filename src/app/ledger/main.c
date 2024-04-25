@@ -418,7 +418,7 @@ main( int     argc,
     fd_memset( &state, 0, sizeof(state) );
 
     fd_tvu_gossip_deliver_arg_t gossip_deliver_arg[1];
-    fd_replay_t * replay;
+    fd_replay_t * replay = NULL;
     fd_tvu_main_setup( &state, &replay, NULL, NULL, 0, wksp, &args, gossip_deliver_arg );
 
     args.tcnt = fd_tile_cnt();
