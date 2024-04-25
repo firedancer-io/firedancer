@@ -954,8 +954,9 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
 
     uchar const * buffer_content = buffer_acc_data + BUFFER_METADATA_SIZE;
     uchar * programdata_content = programdata_acc_data + PROGRAMDATA_METADATA_SIZE;
+    ulong programdata_content_len = fd_ulong_sat_sub( programdata_acc_metadata->dlen, PROGRAMDATA_METADATA_SIZE );
     fd_memcpy(programdata_content, buffer_content, buffer_data_len);
-    fd_memset(programdata_content + buffer_data_len, 0, programdata_acc_metadata->dlen-buffer_data_len);
+    fd_memset(programdata_content + buffer_data_len, 0, programdata_content_len - buffer_data_len);
 
     spill_acc_metadata->info.lamports += programdata_acc_metadata->info.lamports + buffer_lamports - programdata_balance_required;
     buffer_acc_metadata_new->info.lamports = 0;

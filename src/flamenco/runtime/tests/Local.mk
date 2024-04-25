@@ -38,3 +38,4 @@ run-runtime-test-3: $(OBJDIR)/unit-test/test_runtime $(OBJDIR)/bin/fd_frank_ledg
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257035225 -s snapshot-257035225-EgwCNhhmffR38XWBXVp3GFs6fmtHKgzw5vEcD9e2oz14.tar.zst -p 32 -m 5000000 -e 257035233 --zst
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257465453 -s snapshot-257465452-3QExADnJwC756Law388ELX6xhtjnBGwToKVoQUFDcQfn.tar.zst -p 64 -m 80000000 -e 257485154 --zst
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257058865 -s snapshot-257058865-6SFEm7u5pLAhkm4vfiHiN3vMNkmZuyL2ACuaHznU52fi.tar.zst -p 16 -m 5000000 -e 257058870 --zst
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257059815 -s snapshot-257059815-AmWkVebTmg6ih2VTEjMmU9WtXhT3RygEoSJBHfDpyAG3.tar.zst -p 16 -m 5000000 -e 257059818 --zst
