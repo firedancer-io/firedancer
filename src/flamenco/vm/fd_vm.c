@@ -158,7 +158,6 @@ fd_vm_validate( fd_vm_t const * vm ) {
     case FD_VALID: break;
 
     case FD_CHECK_JMP: {
-      if( FD_UNLIKELY( instr.offset==-1 ) ) return FD_VM_ERR_INF_LOOP;
       long jmp_dst = (long)i + (long)instr.offset + 1L;
       if( FD_UNLIKELY( (jmp_dst<0) | (jmp_dst>=(long)text_cnt)                          ) ) return FD_VM_ERR_JMP_OUT_OF_BOUNDS;
       if( FD_UNLIKELY( fd_sbpf_instr( text[ jmp_dst ] ).opcode.raw==FD_SBPF_OP_ADDL_IMM ) ) return FD_VM_ERR_JMP_TO_ADDL_IMM;
