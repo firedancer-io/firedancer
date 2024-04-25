@@ -7,13 +7,10 @@ $(call add-objs,fd_exec_instr_test,fd_flamenco)
 
 $(call make-unit-test,test_exec_instr,test_exec_instr,fd_flamenco fd_funk fd_ballet fd_util,$(SECP256K1_LIBS))
 $(call make-shared,libfd_exec_sol_compat.so,fd_exec_sol_compat,fd_flamenco fd_funk fd_ballet fd_util,$(SECP256K1_LIBS))
-
-$(call make-unit-test,test_native_programs,test_native_programs fd_tests,fd_ballet fd_funk fd_util fd_sol_tests fd_flamenco,$(SECP256K1_LIBS))
-$(call run-unit-test,test_native_programs)
 endif
 
 # TODO: add run-runtime-test-3 to the list of run-runtime-test after big merge is done
-run-runtime-test: run-runtime-test-1 run-runtime-test-2
+run-runtime-test: run-runtime-test-1 run-runtime-test-2 run-runtime-test-3
 
 run-runtime-test-big: $(OBJDIR)/unit-test/test_native_programs $(OBJDIR)/unit-test/test_runtime $(OBJDIR)/bin/fd_frank_ledger
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l bad-incremental2 -s snapshot-262497545-3sFmKsyF32p4V2HMKaM6s2ymCG64NVcjuxYmen1aKky2.tar.zst  -i incremental-snapshot-262497545-262507921-Asuwpa3yuxsBZuVwsad41S3QHYejcdTdeNcqSHKbxvG1.tar.zst -p 250 -m 80000000 -e 255312010
