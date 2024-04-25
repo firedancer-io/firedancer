@@ -93,12 +93,9 @@ FD_FN_CONST static inline ulong fd_disco_poh_sig_bank_tile( ulong sig ) { return
 FD_FN_CONST static inline ulong
 fd_disco_replay_sig( ulong slot,
                      ulong flags ) {
-   /* The high 7 bits of the low byte of the signature field is the bank
-      idx.  Banks will filter to only handle frags with their own idx.
-      The higher 7 bytes are the slot number.  Technically, the slot
+   /* The higher 7 bytes are the slot number.  Technically, the slot
       number is a ulong, but it won't hit 256^7 for about 10^9 years at
-      the current rate.  The lowest bit of the low byte is the packet
-      type. */
+      the current rate.  The low byte is the flag is the low byte of the flag. */
   return (slot << 8) | (flags & 0xFFUL);
 }
 

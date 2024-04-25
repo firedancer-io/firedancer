@@ -215,7 +215,7 @@ typedef struct {
     struct {
       ulong snapshot_slot;
       char  identity_key_path[ PATH_MAX ];
-    } store;
+    } store_int;
   };
 } fd_topo_tile_t;
 

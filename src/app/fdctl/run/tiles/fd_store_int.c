@@ -4,7 +4,7 @@
 
 #include "tiles.h"
 
-#include "generated/store_seccomp.h"
+#include "generated/store_int_seccomp.h"
 #include "../../../../flamenco/repair/fd_repair.h"
 #include "../../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
@@ -245,10 +245,10 @@ privileged_init( fd_topo_t *      topo  FD_PARAM_UNUSED,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
 
-  if( FD_UNLIKELY( !strcmp( tile->store.identity_key_path, "" ) ) )
+  if( FD_UNLIKELY( !strcmp( tile->store_int.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->identity_key[ 0 ] = *(fd_pubkey_t *)fd_keyload_load( tile->store.identity_key_path, /* pubkey only: */ 1 );
+  ctx->identity_key[ 0 ] = *(fd_pubkey_t *)fd_keyload_load( tile->store_int.identity_key_path, /* pubkey only: */ 1 );
 }
 
 static void
@@ -479,14 +479,14 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* fake the snapshot slot's block and mark it as executed */
   fd_blockstore_slot_map_t * slot_entry =
-    fd_blockstore_slot_map_insert( fd_blockstore_slot_map( blockstore ), tile->store.snapshot_slot );
+    fd_blockstore_slot_map_insert( fd_blockstore_slot_map( blockstore ), tile->store_int.snapshot_slot );
   slot_entry->block.data_gaddr = ULONG_MAX;
   slot_entry->block.flags = fd_uchar_set_bit( slot_entry->block.flags, FD_BLOCK_FLAG_SNAPSHOT );
   slot_entry->block.flags = fd_uchar_set_bit( slot_entry->block.flags, FD_BLOCK_FLAG_PROCESSED );
   
-  if( FD_LIKELY( tile->store.snapshot_slot != 0 ) ) {
-    blockstore->root = tile->store.snapshot_slot;
-    blockstore->min  = tile->store.snapshot_slot;
+  if( FD_LIKELY( tile->store_int.snapshot_slot != 0 ) ) {
+    blockstore->root = tile->store_int.snapshot_slot;
+    blockstore->min  = tile->store_int.snapshot_slot;
   }
 
   ctx->blockstore = blockstore;
