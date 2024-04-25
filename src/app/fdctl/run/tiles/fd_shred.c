@@ -8,6 +8,7 @@
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../waltz/ip/fd_ip.h"
+#include "../../../../disco/tvu/util.h"
 
 #include "../../../../util/net/fd_eth.h"
 #include "../../../../util/net/fd_ip4.h"
@@ -100,16 +101,6 @@ FD_STATIC_ASSERT( 34*DCACHE_ENTRIES_PER_FEC_SET >= FD_REEDSOL_DATA_SHREDS_MAX+FD
 FD_STATIC_ASSERT( sizeof(fd_shred34_t) == FD_SHRED_STORE_MTU, shred_34 );
 
 FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==24UL, poh_shred_mtu );
-
-/* Part 2: Shred destinations */
-struct __attribute__((packed)) fd_shred_dest_wire {
-  uchar  pubkey[32];
-  /* The Labs splice writes this as octets, which means when we read
-     this, it's essentially network byte order */
-  uint   ip4_addr;
-  ushort udp_port;
-};
-typedef struct fd_shred_dest_wire fd_shred_dest_wire_t;
 
 typedef struct __attribute__((packed)) {
   fd_eth_hdr_t eth[1];
