@@ -1429,9 +1429,9 @@ withdraw(
   if( FD_UNLIKELY( rc ) ) return rc;
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L908-L911
-  ulong remaining_balance = vote_account->const_meta->info.lamports - lamports;
   if( FD_UNLIKELY( lamports > vote_account->const_meta->info.lamports ) )
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+  ulong remaining_balance = vote_account->const_meta->info.lamports - lamports;
 
   if( FD_UNLIKELY( remaining_balance == 0 ) ) {
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L924
