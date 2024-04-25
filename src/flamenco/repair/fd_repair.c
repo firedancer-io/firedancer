@@ -15,8 +15,6 @@
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
-/* Maximum size of a network packet */
-#define PACKET_DATA_SIZE 1232
 /* Max number of validators that can be actively queried */
 #define FD_ACTIVE_KEY_MAX (1<<12)
 /* Max number of pending shred requests */
