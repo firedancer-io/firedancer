@@ -173,18 +173,16 @@ main( int argc, char ** argv ) {
       fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &snapshot_fork->slot_ctx, valloc ) );
   FD_TEST( snapshot_slot_ctx );
 
-  snapshot_slot_ctx->epoch_ctx = epoch_ctx;
+  snapshot_slot_ctx->epoch_ctx  = epoch_ctx;
+  snapshot_slot_ctx->acc_mgr    = acc_mgr;
+  snapshot_slot_ctx->blockstore = blockstore;
+  snapshot_slot_ctx->valloc     = valloc;
 
   fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
   FD_TEST( snapshot_slot_ctx->funk_txn );
 
-
   ulong snapshot_slot = snapshot_slot_ctx->slot_bank.slot;
   FD_LOG_NOTICE( ( "snapshot_slot: %lu", snapshot_slot ) );
-
-  snapshot_slot_ctx->acc_mgr    = acc_mgr;
-  snapshot_slot_ctx->blockstore = blockstore;
-  snapshot_slot_ctx->valloc     = valloc;
 
   snapshot_slot_ctx->slot_bank.collected_fees = 0;
   snapshot_slot_ctx->slot_bank.collected_rent = 0;
