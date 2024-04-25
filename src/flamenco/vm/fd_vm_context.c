@@ -99,12 +99,10 @@ fd_vm_context_validate( fd_vm_exec_context_t const * ctx ) {
     uchar validation_code = FD_OPCODE_VALIDATION_MAP[instr.opcode.raw];
 
     switch (validation_code) {
-      case FD_VALID:
+      case FD_VALID: {
         break;
-      case FD_CHECK_JMP:
-        if (instr.offset == -1) {
-          return FD_VM_SBPF_VALIDATE_ERR_INF_LOOP;
-        }
+      }
+      case FD_CHECK_JMP: {
         long jmp_dst = (long)i + instr.offset + 1;
         if (jmp_dst < 0 || jmp_dst >= (long)ctx->instrs_sz) {
           return FD_VM_SBPF_VALIDATE_ERR_JMP_OUT_OF_BOUNDS;
@@ -112,14 +110,17 @@ fd_vm_context_validate( fd_vm_exec_context_t const * ctx ) {
           return FD_VM_SBPF_VALIDATE_ERR_JMP_TO_ADDL_IMM;
         }
         break;
-      case FD_CHECK_END:
+      }
+      case FD_CHECK_END: {
         if (instr.imm != 16 && instr.imm != 32 && instr.imm != 64) {
           return FD_VM_SBPF_VALIDATE_ERR_INVALID_END_IMM;
         }
         break;
-      case FD_CHECK_ST:
+      }
+      case FD_CHECK_ST: {
         break;
-      case FD_CHECK_LDQ:
+      }
+      case FD_CHECK_LDQ: {
         if (instr.src_reg != 0) {
           return FD_VM_SBPF_VALIDATE_ERR_INVALID_SRC_REG;
         }
@@ -131,7 +132,8 @@ fd_vm_context_validate( fd_vm_exec_context_t const * ctx ) {
         }
         ++i;
         break;
-      case FD_CHECK_CALL:
+      }
+      case FD_CHECK_CALL: {
         // TODO: Check to make sure we are really doing this right! (required for sbpf2?)
         if( instr.imm >= ctx->instrs_sz
             && fd_sbpf_syscalls_query ( ctx->syscall_map, instr.imm, NULL ) == NULL
@@ -139,8 +141,10 @@ fd_vm_context_validate( fd_vm_exec_context_t const * ctx ) {
               return FD_VM_SBPF_VALIDATE_ERR_NO_SUCH_EXT_CALL;
         }
         break;
-      case FD_INVALID:
+      }
+      case FD_INVALID: {
         return FD_VM_SBPF_VALIDATE_ERR_INVALID_OPCODE;
+      }
     }
 
     if (instr.src_reg > 10) {
