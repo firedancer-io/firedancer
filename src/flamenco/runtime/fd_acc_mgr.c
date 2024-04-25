@@ -290,10 +290,6 @@ fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
 
   fd_wksp_t * wksp = fd_funk_wksp( acc_mgr->funk );
   ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
-  int err;
-  if( fd_funk_val_truncate( account->rec, reclen, fd_funk_alloc( acc_mgr->funk, wksp ), wksp, &err ) == NULL ) {
-    FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
-  }
   uchar * raw = fd_funk_val( account->rec, wksp );
   fd_memcpy( raw, account->meta, reclen );
 
@@ -315,6 +311,12 @@ fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
   account->rec = rec;
   if ( acc_mgr->slots_per_epoch != 0 )
     fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
+  ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
+  fd_wksp_t * wksp = fd_funk_wksp( acc_mgr->funk );
+  int err;
+  if( fd_funk_val_truncate( account->rec, reclen, fd_funk_alloc( acc_mgr->funk, wksp ), wksp, &err ) == NULL ) {
+    FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
+  }
   return fd_acc_mgr_save( acc_mgr, account );
 }
 
@@ -423,6 +425,11 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
       account->rec = rec;
       if ( acc_mgr->slots_per_epoch != 0 )
         fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
+      ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
+      int err;
+      if( fd_funk_val_truncate( account->rec, reclen, fd_funk_alloc( acc_mgr->funk, wksp ), wksp, &err ) == NULL ) {
+        FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
+      }
     }
 
     fd_acc_mgr_save_task_args_t task_args = {
