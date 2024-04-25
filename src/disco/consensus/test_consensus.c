@@ -14,12 +14,19 @@
 
 #define TEST_CONSENSUS_MAGIC ( 0x7e57UL ) /* test */
 
+/* FIXME: is this obsolete?
 struct fd_shred_cap_replay_args {
   const char *      shred_cap;
   fd_blockstore_t * blockstore;
   fd_replay_t *     replay;
 };
 typedef struct fd_shred_cap_replay_args fd_shred_cap_replay_args_t;
+*/
+
+/* Replay shreds from the shredcap file */
+void offline_replay(fd_replay_t * replay, const char* shredcap);
+/* Capture shreds online by turbine and repair */
+void online_archive(fd_replay_t * replay);
 
 int
 main( int argc, char ** argv ) {
@@ -213,13 +220,24 @@ main( int argc, char ** argv ) {
 
   bft->snapshot_slot = snapshot_slot;
 
-  /* shred cap */
+  
+  /* Get shreds offline with shredcap */
+  //const char * _shredcap = fd_env_strip_cmdline_cstr( &argc, &argv, "--shredcap", NULL, NULL );
+  //offline_replay(replay, _shredcap);
 
-  const char * _shredcap = fd_env_strip_cmdline_cstr( &argc, &argv, "--shredcap", NULL, NULL );
-  if( !_shredcap ) FD_LOG_ERR( ( "must pass in --shredcap <FILE>" ) );
-
-  fd_shred_cap_replay( _shredcap, replay );
-
+  /* Get shreds online with turbine and repair */
+  online_archive(replay);
+  
   fd_halt();
   return 0;
+}
+
+void offline_replay(fd_replay_t * replay, const char* _shredcap) {
+  if( _shredcap ) FD_LOG_ERR( ( "must pass in --shredcap <FILE>" ) );
+  fd_shred_cap_replay( _shredcap, replay );  
+}
+
+void online_archive(fd_replay_t * replay) {
+  replay->now = fd_log_wallclock();
+  FD_LOG_ERR( ( "online_archive to be implemented" ) );
 }
