@@ -95,7 +95,7 @@ fd_disco_replay_sig( ulong slot,
                      ulong flags ) {
    /* The higher 7 bytes are the slot number.  Technically, the slot
       number is a ulong, but it won't hit 256^7 for about 10^9 years at
-      the current rate.  The low byte is the flag is the low byte of the flag. */
+      the current rate.  The low byte is a flag bitset, a mix of REPLAY_FLAG_* */
   return (slot << 8) | (flags & 0xFFUL);
 }
 

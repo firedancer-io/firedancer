@@ -35,7 +35,6 @@
 #define REPAIR_OUT_IDX  0
 #define REPLAY_OUT_IDX  1
 
-#define MAX_REPAIR_PEERS (40200UL)
 #define MAX_REPAIR_REQS  (32768UL)
 
 #define SCRATCH_SMAX     (256UL << 21UL)
@@ -49,10 +48,6 @@ struct fd_store_tile_ctx {
 
   fd_store_t * store;
   fd_blockstore_t * blockstore;
-
-  fd_wksp_t *     net_in;
-  ulong           chunk;
-  ulong           wmark;
 
   fd_wksp_t * shred_in_mem;
   ulong       shred_in_chunk0;
@@ -107,7 +102,7 @@ typedef struct fd_store_tile_ctx fd_store_tile_ctx_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return 4096UL;
+  return 128UL;
 }
 
 FD_FN_PURE static inline ulong
@@ -496,12 +491,6 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !alloc_shmem ) ) { 
     FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); 
   }
-  
-  fd_topo_link_t * netmux_link = &topo->links[ tile->in_link_id[ 0 ] ];
-
-  ctx->net_in = topo->workspaces[ topo->objs[ netmux_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->chunk  = fd_disco_compact_chunk0( ctx->net_in );
-  ctx->wmark  = fd_disco_compact_wmark( ctx->net_in, netmux_link->mtu );
 
   /* Set up shred tile input */
   fd_topo_link_t * shred_in_link = &topo->links[ tile->in_link_id[ SHRED_IN_IDX ] ];
@@ -567,8 +556,8 @@ populate_allowed_seccomp( void *               scratch,
                           ulong                out_cnt,
                           struct sock_filter * out ) {
   (void)scratch;
-  populate_sock_filter_policy_store( out_cnt, out, (uint)fd_log_private_logfile_fd() );
-  return sock_filter_policy_store_instr_cnt;
+  populate_sock_filter_policy_store_int( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_store_int_instr_cnt;
 }
 
 static ulong
