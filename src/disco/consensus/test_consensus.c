@@ -23,13 +23,35 @@ struct fd_shred_cap_replay_args {
 typedef struct fd_shred_cap_replay_args fd_shred_cap_replay_args_t;
 */
 
-/* Replay shreds from the shredcap file */
-void offline_replay(fd_replay_t * replay, const char* shredcap);
-/* Capture shreds online by turbine and repair */
-void online_archive(fd_replay_t * replay);
+void          online_archive_init(int argc, char ** argv);
+fd_replay_t * offline_replay_init(int argc, char ** argv);
 
 int
 main( int argc, char ** argv ) {
+  const char * _shredcap = fd_env_strip_cmdline_cstr( &argc, &argv, "--shredcap", NULL, NULL );
+
+  if( _shredcap ) {
+    /* Replay shreds from the shredcap file */
+    fd_replay_t * replay = offline_replay_init(argc, argv);
+    fd_shred_cap_replay( _shredcap, replay );  
+  } else {
+    /* Capture live shreds from turbine & repair */
+    online_archive_init(argc, argv);
+  }
+  
+  fd_halt();
+  return 0;
+}
+
+void online_archive_init(int argc, char** argv) {
+  const char * _snapshot = fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshot", NULL, NULL );
+
+  if (!_snapshot) FD_LOG_ERR( ( "must pass in one of --snapshot <FILE> and --shredcap <FILE>" ) );
+  //replay->now = fd_log_wallclock();
+  FD_LOG_ERR( ( "online_archive_init not ready yet" ) );
+}
+
+fd_replay_t * offline_replay_init(int argc, char ** argv) {
   fd_boot( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
@@ -218,24 +240,5 @@ main( int argc, char ** argv ) {
 
   bft->snapshot_slot = snapshot_slot;
 
-  
-  /* Get shreds offline with shredcap */
-  //const char * _shredcap = fd_env_strip_cmdline_cstr( &argc, &argv, "--shredcap", NULL, NULL );
-  //offline_replay(replay, _shredcap);
-
-  /* Get shreds online with turbine and repair */
-  online_archive(replay);
-  
-  fd_halt();
-  return 0;
-}
-
-void offline_replay(fd_replay_t * replay, const char* _shredcap) {
-  if( _shredcap ) FD_LOG_ERR( ( "must pass in --shredcap <FILE>" ) );
-  fd_shred_cap_replay( _shredcap, replay );  
-}
-
-void online_archive(fd_replay_t * replay) {
-  replay->now = fd_log_wallclock();
-  FD_LOG_ERR( ( "online_archive to be implemented" ) );
+  return replay;
 }
