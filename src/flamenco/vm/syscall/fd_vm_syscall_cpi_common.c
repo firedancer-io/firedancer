@@ -253,7 +253,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
 
     /* Find the indicies of the account in the caller and callee instructions */
     uint found = 0;
-    for( ulong j=0; j < account_infos_length; j++ ) {
+    for( ulong j=0; (j < account_infos_length) && !found; j++ ) {
 
       /* Look up the pubkey to see if it is the account we're looking for */
       fd_pubkey_t const * acct_addr = FD_VM_MEM_HADDR_LD( 
