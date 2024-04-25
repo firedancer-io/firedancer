@@ -142,6 +142,7 @@ typedef struct {
       ushort shred_listen_port;
       ushort quic_transaction_listen_port;
       ushort legacy_transaction_listen_port;
+      ushort repair_instake_listen_port;
     } net;
 
     struct {
@@ -211,6 +212,12 @@ typedef struct {
     struct {
       ulong accounts_cnt;
     } benchg;
+
+    struct {
+      char    repair_intake_addr[ 22 ];   // len('255.255.255.255:65535') == 22
+      char    repair_serve_addr[ 22 ];    // len('255.255.255.255:65535') == 22
+      uchar   src_mac_addr[ 6 ];
+    } repair;
   };
 } fd_topo_tile_t;
 

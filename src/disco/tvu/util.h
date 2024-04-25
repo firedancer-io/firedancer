@@ -15,4 +15,11 @@ struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_repair_request {
 };
 typedef struct fd_repair_request fd_repair_request_t;
 
+struct fd_contact_info_elem {
+  fd_pubkey_t key;
+  ulong next;
+  fd_gossip_contact_info_v1_t contact_info;
+};
+typedef struct fd_contact_info_elem fd_contact_info_elem_t;
+
 #endif /* HEADER_fd_src_app_fdctl_run_util_h */

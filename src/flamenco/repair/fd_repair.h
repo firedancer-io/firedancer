@@ -10,6 +10,16 @@
 #define FD_REPAIR_DELIVER_FAIL_TIMEOUT -1
 #define FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED -2
 
+/* Maximum size of a network packet */
+#define FD_REPAIR_MAX_PACKET_SIZE 1232
+
+/* Scratch space is used by the repair library to allocate an
+   active element table and to shuffle that table.
+   TODO: update comment to reflect the reasoning behind
+   these constants once they are fully understood and updated. */
+#define FD_REPAIR_SCRATCH_MAX    (1UL << 30UL)
+#define FD_REPAIR_SCRATCH_DEPTH  (1UL << 11UL)
+
 /* Global state of repair protocol */
 typedef struct fd_repair fd_repair_t;
 ulong         fd_repair_align    ( void );

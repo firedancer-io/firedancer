@@ -8,10 +8,9 @@
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../waltz/ip/fd_ip.h"
+#include "../../../../disco/fd_disco.h"
 
-#include "../../../../util/net/fd_eth.h"
-#include "../../../../util/net/fd_ip4.h"
-#include "../../../../util/net/fd_udp.h"
+#include "../../../../util/net/fd_net_headers.h"
 
 #include <linux/unistd.h>
 
@@ -101,22 +100,6 @@ FD_STATIC_ASSERT( sizeof(fd_shred34_t) == FD_SHRED_STORE_MTU, shred_34 );
 
 FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==24UL, poh_shred_mtu );
 
-/* Part 2: Shred destinations */
-struct __attribute__((packed)) fd_shred_dest_wire {
-  uchar  pubkey[32];
-  /* The Labs splice writes this as octets, which means when we read
-     this, it's essentially network byte order */
-  uint   ip4_addr;
-  ushort udp_port;
-};
-typedef struct fd_shred_dest_wire fd_shred_dest_wire_t;
-
-typedef struct __attribute__((packed)) {
-  fd_eth_hdr_t eth[1];
-  fd_ip4_hdr_t ip4[1];
-  fd_udp_hdr_t udp[1];
-} eth_ip_udp_t;
-
 #define FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT 2
 
 typedef struct {
@@ -151,8 +134,8 @@ typedef struct {
 
   ushort net_id;
 
-  eth_ip_udp_t data_shred_net_hdr  [1];
-  eth_ip_udp_t parity_shred_net_hdr[1];
+  fd_net_hdrs_t data_shred_net_hdr  [1];
+  fd_net_hdrs_t parity_shred_net_hdr[1];
 
   fd_wksp_t * shred_store_wksp;
 
@@ -489,11 +472,11 @@ send_shred( fd_shred_ctx_t *      ctx,
   uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
 
   int is_data = fd_shred_type( shred->variant )==FD_SHRED_TYPE_MERKLE_DATA;
-  eth_ip_udp_t * tmpl = fd_ptr_if( is_data, (eth_ip_udp_t *)ctx->data_shred_net_hdr,
-                                            (eth_ip_udp_t *)ctx->parity_shred_net_hdr );
-  fd_memcpy( packet, tmpl, sizeof(eth_ip_udp_t) );
+  fd_net_hdrs_t * tmpl = fd_ptr_if( is_data, (fd_net_hdrs_t *)ctx->data_shred_net_hdr,
+                                            (fd_net_hdrs_t *)ctx->parity_shred_net_hdr );
+  fd_memcpy( packet, tmpl, sizeof(fd_net_hdrs_t) );
 
-  eth_ip_udp_t * hdr = (eth_ip_udp_t *)packet;
+  fd_net_hdrs_t * hdr = (fd_net_hdrs_t *)packet;
 
   memset( hdr->eth->dst, 0, 6UL );
 
@@ -505,9 +488,9 @@ send_shred( fd_shred_ctx_t *      ctx,
   hdr->udp->net_dport  = fd_ushort_bswap( dest->port );
 
   ulong shred_sz = fd_ulong_if( is_data, FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ );
-  fd_memcpy( packet+sizeof(eth_ip_udp_t), shred, shred_sz );
+  fd_memcpy( packet+sizeof(fd_net_hdrs_t), shred, shred_sz );
 
-  ulong pkt_sz = shred_sz + sizeof(eth_ip_udp_t);
+  ulong pkt_sz = shred_sz + sizeof(fd_net_hdrs_t);
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong   sig = fd_disco_netmux_sig( 0U, 0U, dest->ip4, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
@@ -659,32 +642,6 @@ after_frag( void *             _ctx,
   for( ulong i=0UL; i<k; i++ ) for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, new_shreds[ i ], sdest, dests[ j*out_stride+i ], ctx->tsorig );
 }
 
-static inline void
-populate_packet_header_template( eth_ip_udp_t * pkt,
-                                 ulong          shred_payload_sz,
-                                 uint           src_ip,
-                                 uchar const *  src_mac,
-                                 ushort         src_port ) {
-  memset( pkt->eth->dst, 0,       6UL );
-  memcpy( pkt->eth->src, src_mac, 6UL );
-  pkt->eth->net_type  = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
-
-  pkt->ip4->verihl       = FD_IP4_VERIHL( 4U, 5U );
-  pkt->ip4->tos          = (uchar)0;
-  pkt->ip4->net_tot_len  = fd_ushort_bswap( (ushort)(shred_payload_sz + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)) );
-  pkt->ip4->net_frag_off = fd_ushort_bswap( FD_IP4_HDR_FRAG_OFF_DF );
-  pkt->ip4->ttl          = (uchar)64;
-  pkt->ip4->protocol     = FD_IP4_HDR_PROTOCOL_UDP;
-  pkt->ip4->check        = 0U;
-  memcpy( pkt->ip4->saddr_c, &src_ip, 4UL );
-  memset( pkt->ip4->daddr_c, 0,       4UL ); /* varies by shred */
-
-  pkt->udp->net_sport = fd_ushort_bswap( src_port );
-  pkt->udp->net_dport = (ushort)0; /* varies by shred */
-  pkt->udp->net_len   = fd_ushort_bswap( (ushort)(shred_payload_sz + sizeof(fd_udp_hdr_t)) );
-  pkt->udp->check     = (ushort)0;
-}
-
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile,
@@ -832,8 +789,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->net_id   = (ushort)0;
 
-  populate_packet_header_template( ctx->data_shred_net_hdr,   FD_SHRED_MIN_SZ, tile->shred.ip_addr, tile->shred.src_mac_addr, tile->shred.shred_listen_port );
-  populate_packet_header_template( ctx->parity_shred_net_hdr, FD_SHRED_MAX_SZ, tile->shred.ip_addr, tile->shred.src_mac_addr, tile->shred.shred_listen_port );
+  fd_net_create_packet_header_template( ctx->data_shred_net_hdr,   FD_SHRED_MIN_SZ, tile->shred.ip_addr, tile->shred.src_mac_addr, tile->shred.shred_listen_port );
+  fd_net_create_packet_header_template( ctx->parity_shred_net_hdr, FD_SHRED_MAX_SZ, tile->shred.ip_addr, tile->shred.src_mac_addr, tile->shred.shred_listen_port );
 
   fd_topo_link_t * netmux_shred_link = &topo->links[ tile->in_link_id[ NET_IN_IDX     ] ];
   fd_topo_link_t * poh_shred_link    = &topo->links[ tile->in_link_id[ POH_IN_IDX     ] ];
