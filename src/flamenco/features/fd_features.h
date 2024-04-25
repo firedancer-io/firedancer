@@ -41,9 +41,10 @@ typedef union fd_features fd_features_t;
    byte offset in fd_features_t. */
 
 struct fd_feature_id {
-  ulong       index;          /* index of feature in fd_features_t */
-  fd_pubkey_t id;             /* pubkey of feature */
-  uint        hardcoded : 1;  /* is always enabled in Firedancer? */
+  ulong        index;          /* index of feature in fd_features_t */
+  fd_pubkey_t  id;             /* pubkey of feature */
+  char const * name;           /* feature name cstr */
+  uint         hardcoded : 1;  /* is always enabled in Firedancer? */
 };
 typedef struct fd_feature_id fd_feature_id_t;
 
