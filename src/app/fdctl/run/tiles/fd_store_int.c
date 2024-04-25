@@ -131,24 +131,13 @@ mux_ctx( void * scratch ) {
 }
 
 static void
-before_frag( void * _ctx,
-             ulong  in_idx     FD_PARAM_UNUSED,
-             ulong  seq        FD_PARAM_UNUSED,
-             ulong  sig        FD_PARAM_UNUSED,
-             int *  opt_filter FD_PARAM_UNUSED) {
-
-  fd_store_tile_ctx_t * ctx = (fd_store_tile_ctx_t *)_ctx;
-  (void)ctx;
-}
-
-static void
 during_frag( void * _ctx,
              ulong  in_idx,
              ulong  seq,
              ulong  sig,
              ulong  chunk,
              ulong  sz,
-             int *  opt_filter ) {
+             int *  opt_filter FD_PARAM_UNUSED ) {
   (void)seq;
   (void)sig;
 
@@ -160,7 +149,6 @@ during_frag( void * _ctx,
             ctx->stake_in_chunk0, ctx->stake_in_wmark ));
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->stake_in_mem, chunk );
     fd_stake_ci_stake_msg_init( ctx->stake_ci, dcache_entry );
-    return;
   }
 
   if( FD_UNLIKELY( in_idx==SHRED_IN_IDX ) ) {
@@ -171,9 +159,6 @@ during_frag( void * _ctx,
     fd_shred34_t const * s34 = fd_chunk_to_laddr_const( ctx->shred_in_mem, chunk );
 
     memcpy( ctx->s34_buffer, s34, sz );
-    *opt_filter = 0;
-    
-    return;
   }
 
   if( FD_UNLIKELY( in_idx==REPAIR_IN_IDX ) ) {
@@ -184,14 +169,7 @@ during_frag( void * _ctx,
     uchar const * shred = fd_chunk_to_laddr_const( ctx->repair_in_mem, chunk );
 
     memcpy( ctx->shred_buffer, shred, sz );
-    *opt_filter = 0;
-    
-    return;
   }
-
-  *opt_filter = 1;
-
-  return;
 }
 
 static void
@@ -216,6 +194,7 @@ after_frag( void *             _ctx,
 
   if( FD_UNLIKELY( in_idx==SHRED_IN_IDX ) ) {
     for( ulong i = 0; i < ctx->s34_buffer->shred_cnt; i++ ) {
+      // TODO: improve return value of api to not use < OK
       if( fd_store_shred_insert( ctx->store, &ctx->s34_buffer->pkts[i].shred ) < FD_BLOCKSTORE_OK ) {
         FD_LOG_ERR(( "failed inserting to blockstore" ));
       }
@@ -580,7 +559,6 @@ fd_topo_run_tile_t fd_tile_store = {
   .burst                    = 1UL,
   .loose_footprint          = loose_footprint,
   .mux_ctx                  = mux_ctx,
-  .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
   .populate_allowed_seccomp = populate_allowed_seccomp,
