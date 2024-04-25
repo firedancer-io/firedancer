@@ -608,9 +608,6 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
             reasonable finite amount of time.  If a future syscall
             needs this, do "cu = vm->cu" below.
 
-          - A syscall that zeros cu is always treated as though it
-            returned SIGCOST.
-
           - A syscall that returns SIGCOST is always treated as though
             it also zerod cu. */
 
@@ -618,7 +615,6 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
           and cu is positive */
 
       ulong cu_req = vm->cu;
-      if( FD_UNLIKELY( !cu_req ) ) err = FD_VM_ERR_SIGCOST; /* cmov */
       cu = fd_ulong_min( cu_req, cu );
       if( FD_UNLIKELY( err ) ) {
         if( err==FD_VM_ERR_SIGCOST ) cu = 0UL; /* cmov */
