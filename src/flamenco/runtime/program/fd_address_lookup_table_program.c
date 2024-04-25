@@ -74,12 +74,14 @@ fd_addrlut_deserialize( fd_addrlut_t * lut,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
+/* https://github.com/solana-labs/solana/blob/v1.17.4/sdk/program/src/address_lookup_table/state.rs#L121-L134 */
+
 static int
 fd_addrlut_serialize_meta( fd_address_lookup_table_state_t const * state,
                            uchar * data,
                            ulong   data_sz ) {
-
-  /* TODO can this ever get hit?  All code paths to this function seem
+  /* Serialize an address table's updated meta data and zero any leftover bytes. */
+  /* TODO: can this ever get hit?  All code paths to this function seem
      to check account data size during deserialization. */
   if( FD_UNLIKELY( data_sz<FD_ADDRLUT_META_SZ ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -87,11 +89,11 @@ fd_addrlut_serialize_meta( fd_address_lookup_table_state_t const * state,
   fd_bincode_encode_ctx_t encode =
     { .data    = data,
       .dataend = data+FD_ADDRLUT_META_SZ };
+  fd_memset( data, 0, (ulong)encode.dataend - (ulong)encode.data );
 
   int bin_err = fd_address_lookup_table_state_encode( state, &encode );
   FD_TEST( !bin_err );
 
-  fd_memset( data, 0, (ulong)encode.dataend - (ulong)encode.data );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -519,8 +521,9 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* try_borrow_account => RefCell::try_borrow_mut (see above note)
      (See https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L181) */
-  if( FD_UNLIKELY( !fd_borrowed_account_acquire_write_is_safe( lut_acct ) ) )
+  if( FD_UNLIKELY( !fd_borrowed_account_acquire_write_is_safe( lut_acct ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L178-L181 */
   if( FD_UNLIKELY( 0!=memcmp( lut_acct->const_meta->info.owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
@@ -531,22 +534,24 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L183-L184 */
 
   /* try_borrow_account => get_index_of_instruction_account_in_transaction */
-  if( FD_UNLIKELY( ctx->instr->acct_cnt < ACC_IDX_AUTHORITY+1UL ) )
+  if( FD_UNLIKELY( ctx->instr->acct_cnt < ACC_IDX_AUTHORITY+1UL ) ) {
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  }
   fd_borrowed_account_t * authority_acct = NULL;
   fd_instr_borrowed_account_view_idx( ctx, ACC_IDX_AUTHORITY, &authority_acct );  /* check error? */
   FD_TEST( authority_acct );
 
   /* try_borrow_instruction_account => RefCell::try_borrow_mut (see above note)
      (See https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L190) */
-  if( FD_UNLIKELY( !fd_borrowed_account_acquire_write_is_safe( authority_acct ) ) )
+  if( FD_UNLIKELY( !fd_borrowed_account_acquire_write_is_safe( authority_acct ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+  }
 
   fd_pubkey_t const * authority_key = authority_acct->pubkey;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L186-L189 */
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY ) ) ) {
-    /* TODO Log: "Authority account must be a signer" */
+    FD_LOG_WARNING(("Authority account must be a signer"));
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -561,51 +566,53 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   ulong         lut_data_sz = lut_acct->const_meta->dlen;
 
   int err = FD_EXECUTOR_INSTR_SUCCESS;
-  do {  /* with locked account */
-    /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L195 */
-    fd_addrlut_t lut[1];
-    int state_err = fd_addrlut_deserialize( lut, lut_data, lut_data_sz );
-    if( FD_UNLIKELY( state_err ) ) { err = state_err; break; }
+  /* with locked account */
+  /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L195 */
+  fd_addrlut_t lut[1];
+  int state_err = fd_addrlut_deserialize( lut, lut_data, lut_data_sz );
+  if( FD_UNLIKELY( state_err ) ) {
+    err = state_err;
+  }
 
-    fd_address_lookup_table_t * state = &lut->state.inner.lookup_table;
+  fd_address_lookup_table_t * state = &lut->state.inner.lookup_table;
 
-    /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L197-L200 */
-    if( FD_UNLIKELY( !state->meta.has_authority ) ) {
-      /* TODO Log: "Lookup table is already frozen" */
-      err = FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE; break;
-    }
+  /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L197-L200 */
+  if( FD_UNLIKELY( !state->meta.has_authority ) ) {
+    /* TODO Log: "Lookup table is already frozen" */
+    FD_LOG_WARNING(("Lookup table is alredy frozen"));
+    err = FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+  }
 
-    /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L201-L203 */
-    if( FD_UNLIKELY( 0!=memcmp( state->meta.authority.key, authority_key->key, sizeof(fd_pubkey_t) ) ) ) {
-      /* TODO Log: "Incorrect Authority" */
-      err = FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY; break;
-    }
+  /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L201-L203 */
+  if( FD_UNLIKELY( 0!=memcmp( state->meta.authority.key, authority_key->key, sizeof(fd_pubkey_t) ) ) ) {
+    FD_LOG_WARNING(("Incorrect Authority"));
+    err = FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+  }
 
-    /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L204-L207 */
-    if( FD_UNLIKELY( state->meta.deactivation_slot != ULONG_MAX ) ) {
-      /* TODO Log: "Deactivated tables cannot be frozen" */
-      err = FD_EXECUTOR_INSTR_ERR_INVALID_ARG; break;
-    }
+  /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L204-L207 */
+  if( FD_UNLIKELY( state->meta.deactivation_slot != ULONG_MAX ) ) {
+    FD_LOG_WARNING(("Deactivated tables cannot be frozen"));
+    err = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  }
 
-    /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L208-L211 */
-    if( FD_UNLIKELY( !lut->addr_cnt ) ) {
-      /* TODO Log: "Empty lookup tables cannot be frozen" */
-      err = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA; break;
-    }
+  /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L208-L211 */
+  if( FD_UNLIKELY( !lut->addr_cnt ) ) {
+    FD_LOG_WARNING(("Empty lookup tables can't be frozen"));
+    err = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
 
-    /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L216 */
-    int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
-    if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
-      err = FD_EXECUTOR_INSTR_ERR_FATAL; break;
-    }
+  /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L216 */
+  int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
+  if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
+    err = FD_EXECUTOR_INSTR_ERR_FATAL;
+  }
 
-    /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L213-L218 */
-    state->meta.has_authority = 0;
-    state_err = fd_addrlut_serialize_meta( &lut->state, lut_acct->data, lut_acct->meta->dlen );
-    if( FD_UNLIKELY( state_err ) ) { err = state_err; break; }
-
-    err = FD_EXECUTOR_INSTR_SUCCESS;
-  } while(0);
+  /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L213-L218 */
+  state->meta.has_authority = 0;
+  state_err = fd_addrlut_serialize_meta( &lut->state, lut_acct->data, lut_acct->meta->dlen );
+  if( FD_UNLIKELY( state_err ) ) {
+    err = state_err;
+  }
   fd_borrowed_account_release_write( lut_acct );
 
   return err;
