@@ -131,8 +131,7 @@ Paramaters:
 static int
 VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
                                       VM_SYSCALL_CPI_ACC_INFO_T const * account_info,
-                                      fd_pubkey_t const * callee_acc_pubkey,
-                                      ulong callee_acc_idx ) {
+                                      fd_pubkey_t const * callee_acc_pubkey ) {
 
   fd_borrowed_account_t * callee_acc = NULL;
   int err = fd_instr_borrowed_account_modify(vm->instr_ctx, callee_acc_pubkey, 0, &callee_acc);
@@ -161,7 +160,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
   int err2;
   /* FIXME: double-check these permissions, especially the callee_acc_idx */
   if( fd_account_can_data_be_resized( vm->instr_ctx->instr, callee_acc->meta, caller_acc_data_len, &err1 ) &&
-      fd_account_can_data_be_changed( vm->instr_ctx->instr, callee_acc_idx, &err2 ) ) {
+      fd_account_can_data_be_changed2( vm->instr_ctx, callee_acc->meta, callee_acc_pubkey, &err2 ) ) {
       /* We must ignore the errors here, as they are informational and do not mean the result is invalid. */
       /* TODO: not pass informational errors like this? */
     callee_acc->meta->dlen = caller_acc_data_len;
@@ -272,7 +271,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       found = 1;
 
       /* Update the callee account to reflect any changes the caller has made */
-      if( FD_UNLIKELY( acc_meta && VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC(vm, &account_infos[j], callee_account, i) ) ) {
+      if( FD_UNLIKELY( acc_meta && VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC(vm, &account_infos[j], callee_account ) ) ) {
         
         return 1001;
       }
