@@ -30,6 +30,8 @@
 #define PACK_OUT_IDX    2
 #define SIGN_OUT_IDX    3
 
+#define CONTACT_INFO_PUBLISH_TIME_NS ((long)5e9)
+
 struct __attribute__((packed)) fd_shred_dest_wire {
   uchar  pubkey[32];
   /* The Labs splice writes this as octets, which means when we read
@@ -348,6 +350,11 @@ during_frag( void * _ctx,
              int *  opt_filter ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *) _ctx;
 
+  if( in_idx != NET_IN_IDX ) {
+    *opt_filter = 1;
+    return;
+  }
+
   if( FD_UNLIKELY( chunk<ctx->chunk || chunk>ctx->wmark || sz>FD_NET_MTU ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->chunk, ctx->wmark ));
     *opt_filter = 1;
@@ -404,7 +411,7 @@ during_housekeeping( void * _ctx ) {
   fd_mcache_seq_update( ctx->repair_contact_out_sync, ctx->repair_contact_out_seq );
 
   long now = fd_log_wallclock();
-  if( now - ctx->last_shred_dest_push_time > (long)5e9 ) {
+  if( now - ctx->last_shred_dest_push_time > CONTACT_INFO_PUBLISH_TIME_NS ) {
     ctx->last_shred_dest_push_time = now;
 
     ulong tvu_peer_cnt = 0;
