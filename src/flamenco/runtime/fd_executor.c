@@ -36,8 +36,6 @@
 #define SORT_BEFORE(a,b) (a)<(b)
 #include "../../util/tmpl/fd_sort.c"
 
-#define FD_PROTOBUF_MSG_OUTPUT_DIR "protobuf_tests_from_executed_instr"
-
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>   /* snprintf(3) */
@@ -592,7 +590,7 @@ dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx,
     if (pb_encode(&stream, FD_EXEC_TEST_INSTR_CONTEXT_FIELDS, &instr_context)) {
       char output_filepath[256]; fd_memset(output_filepath, 0, sizeof(output_filepath));
       char * position = fd_cstr_init(output_filepath);
-      position = fd_cstr_append_cstr(position, FD_PROTOBUF_MSG_OUTPUT_DIR);
+      position = fd_cstr_append_cstr(position, txn_ctx->capture_ctx->dump_instruction_output_dir);
       position = fd_cstr_append_cstr(position, "/instr-");
       position = fd_cstr_append_cstr(position, encoded_signature);
       position = fd_cstr_append_cstr(position, "-");
