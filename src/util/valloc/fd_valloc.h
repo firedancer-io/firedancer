@@ -25,10 +25,17 @@ typedef struct fd_valloc fd_valloc_t;
 FD_PROTOTYPES_BEGIN
 
 extern const fd_valloc_vtable_t fd_libc_vtable;
+extern const fd_valloc_vtable_t fd_backtrace_vtable;
 
 static inline FD_FN_CONST fd_valloc_t
 fd_libc_alloc_virtual( void ) {
   fd_valloc_t valloc = { NULL, &fd_libc_vtable };
+  return valloc;
+}
+
+static inline FD_FN_CONST fd_valloc_t
+fd_backtrace_alloc_virtual( fd_valloc_t * inner_valloc ) {
+  fd_valloc_t valloc = { inner_valloc, &fd_backtrace_vtable };
   return valloc;
 }
 

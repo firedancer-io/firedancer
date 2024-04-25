@@ -261,7 +261,7 @@ fd_store_slot_repair( fd_store_t * store,
     /* First make sure we are ready to execute this block soon. Look for an ancestor that was executed. */
     ulong anc_slot = slot;
     int good = 0;
-    for( uint i = 0; i < 3; ++i ) {
+    for( uint i = 0; i < 7; ++i ) {
       anc_slot  = fd_blockstore_parent_slot_query( store->blockstore, anc_slot );
       fd_block_t * anc_block = fd_blockstore_block_query( store->blockstore, anc_slot );
       if( anc_block && fd_uchar_extract_bit( anc_block->flags, FD_BLOCK_FLAG_PROCESSED ) ) {
@@ -286,7 +286,7 @@ fd_store_slot_repair( fd_store_t * store,
       repair_req->type = FD_REPAIR_REQ_TYPE_NEED_WINDOW_INDEX;
     }
     if( repair_req_cnt ) {
-      FD_LOG_DEBUG( ( "[repair] need %lu [%lu, %lu], sent %lu requests", slot, slot_meta->consumed + 1, last_index, repair_req_cnt ) );
+      FD_LOG_NOTICE( ( "[repair] need %lu [%lu, %lu], sent %lu requests", slot, slot_meta->consumed + 1, last_index, repair_req_cnt ) );
     }
   }
     

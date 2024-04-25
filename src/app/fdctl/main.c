@@ -29,6 +29,13 @@ extern fd_topo_run_tile_t fd_tile_sign;
 extern fd_topo_run_tile_t fd_tile_metric;
 extern fd_topo_run_tile_t fd_tile_blackhole;
 
+#ifdef FD_HAS_NO_SOLANA
+extern fd_topo_run_tile_t fd_tile_gossip;
+extern fd_topo_run_tile_t fd_tile_repair;
+extern fd_topo_run_tile_t fd_tile_store_int;
+extern fd_topo_run_tile_t fd_tile_replay;
+#endif
+
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
   &fd_tile_netmux,
@@ -43,6 +50,12 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_sign,
   &fd_tile_metric,
   &fd_tile_blackhole,
+#ifdef FD_HAS_NO_SOLANA
+  &fd_tile_gossip,
+  &fd_tile_repair,
+  &fd_tile_store_int,
+  &fd_tile_replay,
+#endif
   NULL,
 };
 

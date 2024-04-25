@@ -271,6 +271,16 @@ static int parse_key_value( config_t *   config,
   ENTRY_STR   ( ., tiles.gossip,        peer_ip_addr                                              );
   ENTRY_USHORT( ., tiles.gossip,        peer_port                                                 );
 
+  ENTRY_STR   ( ., tiles.replay,        snapshot                                                  );
+  ENTRY_STR   ( ., tiles.replay,        incremental                                               );
+  ENTRY_STR   ( ., tiles.replay,        genesis                                                   );
+
+  ENTRY_USHORT( ., tiles.gossip,        gossip_listen_port                                        );
+  ENTRY_STR   ( ., tiles.gossip,        peer_ip_addr                                              );
+  ENTRY_USHORT( ., tiles.gossip,        peer_port                                                 );
+
+  ENTRY_ULONG ( ., tiles.store,         snapshot_slot                                             );
+
   ENTRY_USHORT( ., tiles.metric,        prometheus_listen_port                                    );
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
