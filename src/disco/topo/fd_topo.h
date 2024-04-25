@@ -142,6 +142,7 @@ typedef struct {
       ushort shred_listen_port;
       ushort quic_transaction_listen_port;
       ushort legacy_transaction_listen_port;
+      ushort gossip_listen_port;
     } net;
 
     struct {
@@ -210,6 +211,27 @@ typedef struct {
     struct {
       ulong accounts_cnt;
     } benchg;
+
+    struct {
+      char    gossip_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
+      char    gossip_my_addr[ 22 ];   // len('255.255.255.255:65535') == 22
+
+      char    tvu_my_addr[ 22 ];      // len('255.255.255.255:65535') == 22
+      char    tvu_my_fwd_addr[ 22 ];  // len('255.255.255.255:65535') == 22
+
+      char    repair_my_intake_addr[ 22 ];   // len('255.255.255.255:65535') == 22
+      char    repair_my_serve_addr[ 22 ];    // len('255.255.255.255:65535') == 22
+
+      char    tpu_udp_my_addr[ 22 ];  // len('255.255.255.255:65535') == 22
+      char    tpu_quic_my_addr[ 22 ]; // len('255.255.255.255:65535') == 22
+
+      char    tpu_vote_udp_my_addr[ 22 ]; // len('255.255.255.255:65535') == 22
+
+      ushort  gossip_listen_port;
+      uchar   src_mac_addr[ 6 ];
+
+      char    identity_key_path[ PATH_MAX ];
+    } gossip;
   };
 } fd_topo_tile_t;
 
