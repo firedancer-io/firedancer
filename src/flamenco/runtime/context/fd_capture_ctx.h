@@ -18,6 +18,7 @@ struct __attribute__((aligned(FD_CAPTURE_CTX_ALIGN))) fd_capture_ctx {
   fd_funk_t *              pruned_funk; /* Capturing accessed accounts during execution*/
   int                      dump_instructions_to_protobuf;
   char const *             instruction_dump_signature_filter;
+  char const *             dump_instruction_output_dir;
 };
 typedef struct fd_capture_ctx fd_capture_ctx_t;
 #define FD_CAPTURE_CTX_FOOTPRINT ( sizeof(fd_capture_ctx_t) + fd_solcap_writer_footprint() )
