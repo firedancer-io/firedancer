@@ -774,18 +774,9 @@ fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
   fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
 
   int err;
-  fd_nonce_state_versions_t state;
-  int is_nonce = fd_load_nonce_account(txn_ctx, &state, txn_ctx->valloc, &err);
+  int is_nonce = fd_has_nonce_account(txn_ctx, &err);
   if ((NULL == txn_descriptor) || !is_nonce) {
     if ( txn_raw == NULL ) {
-      return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
-    }
-    fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_raw->raw + txn_descriptor->recent_blockhash_off);
-
-    fd_hash_hash_age_pair_t_mapnode_t key;
-    fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
-
-    if ( fd_hash_hash_age_pair_t_map_find( slot_ctx->slot_bank.block_hash_queue.ages_pool, slot_ctx->slot_bank.block_hash_queue.ages_root, &key ) == NULL ) {
       return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
     }
   }

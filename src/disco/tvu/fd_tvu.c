@@ -729,12 +729,16 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
     runtime_ctx->capture_ctx->pruned_funk  = NULL;
   }
 
-  int has_checkpt_dump = args->checkpt_path && args->checkpt_path[0] != '\0' && args->checkpt_slot;
-  int has_prune        = args->pruned_funk != NULL;
-  int dump_to_protobuf = args->dump_instructions_to_protobuf;
+  int has_slot_checkpt_dump = args->checkpt_path && args->checkpt_path[0] != '\0' && args->checkpt_slot;
+  int has_freq_checkpt_dump = args->checkpt_freq != ULONG_MAX;
+  int has_checkpt_dump      = has_slot_checkpt_dump || has_freq_checkpt_dump;
+
+  int has_prune             = args->pruned_funk != NULL;
+
+  int has_dump_to_protobuf  = args->dump_instructions_to_protobuf;
 
   /* If not using solcap, but setting up checkpoint dump or prune OR dumping to Protobuf, allocate memory for capture_ctx */
-  if( ( has_checkpt_dump || has_prune || dump_to_protobuf ) && runtime_ctx->capture_ctx == NULL ) {
+  if( ( has_checkpt_dump || has_prune || has_dump_to_protobuf ) && runtime_ctx->capture_ctx == NULL ) {
     /* Initialize capture_ctx if it doesn't exist */
     void * capture_ctx_mem = fd_valloc_malloc( valloc, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
     FD_TEST( !!capture_ctx_mem );
@@ -745,11 +749,14 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
   if ( has_checkpt_dump ) {
     runtime_ctx->capture_ctx->checkpt_slot = args->checkpt_slot;
     runtime_ctx->capture_ctx->checkpt_path = args->checkpt_path;
+    runtime_ctx->capture_ctx->checkpt_freq = args->checkpt_freq;
   }
+  
   if ( has_prune ) {
     runtime_ctx->capture_ctx->pruned_funk = args->pruned_funk;
   }
-  if ( dump_to_protobuf ) {
+
+  if ( has_dump_to_protobuf ) {
     runtime_ctx->capture_ctx->dump_instructions_to_protobuf = args->dump_instructions_to_protobuf;
     runtime_ctx->capture_ctx->instruction_dump_signature_filter = args->instruction_dump_signature_filter;
     runtime_ctx->capture_ctx->dump_instruction_output_dir = args->dump_instruction_output_dir;
@@ -1432,6 +1439,7 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
   args->abort_on_mismatch =
       (uchar)fd_env_strip_cmdline_int( &argc, &argv, "--abort-on-mismatch", NULL, 0 );
   args->checkpt_slot = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-slot", NULL, 0 );
+  args->checkpt_freq = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-freq", NULL, ULONG_MAX );
   args->checkpt_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--checkpt-path", NULL, NULL );
   args->dump_instructions_to_protobuf = fd_env_strip_cmdline_int( &argc, &argv, "--dump-instructions-to-protobuf", NULL, 0 );
   args->instruction_dump_signature_filter = fd_env_strip_cmdline_cstr( &argc, &argv, "--instruction-dump-signature-filter", NULL, NULL );
