@@ -22,7 +22,11 @@ $(call add-objs,configure/kill,fd_fddev)
 $(call add-objs,configure/genesis,fd_fddev)
 $(call add-objs,configure/blockstore,fd_fddev)
 
+ifdef FD_HAS_NO_SOLANA
+$(call make-bin-rust,fddev,main external_functions,fd_fdctl fd_fddev fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util)
+else
 $(call make-bin-rust,fddev,main,fd_fdctl fd_fddev fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator)
+endif
 
 ifeq (run,$(firstword $(MAKECMDGOALS)))
   RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
@@ -48,7 +52,11 @@ endif
 monitor: bin
 	$(OBJDIR)/bin/fddev monitor $(MONITOR_ARGS)
 
+ifdef FD_HAS_NO_SOLANA
+$(call make-integration-test,test_fddev,tests/test_fddev,fd_fdctl fd_fddev fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions)
+else
 $(call make-integration-test,test_fddev,tests/test_fddev,fd_fdctl fd_fddev fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator)
+endif
 $(call run-integration-test,test_fddev)
 
 endif
