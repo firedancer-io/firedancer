@@ -39,21 +39,29 @@ typedef struct fd_fee_calculator_off fd_fee_calculator_off_t;
 #define FD_FEE_CALCULATOR_OFF_FOOTPRINT sizeof(fd_fee_calculator_off_t)
 #define FD_FEE_CALCULATOR_OFF_ALIGN (8UL)
 
-/* https://github.com/solana-labs/solana/blob/98e19af5eb2585cfc3c07e123bdb96f18e92bc93/sdk/program/src/epoch_rewards.rs#L11-L20 */
-/* Encoded Size: Fixed (24 bytes) */
+/* https://github.com/anza-xyz/agave/blob/7fcd8c03fd71418fe49459c8460ab3986a8b608a/sdk/program/src/epoch_rewards.rs#L12 */
+/* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_epoch_rewards {
+  ulong distribution_starting_block_height;
+  ulong num_partitions;
+  fd_hash_t parent_blockhash;
+  uint128 total_points;
   ulong total_rewards;
   ulong distributed_rewards;
-  ulong distribution_complete_block_height;
+  uchar active;
 };
 typedef struct fd_epoch_rewards fd_epoch_rewards_t;
 #define FD_EPOCH_REWARDS_FOOTPRINT sizeof(fd_epoch_rewards_t)
 #define FD_EPOCH_REWARDS_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_epoch_rewards_off {
+  uint distribution_starting_block_height_off;
+  uint num_partitions_off;
+  uint parent_blockhash_off;
+  uint total_points_off;
   uint total_rewards_off;
   uint distributed_rewards_off;
-  uint distribution_complete_block_height_off;
+  uint active_off;
 };
 typedef struct fd_epoch_rewards_off fd_epoch_rewards_off_t;
 #define FD_EPOCH_REWARDS_OFF_FOOTPRINT sizeof(fd_epoch_rewards_off_t)

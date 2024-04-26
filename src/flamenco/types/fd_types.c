@@ -262,33 +262,59 @@ int fd_epoch_rewards_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_hash_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint128_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_bool_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_epoch_rewards_decode_unsafe(fd_epoch_rewards_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_bincode_uint64_decode_unsafe(&self->distribution_starting_block_height, ctx);
+  fd_bincode_uint64_decode_unsafe(&self->num_partitions, ctx);
+  fd_hash_decode_unsafe(&self->parent_blockhash, ctx);
+  fd_bincode_uint128_decode_unsafe(&self->total_points, ctx);
   fd_bincode_uint64_decode_unsafe(&self->total_rewards, ctx);
   fd_bincode_uint64_decode_unsafe(&self->distributed_rewards, ctx);
-  fd_bincode_uint64_decode_unsafe(&self->distribution_complete_block_height, ctx);
+  fd_bincode_bool_decode_unsafe(&self->active, ctx);
 }
 int fd_epoch_rewards_decode_offsets(fd_epoch_rewards_off_t* self, fd_bincode_decode_ctx_t * ctx) {
   uchar const * data = ctx->data;
   int err;
+  self->distribution_starting_block_height_off = (uint)((ulong)ctx->data - (ulong)data);
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  self->num_partitions_off = (uint)((ulong)ctx->data - (ulong)data);
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  self->parent_blockhash_off = (uint)((ulong)ctx->data - (ulong)data);
+  err = fd_hash_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  self->total_points_off = (uint)((ulong)ctx->data - (ulong)data);
+  err = fd_bincode_uint128_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
   self->total_rewards_off = (uint)((ulong)ctx->data - (ulong)data);
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   self->distributed_rewards_off = (uint)((ulong)ctx->data - (ulong)data);
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  self->distribution_complete_block_height_off = (uint)((ulong)ctx->data - (ulong)data);
-  err = fd_bincode_uint64_decode_preflight(ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  self->active_off = (uint)((ulong)ctx->data - (ulong)data);
+  err = fd_bincode_bool_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_epoch_rewards_new(fd_epoch_rewards_t* self) {
   fd_memset(self, 0, sizeof(fd_epoch_rewards_t));
+  fd_hash_new(&self->parent_blockhash);
 }
 void fd_epoch_rewards_destroy(fd_epoch_rewards_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_hash_destroy(&self->parent_blockhash, ctx);
 }
 
 ulong fd_epoch_rewards_footprint( void ){ return FD_EPOCH_REWARDS_FOOTPRINT; }
@@ -296,26 +322,42 @@ ulong fd_epoch_rewards_align( void ){ return FD_EPOCH_REWARDS_ALIGN; }
 
 void fd_epoch_rewards_walk(void * w, fd_epoch_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_epoch_rewards", level++);
+  fun( w, &self->distribution_starting_block_height, "distribution_starting_block_height", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->num_partitions, "num_partitions", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fd_hash_walk(w, &self->parent_blockhash, fun, "parent_blockhash", level);
+  fun( w, &self->total_points, "total_points", FD_FLAMENCO_TYPE_UINT128, "uint128",   level );
   fun( w, &self->total_rewards, "total_rewards", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->distributed_rewards, "distributed_rewards", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
-  fun( w, &self->distribution_complete_block_height, "distribution_complete_block_height", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->active, "active", FD_FLAMENCO_TYPE_BOOL,    "bool",      level );
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_epoch_rewards", level--);
 }
 ulong fd_epoch_rewards_size(fd_epoch_rewards_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
+  size += fd_hash_size(&self->parent_blockhash);
+  size += sizeof(uint128);
   size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(char);
   return size;
 }
 
 int fd_epoch_rewards_encode(fd_epoch_rewards_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
+  err = fd_bincode_uint64_encode(self->distribution_starting_block_height, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(self->num_partitions, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_hash_encode(&self->parent_blockhash, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint128_encode( self->total_points, ctx );
+  if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_encode(self->total_rewards, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_encode(self->distributed_rewards, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(self->distribution_complete_block_height, ctx);
+  err = fd_bincode_bool_encode( (uchar)(self->active), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
