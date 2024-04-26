@@ -45,4 +45,7 @@ $(call add-objs,fd_system_program fd_system_program_nonce,fd_flamenco)
 
 $(call add-hdrs,fd_vote_program.h)
 $(call add-objs,fd_vote_program,fd_flamenco)
+
+$(call add-hdrs,fd_native_cpi.h)
+$(call add-objs,fd_native_cpi,fd_flamenco)
 endif
