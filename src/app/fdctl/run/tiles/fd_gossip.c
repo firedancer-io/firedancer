@@ -143,8 +143,6 @@ struct fd_gossip_tile_ctx {
 };
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;
 
-
-
 static fd_gossip_peer_addr_t *
 resolve_hostport( const char * str /* host:port */, fd_gossip_peer_addr_t * res ) {
   fd_memset( res, 0, sizeof( fd_gossip_peer_addr_t ) );
@@ -186,19 +184,16 @@ resolve_hostport( const char * str /* host:port */, fd_gossip_peer_addr_t * res 
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return 4096UL;
+  return 128UL;
 }
 
 FD_FN_PURE static inline ulong
-loose_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
+loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   return 1UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
 }
 
 FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
-
+scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_gossip_align(), fd_gossip_footprint() );
@@ -369,25 +364,15 @@ during_frag( void * _ctx,
 
 static void
 after_frag( void *             _ctx,
-            ulong              in_idx,
-            ulong              seq,
+            ulong              in_idx     FD_PARAM_UNUSED,
+            ulong              seq        FD_PARAM_UNUSED,
             ulong *            opt_sig,
-            ulong *            opt_chunk,
-            ulong *            opt_sz,
-            ulong *            opt_tsorig,
-            int *              opt_filter,
-            fd_mux_context_t * mux ) {
-  (void)in_idx;
-  (void)opt_chunk;
-  (void)opt_sz;
-  (void)opt_filter;
-  (void)mux;
-  (void)seq;
-  (void)opt_tsorig;
-
+            ulong *            opt_chunk  FD_PARAM_UNUSED,
+            ulong *            opt_sz     FD_PARAM_UNUSED,
+            ulong *            opt_tsorig FD_PARAM_UNUSED,
+            int *              opt_filter FD_PARAM_UNUSED,
+            fd_mux_context_t * mux        FD_PARAM_UNUSED ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
-
-  *opt_filter = 1;
 
   ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
   eth_ip_udp_t * hdr = (eth_ip_udp_t *)ctx->gossip_buffer;
@@ -683,19 +668,17 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static ulong
-populate_allowed_seccomp( void *               scratch,
+populate_allowed_seccomp( void *               scratch FD_PARAM_UNUSED,
                           ulong                out_cnt,
                           struct sock_filter * out ) {
-  (void)scratch;
   populate_sock_filter_policy_gossip( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_gossip_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( void * scratch,
+populate_allowed_fds( void * scratch      FD_PARAM_UNUSED,
                       ulong  out_fds_cnt,
                       int *  out_fds ) {
-  (void)scratch;
   if( FD_UNLIKELY( out_fds_cnt<2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
@@ -707,7 +690,7 @@ populate_allowed_fds( void * scratch,
 
 fd_topo_run_tile_t fd_tile_gossip = {
   .name                     = "gossip",
-  .mux_flags                = FD_MUX_FLAG_COPY,
+  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .loose_footprint          = loose_footprint,
   .mux_ctx                  = mux_ctx,
