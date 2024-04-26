@@ -52,7 +52,7 @@ fd_funk_val_copy( fd_funk_rec_t * rec,
        such that if it fails, we haven't affected the state. */
 
     ulong   new_val_max;
-    uchar * new_val = (uchar *)fd_alloc_malloc_at_least( alloc, 1UL, sz_est, &new_val_max );
+    uchar * new_val = (uchar *)fd_alloc_malloc_at_least( alloc, 8UL, sz_est, &new_val_max );
 
     if( FD_UNLIKELY( !new_val ) ) { /* Fallback on in-place */
 
@@ -135,13 +135,13 @@ fd_funk_val_append( fd_funk_rec_t * rec,
 
   if( FD_UNLIKELY( new_val_sz > val_max ) ) {
 
-    ulong new_val_max = fd_ulong_min( fd_alloc_max_expand( val_max, 1UL, new_val_sz ), FD_FUNK_REC_VAL_MAX );
+    ulong new_val_max = fd_ulong_min( fd_alloc_max_expand( val_max, 8UL, new_val_sz ), FD_FUNK_REC_VAL_MAX );
     if( FD_UNLIKELY( new_val_max<=val_max ) ) { /* Already expanded as much as possible */
       fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_INVAL );
       return NULL;
     }
 
-    uchar * new_val = (uchar *)fd_alloc_malloc_at_least( alloc, 1UL, new_val_max, &new_val_max );
+    uchar * new_val = (uchar *)fd_alloc_malloc_at_least( alloc, 8UL, new_val_max, &new_val_max );
     if( FD_UNLIKELY( !new_val ) ) { /* Allocation failure */
       fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_MEM );
       return NULL;
@@ -205,7 +205,7 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
     uchar * val       = val_max ? fd_wksp_laddr_fast( wksp, val_gaddr ) : NULL; /* TODO: branchless */
 
     ulong   new_val_max;
-    uchar * new_val = (uchar *)fd_alloc_malloc_at_least( alloc, 1UL, new_val_sz, &new_val_max );
+    uchar * new_val = (uchar *)fd_alloc_malloc_at_least( alloc, 8UL, new_val_sz, &new_val_max );
     if( FD_UNLIKELY( !new_val ) ) { /* Allocation failure! */
       fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_MEM );
       return NULL;
@@ -234,7 +234,7 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
     uchar * val = (uchar *)fd_wksp_laddr_fast( wksp, rec->val_gaddr );
 
     ulong   new_val_max;
-    uchar * new_val = (uchar *)fd_alloc_malloc_at_least( alloc, 1UL, new_val_sz, &new_val_max );
+    uchar * new_val = (uchar *)fd_alloc_malloc_at_least( alloc, 8UL, new_val_sz, &new_val_max );
 
     if( FD_UNLIKELY( !new_val ) ) { /* Fallback on in-place */
 
@@ -271,7 +271,7 @@ fd_funk_val_safe( fd_funk_rec_t const * rec,     /* Assumes pointer in caller's 
   uint val_sz = rec->val_sz;
   *result_len = val_sz;
   if( !val_sz ) return NULL;
-  void * res = fd_valloc_malloc( valloc, 1U, val_sz );
+  void * res = fd_valloc_malloc( valloc, 8U, val_sz );
   /* Note that this memcpy may copy recently freed memory, but it
      won't crash, which is the important thing */
   fd_memcpy( res, fd_wksp_laddr_fast( wksp, rec->val_gaddr ), val_sz );
