@@ -54,11 +54,15 @@
       "name": "epoch_rewards",
       "type": "struct",
       "fields": [
+        { "name": "distribution_starting_block_height", "type": "ulong"},
+        { "name": "num_partitions", "type": "ulong" },
+        { "name": "parent_blockhash", "type": "hash" },
+        { "name": "total_points", "type": "uint128" },
         { "name": "total_rewards", "type": "ulong" },
         { "name": "distributed_rewards", "type": "ulong" },
-        { "name": "distribution_complete_block_height", "type": "ulong" }
+        { "name": "active", "type": "bool" }
       ],
-      "comment": "https://github.com/solana-labs/solana/blob/98e19af5eb2585cfc3c07e123bdb96f18e92bc93/sdk/program/src/epoch_rewards.rs#L11-L20"
+      "comment": "https://github.com/anza-xyz/agave/blob/7fcd8c03fd71418fe49459c8460ab3986a8b608a/sdk/program/src/epoch_rewards.rs#L12"
     },
     {
       "name": "hash_age",

@@ -924,7 +924,8 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, reduce_stake_warmup_cooldown)>>3,
     .id     = {"\xec\xee\x93\x40\x57\x22\xb0\x74\x49\xc1\xf9\xe5\xef\x54\x03\xef\x18\x4d\x87\xf9\x31\x68\x96\x18\xad\x21\xb8\xf7\x00\x3d\x8a\xce"},
               /* GwtDQBghCTBgmX2cpEGNPxTEBUTQRaDMGTr5qychdGMj */
-    .name   = "reduce_stake_warmup_cooldown" },
+    .name   = "reduce_stake_warmup_cooldown",
+    .hardcoded = 1 },
 
   { .index  = offsetof(fd_features_t, revise_turbine_epoch_stakes)>>3,
     .id     = {"\x9b\x5f\xa2\xbe\x99\xfd\xb8\x81\x7d\x7d\x2d\xcf\x73\xa0\xf6\x56\x57\xea\x7b\x3c\x6a\xf6\x13\x59\x13\x4a\x2f\x56\x10\x11\xd2\xad"},

@@ -1021,6 +1021,8 @@ update_rewards(
 
 // begin_partitioned_rewards
 /* Begin the process of calculating and distributing rewards. This process can take multiple slots. */
+
+// https://github.com/anza-xyz/agave/blob/2d722719a2c74ec4e180b255124c7204ef98ee6c/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L35
 void
 begin_partitioned_rewards(
     fd_exec_slot_ctx_t * slot_ctx,
