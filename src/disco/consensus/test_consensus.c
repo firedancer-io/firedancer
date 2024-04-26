@@ -22,7 +22,8 @@ main( int argc, char ** argv ) {
   return 0;
 }
 
-/* Local variables for online archive */
+/* FIXME: remove these static variables */
+/* variables should be either on stack or use wksp_alloc_laddr */
 static int gossip_sockfd = -1;
 //static int repair_sockfd = -1;
 static fd_keyguard_client_t keyguard_client;
@@ -31,10 +32,12 @@ static fd_tvu_gossip_deliver_arg_t gossip_deliver_arg;
 #include "./test_consensus_helper.c"
 
 void online_archive_init(int argc, char** argv) {
+  fd_boot( &argc, &argv );
+
   /* arguments */
   const char * _gossip_addr = "139.178.68.207:8001"; /* temporary */
-  const char * _snapshot = fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshot", NULL, NULL );
-  if (!_snapshot) FD_LOG_ERR( ( "must pass in one of --snapshot <FILE> and --shredcap <FILE>" ) );
+  const char * _load = fd_env_strip_cmdline_cstr( &argc, &argv, "--load", NULL, NULL );
+  if (!_load) FD_LOG_ERR( ( "must pass in one of --load <FILE> and --shredcap <FILE>" ) );
 
   /* wksp */
   ulong  page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 128UL );
@@ -47,6 +50,25 @@ void online_archive_init(int argc, char** argv) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous(
       fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
+
+  /* funk */
+  ulong funk_hashseed;
+  char  funk_hostname[64];
+  gethostname( funk_hostname, sizeof(funk_hostname) );
+  funk_hashseed = fd_hash( 0, funk_hostname, strnlen( funk_hostname, sizeof( funk_hostname ) ) );
+  FD_LOG_NOTICE( ("loading %s", _load) );
+  int err = fd_wksp_restore( wksp, _load, (uint)funk_hashseed );
+  if( err ) FD_LOG_ERR( ( "load failed: error %d", err ) );
+
+  fd_funk_t * funk = NULL;
+  fd_wksp_tag_query_info_t funk_info;
+  ulong                    funk_tag = FD_FUNK_MAGIC;
+  if( fd_wksp_tag_query( wksp, &funk_tag, 1, &funk_info, 1 ) > 0 ) {
+    void * shmem = fd_wksp_laddr_fast( wksp, funk_info.gaddr_lo );
+    funk         = fd_funk_join( shmem );
+  }
+  if( funk == NULL ) FD_LOG_ERR( ( "failed to join a funky" ) );
+  return;
 
   /* allocator */
   void * alloc_shmem =
