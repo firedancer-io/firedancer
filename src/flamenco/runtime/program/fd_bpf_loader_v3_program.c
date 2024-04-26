@@ -838,7 +838,7 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
     }
 
-    if( instr_acc_idxs[6] >= ctx.txn_ctx->txn_descriptor->signature_cnt ) {
+    if ( !fd_instr_acc_is_signer_idx( ctx.instr, 6 ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
 
@@ -885,27 +885,27 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
     if( !read_bpf_upgradeable_loader_state( &ctx, programdata_acc, &programdata_loader_state, &err ) )
       return err;
     if (!fd_bpf_upgradeable_loader_state_is_program_data(&programdata_loader_state)) {
-      // TODO Log: "Invalid ProgramData account"
+      FD_LOG_WARNING(("Invalid ProgramData account"));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
     if (FD_FEATURE_ACTIVE(ctx.slot_ctx, enable_program_redeployment_cooldown) && clock.slot == programdata_loader_state.inner.program_data.slot) {
-      // TODO Log: "Program was deployed in this block already"
+      FD_LOG_WARNING(("Program was deployed in this block already"));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
 
     if (!programdata_loader_state.inner.program_data.upgrade_authority_address) {
-      // TODO Log: "Program not upgradeable"
+      FD_LOG_WARNING(("Program not upgradeable"));
       return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
     }
 
     if (memcmp(programdata_loader_state.inner.program_data.upgrade_authority_address, authority_acc, sizeof(fd_pubkey_t)) != 0) {
-      // TODO Log: "Incorrect upgrade authority provided"
+      FD_LOG_WARNING(("Incorrect upgrade authority provided"));
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
     }
-
-    if (instr_acc_idxs[6] >= ctx.txn_ctx->txn_descriptor->signature_cnt) {
-      // TODO Log: "Upgrade authority did not sign"
+  
+    if ( !fd_instr_acc_is_signer_idx( ctx.instr, 6 ) ) {
+      FD_LOG_WARNING(("Upgrade authority did not sign"));
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
 

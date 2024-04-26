@@ -2185,7 +2185,7 @@ fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
   }
   FD_LOG_NOTICE(("checkpointing at slot=%lu", slot));
 
-  fd_funk_stop_write( slot_ctx->acc_mgr->funk );
+  fd_funk_end_write( slot_ctx->acc_mgr->funk );
 
   unlink( capture_ctx->checkpt_path );
   int err = fd_wksp_checkpt( fd_funk_wksp( slot_ctx->acc_mgr->funk ), capture_ctx->checkpt_path, 0666, 0, NULL );
