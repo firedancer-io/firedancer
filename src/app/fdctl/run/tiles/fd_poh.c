@@ -604,7 +604,8 @@ fd_ext_poh_initialize( double        hashcnt_duration_ns, /* See clock comments 
     /* Low power producer, maximum of one microblock per tick in the slot */
     ctx->max_microblocks_per_slot = ctx->ticks_per_slot;
   } else {
-    ctx->max_microblocks_per_slot = MAX_MICROBLOCKS_PER_SLOT;
+    /* See the long comment in after_credit for this limit */
+    ctx->max_microblocks_per_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ctx->ticks_per_slot*(ctx->hashcnt_per_tick-1UL) );
   }
 
   fd_ext_poh_write_unlock();
@@ -1002,10 +1003,8 @@ after_credit( void *             _ctx,
     return;
   }
 
-  /* Now figure out how many hashes are needed to "catch up" the hash
-     count to the current system clock. */
-  long now = fd_log_wallclock();
-  ulong target_hash_cnt = ctx->reset_slot_hashcnt + (ulong)((double)(now - ctx->reset_slot_start_ns) / ctx->hashcnt_duration_ns);
+  int low_power_mode = ctx->hashcnt_per_tick==1UL;
+
 
   /* If we are the leader, always leave enough capacity in the slot so
      that we can mixin any potential microblocks still coming from the
@@ -1021,14 +1020,15 @@ after_credit( void *             _ctx,
      However, if hashcnt_per_tick is 1 because we're in low power mode,
      this should probably just be max_remaining_microblocks. */
   ulong max_remaining_ticks_or_microblocks = max_remaining_microblocks;
-  if( FD_LIKELY( ctx->hashcnt_per_tick!=1UL ) ) max_remaining_ticks_or_microblocks += (max_remaining_microblocks+ctx->hashcnt_per_tick-2UL)/(ctx->hashcnt_per_tick-1UL);
+  if( FD_LIKELY( !low_power_mode ) ) max_remaining_ticks_or_microblocks += (max_remaining_microblocks+ctx->hashcnt_per_tick-2UL)/(ctx->hashcnt_per_tick-1UL);
 
   ulong restricted_hashcnt;
   if( FD_LIKELY( is_leader ) ) restricted_hashcnt = fd_ulong_if( (current_slot+1UL)*ctx->hashcnt_per_slot>=max_remaining_ticks_or_microblocks, (current_slot+1UL)*ctx->hashcnt_per_slot-max_remaining_ticks_or_microblocks, 0UL );
   else                         restricted_hashcnt = fd_ulong_if( (current_slot+2UL)*ctx->hashcnt_per_slot>=max_remaining_ticks_or_microblocks, (current_slot+2UL)*ctx->hashcnt_per_slot-max_remaining_ticks_or_microblocks, 0UL );
-  target_hash_cnt = fd_ulong_min( target_hash_cnt, restricted_hashcnt );
 
-  if( FD_LIKELY( ctx->hashcnt_per_tick!=1UL && (target_hash_cnt%ctx->hashcnt_per_tick)==(ctx->hashcnt_per_tick-1UL)) ) {
+  ulong min_hashcnt = ctx->hashcnt;
+
+  if( FD_LIKELY( !low_power_mode ) ) {
     /* Recall that there are two kinds of events that will get published
        to the shredder,
 
@@ -1037,67 +1037,190 @@ after_credit( void *             _ctx,
 
              Ticks must not have any transactions mixed into the hash.
              This is not strictly needed in theory, but is required by the
-             current consensus protocol.
+             current consensus protocol.  They get published here in
+             after_credit.
 
          (b) Microblocks.  These can occur at any other hashcnt, as long
              as it is not a tick.  Microblocks cannot be empty, and must
-             have at least one transactions mixed in.
+             have at least one transactions mixed in.  These get
+             published in after_frag.
 
-       To make sure that we do not publish microblocks on tick boundaries,
-       we always make sure here the hashcnt does not get left one before
-       a tick boundary.
+       If hashcnt_per_tick is 1, then we are in low power mode and the
+       following does not apply, since we can mix in transactions at any
+       time.
 
-       If hashcnt_per_tick is 1, then we are in low power mode and this
-       does not apply, we can mix in transactions at any time. */
-    target_hash_cnt = fd_ulong_if( target_hash_cnt>0UL, target_hash_cnt-1UL, 0UL );
+       In the normal, non-low-power mode, though, we have to be careful
+       to make sure that we do not publish microblocks on tick
+       boundaries.  To do that, we need to obey two rules:
+         (i)  after_credit must not leave hashcnt one before a tick
+              boundary
+         (ii) if after_credit begins one before a tick boundary, it must
+              advance hashcnt and publish the tick
+
+       There's some interplay between min_hashcnt and restricted_hashcnt
+       here, and we need to show that there's always a value of
+       target_hashcnt we can pick such that
+           min_hashcnt <= target_hashcnt <= restricted_hashcnt.
+       We'll prove this by induction for current_slot==0 and
+       is_leader==true, since all other slots should be the same.
+
+       Let m_j and r_j be the min_hashcnt and restricted_hashcnt
+       (respectively) for the jth call to after_credit in a slot.  We
+       want to show that for all values of j, it's possible to pick a
+       value h_j, the value of target_hashcnt for the jth call to
+       after_credit (which is also the value of hashcnt after
+       after_credit has completed) such that m_j<=h_j<=r_j.
+
+       Additionally, let T be hashcnt_per_tick and N be ticks_per_slot.
+
+       Starting with the base case, j==0.  m_j=0, and
+         r_0 = N*T - max_microblocks_per_slot
+                   - ceil(max_microblocks_per_slot/(T-1)).
+
+       This is monotonic decreasing in max_microblocks_per_slot, so it
+       achieves its minimum when max_microblocks_per_slot is its
+       maximum.
+           r_0 >= N*T - N*(T-1) - ceil( (N*(T-1))/(T-1))
+                = N*T - N*(T-1)-N = 0.
+       Thus, m_0 <= r_0, as desired.
+
+
+
+       Then, for the inductive step, assume there exists h_j such that
+       m_j<=h_j<=r_j, and we want to show that there exists h_{j+1},
+       which is the same as showing m_{j+1}<=r_{j+1}.
+
+       Let a_j be 1 if we had a microblock immediately following the jth
+       call to after_credit, and 0 otherwise.  Then hashcnt at the start
+       of the (j+1)th call to after_frag is h_j+a_j.
+       Also, set b_{j+1}=1 if we are in the case covered by rule (ii)
+       above during the (j+1)th call to after_credit, i.e. if
+       (h_j+a_j)%T==T-1.  Thus, m_{j+1} = h_j + a_j + b_{j+1}.
+
+       If we received an additional microblock, then
+       max_remaining_microblocks goes down by 1, and
+       max_remaining_ticks_or_microblocks goes down by either 1 or 2,
+       which means restricted_hashcnt goes up by either 1 or 2.  In
+       particular, it goes up by 2 if the new value of
+       max_remaining_microblocks (at the start of the (j+1)th call to
+       after_credit) is congruent to 0 mod T-1.  Let b'_{j+1} be 1 if
+       this condition is met and 0 otherwise.  If we receive a
+       done_packing message, restricted_hashcnt can go up by more, but
+       we can ignore that case, since it is less restrictive.
+       Thus, r_{j+1}=r_j+a_j+b'_{j+1}.
+
+       If h_j < r_j (strictly less), then h_j+a_j < r_j+a_j.  And thus,
+       since b_{j+1}<=b'_{j+1}+1, just by virtue of them both being
+       binary,
+             h_j + a_j + b_{j+1} <  r_j + a_j + b'_{j+1} + 1,
+       which is the same (for integers) as
+             h_j + a_j + b_{j+1} <= r_j + a_j + b'_{j+1},
+                 m_{j+1}         <= r_{j+1}
+
+       On the other hand, if h_j==r_j, this is easy unless b_{j+1}==1,
+       which can also only happen if a_j==1.  Then (h_j+a_j)%T==T-1,
+       which means there's an integer k such that
+
+             h_j+a_j==(ticks_per_slot-k)*T-1
+             h_j    ==ticks_per_slot*T -  k*(T-1)-1  - k-1
+                    ==ticks_per_slot*T - (k*(T-1)+1) - ceil( (k*(T-1)+1)/(T-1) )
+
+       Since h_j==r_j in this case, and
+       r_j==(ticks_per_slot*T) - max_remaining_microblocks_j - ceil(max_remaining_microblocks_j/(T-1)),
+       we can see that the value of max_remaining_microblocks at the
+       start of the jth call to after_credit is k*(T-1)+1.  Again, since
+       a_j==1, then the value of max_remaining_microblocks at the start
+       of the j+1th call to after_credit decreases by 1 to k*(T-1),
+       which means b'_{j+1}=1.
+
+       Thus, h_j + a_j + b_{j+1} == r_j + a_j + b'_{j+1}, so, in
+       particular, h_{j+1}<=r_{j+1} as desired. */
+     min_hashcnt += (ulong)(min_hashcnt%ctx->hashcnt_per_tick == (ctx->hashcnt_per_tick-1UL)); /* add b_{j+1}, enforcing rule (ii) */
+  }
+  /* Now figure out how many hashes are needed to "catch up" the hash
+     count to the current system clock, and clamp it to the allowed
+     range. */
+  long now = fd_log_wallclock();
+  ulong target_hashcnt = ctx->reset_slot_hashcnt + (ulong)((double)(now - ctx->reset_slot_start_ns) / ctx->hashcnt_duration_ns);
+  /* Clamp to [min_hashcnt, restricted_hashcnt] as above */
+  target_hashcnt = fd_ulong_max( fd_ulong_min( target_hashcnt, restricted_hashcnt ), min_hashcnt );
+
+  /* The above proof showed that it was always possible to pick a value
+     of target_hashcnt, but we still have a lot of freedom in how to
+     pick it.  It simplifies the code a lot if we don't keep going after
+     a tick in this function.  In particular, we want to publish at most
+     1 tick in this call, since otherwise we could consume infinite
+     credits to publish here.  The credits are set so that we should
+     only ever publish one tick during this loop.  Also, all the extra
+     stuff (leader transitions, publishing ticks, etc.) we have to do
+     happens at tick boundaries, so this lets us consolidate all those
+     cases.
+
+     Mathematically, since the current value of hashcnt is h_j+a_j, the
+     next tick (advancing a full tick if we're currently at a tick) is
+     t_{j+1} = T*(floor( (h_j+a_j)/T )+1).  We need to show that if we set
+     h'_{j+1} = min( h_{j+1}, t_{j+1} ), it is still valid.
+
+     First, h'_{j+1} <= h_{j+1} <= r_{j+1}, so we're okay in that
+     direction.
+
+     Next, observe that t_{j+1}>=h_j + a_j + 1, and recall that b_{j+1}
+     is 0 or 1. So then,
+                    t_{j+1} >= h_j+a_j+b_{j+1} = m_{j+1}.
+
+     We know h_{j+1) >= m_{j+1} from before, so then h'_{j+1} >=
+     m_{j+1}, as desired. */
+
+  if( FD_LIKELY( !low_power_mode ) ) {
+    ulong next_tick_hashcnt = ctx->hashcnt_per_tick * (1UL+(ctx->hashcnt/ctx->hashcnt_per_tick));
+    target_hashcnt = fd_ulong_min( target_hashcnt, next_tick_hashcnt );
   }
 
-  while( ctx->hashcnt<target_hash_cnt ) {
+  /* We still need to enforce rule (i). We know that min_hashcnt%T !=
+     T-1 because of rule (ii).  That means that if target_hashcnt%T ==
+     T-1 at this point, target_hashcnt > min_hashcnt (notice the
+     strict), so target_hashcnt-1 >= min_hashcnt and is thus still a
+     valid choice for target_hashcnt. */
+  target_hashcnt -= (ulong)( (!low_power_mode) & ((target_hashcnt%ctx->hashcnt_per_tick)==(ctx->hashcnt_per_tick-1UL)) );
+
+  FD_TEST( target_hashcnt >= ctx->hashcnt       );
+  FD_TEST( target_hashcnt >= min_hashcnt        );
+  FD_TEST( target_hashcnt <= restricted_hashcnt );
+
+  if( FD_UNLIKELY( ctx->hashcnt==target_hashcnt ) ) return; /* Nothing to do, don't publish a tick twice */
+
+  while( ctx->hashcnt<target_hashcnt ) {
     fd_sha256_hash( ctx->hash, 32UL, ctx->hash );
     ctx->hashcnt++;
+  }
 
-    if( FD_UNLIKELY( !is_leader && ctx->hashcnt>=ctx->next_leader_slot_hashcnt ) ) {
-      /* We were not leader but beame leader... we don't want to do any
-         other hashing until we get the leader bank from the replay
-         stage. */
-      break;
-    }
+  if( FD_UNLIKELY( !is_leader && ctx->hashcnt>=ctx->next_leader_slot_hashcnt ) ) {
+    /* We were not leader but beame leader... we don't want to do any
+       other hashing until we get the leader bank from the replay
+       stage. */
+    return;
+  }
 
-    if( FD_UNLIKELY( is_leader && !(ctx->hashcnt%ctx->hashcnt_per_tick) ) ) {
-      /* We ticked while leader... tell the leader bank. */
-      fd_ext_poh_register_tick( ctx->current_leader_bank, ctx->hash );
+  if( FD_UNLIKELY( is_leader && !(ctx->hashcnt%ctx->hashcnt_per_tick) ) ) {
+    /* We ticked while leader... tell the leader bank. */
+    fd_ext_poh_register_tick( ctx->current_leader_bank, ctx->hash );
 
-      /* And send an empty microblock (a tick) to the shred tile. */
-      publish_tick( ctx, mux );
-    }
+    /* And send an empty microblock (a tick) to the shred tile. */
+    publish_tick( ctx, mux );
+  }
 
-    if( FD_UNLIKELY( !is_leader && !(ctx->hashcnt%ctx->hashcnt_per_slot) ) ) {
-      /* We finished a slot while not leader... save the current hash so
-         it can be played back into the bank (to update the recent slot
-         hashes sysvar) when we become the leader. */
-      fd_memcpy( ctx->skipped_slot_hashes[ (ctx->hashcnt/ctx->hashcnt_per_slot)%150UL ], ctx->hash, 32UL );
-    }
+  if( FD_UNLIKELY( !is_leader && !(ctx->hashcnt%ctx->hashcnt_per_slot) ) ) {
+    /* We finished a slot while not leader... save the current hash so
+       it can be played back into the bank (to update the recent slot
+       hashes sysvar) when we become the leader. */
+    fd_memcpy( ctx->skipped_slot_hashes[ (ctx->hashcnt/ctx->hashcnt_per_slot)%150UL ], ctx->hash, 32UL );
+  }
 
-    if( FD_UNLIKELY( is_leader && ctx->hashcnt>=(ctx->next_leader_slot_hashcnt+ctx->hashcnt_per_slot) ) ) {
-      /* We ticked while leader and are no longer leader... transition
-         the state machine. */
-      FD_TEST( !max_remaining_microblocks );
-      no_longer_leader( ctx );
-      break;
-    }
-
-    if( FD_UNLIKELY( !(ctx->hashcnt%ctx->hashcnt_per_tick) ) ) {
-      /* If we ticked at all, we need to abort the loop if we were
-         leader since otherwise we could consume infinite credits
-         to publish here.  The credits are set so that we should
-         only ever publish one tick during this loop.
-
-         We could keep turning the loop here if we are not leader,
-         as we didn't publish a frag yet, but it's better to just
-         bound the loop and let housekeeping and other frag polling
-         run anyway. */
-      break;
-    }
+  if( FD_UNLIKELY( is_leader && ctx->hashcnt>=(ctx->next_leader_slot_hashcnt+ctx->hashcnt_per_slot) ) ) {
+    /* We ticked while leader and are no longer leader... transition
+       the state machine. */
+    FD_TEST( !max_remaining_microblocks );
+    no_longer_leader( ctx );
   }
 }
 
