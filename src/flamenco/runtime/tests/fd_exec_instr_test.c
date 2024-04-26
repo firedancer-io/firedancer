@@ -5,6 +5,8 @@
 #include "../fd_acc_mgr.h"
 #include "../fd_account.h"
 #include "../fd_executor.h"
+#include "../program/fd_bpf_loader_v3_program.h"
+#include "../program/fd_bpf_program_util.h"
 #include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
@@ -41,6 +43,7 @@ static FD_TL char _report_prefix[65] = {0};
 #define SORT_KEY_T void const *
 #define SORT_BEFORE(a,b) ( memcmp( (a), (b), sizeof(fd_pubkey_t) )<0 )
 #include "../../../util/tmpl/fd_sort.c"
+#include "../../vm/fd_vm_context.h"
 
 struct __attribute__((aligned(32UL))) fd_exec_instr_test_runner_private {
   fd_funk_t * funk;
@@ -179,6 +182,10 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   assert( epoch_ctx );
   assert( slot_ctx  );
 
+  /* Initial variables */
+  txn_ctx->loaded_accounts_data_size_limit = MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES;
+  txn_ctx->heap_size = FD_VM_DEFAULT_HEAP_SZ;
+
   /* Set up epoch context */
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
   epoch_bank->rent.lamports_per_uint8_year = 3480;
@@ -251,6 +258,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
     REPORT( NOTICE, "too many accounts" );
     return 0;
   }
+
   fd_borrowed_account_t * borrowed_accts = txn_ctx->borrowed_accounts;
   fd_memset( borrowed_accts, 0, test_ctx->accounts_count * sizeof(fd_borrowed_account_t) );
   txn_ctx->accounts_cnt = test_ctx->accounts_count;
@@ -266,9 +274,29 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   /* Load accounts into database */
 
   assert( acc_mgr->funk );
-  for( ulong j=0UL; j < test_ctx->accounts_count; j++ )
+  for( ulong j=0UL; j < test_ctx->accounts_count; j++ ) {
     if( !_load_account( &borrowed_accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j] ) )
       return 0;
+  }
+
+  /* Load in executable accounts */
+  for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
+    if ( FD_UNLIKELY( 0 == memcmp(borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) ) ) {
+      fd_bpf_upgradeable_loader_state_t program_loader_state;
+      int err = 0;
+      if( FD_UNLIKELY( !read_bpf_upgradeable_loader_state_for_program( txn_ctx, (uchar) i, &program_loader_state, &err ) ) ) {
+        continue;
+      }
+
+      fd_pubkey_t * programdata_acc = &program_loader_state.inner.program.programdata_address;
+      fd_borrowed_account_t * executable_account = fd_borrowed_account_init( &txn_ctx->executable_accounts[txn_ctx->executable_cnt] );
+      fd_acc_mgr_view(txn_ctx->acc_mgr, txn_ctx->funk_txn, programdata_acc, executable_account);
+      txn_ctx->executable_cnt++;
+    }
+  }
+
+  /* Add accounts to bpf program cache */
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
 
   /* Restore sysvar cache */
 
@@ -307,6 +335,8 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
     REPORT( NOTICE, "too many instruction accounts" );
     return 0;
   }
+
+  uchar acc_idx_seen[256] = {0};
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {
     uint index = test_ctx->instr_accounts[j].index;
     if( index >= test_ctx->accounts_count ) {
@@ -322,18 +352,24 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
     info->borrowed_accounts[j] = acc;
     info->acct_flags       [j] = (uchar)flags;
     memcpy( info->acct_pubkeys[j].uc, acc->pubkey, sizeof(fd_pubkey_t) );
+    info->acct_txn_idxs[j]     = (uchar) index;
+
+    if (acc_idx_seen[index]) {
+      info->is_duplicate[j] = 1;
+    }
+    acc_idx_seen[index] = 1;
   }
   info->acct_cnt = (uchar)test_ctx->instr_accounts_count;
 
   bool found_program_id = false;
-  for (uint i = 0; i < test_ctx->accounts_count; i++) {
-    if ( 0 == memcmp(test_ctx->accounts[i].address, test_ctx->program_id, sizeof(fd_pubkey_t)) ) {
+  for( uint i = 0; i < test_ctx->accounts_count; i++ ) {
+    if( 0 == memcmp(test_ctx->accounts[i].address, test_ctx->program_id, sizeof(fd_pubkey_t)) ) {
       info->program_id = (uchar) i;
       found_program_id = true;
       break;
     }
   }
-  if (!found_program_id) {
+  if( !found_program_id ) {
     FD_LOG_WARNING(("Unable to find program_id in accounts"));
   }
 
