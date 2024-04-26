@@ -84,7 +84,10 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
     FD_LOG_WARNING(("Preparing instruction failed"));
     return (int)exec_err;
   }
-  return fd_execute_instr( ctx->txn_ctx, instr_info );
+
+  err = fd_execute_instr( ctx->txn_ctx, instr_info );
+  fd_valloc_free( ctx->valloc, buf );
+  return err;
 }
 
 void 
