@@ -67,7 +67,7 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
   }
 
   fd_bincode_encode_ctx_t ctx2;
-  void * buf = fd_valloc_malloc( ctx->valloc, FD_SYSTEM_PROGRAM_INSTRUCTION_ALIGN, sizeof(fd_system_program_instruction_t) );
+  uchar buf[sizeof(fd_system_program_instruction_t)];
   ctx2.data = buf;
   ctx2.dataend = (uchar*)ctx2.data + sizeof(fd_system_program_instruction_t);
   int err = fd_system_program_instruction_encode( instr, &ctx2 );
@@ -85,9 +85,7 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
     return (int)exec_err;
   }
 
-  err = fd_execute_instr( ctx->txn_ctx, instr_info );
-  fd_valloc_free( ctx->valloc, buf );
-  return err;
+  return fd_execute_instr( ctx->txn_ctx, instr_info );
 }
 
 void 
