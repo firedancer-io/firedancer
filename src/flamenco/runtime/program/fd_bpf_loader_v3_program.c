@@ -10,6 +10,7 @@
 #include "../../vm/fd_vm_disasm.h"
 #include "fd_bpf_loader_serialization.h"
 #include "fd_bpf_program_util.h"
+#include "fd_native_cpi.h"
 
 #include <stdio.h>
 
@@ -668,7 +669,7 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
     //         }
 
     // Drain buffer lamports to payer
-    int write_result = fd_instr_borrowed_account_modify( &ctx, buffer_acc,0UL, &buffer_rec);
+    int write_result = fd_instr_borrowed_account_modify( &ctx, buffer_acc, 0UL, &buffer_rec );
     if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to read account metadata" ));
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
@@ -681,6 +682,7 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
 
+    /* Drain the buffer account to the payer before paying for the programdata account */
     // FIXME: Do checked addition
     ulong buffer_lamports = buffer_rec->meta->info.lamports;
     payer->meta->info.lamports += buffer_lamports;
@@ -688,16 +690,40 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
     buffer_rec->meta->info.lamports  = 0;
 
     // TODO: deploy program
-    err = setup_program(&ctx, buffer_rec->data + BUFFER_METADATA_SIZE, buffer_data_len);
-    if (err != 0) {
+    err = setup_program( &ctx, buffer_rec->data + BUFFER_METADATA_SIZE, buffer_data_len );
+    if ( err != 0 ) {
       return err;
     }
 
-    // Create program data account
-    // fd_funk_rec_t * program_data_rec = NULL;
-    ulong sz2 = PROGRAMDATA_METADATA_SIZE + instruction.inner.deploy_with_max_data_len.max_data_len;
+    /* Actually invoke the system program via native cpi */
+    fd_system_program_instruction_create_account_t create_acct;
+    create_acct.lamports = fd_rent_exempt_minimum_balance(ctx.slot_ctx, programdata_len); 
+    create_acct.space = programdata_len;
+    create_acct.owner = ctx.instr->program_id_pubkey;
+
+    fd_system_program_instruction_t FD_FN_UNUSED instr;
+    instr.discriminant = fd_system_program_instruction_enum_create_account;
+    instr.inner.create_account = create_acct;
+
+    /* Setup the accounts passed into the system program create call. Index zero and 
+       one are the from and to accounts respectively for the transfer. The buffer 
+       account is also passed in here. */ //TODO: free these afterwards
+    fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *) 
+                                             fd_valloc_malloc( ctx.valloc, FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
+    fd_native_cpi_create_account_meta( payer_acc, 1, 1, &acct_metas[0] ); 
+    fd_native_cpi_create_account_meta( programdata_acc, 1, 1, &acct_metas[1] );
+    fd_pubkey_t signers[2];
+    ulong signers_cnt = 2;
+    signers[0] = *payer_acc;
+    signers[1] = *programdata_acc;
+
+    fd_native_cpi_execute_system_program_instruction( &ctx, &instr, acct_metas, 2, signers, signers_cnt );
+
+    fd_valloc_free( ctx.valloc, acct_metas );
+
+    ulong total_size = PROGRAMDATA_METADATA_SIZE + instruction.inner.deploy_with_max_data_len.max_data_len;
     fd_borrowed_account_t * programdata_rec = NULL;
-    int modify_err = fd_instr_borrowed_account_modify( &ctx, programdata_acc, sz2, &programdata_rec);
+    int modify_err = fd_instr_borrowed_account_modify( &ctx, programdata_acc, total_size, &programdata_rec );
     FD_TEST( modify_err == FD_ACC_MGR_SUCCESS );
     fd_account_meta_t * meta = programdata_rec->meta;
     uchar * acct_data        = programdata_rec->data;
@@ -723,12 +749,10 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
     meta->info.lamports = fd_rent_exempt_minimum_balance(ctx.slot_ctx, meta->dlen);
     meta->info.rent_epoch = 0;
 
-    // payer->meta->info.lamports += buffer_rec->meta->info.lamports;
-    payer->meta->info.lamports -= buffer_lamports;
     buffer_data_len = fd_ulong_sat_sub(buffer_rec->meta->dlen, BUFFER_METADATA_SIZE);
 
     err = fd_instr_borrowed_account_view(&ctx, buffer_acc, &buffer_rec);
-    fd_memcpy( acct_data+PROGRAMDATA_METADATA_SIZE, buffer_rec->const_data+BUFFER_METADATA_SIZE, buffer_data_len );
+    fd_memcpy( acct_data + PROGRAMDATA_METADATA_SIZE, buffer_rec->const_data + BUFFER_METADATA_SIZE, buffer_data_len );
     // fd_memset( acct_data+PROGRAMDATA_METADATA_SIZE+buffer_data_len, 0, instruction.inner.deploy_with_max_data_len.max_data_len-buffer_data_len );
       // FD_LOG_WARNING(("AAA: %x", *(acct_data+meta->dlen-3)));
     programdata_rec->meta->slot = ctx.slot_ctx->slot_bank.slot;
