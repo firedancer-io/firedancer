@@ -293,6 +293,40 @@ metric introduced.
 
 </group>
 
+<enum name="ShredProcessingResult">
+  <int value="-4" name="BadSlot" label="Shred was for a slot for which we don't know the leader" />
+  <int value="-3" name="ParseFailed" label="Shred parsing failed" />
+  <!-- The following need to stay in sync with the #defines in
+       fd_fec_resolver.h -->
+  <int value="-2" name="Rejected" label="Shred was invalid for one of many reasons" />
+  <int value="-1" name="Ignored" label="Shred was ignored because we had already received or reconstructed it" />
+  <int value="0" name="Okay" label="Shred accepted to an incomplete FEC set" />
+  <int value="1" name="Completes" label="Shred accepted and resulted in a valid, complete FEC set" />
+</enum>
+
+<group name="Shred" tile="shred">
+  <histogram name="ClusterContactInfoCnt" min="0" max="40200">
+    <summary>Number of contact infos in the cluster contact info message</summary>
+  </histogram>
+  <counter name="MicroblocksAbandoned" summary="The number of microblocks that were abandoned because we switched slots without finishing the current slot" />
+  <histogram name="BatchSz" min="1024" max="65536">
+    <summary>The size (in bytes) of each microblock batch that is shredded</summary>
+  </histogram>
+  <histogram name="BatchMicroblockCnt" min="2" max="256">
+    <summary>The number of microblocks in each microblock batch that is shredded</summary>
+  </histogram>
+  <histogram name="ShreddingDurationSeconds" min="0.00001" max="0.01" converter="seconds">
+    <summary>Duration of producing one FEC set from the shredder</summary>
+  </histogram>
+  <histogram name="AddShredDurationSeconds" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Duration of verifying and processing one shred received from the network</summary>
+  </histogram>
+  <counter name="ShredProcessed" enum="ShredProcessingResult" summary="The result of processing a thread from the network" />
+  <counter name="FecSetSpilled" summary="The number of FEC sets that were spilled because they didn't complete in time and we needed space" />
+  <counter name="ShredRejectedInitial" summary="The number shreds that were rejected before any resources were allocated for the FEC set" />
+  <counter name="FecRejectedFatal" summary="The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid" />
+</group>
+
 <group name="StoreTile" tile="store">
   <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </group>

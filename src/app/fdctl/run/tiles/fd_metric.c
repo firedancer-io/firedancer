@@ -261,6 +261,9 @@ prometheus_print( fd_topo_t * topo,
   result = prometheus_print1( topo, out, out_len, "poh", FD_METRICS_POH_TOTAL, FD_METRICS_POH, PRINT_TILE );
   if( FD_UNLIKELY( result<0 ) ) return result;
   PRINT( "\n" );
+  result = prometheus_print1( topo, out, out_len, "shred", FD_METRICS_SHRED_TOTAL, FD_METRICS_SHRED, PRINT_TILE );
+  if( FD_UNLIKELY( result<0 ) ) return result;
+  PRINT( "\n" );
   result = prometheus_print1( topo, out, out_len, "store", FD_METRICS_STORE_TOTAL, FD_METRICS_STORE, PRINT_TILE );
   if( FD_UNLIKELY( result<0 ) ) return result;
 
