@@ -4,6 +4,7 @@
 #include "../../ballet/sha512/fd_sha512.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/reedsol/fd_reedsol.h"
+#include "../metrics/fd_metrics.h"
 #include "fd_fec_resolver.h"
 
 #define INCLUSION_PROOF_LAYERS 10UL
@@ -376,6 +377,8 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
 
       /* Remove from linked list and then from the map */
       ctx_map_remove( curr_map, ctx_ll_remove( victim_ctx ) );
+
+      FD_MCNT_INC( SHRED, FEC_SET_SPILLED, 1UL );
     }
     /* Now we know |free_list|>partial_depth and |bmtree_free_list|>1 */
 
@@ -394,12 +397,14 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
     if( FD_UNLIKELY( !rv ) ) {
       freelist_push_head( free_list,        set_to_use );
       bmtrlist_push_head( bmtree_free_list, bmtree_mem );
+      FD_MCNT_INC( SHRED, SHRED_REJECTED_INITIAL, 1UL );
       return FD_FEC_RESOLVER_SHRED_REJECTED;
     }
 
     if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( _root->hash, 32UL, shred->signature, leader_pubkey, sha512 ) ) ) {
       freelist_push_head( free_list,        set_to_use );
       bmtrlist_push_head( bmtree_free_list, bmtree_mem );
+      FD_MCNT_INC( SHRED, SHRED_REJECTED_INITIAL, 1UL );
       return FD_FEC_RESOLVER_SHRED_REJECTED;
     }
 
@@ -466,7 +471,6 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
 
   ctx_map_remove( curr_map, ctx_ll_remove( ctx ) );
 
-
   reedsol = fd_reedsol_recover_init( (void*)reedsol, reedsol_protected_sz );
   for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
     uchar * rs_payload = set->data_shreds[ i ] + sizeof(fd_ed25519_sig_t);
@@ -488,6 +492,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
        slash-able offense. */
     freelist_push_tail( free_list,        set  );
     bmtrlist_push_tail( bmtree_free_list, tree );
+    FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
   /* Iterate over recovered shreds, add them to the Merkle tree,
@@ -498,6 +503,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
       if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, i, leaf, NULL, 0, NULL ) ) ) {
         freelist_push_tail( free_list,        set  );
         bmtrlist_push_tail( bmtree_free_list, tree );
+        FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
         return FD_FEC_RESOLVER_SHRED_REJECTED;
       }
 
@@ -521,6 +527,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
       if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, set->data_shred_cnt + i, leaf, NULL, 0, NULL ) ) ) {
         freelist_push_tail( free_list,        set  );
         bmtrlist_push_tail( bmtree_free_list, tree );
+        FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
         return FD_FEC_RESOLVER_SHRED_REJECTED;
       }
     }
@@ -530,6 +537,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   if( FD_UNLIKELY( !fd_bmtree_commitp_fini( tree, set->data_shred_cnt + set->parity_shred_cnt ) ) ) {
     freelist_push_tail( free_list,        set  );
     bmtrlist_push_tail( bmtree_free_list, tree );
+    FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
@@ -565,6 +573,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   if( FD_UNLIKELY( reject ) ) {
     freelist_push_tail( free_list,        set  );
     bmtrlist_push_tail( bmtree_free_list, tree );
+    FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 

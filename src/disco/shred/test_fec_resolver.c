@@ -3,6 +3,7 @@
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/shred/fd_fec_set.h"
 
+#include "../../disco/metrics/fd_metrics.h"
 
 /* An entry batch of 64 entries with 20 transactions per entry takes up
    about 256 kB, for about 200B/txn, which seems reasonable.  We'll do a
@@ -19,6 +20,8 @@ uchar resolver_mem[ 1024UL*1024UL ] __attribute__((aligned(FD_FEC_RESOLVER_ALIGN
 FD_IMPORT_BINARY( test_private_key, "src/disco/shred/fixtures/demo-shreds.key"  );
 
 FD_IMPORT_BINARY( test_bin,         "src/disco/shred/fixtures/demo-shreds.bin"  );
+
+uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0, 0 ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
 
 fd_shredder_t _shredder[ 1 ];
 
@@ -281,6 +284,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL, 0UL ) );
 
   (void)perf_test;
 
