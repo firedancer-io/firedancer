@@ -67,7 +67,7 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
   }
 
   fd_bincode_encode_ctx_t ctx2;
-  uchar buf[sizeof(fd_system_program_instruction_t)];
+  uchar buf[4096UL];
   ctx2.data = buf;
   ctx2.dataend = (uchar*)ctx2.data + sizeof(fd_system_program_instruction_t);
   int err = fd_system_program_instruction_encode( instr, &ctx2 );
