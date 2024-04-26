@@ -1,27 +1,6 @@
-#include "../../choreo/fd_choreo.h"
-#include "../../flamenco/fd_flamenco.h"
-#include "../../flamenco/runtime/fd_hashes.h"
-#include "../../flamenco/runtime/fd_snapshot_loader.h"
-#include "../../flamenco/runtime/program/fd_bpf_program_util.h"
-#include "../../flamenco/types/fd_types.h"
-#include "../../util/fd_util.h"
-#include "../shred/fd_shred_cap.h"
-#include "../tvu/fd_replay.h"
-#include <errno.h>
-#include <pthread.h>
-#include <time.h>
-#include <unistd.h>
+#include "./test_consensus.h"
 
 #define TEST_CONSENSUS_MAGIC ( 0x7e57UL ) /* test */
-
-/* FIXME: is this obsolete?
-struct fd_shred_cap_replay_args {
-  const char *      shred_cap;
-  fd_blockstore_t * blockstore;
-  fd_replay_t *     replay;
-};
-typedef struct fd_shred_cap_replay_args fd_shred_cap_replay_args_t;
-*/
 
 void          online_archive_init(int argc, char ** argv);
 fd_replay_t * offline_replay_init(int argc, char ** argv);
@@ -43,11 +22,64 @@ main( int argc, char ** argv ) {
   return 0;
 }
 
-void online_archive_init(int argc, char** argv) {
-  const char * _snapshot = fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshot", NULL, NULL );
+/* Local variables for online archive */
+static int gossip_sockfd = -1;
+//static int repair_sockfd = -1;
+static fd_keyguard_client_t keyguard_client;
+static fd_tvu_gossip_deliver_arg_t gossip_deliver_arg;
 
+#include "./test_consensus_helper.c"
+
+void online_archive_init(int argc, char** argv) {
+  /* arguments */
+  const char * _gossip_addr = "139.178.68.207:8001"; /* temporary */
+  const char * _snapshot = fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshot", NULL, NULL );
   if (!_snapshot) FD_LOG_ERR( ( "must pass in one of --snapshot <FILE> and --shredcap <FILE>" ) );
-  //replay->now = fd_log_wallclock();
+
+  /* wksp */
+  ulong  page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 128UL );
+  char * _page_sz = "gigantic";
+  ulong  numa_idx = fd_shmem_numa_idx( 0 );
+  FD_LOG_NOTICE( ( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)",
+                   page_cnt,
+                   _page_sz,
+                   numa_idx ) );
+  fd_wksp_t * wksp = fd_wksp_new_anonymous(
+      fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  FD_TEST( wksp );
+
+  /* allocator */
+  void * alloc_shmem =
+      fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), TEST_CONSENSUS_MAGIC );
+  void *       alloc_shalloc = fd_alloc_new( alloc_shmem, TEST_CONSENSUS_MAGIC );
+  fd_alloc_t * alloc         = fd_alloc_join( alloc_shalloc, 0UL );
+  fd_valloc_t  valloc        = fd_alloc_virtual( alloc );
+
+  /* gossip */
+  //FIXME, initialize bft and repair
+  //gossip_deliver_arg->bft = bft;
+  //gossip_deliver_arg->repair = repair;
+  gossip_deliver_arg.valloc = valloc;
+
+  void *        gossip_shmem = fd_wksp_alloc_laddr( wksp, fd_gossip_align(), fd_gossip_footprint(), TEST_CONSENSUS_MAGIC );
+  fd_gossip_t * gossip       = fd_gossip_join( fd_gossip_new( gossip_shmem, TEST_CONSENSUS_MAGIC, valloc ) );
+  fd_gossip_config_t gossip_config;
+  gossip_config.shred_version = 0;
+  gossip_config.deliver_fun   = gossip_deliver_fun;
+  gossip_config.deliver_arg   = &gossip_deliver_arg;
+  gossip_config.send_fun      = gossip_send_packet;
+  gossip_config.send_arg      = NULL;
+  gossip_config.sign_fun      = signer_fun;
+  gossip_config.sign_arg      = &keyguard_client;
+  FD_TEST ( fd_gossip_set_config( gossip, &gossip_config ) );
+
+  fd_gossip_peer_addr_t gossip_peer_addr;
+  FD_TEST ( resolve_hostport( _gossip_addr, &gossip_peer_addr ) );
+
+  if( fd_gossip_add_active_peer(
+            gossip, resolve_hostport( _gossip_addr, &gossip_peer_addr ) ) )
+      FD_LOG_ERR( ( "error adding gossip active peer" ) );
+  
   FD_LOG_ERR( ( "online_archive_init not ready yet" ) );
 }
 
