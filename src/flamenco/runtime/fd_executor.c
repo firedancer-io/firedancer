@@ -452,30 +452,9 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t *          slot_ctx,
   return 0;
 }
 
-void
-fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context,
-                                                    fd_exec_txn_ctx_t *txn_ctx,
-                                                    fd_instr_info_t *instr ) {
-  /*
-  NOTE: Calling this function requires the caller to have a scratch frame ready (see dump_instr_to_protobuf)
-  */
-
-  /* Program ID */
-  instr_context->has_program_id = true;
-  fd_memcpy(instr_context->program_id, &instr->program_id_pubkey, sizeof(fd_pubkey_t));
-
-  /* Loader ID */
-  instr_context->has_loader_id = true;
-  // For now, the loader ID will be the owner of the program ID
-  fd_memcpy(&instr_context->loader_id, txn_ctx->borrowed_accounts[instr->program_id].const_meta->info.owner, sizeof(fd_pubkey_t));
-
-  /* Accounts */
-  instr_context->accounts_count = (pb_size_t) txn_ctx->accounts_cnt;
-  instr_context->accounts = fd_scratch_alloc(alignof(fd_exec_test_acct_state_t), instr_context->accounts_count * sizeof(fd_exec_test_acct_state_t));
-  for (ulong i = 0; i < txn_ctx->accounts_cnt; ++i) {
-    fd_exec_test_acct_state_t * output_account = &instr_context->accounts[i];
-    fd_borrowed_account_t * borrowed_account = &txn_ctx->borrowed_accounts[i];
-
+static void
+export_account_state( fd_borrowed_account_t * borrowed_account,
+                      fd_exec_test_acct_state_t * output_account ) {
     // Address
     output_account->has_address = true;
     fd_memcpy(output_account->address, borrowed_account->pubkey, sizeof(fd_pubkey_t));
@@ -500,12 +479,100 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
     // Owner
     output_account->has_owner = true;
     fd_memcpy(output_account->owner, borrowed_account->const_meta->info.owner, sizeof(fd_pubkey_t));
+}
+
+void 
+fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context, 
+                                                    fd_exec_txn_ctx_t *txn_ctx, 
+                                                    fd_instr_info_t *instr ) {
+  /*
+  NOTE: Calling this function requires the caller to have a scratch frame ready (see dump_instr_to_protobuf)
+  */
+  
+  /* Prepare sysvar cache accounts */
+  fd_pubkey_t const fd_relevant_sysvar_ids[] = {
+    fd_sysvar_clock_id,
+    fd_sysvar_epoch_schedule_id,
+    fd_sysvar_epoch_rewards_id,
+    fd_sysvar_fees_id,
+    fd_sysvar_rent_id,
+    fd_sysvar_slot_hashes_id,
+    fd_sysvar_recent_block_hashes_id,
+    fd_sysvar_stake_history_id,
+    fd_sysvar_last_restart_slot_id,
+    fd_sysvar_instructions_id,
+  };
+  const ulong num_sysvar_entries = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
+
+  /* Program ID */
+  instr_context->has_program_id = true;
+  fd_memcpy( instr_context->program_id, instr->program_id_pubkey.uc, sizeof(fd_pubkey_t) );
+
+  /* Loader ID */
+  instr_context->has_loader_id = 1;
+  // For now, the loader ID will be the owner of the program ID
+  fd_memcpy( instr_context->loader_id, txn_ctx->borrowed_accounts[instr->program_id].const_meta->info.owner, sizeof(fd_pubkey_t) );
+
+  /* Accounts */
+  instr_context->accounts_count = (pb_size_t) txn_ctx->accounts_cnt;
+  instr_context->accounts = fd_scratch_alloc(alignof(fd_exec_test_acct_state_t), (instr_context->accounts_count + num_sysvar_entries + txn_ctx->executable_cnt) * sizeof(fd_exec_test_acct_state_t));
+  for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
+    // Copy account information over
+    fd_borrowed_account_t * borrowed_account = &txn_ctx->borrowed_accounts[i];
+    fd_exec_test_acct_state_t * output_account = &instr_context->accounts[i];
+    export_account_state( borrowed_account, output_account );
+  }
+
+  /* Add sysvar cache variables */
+  for( ulong i = 0; i < num_sysvar_entries; i++ ) {
+    FD_BORROWED_ACCOUNT_DECL(borrowed_account);
+    int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &fd_relevant_sysvar_ids[i], borrowed_account );
+    if( ret != FD_ACC_MGR_SUCCESS ) {
+      continue;
+    }
+    // Make sure the account doesn't exist in the output accounts yet
+    int account_exists = 0;
+    for( ulong j = 0; j < txn_ctx->accounts_cnt; j++ ) {
+      if ( 0 == memcmp( txn_ctx->accounts[j].key, fd_relevant_sysvar_ids[i].uc, sizeof(fd_pubkey_t) ) ) {
+        account_exists = true;
+        break;
+      }
+    }
+
+    // Copy it into output
+    if (!account_exists) {
+      fd_exec_test_acct_state_t * output_account = &instr_context->accounts[instr_context->accounts_count++];
+      export_account_state( borrowed_account, output_account );
+    }
+  }
+
+  /* Add executable accounts */
+  for( ulong i = 0; i < txn_ctx->executable_cnt; i++ ) {
+    FD_BORROWED_ACCOUNT_DECL(borrowed_account);
+    int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, txn_ctx->executable_accounts[i].pubkey, borrowed_account );
+    if( ret != FD_ACC_MGR_SUCCESS ) {
+      continue;
+    }
+    // Make sure the account doesn't exist in the output accounts yet
+    bool account_exists = false;
+    for( ulong j = 0; j < instr_context->accounts_count; j++ ) {
+      if( 0 == memcmp( instr_context->accounts[j].address, txn_ctx->executable_accounts[i].pubkey->uc, sizeof(fd_pubkey_t) ) ) {
+        account_exists = true;
+        break;
+      }
+    }
+
+    // Copy it into output
+    if( !account_exists ) {
+      fd_exec_test_acct_state_t * output_account = &instr_context->accounts[instr_context->accounts_count++];
+      export_account_state( borrowed_account, output_account );
+    }
   }
 
   /* Instruction Accounts */
   instr_context->instr_accounts_count = (pb_size_t) instr->acct_cnt;
-  instr_context->instr_accounts = fd_scratch_alloc(alignof(fd_exec_test_instr_acct_t), instr_context->instr_accounts_count * sizeof(fd_exec_test_instr_acct_t));
-  for (ushort i = 0; i < instr->acct_cnt; ++i) {
+  instr_context->instr_accounts = fd_scratch_alloc( alignof(fd_exec_test_instr_acct_t), instr_context->instr_accounts_count * sizeof(fd_exec_test_instr_acct_t) );
+  for( ushort i = 0; i < instr->acct_cnt; i++ ) {
     fd_exec_test_instr_acct_t * output_instr_account = &instr_context->instr_accounts[i];
 
     uchar account_flag = instr->acct_flags[i];
@@ -523,9 +590,9 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
   }
 
   /* Data */
-  instr_context->data = fd_scratch_alloc(alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(instr->data_sz));
+  instr_context->data = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(instr->data_sz) );
   instr_context->data->size = (pb_size_t) instr->data_sz;
-  fd_memcpy(instr_context->data->bytes, instr->data, instr->data_sz);
+  fd_memcpy( instr_context->data->bytes, instr->data, instr->data_sz );
 
   /* Compute Units */
   instr_context->has_cu_avail = true;
@@ -539,16 +606,16 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
   instr_context->has_slot_context = true;
 
   /* Epoch Context */
-  uint64_t * features = fd_scratch_alloc(alignof(uint64_t), FD_FEATURE_ID_CNT * sizeof(uint64_t));
+  uint64_t * features = fd_scratch_alloc( alignof(uint64_t), FD_FEATURE_ID_CNT * sizeof(uint64_t) );
   ulong num_features = 0;
-  for (const fd_feature_id_t * current_feature = fd_feature_iter_init(); !fd_feature_iter_done(current_feature); current_feature = fd_feature_iter_next(current_feature)) {
+  for( const fd_feature_id_t * current_feature = fd_feature_iter_init(); !fd_feature_iter_done( current_feature ); current_feature = fd_feature_iter_next( current_feature ) ) {
     if (txn_ctx->epoch_ctx->features.f[current_feature->index] != FD_FEATURE_DISABLED) {
       features[num_features++] = (uint64_t) current_feature->id.ul[0];
     }
   }
   // Sort the features
-  void * scratch = fd_scratch_alloc(sort_uint64_t_stable_scratch_align(), sort_uint64_t_stable_scratch_footprint(num_features));
-  uint64_t * sorted_features = sort_uint64_t_stable_fast(features, num_features, scratch);
+  void * scratch = fd_scratch_alloc( sort_uint64_t_stable_scratch_align(), sort_uint64_t_stable_scratch_footprint(num_features) );
+  uint64_t * sorted_features = sort_uint64_t_stable_fast( features, num_features, scratch );
 
   instr_context->has_epoch_context = true;
   instr_context->epoch_context.has_features = true;
@@ -562,11 +629,11 @@ dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx,
                         ushort instruction_idx ) {
   FD_SCRATCH_SCOPE_BEGIN {
     // Get base58-encoded tx signature
-    const fd_ed25519_sig_t * signatures = fd_txn_get_signatures(txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw);
-    fd_ed25519_sig_t signature; fd_memcpy(signature, signatures[0], sizeof(fd_ed25519_sig_t));
+    const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
+    fd_ed25519_sig_t signature; fd_memcpy( signature, signatures[0], sizeof(fd_ed25519_sig_t) );
     char encoded_signature[FD_BASE58_ENCODED_64_SZ];
     ulong out_size;
-    fd_base58_encode_64(signature, &out_size, encoded_signature);
+    fd_base58_encode_64( signature, &out_size, encoded_signature );
 
     if (txn_ctx->capture_ctx->dump_insn_sig_filter) {
       ulong filter_strlen = (ulong) strlen(txn_ctx->capture_ctx->dump_insn_sig_filter);
@@ -579,7 +646,7 @@ dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx,
     }
 
     fd_exec_test_instr_context_t instr_context = FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT;
-    fd_create_instr_context_protobuf_from_instructions(&instr_context, txn_ctx, instr);
+    fd_create_instr_context_protobuf_from_instructions( &instr_context, txn_ctx, instr );
 
     /* Output to file */
     ulong out_buf_size = 100 * 1024 * 1024;
@@ -597,9 +664,9 @@ dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx,
       fd_cstr_fini(position);
 
       FILE * file = fopen(output_filepath, "wb");
-      if (file) {
-        fwrite(out, 1, stream.bytes_written, file);
-        fclose(file);
+      if( file ) {
+        fwrite( out, 1, stream.bytes_written, file );
+        fclose( file );
       }
     }
   } FD_SCRATCH_SCOPE_END;
@@ -610,7 +677,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
   FD_SCRATCH_SCOPE_BEGIN {
     ulong max_num_instructions = FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, limit_max_instruction_trace_length ) ? 64 : ULONG_MAX;
-    if (txn_ctx->num_instructions >= max_num_instructions ) {
+    if( txn_ctx->num_instructions >= max_num_instructions ) {
       return -1;
     }
     txn_ctx->num_instructions++;
@@ -638,7 +705,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     };
 
     // defense in depth
-    if (instr->program_id >= txn_ctx->txn_descriptor->acct_addr_cnt + txn_ctx->txn_descriptor->addr_table_adtl_cnt) {
+    if( instr->program_id >= txn_ctx->txn_descriptor->acct_addr_cnt + txn_ctx->txn_descriptor->addr_table_adtl_cnt ) {
       FD_LOG_WARNING(( "INVALID PROGRAM ID, RUNTIME BUG!!!" ));
       int exec_result = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
       txn_ctx->instr_stack_sz--;
