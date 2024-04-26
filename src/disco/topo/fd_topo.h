@@ -197,6 +197,18 @@ typedef struct {
     } metric;
 
     struct {
+      char  genesis[ PATH_MAX ];
+      char  snapshot[ PATH_MAX ];
+      char  incremental[ PATH_MAX ];
+      ulong pages;
+      ulong txn_max;
+      ulong index_max;
+      ulong shred_max;
+      ulong slot_history_max;
+      ulong snapshot_slot;
+    } replay;
+
+    struct {
       ushort send_to_port;
       uint   send_to_ip_addr;
       ulong  conn_cnt;
