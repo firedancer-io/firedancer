@@ -49,8 +49,6 @@
 #define MAX_COMPUTE_UNITS_PER_BLOCK                (48000000UL)
 #define MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT (12000000UL)
 
-static int nop_fn( fd_exec_instr_ctx_t ctx ) { (void)ctx; return 0; }
-
 fd_exec_instr_fn_t
 fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
   /* TODO: replace with proper lookup table */
@@ -73,7 +71,7 @@ fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
   } else if ( !memcmp( pubkey, fd_solana_bpf_loader_deprecated_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_bpf_loader_v1_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_compute_budget_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return nop_fn;
+    return fd_compute_budget_program_execute;
   } else if( !memcmp( pubkey, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return fd_address_lookup_table_program_execute;
   //} else if( !memcmp( pubkey, fd_solana_zk_token_proof_program_id.key, sizeof(fd_pubkey_t) ) ) {
@@ -454,9 +452,9 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t *          slot_ctx,
   return 0;
 }
 
-void 
-fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context, 
-                                                    fd_exec_txn_ctx_t *txn_ctx, 
+void
+fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context,
+                                                    fd_exec_txn_ctx_t *txn_ctx,
                                                     fd_instr_info_t *instr ) {
   /*
   NOTE: Calling this function requires the caller to have a scratch frame ready (see dump_instr_to_protobuf)
@@ -558,9 +556,9 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
   instr_context->epoch_context.features.features = sorted_features;
 }
 
-static void 
-dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, 
-                        fd_instr_info_t *instr, 
+static void
+dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx,
+                        fd_instr_info_t *instr,
                         ushort instruction_idx ) {
   FD_SCRATCH_SCOPE_BEGIN {
     // Get base58-encoded tx signature
@@ -585,7 +583,7 @@ dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx,
 
     /* Output to file */
     ulong out_buf_size = 100 * 1024 * 1024;
-    uint8_t * out = fd_scratch_alloc(alignof(uint8_t), out_buf_size); 
+    uint8_t * out = fd_scratch_alloc(alignof(uint8_t), out_buf_size);
     pb_ostream_t stream = pb_ostream_from_buffer(out, out_buf_size);
     if (pb_encode(&stream, FD_EXEC_TEST_INSTR_CONTEXT_FIELDS, &instr_context)) {
       char output_filepath[256]; fd_memset(output_filepath, 0, sizeof(output_filepath));
