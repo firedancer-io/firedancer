@@ -51,7 +51,6 @@ typedef struct fd_bincode_destroy_ctx fd_bincode_destroy_ctx_t;
 #define FD_BINCODE_ERR_UNDERFLOW   (-1001) /* Attempted to read past end of buffer */
 #define FD_BINCODE_ERR_OVERFLOW    (-1002) /* Attempted to write past end of buffer */
 #define FD_BINCODE_ERR_ENCODING    (-1003) /* Invalid encoding */
-#define FD_BINCODE_ERR_SMALL_DEQUE (-1004) /* deque max size is too small */
 
 #define FD_BINCODE_PRIMITIVE_STUBS( name, type ) \
   static inline int \

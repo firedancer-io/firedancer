@@ -31,12 +31,13 @@ void write_slot_hashes( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t* slot_ha
 //}
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L34 */
-void fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
+void
+fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_SCRATCH_SCOPE_BEGIN {
 
     fd_slot_hashes_t slot_hashes;
     if( !fd_sysvar_slot_hashes_read( &slot_hashes, slot_ctx ) ) {
-      slot_hashes.hashes = deq_fd_slot_hash_t_alloc( slot_ctx->valloc );
+      slot_hashes.hashes = deq_fd_slot_hash_t_alloc( slot_ctx->valloc, FD_SYSVAR_SLOT_HASHES_CAP );
       FD_TEST( slot_hashes.hashes );
     }
 

@@ -5,6 +5,7 @@
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
+#include "sysvar/fd_sysvar_recent_hashes.h"
 #include "sysvar/fd_sysvar_stake_history.h"
 #include "sysvar/fd_sysvar.h"
 #include "../../ballet/base58/fd_base58.h"
@@ -89,7 +90,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
   slot_ctx->slot_bank.block_height = 0UL;
 
   fd_block_block_hash_entry_t *hashes = slot_ctx->slot_bank.recent_block_hashes.hashes =
-      deq_fd_block_block_hash_entry_t_alloc(slot_ctx->valloc);
+      deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
   fd_block_block_hash_entry_t *elem = deq_fd_block_block_hash_entry_t_push_head_nocopy(hashes);
   fd_block_block_hash_entry_new(elem);
   fd_memcpy(elem->blockhash.hash, genesis_hash, FD_SHA256_HASH_SZ);
@@ -1183,7 +1184,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
             for ( deq_fd_block_block_hash_entry_t_iter_t iter = deq_fd_block_block_hash_entry_t_iter_init( hashes_deque );
                   !deq_fd_block_block_hash_entry_t_iter_done( hashes_deque, iter );
                   iter = deq_fd_block_block_hash_entry_t_iter_next( hashes_deque, iter ) ) {
-              /* If the block hash entry matches the transactions recent block hash, we skip thje hash */
+              /* If the block hash entry matches the transactions recent block hash, we skip the hash */
               fd_block_block_hash_entry_t * entry = deq_fd_block_block_hash_entry_t_iter_ele( hashes_deque, iter );
               if ( memcmp( entry->blockhash.hash, recent_blockhash->hash, sizeof(fd_hash_t) ) == 0 ) {
                 skip_hash = 1;
@@ -3796,7 +3797,7 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
     prev_slot = slot;
   }
 
-  if( state->tpool ) { 
+  if( state->tpool ) {
     fd_tpool_fini( state->tpool );
   }
 

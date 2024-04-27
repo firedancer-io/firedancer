@@ -1,5 +1,6 @@
 #include "fd_exec_epoch_ctx.h"
 #include <assert.h>
+#include "../sysvar/fd_sysvar_stake_history.h"
 
 /* TODO remove this */
 #define MAX_LG_SLOT_CNT   10UL
@@ -18,13 +19,13 @@ fd_exec_epoch_ctx_footprint_ext( fd_exec_epoch_ctx_layout_t * layout,
   fd_memset( layout, 0, sizeof(fd_exec_epoch_ctx_layout_t) );
   layout->vote_acct_max = vote_acct_max;
 
-  ulong stake_votes_sz         = fd_vote_accounts_pair_t_map_footprint( vote_acct_max );    if( !stake_votes_sz       ) return 0UL;
-  ulong stake_delegations_sz   = fd_delegation_pair_t_map_footprint   ( vote_acct_max );    if( !stake_delegations_sz ) return 0UL;
-  ulong stake_history_treap_sz = fd_stake_history_treap_footprint( FD_STAKE_HISTORY_MAX );  if( !stake_history_treap_sz ) FD_LOG_CRIT(( "invalid fd_stake_history_treap footprint" ));
-  ulong stake_history_pool_sz  = fd_stake_history_pool_footprint ( FD_STAKE_HISTORY_MAX );  if( !stake_history_pool_sz  ) FD_LOG_CRIT(( "invalid fd_stake_history_pool footprint"  ));
-  ulong next_epoch_stakes_sz   = fd_vote_accounts_pair_t_map_footprint( vote_acct_max );    if( !next_epoch_stakes_sz   ) return 0UL;
-  ulong leaders_sz             = fd_epoch_leaders_footprint( MAX_PUB_CNT, MAX_SLOTS_CNT );  if( !leaders_sz             ) FD_LOG_CRIT(( "invalid fd_epoch_leaders footprint" ));
-  ulong bank_hash_cmp_sz       = fd_bank_hash_cmp_footprint( MAX_LG_SLOT_CNT );             if( !bank_hash_cmp_sz       ) FD_LOG_CRIT(( "invalid fd_bank_hash_cmp footprint" ));
+  ulong stake_votes_sz         = fd_vote_accounts_pair_t_map_footprint( vote_acct_max );           if( !stake_votes_sz       ) return 0UL;
+  ulong stake_delegations_sz   = fd_delegation_pair_t_map_footprint   ( vote_acct_max );           if( !stake_delegations_sz ) return 0UL;
+  ulong stake_history_treap_sz = fd_stake_history_treap_footprint( FD_SYSVAR_STAKE_HISTORY_CAP );  if( !stake_history_treap_sz ) FD_LOG_CRIT(( "invalid fd_stake_history_treap footprint" ));
+  ulong stake_history_pool_sz  = fd_stake_history_pool_footprint ( FD_SYSVAR_STAKE_HISTORY_CAP );  if( !stake_history_pool_sz  ) FD_LOG_CRIT(( "invalid fd_stake_history_pool footprint"  ));
+  ulong next_epoch_stakes_sz   = fd_vote_accounts_pair_t_map_footprint( vote_acct_max );           if( !next_epoch_stakes_sz   ) return 0UL;
+  ulong leaders_sz             = fd_epoch_leaders_footprint( MAX_PUB_CNT, MAX_SLOTS_CNT );         if( !leaders_sz             ) FD_LOG_CRIT(( "invalid fd_epoch_leaders footprint" ));
+  ulong bank_hash_cmp_sz       = fd_bank_hash_cmp_footprint( MAX_LG_SLOT_CNT );                    if( !bank_hash_cmp_sz       ) FD_LOG_CRIT(( "invalid fd_bank_hash_cmp footprint" ));
 
   FD_SCRATCH_ALLOC_INIT( l, 0 );
   FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_epoch_ctx_t), sizeof(fd_exec_epoch_ctx_t) );
@@ -81,14 +82,14 @@ fd_exec_epoch_ctx_new( void * mem,
   //void * leaders_mem             = (void *)( (ulong)mem + layout->leaders_off             );
   void * bank_hash_cmp_mem       = (void *)( (ulong)mem + layout->bank_hash_cmp_off       );
 
-  fd_vote_accounts_pair_t_map_new( stake_votes_mem,         vote_acct_max              );
-  fd_delegation_pair_t_map_new   ( stake_delegations_mem,   vote_acct_max              );
-  fd_stake_history_treap_new     ( stake_history_treap_mem, FD_STAKE_HISTORY_MAX       );
-  fd_stake_history_pool_new      ( stake_history_pool_mem,  FD_STAKE_HISTORY_MAX       );
-  fd_vote_accounts_pair_t_map_new( next_epoch_stakes_mem,   vote_acct_max              );
+  fd_vote_accounts_pair_t_map_new( stake_votes_mem,         vote_acct_max               );
+  fd_delegation_pair_t_map_new   ( stake_delegations_mem,   vote_acct_max               );
+  fd_stake_history_treap_new     ( stake_history_treap_mem, FD_SYSVAR_STAKE_HISTORY_CAP );
+  fd_stake_history_pool_new      ( stake_history_pool_mem,  FD_SYSVAR_STAKE_HISTORY_CAP );
+  fd_vote_accounts_pair_t_map_new( next_epoch_stakes_mem,   vote_acct_max               );
   //TODO support separate epoch leaders new and init
   //fd_epoch_leaders_new           ( leaders_mem,             MAX_PUB_CNT, MAX_SLOTS_CNT );
-  fd_bank_hash_cmp_new           ( bank_hash_cmp_mem,       MAX_LG_SLOT_CNT            );
+  fd_bank_hash_cmp_new           ( bank_hash_cmp_mem,       MAX_LG_SLOT_CNT             );
 
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_EPOCH_CTX_MAGIC;
@@ -254,7 +255,7 @@ fd_exec_epoch_ctx_fixup_memory( fd_exec_epoch_ctx_t * epoch_ctx,
 
     if( fd_stake_history_treap_ele_cnt( new_treap ) )
       FD_LOG_ERR(( "epoch_ctx->stake_history not empty" ));
-    if( fd_stake_history_pool_max( new_pool ) != FD_STAKE_HISTORY_MAX )
+    if( fd_stake_history_pool_max( new_pool ) != FD_SYSVAR_STAKE_HISTORY_CAP )
       FD_LOG_ERR(( "epoch_ctx->stake_history corrupt" ));
 
     if( FD_LIKELY( old_treap ) ) {  /* not initialized by genesis */
