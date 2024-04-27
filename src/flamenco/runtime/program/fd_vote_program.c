@@ -816,12 +816,12 @@ last_voted_slot( fd_vote_state_t * self ) {
 
 static int
 contains_slot( fd_vote_state_t * vote_state, ulong slot ) {
-  ulong start = deq_fd_landed_vote_t_iter_init( vote_state->votes );
-  ulong end   = deq_fd_landed_vote_t_iter_init_reverse( vote_state->votes );
+  ulong start = 0UL;
+  ulong end   = deq_fd_landed_vote_t_cnt( vote_state->votes );
 
   while( start <= end ) {
     ulong mid      = start + ( end - start ) / 2;
-    ulong mid_slot = deq_fd_landed_vote_t_peek_index( vote_state->votes, mid )->lockout.slot;
+    ulong mid_slot = deq_fd_landed_vote_t_peek_index_const( vote_state->votes, mid )->lockout.slot;
     if( mid_slot == slot ) {
       return 1;
     } else if( mid_slot < slot ) {
@@ -891,9 +891,9 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
       /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L222-L228 */
 
       for( deq_fd_landed_vote_t_iter_t iter =
-               deq_fd_landed_vote_t_iter_init_reverse( vote_state->votes );
-           !deq_fd_landed_vote_t_iter_done_reverse( vote_state->votes, iter );
-           iter = deq_fd_landed_vote_t_iter_next_reverse( vote_state->votes, iter ) ) {
+               deq_fd_landed_vote_t_iter_init_rev( vote_state->votes );
+           !deq_fd_landed_vote_t_iter_done_rev( vote_state->votes, iter );
+           iter = deq_fd_landed_vote_t_iter_prev( vote_state->votes, iter ) ) {
 
         fd_landed_vote_t const * vote = deq_fd_landed_vote_t_iter_ele_const( vote_state->votes, iter );
         if( vote->lockout.slot <= proposed_root ) {
@@ -1012,8 +1012,8 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
 
   vote_state_update_index = 0;
   for( ulong i = 0; i < filter_index; i++ ) {
-    deq_fd_vote_lockout_t_pop_index( vote_state_update->lockouts,
-                                     vote_state_update_indexes_to_filter[i] );
+    deq_fd_vote_lockout_t_pop_idx_tail( vote_state_update->lockouts,
+                                        vote_state_update_indexes_to_filter[i] );
   }
 
   } FD_SCRATCH_SCOPE_END;
