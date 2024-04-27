@@ -85,6 +85,7 @@ typedef struct {
   fd_quic_conn_t * quic_conn;
   const fd_aio_t * quic_rx_aio;
   ulong            no_stream;
+  uint             service_ratio_idx;
 
   // vector receive members
   struct mmsghdr rx_msgs[IO_VEC_CNT];
@@ -106,7 +107,6 @@ service_quic( fd_benchs_ctx_t * ctx ) {
 
   if( !ctx->no_quic ) {
     /* Publishes to mcache via callbacks */
-    fd_quic_service( ctx->quic );
 
     /* receive from socket, and pass to quic */
     int poll_rc = poll( ctx->poll_fd, ctx->conn_cnt, 0 );
@@ -370,8 +370,6 @@ during_frag( void * _ctx,
 
     ctx->packet_cnt++;
   } else {
-    service_quic( ctx );
-
     if( FD_UNLIKELY( !ctx->quic_conn ) ) {
       ctx->no_stream = 0;
 
@@ -432,7 +430,13 @@ during_frag( void * _ctx,
       }
     }
 
-    fd_quic_service( ctx->quic );
+    /* allows to accumulate multiple transactions before creating a UDP datagram */
+    /* make this configurable */
+    if( FD_UNLIKELY( ctx->service_ratio_idx++ == 4 ) ) {
+      ctx->service_ratio_idx = 0;
+      service_quic( ctx );
+      fd_quic_service( ctx->quic );
+    }
   }
 }
 
@@ -679,22 +683,11 @@ quic_tx_aio_send( void *                    _ctx,
   return 0;
 }
 
-static void
-before_credit( void * _ctx,
-               fd_mux_context_t * mux ) {
-  (void)mux;
-
-  fd_benchs_ctx_t * ctx = (fd_benchs_ctx_t*)_ctx;
-
-  service_quic( ctx );
-}
-
 fd_topo_run_tile_t fd_tile_benchs = {
   .name                     = "benchs",
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,
-  .mux_before_credit        = before_credit,
   .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,
   .scratch_align            = scratch_align,
