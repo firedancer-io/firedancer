@@ -546,7 +546,7 @@ class DequeMember:
         self.name = json["name"]
         self.element = json["element"]
         self.compact = ("modifier" in json and json["modifier"] == "compact")
-        self.max = (json["max"] if "max" in json else None)
+        self.min = json.get("min", None)
         self.growth = (json["growth"] if "growth" in json else None)
 
     def elem_type(self):
@@ -567,40 +567,27 @@ class DequeMember:
             return
         preambletypes.add(dp)
         element_type = self.elem_type()
-        if self.max is not None:
-            print("#define DEQUE_NAME " + dp, file=header)
-            print("#define DEQUE_T " + element_type, file=header)
-            print(f'#define DEQUE_MAX {self.max}', file=header)
-            print('#include "../../util/tmpl/fd_deque.c"', file=header)
-            print("#undef DEQUE_NAME", file=header)
-            print("#undef DEQUE_T", file=header)
-            print("#undef DEQUE_MAX", file=header)
-            print(f'static inline {element_type} *', file=header)
-            print(f'{dp}_alloc( fd_valloc_t valloc ) {{', file=header)
-            print(f'  void * mem = fd_valloc_malloc( valloc, {dp}_align(), {dp}_footprint());', file=header)
-            print(f'  return {dp}_join( {dp}_new( mem ) );', file=header)
-            print("}", file=header)
-        else:
-            print("#define DEQUE_NAME " + dp, file=header)
-            print("#define DEQUE_T " + element_type, file=header)
-            print('#include "../../util/tmpl/fd_deque_dynamic.c"', file=header)
-            print("#undef DEQUE_NAME", file=header)
-            print("#undef DEQUE_T\n", file=header)
-            print(f'static inline {element_type} *', file=header)
-            print(f'{dp}_alloc( fd_valloc_t valloc, ulong len ) {{', file=header)
-            if self.growth is not None:
-                print(f'  ulong max = len + {self.growth};', file=header) # Provide headroom
-            else:
-                print(f'  ulong max = len + len/5 + 10;', file=header) # Provide headroom
-            print(f'  void * mem = fd_valloc_malloc( valloc, {dp}_align(), {dp}_footprint( max ));', file=header)
-            print(f'  return {dp}_join( {dp}_new( mem, max ) );', file=header)
-            print("}", file=header)
+        print("#define DEQUE_NAME " + dp, file=header)
+        print("#define DEQUE_T " + element_type, file=header)
+        print('#include "../../util/tmpl/fd_deque_dynamic.c"', file=header)
+        print("#undef DEQUE_NAME", file=header)
+        print("#undef DEQUE_T", file=header)
+        print("#undef DEQUE_MAX", file=header)
+        print(f'static inline {element_type} *', file=header)
+        print(f'{dp}_alloc( fd_valloc_t valloc, ulong max ) {{', file=header)
+        print(f'  void * mem = fd_valloc_malloc( valloc, {dp}_align(), {dp}_footprint( max ) );', file=header)
+        print(f'  return {dp}_join( {dp}_new( mem, max ) );', file=header)
+        print("}", file=header)
 
     def emitPostamble(self):
         pass
 
     def emitMember(self):
-        print(f'  {self.elem_type()} * {self.name};', file=header)
+        if self.min:
+            min_tag = f" (min cnt {self.min})"
+        else:
+            min_tag = ""
+        print(f'  {self.elem_type()} * {self.name}; /* fd_deque_dynamic{min_tag} */', file=header)
 
     def emitOffsetMember(self):
         print(f'  uint {self.name}_off;', file=header)
@@ -628,17 +615,17 @@ class DequeMember:
         else:
             print(f'  ulong {self.name}_len;', file=body)
             print(f'  err = fd_bincode_uint64_decode( &{self.name}_len, ctx );', file=body)
-        print(f'  if ( FD_UNLIKELY(err) ) return err;', file=body)
-        if self.max is not None:
-            print(f'  if ( {self.name}_len > {self.max} ) return FD_BINCODE_ERR_SMALL_DEQUE;', file=body)
+        print(f'  if( FD_UNLIKELY( err ) ) return err;', file=body)
 
         elem_type = f"{namespace}_{self.element}"
         if elem_type in fixedsizetypes:
             fixedsize = fixedsizetypes[elem_type]
-            print(f'  err = fd_bincode_bytes_decode_preflight({self.name}_len * {fixedsize}, ctx);', file=body)
-            print(f'  if ( FD_UNLIKELY(err) ) return err;', file=body)
+            print(f'  ulong {self.name}_sz;', file=body)
+            print(f'  if( FD_UNLIKELY( __builtin_umull_overflow( {self.name}_len, {fixedsize}, &{self.name}_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;', file=body)
+            print(f'  err = fd_bincode_bytes_decode_preflight( {self.name}_sz, ctx );', file=body)
+            print(f'  if( FD_UNLIKELY( err ) ) return err;', file=body)
         else:
-            print(f'  for (ulong i = 0; i < {self.name}_len; ++i) {{', file=body)
+            print(f'  for( ulong i = 0; i < {self.name}_len; ++i ) {{', file=body)
 
             if self.element in simpletypes:
                 print(f'    err = fd_bincode_{simpletypes[self.element]}_decode_preflight(ctx);', file=body)
@@ -655,8 +642,10 @@ class DequeMember:
         else:
             print(f'  ulong {self.name}_len;', file=body)
             print(f'  fd_bincode_uint64_decode_unsafe( &{self.name}_len, ctx );', file=body)
-        if self.max is not None:
-            print(f'  self->{self.name} = {self.prefix()}_alloc( ctx->valloc );', file=body)
+
+        if self.min:
+            print(f'  ulong {self.name}_max = fd_ulong_max( {self.name}_len, {self.min} );', file=body)
+            print(f'  self->{self.name} = {self.prefix()}_alloc( ctx->valloc, {self.name}_max );', file=body)
         else:
             print(f'  self->{self.name} = {self.prefix()}_alloc( ctx->valloc, {self.name}_len );', file=body)
 
@@ -965,11 +954,12 @@ class TreapMember:
         self.treap_query_t = json["treap_query_t"]
         self.treap_cmp = json["treap_cmp"]
         self.treap_lt = json["treap_lt"]
-        self.max = int(json["max"])
+        self.min = int(json["min"])
         self.compact = ("modifier" in json and json["modifier"] == "compact")
         self.treap_prio = (json["treap_prio"] if "treap_prio" in json else None)
         self.rev = json.get("rev", False)
         self.upsert = json.get("upsert", False)
+        self.min_name = f"{self.name.upper()}_MIN"
 
     def isFixedSize(self):
         return False
@@ -985,19 +975,18 @@ class TreapMember:
         treap_cmp = self.treap_cmp
         treap_lt = self.treap_lt
         pool = name + '_pool'
-        max_name = f"{name.upper()}_MAX"
-        print(f"#define {max_name} {self.max}", file=header)
+        print(f"#define {self.min_name} {self.min}", file=header)
         print(f"#define POOL_NAME {pool}", file=header)
         print(f"#define POOL_T {treap_t}", file=header)
         print(f"#define POOL_NEXT parent", file=header)
         print("#include \"../../util/tmpl/fd_pool.c\"", file=header)
         print(f'static inline {treap_t} *', file=header)
-        print(f'{pool}_alloc( fd_valloc_t valloc ) {{', file=header)
+        print(f'{pool}_alloc( fd_valloc_t valloc, ulong num ) {{', file=header)
         print(f'  return {pool}_join( {pool}_new(', file=header)
         print(f'      fd_valloc_malloc( valloc,', file=header)
         print(f'                        {pool}_align(),', file=header)
-        print(f'                        {pool}_footprint( {max_name} ) ),', file=header)
-        print(f'      {max_name} ) );', file=header)
+        print(f'                        {pool}_footprint( num ) ),', file=header)
+        print(f'      num ) );', file=header)
         print("}", file=header)
         print(f"#define TREAP_NAME {treap_name}", file=header)
         print(f"#define TREAP_T {treap_t}", file=header)
@@ -1008,12 +997,12 @@ class TreapMember:
             print(f"#define TREAP_PRIO {self.treap_prio}", file=header)
         print("#include \"../../util/tmpl/fd_treap.c\"", file=header)
         print(f'static inline {treap_name}_t *', file=header)
-        print(f'{treap_name}_alloc( fd_valloc_t valloc ) {{', file=header)
+        print(f'{treap_name}_alloc( fd_valloc_t valloc, ulong num ) {{', file=header)
         print(f'  return {treap_name}_join( {treap_name}_new(', file=header)
         print(f'      fd_valloc_malloc( valloc,', file=header)
         print(f'                        {treap_name}_align(),', file=header)
-        print(f'                        {treap_name}_footprint( {name.upper()}_MAX ) ),', file=header)
-        print(f'      {name.upper()}_MAX ) );', file=header)
+        print(f'                        {treap_name}_footprint( num ) ),', file=header)
+        print(f'      num ) );', file=header)
         print("}", file=header)
 
     def emitPostamble(self):
@@ -1049,7 +1038,6 @@ class TreapMember:
     def emitDecodePreflight(self):
         treap_name = self.name + '_treap'
         treap_t = self.treap_t
-        pool_name = self.name + '_pool'
 
         if self.compact:
             print(f'  ushort {treap_name}_len;', file=body)
@@ -1057,8 +1045,7 @@ class TreapMember:
         else:
             print(f'  ulong {treap_name}_len;', file=body)
             print(f'  err = fd_bincode_uint64_decode(&{treap_name}_len, ctx);', file=body)
-        print('  if ( FD_UNLIKELY(err) ) return err;', file=body)
-        print(f'  if ( {treap_name}_len > {self.name.upper()}_MAX ) return FD_BINCODE_ERR_SMALL_DEQUE;', file=body)
+        print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
 
         print(f'  for (ulong i = 0; i < {treap_name}_len; ++i) {{', file=body)
         print(f'    err = {treap_t.rstrip("_t")}_decode_preflight( ctx );', file=body)
@@ -1080,8 +1067,9 @@ class TreapMember:
             print(f'  ulong {treap_name}_len;', file=body)
             print(f'  fd_bincode_uint64_decode_unsafe(&{treap_name}_len, ctx);', file=body)
 
-        print(f'  self->pool = {pool_name}_alloc( ctx->valloc );', file=body)
-        print(f'  self->treap = {treap_name}_alloc( ctx->valloc );', file=body)
+        print(f'  ulong {treap_name}_max = fd_ulong_max( {treap_name}_len, {self.min_name} );', file=body)
+        print(f'  self->pool = {pool_name}_alloc( ctx->valloc, {treap_name}_max );', file=body)
+        print(f'  self->treap = {treap_name}_alloc( ctx->valloc, {treap_name}_max );', file=body)
         print(f'  for (ulong i = 0; i < {treap_name}_len; ++i) {{', file=body)
         print(f'    {treap_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
         print(f'    {treap_t.rstrip("_t")}_new( ele );', file=body)

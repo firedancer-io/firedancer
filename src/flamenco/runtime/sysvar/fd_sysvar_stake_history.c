@@ -4,6 +4,10 @@
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_slot_ctx.h"
 
+/* Ensure that the size declared by our header matches the minimum size
+   of the corresponding fd_types entry. */
+FD_STATIC_ASSERT( FD_SYSVAR_STAKE_HISTORY_CAP == FD_STAKE_HISTORY_MIN, types );
+
 void
 write_stake_history( fd_exec_slot_ctx_t * slot_ctx,
                      fd_stake_history_t * stake_history ) {
@@ -43,8 +47,8 @@ fd_sysvar_stake_history_read( fd_stake_history_t * result,
 void
 fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_stake_history_t stake_history = {
-    .pool = fd_stake_history_pool_alloc( slot_ctx->valloc ),
-    .treap = fd_stake_history_treap_alloc( slot_ctx->valloc )
+    .pool  = fd_stake_history_pool_alloc ( slot_ctx->valloc, FD_SYSVAR_STAKE_HISTORY_CAP ),
+    .treap = fd_stake_history_treap_alloc( slot_ctx->valloc, FD_SYSVAR_STAKE_HISTORY_CAP )
   };
   write_stake_history( slot_ctx, &stake_history );
 }

@@ -341,18 +341,18 @@ typedef struct fd_stake_history_entry_off fd_stake_history_entry_off_t;
 #define FD_STAKE_HISTORY_ENTRY_OFF_FOOTPRINT sizeof(fd_stake_history_entry_off_t)
 #define FD_STAKE_HISTORY_ENTRY_OFF_ALIGN (8UL)
 
-#define FD_STAKE_HISTORY_MAX 512
+#define FD_STAKE_HISTORY_MIN 512
 #define POOL_NAME fd_stake_history_pool
 #define POOL_T fd_stake_history_entry_t
 #define POOL_NEXT parent
 #include "../../util/tmpl/fd_pool.c"
 static inline fd_stake_history_entry_t *
-fd_stake_history_pool_alloc( fd_valloc_t valloc ) {
+fd_stake_history_pool_alloc( fd_valloc_t valloc, ulong num ) {
   return fd_stake_history_pool_join( fd_stake_history_pool_new(
       fd_valloc_malloc( valloc,
                         fd_stake_history_pool_align(),
-                        fd_stake_history_pool_footprint( FD_STAKE_HISTORY_MAX ) ),
-      FD_STAKE_HISTORY_MAX ) );
+                        fd_stake_history_pool_footprint( num ) ),
+      num ) );
 }
 #define TREAP_NAME fd_stake_history_treap
 #define TREAP_T fd_stake_history_entry_t
@@ -361,12 +361,12 @@ fd_stake_history_pool_alloc( fd_valloc_t valloc ) {
 #define TREAP_LT(e0,e1) ((e0)->epoch<(e1)->epoch)
 #include "../../util/tmpl/fd_treap.c"
 static inline fd_stake_history_treap_t *
-fd_stake_history_treap_alloc( fd_valloc_t valloc ) {
+fd_stake_history_treap_alloc( fd_valloc_t valloc, ulong num ) {
   return fd_stake_history_treap_join( fd_stake_history_treap_new(
       fd_valloc_malloc( valloc,
                         fd_stake_history_treap_align(),
-                        fd_stake_history_treap_footprint( FD_STAKE_HISTORY_MAX ) ),
-      FD_STAKE_HISTORY_MAX ) );
+                        fd_stake_history_treap_footprint( num ) ),
+      num ) );
 }
 /* https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake_history.rs#L12-L75 */
 /* Encoded Size: Dynamic */
@@ -1571,27 +1571,25 @@ typedef struct fd_landed_vote_off fd_landed_vote_off_t;
 
 #define DEQUE_NAME deq_fd_vote_lockout_t
 #define DEQUE_T fd_vote_lockout_t
-#define DEQUE_MAX 1228
-#include "../../util/tmpl/fd_deque.c"
+#include "../../util/tmpl/fd_deque_dynamic.c"
 #undef DEQUE_NAME
 #undef DEQUE_T
 #undef DEQUE_MAX
 static inline fd_vote_lockout_t *
-deq_fd_vote_lockout_t_alloc( fd_valloc_t valloc ) {
-  void * mem = fd_valloc_malloc( valloc, deq_fd_vote_lockout_t_align(), deq_fd_vote_lockout_t_footprint());
-  return deq_fd_vote_lockout_t_join( deq_fd_vote_lockout_t_new( mem ) );
+deq_fd_vote_lockout_t_alloc( fd_valloc_t valloc, ulong max ) {
+  void * mem = fd_valloc_malloc( valloc, deq_fd_vote_lockout_t_align(), deq_fd_vote_lockout_t_footprint( max ) );
+  return deq_fd_vote_lockout_t_join( deq_fd_vote_lockout_t_new( mem, max ) );
 }
 #define DEQUE_NAME deq_fd_vote_epoch_credits_t
 #define DEQUE_T fd_vote_epoch_credits_t
-#define DEQUE_MAX 100
-#include "../../util/tmpl/fd_deque.c"
+#include "../../util/tmpl/fd_deque_dynamic.c"
 #undef DEQUE_NAME
 #undef DEQUE_T
 #undef DEQUE_MAX
 static inline fd_vote_epoch_credits_t *
-deq_fd_vote_epoch_credits_t_alloc( fd_valloc_t valloc ) {
-  void * mem = fd_valloc_malloc( valloc, deq_fd_vote_epoch_credits_t_align(), deq_fd_vote_epoch_credits_t_footprint());
-  return deq_fd_vote_epoch_credits_t_join( deq_fd_vote_epoch_credits_t_new( mem ) );
+deq_fd_vote_epoch_credits_t_alloc( fd_valloc_t valloc, ulong max ) {
+  void * mem = fd_valloc_malloc( valloc, deq_fd_vote_epoch_credits_t_align(), deq_fd_vote_epoch_credits_t_footprint( max ) );
+  return deq_fd_vote_epoch_credits_t_join( deq_fd_vote_epoch_credits_t_new( mem, max ) );
 }
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_0_23_5.rs#L6 */
 /* Encoded Size: Dynamic */
@@ -1602,10 +1600,10 @@ struct __attribute__((aligned(8UL))) fd_vote_state_0_23_5 {
   fd_vote_prior_voters_0_23_5_t prior_voters;
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
-  fd_vote_lockout_t * votes;
+  fd_vote_lockout_t * votes; /* fd_deque_dynamic (min cnt 32) */
   ulong root_slot;
   uchar has_root_slot;
-  fd_vote_epoch_credits_t * epoch_credits;
+  fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (min cnt 64) */
   fd_vote_block_timestamp_t last_timestamp;
 };
 typedef struct fd_vote_state_0_23_5 fd_vote_state_0_23_5_t;
@@ -1628,18 +1626,18 @@ typedef struct fd_vote_state_0_23_5_off fd_vote_state_0_23_5_off_t;
 #define FD_VOTE_STATE_0_23_5_OFF_FOOTPRINT sizeof(fd_vote_state_0_23_5_off_t)
 #define FD_VOTE_STATE_0_23_5_OFF_ALIGN (8UL)
 
-#define FD_VOTE_AUTHORIZED_VOTERS_MAX 64
+#define FD_VOTE_AUTHORIZED_VOTERS_MIN 64
 #define POOL_NAME fd_vote_authorized_voters_pool
 #define POOL_T fd_vote_authorized_voter_t
 #define POOL_NEXT parent
 #include "../../util/tmpl/fd_pool.c"
 static inline fd_vote_authorized_voter_t *
-fd_vote_authorized_voters_pool_alloc( fd_valloc_t valloc ) {
+fd_vote_authorized_voters_pool_alloc( fd_valloc_t valloc, ulong num ) {
   return fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new(
       fd_valloc_malloc( valloc,
                         fd_vote_authorized_voters_pool_align(),
-                        fd_vote_authorized_voters_pool_footprint( FD_VOTE_AUTHORIZED_VOTERS_MAX ) ),
-      FD_VOTE_AUTHORIZED_VOTERS_MAX ) );
+                        fd_vote_authorized_voters_pool_footprint( num ) ),
+      num ) );
 }
 #define TREAP_NAME fd_vote_authorized_voters_treap
 #define TREAP_T fd_vote_authorized_voter_t
@@ -1648,12 +1646,12 @@ fd_vote_authorized_voters_pool_alloc( fd_valloc_t valloc ) {
 #define TREAP_LT(e0,e1) ((e0)->epoch<(e1)->epoch)
 #include "../../util/tmpl/fd_treap.c"
 static inline fd_vote_authorized_voters_treap_t *
-fd_vote_authorized_voters_treap_alloc( fd_valloc_t valloc ) {
+fd_vote_authorized_voters_treap_alloc( fd_valloc_t valloc, ulong num ) {
   return fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new(
       fd_valloc_malloc( valloc,
                         fd_vote_authorized_voters_treap_align(),
-                        fd_vote_authorized_voters_treap_footprint( FD_VOTE_AUTHORIZED_VOTERS_MAX ) ),
-      FD_VOTE_AUTHORIZED_VOTERS_MAX ) );
+                        fd_vote_authorized_voters_treap_footprint( num ) ),
+      num ) );
 }
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
 /* Encoded Size: Dynamic */
@@ -1678,12 +1676,12 @@ struct __attribute__((aligned(8UL))) fd_vote_state_1_14_11 {
   fd_pubkey_t node_pubkey;
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
-  fd_vote_lockout_t * votes;
+  fd_vote_lockout_t * votes; /* fd_deque_dynamic (min cnt 32) */
   ulong root_slot;
   uchar has_root_slot;
   fd_vote_authorized_voters_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
-  fd_vote_epoch_credits_t * epoch_credits;
+  fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (min cnt 64) */
   fd_vote_block_timestamp_t last_timestamp;
 };
 typedef struct fd_vote_state_1_14_11 fd_vote_state_1_14_11_t;
@@ -1707,15 +1705,14 @@ typedef struct fd_vote_state_1_14_11_off fd_vote_state_1_14_11_off_t;
 
 #define DEQUE_NAME deq_fd_landed_vote_t
 #define DEQUE_T fd_landed_vote_t
-#define DEQUE_MAX 35
-#include "../../util/tmpl/fd_deque.c"
+#include "../../util/tmpl/fd_deque_dynamic.c"
 #undef DEQUE_NAME
 #undef DEQUE_T
 #undef DEQUE_MAX
 static inline fd_landed_vote_t *
-deq_fd_landed_vote_t_alloc( fd_valloc_t valloc ) {
-  void * mem = fd_valloc_malloc( valloc, deq_fd_landed_vote_t_align(), deq_fd_landed_vote_t_footprint());
-  return deq_fd_landed_vote_t_join( deq_fd_landed_vote_t_new( mem ) );
+deq_fd_landed_vote_t_alloc( fd_valloc_t valloc, ulong max ) {
+  void * mem = fd_valloc_malloc( valloc, deq_fd_landed_vote_t_align(), deq_fd_landed_vote_t_footprint( max ) );
+  return deq_fd_landed_vote_t_join( deq_fd_landed_vote_t_new( mem, max ) );
 }
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
 /* Encoded Size: Dynamic */
@@ -1723,12 +1720,12 @@ struct __attribute__((aligned(8UL))) fd_vote_state {
   fd_pubkey_t node_pubkey;
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
-  fd_landed_vote_t * votes;
+  fd_landed_vote_t * votes; /* fd_deque_dynamic (min cnt 32) */
   ulong root_slot;
   uchar has_root_slot;
   fd_vote_authorized_voters_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
-  fd_vote_epoch_credits_t * epoch_credits;
+  fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (min cnt 64) */
   fd_vote_block_timestamp_t last_timestamp;
 };
 typedef struct fd_vote_state fd_vote_state_t;
@@ -1785,7 +1782,7 @@ typedef struct fd_vote_state_versioned_off fd_vote_state_versioned_off_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_vote_state_update {
-  fd_vote_lockout_t * lockouts;
+  fd_vote_lockout_t * lockouts; /* fd_deque_dynamic (min cnt 32) */
   ulong root;
   uchar has_root;
   fd_hash_t hash;
@@ -1848,7 +1845,7 @@ typedef struct fd_compact_vote_state_update_switch_off fd_compact_vote_state_upd
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_tower_sync {
-  fd_vote_lockout_t lockouts[32];
+  fd_vote_lockout_t * lockouts; /* fd_deque_dynamic */
   ulong lockouts_cnt;
   ulong root;
   uchar has_root;
@@ -1962,20 +1959,19 @@ typedef struct fd_slot_hash_off fd_slot_hash_off_t;
 
 #define DEQUE_NAME deq_fd_slot_hash_t
 #define DEQUE_T fd_slot_hash_t
-#define DEQUE_MAX 512
-#include "../../util/tmpl/fd_deque.c"
+#include "../../util/tmpl/fd_deque_dynamic.c"
 #undef DEQUE_NAME
 #undef DEQUE_T
 #undef DEQUE_MAX
 static inline fd_slot_hash_t *
-deq_fd_slot_hash_t_alloc( fd_valloc_t valloc ) {
-  void * mem = fd_valloc_malloc( valloc, deq_fd_slot_hash_t_align(), deq_fd_slot_hash_t_footprint());
-  return deq_fd_slot_hash_t_join( deq_fd_slot_hash_t_new( mem ) );
+deq_fd_slot_hash_t_alloc( fd_valloc_t valloc, ulong max ) {
+  void * mem = fd_valloc_malloc( valloc, deq_fd_slot_hash_t_align(), deq_fd_slot_hash_t_footprint( max ) );
+  return deq_fd_slot_hash_t_join( deq_fd_slot_hash_t_new( mem, max ) );
 }
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L31 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_slot_hashes {
-  fd_slot_hash_t * hashes;
+  fd_slot_hash_t * hashes; /* fd_deque_dynamic (min cnt 512) */
 };
 typedef struct fd_slot_hashes fd_slot_hashes_t;
 #define FD_SLOT_HASHES_FOOTPRINT sizeof(fd_slot_hashes_t)
@@ -2007,19 +2003,18 @@ typedef struct fd_block_block_hash_entry_off fd_block_block_hash_entry_off_t;
 
 #define DEQUE_NAME deq_fd_block_block_hash_entry_t
 #define DEQUE_T fd_block_block_hash_entry_t
-#define DEQUE_MAX 350
-#include "../../util/tmpl/fd_deque.c"
+#include "../../util/tmpl/fd_deque_dynamic.c"
 #undef DEQUE_NAME
 #undef DEQUE_T
 #undef DEQUE_MAX
 static inline fd_block_block_hash_entry_t *
-deq_fd_block_block_hash_entry_t_alloc( fd_valloc_t valloc ) {
-  void * mem = fd_valloc_malloc( valloc, deq_fd_block_block_hash_entry_t_align(), deq_fd_block_block_hash_entry_t_footprint());
-  return deq_fd_block_block_hash_entry_t_join( deq_fd_block_block_hash_entry_t_new( mem ) );
+deq_fd_block_block_hash_entry_t_alloc( fd_valloc_t valloc, ulong max ) {
+  void * mem = fd_valloc_malloc( valloc, deq_fd_block_block_hash_entry_t_align(), deq_fd_block_block_hash_entry_t_footprint( max ) );
+  return deq_fd_block_block_hash_entry_t_join( deq_fd_block_block_hash_entry_t_new( mem, max ) );
 }
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_recent_block_hashes {
-  fd_block_block_hash_entry_t * hashes;
+  fd_block_block_hash_entry_t * hashes; /* fd_deque_dynamic (min cnt 151) */
 };
 typedef struct fd_recent_block_hashes fd_recent_block_hashes_t;
 #define FD_RECENT_BLOCK_HASHES_FOOTPRINT sizeof(fd_recent_block_hashes_t)
@@ -2394,20 +2389,19 @@ typedef struct fd_prev_epoch_inflation_rewards_off fd_prev_epoch_inflation_rewar
 
 #define DEQUE_NAME deq_ulong
 #define DEQUE_T ulong
-#define DEQUE_MAX 35
-#include "../../util/tmpl/fd_deque.c"
+#include "../../util/tmpl/fd_deque_dynamic.c"
 #undef DEQUE_NAME
 #undef DEQUE_T
 #undef DEQUE_MAX
 static inline ulong *
-deq_ulong_alloc( fd_valloc_t valloc ) {
-  void * mem = fd_valloc_malloc( valloc, deq_ulong_align(), deq_ulong_footprint());
-  return deq_ulong_join( deq_ulong_new( mem ) );
+deq_ulong_alloc( fd_valloc_t valloc, ulong max ) {
+  void * mem = fd_valloc_malloc( valloc, deq_ulong_align(), deq_ulong_footprint( max ) );
+  return deq_ulong_join( deq_ulong_new( mem, max ) );
 }
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L133 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_vote {
-  ulong * slots;
+  ulong * slots; /* fd_deque_dynamic */
   fd_hash_t hash;
   ulong* timestamp;
 };
