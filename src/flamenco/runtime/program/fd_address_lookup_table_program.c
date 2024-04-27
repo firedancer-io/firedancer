@@ -317,77 +317,80 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L144-L149 */
   if( required_lamports > 0UL ) {
     // Create account metas
-    fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t*) fd_valloc_malloc(ctx->valloc, FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t));
-    fd_native_cpi_create_account_meta(payer_key, 1, 1, &acct_metas[0]);
-    fd_native_cpi_create_account_meta(lut_key, 0, 1, &acct_metas[1]);
+    FD_SCRATCH_SCOPE_BEGIN {
+      fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *) 
+                                                fd_scratch_alloc( FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
+      fd_native_cpi_create_account_meta( payer_key, 1, 1, &acct_metas[0] );
+      fd_native_cpi_create_account_meta( lut_key,   0, 1, &acct_metas[1] );
+
+      // Create signers list
+      fd_pubkey_t signers[16];
+      ulong signers_cnt = 1;
+      signers[0] = *payer_key;
+
+      // Create system program instruction
+      fd_system_program_instruction_t instr = {0};
+      instr.discriminant = fd_system_program_instruction_enum_transfer;
+      instr.inner.transfer = required_lamports;
+
+      int err = fd_native_cpi_execute_system_program_instruction(
+        ctx,
+        &instr,
+        acct_metas,
+        2,
+        signers,
+        signers_cnt
+      );
+      if ( err != 0 ) {
+        return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+      }
+    } FD_SCRATCH_SCOPE_END;
+  }
+
+  FD_SCRATCH_SCOPE_BEGIN {
+    fd_vm_rust_account_meta_t * acct_metas = ( fd_vm_rust_account_meta_t * ) 
+                                              fd_scratch_alloc( FD_VM_RUST_ACCOUNT_META_ALIGN, sizeof(fd_vm_rust_account_meta_t) );
+    fd_native_cpi_create_account_meta( lut_key, 1, 1, &acct_metas[0] );
 
     // Create signers list
     fd_pubkey_t signers[16];
     ulong signers_cnt = 1;
-    signers[0] = *payer_key;
+    signers[0] = *lut_key;
 
     // Create system program instruction
-    fd_system_program_instruction_t instr;
-    instr.discriminant = fd_system_program_instruction_enum_transfer;
-    instr.inner.transfer = required_lamports;
+    fd_system_program_instruction_t instr = {0};
+    instr.discriminant = fd_system_program_instruction_enum_allocate;
+    instr.inner.allocate = 56;
 
+    // Execute allocate instruction
     int err = fd_native_cpi_execute_system_program_instruction(
       ctx,
       &instr,
       acct_metas,
-      2,
+      1,
       signers,
       signers_cnt
     );
-    fd_valloc_free(ctx->valloc, acct_metas);
     if ( err != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
     }
-  }
 
-  fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t*) fd_valloc_malloc(ctx->valloc, FD_VM_RUST_ACCOUNT_META_ALIGN, sizeof(fd_vm_rust_account_meta_t));
-  fd_native_cpi_create_account_meta(lut_key, 1, 1, &acct_metas[0]);
+    instr.discriminant = fd_system_program_instruction_enum_assign;
+    instr.inner.assign = fd_solana_address_lookup_table_program_id;
 
-  // Create signers list
-  fd_pubkey_t signers[16];
-  ulong signers_cnt = 1;
-  signers[0] = *lut_key;
-
-  // Create system program instruction
-  fd_system_program_instruction_t instr;
-  instr.discriminant = fd_system_program_instruction_enum_allocate;
-  instr.inner.allocate = 56;
-
-  // Execute allocate instruction
-  int err = fd_native_cpi_execute_system_program_instruction(
-    ctx,
-    &instr,
-    acct_metas,
-    1,
-    signers,
-    signers_cnt
-  );
-  if ( err != 0 ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
-  }
-
-  instr.discriminant = fd_system_program_instruction_enum_assign;
-  instr.inner.assign = fd_solana_address_lookup_table_program_id;
-
-  // Execute assign instruction
-  err = fd_native_cpi_execute_system_program_instruction(
-    ctx,
-    &instr,
-    acct_metas,
-    1,
-    signers,
-    signers_cnt
-  );
-  if ( err != 0 ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
-  }
-
-  fd_valloc_free(ctx->valloc, acct_metas);
+    // Execute assign instruction
+    err = fd_native_cpi_execute_system_program_instruction(
+      ctx,
+      &instr,
+      acct_metas,
+      1,
+      signers,
+      signers_cnt
+    );
+    if ( err != 0 ) {
+      return err;
+    }
+  } FD_SCRATCH_SCOPE_END;
 
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( lut_acct ) ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
@@ -702,33 +705,35 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
 
-    // Create account metas
-    fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t*) fd_valloc_malloc(ctx->valloc, FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t));
-    fd_native_cpi_create_account_meta(payer_key, 1, 1, &acct_metas[0]);
-    fd_native_cpi_create_account_meta(lut_key, 0, 1, &acct_metas[1]);
+    FD_SCRATCH_SCOPE_BEGIN {
+      // Create account metas
+      fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *) 
+                                                fd_scratch_alloc( FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
+      fd_native_cpi_create_account_meta( payer_key, 1, 1, &acct_metas[0] );
+      fd_native_cpi_create_account_meta( lut_key,   0, 1, &acct_metas[1] );
 
-    // Create signers list
-    fd_pubkey_t signers[16];
-    ulong signers_cnt = 1;
-    signers[0] = *payer_key;
+      // Create signers list
+      fd_pubkey_t signers[16];
+      ulong signers_cnt = 1;
+      signers[0] = *payer_key;
 
-    // Create system program instruction
-    fd_system_program_instruction_t instr;
-    instr.discriminant = fd_system_program_instruction_enum_transfer;
-    instr.inner.transfer = required_lamports;
+      // Create system program instruction
+      fd_system_program_instruction_t instr = {0};
+      instr.discriminant = fd_system_program_instruction_enum_transfer;
+      instr.inner.transfer = required_lamports;
 
-    int err = fd_native_cpi_execute_system_program_instruction(
-      ctx,
-      &instr,
-      acct_metas,
-      2,
-      signers,
-      signers_cnt
-    );
-    fd_valloc_free(ctx->valloc, acct_metas);
-    if ( err != 0 ) {
-      return err;
-    }
+      int err = fd_native_cpi_execute_system_program_instruction(
+        ctx,
+        &instr,
+        acct_metas,
+        2,
+        signers,
+        signers_cnt
+      );
+      if ( err != 0 ) {
+        return err;
+      }
+    } FD_SCRATCH_SCOPE_END;
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;

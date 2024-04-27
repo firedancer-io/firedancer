@@ -370,7 +370,7 @@ setup_program( fd_exec_instr_ctx_t * ctx,
   fd_sbpf_elf_info_t  _elf_info[1];
   fd_sbpf_elf_info_t * elf_info = fd_sbpf_elf_peek( _elf_info, program_data, program_data_len );
   if( FD_UNLIKELY( !elf_info ) ) {
-    FD_LOG_HEXDUMP_WARNING(("Program data hexdumpppp", program_data, program_data_len));
+    FD_LOG_HEXDUMP_WARNING(("Program data hexdump", program_data, program_data_len));
     FD_LOG_WARNING(("Elf info failing"));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -701,25 +701,28 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
     create_acct.space = programdata_len;
     create_acct.owner = ctx.instr->program_id_pubkey;
 
-    fd_system_program_instruction_t FD_FN_UNUSED instr;
+    fd_system_program_instruction_t instr;
     instr.discriminant = fd_system_program_instruction_enum_create_account;
     instr.inner.create_account = create_acct;
 
     /* Setup the accounts passed into the system program create call. Index zero and 
        one are the from and to accounts respectively for the transfer. The buffer 
-       account is also passed in here. */ //TODO: free these afterwards
-    fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *) 
-                                             fd_valloc_malloc( ctx.valloc, FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
-    fd_native_cpi_create_account_meta( payer_acc, 1, 1, &acct_metas[0] ); 
-    fd_native_cpi_create_account_meta( programdata_acc, 1, 1, &acct_metas[1] );
-    fd_pubkey_t signers[2];
-    ulong signers_cnt = 2;
-    signers[0] = *payer_acc;
-    signers[1] = *programdata_acc;
+       account is also passed in here. */
+    FD_SCRATCH_SCOPE_BEGIN {
+      fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *) 
+                                              fd_scratch_alloc( FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
+      fd_native_cpi_create_account_meta( payer_acc, 1, 1, &acct_metas[0] ); 
+      fd_native_cpi_create_account_meta( programdata_acc, 1, 1, &acct_metas[1] );
+      fd_pubkey_t signers[2];
+      ulong signers_cnt = 2;
+      signers[0] = *payer_acc;
+      signers[1] = *programdata_acc;
 
-    fd_native_cpi_execute_system_program_instruction( &ctx, &instr, acct_metas, 2, signers, signers_cnt );
-
-    fd_valloc_free( ctx.valloc, acct_metas );
+      err = fd_native_cpi_execute_system_program_instruction( &ctx, &instr, acct_metas, 2, signers, signers_cnt );
+      if (err != 0) {
+        return err;
+      }
+    } FD_SCRATCH_SCOPE_END;
 
     ulong total_size = PROGRAMDATA_METADATA_SIZE + instruction.inner.deploy_with_max_data_len.max_data_len;
     fd_borrowed_account_t * programdata_rec = NULL;
@@ -1486,6 +1489,32 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
       //         .into(),
       //     &[],
       // )?;
+      fd_system_program_instruction_t instr = {0};
+      instr.discriminant = fd_system_program_instruction_enum_transfer;
+      instr.inner.transfer = required_payment;
+
+      FD_SCRATCH_SCOPE_BEGIN {
+        fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t*) 
+                                                  fd_scratch_alloc( FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
+        fd_native_cpi_create_account_meta( payer_key,       1, 1, &acct_metas[0] );
+        fd_native_cpi_create_account_meta( programdata_acc, 0, 1, &acct_metas[1] );
+
+        fd_pubkey_t signers[1];
+        ulong signers_cnt = 1;
+        signers[0] = *payer_key;
+
+        err = fd_native_cpi_execute_system_program_instruction(
+          &ctx,
+          &instr,
+          acct_metas,
+          2,
+          signers,
+          signers_cnt
+        );
+        if ( err ) {
+          return err;
+        }
+      } FD_SCRATCH_SCOPE_END;
     }
 
     result = fd_instr_borrowed_account_modify(&ctx, programdata_acc, new_len, &programdata_acc_rec);
