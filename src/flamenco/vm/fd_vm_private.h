@@ -175,16 +175,23 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
    known that the vaddr region has a valid mapping. */
 
 FD_FN_PURE static inline ulong
-fd_vm_mem_haddr( ulong         vaddr,
-                 ulong         sz,
-                 ulong const * vm_region_haddr, /* indexed [0,6) */
-                 uint  const * vm_region_sz,    /* indexed [0,6) */
-                 ulong         sentinel ) {
+fd_vm_mem_haddr( FD_FN_UNUSED fd_vm_t const *  vm,  
+                 ulong                         vaddr,
+                 ulong                         sz,
+                 ulong const *                 vm_region_haddr, /* indexed [0,6) */
+                 uint  const *                 vm_region_sz,    /* indexed [0,6) */
+                 FD_FN_UNUSED uchar            write,           /* 1 if the access is a write, 0 if it is a read */
+                 ulong                         sentinel ) {
   ulong vaddr_hi  = vaddr >> 32;
   ulong region    = fd_ulong_min( vaddr_hi, 5UL );
   ulong offset    = vaddr & 0xffffffffUL;
   ulong region_sz = (ulong)vm_region_sz[ region ];
   ulong sz_max    = region_sz - fd_ulong_min( offset, region_sz );
+# ifdef FD_VM_INTERP_MEM_TRACING_ENABLED
+  if ( FD_LIKELY( sz<=sz_max ) ) {
+    fd_vm_trace_event_mem( vm->trace, write, vaddr, sz, vm_region_haddr[ region ] + offset );
+  }
+# endif
   return fd_ulong_if( sz<=sz_max, vm_region_haddr[ region ] + offset, sentinel );
 }
 
@@ -239,7 +246,7 @@ static inline void fd_vm_mem_st_8( ulong haddr, ulong  val ) { memcpy( (void *)h
     fd_vm_t const * _vm     = (vm);                                                                       \
     ulong           _vaddr  = (vaddr);                                                                    \
     int             _sigbus = _vm->check_align & (!fd_ulong_is_aligned( _vaddr, (align) ));               \
-    ulong           _haddr  = fd_vm_mem_haddr( _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0UL ); \
+    ulong           _haddr  = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL ); \
     if( FD_UNLIKELY( (!_haddr) | _sigbus) ) return FD_VM_ERR_SIGSEGV;                                     \
     (void const *)_haddr;                                                                                 \
   }))
@@ -248,7 +255,7 @@ static inline void fd_vm_mem_st_8( ulong haddr, ulong  val ) { memcpy( (void *)h
     fd_vm_t const * _vm     = (vm);                                                                       \
     ulong           _vaddr  = (vaddr);                                                                    \
     int             _sigbus = _vm->check_align & (!fd_ulong_is_aligned( _vaddr, (align) ));               \
-    ulong           _haddr  = fd_vm_mem_haddr( _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 0UL ); \
+    ulong           _haddr  = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 1, 0UL ); \
     if( FD_UNLIKELY( (!_haddr) | _sigbus) ) return FD_VM_ERR_SIGSEGV;                                     \
     (void *)_haddr;                                                                                       \
   }))
