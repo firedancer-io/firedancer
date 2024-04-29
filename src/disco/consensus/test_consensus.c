@@ -125,23 +125,6 @@ main( int argc, char ** argv ) {
   FD_TEST( blockstore );
   FD_LOG_NOTICE( ("Finish setup blockstore") );
 
-  /* forks */
-  ulong        forks_max = fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH );
-  void *       forks_mem = fd_wksp_alloc_laddr( wksp, fd_forks_align(), fd_forks_footprint( forks_max ), 1UL );
-  fd_forks_t * forks     = fd_forks_join( fd_forks_new( forks_mem, forks_max, 42UL ) );
-  FD_TEST( forks );
-  FD_LOG_NOTICE( ("Finish setup forks") );
-
-  /* ghost */
-  ulong  ghost_node_max = forks_max;
-  ulong  ghost_vote_max = 1UL << 16;
-  void * ghost_mem      = fd_wksp_alloc_laddr(
-      wksp, fd_ghost_align(), fd_ghost_footprint( ghost_node_max, ghost_vote_max ), 1UL );
-  fd_ghost_t * ghost =
-      fd_ghost_join( fd_ghost_new( ghost_mem, ghost_node_max, ghost_vote_max, 1UL ) );
-  FD_TEST( ghost );
-  FD_LOG_NOTICE( ("Finish setup ghost") );
-
   /* tower */
   void * towers_mem =
     fd_wksp_alloc_laddr( wksp, fd_tower_deque_align(), fd_tower_deque_footprint(), 42UL );
@@ -162,6 +145,18 @@ main( int argc, char ** argv ) {
     fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
   FD_TEST( epoch_ctx );
   FD_LOG_NOTICE( ("Finish setup epoch ctx") );
+
+  /* forks */
+  ulong        forks_max = fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH );
+  void *       forks_mem = fd_wksp_alloc_laddr( wksp, fd_forks_align(), fd_forks_footprint( forks_max ), 1UL );
+  fd_forks_t * forks     = fd_forks_join( fd_forks_new( forks_mem, forks_max, 42UL ) );
+  FD_TEST( forks );
+  forks->funk       = funk;
+  forks->valloc     = valloc;
+  forks->acc_mgr    = acc_mgr;
+  forks->epoch_ctx  = epoch_ctx;
+  forks->blockstore = blockstore;
+  FD_LOG_NOTICE( ("Finish setup forks") );
 
   /* snapshot */
   fd_fork_t *          snapshot_fork = fd_fork_pool_ele_acquire( forks->pool );
@@ -192,17 +187,37 @@ main( int argc, char ** argv ) {
   fd_funk_end_write( funk );
   snapshot_slot_ctx->leader =
       fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( epoch_ctx ), snapshot_slot );
+
+  fd_blockstore_snapshot_insert( blockstore, &snapshot_slot_ctx->slot_bank );
+  fd_fork_frontier_ele_insert( forks->frontier, snapshot_fork, forks->pool );
   FD_LOG_NOTICE( ("Finish setup snapshot") );
+
+  /* ghost */
+  ulong  ghost_node_max = forks_max;
+  ulong  ghost_vote_max = 1UL << 16;
+  void * ghost_mem      = fd_wksp_alloc_laddr(
+      wksp, fd_ghost_align(), fd_ghost_footprint( ghost_node_max, ghost_vote_max ), 1UL );
+  fd_ghost_t * ghost =
+      fd_ghost_join( fd_ghost_new( ghost_mem, ghost_node_max, ghost_vote_max, 1UL ) );
+  FD_TEST( ghost );
+
+  fd_slot_hash_t key = { .slot = snapshot_fork->slot,
+                         .hash = snapshot_fork->slot_ctx.slot_bank.banks_hash };
+  fd_ghost_leaf_insert( ghost, &key, NULL );
+  FD_TEST( fd_ghost_node_map_ele_query( ghost->node_map, &key, NULL, ghost->node_pool ) );
+  FD_LOG_NOTICE( ("Finish setup ghost") );
 
   /* bft */
   void *     bft_mem = fd_wksp_alloc_laddr( wksp, fd_bft_align(), fd_bft_footprint(), 42UL );
   fd_bft_t * bft     = fd_bft_join( fd_bft_new( bft_mem ) );
-  bft->acc_mgr    = acc_mgr;
-  bft->blockstore = blockstore;
-  bft->commitment = NULL;
-  bft->forks      = forks;
-  bft->ghost      = ghost;
-  bft->valloc     = valloc;
+  bft->acc_mgr       = acc_mgr;
+  bft->blockstore    = blockstore;
+  bft->commitment    = NULL;
+  bft->forks         = forks;
+  bft->ghost         = ghost;
+  bft->valloc        = valloc;
+  bft->snapshot_slot = snapshot_slot;
+  fd_bft_epoch_stake_update( bft, epoch_ctx );
   FD_LOG_NOTICE( ("Finish setup bft") );
 
   /* replay */
@@ -216,19 +231,25 @@ main( int argc, char ** argv ) {
   replay->acc_mgr     = acc_mgr;
   replay->epoch_ctx   = epoch_ctx;
   replay->blockstore  = blockstore;
+
+  replay->smr = snapshot_slot;
+  replay->gossip      = NULL;
+  replay->tpool       = NULL;
+  replay->max_workers = 1;
   FD_LOG_NOTICE( ("Finish setup replay") );
 
   /* do replay+shredcap or archive+live_data */
   const char * shredcap = fd_env_strip_cmdline_cstr( &argc, &argv, "--shredcap", NULL, NULL );
-  if( shredcap )
-    goto replay_offline;
-  else
-    goto archive_online;
+  if( shredcap ) {
+    FD_LOG_NOTICE( ("test_consensus running in replay mode") );
+    fd_blockstore_clear( blockstore );  /* this does not appear in tvu */
+    fd_shred_cap_replay( shredcap, replay );
+    goto end;
+  }
 
- archive_online:
   FD_LOG_NOTICE( ("test_consensus running in archive mode") );
 
-  /* capture / solcap */
+  /* capture & solcap */
   //capture_ctx  = NULL;
 
   /* rpc */
@@ -324,13 +345,6 @@ main( int argc, char ** argv ) {
   replay->fec_sets      = fec_sets;
   replay->fec_resolver  = fec_resolver;
 
-  /* forks */
-  forks->funk       = funk;
-  forks->valloc     = valloc;
-  forks->acc_mgr    = acc_mgr;
-  forks->epoch_ctx  = epoch_ctx;
-  forks->blockstore = blockstore;
-
   /* gossip */
   const char * my_gossip_addr = ":9001";
   const char * gossip_peer_addr = "139.178.68.207:8001"; /* FIXME: temporary */
@@ -352,55 +366,17 @@ main( int argc, char ** argv ) {
   gossip_config.sign_fun      = signer_fun;
   gossip_config.sign_arg      = &keyguard_client;
   FD_TEST ( resolve_hostport( my_gossip_addr, &gossip_config.my_addr ) );
-  FD_TEST ( fd_gossip_set_config( gossip, &gossip_config ) );
+  if( fd_gossip_set_config( gossip, &gossip_config ) )
+    FD_LOG_ERR( ( "error setting gossip config" ) );
 
   fd_gossip_peer_addr_t gossip_peer;
   if( fd_gossip_add_active_peer(
             gossip, resolve_hostport( gossip_peer_addr, &gossip_peer ) ) )
       FD_LOG_ERR( ( "error adding gossip active peer" ) );
   
-  FD_LOG_ERR( ( "online_archive_init not ready yet" ) );
-  goto END;
+  FD_LOG_ERR( ( "archive+live_data not ready yet" ) );
 
- replay_offline:
-  FD_LOG_NOTICE( ("test_consensus running in replay mode") );
-
-  fd_blockstore_clear( blockstore );
-
-  // TODO can this change within an epoch?
-  fd_bft_epoch_stake_update( bft, epoch_ctx );
-
-  /* replay */
-  replay->gossip      = NULL;
-  replay->tpool       = NULL;
-  replay->max_workers = 1;
-
-  /* snapshot init: blockstore */
-
-  fd_blockstore_snapshot_insert( blockstore, &snapshot_slot_ctx->slot_bank );
-
-  /* snapshot init: replay */
-
-  replay->smr = snapshot_slot;
-
-  /* snapshot init: forks */
-
-  fd_fork_frontier_ele_insert( replay->forks->frontier, snapshot_fork, replay->forks->pool );
-
-  /* snapshot init: ghost */
-
-  fd_slot_hash_t key = { .slot = snapshot_fork->slot,
-                         .hash = snapshot_fork->slot_ctx.slot_bank.banks_hash };
-  fd_ghost_leaf_insert( ghost, &key, NULL );
-  FD_TEST( fd_ghost_node_map_ele_query( ghost->node_map, &key, NULL, ghost->node_pool ) );
-
-  /* snapshot init: bft */
-
-  bft->snapshot_slot = snapshot_slot;
-
-  fd_shred_cap_replay( shredcap, replay );
-
- END:
+ end:
   fd_halt();
   return 0;
 }
