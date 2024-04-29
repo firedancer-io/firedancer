@@ -132,6 +132,24 @@ main( int argc, char ** argv ) {
   FD_TEST( forks );
   FD_LOG_NOTICE( ("Finish setup forks") );
 
+  /* ghost */
+  ulong  ghost_node_max = forks_max;
+  ulong  ghost_vote_max = 1UL << 16;
+  void * ghost_mem      = fd_wksp_alloc_laddr(
+      wksp, fd_ghost_align(), fd_ghost_footprint( ghost_node_max, ghost_vote_max ), 1UL );
+  fd_ghost_t * ghost =
+      fd_ghost_join( fd_ghost_new( ghost_mem, ghost_node_max, ghost_vote_max, 1UL ) );
+  FD_TEST( ghost );
+  FD_LOG_NOTICE( ("Finish setup ghost") );
+
+  /* tower */
+  void * towers_mem =
+    fd_wksp_alloc_laddr( wksp, fd_tower_deque_align(), fd_tower_deque_footprint(), 42UL );
+  fd_tower_t * towers =
+    fd_tower_deque_join( fd_tower_deque_new( towers_mem ) );
+  FD_TEST( towers );
+  FD_LOG_NOTICE( ("Finish setup towers") );
+
   /* acc mgr */
   fd_acc_mgr_t acc_mgr[1];
   fd_acc_mgr_new( acc_mgr, funk );
@@ -176,10 +194,22 @@ main( int argc, char ** argv ) {
       fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( epoch_ctx ), snapshot_slot );
   FD_LOG_NOTICE( ("Finish setup snapshot") );
 
+  /* bft */
+  void *     bft_mem = fd_wksp_alloc_laddr( wksp, fd_bft_align(), fd_bft_footprint(), 42UL );
+  fd_bft_t * bft     = fd_bft_join( fd_bft_new( bft_mem ) );
+  bft->acc_mgr    = acc_mgr;
+  bft->blockstore = blockstore;
+  bft->commitment = NULL;
+  bft->forks      = forks;
+  bft->ghost      = ghost;
+  bft->valloc     = valloc;
+  FD_LOG_NOTICE( ("Finish setup bft") );
+
   /* replay */
   void * replay_mem    = fd_wksp_alloc_laddr( wksp, fd_replay_align(), fd_replay_footprint(), 1UL );
   fd_replay_t * replay = fd_replay_join( fd_replay_new( replay_mem ) );
   FD_TEST( replay );
+  replay->bft         = bft;
   replay->funk        = funk;
   replay->forks       = forks;
   replay->valloc      = valloc;
@@ -228,7 +258,6 @@ main( int argc, char ** argv ) {
   FD_TEST( resolve_hostport( my_repair_addr, &repair_config.intake_addr ) );
   repair_config.service_addr      = repair_config.intake_addr;
   repair_config.service_addr.port = 0; /* pick a port */
-  FD_LOG_NOTICE(("before fd_repair_set_config"));
 
   uchar private_key[32];
   FD_TEST( 32UL==getrandom( private_key, 32UL, 0 ) );
@@ -303,17 +332,18 @@ main( int argc, char ** argv ) {
   forks->blockstore = blockstore;
 
   /* gossip */
-  //FIXME, initialize bft and repair
-  //gossip_deliver_arg->bft = bft;
-  FD_LOG_ERR( ("Not ready to setup gossip yet") );
   const char * my_gossip_addr = ":9001";
   const char * gossip_peer_addr = "139.178.68.207:8001"; /* FIXME: temporary */
   gossip_deliver_arg.valloc = valloc;
   gossip_deliver_arg.repair = repair;
+  gossip_deliver_arg.bft = bft;
 
   void *        gossip_shmem = fd_wksp_alloc_laddr( wksp, fd_gossip_align(), fd_gossip_footprint(), TEST_CONSENSUS_MAGIC );
   fd_gossip_t * gossip       = fd_gossip_join( fd_gossip_new( gossip_shmem, TEST_CONSENSUS_MAGIC, valloc ) );
   fd_gossip_config_t gossip_config;
+
+  gossip_config.private_key   = private_key;
+  gossip_config.public_key    = &public_key;
   gossip_config.shred_version = 0;
   gossip_config.deliver_fun   = gossip_deliver_fun;
   gossip_config.deliver_arg   = &gossip_deliver_arg;
@@ -321,9 +351,8 @@ main( int argc, char ** argv ) {
   gossip_config.send_arg      = NULL;
   gossip_config.sign_fun      = signer_fun;
   gossip_config.sign_arg      = &keyguard_client;
-  FD_TEST ( fd_gossip_set_config( gossip, &gossip_config ) );
-
   FD_TEST ( resolve_hostport( my_gossip_addr, &gossip_config.my_addr ) );
+  FD_TEST ( fd_gossip_set_config( gossip, &gossip_config ) );
 
   fd_gossip_peer_addr_t gossip_peer;
   if( fd_gossip_add_active_peer(
@@ -338,26 +367,6 @@ main( int argc, char ** argv ) {
 
   fd_blockstore_clear( blockstore );
 
-  /* ghost */
-
-  ulong  ghost_node_max = forks_max;
-  ulong  ghost_vote_max = 1UL << 16;
-  void * ghost_mem      = fd_wksp_alloc_laddr(
-      wksp, fd_ghost_align(), fd_ghost_footprint( ghost_node_max, ghost_vote_max ), 1UL );
-  fd_ghost_t * ghost =
-      fd_ghost_join( fd_ghost_new( ghost_mem, ghost_node_max, ghost_vote_max, 1UL ) );
-  FD_TEST( ghost );
-
-  /* bft */
-
-  void *     bft_mem = fd_wksp_alloc_laddr( wksp, fd_bft_align(), fd_bft_footprint(), 1UL );
-  fd_bft_t * bft     = fd_bft_join( fd_bft_new( bft_mem ) );
-  bft->acc_mgr       = acc_mgr;
-  bft->blockstore    = blockstore;
-  bft->commitment    = NULL;
-  bft->forks         = forks;
-  bft->ghost         = ghost;
-  bft->valloc        = valloc;
   // TODO can this change within an epoch?
   fd_bft_epoch_stake_update( bft, epoch_ctx );
 
