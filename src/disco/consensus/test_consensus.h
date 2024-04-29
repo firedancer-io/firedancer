@@ -21,34 +21,4 @@
 #include "../shred/fd_shred_cap.h"
 #include "../tvu/fd_replay.h"
 
-struct fd_tvu_gossip_deliver_arg {
-  fd_repair_t * repair;
-  fd_bft_t * bft;
-  fd_valloc_t valloc;
-};
-typedef struct fd_tvu_gossip_deliver_arg fd_tvu_gossip_deliver_arg_t;
-
-/* functions for fd_gossip_config_t */
-static void
-gossip_deliver_fun( fd_crds_data_t * data, void * arg );
-
-static void
-gossip_send_packet( uchar const *                 data,
-                    size_t                        sz,
-                    fd_gossip_peer_addr_t const * addr,
-                    void *                        arg );
-
-static void
-signer_fun( void *    arg,
-            uchar         signature[ static 64 ],
-            uchar const * buffer,
-            ulong         len );
-
-/* helper functions */
-static int
-gossip_to_sockaddr( uchar * dst, fd_gossip_peer_addr_t const * src );
-
-static fd_repair_peer_addr_t *
-resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res );
-
 #endif

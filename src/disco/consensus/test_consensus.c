@@ -1,7 +1,36 @@
 #include "./test_consensus.h"
 
-#define TEST_CONSENSUS_MAGIC ( 0x7e57UL ) /* test */
+struct fd_tvu_gossip_deliver_arg {
+  fd_repair_t * repair;
+  fd_bft_t * bft;
+  fd_valloc_t valloc;
+};
+typedef struct fd_tvu_gossip_deliver_arg fd_tvu_gossip_deliver_arg_t;
 
+/* functions for fd_gossip_config_t */
+static void
+gossip_deliver_fun( fd_crds_data_t * data, void * arg );
+
+static void
+gossip_send_packet( uchar const *                 data,
+                    size_t                        sz,
+                    fd_gossip_peer_addr_t const * addr,
+                    void *                        arg );
+
+static void
+signer_fun( void *    arg,
+            uchar         signature[ static 64 ],
+            uchar const * buffer,
+            ulong         len );
+
+/* helper functions */
+static int
+gossip_to_sockaddr( uchar * dst, fd_gossip_peer_addr_t const * src );
+
+static fd_repair_peer_addr_t *
+resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res );
+
+#define TEST_CONSENSUS_MAGIC ( 0x7e57UL ) /* test */
 /* FIXME: remove these static variables */
 /* variables should be either on stack or use wksp_alloc_laddr */
 static int gossip_sockfd = -1;
@@ -54,6 +83,54 @@ main( int argc, char ** argv ) {
   fd_alloc_t * alloc         = fd_alloc_join( alloc_shalloc, 0UL );
   fd_valloc_t  valloc        = fd_alloc_virtual( alloc );
 
+  /* scratch */
+  ulong  smax   = 1UL << 31UL; /* 2 GiB scratch memory */
+  ulong  sdepth = 1UL << 11UL; /* 2048 scratch frames, 1 MiB each */
+  void * smem =
+      fd_valloc_malloc( valloc, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax ) );
+  void * fmem =
+      fd_valloc_malloc( valloc, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ) );
+  FD_TEST( ( !!smem ) & ( !!fmem ) );
+  fd_scratch_attach( smem, fmem, smax, sdepth );
+
+  /* blockstore */
+  fd_wksp_tag_query_info_t blockstore_info;
+  ulong                    blockstore_tag = FD_BLOCKSTORE_MAGIC;
+  if( fd_wksp_tag_query( wksp, &blockstore_tag, 1, &blockstore_info, 1 ) == 0 ) {
+    FD_LOG_ERR( ( "failed to find a blockstore" ) );
+  }
+  void *            shblockstore = fd_wksp_laddr_fast( wksp, blockstore_info.gaddr_lo );
+  fd_blockstore_t * blockstore   = fd_blockstore_join( shblockstore );
+  FD_TEST( blockstore );
+
+  /* forks */
+  ulong        forks_max = fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH );
+  void *       forks_mem = fd_wksp_alloc_laddr( wksp, fd_forks_align(), fd_forks_footprint( forks_max ), 1UL );
+  fd_forks_t * forks     = fd_forks_join( fd_forks_new( forks_mem, forks_max, 42UL ) );
+  FD_TEST( forks );
+
+  /* acc mgr */
+  fd_acc_mgr_t acc_mgr[1];
+  fd_acc_mgr_new( acc_mgr, funk );
+
+  /* epoch ctx */
+  uchar* epoch_ctx_mem =
+    fd_wksp_alloc_laddr( wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint(), FD_EXEC_EPOCH_CTX_MAGIC );
+  fd_exec_epoch_ctx_t  *epoch_ctx =
+    fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
+  FD_TEST( epoch_ctx );
+
+  /* replay */
+  void * replay_mem    = fd_wksp_alloc_laddr( wksp, fd_replay_align(), fd_replay_footprint(), 1UL );
+  fd_replay_t * replay = fd_replay_join( fd_replay_new( replay_mem ) );
+  FD_TEST( replay );
+  replay->funk        = funk;
+  replay->forks       = forks;
+  replay->valloc      = valloc;
+  replay->acc_mgr     = acc_mgr;
+  replay->epoch_ctx   = epoch_ctx;
+  replay->blockstore  = blockstore;
+
   /* do replay+shredcap or archive+live_data */
   const char * shredcap = fd_env_strip_cmdline_cstr( &argc, &argv, "--shredcap", NULL, NULL );
   if( shredcap )
@@ -63,6 +140,77 @@ main( int argc, char ** argv ) {
 
  archive_online:
   FD_LOG_NOTICE( ("test_consensus running in archive mode") );
+
+  /* capture / solcap */
+  //capture_ctx  = NULL;
+
+  /* turbine */
+  uchar * data_shreds = NULL;
+  uchar * parity_shreds = NULL;
+  fd_fec_set_t * fec_sets = NULL;
+  fd_fec_resolver_t * fec_resolver = NULL;
+
+  ulong   depth          = 512;
+  ulong   partial_depth  = 1;
+  ulong   complete_depth = 1;
+  ulong   total_depth    = depth + partial_depth + complete_depth;
+  data_shreds       = fd_wksp_alloc_laddr(
+      wksp, 128UL, FD_REEDSOL_DATA_SHREDS_MAX * total_depth * FD_SHRED_MAX_SZ, 42UL );
+  parity_shreds     = fd_wksp_alloc_laddr(
+      wksp, 128UL, FD_REEDSOL_PARITY_SHREDS_MAX * total_depth * FD_SHRED_MIN_SZ, 42UL );
+  fec_sets          = fd_wksp_alloc_laddr(
+      wksp, alignof( fd_fec_set_t ), total_depth * sizeof( fd_fec_set_t ), 42UL );
+
+  ulong k = 0;
+  ulong l = 0;
+  /* TODO move this into wksp mem */
+  for( ulong i = 0; i < total_depth; i++ ) {
+    for( ulong j = 0; j < FD_REEDSOL_DATA_SHREDS_MAX; j++ ) {
+      fec_sets[i].data_shreds[j] = &data_shreds[FD_SHRED_MAX_SZ * k++];
+    }
+    for( ulong j = 0; j < FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) {
+      fec_sets[i].parity_shreds[j] = &parity_shreds[FD_SHRED_MIN_SZ * l++];
+    }
+  }
+  FD_TEST( k == FD_REEDSOL_DATA_SHREDS_MAX * total_depth );
+
+  ulong  done_depth       = 1024;
+  void * fec_resolver_mem = fd_wksp_alloc_laddr(
+      wksp,
+      fd_fec_resolver_align(),
+      fd_fec_resolver_footprint( depth, partial_depth, complete_depth, done_depth ),
+      42UL );
+  fec_resolver = fd_fec_resolver_join( fd_fec_resolver_new(
+      fec_resolver_mem, depth, partial_depth, complete_depth, done_depth, fec_sets ) );
+
+  /* replay */
+  FD_TEST( data_shreds );
+  FD_TEST( parity_shreds );
+  FD_TEST( fec_sets );
+  FD_TEST( fec_resolver );
+
+  replay->data_shreds   = data_shreds;
+  replay->parity_shreds = parity_shreds;
+  replay->fec_sets      = fec_sets;
+  replay->fec_resolver  = fec_resolver;
+
+  /* forks */
+  forks->acc_mgr =  acc_mgr;
+  forks->blockstore = blockstore;
+  forks->funk = funk;
+  forks->valloc = valloc;
+  forks->epoch_ctx = epoch_ctx;
+
+  fd_fork_t * fork_pool = replay->forks->pool;
+  //fd_fork_t            *fork        = fd_fork_pool_ele_acquire( fork_pool );
+  fd_exec_slot_ctx_t   *slot_ctx    = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork_pool->slot_ctx, valloc ) );
+
+  FD_TEST( slot_ctx );
+
+  slot_ctx->epoch_ctx = epoch_ctx;
+  slot_ctx->valloc  = valloc;
+  slot_ctx->acc_mgr      = acc_mgr;
+  slot_ctx->blockstore   = blockstore;
 
   /* gossip */
   //FIXME, initialize bft and repair
@@ -96,50 +244,7 @@ main( int argc, char ** argv ) {
  replay_offline:
   FD_LOG_NOTICE( ("test_consensus running in replay mode") );
 
-  /* blockstore */
-  fd_wksp_tag_query_info_t blockstore_info;
-  ulong                    blockstore_tag = FD_BLOCKSTORE_MAGIC;
-  if( fd_wksp_tag_query( wksp, &blockstore_tag, 1, &blockstore_info, 1 ) == 0 ) {
-    FD_LOG_ERR( ( "failed to find a blockstore" ) );
-  }
-  void *            shblockstore = fd_wksp_laddr_fast( wksp, blockstore_info.gaddr_lo );
-  fd_blockstore_t * blockstore   = fd_blockstore_join( shblockstore );
-  FD_TEST( blockstore );
   fd_blockstore_clear( blockstore );
-
-  /* scratch */
-
-  ulong smax   = 1UL << 21;
-  ulong sdepth = 128;
-  FD_LOG_NOTICE( ( "smem footprint %lu", fd_scratch_smem_footprint( smax ) ) );
-  FD_TEST( fd_scratch_smem_footprint( smax ) > 765312 );
-  void * smem =
-      fd_wksp_alloc_laddr( wksp, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax ), 1UL );
-  void * fmem = fd_wksp_alloc_laddr(
-      wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ), 1UL );
-  FD_TEST( ( !!smem ) & ( !!fmem ) );
-  fd_scratch_attach( smem, fmem, smax, sdepth );
-
-  /* acc mgr */
-
-  fd_acc_mgr_t acc_mgr[1];
-  fd_acc_mgr_new( acc_mgr, funk );
-
-  /* epoch_ctx */
-
-  uchar * epoch_ctx_mem =
-      fd_wksp_alloc_laddr( wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint(), 1UL );
-  fd_exec_epoch_ctx_t * epoch_ctx =
-      fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
-  FD_TEST( epoch_ctx );
-
-  /* forks */
-
-  ulong  forks_max = fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH );
-  void * forks_mem =
-      fd_wksp_alloc_laddr( wksp, fd_forks_align(), fd_forks_footprint( forks_max ), 1UL );
-  fd_forks_t * forks = fd_forks_join( fd_forks_new( forks_mem, forks_max, 42UL ) );
-  FD_TEST( forks );
 
   /* ghost */
 
@@ -173,19 +278,9 @@ main( int argc, char ** argv ) {
   fd_bft_epoch_stake_update( bft, epoch_ctx );
 
   /* replay */
-
-  void * replay_mem    = fd_wksp_alloc_laddr( wksp, fd_replay_align(), fd_replay_footprint(), 1UL );
-  fd_replay_t * replay = fd_replay_join( fd_replay_new( replay_mem ) );
-  FD_TEST( replay );
-  replay->acc_mgr     = acc_mgr;
-  replay->blockstore  = blockstore;
-  replay->epoch_ctx   = epoch_ctx;
-  replay->forks       = forks;
-  replay->funk        = funk;
   replay->gossip      = NULL;
   replay->max_workers = 1;
   replay->tpool       = NULL;
-  replay->valloc      = valloc;
 
   /* snapshot init */
 
