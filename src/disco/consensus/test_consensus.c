@@ -195,22 +195,21 @@ main( int argc, char ** argv ) {
   replay->fec_resolver  = fec_resolver;
 
   /* forks */
-  forks->acc_mgr =  acc_mgr;
+  forks->funk       = funk;
+  forks->valloc     = valloc;
+  forks->acc_mgr    = acc_mgr;
+  forks->epoch_ctx  = epoch_ctx;
   forks->blockstore = blockstore;
-  forks->funk = funk;
-  forks->valloc = valloc;
-  forks->epoch_ctx = epoch_ctx;
 
   fd_fork_t * fork_pool = replay->forks->pool;
   //fd_fork_t            *fork        = fd_fork_pool_ele_acquire( fork_pool );
   fd_exec_slot_ctx_t   *slot_ctx    = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork_pool->slot_ctx, valloc ) );
-
   FD_TEST( slot_ctx );
 
-  slot_ctx->epoch_ctx = epoch_ctx;
-  slot_ctx->valloc  = valloc;
-  slot_ctx->acc_mgr      = acc_mgr;
-  slot_ctx->blockstore   = blockstore;
+  slot_ctx->valloc     = valloc;
+  slot_ctx->acc_mgr    = acc_mgr;
+  slot_ctx->epoch_ctx  = epoch_ctx;
+  slot_ctx->blockstore = blockstore;
 
   /* gossip */
   //FIXME, initialize bft and repair
