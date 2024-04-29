@@ -358,16 +358,16 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
                           uchar const *        instruction_data,
                           ulong                instruction_data_len ) {
   /* FIXME: do this in a branchless manner? using bitwise comparison would probably be faster */
-  return fd_vm_syscall_cpi_check_id( program_id, fd_solana_native_loader_id.key                 )                 ||
-         fd_vm_syscall_cpi_check_id( program_id, fd_solana_bpf_loader_program_id.key            )                 ||
-         fd_vm_syscall_cpi_check_id( program_id, fd_solana_bpf_loader_deprecated_program_id.key )                 ||
-         ( fd_vm_syscall_cpi_check_id( program_id, fd_solana_bpf_loader_upgradeable_program_id.key ) &&
-           ( (instruction_data_len == 0 || instruction_data[0] != 3)                        ||
-             (instruction_data_len != 0 && instruction_data[0] == 4)                        ||
-             ( FD_FEATURE_ACTIVE( slot_ctx, enable_bpf_loader_set_authority_checked_ix ) &&
-               (instruction_data_len != 0 && instruction_data[0] == 4) )                    ||
-             (instruction_data_len != 0 && instruction_data[0] == 5)                        ) ) ||
-         fd_vm_syscall_cpi_is_precompile(program_id);
+  return ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_native_loader_id.key) 
+            || fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_program_id.key) 
+            || fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_deprecated_program_id.key) 
+            || (fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_upgradeable_program_id.key) 
+                && !((instruction_data_len != 0 && instruction_data[0] == 3)  /* is_upgrade_instruction() */
+                    || (instruction_data_len != 0 && instruction_data[0] == 4)  /* is_set_authority_instruction() */
+                    || (FD_FEATURE_ACTIVE(slot_ctx, enable_bpf_loader_set_authority_checked_ix) 
+                        && (instruction_data_len != 0 && instruction_data[0] == 7)) /* is_set_authority_checked_instruction() */
+                    || (instruction_data_len != 0 && instruction_data[0] == 5))) /* is_close_instruction */
+            || fd_vm_syscall_cpi_is_precompile(program_id));
 }
 
 /*
