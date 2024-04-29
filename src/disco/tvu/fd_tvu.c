@@ -717,7 +717,7 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
   runtime_ctx->capture_ctx  = NULL;
   runtime_ctx->capture_file = NULL;
 
-  /* If a capture path is passed in, setup solcap, but nothing else in capture_ctx*/
+  /* If a capture path is passed in, setup solcap, but nothing else in capture_ctx */
   if( args->capture_fpath && args->capture_fpath[0] != '\0' ) {
     solcap_setup( args->capture_fpath, valloc, solcap_setup_out );
     runtime_ctx->capture_file = solcap_setup_out->capture_file;
@@ -726,6 +726,7 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
 
     runtime_ctx->capture_ctx->checkpt_path = NULL;
     runtime_ctx->capture_ctx->checkpt_slot = 0;
+    runtime_ctx->capture_ctx->checkpt_freq = ULONG_MAX;
     runtime_ctx->capture_ctx->pruned_funk  = NULL;
   }
 
