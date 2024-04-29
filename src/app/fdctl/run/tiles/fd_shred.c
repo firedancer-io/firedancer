@@ -8,6 +8,7 @@
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../waltz/ip/fd_ip.h"
+#include "../../../../disco/tvu/util.h"
 
 #include "../../../../util/net/fd_eth.h"
 #include "../../../../util/net/fd_ip4.h"
@@ -100,16 +101,6 @@ FD_STATIC_ASSERT( 34*DCACHE_ENTRIES_PER_FEC_SET >= FD_REEDSOL_DATA_SHREDS_MAX+FD
 FD_STATIC_ASSERT( sizeof(fd_shred34_t) == FD_SHRED_STORE_MTU, shred_34 );
 
 FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==24UL, poh_shred_mtu );
-
-/* Part 2: Shred destinations */
-struct __attribute__((packed)) fd_shred_dest_wire {
-  uchar  pubkey[32];
-  /* The Labs splice writes this as octets, which means when we read
-     this, it's essentially network byte order */
-  uint   ip4_addr;
-  ushort udp_port;
-};
-typedef struct fd_shred_dest_wire fd_shred_dest_wire_t;
 
 typedef struct __attribute__((packed)) {
   fd_eth_hdr_t eth[1];
@@ -715,7 +706,7 @@ unprivileged_init( fd_topo_t *      topo,
                    strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_shred" )    ||
                    strcmp( topo->links[ tile->in_link_id[ POH_IN_IDX     ] ].name, "poh_shred"  )    ||
                    strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX   ] ].name, "stake_out"  )    ||
-                   strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "crds_shred" )    ||
+                   strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "gossip_shred" )    ||
                    strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX    ] ].name, "sign_shred" ) ) )
     FD_LOG_ERR(( "shred tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
@@ -764,7 +755,9 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !tile->shred.shred_listen_port ) ) FD_LOG_ERR(( "shred_listen_port not set" ));
 
   ulong bank_cnt = fd_topo_tile_name_cnt( topo, "bank" );
-  if( FD_UNLIKELY( !bank_cnt ) ) FD_LOG_ERR(( "0 bank tiles" ));
+  ulong replay_cnt = fd_topo_tile_name_cnt( topo, "replay" );
+
+  if( FD_UNLIKELY( !bank_cnt && !replay_cnt ) ) FD_LOG_ERR(( "0 bank/replay tiles" ));
   if( FD_UNLIKELY( bank_cnt>MAX_BANK_CNT ) ) FD_LOG_ERR(( "Too many banks" ));
 
   void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint()            );

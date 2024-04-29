@@ -27,8 +27,9 @@ FD_PROTOTYPES_BEGIN
 /* Initialize a new fd_topo_t with the given app name, the topology will
    be empty with no tiles, objects, links. */
 
-fd_topo_t
-fd_topob_new( char const * app_name );
+fd_topo_t *
+fd_topob_new( void * mem, 
+              char const * app_name );
 
 /* Add a workspace with the given name to the topology.  Workspace names
    must be unique and adding the same workspace twice will produce an

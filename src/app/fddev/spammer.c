@@ -94,7 +94,7 @@ spammer_cmd_fn( args_t *         args,
   if( FD_UNLIKELY( !args->spammer.connections ) )
     args->spammer.connections = config->layout.quic_tile_count;
 
-  fd_topo_t topo[ 1 ] = { fd_topob_new( config->name ) };
+  fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
   add_bench_topo( topo,
                   args->spammer.affinity,
                   args->spammer.benchg,

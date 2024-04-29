@@ -1,0 +1,7 @@
+[tiles]
+    [tiles.repair]
+        repair_intake_listen_port = 8701
+        repair_serve_listen_port = 8702
+
+[development]
+    topology = "firedancer"

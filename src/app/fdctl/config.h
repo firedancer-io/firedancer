@@ -221,6 +221,17 @@ typedef struct {
     struct {
       ushort prometheus_listen_port;
     } metric;
+
+    struct {
+      ushort gossip_listen_port;
+      uint   peer_ip_addr;
+      ushort peer_port;
+    } gossip;
+
+    struct {
+      ushort repair_intake_listen_port;
+      ushort repair_serve_listen_port;
+    } repair;
   } tiles;
 } config_t;
 

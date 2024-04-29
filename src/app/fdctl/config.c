@@ -267,6 +267,9 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.shred,         max_pending_shred_sets                                    );
   ENTRY_USHORT( ., tiles.shred,         shred_listen_port                                         );
 
+  ENTRY_USHORT( ., tiles.repair,        repair_intake_listen_port                                 );
+  ENTRY_USHORT( ., tiles.repair,        repair_serve_listen_port                                  );
+
   ENTRY_USHORT( ., tiles.metric,        prometheus_listen_port                                    );
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
@@ -535,6 +538,11 @@ fd_topo_tile_to_config( fd_topo_tile_t const * tile ) {
 ulong
 fdctl_obj_align( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
+  #define VAL(name) (__extension__({                                                               \
+    ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
+    if( FD_UNLIKELY( __x==ULONG_MAX ) ) FD_LOG_ERR(( "obj.%lu.%s was not set", obj->id, name )); \
+    __x; }))
+
   if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
     fd_topo_tile_t const * tile = NULL;
     for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -558,6 +566,8 @@ fdctl_obj_align( fd_topo_t const *     topo,
     return fd_fseq_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     return FD_METRICS_ALIGN;
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "obj" ) ) ) {
+    return VAL("align");
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;
@@ -595,6 +605,8 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
     return fd_fseq_footprint();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     return FD_METRICS_FOOTPRINT( VAL("in_cnt"), VAL("out_cnt") );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "obj" ) ) ) {
+    return VAL("sz");
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;
@@ -629,11 +641,11 @@ fdctl_tile_run( fd_topo_tile_t * tile ) {
    after Firedancer is booted. */
 static void
 topo_initialize( config_t * config ) {
-  fd_topo_config_fn * topo_config_fn = fd_topo_kind_str_to_topo_config_fn( config->development.topology );
+  fd_topo_config_t * topo_config = fd_topo_kind_str_to_topo_config( config->development.topology );
   FD_LOG_NOTICE(( "initializing topology - kind: %s", config->development.topology ));
-  topo_config_fn( config );
+  topo_config->configure( config );
+  (void)config;
 }
-
 
 static void
 validate_ports( config_t * result ) {

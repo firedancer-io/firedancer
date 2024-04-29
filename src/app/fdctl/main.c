@@ -28,6 +28,10 @@ extern fd_topo_run_tile_t fd_tile_store;
 extern fd_topo_run_tile_t fd_tile_sign;
 extern fd_topo_run_tile_t fd_tile_metric;
 extern fd_topo_run_tile_t fd_tile_blackhole;
+extern fd_topo_run_tile_t fd_tile_gossip;
+extern fd_topo_run_tile_t fd_tile_repair;
+extern fd_topo_run_tile_t fd_tile_store_int;
+extern fd_topo_run_tile_t fd_tile_replay;
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
@@ -43,6 +47,10 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_sign,
   &fd_tile_metric,
   &fd_tile_blackhole,
+  &fd_tile_gossip,
+  &fd_tile_repair,
+  &fd_tile_store_int,
+  &fd_tile_replay,
   NULL,
 };
 
