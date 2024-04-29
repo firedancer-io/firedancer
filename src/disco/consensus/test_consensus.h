@@ -28,12 +28,9 @@ struct fd_tvu_gossip_deliver_arg {
 };
 typedef struct fd_tvu_gossip_deliver_arg fd_tvu_gossip_deliver_arg_t;
 
-/* helper functions */
+/* functions for fd_gossip_config_t */
 static void
 gossip_deliver_fun( fd_crds_data_t * data, void * arg );
-
-static int
-gossip_to_sockaddr( uchar * dst, fd_gossip_peer_addr_t const * src );
 
 static void
 gossip_send_packet( uchar const *                 data,
@@ -46,6 +43,10 @@ signer_fun( void *    arg,
             uchar         signature[ static 64 ],
             uchar const * buffer,
             ulong         len );
+
+/* helper functions */
+static int
+gossip_to_sockaddr( uchar * dst, fd_gossip_peer_addr_t const * src );
 
 static fd_repair_peer_addr_t *
 resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res );
