@@ -34,10 +34,11 @@ Firedancer source tree
   │   │                needed for interoperability with the Solana ecosystem
   │   │                (hash functions, cryptographic algorithms)
   │   │
+  |   ├── choreo/      Consensus components (fork choice, voting)
+  │   │
   │   ├── disco/       Tiles running on the tango messaging layer
   │   │
-  │   ├── flamenco/    Major Solana runtime and consensus components
-  │   │                (bank, leader schedule, virtual machine, ...)
+  │   ├── flamenco/    Major Solana runtime components
   │   │
   │   ├── funk/        Database optimized for storing Solana ledger and
   │   │                accounts

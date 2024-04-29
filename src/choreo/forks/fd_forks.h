@@ -6,25 +6,11 @@
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../fd_choreo_base.h"
 
-/* FD_FORKS_USE_HANDHOLDING:  Define this to non-zero at compile time
-   to turn on additional runtime checks and logging. */
-
-#ifndef FD_FORKS_USE_HANDHOLDING
-#define FD_FORKS_USE_HANDHOLDING 1
-#endif
-
-#define FD_FORKS_EQV_SAFE ( 0.52 )
-#define FD_FORKS_OPT_CONF ( 2.0 / 3.0 )
-
 struct fd_fork {
-  ulong slot; /* head of the fork, frontier key */
-  ulong next; /* reserved for use by fd_pool and fd_map_chain */
-
-  int   eqv_safe;    /* equivocation safe */
-  int   opt_conf;    /* optimistically confirmed */
-
-  fd_exec_slot_ctx_t slot_ctx;
-  fd_block_t *       head; /* the block representing the head of the fork */
+  ulong              slot;     /* head of the fork, frontier key */
+  ulong              next;     /* reserved for use by fd_pool and fd_map_chain */
+  fd_block_t *       head;     /* the block representing the head of the fork */
+  fd_exec_slot_ctx_t slot_ctx; /* the bank representing the head of the fork */
 };
 typedef struct fd_fork fd_fork_t;
 
