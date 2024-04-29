@@ -120,6 +120,36 @@ main( int argc, char ** argv ) {
     fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
   FD_TEST( epoch_ctx );
 
+  /* snapshot */
+  fd_fork_t *          snapshot_fork = fd_fork_pool_ele_acquire( forks->pool );
+  fd_exec_slot_ctx_t * snapshot_slot_ctx =
+      fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &snapshot_fork->slot_ctx, valloc ) );
+  FD_TEST( snapshot_slot_ctx );
+  snapshot_slot_ctx->epoch_ctx  = epoch_ctx;
+  snapshot_slot_ctx->acc_mgr    = acc_mgr;
+  snapshot_slot_ctx->blockstore = blockstore;
+  snapshot_slot_ctx->valloc     = valloc;
+
+  fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
+  FD_TEST( snapshot_slot_ctx->funk_txn );
+  ulong snapshot_slot = snapshot_slot_ctx->slot_bank.slot;
+  FD_LOG_NOTICE( ( "snapshot_slot: %lu", snapshot_slot ) );
+
+  snapshot_fork->slot = snapshot_slot;
+  snapshot_slot_ctx->slot_bank.collected_fees = 0;
+  snapshot_slot_ctx->slot_bank.collected_rent = 0;
+  FD_TEST( !fd_runtime_sysvar_cache_load( snapshot_slot_ctx ) );
+
+  fd_features_restore( snapshot_slot_ctx );
+  fd_runtime_update_leaders( snapshot_slot_ctx, snapshot_slot_ctx->slot_bank.slot );
+  fd_calculate_epoch_accounts_hash_values( snapshot_slot_ctx );
+
+  fd_funk_start_write( funk );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( snapshot_slot_ctx, snapshot_slot_ctx->funk_txn );
+  fd_funk_end_write( funk );
+  snapshot_slot_ctx->leader =
+      fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( epoch_ctx ), snapshot_slot );
+
   /* replay */
   void * replay_mem    = fd_wksp_alloc_laddr( wksp, fd_replay_align(), fd_replay_footprint(), 1UL );
   fd_replay_t * replay = fd_replay_join( fd_replay_new( replay_mem ) );
@@ -201,16 +231,6 @@ main( int argc, char ** argv ) {
   forks->epoch_ctx  = epoch_ctx;
   forks->blockstore = blockstore;
 
-  fd_fork_t * fork_pool = replay->forks->pool;
-  //fd_fork_t            *fork        = fd_fork_pool_ele_acquire( fork_pool );
-  fd_exec_slot_ctx_t   *slot_ctx    = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork_pool->slot_ctx, valloc ) );
-  FD_TEST( slot_ctx );
-
-  slot_ctx->valloc     = valloc;
-  slot_ctx->acc_mgr    = acc_mgr;
-  slot_ctx->epoch_ctx  = epoch_ctx;
-  slot_ctx->blockstore = blockstore;
-
   /* gossip */
   //FIXME, initialize bft and repair
   //gossip_deliver_arg->bft = bft;
@@ -255,14 +275,6 @@ main( int argc, char ** argv ) {
       fd_ghost_join( fd_ghost_new( ghost_mem, ghost_node_max, ghost_vote_max, 1UL ) );
   FD_TEST( ghost );
 
-  /* latest votes */
-
-//   void * latest_votes_mem = fd_wksp_alloc_laddr(
-//       wksp, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint(), 42UL );
-//   fd_latest_vote_t * latest_votes =
-//       fd_latest_vote_deque_join( fd_latest_vote_deque_new( latest_votes_mem ) );
-//   FD_TEST( latest_votes );
-
   /* bft */
 
   void *     bft_mem = fd_wksp_alloc_laddr( wksp, fd_bft_align(), fd_bft_footprint(), 1UL );
@@ -281,34 +293,6 @@ main( int argc, char ** argv ) {
   replay->max_workers = 1;
   replay->tpool       = NULL;
 
-  /* snapshot init */
-
-  fd_fork_t *          snapshot_fork = fd_fork_pool_ele_acquire( forks->pool );
-  fd_exec_slot_ctx_t * snapshot_slot_ctx =
-      fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &snapshot_fork->slot_ctx, valloc ) );
-  FD_TEST( snapshot_slot_ctx );
-
-  snapshot_slot_ctx->epoch_ctx  = epoch_ctx;
-  snapshot_slot_ctx->acc_mgr    = acc_mgr;
-  snapshot_slot_ctx->blockstore = blockstore;
-  snapshot_slot_ctx->valloc     = valloc;
-
-  fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
-  FD_TEST( snapshot_slot_ctx->funk_txn );
-
-  ulong snapshot_slot = snapshot_slot_ctx->slot_bank.slot;
-  FD_LOG_NOTICE( ( "snapshot_slot: %lu", snapshot_slot ) );
-
-  snapshot_slot_ctx->slot_bank.collected_fees = 0;
-  snapshot_slot_ctx->slot_bank.collected_rent = 0;
-  FD_TEST( !fd_runtime_sysvar_cache_load( snapshot_slot_ctx ) );
-  fd_features_restore( snapshot_slot_ctx );
-  fd_runtime_update_leaders( snapshot_slot_ctx, snapshot_slot_ctx->slot_bank.slot );
-  fd_calculate_epoch_accounts_hash_values( snapshot_slot_ctx );
-  fd_bpf_scan_and_create_bpf_program_cache_entry( snapshot_slot_ctx, snapshot_slot_ctx->funk_txn );
-  snapshot_slot_ctx->leader =
-      fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( replay->epoch_ctx ), snapshot_slot );
-
   /* snapshot init: blockstore */
 
   fd_blockstore_snapshot_insert( blockstore, &snapshot_slot_ctx->slot_bank );
@@ -319,7 +303,6 @@ main( int argc, char ** argv ) {
 
   /* snapshot init: forks */
 
-  snapshot_fork->slot = snapshot_slot;
   fd_fork_frontier_ele_insert( replay->forks->frontier, snapshot_fork, replay->forks->pool );
 
   /* snapshot init: ghost */
