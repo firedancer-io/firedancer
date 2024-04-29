@@ -699,7 +699,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
     reg[ dst ] = reg_dst ^ (ulong)(long)(int)imm;
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0xac) /* FD_SBPF_XOR_REG */
+  FD_VM_INTERP_INSTR_BEGIN(0xac) /* FD_SBPF_OP_XOR_REG */
     reg[ dst ] = (ulong)(uint)( reg_dst ^ reg_src );
   FD_VM_INTERP_INSTR_END;
 
@@ -830,7 +830,7 @@ sigcost:
   cu = 0UL;
   /* if frame count is 0, then we are in an edge case where an execution has consumed
      exactly the right number of CUs, but FD_SBPF_OP_EXIT's FD_VM_INTERP_BRANCH_BEGIN
-     has thrown an error because cu == 0. Therefore we should not return an error in 
+     has thrown an error because cu == 0. Therefore we should not return an error in
      this case. */
   if ( FD_LIKELY( frame_cnt ) ) {
     err = FD_VM_ERR_SIGCOST;
