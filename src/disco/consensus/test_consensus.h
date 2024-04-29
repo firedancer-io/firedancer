@@ -9,6 +9,7 @@
 #include <netinet/in.h>
 #include <sys/random.h>
 
+#include "../tvu/fd_store.h"
 #include "../tvu/fd_replay.h"
 #include "../shred/fd_shred_cap.h"
 #include "../keyguard/fd_keyguard_client.h"

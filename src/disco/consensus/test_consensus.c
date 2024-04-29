@@ -332,9 +332,7 @@ main( int argc, char ** argv ) {
       42UL );
   fec_resolver = fd_fec_resolver_join( fd_fec_resolver_new(
       fec_resolver_mem, depth, partial_depth, complete_depth, done_depth, fec_sets ) );
-  FD_LOG_NOTICE( ("Finish setup turbine") );
 
-  /* replay */
   FD_TEST( data_shreds );
   FD_TEST( parity_shreds );
   FD_TEST( fec_sets );
@@ -344,6 +342,7 @@ main( int argc, char ** argv ) {
   replay->parity_shreds = parity_shreds;
   replay->fec_sets      = fec_sets;
   replay->fec_resolver  = fec_resolver;
+  FD_LOG_NOTICE( ("Finish setup turbine") );
 
   /* gossip */
   const char * my_gossip_addr = ":9001";
@@ -373,7 +372,17 @@ main( int argc, char ** argv ) {
   if( fd_gossip_add_active_peer(
             gossip, resolve_hostport( gossip_peer_addr, &gossip_peer ) ) )
       FD_LOG_ERR( ( "error adding gossip active peer" ) );
-  
+  FD_LOG_NOTICE( ("Finish setup gossip") );
+
+  /* store */
+  void *        store_mem = fd_valloc_malloc( valloc, fd_store_align(), fd_store_footprint() );
+  fd_store_t * store      = fd_store_join( fd_store_new( store_mem, snapshot_slot ) );
+  store->blockstore = blockstore;
+  store->smr = snapshot_slot;
+  store->snapshot_slot = snapshot_slot;
+  store->valloc = valloc;
+  FD_LOG_NOTICE( ("Finish setup store") );
+
   FD_LOG_ERR( ( "archive+live_data not ready yet" ) );
 
  end:
