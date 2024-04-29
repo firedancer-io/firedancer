@@ -306,10 +306,10 @@ main( int argc, char ** argv ) {
   //FIXME, initialize bft and repair
   //gossip_deliver_arg->bft = bft;
   FD_LOG_ERR( ("Not ready to setup gossip yet") );
-  gossip_deliver_arg->repair = repair;
   const char * my_gossip_addr = ":9001";
   const char * gossip_peer_addr = "139.178.68.207:8001"; /* FIXME: temporary */
   gossip_deliver_arg.valloc = valloc;
+  gossip_deliver_arg.repair = repair;
 
   void *        gossip_shmem = fd_wksp_alloc_laddr( wksp, fd_gossip_align(), fd_gossip_footprint(), TEST_CONSENSUS_MAGIC );
   fd_gossip_t * gossip       = fd_gossip_join( fd_gossip_new( gossip_shmem, TEST_CONSENSUS_MAGIC, valloc ) );
