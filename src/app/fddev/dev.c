@@ -85,6 +85,7 @@ install_parent_signals( void ) {
 
 void
 update_config_for_dev( config_t * const config ) {
+  return;
   /* when starting from a new genesis block, this needs to be off else the
      validator will get stuck forever. */
   config->consensus.wait_for_vote_to_start_leader = 0;

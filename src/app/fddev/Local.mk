@@ -14,6 +14,7 @@ $(call add-objs,main1 dev dev1 txn bench spammer dump flame,fd_fddev)
 $(call add-objs,tiles/fd_bencho,fd_fddev)
 $(call add-objs,tiles/fd_benchg,fd_fddev)
 $(call add-objs,tiles/fd_benchs,fd_fddev)
+$(call add-objs,tiles/fd_tvu,fd_fddev)
 
 # fddev configure stages
 $(call add-objs,configure/netns,fd_fddev)

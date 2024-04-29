@@ -31,6 +31,7 @@ $(call add-objs,run/tiles/fd_blackhole,fd_fdctl)
 
 # fdctl topologies
 $(call add-objs,run/topos/fd_frankendancer,fd_fdctl)
+$(call add-objs,run/topos/fd_tvu,fd_fdctl)
 
 # fdctl configure stages
 $(call add-objs,configure/configure,fd_fdctl)

@@ -20,12 +20,12 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &netns,
   &hugetlbfs,
   &sysctl,
-  &xdp,
-  &ethtool,
-  &keys,
+  // &xdp,
+  // &ethtool,
+  // &keys,
   &workspace,
-  &genesis,
-  &blockstore,
+  // &genesis,
+  // &blockstore,
   NULL,
 };
 
@@ -47,6 +47,8 @@ extern fd_topo_run_tile_t fd_tile_bencho;
 extern fd_topo_run_tile_t fd_tile_benchg;
 extern fd_topo_run_tile_t fd_tile_benchs;
 
+extern fd_topo_run_tile_t fd_tile_tvu;
+
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
   &fd_tile_netmux,
@@ -64,6 +66,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,
+  &fd_tile_tvu,
   NULL,
 };
 

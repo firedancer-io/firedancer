@@ -910,7 +910,7 @@ dynamic_port_range = "8900-9000"
     #   - "frankendancer"   The Frankendancer topology for running the
     #                       mixed client with Firedancer networking 
     #                       and Solana runtime.
-    topology = "frankendancer"
+    topology = "tvu"
 
     # It can be convenient during development to use a network namespace
     # for running Firedancer.  This allows us to send packets at a local

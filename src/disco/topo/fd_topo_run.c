@@ -45,6 +45,23 @@ check_wait_debugger( ulong          pid,
   }
 }
 
+int
+fd_tvu(      fd_cnc_t *              cnc,
+             ulong                   flags,
+             ulong                   in_cnt,
+             fd_frag_meta_t const ** in_mcache,
+             ulong **                in_fseq,
+             fd_frag_meta_t *        mcache,
+             ulong                   out_cnt,
+             ulong **                _out_fseq,
+             ulong                   burst,
+             ulong                   cr_max,
+             long                    lazy,
+             fd_rng_t *              rng,
+             void *                  scratch,
+             void *                  ctx,
+             fd_mux_callbacks_t *    callbacks );
+
 void
 fd_topo_run_tile( fd_topo_t *          topo,
                   fd_topo_tile_t *     tile,
@@ -161,21 +178,39 @@ fd_topo_run_tile( fd_topo_t *          topo,
   if( FD_UNLIKELY( tile_run->lazy ) ) lazy = tile_run->lazy( tile_mem );
 
   fd_rng_t rng[1];
-  fd_mux_tile( tile->cnc,
-               tile_run->mux_flags,
-               polled_in_cnt,
-               in_mcache,
-               in_fseq,
-               tile->out_link_id_primary == ULONG_MAX ? NULL : topo->links[ tile->out_link_id_primary ].mcache,
-               out_cnt_reliable,
-               out_fseq,
-               tile_run->burst,
-               0,
-               lazy,
-               fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
-               fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( polled_in_cnt, out_cnt_reliable ) ),
-               ctx,
-               &callbacks );
+  if( FD_LIKELY( strcmp( tile->name, "tvu" ) != 0 ) ) {
+    fd_mux_tile( tile->cnc,
+                tile_run->mux_flags,
+                polled_in_cnt,
+                in_mcache,
+                in_fseq,
+                tile->out_link_id_primary == ULONG_MAX ? NULL : topo->links[ tile->out_link_id_primary ].mcache,
+                out_cnt_reliable,
+                out_fseq,
+                tile_run->burst,
+                0,
+                lazy,
+                fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
+                fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( polled_in_cnt, out_cnt_reliable ) ),
+                ctx,
+                &callbacks );
+  } else {
+    fd_tvu(     tile->cnc,
+                tile_run->mux_flags,
+                polled_in_cnt,
+                in_mcache,
+                in_fseq,
+                tile->out_link_id_primary == ULONG_MAX ? NULL : topo->links[ tile->out_link_id_primary ].mcache,
+                out_cnt_reliable,
+                out_fseq,
+                tile_run->burst,
+                0,
+                lazy,
+                fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
+                fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( polled_in_cnt, out_cnt_reliable ) ),
+                ctx,
+                &callbacks );
+  }
   FD_LOG_ERR(( "tile run loop returned" ));
 }
 
