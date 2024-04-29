@@ -96,7 +96,7 @@ while [[ $# -gt 0 ]]; do
        shift
        shift
        ;;
-    -t|--txnstatus)
+    -tx|--txnstatus)
        TXN_STATUS="--txnstatus $2"
        shift
        shift
