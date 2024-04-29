@@ -25,7 +25,11 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &keys,
   &workspace,
   &genesis,
+#ifdef FD_HAS_NO_SOLANA
   NULL,
+#else
+  &blockstore,
+#endif
   NULL,
 };
 
