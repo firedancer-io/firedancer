@@ -1,3 +1,4 @@
+#include "topos.h"
 #include "../tiles/tiles.h"
 #include "../../config.h"
 #include "../../../../ballet/shred/fd_shred.h"
@@ -8,14 +9,14 @@
 
 
 void
-fd_topo_frankendancer( config_t * config ) { 
+topo_configure_frankendancer( config_t * config ) { 
   ulong net_tile_cnt    = config->layout.net_tile_count;
   ulong quic_tile_cnt   = config->layout.quic_tile_count;
   ulong verify_tile_cnt = config->layout.verify_tile_count;
   ulong bank_tile_cnt   = config->layout.bank_tile_count;
   ulong shred_tile_cnt  = config->layout.shred_tile_count;
 
-  fd_topo_t topo[1] = { fd_topob_new( config->name ) };
+  fd_topo_t * topo = fd_topob_new( &config->topo, config->name );
 
   /*             topo, name */
   fd_topob_wksp( topo, "net_quic" );
@@ -288,3 +289,7 @@ fd_topo_frankendancer( config_t * config ) {
   fd_topob_finish( topo, fdctl_obj_align, fdctl_obj_footprint, fdctl_obj_loose );
   config->topo = *topo;
 }
+
+fd_topo_config_t fd_topo_frankendancer = {
+  .configure = topo_configure_frankendancer
+};

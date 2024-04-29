@@ -142,8 +142,9 @@ typedef struct {
       ushort shred_listen_port;
       ushort quic_transaction_listen_port;
       ushort legacy_transaction_listen_port;
-      ushort repair_listen_port;
       ushort gossip_listen_port;
+      ushort repair_intake_listen_port;
+      ushort repair_serve_listen_port;
     } net;
 
     struct {
@@ -226,32 +227,23 @@ typedef struct {
     } benchg;
 
     struct {
-      char    repair_my_intake_addr[ 22 ];   // len('255.255.255.255:65535') == 22
-      char    repair_my_serve_addr[ 22 ];    // len('255.255.255.255:65535') == 22
       ushort  repair_intake_listen_port;
       ushort  repair_serve_listen_port;
+      uint    ip_addr;
       uchar   src_mac_addr[ 6 ];
     } repair;
 
     struct {
-      char    gossip_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
-      char    gossip_my_addr[ 22 ];   // len('255.255.255.255:65535') == 22
-
-      char    tvu_my_addr[ 22 ];      // len('255.255.255.255:65535') == 22
-      char    tvu_my_fwd_addr[ 22 ];  // len('255.255.255.255:65535') == 22
-
-      char    repair_my_intake_addr[ 22 ];   // len('255.255.255.255:65535') == 22
-      char    repair_my_serve_addr[ 22 ];    // len('255.255.255.255:65535') == 22
-
-      char    tpu_udp_my_addr[ 22 ];  // len('255.255.255.255:65535') == 22
-      char    tpu_quic_my_addr[ 22 ]; // len('255.255.255.255:65535') == 22
-
-      char    tpu_vote_udp_my_addr[ 22 ]; // len('255.255.255.255:65535') == 22
-
-      ushort  gossip_listen_port;
+      uint    entrypoint_ip_addr;
+      ushort  entrypoint_port;
+      uint    ip_addr;
       uchar   src_mac_addr[ 6 ];
-
       char    identity_key_path[ PATH_MAX ];
+      ushort  gossip_listen_port;
+      ushort  tvu_port;
+      ushort  tvu_fwd_port;
+      ushort  tpu_port;
+      ushort  tpu_vote_port;
     } gossip;
   
     struct {

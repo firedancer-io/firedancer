@@ -706,7 +706,7 @@ unprivileged_init( fd_topo_t *      topo,
                    strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_shred" )    ||
                    strcmp( topo->links[ tile->in_link_id[ POH_IN_IDX     ] ].name, "poh_shred"  )    ||
                    strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX   ] ].name, "stake_out"  )    ||
-                   strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "crds_shred" )    ||
+                   strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "gossip_shred" )    ||
                    strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX    ] ].name, "sign_shred" ) ) )
     FD_LOG_ERR(( "shred tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
@@ -755,7 +755,9 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !tile->shred.shred_listen_port ) ) FD_LOG_ERR(( "shred_listen_port not set" ));
 
   ulong bank_cnt = fd_topo_tile_name_cnt( topo, "bank" );
-  if( FD_UNLIKELY( !bank_cnt ) ) FD_LOG_ERR(( "0 bank tiles" ));
+  ulong replay_cnt = fd_topo_tile_name_cnt( topo, "replay" );
+
+  if( FD_UNLIKELY( !bank_cnt && !replay_cnt ) ) FD_LOG_ERR(( "0 bank/replay tiles" ));
   if( FD_UNLIKELY( bank_cnt>MAX_BANK_CNT ) ) FD_LOG_ERR(( "Too many banks" ));
 
   void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint()            );

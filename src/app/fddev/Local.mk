@@ -23,7 +23,7 @@ $(call add-objs,configure/genesis,fd_fddev)
 $(call add-objs,configure/blockstore,fd_fddev)
 
 ifdef FD_HAS_NO_SOLANA
-$(call make-bin-rust,fddev,main external_functions,fd_fdctl fd_fddev fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util)
+$(call make-bin-rust,fddev,main external_functions,fd_fdctl fd_fddev fd_choreo fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util, $(SECP256K1_LIBS))
 else
 $(call make-bin-rust,fddev,main,fd_fdctl fd_fddev fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator)
 endif

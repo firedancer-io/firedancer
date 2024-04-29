@@ -498,7 +498,7 @@ unprivileged_init( fd_topo_t *      topo,
   // }
   
   if( FD_UNLIKELY( tile->out_link_id_primary == ULONG_MAX ) )
-    FD_LOG_ERR(( "store tile missing a primary output link" ));
+    FD_LOG_ERR(( "replay tile missing a primary output link" ));
 
   /* Scratch mem setup */
   FD_SCRATCH_ALLOC_INIT( l, scratch );

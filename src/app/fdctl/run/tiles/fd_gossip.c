@@ -112,9 +112,13 @@ struct fd_gossip_tile_ctx {
 
 
   fd_wksp_t *     wksp;
-  char            gossip_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
-  char            gossip_my_addr[ 22 ];   // len('255.255.255.255:65535') == 22
-  ushort          gossip_listen_port;
+  fd_gossip_peer_addr_t gossip_peer_addr;
+  fd_gossip_peer_addr_t gossip_my_addr;
+  fd_gossip_peer_addr_t tvu_my_addr;
+  fd_gossip_peer_addr_t tvu_my_fwd_addr;
+  fd_gossip_peer_addr_t tpu_my_addr;
+  fd_gossip_peer_addr_t tpu_vote_my_addr;
+  ushort                gossip_listen_port;
   
   fd_wksp_t *     net_in;
   ulong           chunk;
@@ -142,45 +146,6 @@ struct fd_gossip_tile_ctx {
   fd_keyguard_client_t  keyguard_client[1];
 };
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;
-
-static fd_gossip_peer_addr_t *
-resolve_hostport( const char * str /* host:port */, fd_gossip_peer_addr_t * res ) {
-  fd_memset( res, 0, sizeof( fd_gossip_peer_addr_t ) );
-
-  /* Find the : and copy out the host */
-  char buf[128];
-  uint i;
-  for( i = 0;; ++i ) {
-    if( str[i] == '\0' || i > sizeof( buf ) - 1U ) {
-      FD_LOG_ERR( ( "missing colon" ) );
-      return NULL;
-    }
-    if( str[i] == ':' ) {
-      buf[i] = '\0';
-      break;
-    }
-    buf[i] = str[i];
-  }
-  if( i == 0 ) /* :port means $HOST:port */
-    gethostname( buf, sizeof( buf ) );
-
-  struct hostent * host = gethostbyname( buf );
-  if( host == NULL ) {
-    FD_LOG_WARNING( ( "unable to resolve host %s", buf ) );
-    return NULL;
-  }
-  /* Convert result to repair address */
-  res->l    = 0;
-  res->addr = ( (struct in_addr *)host->h_addr )->s_addr;
-  int port  = atoi( str + i + 1 );
-  if( ( port > 0 && port < 1024 ) || port > (int)USHORT_MAX ) {
-    FD_LOG_ERR( ( "invalid port number" ) );
-    return NULL;
-  }
-  res->port = htons( (ushort)port );
-
-  return res;
-}
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -500,7 +465,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( tile->out_cnt != 4 ||
                    strcmp( topo->links[ tile->out_link_id[ SHRED_OUT_IDX  ] ].name, "gossip_shred" )  ||
-                   strcmp( topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].name, "gossip_repair" ) ||
+                   strcmp( topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].name, "gossip_repai" ) ||
                    strcmp( topo->links[ tile->out_link_id[ PACK_OUT_IDX   ] ].name, "gossip_pack" )   ||
                    strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX   ] ].name, "gossip_sign" ) ) ) {
     FD_LOG_ERR(( "gossip tile has none or unexpected output links %lu %s %s",
@@ -539,10 +504,12 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); 
   }
 
-  strncpy( ctx->gossip_peer_addr, tile->gossip.gossip_peer_addr, sizeof(ctx->gossip_peer_addr) );
-  strncpy( ctx->gossip_my_addr, tile->gossip.gossip_my_addr, sizeof(ctx->gossip_my_addr) );
+  ctx->gossip_peer_addr.addr = tile->gossip.entrypoint_ip_addr;
+  ctx->gossip_peer_addr.port = tile->gossip.entrypoint_port;
+  ctx->gossip_my_addr.addr = tile->gossip.ip_addr;
+  ctx->gossip_my_addr.port = tile->gossip.gossip_listen_port;
+
   ctx->gossip_listen_port = tile->gossip.gossip_listen_port;
-  
 
   FD_TEST( ctx->gossip_listen_port!=0 );
 
@@ -614,8 +581,8 @@ unprivileged_init( fd_topo_t *      topo,
   ulong seed = 42;
   ctx->gossip = fd_gossip_join( fd_gossip_new( ctx->gossip, seed, valloc ) );
 
-  FD_LOG_NOTICE(( "gossip my addr - addr: %s", ctx->gossip_my_addr ));
-  FD_TEST( resolve_hostport( ctx->gossip_my_addr, &ctx->gossip_config.my_addr ) );
+  FD_LOG_NOTICE(( "gossip my addr - addr: " FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( ctx->gossip_my_addr.addr ), ctx->gossip_my_addr.port ));
+  ctx->gossip_config.my_addr = ctx->gossip_my_addr;
   ctx->gossip_config.private_key = ctx->identity_private_key;
   ctx->gossip_config.public_key = &ctx->identity_public_key;
   ctx->gossip_config.deliver_fun = gossip_deliver_fun;
@@ -630,37 +597,26 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR( ( "error setting gossip config" ) );
   }
 
-  fd_gossip_peer_addr_t gossip_peer_addr;
-  FD_LOG_NOTICE(( "gossip initial peer - addr: %s", ctx->gossip_peer_addr ));
-  if( fd_gossip_add_active_peer( ctx->gossip, resolve_hostport( ctx->gossip_peer_addr, &gossip_peer_addr ) ) ) {
+  FD_LOG_NOTICE(( "gossip initial peer - addr: " FD_IP4_ADDR_FMT ":%u", 
+    FD_IP4_ADDR_FMT_ARGS( ctx->gossip_peer_addr.addr ), ctx->gossip_peer_addr.port ));
+  if( fd_gossip_add_active_peer( ctx->gossip, &ctx->gossip_peer_addr ) ) {
     FD_LOG_ERR( ( "error adding gossip active peer" ) );
   }
 
   fd_gossip_update_addr( ctx->gossip, &ctx->gossip_config.my_addr );
 
-  fd_gossip_peer_addr_t tvu_my_addr;
-  fd_gossip_peer_addr_t tvu_my_fwd_addr;
-  fd_gossip_peer_addr_t tpu_my_addr;
-  fd_gossip_peer_addr_t tpu_vote_my_addr;
-  if( resolve_hostport( tile->gossip.tvu_my_addr, &tvu_my_addr ) == NULL ) {
-    FD_LOG_ERR( ( "error parsing tvu addr" ) );
-  }
+  ctx->tvu_my_addr.addr      = tile->gossip.ip_addr;
+  ctx->tvu_my_addr.port      = tile->gossip.tvu_port;
+  ctx->tvu_my_fwd_addr.addr  = tile->gossip.ip_addr;
+  ctx->tvu_my_fwd_addr.port  = tile->gossip.tvu_fwd_port;
+  ctx->tpu_my_addr.addr      = tile->gossip.ip_addr;
+  ctx->tpu_my_addr.port      = tile->gossip.tpu_port;
+  ctx->tpu_vote_my_addr.addr = tile->gossip.ip_addr;
+  ctx->tpu_vote_my_addr.port = tile->gossip.tpu_vote_port;
 
-  if( resolve_hostport( tile->gossip.tvu_my_fwd_addr, &tvu_my_fwd_addr ) == NULL ) {
-    FD_LOG_ERR(( "error parsing tvu fwd addr" ) );
-  }
-
-  if( resolve_hostport( tile->gossip.tpu_udp_my_addr, &tpu_my_addr ) == NULL ) {
-    FD_LOG_ERR(( "error parsing tpu addr" ) );
-  }
-
-  if( resolve_hostport( tile->gossip.tpu_vote_udp_my_addr, &tpu_vote_my_addr ) == NULL ) {
-    FD_LOG_ERR(( "error parsing tpu vote addr" ) );
-  }
-
-  fd_gossip_update_tvu_addr( ctx->gossip, &tvu_my_addr, &tvu_my_fwd_addr );
-  fd_gossip_update_tpu_addr( ctx->gossip, &tpu_my_addr );
-  fd_gossip_update_tpu_vote_addr( ctx->gossip, &tpu_vote_my_addr );
+  fd_gossip_update_tvu_addr( ctx->gossip, &ctx->tvu_my_addr, &ctx->tvu_my_fwd_addr );
+  fd_gossip_update_tpu_addr( ctx->gossip, &ctx->tpu_my_addr );
+  fd_gossip_update_tpu_vote_addr( ctx->gossip, &ctx->tpu_vote_my_addr );
   fd_gossip_settime( ctx->gossip, fd_log_wallclock() );
   fd_gossip_start( ctx->gossip );
 

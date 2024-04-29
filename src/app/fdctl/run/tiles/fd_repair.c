@@ -119,45 +119,6 @@ struct fd_repair_tile_ctx {
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
-static fd_gossip_peer_addr_t *
-resolve_hostport( const char * str /* host:port */, fd_gossip_peer_addr_t * res ) {
-  fd_memset( res, 0, sizeof( fd_gossip_peer_addr_t ) );
-
-  /* Find the : and copy out the host */
-  char buf[128];
-  uint i;
-  for( i = 0;; ++i ) {
-    if( str[i] == '\0' || i > sizeof( buf ) - 1U ) {
-      FD_LOG_ERR( ( "missing colon" ) );
-      return NULL;
-    }
-    if( str[i] == ':' ) {
-      buf[i] = '\0';
-      break;
-    }
-    buf[i] = str[i];
-  }
-  if( i == 0 ) /* :port means $HOST:port */
-    gethostname( buf, sizeof( buf ) );
-
-  struct hostent * host = gethostbyname( buf );
-  if( host == NULL ) {
-    FD_LOG_WARNING( ( "unable to resolve host %s", buf ) );
-    return NULL;
-  }
-  /* Convert result to repair address */
-  res->l    = 0;
-  res->addr = ( (struct in_addr *)host->h_addr )->s_addr;
-  int port  = atoi( str + i + 1 );
-  if( ( port > 0 && port < 1024 ) || port > (int)USHORT_MAX ) {
-    FD_LOG_ERR( ( "invalid port number" ) );
-    return NULL;
-  }
-  res->port = htons( (ushort)port );
-
-  return res;
-}
-
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 4096UL;
@@ -497,10 +458,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( tile->in_cnt != 4 ||
                    strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_repair")     ||
-                   strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "gossip_repair" ) ||
+                   strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "gossip_repai" ) ||
                    strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX ] ].name,   "stake_out" )     ||
                    strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX ] ].name,   "store_repair" ) ) ) {
-    FD_LOG_ERR(( "Repair tile has none or unexpected input links %lu %s %s",
+    FD_LOG_ERR(( "repair tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
   }
 
@@ -535,6 +496,12 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !alloc_shmem ) ) { 
     FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); 
   }
+
+  ctx->repair_my_intake_addr.addr = tile->repair.ip_addr;
+  ctx->repair_my_intake_addr.port = tile->repair.repair_intake_listen_port;
+
+  ctx->repair_my_serve_addr.addr = tile->repair.ip_addr;
+  ctx->repair_my_serve_addr.port = tile->repair.repair_serve_listen_port;
   
   ctx->repair_intake_listen_port = tile->repair.repair_intake_listen_port;
   ctx->repair_serve_listen_port = tile->repair.repair_serve_listen_port;
@@ -613,9 +580,9 @@ unprivileged_init( fd_topo_t *      topo,
   ulong seed = 42;
   ctx->repair = fd_repair_join( fd_repair_new( ctx->repair, seed, valloc ) );
 
-  FD_LOG_NOTICE(( "repair my addr - intake addr: %s, serve_addr: %s", tile->repair.repair_my_intake_addr, tile->repair.repair_my_serve_addr ));
-  FD_TEST( resolve_hostport( tile->repair.repair_my_intake_addr, &ctx->repair_my_intake_addr ) );
-  FD_TEST( resolve_hostport( tile->repair.repair_my_serve_addr, &ctx->repair_my_serve_addr ) );
+  FD_LOG_NOTICE(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u, serve_addr: " FD_IP4_ADDR_FMT ":%u", 
+    FD_IP4_ADDR_FMT_ARGS( ctx->repair_my_intake_addr.addr ), ctx->repair_my_intake_addr.port,
+    FD_IP4_ADDR_FMT_ARGS( ctx->repair_my_serve_addr.addr ), ctx->repair_my_serve_addr.port ));
 
   ctx->repair_config.private_key = ctx->identity_private_key;
   ctx->repair_config.public_key = &ctx->identity_public_key;
@@ -658,6 +625,7 @@ populate_allowed_fds( void * scratch FD_PARAM_UNUSED,
 }
 
 fd_topo_run_tile_t fd_tile_repair = {
+  .name                     = "repair",
   .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
   .burst                    = 1UL,
   .loose_footprint          = loose_footprint,

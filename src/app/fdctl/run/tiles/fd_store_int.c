@@ -381,7 +381,7 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
   if( FD_UNLIKELY( tile->in_cnt != 3 ||
-                   strcmp( topo->links[ tile->in_link_id[ SHRED_IN_IDX     ] ].name, "shred_store" )    ||
+                   strcmp( topo->links[ tile->in_link_id[ SHRED_IN_IDX     ] ].name, "shred_storei" )    ||
                    strcmp( topo->links[ tile->in_link_id[ REPAIR_IN_IDX ] ].name, "repair_store" ) ) )
     FD_LOG_ERR(( "store tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
@@ -389,7 +389,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->out_cnt != 2 ||
                    strcmp( topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].name, "store_repair" ) ||
                    strcmp( topo->links[ tile->out_link_id[ REPLAY_OUT_IDX ] ].name, "store_replay" ) ) )
-    FD_LOG_ERR(( "repair tile has none or unexpected output links %lu %s %s",
+    FD_LOG_ERR(( "store tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
       
   if( FD_UNLIKELY( tile->out_link_id_primary != ULONG_MAX ) )
@@ -553,8 +553,8 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
-fd_topo_run_tile_t fd_tile_store = {
-  .name                     = "store_int",
+fd_topo_run_tile_t fd_tile_store_int = {
+  .name                     = "storei",
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .loose_footprint          = loose_footprint,
