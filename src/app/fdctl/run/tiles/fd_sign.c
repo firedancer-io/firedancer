@@ -102,7 +102,6 @@ after_frag( void *             _ctx,
   (void)seq;
   (void)opt_sig;
   (void)opt_chunk;
-  (void)opt_sz;
   (void)opt_tsorig;
   (void)opt_filter;
   (void)mux;
