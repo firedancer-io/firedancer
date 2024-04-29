@@ -588,136 +588,149 @@ fd_nl_load_arp_table( fd_nl_t *           nl,
   /* set alignment such that the returned data is aligned */
   uchar __attribute__(( aligned(16) )) ibuf[FD_NL_BUF_SZ] = {0};
 
-  /* Pointer to the messages head */
-  struct nlmsghdr *h = (struct nlmsghdr *)ibuf;
-
-  while(1) {
-    len = fd_nl_read_socket( fd, ibuf, sizeof(ibuf) );
-    if( len <= 0 ) {
-      return FD_IP_ERROR;
-    }
-
-    if( h->nlmsg_seq == seq ) break;
-  }
-
   /* index into arp_table */
   long arp_entry_idx = 0L;
 
-  /* interpret the response */
+  int done = 0;
 
-  long msglen = len;
+  while( !done ) {
 
-  /* Iterate through all messages in buffer */
+    /* Pointer to the messages head */
+    struct nlmsghdr *h = (struct nlmsghdr *)ibuf;
 
-  while( NLMSG_OK(h, msglen) ) {
-    /* are we still within the bounds of the table? */
-    if( arp_entry_idx >= (long)arp_table_cap ) {
-      /* we filled the table */
-      FD_LOG_ERR(( "fd_nl_load_arp_table, but table larger than reserved storage" ));
-      return FD_IP_ERROR; /* return failure */
-    }
-
-    /* current arp entry */
-    fd_nl_arp_entry_t * entry = arp_table + arp_entry_idx;
-
-    /* clear current entry */
-    fd_memset( entry, 0, sizeof( *entry ) );
-
-    if( h->nlmsg_flags & NLM_F_DUMP_INTR ) {
-      /* function was interrupted - don't switch to new routing table */
-
-      return FD_IP_RETRY; /* return transient failure */
-    }
-
-    if( h->nlmsg_type == NLMSG_ERROR ) {
-      struct nlmsgerr * err = NLMSG_DATA(h);
-
-      FD_LOG_WARNING(( "netlink returned data with error: %d %s", -err->error, strerror( -err->error) ));
-
-      /* error occurred - don't switch to new routing table */
-
-      return FD_IP_ERROR; /* return failure */
-    }
-
-    struct ndmsg *  msg       = NLMSG_DATA( h );
-    struct rtattr * rat       = RTM_RTA(msg);
-    long            ratmsglen = (long)RTM_PAYLOAD( h );
-
-    /* store the interface */
-    entry->ifindex = (uint)msg->ndm_ifindex;
-    entry->flags  |= FD_NL_ARP_FLAGS_IFINDEX;
-
-    /* we want to skip some entries based on state
-       here are the states:
-           NUD_INCOMPLETE   a currently resolving cache entry
-           NUD_REACHABLE    a confirmed working cache entry
-           NUD_STALE        an expired cache entry
-           NUD_DELAY        an entry waiting for a timer
-           NUD_PROBE        a cache entry that is currently reprobed
-           NUD_FAILED       an invalid cache entry
-           NUD_NOARP        a device with no destination cache
-           NUD_PERMANENT    a static entry
-
-       Keeping:
-           NUD_REACHABLE    valid, so use it
-           NUD_STALE        probably better to use the existing address
-                              than wait or discard packet
-           NUD_DELAY        an entry waiting for a timer
-           NUD_PROBE        being reprobed, so it's probably valid
-           NUD_PERMANENT    a static entry, so use it */
-
-    while( RTA_OK( rat, ratmsglen ) ) {
-      uchar * rta_data    = RTA_DATA( rat );
-      ulong   rta_data_sz = RTA_PAYLOAD( rat );
-
-      switch( rat->rta_type ) {
-        case NDA_DST:
-          if( rta_data_sz != 4 ) {
-            /* we only support IPv4 */
-            entry->flags |= FD_NL_ARP_FLAGS_UNSUPPORTED;
-          } else {
-            uint dst_ip_addr;
-            memcpy( &dst_ip_addr, rta_data, 4 );
-            entry->dst_ip_addr = ntohl( dst_ip_addr );
-
-            entry->flags |= FD_NL_ARP_FLAGS_IP_ADDR;
-          }
-          break;
-
-        case NDA_LLADDR:
-          if( FD_UNLIKELY( rta_data_sz != 6 ) ) {
-            /* we only support ethernet, but these entries are found */
-            /* on some machines, so silently skip them */
-            entry->flags |= FD_NL_ARP_FLAGS_UNSUPPORTED;
-          } else {
-            memcpy( &entry->mac_addr[0], rta_data, 6 );
-
-            entry->flags |= FD_NL_ARP_FLAGS_MAC_ADDR;
-          }
-          break;
-
+    while(1) {
+      len = fd_nl_read_socket( fd, ibuf, sizeof(ibuf) );
+      if( len <= 0 ) {
+        return FD_IP_ERROR;
       }
 
-      if( entry->flags & FD_NL_ARP_FLAGS_UNSUPPORTED ) {
-        break;
+      if( h->nlmsg_seq == seq ) break;
+    }
+
+    /* interpret the response */
+
+    long msglen = len;
+
+    /* Iterate through all messages in buffer */
+
+    while( NLMSG_OK(h, msglen) ) {
+      /* are we still within the bounds of the table? */
+      if( arp_entry_idx >= (long)arp_table_cap ) {
+	/* we filled the table */
+	FD_LOG_ERR(( "fd_nl_load_arp_table, but table larger than reserved storage" ));
+	return FD_IP_ERROR; /* return failure */
       }
 
-      rat = RTA_NEXT( rat, ratmsglen );
+      /* current arp entry */
+      fd_nl_arp_entry_t * entry = arp_table + arp_entry_idx;
+
+      /* clear current entry */
+      fd_memset( entry, 0, sizeof( *entry ) );
+
+      if( h->nlmsg_flags & NLM_F_DUMP_INTR ) {
+	/* function was interrupted - don't switch to new routing table */
+
+	return FD_IP_RETRY; /* return transient failure */
+      }
+
+      if( h->nlmsg_type == NLMSG_ERROR ) {
+	struct nlmsgerr * err = NLMSG_DATA(h);
+
+	FD_LOG_WARNING(( "netlink returned data with error: %d %s", -err->error, strerror( -err->error) ));
+
+	/* error occurred - don't switch to new routing table */
+
+	return FD_IP_ERROR; /* return failure */
+      }
+
+      /* we're done if:
+       *        type is NLMSG_DONE
+       *    OR  nlmsg_flags does not contain NLM_F_MULTI */
+      done |= ( h->nlmsg_type == NLMSG_DONE ) | !( h->nlmsg_flags & NLM_F_MULTI );
+
+      struct ndmsg *  msg       = NLMSG_DATA( h );
+      struct rtattr * rat       = RTM_RTA(msg);
+      long            ratmsglen = (long)RTM_PAYLOAD( h );
+
+      /* store the interface */
+      entry->ifindex = (uint)msg->ndm_ifindex;
+      entry->flags  |= FD_NL_ARP_FLAGS_IFINDEX;
+
+      /* we want to skip some entries based on state
+	 here are the states:
+	 NUD_INCOMPLETE   a currently resolving cache entry
+	 NUD_REACHABLE    a confirmed working cache entry
+	 NUD_STALE        an expired cache entry
+	 NUD_DELAY        an entry waiting for a timer
+	 NUD_PROBE        a cache entry that is currently reprobed
+	 NUD_FAILED       an invalid cache entry
+	 NUD_NOARP        a device with no destination cache
+	 NUD_PERMANENT    a static entry
+
+Keeping:
+NUD_REACHABLE    valid, so use it
+NUD_STALE        probably better to use the existing address
+than wait or discard packet
+NUD_DELAY        an entry waiting for a timer
+NUD_PROBE        being reprobed, so it's probably valid
+NUD_PERMANENT    a static entry, so use it */
+
+      while( RTA_OK( rat, ratmsglen ) ) {
+	uchar * rta_data    = RTA_DATA( rat );
+	ulong   rta_data_sz = RTA_PAYLOAD( rat );
+
+	switch( rat->rta_type ) {
+	  case NDA_DST:
+	    if( rta_data_sz != 4 ) {
+	      /* we only support IPv4 */
+	      entry->flags |= FD_NL_ARP_FLAGS_UNSUPPORTED;
+	    } else {
+	      uint dst_ip_addr;
+	      memcpy( &dst_ip_addr, rta_data, 4 );
+	      entry->dst_ip_addr = ntohl( dst_ip_addr );
+
+	      entry->flags |= FD_NL_ARP_FLAGS_IP_ADDR;
+	    }
+	    break;
+
+	  case NDA_LLADDR:
+	    if( FD_UNLIKELY( rta_data_sz != 6 ) ) {
+	      /* we only support ethernet, but these entries are found */
+	      /* on some machines, so silently skip them */
+	      entry->flags |= FD_NL_ARP_FLAGS_UNSUPPORTED;
+	    } else {
+	      memcpy( &entry->mac_addr[0], rta_data, 6 );
+
+	      entry->flags |= FD_NL_ARP_FLAGS_MAC_ADDR;
+	    }
+	    break;
+
+	}
+
+	if( entry->flags & FD_NL_ARP_FLAGS_UNSUPPORTED ) {
+	  break;
+	}
+
+	rat = RTA_NEXT( rat, ratmsglen );
+      }
+
+      /* at present, each entry must have at least the following:
+	 FD_NL_ARP_FLAGS_IP_ADDR
+	 FD_NL_ARP_FLAGS_MAC_ADDR
+	 FD_NL_ARP_FLAGS_IFINDEX */
+
+      uint required_flags = FD_NL_ARP_FLAGS_IP_ADDR | FD_NL_ARP_FLAGS_MAC_ADDR | FD_NL_ARP_FLAGS_IFINDEX;
+
+      /* the FD_NL_ARP_FLAGS_UNSUPPORTED flags must not be present */
+      if(    ( entry->flags & FD_NL_ARP_FLAGS_UNSUPPORTED ) == 0
+          && ( entry->flags & required_flags )              == required_flags ) {
+	entry->flags |= FD_NL_ARP_FLAGS_USED;
+	entry->state  = msg->ndm_state;
+	arp_entry_idx++;
+      }
+
+      h = NLMSG_NEXT( h, msglen );
     }
-
-    /* at present, each entry must have at least the following:
-           FD_NL_ARP_FLAGS_IP_ADDR
-           FD_NL_ARP_FLAGS_MAC_ADDR
-           FD_NL_ARP_FLAGS_IFINDEX
-
-       the FD_NL_ARP_FLAGS_UNSUPPORTED flags must not be present */
-    if( ( entry->flags & FD_NL_ARP_FLAGS_UNSUPPORTED ) == 0 ) {
-      entry->flags |= FD_NL_ARP_FLAGS_USED;
-      entry->state  = msg->ndm_state;
-      arp_entry_idx++;
-    }
-
-    h = NLMSG_NEXT( h, msglen );
   }
 
   /* clear remaining entries */
