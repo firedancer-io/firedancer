@@ -3,7 +3,7 @@
 /* FIXME: MAKE DIFFERENT VERSIONS FOR EACH COMBO OF CHECK_ALIGN/TRACE? */
 
 int
-fd_vm_exec_notrace( fd_vm_t * vm ) {
+fd_vm_exec_private( fd_vm_t * vm ) {
 
   if( FD_UNLIKELY( !vm ) ) return FD_VM_ERR_INVAL;
 
@@ -39,84 +39,28 @@ fd_vm_exec_notrace( fd_vm_t * vm ) {
 # include "fd_vm_interp_core.c"
 
   return err;
+
+}
+
+int
+fd_vm_exec_notrace( fd_vm_t * vm ) {
+
+# undef FD_VM_INTERP_EXE_TRACING_ENABLED
+# undef FD_VM_INTERP_MEM_TRACING_ENABLED
+
+  return fd_vm_exec_private( vm );
 }
 
 int
 fd_vm_exec_trace( fd_vm_t * vm ) {
-#if 1
-  (void)vm;
-  return FD_VM_ERR_UNSUP;
-#else
-  long    entrypoint = (long)vm->entrypoint; /* FIXME: HMMM */
-  long    pc         = entrypoint;           /* FIXME: HMMM */
-  ulong   ic         = vm->instruction_counter;
-  ulong * reg        = vm->reg;
 
-  ulong const * text          = vm->text;
-  ulong         text_cnt      = vm->text_cnt;
-  long          text_word_off = (long)(vm->text_off / 8L); /* FIXME: HMMM ... MULTIPLE OF 8, SIGN HANDLING, ETC */
-  ulong const * calldests     = vm->calldests;
+# define FD_VM_INTERP_EXE_TRACING_ENABLED 1
+# define FD_VM_INTERP_MEM_TRACING_ENABLED 1
 
-  fd_sbpf_syscalls_t const * syscalls = vm->syscalls;
+  int err = fd_vm_exec_private( vm );
 
-  int cond_fault = 994; /* FIXME: HMMMM */
-  ulong compute_meter              = vm->compute_meter;
-  ulong due_insn_cnt               = vm->due_insn_cnt;
-  ulong previous_instruction_meter = vm->previous_instruction_meter;
-  ulong skipped_insns              = 0;
-  long  start_pc = pc;
+# undef FD_VM_INTERP_EXE_TRACING_ENABLED
+# undef FD_VM_INTERP_MEM_TRACING_ENABLED
 
-#define JMP_TAB_ID interp_trace
-
-  /* FIXME: IS PC LONG OR ULONG? */
-#define JMP_TAB_PRE_CASE_CODE                                                                      \
-  fd_vm_trace_event_exe( vm->trace, (ulong)pc, ic, previous_instruction_meter - due_insn_cnt, reg, \
-                         vm->text + pc, vm->text_cnt - (ulong)pc );
-
-#define JMP_TAB_POST_CASE_CODE
-
-#include "fd_jump_tab.c"
-
-  ulong heap_cus_consumed = fd_ulong_sat_mul( fd_ulong_sat_sub( vm->heap_max/(32*1024), 1 ), FD_VM_HEAP_COST );
-  cond_fault = fd_vm_consume_compute( vm, heap_cus_consumed );
-  compute_meter = vm->compute_meter;
-  if( FD_UNLIKELY( cond_fault ) ) goto JT_RET_LOC;
-
-  fd_sbpf_instr_t instr;
-
-  static const void * locs[222] = {
-#include "fd_vm_interp_locs.c"
-  };
-
-  instr = fd_sbpf_instr( vm->text[pc] );
-
-  goto *(locs[instr.opcode.raw]);
-
-interp_fault:
-  compute_meter              = 0;
-  due_insn_cnt               = 0;
-  previous_instruction_meter = 0;
-  cond_fault                 = FD_VM_ERR_MEM_TRANS; /* FIXME: HMMM */
-  goto JT_RET_LOC;
-
-JT_START;
-#include "fd_vm_interp_dispatch_tab.c"
-JT_END;
-  vm->compute_meter = compute_meter;
-  vm->due_insn_cnt = due_insn_cnt;
-  vm->previous_instruction_meter = previous_instruction_meter;
-
-  vm->compute_meter = fd_ulong_sat_sub(vm->compute_meter, vm->due_insn_cnt);
-  vm->due_insn_cnt = 0;
-  vm->previous_instruction_meter = vm->compute_meter;
-  vm->program_counter = (ulong) pc;
-  vm->instruction_counter = ic;
-  vm->cond_fault = cond_fault;
-
-#include "fd_jump_tab_teardown.c"
-#undef JMP_TAB_ID
-
-  // FIXME: Actual errors!
-  return 0;
-#endif
+  return err;
 }
