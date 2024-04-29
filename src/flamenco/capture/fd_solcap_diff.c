@@ -811,10 +811,8 @@ fd_solcap_transaction_solana_diff( fd_solcap_Transaction * transaction,
   }
 
   /* Only print a diff if cus or transaction result is different */
-  /* FIXME: replace with this once CU issue is fixed */
-  // if ( !!(meta.fd_txn_err) != !!(meta.solana_txn_err) ||
-  //       meta.fd_cus_used != meta.solana_cus_used ) {
-  if ( !!(transaction->fd_txn_err) != !!(transaction->solana_txn_err) ) {
+  if( !!( transaction->fd_txn_err ) != !!( transaction->solana_txn_err ) ||
+       transaction->fd_cus_used != transaction->solana_cus_used ) {
     printf(
       "slot:                    %lu\n"
       "txn_sig:                '%64J'\n"
@@ -871,7 +869,7 @@ static void
 fd_solcap_txn_differ_advance( fd_solcap_txn_differ_t * txn_differ ) {
   while ( !fd_solcap_chunk_iter_done( &txn_differ->iter[0] ) &&
           !fd_solcap_chunk_iter_done( &txn_differ->iter[1] ) ) {
-    /* Diff transactions against both solana result (rocksdb) and against each other  */
+    /* Diff transactions against both solana result (rocksdb) and against each other */
     fd_solcap_transaction_fd_diff( txn_differ );
     fd_solcap_transaction_solana_diff( &txn_differ->transaction[0], 0, ULONG_MAX );
     txn_differ->chunk_gaddr[0] = fd_solcap_chunk_iter_find( &txn_differ->iter[0], FD_SOLCAP_V1_TRXN_MAGIC );
@@ -896,30 +894,26 @@ static void fd_solcap_txn_differ_sync( fd_solcap_txn_differ_t * txn_differ ) {
   fd_solcap_get_transaction_from_iter( txn_differ, 0 );
   fd_solcap_get_transaction_from_iter( txn_differ, 1 );
 
-  for (;;) {
+  for(;;) {
     /* If one is done but not the other, iterate through the rest of the
        transactions in order to generate a diff against solana's transactions */
-    if ( fd_solcap_chunk_iter_done( &txn_differ->iter[0] ) ) {
+    if( fd_solcap_chunk_iter_done( &txn_differ->iter[0] ) ) {
       fd_solcap_transaction_iter( txn_differ, 1 );
       break;
-    }
-    else if ( fd_solcap_chunk_iter_done( &txn_differ->iter[1] ) ) {
+    } else if( fd_solcap_chunk_iter_done( &txn_differ->iter[1] ) ) {
       fd_solcap_transaction_iter( txn_differ, 0 );
       break;
     }
 
-    /* Otherwise, try to sync up the two files, printing any solana diffs
-       along the way */
-    if ( txn_differ->transaction[0].slot == txn_differ->transaction[1].slot ) {
+    /* Otherwise, try to sync up the two files, printing any solana diffs along the way */
+    if( txn_differ->transaction[0].slot == txn_differ->transaction[1].slot ) {
       fd_solcap_txn_differ_advance( txn_differ );
-    }
-    else if ( txn_differ->transaction[0].slot < txn_differ->transaction[1].slot ) {
+    } else if( txn_differ->transaction[0].slot < txn_differ->transaction[1].slot ) {
       /* Advance index 0 only */
       fd_solcap_transaction_solana_diff( &txn_differ->transaction[0], 0, ULONG_MAX );
       txn_differ->chunk_gaddr[0] = fd_solcap_chunk_iter_find( &txn_differ->iter[0], FD_SOLCAP_V1_TRXN_MAGIC );
       fd_solcap_get_transaction_from_iter( txn_differ, 0 );
-    }
-    else if ( txn_differ->transaction[1].slot < txn_differ->transaction[0].slot ) {
+    } else if( txn_differ->transaction[1].slot < txn_differ->transaction[0].slot ) {
       /* Advance index 1 only */
       fd_solcap_transaction_solana_diff( &txn_differ->transaction[1], 0, ULONG_MAX );
       txn_differ->chunk_gaddr[1] = fd_solcap_chunk_iter_find( &txn_differ->iter[1], FD_SOLCAP_V1_TRXN_MAGIC );
@@ -968,6 +962,63 @@ static void fd_solcap_transaction_diff( FILE * file_zero, FILE * file_one ) {
 
   /* Iterate and diff throught the transactions */
   fd_solcap_txn_differ_sync( &txn_differ );
+}
+
+void
+fd_solcap_one_file_transaction_diff( FILE * file, ulong start_slot, ulong end_slot ) {
+  /* Open and read the header */
+  fd_solcap_fhdr_t fhdr[1];
+  ulong n = fread( fhdr, sizeof(fd_solcap_fhdr_t), 1UL, file );
+  if( FD_UNLIKELY( n!=1UL ) ) {
+    FD_LOG_ERR(( "fread file header failed (%d-%s)", errno, strerror( errno ) ));
+  }
+
+  /* Seek to the first chunk */
+  int err = fseek( file, (long)fhdr->chunk0_foff - (long)sizeof(fd_solcap_fhdr_t), SEEK_CUR );
+  if( FD_UNLIKELY( err<0L ) ) {
+    FD_LOG_ERR(( "fseek chunk0 failed (%d-%s)", errno, strerror( errno ) ));
+  }
+
+  /* Iterate through the chunks diffing the trnasactions */
+  fd_solcap_chunk_iter_t iter[1];
+  fd_solcap_chunk_iter_new( iter, file );
+  while( !fd_solcap_chunk_iter_done( iter ) ) {
+    long chunk_gaddr = fd_solcap_chunk_iter_find( iter, FD_SOLCAP_V1_TRXN_MAGIC );
+    if( FD_UNLIKELY( chunk_gaddr<0L ) ) {
+      int err = fd_solcap_chunk_iter_err( iter );
+      if( err==0 ) break;
+      FD_LOG_ERR(( "fd_solcap_chunk_iter_next() failed (%d-%s)", err, strerror( err ) ));
+    }
+
+    fd_solcap_chunk_t const * chunk = fd_solcap_chunk_iter_item( iter );
+    if( FD_UNLIKELY( !chunk ) ) FD_LOG_ERR(( "fd_solcap_chunk_item() failed" ));
+
+    /* Read transaction meta */
+
+    uchar meta_buf[ 128UL ];
+    if( FD_UNLIKELY( 0!=fseek( file, chunk_gaddr + (long)chunk->meta_coff, SEEK_SET ) ) ) {
+      FD_LOG_ERR(( "fseek transaction meta failed (%d-%s)", errno, strerror( errno ) ));
+    }
+    if( FD_UNLIKELY( chunk->meta_sz != fread( meta_buf, 1UL, chunk->meta_sz, file ) ) ) {
+      FD_LOG_ERR(( "fread transaction meta failed (%d-%s)", errno, strerror( errno ) ));
+    }
+
+    /* Deserialize transaction meta */
+
+    pb_istream_t stream = pb_istream_from_buffer( meta_buf, chunk->meta_sz );
+
+    fd_solcap_Transaction meta;
+    if( FD_UNLIKELY( !pb_decode( &stream, fd_solcap_Transaction_fields, &meta ) ) ) {
+      FD_LOG_HEXDUMP_DEBUG(( "transaction meta", meta_buf, chunk->meta_sz ));
+      FD_LOG_ERR(( "pb_decode transaction meta failed (%s)", PB_GET_ERROR(&stream) ));
+    }
+
+    if( meta.slot < start_slot || meta.slot > end_slot ) {
+      continue;
+    }
+
+    fd_solcap_transaction_solana_diff( &meta, start_slot, end_slot );
+  }
 }
 
 static void
@@ -1022,7 +1073,11 @@ main( int     argc,
     if( caps_found>=2 ) { usage(); return 1; }
     cap_path[ caps_found++ ] = argv[i];
   }
-  if( caps_found!=2 ) {
+
+  if( caps_found==1 ) { /* Support one file being passed in to see transaction diff */
+    cap_path[ caps_found++ ] = cap_path[ 0 ];
+  }
+  else if( caps_found!=2 ) {
     fprintf( stderr, "ERROR: expected 2 arguments, got %d\n", argc-1 );
     usage();
     return 1;
@@ -1048,7 +1103,7 @@ main( int     argc,
 
   FILE * cap_file[2] = {0};
   cap_file[0] = fopen( cap_path[0], "rb" );
-  cap_file[1] = fopen( cap_path[1], "rb" );
+  cap_file[1] = strcmp( cap_path[0], cap_path[1] ) ? fopen( cap_path[1], "rb" ) : cap_file[0];
 
   if ( FD_UNLIKELY( !cap_file[0] ) )
     FD_LOG_ERR(( "fopen failed (%d-%s) on file=%s", errno, strerror( errno ), cap_path[0] ));
@@ -1062,6 +1117,21 @@ main( int     argc,
   int dump_dir_fd = open( dump_dir, O_DIRECTORY );
   if( FD_UNLIKELY( dump_dir_fd<0 ) )
     FD_LOG_ERR(( "open(%s) failed (%d-%s)", dump_dir, errno, strerror( errno ) ));
+
+  /* Handle the one file case before diffing for accounts/hashes */
+  if( cap_file[0] == cap_file[1] ) {
+    FD_LOG_NOTICE(( "Only one file was passed in. Will only print transaction diffs." ));
+    fd_solcap_one_file_transaction_diff( cap_file[0], start_slot, end_slot );
+
+    /* Cleanup*/
+    close( dump_dir_fd );
+    fclose( cap_file[0] );
+    FD_TEST( fd_scratch_frame_used()==0UL );
+    fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
+    fd_flamenco_halt();
+    fd_halt();
+    return 0;
+  }
 
   /* Create differ */
 
