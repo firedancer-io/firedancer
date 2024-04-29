@@ -186,12 +186,14 @@
   goto interp_exec; /* Silly but to avoid unused label warning in some configurations */
 interp_exec:
 
+# ifdef FD_VM_INTERP_EXE_TRACING_ENABLED 
   /* Note: when tracing or optimizing for code footprint, all
      instruction execution starts here such that this is only point
      where exe tracing diagnostics are needed. */
 
-  /* FIXME: exe tracing diagnostics go here */
-
+  fd_vm_trace_event_exe( vm->trace, pc, ic, pc - pc0 + 1UL - ic_correction, reg, vm->text + pc, vm->text_cnt - pc );
+# endif
+  
   FD_VM_INTERP_INSTR_EXEC;
 
   /* 0x00 - 0x0f ******************************************************/
@@ -367,7 +369,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
   FD_VM_INTERP_INSTR_BEGIN(0x61) { /* FD_SBPF_OP_LDXW */
     ulong vaddr   = reg_src + (ulong)(long)offset;
-    ulong haddr   = fd_vm_mem_haddr( vaddr, sizeof(uint), region_haddr, region_ld_sz, 0UL );
+    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_ld_sz, 0, 0UL );
     int   sigsegv = !haddr;
     int   sigbus  = check_align & !fd_ulong_is_aligned( vaddr, sizeof(uint) );
     if( FD_UNLIKELY( sigsegv | sigbus ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
@@ -377,7 +379,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
   FD_VM_INTERP_INSTR_BEGIN(0x62) { /* FD_SBPF_OP_STW */
     ulong vaddr   = reg_dst + (ulong)(long)offset;
-    ulong haddr   = fd_vm_mem_haddr( vaddr, sizeof(uint), region_haddr, region_st_sz, 0UL );
+    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL );
     int   sigsegv = !haddr;
     int   sigbus  = check_align & !fd_ulong_is_aligned( vaddr, sizeof(uint) );
     if( FD_UNLIKELY( sigsegv | sigbus ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
@@ -387,7 +389,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
   FD_VM_INTERP_INSTR_BEGIN(0x63) { /* FD_SBPF_OP_STXW */
     ulong vaddr   = reg_dst + (ulong)(long)offset;
-    ulong haddr   = fd_vm_mem_haddr( vaddr, sizeof(uint), region_haddr, region_st_sz, 0UL );
+    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL );
     int   sigsegv = !haddr;
     int   sigbus  = check_align & !fd_ulong_is_aligned( vaddr, sizeof(uint) );
     if( FD_UNLIKELY( sigsegv | sigbus ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus/rdonly */
@@ -409,7 +411,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
   FD_VM_INTERP_INSTR_BEGIN(0x69) { /* FD_SBPF_OP_LDXH */
     ulong vaddr   = reg_src + (ulong)(long)offset;
-    ulong haddr   = fd_vm_mem_haddr( vaddr, sizeof(ushort), region_haddr, region_ld_sz, 0UL );
+    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_ld_sz, 1, 0UL );
     int   sigsegv = !haddr;
     int   sigbus  = check_align & !fd_ulong_is_aligned( vaddr, sizeof(ushort) );
     if( FD_UNLIKELY( sigsegv | sigbus ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
@@ -419,7 +421,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
   FD_VM_INTERP_INSTR_BEGIN(0x6a) { /* FD_SBPF_OP_STH */
     ulong vaddr   = reg_dst + (ulong)(long)offset;
-    ulong haddr   = fd_vm_mem_haddr( vaddr, sizeof(ushort), region_haddr, region_st_sz, 0UL );
+    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL );
     int   sigsegv = !haddr;
     int   sigbus  = check_align & !fd_ulong_is_aligned( vaddr, sizeof(ushort) );
     if( FD_UNLIKELY( sigsegv | sigbus ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
@@ -429,7 +431,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
   FD_VM_INTERP_INSTR_BEGIN(0x6b) { /* FD_SBPF_OP_STXH */
     ulong vaddr   = reg_dst + (ulong)(long)offset;
-    ulong haddr   = fd_vm_mem_haddr( vaddr, sizeof(ushort), region_haddr, region_st_sz, 0UL );
+    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL );
     int   sigsegv = !haddr;
     int   sigbus  = check_align & !fd_ulong_is_aligned( vaddr, sizeof(ushort) );
     if( FD_UNLIKELY( sigsegv | sigbus ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus/rdonly */
@@ -453,7 +455,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
   FD_VM_INTERP_INSTR_BEGIN(0x71) { /* FD_SBPF_OP_LDXB */
     ulong vaddr = reg_src + (ulong)(long)offset;
-    ulong haddr = fd_vm_mem_haddr( vaddr, sizeof(uchar), region_haddr, region_ld_sz, 0UL );
+    ulong haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_ld_sz, 0, 0UL );
     if( FD_UNLIKELY( !haddr ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */
     reg[ dst ] = fd_vm_mem_ld_1( haddr );
   }
@@ -461,7 +463,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
   FD_VM_INTERP_INSTR_BEGIN(0x72) { /* FD_SBPF_OP_STB */
     ulong vaddr = reg_dst + (ulong)(long)offset;
-    ulong haddr = fd_vm_mem_haddr( vaddr, sizeof(uchar), region_haddr, region_st_sz, 0UL );
+    ulong haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL );
     if( FD_UNLIKELY( !haddr ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */
     fd_vm_mem_st_1( haddr, (uchar)imm );
   }
@@ -469,7 +471,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
   FD_VM_INTERP_INSTR_BEGIN(0x73) { /* FD_SBPF_OP_STXB */
     ulong vaddr = reg_dst + (ulong)(long)offset;
-    ulong haddr = fd_vm_mem_haddr( vaddr, sizeof(uchar), region_haddr, region_st_sz, 0UL );
+    ulong haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL );
     if( FD_UNLIKELY( !haddr ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigrdonly */
     fd_vm_mem_st_1( haddr, (uchar)reg_src );
   }
@@ -489,7 +491,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
   FD_VM_INTERP_INSTR_BEGIN(0x79) { /* FD_SBPF_OP_LDXQ */
     ulong vaddr   = reg_src + (ulong)(long)offset;
-    ulong haddr   = fd_vm_mem_haddr( vaddr, sizeof(ulong), region_haddr, region_ld_sz, 0UL );
+    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_ld_sz, 0, 0UL );
     int   sigsegv = !haddr;
     int   sigbus  = check_align & !fd_ulong_is_aligned( vaddr, sizeof(ulong) );
     if( FD_UNLIKELY( sigsegv | sigbus ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
@@ -499,7 +501,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
   FD_VM_INTERP_INSTR_BEGIN(0x7a) { /* FD_SBPF_OP_STQ */
     ulong vaddr   = reg_dst + (ulong)(long)offset;
-    ulong haddr   = fd_vm_mem_haddr( vaddr, sizeof(ulong), region_haddr, region_st_sz, 0UL );
+    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL );
     int   sigsegv = !haddr;
     int   sigbus  = check_align & !fd_ulong_is_aligned( vaddr, sizeof(ulong) );
     if( FD_UNLIKELY( sigsegv | sigbus ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
@@ -509,7 +511,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
   FD_VM_INTERP_INSTR_BEGIN(0x7b) { /* FD_SBPF_OP_STXQ */
     ulong vaddr   = reg_dst + (ulong)(long)offset;
-    ulong haddr   = fd_vm_mem_haddr( vaddr, sizeof(ulong), region_haddr, region_st_sz, 0UL );
+    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL );
     int   sigsegv = !haddr;
     int   sigbus  = check_align & !fd_ulong_is_aligned( vaddr, sizeof(ulong) );
     if( FD_UNLIKELY( sigsegv | sigbus ) ) goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus/rdonly */
