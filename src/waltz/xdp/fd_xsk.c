@@ -698,7 +698,8 @@ fd_xsk_rx_enqueue( fd_xsk_t * xsk,
      syscalls, and the performance would be even better.  Sadly, this
      is not possible. */
   if( FD_UNLIKELY( fd_xsk_rx_need_wakeup( xsk ) ) ) {
-    if( FD_UNLIKELY( -1==recvmsg( xsk->xsk_fd, NULL, MSG_DONTWAIT ) ) ) {
+    struct msghdr _ignored[ 1 ] = { 0 };
+    if( FD_UNLIKELY( -1==recvmsg( xsk->xsk_fd, _ignored, MSG_DONTWAIT ) ) ) {
       if( FD_UNLIKELY( errno!=EAGAIN ) ) {
         FD_LOG_WARNING(( "xsk recvmsg failed xsk_fd=%d (%i-%s)", xsk->xsk_fd, errno, fd_io_strerror( errno ) ));
       }
@@ -755,7 +756,8 @@ fd_xsk_rx_enqueue2( fd_xsk_t *            xsk,
 
   /* See the corresponding comments in fd_xsk_rx_enqueue */
   if( FD_UNLIKELY( fd_xsk_rx_need_wakeup( xsk ) ) ) {
-    if( FD_UNLIKELY( -1==recvmsg( xsk->xsk_fd, NULL, MSG_DONTWAIT ) ) ) {
+    struct msghdr _ignored[ 1 ] = { 0 };
+    if( FD_UNLIKELY( -1==recvmsg( xsk->xsk_fd, _ignored, MSG_DONTWAIT ) ) ) {
       if( FD_UNLIKELY( errno!=EAGAIN ) ) {
         FD_LOG_WARNING(( "xsk recvmsg failed xsk_fd=%d (%i-%s)", xsk->xsk_fd, errno, fd_io_strerror( errno ) ));
       }
