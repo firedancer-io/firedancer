@@ -189,7 +189,7 @@ topo_configure_firedancer( config_t * _config ) {
 
   FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",     i,                         "net_repair",    i                                                   );
   FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "repair",   0UL,         "metric_in", "net_repair",    i,             FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-                       fd_topob_tile_in(  topo, "repair",  0UL,            "metric_in", "gossip_repai", 0UL,        FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in(  topo, "repair",  0UL,            "metric_in", "gossip_repai", 0UL,        FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "repair",  0UL,             "metric_in", "stake_out",    0UL,          FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "store_repair",  0UL,            FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED );
   
