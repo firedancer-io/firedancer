@@ -418,16 +418,23 @@ main( int     argc,
     fd_memset( &state, 0, sizeof(state) );
 
     fd_tvu_gossip_deliver_arg_t gossip_deliver_arg[1];
-    fd_tvu_main_setup( &state, NULL, NULL, NULL, 0, wksp, &args, gossip_deliver_arg );
+    fd_replay_t * replay = NULL;
+    fd_tvu_main_setup( &state, &replay, NULL, NULL, 0, wksp, &args, gossip_deliver_arg );
 
     args.tcnt = fd_tile_cnt();
+    uchar * tpool_scr_mem = NULL;
     if( args.tcnt > 1 ) {
       tpool = fd_tpool_init( state.tpool_mem, args.tcnt );
       if( tpool == NULL ) {
         FD_LOG_ERR(( "failed to create thread pool" ));
       }
+      ulong scratch_sz = fd_scratch_smem_footprint( 256UL<<20UL );
+      tpool_scr_mem = fd_valloc_malloc( replay->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(args.tcnt - 1U) );
+      if( tpool_scr_mem == NULL ) {
+        FD_LOG_ERR( ( "failed to allocate thread pool scratch space" ) );
+      }
       for( ulong i = 1; i < args.tcnt; ++i ) {
-        if( fd_tpool_worker_push( tpool, i, NULL, fd_scratch_smem_footprint( 256UL<<20UL ) ) == NULL ) {
+        if( fd_tpool_worker_push( tpool, i, tpool_scr_mem + scratch_sz*(i - 1U), scratch_sz ) == NULL ) {
           FD_LOG_ERR(( "failed to launch worker" ));
         }
         else {

@@ -158,7 +158,11 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
   }
 
   ctx->compute_meter =  ctx->compute_unit_limit;
-  ctx->compute_meter = fd_ulong_sat_sub( ctx->compute_meter, (ctx->txn_descriptor->instr_cnt - num_non_compute_budget_instrs) * DEFAULT_COMPUTE_UNITS);
 
   return 0;
+}
+
+
+int fd_compute_budget_program_execute( fd_exec_instr_ctx_t ctx ) {
+  return fd_exec_consume_cus( ctx.txn_ctx, 150UL );
 }

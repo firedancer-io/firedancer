@@ -129,6 +129,12 @@ fd_fec_resolver_t * fd_fec_resolver_join( void * shmem );
 #define FD_FEC_RESOLVER_SHRED_OKAY      ( 0)
 #define FD_FEC_RESOLVER_SHRED_COMPLETES ( 1)
 
+/* Return values + RETVAL_OFF are in [0, RETVAL_CNT) */
+#define FD_FEC_RESOLVER_ADD_SHRED_RETVAL_CNT 4
+#define FD_FEC_RESOLVER_ADD_SHRED_RETVAL_OFF 2
+
+
+
 /* fd_fec_resolver_add_shred notifies the FEC resolver of a newly
    received shred.  The FEC resolver validates the shred and copies it
    into its own storage.  resolver is a local join of an FEC resolver.

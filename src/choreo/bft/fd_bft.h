@@ -8,6 +8,7 @@
 #include "../fd_choreo_base.h"
 #include "../forks/fd_forks.h"
 #include "../ghost/fd_ghost.h"
+#include "../tower/fd_tower.h"
 
 /* FD_BFT_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
@@ -22,8 +23,9 @@
 /* fd_bft implements Solana's Proof-of-Stake consensus protocol. */
 
 struct fd_bft {
-  ulong snapshot_slot;
-  ulong epoch_stake; /* total amount of stake in the current epoch */
+  ulong      snapshot_slot;
+  ulong      epoch_stake; /* total amount of stake in the current epoch */
+  fd_tower_t tower;       /* our local vote tower */
 
   /* external joins */
 
@@ -90,5 +92,8 @@ fd_bft_fork_choice( fd_bft_t * bft );
 
 void
 fd_bft_epoch_stake_update( fd_bft_t * bft, fd_exec_epoch_ctx_t * epoch_ctx );
+
+void
+fd_bft_tower_threshold_check( fd_bft_t * bft );
 
 #endif /* HEADER_fd_src_choreo_bft_fd_bft_h */

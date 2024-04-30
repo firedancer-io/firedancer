@@ -69,11 +69,12 @@ init( config_t * const config ) {
      So for now we need to also bind to loopback. This is a
      small performance hit for other traffic, but we only
      redirect packets destined for our target IP and port so
-     it will not otherwise interfere. */
+     it will not otherwise interfere. Loopback only supports
+     XDP in SKB mode. */
   if( FD_LIKELY( strcmp( config->tiles.net.interface, "lo" ) ) ) {
     if( FD_UNLIKELY( fd_xdp_hook_iface( config->name,
                                         "lo",
-                                        mode,
+                                        XDP_FLAGS_SKB_MODE,
                                         fd_xdp_redirect_prog,
                                         fd_xdp_redirect_prog_sz ) ) )
       FD_LOG_ERR(( "fd_xdp_hook_iface failed" ));

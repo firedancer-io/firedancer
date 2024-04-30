@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_util_sandbox_fd_sandbox_h
 #define HEADER_fd_src_util_sandbox_fd_sandbox_h
 
-#ifndef FD_HAS_FFI
 #ifdef FD_HAS_HOSTED
 
 #include "../fd_util_base.h"
@@ -170,6 +169,5 @@ ulong
 fd_sandbox_gettid( void );
 
 #endif /* FD_HAS_HOSTED */
-#endif /* FD_HAS_FFI */
 
 #endif /* HEADER_fd_src_util_sandbox_fd_sandbox_h */

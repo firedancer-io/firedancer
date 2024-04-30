@@ -36,8 +36,6 @@
 #define SORT_BEFORE(a,b) (a)<(b)
 #include "../../util/tmpl/fd_sort.c"
 
-#define FD_PROTOBUF_MSG_OUTPUT_DIR "protobuf_tests_from_executed_instr"
-
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>   /* snprintf(3) */
@@ -50,8 +48,6 @@
 
 #define MAX_COMPUTE_UNITS_PER_BLOCK                (48000000UL)
 #define MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT (12000000UL)
-
-static int nop_fn( fd_exec_instr_ctx_t ctx ) { (void)ctx; return 0; }
 
 fd_exec_instr_fn_t
 fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
@@ -75,7 +71,7 @@ fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
   } else if ( !memcmp( pubkey, fd_solana_bpf_loader_deprecated_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_bpf_loader_v1_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_compute_budget_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return nop_fn;
+    return fd_compute_budget_program_execute;
   } else if( !memcmp( pubkey, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return fd_address_lookup_table_program_execute;
   //} else if( !memcmp( pubkey, fd_solana_zk_token_proof_program_id.key, sizeof(fd_pubkey_t) ) ) {
@@ -456,9 +452,9 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t *          slot_ctx,
   return 0;
 }
 
-void 
-fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context, 
-                                                    fd_exec_txn_ctx_t *txn_ctx, 
+void
+fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context,
+                                                    fd_exec_txn_ctx_t *txn_ctx,
                                                     fd_instr_info_t *instr ) {
   /*
   NOTE: Calling this function requires the caller to have a scratch frame ready (see dump_instr_to_protobuf)
@@ -560,9 +556,9 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
   instr_context->epoch_context.features.features = sorted_features;
 }
 
-static void 
-dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, 
-                        fd_instr_info_t *instr, 
+static void
+dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx,
+                        fd_instr_info_t *instr,
                         ushort instruction_idx ) {
   FD_SCRATCH_SCOPE_BEGIN {
     // Get base58-encoded tx signature
@@ -587,12 +583,12 @@ dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx,
 
     /* Output to file */
     ulong out_buf_size = 100 * 1024 * 1024;
-    uint8_t * out = fd_scratch_alloc(alignof(uint8_t), out_buf_size); 
+    uint8_t * out = fd_scratch_alloc(alignof(uint8_t), out_buf_size);
     pb_ostream_t stream = pb_ostream_from_buffer(out, out_buf_size);
     if (pb_encode(&stream, FD_EXEC_TEST_INSTR_CONTEXT_FIELDS, &instr_context)) {
       char output_filepath[256]; fd_memset(output_filepath, 0, sizeof(output_filepath));
       char * position = fd_cstr_init(output_filepath);
-      position = fd_cstr_append_cstr(position, FD_PROTOBUF_MSG_OUTPUT_DIR);
+      position = fd_cstr_append_cstr(position, txn_ctx->capture_ctx->dump_instruction_output_dir);
       position = fd_cstr_append_cstr(position, "/instr-");
       position = fd_cstr_append_cstr(position, encoded_signature);
       position = fd_cstr_append_cstr(position, "-");
@@ -776,18 +772,9 @@ fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
   fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
 
   int err;
-  fd_nonce_state_versions_t state;
-  int is_nonce = fd_load_nonce_account(txn_ctx, &state, txn_ctx->valloc, &err);
+  int is_nonce = fd_has_nonce_account(txn_ctx, &err);
   if ((NULL == txn_descriptor) || !is_nonce) {
     if ( txn_raw == NULL ) {
-      return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
-    }
-    fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_raw->raw + txn_descriptor->recent_blockhash_off);
-
-    fd_hash_hash_age_pair_t_mapnode_t key;
-    fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
-
-    if ( fd_hash_hash_age_pair_t_map_find( slot_ctx->slot_bank.block_hash_queue.ages_pool, slot_ctx->slot_bank.block_hash_queue.ages_root, &key ) == NULL ) {
       return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
     }
   }

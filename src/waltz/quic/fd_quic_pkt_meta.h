@@ -132,7 +132,7 @@ struct fd_quic_pkt_meta_pool {
   fd_quic_pkt_meta_list_t free;    /* free pkt_meta */
 
   /* one of each of these for each enc_level */
-  fd_quic_pkt_meta_list_t sent[4]; /* sent pkt_meta */
+  fd_quic_pkt_meta_list_t sent_pkt_meta[4]; /* sent pkt_meta */
 };
 
 
@@ -154,7 +154,6 @@ fd_quic_pkt_meta_pop_front( fd_quic_pkt_meta_list_t * list );
 void
 fd_quic_pkt_meta_push_front( fd_quic_pkt_meta_list_t * list,
                              fd_quic_pkt_meta_t *      pkt_meta );
-
 
 /* push onto back of list */
 void

@@ -36,6 +36,7 @@ build/native/gcc/unit-test/test_runtime --wksp giant_wksp --cmd replay --load /d
 #include <errno.h>
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
+#include "../metrics/fd_metrics.h"
 #include "fd_tvu.h"
 
 int
@@ -44,21 +45,29 @@ main( int     argc,
   fd_boot         ( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
+  uchar * metrics = fd_alloca( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( 0, 0 ) );
+  fd_metrics_register( (ulong *)fd_metrics_new( metrics, 0UL, 0UL ) );
+
   fd_runtime_args_t *args = fd_alloca(alignof(fd_runtime_args_t), sizeof(fd_runtime_args_t));
   FD_TEST(fd_tvu_parse_args( args, argc, argv ) == 0);
 
   fd_runtime_ctx_t *state = fd_alloca(alignof(fd_runtime_ctx_t), sizeof(fd_runtime_ctx_t));
   fd_memset(state, 0, sizeof(state));
 
-  fd_tvu_main_setup( state, NULL, NULL, NULL, 0, NULL, args, NULL );
+  fd_replay_t * replay = NULL;
+  fd_tvu_main_setup( state, &replay, NULL, NULL, 0, NULL, args, NULL );
 
   if( args->tcnt == ULONG_MAX ) { args->tcnt = fd_tile_cnt(); }
   fd_tpool_t * tpool = NULL;
+  uchar * tpool_scr_mem = NULL;
   if( args->tcnt > 1 ) {
     tpool = fd_tpool_init( state->tpool_mem, args->tcnt );
     if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
+    ulong scratch_sz = fd_scratch_smem_footprint( 256UL<<20UL );
+    tpool_scr_mem = fd_valloc_malloc( replay->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(args->tcnt - 1U) );
+    if( tpool_scr_mem == NULL ) FD_LOG_ERR( ( "failed to allocate thread pool scratch space" ) );
     for( ulong i = 1; i < args->tcnt; ++i ) {
-      if( fd_tpool_worker_push( tpool, i, NULL, fd_scratch_smem_footprint( 256UL<<20UL ) ) == NULL )
+      if( fd_tpool_worker_push( tpool, i, tpool_scr_mem + scratch_sz*(i - 1U), scratch_sz ) == NULL )
         FD_LOG_ERR( ( "failed to launch worker" ) );
     }
   }
@@ -124,6 +133,7 @@ main( int     argc,
   }
 
   // DO NOT REMOVE
+  if( tpool_scr_mem ) fd_valloc_free( replay->valloc, tpool_scr_mem );
   fd_tvu_main_teardown(state, NULL);
 
   FD_LOG_NOTICE(( "pass" ));

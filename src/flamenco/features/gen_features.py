@@ -71,9 +71,10 @@ fd_feature_id_t const ids[] = {{""",
     )
     for x in fm:
         print(
-            f"""  {{ .index  = offsetof(fd_features_t, {x["name"]})>>3,
-    .id     = {{{pubkey_to_c_array(x["pubkey"])}}}
-              /* {x["pubkey"]} */""",
+            f'''  {{ .index  = offsetof(fd_features_t, {x["name"]})>>3,
+    .id     = {{{pubkey_to_c_array(x["pubkey"])}}},
+              /* {x["pubkey"]} */
+    .name   = "{x["name"]}"''',
             file=body,
             end="",
         )

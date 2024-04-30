@@ -54,11 +54,15 @@
       "name": "epoch_rewards",
       "type": "struct",
       "fields": [
+        { "name": "distribution_starting_block_height", "type": "ulong"},
+        { "name": "num_partitions", "type": "ulong" },
+        { "name": "parent_blockhash", "type": "hash" },
+        { "name": "total_points", "type": "uint128" },
         { "name": "total_rewards", "type": "ulong" },
         { "name": "distributed_rewards", "type": "ulong" },
-        { "name": "distribution_complete_block_height", "type": "ulong" }
+        { "name": "active", "type": "bool" }
       ],
-      "comment": "https://github.com/solana-labs/solana/blob/98e19af5eb2585cfc3c07e123bdb96f18e92bc93/sdk/program/src/epoch_rewards.rs#L11-L20"
+      "comment": "https://github.com/anza-xyz/agave/blob/7fcd8c03fd71418fe49459c8460ab3986a8b608a/sdk/program/src/epoch_rewards.rs#L12"
     },
     {
       "name": "hash_age",
@@ -823,6 +827,28 @@
       "comment": "https://github.com/solana-labs/solana/blob/252438e28fbfb2c695fe1215171b83456e4b761c/programs/vote/src/vote_instruction.rs#L143"
     },
     {
+      "name": "tower_sync",
+      "type": "struct",
+      "fields": [
+        { "name": "lockouts", "type": "array", "element": "vote_lockout", "length": 32 },
+        { "name": "lockouts_cnt", "type": "ulong" },
+        { "name": "root", "type": "option", "element": "ulong", "flat": true },
+        { "name": "hash", "type": "hash" },
+        { "name": "timestamp", "type": "option", "element": "ulong", "flat": true },
+        { "name": "block_id", "type": "hash" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185"
+    },
+    {
+      "name": "tower_sync_switch",
+      "type": "struct",
+      "fields": [
+        { "name": "tower_sync", "type": "tower_sync" },
+        { "name": "hash", "type": "hash" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L104"
+    },
+    {
       "name": "slot_history_inner",
       "type": "struct",
       "fields": [
@@ -1142,7 +1168,9 @@
         { "name": "authorize_with_seed", "type": "vote_authorize_with_seed_args" },
         { "name": "authorize_checked_with_seed", "type": "vote_authorize_checked_with_seed_args" },
         { "name": "compact_update_vote_state", "type": "compact_vote_state_update"},
-        { "name": "compact_update_vote_state_switch", "type": "compact_vote_state_update_switch"}
+        { "name": "compact_update_vote_state_switch", "type": "compact_vote_state_update_switch"},
+        { "name": "tower_sync", "type": "tower_sync"},
+        { "name": "tower_sync_switch", "type": "tower_sync_switch"}
       ],
       "comment": "https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/programs/vote/src/vote_instruction.rs#L21"
     },

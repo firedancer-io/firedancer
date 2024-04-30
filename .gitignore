@@ -10,8 +10,10 @@ target/
 *.lcov
 *.profraw
 
-# Clang
+# Clangd
+.cache
 .clangd
+compile_commands.json
 
 # Rust
 **/Cargo.lock
@@ -29,6 +31,9 @@ deps-bundle.tar.zst
 # Vim
 *.swp
 *.swo
+
+# VSCode
+.vscode
 
 # Packet Captures
 *.pcap

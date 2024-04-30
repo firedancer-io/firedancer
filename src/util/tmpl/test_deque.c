@@ -36,6 +36,21 @@ buf_pop_tail( void ) {
   return buf[ buf_end ];
 }
 
+static int
+buf_pop_idx( ulong idx ) {
+  FD_TEST( buf_cnt );
+  buf_cnt--; buf_end--; if( buf_end>=TEST_DEQUE_MAX ) buf_end = TEST_DEQUE_MAX-1UL;
+  int val = buf[ (buf_start+idx) % TEST_DEQUE_MAX ];
+  ulong gap = idx;
+  while( gap<=buf_cnt ) {
+    ulong i = (buf_start+gap  )%TEST_DEQUE_MAX;
+    ulong j = (buf_start+gap+1)%TEST_DEQUE_MAX;
+    buf[i] = buf[j];
+    gap++;
+  }
+  return val;
+}
+
 #define DEQUE_NAME test_deque
 #define DEQUE_T    int
 #define DEQUE_MAX  TEST_DEQUE_MAX
@@ -156,12 +171,12 @@ main( int     argc,
       val = buf_pop_head(); FD_TEST( *test_deque_pop_head_nocopy( deque )==val );
       break;
 
-    case 12: /* pop tail nocopy */
+    case 11: /* pop tail nocopy */
       if( FD_UNLIKELY( !buf_cnt ) ) break; /* skip when empty */
       val = buf_pop_tail(); FD_TEST( *test_deque_pop_tail_nocopy( deque )==val );
       break;
 
-    case 13: {
+    case 12: { /* iter */
       ulong i = buf_start;
       for( test_deque_iter_t iter = test_deque_iter_init( deque ); !test_deque_iter_done( deque, iter ); iter = test_deque_iter_next( deque, iter ) ) {
         int * ele = test_deque_iter_ele( deque, iter );
@@ -172,7 +187,34 @@ main( int     argc,
       FD_TEST( i == buf_end );
       break;
     }
-      
+
+    case 13: { /* iter reverse */
+      long i = (long)buf_end - 1L;
+      long j = (long)buf_cnt - 1L;
+      for( test_deque_iter_t iter = test_deque_iter_init_rev( deque ); !test_deque_iter_done_rev( deque, iter ); iter = test_deque_iter_prev( deque, iter ) ) {
+        if( i < 0L )
+          i = (long)TEST_DEQUE_MAX - 1L;
+        int * ele = test_deque_iter_ele( deque, iter );
+        FD_TEST( j>=0L );
+        FD_TEST( buf[i] == *ele );
+        FD_TEST( test_deque_peek_index( deque, (ulong)j ) == test_deque_peek_index_const( deque, (ulong)j ) );
+        FD_TEST( *test_deque_peek_index_const( deque, (ulong)j ) == *ele );
+        i--;
+        j--;
+      }
+      FD_TEST( i == (long)buf_start-1L );
+      FD_TEST( j == -1L );
+      break;
+    }
+
+    case 15: { /* pop index (shift tail to head) */
+      if( FD_UNLIKELY( !buf_cnt ) ) break; /* skip when empty */
+      ulong idx = fd_rng_uint_roll( rng, (uint)buf_cnt );
+      val = buf_pop_idx( idx );
+      FD_TEST( test_deque_pop_idx_tail( deque, idx )==val );
+      break;
+    }
+
     default: /* never get here */
       break;
     }

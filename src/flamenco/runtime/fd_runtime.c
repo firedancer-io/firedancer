@@ -727,8 +727,7 @@ fd_runtime_prepare_txns_phase2( fd_exec_slot_ctx_t * slot_ctx,
     fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
 
     int err;
-    fd_nonce_state_versions_t state;
-    int is_nonce = fd_load_nonce_account(txn_ctx, &state, txn_ctx->valloc, &err);
+    int is_nonce = fd_has_nonce_account(txn_ctx, &err);
     if ((NULL == txn_ctx->txn_descriptor) || !is_nonce) {
       if ( txn_ctx->_txn_raw->raw == NULL ) {
         return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
@@ -819,8 +818,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
 
       int err;
-      fd_nonce_state_versions_t state;
-      int is_nonce = fd_load_nonce_account(txn_ctx, &state, txn_ctx->valloc, &err);
+      int is_nonce = fd_has_nonce_account(txn_ctx, &err);
       if ((NULL == txn_ctx->txn_descriptor) || !is_nonce) {
         if ( txn_ctx->_txn_raw->raw == NULL ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
@@ -831,7 +829,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
         fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
 
         if ( fd_hash_hash_age_pair_t_map_find( slot_ctx->slot_bank.block_hash_queue.ages_pool, slot_ctx->slot_bank.block_hash_queue.ages_root, &key ) == NULL ) {
-          return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+          return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;      
         }
       }
 
@@ -2178,6 +2176,26 @@ fd_runtime_block_verify(fd_block_info_t const *block_info,
 //   child_slot_ctx->slot_bank.max_tick_height = (slot + 1) * slot_ctx->epoch_ctx->epoch_bank->ticks_per_slot;
 // }
 
+void 
+fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
+                    fd_exec_slot_ctx_t * slot_ctx,
+                    ulong slot ) {
+  if ( capture_ctx->checkpt_slot != slot && slot % capture_ctx->checkpt_freq != 0 ) {
+    return;
+  }
+  FD_LOG_NOTICE(("checkpointing at slot=%lu", slot));
+
+  fd_funk_end_write( slot_ctx->acc_mgr->funk );
+
+  unlink( capture_ctx->checkpt_path );
+  int err = fd_wksp_checkpt( fd_funk_wksp( slot_ctx->acc_mgr->funk ), capture_ctx->checkpt_path, 0666, 0, NULL );
+  if ( err ) {
+    FD_LOG_ERR(("backup failed: error %d", err));
+  }
+
+  fd_funk_start_write( slot_ctx->acc_mgr->funk );
+}
+
 int
 fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
                                 fd_capture_ctx_t *capture_ctx,
@@ -2212,12 +2230,8 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
         }
       }
 
-      if (capture_ctx != NULL && txn->xid.ul[0] == capture_ctx->checkpt_slot) {
-        FD_LOG_NOTICE(("checkpointing at slot=%lu", capture_ctx->checkpt_slot));
-        unlink(capture_ctx->checkpt_path);
-        int err = fd_wksp_checkpt(fd_funk_wksp(funk), capture_ctx->checkpt_path, 0666, 0, NULL);
-        if (err)
-          FD_LOG_ERR(("backup failed: error %d", err));
+      if ( capture_ctx != NULL ) {
+        fd_runtime_checkpt( capture_ctx, slot_ctx, txn->xid.ul[0] );
       }
 
       fd_funk_end_write(funk);
@@ -3134,9 +3148,8 @@ int fd_runtime_save_slot_bank(fd_exec_slot_ctx_t *slot_ctx)
 
   // Update blockstore
   if ( slot_ctx->blockstore != NULL ) {
-    fd_blockstore_block_height_update( slot_ctx->blockstore,
-                              slot_ctx->slot_bank.slot,
-                              slot_ctx->slot_bank.block_height );
+    fd_blockstore_block_height_set(
+        slot_ctx->blockstore, slot_ctx->slot_bank.slot, slot_ctx->slot_bank.block_height );
   } else {
     FD_LOG_WARNING(( "NULL blockstore in slot_ctx" ));
   }

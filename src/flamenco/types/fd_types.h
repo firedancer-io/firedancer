@@ -39,21 +39,29 @@ typedef struct fd_fee_calculator_off fd_fee_calculator_off_t;
 #define FD_FEE_CALCULATOR_OFF_FOOTPRINT sizeof(fd_fee_calculator_off_t)
 #define FD_FEE_CALCULATOR_OFF_ALIGN (8UL)
 
-/* https://github.com/solana-labs/solana/blob/98e19af5eb2585cfc3c07e123bdb96f18e92bc93/sdk/program/src/epoch_rewards.rs#L11-L20 */
-/* Encoded Size: Fixed (24 bytes) */
+/* https://github.com/anza-xyz/agave/blob/7fcd8c03fd71418fe49459c8460ab3986a8b608a/sdk/program/src/epoch_rewards.rs#L12 */
+/* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_epoch_rewards {
+  ulong distribution_starting_block_height;
+  ulong num_partitions;
+  fd_hash_t parent_blockhash;
+  uint128 total_points;
   ulong total_rewards;
   ulong distributed_rewards;
-  ulong distribution_complete_block_height;
+  uchar active;
 };
 typedef struct fd_epoch_rewards fd_epoch_rewards_t;
 #define FD_EPOCH_REWARDS_FOOTPRINT sizeof(fd_epoch_rewards_t)
 #define FD_EPOCH_REWARDS_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_epoch_rewards_off {
+  uint distribution_starting_block_height_off;
+  uint num_partitions_off;
+  uint parent_blockhash_off;
+  uint total_points_off;
   uint total_rewards_off;
   uint distributed_rewards_off;
-  uint distribution_complete_block_height_off;
+  uint active_off;
 };
 typedef struct fd_epoch_rewards_off fd_epoch_rewards_off_t;
 #define FD_EPOCH_REWARDS_OFF_FOOTPRINT sizeof(fd_epoch_rewards_off_t)
@@ -1837,6 +1845,52 @@ typedef struct fd_compact_vote_state_update_switch_off fd_compact_vote_state_upd
 #define FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_OFF_FOOTPRINT sizeof(fd_compact_vote_state_update_switch_off_t)
 #define FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_OFF_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185 */
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_tower_sync {
+  fd_vote_lockout_t lockouts[32];
+  ulong lockouts_cnt;
+  ulong root;
+  uchar has_root;
+  fd_hash_t hash;
+  ulong timestamp;
+  uchar has_timestamp;
+  fd_hash_t block_id;
+};
+typedef struct fd_tower_sync fd_tower_sync_t;
+#define FD_TOWER_SYNC_FOOTPRINT sizeof(fd_tower_sync_t)
+#define FD_TOWER_SYNC_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_tower_sync_off {
+  uint lockouts_off;
+  uint lockouts_cnt_off;
+  uint root_off;
+  uint hash_off;
+  uint timestamp_off;
+  uint block_id_off;
+};
+typedef struct fd_tower_sync_off fd_tower_sync_off_t;
+#define FD_TOWER_SYNC_OFF_FOOTPRINT sizeof(fd_tower_sync_off_t)
+#define FD_TOWER_SYNC_OFF_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L104 */
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_tower_sync_switch {
+  fd_tower_sync_t tower_sync;
+  fd_hash_t hash;
+};
+typedef struct fd_tower_sync_switch fd_tower_sync_switch_t;
+#define FD_TOWER_SYNC_SWITCH_FOOTPRINT sizeof(fd_tower_sync_switch_t)
+#define FD_TOWER_SYNC_SWITCH_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_tower_sync_switch_off {
+  uint tower_sync_off;
+  uint hash_off;
+};
+typedef struct fd_tower_sync_switch_off fd_tower_sync_switch_off_t;
+#define FD_TOWER_SYNC_SWITCH_OFF_FOOTPRINT sizeof(fd_tower_sync_switch_off_t)
+#define FD_TOWER_SYNC_SWITCH_OFF_ALIGN (8UL)
+
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_slot_history_inner {
   ulong blocks_len;
@@ -2518,6 +2572,8 @@ union fd_vote_instruction_inner {
   fd_vote_authorize_checked_with_seed_args_t authorize_checked_with_seed;
   fd_compact_vote_state_update_t compact_update_vote_state;
   fd_compact_vote_state_update_switch_t compact_update_vote_state_switch;
+  fd_tower_sync_t tower_sync;
+  fd_tower_sync_switch_t tower_sync_switch;
 };
 typedef union fd_vote_instruction_inner fd_vote_instruction_inner_t;
 
@@ -5228,6 +5284,30 @@ ulong fd_compact_vote_state_update_switch_size(fd_compact_vote_state_update_swit
 ulong fd_compact_vote_state_update_switch_footprint( void );
 ulong fd_compact_vote_state_update_switch_align( void );
 
+void fd_tower_sync_new(fd_tower_sync_t* self);
+int fd_tower_sync_decode(fd_tower_sync_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_tower_sync_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_tower_sync_decode_unsafe(fd_tower_sync_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_tower_sync_decode_offsets(fd_tower_sync_off_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_tower_sync_encode(fd_tower_sync_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_tower_sync_destroy(fd_tower_sync_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_tower_sync_walk(void * w, fd_tower_sync_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_tower_sync_size(fd_tower_sync_t const * self);
+ulong fd_tower_sync_footprint( void );
+ulong fd_tower_sync_align( void );
+
+void fd_tower_sync_switch_new(fd_tower_sync_switch_t* self);
+int fd_tower_sync_switch_decode(fd_tower_sync_switch_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_tower_sync_switch_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_tower_sync_switch_decode_unsafe(fd_tower_sync_switch_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_tower_sync_switch_decode_offsets(fd_tower_sync_switch_off_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_tower_sync_switch_encode(fd_tower_sync_switch_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_tower_sync_switch_destroy(fd_tower_sync_switch_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_tower_sync_switch_walk(void * w, fd_tower_sync_switch_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_tower_sync_switch_size(fd_tower_sync_switch_t const * self);
+ulong fd_tower_sync_switch_footprint( void );
+ulong fd_tower_sync_switch_align( void );
+
 void fd_slot_history_inner_new(fd_slot_history_inner_t* self);
 int fd_slot_history_inner_decode(fd_slot_history_inner_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_slot_history_inner_decode_preflight(fd_bincode_decode_ctx_t * ctx);
@@ -5584,6 +5664,8 @@ FD_FN_PURE uchar fd_vote_instruction_is_authorize_with_seed(fd_vote_instruction_
 FD_FN_PURE uchar fd_vote_instruction_is_authorize_checked_with_seed(fd_vote_instruction_t const * self);
 FD_FN_PURE uchar fd_vote_instruction_is_compact_update_vote_state(fd_vote_instruction_t const * self);
 FD_FN_PURE uchar fd_vote_instruction_is_compact_update_vote_state_switch(fd_vote_instruction_t const * self);
+FD_FN_PURE uchar fd_vote_instruction_is_tower_sync(fd_vote_instruction_t const * self);
+FD_FN_PURE uchar fd_vote_instruction_is_tower_sync_switch(fd_vote_instruction_t const * self);
 enum {
 fd_vote_instruction_enum_initialize_account = 0,
 fd_vote_instruction_enum_authorize = 1,
@@ -5599,6 +5681,8 @@ fd_vote_instruction_enum_authorize_with_seed = 10,
 fd_vote_instruction_enum_authorize_checked_with_seed = 11,
 fd_vote_instruction_enum_compact_update_vote_state = 12,
 fd_vote_instruction_enum_compact_update_vote_state_switch = 13,
+fd_vote_instruction_enum_tower_sync = 14,
+fd_vote_instruction_enum_tower_sync_switch = 15,
 }; 
 void fd_system_program_instruction_create_account_new(fd_system_program_instruction_create_account_t* self);
 int fd_system_program_instruction_create_account_decode(fd_system_program_instruction_create_account_t* self, fd_bincode_decode_ctx_t * ctx);

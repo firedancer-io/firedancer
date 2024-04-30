@@ -16,8 +16,9 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* Entry-point for the Solana Compute Budget Program */
 int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx, fd_rawtxn_b_t const * txn_raw );
+
+int fd_compute_budget_program_execute( fd_exec_instr_ctx_t ctx );
 
 FD_PROTOTYPES_END
 

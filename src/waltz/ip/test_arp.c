@@ -156,7 +156,7 @@ main( int argc, char **argv ) {
   fd_nl_init( &nl, 4242 );
 
   /* load arp entries */
-# define ARP_TABLE_CAP 32
+# define ARP_TABLE_CAP 1024
   fd_nl_arp_entry_t arp_table[ARP_TABLE_CAP];
 
   long arp_table_sz = 0;

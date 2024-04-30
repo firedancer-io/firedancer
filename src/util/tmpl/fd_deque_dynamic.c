@@ -36,6 +36,7 @@
 
      my_ele_t * my_deque_peek_head  ( my_ele_t * deque ); // peeks at head, returned ptr lifetime is until next op on deque
      my_ele_t * my_deque_peek_tail  ( my_ele_t * deque ); // peeks at tail, returned ptr lifetime is until next op on deque
+     my_ele_t * my_deque_peek_index ( my_ele_t * deque, ulong idx ); // peeks at index, returned ptr lifetime is until next op on deque
      my_ele_t * my_deque_insert_head( my_ele_t * deque ); // inserts uninitialized element at head, returns deque
      my_ele_t * my_deque_insert_tail( my_ele_t * deque ); // inserts uninitialized element at tail, returns deque
      my_ele_t * my_deque_remove_head( my_ele_t * deque ); // removes head, returns deque
@@ -49,6 +50,7 @@
 
      my_ele_t const * my_deque_peek_head_const( my_ele_t const * deque ); // const version of peek_head
      my_ele_t const * my_deque_peek_tail_const( my_ele_t const * deque ); // const version of peek_tail
+     my_ele_t const * my_deque_peek_index_const( my_ele_t const * deque, ulong idx ); // const version of peek_index
 
      // my_deque_iter_* allow for iteration over all the elements in
      // a my_deque.  The iteration will be in order from head to tail.
@@ -59,13 +61,27 @@
      //
      //     ... process ele here
      //   }
- 
+
      my_deque_iter_t  my_deque_iter_init     ( my_deque_t const * deque );
      int              my_deque_iter_done     ( my_deque_t const * deque, my_deque_iter_t iter ); // returns 1 if no more iterations, 0 o.w.
      my_deque_iter_t  my_deque_iter_next     ( my_deque_t const * deque, my_deque_iter_t iter ); // returns next iter value iter
      my_ele_t *       my_deque_iter_ele      ( my_deque_t *       deque, my_deque_iter_t iter ); // assumes not done, return non-NULL ele
      my_ele_t const * my_deque_iter_ele_const( my_deque_t const * deque, my_deque_iter_t iter ); // assumes not done, return non-NULL ele
-     
+
+     // my_deque_iter_rev_* allow for iteration similar to the above, but
+     // in reverse order from tail to head.
+     // Example usage:
+     //
+     //   for( my_deque_iter_t iter = my_deque_iter_init_rev( deque ); !my_deque_iter_done_rev( deque, iter ); iter = my_deque_iter_prev( deque, iter ) ) {
+     //     my_deque_t * ele = my_deque_iter_ele( deque, iter );
+     //
+     //     ... process ele here
+     //   }
+
+     my_deque_iter_t  my_deque_iter_init_rev ( my_deque_t const * deque );
+     int              my_deque_iter_done_rev ( my_deque_t const * deque, my_deque_iter_t iter ); // returns 1 if no more iterations, 0 o.w.
+     my_deque_iter_t  my_deque_iter_prev     ( my_deque_t const * deque, my_deque_iter_t iter ); // returns prev iter value iter
+
    For performance, none of the functions do any error checking.
    Specifically, the caller promises that max is such that footprint
    will not overflow 2^64 (e.g. max << (2^64)/sizeof(my_ele_t)), cnt<max
@@ -241,6 +257,14 @@ DEQUE_(peek_tail)( DEQUE_T * deque ) {
   return hdr->deque + DEQUE_(private_prev)( hdr->end, hdr->max1 );
 }
 
+FD_FN_PURE static inline DEQUE_T *
+DEQUE_(peek_index)( DEQUE_T * deque, ulong idx ) {
+  DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
+  ulong slot = hdr->start + idx;
+        slot = fd_ulong_if( slot <= hdr->max1, slot, slot - hdr->max1 - 1UL );
+  return hdr->deque + slot;
+}
+
 FD_FN_PURE static inline DEQUE_T const *
 DEQUE_(peek_head_const)( DEQUE_T const * deque ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
@@ -251,6 +275,14 @@ FD_FN_PURE static inline DEQUE_T const *
 DEQUE_(peek_tail_const)( DEQUE_T const * deque ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
   return hdr->deque + DEQUE_(private_prev)( hdr->end, hdr->max1 );
+}
+
+FD_FN_PURE static inline DEQUE_T const *
+DEQUE_(peek_index_const)( DEQUE_T const * deque, ulong idx ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
+  ulong slot = hdr->start + idx;
+        slot = fd_ulong_if( slot <= hdr->max1, slot, slot - hdr->max1 - 1UL );
+  return hdr->deque + slot;
 }
 
 static inline DEQUE_T *
@@ -295,6 +327,30 @@ DEQUE_(remove_tail)( DEQUE_T * deque ) {
   hdr->cnt   = cnt - 1UL;
   hdr->end   = DEQUE_(private_prev)( end, max1 );
   return deque;
+}
+
+static inline DEQUE_T
+DEQUE_(pop_idx_tail)( DEQUE_T * deque, ulong idx ) {
+  DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
+
+  ulong max1 = hdr->max1;
+
+  ulong slot = hdr->start + idx;
+        slot = fd_ulong_if( slot <= max1, slot, slot - max1 - 1UL );
+  ulong cnt  = --hdr->cnt;
+  ulong rem  = cnt - idx;
+
+  hdr->end   = DEQUE_(private_prev)( hdr->end, max1 );
+
+  DEQUE_T * cur = &deque[ slot ];
+  DEQUE_T   ele = *cur;
+  while( rem-- ) {
+    slot = DEQUE_(private_next)( slot, max1 );
+    DEQUE_T * next = &deque[ slot ];
+    *cur = *next;
+     cur =  next;
+  }
+  return ele;
 }
 
 static inline DEQUE_T *
@@ -363,8 +419,24 @@ DEQUE_(iter_init)( DEQUE_T const * deque ) {
   return iter;
 }
 
+static inline DEQUE_(iter_t)
+DEQUE_(iter_init_rev)( DEQUE_T const * deque ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
+  DEQUE_(iter_t) iter;
+  iter.rem = hdr->cnt;
+  iter.idx = hdr->end;
+  iter.idx = DEQUE_(private_prev)( iter.idx, hdr->max1 );
+  return iter;
+}
+
 static inline int
 DEQUE_(iter_done)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
+  (void)deque;
+  return !iter.rem;
+}
+
+static inline int
+DEQUE_(iter_done_rev)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
   (void)deque;
   return !iter.rem;
 }
@@ -374,6 +446,14 @@ DEQUE_(iter_next)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
   iter.rem--;
   iter.idx = DEQUE_(private_next)( iter.idx, hdr->max1 );
+  return iter;
+}
+
+static inline DEQUE_(iter_t)
+DEQUE_(iter_prev)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
+  iter.rem--;
+  iter.idx = DEQUE_(private_prev)( iter.idx, hdr->max1 );
   return iter;
 }
 

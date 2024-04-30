@@ -113,10 +113,12 @@ struct fd_runtime_args {
   ulong        txn_max;
   ushort       rpc_port;
   ulong        checkpt_slot;
+  ulong        checkpt_freq;
   char const * checkpt_path;
   fd_funk_t *  pruned_funk;
   int          dump_instructions_to_protobuf;
   char const * instruction_dump_signature_filter;
+  char const * dump_instruction_output_dir;
 };
 typedef struct fd_runtime_args fd_runtime_args_t;
 

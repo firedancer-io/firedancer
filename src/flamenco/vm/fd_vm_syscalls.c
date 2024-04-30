@@ -1316,17 +1316,18 @@ is_precompile(const uchar * program_id) {
          check_id(program_id, fd_solana_ed25519_sig_verify_program_id.key);
 }
 
+/* https://github.com/firedancer-io/solana/blob/d8292b427adf8367d87068a3a88f6fd3ed8916a5/programs/bpf_loader/src/syscalls/cpi.rs#L1049 */
 static ulong check_authorized_program(const uchar * program_id, fd_exec_slot_ctx_t * slot_ctx, uchar const * instruction_data, ulong instruction_data_len) {
-  return ( check_id(program_id, fd_solana_native_loader_id.key) ||
-       check_id(program_id, fd_solana_bpf_loader_program_id.key) ||
-       check_id(program_id, fd_solana_bpf_loader_deprecated_program_id.key) ||
-       (check_id(program_id, fd_solana_bpf_loader_upgradeable_program_id.key) &&
-       ((instruction_data_len == 0 || instruction_data[0] != 3) ||
-       (instruction_data_len != 0 && instruction_data[0] == 4) ||
-       (FD_FEATURE_ACTIVE(slot_ctx, enable_bpf_loader_set_authority_checked_ix) && (instruction_data_len != 0 && instruction_data[0] == 4))
-       || (instruction_data_len != 0 && instruction_data[0] == 5)))
-       || is_precompile(program_id));
-
+  return ( check_id(program_id, fd_solana_native_loader_id.key) 
+            || check_id(program_id, fd_solana_bpf_loader_program_id.key) 
+            || check_id(program_id, fd_solana_bpf_loader_deprecated_program_id.key) 
+            || (check_id(program_id, fd_solana_bpf_loader_upgradeable_program_id.key) 
+                && !((instruction_data_len != 0 && instruction_data[0] == 3)  /* is_upgrade_instruction() */
+                    || (instruction_data_len != 0 && instruction_data[0] == 4)  /* is_set_authority_instruction() */
+                    || (FD_FEATURE_ACTIVE(slot_ctx, enable_bpf_loader_set_authority_checked_ix) 
+                        && (instruction_data_len != 0 && instruction_data[0] == 7)) /* is_set_authority_checked_instruction() */
+                    || (instruction_data_len != 0 && instruction_data[0] == 5))) /* is_close_instruction */
+            || is_precompile(program_id));
 }
 
 static ulong
@@ -1691,7 +1692,7 @@ fd_vm_syscall_cpi_rust(
     err = fd_vm_consume_compute_meter( ctx, vm_compute_budget.cpi_bytes_per_unit ? instruction->data.len/vm_compute_budget.cpi_bytes_per_unit : ULONG_MAX );
   }
 
-    /* Translate signers ************************************************/
+  /* Translate signers ************************************************/
 
   fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ];
   res = fd_vm_syscall_cpi_derive_signers( ctx, signers, signers_seeds_va, signers_seeds_cnt );
