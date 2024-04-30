@@ -15,7 +15,7 @@ static void
 gossip_send_packet( uchar const * data, size_t sz, fd_gossip_peer_addr_t const * addr, void * arg );
 
 static void
-signer_fun( void * arg, uchar signature[static 64], uchar const * buffer, ulong len );
+gossip_sign_fun( void * arg, uchar signature[static 64], uchar const * buffer, ulong len );
 
 static void
 repair_deliver_fun( fd_shred_t const *                            shred,
@@ -41,7 +41,6 @@ resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res 
 /* variables should be either on stack or use wksp_alloc_laddr */
 static int                         gossip_sockfd = -1;
 static int                         repair_sockfd = -1;
-static fd_keyguard_client_t        keyguard_client;
 static fd_tvu_gossip_deliver_arg_t gossip_deliver_arg;
 
 #pragma GCC diagnostic ignored "-Wformat"
@@ -144,7 +143,7 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE( ( "Finish setup blockstore" ) );
 
   /**********************************************************************/
-  /* tower                                                              */
+  /* latest_votes                                                       */
   /**********************************************************************/
 
   void * towers_mem = fd_wksp_alloc_laddr(
@@ -243,14 +242,17 @@ main( int argc, char ** argv ) {
 
   void * bft_mem =
       fd_wksp_alloc_laddr( wksp, fd_bft_align(), fd_bft_footprint(), TEST_CONSENSUS_MAGIC );
-  fd_bft_t * bft     = fd_bft_join( fd_bft_new( bft_mem ) );
-  bft->acc_mgr       = acc_mgr;
-  bft->blockstore    = blockstore;
-  bft->commitment    = NULL;
-  bft->forks         = forks;
-  bft->ghost         = ghost;
-  bft->valloc        = valloc;
+  fd_bft_t * bft = fd_bft_join( fd_bft_new( bft_mem ) );
+
   bft->snapshot_slot = snapshot_slot;
+  fd_bft_epoch_stake_update( bft, snapshot_slot_ctx->epoch_ctx );
+
+  bft->acc_mgr    = acc_mgr;
+  bft->blockstore = blockstore;
+  bft->commitment = NULL;
+  bft->forks      = forks;
+  bft->ghost      = ghost;
+  bft->valloc     = valloc;
   fd_bft_epoch_stake_update( bft, epoch_ctx );
   FD_LOG_NOTICE( ( "Finish setup bft" ) );
 
@@ -262,18 +264,20 @@ main( int argc, char ** argv ) {
       fd_wksp_alloc_laddr( wksp, fd_replay_align(), fd_replay_footprint(), TEST_CONSENSUS_MAGIC );
   fd_replay_t * replay = fd_replay_join( fd_replay_new( replay_mem ) );
   FD_TEST( replay );
-  replay->bft        = bft;
-  replay->funk       = funk;
-  replay->forks      = forks;
-  replay->valloc     = valloc;
-  replay->acc_mgr    = acc_mgr;
-  replay->epoch_ctx  = epoch_ctx;
-  replay->blockstore = blockstore;
 
-  replay->smr         = snapshot_slot;
-  replay->gossip      = NULL;
+  replay->smr           = snapshot_slot;
+  replay->snapshot_slot = snapshot_slot;
+
+  replay->acc_mgr     = acc_mgr;
+  replay->bft         = bft;
+  replay->blockstore  = blockstore;
+  replay->forks       = forks;
+  replay->funk        = funk;
+  replay->epoch_ctx   = epoch_ctx;
   replay->tpool       = NULL;
   replay->max_workers = 1;
+  replay->valloc      = valloc;
+
   FD_LOG_NOTICE( ( "Finish setup replay" ) );
 
   /**********************************************************************/
@@ -289,17 +293,11 @@ main( int argc, char ** argv ) {
     goto end;
   }
 
-  FD_LOG_NOTICE( ( "test_consensus running in archive mode" ) );
-
-  /* capture & solcap */
-  // capture_ctx  = NULL;
+  FD_LOG_NOTICE( ( "test_consensus running live (shredcap archive)" ) );
 
   /**********************************************************************/
   /* repair                                                             */
   /**********************************************************************/
-
-  // const char* repair_peer_addr = ":1032"; /* FIXME: temporary from testnet.toml */
-  const char * my_repair_addr = ":9002";
 
   void *        repair_mem = fd_valloc_malloc( valloc, fd_repair_align(), fd_repair_footprint() );
   fd_repair_t * repair =
@@ -313,9 +311,9 @@ main( int argc, char ** argv ) {
   repair_config.sign_fun         = NULL;
   repair_config.sign_arg         = NULL;
 
-  FD_TEST( resolve_hostport( my_repair_addr, &repair_config.intake_addr ) );
+  FD_TEST( resolve_hostport( ":9002", &repair_config.intake_addr ) );
   repair_config.service_addr      = repair_config.intake_addr;
-  repair_config.service_addr.port = 0; /* pick a port */
+  repair_config.service_addr.port = 0;
 
   uchar private_key[32];
   FD_TEST( 32UL == getrandom( private_key, 32UL, 0 ) );
@@ -329,7 +327,10 @@ main( int argc, char ** argv ) {
   FD_TEST( !fd_repair_set_config( repair, &repair_config ) );
   FD_LOG_NOTICE( ( "Finish setup repair" ) );
 
-  /* turbine */
+  /**********************************************************************/
+  /* turbine                                                            */
+  /**********************************************************************/
+
   uchar *             data_shreds   = NULL;
   uchar *             parity_shreds = NULL;
   fd_fec_set_t *      fec_sets      = NULL;
@@ -383,9 +384,11 @@ main( int argc, char ** argv ) {
   replay->fec_resolver  = fec_resolver;
   FD_LOG_NOTICE( ( "Finish setup turbine" ) );
 
-  /* gossip */
-  const char * my_gossip_addr   = ":9001";
-  const char * gossip_peer_addr = "139.178.68.207:8001"; /* FIXME: temporary from testnet.toml */
+  /**********************************************************************/
+  /* gossip                                                             */
+  /**********************************************************************/
+
+  const char * gossip_peer_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--restore", NULL, NULL );
   gossip_deliver_arg.valloc     = valloc;
   gossip_deliver_arg.repair     = repair;
   gossip_deliver_arg.bft        = bft;
@@ -394,36 +397,26 @@ main( int argc, char ** argv ) {
       fd_wksp_alloc_laddr( wksp, fd_gossip_align(), fd_gossip_footprint(), TEST_CONSENSUS_MAGIC );
   fd_gossip_t * gossip =
       fd_gossip_join( fd_gossip_new( gossip_shmem, TEST_CONSENSUS_MAGIC, valloc ) );
-  fd_gossip_config_t gossip_config;
 
-  gossip_config.private_key   = private_key;
+  fd_gossip_config_t gossip_config;
   gossip_config.public_key    = &public_key;
+  gossip_config.private_key   = private_key;
+  FD_TEST( resolve_hostport( ":9001", &gossip_config.my_addr ) );
   gossip_config.shred_version = 0;
   gossip_config.deliver_fun   = gossip_deliver_fun;
   gossip_config.deliver_arg   = &gossip_deliver_arg;
   gossip_config.send_fun      = gossip_send_packet;
   gossip_config.send_arg      = NULL;
-  gossip_config.sign_fun      = signer_fun;
+  gossip_config.sign_fun      = gossip_sign_fun;
+  fd_keyguard_client_t keyguard_client = { 0 };
   gossip_config.sign_arg      = &keyguard_client;
-  FD_TEST( resolve_hostport( my_gossip_addr, &gossip_config.my_addr ) );
-  if( fd_gossip_set_config( gossip, &gossip_config ) )
-    FD_LOG_ERR( ( "error setting gossip config" ) );
+
+  FD_TEST( !fd_gossip_set_config( gossip, &gossip_config ) );
 
   fd_gossip_peer_addr_t gossip_peer;
-  if( fd_gossip_add_active_peer( gossip, resolve_hostport( gossip_peer_addr, &gossip_peer ) ) )
-    FD_LOG_ERR( ( "error adding gossip active peer" ) );
+  FD_TEST(
+      !fd_gossip_add_active_peer( gossip, resolve_hostport( gossip_peer_addr, &gossip_peer ) ) );
   FD_LOG_NOTICE( ( "Finish setup gossip" ) );
-
-  /* store */
-  void *       store_mem = fd_valloc_malloc( valloc, fd_store_align(), fd_store_footprint() );
-  fd_store_t * store     = fd_store_join( fd_store_new( store_mem, snapshot_slot ) );
-  store->blockstore      = blockstore;
-  store->smr             = snapshot_slot;
-  store->snapshot_slot   = snapshot_slot;
-  store->valloc          = valloc;
-  FD_LOG_NOTICE( ( "Finish setup store" ) );
-
-  FD_LOG_ERR( ( "archive+live_data not ready yet" ) );
 
 end:
   fd_halt();
@@ -475,7 +468,7 @@ gossip_send_packet( uchar const *                 data,
 }
 
 static void
-signer_fun( void * arg, uchar signature[static 64], uchar const * buffer, ulong len ) {
+gossip_sign_fun( void * arg, uchar signature[static 64], uchar const * buffer, ulong len ) {
   fd_keyguard_client_t * keyguard_client = (fd_keyguard_client_t *)arg;
   fd_keyguard_client_sign( keyguard_client, signature, buffer, len );
 }
