@@ -651,13 +651,44 @@ FD_VM_SYSCALL_DECL( cpi_rust );
 
 /* fd_vm_syscall_crypto ***********************************************/
 
-/* syscall(FIXME) sol_alt_bn128_group_op
-   syscall(FIXME) sol_alt_bn128_compression
+/* FD_VM_SYSCALL_SOL_ALT_BN128_{ADD,SUB,MUL,PAIRING} specifies the curve operation. */
 
-   FIXME: NOT IMPLEMENTED YET, IGNORES ALL ARGUMENTS AND RETURNS INVAL
-   (MAYBE SHOULD RETURN UNSUP)? */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_ADD                 (  0UL) /* add */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_SUB                 (  1UL) /* add inverse */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_MUL                 (  2UL) /* scalar mult */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING             (  3UL) /* pairing */
+
+/* FD_VM_SYSCALL_SOL_ALT_BN128_{...}COMPRESS specifies the (de)compress operation. */
+
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESS         (  0UL) /* compress point in G1 */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G1_DECOMPRESS       (  1UL) /* decompress point in G1 */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESS         (  2UL) /* compress point in G2 */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G2_DECOMPRESS       (  3UL) /* decompress point in G2 */
+
+/* FD_VM_SYSCALL_SOL_ALT_BN128_{...}_SZ specifies the size of inputs/outputs for the Alt_BN128 curve. */
+
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ               ( 64UL) /* size of a point in G1 */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESSED_SZ    ( 32UL) /* size of a compressed point in G2 */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ               (128UL) /* size of a point in G2 */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESSED_SZ    ( 64UL) /* size of a compressed point in G2 */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_SCALAR_SZ           ( 32UL) /* size of a scalar */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_INPUT_EL_SZ (192UL) /* size of G1 + G2 */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_OUTPUT_SZ   ( 32UL) /* size of pairing syscall result, i.e. 0 or 1 as 256-bit int ¯\_(ツ)_/¯ */
+
+/* syscall(FIXME) sol_alt_bn128_group_op computes operations on the Alt_BN128 curve,
+   including point addition in G1, scalar multiplication in G1, and pairing.
+   See SIMD-0129.
+
+   FIXME: DOCUMENT */
 
 FD_VM_SYSCALL_DECL( sol_alt_bn128_group_op    );
+
+/* syscall(FIXME) sol_alt_bn128_compression allows to compress or decompress points
+   in G1 or G2 groups over the Alt_BN128 curve.
+   See SIMD-0129.
+
+   FIXME: DOCUMENT */
+
 FD_VM_SYSCALL_DECL( sol_alt_bn128_compression );
 
 /* syscall(FIXME) "sol_blake3"
@@ -694,9 +725,12 @@ FD_VM_SYSCALL_DECL( sol_blake3    );
 FD_VM_SYSCALL_DECL( sol_keccak256 );
 FD_VM_SYSCALL_DECL( sol_sha256    );
 
-/* syscall(FIXME) "sol_poseidon"
+/* syscall(FIXME) sol_poseidon computes the Poseidon hash on an array of input values.
+   See SIMD-0129.
 
-   FIXME: BELT SAND AND DOCUMENT */
+   FIXME: DOCUMENT */
+
+#define FD_VM_SYSCALL_SOL_POSEIDON_MAX_VALS 12UL
 
 FD_VM_SYSCALL_DECL( sol_poseidon ); /* Light protocol flavor */
 
