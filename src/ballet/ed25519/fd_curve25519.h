@@ -15,6 +15,9 @@
 #include "ref/fd_curve25519.h"
 #endif
 
+/* Max batch size for MSM. */
+#define FD_BALLET_CURVE25519_MSM_BATCH_SZ 32
+
 /* curve constants. these are imported from table/fd_curve25519_table_{arch}.c.
    they are (re)defined here to avoid breaking compilation when the table needs
    to be rebuilt. */

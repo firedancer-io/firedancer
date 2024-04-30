@@ -4,6 +4,7 @@
 #include "../fd_vm_private.h"
 #include "fd_vm_cpi.h"                /* FIXME: REFINE THIS MORE */
 #include "../../runtime/fd_runtime.h" /* FIXME: REFINE THIS MORE */
+#include "../../runtime/context/fd_exec_instr_ctx.h"
 
 #define FD_VM_RETURN_DATA_MAX  (1024UL) /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
 /* https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L22 */
@@ -742,16 +743,21 @@ FD_VM_SYSCALL_DECL( sol_secp256k1_recover );
 
 /* fd_vm_syscall_curve ************************************************/
 
-/* FD_VM_SYSCALL_SOL_CURVE_ECC_{...} specifies the curve IDs and
-   FD_VM_SYSCALL_SOL_CURVE_ECC_G_{...} declares IDs of operations on
-   elliptic curve groups for the sol_curve syscalls. */
+/* FD_VM_SYSCALL_SOL_CURVE_CURVE25519_{...} specifies the curve ID */
 
-#define FD_VM_SYSCALL_SOL_CURVE_ECC_ED25519      (0UL)
-#define FD_VM_SYSCALL_SOL_CURVE_ECC_RISTRETTO255 (1UL)
+#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS   ( 0UL) /* ed25519 */
+#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO ( 1UL) /* ristretto255 */
 
-#define FD_VM_SYSCALL_SOL_CURVE_ECC_G_ADD (0UL) /* add */
-#define FD_VM_SYSCALL_SOL_CURVE_ECC_G_SUB (1UL) /* add inverse */
-#define FD_VM_SYSCALL_SOL_CURVE_ECC_G_MUL (2UL) /* scalar mult */
+/* FD_VM_SYSCALL_SOL_CURVE_{...} specifies the curve operation */
+
+#define FD_VM_SYSCALL_SOL_CURVE_ADD                  ( 0UL) /* add */
+#define FD_VM_SYSCALL_SOL_CURVE_SUB                  ( 1UL) /* add inverse */
+#define FD_VM_SYSCALL_SOL_CURVE_MUL                  ( 2UL) /* scalar mul */
+
+/* FD_VM_SYSCALL_SOL_CURVE_CURVE25519_{...}_SZ specifies the size of inputs/outputs. */
+
+#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ  (32UL) /* point (compressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ (32UL) /* scalar */
 
 /* syscall(FIXME) sol_curve_validate_point
 
