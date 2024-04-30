@@ -146,11 +146,11 @@ main( int argc, char ** argv ) {
   /* latest_votes                                                       */
   /**********************************************************************/
 
-  void * towers_mem = fd_wksp_alloc_laddr(
-      wksp, fd_tower_deque_align(), fd_tower_deque_footprint(), TEST_CONSENSUS_MAGIC );
-  fd_tower_t * towers = fd_tower_deque_join( fd_tower_deque_new( towers_mem ) );
-  FD_TEST( towers );
-  FD_LOG_NOTICE( ( "Finish setup towers" ) );
+  void * latest_votes_mem = fd_wksp_alloc_laddr(
+      wksp, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint(), TEST_CONSENSUS_MAGIC );
+  fd_latest_vote_t * latest_votes = fd_latest_vote_deque_join( fd_latest_vote_deque_new( latest_votes_mem ) );
+  FD_TEST( latest_votes );
+  FD_LOG_NOTICE( ( "Finish setup latest votes" ) );
 
   /**********************************************************************/
   /* epoch_ctx                                                          */
@@ -180,7 +180,7 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE( ( "Finish setup forks" ) );
 
   /**********************************************************************/
-  /* snapshot                                                           */
+  /* snapshot_slot_ctx                                                  */
   /**********************************************************************/
 
   fd_fork_t *          snapshot_fork = fd_fork_pool_ele_acquire( forks->pool );
