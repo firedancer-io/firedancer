@@ -169,7 +169,7 @@ main( int argc, char ** argv ) {
   snapshot_slot_ctx->valloc     = valloc;
 
   fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
-  //FD_TEST( snapshot_slot_ctx->funk_txn );  FIXME: why not this?
+  //FD_TEST( snapshot_slot_ctx->funk_txn );  FIXME: why not this? It fails when I run the code.
   ulong snapshot_slot = snapshot_slot_ctx->slot_bank.slot;
   FD_LOG_NOTICE( ( "snapshot_slot: %lu", snapshot_slot ) );
 
@@ -254,7 +254,7 @@ main( int argc, char ** argv ) {
 
   /* rpc */
 #ifdef FD_HAS_LIBMICROHTTP
-  ulong rpc_port = 8123; /* FIXME: temporary */
+  ulong rpc_port = 8123; /* FIXME: temporary from testnet.toml */
   (*replay)->rpc_ctx =
       fd_rpc_alloc_ctx( *replay, &runtime_ctx->public_key );
   fd_rpc_start_service( args->rpc_port, (*replay)->rpc_ctx );
@@ -262,7 +262,7 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE( ("Finish setup rpc") );
 
   /* repair */
-  //const char* repair_peer_addr = ":1032"; /* FIXME: temporary */
+  //const char* repair_peer_addr = ":1032"; /* FIXME: temporary from testnet.toml */
   const char* my_repair_addr = ":9002";
 
   void *        repair_mem = fd_valloc_malloc( valloc, fd_repair_align(), fd_repair_footprint() );
@@ -346,7 +346,7 @@ main( int argc, char ** argv ) {
 
   /* gossip */
   const char * my_gossip_addr = ":9001";
-  const char * gossip_peer_addr = "139.178.68.207:8001"; /* FIXME: temporary */
+  const char * gossip_peer_addr = "139.178.68.207:8001"; /* FIXME: temporary from testnet.toml */
   gossip_deliver_arg.valloc = valloc;
   gossip_deliver_arg.repair = repair;
   gossip_deliver_arg.bft = bft;
@@ -524,8 +524,8 @@ resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res 
   }
   /* Convert result to repair address */
   res->l    = 0;
+  // FIXME why the first line does not work? I switched to the second line.
   //res->addr = ( (struct in_addr *)host->h_addr )->s_addr;
-  // FIXME why the above does not work?
   res->addr = ( (struct in_addr *)host->h_addr_list[0] )->s_addr;
   int port  = atoi( str + i + 1 );
   if( ( port > 0 && port < 1024 ) || port > (int)USHORT_MAX ) {
