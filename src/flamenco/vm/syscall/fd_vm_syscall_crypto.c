@@ -1,30 +1,293 @@
 #include "fd_vm_syscall.h"
 
+#include "../../../ballet/bn254/fd_bn254.h"
+#include "../../../ballet/bn254/fd_poseidon.h"
 #include "../../../ballet/keccak256/fd_keccak256.h"
 #if FD_HAS_SECP256K1
 #include "../../../ballet/secp256k1/fd_secp256k1.h"
 #endif
 
 int
-fd_vm_syscall_sol_alt_bn128_group_op( FD_PARAM_UNUSED void *  _vm,
-                                      FD_PARAM_UNUSED ulong   params,
-                                      FD_PARAM_UNUSED ulong   endianness,
-                                      FD_PARAM_UNUSED ulong   vals_addr,
-                                      FD_PARAM_UNUSED ulong   vals_len,
-                                      FD_PARAM_UNUSED ulong   result_addr,
-                                      FD_PARAM_UNUSED ulong * _ret ) {
-  return FD_VM_ERR_INVAL; /* FIXME: UNSUP? */
+fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
+                                      ulong   group_op,
+                                      ulong   input_addr,
+                                      ulong   input_sz,
+                                      ulong   result_addr,
+                                      FD_PARAM_UNUSED ulong r4,
+                                      ulong * _ret ) {
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1509 */
+  fd_vm_t * vm  = (fd_vm_t *)_vm;
+  ulong     ret = 1UL; /* by default return Ok(1) == error */
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1520-L1549 */
+  ulong cost = 0UL;
+  ulong output_sz = 0UL;
+  switch( group_op ) {
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_ADD:
+    output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ;
+    cost = FD_VM_ALT_BN128_ADDITION_COST;
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_MUL:
+    output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ;
+    cost = FD_VM_ALT_BN128_MULTIPLICATION_COST;
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING:
+    output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_OUTPUT_SZ;
+    ulong elements_len = input_sz / FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_INPUT_EL_SZ;
+    cost = FD_VM_ALT_BN128_PAIRING_ONE_PAIR_COST_FIRST
+      + FD_VM_SHA256_BASE_COST
+      + FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_OUTPUT_SZ;
+    cost = fd_ulong_sat_add( cost,
+      fd_ulong_sat_mul( FD_VM_ALT_BN128_PAIRING_ONE_PAIR_COST_OTHER,
+        fd_ulong_sat_sub( elements_len, 1 ) ) );
+    cost = fd_ulong_sat_add( cost, input_sz );
+    break;
+
+  default:
+    return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1551 */
+
+  FD_VM_CU_UPDATE( vm, cost );
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1553-L1565 */
+
+  uchar const * input = FD_VM_MEM_HADDR_LD( vm, input_addr,  8UL, input_sz );
+  uchar * call_result = FD_VM_MEM_HADDR_ST( vm, result_addr, 8UL, output_sz );
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1567-L1598
+     Note: this implementation is post SIMD-0129, we only support the simplified error codes. */
+  switch( group_op ) {
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_ADD:
+    /* Compute add */
+    if( FD_LIKELY( fd_bn254_g1_add_syscall( call_result, input, input_sz )==0 ) ) {
+      ret = 0UL; /* success */
+    }
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_MUL:
+    /* Compute scalar mul */
+    if( FD_LIKELY( fd_bn254_g1_scalar_mul_syscall( call_result, input, input_sz )==0 ) ) {
+      ret = 0UL; /* success */
+    }
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING:
+    /* Compute pairing */
+    if( FD_LIKELY( fd_bn254_pairing_is_one_syscall( call_result, input, input_sz )==0 ) ) {
+      ret = 0UL; /* success */
+    }
+    break;
+  }
+
+  *_ret = ret;
+  return FD_VM_SUCCESS; /* Ok(SUCCESS) or Ok(ERROR) */
 }
 
 int
-fd_vm_syscall_sol_alt_bn128_compression( FD_PARAM_UNUSED void *  _vm,
-                                         FD_PARAM_UNUSED ulong   params,
-                                         FD_PARAM_UNUSED ulong   endianness,
-                                         FD_PARAM_UNUSED ulong   vals_addr,
-                                         FD_PARAM_UNUSED ulong   vals_len,
-                                         FD_PARAM_UNUSED ulong   result_addr,
-                                         FD_PARAM_UNUSED ulong * _ret ) {
-  return FD_VM_ERR_INVAL; /* FIXME: UNSUP? */
+fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
+                                         ulong   op,
+                                         ulong   input_addr,
+                                         ulong   input_sz,
+                                         ulong   result_addr,
+                                         FD_PARAM_UNUSED ulong r4,
+                                         ulong * _ret ) {
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1776 */
+  fd_vm_t * vm  = (fd_vm_t *)_vm;
+  ulong     ret = 1UL; /* by default return Ok(1) == error */
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1791-L1811 */
+  ulong cost = 0UL;
+  ulong output_sz = 0UL;
+  switch( op ) {
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESS:
+    output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESSED_SZ;
+    cost = FD_VM_ALT_BN128_G1_COMPRESS;
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_DECOMPRESS:
+    output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ;
+    cost = FD_VM_ALT_BN128_G1_DECOMPRESS;
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESS:
+    output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESSED_SZ;
+    cost = FD_VM_ALT_BN128_G2_COMPRESS;
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_DECOMPRESS:
+    output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ;
+    cost = FD_VM_ALT_BN128_G2_DECOMPRESS;
+    break;
+
+  default:
+    return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
+  }
+  cost = fd_ulong_sat_add( cost, FD_VM_SYSCALL_BASE_COST );
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1813 */
+
+  FD_VM_CU_UPDATE( vm, cost );
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1815-L1827 */
+
+  void const * input = FD_VM_MEM_HADDR_LD( vm, input_addr,  8UL, input_sz );
+  void * call_result = FD_VM_MEM_HADDR_ST( vm, result_addr, 8UL, output_sz );
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1829-L1891
+     Note: this implementation is post SIMD-0129, we only support the simplified error codes. */
+  switch( op ) {
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESS:
+    if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ ) ) {
+      goto soft_error;
+    }
+    if( FD_LIKELY( fd_bn254_g1_compress( fd_type_pun(call_result), fd_type_pun_const(input) ) ) ) {
+      ret = 0UL; /* success */
+    }
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_DECOMPRESS:
+    if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESSED_SZ ) ) {
+      goto soft_error;
+    }
+    if( FD_LIKELY( fd_bn254_g1_decompress( fd_type_pun(call_result), fd_type_pun_const(input) ) ) ) {
+      ret = 0UL; /* success */
+    }
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESS:
+    if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ ) ) {
+      goto soft_error;
+    }
+    if( FD_LIKELY( fd_bn254_g2_compress( fd_type_pun(call_result), fd_type_pun_const(input) ) ) ) {
+      ret = 0UL; /* success */
+    }
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_DECOMPRESS:
+    if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESSED_SZ ) ) {
+      goto soft_error;
+    }
+    if( FD_LIKELY( fd_bn254_g2_decompress( fd_type_pun(call_result), fd_type_pun_const(input) ) ) ) {
+      ret = 0UL; /* success */
+    }
+    break;
+  }
+
+soft_error:
+  *_ret = ret;
+  return FD_VM_SUCCESS; /* Ok(SUCCESS) or Ok(ERROR) */
+}
+
+int
+fd_vm_syscall_sol_poseidon( void *  _vm,
+                            ulong   params,
+                            ulong   endianness,
+                            ulong   vals_addr,
+                            ulong   vals_len,
+                            ulong   result_addr,
+                            ulong * _ret ) {
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1678 */
+  fd_vm_t * vm  = (fd_vm_t *)_vm;
+  ulong     ret = 1UL; /* by default return Ok(1) == error */
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1688 */
+
+  if( FD_UNLIKELY( params!=0UL ) ) {
+    return FD_VM_ERR_INVAL; /* PoseidonSyscallError::InvalidParameters */
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1689 */
+
+  if( FD_UNLIKELY(
+       endianness!=0UL /* Big endian */
+    && endianness!=1UL /* Little endian */
+  ) ) {
+    return FD_VM_ERR_INVAL; /* PoseidonSyscallError::InvalidEndianness */
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1691-L1698 */
+
+  if( FD_UNLIKELY( vals_len > FD_VM_SYSCALL_SOL_POSEIDON_MAX_VALS ) ) {
+    /* TODO Log: "Poseidon hashing {} sequences is not supported" */
+    return FD_VM_ERR_INVAL; /* SyscallError::InvalidLength */
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1700-L1707
+     poseidon_cost(): https://github.com/solana-labs/solana/blob/v1.18.12/program-runtime/src/compute_budget.rs#L211 */
+
+  /* vals_len^2 * A + C */
+  ulong cost = fd_ulong_sat_add(
+    fd_ulong_sat_mul(
+      fd_ulong_sat_mul( vals_len, vals_len ),
+      FD_VM_POSEIDON_COST_COEFFICIENT_A
+    ),
+    FD_VM_POSEIDON_COST_COEFFICIENT_C
+  );
+
+  /* The following can never happen, left as comment for completeness.
+     if( FD_UNLIKELY( cost == ULONG_MAX ) ) {
+       // TODO Log: "Overflow while calculating the compute cost"
+       return FD_VM_ERR_INVAL; // SyscallError::ArithmeticOverflow
+     }
+  */
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1708 */
+
+  FD_VM_CU_UPDATE( vm, cost );
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1710-L1715 */
+
+  void * hash_result = FD_VM_MEM_HADDR_ST( vm, result_addr, 8UL, 32UL );
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1716-L1732 */
+
+  /* Agave allocates a vector of translated slices (that can return a fatal
+     error), and then computes Poseidon, returning a soft error in case of
+     issues (e.g. invalid input).
+
+     We must be careful in returning the correct fatal vs soft error.
+
+     The special case of vals_len==0 returns a soft_error, so for simplicity
+     we capture it explicitly. */
+
+  if( FD_UNLIKELY( !vals_len ) ) {
+    goto soft_error;
+  }
+
+  /* First loop to memory map. This can return a fatal error. */
+  fd_vm_vec_t const * input_vec_haddr = (fd_vm_vec_t const *)FD_VM_MEM_HADDR_LD( vm, vals_addr, FD_VM_VEC_ALIGN, vals_len*sizeof(fd_vm_vec_t) );
+  void const * inputs_haddr[ FD_VM_SYSCALL_SOL_POSEIDON_MAX_VALS ];
+  for( ulong i=0UL; i<vals_len; i++ ) {
+    inputs_haddr[i] = FD_VM_MEM_HADDR_LD( vm, input_vec_haddr[i].addr, 8UL, input_vec_haddr[i].len );
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1734-L1750
+     Note: this implementation is post SIMD-0129, we only support the simplified error codes. */
+
+  /* Second loop to computed Poseidon. This can return a soft error. */
+  int big_endian = endianness==0;
+  fd_poseidon_t pos[1];
+  fd_poseidon_init( pos, big_endian );
+
+  for( ulong i=0UL; i<vals_len; i++ ) {
+    if( FD_UNLIKELY( fd_poseidon_append( pos, inputs_haddr[ i ], input_vec_haddr[i].len )==NULL ) ) {
+      goto soft_error;
+    }
+  }
+
+  ret = !fd_poseidon_fini( pos, hash_result );
+
+soft_error:
+  *_ret = ret;
+  return FD_VM_SUCCESS; /* Ok(1) == error */
 }
 
 int
@@ -184,98 +447,6 @@ fd_vm_syscall_sol_sha256( /**/            void *  _vm,
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
-}
-
-static inline int
-fd_vm_syscall_sol_poseidon_cost( ulong   input_cnt,
-                                 ulong   cost_coefficient,
-                                 ulong * _cost_out ) {
-  ulong input_sq;
-  ulong mul_result;
-  /* FIXME: USE FD_SAT? */
-  if( FD_UNLIKELY( __builtin_umull_overflow( input_cnt,        input_cnt, &input_sq   ) ) ) return 0;
-  if( FD_UNLIKELY( __builtin_umull_overflow( cost_coefficient, input_sq,  &mul_result ) ) ) return 0;
-  if( FD_UNLIKELY( __builtin_uaddl_overflow( mul_result,       input_cnt, _cost_out   ) ) ) return 0;
-  return 1;
-}
-
-int
-fd_vm_syscall_sol_poseidon( void *  _vm,
-                            ulong   params,
-                            ulong   endianness,
-                            ulong   vals_addr,
-                            ulong   vals_len,
-                            ulong   result_addr,
-                            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
-
-  *_ret = 0UL;
-
-  /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/bpf_loader/src/syscalls/mod.rs#L1731 */
-
-  if( FD_UNLIKELY( params!=0UL ) ) {
-    /* TODO What is the implicit conversion form PoseidonSyscallError to SyscallError? */
-    *_ret = 1UL;  /* PoseidonSyscallError::InvalidParameters */
-    return FD_VM_ERR_INVAL;
-  }
-
-  /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/bpf_loader/src/syscalls/mod.rs#L1732 */
-
-  switch( endianness ) {
-  case 0UL:
-  case 1UL:
-    break;
-
-  default:
-    /* TODO What is the implicit conversion form PoseidonSyscallError to SyscallError? */
-    *_ret = 2UL;  /* PoseidonSyscallError::InvalidEndianness */
-    return FD_VM_ERR_INVAL;
-  }
-
-  /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/bpf_loader/src/syscalls/mod.rs#L1734-L1741 */
-
-  if( FD_UNLIKELY( vals_len > 12UL ) ) {
-    /* TODO Log: "Poseidon hashing {} sequences is not supported" */
-    return FD_VM_ERR_INVAL;
-  }
-
-  /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/bpf_loader/src/syscalls/mod.rs#L1743-L1750 */
-
-  ulong cost;
-  if( FD_UNLIKELY( !fd_vm_syscall_sol_poseidon_cost( vals_len, 1UL, &cost ) ) ) {
-    /* TODO Log: "Overflow while calculating the compute cost" */
-    return FD_VM_ERR_INVAL;
-  }
-
-  /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/bpf_loader/src/syscalls/mod.rs#L1751 */
-
-  int err = fd_vm_consume_compute( vm, cost );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/bpf_loader/src/syscalls/mod.rs#L1753-L1759 */
-
-  void * hash_result = fd_vm_translate_vm_to_host( vm, result_addr, 32UL, 1UL );
-  if( FD_UNLIKELY( !hash_result ) ) return FD_VM_ERR_PERM;
-
-  /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/bpf_loader/src/syscalls/mod.rs#L1760-L1766 */
-
-  /* TODO check vals_len for overflow */
-
-  ulong slices_sz = vals_len*sizeof(fd_vm_vec_t);
-
-  fd_vm_vec_t const * slices = fd_vm_translate_vm_to_host_const( vm, vals_addr, slices_sz, FD_VM_VEC_ALIGN );
-  if( FD_UNLIKELY( !slices ) ) return FD_VM_ERR_PERM;
-
-  /* At this point, Solana Labs allocates a vector of translated slices.
-     Ideally, we'd do this in O(1) allocs by doing incremental hashing
-     and translating as we go (see sha256 syscall).  However, the
-     poseidon API in ballet doesn't support incremental hashing yet.
-
-     TODO Implement! */
-
-  FD_LOG_WARNING(( "Poseidon input parsing not yet implemented" ));
-
-  return FD_VM_ERR_INVAL;
 }
 
 #if FD_HAS_SECP256K1
