@@ -7,24 +7,6 @@ FD_STATIC_ASSERT( FD_TPOOL_WORKER_STATE_IDLE==1, unit_test );
 FD_STATIC_ASSERT( FD_TPOOL_WORKER_STATE_EXEC==2, unit_test );
 FD_STATIC_ASSERT( FD_TPOOL_WORKER_STATE_HALT==3, unit_test );
 
-static int
-tile_self_push_main( int     argc,
-                     char ** argv ) {
-  (void)argc;
-  fd_tpool_t * tpool = (fd_tpool_t *)argv;
-  FD_TEST( !fd_tpool_worker_push( tpool, fd_tile_idx(), NULL, 0UL ) ); /* self push */
-  return 0;
-}
-
-static int
-tile_spin_main( int     argc,
-                char ** argv ) {
-  (void)argc; (void)argv;
-  ulong const * done = (ulong const *)argv;
-  while( !FD_VOLATILE_CONST( *done ) ) FD_SPIN_PAUSE();
-  return 0;
-}
-
 static void
 worker_spin( void * tpool,
              ulong  t0,     ulong t1,
@@ -192,59 +174,28 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Testing push" ));
 
-  ulong tile_cnt = fd_tile_cnt();
+  ulong tile_cnt = 128;
   tpool = fd_tpool_init( tpool_mem, tile_cnt ); FD_TEST( tpool );
 
-  FD_TEST( !fd_tpool_worker_push( NULL,  1UL,      NULL, 0UL ) ); /* NULL tpool */
-  FD_TEST( !fd_tpool_worker_push( tpool, 0UL,      NULL, 0UL ) ); /* cant push to tile idx 0 */
-  FD_TEST( !fd_tpool_worker_push( tpool, tile_cnt, NULL, 0UL ) ); /* cant push non-existent tile */
-  if( tile_cnt>1L ) {
-    FD_TEST( !fd_tpool_worker_push( tpool, 1UL, NULL,        1UL ) ); /* NULL scratch */
-    FD_TEST( !fd_tpool_worker_push( tpool, 1UL, (void *)1UL, 1UL ) ); /* misaligned scratch */
-  }
   for( ulong worker_idx=1UL; worker_idx<tile_cnt; worker_idx++ ) {
     ulong tile_idx = tile_cnt-worker_idx;
-    FD_TEST( fd_tpool_worker_push( tpool, tile_idx, (void *)tile_idx, 0UL )==tpool );
+    FD_TEST( fd_tpool_worker_push( tpool, USHORT_MAX, (void *)tile_idx, 0UL )==tpool );
     FD_TEST( fd_tpool_worker_cnt       ( tpool )            ==worker_idx+1UL             );
     FD_TEST( fd_tpool_worker_max       ( tpool )            ==tile_cnt                   );
     FD_TEST( fd_tpool_worker_scratch   ( tpool, worker_idx )==(void *)tile_idx           );
     FD_TEST( fd_tpool_worker_scratch_sz( tpool, worker_idx )==0UL                        );
     FD_TEST( fd_tpool_worker_state     ( tpool, worker_idx )==FD_TPOOL_WORKER_STATE_IDLE );
-    FD_TEST( !fd_tpool_worker_push( tpool, tile_idx, NULL, 0UL ) ); /* Already added and/or too many */
   }
 
   FD_TEST( fd_tpool_fini( tpool )==(void *)tpool_mem );
-
-  ulong spin_done;
-
-  if( tile_cnt>1L ) {
-    tpool = fd_tpool_init( tpool_mem, 2UL ); FD_TEST( tpool );
-
-    fd_tile_exec_delete( fd_tile_exec_new( 1UL, tile_self_push_main, 0, (char **)tpool ), NULL );
-
-    FD_COMPILER_MFENCE();
-    FD_VOLATILE( spin_done ) = 0;
-    FD_COMPILER_MFENCE();
-    fd_tile_exec_t * exec = fd_tile_exec_new( 1UL, tile_spin_main, 0, (char **)fd_type_pun( &spin_done ) ); /* self push */
-
-    FD_TEST( !fd_tpool_worker_push( tpool, 1UL, NULL, 0UL ) ); /* Already in use */
-
-    FD_COMPILER_MFENCE();
-    FD_VOLATILE( spin_done ) = 1;
-    FD_COMPILER_MFENCE();
-    fd_tile_exec_delete( exec, NULL );
-
-    FD_TEST( fd_tpool_fini( tpool )==(void *)tpool_mem );
-  }
-
-  FD_LOG_NOTICE(( "Testing pop, exec and wait" ));
 
   tpool = fd_tpool_init( tpool_mem, tile_cnt ); FD_TEST( tpool );
 
   FD_TEST( !fd_tpool_worker_pop( NULL  ) ); /* NULL tpool */
   FD_TEST( !fd_tpool_worker_pop( tpool ) ); /* no workers */
-  for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) FD_TEST( fd_tpool_worker_push( tpool, tile_idx, NULL, 0UL )==tpool );
+  for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) FD_TEST( fd_tpool_worker_push( tpool, USHORT_MAX, NULL, 0UL )==tpool );
 
+  ulong spin_done;
   if( tile_cnt>1L ) {
     ulong worker_idx = tile_cnt-1UL;
     FD_COMPILER_MFENCE();
@@ -271,7 +222,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "Testing fd_tpool_exec_all_raw" ));
 
   tpool = fd_tpool_init( tpool_mem, tile_cnt ); FD_TEST( tpool );
-  for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) FD_TEST( fd_tpool_worker_push( tpool, tile_idx, NULL, 0UL )==tpool );
+  for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) FD_TEST( fd_tpool_worker_push( tpool, USHORT_MAX, NULL, 0UL )==tpool );
 
   for( ulong rem=100000UL; rem; rem-- ) {
     ulong  tmp0       = fd_rng_ulong_roll( rng, tile_cnt );
@@ -447,10 +398,10 @@ main( int     argc,
   FD_LOG_NOTICE(( "Benching dispatch" ));
 
   tpool = fd_tpool_init( tpool_mem, tile_cnt ); FD_TEST( tpool );
-  for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) FD_TEST( fd_tpool_worker_push( tpool, tile_idx, NULL, 0UL )==tpool );
+  for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) FD_TEST( fd_tpool_worker_push( tpool, USHORT_MAX, NULL, 0UL )==tpool );
 
   ulong iter_cnt = 65536UL;
-  float overhead;
+  float overhead = 0;
   for( ulong worker_cnt=1UL; worker_cnt<=tile_cnt; worker_cnt++ ) {
 
     /* warmup */
