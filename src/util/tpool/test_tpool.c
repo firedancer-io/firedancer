@@ -153,6 +153,7 @@ main( int     argc,
   }
 
   uchar tpool_mem[ FD_TPOOL_FOOTPRINT(FD_TILE_MAX) ] __attribute__((aligned(FD_TPOOL_ALIGN)));
+  FD_TEST( fd_tpool_footprint(FD_TILE_MAX) == sizeof(tpool_mem) );
 
   FD_LOG_NOTICE(( "Testing init and fini" ));
 
