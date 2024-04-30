@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_ballet_bn254_fd_bn254_h
 #define HEADER_fd_src_ballet_bn254_fd_bn254_h
 
-/* fd_bn254 implements utility functions for the bn254 (alt_bn128) curve. It currently wraps libff. */
+/* fd_bn254 implements utility functions for the bn254 (alt_bn128) curve. */
 
 #include "../fd_ballet_base.h"
 #include "../bigint/fd_uint256.h"
