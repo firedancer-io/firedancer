@@ -160,10 +160,11 @@ fd_poseidon_fini( fd_poseidon_t * pos,
   }
 
   /* Directly convert scalar into return hash buffer - hash MUST be FD_UINT256_ALIGNED */
-  fd_bn254_scalar_t * scalar_hash = fd_type_pun( hash );
+  fd_bn254_scalar_t scalar_hash[1];
   fd_bn254_scalar_from_mont( scalar_hash, &pos->state[0] );
   if( pos->big_endian ) {
     fd_uint256_bswap( scalar_hash, scalar_hash );
   }
+  fd_memcpy( hash, scalar_hash, 32 );
   return hash;
 }

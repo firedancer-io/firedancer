@@ -84,12 +84,11 @@ fd_poseidon_append( fd_poseidon_t * pos,
    result of the calculation should be stored.
    Returns hash, or NULL if pos==NULL (on return, there will be no calculation
    in-progress on pos and 32-byte buffer pointed to by hash will be populated
-   with the calculation result).
-   Important: hash MUST be FD_UINT256_ALIGNED (or, FD_ALIGNED). */
+   with the calculation result). */
 
 uchar *
 fd_poseidon_fini( fd_poseidon_t * pos,
-                  uchar           hash[ FD_POSEIDON_HASH_SZ ] ); /* MUST be FD_UINT256_ALIGNED */
+                  uchar           hash[ FD_POSEIDON_HASH_SZ ] );
 
 /* Hash a series of bytes. */
 static inline int
