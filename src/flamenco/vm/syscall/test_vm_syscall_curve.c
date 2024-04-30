@@ -124,6 +124,20 @@ main( int     argc,
     expected_result_host_ptr
   );
 
+  // invalid (max 512 points)
+  test_vm_syscall_sol_curve_multiscalar_mul(
+    "test_vm_syscall_sol_curve_multiscalar_mul: invalid",
+    &vm,
+    FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS,
+    scalar_vaddr,
+    point_vaddr,
+    513UL, // point_cnt
+    result_point_vaddr,
+    0UL, // ret_code
+    FD_VM_ERR_INVAL, // syscall_ret
+    expected_result_host_ptr
+  );
+
   // success
   // https://github.com/solana-labs/solana/blob/v1.17.15/programs/bpf_loader/src/syscalls/mod.rs#L3107
   {
