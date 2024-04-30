@@ -174,7 +174,7 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Testing push" ));
 
-  ulong tile_cnt = 128;
+  ulong tile_cnt = 64;
   tpool = fd_tpool_init( tpool_mem, tile_cnt ); FD_TEST( tpool );
 
   for( ulong worker_idx=1UL; worker_idx<tile_cnt; worker_idx++ ) {
