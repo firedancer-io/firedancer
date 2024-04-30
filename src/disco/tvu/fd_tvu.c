@@ -714,6 +714,7 @@ void solcap_setup( char const * capture_fpath, fd_valloc_t valloc, solcap_setup_
 
 void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args,
                         solcap_setup_t * solcap_setup_out, fd_valloc_t valloc ) {
+  /* TODO: needs a refactor */
   runtime_ctx->capture_ctx  = NULL;
   runtime_ctx->capture_file = NULL;
 
@@ -726,7 +727,6 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
 
     runtime_ctx->capture_ctx->checkpt_path = NULL;
     runtime_ctx->capture_ctx->checkpt_slot = 0;
-    runtime_ctx->capture_ctx->checkpt_freq = ULONG_MAX;
     runtime_ctx->capture_ctx->pruned_funk  = NULL;
   }
 
@@ -745,6 +745,10 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
     FD_TEST( !!capture_ctx_mem );
     runtime_ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
     runtime_ctx->capture_ctx->capture = NULL;
+  }
+
+  if ( runtime_ctx->capture_ctx ) {
+    runtime_ctx->capture_ctx->checkpt_freq = ULONG_MAX;
   }
 
   if ( has_checkpt_dump ) {
