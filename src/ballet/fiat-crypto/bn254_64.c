@@ -139,7 +139,7 @@ void fiat_bn254_cmovznz_u64(uint64_t* out1, fiat_bn254_uint1 arg1, uint64_t arg2
   uint64_t x2;
   uint64_t x3;
   x1 = (!(!arg1));
-  x2 = ((fiat_bn254_int1)(0x0 - x1) & UINT64_C(0xffffffffffffffff));
+  x2 = ((uint64_t)(fiat_bn254_int1)(0x0 - x1) & UINT64_C(0xffffffffffffffff));
   x3 = ((x2 & arg3) | ((~x2) & arg2));
   *out1 = x3;
 }
