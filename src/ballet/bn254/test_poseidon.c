@@ -227,7 +227,7 @@ int main( int     argc,
     for (ulong i = 0; i < 12; ++i) {
       fd_poseidon_append( pos, FLIST[i], 32 );
     }
-    uchar FD_ALIGNED res[32];
+    uchar res[32];
     fd_poseidon_fini( pos, res );
     FD_TEST(memcmp(res, FLIST[12], FD_POSEIDON_HASH_SZ) == 0);
 

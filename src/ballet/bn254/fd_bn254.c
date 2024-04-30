@@ -100,7 +100,6 @@ fd_bn254_g2_compress( uchar       out[64],
 uchar *
 fd_bn254_g2_decompress( uchar       out[128],
                         uchar const in  [64] ) {
-
   fd_bn254_fp2_t x[1], x2[1], x3_plus_b[1], y[1];
   int is_inf, is_neg;
   if( FD_UNLIKELY( !fd_bn254_fp2_frombytes_be_nm( x, in, &is_inf, &is_neg ) ) ) {
