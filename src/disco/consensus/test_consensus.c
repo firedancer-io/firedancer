@@ -51,11 +51,19 @@ main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
+  ulong  page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 0UL );
+  const char * restore = fd_env_strip_cmdline_cstr( &argc, &argv, "--restore", NULL, NULL );
+  const char * gossip_peer_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, NULL );
+  const char * shredcap = fd_env_strip_cmdline_cstr( &argc, &argv, "--shredcap", NULL, NULL );
+
+  FD_TEST( page_cnt );
+  FD_TEST( restore );
+  FD_TEST( gossip_peer_addr );
+
   /**********************************************************************/
   /* wksp                                                               */
   /**********************************************************************/
 
-  ulong  page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 128UL );
   char * _page_sz = "gigantic";
   ulong  numa_idx = fd_shmem_numa_idx( 0 );
   FD_LOG_NOTICE( ( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)",
@@ -66,6 +74,55 @@ main( int argc, char ** argv ) {
       fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
   FD_LOG_NOTICE( ( "Finish setup wksp" ) );
+
+  /**********************************************************************/
+  /* restore                                                            */
+  /**********************************************************************/
+
+  if( restore == NULL ) {
+    FD_LOG_ERR( ( "For now, both live (archive shredcap) and sim (replay shredcap) need to restore "
+                  "a funk for the snapshot." ) );
+  }
+  FD_LOG_NOTICE( ( "fd_wksp_restore %s", restore ) );
+  int err = fd_wksp_restore( wksp, restore, TEST_CONSENSUS_MAGIC );
+  if( err ) FD_LOG_ERR( ( "fd_wksp_restore failed: error %d", err ) );
+  FD_LOG_NOTICE( ( "Finish restore funk" ) );
+
+  /**********************************************************************/
+  /* funk                                                               */
+  /**********************************************************************/
+
+  fd_wksp_tag_query_info_t funk_info;
+  fd_funk_t *              funk     = NULL;
+  ulong                    funk_tag = FD_FUNK_MAGIC;
+  if( fd_wksp_tag_query( wksp, &funk_tag, 1, &funk_info, 1 ) > 0 ) {
+    void * shmem = fd_wksp_laddr_fast( wksp, funk_info.gaddr_lo );
+    funk         = fd_funk_join( shmem );
+  }
+  if( funk == NULL ) FD_LOG_ERR( ( "failed to join a funky" ) );
+  FD_LOG_NOTICE( ( "Finish setup funk" ) );
+
+  /**********************************************************************/
+  /* blockstore                                                         */
+  /**********************************************************************/
+
+  fd_wksp_tag_query_info_t blockstore_info;
+  fd_blockstore_t *        blockstore     = NULL;
+  ulong                    blockstore_tag = FD_BLOCKSTORE_MAGIC;
+  if( fd_wksp_tag_query( wksp, &blockstore_tag, 1, &blockstore_info, 1 ) > 0 ) {
+    void * shmem = fd_wksp_laddr_fast( wksp, blockstore_info.gaddr_lo );
+    blockstore   = fd_blockstore_join( shmem );
+  }
+  FD_TEST( blockstore );
+  FD_LOG_NOTICE( ( "Finish setup blockstore" ) );
+
+  /**********************************************************************/
+  /* acc_mgr                                                            */
+  /**********************************************************************/
+
+  fd_acc_mgr_t acc_mgr[1];
+  fd_acc_mgr_new( acc_mgr, funk );
+  FD_LOG_NOTICE( ( "Finish setup acc mgr" ) );
 
   /**********************************************************************/
   /* alloc                                                              */
@@ -91,56 +148,6 @@ main( int argc, char ** argv ) {
   FD_TEST( ( !!smem ) & ( !!fmem ) );
   fd_scratch_attach( smem, fmem, smax, sdepth );
   FD_LOG_NOTICE( ( "Finish setup scratch" ) );
-
-  /**********************************************************************/
-  /* restore                                                            */
-  /**********************************************************************/
-
-  const char * restore = fd_env_strip_cmdline_cstr( &argc, &argv, "--restore", NULL, NULL );
-  if( restore == NULL ) {
-    FD_LOG_ERR( ( "For now, both live (archive shredcap) and sim (replay shredcap) need to restore "
-                  "a funk for the snapshot." ) );
-  }
-  FD_LOG_NOTICE( ( "fd_wksp_restore %s", restore ) );
-  int err = fd_wksp_restore( wksp, restore, TEST_CONSENSUS_MAGIC );
-  if( err ) FD_LOG_ERR( ( "fd_wksp_restore failed: error %d", err ) );
-  FD_LOG_NOTICE( ( "Finish restore funk" ) );
-
-  /**********************************************************************/
-  /* funk                                                               */
-  /**********************************************************************/
-
-  fd_wksp_tag_query_info_t funk_info;
-  fd_funk_t *              funk     = NULL;
-  ulong                    funk_tag = FD_FUNK_MAGIC;
-  if( fd_wksp_tag_query( wksp, &funk_tag, 1, &funk_info, 1 ) > 0 ) {
-    void * shmem = fd_wksp_laddr_fast( wksp, funk_info.gaddr_lo );
-    funk         = fd_funk_join( shmem );
-  }
-  if( funk == NULL ) FD_LOG_ERR( ( "failed to join a funky" ) );
-  FD_LOG_NOTICE( ( "Finish setup funk" ) );
-
-  /**********************************************************************/
-  /* acc_mgr                                                            */
-  /**********************************************************************/
-
-  fd_acc_mgr_t acc_mgr[1];
-  fd_acc_mgr_new( acc_mgr, funk );
-  FD_LOG_NOTICE( ( "Finish setup acc mgr" ) );
-
-  /**********************************************************************/
-  /* blockstore                                                         */
-  /**********************************************************************/
-
-  fd_wksp_tag_query_info_t blockstore_info;
-  fd_blockstore_t *        blockstore     = NULL;
-  ulong                    blockstore_tag = FD_BLOCKSTORE_MAGIC;
-  if( fd_wksp_tag_query( wksp, &blockstore_tag, 1, &blockstore_info, 1 ) > 0 ) {
-    void * shmem = fd_wksp_laddr_fast( wksp, blockstore_info.gaddr_lo );
-    blockstore   = fd_blockstore_join( shmem );
-  }
-  if( blockstore == NULL ) FD_LOG_ERR( ( "failed to join a blockstore" ) );
-  FD_LOG_NOTICE( ( "Finish setup blockstore" ) );
 
   /**********************************************************************/
   /* latest_votes                                                       */
@@ -187,10 +194,12 @@ main( int argc, char ** argv ) {
   fd_exec_slot_ctx_t * snapshot_slot_ctx =
       fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &snapshot_fork->slot_ctx, valloc ) );
   FD_TEST( snapshot_slot_ctx );
-  snapshot_slot_ctx->valloc     = valloc;
-  snapshot_slot_ctx->acc_mgr    = acc_mgr;
+
   snapshot_slot_ctx->epoch_ctx  = epoch_ctx;
+
+  snapshot_slot_ctx->acc_mgr    = acc_mgr;
   snapshot_slot_ctx->blockstore = blockstore;
+  snapshot_slot_ctx->valloc     = valloc;
 
   fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
   // FD_TEST( snapshot_slot_ctx->funk_txn );  FIXME: why not this? It fails when I run the code.
@@ -285,7 +294,6 @@ main( int argc, char ** argv ) {
   /**********************************************************************/
 
   /* do replay+shredcap or archive+live_data */
-  const char * shredcap = fd_env_strip_cmdline_cstr( &argc, &argv, "--shredcap", NULL, NULL );
   if( shredcap ) {
     FD_LOG_NOTICE( ( "test_consensus running in replay mode" ) );
     fd_blockstore_clear( blockstore ); /* this does not appear in tvu */
@@ -388,7 +396,6 @@ main( int argc, char ** argv ) {
   /* gossip                                                             */
   /**********************************************************************/
 
-  const char * gossip_peer_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--restore", NULL, NULL );
   gossip_deliver_arg.valloc     = valloc;
   gossip_deliver_arg.repair     = repair;
   gossip_deliver_arg.bft        = bft;
@@ -413,9 +420,9 @@ main( int argc, char ** argv ) {
 
   FD_TEST( !fd_gossip_set_config( gossip, &gossip_config ) );
 
-  fd_gossip_peer_addr_t gossip_peer;
+  fd_gossip_peer_addr_t _gossip_peer_addr;
   FD_TEST(
-      !fd_gossip_add_active_peer( gossip, resolve_hostport( gossip_peer_addr, &gossip_peer ) ) );
+      !fd_gossip_add_active_peer( gossip, resolve_hostport( gossip_peer_addr, &_gossip_peer_addr ) ) );
   FD_LOG_NOTICE( ( "Finish setup gossip" ) );
 
 end:
