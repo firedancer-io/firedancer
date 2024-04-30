@@ -80,8 +80,8 @@ fd_bn254_fp_frombytes_be_nm( fd_bn254_fp_t * r,
     }
   }
 
-  /* important: this cast assumes that buf is FD_ALIGNED */
-  fd_uint256_bswap( r, fd_type_pun_const( buf ) );
+  fd_memcpy( r, buf, 32 );
+  fd_uint256_bswap( r, r );
   //FIXME: add differential test, I think the mask should only apply if the flags are expected
   if( is_inf != NULL ) r->buf[31] &= FLAG_MASK;
 
@@ -93,9 +93,10 @@ fd_bn254_fp_frombytes_be_nm( fd_bn254_fp_t * r,
 }
 
 static inline uchar *
-fd_bn254_fp_tobytes_be_nm( uchar                 buf[32],
-                           fd_bn254_fp_t * const a ) {
-  fd_uint256_bswap( fd_type_pun( buf ), a );
+fd_bn254_fp_tobytes_be_nm( uchar           buf[32],
+                           fd_bn254_fp_t * a ) {
+  fd_uint256_bswap( a, a );
+  fd_memcpy( buf, a, 32 );
   return buf;
 }
 
