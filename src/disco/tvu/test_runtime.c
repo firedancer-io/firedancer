@@ -1,6 +1,6 @@
 /****
 
-build/native/gcc/bin/fd_frank_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup
+build/native/gcc/bin/fd_ledger --rocksdb $LEDGER/rocksdb --genesis $LEDGER/genesis.bin --cmd ingest --indexmax 10000 --txnmax 100 --backup test_ledger_backup
 
 build/native/gcc/unit-test/test_runtime --load test_ledger_backup --cmd replay --end-slot 25 --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN  --confirm_signature 2  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv --validate true
 
@@ -8,14 +8,14 @@ build/native/gcc/bin/fd_shmem_cfg reset
 
 build/native/gcc/bin/fd_wksp_ctl new giant_wksp 200 gigantic 32-63 0666
 
-build/native/gcc/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244883-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244883-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --endslot 179249378 --backup /home/asiegel/mainnet_backup
+build/native/gcc/bin/fd_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244883-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244883-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --endslot 179249378 --backup /home/asiegel/mainnet_backup
 
 build/native/gcc/unit-test/test_runtime --wksp giant_wksp --reset true --load /home/asiegel/mainnet_backup --cmd replay --index-max 350000000
 
 build/native/gcc/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cmd replay
   NOTE: gaddr argument may be different
 
-build/native/gcc/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /data/jsiegel/mainnet-ledger/snapshot-179244883-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /data/jsiegel/mainnet-ledger/incremental-snapshot-179244883-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --rocksdb /data/jsiegel/mainnet-ledger/rocksdb --endslot 179248378 --backup /data/jsiegel/mainnet_backup
+build/native/gcc/bin/fd_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /data/jsiegel/mainnet-ledger/snapshot-179244883-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /data/jsiegel/mainnet-ledger/incremental-snapshot-179244883-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --rocksdb /data/jsiegel/mainnet-ledger/rocksdb --endslot 179248378 --backup /data/jsiegel/mainnet_backup
 
 build/native/gcc/unit-test/test_runtime --wksp giant_wksp --gaddr 0x000000000c7ce180 --cmd replay
 
@@ -26,7 +26,7 @@ build/native/gcc/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cm
 
 build/native/gcc/unit-test/test_runtime --wksp giant_wksp --gaddr 0xc7ce180 --cmd verifyonly --tile-cpus 32-100
 
-build/native/gcc/bin/fd_frank_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /data/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --rocksdb /data/jsiegel/mainnet-ledger/rocksdb --endslot 179244982 --backup /data/asiegel/mainnet_backup
+build/native/gcc/bin/fd_ledger --wksp giant_wksp --reset true --cmd ingest --snapshotfile /data/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --rocksdb /data/jsiegel/mainnet-ledger/rocksdb --endslot 179244982 --backup /data/asiegel/mainnet_backup
 
 build/native/gcc/unit-test/test_runtime --wksp giant_wksp --cmd replay --load /data/asiegel/mainnet_backup
 
@@ -56,23 +56,6 @@ main( int     argc,
 
   fd_replay_t * replay = NULL;
   fd_tvu_main_setup( state, &replay, NULL, NULL, 0, NULL, args, NULL );
-
-  if( args->tcnt == ULONG_MAX ) { args->tcnt = fd_tile_cnt(); }
-  fd_tpool_t * tpool = NULL;
-  uchar * tpool_scr_mem = NULL;
-  if( args->tcnt > 1 ) {
-    tpool = fd_tpool_init( state->tpool_mem, args->tcnt );
-    if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
-    ulong scratch_sz = fd_scratch_smem_footprint( 256UL<<20UL );
-    tpool_scr_mem = fd_valloc_malloc( replay->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(args->tcnt - 1U) );
-    if( tpool_scr_mem == NULL ) FD_LOG_ERR( ( "failed to allocate thread pool scratch space" ) );
-    for( ulong i = 1; i < args->tcnt; ++i ) {
-      if( fd_tpool_worker_push( tpool, i, tpool_scr_mem + scratch_sz*(i - 1U), scratch_sz ) == NULL )
-        FD_LOG_ERR( ( "failed to launch worker" ) );
-    }
-  }
-  state->tpool       = tpool;
-  state->max_workers = args->tcnt;
 
   // TODO: tracing, captures, and capitalization is broken
 #if 0
@@ -131,10 +114,6 @@ main( int     argc,
       return err;
     }
   }
-
-  // DO NOT REMOVE
-  if( tpool_scr_mem ) fd_valloc_free( replay->valloc, tpool_scr_mem );
-  fd_tvu_main_teardown(state, NULL);
 
   FD_LOG_NOTICE(( "pass" ));
 

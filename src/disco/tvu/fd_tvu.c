@@ -53,7 +53,7 @@
     wget --trust-server-names http://entrypoint3.testnet.solana.com:8899/snapshot.tar.bz2 && wget \
    --trust-server-names http://entrypoint3.testnet.solana.com:8899/incremental-snapshot.tar.bz2
 
-    build/native/gcc/bin/fd_frank_ledger --cmd ingest --snapshotfile snapshot-24* --incremental
+    build/native/gcc/bin/fd_ledger --cmd ingest --snapshotfile snapshot-24* --incremental
    incremental-snapshot-24* --rocksdb /data/testnet/ledger/rocksdb --genesis
    /data/testnet/ledger/genesis.bin --txnstatus true --pages 100 --backup /data/asiegel/test_backup
    --slothistory 100
@@ -702,73 +702,53 @@ typedef struct {
   fd_capture_ctx_t * capture_ctx;
 } solcap_setup_t;
 
-void solcap_setup( char const * capture_fpath, fd_valloc_t valloc, solcap_setup_t * out ) {
-  fd_memset( out, 0, sizeof( solcap_setup_t ) );
-  out->capture_file = fopen( capture_fpath, "w+" );
-  if( FD_UNLIKELY( !out->capture_file ) )
-    FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", capture_fpath, errno, strerror( errno ) ));
-
-  void * capture_ctx_mem = fd_valloc_malloc( valloc, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
-  FD_TEST( capture_ctx_mem );
-  out->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
-
-  FD_TEST( fd_solcap_writer_init( out->capture_ctx->capture, out->capture_file ) );
-}
-
-void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args,
-                        solcap_setup_t * solcap_setup_out, fd_valloc_t valloc ) {
-  /* TODO: needs a refactor */
+void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args, fd_valloc_t valloc ) {
   runtime_ctx->capture_ctx  = NULL;
   runtime_ctx->capture_file = NULL;
 
-  /* If a capture path is passed in, setup solcap, but nothing else in capture_ctx */
-  if( args->capture_fpath && args->capture_fpath[0] != '\0' ) {
-    solcap_setup( args->capture_fpath, valloc, solcap_setup_out );
-    runtime_ctx->capture_file = solcap_setup_out->capture_file;
-    runtime_ctx->capture_ctx  = solcap_setup_out->capture_ctx;
-    runtime_ctx->capture_ctx->capture_txns = args->capture_txns && strcmp( "true", args->capture_txns ) ? 0 : 1;
+  int has_solcap           = args->capture_fpath && args->capture_fpath[0] != '\0';
+  int has_checkpt_dump     = args->checkpt_path && args->checkpt_path[0] != '\0' &&
+                             ( args->checkpt_slot != 0 || args->checkpt_freq != 0 );
+  int has_prune            = args->pruned_funk != NULL;
+  int has_dump_to_protobuf = args->dump_insn_to_pb;
 
-    runtime_ctx->capture_ctx->checkpt_path = NULL;
-    runtime_ctx->capture_ctx->checkpt_slot = 0;
-    runtime_ctx->capture_ctx->pruned_funk  = NULL;
+  if( !has_solcap && !has_checkpt_dump && !has_prune && !has_dump_to_protobuf ) {
+    return;
   }
 
-  int has_slot_checkpt_dump = args->checkpt_path && args->checkpt_path[0] != '\0' && args->checkpt_slot;
-  int has_freq_checkpt_dump = args->checkpt_freq != ULONG_MAX;
-  int has_checkpt_dump      = has_slot_checkpt_dump || has_freq_checkpt_dump;
+  void * capture_ctx_mem = fd_valloc_malloc( valloc, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
+  FD_TEST( capture_ctx_mem );
+  fd_memset( capture_ctx_mem, 0, sizeof( fd_capture_ctx_t ) );
+  runtime_ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
 
-  int has_prune             = args->pruned_funk != NULL;
+  runtime_ctx->capture_ctx->checkpt_slot = ULONG_MAX;
+  runtime_ctx->capture_ctx->checkpt_freq = ULONG_MAX;
 
-  int has_dump_to_protobuf  = args->dump_instructions_to_protobuf;
-
-  /* If not using solcap, but setting up checkpoint dump or prune OR dumping to Protobuf, allocate memory for capture_ctx */
-  if( ( has_checkpt_dump || has_prune || has_dump_to_protobuf ) && runtime_ctx->capture_ctx == NULL ) {
-    /* Initialize capture_ctx if it doesn't exist */
-    void * capture_ctx_mem = fd_valloc_malloc( valloc, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
-    FD_TEST( !!capture_ctx_mem );
-    runtime_ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
+  if( has_solcap ) {
+    runtime_ctx->capture_file = fopen( args->capture_fpath, "w+" );
+    if( FD_UNLIKELY( !runtime_ctx->capture_file ) ) {
+      FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", args->capture_fpath, errno, strerror( errno ) ));
+    }
+    fd_solcap_writer_init( runtime_ctx->capture_ctx->capture, runtime_ctx->capture_file );
+    runtime_ctx->capture_ctx->capture_txns = args->capture_txns;
+  } else {
     runtime_ctx->capture_ctx->capture = NULL;
   }
 
-  if ( runtime_ctx->capture_ctx ) {
-    runtime_ctx->capture_ctx->checkpt_freq = ULONG_MAX;
-  }
-
-  if ( has_checkpt_dump ) {
+  if( has_checkpt_dump ) {
     runtime_ctx->capture_ctx->checkpt_slot = args->checkpt_slot;
     runtime_ctx->capture_ctx->checkpt_path = args->checkpt_path;
     runtime_ctx->capture_ctx->checkpt_freq = args->checkpt_freq;
   }
-
-  if ( has_prune ) {
+  if( has_prune ) {
     runtime_ctx->capture_ctx->pruned_funk = args->pruned_funk;
   }
-
-  if ( has_dump_to_protobuf ) {
-    runtime_ctx->capture_ctx->dump_instructions_to_protobuf = args->dump_instructions_to_protobuf;
-    runtime_ctx->capture_ctx->instruction_dump_signature_filter = args->instruction_dump_signature_filter;
-    runtime_ctx->capture_ctx->dump_instruction_output_dir = args->dump_instruction_output_dir;
+  if( has_dump_to_protobuf ) {
+    runtime_ctx->capture_ctx->dump_insn_to_pb      = args->dump_insn_to_pb;
+    runtime_ctx->capture_ctx->dump_insn_sig_filter = args->dump_insn_sig_filter;
+    runtime_ctx->capture_ctx->dump_insn_output_dir = args->dump_insn_output_dir;
   }
+                      
 }
 
 typedef struct {
@@ -1095,9 +1075,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
 
   fd_valloc_t valloc = allocator_setup( wksp, args->allocator );
 
-  /* Sets up solcap, checkpoint dumps, and/or pruning */
-  solcap_setup_t solcap_setup = {0};
-  capture_ctx_setup( runtime_ctx, args, &solcap_setup, valloc );
+  /* Sets up solcap, checkpoint dumps, insn dumps,and/or pruning */
+  capture_ctx_setup( runtime_ctx, args, valloc );
 
   blockstore_setup_t blockstore_setup_out = {0};
   blockstore_setup( wksp, funk_setup_out.hashseed, &blockstore_setup_out );
@@ -1438,7 +1417,7 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
       fd_env_strip_cmdline_cstr( &argc, &argv, "--check_hash", NULL, "false" );
   args->capture_fpath = fd_env_strip_cmdline_cstr( &argc, &argv, "--capture", NULL, NULL );
   /* Disabling capture_txns speeds up runtime and makes solcap captures significantly smaller */
-  args->capture_txns  = fd_env_strip_cmdline_cstr( &argc, &argv, "--capture-txns", NULL, "false" );
+  args->capture_txns  = fd_env_strip_cmdline_int( &argc, &argv, "--capture-txns", NULL, 0 );
   args->trace_fpath   = fd_env_strip_cmdline_cstr( &argc, &argv, "--trace", NULL, NULL );
   /* TODO @yunzhang: I added this to get the shred_cap file path,
    *  but shred_cap is now NULL despite there is such an entry in the toml config */
@@ -1449,9 +1428,9 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
   args->checkpt_slot = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-slot", NULL, 0 );
   args->checkpt_freq = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-freq", NULL, ULONG_MAX );
   args->checkpt_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--checkpt-path", NULL, NULL );
-  args->dump_instructions_to_protobuf = fd_env_strip_cmdline_int( &argc, &argv, "--dump-instructions-to-protobuf", NULL, 0 );
-  args->instruction_dump_signature_filter = fd_env_strip_cmdline_cstr( &argc, &argv, "--instruction-dump-signature-filter", NULL, NULL );
-  args->dump_instruction_output_dir = fd_env_strip_cmdline_cstr( &argc, &argv, "--dump-instruction-output-dir", NULL, "protobuf_tests_from_executed_instr" );
+  args->dump_insn_to_pb = fd_env_strip_cmdline_int( &argc, &argv, "--dump-instructions-to-protobuf", NULL, 0 );
+  args->dump_insn_sig_filter = fd_env_strip_cmdline_cstr( &argc, &argv, "--instruction-dump-signature-filter", NULL, NULL );
+  args->dump_insn_output_dir = fd_env_strip_cmdline_cstr( &argc, &argv, "--dump-instruction-output-dir", NULL, "protobuf_tests_from_executed_instr" );
 
   /* These argument(s) should never be modified via the command line */
   args->pruned_funk = NULL;
@@ -1466,8 +1445,6 @@ fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args, fd_replay_t * replay ) {
     fd_valloc_free( tvu_args->slot_ctx->valloc, fd_capture_ctx_delete( tvu_args->capture_ctx ) );
     fclose( tvu_args->capture_file );
   }
-
-  if( tvu_args->tpool ) fd_tpool_fini( tvu_args->tpool );
 
   if ( NULL != replay ) {
 #ifdef FD_HAS_LIBMICROHTTP

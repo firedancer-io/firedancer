@@ -100,7 +100,7 @@ struct fd_runtime_args {
   char const * validate_db;
   char const * validate_snapshot;
   char const * capture_fpath;
-  char const * capture_txns;
+  int          capture_txns;
   char const * shred_cap;
   char const * trace_fpath;
   char const * check_hash;
@@ -116,9 +116,13 @@ struct fd_runtime_args {
   ulong        checkpt_freq;
   char const * checkpt_path;
   fd_funk_t *  pruned_funk;
-  int          dump_instructions_to_protobuf;
-  char const * instruction_dump_signature_filter;
-  char const * dump_instruction_output_dir;
+  int          dump_insn_to_pb;
+  char const * dump_insn_sig_filter;
+  char const * dump_insn_output_dir;
+  char const * rocksdb_dir;
+  int          on_demand_block_ingest;
+  ulong        on_demand_block_history;
+  int          copy_txn_status;
 };
 typedef struct fd_runtime_args fd_runtime_args_t;
 
