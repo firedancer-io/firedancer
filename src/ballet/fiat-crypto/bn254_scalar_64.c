@@ -59,7 +59,7 @@ typedef uint64_t fiat_bn254_scalar_non_montgomery_domain_field_element[4];
  *   out1: [0x0 ~> 0xffffffffffffffff]
  *   out2: [0x0 ~> 0x1]
  */
-void fiat_bn254_scalar_addcarryx_u64(uint64_t* out1, fiat_bn254_scalar_uint1* out2, fiat_bn254_scalar_uint1 arg1, uint64_t arg2, uint64_t arg3) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_addcarryx_u64(uint64_t* out1, fiat_bn254_scalar_uint1* out2, fiat_bn254_scalar_uint1 arg1, uint64_t arg2, uint64_t arg3) {
   fiat_bn254_scalar_uint128 x1;
   uint64_t x2;
   fiat_bn254_scalar_uint1 x3;
@@ -85,7 +85,7 @@ void fiat_bn254_scalar_addcarryx_u64(uint64_t* out1, fiat_bn254_scalar_uint1* ou
  *   out1: [0x0 ~> 0xffffffffffffffff]
  *   out2: [0x0 ~> 0x1]
  */
-void fiat_bn254_scalar_subborrowx_u64(uint64_t* out1, fiat_bn254_scalar_uint1* out2, fiat_bn254_scalar_uint1 arg1, uint64_t arg2, uint64_t arg3) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_subborrowx_u64(uint64_t* out1, fiat_bn254_scalar_uint1* out2, fiat_bn254_scalar_uint1 arg1, uint64_t arg2, uint64_t arg3) {
   fiat_bn254_scalar_int128 x1;
   fiat_bn254_scalar_int1 x2;
   uint64_t x3;
@@ -110,7 +110,7 @@ void fiat_bn254_scalar_subborrowx_u64(uint64_t* out1, fiat_bn254_scalar_uint1* o
  *   out1: [0x0 ~> 0xffffffffffffffff]
  *   out2: [0x0 ~> 0xffffffffffffffff]
  */
-void fiat_bn254_scalar_mulx_u64(uint64_t* out1, uint64_t* out2, uint64_t arg1, uint64_t arg2) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_mulx_u64(uint64_t* out1, uint64_t* out2, uint64_t arg1, uint64_t arg2) {
   fiat_bn254_scalar_uint128 x1;
   uint64_t x2;
   uint64_t x3;
@@ -134,12 +134,12 @@ void fiat_bn254_scalar_mulx_u64(uint64_t* out1, uint64_t* out2, uint64_t arg1, u
  * Output Bounds:
  *   out1: [0x0 ~> 0xffffffffffffffff]
  */
-void fiat_bn254_scalar_cmovznz_u64(uint64_t* out1, fiat_bn254_scalar_uint1 arg1, uint64_t arg2, uint64_t arg3) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_cmovznz_u64(uint64_t* out1, fiat_bn254_scalar_uint1 arg1, uint64_t arg2, uint64_t arg3) {
   fiat_bn254_scalar_uint1 x1;
   uint64_t x2;
   uint64_t x3;
   x1 = (!(!arg1));
-  x2 = ((fiat_bn254_scalar_int1)(0x0 - x1) & UINT64_C(0xffffffffffffffff));
+  x2 = ((uint64_t)((fiat_bn254_scalar_int1)(0x0 - x1)) & UINT64_C(0xffffffffffffffff));
   x3 = ((x2 & arg3) | ((~x2) & arg2));
   *out1 = x3;
 }
@@ -155,7 +155,7 @@ void fiat_bn254_scalar_cmovznz_u64(uint64_t* out1, fiat_bn254_scalar_uint1 arg1,
  *   0 ≤ eval out1 < m
  *
  */
-void fiat_bn254_scalar_mul(fiat_bn254_scalar_montgomery_domain_field_element out1, const fiat_bn254_scalar_montgomery_domain_field_element arg1, const fiat_bn254_scalar_montgomery_domain_field_element arg2) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_mul(fiat_bn254_scalar_montgomery_domain_field_element out1, const fiat_bn254_scalar_montgomery_domain_field_element arg1, const fiat_bn254_scalar_montgomery_domain_field_element arg2) {
   uint64_t x1;
   uint64_t x2;
   uint64_t x3;
@@ -510,7 +510,7 @@ void fiat_bn254_scalar_mul(fiat_bn254_scalar_montgomery_domain_field_element out
  *   0 ≤ eval out1 < m
  *
  */
-void fiat_bn254_scalar_square(fiat_bn254_scalar_montgomery_domain_field_element out1, const fiat_bn254_scalar_montgomery_domain_field_element arg1) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_square(fiat_bn254_scalar_montgomery_domain_field_element out1, const fiat_bn254_scalar_montgomery_domain_field_element arg1) {
   uint64_t x1;
   uint64_t x2;
   uint64_t x3;
@@ -866,7 +866,7 @@ void fiat_bn254_scalar_square(fiat_bn254_scalar_montgomery_domain_field_element 
  *   0 ≤ eval out1 < m
  *
  */
-void fiat_bn254_scalar_add(fiat_bn254_scalar_montgomery_domain_field_element out1, const fiat_bn254_scalar_montgomery_domain_field_element arg1, const fiat_bn254_scalar_montgomery_domain_field_element arg2) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_add(fiat_bn254_scalar_montgomery_domain_field_element out1, const fiat_bn254_scalar_montgomery_domain_field_element arg1, const fiat_bn254_scalar_montgomery_domain_field_element arg2) {
   uint64_t x1;
   fiat_bn254_scalar_uint1 x2;
   uint64_t x3;
@@ -919,7 +919,7 @@ void fiat_bn254_scalar_add(fiat_bn254_scalar_montgomery_domain_field_element out
  *   0 ≤ eval out1 < m
  *
  */
-void fiat_bn254_scalar_sub(fiat_bn254_scalar_montgomery_domain_field_element out1, const fiat_bn254_scalar_montgomery_domain_field_element arg1, const fiat_bn254_scalar_montgomery_domain_field_element arg2) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_sub(fiat_bn254_scalar_montgomery_domain_field_element out1, const fiat_bn254_scalar_montgomery_domain_field_element arg1, const fiat_bn254_scalar_montgomery_domain_field_element arg2) {
   uint64_t x1;
   fiat_bn254_scalar_uint1 x2;
   uint64_t x3;
@@ -962,7 +962,7 @@ void fiat_bn254_scalar_sub(fiat_bn254_scalar_montgomery_domain_field_element out
  *   0 ≤ eval out1 < m
  *
  */
-void fiat_bn254_scalar_opp(fiat_bn254_scalar_montgomery_domain_field_element out1, const fiat_bn254_scalar_montgomery_domain_field_element arg1) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_opp(fiat_bn254_scalar_montgomery_domain_field_element out1, const fiat_bn254_scalar_montgomery_domain_field_element arg1) {
   uint64_t x1;
   fiat_bn254_scalar_uint1 x2;
   uint64_t x3;
@@ -1005,7 +1005,7 @@ void fiat_bn254_scalar_opp(fiat_bn254_scalar_montgomery_domain_field_element out
  *   0 ≤ eval out1 < m
  *
  */
-void fiat_bn254_scalar_from_montgomery(fiat_bn254_scalar_non_montgomery_domain_field_element out1, const fiat_bn254_scalar_montgomery_domain_field_element arg1) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_from_montgomery(fiat_bn254_scalar_non_montgomery_domain_field_element out1, const fiat_bn254_scalar_montgomery_domain_field_element arg1) {
   uint64_t x1;
   uint64_t x2;
   uint64_t x3;
@@ -1220,7 +1220,7 @@ void fiat_bn254_scalar_from_montgomery(fiat_bn254_scalar_non_montgomery_domain_f
  *   0 ≤ eval out1 < m
  *
  */
-void fiat_bn254_scalar_to_montgomery(fiat_bn254_scalar_montgomery_domain_field_element out1, const fiat_bn254_scalar_non_montgomery_domain_field_element arg1) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_to_montgomery(fiat_bn254_scalar_montgomery_domain_field_element out1, const fiat_bn254_scalar_non_montgomery_domain_field_element arg1) {
   uint64_t x1;
   uint64_t x2;
   uint64_t x3;
@@ -1537,7 +1537,7 @@ void fiat_bn254_scalar_to_montgomery(fiat_bn254_scalar_montgomery_domain_field_e
  * Output Bounds:
  *   out1: [0x0 ~> 0xffffffffffffffff]
  */
-void fiat_bn254_scalar_nonzero(uint64_t* out1, const uint64_t arg1[4]) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_nonzero(uint64_t* out1, const uint64_t arg1[4]) {
   uint64_t x1;
   x1 = ((arg1[0]) | ((arg1[1]) | ((arg1[2]) | (arg1[3]))));
   *out1 = x1;
@@ -1556,7 +1556,7 @@ void fiat_bn254_scalar_nonzero(uint64_t* out1, const uint64_t arg1[4]) {
  * Output Bounds:
  *   out1: [[0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff]]
  */
-void fiat_bn254_scalar_selectznz(uint64_t out1[4], fiat_bn254_scalar_uint1 arg1, const uint64_t arg2[4], const uint64_t arg3[4]) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_selectznz(uint64_t out1[4], fiat_bn254_scalar_uint1 arg1, const uint64_t arg2[4], const uint64_t arg3[4]) {
   uint64_t x1;
   uint64_t x2;
   uint64_t x3;
@@ -1584,7 +1584,7 @@ void fiat_bn254_scalar_selectznz(uint64_t out1[4], fiat_bn254_scalar_uint1 arg1,
  * Output Bounds:
  *   out1: [[0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0x3f]]
  */
-void fiat_bn254_scalar_to_bytes(uint8_t out1[32], const uint64_t arg1[4]) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_to_bytes(uint8_t out1[32], const uint64_t arg1[4]) {
   uint64_t x1;
   uint64_t x2;
   uint64_t x3;
@@ -1753,7 +1753,7 @@ void fiat_bn254_scalar_to_bytes(uint8_t out1[32], const uint64_t arg1[4]) {
  * Output Bounds:
  *   out1: [[0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0x3fffffffffffffff]]
  */
-void fiat_bn254_scalar_from_bytes(uint64_t out1[4], const uint8_t arg1[32]) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_from_bytes(uint64_t out1[4], const uint8_t arg1[32]) {
   uint64_t x1;
   uint64_t x2;
   uint64_t x3;
@@ -1888,7 +1888,7 @@ void fiat_bn254_scalar_from_bytes(uint64_t out1[4], const uint8_t arg1[32]) {
  *   0 ≤ eval out1 < m
  *
  */
-void fiat_bn254_scalar_set_one(fiat_bn254_scalar_montgomery_domain_field_element out1) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_set_one(fiat_bn254_scalar_montgomery_domain_field_element out1) {
   out1[0] = UINT64_C(0xac96341c4ffffffb);
   out1[1] = UINT64_C(0x36fc76959f60cd29);
   out1[2] = UINT64_C(0x666ea36f7879462e);
@@ -1905,7 +1905,7 @@ void fiat_bn254_scalar_set_one(fiat_bn254_scalar_montgomery_domain_field_element
  * Output Bounds:
  *   out1: [[0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff]]
  */
-void fiat_bn254_scalar_msat(uint64_t out1[5]) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_msat(uint64_t out1[5]) {
   out1[0] = UINT64_C(0x43e1f593f0000001);
   out1[1] = UINT64_C(0x2833e84879b97091);
   out1[2] = UINT64_C(0xb85045b68181585d);
@@ -1923,7 +1923,7 @@ void fiat_bn254_scalar_msat(uint64_t out1[5]) {
  * Output Bounds:
  *   out1: [[0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff]]
  */
-void fiat_bn254_scalar_divstep_precomp(uint64_t out1[4]) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_divstep_precomp(uint64_t out1[4]) {
   out1[0] = UINT64_C(0x99ddb8c9f8b62554);
   out1[1] = UINT64_C(0x9d24a395a4811e46);
   out1[2] = UINT64_C(0x241215ce0ed81b0);
@@ -1960,7 +1960,7 @@ void fiat_bn254_scalar_divstep_precomp(uint64_t out1[4]) {
  *   out4: [[0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff]]
  *   out5: [[0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff]]
  */
-void fiat_bn254_scalar_divstep(uint64_t* out1, uint64_t out2[5], uint64_t out3[5], uint64_t out4[4], uint64_t out5[4], uint64_t arg1, const uint64_t arg2[5], const uint64_t arg3[5], const uint64_t arg4[4], const uint64_t arg5[4]) {
+static FIAT_BN254_SCALAR_FIAT_INLINE void fiat_bn254_scalar_divstep(uint64_t* out1, uint64_t out2[5], uint64_t out3[5], uint64_t out4[4], uint64_t out5[4], uint64_t arg1, const uint64_t arg2[5], const uint64_t arg3[5], const uint64_t arg4[4], const uint64_t arg5[4]) {
   uint64_t x1;
   fiat_bn254_scalar_uint1 x2;
   fiat_bn254_scalar_uint1 x3;
