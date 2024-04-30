@@ -24,7 +24,7 @@
 #include "../../util/tile/fd_tile_private.h"
 
 void
-bench_cmd_perm( args_t *         args,
+bench2_cmd_perm( args_t *        args,
                 fd_caps_ctx_t *  caps,
                 config_t * const config ) {
   (void)args;
@@ -40,9 +40,9 @@ bench_cmd_perm( args_t *         args,
 }
 
 void
-bench_cmd_args( int *    pargc,
-                char *** pargv,
-                args_t * args ) {
+bench2_cmd_args( int *    pargc,
+                 char *** pargv,
+                 args_t * args ) {
   (void)pargc;
   (void)pargv;
   (void)args;
@@ -82,10 +82,6 @@ add_bench_topo( fd_topo_t  * topo,
     FD_LOG_ERR(( "The benchmark topology you are using has %lu tiles, but the CPU affinity specified "
                  "in the [development.bench.affinity] only provides for %lu cores. ",
                  benchg_tile_cnt+1UL+benchs_tile_cnt, affinity_tile_cnt ));
-  else if( FD_UNLIKELY( affinity_tile_cnt>benchg_tile_cnt+1UL+benchs_tile_cnt ) )
-    FD_LOG_WARNING(( "The benchmark topology you are using has %lu tiles, but the CPU affinity specified "
-                     "in the [development.bench.affinity] provides for %lu cores. The extra cores will be unused.",
-                     benchg_tile_cnt+1UL+benchs_tile_cnt, affinity_tile_cnt ));
 
   fd_topo_tile_t * bencho = fd_topob_tile( topo, "bencho", "bench", "bench", "bench", tile_to_cpu[ 0 ], 0, "bencho_out", 0 );
   bencho->bencho.rpc_port    = rpc_port;
@@ -108,12 +104,7 @@ add_bench_topo( fd_topo_t  * topo,
     }
   }
 
-  ulong store_tile = fd_topo_find_tile( topo, "store", 0UL );
-  FD_TEST( store_tile!=ULONG_MAX );
-  fd_topob_tile_uses( topo, bencho, &topo->objs[ topo->tiles[ store_tile ].metrics_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
-
   fd_topob_finish( topo, fdctl_obj_align, fdctl_obj_footprint, fdctl_obj_loose );
-  fd_topo_print_log( 0, topo );
 }
 
 extern int * fd_log_private_shared_lock;

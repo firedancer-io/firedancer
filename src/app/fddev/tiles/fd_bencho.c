@@ -12,7 +12,8 @@
 #define FD_BENCHO_STATE_READY 2UL
 #define FD_BENCHO_STATE_SENT  3UL
 
-#define FD_BENCHO_RPC_RESPONSE_TIMEOUT (5L * 1000L * 1000L * 1000L)
+#define FD_BENCHO_RPC_INITIALIZE_TIMEOUT (1800L * 1000L * 1000L * 1000L)
+#define FD_BENCHO_RPC_RESPONSE_TIMEOUT (6000L * 1000L * 1000L * 1000L)
 
 typedef struct {
   long  rpc_ready_deadline;
@@ -28,6 +29,10 @@ typedef struct {
   long  txncount_deadline;
 
   ulong txncount_prev;
+
+  ulong const * store_metrics;
+  ulong         store_lastcnt;
+  long          store_nextprint;
 
   fd_rpc_client_t rpc[ 1 ];
 
@@ -83,6 +88,7 @@ service_block_hash( fd_bencho_ctx_t *  ctx,
       /* RPC server not yet responding, give it some more time... */
       ctx->blockhash_state = FD_BENCHO_STATE_WAIT;
       ctx->blockhash_deadline = fd_log_wallclock() + 100L * 1000L * 1000L; /* 100 millis to retry */
+      fd_rpc_client_close( ctx->rpc, ctx->blockhash_request );
       return;
     }
 
@@ -143,6 +149,16 @@ service_txn_count( fd_bencho_ctx_t * ctx ) {
   }
 }
 
+static void
+service_store_txn_count( fd_bencho_ctx_t * ctx ) {
+  if( FD_UNLIKELY( fd_log_wallclock()<ctx->store_nextprint ) ) return;
+
+  ulong txns = ctx->store_metrics[ FD_METRICS_COUNTER_STORE_TILE_TRANSACTIONS_INSERTED_OFF ];
+  FD_LOG_NOTICE(( "%lu store txn/s", (ulong)((double)(txns - ctx->store_lastcnt)/1.2 )));
+  ctx->store_lastcnt = txns;
+  ctx->store_nextprint += 1200L * 1000L * 1000L; 
+}
+
 static inline void
 after_credit( void *             _ctx,
               fd_mux_context_t * mux ) {
@@ -151,6 +167,7 @@ after_credit( void *             _ctx,
   fd_rpc_client_service( ctx->rpc, 0 );
   service_block_hash( ctx, mux );
   service_txn_count( ctx );
+  if( 0 ) service_store_txn_count( ctx );
 }
 
 static void
@@ -165,11 +182,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
 
-  ctx->rpc_ready_deadline = fd_log_wallclock() + 5L * 1000L * 1000L * 1000L; /* 30 seconds to initialize */
+  ctx->rpc_ready_deadline = fd_log_wallclock() + FD_BENCHO_RPC_INITIALIZE_TIMEOUT;
   ctx->blockhash_state    = FD_BENCHO_STATE_READY;
   ctx->txncount_nextprint = 0;
   ctx->txncount_state     = FD_BENCHO_STATE_READY;
   ctx->txncount_measured1 = 0;
+
+  ulong store_tile_idx = fd_topo_find_tile( topo, "store", 0UL );
+  FD_TEST( store_tile_idx!=ULONG_MAX );
+  ctx->store_metrics = fd_metrics_tile( topo->tiles[ store_tile_idx ].metrics );
+  ctx->store_nextprint = fd_log_wallclock() + 1200L * 1000L * 1000L;
+  ctx->store_lastcnt = 0;
 
   FD_LOG_NOTICE(( "connecting to RPC server " FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( tile->bencho.rpc_ip_addr ), tile->bencho.rpc_port ));
   FD_TEST( fd_rpc_client_join( fd_rpc_client_new( ctx->rpc, tile->bencho.rpc_ip_addr, tile->bencho.rpc_port ) ) );
