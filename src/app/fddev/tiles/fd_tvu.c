@@ -1,4 +1,5 @@
 #include "../../fdctl/run/tiles/tiles.h"
+#include "../../fdctl/utility.h"
 
 #include "../../../disco/tvu/fd_tvu.h"
 
@@ -94,6 +95,47 @@ mux_ctx( void * scratch ) {
 
 void
 privileged_init( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch ) {
+  g_wksp = topo->workspaces[ 0 ].wksp;
+  strncpy( g_repair_peer_id, tile->tvu.repair_peer_id, sizeof(g_repair_peer_id) );
+  strncpy( g_repair_peer_addr, tile->tvu.repair_peer_addr, sizeof(g_repair_peer_addr) );
+  strncpy( g_gossip_peer_addr, tile->tvu.gossip_peer_addr, sizeof(g_gossip_peer_addr) );
+  strncpy( g_my_gossip_addr, tile->tvu.my_gossip_addr, sizeof(g_my_gossip_addr) );
+  strncpy( g_my_repair_addr, tile->tvu.my_repair_addr, sizeof(g_my_repair_addr) );
+  strncpy( g_tvu_addr, tile->tvu.tvu_addr, sizeof(g_tvu_addr) );
+  strncpy( g_tvu_fwd_addr, tile->tvu.tvu_fwd_addr, sizeof(g_tvu_fwd_addr) );
+  strncpy( g_load, tile->tvu.load, sizeof(g_load) );
+  strncpy( g_shred_cap, tile->tvu.shred_cap, sizeof(g_shred_cap) );
+  strncpy( g_snapshot, tile->tvu.snapshot, sizeof(g_snapshot) );
+  strncpy( g_incremental_snapshot, tile->tvu.incremental_snapshot, sizeof(g_incremental_snapshot) );
+  strncpy( g_solcap_path, tile->tvu.solcap_path, sizeof(g_solcap_path) );
+  strncpy( g_solcap_txns, tile->tvu.solcap_txns, sizeof(g_solcap_txns) );
+  strncpy( g_validate_snapshot, tile->tvu.validate_snapshot, sizeof(g_validate_snapshot) );
+  strncpy( g_check_hash, tile->tvu.check_hash, sizeof(g_check_hash) );
+  g_page_cnt = tile->tvu.page_cnt;
+  g_gossip_listen_port = tile->tvu.gossip_listen_port;
+  g_repair_listen_port = tile->tvu.repair_listen_port;
+  g_tvu_port = tile->tvu.tvu_port;
+  g_tvu_fwd_port = tile->tvu.tvu_fwd_port;
+  g_rpc_listen_port = tile->tvu.rpc_listen_port;
+  g_tcnt           = tile->tvu.tcnt;
+  g_txn_max        = tile->tvu.txn_max;
+
+  FD_TEST( g_gossip_listen_port!=0 );
+  FD_TEST( g_repair_listen_port!=0 );
+  FD_TEST( g_tvu_port!=0 );
+  FD_TEST( g_tvu_fwd_port!=0 );
+  FD_TEST( g_rpc_listen_port!=0 );
+  FD_TEST( g_tcnt != 0 );
+  FD_TEST( g_txn_max != 0 );
+
+  // tpool_boot( (ushort)(topo->tile_cnt-g_tcnt), g_tcnt );
+
+  uchar const * identity_key = load_key_into_protected_memory( tile->tvu.identity_key_path, /* pubkey only: */ 0 );
+  g_identity_key = identity_key;
+
+  g_sign_in = &topo->links[ tile->in_link_id[ 0 ] ];
+  g_sign_out = &topo->links[ tile->out_link_id[ 0 ] ];
+
   (void)topo;
   (void)tile;
   (void)scratch;
@@ -122,12 +164,82 @@ fd_topo_run_tile_t fd_tile_tvu = {
   .unprivileged_init        = unprivileged_init,
 };
 
-static void
+// static void
+// doit( void ) {
+//   while( 1 ) {
+//     FD_LOG_NOTICE(( "loopin.." ));
+//     fd_log_sleep( 1000000000UL );
+//   }
+// }
+
+static int
 doit( void ) {
-  while( 1 ) {
-    FD_LOG_NOTICE(( "loopin.." ));
-    fd_log_sleep( 1000000000UL );
+  fd_flamenco_boot(NULL, NULL);
+  memset(&runtime_ctx, 0, sizeof(runtime_ctx));
+
+  fd_replay_t * replay = NULL;
+  fd_exec_slot_ctx_t * slot_ctx = NULL;
+
+  fd_keyguard_client_t keyguard_client[1];
+  if( fd_keyguard_client_join(
+        fd_keyguard_client_new( keyguard_client,
+                                g_sign_out->mcache,
+                                g_sign_out->dcache,
+                                g_sign_in->mcache,
+                                g_sign_in->dcache ) ) == NULL ) {
+    FD_LOG_ERR(( "Keyguard join failed" ));
   }
+  memcpy(runtime_ctx.private_key, g_identity_key, 32);
+  // FD_LOG_WARNING(("Identity key %32J", runtime_ctx.private_key));
+  memcpy(runtime_ctx.public_key.uc, g_identity_key + 32UL, 32);
+  fd_runtime_args_t args = {
+    .gossip_peer_addr     = g_gossip_peer_addr,
+    .my_gossip_addr       = g_my_gossip_addr,
+    .my_repair_addr       = g_my_repair_addr,
+    .repair_peer_addr     = g_repair_peer_addr,
+    .repair_peer_id       = g_repair_peer_id,
+    .tvu_addr             = g_tvu_addr,
+    .tvu_fwd_addr         = g_tvu_fwd_addr,
+    .load                 = g_load,
+    .shred_cap            = g_shred_cap,
+    .snapshot             = g_snapshot,
+    .incremental_snapshot = g_incremental_snapshot,
+    .validate_snapshot    = g_validate_snapshot,
+    .check_hash           = g_check_hash,
+    .capture_fpath        = g_solcap_path,
+    .capture_txns         = g_solcap_txns,
+    .allocator            = "libc",
+    .index_max            = ULONG_MAX,
+    .page_cnt             = g_page_cnt,
+    .tcnt                 = g_tcnt,
+    .txn_max              = g_txn_max,
+    .rpc_port             = g_rpc_listen_port,
+  };
+  fd_tvu_gossip_deliver_arg_t gossip_deliver_arg = { 0 };
+  fd_tvu_main_setup( &runtime_ctx,
+                     &replay,
+                     &slot_ctx,
+                     keyguard_client,
+                     1,
+                     g_wksp,
+                     &args,
+                     &gossip_deliver_arg );
+  if( runtime_ctx.blowup ) FD_LOG_ERR(( "blowup" ));
+
+  /**********************************************************************/
+  /* Tile                                                               */
+  /**********************************************************************/
+
+  if( fd_tvu_main( &runtime_ctx,
+                   &args,
+                   replay,
+                   slot_ctx ) ) {
+    return 1;
+  }
+
+  fd_tvu_main_teardown( &runtime_ctx, replay );
+  
+  return 0;
 }
 
 int

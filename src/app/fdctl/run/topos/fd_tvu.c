@@ -14,8 +14,14 @@ fd_topo_tvu( config_t * config ) {
 
   /*             topo, name */
   fd_topob_wksp( topo, "tvu" );
+  fd_topob_wksp( topo, "sign" );
+  fd_topob_wksp( topo, "tvu_sign" );
+  fd_topob_wksp( topo, "sign_tvu" );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
+
+  fd_topob_link( topo, "tvu_sign",    "tvu_sign",    0,        128UL,                                    130UL,                  1UL );
+  fd_topob_link( topo, "sign_tvu",    "sign_tvu",    0,        128UL,                                    64UL,                   1UL );
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX; /* Unassigned tiles will be floating. */
@@ -33,6 +39,12 @@ fd_topo_tvu( config_t * config ) {
 
   /*                                  topo, tile_name, tile_wksp, cnc_wksp,    metrics_wksp, cpu_idx,                       is_labs, out_link,       out_link_kind_id */
   /**/                 fd_topob_tile( topo, "tvu",     "tvu",     "tvu",       "tvu",        tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
+  /**/                 fd_topob_tile( topo, "sign",    "sign",    "sign",      "sign",       tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
+
+  /**/               fd_topob_tile_in(  topo, "sign",   0UL,           "sign", "tvu_sign",      0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+  /**/               fd_topob_tile_out( topo, "tvu",     0UL,                        "tvu_sign",      0UL                                                  );
+  /**/               fd_topob_tile_in(  topo, "tvu",     0UL,           "tvu", "sign_tvu",      0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+  /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_tvu",      0UL                                                  );
 
   if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
     FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
@@ -73,6 +85,8 @@ fd_topo_tvu( config_t * config ) {
         tile->tvu.txn_max            = config->tiles.tvu.txn_max;
         strncpy( tile->tvu.solcap_path, config->tiles.tvu.solcap_path, sizeof(tile->tvu.solcap_path) );
         strncpy( tile->tvu.solcap_txns, config->tiles.tvu.solcap_txns, sizeof(tile->tvu.solcap_txns) );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
+      strncpy( tile->sign.identity_key_path, config->consensus.identity_path, sizeof(tile->sign.identity_key_path) );
     } else {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }

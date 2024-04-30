@@ -22,7 +22,7 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &sysctl,
   // &xdp,
   // &ethtool,
-  // &keys,
+  &keys,
   &workspace,
   // &genesis,
   // &blockstore,
