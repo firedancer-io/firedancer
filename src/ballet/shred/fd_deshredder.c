@@ -32,7 +32,8 @@ fd_deshredder_next( fd_deshredder_t * const shredder ) {
     uchar shred_type = fd_shred_type( shred->variant );
     if( FD_UNLIKELY( shred_type!=FD_SHRED_TYPE_LEGACY_DATA
                   && shred_type!=FD_SHRED_TYPE_MERKLE_DATA
-                  && shred_type!=FD_SHRED_TYPE_MERKLE_DATA_CHAINED ) )
+                  && shred_type!=FD_SHRED_TYPE_MERKLE_DATA_CHAINED
+                  && shred_type!=FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED ) )
       return -FD_SHRED_EINVAL;
 
     /* Ensure entry fits next shred */
