@@ -32,6 +32,11 @@ fd_vm_syscall_sol_curve_validate_point( /**/            void *  _vm,
     ret = (ulong)!fd_ristretto255_point_validate( point ); /* 0 if valid point, 1 if not */
     break;
 
+  default:
+    /* https://github.com/anza-xyz/agave/blob/5b3390b99a6e7665439c623062c1a1dda2803524/programs/bpf_loader/src/syscalls/mod.rs#L919-L928 */
+    if( FD_FEATURE_ACTIVE( (vm->instr_ctx->slot_ctx), abort_on_invalid_curve ) ) {
+      return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
+    }
   }
 
   *_ret = ret;
@@ -87,7 +92,10 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
     break;
 
   default:
-    /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L1117-L1120 */
+    /* https://github.com/anza-xyz/agave/blob/5b3390b99a6e7665439c623062c1a1dda2803524/programs/bpf_loader/src/syscalls/mod.rs#L1135-L1156 */
+    if( FD_FEATURE_ACTIVE( (vm->instr_ctx->slot_ctx), abort_on_invalid_curve ) ) {
+      return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
+    }
     goto soft_error; /* unknown curve op */
   }
 
@@ -301,7 +309,10 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
     break;
 
   default:
-    /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L1232 */
+    /* https://github.com/anza-xyz/agave/blob/5b3390b99a6e7665439c623062c1a1dda2803524/programs/bpf_loader/src/syscalls/mod.rs#L1262-L1271 */
+    if( FD_FEATURE_ACTIVE( (vm->instr_ctx->slot_ctx), abort_on_invalid_curve ) ) {
+      return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
+    }
     goto soft_error;
   }
 
