@@ -326,7 +326,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       ulong txn_cnt = fd_runtime_block_collect_txns( &block_info, txns );
 
       ulong out_sz = sizeof(ulong) + sizeof(fd_hash_t) + ( txn_cnt * sizeof(fd_txn_p_t) );
-      fd_mux_publish( mux, 0UL, ctx->replay_out_chunk, out_sz, 0UL, 0UL, tspub );
+      fd_mux_publish( mux, replay_sig, ctx->replay_out_chunk, out_sz, 0UL, 0UL, tspub );
       ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, out_sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
     } FD_SCRATCH_SCOPE_END;
   }
