@@ -17,6 +17,8 @@ fd_shred_parse( uchar const * const buf,
                    (type!=FD_SHRED_TYPE_MERKLE_CODE) &
                    (type!=FD_SHRED_TYPE_MERKLE_DATA_CHAINED) &
                    (type!=FD_SHRED_TYPE_MERKLE_CODE_CHAINED) &
+                   (type!=FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED) &
+                   (type!=FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED) &
                    (variant!=0xa5 /*FD_SHRED_TYPE_LEGACY_DATA*/ ) &
                    (variant!=0x5a /*FD_SHRED_TYPE_LEGACY_CODE*/ ) ) )
     return NULL;
@@ -31,9 +33,11 @@ fd_shred_parse( uchar const * const buf,
   ulong payload_sz;
 
   /* only present for chained merkle shreds */
-  ulong previous_merkle_root_sz = fd_ulong_if( 
-   (type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED) | (type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED), FD_SHRED_MERKLE_ROOT_SZ, 0UL );
-   
+  ulong previous_merkle_root_sz = fd_ulong_if(
+   (type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED) | (type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED) |
+     (type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED) | (type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED)
+     , FD_SHRED_MERKLE_ROOT_SZ, 0UL );
+
   if( FD_LIKELY( type & FD_SHRED_TYPEMASK_DATA ) ) {
     if( FD_UNLIKELY( shred->data.size<header_sz ) ) return NULL;
     payload_sz = (ulong)shred->data.size - header_sz; /* between 0 and USHORT_MAX */

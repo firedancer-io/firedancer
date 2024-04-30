@@ -597,6 +597,7 @@ fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
     deshredder.shreds        = &shred;
     deshredder.shred_cnt     = 1;
     rc                       = fd_deshredder_next( &deshredder );
+    FD_TEST( rc >= 0 );
 
     shreds_laddr[i].hdr = *shred;
     shreds_laddr[i].off = off;
