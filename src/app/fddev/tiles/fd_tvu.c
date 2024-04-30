@@ -75,21 +75,35 @@ scratch_align( void ) {
 }
 
 FD_FN_PURE static inline ulong
-loose_footprint( fd_topo_tile_t *tile ) {
-  (void)tile;
-  return 500 * FD_SHMEM_GIGANTIC_PAGE_SZ;
-//   return tile->tvu.page_cnt * FD_SHMEM_GIGANTIC_PAGE_SZ;
+loose_footprint( fd_topo_tile_t const * tile ) {
+  FD_LOG_NOTICE(( "loose_footprint: %lu", tile->tvu.page_cnt * FD_SHMEM_GIGANTIC_PAGE_SZ ));
+  return tile->tvu.page_cnt * FD_SHMEM_GIGANTIC_PAGE_SZ;
 }
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
+  FD_LOG_NOTICE(( "scratch_footprint: %lu", 4096UL ));
   return 4096UL;
 }
 
 FD_FN_CONST static inline void *
 mux_ctx( void * scratch ) {
   return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_tvu_ctx_t ) );
+}
+
+void
+privileged_init( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch ) {
+  (void)topo;
+  (void)tile;
+  (void)scratch;
+}
+
+void
+unprivileged_init( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch ) {
+  (void)topo;
+  (void)tile;
+  (void)scratch;
 }
 
 fd_topo_run_tile_t fd_tile_tvu = {
@@ -101,10 +115,11 @@ fd_topo_run_tile_t fd_tile_tvu = {
   .mux_during_frag          = NULL,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .loose_footprint          = loose_footprint,
   .populate_allowed_seccomp = NULL,
   .populate_allowed_fds     = NULL,
-  .privileged_init          = NULL,
-  .unprivileged_init        = NULL,
+  .privileged_init          = privileged_init,
+  .unprivileged_init        = unprivileged_init,
 };
 
 static void

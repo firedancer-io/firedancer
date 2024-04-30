@@ -269,6 +269,30 @@ static int parse_key_value( config_t *   config,
 
   ENTRY_USHORT( ., tiles.metric,        prometheus_listen_port                                    );
 
+  ENTRY_STR   ( ., tiles.tvu,           repair_peer_id                                            );
+  ENTRY_STR   ( ., tiles.tvu,           repair_peer_addr                                          );
+  ENTRY_STR   ( ., tiles.tvu,           gossip_peer_addr                                          );
+  ENTRY_STR   ( ., tiles.tvu,           my_gossip_addr                                            );
+  ENTRY_STR   ( ., tiles.tvu,           my_repair_addr                                            );
+  ENTRY_STR   ( ., tiles.tvu,           tvu_addr                                                  );
+  ENTRY_STR   ( ., tiles.tvu,           tvu_fwd_addr                                              );
+  ENTRY_STR   ( ., tiles.tvu,           snapshot                                                  );
+  ENTRY_STR   ( ., tiles.tvu,           incremental_snapshot                                      );
+  ENTRY_STR   ( ., tiles.tvu,           load                                                      );
+  ENTRY_STR   ( ., tiles.tvu,           validate_snapshot                                         );
+  ENTRY_STR   ( ., tiles.tvu,           check_hash                                                );
+  ENTRY_STR   ( ., tiles.tvu,           shred_cap                                                 );
+  ENTRY_UINT  ( ., tiles.tvu,           page_cnt                                                  );
+  ENTRY_USHORT( ., tiles.tvu,           gossip_listen_port                                        );
+  ENTRY_USHORT( ., tiles.tvu,           repair_listen_port                                        );
+  ENTRY_USHORT( ., tiles.tvu,           tvu_port                                                  );
+  ENTRY_USHORT( ., tiles.tvu,           tvu_fwd_port                                              );
+  ENTRY_USHORT( ., tiles.tvu,           rpc_listen_port                                           );
+  ENTRY_UINT  ( ., tiles.tvu,           tcnt                                                      );
+  ENTRY_UINT  ( ., tiles.tvu,           txn_max                                                   );
+  ENTRY_STR   ( ., tiles.tvu,           solcap_path                                               );
+  ENTRY_STR   ( ., tiles.tvu,           solcap_txns                                               );
+
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
   ENTRY_BOOL  ( ., development,         no_clone                                                  );
   ENTRY_BOOL  ( ., development,         no_solana_labs                                            );

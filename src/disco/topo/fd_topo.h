@@ -212,33 +212,33 @@ typedef struct {
     struct {
       ulong accounts_cnt;
     } benchg;
-
-    // struct {
-    //   char repair_peer_id[ FD_BASE58_ENCODED_32_SZ ];
-    //   char repair_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
-    //   char gossip_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
-    //   char my_gossip_addr[ 22 ];
-    //   char my_repair_addr[ 22 ];
-    //   char tvu_addr[ 22 ];
-    //   char tvu_fwd_addr[ 22 ];
-    //   char snapshot[ PATH_MAX ];
-    //   char incremental_snapshot[ PATH_MAX ];
-    //   char load[ PATH_MAX ];
-    //   char validate_snapshot[ 22 ];
-    //   char check_hash[ 22 ];
-    //   char shred_cap[ PATH_MAX ];
-    //   char identity_key_path[ PATH_MAX ];
-    //   uint page_cnt;
-    //   ushort gossip_listen_port;
-    //   ushort repair_listen_port;
-    //   ushort tvu_port;
-    //   ushort tvu_fwd_port;
-    //   ushort rpc_listen_port;
-    //   ulong  tcnt;
-    //   ulong  txn_max;
-    //   char   solcap_path[ PATH_MAX ];
-    //   char   solcap_txns[ PATH_MAX ];
-    // } tvu;
+#define PATH_MAX_SHORT_BECAUSE_OF_STACK 100
+    struct {
+      char repair_peer_id[ FD_BASE58_ENCODED_32_SZ ];
+      char repair_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
+      char gossip_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
+      char my_gossip_addr[ 22 ];
+      char my_repair_addr[ 22 ];
+      char tvu_addr[ 22 ];
+      char tvu_fwd_addr[ 22 ];
+      char snapshot[ PATH_MAX_SHORT_BECAUSE_OF_STACK ];
+      char incremental_snapshot[ PATH_MAX_SHORT_BECAUSE_OF_STACK ];
+      char load[ PATH_MAX_SHORT_BECAUSE_OF_STACK ];
+      char validate_snapshot[ 22 ];
+      char check_hash[ 22 ];
+      char shred_cap[ PATH_MAX_SHORT_BECAUSE_OF_STACK ];
+      char identity_key_path[ PATH_MAX ];
+      uint page_cnt;
+      ushort gossip_listen_port;
+      ushort repair_listen_port;
+      ushort tvu_port;
+      ushort tvu_fwd_port;
+      ushort rpc_listen_port;
+      ulong  tcnt;
+      ulong  txn_max;
+      char   solcap_path[ PATH_MAX_SHORT_BECAUSE_OF_STACK ];
+      char   solcap_txns[ PATH_MAX_SHORT_BECAUSE_OF_STACK ];
+    } tvu;
   };
 } fd_topo_tile_t;
 
