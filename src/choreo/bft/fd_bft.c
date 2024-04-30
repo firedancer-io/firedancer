@@ -76,87 +76,75 @@ fd_bft_delete( void * bft ) {
   return bft;
 }
 
-static void
-count_votes( fd_bft_t * bft, fd_fork_t * fork ) {
-  for( fd_latest_vote_deque_iter_t iter =
-           fd_latest_vote_deque_iter_init( fork->slot_ctx.latest_votes );
-       !fd_latest_vote_deque_iter_done( fork->slot_ctx.latest_votes, iter );
-       iter = fd_latest_vote_deque_iter_next( fork->slot_ctx.latest_votes, iter ) ) {
-    fd_latest_vote_t * latest_vote =
-        fd_latest_vote_deque_iter_ele( fork->slot_ctx.latest_votes, iter );
+static ulong
+query_pubkey_stake( fd_pubkey_t const * pubkey, fd_stakes_t const * epoch_stakes ) {
+  fd_vote_accounts_pair_t_mapnode_t * root = epoch_stakes->vote_accounts.vote_accounts_root;
+  fd_vote_accounts_pair_t_mapnode_t * pool = epoch_stakes->vote_accounts.vote_accounts_pool;
+  fd_vote_accounts_pair_t_mapnode_t   key  = { 0 };
+  key.elem.key                             = *pubkey;
+  fd_vote_accounts_pair_t_mapnode_t * vote_node =
+      fd_vote_accounts_pair_t_map_find( pool, root, &key );
+  return vote_node ? vote_node->elem.stake : 0;
+}
 
-    ulong latest_vote_slot = latest_vote->slot_hash.slot;
+static void
+count_replay_votes( fd_bft_t * bft, fd_latest_vote_t * replay_votes, fd_stakes_t * epoch_stakes ) {
+  for( fd_latest_vote_deque_iter_t iter = fd_latest_vote_deque_iter_init( replay_votes );
+       !fd_latest_vote_deque_iter_done( replay_votes, iter );
+       iter = fd_latest_vote_deque_iter_next( replay_votes, iter ) ) {
+
+    fd_latest_vote_t * vote      = fd_latest_vote_deque_iter_ele( replay_votes, iter );
+    ulong              vote_slot = vote->slot_hash.slot;
 
     /* Ignore votes for slots < snapshot_slot. */
 
-    if( FD_UNLIKELY( latest_vote_slot < bft->snapshot_slot ) ) continue;
+    if( FD_UNLIKELY( vote_slot < bft->snapshot_slot ) ) continue;
 
-    /* Look up _our_ bank hash for this vote slot. */
+    /* Look up _our_ bank hash for this vote. Note, because these are replay votes that come from
+     * the vote program, the bank hashes must match (see below check). */
 
-    fd_hash_t const * bank_hash =
-        fd_blockstore_bank_hash_query( bft->blockstore, latest_vote_slot );
+    fd_hash_t const * bank_hash = fd_blockstore_bank_hash_query( bft->blockstore, vote_slot );
 
-    /* TODO we need to implement repair logic here */
-
-    if( FD_UNLIKELY( !bank_hash ) ) {
-      FD_LOG_WARNING( ( "couldn't find bank hash for slot %lu", latest_vote_slot ) );
-      continue;
+#if FD_BFT_USE_HANDHOLDING
+    /* This indicates a programming error, because if these are replay votes that were successfully
+       executed by the vote program, we by definition must have a bank hash for it and must be
+       matching the bank hash (the vote program attempts to look up the bank hash the vote is voting
+       on). */
+    if( FD_UNLIKELY( !bank_hash ||
+                     ( 0 != memcmp( bank_hash, &vote->slot_hash, sizeof( fd_hash_t ) ) ) ) ) {
+      FD_LOG_ERR( ( "replay bank hashes did not match %lu", vote_slot ) );
     }
-
-    /* TODO we need to implement eqv block logic here */
-
-    if( FD_UNLIKELY( memcmp( bank_hash, &latest_vote->slot_hash.hash, sizeof( fd_hash_t ) ) ) ) {
-      FD_LOG_WARNING( ( "possible equivocating block for %lu. ours: %32J vs. theirs: %32J",
-                        latest_vote_slot,
-                        bank_hash,
-                        &latest_vote->slot_hash.hash ) );
-      continue;
-    }
+#endif
 
     /* Look up the stake for this pubkey. */
 
-    fd_slot_hash_t slot_hash = { .slot = latest_vote_slot, .hash = *bank_hash };
-    fd_pubkey_t *  pubkey    = &latest_vote->node_pubkey;
-    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx.epoch_ctx );
-    fd_vote_accounts_pair_t_mapnode_t * root =
-        epoch_bank->stakes.vote_accounts.vote_accounts_root;
-    fd_vote_accounts_pair_t_mapnode_t * pool =
-        epoch_bank->stakes.vote_accounts.vote_accounts_pool;
-    fd_vote_accounts_pair_t_mapnode_t key = { 0 };
-    key.elem.key                          = *pubkey;
-    fd_vote_accounts_pair_t_mapnode_t * vote_node =
-        fd_vote_accounts_pair_t_map_find( pool, root, &key );
+    ulong stake = query_pubkey_stake( &vote->node_pubkey, epoch_stakes );
 
-    /* If it's not in the epoch stakes map, look in the incremental-epoch stakes map.  */
+    /* Look up the ghost node. */
 
-    if( FD_UNLIKELY( !vote_node ) ) {
-      pool = fork->slot_ctx.slot_bank.vote_account_keys.vote_accounts_pool;
-      root = fork->slot_ctx.slot_bank.vote_account_keys.vote_accounts_root;
-      fd_vote_accounts_pair_t_mapnode_t * vote_node =
-          fd_vote_accounts_pair_t_map_find( pool, root, &key );
-      if( !vote_node ) {
-        FD_LOG_DEBUG( ( "couldn't find %32J in vote account stakes", pubkey->key ) );
-        continue;
-      }
-    }
+    fd_slot_hash_t    slot_hash  = { .slot = vote_slot, .hash = *bank_hash };
+    fd_ghost_node_t * ghost_node = fd_ghost_node_query( bft->ghost, &slot_hash );
 
-    /* Set the stake. */
-
-    ulong             stake = vote_node->elem.stake;
-    fd_ghost_node_t * ghost_node  = fd_ghost_node_query( bft->ghost, &slot_hash );
-
-    /* This slot hash must have been inserted, because ghost only processes replay votes. */
-
+#if FD_BFT_USE_HANDHOLDING
+    /* This indicates a programming error, because the slot hash must have been inserted if we are
+     * processesing replay votes. */
     if( FD_UNLIKELY( !ghost_node ) ) {
       FD_LOG_ERR( ( "missing ghost key %lu %32J", slot_hash.slot, slot_hash.hash.hash ) );
     };
 
-    fd_ghost_latest_vote_upsert( bft->ghost, &slot_hash, pubkey, stake );
+#endif
+
+    /* Upsert the vote into ghost. */
+
+    fd_ghost_replay_vote_upsert( bft->ghost, &slot_hash, &vote->node_pubkey, stake );
+
+    /* Check the fork's stake pct in ghost, and mark stake threshold accordingly if reached. */
 
     double pct = (double)ghost_node->stake / (double)bft->epoch_stake;
 
     if( FD_UNLIKELY( !ghost_node->eqv_safe && pct > FD_BFT_EQV_SAFE ) ) {
       ghost_node->eqv_safe = 1;
+
 #if FD_BFT_USE_HANDHOLDING
       FD_LOG_NOTICE(
           ( "[bft] eqv safe (%lf): (%lu, %32J)", pct, slot_hash.slot, slot_hash.hash.hash ) );
@@ -165,6 +153,7 @@ count_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 
     if( FD_UNLIKELY( !ghost_node->opt_conf && pct > FD_BFT_OPT_CONF ) ) {
       ghost_node->opt_conf = 1;
+
 #if FD_BFT_USE_HANDHOLDING
       FD_LOG_NOTICE(
           ( "[bft] opt conf (%lf): (%lu, %32J)", pct, slot_hash.slot, slot_hash.hash.hash ) );
@@ -173,6 +162,52 @@ count_votes( fd_bft_t * bft, fd_fork_t * fork ) {
   }
 }
 
+static void
+count_gossip_votes( fd_bft_t * bft, fd_latest_vote_t * gossip_votes, FD_PARAM_UNUSED fd_stakes_t * epoch_stakes ) {
+  for( fd_latest_vote_deque_iter_t iter = fd_latest_vote_deque_iter_init( gossip_votes );
+       !fd_latest_vote_deque_iter_done( gossip_votes, iter );
+       iter = fd_latest_vote_deque_iter_next( gossip_votes, iter ) ) {
+
+    fd_latest_vote_t * vote      = fd_latest_vote_deque_iter_ele( gossip_votes, iter );
+    ulong              vote_slot = vote->slot_hash.slot;
+
+    fd_hash_t const * bank_hash = fd_blockstore_bank_hash_query( bft->blockstore, vote_slot );
+    if( FD_UNLIKELY( !bank_hash ) ) {
+      /* TODO we need to implement repair logic here */
+      FD_LOG_WARNING( ( "couldn't find bank hash for slot %lu", vote_slot ) );
+      continue;
+    }
+
+    fd_slot_hash_t    slot_hash  = { .slot = vote_slot, .hash = *bank_hash };
+    fd_ghost_node_t * ghost_node = fd_ghost_node_query( bft->ghost, &slot_hash );
+
+#if FD_BFT_USE_HANDHOLDING
+    /* This indicates a programming error, because the checks above should ensure slot hash is in
+       ghost given we are using our own (slot, bank hash) that we just looked up in blockstore. */
+    if( FD_UNLIKELY( !ghost_node ) ) {
+      FD_LOG_ERR( ( "missing ghost key %lu %32J", slot_hash.slot, slot_hash.hash.hash ) );
+    };
+#endif
+
+    if( FD_UNLIKELY( 0 != memcmp( bank_hash, &vote->slot_hash, sizeof( fd_hash_t ) ) ) ) {
+      ghost_node->eqv = 1;
+
+#if FD_BFT_USE_HANDHOLDING
+      FD_LOG_WARNING( ( "eqv on slot: %lu. ours: %32J vs. theirs: %32J",
+                        vote_slot,
+                        bank_hash,
+                        &vote->slot_hash.hash ) );
+#endif
+
+      continue;
+    }
+
+    // ulong stake = query_pubkey_stake( &vote->node_pubkey, epoch_stakes );
+    // fd_ghost_gossip_vote_upsert( bft->ghost, &slot_hash, &vote->node_pubkey, stake );
+  }
+}
+
+/* Update fork with the votes in the block. */
 void
 fd_bft_fork_update( fd_bft_t * bft, fd_fork_t * fork ) {
   fd_slot_bank_t * bank = &fork->slot_ctx.slot_bank;
@@ -214,9 +249,15 @@ fd_bft_fork_update( fd_bft_t * bft, fd_fork_t * fork ) {
 
   // fd_slot_commitment_t * slot_commitment = fd_commitment_slot_insert( forks->commitment, slot );
 
-  /* Count votes in this fork's block. */
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx.epoch_ctx );
 
-  count_votes( bft, fork );
+  /* Count replay votes in this fork's block. */
+
+  count_replay_votes( bft, fork->slot_ctx.latest_votes, &epoch_bank->stakes );
+
+  /* Count gossip votes received since the last process. */
+
+  count_gossip_votes( bft, fork->slot_ctx.latest_votes, &epoch_bank->stakes );
 
   /* Update slot commitment. */
 
@@ -267,15 +308,13 @@ fd_bft_fork_choice( fd_bft_t * bft ) {
     if( FD_UNLIKELY( node->eqv && !node->eqv_safe ) ) continue;
 
 #if FD_BFT_USE_HANDHOLDING
-
-    /* invariant: node must have been inserted by now. */
-
+    /* This indicates a programmer error, because node must have been inserted into ghost earlier in fd_bft_fork_update. */
     if( !node ) FD_LOG_ERR( ( "missing ghost node %lu", fork->slot ) );
 #endif
 
     if( FD_LIKELY( !heaviest_fork_key || node->weight > heaviest_fork_weight ) ) {
       heaviest_fork_weight = node->weight;
-      heaviest_fork_key    = &node->key;
+      heaviest_fork_key    = &node->slot_hash;
     }
   }
 
@@ -366,11 +405,9 @@ fd_bft_commitment_update( FD_FN_UNUSED fd_bft_t * forks, FD_FN_UNUSED fd_fork_t 
 void
 fd_bft_epoch_stake_update( fd_bft_t * bft, fd_exec_epoch_ctx_t * epoch_ctx ) {
   ulong                               epoch_stake = 0;
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
-  fd_vote_accounts_pair_t_mapnode_t * pool =
-      epoch_bank->stakes.vote_accounts.vote_accounts_pool;
-  fd_vote_accounts_pair_t_mapnode_t * root =
-      epoch_bank->stakes.vote_accounts.vote_accounts_root;
+  fd_epoch_bank_t *                   epoch_bank  = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
+  fd_vote_accounts_pair_t_mapnode_t * pool = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
+  fd_vote_accounts_pair_t_mapnode_t * root = epoch_bank->stakes.vote_accounts.vote_accounts_root;
   for( fd_vote_accounts_pair_t_mapnode_t * node = fd_vote_accounts_pair_t_map_minimum( pool, root );
        node;
        node = fd_vote_accounts_pair_t_map_successor( pool, node ) ) {

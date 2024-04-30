@@ -46,3 +46,6 @@ deps-bundle.tar.zst
 /book/.vitepress/cache
 /book/.vitepress/dist
 /book/node_modules
+
+# TVU
+testnet.toml
