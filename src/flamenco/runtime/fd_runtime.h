@@ -109,8 +109,8 @@ struct fd_runtime_args {
   ulong        end_slot;
   ulong        index_max;
   ulong        page_cnt;
-  ulong        tcnt;
   ulong        txn_max;
+  ulong        replay_tpool_cnt;
   ushort       rpc_port;
   ulong        checkpt_slot;
   ulong        checkpt_freq;

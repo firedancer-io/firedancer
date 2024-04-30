@@ -190,6 +190,7 @@ main( int     argc,
   char const * copy_txnstatus     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--copytxnstatus",    NULL, "true"    );
   ulong        index_max_unpruned = fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmaxunpruned", NULL, 450000000 );
   ulong        pages_pruned       = fd_env_strip_cmdline_ulong( &argc, &argv, "--pagespruned",      NULL, ULONG_MAX );
+  ulong        replay_tpool_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--tpoolcnt"        , NULL, 1         );
 
 #ifdef _ENABLE_LTHASH
   char const * lthash             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",           NULL, "false"   );
@@ -409,6 +410,7 @@ main( int     argc,
     /* Replay to get all accounts that are touched (r/w) during execution */
     fd_runtime_args_t args;
     fd_memset( &args, 0, sizeof(args) );
+    args.replay_tpool_cnt = replay_tpool_cnt;
     args.end_slot = end_slot;
     args.pruned_funk = funk;
     args.cmd = "replay";
@@ -421,20 +423,19 @@ main( int     argc,
     fd_replay_t * replay = NULL;
     fd_tvu_main_setup( &state, &replay, NULL, NULL, 0, wksp, &args, gossip_deliver_arg );
 
-    args.tcnt = fd_tile_cnt();
     uchar * tpool_scr_mem = NULL;
-    if( args.tcnt > 1 ) {
-      tpool = fd_tpool_init( state.tpool_mem, args.tcnt );
+    if( replay_tpool_cnt > 1 ) {
+      tpool = fd_tpool_init( state.tpool_mem, replay_tpool_cnt );
       if( tpool == NULL ) {
         FD_LOG_ERR(( "failed to create thread pool" ));
       }
       ulong scratch_sz = fd_scratch_smem_footprint( 256UL<<20UL );
-      tpool_scr_mem = fd_valloc_malloc( replay->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(args.tcnt - 1U) );
+      tpool_scr_mem = fd_valloc_malloc( replay->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(replay_tpool_cnt - 1U) );
       if( tpool_scr_mem == NULL ) {
         FD_LOG_ERR( ( "failed to allocate thread pool scratch space" ) );
       }
-      for( ulong i = 1; i < args.tcnt; ++i ) {
-        if( fd_tpool_worker_push( tpool, i, tpool_scr_mem + scratch_sz*(i - 1U), scratch_sz ) == NULL ) {
+      for( ulong i = 1; i < replay_tpool_cnt; ++i ) {
+        if( fd_tpool_worker_push( tpool, USHORT_MAX, tpool_scr_mem + scratch_sz*(i - 1U), scratch_sz ) == NULL ) {
           FD_LOG_ERR(( "failed to launch worker" ));
         }
         else {
@@ -443,7 +444,7 @@ main( int     argc,
       }
     }
     state.tpool       = tpool;
-    state.max_workers = args.tcnt;
+    state.max_workers = replay_tpool_cnt;
 
     /* Junk xid for pruning transaction */ // TODO: factor out the xid nicelY
     fd_funk_txn_xid_t prune_xid;

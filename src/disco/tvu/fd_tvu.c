@@ -399,9 +399,6 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
   if( fd_gossip_update_tvu_addr( runtime_ctx->gossip, tvu_addr, tvu_fwd_addr ) )
     FD_LOG_ERR( ( "error setting gossip tvu" ) );
 
-  if( runtime_args->tcnt < 3 )
-    FD_LOG_ERR(( "tcnt parameter must be >= 3 in live case" ));
-
   /* FIXME: replace with real tile */
   struct fd_turbine_thread_args ttarg =
     { .tvu_fd = tvu_fd, .replay = replay };
@@ -424,6 +421,7 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
     FD_LOG_ERR( ( "error creating repair thread" ) );
 
   fd_tpool_t * tpool = NULL;
+  /* IMPLEMENT CORRECTLY AFTER TILE INTEGRATION XXX
   if( runtime_args->tcnt > 3 ) {
     tpool = fd_tpool_init( runtime_ctx->tpool_mem, runtime_args->tcnt - 3 );
     if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
@@ -432,8 +430,9 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
         FD_LOG_ERR( ( "failed to launch worker" ) );
     }
   }
+  */
   replay->tpool       = runtime_ctx->tpool       = tpool;
-  replay->max_workers = runtime_ctx->max_workers = runtime_args->tcnt-3;
+  replay->max_workers = runtime_ctx->max_workers = 1;
 
   if( runtime_ctx->need_incr_snap ) {
     /* Wait for first turbine packet before grabbing the incremental snapshot */
@@ -1416,7 +1415,7 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
   args->snapshot       = fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshot", NULL, NULL );
   args->index_max      = fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmax", NULL, ULONG_MAX );
   args->page_cnt       = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 128UL );
-  args->tcnt           = fd_env_strip_cmdline_ulong( &argc, &argv, "--tcnt", NULL, ULONG_MAX );
+  args->replay_tpool_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--tpoolcnt", NULL, 1 );
   args->txn_max        = fd_env_strip_cmdline_ulong( &argc, &argv, "--txnmax", NULL, 1000 );
   args->rpc_port       = fd_env_strip_cmdline_ushort( &argc, &argv, "--rpc-port", NULL, 8899U );
   args->end_slot       = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot", NULL, ULONG_MAX );
