@@ -36,6 +36,7 @@ build/native/gcc/unit-test/test_runtime --wksp giant_wksp --cmd replay --load /d
 #include <errno.h>
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
+#include "../metrics/fd_metrics.h"
 #include "fd_tvu.h"
 
 int
@@ -43,6 +44,9 @@ main( int     argc,
       char ** argv ) {
   fd_boot         ( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
+
+  uchar * metrics = fd_alloca( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( 0, 0 ) );
+  fd_metrics_register( (ulong *)fd_metrics_new( metrics, 0UL, 0UL ) );
 
   fd_runtime_args_t *args = fd_alloca(alignof(fd_runtime_args_t), sizeof(fd_runtime_args_t));
   FD_TEST(fd_tvu_parse_args( args, argc, argv ) == 0);

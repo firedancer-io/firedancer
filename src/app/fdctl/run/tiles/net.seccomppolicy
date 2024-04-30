@@ -77,9 +77,7 @@ sendto: (or (and (or (eq (arg 0) xsk_fd)
 # packets on a network device or the loopback device.
 recvmsg: (and (or (eq (arg 0) xsk_fd) 
                   (eq (arg 0) lo_xsk_fd))
-              (eq (arg 1) 0)
-              (eq (arg 2) 0)
-              (eq (arg 3) MSG_DONTWAIT))
+              (eq (arg 2) MSG_DONTWAIT))
 
 # netlink: receive netlink messages from kernel for ARP tables
 #

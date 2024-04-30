@@ -32,18 +32,22 @@
 /* clang-format off */
 typedef struct fd_ghost_node fd_ghost_node_t;
 struct __attribute__((aligned(128UL))) fd_ghost_node {
-  fd_slot_hash_t    key;     /* (slot, bank_hash) to index ghost */
-  ulong             next;    /* reserved for internal use by fd_pool and fd_map_chain */
-  ulong             weight;  /* sum of stake for the subtree rooted at this slot hash */
-  ulong             stake;   /* stake amount for only this slot hash */
-  fd_ghost_node_t * head;    /* the head of the fork i.e. leaf of the highest-weight subtree */
-  fd_ghost_node_t * parent;  /* parent slot hash */
-  fd_ghost_node_t * child;   /* pointer to the left-most child */
-  fd_ghost_node_t * sibling; /* pointer to next sibling */
+  fd_slot_hash_t    key;      /* (slot, bank_hash) to index ghost */
+  ulong             next;     /* reserved for internal use by fd_pool and fd_map_chain */
+  ulong             weight;   /* sum of stake for the subtree rooted at this slot hash */
+  ulong             stake;    /* stake amount for only this slot hash */
+  int               eqv;      /* flag for equivocation (multiple blocks) in this slot */
+  int               eqv_safe; /* flag for equivocation safety (ie. 52% of stake has voted for this slot hash) */
+  int               opt_conf; /* flag for optimistic confirmation (ie. 2/3 of stake has voted for this slot hash ) */
+  fd_ghost_node_t * head;     /* the head of the fork i.e. leaf of the highest-weight subtree */
+  fd_ghost_node_t * parent;   /* parent slot hash */
+  fd_ghost_node_t * child;    /* pointer to the left-most child */
+  fd_ghost_node_t * sibling;  /* pointer to next sibling */
 };
-/* clang-format on */
 
-/* clang-format off */
+#define FD_GHOST_EQV_SAFE ( 0.52 )
+#define FD_GHOST_OPT_CONF ( 2.0 / 3.0 )
+
 /* fork a's weight > fork b's weight, with lower slot # as tie-break */
 #define FD_GHOST_NODE_MAX(a,b) (fd_ptr_if(fd_int_if(a->weight==b->weight, a->key.slot<b->key.slot, a->weight>b->weight),a,b))
 #define FD_GHOST_NODE_EQ(a,b)  (FD_SLOT_HASH_EQ(&a->key,&b->key))

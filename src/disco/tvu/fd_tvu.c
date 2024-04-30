@@ -341,11 +341,11 @@ struct fd_gossip_thread_args {
 static int fd_gossip_thread( int argc, char ** argv );
 
 static fd_exec_slot_ctx_t *
-fd_tvu_late_incr_snap( fd_runtime_ctx_t *    runtime_ctx,
-                       fd_runtime_args_t *   runtime_args,
-                       fd_replay_t *         replay,
-                       ulong                 snapshot_slot,
-                       fd_tower_t * towers );
+fd_tvu_late_incr_snap( fd_runtime_ctx_t *  runtime_ctx,
+                       fd_runtime_args_t * runtime_args,
+                       fd_replay_t *       replay,
+                       ulong               snapshot_slot,
+                       fd_latest_vote_t *  latest_votes );
 
 int
 fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
@@ -442,7 +442,7 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
       nanosleep(&ts, NULL);
       //if( fd_tile_shutdown_flag ) goto shutdown;
     }
-    slot_ctx = fd_tvu_late_incr_snap( runtime_ctx, runtime_args, replay, slot_ctx->slot_bank.slot, slot_ctx->towers );
+    slot_ctx = fd_tvu_late_incr_snap( runtime_ctx, runtime_args, replay, slot_ctx->slot_bank.slot, slot_ctx->latest_votes );
     runtime_ctx->need_incr_snap = 0;
   }
 
@@ -717,7 +717,7 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
   runtime_ctx->capture_ctx  = NULL;
   runtime_ctx->capture_file = NULL;
 
-  /* If a capture path is passed in, setup solcap, but nothing else in capture_ctx*/
+  /* If a capture path is passed in, setup solcap, but nothing else in capture_ctx */
   if( args->capture_fpath && args->capture_fpath[0] != '\0' ) {
     solcap_setup( args->capture_fpath, valloc, solcap_setup_out );
     runtime_ctx->capture_file = solcap_setup_out->capture_file;
@@ -726,6 +726,7 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
 
     runtime_ctx->capture_ctx->checkpt_path = NULL;
     runtime_ctx->capture_ctx->checkpt_slot = 0;
+    runtime_ctx->capture_ctx->checkpt_freq = ULONG_MAX;
     runtime_ctx->capture_ctx->pruned_funk  = NULL;
   }
 
@@ -973,11 +974,11 @@ void snapshot_setup( char const * snapshot,
 }
 
 void
-snapshot_insert( fd_fork_t *       fork,
-                 ulong             snapshot_slot,
-                 fd_blockstore_t * blockstore,
-                 fd_replay_t *     replay,
-                 fd_tower_t *      towers ) {
+snapshot_insert( fd_fork_t *        fork,
+                 ulong              snapshot_slot,
+                 fd_blockstore_t *  blockstore,
+                 fd_replay_t *      replay,
+                 fd_latest_vote_t * latest_votes ) {
 
   /* Add snapshot slot to blockstore.*/
 
@@ -988,9 +989,9 @@ snapshot_insert( fd_fork_t *       fork,
   fork->slot = snapshot_slot;
   fd_fork_frontier_ele_insert( replay->forks->frontier, fork, replay->forks->pool );
 
-  /* Set the towers pointer to passed-in towers mem. */
+  /* Set the latest_votes pointer to passed-in latest_votes mem. */
 
-  fork->slot_ctx.towers = towers;
+  fork->slot_ctx.latest_votes = latest_votes;
 
   /* Add snapshot slot to ghost. */
 
@@ -1016,7 +1017,7 @@ fd_tvu_late_incr_snap( fd_runtime_ctx_t *  runtime_ctx,
                        fd_runtime_args_t * runtime_args,
                        fd_replay_t *       replay,
                        ulong               snapshot_slot,
-                       fd_tower_t *        towers ) {
+                       fd_latest_vote_t *  latest_votes ) {
   (void)runtime_ctx;
 
   fd_fork_t *          fork     = fd_fork_pool_ele_acquire( replay->forks->pool );
@@ -1040,7 +1041,7 @@ fd_tvu_late_incr_snap( fd_runtime_ctx_t *  runtime_ctx,
   slot_ctx->slot_bank.collected_fees = 0;
   slot_ctx->slot_bank.collected_rent = 0;
 
-  snapshot_insert( fork, snapshot_slot, replay->blockstore, replay, towers);
+  snapshot_insert( fork, snapshot_slot, replay->blockstore, replay, latest_votes);
 
   return slot_ctx;
 }
@@ -1203,14 +1204,14 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 1024UL, 1 << 16, 42UL ) );
 
     /***********************************************************************/
-    /* towers                                                           */
+    /* latest_votes                                                           */
     /***********************************************************************/
 
-    void * towers_mem =
-        fd_wksp_alloc_laddr( wksp, fd_tower_deque_align(), fd_tower_deque_footprint(), 42UL );
-    fd_tower_t * towers =
-        fd_tower_deque_join( fd_tower_deque_new( towers_mem ) );
-    FD_TEST( towers );
+    void * latest_votes_mem =
+        fd_wksp_alloc_laddr( wksp, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint(), 42UL );
+    fd_latest_vote_t * latest_votes =
+        fd_latest_vote_deque_join( fd_latest_vote_deque_new( latest_votes_mem ) );
+    FD_TEST( latest_votes );
 
     /***********************************************************************/
     /* bft                                                                 */
@@ -1343,13 +1344,13 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
 
     /* bootstrap replay with the snapshot slot */
 
-    slot_ctx_setup_out.exec_slot_ctx->towers = towers;
+    slot_ctx_setup_out.exec_slot_ctx->latest_votes = latest_votes;
     if( !runtime_ctx->need_incr_snap ) {
       snapshot_insert( slot_ctx_setup_out.fork,
                        slot_ctx_setup_out.exec_slot_ctx->slot_bank.slot,
                        blockstore_setup_out.blockstore,
                        replay_setup_out.replay,
-                       towers );
+                       latest_votes );
     }
 
     /* TODO @yunzhang open files, set the replay pointers, etc. you need here*/
@@ -1430,7 +1431,7 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
       fd_env_strip_cmdline_cstr( &argc, &argv, "--check_hash", NULL, "false" );
   args->capture_fpath = fd_env_strip_cmdline_cstr( &argc, &argv, "--capture", NULL, NULL );
   /* Disabling capture_txns speeds up runtime and makes solcap captures significantly smaller */
-  args->capture_txns  = fd_env_strip_cmdline_cstr( &argc, &argv, "--capture-txns", NULL, "true" );
+  args->capture_txns  = fd_env_strip_cmdline_cstr( &argc, &argv, "--capture-txns", NULL, "false" );
   args->trace_fpath   = fd_env_strip_cmdline_cstr( &argc, &argv, "--trace", NULL, NULL );
   /* TODO @yunzhang: I added this to get the shred_cap file path,
    *  but shred_cap is now NULL despite there is such an entry in the toml config */

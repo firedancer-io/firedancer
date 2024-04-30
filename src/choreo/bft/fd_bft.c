@@ -6,6 +6,7 @@
 
 #include "../fd_choreo_base.h"
 #include "../ghost/fd_ghost.h"
+#include "../tower/fd_tower.h"
 #include "fd_bft.h"
 
 #pragma GCC diagnostic ignored "-Wformat"
@@ -77,29 +78,45 @@ fd_bft_delete( void * bft ) {
 
 static void
 count_votes( fd_bft_t * bft, fd_fork_t * fork ) {
-  for( fd_tower_deque_iter_t iter = fd_tower_deque_iter_init( fork->slot_ctx.towers );
-       !fd_tower_deque_iter_done( fork->slot_ctx.towers, iter );
-       iter = fd_tower_deque_iter_next( fork->slot_ctx.towers, iter ) ) {
-    fd_tower_t * tower = fd_tower_deque_iter_ele( fork->slot_ctx.towers, iter );
+  for( fd_latest_vote_deque_iter_t iter =
+           fd_latest_vote_deque_iter_init( fork->slot_ctx.latest_votes );
+       !fd_latest_vote_deque_iter_done( fork->slot_ctx.latest_votes, iter );
+       iter = fd_latest_vote_deque_iter_next( fork->slot_ctx.latest_votes, iter ) ) {
+    fd_latest_vote_t * latest_vote =
+        fd_latest_vote_deque_iter_ele( fork->slot_ctx.latest_votes, iter );
 
-    ulong vote_slot = tower->slots[tower->cnt - 1];
+    ulong latest_vote_slot = latest_vote->slot_hash.slot;
 
     /* Ignore votes for slots < snapshot_slot. */
 
-    if( FD_UNLIKELY( vote_slot < bft->snapshot_slot ) ) continue;
+    if( FD_UNLIKELY( latest_vote_slot < bft->snapshot_slot ) ) continue;
 
     /* Look up _our_ bank hash for this vote slot. */
 
-    fd_hash_t const * vote_hash = fd_blockstore_bank_hash_query( bft->blockstore, vote_slot );
-    if( FD_UNLIKELY( !vote_hash ) ) {
-      FD_LOG_WARNING( ( "couldn't find bank hash for slot %lu", vote_slot ) );
+    fd_hash_t const * bank_hash =
+        fd_blockstore_bank_hash_query( bft->blockstore, latest_vote_slot );
+
+    /* TODO we need to implement repair logic here */
+
+    if( FD_UNLIKELY( !bank_hash ) ) {
+      FD_LOG_WARNING( ( "couldn't find bank hash for slot %lu", latest_vote_slot ) );
       continue;
     }
-    fd_slot_hash_t vote_key = { .slot = vote_slot, .hash = *vote_hash };
 
-    /* Look up latest vote for this node (pubkey) and stake. */
+    /* TODO we need to implement eqv block logic here */
 
-    fd_pubkey_t * pubkey = &tower->vote_acc_addr;
+    if( FD_UNLIKELY( memcmp( bank_hash, &latest_vote->slot_hash.hash, sizeof( fd_hash_t ) ) ) ) {
+      FD_LOG_WARNING( ( "possible equivocating block for %lu. ours: %32J vs. theirs: %32J",
+                        latest_vote_slot,
+                        bank_hash,
+                        &latest_vote->slot_hash.hash ) );
+      continue;
+    }
+
+    /* Look up the stake for this pubkey. */
+
+    fd_slot_hash_t slot_hash = { .slot = latest_vote_slot, .hash = *bank_hash };
+    fd_pubkey_t *  pubkey    = &latest_vote->node_pubkey;
     fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx.epoch_ctx );
     fd_vote_accounts_pair_t_mapnode_t * root =
         epoch_bank->stakes.vote_accounts.vote_accounts_root;
@@ -112,7 +129,7 @@ count_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 
     /* If it's not in the epoch stakes map, look in the incremental-epoch stakes map.  */
 
-    if( !vote_node ) {
+    if( FD_UNLIKELY( !vote_node ) ) {
       pool = fork->slot_ctx.slot_bank.vote_account_keys.vote_accounts_pool;
       root = fork->slot_ctx.slot_bank.vote_account_keys.vote_accounts_root;
       fd_vote_accounts_pair_t_mapnode_t * vote_node =
@@ -125,30 +142,32 @@ count_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 
     /* Set the stake. */
 
-    ulong             stake      = vote_node->elem.stake;
-    fd_ghost_node_t * node = fd_ghost_node_query( bft->ghost, &vote_key );
+    ulong             stake = vote_node->elem.stake;
+    fd_ghost_node_t * ghost_node  = fd_ghost_node_query( bft->ghost, &slot_hash );
 
     /* This slot hash must have been inserted, because ghost only processes replay votes. */
 
-    if( FD_UNLIKELY( !node ) ) {
-      FD_LOG_ERR( ( "missing ghost key %lu %32J", vote_key.slot, vote_key.hash.hash ) );
+    if( FD_UNLIKELY( !ghost_node ) ) {
+      FD_LOG_ERR( ( "missing ghost key %lu %32J", slot_hash.slot, slot_hash.hash.hash ) );
     };
 
-    fd_ghost_latest_vote_upsert( bft->ghost, &vote_key, pubkey, stake );
+    fd_ghost_latest_vote_upsert( bft->ghost, &slot_hash, pubkey, stake );
 
-    double pct = (double)node->stake / (double)bft->epoch_stake;
-    if( FD_UNLIKELY( !fork->eqv_safe && pct > FD_BFT_EQV_SAFE ) ) {
-      fork->eqv_safe = 1;
+    double pct = (double)ghost_node->stake / (double)bft->epoch_stake;
+
+    if( FD_UNLIKELY( !ghost_node->eqv_safe && pct > FD_BFT_EQV_SAFE ) ) {
+      ghost_node->eqv_safe = 1;
 #if FD_BFT_USE_HANDHOLDING
       FD_LOG_NOTICE(
-          ( "[bft] eqv safe (%lf): (%lu, %32J)", pct, vote_key.slot, vote_key.hash.hash ) );
+          ( "[bft] eqv safe (%lf): (%lu, %32J)", pct, slot_hash.slot, slot_hash.hash.hash ) );
 #endif
     }
-    if( FD_UNLIKELY( !fork->opt_conf && pct > FD_BFT_OPT_CONF ) ) {
-      fork->opt_conf = 1;
+
+    if( FD_UNLIKELY( !ghost_node->opt_conf && pct > FD_BFT_OPT_CONF ) ) {
+      ghost_node->opt_conf = 1;
 #if FD_BFT_USE_HANDHOLDING
       FD_LOG_NOTICE(
-          ( "[bft] opt conf (%lf): (%lu, %32J)", pct, vote_key.slot, vote_key.hash.hash ) );
+          ( "[bft] opt conf (%lf): (%lu, %32J)", pct, slot_hash.slot, slot_hash.hash.hash ) );
 #endif
     }
   }
@@ -167,7 +186,7 @@ fd_bft_fork_update( fd_bft_t * bft, fd_fork_t * fork ) {
 
   /* Get the parent key. Every block must have a parent (except genesis or snapshot block). */
 
-  ulong parent_slot = fd_blockstore_parent_slot_query(bft->blockstore, fork->slot);
+  ulong parent_slot = fd_blockstore_parent_slot_query( bft->blockstore, fork->slot );
 
   /* Insert this fork into bft. */
 
@@ -185,7 +204,7 @@ fd_bft_fork_update( fd_bft_t * bft, fd_fork_t * fork ) {
     };
     FD_LOG_NOTICE( ( "[ghost] insert slot: %lu hash: %32J parent: %lu parent_hash: %32J",
                      curr_key.slot,
-                     curr_key.hash.uc,
+                     curr_key.hash.hash,
                      parent_slot,
                      parent_bank_hash->hash ) );
     fd_ghost_leaf_insert( bft->ghost, &curr_key, &parent_key );
@@ -243,9 +262,13 @@ fd_bft_fork_choice( fd_bft_t * bft ) {
     fd_slot_hash_t    key  = { .slot = fork->slot, .hash = fork->slot_ctx.slot_bank.banks_hash };
     fd_ghost_node_t * node = fd_ghost_node_query( ghost, &key );
 
-    #if FD_BFT_USE_HANDHOLDING
+    /* do not pick forks with equivocating blocks. */
 
-    /* invariant: node must have been inserted by now */
+    if( FD_UNLIKELY( node->eqv && !node->eqv_safe ) ) continue;
+
+#if FD_BFT_USE_HANDHOLDING
+
+    /* invariant: node must have been inserted by now. */
 
     if( !node ) FD_LOG_ERR( ( "missing ghost node %lu", fork->slot ) );
 #endif
@@ -258,11 +281,13 @@ fd_bft_fork_choice( fd_bft_t * bft ) {
 
   if( heaviest_fork_key ) {
     double pct = (double)heaviest_fork_weight / (double)bft->epoch_stake;
-    FD_LOG_NOTICE( ( "[bft] voting for heaviest fork %lu %lu (%lf)", heaviest_fork_key->slot, heaviest_fork_weight, pct ) );
-    // fd_ghost_print( ghost );
+    FD_LOG_NOTICE( ( "[bft] voting for heaviest fork %lu %lu (%lf)",
+                     heaviest_fork_key->slot,
+                     heaviest_fork_weight,
+                     pct ) );
   }
 
-  return heaviest_fork_key; /* lifetime as long as it remains in forks->bft */
+  return heaviest_fork_key; /* lifetime as long as it remains in the frontier */
 }
 
 void

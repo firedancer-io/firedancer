@@ -243,6 +243,7 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
   ulong root; /* the current root slot */
   ulong min;  /* the min slot still in the blockstore */
   ulong max;  /* the max slot in the blockstore */
+  ulong smr; /* the super-majority root */
 
   /* Internal data structures */
 
@@ -253,7 +254,7 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
   int   lg_slot_max;
   ulong slot_max;           /* maximum block history */
   ulong slot_max_with_slop; /* maximum block history with some padding */
-  ulong slot_map_gaddr;             /* map of slot->(slot_meta, deshredder, block) */
+  ulong slot_map_gaddr;     /* map of slot->(slot_meta, block) */
 
   int   lg_txn_max;
   ulong txn_map_gaddr;
@@ -454,11 +455,11 @@ fd_blockstore_bank_hash_query( fd_blockstore_t * blockstore, ulong slot );
 fd_slot_meta_t *
 fd_blockstore_slot_meta_query( fd_blockstore_t * blockstore, ulong slot );
 
-/* Query the parent slot of slot */
+/* Query the parent slot of slot. */
 ulong
 fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot );
 
-/* Query the children slots of slot */
+/* Query the child slots of slot. `next_slot_out` must be at least   */
 int
 fd_blockstore_next_slot_query( fd_blockstore_t * blockstore, ulong slot , ulong ** next_slot_out, ulong * next_slot_len_out);
 
@@ -477,9 +478,9 @@ fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[FD_ED2551
 int
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot );
 
-/* Remove all the tmp shreds for slot. */
+/* Remove all the unassembled shreds for a slot */
 int
-fd_blockstore_tmp_shreds_remove( fd_blockstore_t * blockstore, ulong slot );
+fd_blockstore_buffered_shreds_remove( fd_blockstore_t * blockstore, ulong slot );
 
 /* Remove all slots less than min_slots from blockstore by
    removing them from all relevant internal structures. Used to maintain
@@ -491,15 +492,15 @@ fd_blockstore_slot_history_remove( fd_blockstore_t * blockstore, ulong min_slot 
 int
 fd_blockstore_clear( fd_blockstore_t * blockstore );
 
-/* Determine if a slot is ancient and we should ignore shreds */
+/* Determine if a slot is ancient and we should ignore shreds. */
 static inline int
 fd_blockstore_is_slot_ancient( fd_blockstore_t * blockstore, ulong slot ) {
   return ( slot + blockstore->slot_max <= blockstore->max );
 }
 
-/* Set the height for a block */
+/* Set the block height. */
 void
-fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulong block_height );
+fd_blockstore_block_height_set( fd_blockstore_t * blockstore, ulong slot, ulong block_height );
 
 /* Acquire a read lock */
 static inline void
