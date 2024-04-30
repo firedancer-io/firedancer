@@ -107,7 +107,6 @@ fetch () {
   if [[ $DEVMODE == 1 ]]; then
     checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.1.0"
     checkout_repo snappy    https://github.com/google/snappy          "1.1.10"
-    checkout_repo libff     https://github.com/firedancer-io/libff.git "develop"
   fi
 }
 
@@ -423,32 +422,6 @@ install_snappy () {
   echo "[+] Successfully installed snappy"
 }
 
-install_libff () {
-  cd ./opt/git/libff
-  git submodule init
-  git submodule update
-  mkdir -p build
-  cd build
-  cmake .. \
-    -G"Unix Makefiles" \
-    -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
-    -DCMAKE_INSTALL_LIBDIR="lib" \
-    -DBUILD_GMOCK=OFF \
-    -DBUILD_TESTING=OFF \
-    -DINSTALL_GTEST=OFF \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-  echo "[+] Configured libff"
-
-  echo "[+] Building libff"
-  make -j
-  echo "[+] Successfully built libff"
-
-  echo "[+] Installing libff to $PREFIX"
-  make install
-  echo "[+] Successfully installed libff"
-}
-
 install () {
   CC="$(command -v gcc)"
   cc="$CC"
@@ -464,7 +437,6 @@ install () {
   if [[ $DEVMODE == 1 ]]; then
     ( install_snappy    )
     ( install_rocksdb   )
-    #( install_libff     )
   fi
 
   # Remove cmake and pkgconfig files, so we don't accidentally
