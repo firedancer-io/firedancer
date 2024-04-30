@@ -79,12 +79,7 @@ struct fd_store_tile_ctx {
   ulong       repair_req_out_wmark;
   ulong       repair_req_out_chunk;
 
-  fd_frag_meta_t * replay_out_mcache;
-  ulong *          replay_out_sync;
-  ulong            replay_out_depth;
-  ulong            replay_out_seq;
-
-fd_wksp_t * replay_out_mem;
+  fd_wksp_t * replay_out_mem;
   ulong       replay_out_chunk0;
   ulong       replay_out_wmark;
   ulong       replay_out_chunk;
@@ -112,8 +107,7 @@ loose_footprint( fd_topo_tile_t const * tile ) {
 }
 
 FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
+scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
@@ -133,13 +127,11 @@ mux_ctx( void * scratch ) {
 static void
 during_frag( void * _ctx,
              ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
+             ulong  seq        FD_PARAM_UNUSED,
+             ulong  sig        FD_PARAM_UNUSED,
              ulong  chunk,
              ulong  sz,
              int *  opt_filter FD_PARAM_UNUSED ) {
-  (void)seq;
-  (void)sig;
 
   fd_store_tile_ctx_t * ctx = (fd_store_tile_ctx_t *)_ctx;
 
@@ -204,7 +196,6 @@ after_frag( void *             _ctx,
   }
 
   if( FD_UNLIKELY( in_idx==REPAIR_IN_IDX ) ) {
-    // FD_LOG_WARNING(("Received repair shred for slot %lu idx %lu", ((fd_shred_t const *)(ctx->shred_buffer))->slot, ((fd_shred_t const *)(ctx->shred_buffer))->idx));
     if( fd_store_shred_insert( ctx->store, fd_type_pun_const( ctx->shred_buffer ) ) < FD_BLOCKSTORE_OK ) {
       FD_LOG_ERR(( "failed inserting to blockstore" ));
     }
@@ -227,9 +218,9 @@ privileged_init( fd_topo_t *      topo  FD_PARAM_UNUSED,
 
 static void
 fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
+                            fd_mux_context_t * mux,
                             int store_slot_prepare_mode,
                             ulong slot ) {
-  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_repair_request_t * repair_reqs = fd_chunk_to_laddr( ctx->repair_req_out_mem, ctx->repair_req_out_chunk );
   fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, slot );
   if( FD_UNLIKELY( !lsched ) ) {
@@ -335,8 +326,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       ulong txn_cnt = fd_runtime_block_collect_txns( &block_info, txns );
 
       ulong out_sz = sizeof(ulong) + sizeof(fd_hash_t) + ( txn_cnt * sizeof(fd_txn_p_t) );
-      fd_mcache_publish( ctx->replay_out_mcache, ctx->replay_out_depth, ctx->replay_out_seq, replay_sig, ctx->replay_out_chunk, txn_cnt, 0UL, tsorig, tspub );
-      ctx->replay_out_seq   = fd_seq_inc( ctx->replay_out_seq, 1UL );
+      fd_mux_publish( mux, 0UL, ctx->replay_out_chunk, out_sz, 0UL, 0UL, tspub );
       ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, out_sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
     } FD_SCRATCH_SCOPE_END;
   }
@@ -346,7 +336,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
     ulong repair_req_sig = 50UL;
     ulong repair_req_sz = repair_req_cnt;
     fd_mcache_publish( ctx->repair_req_out_mcache, ctx->repair_req_out_depth, ctx->repair_req_out_seq, repair_req_sig, ctx->repair_req_out_chunk,
-      repair_req_sz, 0UL, tsorig, tspub );
+      repair_req_sz, 0UL, 0UL, tspub );
     ctx->repair_req_out_seq   = fd_seq_inc( ctx->repair_req_out_seq, 1UL );
     ctx->repair_req_out_chunk = fd_dcache_compact_next( ctx->repair_req_out_chunk, repair_req_sz, ctx->repair_req_out_chunk0, ctx->repair_req_out_wmark );
   }
@@ -354,11 +344,11 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
   return;
 }
 
-static void
-during_housekeeping( void * _ctx ) {
+static inline void
+after_credit( void *             _ctx,
+              fd_mux_context_t * mux ) {
   fd_store_tile_ctx_t * ctx = (fd_store_tile_ctx_t *)_ctx;
 
-  fd_mcache_seq_update( ctx->replay_out_sync, ctx->replay_out_seq );
   fd_mcache_seq_update( ctx->repair_req_out_sync, ctx->repair_req_out_seq );
 
   ctx->store->now = fd_log_wallclock();
@@ -372,7 +362,7 @@ during_housekeeping( void * _ctx ) {
 
     ulong slot = repair_slot == 0 ? i : repair_slot;
     FD_LOG_DEBUG(( "store slot - mode: %d, slot: %lu, repair_slot: %lu", store_slot_prepare_mode, i, repair_slot ));
-    fd_store_tile_slot_prepare( ctx, store_slot_prepare_mode, slot );
+    fd_store_tile_slot_prepare( ctx, mux, store_slot_prepare_mode, slot );
   }
 }
 
@@ -405,10 +395,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() ), ctx->identity_key ) );
   void * smem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_SMAX ) );
   void * fmem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_SDEPTH ) );
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) ) {
-    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
-  }
 
   /* Create scratch region */
   FD_TEST( (!!smem) & (!!fmem) );
@@ -466,11 +452,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->blockstore = blockstore;
   ctx->store->blockstore = blockstore;
 
-  void * alloc_shmem = fd_wksp_alloc_laddr( ctx->wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
-  if( FD_UNLIKELY( !alloc_shmem ) ) { 
-    FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); 
-  }
-
   /* Set up shred tile input */
   fd_topo_link_t * shred_in_link = &topo->links[ tile->in_link_id[ SHRED_IN_IDX ] ];
   ctx->shred_in_mem    = topo->workspaces[ topo->objs[ shred_in_link->dcache_obj_id ].wksp_id ].wksp;
@@ -507,43 +488,30 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_req_out_chunk  = ctx->repair_req_out_chunk0;
 
   /* Set up replay output */
-  fd_topo_link_t * replay_out = &topo->links[ tile->out_link_id[ REPLAY_OUT_IDX ] ];
-  ctx->replay_out_mcache = replay_out->mcache;
-  ctx->replay_out_sync   = fd_mcache_seq_laddr( ctx->replay_out_mcache );
-  ctx->replay_out_depth  = fd_mcache_depth( ctx->replay_out_mcache );
-  ctx->replay_out_seq    = fd_mcache_seq_query( ctx->replay_out_sync );
+  fd_topo_link_t * replay_out = &topo->links[ tile->out_link_id_primary ];
   ctx->replay_out_mem    = topo->workspaces[ topo->objs[ replay_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->replay_out_chunk0 = fd_dcache_compact_chunk0( ctx->replay_out_mem, replay_out->dcache );
   ctx->replay_out_wmark  = fd_dcache_compact_wmark ( ctx->replay_out_mem, replay_out->dcache, replay_out->mtu );
   ctx->replay_out_chunk  = ctx->replay_out_chunk0;
 
-  /* Valloc setup */
-  void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
-  if( FD_UNLIKELY( !alloc_shalloc ) ) { 
-    FD_LOG_ERR( ( "fd_allow_new failed" ) ); }
-  fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, 3UL );
-  if( FD_UNLIKELY( !alloc ) ) {
-    FD_LOG_ERR( ( "fd_alloc_join failed" ) ); 
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) ) {
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
   }
-
-  fd_valloc_t valloc = fd_alloc_virtual( alloc );
-  (void)valloc;
 }
 
 static ulong
-populate_allowed_seccomp( void *               scratch,
+populate_allowed_seccomp( void *               scratch FD_PARAM_UNUSED,
                           ulong                out_cnt,
                           struct sock_filter * out ) {
-  (void)scratch;
   populate_sock_filter_policy_store_int( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_store_int_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( void * scratch,
+populate_allowed_fds( void * scratch FD_PARAM_UNUSED,
                       ulong  out_fds_cnt,
                       int *  out_fds ) {
-  (void)scratch;
   if( FD_UNLIKELY( out_fds_cnt<2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
@@ -567,5 +535,5 @@ fd_topo_run_tile_t fd_tile_store = {
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
-  .mux_during_housekeeping  = during_housekeeping,
+  .mux_after_credit         = after_credit,
 };
