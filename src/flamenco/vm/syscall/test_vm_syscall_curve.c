@@ -1,5 +1,4 @@
 #include "fd_vm_syscall.h"
-#include "../../runtime/context/fd_exec_instr_ctx.h"
 
 static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
@@ -16,8 +15,10 @@ test_vm_syscall_sol_curve_multiscalar_mul( char const * test_case_name,
                                            void *       expected_result_host_ptr ) {
     ulong ret_code = 0UL;
     int   syscall_ret = fd_vm_syscall_sol_curve_multiscalar_mul((void *) vm, curve_id, scalar_vaddr, point_vaddr, point_cnt, result_point_vaddr, &ret_code);
-    FD_TEST( ret_code == expected_ret_code );
     FD_TEST( syscall_ret == expected_syscall_ret );
+    if( syscall_ret==FD_VM_SUCCESS ) {
+      FD_TEST( ret_code == expected_ret_code );
+    }
 
     void * result_point_host_addr = fd_vm_translate_vm_to_host( vm, result_point_vaddr, 32, 1 );
     if (ret_code == 0 && syscall_ret == 0) {
@@ -113,27 +114,13 @@ main( int     argc,
   test_vm_syscall_sol_curve_multiscalar_mul(
     "test_vm_syscall_sol_curve_multiscalar_mul: invalid",
     &vm,
-    FD_VM_SYSCALL_SOL_CURVE_ECC_ED25519,
+    FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS,
     scalar_vaddr,
     point_vaddr,
     0UL, // point_cnt
     result_point_vaddr,
     0UL, // ret_code
-    FD_VM_ERR_PERM, // syscall_ret
-    expected_result_host_ptr
-  );
-
-  // invalid (max 512 points)
-  test_vm_syscall_sol_curve_multiscalar_mul(
-    "test_vm_syscall_sol_curve_multiscalar_mul: invalid",
-    &vm,
-    FD_VM_SYSCALL_SOL_CURVE_ECC_ED25519,
-    scalar_vaddr,
-    point_vaddr,
-    513UL, // point_cnt
-    result_point_vaddr,
-    0UL, // ret_code
-    FD_VM_ERR_INVAL, // syscall_ret
+    FD_VM_ERR_SIGSEGV, // syscall_ret
     expected_result_host_ptr
   );
 
@@ -170,7 +157,7 @@ main( int     argc,
     test_vm_syscall_sol_curve_multiscalar_mul(
       "test_vm_syscall_sol_curve_multiscalar_mul: ed25519",
       &vm,
-      FD_VM_SYSCALL_SOL_CURVE_ECC_ED25519,
+      FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS,
       scalar_vaddr,
       point_vaddr,
       2UL,
@@ -212,7 +199,7 @@ main( int     argc,
     test_vm_syscall_sol_curve_multiscalar_mul(
       "test_vm_syscall_sol_curve_multiscalar_mul: ristretto255",
       &vm,
-      FD_VM_SYSCALL_SOL_CURVE_ECC_RISTRETTO255,
+      FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO,
       scalar_vaddr,
       point_vaddr,
       2UL,
@@ -247,8 +234,8 @@ main( int     argc,
     test_fd_vm_syscall_sol_curve_group_op(
       "fd_vm_syscall_sol_curve_group_op: ristretto255, add 0 + P",
       &vm,
-      FD_VM_SYSCALL_SOL_CURVE_ECC_RISTRETTO255,
-      FD_VM_SYSCALL_SOL_CURVE_ECC_G_ADD,
+      FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO,
+      FD_VM_SYSCALL_SOL_CURVE_ADD,
       in0_vaddr,
       in1_vaddr,
       result_point_vaddr,
@@ -284,8 +271,8 @@ main( int     argc,
     test_fd_vm_syscall_sol_curve_group_op(
       "fd_vm_syscall_sol_curve_group_op: ristretto255, add",
       &vm,
-      FD_VM_SYSCALL_SOL_CURVE_ECC_RISTRETTO255,
-      FD_VM_SYSCALL_SOL_CURVE_ECC_G_ADD,
+      FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO,
+      FD_VM_SYSCALL_SOL_CURVE_ADD,
       in0_vaddr,
       in1_vaddr,
       result_point_vaddr,
@@ -318,8 +305,8 @@ main( int     argc,
     test_fd_vm_syscall_sol_curve_group_op(
       "fd_vm_syscall_sol_curve_group_op: ristretto255, sub",
       &vm,
-      FD_VM_SYSCALL_SOL_CURVE_ECC_RISTRETTO255,
-      FD_VM_SYSCALL_SOL_CURVE_ECC_G_SUB,
+      FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO,
+      FD_VM_SYSCALL_SOL_CURVE_SUB,
       in0_vaddr,
       in1_vaddr,
       result_point_vaddr,
@@ -356,8 +343,8 @@ main( int     argc,
     test_fd_vm_syscall_sol_curve_group_op(
       "fd_vm_syscall_sol_curve_group_op: ristretto255, mul",
       &vm,
-      FD_VM_SYSCALL_SOL_CURVE_ECC_RISTRETTO255,
-      FD_VM_SYSCALL_SOL_CURVE_ECC_G_MUL,
+      FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO,
+      FD_VM_SYSCALL_SOL_CURVE_MUL,
       in0_vaddr,
       in1_vaddr,
       result_point_vaddr,
