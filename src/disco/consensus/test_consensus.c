@@ -2,8 +2,8 @@
 
 struct fd_tvu_gossip_deliver_arg {
   fd_repair_t * repair;
-  fd_bft_t * bft;
-  fd_valloc_t valloc;
+  fd_bft_t *    bft;
+  fd_valloc_t   valloc;
 };
 typedef struct fd_tvu_gossip_deliver_arg fd_tvu_gossip_deliver_arg_t;
 
@@ -12,16 +12,10 @@ static void
 gossip_deliver_fun( fd_crds_data_t * data, void * arg );
 
 static void
-gossip_send_packet( uchar const *                 data,
-                    size_t                        sz,
-                    fd_gossip_peer_addr_t const * addr,
-                    void *                        arg );
+gossip_send_packet( uchar const * data, size_t sz, fd_gossip_peer_addr_t const * addr, void * arg );
 
 static void
-signer_fun( void *    arg,
-            uchar         signature[ static 64 ],
-            uchar const * buffer,
-            ulong         len );
+signer_fun( void * arg, uchar signature[static 64], uchar const * buffer, ulong len );
 
 static void
 repair_deliver_fun( fd_shred_t const *                            shred,
@@ -45,9 +39,9 @@ resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res 
 #define TEST_CONSENSUS_MAGIC ( 0x7e57UL ) /* test */
 /* FIXME: remove these static variables */
 /* variables should be either on stack or use wksp_alloc_laddr */
-static int gossip_sockfd = -1;
-static int repair_sockfd = -1;
-static fd_keyguard_client_t keyguard_client;
+static int                         gossip_sockfd = -1;
+static int                         repair_sockfd = -1;
+static fd_keyguard_client_t        keyguard_client;
 static fd_tvu_gossip_deliver_arg_t gossip_deliver_arg;
 
 #pragma GCC diagnostic ignored "-Wformat"
@@ -58,11 +52,10 @@ main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
-  const char * restore = fd_env_strip_cmdline_cstr( &argc, &argv, "--restore", NULL, NULL );
-  if (restore == NULL)
-    FD_LOG_ERR( ("For now, both archive+live_data and replay+shredcap need to restore a funk for the snapshot.") );
+  /**********************************************************************/
+  /* wksp                                                               */
+  /**********************************************************************/
 
-  /* wksp */
   ulong  page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 128UL );
   char * _page_sz = "gigantic";
   ulong  numa_idx = fd_shmem_numa_idx( 0 );
@@ -73,34 +66,23 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous(
       fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
-  FD_LOG_NOTICE( ("Finish setup wksp") );
+  FD_LOG_NOTICE( ( "Finish setup wksp" ) );
 
-  /* restore */
-  FD_LOG_NOTICE( ( "fd_wksp_restore %s", restore ) );
-  int err = fd_wksp_restore( wksp, restore, TEST_CONSENSUS_MAGIC );
-  if( err ) FD_LOG_ERR( ( "fd_wksp_restore failed: error %d", err ) );
-  FD_LOG_NOTICE( ("Finish restore funk") );
+  /**********************************************************************/
+  /* alloc                                                              */
+  /**********************************************************************/
 
-  /* funk */
-  fd_wksp_tag_query_info_t funk_info;
-  fd_funk_t *              funk     = NULL;
-  ulong                    funk_tag = FD_FUNK_MAGIC;
-  if( fd_wksp_tag_query( wksp, &funk_tag, 1, &funk_info, 1 ) > 0 ) {
-    void * shmem = fd_wksp_laddr_fast( wksp, funk_info.gaddr_lo );
-    funk         = fd_funk_join( shmem );
-  }
-  if( funk == NULL ) FD_LOG_ERR( ( "failed to join a funky" ) );
-  FD_LOG_NOTICE( ("Finish setup funk") );
-
-  /* allocator */
   void * alloc_shmem =
       fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), TEST_CONSENSUS_MAGIC );
   void *       alloc_shalloc = fd_alloc_new( alloc_shmem, TEST_CONSENSUS_MAGIC );
   fd_alloc_t * alloc         = fd_alloc_join( alloc_shalloc, 0UL );
   fd_valloc_t  valloc        = fd_alloc_virtual( alloc );
-  FD_LOG_NOTICE( ("Finish setup allocator") );
+  FD_LOG_NOTICE( ( "Finish setup allocator" ) );
 
-  /* scratch */
+  /**********************************************************************/
+  /* scratch                                                            */
+  /**********************************************************************/
+
   ulong  smax   = 1UL << 31UL; /* 2 GiB scratch memory */
   ulong  sdepth = 1UL << 11UL; /* 2048 scratch frames, 1 MiB each */
   void * smem =
@@ -109,9 +91,48 @@ main( int argc, char ** argv ) {
       fd_valloc_malloc( valloc, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ) );
   FD_TEST( ( !!smem ) & ( !!fmem ) );
   fd_scratch_attach( smem, fmem, smax, sdepth );
-  FD_LOG_NOTICE( ("Finish setup scratch") );
+  FD_LOG_NOTICE( ( "Finish setup scratch" ) );
 
-  /* blockstore */
+  /**********************************************************************/
+  /* restore                                                            */
+  /**********************************************************************/
+
+  const char * restore = fd_env_strip_cmdline_cstr( &argc, &argv, "--restore", NULL, NULL );
+  if( restore == NULL ) {
+    FD_LOG_ERR( ( "For now, both live (archive shredcap) and sim (replay shredcap) need to restore "
+                  "a funk for the snapshot." ) );
+  }
+  FD_LOG_NOTICE( ( "fd_wksp_restore %s", restore ) );
+  int err = fd_wksp_restore( wksp, restore, TEST_CONSENSUS_MAGIC );
+  if( err ) FD_LOG_ERR( ( "fd_wksp_restore failed: error %d", err ) );
+  FD_LOG_NOTICE( ( "Finish restore funk" ) );
+
+  /**********************************************************************/
+  /* funk                                                               */
+  /**********************************************************************/
+
+  fd_wksp_tag_query_info_t funk_info;
+  fd_funk_t *              funk     = NULL;
+  ulong                    funk_tag = FD_FUNK_MAGIC;
+  if( fd_wksp_tag_query( wksp, &funk_tag, 1, &funk_info, 1 ) > 0 ) {
+    void * shmem = fd_wksp_laddr_fast( wksp, funk_info.gaddr_lo );
+    funk         = fd_funk_join( shmem );
+  }
+  if( funk == NULL ) FD_LOG_ERR( ( "failed to join a funky" ) );
+  FD_LOG_NOTICE( ( "Finish setup funk" ) );
+
+  /**********************************************************************/
+  /* acc_mgr                                                            */
+  /**********************************************************************/
+
+  fd_acc_mgr_t acc_mgr[1];
+  fd_acc_mgr_new( acc_mgr, funk );
+  FD_LOG_NOTICE( ( "Finish setup acc mgr" ) );
+
+  /**********************************************************************/
+  /* blockstore                                                         */
+  /**********************************************************************/
+
   fd_wksp_tag_query_info_t blockstore_info;
   fd_blockstore_t *        blockstore     = NULL;
   ulong                    blockstore_tag = FD_BLOCKSTORE_MAGIC;
@@ -119,43 +140,50 @@ main( int argc, char ** argv ) {
     void * shmem = fd_wksp_laddr_fast( wksp, blockstore_info.gaddr_lo );
     blockstore   = fd_blockstore_join( shmem );
   }
-  if( blockstore == NULL) FD_LOG_ERR( ( "failed to join a blockstore" ) );
-  FD_LOG_NOTICE( ("Finish setup blockstore") );
+  if( blockstore == NULL ) FD_LOG_ERR( ( "failed to join a blockstore" ) );
+  FD_LOG_NOTICE( ( "Finish setup blockstore" ) );
 
-  /* tower */
-  void * towers_mem =
-    fd_wksp_alloc_laddr( wksp, fd_tower_deque_align(), fd_tower_deque_footprint(), TEST_CONSENSUS_MAGIC );
-  fd_tower_t * towers =
-    fd_tower_deque_join( fd_tower_deque_new( towers_mem ) );
+  /**********************************************************************/
+  /* tower                                                              */
+  /**********************************************************************/
+
+  void * towers_mem = fd_wksp_alloc_laddr(
+      wksp, fd_tower_deque_align(), fd_tower_deque_footprint(), TEST_CONSENSUS_MAGIC );
+  fd_tower_t * towers = fd_tower_deque_join( fd_tower_deque_new( towers_mem ) );
   FD_TEST( towers );
-  FD_LOG_NOTICE( ("Finish setup towers") );
+  FD_LOG_NOTICE( ( "Finish setup towers" ) );
 
-  /* acc mgr */
-  fd_acc_mgr_t acc_mgr[1];
-  fd_acc_mgr_new( acc_mgr, funk );
-  FD_LOG_NOTICE( ("Finish setup acc mgr") );
+  /**********************************************************************/
+  /* epoch_ctx                                                          */
+  /**********************************************************************/
 
-  /* epoch ctx */
-  uchar* epoch_ctx_mem =
-    fd_wksp_alloc_laddr( wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint(), TEST_CONSENSUS_MAGIC );
-  fd_exec_epoch_ctx_t  *epoch_ctx =
-    fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
+  uchar * epoch_ctx_mem = fd_wksp_alloc_laddr(
+      wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint(), TEST_CONSENSUS_MAGIC );
+  fd_exec_epoch_ctx_t * epoch_ctx =
+      fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
   FD_TEST( epoch_ctx );
-  FD_LOG_NOTICE( ("Finish setup epoch ctx") );
+  FD_LOG_NOTICE( ( "Finish setup epoch ctx" ) );
 
-  /* forks */
-  ulong        forks_max = fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH );
-  void *       forks_mem = fd_wksp_alloc_laddr( wksp, fd_forks_align(), fd_forks_footprint( forks_max ), TEST_CONSENSUS_MAGIC );
-  fd_forks_t * forks     = fd_forks_join( fd_forks_new( forks_mem, forks_max, TEST_CONSENSUS_MAGIC ) );
+  /**********************************************************************/
+  /* forks                                                              */
+  /**********************************************************************/
+
+  ulong  forks_max = fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH );
+  void * forks_mem = fd_wksp_alloc_laddr(
+      wksp, fd_forks_align(), fd_forks_footprint( forks_max ), TEST_CONSENSUS_MAGIC );
+  fd_forks_t * forks = fd_forks_join( fd_forks_new( forks_mem, forks_max, TEST_CONSENSUS_MAGIC ) );
   FD_TEST( forks );
+  forks->acc_mgr    = acc_mgr;
+  forks->blockstore = blockstore;
+  forks->epoch_ctx  = epoch_ctx;
   forks->funk       = funk;
   forks->valloc     = valloc;
-  forks->acc_mgr    = acc_mgr;
-  forks->epoch_ctx  = epoch_ctx;
-  forks->blockstore = blockstore;
-  FD_LOG_NOTICE( ("Finish setup forks") );
+  FD_LOG_NOTICE( ( "Finish setup forks" ) );
 
-  /* snapshot */
+  /**********************************************************************/
+  /* snapshot                                                           */
+  /**********************************************************************/
+
   fd_fork_t *          snapshot_fork = fd_fork_pool_ele_acquire( forks->pool );
   fd_exec_slot_ctx_t * snapshot_slot_ctx =
       fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &snapshot_fork->slot_ctx, valloc ) );
@@ -166,11 +194,11 @@ main( int argc, char ** argv ) {
   snapshot_slot_ctx->blockstore = blockstore;
 
   fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
-  //FD_TEST( snapshot_slot_ctx->funk_txn );  FIXME: why not this? It fails when I run the code.
+  // FD_TEST( snapshot_slot_ctx->funk_txn );  FIXME: why not this? It fails when I run the code.
   ulong snapshot_slot = snapshot_slot_ctx->slot_bank.slot;
   FD_LOG_NOTICE( ( "snapshot_slot: %lu", snapshot_slot ) );
 
-  snapshot_fork->slot = snapshot_slot;
+  snapshot_fork->slot                         = snapshot_slot;
   snapshot_slot_ctx->slot_bank.collected_fees = 0;
   snapshot_slot_ctx->slot_bank.collected_rent = 0;
   FD_TEST( !fd_runtime_sysvar_cache_load( snapshot_slot_ctx ) );
@@ -187,25 +215,34 @@ main( int argc, char ** argv ) {
 
   fd_blockstore_snapshot_insert( blockstore, &snapshot_slot_ctx->slot_bank );
   fd_fork_frontier_ele_insert( forks->frontier, snapshot_fork, forks->pool );
-  FD_LOG_NOTICE( ("Finish setup snapshot") );
+  FD_LOG_NOTICE( ( "Finish setup snapshot" ) );
 
-  /* ghost */
-  ulong  ghost_node_max = forks_max;
-  ulong  ghost_vote_max = 1UL << 16;
-  void * ghost_mem      = fd_wksp_alloc_laddr(
-      wksp, fd_ghost_align(), fd_ghost_footprint( ghost_node_max, ghost_vote_max ), TEST_CONSENSUS_MAGIC );
-  fd_ghost_t * ghost =
-      fd_ghost_join( fd_ghost_new( ghost_mem, ghost_node_max, ghost_vote_max, TEST_CONSENSUS_MAGIC ) );
+  /**********************************************************************/
+  /* ghost                                                              */
+  /**********************************************************************/
+
+  ulong        ghost_node_max = forks_max;
+  ulong        ghost_vote_max = 1UL << 16;
+  void *       ghost_mem      = fd_wksp_alloc_laddr( wksp,
+                                          fd_ghost_align(),
+                                          fd_ghost_footprint( ghost_node_max, ghost_vote_max ),
+                                          TEST_CONSENSUS_MAGIC );
+  fd_ghost_t * ghost          = fd_ghost_join(
+      fd_ghost_new( ghost_mem, ghost_node_max, ghost_vote_max, TEST_CONSENSUS_MAGIC ) );
   FD_TEST( ghost );
 
   fd_slot_hash_t key = { .slot = snapshot_fork->slot,
                          .hash = snapshot_fork->slot_ctx.slot_bank.banks_hash };
   fd_ghost_leaf_insert( ghost, &key, NULL );
   FD_TEST( fd_ghost_node_map_ele_query( ghost->node_map, &key, NULL, ghost->node_pool ) );
-  FD_LOG_NOTICE( ("Finish setup ghost") );
+  FD_LOG_NOTICE( ( "Finish setup ghost" ) );
 
-  /* bft */
-  void *     bft_mem = fd_wksp_alloc_laddr( wksp, fd_bft_align(), fd_bft_footprint(), TEST_CONSENSUS_MAGIC );
+  /**********************************************************************/
+  /* bft                                                                */
+  /**********************************************************************/
+
+  void * bft_mem =
+      fd_wksp_alloc_laddr( wksp, fd_bft_align(), fd_bft_footprint(), TEST_CONSENSUS_MAGIC );
   fd_bft_t * bft     = fd_bft_join( fd_bft_new( bft_mem ) );
   bft->acc_mgr       = acc_mgr;
   bft->blockstore    = blockstore;
@@ -215,55 +252,58 @@ main( int argc, char ** argv ) {
   bft->valloc        = valloc;
   bft->snapshot_slot = snapshot_slot;
   fd_bft_epoch_stake_update( bft, epoch_ctx );
-  FD_LOG_NOTICE( ("Finish setup bft") );
+  FD_LOG_NOTICE( ( "Finish setup bft" ) );
 
-  /* replay */
-  void * replay_mem    = fd_wksp_alloc_laddr( wksp, fd_replay_align(), fd_replay_footprint(), TEST_CONSENSUS_MAGIC );
+  /**********************************************************************/
+  /* replay                                                             */
+  /**********************************************************************/
+
+  void * replay_mem =
+      fd_wksp_alloc_laddr( wksp, fd_replay_align(), fd_replay_footprint(), TEST_CONSENSUS_MAGIC );
   fd_replay_t * replay = fd_replay_join( fd_replay_new( replay_mem ) );
   FD_TEST( replay );
-  replay->bft         = bft;
-  replay->funk        = funk;
-  replay->forks       = forks;
-  replay->valloc      = valloc;
-  replay->acc_mgr     = acc_mgr;
-  replay->epoch_ctx   = epoch_ctx;
-  replay->blockstore  = blockstore;
+  replay->bft        = bft;
+  replay->funk       = funk;
+  replay->forks      = forks;
+  replay->valloc     = valloc;
+  replay->acc_mgr    = acc_mgr;
+  replay->epoch_ctx  = epoch_ctx;
+  replay->blockstore = blockstore;
 
-  replay->smr = snapshot_slot;
+  replay->smr         = snapshot_slot;
   replay->gossip      = NULL;
   replay->tpool       = NULL;
   replay->max_workers = 1;
-  FD_LOG_NOTICE( ("Finish setup replay") );
+  FD_LOG_NOTICE( ( "Finish setup replay" ) );
+
+  /**********************************************************************/
+  /* shredcap                                                           */
+  /**********************************************************************/
 
   /* do replay+shredcap or archive+live_data */
   const char * shredcap = fd_env_strip_cmdline_cstr( &argc, &argv, "--shredcap", NULL, NULL );
   if( shredcap ) {
-    FD_LOG_NOTICE( ("test_consensus running in replay mode") );
-    fd_blockstore_clear( blockstore );  /* this does not appear in tvu */
+    FD_LOG_NOTICE( ( "test_consensus running in replay mode" ) );
+    fd_blockstore_clear( blockstore ); /* this does not appear in tvu */
     fd_shred_cap_replay( shredcap, replay );
     goto end;
   }
 
-  FD_LOG_NOTICE( ("test_consensus running in archive mode") );
+  FD_LOG_NOTICE( ( "test_consensus running in archive mode" ) );
 
   /* capture & solcap */
-  //capture_ctx  = NULL;
+  // capture_ctx  = NULL;
 
-  /* rpc */
-#ifdef FD_HAS_LIBMICROHTTP
-  ulong rpc_port = 8123; /* FIXME: temporary from testnet.toml */
-  (*replay)->rpc_ctx =
-      fd_rpc_alloc_ctx( *replay, &runtime_ctx->public_key );
-  fd_rpc_start_service( args->rpc_port, (*replay)->rpc_ctx );
-#endif
-  FD_LOG_NOTICE( ("Finish setup rpc") );
+  /**********************************************************************/
+  /* repair                                                             */
+  /**********************************************************************/
 
-  /* repair */
-  //const char* repair_peer_addr = ":1032"; /* FIXME: temporary from testnet.toml */
-  const char* my_repair_addr = ":9002";
+  // const char* repair_peer_addr = ":1032"; /* FIXME: temporary from testnet.toml */
+  const char * my_repair_addr = ":9002";
 
   void *        repair_mem = fd_valloc_malloc( valloc, fd_repair_align(), fd_repair_footprint() );
-  fd_repair_t * repair     = fd_repair_join( fd_repair_new( repair_mem, TEST_CONSENSUS_MAGIC, valloc ) );
+  fd_repair_t * repair =
+      fd_repair_join( fd_repair_new( repair_mem, TEST_CONSENSUS_MAGIC, valloc ) );
 
   fd_repair_config_t repair_config;
   repair_config.deliver_fun      = repair_deliver_fun;
@@ -278,34 +318,36 @@ main( int argc, char ** argv ) {
   repair_config.service_addr.port = 0; /* pick a port */
 
   uchar private_key[32];
-  FD_TEST( 32UL==getrandom( private_key, 32UL, 0 ) );
+  FD_TEST( 32UL == getrandom( private_key, 32UL, 0 ) );
   fd_sha512_t sha[1];
   fd_pubkey_t public_key;
   FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, sha ) );
 
   repair_config.private_key = private_key;
-  repair_config.public_key = &public_key;
+  repair_config.public_key  = &public_key;
 
-  int blowup = 0;
-  if( fd_repair_set_config( repair, &repair_config ) ) blowup = 1;
-  if (blowup) FD_LOG_NOTICE( ("fd_repair_set_config returns non-zero") );
-  FD_LOG_NOTICE( ("Finish setup repair") );
+  FD_TEST( !fd_repair_set_config( repair, &repair_config ) );
+  FD_LOG_NOTICE( ( "Finish setup repair" ) );
 
   /* turbine */
-  uchar * data_shreds = NULL;
-  uchar * parity_shreds = NULL;
-  fd_fec_set_t * fec_sets = NULL;
-  fd_fec_resolver_t * fec_resolver = NULL;
+  uchar *             data_shreds   = NULL;
+  uchar *             parity_shreds = NULL;
+  fd_fec_set_t *      fec_sets      = NULL;
+  fd_fec_resolver_t * fec_resolver  = NULL;
 
-  ulong   depth          = 512;
-  ulong   partial_depth  = 1;
-  ulong   complete_depth = 1;
-  ulong   total_depth    = depth + partial_depth + complete_depth;
-  data_shreds       = fd_wksp_alloc_laddr(
-      wksp, 128UL, FD_REEDSOL_DATA_SHREDS_MAX * total_depth * FD_SHRED_MAX_SZ, TEST_CONSENSUS_MAGIC );
-  parity_shreds     = fd_wksp_alloc_laddr(
-      wksp, 128UL, FD_REEDSOL_PARITY_SHREDS_MAX * total_depth * FD_SHRED_MIN_SZ, TEST_CONSENSUS_MAGIC );
-  fec_sets          = fd_wksp_alloc_laddr(
+  ulong depth          = 512;
+  ulong partial_depth  = 1;
+  ulong complete_depth = 1;
+  ulong total_depth    = depth + partial_depth + complete_depth;
+  data_shreds          = fd_wksp_alloc_laddr( wksp,
+                                     128UL,
+                                     FD_REEDSOL_DATA_SHREDS_MAX * total_depth * FD_SHRED_MAX_SZ,
+                                     TEST_CONSENSUS_MAGIC );
+  parity_shreds        = fd_wksp_alloc_laddr( wksp,
+                                       128UL,
+                                       FD_REEDSOL_PARITY_SHREDS_MAX * total_depth * FD_SHRED_MIN_SZ,
+                                       TEST_CONSENSUS_MAGIC );
+  fec_sets             = fd_wksp_alloc_laddr(
       wksp, alignof( fd_fec_set_t ), total_depth * sizeof( fd_fec_set_t ), TEST_CONSENSUS_MAGIC );
 
   ulong k = 0;
@@ -339,17 +381,19 @@ main( int argc, char ** argv ) {
   replay->parity_shreds = parity_shreds;
   replay->fec_sets      = fec_sets;
   replay->fec_resolver  = fec_resolver;
-  FD_LOG_NOTICE( ("Finish setup turbine") );
+  FD_LOG_NOTICE( ( "Finish setup turbine" ) );
 
   /* gossip */
-  const char * my_gossip_addr = ":9001";
+  const char * my_gossip_addr   = ":9001";
   const char * gossip_peer_addr = "139.178.68.207:8001"; /* FIXME: temporary from testnet.toml */
-  gossip_deliver_arg.valloc = valloc;
-  gossip_deliver_arg.repair = repair;
-  gossip_deliver_arg.bft = bft;
+  gossip_deliver_arg.valloc     = valloc;
+  gossip_deliver_arg.repair     = repair;
+  gossip_deliver_arg.bft        = bft;
 
-  void *        gossip_shmem = fd_wksp_alloc_laddr( wksp, fd_gossip_align(), fd_gossip_footprint(), TEST_CONSENSUS_MAGIC );
-  fd_gossip_t * gossip       = fd_gossip_join( fd_gossip_new( gossip_shmem, TEST_CONSENSUS_MAGIC, valloc ) );
+  void * gossip_shmem =
+      fd_wksp_alloc_laddr( wksp, fd_gossip_align(), fd_gossip_footprint(), TEST_CONSENSUS_MAGIC );
+  fd_gossip_t * gossip =
+      fd_gossip_join( fd_gossip_new( gossip_shmem, TEST_CONSENSUS_MAGIC, valloc ) );
   fd_gossip_config_t gossip_config;
 
   gossip_config.private_key   = private_key;
@@ -361,28 +405,27 @@ main( int argc, char ** argv ) {
   gossip_config.send_arg      = NULL;
   gossip_config.sign_fun      = signer_fun;
   gossip_config.sign_arg      = &keyguard_client;
-  FD_TEST ( resolve_hostport( my_gossip_addr, &gossip_config.my_addr ) );
+  FD_TEST( resolve_hostport( my_gossip_addr, &gossip_config.my_addr ) );
   if( fd_gossip_set_config( gossip, &gossip_config ) )
     FD_LOG_ERR( ( "error setting gossip config" ) );
 
   fd_gossip_peer_addr_t gossip_peer;
-  if( fd_gossip_add_active_peer(
-            gossip, resolve_hostport( gossip_peer_addr, &gossip_peer ) ) )
-      FD_LOG_ERR( ( "error adding gossip active peer" ) );
-  FD_LOG_NOTICE( ("Finish setup gossip") );
+  if( fd_gossip_add_active_peer( gossip, resolve_hostport( gossip_peer_addr, &gossip_peer ) ) )
+    FD_LOG_ERR( ( "error adding gossip active peer" ) );
+  FD_LOG_NOTICE( ( "Finish setup gossip" ) );
 
   /* store */
-  void *        store_mem = fd_valloc_malloc( valloc, fd_store_align(), fd_store_footprint() );
-  fd_store_t * store      = fd_store_join( fd_store_new( store_mem, snapshot_slot ) );
-  store->blockstore = blockstore;
-  store->smr = snapshot_slot;
-  store->snapshot_slot = snapshot_slot;
-  store->valloc = valloc;
-  FD_LOG_NOTICE( ("Finish setup store") );
+  void *       store_mem = fd_valloc_malloc( valloc, fd_store_align(), fd_store_footprint() );
+  fd_store_t * store     = fd_store_join( fd_store_new( store_mem, snapshot_slot ) );
+  store->blockstore      = blockstore;
+  store->smr             = snapshot_slot;
+  store->snapshot_slot   = snapshot_slot;
+  store->valloc          = valloc;
+  FD_LOG_NOTICE( ( "Finish setup store" ) );
 
   FD_LOG_ERR( ( "archive+live_data not ready yet" ) );
 
- end:
+end:
   fd_halt();
   return 0;
 }
@@ -432,10 +475,7 @@ gossip_send_packet( uchar const *                 data,
 }
 
 static void
-signer_fun( void *    arg,
-            uchar         signature[ static 64 ],
-            uchar const * buffer,
-            ulong         len ) {
+signer_fun( void * arg, uchar signature[static 64], uchar const * buffer, ulong len ) {
   fd_keyguard_client_t * keyguard_client = (fd_keyguard_client_t *)arg;
   fd_keyguard_client_sign( keyguard_client, signature, buffer, len );
 }
@@ -475,7 +515,10 @@ repair_to_sockaddr( uchar * dst, fd_repair_peer_addr_t const * src ) {
 }
 
 static void
-repair_send_packet( uchar const * data, size_t sz, fd_repair_peer_addr_t const * addr, void * arg ) {
+repair_send_packet( uchar const *                 data,
+                    size_t                        sz,
+                    fd_repair_peer_addr_t const * addr,
+                    void *                        arg ) {
   // FD_LOG_HEXDUMP_NOTICE( ( "send: ", data, sz ) );
   (void)arg;
   uchar saddr[sizeof( struct sockaddr_in )];
@@ -520,9 +563,9 @@ resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res 
     return NULL;
   }
   /* Convert result to repair address */
-  res->l    = 0;
+  res->l = 0;
   // FIXME why the first line does not work? I switched to the second line.
-  //res->addr = ( (struct in_addr *)host->h_addr )->s_addr;
+  // res->addr = ( (struct in_addr *)host->h_addr )->s_addr;
   res->addr = ( (struct in_addr *)host->h_addr_list[0] )->s_addr;
   int port  = atoi( str + i + 1 );
   if( ( port > 0 && port < 1024 ) || port > (int)USHORT_MAX ) {
@@ -533,4 +576,3 @@ resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res 
 
   return res;
 }
-
