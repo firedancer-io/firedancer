@@ -160,6 +160,8 @@ fd_keyguard_payload_matches_txn_msg( uchar const * data,
 FD_FN_PURE int
 fd_keyguard_payload_matches_gossip_msg( uchar const * data,
                                         ulong         sz ) {
+  // TODO: this causes potential ambiguity with the shred messages
+  if ( sz==32 ) return 1;
 
   /* Every gossip message contains a 4 byte enum variant tag (at the
      beginning of the message) and a 32 byte public key (at an arbitrary

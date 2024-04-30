@@ -20,7 +20,7 @@ fd_topo_tvu( config_t * config ) {
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
-  fd_topob_link( topo, "tvu_sign",    "tvu_sign",    0,        128UL,                                    130UL,                  1UL );
+  fd_topob_link( topo, "tvu_sign",    "tvu_sign",    0,        128UL,                                    2048UL,                  1UL );
   fd_topob_link( topo, "sign_tvu",    "sign_tvu",    0,        128UL,                                    64UL,                   1UL );
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];

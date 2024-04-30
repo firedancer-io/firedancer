@@ -179,10 +179,11 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->out[ i ].data   = out_link->dcache;
     ctx->out[ i ].seq    = 0UL;
 
-    if( !strcmp( in_link->name, "shred_sign" ) ) {
-      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_LEADER;
-      FD_TEST( !strcmp( out_link->name, "sign_shred" ) );
-      FD_TEST( in_link->mtu==32UL );
+    if( !strcmp( in_link->name, "tvu_sign" ) ) {
+      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_GOSSIP;
+      FD_TEST( !strcmp( out_link->name, "sign_tvu" ) );
+      FD_LOG_NOTICE(( "sign tile: gossip link %s %lu %lu", in_link->name, in_link->mtu, out_link->mtu ));
+      FD_TEST( in_link->mtu==2048UL );
       FD_TEST( out_link->mtu==64UL );
     } else if( !strcmp( in_link->name, "quic_sign" ) ) {
       ctx->in_role[ i ] = FD_KEYGUARD_ROLE_TLS;
