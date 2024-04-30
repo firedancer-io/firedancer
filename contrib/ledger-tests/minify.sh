@@ -9,7 +9,7 @@ BENCH_EPOCH_TESTNET=508
 BENCH_SLOT_INTERNAL=0
 BENCH_EPOCH_INTERNAL=0
 
-minf_fd_frank_minimize_tool="$FIREDANCER/build/native/gcc/bin/fd_frank_ledger"
+minf_fd_frank_minimize_tool="$FIREDANCER/build/native/gcc/bin/fd_ledger"
 minf_rocksdb_min=""
 minf_rocksdb_max=""
 minf_edge=""
@@ -62,7 +62,7 @@ minimize_snapshot_frank() {
     exit 1
   fi
   set -x
-  "$minf_fd_frank_minimize_tool" --cmd minify --rocksdb "$in_dir/rocksdb" --minidb "$out_dir/rocksdb" --startslot $start_slot --endslot $end_slot --pages $GIGANTIC_PAGES --indexmax $INDEX_MAX
+  "$minf_fd_frank_minimize_tool" --cmd minify --rocksdb "$in_dir/rocksdb" --minified-rocksdb "$out_dir/rocksdb" --start-slot $start_slot --end-slot $end_slot --page-cnt $GIGANTIC_PAGES
   set +x
   cd "$in_dir" || exit
   cp gen* "$out_dir"

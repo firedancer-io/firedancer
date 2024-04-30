@@ -28,17 +28,17 @@ SNAPSHOT=""
 INC_SNAPSHOT=""
 END_SLOT="--end-slot 1010"
 PAGES="--page-cnt 20"
-IMAX="--indexmax 100000"
-START="--start 241819853"
-HISTORY="--slothistory 5000"
-END=""
+IMAX="--index-max 100000"
+START="--start-slot 241819853"
+HISTORY="--slot-history 5000"
 TRASHHASH=""
 EXPECTED="0"
 LOG="/tmp/ledger_log$$"
-TXN_STATUS="--txnstatus false"
+TXN_STATUS="--copy-txn-status 0"
 SKIP_INGEST=0
 CHECKPT="test_ledger_backup"
 SOLCAP=""
+ON_DEMAND=1
 
 POSITION_ARGS=()
 OBJDIR=${OBJDIR:-build/native/gcc}
@@ -56,7 +56,7 @@ while [[ $# -gt 0 ]]; do
        shift
        ;;
     -t|--trash)
-       TRASHHASH="--trashhash $2"
+       TRASHHASH="--trash-hash $2"
        shift
        shift
        ;;
@@ -66,23 +66,22 @@ while [[ $# -gt 0 ]]; do
        shift
        ;;
     -m|--indexmax)
-       IMAX="--indexmax $2"
+       IMAX="--index-max $2"
        shift
        shift
        ;;
     -e|--end_slot)
        END_SLOT="--end-slot $2"
-       END="--endslot $2"
        shift
        shift
        ;;
     -b|--start)
-       START="--start=$2"
+       START="--start-slot=$2"
        shift
        shift
        ;;
     -s|--snapshot)
-       SNAPSHOT=" --verifyacchash true --snapshotfile dump/$LEDGER/$2"
+       SNAPSHOT=" --verify-acc-hash 1 --snapshot dump/$LEDGER/$2"
        shift
        shift
        ;;
@@ -92,12 +91,12 @@ while [[ $# -gt 0 ]]; do
        shift
        ;;
     -h|--slothistory)
-       HISTORY="--slothistory $2"
+       HISTORY="--slot-history $2"
        shift
        shift
        ;;
     -tx|--txnstatus)
-       TXN_STATUS="--txnstatus $2"
+       TXN_STATUS="--copy-txn-status $2"
        shift
        shift
        ;;
@@ -123,13 +122,17 @@ while [[ $# -gt 0 ]]; do
         shift
         ;;
     -c|--capture)
-        SOLCAP="--capture $2"
+        SOLCAP="--capture-solcap $2"
         shift
         shift
         ;;
     -L|--log)
         LOG="$2"
         shift
+        shift
+        ;;
+    -P|--preingest)
+        ON_DEMAND=0
         shift
         ;;
     -*|--*)
@@ -190,17 +193,37 @@ if [ "" == "$SNAPSHOT" ]; then
   SNAPSHOT="--genesis dump/$LEDGER/genesis.bin"
 fi
 
-if [[ $SKIP_INGEST = 0 ]]; then
+if [[ $ON_DEMAND = 1 ]]; then
   set -x
-  "$OBJDIR"/bin/fd_frank_ledger \
+  "$OBJDIR"/bin/fd_ledger \
+    --reset 1 \
+    --cmd replay \
+    --rocksdb dump/$LEDGER/rocksdb \
+    $TRASHHASH \
+    $IMAX \
+    $END_SLOT \
+    --txnmax 100 \
+    $PAGES \
+    $SNAPSHOT \
+    $INC_SNAPSHOT \
+    $HISTORY \
+    $TXN_STATUS \
+    --allocator wksp \
+    --on-demand-block-ingest 1 \
+    --tile-cpus 5-21 >& $LOG 
+fi
+
+if [[ $SKIP_INGEST = 0 && $ON_DEMAND = 0 ]]; then
+  set -x
+  "$OBJDIR"/bin/fd_ledger \
     --reset true \
     --cmd ingest \
     --rocksdb dump/$LEDGER/rocksdb \
     $TRASHHASH \
     $IMAX \
-    $END \
-    --txnmax 100 \
-    --backup dump/test_ledger_backup \
+    $END_SLOT \
+    --txn-max 100 \
+    --checkpt dump/test_ledger_backup \
     $PAGES \
     $SNAPSHOT \
     $INC_SNAPSHOT \
@@ -241,8 +264,10 @@ then
   ARGS="$ARGS --cap dump/$LEDGER/capitalization.csv"
 fi
 
-set -x
-"$OBJDIR"/unit-test/test_runtime $ARGS >& $LOG
+if [[ $ON_DEMAND = 0 ]]; then 
+  set -x
+  "$OBJDIR"/unit-test/test_runtime $ARGS >& $LOG
+fi
 
 status=$?
 

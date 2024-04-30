@@ -568,12 +568,12 @@ dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx,
     ulong out_size;
     fd_base58_encode_64(signature, &out_size, encoded_signature);
 
-    if (txn_ctx->capture_ctx->instruction_dump_signature_filter) {
-      ulong filter_strlen = (ulong) strlen(txn_ctx->capture_ctx->instruction_dump_signature_filter);
+    if (txn_ctx->capture_ctx->dump_insn_sig_filter) {
+      ulong filter_strlen = (ulong) strlen(txn_ctx->capture_ctx->dump_insn_sig_filter);
 
       // Terminate early if the signature does not match
-      if (txn_ctx->capture_ctx->instruction_dump_signature_filter &&
-          memcmp(txn_ctx->capture_ctx->instruction_dump_signature_filter, encoded_signature, filter_strlen < out_size ? filter_strlen : out_size)) {
+      if (txn_ctx->capture_ctx->dump_insn_sig_filter &&
+          memcmp(txn_ctx->capture_ctx->dump_insn_sig_filter, encoded_signature, filter_strlen < out_size ? filter_strlen : out_size)) {
         return;
       }
     }
@@ -588,7 +588,7 @@ dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx,
     if (pb_encode(&stream, FD_EXEC_TEST_INSTR_CONTEXT_FIELDS, &instr_context)) {
       char output_filepath[256]; fd_memset(output_filepath, 0, sizeof(output_filepath));
       char * position = fd_cstr_init(output_filepath);
-      position = fd_cstr_append_cstr(position, txn_ctx->capture_ctx->dump_instruction_output_dir);
+      position = fd_cstr_append_cstr(position, txn_ctx->capture_ctx->dump_insn_output_dir);
       position = fd_cstr_append_cstr(position, "/instr-");
       position = fd_cstr_append_cstr(position, encoded_signature);
       position = fd_cstr_append_cstr(position, "-");
@@ -1016,7 +1016,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
         }
       }
 
-      if (txn_ctx->capture_ctx && txn_ctx->capture_ctx->dump_instructions_to_protobuf) {
+      if (txn_ctx->capture_ctx && txn_ctx->capture_ctx->dump_insn_to_pb) {
         // Capture the input and convert it into a Protobuf message
         dump_instr_to_protobuf(txn_ctx, &instrs[i], i);
       }

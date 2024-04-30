@@ -2172,7 +2172,7 @@ void
 fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
                     fd_exec_slot_ctx_t * slot_ctx,
                     ulong slot ) {
-  if ( capture_ctx->checkpt_slot != slot && slot % capture_ctx->checkpt_freq != 0 ) {
+  if( capture_ctx->checkpt_slot != slot && slot % capture_ctx->checkpt_freq != 0 ) {
     return;
   }
   FD_LOG_NOTICE(("checkpointing at slot=%lu", slot));
@@ -3660,8 +3660,34 @@ fd_runtime_ctx_delete( void * state ) {
   return state;
 }
 
+/* TODO: Delete this function and fully deprecate it */
 int
 fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
+  args->tcnt = fd_tile_cnt();
+  uchar * tpool_scr_mem = NULL;
+  fd_tpool_t * tpool = NULL;
+  if( args->tcnt > 1 ) {
+    tpool = fd_tpool_init( state->tpool_mem, args->tcnt );
+    if( tpool == NULL ) {
+      FD_LOG_ERR(( "failed to create thread pool" ));
+    }
+    ulong scratch_sz = fd_scratch_smem_footprint( 256UL<<20UL );
+    tpool_scr_mem = fd_valloc_malloc( state->slot_ctx->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(args->tcnt - 1U) );
+    if( tpool_scr_mem == NULL ) {
+      FD_LOG_ERR( ( "failed to allocate thread pool scratch space" ) );
+    }
+    for( ulong i = 1; i < args->tcnt; ++i ) {
+      if( fd_tpool_worker_push( tpool, i, tpool_scr_mem + scratch_sz*(i - 1U), scratch_sz ) == NULL ) {
+        FD_LOG_ERR(( "failed to launch worker" ));
+      }
+      else {
+        FD_LOG_NOTICE(( "launched worker" ));
+      }
+    }
+  }
+  state->tpool       = tpool;
+  state->max_workers = args->tcnt;
+
   ulong r = fd_funk_txn_cancel_all( state->slot_ctx->acc_mgr->funk, 1 );
   FD_LOG_INFO( ( "Cancelled old transactions %lu", r ) );
 
@@ -3768,6 +3794,10 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
 #endif
 
     prev_slot = slot;
+  }
+
+  if( state->tpool ) { 
+    fd_tpool_fini( state->tpool );
   }
 
   replay_time += fd_log_wallclock();
