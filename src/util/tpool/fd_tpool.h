@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_util_tpool_fd_tpool_h
 #define HEADER_fd_src_util_tpool_fd_tpool_h
 
+#include <pthread.h>
+
 /* tpool provides APIs to group sets of tiles together for ultra low
    overhead and high scalability launching of thread parallel jobs.
    There is a lot of nuance that most thread pool APIs and
@@ -544,7 +546,7 @@ struct __attribute__((aligned(128))) fd_tpool_private_worker {
   ulong           task_m0;     ulong task_m1;
   ulong           task_n0;     ulong task_n1;
   int             state;
-  uint            tile_idx;
+  pthread_t       thread;
   void *          scratch;
   ulong           scratch_sz;
 };
@@ -644,11 +646,8 @@ fd_tpool_init( void * mem,
 void *
 fd_tpool_fini( fd_tpool_t * tpool );
 
-/* fd_tpool_worker_push pushes tile tile_idx into the tpool.  tile_idx
-   0, the calling tile, and tiles that have already been pushed into the
-   tpool cannot be pushed.  Further, tile_idx should be idle and no
-   other tile operations should be done it while it is a part of the
-   tpool.
+/* fd_tpool_worker_push pushes a new worker into the tpool. cpu_idx
+   is the cpu to bind to (65535UL for a floating thread.
 
    If scratch_sz is non-zero, this will assume that tile tile_idx
    currently has no scratch memory attached to it and configure tile
@@ -665,19 +664,15 @@ fd_tpool_fini( fd_tpool_t * tpool );
    appropriate for a "worker 0 thread" that is not pushed into the
    tpool.
 
-   Returns tpool on success (tile tile_idx is part of the tpool and will
-   be considered as executing from tile's point of view while a member
-   of the tpool ... no tile operations can or should be done on it while
-   it is part of the tpool) and NULL on failure (logs details).  Reasons
-   for failure include NULL tpool, bad tile_idx, tile was not idle, bad
-   scratch region specified, etc).
+   Returns tpool on success and NULL on failure (logs details).  Reasons
+   for failure include NULL tpool, bad scratch region specified, etc).
 
    No other operations on tpool should be in process when this is called
    or started while this is running. */
 
 fd_tpool_t *
 fd_tpool_worker_push( fd_tpool_t * tpool,
-                      ulong        tile_idx,
+                      ulong        cpu_idx,
                       void *       scratch,
                       ulong        scratch_sz );
 
@@ -704,12 +699,6 @@ fd_tpool_worker_pop( fd_tpool_t * tpool );
 
 FD_FN_PURE static inline ulong fd_tpool_worker_cnt( fd_tpool_t const * tpool ) { return tpool->worker_cnt; }
 FD_FN_PURE static inline ulong fd_tpool_worker_max( fd_tpool_t const * tpool ) { return tpool->worker_max; }
-
-FD_FN_PURE static inline ulong
-fd_tpool_worker_tile_idx( fd_tpool_t const * tpool,
-                          ulong              worker_idx ) {
-  return (ulong)fd_tpool_private_worker( tpool )[ worker_idx ]->tile_idx;
-}
 
 FD_FN_PURE static inline void *
 fd_tpool_worker_scratch( fd_tpool_t const * tpool,

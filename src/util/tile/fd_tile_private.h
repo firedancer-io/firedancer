@@ -58,6 +58,9 @@ void *
 fd_tile_private_stack_new( int   optimize,
                            ulong cpu_idx );
 
+void
+fd_tile_private_stack_delete( void * _stack );
+
 ulong
 fd_tile_private_cpus_parse( char const * cstr,
                             ushort *     tile_to_cpu );

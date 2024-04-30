@@ -1,8 +1,11 @@
 #include "fd_tpool.h"
+#include "../tile/fd_tile_private.h"
+#include <pthread.h>
 
 struct fd_tpool_private_worker_cfg {
   fd_tpool_t * tpool;
-  ulong        tile_idx;
+  ulong        cpu_idx;
+  ulong        worker_idx;
   void *       scratch;
   ulong        scratch_sz;
 };
@@ -13,23 +16,40 @@ typedef struct fd_tpool_private_worker_cfg fd_tpool_private_worker_cfg_t;
 
 FD_TL ulong fd_tpool_private_scratch_frame[ FD_TPOOL_WORKER_SCRATCH_DEPTH ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
 
-static int
-fd_tpool_private_worker( int     argc,
-                         char ** argv ) {
-  ulong                           worker_idx = (ulong)(uint)argc;
-  fd_tpool_private_worker_cfg_t * cfg        = (fd_tpool_private_worker_cfg_t *)argv;
+static void *
+fd_tpool_private_worker( void * arg ) {
+  fd_tpool_private_worker_cfg_t * cfg = (fd_tpool_private_worker_cfg_t *)arg;
 
   fd_tpool_t * tpool      = cfg->tpool;
-  ulong        tile_idx   = cfg->tile_idx;
+# if !__GLIBC__
+  ulong        cpu_idx    = cfg->cpu_idx;
+# endif
+  ulong        worker_idx = cfg->worker_idx;
   void *       scratch    = cfg->scratch;
   ulong        scratch_sz = cfg->scratch_sz;
 
   fd_tpool_private_worker_t worker[1];
   FD_COMPILER_MFENCE();
+  worker->thread               = pthread_self();
   FD_VOLATILE( worker->state ) = FD_TPOOL_WORKER_STATE_BOOT;
   FD_COMPILER_MFENCE();
 
-  worker->tile_idx   = (uint)tile_idx;
+# if !__GLIBC__
+  if( cpu_idx<65535UL ) {
+    FD_CPUSET_DECL( cpu_set );
+    fd_cpuset_insert( cpu_set, cpu_idx );
+    int err = fd_cpuset_setaffinity( (pid_t)0, cpu_set );
+    if( FD_UNLIKELY( err ) )
+      FD_LOG_WARNING(( "fd_cpuset_setaffinity_failed (%i-%s)\n\t"
+                       "Unable to set the thread affinity to cpu %lu.  Attempting to\n\t"
+                       "continue without explicitly specifying this tile's cpu affinity but it\n\t"
+                       "is likely this thread group's performance and stability are compromised\n\t"
+                       "(possibly catastrophically so).  Update --tile-cpus to specify a set of\n\t"
+                       "allowed cpus that have been reserved for this thread group on this host\n\t"
+                       "to eliminate this warning.", err, fd_io_strerror( err ), cpu_idx ));
+  }
+# endif /* !__GLIBC__ */
+
   worker->scratch    = scratch;
   worker->scratch_sz = scratch_sz;
 
@@ -154,27 +174,12 @@ fd_tpool_fini( fd_tpool_t * tpool ) {
 
 fd_tpool_t *
 fd_tpool_worker_push( fd_tpool_t * tpool,
-                      ulong        tile_idx,
+                      ulong        cpu_idx,
                       void *       scratch,
                       ulong        scratch_sz ) {
 
   if( FD_UNLIKELY( !tpool ) ) {
     FD_LOG_WARNING(( "NULL tpool" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !tile_idx ) ) {
-    FD_LOG_WARNING(( "cannot push tile_idx 0" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( tile_idx==fd_tile_idx() ) ) {
-    FD_LOG_WARNING(( "cannot push self" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( tile_idx>=fd_tile_cnt() ) ) {
-    FD_LOG_WARNING(( "invalid tile_idx" ));
     return NULL;
   }
 
@@ -198,31 +203,93 @@ fd_tpool_worker_push( fd_tpool_t * tpool,
     return NULL;
   }
 
-  for( ulong worker_idx=0UL; worker_idx<worker_cnt; worker_idx++ )
-    if( worker[ worker_idx ]->tile_idx==tile_idx ) {
-      FD_LOG_WARNING(( "tile_idx already added to tpool" ));
-      return NULL;
-    }
-
   fd_tpool_private_worker_cfg_t cfg[1];
 
   cfg->tpool      = tpool;
-  cfg->tile_idx   = tile_idx;
+  cfg->cpu_idx    = cpu_idx;
+  cfg->worker_idx = worker_cnt;
   cfg->scratch    = scratch;
   cfg->scratch_sz = scratch_sz;
-
-  int     argc = (int)(uint)worker_cnt;
-  char ** argv = (char **)fd_type_pun( cfg );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( worker[ worker_cnt ] ) = NULL;
   FD_COMPILER_MFENCE();
 
-  if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, fd_tpool_private_worker, argc, argv ) ) ) {
-    FD_LOG_WARNING(( "fd_tile_exec_new failed (tile probably already in use)" ));
-    return NULL;
+  int fixed   = (cpu_idx<65535UL);
+  if( fixed ) FD_LOG_INFO(( "booting worker on cpu %lu",   cpu_idx ));
+  else        FD_LOG_INFO(( "booting worker" ));
+
+  pthread_attr_t attr[1];
+  int err = pthread_attr_init( attr );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "pthread_attr_init failed (%i-%s).\n\t",
+                                        err, fd_io_strerror( err ) ));
+
+  /* Set affinity ahead of time.  This is a GNU-specific extension
+     that is not available on musl.  On musl, we just skip this
+     step as we call sched_setaffinity(2) later on regardless. */
+
+#   if __GLIBC__
+  if( fixed ) {
+    FD_CPUSET_DECL( cpu_set );
+    fd_cpuset_insert( cpu_set, cpu_idx );
+    err = pthread_attr_setaffinity_np( attr, fd_cpuset_footprint(), (cpu_set_t const *)fd_type_pun_const( cpu_set ) );
+    if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "pthread_attr_setaffinity_failed (%i-%s)\n\t"
+                                              "Unable to set the thread affinity for cpu %lu.  Attempting to\n\t"
+                                              "continue without explicitly specifying this cpu's thread affinity but it\n\t"
+                                              "is likely this thread group's performance and stability are compromised\n\t"
+                                              "(possibly catastrophically so).  Update --tile-cpus to specify a set of\n\t"
+                                              "allowed cpus that have been reserved for this thread group on this host\n\t"
+                                              "to eliminate this warning.",
+                                              err, fd_io_strerror( err ), cpu_idx ));
+  }
+#   endif /* __GLIBC__ */
+
+  /* Create an optimized stack with guard regions if the build target
+     is x86 (e.g. supports huge pages necessary to optimize TLB usage)
+     and the tile is assigned to a particular CPU (e.g. bind the stack
+     memory to the NUMA node closest to the cpu).
+
+     Otherwise (or if an optimized stack could not be created), create
+     vanilla pthread-style stack with guard regions.  We DIY here
+     because pthreads seems to be missing an API to determine the
+     extents of the stacks it creates and we need to know the stack
+     extents for run-time stack diagnostics.  Though we can use
+     fd_log_private_stack_discover to determine stack extents after
+     the thread is started, it is faster, more flexible, more reliable
+     and more portable to use a user specified stack when possible.
+
+     If neither can be done, we will let pthreads create the tile's
+     stack and try to discover the stack extents after the thread is
+     started. */
+
+  int optimize = FD_HAS_X86 & fixed;
+
+  void * stack = fd_tile_private_stack_new( optimize, cpu_idx );
+  if( FD_LIKELY( stack ) ) {
+    err = pthread_attr_setstack( attr, stack, FD_TILE_PRIVATE_STACK_SZ );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "fd_tile: pthread_attr_setstack failed (%i-%s)\n\t", err, fd_io_strerror( err ) ));
+      fd_tile_private_stack_delete( stack );
+      stack = NULL;
+    }
   }
 
+  if( FD_UNLIKELY( !stack ) ) FD_LOG_WARNING(( "Unable to create a stack.\n\t"
+                                               "Attempting to continue with the default stack but it is likely this\n\t"
+                                               "thread group's performance and stability is compromised (possibly\n\t"
+                                               "catastrophically so)." ));
+
+  pthread_t thread;
+  err = pthread_create( &thread, attr, fd_tpool_private_worker, cfg );
+  if( FD_UNLIKELY( err ) ) {
+    if( fixed ) FD_LOG_ERR(( "pthread_create failed (%i-%s)\n\t"
+                             "Unable to start up worker on cpu %lu.",
+                             err, fd_io_strerror( err ), cpu_idx ));
+    else        FD_LOG_ERR(( "pthread_create failed (%i-%s)\n\t"
+                             "Unable to start up worker.",
+                             err, fd_io_strerror( err ) ));
+  }
+  
   while( !FD_VOLATILE_CONST( worker[ worker_cnt ] ) ) FD_SPIN_PAUSE();
 
   tpool->worker_cnt = worker_cnt + 1UL;
@@ -244,7 +311,6 @@ fd_tpool_worker_pop( fd_tpool_t * tpool ) {
   }
 
   fd_tpool_private_worker_t * worker   = fd_tpool_private_worker( tpool )[ worker_cnt-1UL ];
-  fd_tile_exec_t *            exec     = fd_tile_exec( worker->tile_idx );
   int volatile *              vstate   = (int volatile *)&(worker->state);
   int                         state;
 
@@ -280,11 +346,8 @@ fd_tpool_worker_pop( fd_tpool_t * tpool ) {
 
   /* Wait for the worker to shutdown */
 
-  int          ret;
-  char const * err = fd_tile_exec_delete( exec, &ret );
-  if(      FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "tile err \"%s\" unexpected; attempting to continue", err ));
-  else if( FD_UNLIKELY( ret ) ) FD_LOG_WARNING(( "tile ret %i unexpected; attempting to continue", ret ));
-
+  pthread_join( worker->thread, NULL );
+  
   tpool->worker_cnt = worker_cnt-1UL;
   return tpool;
 }

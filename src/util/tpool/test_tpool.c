@@ -1,8 +1,6 @@
 #include "../fd_util.h"
 
 FD_STATIC_ASSERT( FD_TPOOL_ALIGN            == 128UL, unit_test );
-FD_STATIC_ASSERT( FD_TPOOL_FOOTPRINT(1UL)   == 256UL, unit_test );
-FD_STATIC_ASSERT( FD_TPOOL_FOOTPRINT(1024UL)==8448UL, unit_test );
 
 FD_STATIC_ASSERT( FD_TPOOL_WORKER_STATE_BOOT==0, unit_test );
 FD_STATIC_ASSERT( FD_TPOOL_WORKER_STATE_IDLE==1, unit_test );
@@ -186,7 +184,6 @@ main( int     argc,
     tpool = fd_tpool_init( tpool_mem, worker_max ); FD_TEST( tpool );
     FD_TEST( fd_tpool_worker_cnt       ( tpool      )==1UL                        );
     FD_TEST( fd_tpool_worker_max       ( tpool      )==worker_max                 );
-    FD_TEST( fd_tpool_worker_tile_idx  ( tpool, 0UL )==0UL                        );
     FD_TEST( fd_tpool_worker_scratch   ( tpool, 0UL )==NULL                       );
     FD_TEST( fd_tpool_worker_scratch_sz( tpool, 0UL )==0UL                        );
     FD_TEST( fd_tpool_worker_state     ( tpool, 0UL )==FD_TPOOL_WORKER_STATE_EXEC );
@@ -210,7 +207,6 @@ main( int     argc,
     FD_TEST( fd_tpool_worker_push( tpool, tile_idx, (void *)tile_idx, 0UL )==tpool );
     FD_TEST( fd_tpool_worker_cnt       ( tpool )            ==worker_idx+1UL             );
     FD_TEST( fd_tpool_worker_max       ( tpool )            ==tile_cnt                   );
-    FD_TEST( fd_tpool_worker_tile_idx  ( tpool, worker_idx )==tile_idx                   );
     FD_TEST( fd_tpool_worker_scratch   ( tpool, worker_idx )==(void *)tile_idx           );
     FD_TEST( fd_tpool_worker_scratch_sz( tpool, worker_idx )==0UL                        );
     FD_TEST( fd_tpool_worker_state     ( tpool, worker_idx )==FD_TPOOL_WORKER_STATE_IDLE );

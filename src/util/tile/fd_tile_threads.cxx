@@ -162,7 +162,7 @@ fd_tile_private_stack_new( int   optimize,
   return stack;
 }
 
-static void
+void
 fd_tile_private_stack_delete( void * _stack ) {
   if( FD_UNLIKELY( !_stack ) ) return;
 
