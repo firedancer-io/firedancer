@@ -58,6 +58,6 @@ int
 fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv );
 
 void
-fd_tvu_main_teardown( fd_runtime_ctx_t * ign_args, fd_replay_t * replay );
+fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args, fd_replay_t * replay );
 
 #endif /* HEADER_fd_src_tvu_fd_tvu_h */
