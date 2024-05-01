@@ -40,6 +40,7 @@
 #define FD_VM_ERR_SIGRDONLY   (-15) /* illegal write (e.g. write to a read only address) */
 #define FD_VM_ERR_SIGCOST     (-16) /* compute unit limit exceeded (syscalls that exceed their budget should use this too) */
 #define FD_VM_ERR_INVALID_PDA (-17) /* the computed pda was not a valid ed25519 point */
+#define FD_VM_ERR_SIGFPE      (-18) /* divide by zero */
 
 /* FIXME: Are these exact matches to Solana?  If so, provide link, if
    not, document and refine name / consolidate further. */
@@ -50,12 +51,12 @@
    FIXME: Are these exact matches to Solana?  If so, provide link?  If
    not document and refine names / consolidate further. */
 
-#define FD_VM_ERR_ABORT                        (-17) /* FIXME: description */
-#define FD_VM_ERR_PANIC                        (-18) /* FIXME: description */
-#define FD_VM_ERR_MEM_OVERLAP                  (-19) /* FIXME: description */
-#define FD_VM_ERR_INSTR_ERR                    (-20) /* FIXME: description */
-#define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-21) /* FIXME: description */
-#define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-22) /* FIXME: description */
+#define FD_VM_ERR_ABORT                        (-19) /* FIXME: description */
+#define FD_VM_ERR_PANIC                        (-20) /* FIXME: description */
+#define FD_VM_ERR_MEM_OVERLAP                  (-21) /* FIXME: description */
+#define FD_VM_ERR_INSTR_ERR                    (-22) /* FIXME: description */
+#define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-23) /* FIXME: description */
+#define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-24) /* FIXME: description */
 
 /* sBPF validation error codes.  These are only produced by
    fd_vm_validate.  FIXME: Consider having fd_vm_validate return
@@ -63,16 +64,16 @@
    info arg.  FIXME: Are these exact matches to Solana?  If so, provide
    link, if not, document and refine name / consolidate further. */
 
-#define FD_VM_ERR_INVALID_OPCODE    (-23) /* detected an invalid opcode */
-#define FD_VM_ERR_INVALID_SRC_REG   (-24) /* detected an invalid source register */
-#define FD_VM_ERR_INVALID_DST_REG   (-25) /* detected an invalid destination register */
-#define FD_VM_ERR_INF_LOOP          (-26) /* detected an infinite loop */
-#define FD_VM_ERR_JMP_OUT_OF_BOUNDS (-27) /* detected an out of bounds jump */
-#define FD_VM_ERR_JMP_TO_ADDL_IMM   (-28) /* detected a jump to an addl imm */
-#define FD_VM_ERR_INVALID_END_IMM   (-29) /* detected an invalid immediate for an endianness conversion instruction */
-#define FD_VM_ERR_INCOMPLETE_LDQ    (-30) /* detected an incomplete ldq at program end */
-#define FD_VM_ERR_LDQ_NO_ADDL_IMM   (-31) /* detected a ldq without an addl imm following it */
-#define FD_VM_ERR_NO_SUCH_EXT_CALL  (-32) /* detected a call imm with no function was registered for that immediate */
+#define FD_VM_ERR_INVALID_OPCODE    (-25) /* detected an invalid opcode */
+#define FD_VM_ERR_INVALID_SRC_REG   (-26) /* detected an invalid source register */
+#define FD_VM_ERR_INVALID_DST_REG   (-27) /* detected an invalid destination register */
+#define FD_VM_ERR_INF_LOOP          (-28) /* detected an infinite loop */
+#define FD_VM_ERR_JMP_OUT_OF_BOUNDS (-29) /* detected an out of bounds jump */
+#define FD_VM_ERR_JMP_TO_ADDL_IMM   (-30) /* detected a jump to an addl imm */
+#define FD_VM_ERR_INVALID_END_IMM   (-31) /* detected an invalid immediate for an endianness conversion instruction */
+#define FD_VM_ERR_INCOMPLETE_LDQ    (-32) /* detected an incomplete ldq at program end */
+#define FD_VM_ERR_LDQ_NO_ADDL_IMM   (-33) /* detected a ldq without an addl imm following it */
+#define FD_VM_ERR_NO_SUCH_EXT_CALL  (-34) /* detected a call imm with no function was registered for that immediate */
 
 FD_PROTOTYPES_BEGIN
 
