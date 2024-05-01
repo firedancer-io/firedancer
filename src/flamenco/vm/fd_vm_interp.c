@@ -1,3 +1,4 @@
+#include "fd_vm_base.h"
 #include "fd_vm_private.h"
 
 /* FIXME: MAKE DIFFERENT VERSIONS FOR EACH COMBO OF CHECK_ALIGN/TRACE? */
@@ -6,13 +7,6 @@ int
 fd_vm_exec_private( fd_vm_t * vm ) {
 
   if( FD_UNLIKELY( !vm ) ) return FD_VM_ERR_INVAL;
-
-  /* Unpack the configuration */
-  /* FIXME: move this into fd_vm_init */
-  int err = fd_vm_setup_state_for_execution( vm );
-  if ( FD_UNLIKELY( err != FD_VM_SUCCESS ) ) {
-    return err;
-  }
 
   /* Pull out variables needed for the fd_vm_interp_core template */
   int   check_align = vm->check_align;
@@ -34,6 +28,8 @@ fd_vm_exec_private( fd_vm_t * vm ) {
   ulong * FD_RESTRICT reg = vm->reg;
 
   fd_vm_shadow_t * FD_RESTRICT shadow = vm->shadow;
+
+  int err = FD_VM_SUCCESS;
 
   /* Run the VM */
 # include "fd_vm_interp_core.c"

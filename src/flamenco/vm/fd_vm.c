@@ -265,7 +265,7 @@ fd_vm_footprint( void ) {
 
 void *
 fd_vm_new( void * shmem ) {
-  
+
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -348,7 +348,7 @@ fd_vm_delete( void * shmem ) {
 }
 
 fd_vm_t *
-fd_vm_init( 
+fd_vm_init(
    fd_vm_t * vm,
    fd_exec_instr_ctx_t *instr_ctx,
    ulong heap_max,
@@ -393,12 +393,15 @@ fd_vm_init(
   vm->trace = trace;
   vm->sha = sha;
 
-  // TODO: call fd_vm_setup_state_for_execution here once it is trace-aware
+  /* Unpack the configuration */
+  int err = fd_vm_setup_state_for_execution( vm );
+  if( FD_UNLIKELY( err != FD_VM_SUCCESS ) ) {
+    return NULL;
+  }
 
   return vm;
 }
 
-/* FIXME: this should eventually be moved into fd_vm_init */
 int
 fd_vm_setup_state_for_execution( fd_vm_t * vm ) {
 
