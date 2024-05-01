@@ -8,6 +8,8 @@ struct fd_tpool_private_worker_cfg {
   ulong        worker_idx;
   void *       scratch;
   ulong        scratch_sz;
+  void *       stack;
+  ulong        stack_sz;
 };
 
 typedef struct fd_tpool_private_worker_cfg fd_tpool_private_worker_cfg_t;
@@ -27,6 +29,17 @@ fd_tpool_private_worker( void * arg ) {
   ulong        worker_idx = cfg->worker_idx;
   void *       scratch    = cfg->scratch;
   ulong        scratch_sz = cfg->scratch_sz;
+  void *       stack      = cfg->stack;
+  ulong        stack_sz   = cfg->stack_sz;
+
+  if( FD_LIKELY( stack ) ) { /* User provided stack */
+    fd_tile_private_stack0 = (ulong)stack;
+    fd_tile_private_stack1 = (ulong)stack + stack_sz;
+  } else { /* Pthread provided stack */
+    fd_log_private_stack_discover( stack_sz, &fd_tile_private_stack0, &fd_tile_private_stack1 ); /* logs details */
+    if( FD_UNLIKELY( !fd_tile_private_stack0 ) )
+      FD_LOG_WARNING(( "stack diagnostics not available on this tile; attempting to continue" ));
+  }
 
   fd_tpool_private_worker_t worker[1];
   FD_COMPILER_MFENCE();
@@ -273,6 +286,8 @@ fd_tpool_worker_push( fd_tpool_t * tpool,
       stack = NULL;
     }
   }
+  cfg->stack = stack;
+  cfg->stack_sz = FD_TILE_PRIVATE_STACK_SZ;
 
   if( FD_UNLIKELY( !stack ) ) FD_LOG_WARNING(( "Unable to create a stack.\n\t"
                                                "Attempting to continue with the default stack but it is likely this\n\t"
@@ -289,7 +304,7 @@ fd_tpool_worker_push( fd_tpool_t * tpool,
                              "Unable to start up worker.",
                              err, fd_io_strerror( err ) ));
   }
-  
+
   while( !FD_VOLATILE_CONST( worker[ worker_cnt ] ) ) FD_SPIN_PAUSE();
 
   tpool->worker_cnt = worker_cnt + 1UL;
@@ -347,7 +362,7 @@ fd_tpool_worker_pop( fd_tpool_t * tpool ) {
   /* Wait for the worker to shutdown */
 
   pthread_join( worker->thread, NULL );
-  
+
   tpool->worker_cnt = worker_cnt-1UL;
   return tpool;
 }

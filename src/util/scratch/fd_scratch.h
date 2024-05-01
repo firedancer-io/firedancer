@@ -752,8 +752,9 @@ extern FD_TL ulong fd_alloca_check_private_sz;
        ulong _fd_alloca_check_private_pad_max   = FD_SCRATCH_PRIVATE_TRUE_ALIGN( (align) ) - 1UL;                \
        ulong _fd_alloca_check_private_footprint = fd_alloca_check_private_sz + _fd_alloca_check_private_pad_max; \
        if( FD_UNLIKELY( (_fd_alloca_check_private_footprint < _fd_alloca_check_private_pad_max      ) |          \
-                        (_fd_alloca_check_private_footprint > (31UL*(fd_tile_stack_est_free() >> 5))) ) )        \
-         FD_LOG_CRIT(( "fd_alloca_check( " #align ", " #sz " ) stack overflow" ));                               \
+                        (_fd_alloca_check_private_footprint > (31UL*(fd_tile_stack_est_free() >> 5))) ) ) {      \
+         FD_LOG_CRIT(( "fd_alloca_check( " #align ", " #sz " ) stack overflow, "                                 \
+                                        "estimated free is %lu", fd_tile_stack_est_free() )); }                  \
      })),                                                                                                        \
      fd_alloca( (align), fd_alloca_check_private_sz ) )
 
