@@ -2,6 +2,7 @@ name: Publish to ClusterFuzz
 on:
   workflow_call:
   workflow_dispatch:
+  pull_request:
 jobs:
   clusterfuzz-publish:
     environment:
@@ -20,17 +21,17 @@ jobs:
             artifact_dir: build/linux/clang/icelake
             qualifier: highend
     runs-on:
-      group: github-v1
+      ubuntu-latest
     env:
       MACHINE: ${{ matrix.machine }}
       EXTRAS: fuzz asan ubsan
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ./.github/actions/hugepages
+      # - uses: ./.github/actions/hugepages
       - uses: ./.github/actions/deps
 
-      - run: sudo apt update && sudo apt install -y zip
+      - run: sudo apt update && sudo apt install -y zip patchelf
 
       - uses: asymmetric-research/clusterfuzz-fuzzbot-builder@main
         name: Build fuzz tests
