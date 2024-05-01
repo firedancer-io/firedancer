@@ -3668,6 +3668,9 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
       FD_LOG_ERR( ( "failed to allocate thread pool scratch space" ) );
     }
     for( ulong i = 1; i < args->replay_tpool_cnt; ++i ) {
+      /* Spin up a worker. cpu_idx is USHORT_MAX here, indicating the
+         thread should just float across cpus. We generally only use
+         affinity when executing live. */
       if( fd_tpool_worker_push( tpool, USHORT_MAX, tpool_scr_mem + scratch_sz*(i - 1U), scratch_sz ) == NULL ) {
         FD_LOG_ERR(( "failed to launch worker" ));
       }
