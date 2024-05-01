@@ -41,9 +41,16 @@ fd_topo_tvu( config_t * config ) {
   /**/                 fd_topob_tile( topo, "tvu",     "tvu",     "tvu",       "tvu",        tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
   /**/                 fd_topob_tile( topo, "sign",    "sign",    "sign",      "sign",       tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
 
+  /* TODO: LML we need to replace all the special cases introduced by this PR for a partially managed tpool and spawned pthreads in TVU. */
+  /*       When we define the tiles in this topology the FD_TOPO_TILE_KIND_TVU_THREAD tiles ***MUST*** be defined last                   */
+  /*       because in tiles/fd_tvu.c we blindly assume the last tvu_unmanaged_cpus tiles are the FD_TOPO_TILE_KIND_TVU_THREAD tiles.      */
+  for( ulong i=0; i< config->tiles.tvu.tcnt; i++ ) {
+    fd_topob_tile( topo, "thread",    "tvu",    "tvu",      "tvu",       tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
+  }
+
   /**/               fd_topob_tile_in(  topo, "sign",   0UL,           "sign", "tvu_sign",      0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-  /**/               fd_topob_tile_out( topo, "tvu",     0UL,                        "tvu_sign",      0UL                                                  );
-  /**/               fd_topob_tile_in(  topo, "tvu",     0UL,           "tvu", "sign_tvu",      0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+  /**/               fd_topob_tile_out( topo, "tvu",    0UL,                        "tvu_sign",      0UL                                                  );
+  /**/               fd_topob_tile_in(  topo, "tvu",    0UL,           "tvu", "sign_tvu",      0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_tvu",      0UL                                                  );
 
   if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
@@ -87,6 +94,8 @@ fd_topo_tvu( config_t * config ) {
         strncpy( tile->tvu.solcap_txns, config->tiles.tvu.solcap_txns, sizeof(tile->tvu.solcap_txns) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
       strncpy( tile->sign.identity_key_path, config->consensus.identity_path, sizeof(tile->sign.identity_key_path) );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "thread" ) ) ) {
+      /* do nothing */
     } else {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }

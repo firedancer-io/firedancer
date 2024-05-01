@@ -428,7 +428,10 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
     tpool = fd_tpool_init( runtime_ctx->tpool_mem, runtime_args->tcnt - 3 );
     if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
     for( ulong i = 4; i < runtime_args->tcnt; ++i ) {
-      if( fd_tpool_worker_push( tpool, i, NULL, fd_scratch_smem_footprint( 256UL<<20UL ) ) == NULL )
+      ulong sz = 1UL << 20UL;
+      uchar * scratch = fd_scratch_alloc( FD_SCRATCH_SMEM_ALIGN, sz );
+      if( scratch == NULL ) FD_LOG_ERR( ( "failed to allocate scratch memory" ) );
+      if( fd_tpool_worker_push( tpool, i, scratch, sz ) == NULL )
         FD_LOG_ERR( ( "failed to launch worker" ) );
     }
   }
@@ -486,8 +489,8 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
 
 static ulong
 fd_tvu_setup_scratch( fd_valloc_t valloc ) {
-  ulong  smax   = 1UL << 31UL; /* 2 GiB scratch memory */
-  ulong  sdepth = 1UL << 11UL; /* 2048 scratch frames, 1 MiB each */
+  ulong  smax   = 1UL << 32UL; /* 4 GiB scratch memory */
+  ulong  sdepth = 1UL << 12UL; /* 4096 scratch frames, 1 MiB each */
   void * smem =
       fd_valloc_malloc( valloc, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax ) );
   void * fmem =

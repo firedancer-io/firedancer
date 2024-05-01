@@ -21,6 +21,7 @@ typedef struct {
 
 typedef struct {
   uchar             _data[ FD_KEYGUARD_SIGN_REQ_MTU ];
+  ulong             _length;
 
   ulong             in_role [ MAX_IN ];
   uchar *           in_data[ MAX_IN ];
@@ -79,6 +80,10 @@ during_frag( void * _ctx,
     case FD_KEYGUARD_ROLE_TLS:
       fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], 130UL );
       break;
+    case FD_KEYGUARD_ROLE_GOSSIP:
+    ctx->_length = sz;
+      fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], ctx->_length );
+      break;
     default:
       FD_LOG_CRIT(( "unexpected link role %lu", ctx->in_role[ in_idx ] ));
   }
@@ -119,6 +124,13 @@ after_frag( void *             _ctx,
         FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed" ));
       }
       fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, 130UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+      break;
+    }
+    case FD_KEYGUARD_ROLE_GOSSIP: {
+      if( FD_UNLIKELY( !fd_keyguard_payload_authorize( ctx->_data, ctx->_length, FD_KEYGUARD_ROLE_GOSSIP ) ) ) {
+        FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed %lu %u %u %u %u", ctx->_length, ctx->_data[0], ctx->_data[1], ctx->_data[2], ctx->_data[3] ));
+      }
+      fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, ctx->_length, ctx->public_key, ctx->private_key, ctx->sha512 );
       break;
     }
     default:

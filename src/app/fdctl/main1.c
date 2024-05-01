@@ -200,7 +200,7 @@ fdctl_boot( int *        pargc,
                               log_path );
   config->log.log_fd = fd_log_private_logfile_fd();
   fd_shmem_private_boot( pargc, pargv );;
-  fd_tile_private_boot( 0, NULL );
+  fd_tile_private_boot_env( 0, NULL );
 
   /* Kind of a hack but initializing NUMA config depends on shmem, which
      depends on logging, which depends on loading the config file, but

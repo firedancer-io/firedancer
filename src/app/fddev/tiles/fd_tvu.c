@@ -93,6 +93,16 @@ mux_ctx( void * scratch ) {
   return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_tvu_ctx_t ) );
 }
 
+#include "../../../util/tile/fd_tile_private.h"
+/* Temporary hack until we get the tiles right */
+void tpool_boot( ushort first_cpu, ulong tcnt ) {
+  ushort tile_to_cpu[ FD_TILE_MAX ];
+  for( ushort i=0; i<tcnt; i++ ) {
+    tile_to_cpu[ i ] = (ushort)(first_cpu+i);
+  }
+  fd_tile_private_boot( tile_to_cpu, tcnt );
+}
+
 void
 privileged_init( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch ) {
   g_wksp = topo->workspaces[ 0 ].wksp;
@@ -128,7 +138,7 @@ privileged_init( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch ) {
   FD_TEST( g_tcnt != 0 );
   FD_TEST( g_txn_max != 0 );
 
-  // tpool_boot( (ushort)(topo->tile_cnt-g_tcnt), g_tcnt );
+  tpool_boot( (ushort)(topo->tile_cnt-g_tcnt), g_tcnt );
 
   uchar const * identity_key = load_key_into_protected_memory( tile->tvu.identity_key_path, /* pubkey only: */ 0 );
   g_identity_key = identity_key;

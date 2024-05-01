@@ -673,6 +673,7 @@ void fd_log_private_app_id_set   ( ulong app_id    );
 void fd_log_private_thread_id_set( ulong thread_id );
 void fd_log_private_host_id_set  ( ulong host_id   );
 void fd_log_private_cpu_id_set   ( ulong cpu_id    );
+void fd_log_private_thread_id_set_init_reset( ulong thread_id );
 void fd_log_private_group_id_set ( ulong group_id  );
 void fd_log_private_tid_set      ( ulong tid       );
 void fd_log_private_user_id_set  ( ulong user_id   );
