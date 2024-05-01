@@ -129,8 +129,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t * slot_ctx,
   fd_delegation_pair_t_mapnode_t *sacc_root = NULL;
 
   fd_stake_history_treap_t *stake_history_treap = fd_stake_history_treap_join( fd_stake_history_treap_new( fd_exec_epoch_ctx_stake_history_treap_mem( slot_ctx->epoch_ctx ), FD_STAKE_HISTORY_MAX ) );
-  fd_stake_history_entry_t *stake_history_pool  = fd_stake_history_pool_join( fd_stake_history_pool_new( 
-                                                                        fd_exec_epoch_ctx_stake_history_pool_mem( slot_ctx->epoch_ctx ), 
+  fd_stake_history_entry_t *stake_history_pool  = fd_stake_history_pool_join( fd_stake_history_pool_new(
+                                                                        fd_exec_epoch_ctx_stake_history_pool_mem( slot_ctx->epoch_ctx ),
                                                                         FD_STAKE_HISTORY_MAX ) );
 
   fd_acc_lamports_t capitalization = 0UL;
@@ -829,7 +829,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
         fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
 
         if ( fd_hash_hash_age_pair_t_map_find( slot_ctx->slot_bank.block_hash_queue.ages_pool, slot_ctx->slot_bank.block_hash_queue.ages_root, &key ) == NULL ) {
-          return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;      
+          return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
         }
       }
 
@@ -1191,7 +1191,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
             for ( deq_fd_block_block_hash_entry_t_iter_t iter = deq_fd_block_block_hash_entry_t_iter_init( hashes_deque );
                   !deq_fd_block_block_hash_entry_t_iter_done( hashes_deque, iter );
                   iter = deq_fd_block_block_hash_entry_t_iter_next( hashes_deque, iter ) ) {
-              /* If the block hash entry matches the transactions recent block hash, we skip thje hash */  
+              /* If the block hash entry matches the transactions recent block hash, we skip thje hash */
               fd_block_block_hash_entry_t * entry = deq_fd_block_block_hash_entry_t_iter_ele( hashes_deque, iter );
               if ( memcmp( entry->blockhash.hash, recent_blockhash->hash, sizeof(fd_hash_t) ) == 0 ) {
                 skip_hash = 1;
@@ -1665,7 +1665,7 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_tpool_t * tpool,
                                          ulong max_workers ) {
   fd_funk_start_write( slot_ctx->acc_mgr->funk );
-  
+
   fd_sysvar_slot_history_update(slot_ctx);
 
   // this slot is frozen... and cannot change anymore...
@@ -2176,7 +2176,7 @@ fd_runtime_block_verify(fd_block_info_t const *block_info,
 //   child_slot_ctx->slot_bank.max_tick_height = (slot + 1) * slot_ctx->epoch_ctx->epoch_bank->ticks_per_slot;
 // }
 
-void 
+void
 fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
                     fd_exec_slot_ctx_t * slot_ctx,
                     ulong slot ) {
@@ -2214,7 +2214,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
   for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnmap) ) {
     if (++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1) ) {
       FD_LOG_DEBUG(("publishing %32J (slot %ld)", &txn->xid, txn->xid.ul[0]));
-      
+
       fd_funk_start_write(funk);
       ulong publish_err = fd_funk_txn_publish(funk, txn, 1);
       if (publish_err == 0) {
@@ -3655,6 +3655,30 @@ fd_runtime_ctx_delete( void * state ) {
 
 int
 fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
+  fd_tpool_t * tpool = NULL;
+  uchar * tpool_scr_mem = NULL;
+  if( args->replay_tpool_cnt > 1 ) {
+    tpool = fd_tpool_init( state->tpool_mem, args->replay_tpool_cnt );
+    if( tpool == NULL ) {
+      FD_LOG_ERR(( "failed to create thread pool" ));
+    }
+    ulong scratch_sz = fd_scratch_smem_footprint( 256UL<<20UL );
+    tpool_scr_mem = fd_valloc_malloc( state->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(args->replay_tpool_cnt - 1U) );
+    if( tpool_scr_mem == NULL ) {
+      FD_LOG_ERR( ( "failed to allocate thread pool scratch space" ) );
+    }
+    for( ulong i = 1; i < args->replay_tpool_cnt; ++i ) {
+      if( fd_tpool_worker_push( tpool, USHORT_MAX, tpool_scr_mem + scratch_sz*(i - 1U), scratch_sz ) == NULL ) {
+        FD_LOG_ERR(( "failed to launch worker" ));
+      }
+      else {
+        FD_LOG_NOTICE(( "launched worker" ));
+      }
+    }
+  }
+  state->tpool       = tpool;
+  state->max_workers = args->replay_tpool_cnt;
+
   ulong r = fd_funk_txn_cancel_all( state->slot_ctx->acc_mgr->funk, 1 );
   FD_LOG_INFO( ( "Cancelled old transactions %lu", r ) );
 
@@ -3774,6 +3798,9 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
         txn_cnt,
         tps,
         sec_per_slot ) );
+
+  if( tpool_scr_mem ) fd_valloc_free( state->valloc, tpool_scr_mem );
+  if( tpool ) fd_tpool_fini( tpool );
 
   return 0;
 }

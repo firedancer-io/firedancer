@@ -57,30 +57,6 @@ main( int     argc,
   fd_replay_t * replay = NULL;
   fd_tvu_main_setup( state, &replay, NULL, NULL, 0, NULL, args, NULL );
 
-  fd_tpool_t * tpool = NULL;
-  uchar * tpool_scr_mem = NULL;
-  if( args->replay_tpool_cnt > 1 ) {
-    tpool = fd_tpool_init( state->tpool_mem, args->replay_tpool_cnt );
-    if( tpool == NULL ) {
-      FD_LOG_ERR(( "failed to create thread pool" ));
-    }
-    ulong scratch_sz = fd_scratch_smem_footprint( 256UL<<20UL );
-    tpool_scr_mem = fd_valloc_malloc( replay->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(args->replay_tpool_cnt - 1U) );
-    if( tpool_scr_mem == NULL ) {
-      FD_LOG_ERR( ( "failed to allocate thread pool scratch space" ) );
-    }
-    for( ulong i = 1; i < args->replay_tpool_cnt; ++i ) {
-      if( fd_tpool_worker_push( tpool, USHORT_MAX, tpool_scr_mem + scratch_sz*(i - 1U), scratch_sz ) == NULL ) {
-        FD_LOG_ERR(( "failed to launch worker" ));
-      }
-      else {
-        FD_LOG_NOTICE(( "launched worker" ));
-      }
-    }
-  }
-  state->tpool       = tpool;
-  state->max_workers = args->replay_tpool_cnt;
-
   // TODO: tracing, captures, and capitalization is broken
 #if 0
   state.map = capitalization_map_join(capitalization_map_new(state.capitalization_map_mem));
@@ -140,7 +116,6 @@ main( int     argc,
   }
 
   // DO NOT REMOVE
-  if( tpool_scr_mem ) fd_valloc_free( replay->valloc, tpool_scr_mem );
   fd_tvu_main_teardown(state, NULL);
 
   FD_LOG_NOTICE(( "pass" ));

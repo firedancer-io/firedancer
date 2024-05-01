@@ -751,7 +751,7 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
     runtime_ctx->capture_ctx->checkpt_path = args->checkpt_path;
     runtime_ctx->capture_ctx->checkpt_freq = args->checkpt_freq;
   }
-  
+
   if ( has_prune ) {
     runtime_ctx->capture_ctx->pruned_funk = args->pruned_funk;
   }
@@ -1086,6 +1086,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   funk_setup( wksp, args->funk_wksp_name, args->snapshot, args->load, args->txn_max, args->index_max, &funk_setup_out );
 
   fd_valloc_t valloc = allocator_setup( wksp, args->allocator );
+  runtime_ctx->valloc = valloc;
 
   /* Sets up solcap, checkpoint dumps, and/or pruning */
   solcap_setup_t solcap_setup = {0};

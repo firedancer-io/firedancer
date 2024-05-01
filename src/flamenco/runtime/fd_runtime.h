@@ -77,6 +77,7 @@ struct fd_runtime_ctx {
   fd_wksp_t           * local_wksp;
   ulong                  max_workers;
   uchar                  abort_on_mismatch;
+  fd_valloc_t            valloc;
 };
 typedef struct fd_runtime_ctx fd_runtime_ctx_t;
 

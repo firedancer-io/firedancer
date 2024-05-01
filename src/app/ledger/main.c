@@ -328,8 +328,6 @@ main( int     argc,
 
   slot_ctx->blockstore = is_pruned ? pruned_blockstore : blockstore;
 
-  fd_tpool_t * tpool = NULL;
-
   if (cmd == NULL) {
     // Do nothing
 
@@ -422,29 +420,6 @@ main( int     argc,
     fd_tvu_gossip_deliver_arg_t gossip_deliver_arg[1];
     fd_replay_t * replay = NULL;
     fd_tvu_main_setup( &state, &replay, NULL, NULL, 0, wksp, &args, gossip_deliver_arg );
-
-    uchar * tpool_scr_mem = NULL;
-    if( replay_tpool_cnt > 1 ) {
-      tpool = fd_tpool_init( state.tpool_mem, replay_tpool_cnt );
-      if( tpool == NULL ) {
-        FD_LOG_ERR(( "failed to create thread pool" ));
-      }
-      ulong scratch_sz = fd_scratch_smem_footprint( 256UL<<20UL );
-      tpool_scr_mem = fd_valloc_malloc( replay->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(replay_tpool_cnt - 1U) );
-      if( tpool_scr_mem == NULL ) {
-        FD_LOG_ERR( ( "failed to allocate thread pool scratch space" ) );
-      }
-      for( ulong i = 1; i < replay_tpool_cnt; ++i ) {
-        if( fd_tpool_worker_push( tpool, USHORT_MAX, tpool_scr_mem + scratch_sz*(i - 1U), scratch_sz ) == NULL ) {
-          FD_LOG_ERR(( "failed to launch worker" ));
-        }
-        else {
-          FD_LOG_NOTICE(( "launched worker" ));
-        }
-      }
-    }
-    state.tpool       = tpool;
-    state.max_workers = replay_tpool_cnt;
 
     /* Junk xid for pruning transaction */ // TODO: factor out the xid nicelY
     fd_funk_txn_xid_t prune_xid;
@@ -594,10 +569,6 @@ main( int     argc,
       FD_LOG_ERR(( "pruned funk verification failed" ));
     }
 
-    if ( tpool ) {
-      fd_tpool_fini( tpool );
-    }
-
     fd_wksp_free_laddr( smem );
     fd_wksp_free_laddr( fmem );
 
@@ -730,7 +701,7 @@ main( int     argc,
       free(buf);
 
       fd_funk_start_write( funk );
-        
+
       /* If we are loading from a snapshot, do not overwrite from genesis */
       if ( !snapshotfile ) {
         fd_runtime_init_bank_from_genesis( slot_ctx, &genesis_block, &genesis_hash );
@@ -889,9 +860,6 @@ main( int     argc,
     else
       FD_LOG_ERR(("hash does not match!"));
   }
-
-  if ( tpool )
-    fd_tpool_fini( tpool );
 
   fd_funk_log_mem_usage( funk );
   fd_blockstore_log_mem_usage( blockstore );
