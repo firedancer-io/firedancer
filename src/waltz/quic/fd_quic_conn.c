@@ -66,6 +66,8 @@ fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
   if( FD_UNLIKELY( limits->initial_stream_cnt[2] > limits->stream_cnt[2] ) ) return 0UL;
   if( FD_UNLIKELY( limits->initial_stream_cnt[3] > limits->stream_cnt[3] ) ) return 0UL;
 
+  stream_cnt = layout->stream_cnt = limits->stream_pool_cnt;
+
   ulong off  = 0;
 
   off += sizeof( fd_quic_conn_t );

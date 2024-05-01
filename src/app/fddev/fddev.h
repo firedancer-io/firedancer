@@ -19,7 +19,8 @@ add_bench_topo( fd_topo_t  * topo,
                 ushort       send_to_port,
                 uint         send_to_ip_addr,
                 ushort       rpc_port,
-                uint         rpc_ip_addr );
+                uint         rpc_ip_addr,
+                int          no_quic );
 
 void
 dev_cmd_args( int *    pargc,

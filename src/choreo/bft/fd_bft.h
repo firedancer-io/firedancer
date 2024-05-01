@@ -27,7 +27,7 @@ struct fd_bft {
   ulong      epoch_stake; /* total amount of stake in the current epoch */
   fd_tower_t tower;       /* our local vote tower */
 
-  /* external joins */
+  /* external joins, pointer don't need updating */
 
   fd_acc_mgr_t *    acc_mgr;
   fd_blockstore_t * blockstore;

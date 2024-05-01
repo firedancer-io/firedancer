@@ -73,21 +73,26 @@ main( int     argc,
 
     /* Test type detection */
     int is_legacy  =  i      ==0x5a ||  i      ==0xa5;
-    int is_merkle  = (i&0xf0)==0x40 || (i&0xf0)==0x80 || (i&0xf0)==0x90 || (i&0xf0)==0x60;
-    int is_data    =  i      ==0xa5 || (i&0xf0)==0x80 || (i&0xf0)==0x90;
-    int is_code    = (i      ==0x5a || (i&0xf0)==0x40 || (i&0xf0)==0x60);
-    int is_chained = ((i&0xf0)==0x90 || (i&0xf0)==0x60 );
-    int is_valid   = (is_legacy^is_merkle) && (is_data^is_code) && (!is_chained || is_merkle);
+    int is_merkle  = (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE || (i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA
+      || (i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA_CHAINED || (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE_CHAINED
+      || (i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED || (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED;
+    int is_data    =  i      ==0xa5 || (i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA  || (i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA_CHAINED || (i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED;
+    int is_code    =  i      ==0x5a || (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE  || (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE_CHAINED || (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED;
+    int is_resigned = ((i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED || (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED );
+    int is_chained = ((i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA_CHAINED || (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE_CHAINED ) || is_resigned;
+    int is_valid   = ((is_legacy^is_merkle) && (is_data^is_code) && (!is_chained || is_merkle)) || (is_resigned && is_chained && !is_legacy);
 
     /* Find sizes for shred type */
     ulong header_sz = 0;
-    if( FD_LIKELY( is_data   ) ) header_sz = 0x58;
-    if( FD_LIKELY( is_code   ) ) header_sz = 0x59;
+    if( FD_LIKELY( is_data   ) ) header_sz = FD_SHRED_DATA_HEADER_SZ;
+    if( FD_LIKELY( is_code   ) ) header_sz = FD_SHRED_CODE_HEADER_SZ;
     ulong merkle_sz = 0;
     if( FD_LIKELY( is_merkle ) ) merkle_sz = (i&0x0f)*FD_SHRED_MERKLE_NODE_SZ;
     ulong chained_root_sz = 0;
     if( FD_LIKELY( is_chained ) ) chained_root_sz = FD_SHRED_MERKLE_ROOT_SZ;
-    ulong payload_sz = ((is_merkle&is_data) ? FD_SHRED_MIN_SZ : FD_SHRED_MAX_SZ) - header_sz - merkle_sz - chained_root_sz;
+    ulong resigned_sz = 0;
+    if( FD_LIKELY( is_resigned ) ) resigned_sz = FD_SHRED_SIGNATURE_SZ;
+    ulong payload_sz = ((is_merkle&is_data) ? FD_SHRED_MIN_SZ : FD_SHRED_MAX_SZ) - header_sz - merkle_sz - chained_root_sz - resigned_sz;
 
     if( is_data )
       *(ushort*)(buf+0x56) = (ushort)(payload_sz + header_sz); /* write data.size */
