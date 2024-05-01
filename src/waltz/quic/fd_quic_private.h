@@ -332,7 +332,6 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 ulong
 fd_quic_send_retry( fd_quic_t *                  quic,
                     fd_quic_pkt_t *              pkt,
-                    fd_quic_transport_params_t * tp,
                     fd_quic_conn_id_t const *    orig_dst_conn_id,
                     fd_quic_conn_id_t const *    new_conn_id,
                     uchar const                  dst_mac_addr_u6[ 6 ],
