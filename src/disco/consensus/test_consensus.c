@@ -283,7 +283,6 @@ turbine_thread( void * arg ) {
     }
 
     for( uint i = 0; i < (uint)tvu_rc; ++i ) {
-      FD_LOG_NOTICE( ( "got turbine packet" ) );
       fd_gossip_peer_addr_t from;
       from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
       fd_shred_t const * shred = fd_shred_parse( bufs[i], msgs[i].msg_len );
@@ -394,6 +393,7 @@ main( int argc, char ** argv ) {
   const char * repair_peer_id =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-id", NULL, NULL );
   const char * shredcap = fd_env_strip_cmdline_cstr( &argc, &argv, "--shredcap", NULL, NULL );
+  ulong        tcnt     = fd_env_strip_cmdline_ulong( &argc, &argv, "--tcnt", NULL, 4 );
 
   FD_TEST( page_cnt );
   FD_TEST( restore );
@@ -624,8 +624,6 @@ main( int argc, char ** argv ) {
   replay->forks       = forks;
   replay->funk        = funk;
   replay->epoch_ctx   = epoch_ctx;
-  replay->tpool       = NULL;
-  replay->max_workers = 1;
   replay->valloc      = valloc;
 
   FD_LOG_DEBUG( ( "Finish setup replay" ) );
@@ -809,8 +807,6 @@ main( int argc, char ** argv ) {
   if( fd_gossip_update_tvu_addr( gossip, tvu_addr, tvu_fwd_addr ) )
     FD_LOG_ERR( ( "error setting gossip tvu" ) );
 
-  ulong tcnt = 4;
-
   /* FIXME: replace with real tile */
   turbine_targs_t turbine_targ = { .tvu_fd = tvu_sockfd, .replay = replay };
   pthread_t       turbine_tid;
@@ -840,9 +836,8 @@ main( int argc, char ** argv ) {
         FD_LOG_ERR( ( "failed to launch worker" ) );
     }
   }
-  replay->tpool       = tpool;
   replay->max_workers = tcnt - 3;
-  replay->valloc      = valloc;
+  replay->tpool       = tpool;
 
   // if( need_incr_snap ) {
   //   /* Wait for first turbine packet before grabbing the incremental snapshot */
@@ -857,8 +852,6 @@ main( int argc, char ** argv ) {
   // }
 
   while( FD_LIKELY( 1 /* !fd_tile_shutdown_flag */ ) ) {
-
-    fd_repair_need_orphan( repair, snapshot_slot );
 
     /* Housekeeping */
     long now    = fd_log_wallclock();

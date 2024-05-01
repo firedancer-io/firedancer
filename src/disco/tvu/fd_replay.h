@@ -76,9 +76,11 @@ struct __attribute__((aligned(128UL))) fd_replay {
   fd_forks_t *          forks;
   fd_funk_t *           funk;
   fd_exec_epoch_ctx_t * epoch_ctx;
-  fd_tpool_t *          tpool;
-  ulong                 max_workers;
   fd_valloc_t           valloc;
+
+  /* tpool */
+  ulong                 max_workers;
+  fd_tpool_t *          tpool;
 
   /* shred cap */
   FILE*                 shred_cap;
