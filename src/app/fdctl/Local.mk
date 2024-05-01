@@ -40,7 +40,7 @@ $(call add-objs,configure/xdp,fd_fdctl)
 $(call add-objs,configure/ethtool,fd_fdctl)
 $(call add-objs,configure/workspace,fd_fdctl)
 
-$(call make-bin-rust,fdctl,main,fd_fdctl fd_disco fd_flamenco fd_quic fd_tls fd_ip fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator)
+$(call make-bin-rust,fdctl,main,fd_fdctl fd_choreo fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_ip fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator, $(SECP256K1_LIBS))
 $(call make-unit-test,test_tiles_verify,run/tiles/test_verify,fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_tiles_verify)
 
