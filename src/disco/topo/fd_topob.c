@@ -46,6 +46,22 @@ fd_topob_obj( fd_topo_t *  topo,
   return obj;
 }
 
+fd_topo_obj_t *
+fd_topob_obj_concrete( fd_topo_t *  topo,
+                       char const * obj_name,
+                       char const * wksp_name,
+                       ulong align,
+                       ulong sz,
+                       ulong loose ) {
+  fd_topo_obj_t * obj = fd_topob_obj( topo, obj_name, wksp_name );
+
+  FD_TEST( fd_pod_insertf_ulong( topo->props, align, "obj.%lu.align", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, sz,    "obj.%lu.sz",    obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, loose, "obj.%lu.loose", obj->id ) );
+
+  return obj;
+}
+
 void
 fd_topob_link( fd_topo_t *  topo,
                char const * link_name,

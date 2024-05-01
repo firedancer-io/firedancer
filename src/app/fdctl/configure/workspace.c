@@ -48,7 +48,14 @@ fdctl_obj_new( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     fd_metrics_new( laddr, VAL("in_cnt"), VAL("out_cnt") );
   } else {
-    FD_LOG_ERR(( "unknown object `%s`", obj->name ));
+    /* if the object specified the properities necessary to be concrete */
+    ulong align = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.align", obj->id );
+    ulong sz    = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.sz", obj->id );
+    ulong loose = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.loose", obj->id );
+
+    if( align==ULONG_MAX || sz==ULONG_MAX || loose==ULONG_MAX ) {
+      FD_LOG_ERR(( "unknown object `%s` or either `align`, `sz` or `loose` are missing", obj->name ));
+    }
   }
 #undef VAL
 }

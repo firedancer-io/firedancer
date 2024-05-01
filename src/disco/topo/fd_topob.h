@@ -51,6 +51,24 @@ fd_topob_obj( fd_topo_t *  topo,
               char const * obj_name,
               char const * wksp_name );
 
+/* Add an object with the given name, size and alignment to the toplogy.  An
+   object is something that takes up space in memory, in a workspace.  The
+   `align`, `sz` and `loose` parameters denote the alignment, maximum memory
+   and loose space to be assigned to the object.
+
+   The workspace must exist and have been added to the topology.
+   Adding an object will cause it to occupt space in memory, but not
+   be mapped into any tiles.  If you wish the object to be readable or
+   writable by a tile, you need to add a fd_topob_tile_uses relationship. */
+
+fd_topo_obj_t *
+fd_topob_obj_concrete( fd_topo_t *  topo,
+                       char const * obj_name,
+                       char const * wksp_name,
+                       ulong align,
+                       ulong sz,
+                       ulong loose );
+
 /* Add a relationship saying that a certain tile uses a given object.
    This has the effect that when memory mapping required workspaces
    for a tile, it will map the workspace required for this object in
