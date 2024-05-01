@@ -34,3 +34,4 @@ fd_ext_blockstore_create_block0( char const *  ledger_path FD_PARAM_UNUSED,
                                  uchar const * shred_bytes FD_PARAM_UNUSED,
                                  ulong         shred_sz FD_PARAM_UNUSED,
                                  ulong         stride FD_PARAM_UNUSED ) {}
+
