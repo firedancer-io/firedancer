@@ -22,15 +22,15 @@ https://github.com/solana-labs/solana/blob/v1.17.22/program-runtime/src/invoke_c
 and is not vm-specific, but a part of the runtime.
 TODO: should we move this out of the CPI section?
 
-The bulk of the logic is concerned with unifying the privileges for each duplicated account, 
-ensuring that each duplicate account referenced has the same privileges. It also performs some 
+The bulk of the logic is concerned with unifying the privileges for each duplicated account,
+ensuring that each duplicate account referenced has the same privileges. It also performs some
 priviledge checks, for example ensuring the necessary signatures are present.
 
 TODO: instruction calling convention: const parameters after non-const.
 
 Assumptions:
 - We do not have more than 256 unique accounts in the callee_instr.
-  This limit comes from the fact that a Solana transaction cannot 
+  This limit comes from the fact that a Solana transaction cannot
   refefence more than 256 unique accounts, due to the transaction
   serialization format.
 - callee_instr is not null.
@@ -45,7 +45,7 @@ Parameters:
 - instr_ctx
 - instruction_accounts
 - instruction_accounts_cnt
-- signers 
+- signers
 - signers_cnt
 
 Returns:
@@ -71,7 +71,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
   ulong duplicate_indicies_cnt = 0;
   ulong duplicate_indices[256] = {0};
 
-  /* Normalize the privileges of each instruction account in the callee, after de-duping 
+  /* Normalize the privileges of each instruction account in the callee, after de-duping
      the account references.
     https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L540-L595 */
   for( ulong i=0UL; i<callee_instr->acct_cnt; i++ ) {
@@ -87,7 +87,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       }
     }
     if( index_in_transaction==USHORT_MAX) {
-      /* In this case the callee instruction is referencing an unknown account not listed in the 
+      /* In this case the callee instruction is referencing an unknown account not listed in the
          transactions accounts.
          TODO: return InstructionError::MissingAccount */
       return 1;
@@ -105,9 +105,9 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
     }
 
     /* If this was account referenced in a previous iteration, update the flags to include those set
-       in this iteration. This ensures that after all the iterations, the de-duplicated account flags 
+       in this iteration. This ensures that after all the iterations, the de-duplicated account flags
        for each account are the union of all the flags in all the references to that account in this instruction. */
-    
+
     /* TODO: FD_UNLIKELY? Need to check which branch is more common by running against a larger mainnet ledger */
     /* TODO: this code would maybe be easier to read if we inverted the branches */
     if( duplicate_index!=ULONG_MAX ) {
@@ -121,7 +121,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       instruction_account->is_signer   |= !!(callee_instr->acct_flags[i] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
       instruction_account->is_writable |= !!(callee_instr->acct_flags[i] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
     } else {
-      /* In the case where the callee instruction is NOT a duplicate, we need to 
+      /* In the case where the callee instruction is NOT a duplicate, we need to
          create the deduplicated_instruction_accounts fd_instruction_account_t object. */
 
       /* Find the index of the instruction account in the caller instruction */
@@ -176,14 +176,16 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
   for (ulong i = 0; i < duplicate_indicies_cnt; i++) {
     ulong duplicate_index = duplicate_indices[i];
 
-    /* Failing this condition is technically impossible, but it is probably safest to keep this in 
+    /* Failing this condition is technically impossible, but it is probably safest to keep this in
        so that we throw InstructionError::NotEnoughAccountKeys at the same point at Solana does,
        in the event any surrounding code is changed.
        https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L625-L633 */
     if ( FD_LIKELY( duplicate_index < deduplicated_instruction_accounts_cnt ) ) {
       instruction_accounts[i] = deduplicated_instruction_accounts[duplicate_index];
-      callee_instr->acct_flags[i] |= ( !!(instruction_accounts[i].is_signer) * FD_INSTR_ACCT_FLAGS_IS_SIGNER );
-      callee_instr->acct_flags[i] |= ( !!(instruction_accounts[i].is_writable) * FD_INSTR_ACCT_FLAGS_IS_WRITABLE );
+      callee_instr->acct_flags[i] = (uchar)
+        ( ( callee_instr->acct_flags[i] ) |
+          ( !!(instruction_accounts[i].is_writable) * FD_INSTR_ACCT_FLAGS_IS_WRITABLE ) |
+          ( !!(instruction_accounts[i].is_signer  ) * FD_INSTR_ACCT_FLAGS_IS_SIGNER   ) );
     } else {
       // TODO: return InstructionError::NotEnoughAccountKeys
       return 1;
@@ -227,7 +229,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
    invocation. A limit on account info structs is effectively the same as
    limiting the number of unique accounts. 128 was chosen to match the max
    number of locked accounts per transaction (MAX_TX_ACCOUNT_LOCKS).
-   
+
    https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/sdk/program/src/syscalls/mod.rs#L25 */
 
 #define FD_CPI_MAX_ACCOUNT_INFOS           ( fd_ulong_if( FD_FEATURE_ACTIVE(slot_ctx, increase_tx_account_lock_limit), 128UL, 64UL ) )
@@ -235,7 +237,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
 /* Maximum CPI instruction data size. 10 KiB was chosen to ensure that CPI
    instructions are not more limited than transaction instructions if the size
    of transactions is doubled in the future.
-   
+
    https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/sdk/program/src/syscalls/mod.rs#L14 */
 
 #define FD_CPI_MAX_INSTRUCTION_DATA_LEN    (10240UL)
@@ -243,7 +245,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
 /* Maximum CPI instruction accounts. 255 was chosen to ensure that instruction
    accounts are always within the maximum instruction account limit for BPF
    program instructions.
-   
+
    https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/serialization.rs#L26 */
 
 #define FD_CPI_MAX_INSTRUCTION_ACCOUNTS    (255UL)
@@ -344,7 +346,7 @@ fd_vm_syscall_cpi_is_precompile( fd_pubkey_t const * program_id ) {
          fd_vm_syscall_cpi_check_id(program_id, fd_solana_ed25519_sig_verify_program_id.key);
 }
 
-/* fd_vm_syscall_cpi_check_authorized_program corresponds to 
+/* fd_vm_syscall_cpi_check_authorized_program corresponds to
 solana_bpf_loader_program::syscalls::cpi::check_authorized_program:
 https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1032
 
@@ -358,13 +360,13 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
                           uchar const *        instruction_data,
                           ulong                instruction_data_len ) {
   /* FIXME: do this in a branchless manner? using bitwise comparison would probably be faster */
-  return ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_native_loader_id.key) 
-            || fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_program_id.key) 
-            || fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_deprecated_program_id.key) 
-            || (fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_upgradeable_program_id.key) 
+  return ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_native_loader_id.key)
+            || fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_program_id.key)
+            || fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_deprecated_program_id.key)
+            || (fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_upgradeable_program_id.key)
                 && !((instruction_data_len != 0 && instruction_data[0] == 3)  /* is_upgrade_instruction() */
                     || (instruction_data_len != 0 && instruction_data[0] == 4)  /* is_set_authority_instruction() */
-                    || (FD_FEATURE_ACTIVE(slot_ctx, enable_bpf_loader_set_authority_checked_ix) 
+                    || (FD_FEATURE_ACTIVE(slot_ctx, enable_bpf_loader_set_authority_checked_ix)
                         && (instruction_data_len != 0 && instruction_data[0] == 7)) /* is_set_authority_checked_instruction() */
                     || (instruction_data_len != 0 && instruction_data[0] == 5))) /* is_close_instruction */
             || fd_vm_syscall_cpi_is_precompile(program_id));
@@ -478,7 +480,7 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
     fd_vm_rc_refcell_t * FD_EXPAND_THEN_CONCAT2(decl, _box) =                                                          \
       FD_VM_MEM_HADDR_ST( vm, acc_info->lamports_box_addr, FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_rc_refcell_t) );       \
     /* Translate the pointer to the underlying data */                                                                 \
-    ulong * decl = FD_VM_MEM_HADDR_ST( vm, FD_EXPAND_THEN_CONCAT2(decl, _box)->addr, alignof(ulong), sizeof(ulong) );  
+    ulong * decl = FD_VM_MEM_HADDR_ST( vm, FD_EXPAND_THEN_CONCAT2(decl, _box)->addr, alignof(ulong), sizeof(ulong) );
 
 /* TODO: possibly define a refcell unwrapping macro to simplify this? */
 #define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl )                                                       \
@@ -491,7 +493,7 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
     uchar * decl = FD_VM_MEM_HADDR_ST(                                                                           \
       vm, FD_EXPAND_THEN_CONCAT2(decl, _box)->addr, alignof(uchar), FD_EXPAND_THEN_CONCAT2(decl, _box)->len );   \
     /* Declare the size of the underlying data */                                                                \
-    ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _box)->len;                          
+    ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _box)->len;
 
 #define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, acc_info, decl, len_ ) \
   FD_EXPAND_THEN_CONCAT2(decl, _box)->len = len_;
