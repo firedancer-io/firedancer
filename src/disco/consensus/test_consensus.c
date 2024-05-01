@@ -656,7 +656,8 @@ main( int argc, char ** argv ) {
   /* repair                                                             */
   /**********************************************************************/
 
-  void *        repair_mem = fd_valloc_malloc( valloc, fd_repair_align(), fd_repair_footprint() );
+  void *        repair_mem =
+    fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(), TEST_CONSENSUS_MAGIC );
   fd_repair_t * repair =
       fd_repair_join( fd_repair_new( repair_mem, TEST_CONSENSUS_MAGIC, valloc ) );
 
