@@ -3657,6 +3657,7 @@ int
 fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
   fd_tpool_t * tpool = NULL;
   uchar * tpool_scr_mem = NULL;
+  FD_LOG_NOTICE(( "using %lu threads for replay", args->replay_tpool_cnt ));
   if( args->replay_tpool_cnt > 1 ) {
     tpool = fd_tpool_init( state->tpool_mem, args->replay_tpool_cnt );
     if( tpool == NULL ) {
@@ -3673,9 +3674,6 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
          affinity when executing live. */
       if( fd_tpool_worker_push( tpool, USHORT_MAX, tpool_scr_mem + scratch_sz*(i - 1U), scratch_sz ) == NULL ) {
         FD_LOG_ERR(( "failed to launch worker" ));
-      }
-      else {
-        FD_LOG_NOTICE(( "launched worker" ));
       }
     }
   }
