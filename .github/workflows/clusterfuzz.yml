@@ -50,3 +50,31 @@ jobs:
           project-id: isol-clusterfuzz
           qualifier: ${{ matrix.qualifier }}
           service-account-credentials: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
+
+      - name: Find the tmpdir containing our binaries and rewritten libs
+        id: find-fuzzdir
+        run: |
+          FD_DIR=$(find -d /tmp/ | grep fdfuzz | head -n 1)
+          echo "fd-dir=$FD_DIR" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        name: Upload harness binaries
+        with:
+          name: ${{ github.run_id }}-${{ matrix.machine }}
+          path: ./build/
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        name: Upload .a dependency libraries
+        with:
+          name: ${{ github.run_id }}-${{ matrix.machine }}-lib
+          path: ${{ steps.find-fuzzdir.outputs.fd-dir }}/lib
+          retention-days: 1
+
+  fc-publish:
+    needs: clusterfuzz-publish
+    uses: ./.github/actions/fc/fc.yml
+    with:
+      previous_action_outputs: |
+        ${{ github.run_id }}-linux_clang_haswell
+        ${{ github.run_id }}-linux_clang_icelake
+        ${{ github.run_id }}-linux_clang_haswell-lib
+        ${{ github.run_id }}-linux_clang_icelake-lib

@@ -1,0 +1,36 @@
+name: Generate Firedancer Fuzz Targets
+on:
+  workflow_call:
+    inputs:
+      previous_action_outputs:
+        description: 'Outputs from the previous action'
+        required: true
+        type: string
+jobs:
+  generate-fuzz-targets:
+    runs-on: ubuntu-latest
+    steps:
+      # - uses: actions/checkout@v4
+
+      - name: Download artifacts from previous action
+        id: get-artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: build
+          merge-multiple: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y zip unzip
+
+      - name: Generate fuzz targets and .fc files
+        run: |
+          chmod +x bundle-binaries-fc.sh
+          ./contrib/test/bundle-binaries-fc.sh ${{ steps.get-artifacts.outputs.download-path }} fc-fd-${{ github.run_id }}.zip
+
+      - name: Upload merged zipfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: fc-fd-${{ github.run_id }}.zip
+          path: fc-fd-${{ github.run_id }}.zip
