@@ -3,9 +3,7 @@
 #include "../../../ballet/bn254/fd_bn254.h"
 #include "../../../ballet/bn254/fd_poseidon.h"
 #include "../../../ballet/keccak256/fd_keccak256.h"
-#if FD_HAS_SECP256K1
 #include "../../../ballet/secp256k1/fd_secp256k1.h"
-#endif
 
 int
 fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
@@ -449,40 +447,72 @@ fd_vm_syscall_sol_sha256( /**/            void *  _vm,
   return FD_VM_SUCCESS;
 }
 
-#if FD_HAS_SECP256K1
-
 int
 fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
                                      /**/            ulong   hash_vaddr,
                                      /**/            ulong   recovery_id_val,
                                      /**/            ulong   signature_vaddr,
                                      /**/            ulong   result_vaddr,
-                                     FD_PARAM_UNUSED ulong   arg3,
+                                     FD_PARAM_UNUSED ulong   r4,
                                      /**/            ulong * _ret ) {
+  /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L810 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  int err = fd_vm_consume_compute( vm, FD_VM_SECP256K1_RECOVER_COST );
-  if( FD_UNLIKELY( err ) ) return err;
+  /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L820-L821 */
 
-  /* FIXME: Consider fusing these branches? */
+  FD_VM_CU_UPDATE( vm, FD_VM_SECP256K1_RECOVER_COST );
 
-  void const * hash = fd_vm_translate_vm_to_host_const( vm, hash_vaddr, sizeof(fd_hash_t), alignof(uchar) );
-  if( FD_UNLIKELY( !hash ) ) return FD_VM_ERR_PERM;
+  /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L823-L840 */
 
-  void const * signature = fd_vm_translate_vm_to_host_const( vm, signature_vaddr, 64UL, alignof(uchar) );
-  if( FD_UNLIKELY( !signature ) ) return FD_VM_ERR_PERM;
+  uchar const * hash    = FD_VM_MEM_HADDR_LD( vm, hash_vaddr,      FD_ALIGN, 32UL );
+  uchar const * sig     = FD_VM_MEM_HADDR_LD( vm, signature_vaddr, FD_ALIGN, 64UL );
+  uchar * pubkey_result = FD_VM_MEM_HADDR_ST( vm, result_vaddr,    FD_ALIGN, 64UL );
 
-  void * pubkey_result = fd_vm_translate_vm_to_host( vm, result_vaddr, 64UL, alignof(uchar) );
-  if( FD_UNLIKELY( !pubkey_result ) ) return FD_VM_ERR_PERM;
+  /* CRITICAL */
 
-  if( FD_UNLIKELY( recovery_id_val > 4UL ) ) {
-    *_ret = 1UL; // Secp256k1RecoverError::InvalidRecoveryId
+  /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L842-L853 */
+
+  /* Secp256k1RecoverError::InvalidHash
+     This can never happen, as `libsecp256k1::Message::parse_slice(hash)`
+     only checks that hash is 32-byte long, and that's by construction.
+     https://github.com/paritytech/libsecp256k1/blob/v0.6.0/src/lib.rs#L657-L665
+
+     if( FD_UNLIKELY( 0 ) ) {
+       *_ret = 1UL; // Secp256k1RecoverError::InvalidHash
+       return FD_VM_SUCCESS;
+     }
+   */
+
+  /* Secp256k1RecoverError::InvalidRecoveryId
+     Agave code has 2 checks: the first is a cast from u64 to u8.
+     The second is `libsecp256k1::RecoveryId::parse(adjusted_recover_id_val)` that
+     checks if `adjusted_recover_id_val < 4`.
+     https://github.com/paritytech/libsecp256k1/blob/v0.6.0/src/lib.rs#L674-L680
+  */
+
+  if( FD_UNLIKELY( recovery_id_val >= 4UL ) ) {
+    *_ret = 2UL; /* Secp256k1RecoverError::InvalidRecoveryId */
     return FD_VM_SUCCESS;
   }
 
+  /* Secp256k1RecoverError::InvalidSignature
+     We omit this check, as this is done as part of fd_secp256k1_recover() below,
+     and the return code is the same.
+
+     In more details, this checks that the signature is valid, i.e. if the
+     signature is represented as two scalars (r, s), it checks that both r
+     and s are canonical scalars.
+
+     Note the `?` at the end of this line:
+     https://github.com/paritytech/libsecp256k1/blob/v0.6.0/src/lib.rs#L535
+     And following the code, `scalar::check_overflow` is checks that the scalar is valid:
+     https://github.com/paritytech/libsecp256k1/blob/master/core/src/scalar.rs#L70-L87 */
+
+  /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L855-L860 */
+
   uchar secp256k1_pubkey[64];
-  if( FD_UNLIKELY( !fd_secp256k1_recover( secp256k1_pubkey, hash, signature, (int)recovery_id_val ) ) ) {
-    *_ret = 2UL; // Secp256k1RecoverError::InvalidSignature
+  if( FD_UNLIKELY( !fd_secp256k1_recover( secp256k1_pubkey, hash, sig, (int)recovery_id_val ) ) ) {
+    *_ret = 3UL; /* Secp256k1RecoverError::InvalidSignature */
     return FD_VM_SUCCESS;
   }
 
@@ -491,18 +521,3 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
   *_ret = 0UL;
   return FD_VM_SUCCESS;
 }
-
-#else
-
-int
-fd_vm_syscall_sol_secp256k1_recover( FD_PARAM_UNUSED void *  _vm,
-                                     FD_PARAM_UNUSED ulong   hash_vaddr,
-                                     FD_PARAM_UNUSED ulong   recovery_id_val,
-                                     FD_PARAM_UNUSED ulong   signature_vaddr,
-                                     FD_PARAM_UNUSED ulong   result_vaddr,
-                                     FD_PARAM_UNUSED ulong   arg3,
-                                     FD_PARAM_UNUSED ulong * _ret ) {
-  return FD_VM_ERR_UNSUP;
-}
-
-#endif
