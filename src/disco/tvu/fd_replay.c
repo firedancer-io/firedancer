@@ -350,6 +350,7 @@ fd_replay_slot_execute( fd_replay_t *      replay,
                                    1,
                                    &txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
   (void)txn_cnt;
+  __asm__("int $3");
 
   fd_blockstore_start_write( replay->blockstore );
 

@@ -23,6 +23,7 @@
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/fd_snapshot_loader.h"
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_eth.h"
@@ -386,6 +387,8 @@ main( int argc, char ** argv ) {
 
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 0UL );
   const char * restore  = fd_env_strip_cmdline_cstr( &argc, &argv, "--restore", NULL, NULL );
+  const char * incremental_snapshot =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--incremental-snapshot", NULL, NULL );
   const char * gossip_peer_addr =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, NULL );
   const char * repair_peer_addr =
@@ -543,7 +546,17 @@ main( int argc, char ** argv ) {
   snapshot_slot_ctx->valloc     = valloc;
 
   fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
-  // FD_TEST( snapshot_slot_ctx->funk_txn );  FIXME: why not this? It fails when I run the code.
+  ulong i, j;
+  FD_TEST( sscanf( incremental_snapshot, "incremental-snapshot-%lu-%lu", &i, &j ) == 2 );
+  FD_TEST( i == snapshot_slot_ctx->slot_bank.slot );
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( snapshot_slot_ctx->epoch_ctx );
+  FD_TEST( epoch_bank );
+  FD_TEST( fd_slot_to_epoch( &epoch_bank->epoch_schedule, i, NULL ) ==
+           fd_slot_to_epoch( &epoch_bank->epoch_schedule, j, NULL ) );
+
+  fd_snapshot_load( incremental_snapshot, snapshot_slot_ctx, 1, 1, FD_SNAPSHOT_TYPE_INCREMENTAL );
+  fd_runtime_cleanup_incinerator( snapshot_slot_ctx );
+
   ulong snapshot_slot = snapshot_slot_ctx->slot_bank.slot;
   FD_LOG_NOTICE( ( "snapshot_slot: %lu", snapshot_slot ) );
 
@@ -618,13 +631,13 @@ main( int argc, char ** argv ) {
   replay->smr           = snapshot_slot;
   replay->snapshot_slot = snapshot_slot;
 
-  replay->acc_mgr     = acc_mgr;
-  replay->bft         = bft;
-  replay->blockstore  = blockstore;
-  replay->forks       = forks;
-  replay->funk        = funk;
-  replay->epoch_ctx   = epoch_ctx;
-  replay->valloc      = valloc;
+  replay->acc_mgr    = acc_mgr;
+  replay->bft        = bft;
+  replay->blockstore = blockstore;
+  replay->forks      = forks;
+  replay->funk       = funk;
+  replay->epoch_ctx  = epoch_ctx;
+  replay->valloc     = valloc;
 
   FD_LOG_DEBUG( ( "Finish setup replay" ) );
 
@@ -656,8 +669,8 @@ main( int argc, char ** argv ) {
   /* repair                                                             */
   /**********************************************************************/
 
-  void *        repair_mem =
-    fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(), TEST_CONSENSUS_MAGIC );
+  void * repair_mem =
+      fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(), TEST_CONSENSUS_MAGIC );
   fd_repair_t * repair =
       fd_repair_join( fd_repair_new( repair_mem, TEST_CONSENSUS_MAGIC, valloc ) );
 
@@ -678,6 +691,22 @@ main( int argc, char ** argv ) {
   FD_TEST( !fd_repair_set_config( repair, &repair_config ) );
 
   replay->repair = repair;
+
+  /* optionally specify a repair peer identity to skip waiting for a contact info to come through */
+
+  if( repair_peer_id ) {
+    fd_pubkey_t _repair_peer_id;
+    fd_base58_decode_32( repair_peer_id, _repair_peer_id.uc );
+    fd_repair_peer_addr_t _repair_peer_addr = { 0 };
+    if( FD_UNLIKELY(
+            fd_repair_add_active_peer( replay->repair,
+                                       resolve_hostport( repair_peer_addr, &_repair_peer_addr ),
+                                       &_repair_peer_id ) ) ) {
+      FD_LOG_ERR( ( "error adding repair active peer" ) );
+    }
+    fd_repair_add_sticky( replay->repair, &_repair_peer_id );
+    fd_repair_set_permanent( replay->repair, &_repair_peer_id );
+  }
 
   FD_LOG_DEBUG( ( "Finish setup repair" ) );
 
@@ -782,21 +811,62 @@ main( int argc, char ** argv ) {
   fd_repair_settime( replay->repair, fd_log_wallclock() );
   fd_repair_start( replay->repair );
 
-  /* optionally specify a repair peer identity to skip waiting for a contact info to come through */
+  /**********************************************************************/
+  /* stake weights                                                      */
+  /**********************************************************************/
 
-  if( repair_peer_id ) {
-    fd_pubkey_t _repair_peer_id;
-    fd_base58_decode_32( repair_peer_id, _repair_peer_id.uc );
-    fd_repair_peer_addr_t _repair_peer_addr = { 0 };
-    if( FD_UNLIKELY(
-            fd_repair_add_active_peer( replay->repair,
-                                       resolve_hostport( repair_peer_addr, &_repair_peer_addr ),
-                                       &_repair_peer_id ) ) ) {
-      FD_LOG_ERR( ( "error adding repair active peer" ) );
+  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool =
+      epoch_bank->stakes.vote_accounts.vote_accounts_pool;
+  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root =
+      epoch_bank->stakes.vote_accounts.vote_accounts_root;
+
+  ulong stake_weights_cnt =
+      fd_vote_accounts_pair_t_map_size( vote_accounts_pool, vote_accounts_root );
+  ulong stake_weight_idx = 0;
+
+  FD_SCRATCH_SCOPE_BEGIN {
+    fd_stake_weight_t * stake_weights = fd_scratch_alloc(
+        fd_stake_weight_align(), stake_weights_cnt * fd_stake_weight_footprint() );
+    for( fd_vote_accounts_pair_t_mapnode_t const * n =
+             fd_vote_accounts_pair_t_map_minimum_const( vote_accounts_pool, vote_accounts_root );
+         n;
+         n = fd_vote_accounts_pair_t_map_successor_const( vote_accounts_pool, n ) ) {
+      fd_vote_state_versioned_t versioned;
+      fd_bincode_decode_ctx_t   decode_ctx;
+      decode_ctx.data    = n->elem.value.data;
+      decode_ctx.dataend = n->elem.value.data + n->elem.value.data_len;
+      decode_ctx.valloc  = fd_scratch_virtual();
+      int rc             = fd_vote_state_versioned_decode( &versioned, &decode_ctx );
+      if( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) continue;
+      fd_stake_weight_t * stake_weight = &stake_weights[stake_weight_idx];
+      stake_weight->stake              = n->elem.stake;
+
+      switch( versioned.discriminant ) {
+      case fd_vote_state_versioned_enum_current:
+        stake_weight->key = versioned.inner.current.node_pubkey;
+        break;
+      case fd_vote_state_versioned_enum_v0_23_5:
+        stake_weight->key = versioned.inner.v0_23_5.node_pubkey;
+        break;
+      case fd_vote_state_versioned_enum_v1_14_11:
+        stake_weight->key = versioned.inner.v1_14_11.node_pubkey;
+        break;
+      default:
+        FD_LOG_DEBUG( ( "unrecognized vote_state_versioned type" ) );
+        continue;
+      }
+
+      stake_weight_idx++;
     }
-    fd_repair_add_sticky( replay->repair, &_repair_peer_id );
-    fd_repair_set_permanent( replay->repair, &_repair_peer_id );
+
+    fd_repair_set_stake_weights( repair, stake_weights, stake_weights_cnt );
+    fd_gossip_set_stake_weights( gossip, stake_weights, stake_weights_cnt );
   }
+  FD_SCRATCH_SCOPE_END;
+
+  /**********************************************************************/
+  /* turbine (tvu), repair, gossip threads                              */
+  /**********************************************************************/
 
   fd_repair_peer_addr_t tvu_addr[1] = { 0 };
   FD_TEST( resolve_hostport( ":9003", tvu_addr ) );
@@ -811,20 +881,17 @@ main( int argc, char ** argv ) {
   /* FIXME: replace with real tile */
   turbine_targs_t turbine_targ = { .tvu_fd = tvu_sockfd, .replay = replay };
   pthread_t       turbine_tid;
-  int             rc = pthread_create( &turbine_tid, NULL, turbine_thread, &turbine_targ );
-  if( rc ) FD_LOG_ERR( ( "error creating turbine thread" ) );
+  FD_TEST( !pthread_create( &turbine_tid, NULL, turbine_thread, &turbine_targ ) );
 
   /* FIXME: replace with real tile */
   repair_targ_t repair_targ = { .repair_fd = repair_arg.sockfd, .replay = replay };
   pthread_t     repair_tid;
-  rc = pthread_create( &repair_tid, NULL, repair_thread, &repair_targ );
-  if( rc ) FD_LOG_ERR( ( "error creating repair thread" ) );
+  FD_TEST( !pthread_create( &repair_tid, NULL, repair_thread, &repair_targ ) );
 
   /* FIXME: replace with real tile */
   gossip_targ_t gossip_targ = { .gossip_fd = gossip_sockfd, .replay = replay, .gossip = gossip };
   pthread_t     gossip_tid;
-  rc = pthread_create( &gossip_tid, NULL, gossip_thread, &gossip_targ );
-  if( rc ) FD_LOG_ERR( ( "error creating gossip thread" ) );
+  FD_TEST( !pthread_create( &gossip_tid, NULL, gossip_thread, &gossip_targ ) );
 
   fd_tpool_t * tpool = NULL;
   uchar tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
@@ -839,18 +906,6 @@ main( int argc, char ** argv ) {
   }
   replay->max_workers = tcnt - 3;
   replay->tpool       = tpool;
-
-  // if( need_incr_snap ) {
-  //   /* Wait for first turbine packet before grabbing the incremental snapshot */
-  //   while( replay->first_turbine_slot == FD_SLOT_NULL ) {
-  //     struct timespec ts = { .tv_sec = 0, .tv_nsec = (long)1e6 };
-  //     nanosleep( &ts, NULL );
-  //     // if( fd_tile_shutdown_flag ) goto shutdown;
-  //   }
-  //   slot_ctx = fd_tvu_late_incr_snap(
-  //       runtime_ctx, runtime_args, replay, slot_ctx->slot_bank.slot, slot_ctx->latest_votes );
-  //   need_incr_snap = 0;
-  // }
 
   while( FD_LIKELY( 1 /* !fd_tile_shutdown_flag */ ) ) {
 
