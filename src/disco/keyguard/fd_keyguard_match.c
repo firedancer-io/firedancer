@@ -158,6 +158,12 @@ fd_keyguard_payload_matches_txn_msg( uchar const * data,
 }
 
 FD_FN_PURE int
+fd_keyguard_payload_matches_ping_msg( uchar const * data,
+                                      ulong sz ) {
+  return sz==48UL && (memcmp( data, "SOLANA_PING_PONG", 16UL ) == 0);
+}
+
+FD_FN_PURE int
 fd_keyguard_payload_matches_gossip_msg( uchar const * data,
                                         ulong         sz ) {
 
@@ -166,6 +172,9 @@ fd_keyguard_payload_matches_gossip_msg( uchar const * data,
      location). */
   if( sz<36UL ) return 0;
 
+  /* Pings and pongs are prefixed with a string */
+  if ( fd_keyguard_payload_matches_ping_msg( data, sz) ) return 1;
+
   /* There probably won't ever be more than 32 different gossip message
      types. */
   if( (data[0] <0x20)
@@ -173,6 +182,13 @@ fd_keyguard_payload_matches_gossip_msg( uchar const * data,
     & (data[2]==0x00)
     & (data[3]==0x00) )
     return 1;
+
+#define MIN_PRUNE_MSG_SZ 80
+  if ( sz>=MIN_PRUNE_MSG_SZ ) {
+    ulong prune_len = *(ulong *)(data + 32);
+    if ( sz==(MIN_PRUNE_MSG_SZ + prune_len * 32) ) return 1;
+  }
+#undef MIN_PRUNE_MSG_SZ
 
   return 0;
 }

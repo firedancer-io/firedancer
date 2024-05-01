@@ -21,6 +21,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_ROLE_LEADER  (2)  /* block producer (shreds) */
 #define FD_KEYGUARD_ROLE_TLS     (3)  /* TLS peer (certificate verify) */
 #define FD_KEYGUARD_ROLE_X509_CA (4)  /* self-signed cert CA */
+#define FD_KEYGUARD_ROLE_REPAIR  (5)
 
 /* Type confusion/ambiguity checks ************************************/
 
@@ -42,6 +43,7 @@ FD_FN_PURE int fd_keyguard_payload_matches_gossip_msg( uchar const * data, ulong
 FD_FN_PURE int fd_keyguard_payload_matches_shred     ( uchar const * data, ulong sz );
 FD_FN_PURE int fd_keyguard_payload_matches_tls_cv    ( uchar const * data, ulong sz );
 FD_FN_PURE int fd_keyguard_payload_matches_x509_csr  ( uchar const * data, ulong sz );
+FD_FN_PURE int fd_keyguard_payload_matches_ping_msg  ( uchar const * data, ulong sz );
 
 /* fd_keyguard_payload_check_ambiguous returns 1 if the given byte array
    could be susceptible to fake signing (false positives allowed).  This
