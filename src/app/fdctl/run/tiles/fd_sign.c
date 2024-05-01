@@ -79,6 +79,12 @@ during_frag( void * _ctx,
     case FD_KEYGUARD_ROLE_TLS:
       fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], 130UL );
       break;
+    case FD_KEYGUARD_ROLE_GOSSIP:
+      fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], sz );
+      break;
+    case FD_KEYGUARD_ROLE_REPAIR:
+      fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], sz );
+      break;
     default:
       FD_LOG_CRIT(( "unexpected link role %lu", ctx->in_role[ in_idx ] ));
   }
@@ -119,6 +125,29 @@ after_frag( void *             _ctx,
         FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed" ));
       }
       fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, 130UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+      break;
+    }
+    case FD_KEYGUARD_ROLE_GOSSIP: {
+      if( FD_UNLIKELY( !fd_keyguard_payload_authorize( ctx->_data, *opt_sz, FD_KEYGUARD_ROLE_GOSSIP ) ) ) {
+        FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed" ));
+      }
+      if ( fd_keyguard_payload_matches_ping_msg( ctx->_data, *opt_sz ) ) {
+        /* Gossip tile sends the sh256 pre-image for ping/pong msgs. */
+        uchar hash[32];
+        fd_sha256_hash( ctx->_data, *opt_sz, hash );
+
+        fd_ed25519_sign( ctx->out[ in_idx ].data, hash, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+      } else {
+        fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, *opt_sz, ctx->public_key, ctx->private_key, ctx->sha512 );
+      }
+
+      break;
+    }
+    case FD_KEYGUARD_ROLE_REPAIR: {
+      if( FD_UNLIKELY( !fd_keyguard_payload_authorize( ctx->_data, *opt_sz, FD_KEYGUARD_ROLE_REPAIR ) ) ) {
+        FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed" ));
+      }
+      fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, *opt_sz, ctx->public_key, ctx->private_key, ctx->sha512 );
       break;
     }
     default:
@@ -188,6 +217,16 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_role[ i ] = FD_KEYGUARD_ROLE_TLS;
       FD_TEST( !strcmp( out_link->name, "sign_quic" ) );
       FD_TEST( in_link->mtu==130UL );
+      FD_TEST( out_link->mtu==64UL );
+    } else if ( !strcmp( in_link->name, "gossip_sign" ) ) {
+      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_GOSSIP;
+      FD_TEST( !strcmp( out_link->name, "sign_gossip" ) );
+      FD_TEST( in_link->mtu==2048UL );
+      FD_TEST( out_link->mtu==64UL );
+    } else if ( !strcmp( in_link->name, "repair_sign")) {
+      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_REPAIR;
+      FD_TEST( !strcmp( out_link->name, "repair_gossip" ) );
+      FD_TEST( in_link->mtu==2048UL );
       FD_TEST( out_link->mtu==64UL );
     } else {
       FD_LOG_CRIT(( "unexpected link %s", in_link->name ));

@@ -43,6 +43,8 @@
 #define FD_NEED_PUSH_MAX (1<<12)
 /* Max size of receive statistics table */
 #define FD_STATS_KEY_MAX (1<<8)
+/* Sha256 pre-image size for pings/pongs */
+#define FD_PING_PRE_IMAGE_SZ (48UL)
 
 #define FD_NANOSEC_TO_MILLI(_ts_) ((ulong)(_ts_/1000000))
 
@@ -601,7 +603,12 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_ping);
   fd_gossip_ping_t * ping = &gmsg.inner.ping;
   fd_hash_copy( &ping->from, public_key );
-  fd_hash_copy( &ping->token, &val->pingtoken );
+
+  uchar pre_image[FD_PING_PRE_IMAGE_SZ];
+  fd_memcpy( pre_image, "SOLANA_PING_PONG", 16UL );
+  fd_memcpy( pre_image+16UL, val->pingtoken.uc, 32UL );
+
+  fd_sha256_hash( pre_image, FD_PING_PRE_IMAGE_SZ, &ping->token );
 
   /* Sign it */
   if (glob->my_contact_info.shred_version == 0U) {
@@ -614,7 +621,7 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
                     /* private_key */ private_key,
                     sha );
   } else {
-    (*glob->sign_fun)(glob->sign_arg, ping->signature.uc, ping->token.uc, 32UL);
+    (*glob->sign_fun)(glob->sign_arg, ping->signature.uc, pre_image, FD_PING_PRE_IMAGE_SZ);
   }
   
   fd_gossip_send( glob, key, &gmsg );
@@ -643,12 +650,12 @@ fd_gossip_handle_ping( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
 
   fd_hash_copy( &pong->from, public_key );
 
+  uchar pre_image[FD_PING_PRE_IMAGE_SZ];
+  fd_memcpy( pre_image, "SOLANA_PING_PONG", 16UL );
+  fd_memcpy( pre_image+16UL, ping->token.uc, 32UL);
+
   /* Generate response hash token */
-  fd_sha256_t sha[1];
-  fd_sha256_init( sha );
-  fd_sha256_append( sha, "SOLANA_PING_PONG", 16UL );
-  fd_sha256_append( sha, ping->token.uc,     32UL );
-  fd_sha256_fini( sha, pong->token.uc );
+  fd_sha256_hash( pre_image, FD_PING_PRE_IMAGE_SZ, &pong->token );
 
   /* Sign it */
   if (glob->my_contact_info.shred_version == 0U) {
@@ -660,7 +667,7 @@ fd_gossip_handle_ping( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
                      /* private_key */ private_key,
                      sha2 );
   } else {
-    (*glob->sign_fun)(glob->sign_arg, pong->signature.uc, pong->token.uc, 32UL);
+    (*glob->sign_fun)(glob->sign_arg, pong->signature.uc, pre_image, FD_PING_PRE_IMAGE_SZ);
   }
 
   fd_gossip_send(glob, from, &gmsg);
