@@ -2,16 +2,6 @@
 // https://github.com/solana-labs/solana/blob/master/sdk/src/secp256k1_instruction.rs#L932
 
 #include "fd_secp256k1_program.h"
-#include "../../features/fd_features.h"
-#include "../context/fd_exec_epoch_ctx.h"
-#include "../context/fd_exec_slot_ctx.h"
-
-#if !FD_HAS_SECP256K1
-int
-fd_executor_secp256k1_program_execute_instruction( FD_PARAM_UNUSED fd_exec_instr_ctx_t ctx ) {
-  return FD_EXECUTOR_INSTR_ERR_FATAL;
-}
-#else
 
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
@@ -133,5 +123,3 @@ int fd_executor_secp256k1_program_execute_instruction( fd_exec_instr_ctx_t ctx )
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
-
-#endif
