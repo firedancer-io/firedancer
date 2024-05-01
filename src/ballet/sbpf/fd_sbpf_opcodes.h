@@ -16,10 +16,6 @@
 #define FD_SBPF_R9   (9)
 #define FD_SBPF_R10  (10)
 
-/* Instruction creation macro. Takes an opcode, destination and source register (or zero), an offset,
-   and an immediate value. */
-#define FD_SBPF_INSTR(op, dst, src, off, val) {.opcode = {.raw = op }, .dst_reg = dst, .src_reg = src, .offset = off, .imm = val}
-
 /* Opcode related macros. The following are many macros used for the construction of BPF opcodes */
 
 /* Opcode classes */
