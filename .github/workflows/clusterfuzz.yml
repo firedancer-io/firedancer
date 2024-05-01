@@ -72,10 +72,14 @@ jobs:
 
   fc-publish:
     needs: clusterfuzz-publish
-    uses: ./.github/actions/fc/fc.yml
-    with:
-      previous_action_outputs: |
-        ${{ github.run_id }}-linux_clang_haswell
-        ${{ github.run_id }}-linux_clang_icelake
-        ${{ github.run_id }}-linux_clang_haswell-lib
-        ${{ github.run_id }}-linux_clang_icelake-lib
+    runs-on: ubuntu-latest
+    steps:
+
+    - uses: actions/checkout@v4
+    - uses: ./.github/actions/fc/fc.yml
+      with:
+        previous_action_outputs: |
+          ${{ github.run_id }}-linux_clang_haswell
+          ${{ github.run_id }}-linux_clang_icelake
+          ${{ github.run_id }}-linux_clang_haswell-lib
+          ${{ github.run_id }}-linux_clang_icelake-lib
