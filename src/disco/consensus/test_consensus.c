@@ -1,59 +1,398 @@
-#include "./test_consensus.h"
+#define _GNU_SOURCE /* See feature_test_macros(7) */
 
-struct fd_tvu_gossip_deliver_arg {
-  fd_repair_t * repair;
+#include <arpa/inet.h>
+#include <errno.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <pthread.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <sys/random.h>
+#include <sys/socket.h>
+#include <time.h>
+#include <unistd.h>
+
+#include "../keyguard/fd_keyguard_client.h"
+#include "../shred/fd_shred_cap.h"
+#include "../tvu/fd_replay.h"
+#include "../tvu/fd_store.h"
+
+#include "../../choreo/fd_choreo.h"
+#include "../../flamenco/fd_flamenco.h"
+#include "../../flamenco/repair/fd_repair.h"
+#include "../../flamenco/runtime/fd_hashes.h"
+#include "../../flamenco/runtime/fd_snapshot_loader.h"
+#include "../../flamenco/runtime/program/fd_bpf_program_util.h"
+#include "../../flamenco/types/fd_types.h"
+#include "../../util/fd_util.h"
+#include "../../util/net/fd_eth.h"
+
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
+#define TEST_CONSENSUS_MAGIC ( 0x7e57UL ) /* test */
+
+static void
+sign_fun( void * arg, uchar * sig, uchar const * buffer, ulong len ) {
+  fd_gossip_config_t * config = (fd_gossip_config_t *)arg;
+  fd_sha512_t          sha[1];
+  fd_ed25519_sign( /* sig */ sig,
+                   /* msg */ buffer,
+                   /* sz  */ len,
+                   /* public_key  */ config->public_key->uc,
+                   /* private_key */ config->private_key,
+                   sha );
+}
+
+static int
+to_sockaddr( uchar * dst, fd_gossip_peer_addr_t const * src ) {
+  fd_memset( dst, 0, sizeof( struct sockaddr_in ) );
+  struct sockaddr_in * t = (struct sockaddr_in *)dst;
+  t->sin_family          = AF_INET;
+  t->sin_addr.s_addr     = src->addr;
+  t->sin_port            = src->port;
+  return sizeof( struct sockaddr_in );
+}
+
+/* Convert my style of address from UNIX style */
+static int
+from_sockaddr( fd_gossip_peer_addr_t * dst, uchar const * src ) {
+  FD_STATIC_ASSERT( sizeof( fd_gossip_peer_addr_t ) == sizeof( ulong ), "messed up size" );
+  dst->l                        = 0;
+  const struct sockaddr_in * sa = (const struct sockaddr_in *)src;
+  dst->addr                     = sa->sin_addr.s_addr;
+  dst->port                     = sa->sin_port;
+  return 0;
+}
+
+static int
+create_socket( fd_gossip_peer_addr_t * addr ) {
+  int fd;
+  if( ( fd = socket( AF_INET, SOCK_DGRAM, 0 ) ) < 0 ) {
+    FD_LOG_ERR( ( "socket failed: %s", strerror( errno ) ) );
+    return -1;
+  }
+  int optval = 1 << 20;
+  if( setsockopt( fd, SOL_SOCKET, SO_RCVBUF, (char *)&optval, sizeof( int ) ) < 0 ) {
+    FD_LOG_ERR( ( "setsocketopt failed: %s", strerror( errno ) ) );
+    return -1;
+  }
+
+  if( setsockopt( fd, SOL_SOCKET, SO_SNDBUF, (char *)&optval, sizeof( int ) ) < 0 ) {
+    FD_LOG_ERR( ( "setsocketopt failed: %s", strerror( errno ) ) );
+    return -1;
+  }
+
+  uchar saddr[sizeof( struct sockaddr_in6 )];
+  int   addrlen = to_sockaddr( saddr, addr );
+  if( addrlen < 0 || bind( fd, (struct sockaddr *)saddr, (uint)addrlen ) < 0 ) {
+    char tmp[100];
+    FD_LOG_ERR( ( "bind failed: %s for %s",
+                  strerror( errno ),
+                  fd_gossip_addr_str( tmp, sizeof( tmp ), addr ) ) );
+    return -1;
+  }
+  if( getsockname( fd, (struct sockaddr *)saddr, (uint *)&addrlen ) < 0 ) {
+    FD_LOG_ERR( ( "getsockname failed: %s", strerror( errno ) ) );
+    return -1;
+  }
+  from_sockaddr( addr, saddr );
+
+  return fd;
+}
+
+struct gossip_deliver_arg {
   fd_bft_t *    bft;
+  fd_repair_t * repair;
   fd_valloc_t   valloc;
 };
-typedef struct fd_tvu_gossip_deliver_arg fd_tvu_gossip_deliver_arg_t;
+typedef struct gossip_deliver_arg gossip_deliver_arg_t;
 
 /* functions for fd_gossip_config_t and fd_repair_config_t */
 static void
-gossip_deliver_fun( fd_crds_data_t * data, void * arg );
+gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
+  gossip_deliver_arg_t * arg_ = (gossip_deliver_arg_t *)arg;
+  if( data->discriminant == fd_crds_data_enum_contact_info_v1 ) {
+    fd_repair_peer_addr_t repair_peer_addr = { 0 };
+    fd_gossip_from_soladdr( &repair_peer_addr, &data->inner.contact_info_v1.serve_repair );
+    if( repair_peer_addr.port == 0 ) return;
+    if( FD_UNLIKELY( fd_repair_add_active_peer(
+            arg_->repair, &repair_peer_addr, &data->inner.contact_info_v1.id ) ) ) {
+      FD_LOG_DEBUG( ( "error adding peer" ) ); /* Probably filled up the table */
+    };
+  }
+}
 
 static void
-gossip_send_packet( uchar const * data, size_t sz, fd_gossip_peer_addr_t const * addr, void * arg );
+gossip_send_fun( uchar const *                 data,
+                 size_t                        sz,
+                 fd_gossip_peer_addr_t const * gossip_peer_addr,
+                 void *                        arg ) {
+  uchar saddr[sizeof( struct sockaddr_in )];
+  int   saddrlen = to_sockaddr( saddr, gossip_peer_addr );
+  char  s[1000]  = { 0 };
+  fd_gossip_addr_str( s, sizeof( s ), gossip_peer_addr );
+  if( sendto( *(int *)arg,
+              data,
+              sz,
+              MSG_DONTWAIT,
+              (const struct sockaddr *)saddr,
+              (socklen_t)saddrlen ) < 0 ) {
+    FD_LOG_WARNING( ( "sendto failed: %s", strerror( errno ) ) );
+  }
+}
 
-static void
-gossip_sign_fun( void * arg, uchar signature[static 64], uchar const * buffer, ulong len );
+struct repair_arg {
+  fd_replay_t * replay;
+  int           sockfd;
+};
+typedef struct repair_arg repair_arg_t;
 
 static void
 repair_deliver_fun( fd_shred_t const *                            shred,
                     FD_PARAM_UNUSED ulong                         shred_sz,
                     FD_PARAM_UNUSED fd_repair_peer_addr_t const * from,
                     FD_PARAM_UNUSED fd_pubkey_t const *           id,
-                    void *                                        arg );
+                    void *                                        arg ) {
+  repair_arg_t * _arg = (repair_arg_t *)arg;
+  fd_replay_repair_rx( _arg->replay, shred );
+}
 
 static void
 repair_deliver_fail_fun( fd_pubkey_t const * id,
                          ulong               slot,
                          uint                shred_index,
                          void *              arg,
-                         int                 reason );
+                         int                 reason ) {
+  (void)arg;
+  FD_LOG_WARNING( ( "repair_deliver_fail_fun - shred: %32J, slot: %lu, idx: %u, reason: %d",
+                    id,
+                    slot,
+                    shred_index,
+                    reason ) );
+}
+
 static void
-repair_send_packet( uchar const * data, size_t sz, fd_repair_peer_addr_t const * addr, void * arg );
+repair_send_fun( uchar const * data, size_t sz, fd_repair_peer_addr_t const * addr, void * arg ) {
+  repair_arg_t * _arg = (repair_arg_t *)arg;
+  uchar          saddr[sizeof( struct sockaddr_in )];
+  int            saddrlen = to_sockaddr( saddr, addr );
+  if( sendto( _arg->sockfd,
+              data,
+              sz,
+              MSG_DONTWAIT,
+              (const struct sockaddr *)saddr,
+              (socklen_t)saddrlen ) < 0 ) {
+    FD_LOG_WARNING( ( "sendto failed: %s", strerror( errno ) ) );
+  }
+}
 
+/* Convert a host:port string to a repair network address. If host is
+ * missing, it assumes the local hostname. */
 static fd_repair_peer_addr_t *
-resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res );
+resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res ) {
+  fd_memset( res, 0, sizeof( fd_repair_peer_addr_t ) );
 
-#define TEST_CONSENSUS_MAGIC ( 0x7e57UL ) /* test */
-/* FIXME: remove these static variables */
-/* variables should be either on stack or use wksp_alloc_laddr */
-static int                         gossip_sockfd = -1;
-static int                         repair_sockfd = -1;
-static fd_tvu_gossip_deliver_arg_t gossip_deliver_arg;
+  /* Find the : and copy out the host */
+  char buf[128];
+  uint i;
+  for( i = 0;; ++i ) {
+    if( str[i] == '\0' || i > sizeof( buf ) - 1U ) {
+      FD_LOG_ERR( ( "missing colon" ) );
+      return NULL;
+    }
+    if( str[i] == ':' ) {
+      buf[i] = '\0';
+      break;
+    }
+    buf[i] = str[i];
+  }
+  if( i == 0 || strcmp( buf, "localhost" ) == 0 ||
+      strcmp( buf, "127.0.0.1" ) == 0 ) /* :port means $HOST:port */
+    gethostname( buf, sizeof( buf ) );
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
+  struct hostent * host = gethostbyname( buf );
+  if( host == NULL ) {
+    FD_LOG_WARNING( ( "unable to resolve host %s", buf ) );
+    return NULL;
+  }
+  /* Convert result to repair address */
+  res->l = 0;
+  // FIXME why the first line does not work? I switched to the second line.
+  // res->addr = ( (struct in_addr *)host->h_addr )->s_addr;
+  res->addr = ( (struct in_addr *)host->h_addr_list[0] )->s_addr;
+  int port  = atoi( str + i + 1 );
+  if( ( port > 0 && port < 1024 ) || port > (int)USHORT_MAX ) {
+    FD_LOG_ERR( ( "invalid port number" ) );
+    return NULL;
+  }
+  res->port = htons( (ushort)port );
+
+  return res;
+}
+
+static ulong
+setup_scratch( fd_valloc_t valloc ) {
+  ulong  smax   = 1UL << 31UL; /* 2 GiB scratch memory */
+  ulong  sdepth = 1UL << 11UL; /* 2048 scratch frames, 1 MiB each */
+  void * smem =
+      fd_valloc_malloc( valloc, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax ) );
+  void * fmem =
+      fd_valloc_malloc( valloc, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ) );
+  FD_TEST( ( !!smem ) & ( !!fmem ) );
+  fd_scratch_attach( smem, fmem, smax, sdepth );
+  return smax;
+}
+
+struct turbine_targs {
+  int           tvu_fd;
+  fd_replay_t * replay;
+  fd_store_t *  store;
+};
+typedef struct turbine_targs turbine_targs_t;
+
+static void *
+turbine_thread( void * arg ) {
+  turbine_targs_t * args   = (turbine_targs_t *)arg;
+  int               tvu_fd = args->tvu_fd;
+
+  setup_scratch( args->replay->valloc );
+
+#define VLEN 32U
+  struct mmsghdr msgs[VLEN];
+  struct iovec   iovecs[VLEN];
+  uchar          bufs[VLEN][FD_ETH_PAYLOAD_MAX];
+  uchar sockaddrs[VLEN][sizeof( struct sockaddr_in6 )]; /* sockaddr is smaller than sockaddr_in6 */
+#define CLEAR_MSGS                                                                                 \
+  fd_memset( msgs, 0, sizeof( msgs ) );                                                            \
+  for( uint i = 0; i < VLEN; i++ ) {                                                               \
+    iovecs[i].iov_base          = bufs[i];                                                         \
+    iovecs[i].iov_len           = FD_ETH_PAYLOAD_MAX;                                              \
+    msgs[i].msg_hdr.msg_iov     = &iovecs[i];                                                      \
+    msgs[i].msg_hdr.msg_iovlen  = 1;                                                               \
+    msgs[i].msg_hdr.msg_name    = sockaddrs[i];                                                    \
+    msgs[i].msg_hdr.msg_namelen = sizeof( struct sockaddr_in6 );                                   \
+  }
+  while( FD_LIKELY( 1 /* !fd_tile_shutdown_flag */ ) ) {
+    CLEAR_MSGS;
+    int tvu_rc = recvmmsg( tvu_fd, msgs, VLEN, MSG_DONTWAIT, NULL );
+    if( tvu_rc < 0 ) {
+      if( errno == EINTR || errno == EWOULDBLOCK ) continue;
+      FD_LOG_ERR( ( "recvmmsg failed: %s", strerror( errno ) ) );
+      break;
+    }
+
+    for( uint i = 0; i < (uint)tvu_rc; ++i ) {
+      FD_LOG_NOTICE( ( "got turbine packet" ) );
+      fd_gossip_peer_addr_t from;
+      from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
+      fd_shred_t const * shred = fd_shred_parse( bufs[i], msgs[i].msg_len );
+      fd_replay_turbine_rx( args->replay, shred, msgs[i].msg_len );
+    }
+  }
+  return 0;
+}
+
+struct repair_targ {
+  int           repair_fd;
+  fd_replay_t * replay;
+};
+typedef struct repair_targ repair_targ_t;
+
+static void *
+repair_thread( void * arg ) {
+  repair_targ_t * args      = (repair_targ_t *)arg;
+  int             repair_fd = args->repair_fd;
+  fd_repair_t *   repair    = args->replay->repair;
+
+  setup_scratch( args->replay->valloc );
+
+  struct mmsghdr msgs[VLEN];
+  struct iovec   iovecs[VLEN];
+  uchar          bufs[VLEN][FD_ETH_PAYLOAD_MAX];
+  uchar sockaddrs[VLEN][sizeof( struct sockaddr_in6 )]; /* sockaddr is smaller than sockaddr_in6 */
+  while( FD_LIKELY( 1 /* !fd_tile_shutdown_flag */ ) ) {
+    long now = fd_log_wallclock();
+    fd_repair_settime( repair, now );
+
+    /* Loop repair */
+    fd_repair_continue( repair );
+
+    /* Read more packets */
+    CLEAR_MSGS;
+    int repair_rc = recvmmsg( repair_fd, msgs, VLEN, MSG_DONTWAIT, NULL );
+    if( repair_rc < 0 ) {
+      if( errno == EINTR || errno == EWOULDBLOCK ) continue;
+      FD_LOG_ERR( ( "recvmmsg failed: %s", strerror( errno ) ) );
+      break;
+    }
+
+    for( uint i = 0; i < (uint)repair_rc; ++i ) {
+      fd_repair_peer_addr_t from;
+      from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
+      fd_repair_recv_packet( repair, bufs[i], msgs[i].msg_len, &from );
+    }
+  }
+  return 0;
+}
+
+struct gossip_targ {
+  int           gossip_fd;
+  fd_replay_t * replay;
+  fd_gossip_t * gossip;
+};
+typedef struct gossip_targ gossip_targ_t;
+
+static void *
+gossip_thread( void * arg ) {
+  gossip_targ_t * _arg      = (gossip_targ_t *)arg;
+  int             gossip_fd = _arg->gossip_fd;
+  fd_gossip_t *   gossip    = _arg->gossip;
+
+  setup_scratch( _arg->replay->valloc );
+
+  struct mmsghdr msgs[VLEN];
+  struct iovec   iovecs[VLEN];
+  uchar          bufs[VLEN][FD_ETH_PAYLOAD_MAX];
+  uchar sockaddrs[VLEN][sizeof( struct sockaddr_in6 )]; /* sockaddr is smaller than sockaddr_in6 */
+  while( FD_LIKELY( 1 /* !fd_tile_shutdown_flag */ ) ) {
+    long now = fd_log_wallclock();
+    fd_gossip_settime( gossip, now );
+
+    /* Loop gossip */
+    fd_gossip_continue( gossip );
+
+    /* Read more packets */
+    CLEAR_MSGS;
+    int gossip_rc = recvmmsg( gossip_fd, msgs, VLEN, MSG_DONTWAIT, NULL );
+    if( gossip_rc < 0 ) {
+      if( errno == EINTR || errno == EWOULDBLOCK ) continue;
+      FD_LOG_ERR( ( "recvmmsg failed: %s", strerror( errno ) ) );
+      break;
+    }
+
+    for( uint i = 0; i < (uint)gossip_rc; ++i ) {
+      fd_gossip_peer_addr_t from;
+      from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
+      fd_gossip_recv_packet( gossip, bufs[i], msgs[i].msg_len, &from );
+    }
+  }
+  return 0;
+}
 
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
-  ulong  page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 0UL );
-  const char * restore = fd_env_strip_cmdline_cstr( &argc, &argv, "--restore", NULL, NULL );
-  const char * gossip_peer_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, NULL );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 0UL );
+  const char * restore  = fd_env_strip_cmdline_cstr( &argc, &argv, "--restore", NULL, NULL );
+  const char * gossip_peer_addr =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, NULL );
+  const char * repair_peer_addr =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-addr", NULL, NULL );
+  const char * repair_peer_id =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-id", NULL, NULL );
   const char * shredcap = fd_env_strip_cmdline_cstr( &argc, &argv, "--shredcap", NULL, NULL );
 
   FD_TEST( page_cnt );
@@ -73,7 +412,7 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous(
       fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
-  FD_LOG_NOTICE( ( "Finish setup wksp" ) );
+  FD_LOG_DEBUG( ( "Finish setup wksp" ) );
 
   /**********************************************************************/
   /* restore                                                            */
@@ -86,7 +425,7 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE( ( "fd_wksp_restore %s", restore ) );
   int err = fd_wksp_restore( wksp, restore, TEST_CONSENSUS_MAGIC );
   if( err ) FD_LOG_ERR( ( "fd_wksp_restore failed: error %d", err ) );
-  FD_LOG_NOTICE( ( "Finish restore funk" ) );
+  FD_LOG_DEBUG( ( "Finish restore funk" ) );
 
   /**********************************************************************/
   /* funk                                                               */
@@ -100,7 +439,7 @@ main( int argc, char ** argv ) {
     funk         = fd_funk_join( shmem );
   }
   if( funk == NULL ) FD_LOG_ERR( ( "failed to join a funky" ) );
-  FD_LOG_NOTICE( ( "Finish setup funk" ) );
+  FD_LOG_DEBUG( ( "Finish setup funk" ) );
 
   /**********************************************************************/
   /* blockstore                                                         */
@@ -114,7 +453,7 @@ main( int argc, char ** argv ) {
     blockstore   = fd_blockstore_join( shmem );
   }
   FD_TEST( blockstore );
-  FD_LOG_NOTICE( ( "Finish setup blockstore" ) );
+  FD_LOG_DEBUG( ( "Finish setup blockstore" ) );
 
   /**********************************************************************/
   /* acc_mgr                                                            */
@@ -122,7 +461,7 @@ main( int argc, char ** argv ) {
 
   fd_acc_mgr_t acc_mgr[1];
   fd_acc_mgr_new( acc_mgr, funk );
-  FD_LOG_NOTICE( ( "Finish setup acc mgr" ) );
+  FD_LOG_DEBUG( ( "Finish setup acc mgr" ) );
 
   /**********************************************************************/
   /* alloc                                                              */
@@ -133,7 +472,7 @@ main( int argc, char ** argv ) {
   void *       alloc_shalloc = fd_alloc_new( alloc_shmem, TEST_CONSENSUS_MAGIC );
   fd_alloc_t * alloc         = fd_alloc_join( alloc_shalloc, 0UL );
   fd_valloc_t  valloc        = fd_alloc_virtual( alloc );
-  FD_LOG_NOTICE( ( "Finish setup allocator" ) );
+  FD_LOG_DEBUG( ( "Finish setup allocator" ) );
 
   /**********************************************************************/
   /* scratch                                                            */
@@ -147,7 +486,7 @@ main( int argc, char ** argv ) {
       fd_valloc_malloc( valloc, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ) );
   FD_TEST( ( !!smem ) & ( !!fmem ) );
   fd_scratch_attach( smem, fmem, smax, sdepth );
-  FD_LOG_NOTICE( ( "Finish setup scratch" ) );
+  FD_LOG_DEBUG( ( "Finish setup scratch" ) );
 
   /**********************************************************************/
   /* latest_votes                                                       */
@@ -155,9 +494,10 @@ main( int argc, char ** argv ) {
 
   void * latest_votes_mem = fd_wksp_alloc_laddr(
       wksp, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint(), TEST_CONSENSUS_MAGIC );
-  fd_latest_vote_t * latest_votes = fd_latest_vote_deque_join( fd_latest_vote_deque_new( latest_votes_mem ) );
+  fd_latest_vote_t * latest_votes =
+      fd_latest_vote_deque_join( fd_latest_vote_deque_new( latest_votes_mem ) );
   FD_TEST( latest_votes );
-  FD_LOG_NOTICE( ( "Finish setup latest votes" ) );
+  FD_LOG_DEBUG( ( "Finish setup latest votes" ) );
 
   /**********************************************************************/
   /* epoch_ctx                                                          */
@@ -168,13 +508,14 @@ main( int argc, char ** argv ) {
   fd_exec_epoch_ctx_t * epoch_ctx =
       fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
   FD_TEST( epoch_ctx );
-  FD_LOG_NOTICE( ( "Finish setup epoch ctx" ) );
+  FD_LOG_DEBUG( ( "Finish setup epoch ctx" ) );
 
   /**********************************************************************/
   /* forks                                                              */
   /**********************************************************************/
 
-  ulong  forks_max = fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH );
+  // ulong  forks_max = fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH );
+  ulong  forks_max = fd_ulong_pow2_up( 10 );
   void * forks_mem = fd_wksp_alloc_laddr(
       wksp, fd_forks_align(), fd_forks_footprint( forks_max ), TEST_CONSENSUS_MAGIC );
   fd_forks_t * forks = fd_forks_join( fd_forks_new( forks_mem, forks_max, TEST_CONSENSUS_MAGIC ) );
@@ -184,7 +525,7 @@ main( int argc, char ** argv ) {
   forks->epoch_ctx  = epoch_ctx;
   forks->funk       = funk;
   forks->valloc     = valloc;
-  FD_LOG_NOTICE( ( "Finish setup forks" ) );
+  FD_LOG_DEBUG( ( "Finish setup forks" ) );
 
   /**********************************************************************/
   /* snapshot_slot_ctx                                                  */
@@ -195,7 +536,7 @@ main( int argc, char ** argv ) {
       fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &snapshot_fork->slot_ctx, valloc ) );
   FD_TEST( snapshot_slot_ctx );
 
-  snapshot_slot_ctx->epoch_ctx  = epoch_ctx;
+  snapshot_slot_ctx->epoch_ctx = epoch_ctx;
 
   snapshot_slot_ctx->acc_mgr    = acc_mgr;
   snapshot_slot_ctx->blockstore = blockstore;
@@ -223,7 +564,7 @@ main( int argc, char ** argv ) {
 
   fd_blockstore_snapshot_insert( blockstore, &snapshot_slot_ctx->slot_bank );
   fd_fork_frontier_ele_insert( forks->frontier, snapshot_fork, forks->pool );
-  FD_LOG_NOTICE( ( "Finish setup snapshot" ) );
+  FD_LOG_DEBUG( ( "Finish setup snapshot" ) );
 
   /**********************************************************************/
   /* ghost                                                              */
@@ -243,7 +584,7 @@ main( int argc, char ** argv ) {
                          .hash = snapshot_fork->slot_ctx.slot_bank.banks_hash };
   fd_ghost_leaf_insert( ghost, &key, NULL );
   FD_TEST( fd_ghost_node_map_ele_query( ghost->node_map, &key, NULL, ghost->node_pool ) );
-  FD_LOG_NOTICE( ( "Finish setup ghost" ) );
+  FD_LOG_DEBUG( ( "Finish setup ghost" ) );
 
   /**********************************************************************/
   /* bft                                                                */
@@ -263,7 +604,7 @@ main( int argc, char ** argv ) {
   bft->ghost      = ghost;
   bft->valloc     = valloc;
   fd_bft_epoch_stake_update( bft, epoch_ctx );
-  FD_LOG_NOTICE( ( "Finish setup bft" ) );
+  FD_LOG_DEBUG( ( "Finish setup bft" ) );
 
   /**********************************************************************/
   /* replay                                                             */
@@ -287,7 +628,7 @@ main( int argc, char ** argv ) {
   replay->max_workers = 1;
   replay->valloc      = valloc;
 
-  FD_LOG_NOTICE( ( "Finish setup replay" ) );
+  FD_LOG_DEBUG( ( "Finish setup replay" ) );
 
   /**********************************************************************/
   /* shredcap                                                           */
@@ -298,10 +639,20 @@ main( int argc, char ** argv ) {
     FD_LOG_NOTICE( ( "test_consensus running in replay mode" ) );
     fd_blockstore_clear( blockstore ); /* this does not appear in tvu */
     fd_shred_cap_replay( shredcap, replay );
-    goto end;
+    // goto run;
   }
 
   FD_LOG_NOTICE( ( "test_consensus running live (shredcap archive)" ) );
+
+  /**********************************************************************/
+  /* keys                                                               */
+  /**********************************************************************/
+
+  uchar private_key[32];
+  FD_TEST( 32UL == getrandom( private_key, 32UL, 0 ) );
+  fd_sha512_t sha[1];
+  fd_pubkey_t public_key;
+  FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, sha ) );
 
   /**********************************************************************/
   /* repair                                                             */
@@ -312,28 +663,24 @@ main( int argc, char ** argv ) {
       fd_repair_join( fd_repair_new( repair_mem, TEST_CONSENSUS_MAGIC, valloc ) );
 
   fd_repair_config_t repair_config;
-  repair_config.deliver_fun      = repair_deliver_fun;
-  repair_config.send_fun         = repair_send_packet;
-  repair_config.deliver_fail_fun = repair_deliver_fail_fun;
-  repair_config.fun_arg          = replay;
-  repair_config.sign_fun         = NULL;
-  repair_config.sign_arg         = NULL;
-
-  FD_TEST( resolve_hostport( ":9002", &repair_config.intake_addr ) );
-  repair_config.service_addr      = repair_config.intake_addr;
-  repair_config.service_addr.port = 0;
-
-  uchar private_key[32];
-  FD_TEST( 32UL == getrandom( private_key, 32UL, 0 ) );
-  fd_sha512_t sha[1];
-  fd_pubkey_t public_key;
-  FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, sha ) );
-
-  repair_config.private_key = private_key;
   repair_config.public_key  = &public_key;
+  repair_config.private_key = private_key;
+  FD_TEST( resolve_hostport( ":9003", &repair_config.service_addr ) );
+  FD_TEST( resolve_hostport( ":9002", &repair_config.intake_addr ) );
+  repair_config.deliver_fun      = repair_deliver_fun;
+  repair_config.send_fun         = repair_send_fun;
+  repair_config.deliver_fail_fun = repair_deliver_fail_fun;
+  repair_arg_t repair_arg        = { .replay = replay,
+                                     .sockfd = create_socket( &repair_config.intake_addr ) };
+  repair_config.fun_arg          = &repair_arg;
+  repair_config.sign_fun         = sign_fun;
+  repair_config.sign_arg         = &repair_config;
 
   FD_TEST( !fd_repair_set_config( repair, &repair_config ) );
-  FD_LOG_NOTICE( ( "Finish setup repair" ) );
+
+  replay->repair = repair;
+
+  FD_LOG_DEBUG( ( "Finish setup repair" ) );
 
   /**********************************************************************/
   /* turbine                                                            */
@@ -390,15 +737,11 @@ main( int argc, char ** argv ) {
   replay->parity_shreds = parity_shreds;
   replay->fec_sets      = fec_sets;
   replay->fec_resolver  = fec_resolver;
-  FD_LOG_NOTICE( ( "Finish setup turbine" ) );
+  FD_LOG_DEBUG( ( "Finish setup turbine" ) );
 
   /**********************************************************************/
   /* gossip                                                             */
   /**********************************************************************/
-
-  gossip_deliver_arg.valloc     = valloc;
-  gossip_deliver_arg.repair     = repair;
-  gossip_deliver_arg.bft        = bft;
 
   void * gossip_shmem =
       fd_wksp_alloc_laddr( wksp, fd_gossip_align(), fd_gossip_footprint(), TEST_CONSENSUS_MAGIC );
@@ -406,173 +749,137 @@ main( int argc, char ** argv ) {
       fd_gossip_join( fd_gossip_new( gossip_shmem, TEST_CONSENSUS_MAGIC, valloc ) );
 
   fd_gossip_config_t gossip_config;
-  gossip_config.public_key    = &public_key;
-  gossip_config.private_key   = private_key;
+  gossip_config.public_key  = &public_key;
+  gossip_config.private_key = private_key;
   FD_TEST( resolve_hostport( ":9001", &gossip_config.my_addr ) );
-  gossip_config.shred_version = 0;
-  gossip_config.deliver_fun   = gossip_deliver_fun;
-  gossip_config.deliver_arg   = &gossip_deliver_arg;
-  gossip_config.send_fun      = gossip_send_packet;
-  gossip_config.send_arg      = NULL;
-  gossip_config.sign_fun      = gossip_sign_fun;
-  fd_keyguard_client_t keyguard_client = { 0 };
-  gossip_config.sign_arg      = &keyguard_client;
+  gossip_config.shred_version             = 0;
+  gossip_config.deliver_fun               = gossip_deliver_fun;
+  gossip_deliver_arg_t gossip_deliver_arg = { .repair = repair, .bft = bft };
+  gossip_config.deliver_arg               = &gossip_deliver_arg;
+  gossip_config.send_fun                  = gossip_send_fun;
+  int gossip_sockfd                       = create_socket( &gossip_config.my_addr );
+  gossip_config.send_arg                  = &gossip_sockfd;
+  gossip_config.sign_fun                  = sign_fun;
+  gossip_config.sign_arg                  = &gossip_config;
 
   FD_TEST( !fd_gossip_set_config( gossip, &gossip_config ) );
 
   fd_gossip_peer_addr_t _gossip_peer_addr;
-  FD_TEST(
-      !fd_gossip_add_active_peer( gossip, resolve_hostport( gossip_peer_addr, &_gossip_peer_addr ) ) );
-  FD_LOG_NOTICE( ( "Finish setup gossip" ) );
+  FD_TEST( !fd_gossip_add_active_peer( gossip,
+                                       resolve_hostport( gossip_peer_addr, &_gossip_peer_addr ) ) );
+  FD_LOG_DEBUG( ( "Finish setup gossip" ) );
 
-end:
+  replay->now = fd_log_wallclock();
+
+  fd_gossip_update_addr( gossip, &gossip_config.my_addr );
+  fd_gossip_settime( gossip, fd_log_wallclock() );
+  fd_gossip_start( gossip );
+
+  FD_LOG_NOTICE( ( "repair config intake addr %u %u",
+                   repair_config.intake_addr.addr,
+                   repair_config.intake_addr.port ) );
+  fd_repair_update_addr( replay->repair, &repair_config.intake_addr, &repair_config.service_addr );
+  FD_TEST( !fd_gossip_update_repair_addr( gossip, &repair_config.service_addr ) );
+  fd_repair_settime( replay->repair, fd_log_wallclock() );
+  fd_repair_start( replay->repair );
+
+  /* optionally specify a repair peer identity to skip waiting for a contact info to come through */
+
+  if( repair_peer_id ) {
+    fd_pubkey_t _repair_peer_id;
+    fd_base58_decode_32( repair_peer_id, _repair_peer_id.uc );
+    fd_repair_peer_addr_t _repair_peer_addr = { 0 };
+    if( FD_UNLIKELY(
+            fd_repair_add_active_peer( replay->repair,
+                                       resolve_hostport( repair_peer_addr, &_repair_peer_addr ),
+                                       &_repair_peer_id ) ) ) {
+      FD_LOG_ERR( ( "error adding repair active peer" ) );
+    }
+    fd_repair_add_sticky( replay->repair, &_repair_peer_id );
+    fd_repair_set_permanent( replay->repair, &_repair_peer_id );
+  }
+
+  fd_repair_peer_addr_t tvu_addr[1] = { 0 };
+  FD_TEST( resolve_hostport( ":9003", tvu_addr ) );
+  fd_repair_peer_addr_t tvu_fwd_addr[1] = { 0 };
+  FD_TEST( resolve_hostport( ":9004", tvu_fwd_addr ) );
+
+  /* initialize tvu */
+  int tvu_sockfd = create_socket( tvu_addr );
+  if( fd_gossip_update_tvu_addr( gossip, tvu_addr, tvu_fwd_addr ) )
+    FD_LOG_ERR( ( "error setting gossip tvu" ) );
+
+  ulong tcnt = 4;
+
+  /* FIXME: replace with real tile */
+  turbine_targs_t turbine_targ = { .tvu_fd = tvu_sockfd, .replay = replay };
+  pthread_t       turbine_tid;
+  int             rc = pthread_create( &turbine_tid, NULL, turbine_thread, &turbine_targ );
+  if( rc ) FD_LOG_ERR( ( "error creating turbine thread" ) );
+
+  /* FIXME: replace with real tile */
+  repair_targ_t repair_targ = { .repair_fd = repair_arg.sockfd, .replay = replay };
+  pthread_t     repair_tid;
+  rc = pthread_create( &repair_tid, NULL, repair_thread, &repair_targ );
+  if( rc ) FD_LOG_ERR( ( "error creating repair thread" ) );
+
+  /* FIXME: replace with real tile */
+  gossip_targ_t gossip_targ = { .gossip_fd = gossip_sockfd, .replay = replay, .gossip = gossip };
+  pthread_t     gossip_tid;
+  rc = pthread_create( &gossip_tid, NULL, gossip_thread, &gossip_targ );
+  if( rc ) FD_LOG_ERR( ( "error creating gossip thread" ) );
+
+  fd_tpool_t * tpool = NULL;
+  uchar tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
+  if( tcnt > 3 ) {
+    tpool = fd_tpool_init( tpool_mem, tcnt - 3 );
+    if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
+    for( ulong i = 4; i < tcnt; ++i ) {
+      if( fd_tpool_worker_push( tpool, i, NULL, fd_scratch_smem_footprint( 256UL << 20UL ) ) ==
+          NULL )
+        FD_LOG_ERR( ( "failed to launch worker" ) );
+    }
+  }
+  replay->tpool       = tpool;
+  replay->max_workers = tcnt - 3;
+  replay->valloc      = valloc;
+
+  // if( need_incr_snap ) {
+  //   /* Wait for first turbine packet before grabbing the incremental snapshot */
+  //   while( replay->first_turbine_slot == FD_SLOT_NULL ) {
+  //     struct timespec ts = { .tv_sec = 0, .tv_nsec = (long)1e6 };
+  //     nanosleep( &ts, NULL );
+  //     // if( fd_tile_shutdown_flag ) goto shutdown;
+  //   }
+  //   slot_ctx = fd_tvu_late_incr_snap(
+  //       runtime_ctx, runtime_args, replay, slot_ctx->slot_bank.slot, slot_ctx->latest_votes );
+  //   need_incr_snap = 0;
+  // }
+
+  while( FD_LIKELY( 1 /* !fd_tile_shutdown_flag */ ) ) {
+
+    fd_repair_need_orphan( repair, snapshot_slot );
+
+    /* Housekeeping */
+    long now    = fd_log_wallclock();
+    replay->now = now;
+
+    /* Try to progress replay */
+    for( ulong i = fd_replay_pending_iter_init( replay );
+         ( i = fd_replay_pending_iter_next( replay, now, i ) ) != ULONG_MAX; ) {
+      fd_fork_t * fork = fd_replay_slot_prepare( replay, i );
+      if( FD_LIKELY( fork ) ) {
+        fd_replay_slot_execute( replay, i, fork, NULL );
+        if( i > 64U ) replay->smr = fd_ulong_max( replay->smr, i - 64U );
+        replay->now = now = fd_log_wallclock();
+      }
+    }
+
+    /* Allow other threads to add pendings */
+    struct timespec ts = { .tv_sec = 0, .tv_nsec = (long)1e6 };
+    nanosleep( &ts, NULL );
+  }
+
   fd_halt();
   return 0;
-}
-
-static void
-gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
-  fd_tvu_gossip_deliver_arg_t * arg_ = (fd_tvu_gossip_deliver_arg_t *)arg;
-  if( data->discriminant == fd_crds_data_enum_contact_info_v1 ) {
-    fd_repair_peer_addr_t repair_peer_addr = { 0 };
-    fd_gossip_from_soladdr( &repair_peer_addr, &data->inner.contact_info_v1.serve_repair );
-    if( repair_peer_addr.port == 0 ) return;
-    if( FD_UNLIKELY( fd_repair_add_active_peer(
-            arg_->repair, &repair_peer_addr, &data->inner.contact_info_v1.id ) ) ) {
-      FD_LOG_DEBUG( ( "error adding peer" ) ); /* Probably filled up the table */
-    };
-  }
-}
-
-static int
-gossip_to_sockaddr( uchar * dst, fd_gossip_peer_addr_t const * src ) {
-  fd_memset( dst, 0, sizeof( struct sockaddr_in ) );
-  struct sockaddr_in * t = (struct sockaddr_in *)dst;
-  t->sin_family          = AF_INET;
-  t->sin_addr.s_addr     = src->addr;
-  t->sin_port            = src->port;
-  return sizeof( struct sockaddr_in );
-}
-
-static void
-gossip_send_packet( uchar const *                 data,
-                    size_t                        sz,
-                    fd_gossip_peer_addr_t const * addr,
-                    void *                        arg ) {
-  (void)arg;
-  uchar saddr[sizeof( struct sockaddr_in )];
-  int   saddrlen = gossip_to_sockaddr( saddr, addr );
-  char  s[1000]  = { 0 };
-  fd_gossip_addr_str( s, sizeof( s ), addr );
-  if( sendto( gossip_sockfd,
-              data,
-              sz,
-              MSG_DONTWAIT,
-              (const struct sockaddr *)saddr,
-              (socklen_t)saddrlen ) < 0 ) {
-    FD_LOG_WARNING( ( "sendto failed: %s", strerror( errno ) ) );
-  }
-}
-
-static void
-gossip_sign_fun( void * arg, uchar signature[static 64], uchar const * buffer, ulong len ) {
-  fd_keyguard_client_t * keyguard_client = (fd_keyguard_client_t *)arg;
-  fd_keyguard_client_sign( keyguard_client, signature, buffer, len );
-}
-
-static void
-repair_deliver_fun( fd_shred_t const *                            shred,
-                    FD_PARAM_UNUSED ulong                         shred_sz,
-                    FD_PARAM_UNUSED fd_repair_peer_addr_t const * from,
-                    FD_PARAM_UNUSED fd_pubkey_t const *           id,
-                    void *                                        arg ) {
-  fd_replay_t * replay = (fd_replay_t *)arg;
-  fd_replay_repair_rx( replay, shred );
-}
-
-static void
-repair_deliver_fail_fun( fd_pubkey_t const * id,
-                         ulong               slot,
-                         uint                shred_index,
-                         void *              arg,
-                         int                 reason ) {
-  (void)arg;
-  FD_LOG_WARNING( ( "repair_deliver_fail_fun - shred: %32J, slot: %lu, idx: %u, reason: %d",
-                    id,
-                    slot,
-                    shred_index,
-                    reason ) );
-}
-
-static int
-repair_to_sockaddr( uchar * dst, fd_repair_peer_addr_t const * src ) {
-  fd_memset( dst, 0, sizeof( struct sockaddr_in ) );
-  struct sockaddr_in * t = (struct sockaddr_in *)dst;
-  t->sin_family          = AF_INET;
-  t->sin_addr.s_addr     = src->addr;
-  t->sin_port            = src->port;
-  return sizeof( struct sockaddr_in );
-}
-
-static void
-repair_send_packet( uchar const *                 data,
-                    size_t                        sz,
-                    fd_repair_peer_addr_t const * addr,
-                    void *                        arg ) {
-  // FD_LOG_HEXDUMP_NOTICE( ( "send: ", data, sz ) );
-  (void)arg;
-  uchar saddr[sizeof( struct sockaddr_in )];
-  int   saddrlen = repair_to_sockaddr( saddr, addr );
-  if( sendto( repair_sockfd,
-              data,
-              sz,
-              MSG_DONTWAIT,
-              (const struct sockaddr *)saddr,
-              (socklen_t)saddrlen ) < 0 ) {
-    FD_LOG_WARNING( ( "sendto failed: %s", strerror( errno ) ) );
-  }
-}
-
-/* Convert a host:port string to a repair network address. If host is
- * missing, it assumes the local hostname. */
-static fd_repair_peer_addr_t *
-resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res ) {
-  fd_memset( res, 0, sizeof( fd_repair_peer_addr_t ) );
-
-  /* Find the : and copy out the host */
-  char buf[128];
-  uint i;
-  for( i = 0;; ++i ) {
-    if( str[i] == '\0' || i > sizeof( buf ) - 1U ) {
-      FD_LOG_ERR( ( "missing colon" ) );
-      return NULL;
-    }
-    if( str[i] == ':' ) {
-      buf[i] = '\0';
-      break;
-    }
-    buf[i] = str[i];
-  }
-  if( i == 0 || strcmp( buf, "localhost" ) == 0 ||
-      strcmp( buf, "127.0.0.1" ) == 0 ) /* :port means $HOST:port */
-    gethostname( buf, sizeof( buf ) );
-
-  struct hostent * host = gethostbyname( buf );
-  if( host == NULL ) {
-    FD_LOG_WARNING( ( "unable to resolve host %s", buf ) );
-    return NULL;
-  }
-  /* Convert result to repair address */
-  res->l = 0;
-  // FIXME why the first line does not work? I switched to the second line.
-  // res->addr = ( (struct in_addr *)host->h_addr )->s_addr;
-  res->addr = ( (struct in_addr *)host->h_addr_list[0] )->s_addr;
-  int port  = atoi( str + i + 1 );
-  if( ( port > 0 && port < 1024 ) || port > (int)USHORT_MAX ) {
-    FD_LOG_ERR( ( "invalid port number" ) );
-    return NULL;
-  }
-  res->port = htons( (ushort)port );
-
-  return res;
 }
