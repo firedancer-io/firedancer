@@ -3,8 +3,10 @@
 
 #include <pthread.h>
 
-/* tpool provides APIs to group sets of tiles together for ultra low
-   overhead and high scalability launching of thread parallel jobs.
+/* tpool provides APIs for utilizing multiple threads/cpus
+   with ultra low overhead and high scalability. When combined with
+   tiles, this API allows a single tile to span multiple cpus to
+   achieve fast and efficient task management.
    There is a lot of nuance that most thread pool APIs and
    implementations get wrong.  And this nuance is very useful to
    understand why the APIs and implementations are the way they are.
@@ -19,7 +21,7 @@
    A serial implementation of this job might look like:
 
      for( ulong n=0; n<N; n++ ) ... do task n ...;
-   
+
    And the overall time to do such a job is:
 
      T_serial ~ tau_overhead + tau_task N
@@ -130,18 +132,18 @@
 
    And it is worse than that because tau_dispatch_dumb is typically
    massive and tau_task is often infinitesimal.
-   
+
    For example, in parallelizing level 1 matrix operations (e.g. a
    vector add), N is often related to the number of scalar flops needed
    and thus tau_task is small O(1) times the marginal cost of doing a
    single flop, assuming the problem itself fits within cache.  That is,
    tau_task is measured in picoseconds (e.g. wide vector SIMD double
    pumped FMA units on a ~3 GHz core).
-   
+
    But tau_dispatch_dumb is measured in milliseconds (e.g.
    pthread_create + pthread_join with all their glorious O/S and kernel
    scheduler overheads).
-   
+
    This means we need huge N before it being even worthwhile to consider
    parallelization under the dumb strategy.  And once N is large enough,
    the problem transitions from being cacheable to uncachable.  And in
@@ -152,7 +154,7 @@
    All too common a story: "We parallelized [important thing] with
    [rando popular but naive thread library du jour].  It got slower.
    Guess it was already as efficient as it could be."
-   
+
    Sigh ... fortunately, the math also gives the prescription of what we
    need to do (and maybe gives a hint, contrary to belief floating
    around in blogs and what not, math is in fact critically important
@@ -175,7 +177,7 @@
    These threads will spin on memory in optimized ways to make the time
    to wake up a thread on the order of the time it takes to transfer a
    cache line to a core (tens to hundreds of ns).
-   
+
    Together, these turn the above into something like:
 
      static void
@@ -204,10 +206,10 @@
    This is dramatically better in implementation as now we have:
 
      P_max_useful_okay ~ sqrt( tau_task N / tau_dispatch_smart )
-   
+
    where tau_dispatch_smart << tau_dispatch_dumb.  Additionally, the
    various overheads in the main thread are much lower.
-   
+
    While this is able to use dramatically more threads profitably for a
    fixed job size, we still aren't able to weak scale.  To do that, we
    need to parallelize the thread dispatch too.
@@ -241,7 +243,7 @@
                 ulong     P ) {  // Assumes P>=p1
 
        // At this point we are worker thread p0 and we are responsible
-       // for dispatching work to workers [p0,p1) 
+       // for dispatching work to workers [p0,p1)
 
        ulong p_cnt = p1-p0;
        if( p_cnt>1UL ) {
@@ -349,7 +351,7 @@
 
      // This is called by worker thread t0 and uses tpool worker threads
      // [t0,t1) to compute:
-     // 
+     //
      //   C([0,l1-l0),[0,m1-m0)) = A([m0,m1),[l0,l1))' B([m0,m1),[n0,n1))
 
      void
@@ -379,7 +381,7 @@
          // an increasingly bad load imbalance between the left and
          // right workers when the matrix range to split is large but
          // t_cnt is small and odd.
-         // 
+         //
          // We then execute in parallel the left range on worker threads
          // [t0,th) and the right range on worker threads [th,t1).  Yes,
          // this uses recursion in the thread dispatch to get radically
@@ -465,10 +467,10 @@
 /* FD_TPOOL_WORKER_STATE_* are possible states a tpool worker thread
    is in.  Users practically should never see BOOT or HALT. */
 
-#define FD_TPOOL_WORKER_STATE_BOOT (0) /* Tile is booting */
-#define FD_TPOOL_WORKER_STATE_IDLE (1) /* Tile is idle */
-#define FD_TPOOL_WORKER_STATE_EXEC (2) /* Tile is executing a task */
-#define FD_TPOOL_WORKER_STATE_HALT (3) /* Tile is halting */
+#define FD_TPOOL_WORKER_STATE_BOOT (0) /* Worker is booting */
+#define FD_TPOOL_WORKER_STATE_IDLE (1) /* Worker is idle */
+#define FD_TPOOL_WORKER_STATE_EXEC (2) /* Worker is executing a task */
+#define FD_TPOOL_WORKER_STATE_HALT (3) /* Worker is halting */
 
 /* FD_TPOOL_PARTITION partitions tasks indexed [task0,task1) over
    worker_cnt worker threads.  On return, tasks indexed
@@ -647,22 +649,10 @@ void *
 fd_tpool_fini( fd_tpool_t * tpool );
 
 /* fd_tpool_worker_push pushes a new worker into the tpool. cpu_idx
-   is the cpu to bind to (65535UL for a floating thread.
+   is the cpu to bind to (USHORT_MAX for a floating thread).
 
-   If scratch_sz is non-zero, this will assume that tile tile_idx
-   currently has no scratch memory attached to it and configure tile
-   tile_idx to use the memory with appropriate alignment whose first byte
-   in the local address space is scratch and that has scratch_sz bytes
-   total for its scratch memory.  Otherwise, it will use whatever
-   scratch memory has already been configured for tile_idx (or leave it
-   unattached to a scratch memory).  Scratch memory used by a tile
-   should not be used for any other purposes while the tile is part of
-   the tpool.
-
-   IMPORTANT SAFETY TIP! Since worker 0 identity is flexible, it is the
-   caller's responsibility to attach/detach the scratch memory as
-   appropriate for a "worker 0 thread" that is not pushed into the
-   tpool.
+   If scratch is non-NULL, it will be associated with the worker
+   thread as the default scratch space.
 
    Returns tpool on success and NULL on failure (logs details).  Reasons
    for failure include NULL tpool, bad scratch region specified, etc).
@@ -694,8 +684,8 @@ fd_tpool_worker_pop( fd_tpool_t * tpool );
 /* Accessors.  As these are used in high performance contexts, these do
    no input argument checking.  Specifically, they assume tpool is valid
    and (if applicable) worker_idx in [0,worker_cnt).  worker 0 is
-   special.  The tile_idx/scratch/scratch_sz for worker 0 are always
-   returned as 0/NULL/0 here. */
+   special.  The scratch/scratch_sz for worker 0 are always
+   returned as NULL/0 here. */
 
 FD_FN_PURE static inline ulong fd_tpool_worker_cnt( fd_tpool_t const * tpool ) { return tpool->worker_cnt; }
 FD_FN_PURE static inline ulong fd_tpool_worker_max( fd_tpool_t const * tpool ) { return tpool->worker_max; }
@@ -759,7 +749,7 @@ fd_tpool_exec( fd_tpool_t *    tpool,       ulong worker_idx,
                ulong           task_n0,     ulong task_n1 ) {
   fd_tpool_private_worker_t * worker = fd_tpool_private_worker( tpool )[ worker_idx ];
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( worker->task        ) = task;       
+  FD_VOLATILE( worker->task        ) = task;
   FD_VOLATILE( worker->task_tpool  ) = task_tpool;
   FD_VOLATILE( worker->task_t0     ) = task_t0;     FD_VOLATILE( worker->task_t1     ) = task_t1;
   FD_VOLATILE( worker->task_args   ) = task_args;
@@ -804,7 +794,7 @@ fd_tpool_wait( fd_tpool_t const * tpool,
    tasks deterministically over worker threads (e.g. worker thread t
    does tasks (t-t0)+0*(t1-t0),(t-t0)+1*(t1-t0),(t-t0)+2*(t1-t0), ...
    The block variant blocks individual tasks over worker threads.
-   
+
    The taskq variant requires FD_HAS_ATOMIC support and assigns tasks to
    threads dynamically.  Practically, this is only useful if there are a
    huge number of tasks to execute relative to the number of threads,
