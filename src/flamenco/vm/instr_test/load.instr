@@ -1,0 +1,57 @@
+input=0001020304050607
+
+# ldxb reg, [reg+off]
+$ op=71 dst=1 src=1 off=0000 r1 =400000000 imm=00 : ok  r1=00
+$ op=71 dst=1 src=2 off=0007 r2 =400000000 imm=01 : ok  r1=07
+$ op=71 dst=1 src=3 off=0008 r3 =400000000 imm=02 : err
+$ op=71 dst=2 src=4 off=7fff r4 =3ffff8002 imm=03 : ok  r2=01
+$ op=71 dst=2 src=5 off=8000 r5 =400008003 imm=04 : ok  r2=03
+$ op=71 dst=2 src=6 off=ffff r6 =400000008 imm=05 : ok  r2=07
+$ op=71 dst=9 src=a off=0000 r10=400000004 imm=06 : ok  r9=04
+$ op=71 dst=a src=1 off=0000                      : vfy
+$ op=71 dst=9 src=b off=0000                      : vfy
+
+# ldxh reg, [reg+off]
+$ op=69 dst=1 src=1 off=0000 r1 =400000000 imm=00 : ok  r1=0100
+$ op=69 dst=1 src=2 off=0006 r2 =400000000 imm=01 : ok  r1=0706
+$ op=69 dst=1 src=3 off=0007 r3 =400000000 imm=02 : err
+$ op=69 dst=2 src=4 off=7fff r4 =3ffff8002 imm=03 : ok  r2=0201
+$ op=69 dst=2 src=5 off=8000 r5 =400008003 imm=04 : ok  r2=0403
+$ op=69 dst=2 src=6 off=fffe r6 =400000008 imm=05 : ok  r2=0706
+$ op=69 dst=9 src=a off=0000 r10=400000004 imm=06 : ok  r9=0504
+$ op=69 dst=a src=1 off=0000                      : vfy
+$ op=69 dst=9 src=b off=0000                      : vfy
+
+# ldxw reg, [reg+off]
+$ op=61 dst=1 src=1 off=0000 r1 =400000000 imm=00 : ok  r1=03020100
+$ op=61 dst=1 src=2 off=0004 r2 =400000000 imm=01 : ok  r1=07060504
+$ op=61 dst=1 src=3 off=0005 r3 =400000000 imm=02 : err
+$ op=61 dst=2 src=4 off=7fff r4 =3ffff8002 imm=03 : ok  r2=04030201
+$ op=61 dst=2 src=5 off=8000 r5 =400008003 imm=04 : ok  r2=06050403
+$ op=61 dst=2 src=6 off=fffc r6 =400000008 imm=05 : ok  r2=07060504
+$ op=61 dst=9 src=a off=0000 r10=400000003 imm=06 : ok  r9=06050403
+$ op=61 dst=a src=1 off=0000                      : vfy
+$ op=61 dst=9 src=b off=0000                      : vfy
+
+# ldxdw reg, [reg+off]
+$ op=79 dst=1 src=1 off=0000 r1 =400000000 imm=00 : ok  r1=0706050403020100
+$ op=79 dst=1 src=3 off=0001 r3 =400000000 imm=01 : err
+$ op=79 dst=2 src=4 off=7fff r4 =3ffff8001 imm=02 : ok  r2=0706050403020100
+$ op=79 dst=2 src=5 off=8000 r5 =400008000 imm=03 : ok  r2=0706050403020100
+$ op=79 dst=2 src=a off=8000 r10=400008000 imm=03 : ok  r2=0706050403020100
+$ op=79 dst=a src=1 off=0000                      : vfy
+$ op=79 dst=9 src=b off=0000                      : vfy
+
+# lddw reg, imm
+$ op=18 dst=1 src=9 off=0000 r1=ff imm=a7a6a5a4a3a2a1a0 : ok r1=a7a6a5a4a3a2a1a0
+$ op=18 dst=2 src=8 off=0000 r2=00 imm=b7b6b5b4b3b2b1b0 : ok r2=b7b6b5b4b3b2b1b0
+$ op=18 dst=3 src=7 off=a5a5 r3=ff imm=c7c6c5c4c3c2c1c0 : ok r3=c7c6c5c4c3c2c1c0
+$ op=18 dst=4 src=6 off=a5a5 r4=00 imm=d7d6d5d4d3d2d1d0 : ok r4=d7d6d5d4d3d2d1d0
+$ op=18 dst=5 src=5 off=a5a5 r5=ff imm=e7e6e5e4e3e2e1e0 : ok r5=e7e6e5e4e3e2e1e0
+$ op=18 dst=6 src=4 off=a5a5 r6=00 imm=f7f6f5f4f3f2f1f0 : ok r6=f7f6f5f4f3f2f1f0
+$ op=18 dst=7 src=3 off=a5a5 r7=ff imm=9796959493929190 : ok r7=9796959493929190
+$ op=18 dst=8 src=2 off=a5a5 r8=00 imm=8786858483828180 : ok r8=8786858483828180
+$ op=18 dst=9 src=1 off=a5a5 r9=ff imm=7776757473727170 : ok r9=7776757473727170
+$ op=18 dst=0 src=a off=a5a5 r1=ff imm=a7a6a5a4a3a2a1a0 : ok r0=a7a6a5a4a3a2a1a0
+$ op=18 dst=0 src=b off=0000 r1=ff imm=a7a6a5a4a3a2a1a0 : vfy
+$ op=18 dst=a src=1 off=0000 r1=ff imm=a7a6a5a4a3a2a1a0 : vfy
