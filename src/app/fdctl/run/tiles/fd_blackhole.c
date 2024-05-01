@@ -29,7 +29,7 @@ populate_allowed_fds( void * scratch,
 }
 
 fd_topo_run_tile_t fd_tile_blackhole = {
-  .name                     = "blackhole",
+  .name                     = "bhole",
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .mux_before_frag          = before_frag,
