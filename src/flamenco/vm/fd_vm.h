@@ -163,7 +163,7 @@ FD_PROTOTYPES_BEGIN
 /* FD_VM_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
    for a memory region to hold a fd_vm_t.  ALIGN is a positive
    integer power of 2.  FOOTPRINT is a multiple of align. These are provided to facilitate compile time declarations. */
-#define FD_VM_ALIGN     (8UL) 
+#define FD_VM_ALIGN     (8UL)
 #define FD_VM_FOOTPRINT (799528UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
@@ -182,7 +182,7 @@ FD_FN_CONST ulong
 fd_vm_footprint( void );
 
 #define FD_VM_MAGIC (0xF17EDA2CEF0) /* FIREDANCE SBPF V0 */
- 
+
 /* fd_vm_new formats memory region with suitable alignment and
    footprint suitable for holding a fd_vm_t.  Assumes
    shmem points on the caller to the first byte of the memory region
@@ -201,19 +201,19 @@ fd_vm_new( void * shmem );
 fd_vm_t *
 fd_vm_join( void * shmem );
 
-/* fd_vm_init initializes the given fd_vm_t struct, checking that it is 
+/* fd_vm_init initializes the given fd_vm_t struct, checking that it is
    not null and has the correct magic value.
-   
+
    It modifies the vm object and also returns the object for convenience. */
 fd_vm_t *
-fd_vm_init( 
+fd_vm_init(
    fd_vm_t * vm,
    fd_exec_instr_ctx_t *instr_ctx,
    ulong heap_max,
    ulong entry_cu,
-   uchar * rodata,
+   uchar const * rodata,
    ulong rodata_sz,
-   ulong * text,
+   ulong const * text,
    ulong text_cnt,
    ulong text_off,
    ulong entry_pc,
@@ -224,8 +224,8 @@ fd_vm_init(
    fd_vm_trace_t * trace,
    fd_sha256_t * sha );
 
-/* fd_vm_leave leaves the caller's current local join to a vm. 
-   Returns a pointer to the memory region holding the vm on success 
+/* fd_vm_leave leaves the caller's current local join to a vm.
+   Returns a pointer to the memory region holding the vm on success
    (this is not necessarily a simple cast of the
    address) and NULL on failure (logs details).  The caller is not
    joined on successful return. */

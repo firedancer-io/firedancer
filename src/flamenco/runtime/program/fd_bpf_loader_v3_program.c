@@ -167,24 +167,29 @@ fd_bpf_loader_v3_user_execute( fd_exec_instr_ctx_t ctx ) {
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
 
+  fd_vm_t _vm[1];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+
+  fd_vm_init(
+      /* vm        */ vm,
+      /* instr_ctx */ &ctx,
+      /* heap_max  */ ctx.txn_ctx->heap_size, /* TODO configure heap allocator */
+      /* entry_cu  */ ctx.txn_ctx->compute_meter,
+      /* rodata    */ fd_sbpf_validated_program_rodata( prog ),
+      /* rodata_sz */ prog->rodata_sz,
+      /* text      */ (ulong *)((ulong)fd_sbpf_validated_program_rodata( prog ) + (ulong)prog->text_off), /* Note: text_off is byte offset */
+      /* text_cnt  */ prog->text_cnt,
+      /* text_off  */ prog->text_off,
+      /* entry_pc  */ prog->entry_pc,
+      /* calldests */ prog->calldests,
+      /* syscalls  */ syscalls,
+      /* input     */ input,
+      /* input_sz  */ input_sz,
+      /* trace     */ NULL,
+      /* sha       */ sha
+  );
+
   // FD_LOG_DEBUG(("Starting CUs %lu", ctx.txn_ctx->compute_meter));
-  fd_vm_t vm = {
-    .instr_ctx = &ctx,
-    .heap_max  = ctx.txn_ctx->heap_size, /* TODO configure heap allocator */
-    .entry_cu  = ctx.txn_ctx->compute_meter,
-    .rodata    = fd_sbpf_validated_program_rodata( prog ),
-    .rodata_sz = prog->rodata_sz,
-    .text      = (ulong *)((ulong)fd_sbpf_validated_program_rodata( prog ) + (ulong)prog->text_off), /* Note: text_off is byte offset */
-    .text_cnt  = prog->text_cnt,
-    .text_off  = prog->text_off,
-    .entry_pc  = prog->entry_pc,
-    .calldests = prog->calldests,
-    .syscalls  = syscalls,
-    .input     = input,
-    .input_sz  = input_sz,
-    .trace     = NULL,
-    .sha       = sha,
-  };
 
 #ifdef FD_DEBUG_SBPF_TRACES
 uchar * signature = (uchar*)vm.instr_ctx->txn_ctx->_txn_raw->raw + vm.instr_ctx->txn_ctx->txn_descriptor->signature_off;
@@ -199,13 +204,11 @@ if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
 }
 #endif
 
-  memset( vm.reg, 0, FD_VM_REG_CNT*sizeof(ulong) ); /* FIXME: is this necessary? */
-
 //int validate_err = fd_vm_validate( &vm );
 //if( FD_UNLIKELY( validate_err ) ) FD_LOG_ERR(( "fd_vm_validate failed (%i-%s)", validate_err, fd_vm_strerror( validate_err ) ));
 //FD_LOG_WARNING(( "fd_vm_validate success" ));
 
-  int exec_err = fd_vm_exec( &vm );
+  int exec_err = fd_vm_exec( vm );
 
 #ifdef FD_DEBUG_SBPF_TRACES
 if( FD_UNLIKELY( vm.trace ) ) {
@@ -215,7 +218,7 @@ if( FD_UNLIKELY( vm.trace ) ) {
 }
 #endif
 
-  ctx.txn_ctx->compute_meter = vm.cu;
+  ctx.txn_ctx->compute_meter = vm->cu;
 
 //FD_LOG_DEBUG(( "fd_vm_exec: %i-%s, ic: %lu, pc: %lu, ep: %lu, r0: %lu, cu: %lu, frame_cnt: %lu",
 //               exec_err, fd_vm_strerror( exec_err ), vm.ic, vm.pc, vm.entry_pc, vm.reg[0], vm.cu, vm.frame_cnt ));
@@ -228,7 +231,7 @@ if( FD_UNLIKELY( vm.trace ) ) {
     return -1;
   }
 
-  if( FD_UNLIKELY( vm.reg[0] ) ) {
+  if( FD_UNLIKELY( vm->reg[0] ) ) {
     fd_valloc_free( ctx.valloc, input );
     //FD_LOG_WARNING(( "reg[0] %lu", vm.reg[0] ));
     //TODO: vm should report this error
@@ -574,7 +577,7 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
 
     /* Actually invoke the system program via native cpi */
     fd_system_program_instruction_create_account_t create_acct;
-    create_acct.lamports = fd_rent_exempt_minimum_balance(ctx.slot_ctx, programdata_len); 
+    create_acct.lamports = fd_rent_exempt_minimum_balance(ctx.slot_ctx, programdata_len);
     create_acct.space = programdata_len;
     create_acct.owner = ctx.instr->program_id_pubkey;
 
@@ -582,13 +585,13 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
     instr.discriminant = fd_system_program_instruction_enum_create_account;
     instr.inner.create_account = create_acct;
 
-    /* Setup the accounts passed into the system program create call. Index zero and 
-       one are the from and to accounts respectively for the transfer. The buffer 
+    /* Setup the accounts passed into the system program create call. Index zero and
+       one are the from and to accounts respectively for the transfer. The buffer
        account is also passed in here. */
     FD_SCRATCH_SCOPE_BEGIN {
-      fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *) 
+      fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *)
                                               fd_scratch_alloc( FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
-      fd_native_cpi_create_account_meta( payer_acc, 1, 1, &acct_metas[0] ); 
+      fd_native_cpi_create_account_meta( payer_acc, 1, 1, &acct_metas[0] );
       fd_native_cpi_create_account_meta( programdata_acc, 1, 1, &acct_metas[1] );
       fd_pubkey_t signers[2];
       ulong signers_cnt = 2;
@@ -807,7 +810,7 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
       FD_LOG_WARNING(("Incorrect upgrade authority provided"));
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
     }
-  
+
     if ( !fd_instr_acc_is_signer_idx( ctx.instr, 6 ) ) {
       FD_LOG_WARNING(("Upgrade authority did not sign"));
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -1371,7 +1374,7 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
       instr.inner.transfer = required_payment;
 
       FD_SCRATCH_SCOPE_BEGIN {
-        fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t*) 
+        fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t*)
                                                   fd_scratch_alloc( FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
         fd_native_cpi_create_account_meta( payer_key,       1, 1, &acct_metas[0] );
         fd_native_cpi_create_account_meta( programdata_acc, 0, 1, &acct_metas[1] );
