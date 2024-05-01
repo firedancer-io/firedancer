@@ -186,14 +186,14 @@
   goto interp_exec; /* Silly but to avoid unused label warning in some configurations */
 interp_exec:
 
-# ifdef FD_VM_INTERP_EXE_TRACING_ENABLED 
+# ifdef FD_VM_INTERP_EXE_TRACING_ENABLED
   /* Note: when tracing or optimizing for code footprint, all
      instruction execution starts here such that this is only point
      where exe tracing diagnostics are needed. */
 
   fd_vm_trace_event_exe( vm->trace, pc, ic, pc - pc0 + 1UL - ic_correction, reg, vm->text + pc, vm->text_cnt - pc );
 # endif
-  
+
   FD_VM_INTERP_INSTR_EXEC;
 
   /* 0x00 - 0x0f ******************************************************/
@@ -202,7 +202,7 @@ interp_exec:
 interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
   FD_VM_INTERP_INSTR_BEGIN(0x04) /* FD_SBPF_OP_ADD_IMM */
-    reg[ dst ] = (ulong)( (uint)reg_dst + imm );
+    reg[ dst ] = (ulong)(long)( (int)reg_dst + (int)imm );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x05) /* FD_SBPF_OP_JA */
@@ -214,7 +214,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x0c) /* FD_SBPF_OP_ADD_REG */
-    reg[ dst ] = (ulong)(uint)( reg_dst + reg_src );
+    reg[ dst ] = (ulong)(long)( (int)reg_dst + (int)reg_src );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x0f) /* FD_SBPF_OP_ADD64_REG */
@@ -224,7 +224,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
   /* 0x10 - 0x1f ******************************************************/
 
   FD_VM_INTERP_INSTR_BEGIN(0x14) /* FD_SBPF_OP_SUB_IMM */
-    reg[ dst ] = (ulong)( (uint)reg_dst - imm );
+    reg[ dst ] = (ulong)(long)( (int)reg_dst - (int)imm );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x15) /* FD_SBPF_OP_JEQ_IMM */ /* FIXME: CHECK IMM SIGN EXTENSION */
@@ -243,7 +243,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x1c) /* FD_SBPF_OP_SUB_REG */
-    reg[ dst ] = (ulong)( (uint)reg_dst - (uint)reg_src );
+    reg[ dst ] = (ulong)(long)( (int)reg_dst - (int)reg_src );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x1d) /* FD_SBPF_OP_JEQ_REG */
@@ -257,7 +257,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
   /* 0x20 - 0x2f ******************************************************/
 
   FD_VM_INTERP_INSTR_BEGIN(0x24) /* FD_SBPF_OP_MUL_IMM */
-    reg[ dst ] = (ulong)( (uint)reg_dst * imm );
+    reg[ dst ] = (ulong)(long)( (int)reg_dst * (int)imm );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x25) /* FD_SBPF_OP_JGT_IMM */ /* FIXME: CHECK IMM SIGN EXTENSION */
@@ -269,7 +269,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x2c) /* FD_SBPF_OP_MUL_REG */
-    reg[ dst ] = (ulong)( (uint)reg_dst * (uint)reg_src );
+    reg[ dst ] = (ulong)(long)( (int)reg_dst * (int)reg_src );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x2d) /* FD_SBPF_OP_JGT_REG */
@@ -283,30 +283,31 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
   /* 0x30 - 0x3f ******************************************************/
 
   FD_VM_INTERP_INSTR_BEGIN(0x34) /* FD_SBPF_OP_DIV_IMM */
-    /* FIXME: is div-by-zero a fault? reject imm==0 at validation time?
-       convert to a multiply at validation time (usually probably not
-       worth it) */
-    reg[ dst ] = (ulong)( FD_UNLIKELY( !imm ) ? 0U : ((uint)reg_dst / imm) );
+    /* FIXME: convert to a multiply at validation time (usually probably
+       not worth it) */
+    reg[ dst ] = (ulong)((uint)reg_dst / imm);
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x35) /* FD_SBPF_OP_JGE_IMM */ /* FIXME: CHECK IMM SIGN EXTENSION */
     pc += fd_ulong_if( reg_dst>=(ulong)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x37) /* FD_SBPF_OP_DIV64_IMM */ /* FIXME: see notes for OP_DIV_IMM */
-    reg[ dst ] = FD_UNLIKELY( !imm ) ? 0UL : ( reg_dst / (ulong)imm );
+  FD_VM_INTERP_INSTR_BEGIN(0x37) /* FD_SBPF_OP_DIV64_IMM */
+    reg[ dst ] = reg_dst / (ulong)imm;
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x3c) /* FD_SBPF_OP_DIV_REG */ /* FIXME: IS DIV-BY-ZERO A FAULT? */
-    reg[ dst ] = (ulong)( FD_UNLIKELY( !(uint)reg_src ) ? 0U : ((uint)reg_dst / (uint)reg_src) );
+  FD_VM_INTERP_INSTR_BEGIN(0x3c) /* FD_SBPF_OP_DIV_REG */
+    if( FD_UNLIKELY( !(uint)reg_src ) ) goto sigfpe;
+    reg[ dst ] = (ulong)((uint)reg_dst / (uint)reg_src);
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x3d) /* FD_SBPF_OP_JGE_REG */
     pc += fd_ulong_if( reg_dst>=reg_src, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x3f) /* FD_SBPF_OP_DIV64_REG */ /* FIXME: IS DIV-BY-ZERO A FAULT? */
-    reg[ dst ] = FD_UNLIKELY( !reg_src ) ? 0UL : (reg_dst / reg_src);
+  FD_VM_INTERP_INSTR_BEGIN(0x3f) /* FD_SBPF_OP_DIV64_REG */
+    if( FD_UNLIKELY( !reg_src ) ) goto sigfpe;
+    reg[ dst ] = reg_dst / reg_src;
   FD_VM_INTERP_INSTR_END;
 
   /* 0x40 - 0x4f ******************************************************/
@@ -398,7 +399,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x64) /* FD_SBPF_OP_LSH_IMM */
-    reg[ dst ] = (ulong)( (uint)reg_dst << imm ); /* FIXME: WIDE SHIFT */
+    reg[ dst ] = (ulong)( (uint)reg_dst << imm );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x65) /* FD_SBPF_OP_JSGT_IMM */ /* FIXME: CHECK IMM SIGN EXTENSION */
@@ -406,7 +407,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x67) /* FD_SBPF_OP_LSH64_IMM */
-    reg[ dst ] = reg_dst << imm; /* FIXME: WIDE SHIFT */
+    reg[ dst ] = reg_dst << imm;
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x69) { /* FD_SBPF_OP_LDXH */
@@ -839,6 +840,7 @@ sigcost:
   }
   goto interp_halt;
 sigsyscall:  /* ic current */    /* cu current */ /* err current */          goto interp_halt;
+sigfpe:      FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGFPE;    goto interp_halt;
 
 #undef FD_VM_INTERP_FAULT
 

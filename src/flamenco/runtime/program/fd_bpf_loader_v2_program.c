@@ -98,23 +98,27 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
 
-  fd_vm_t vm = {
-    .instr_ctx = &ctx,
-    .heap_max  = FD_VM_HEAP_DEFAULT, /* TODO configure heap allocator */
-    .entry_cu  = ctx.txn_ctx->compute_meter,
-    .rodata    = prog->rodata,
-    .rodata_sz = prog->rodata_sz,
-    .text      = prog->text,
-    .text_cnt  = prog->text_cnt,
-    .text_off  = prog->text_off,
-    .entry_pc  = prog->entry_pc,
-    .calldests = prog->calldests,
-    .syscalls  = syscalls,
-    .input     = input,
-    .input_sz  = input_sz,
-    .trace     = NULL,
-    .sha       = sha,
-  };
+  fd_vm_t _vm[1];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+
+  fd_vm_init(
+      /* vm        */ vm,
+      /* instr_ctx */ &ctx,
+      /* heap_max  */ FD_VM_HEAP_DEFAULT, /* TODO configure heap allocator */
+      /* entry_cu  */ ctx.txn_ctx->compute_meter,
+      /* rodata    */ prog->rodata,
+      /* rodata_sz */ prog->rodata_sz,
+      /* text      */ prog->text,
+      /* text_cnt  */ prog->text_cnt,
+      /* text_off  */ prog->text_off,
+      /* entry_pc  */ prog->entry_pc,
+      /* calldests */ prog->calldests,
+      /* syscalls  */ syscalls,
+      /* input     */ input,
+      /* input_sz  */ input_sz,
+      /* trace     */ NULL,
+      /* sha       */ sha
+  );
 
 #ifdef FD_DEBUG_SBPF_TRACES
 uchar * signature = (uchar*)vm.instr_ctx->txn_ctx->_txn_raw->raw + vm.instr_ctx->txn_ctx->txn_descriptor->signature_off;
@@ -129,13 +133,14 @@ if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
 }
 #endif
 
-  memset( vm.reg, 0, FD_VM_REG_CNT*sizeof(ulong) ); /* FIXME: Is this necessary? */
-
+  /* Technically no need to validate BPF Loader v2 programs as no more
+     deploys are allowed.  Probably should validate regardless to
+     prevent U.B. from malicious programs. */
 //int validate_err = fd_vm_validate( &vm );
 //if( FD_UNLIKELY( validate_err ) ) FD_LOG_ERR(( "fd_vm_validate failed (%i-%s)", validate_err, fd_vm_strerror( validate_err ) ));
 //FD_LOG_WARNING(( "fd_vm_validate success" ));
 
-  int exec_err = fd_vm_exec( &vm );
+  int exec_err = fd_vm_exec( vm );
 
 #ifdef FD_DEBUG_SBPF_TRACES
 if( FD_UNLIKELY( vm.trace ) ) {
@@ -145,7 +150,7 @@ if( FD_UNLIKELY( vm.trace ) ) {
 }
 #endif
 
-  ctx.txn_ctx->compute_meter = vm.cu;
+  ctx.txn_ctx->compute_meter = vm->cu;
 
   fd_valloc_free( ctx.valloc, fd_sbpf_program_delete( prog ) );
   fd_valloc_free( ctx.valloc, fd_sbpf_syscalls_delete( syscalls ) );
@@ -160,7 +165,7 @@ if( FD_UNLIKELY( vm.trace ) ) {
     return -1;
   }
 
-  if( FD_UNLIKELY( vm.reg[0] ) ) {
+  if( FD_UNLIKELY( vm->reg[0] ) ) {
     fd_valloc_free( ctx.valloc, input);
     return -1;
   }

@@ -27,6 +27,7 @@ fd_vm_strerror( int err ) {
   case FD_VM_ERR_SIGBUS:    return "SIGBUS misaligned memory address";
   case FD_VM_ERR_SIGRDONLY: return "SIGRDONLY illegal write";
   case FD_VM_ERR_SIGCOST:   return "SIGCOST compute unit limit exceeded";
+  case FD_VM_ERR_SIGFPE:    return "SIGFPE division by zero";
 
   /* VM syscall error codes */
 
@@ -77,7 +78,10 @@ fd_vm_validate( fd_vm_t const * vm ) {
 # define FD_CHECK_ST   ((uchar)3) /* Validation should check that the instruction is a valid store */
 # define FD_CHECK_LDQ  ((uchar)4) /* Validation should check that the instruction is a valid load-quad */
 # define FD_CHECK_CALL ((uchar)5) /* Validation should check that the instruction is a valid function call */
-# define FD_INVALID    ((uchar)6) /* The opcode is invalid */
+# define FD_CHECK_DIV  ((uchar)6) /* Validation should check that the instruction is a valid division by immediate */
+# define FD_CHECK_SH32 ((uchar)7) /* Validation should check that the immediate is a valid 32-bit shift exponent */
+# define FD_CHECK_SH64 ((uchar)8) /* Validation should check that the immediate is a valid 64-bit shift exponent */
+# define FD_INVALID    ((uchar)9) /* The opcode is invalid */
 
   static uchar const validation_map[ 256 ] = {
     /* 0x00 */ FD_INVALID,    /* 0x01 */ FD_INVALID,    /* 0x02 */ FD_INVALID,    /* 0x03 */ FD_INVALID,
@@ -93,7 +97,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
     /* 0x28 */ FD_INVALID,    /* 0x29 */ FD_INVALID,    /* 0x2a */ FD_INVALID,    /* 0x2b */ FD_INVALID,
     /* 0x2c */ FD_VALID,      /* 0x2d */ FD_CHECK_JMP,  /* 0x2e */ FD_CHECK_JMP,  /* 0x2f */ FD_VALID,
     /* 0x30 */ FD_INVALID,    /* 0x31 */ FD_INVALID,    /* 0x32 */ FD_INVALID,    /* 0x33 */ FD_INVALID,
-    /* 0x34 */ FD_VALID,      /* 0x35 */ FD_CHECK_JMP,  /* 0x36 */ FD_CHECK_JMP,  /* 0x37 */ FD_VALID,
+    /* 0x34 */ FD_CHECK_DIV,  /* 0x35 */ FD_CHECK_JMP,  /* 0x36 */ FD_CHECK_JMP,  /* 0x37 */ FD_CHECK_DIV,
     /* 0x38 */ FD_INVALID,    /* 0x39 */ FD_INVALID,    /* 0x3a */ FD_INVALID,    /* 0x3b */ FD_INVALID,
     /* 0x3c */ FD_VALID,      /* 0x3d */ FD_CHECK_JMP,  /* 0x3e */ FD_CHECK_JMP,  /* 0x3f */ FD_VALID,
     /* 0x40 */ FD_INVALID,    /* 0x41 */ FD_INVALID,    /* 0x42 */ FD_INVALID,    /* 0x43 */ FD_INVALID,
@@ -105,11 +109,11 @@ fd_vm_validate( fd_vm_t const * vm ) {
     /* 0x58 */ FD_INVALID,    /* 0x59 */ FD_INVALID,    /* 0x5a */ FD_INVALID,    /* 0x5b */ FD_INVALID,
     /* 0x5c */ FD_VALID,      /* 0x5d */ FD_CHECK_JMP,  /* 0x5e */ FD_CHECK_JMP,  /* 0x5f */ FD_VALID,
     /* 0x60 */ FD_INVALID,    /* 0x61 */ FD_VALID,      /* 0x62 */ FD_CHECK_ST,   /* 0x63 */ FD_CHECK_ST,
-    /* 0x64 */ FD_VALID,      /* 0x65 */ FD_CHECK_JMP,  /* 0x66 */ FD_CHECK_JMP,  /* 0x67 */ FD_VALID,
+    /* 0x64 */ FD_CHECK_SH32, /* 0x65 */ FD_CHECK_JMP,  /* 0x66 */ FD_CHECK_JMP,  /* 0x67 */ FD_CHECK_SH64,
     /* 0x68 */ FD_INVALID,    /* 0x69 */ FD_VALID,      /* 0x6a */ FD_CHECK_ST,   /* 0x6b */ FD_CHECK_ST,
     /* 0x6c */ FD_VALID,      /* 0x6d */ FD_CHECK_JMP,  /* 0x6e */ FD_CHECK_JMP,  /* 0x6f */ FD_VALID,
     /* 0x70 */ FD_INVALID,    /* 0x71 */ FD_VALID,      /* 0x72 */ FD_CHECK_ST,   /* 0x73 */ FD_CHECK_ST,
-    /* 0x74 */ FD_VALID,      /* 0x75 */ FD_CHECK_JMP,  /* 0x76 */ FD_CHECK_JMP,  /* 0x77 */ FD_VALID,
+    /* 0x74 */ FD_CHECK_SH32, /* 0x75 */ FD_CHECK_JMP,  /* 0x76 */ FD_CHECK_JMP,  /* 0x77 */ FD_CHECK_SH64,
     /* 0x78 */ FD_INVALID,    /* 0x79 */ FD_VALID,      /* 0x7a */ FD_CHECK_ST,   /* 0x7b */ FD_CHECK_ST,
     /* 0x7c */ FD_VALID,      /* 0x7d */ FD_CHECK_JMP,  /* 0x7e */ FD_CHECK_JMP,  /* 0x7f */ FD_VALID,
     /* 0x80 */ FD_INVALID,    /* 0x81 */ FD_INVALID,    /* 0x82 */ FD_INVALID,    /* 0x83 */ FD_INVALID,
@@ -172,9 +176,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
     case FD_CHECK_ST: break; /* FIXME: HMMM ... */
 
     case FD_CHECK_LDQ: {
-      if( FD_UNLIKELY( instr.src_reg                                                ) ) return FD_VM_ERR_INVALID_SRC_REG;
-      if( FD_UNLIKELY( (i+1UL)>=text_cnt                                            ) ) return FD_VM_ERR_INCOMPLETE_LDQ;
-      if( FD_UNLIKELY( fd_sbpf_instr( text[i+1UL] ).opcode.raw!=FD_SBPF_OP_ADDL_IMM ) ) return FD_VM_ERR_LDQ_NO_ADDL_IMM;
+      if( FD_UNLIKELY( (i+1UL)>=text_cnt ) ) return FD_VM_ERR_INCOMPLETE_LDQ;
       /* FIXME: SHOULD THERE BE EXTRA CHECKS ON THE ADDL_IMM HERE? */
       /* FIXME: SET A BIT MAP HERE OF ADDL_IMM TO DENOTE * AS FORBIDDEN
          BRANCH TARGETS OF CALL_REG?? */
@@ -186,6 +188,21 @@ fd_vm_validate( fd_vm_t const * vm ) {
       if( instr.imm>=text_cnt                                                      &&
           !fd_sbpf_syscalls_query_const( vm->syscalls, instr.imm, NULL )           &&
           !fd_sbpf_calldests_test( vm->calldests, fd_pchash_inverse( instr.imm ) ) ) return FD_VM_ERR_NO_SUCH_EXT_CALL;
+      break;
+    }
+
+    case FD_CHECK_DIV: {
+      if( FD_UNLIKELY( instr.imm==0 ) ) return FD_VM_ERR_SIGFPE;  /* FIXME: SIGILL? */
+      break;
+    }
+
+    case FD_CHECK_SH32: {
+      if( FD_UNLIKELY( instr.imm>=32 ) ) return FD_VM_ERR_SIGILL;
+      break;
+    }
+
+    case FD_CHECK_SH64: {
+      if( FD_UNLIKELY( instr.imm>=64 ) ) return FD_VM_ERR_SIGILL;
       break;
     }
 
@@ -353,9 +370,9 @@ fd_vm_init(
    fd_exec_instr_ctx_t *instr_ctx,
    ulong heap_max,
    ulong entry_cu,
-   uchar * rodata,
+   uchar const * rodata,
    ulong rodata_sz,
-   ulong * text,
+   ulong const * text,
    ulong text_cnt,
    ulong text_off,
    ulong entry_pc,
