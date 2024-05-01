@@ -734,7 +734,7 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
   }
 
   int has_slot_checkpt_dump = args->checkpt_path && args->checkpt_path[0] != '\0' && args->checkpt_slot;
-  int has_freq_checkpt_dump = args->checkpt_freq != ULONG_MAX;
+  int has_freq_checkpt_dump = args->checkpt_freq != ULONG_MAX && args->checkpt_freq!=0;
   int has_checkpt_dump      = has_slot_checkpt_dump || has_freq_checkpt_dump;
 
   int has_prune             = args->pruned_funk != NULL;
