@@ -23,24 +23,26 @@ FD_STATIC_ASSERT( FD_VM_ERR_SIGSEGV                     ==-13, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_SIGBUS                      ==-14, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_SIGRDONLY                   ==-15, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_SIGCOST                     ==-16, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INVALID_PDA                 ==-17, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_SIGFPE                      ==-18, vm_err );
 
-FD_STATIC_ASSERT( FD_VM_ERR_ABORT                       ==-17, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_PANIC                       ==-18, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_MEM_OVERLAP                 ==-19, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INSTR_ERR                   ==-20, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED==-21, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_RETURN_DATA_TOO_LARGE       ==-22, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_ABORT                       ==-19, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_PANIC                       ==-20, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_MEM_OVERLAP                 ==-21, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INSTR_ERR                   ==-22, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED==-23, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_RETURN_DATA_TOO_LARGE       ==-24, vm_err );
 
-FD_STATIC_ASSERT( FD_VM_ERR_INVALID_OPCODE              ==-23, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INVALID_SRC_REG             ==-24, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INVALID_DST_REG             ==-25, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INF_LOOP                    ==-26, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_JMP_OUT_OF_BOUNDS           ==-27, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_JMP_TO_ADDL_IMM             ==-28, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INVALID_END_IMM             ==-29, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INCOMPLETE_LDQ              ==-30, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_LDQ_NO_ADDL_IMM             ==-31, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_NO_SUCH_EXT_CALL            ==-32, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INVALID_OPCODE              ==-25, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INVALID_SRC_REG             ==-26, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INVALID_DST_REG             ==-27, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INF_LOOP                    ==-28, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_JMP_OUT_OF_BOUNDS           ==-29, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_JMP_TO_ADDL_IMM             ==-30, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INVALID_END_IMM             ==-31, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INCOMPLETE_LDQ              ==-32, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_LDQ_NO_ADDL_IMM             ==-33, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_NO_SUCH_EXT_CALL            ==-34, vm_err );
 
 /* Verify limits */
 
