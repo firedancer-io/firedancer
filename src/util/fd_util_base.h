@@ -387,25 +387,6 @@ __extension__ typedef unsigned __int128 uint128;
 #define FD_PROTOTYPES_END
 #endif
 
-/* FD_ALIGN: Default alignment according to platform:
-    - avx512     => 64
-    - avx        => 32
-    - noarch128  => 16
-    - noarch(64) =>  8 */
-
- #if FD_HAS_AVX512
- #define FD_ALIGN (64UL)
- #elif FD_HAS_AVX
- #define FD_ALIGN (32UL)
- #elif FD_HAS_INT128
- #define FD_ALIGN (16UL)
- #else
- #define FD_ALIGN (8UL)
- #endif
-
- /* FD_ALIGNED: shortcut to compiler aligned attribute with default alignment */
- #define FD_ALIGNED __attribute__((aligned(FD_ALIGN)))
-
 /* FD_ASM_LG_ALIGN(lg_n) expands to an alignment assembler directive
    appropriate for the current architecture/ABI.  The resulting align
    is 2^(lg_n) bytes, i.e. FD_ASM_LG_ALIGN(3) aligns by 8 bytes. */
