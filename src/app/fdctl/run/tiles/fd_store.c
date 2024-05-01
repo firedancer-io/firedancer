@@ -98,14 +98,17 @@ after_frag( void *             _ctx,
   fd_shred34_t * shred34 = (fd_shred34_t *)ctx->mem;
 
   FD_TEST( shred34->shred_sz<=shred34->stride );
-  if( FD_LIKELY( shred34->shred_cnt ) ) {
-    FD_TEST( shred34->offset<*opt_sz  );
-    FD_TEST( shred34->shred_cnt<=34UL );
-    FD_TEST( shred34->stride==sizeof(shred34->pkts[0]) );
-  }
+  if( FD_UNLIKELY( !shred34->shred_cnt ) )  return;
+
+  FD_TEST( shred34->offset<*opt_sz  );
+  FD_TEST( shred34->shred_cnt<=34UL );
+  FD_TEST( shred34->stride==sizeof(shred34->pkts[0]) );
 
   /* No error code because this cannot fail. */
-  fd_ext_blockstore_insert_shreds( fd_ext_blockstore, shred34->shred_cnt, ctx->mem+shred34->offset, shred34->shred_sz, shred34->stride );
+  /* For milestone 1.4 only, disable the blockstore on the leader after
+     slot 250, but keep it disabled on the non-leaders. */
+  if( FD_LIKELY( (*opt_sig==1UL) || (shred34->pkts->shred.slot < 250UL) ) )
+    fd_ext_blockstore_insert_shreds( fd_ext_blockstore, shred34->shred_cnt, ctx->mem+shred34->offset, shred34->shred_sz, shred34->stride );
 
   FD_MCNT_INC( STORE_TILE, TRANSACTIONS_INSERTED, shred34->est_txn_cnt );
 }

@@ -655,7 +655,7 @@ after_frag( void *             _ctx,
   s34[ fd_ulong_if( s34[ 3 ].shred_cnt>0UL, 3, 2 ) ].est_txn_cnt += ctx->shredded_txn_cnt - txn_per_s34*s34_cnt;
 
   /* Send to the blockstore, skipping any empty shred34_t s. */
-  ulong sig = 0UL;
+  ulong sig = (ulong)(in_idx==NET_IN_IDX);
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+0UL ), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
   if( FD_UNLIKELY( s34[ 1 ].shred_cnt ) )
