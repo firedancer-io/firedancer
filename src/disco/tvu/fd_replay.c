@@ -229,7 +229,6 @@ fd_replay_slot_prepare( fd_replay_t * replay, ulong slot ) {
      repaired before we can replay it. */
 
   if( FD_UNLIKELY( !parent_slot_meta ) ) {
-    FD_LOG_NOTICE(("need orphan %lu", slot));
     fd_repair_need_orphan( replay->repair, slot );
     re_adds[re_adds_cnt++] = slot;
     re_adds[re_adds_cnt++] = parent_slot;
