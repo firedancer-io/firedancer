@@ -759,7 +759,7 @@ dynamic_port_range = "8900-9000"
         # QUIC retry is a feature to combat new connection request
         # spamming.  See rfc9000 8.1.2 for more details.  This flag
         # determines whether the feature is enabled in the validator.
-        retry = false
+        retry = true
 
     # Verify tiles perform signature verification of incoming
     # transactions, making sure that the data is well-formed, and that

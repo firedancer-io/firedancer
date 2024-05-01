@@ -97,6 +97,11 @@ struct fd_quic_conn {
      Also used when retransmitting the first initial packet */
   fd_quic_conn_id_t  orig_dst_conn_id;
 
+  /* Save original retry_source_connection_id
+   * This is used by clients to compare against the retry_source_connection_id
+   * in the transport parameters as specified in rfc 9000 7.3 */
+  fd_quic_conn_id_t  retry_src_conn_id;
+
   /* Host network endpoint
      - for server, just a copy of config->net
      - for client, an allocated ephemeral UDP port */
