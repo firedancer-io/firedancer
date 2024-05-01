@@ -363,7 +363,7 @@ fd_topo_print_log( int         stdout,
     PRINT("  %23s (NUMA node %lu): %lu\n", "Required Huge Pages", i, fd_topo_huge_page_cnt( topo, i, 0 ) );
   }
 
-  PRINT( "\nWORKSPACES\n");
+  /*PRINT( "\nWORKSPACES\n");
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     fd_topo_wksp_t * wksp = &topo->workspaces[ i ];
 
@@ -383,7 +383,7 @@ fd_topo_print_log( int         stdout,
       fd_topo_mem_sz_string( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), size );
     }
     PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  depth=%-5lu  mtu=%-9lu  burst=%lu\n", i, size, link->name, link->kind_id, topo->objs[ link->dcache_obj_id ].wksp_id, link->depth, link->mtu, link->burst );
-  }
+  }*/
 
 #define PRINTIN( ... ) do {                                                            \
     int n = snprintf( cur_in, remaining_in, __VA_ARGS__ );                             \

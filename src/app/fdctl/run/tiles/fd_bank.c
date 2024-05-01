@@ -6,6 +6,7 @@
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/bank/fd_bank_abi.h"
 #include "../../../../disco/metrics/generated/fd_metrics_bank.h"
+#include "../../../../util/alloc/fd_alloc.h"
 
 typedef struct {
   ulong kind_id;
@@ -38,6 +39,21 @@ typedef struct {
   } metrics;
 } fd_bank_ctx_t;
 
+static fd_alloc_t * fd_bank_alloc_ctx;
+
+#define CALLED_FROM_RUST
+
+CALLED_FROM_RUST void *
+fd_ext_alloc_malloc( ulong align, ulong sz ) {
+  while( FD_UNLIKELY( !FD_VOLATILE_CONST( fd_bank_alloc_ctx ) ) ) FD_SPIN_PAUSE();
+  return fd_alloc_malloc( fd_bank_alloc_ctx, align, sz );
+}
+
+CALLED_FROM_RUST void
+fd_ext_alloc_free( void * data ) {
+  fd_alloc_free( fd_bank_alloc_ctx, data );
+}
+
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 128UL;
@@ -48,11 +64,42 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_bank_ctx_t ), sizeof( fd_bank_ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, FD_ALLOC_ALIGN, FD_ALLOC_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN, FD_BLAKE3_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   l = FD_LAYOUT_APPEND( l, FD_BANK_ABI_TXN_ALIGN, MAX_TXN_PER_MICROBLOCK*FD_BANK_ABI_TXN_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, FD_BANK_ABI_TXN_ALIGN, FD_BANK_ABI_TXN_FOOTPRINT_SIDECAR_MAX );
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+FD_FN_PURE static inline ulong
+loose_footprint( fd_topo_tile_t const * tile ) {
+  if( FD_LIKELY( tile->kind_id==0UL ) ) {
+    /* The Agave status cache is allocated out of a Firedancer workspace
+       for performance reasons, but if we run out of memory it will
+       crash the validator.
+    
+       Let SLOT_cnt be the number of slots that are alive in the cache,
+           TXN_avg  be the average number of transactions in a slot
+      
+       The material parts of the status cache memory layout are
+       as follows...
+
+        [ SLOT_cnt * TXN_avg * 72 bytes ] -- for the status cache
+        [ SLOT_cnt * 2 * TXN_avg * 64 bytes ] -- for the delta map
+
+       The SLOT_cnt is in some sense bounded by the size of the cache
+       history which is set at 300.  The TXN_avg is bounded by the speed
+       of the system, which can do at most ~81k TPS due to current
+       consensus limits.
+
+       This gives us around ~4.5 GiB.  For Firedancer, we aim to handle
+       over 1M TPS, which gives a TXN_avg of ~2^19 ~ 524,288.  This
+       requires around ~30GiB on the conservative side. */
+    return 64UL*(1024UL*1024UL*1024UL);
+  } else {
+    return 0UL;
+  }
 }
 
 FD_FN_CONST static inline void *
@@ -262,6 +309,7 @@ unprivileged_init( fd_topo_t *      topo,
                    void *           scratch ) {
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_bank_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_bank_ctx_t ), sizeof( fd_bank_ctx_t ) );
+  void * alloc = FD_SCRATCH_ALLOC_APPEND( l, FD_ALLOC_ALIGN, FD_ALLOC_FOOTPRINT );
   void * blake3 = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN, FD_BLAKE3_FOOTPRINT );
   void * bmtree = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,           FD_BMTREE_COMMIT_FOOTPRINT(0)      );
   ctx->txn_abi_mem = FD_SCRATCH_ALLOC_APPEND( l, FD_BANK_ABI_TXN_ALIGN, MAX_TXN_PER_MICROBLOCK*FD_BANK_ABI_TXN_FOOTPRINT );
@@ -281,6 +329,10 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !ctx->bank_busy ) ) FD_LOG_ERR(( "banking tile %lu has no busy flag", tile->kind_id ));
 
   memset( &ctx->metrics, 0, sizeof( ctx->metrics ) );
+
+  if( FD_LIKELY( !tile->kind_id ) ) {
+    FD_VOLATILE(fd_bank_alloc_ctx) = NONNULL( fd_alloc_join( fd_alloc_new( alloc, 9999 ), 0 ) );
+  }
 
   ctx->pack_in_mem = topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0UL ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->pack_in_chunk0 = fd_dcache_compact_chunk0( ctx->pack_in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache );
@@ -313,6 +365,7 @@ fd_topo_run_tile_t fd_tile_bank = {
   .populate_allowed_fds     = NULL,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .loose_footprint          = loose_footprint,
   .privileged_init          = NULL,
   .unprivileged_init        = unprivileged_init,
 };
