@@ -646,11 +646,17 @@ main( int argc, char ** argv ) {
   /**********************************************************************/
 
   /* do replay+shredcap or archive+live_data */
+  replay->shred_cap = NULL;
   if( shredcap ) {
     FD_LOG_NOTICE( ( "test_consensus running in replay mode" ) );
     fd_blockstore_clear( blockstore ); /* this does not appear in tvu */
     fd_shred_cap_replay( shredcap, replay );
     // goto run;
+  } else {
+    replay->shred_cap = fopen(shredcap, "w");
+    FD_TEST( replay->shred_cap );
+    replay->stable_slot_start = 0;
+    replay->stable_slot_end = 0;
   }
 
   FD_LOG_NOTICE( ( "test_consensus running live (shredcap archive)" ) );
@@ -929,6 +935,7 @@ main( int argc, char ** argv ) {
     nanosleep( &ts, NULL );
   }
 
+  if (replay->shred_cap) fclose(replay->shred_cap);
   fd_halt();
   return 0;
 }
