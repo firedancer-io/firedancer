@@ -393,6 +393,7 @@ fd_topo_run_single_process( fd_topo_t * topo,
     if( solana_labs==1 && !tile->is_labs ) continue;
 
     fd_topo_run_tile_t run_tile = tile_run( tile );
+    if( FD_UNLIKELY( strcmp( run_tile.name, "thread" ) == 0 ) ) continue;
     run_tile_thread( topo, tile, run_tile, uid, gid, done_futex, floating_cpu_set, save_priority );
   }
 
