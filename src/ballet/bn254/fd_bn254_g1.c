@@ -263,12 +263,12 @@ fd_bn254_g1_frombytes_internal( fd_bn254_g1_t * p,
   if( fd_memeq( in, zero, 64 ) ) return fd_bn254_g1_set_zero( p );
 
   /* Check x < p */
-  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_be_nm( &p->X, &in[0], NULL, NULL ) ) ) {
+  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_be_nm( &p->X, in, NULL, NULL ) ) ) {
     return NULL;
   }
 
   /* Check flags and y < p */
-  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_be_nm( &p->Y, &in[32], NULL, NULL ) ) ) {
+  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_be_nm( &p->Y, in+32, NULL, NULL ) ) ) {
     return NULL;
   }
   //FIXME: add differential test, do we need to check flags on y?

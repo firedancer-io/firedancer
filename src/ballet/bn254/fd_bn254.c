@@ -13,7 +13,7 @@
 uchar *
 fd_bn254_g1_compress( uchar       out[32],
                       uchar const in [64] ) {
-  fd_bn254_g1_t p[1];
+  fd_bn254_g1_t p[1] = {0};
   if( FD_UNLIKELY( !fd_bn254_g1_frombytes_internal( p, in ) ) ) return NULL;
   int is_inf = fd_bn254_g1_is_zero( p );
   int is_neg = fd_bn254_fp_is_neg_nm( &p->Y );
@@ -77,7 +77,7 @@ fd_bn254_g1_decompress( uchar       out[64],
 uchar *
 fd_bn254_g2_compress( uchar       out[64],
                       uchar const in[128] ) {
-  fd_bn254_g2_t p[1];
+  fd_bn254_g2_t p[1] = {0};
   if( FD_UNLIKELY( !fd_bn254_g2_frombytes_internal( p, in ) ) ) return NULL;
   int is_inf = fd_bn254_g2_is_zero( p );
   int is_neg = fd_bn254_fp2_is_neg_nm( &p->Y );

@@ -80,7 +80,7 @@ fd_bn254_fp_frombytes_be_nm( fd_bn254_fp_t * r,
     }
   }
 
-  fd_memcpy( r, buf, 32 );
+  fd_memcpy( r->buf, buf, 32 );
   fd_uint256_bswap( r, r );
   //FIXME: add differential test, I think the mask should only apply if the flags are expected
   if( is_inf != NULL ) r->buf[31] &= FLAG_MASK;
