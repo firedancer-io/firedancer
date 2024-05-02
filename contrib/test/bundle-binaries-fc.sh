@@ -37,7 +37,7 @@ EOL
   done
 done
 
-# Create the final zip archive
-zip -r "$output_zip" targets/
+# Final Zip Archive creation is handled by the GitHub Action
+# zip -r "$output_zip" targets/
 
 echo "Fuzz targets and .fc files generated successfully!"

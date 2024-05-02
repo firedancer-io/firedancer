@@ -30,11 +30,11 @@ runs:
       run: |
         ls contrib/test || ls contrib/*
         chmod +x ./contrib/test/bundle-binaries-fc.sh
-        ./contrib/test/bundle-binaries-fc.sh ./build fc-fd-latest.zip
+        ./contrib/test/bundle-binaries-fc.sh ./build
       shell: bash
-
+    # TODO: Change this to FC AWS S3
     - name: Upload merged zipfile
       uses: actions/upload-artifact@v4
       with:
         name: fc-fd-latest.zip
-        path: fc-fd-latest.zip
+        path: ./targets

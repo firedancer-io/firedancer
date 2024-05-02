@@ -21,17 +21,17 @@ jobs:
             artifact_dir: build/linux/clang/icelake
             qualifier: highend
     runs-on:
-      ubuntu-latest
+      group: github-v1
     env:
       MACHINE: ${{ matrix.machine }}
       EXTRAS: fuzz asan ubsan
     steps:
       - uses: actions/checkout@v4
 
-      # - uses: ./.github/actions/hugepages
+      - uses: ./.github/actions/hugepages
       - uses: ./.github/actions/deps
 
-      - run: sudo apt update && sudo apt install -y zip patchelf
+      - run: sudo apt update && sudo apt install -y zip
 
       - uses: asymmetric-research/clusterfuzz-fuzzbot-builder@main
         name: Build fuzz tests
@@ -58,13 +58,13 @@ jobs:
           FD_DIR=$(find /tmp/ | grep fdfuzz | head -n 1)
           echo "fd-dir=$FD_DIR" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
-        name: Upload harness binaries
+        name: Upload harness binaries to GHA Artifacts
         with:
           name: ${{ github.run_id }}-${{ matrix.machine }}
           path: ./build/
           retention-days: 1
       - uses: actions/upload-artifact@v4
-        name: Upload .a dependency libraries
+        name: Upload .a dependency libraries to GHA Artifacts
         with:
           name: ${{ github.run_id }}-${{ matrix.machine }}-lib
           path: ${{ steps.find-fuzzdir.outputs.fd-dir }}/lib/*.a
@@ -72,7 +72,8 @@ jobs:
 
   fc-publish:
     needs: clusterfuzz-publish
-    runs-on: ubuntu-latest
+    runs-on:
+      group: github-v1
     steps:
 
     - uses: actions/checkout@v4
