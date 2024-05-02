@@ -1,36 +1,36 @@
 name: Generate Firedancer Fuzz Targets
-on:
-  workflow_call:
-    inputs:
-      previous_action_outputs:
-        description: 'Outputs from the previous action'
-        required: true
-        type: string
-jobs:
-  generate-fuzz-targets:
-    runs-on: ubuntu-latest
-    steps:
-      # - uses: actions/checkout@v4
+description: Generates Firedancer fuzz targets and .fc files
 
-      - name: Download artifacts from previous action
-        id: get-artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: build
-          merge-multiple: true
+inputs:
+  previous_action_outputs:
+    description: 'Outputs from the previous action'
+    required: true
+    type: string
 
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y zip unzip
+runs:
+  using: "composite"
+  steps:
+    - name: Download artifacts from previous action
+      id: get-artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: build
+        merge-multiple: true
 
-      - name: Generate fuzz targets and .fc files
-        run: |
-          chmod +x bundle-binaries-fc.sh
-          ./contrib/test/bundle-binaries-fc.sh ./build fc-fd-latest.zip
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y zip unzip
+      shell: bash
 
-      - name: Upload merged zipfile
-        uses: actions/upload-artifact@v4
-        with:
-          name: fc-fd-latest.zip
-          path: fc-fd-latest.zip
+    - name: Generate fuzz targets and .fc files
+      run: |
+        chmod +x bundle-binaries-fc.sh
+        ./contrib/test/bundle-binaries-fc.sh ./build fc-fd-latest.zip
+      shell: bash
+
+    - name: Upload merged zipfile
+      uses: actions/upload-artifact@v4
+      with:
+        name: fc-fd-latest.zip
+        path: fc-fd-latest.zip
