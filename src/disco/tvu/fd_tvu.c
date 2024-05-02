@@ -1428,9 +1428,9 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
   args->checkpt_slot = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-slot", NULL, 0 );
   args->checkpt_freq = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-freq", NULL, ULONG_MAX );
   args->checkpt_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--checkpt-path", NULL, NULL );
-  args->dump_insn_to_pb = fd_env_strip_cmdline_int( &argc, &argv, "--dump-instructions-to-protobuf", NULL, 0 );
-  args->dump_insn_sig_filter = fd_env_strip_cmdline_cstr( &argc, &argv, "--instruction-dump-signature-filter", NULL, NULL );
-  args->dump_insn_output_dir = fd_env_strip_cmdline_cstr( &argc, &argv, "--dump-instruction-output-dir", NULL, "protobuf_tests_from_executed_instr" );
+  args->dump_insn_to_pb = fd_env_strip_cmdline_int( &argc, &argv, "--dump-insn-to-pb", NULL, 0 );
+  args->dump_insn_sig_filter = fd_env_strip_cmdline_cstr( &argc, &argv, "--dump-insn-sig-filter", NULL, NULL );
+  args->dump_insn_output_dir = fd_env_strip_cmdline_cstr( &argc, &argv, "--dump-insn-output-dir", NULL, "protobuf_tests_from_executed_instr" );
 
   /* These argument(s) should never be modified via the command line */
   args->pruned_funk = NULL;
