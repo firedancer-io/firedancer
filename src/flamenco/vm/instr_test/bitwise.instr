@@ -1,0 +1,77 @@
+
+# or32 reg, imm
+$ op=44 dst=0 src=1 off=a5a5 r0= 101010101010101 imm=10101010 : ok  r0=11111111  # truncate upper
+$ op=44 dst=3 src=9 off=5a5a r3=        80000000 imm=       0 : ok  r3=80000000
+$ op=44 dst=4 src=8 off=5a5a r4=        f4ae9df4 imm=6406bb1b : ok  r4=f4aebfff
+$ op=44 dst=9 src=a off=0000 r9=               0 imm=       0 : ok  r9=       0
+$ op=44 dst=9 src=b                                           : vfy              # invalid src
+$ op=44 dst=a src=1                                           : vfy              # invalid dst
+$ op=44 dst=b src=1                                           : vfy              # invalid dst
+
+# or32 reg, reg
+$ op=4c dst=0 src=1 off=a5a5 r0= 101010101010101 r1 =7000000010101010 : ok  r0=11111111  # truncate upper
+$ op=4c dst=0 src=0 off=a5a5 r0= 101010101010101                      : ok  r0= 1010101  # truncate upper
+$ op=4c dst=3 src=9 off=5a5a r3=        80000000 r9 =               0 : ok  r3=80000000
+$ op=4c dst=4 src=8 off=5a5a r4=        f4ae9df4 r8 =900100006406bb1b : ok  r4=f4aebfff
+$ op=4c dst=9 src=a off=0000 r9=               0 r10=               0 : ok  r9=       0
+$ op=4c dst=9 src=b                                                   : vfy              # invalid src
+$ op=4c dst=a src=1                                                   : vfy              # invalid dst
+$ op=4c dst=b src=1                                                   : vfy              # invalid dst
+
+# or64 reg, imm
+$ op=47 dst=0 src=1 off=a5a5 r0= 101010101010101 imm=10101010 : ok  r0= 101010111111111  # truncate upper
+$ op=47 dst=3 src=9 off=5a5a r3=        80000000 imm=       0 : ok  r3=        80000000
+$ op=47 dst=4 src=8 off=5a5a r4=        f4ae9df4 imm=6406bb1b : ok  r4=        f4aebfff
+$ op=47 dst=9 src=a off=0000 r9=               0 imm=       0 : ok  r9=               0
+$ op=47 dst=9 src=b                                           : vfy                      # invalid src
+$ op=47 dst=a src=1                                           : vfy                      # invalid dst
+$ op=47 dst=b src=1                                           : vfy                      # invalid dst
+
+# or64 reg, reg
+$ op=4f dst=0 src=1 off=a5a5 r0= 101010101010101 r1 =7000000010101010 : ok  r0=7101010111111111  # truncate upper
+$ op=4f dst=0 src=0 off=a5a5 r0= 101010101010101                      : ok  r0= 101010101010101  # nop
+$ op=4f dst=3 src=9 off=5a5a r3=        80000000 r9 =               0 : ok  r3=        80000000
+$ op=4f dst=4 src=8 off=5a5a r4=        f4ae9df4 r8 =900100006406bb1b : ok  r4=90010000f4aebfff
+$ op=4f dst=9 src=a off=0000 r9=               0 r10=               0 : ok  r9=               0
+$ op=4f dst=9 src=b                                                   : vfy                      # invalid src
+$ op=4f dst=a src=1                                                   : vfy                      # invalid dst
+$ op=4f dst=b src=1                                                   : vfy                      # invalid dst
+
+# and32 reg, imm
+$ op=54 dst=0 src=1 off=a5a5 r0= 101010101010101 imm=11111111 : ok  r0= 1010101  # truncate upper
+$ op=54 dst=3 src=9 off=5a5a r3=   fffff80000000 imm=80000008 : ok  r3=80000000
+$ op=54 dst=4 src=8 off=5a5a r4=        f4ae9df4 imm=6406bb1b : ok  r4=64069910
+$ op=54 dst=9 src=a off=0000 r9=               0 imm=       0 : ok  r9=       0
+$ op=54 dst=9 src=b                                           : vfy              # invalid src
+$ op=54 dst=a src=1                                           : vfy              # invalid dst
+$ op=54 dst=b src=1                                           : vfy              # invalid dst
+
+# and32 reg, reg
+$ op=5c dst=0 src=1 off=a5a5 r0= 101010101010101 r1 =7000000011111111 : ok  r0= 1010101  # truncate upper
+$ op=5c dst=0 src=0 off=a5a5 r0= 101010101010101                      : ok  r0= 1010101  # truncate upper
+$ op=5c dst=3 src=9 off=5a5a r3=        80000000 r9 =8000000880000008 : ok  r3=80000000
+$ op=5c dst=4 src=8 off=5a5a r4=fffffffff4ae9df4 r8 =900100006406bb1b : ok  r4=64069910
+$ op=5c dst=9 src=a off=0000 r9=               0 r10=               0 : ok  r9=       0
+$ op=5c dst=9 src=b                                                   : vfy              # invalid src
+$ op=5c dst=a src=1                                                   : vfy              # invalid dst
+$ op=5c dst=b src=1                                                   : vfy              # invalid dst
+
+# and64 reg, imm
+$ op=57 dst=0 src=a off=a5a5 r0= 101010101010101 imm=11111111 : ok  r0=         1010101  # truncate upper
+$ op=57 dst=1 src=6 off=a5a5 r1= 101010101010101 imm=80000000 : ok  r1= 101010100000000
+$ op=57 dst=2 src=2 off=a5a5 r2=ffffffffffffffff imm=80000000 : ok  r2=ffffffff80000000  # sign extend
+$ op=57 dst=3 src=9 off=5a5a r3=ffffffff80000000 imm=7fffffff : ok  r3=               0
+$ op=57 dst=4 src=8 off=5a5a r4=       af4ae9df4 imm=8406bb1b : ok  r4=       a84069910
+$ op=57 dst=9 src=a off=0000 r9=               0 imm=       0 : ok  r9=               0
+$ op=57 dst=9 src=b                                           : vfy                      # invalid src
+$ op=57 dst=a src=1                                           : vfy                      # invalid dst
+$ op=57 dst=b src=1                                           : vfy                      # invalid dst
+
+# and64 reg, reg
+$ op=5f dst=0 src=1 off=a5a5 r0= 101010101010101 r1 =ff00000011111111 : ok  r0= 100000001010101  # truncate upper
+$ op=5f dst=0 src=0 off=a5a5 r0= 101010101010101                      : ok  r0= 101010101010101  # nop
+$ op=5f dst=4 src=8 off=5a5a r4=        f4ae9df4 r8 =900100006406bb1b : ok  r4=        64069910
+$ op=5f dst=9 src=a off=0000 r9=               0 r10=               0 : ok  r9=               0
+$ op=5f dst=9 src=b                                                   : vfy                      # invalid src
+$ op=5f dst=a src=1                                                   : vfy                      # invalid dst
+$ op=5f dst=b src=1                                                   : vfy                      # invalid dst
