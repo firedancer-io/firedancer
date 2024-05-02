@@ -1014,7 +1014,7 @@ fd_wksp_restore( fd_wksp_t *  wksp,
                  char const * path,
                  uint         seed );
 
-/* fd_wksp_readonly marks all the memory in a workspace as read-only
+/* fd_wksp_mprotect marks all the memory in a workspace as read-only
    (flag==1) or read-write (flag==0). Accessing read-only memory produces
    a seg fault. */
 
