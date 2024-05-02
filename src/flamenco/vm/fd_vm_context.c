@@ -111,7 +111,7 @@ fd_vm_context_validate( fd_vm_exec_context_t const * ctx ) {
         }
         break;
       }
-      case FD_CHECK_END: {
+      case FD_CHECK_END: { /* FD_BPF_OP_END_LE, FD_BPF_OP_END_BE */
         if (instr.imm != 16 && instr.imm != 32 && instr.imm != 64) {
           return FD_VM_SBPF_VALIDATE_ERR_INVALID_END_IMM;
         }
@@ -120,10 +120,9 @@ fd_vm_context_validate( fd_vm_exec_context_t const * ctx ) {
       case FD_CHECK_ST: {
         break;
       }
-      case FD_CHECK_LDQ: {
-        if (instr.src_reg != 0) {
-          return FD_VM_SBPF_VALIDATE_ERR_INVALID_SRC_REG;
-        }
+      /* https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/verifier.rs#L244 */
+      case FD_CHECK_LDQ: { /* LD_DDW_IMM == FD_BPF_OP_LDQ */
+        /* https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/verifier.rs#L131 */
         if ((i+1) >= ctx->instrs_sz) {
           return FD_VM_SBPF_VALIDATE_ERR_INCOMPLETE_LDQ;
         }
@@ -133,12 +132,13 @@ fd_vm_context_validate( fd_vm_exec_context_t const * ctx ) {
         ++i;
         break;
       }
-      case FD_CHECK_CALL: {
-        // TODO: Check to make sure we are really doing this right! (required for sbpf2?)
-        if( instr.imm >= ctx->instrs_sz
-            && fd_sbpf_syscalls_query ( ctx->syscall_map, instr.imm, NULL ) == NULL
-            && !fd_sbpf_calldests_test( ctx->calldests, fd_pchash_inverse( instr.imm ) ) ) {
-              return FD_VM_SBPF_VALIDATE_ERR_NO_SUCH_EXT_CALL;
+      /* https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/elf.rs#L829-L830 */
+      case FD_CHECK_CALL: { /* CALL_IMM == FD_BPF_OP_CALL_IMM */
+        if( instr.src_reg == 0 ) {
+          ulong target_pc = fd_ulong_sat_add( fd_ulong_sat_add( i, instr.imm ), 1 );
+          if( target_pc >= ctx->instrs_sz ) {
+            return FD_VM_SBPF_VALIDATE_ERR_JMP_OUT_OF_BOUNDS;
+          }
         }
         break;
       }
