@@ -22,7 +22,7 @@ async def shell(cmd, **kwargs):
     return await (await asyncio.create_subprocess_shell(cmd, **kwargs)).wait()
 
 async def build_solana(source_dir):
-    await shell("./cargo build --release --package solana-validator --package solana-bench-tps --package solana-cli --package solana-keygen --package solana-dos --package solana-ledger-tool --package solana-genesis", cwd=source_dir)
+    await shell("./cargo build --release --package agave-validator --package solana-bench-tps --package solana-cli --package solana-keygen --package solana-dos --package agave-ledger-tool --package solana-genesis", cwd=source_dir)
 
 def solana_binary(name, source_dir):
     return os.path.join(source_dir, "target/release", name)
@@ -83,7 +83,7 @@ async def first_cluster_validator(expected_shred_version, expected_genesis_hash,
     vote_pubkey = await get_pubkey(vote_key, solana_source_directory)
 
     process = await asyncio.create_subprocess_shell(
-        f"{solana_binary('solana-validator', solana_source_directory)} --allow-private-addr --identity {identity_key}  --ledger {ledger_path} --limit-ledger-size 100000000 --dynamic-port-range 8000-8100 --no-genesis-fetch --no-snapshot-fetch --no-poh-speed-test --no-os-network-limits-test --vote-account {vote_pubkey} --expected-shred-version {expected_shred_version} --expected-genesis-hash {expected_genesis_hash} --no-wait-for-vote-to-start-leader --incremental-snapshots --full-snapshot-interval-slots 200 --rpc-port 8899 --gossip-port 8010 --full-rpc-api --tpu-enable-udp --log {ledger_path}/validator.log",
+        f"{solana_binary('agave-validator', solana_source_directory)} --allow-private-addr --identity {identity_key}  --ledger {ledger_path} --limit-ledger-size 100000000 --dynamic-port-range 8000-8100 --no-genesis-fetch --no-snapshot-fetch --no-poh-speed-test --no-os-network-limits-test --vote-account {vote_pubkey} --expected-shred-version {expected_shred_version} --expected-genesis-hash {expected_genesis_hash} --no-wait-for-vote-to-start-leader --incremental-snapshots --full-snapshot-interval-slots 200 --rpc-port 8899 --gossip-port 8010 --full-rpc-api --tpu-enable-udp --log {ledger_path}/validator.log",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
     )
@@ -126,7 +126,7 @@ async def solana_cluster_validators(count, expected_shred_version, expected_gene
             vote_pubkey = await get_pubkey(vote_key, solana_source_directory)
 
             process = await asyncio.create_subprocess_shell(
-                f"{solana_binary('solana-validator', solana_source_directory)} --allow-private-addr --identity {identity_key}  --ledger {ledger_path} --limit-ledger-size 100000000 --dynamic-port-range 8{i}00-8{i}99 --no-poh-speed-test --no-os-network-limits-test --vote-account {vote_pubkey} --entrypoint 127.0.0.1:8010 --expected-shred-version {expected_shred_version} --expected-genesis-hash {expected_genesis_hash} --tpu-disable-quic --tpu-enable-udp --log {log_path} --incremental-snapshot-interval-slots 0",
+                f"{solana_binary('agave-validator', solana_source_directory)} --allow-private-addr --identity {identity_key}  --ledger {ledger_path} --limit-ledger-size 100000000 --dynamic-port-range 8{i}00-8{i}99 --no-poh-speed-test --no-os-network-limits-test --vote-account {vote_pubkey} --entrypoint 127.0.0.1:8010 --expected-shred-version {expected_shred_version} --expected-genesis-hash {expected_genesis_hash} --tpu-disable-quic --tpu-enable-udp --log {log_path} --incremental-snapshot-interval-slots 0",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -246,6 +246,6 @@ async def main():
     async with solana(args.solana_cluster_nodes, args.solana_test_validator, args.output_dir, args.solana_source_directory):
         while True:
             await asyncio.sleep(1)
-        
+
 if __name__ == "__main__":
     asyncio.run(main())
