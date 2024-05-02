@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ./.github/actions/hugepages
+      # - uses: ./.github/actions/hugepages
       - uses: ./.github/actions/deps
 
       - run: sudo apt update && sudo apt install -y zip patchelf
