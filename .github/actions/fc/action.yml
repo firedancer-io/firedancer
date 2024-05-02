@@ -27,10 +27,10 @@ jobs:
       - name: Generate fuzz targets and .fc files
         run: |
           chmod +x bundle-binaries-fc.sh
-          ./contrib/test/bundle-binaries-fc.sh ${{ steps.get-artifacts.outputs.download-path }} fc-fd-${{ github.run_id }}.zip
+          ./contrib/test/bundle-binaries-fc.sh ./build fc-fd-latest.zip
 
       - name: Upload merged zipfile
         uses: actions/upload-artifact@v4
         with:
-          name: fc-fd-${{ github.run_id }}.zip
-          path: fc-fd-${{ github.run_id }}.zip
+          name: fc-fd-latest.zip
+          path: fc-fd-latest.zip
