@@ -280,6 +280,8 @@ send_arp_probe( fd_net_ctx_t * ctx,
   uint           src_ip_addr  = ctx->src_ip_addr;
   uchar *        src_mac_addr = ctx->src_mac_addr;
 
+  FD_LOG_NOTICE(( "send_arp_probe - ip_addr: %08x", dst_ip_addr ));
+
   /* prepare arp table */
   int arp_table_rtn = fd_ip_update_arp_table( ctx->ip, dst_ip_addr, ifindex );
 

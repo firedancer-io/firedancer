@@ -100,6 +100,8 @@ typedef struct {
   fd_quic_stream_t * stream;
 
   fd_wksp_t * mem;
+
+  ulong dump_time;
 } fd_benchs_ctx_t;
 
 void
@@ -108,69 +110,77 @@ service_quic( fd_benchs_ctx_t * ctx ) {
   if( !ctx->no_quic ) {
     /* Publishes to mcache via callbacks */
 
-    /* receive from socket, and pass to quic */
-    int poll_rc = poll( ctx->poll_fd, ctx->conn_cnt, 0 );
-    if( FD_LIKELY( poll_rc == 0 ) ) {
-      return;
-    } if( FD_UNLIKELY( poll_rc == -1 ) ) {
-      if( FD_UNLIKELY( errno == EINTR ) ) return; /* will try later */
-      FD_LOG_ERR(( "Error occurred during poll: %d %s", errno,
-            strerror( errno ) ));
-    }
+    for( ulong k = 0; k < 1; ++k ) {
+      int work = 0;
 
-    for( ulong j = 0; j < ctx->conn_cnt; ++j ) {
-      int revents = ctx->poll_fd[j].revents;
-      if( FD_LIKELY( revents & POLLIN ) ) {
-        /* data available - receive up to IO_VEC_CNT buffers */
-        struct timespec timeout = {0};
-        int retval = recvmmsg( ctx->poll_fd[j].fd, ctx->rx_msgs, IO_VEC_CNT, 0, &timeout );
-        if( FD_UNLIKELY( retval < 0 ) ) {
-          FD_LOG_ERR(( "Error occurred on recvmmsg: %d %s", errno, strerror( errno ) ));
-        } else {
-          /* pass buffers to QUIC */
-          fd_aio_pkt_info_t pkt[IO_VEC_CNT];
-          ulong hdr_sz = 14 + 20 + 8;
-          for( ulong j = 0; j < (ulong)retval; ++j ) {
-            pkt[j].buf    = ctx->rx_bufs[j];
-            pkt[j].buf_sz = (ushort)( ctx->rx_msgs[j].msg_len + hdr_sz );
+      /* receive from socket, and pass to quic */
+      int poll_rc = poll( ctx->poll_fd, ctx->conn_cnt, 0 );
+      if( FD_LIKELY( poll_rc == 0 ) ) {
+        return;
+      } if( FD_UNLIKELY( poll_rc == -1 ) ) {
+        if( FD_UNLIKELY( errno == EINTR ) ) return; /* will try later */
+        FD_LOG_ERR(( "Error occurred during poll: %d %s", errno,
+              strerror( errno ) ));
+      }
 
-            /* set some required values */
-            uint payload_len = ctx->rx_msgs[j].msg_len;
-            uint udp_len     = payload_len + 8;
-            uint ip_len      = udp_len + 20;
+      for( ulong j = 0; j < ctx->conn_cnt; ++j ) {
+        int revents = ctx->poll_fd[j].revents;
+        if( FD_LIKELY( revents & POLLIN ) ) {
+          /* data available - receive up to IO_VEC_CNT buffers */
+          struct timespec timeout = {0};
+          int retval = recvmmsg( ctx->poll_fd[j].fd, ctx->rx_msgs, IO_VEC_CNT, 0, &timeout );
+          if( FD_UNLIKELY( retval < 0 ) ) {
+            FD_LOG_ERR(( "Error occurred on recvmmsg: %d %s", errno, strerror( errno ) ));
+          } else {
+            /* pass buffers to QUIC */
+            fd_aio_pkt_info_t pkt[IO_VEC_CNT];
+            ulong hdr_sz = 14 + 20 + 8;
+            for( ulong j = 0; j < (ulong)retval; ++j ) {
+              work = 1;
 
-            uchar * buf = (uchar*)pkt[j].buf;
+              pkt[j].buf    = ctx->rx_bufs[j];
+              pkt[j].buf_sz = (ushort)( ctx->rx_msgs[j].msg_len + hdr_sz );
 
-            /* set ethtype */
-            buf[12 + 0] = 0x08;
-            buf[12 + 1] = 0x00;
+              /* set some required values */
+              uint payload_len = ctx->rx_msgs[j].msg_len;
+              uint udp_len     = payload_len + 8;
+              uint ip_len      = udp_len + 20;
 
-            /* set ver and len */
-            buf[14] = 0x45;
+              uchar * buf = (uchar*)pkt[j].buf;
 
-            /* set protocol */
-            buf[14 + 9] = 17;
+              /* set ethtype */
+              buf[12 + 0] = 0x08;
+              buf[12 + 1] = 0x00;
 
-            /* set udp length */
-            buf[14 + 20 + 4] = (uchar)( udp_len >> 8 );
-            buf[14 + 20 + 5] = (uchar)( udp_len      );
+              /* set ver and len */
+              buf[14] = 0x45;
 
-            /* set ip length */
-            buf[14 + 2] = (uchar)( ip_len >> 8 );
-            buf[14 + 3] = (uchar)( ip_len      );
+              /* set protocol */
+              buf[14 + 9] = 17;
+
+              /* set udp length */
+              buf[14 + 20 + 4] = (uchar)( udp_len >> 8 );
+              buf[14 + 20 + 5] = (uchar)( udp_len      );
+
+              /* set ip length */
+              buf[14 + 2] = (uchar)( ip_len >> 8 );
+              buf[14 + 3] = (uchar)( ip_len      );
+            }
+            fd_aio_send( ctx->quic_rx_aio, pkt, (ulong)retval, NULL, 1 );
           }
-          fd_aio_send( ctx->quic_rx_aio, pkt, (ulong)retval, NULL, 1 );
-        }
-      } else if( FD_UNLIKELY( revents & POLLERR ) ) {
-        int error = 0;
-        socklen_t errlen = sizeof(error);
+        } else if( FD_UNLIKELY( revents & POLLERR ) ) {
+          int error = 0;
+          socklen_t errlen = sizeof(error);
 
-        if( getsockopt( ctx->poll_fd[j].fd, SOL_SOCKET, SO_ERROR, (void *)&error, &errlen ) == -1 ) {
-          FD_LOG_ERR(( "Unknown error on socket" ));
-        } else {
-          FD_LOG_ERR(( "Error on socket: %d %s", error, strerror( error ) ));
+          if( getsockopt( ctx->poll_fd[j].fd, SOL_SOCKET, SO_ERROR, (void *)&error, &errlen ) == -1 ) {
+            FD_LOG_ERR(( "Unknown error on socket" ));
+          } else {
+            FD_LOG_ERR(( "Error on socket: %d %s", error, strerror( error ) ));
+          }
         }
       }
+
+      if( !work ) break;
     }
   }
 }
@@ -265,6 +275,7 @@ conn_final( fd_quic_conn_t * conn,
 
   if( ctx ) {
     ctx->quic_conn = NULL;
+    ctx->stream = NULL;
   }
 }
 
@@ -283,21 +294,21 @@ populate_quic_limits( fd_quic_limits_t * limits ) {
   //fd_quic_limits_from_env( &argc, &argv, limits );
   limits->stream_cnt[0] = 0;
   limits->stream_cnt[1] = 0;
-  limits->stream_cnt[2] = 1500;
+  limits->stream_cnt[2] = 6000;
   limits->stream_cnt[3] = 0;
   limits->initial_stream_cnt[0] = 0;
   limits->initial_stream_cnt[1] = 0;
-  limits->initial_stream_cnt[2] = 1500;
+  limits->initial_stream_cnt[2] = 6000;
   limits->initial_stream_cnt[3] = 0;
 
-  limits->conn_cnt = 2;
+  limits->conn_cnt = 4;
   limits->handshake_cnt = limits->conn_cnt;
   limits->conn_id_cnt = 16;
   limits->conn_id_sparsity = 4.0;
   limits->stream_sparsity = 2.0;
-  limits->inflight_pkt_cnt = 1500;
+  limits->inflight_pkt_cnt = 2000;
   limits->tx_buf_sz = 1<<12;
-  limits->stream_pool_cnt = 1<<16;
+  limits->stream_pool_cnt = 30000;
 }
 
 void
@@ -363,6 +374,13 @@ during_frag( void * _ctx,
 
   fd_benchs_ctx_t * ctx = (fd_benchs_ctx_t *)_ctx;
 
+  ulong now = quic_now(0);
+  if( now > ctx->dump_time ) {
+    FD_LOG_NOTICE(( "no_stream: %lu", ctx->no_stream ));
+    ctx->dump_time = now + (ulong)3e9;
+    ctx->no_stream = 0;
+  }
+
   if( ctx->no_quic ) {
 
     if( FD_UNLIKELY( -1==send( ctx->conn_fd[ ctx->packet_cnt % ctx->conn_cnt ], fd_chunk_to_laddr( ctx->mem, chunk ), sz, 0 ) ) )
@@ -370,6 +388,15 @@ during_frag( void * _ctx,
 
     ctx->packet_cnt++;
   } else {
+
+    /* allows to accumulate multiple transactions before creating a UDP datagram */
+    /* make this configurable */
+    if( FD_UNLIKELY( ctx->service_ratio_idx++ == 4 ) ) {
+      ctx->service_ratio_idx = 0;
+      service_quic( ctx );
+      fd_quic_service( ctx->quic );
+    }
+
     if( FD_UNLIKELY( !ctx->quic_conn ) ) {
       ctx->no_stream = 0;
 
@@ -406,6 +433,19 @@ during_frag( void * _ctx,
 
     if( FD_UNLIKELY( !stream ) ) {
       ctx->no_stream++;
+      //while(1) {
+      //  service_quic( ctx );
+      //  fd_quic_service( ctx->quic );
+
+      //  if( ctx->quic_conn ) {
+      //    ctx->stream = stream = fd_quic_conn_new_stream( ctx->quic_conn, FD_QUIC_TYPE_UNIDIR );
+      //    if( FD_LIKELY( stream ) ) {
+      //      fd_quic_stream_set_context( stream, ctx );
+      //      break;
+      //    }
+      //  } else break;
+      //}
+
     } else {
       int fin = 1;
       fd_aio_pkt_info_t   batch[1]  = { { .buf    = fd_chunk_to_laddr( ctx->mem, chunk ),
@@ -428,14 +468,6 @@ during_frag( void * _ctx,
           FD_LOG_ERR(( "fd_quic_stream_send failed with: %d", rtn ));
         }
       }
-    }
-
-    /* allows to accumulate multiple transactions before creating a UDP datagram */
-    /* make this configurable */
-    if( FD_UNLIKELY( ctx->service_ratio_idx++ == 4 ) ) {
-      ctx->service_ratio_idx = 0;
-      service_quic( ctx );
-      fd_quic_service( ctx->quic );
     }
   }
 }
@@ -610,10 +642,17 @@ unprivileged_init( fd_topo_t *      topo,
 
 static void
 quic_tx_aio_send_flush( fd_benchs_ctx_t * ctx ) {
+  ///* DEBUGGING - DO NOT ALLOW INTO PROD */
+  //static uint seed = 42;
+  //if( fd_uint_hash( seed++ ) <= (uint)( 1e-2 * ~0U ) ) {
+  //  ctx->tx_idx = 0;
+  //  return;
+  //}
+
   if( FD_LIKELY( ctx->tx_idx ) ) {
-    int flags = MSG_DONTWAIT;
+    int flags = 0;
     int rtn = sendmmsg( ctx->conn_fd[0], ctx->tx_msgs, (uint)ctx->tx_idx, flags );
-    if( FD_UNLIKELY( rtn < 0 ) ) {
+    if( FD_UNLIKELY( rtn <= 0 ) ) {
       FD_LOG_NOTICE(( "Error occurred in sendmmsg. Error: %d %s",
           errno, strerror( errno ) ));
     }
@@ -638,6 +677,8 @@ quic_tx_aio_send( void *                    _ctx,
   /* quic adds eth, ip and udp headers which we don't need */
   /* assume 14 + 20 + 8 for those */
   ulong hdr_sz = 14+20+8;
+
+  if( batch_cnt > 1 ) FD_LOG_ERR(( "batch_cnt: %lu", batch_cnt ));
 
   if( FD_LIKELY( batch_cnt ) ) {
     /* do we have space? */

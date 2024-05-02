@@ -543,8 +543,8 @@ main( int argc, char ** argv ) {
   mitm_link( client_quic, server_quic, &mitm_client_to_server, fd_aio_pcapng_get_aio( &pcap_client_to_server ) );
   mitm_link( server_quic, client_quic, &mitm_server_to_client, fd_aio_pcapng_get_aio( &pcap_server_to_client ) );
 
-  mitm_set_thresh( &mitm_client_to_server, 0.00f, 0.40f );
-  mitm_set_thresh( &mitm_server_to_client, 0.00f, 0.40f );
+  mitm_set_thresh( &mitm_client_to_server, 0.05f, 0.40f );
+  mitm_set_thresh( &mitm_server_to_client, 0.05f, 0.40f );
 
   mitm_set_server( &mitm_client_to_server, 0 );
   mitm_set_server( &mitm_server_to_client, 1 );
