@@ -395,6 +395,8 @@ main( int argc, char ** argv ) {
       fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-addr", NULL, NULL );
   const char * repair_peer_id =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-id", NULL, NULL );
+  const char * mode = fd_env_strip_cmdline_cstr( &argc, &argv, "--mode", NULL, "archive" );
+
   const char * shredcap = fd_env_strip_cmdline_cstr( &argc, &argv, "--shredcap", NULL, NULL );
   ulong        tcnt     = fd_env_strip_cmdline_ulong( &argc, &argv, "--tcnt", NULL, 4 );
 
@@ -646,12 +648,13 @@ main( int argc, char ** argv ) {
   /**********************************************************************/
 
   /* do replay+shredcap or archive+live_data */
-  replay->shred_cap = NULL;
-  if( shredcap ) {
+  if( strcmp( mode, "replay" ) == 0 ) {
     FD_LOG_NOTICE( ( "test_consensus running in replay mode" ) );
+    replay->shred_cap = NULL;
     fd_blockstore_clear( blockstore ); /* this does not appear in tvu */
     fd_shred_cap_replay( shredcap, replay );
-    // goto run;
+    /* TODO: spawn a thread for shredcap */
+    goto run;
   } else {
     replay->shred_cap = fopen(shredcap, "w");
     FD_TEST( replay->shred_cap );
@@ -913,6 +916,7 @@ main( int argc, char ** argv ) {
   replay->max_workers = tcnt - 3;
   replay->tpool       = tpool;
 
+ run:
   while( FD_LIKELY( 1 /* !fd_tile_shutdown_flag */ ) ) {
 
     /* Housekeeping */
