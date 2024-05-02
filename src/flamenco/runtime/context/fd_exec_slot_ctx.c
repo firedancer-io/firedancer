@@ -19,7 +19,7 @@ fd_exec_slot_ctx_new( void *      mem,
     return NULL;
   }
 
-  fd_memset(mem, 0, FD_EXEC_SLOT_CTX_FOOTPRINT);
+  fd_memset( mem, 0, sizeof(fd_exec_slot_ctx_t) );
 
   fd_exec_slot_ctx_t * self = (fd_exec_slot_ctx_t *) mem;
   self->valloc = valloc;
@@ -157,7 +157,15 @@ recover_clock( fd_exec_slot_ctx_t * slot_ctx ) {
 
 /* Implementation note: fd_exec_slot_ctx_recover moves objects from
    manifest to slot_ctx.  This function must not share pointers between
-   slot_ctx and manifest.  Otherwise, would cause a use-after-free. */
+   slot_ctx and manifest.  Otherwise, would cause a use-after-free.
+
+   Note on memory mgmt:  At this point, fd_types allocated a bunch of
+   hash maps and red black trees for us.  The capacity of all of these
+   is too small though (they fit exactly the current amount of stake
+   delegations, etc).  This method thus also moves these collections
+   over to epoch context memory and deallocates the heap structuers.
+   This is obviously not ideal, but there's no better way for now.
+   See fd_exec_epoch_ctx_fixup_memory.  */
 
 static fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
@@ -286,8 +294,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
     fd_vote_accounts_pair_t_mapnode_t * pool = stakes1->stakes.vote_accounts.vote_accounts_pool;
     fd_vote_accounts_pair_t_mapnode_t * root = stakes1->stakes.vote_accounts.vote_accounts_root;
-    ulong next_sz = fd_vote_accounts_pair_t_map_size( pool, root );
-    epoch_bank->next_epoch_stakes.vote_accounts_pool = fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( fd_exec_epoch_ctx_next_epoch_stakes_mem( slot_ctx->epoch_ctx ), next_sz ) );
+    epoch_bank->next_epoch_stakes.vote_accounts_pool = fd_exec_epoch_ctx_next_epoch_stakes_join( slot_ctx->epoch_ctx );
     epoch_bank->next_epoch_stakes.vote_accounts_root = NULL;
 
     for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(pool, root); n; n = fd_vote_accounts_pair_t_map_successor(pool, n) ) {
@@ -297,6 +304,8 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     }
     fd_memset( &stakes1->stakes.vote_accounts, 0, sizeof(fd_vote_accounts_t) );
   } while(0);
+
+  fd_exec_epoch_ctx_fixup_memory( epoch_ctx, &slot_valloc );
 
   // TODO Backup to database
   //int result = fd_runtime_save_epoch_bank(slot_ctx);
