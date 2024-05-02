@@ -219,8 +219,6 @@ resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res 
   }
   /* Convert result to repair address */
   res->l = 0;
-  // FIXME why the first line does not work? I switched to the second line.
-  // res->addr = ( (struct in_addr *)host->h_addr )->s_addr;
   res->addr = ( (struct in_addr *)host->h_addr_list[0] )->s_addr;
   int port  = atoi( str + i + 1 );
   if( ( port > 0 && port < 1024 ) || port > (int)USHORT_MAX ) {
@@ -458,6 +456,7 @@ main( int argc, char ** argv ) {
     blockstore   = fd_blockstore_join( shmem );
   }
   FD_TEST( blockstore );
+  fd_blockstore_clear( blockstore );
   FD_LOG_DEBUG( ( "Finish setup blockstore" ) );
 
   /**********************************************************************/
@@ -648,21 +647,19 @@ main( int argc, char ** argv ) {
   /**********************************************************************/
 
   /* do replay+shredcap or archive+live_data */
+  replay->shred_cap = NULL;
   if( strcmp( mode, "replay" ) == 0 ) {
     FD_LOG_NOTICE( ( "test_consensus running in replay mode" ) );
-    replay->shred_cap = NULL;
-    fd_blockstore_clear( blockstore ); /* this does not appear in tvu */
     fd_shred_cap_replay( shredcap, replay );
     /* TODO: spawn a thread for shredcap */
-    goto run;
+    goto slot_execute;
   } else {
-    replay->shred_cap = fopen(shredcap, "w");
+    FD_LOG_NOTICE( ( "test_consensus running in live mode (shredcap archive)" ) );
+    if (shredcap) replay->shred_cap = fopen(shredcap, "w");
     FD_TEST( replay->shred_cap );
     replay->stable_slot_start = 0;
     replay->stable_slot_end = 0;
   }
-
-  FD_LOG_NOTICE( ( "test_consensus running live (shredcap archive)" ) );
 
   /**********************************************************************/
   /* keys                                                               */
@@ -887,23 +884,25 @@ main( int argc, char ** argv ) {
   if( fd_gossip_update_tvu_addr( gossip, tvu_addr, tvu_fwd_addr ) )
     FD_LOG_ERR( ( "error setting gossip tvu" ) );
 
-  /* FIXME: replace with real tile */
   turbine_targs_t turbine_targ = { .tvu_fd = tvu_sockfd, .replay = replay };
   pthread_t       turbine_tid;
   FD_TEST( !pthread_create( &turbine_tid, NULL, turbine_thread, &turbine_targ ) );
 
-  /* FIXME: replace with real tile */
   repair_targ_t repair_targ = { .repair_fd = repair_arg.sockfd, .replay = replay };
   pthread_t     repair_tid;
   FD_TEST( !pthread_create( &repair_tid, NULL, repair_thread, &repair_targ ) );
 
-  /* FIXME: replace with real tile */
   gossip_targ_t gossip_targ = { .gossip_fd = gossip_sockfd, .replay = replay, .gossip = gossip };
   pthread_t     gossip_tid;
   FD_TEST( !pthread_create( &gossip_tid, NULL, gossip_thread, &gossip_targ ) );
 
+  /**********************************************************************/
+  /* slot prepare and slot execute                                      */
+  /**********************************************************************/
   fd_tpool_t * tpool = NULL;
   uchar tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
+
+ slot_execute:
   if( tcnt > 3 ) {
     tpool = fd_tpool_init( tpool_mem, tcnt - 3 );
     if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
@@ -916,7 +915,6 @@ main( int argc, char ** argv ) {
   replay->max_workers = tcnt - 3;
   replay->tpool       = tpool;
 
- run:
   while( FD_LIKELY( 1 /* !fd_tile_shutdown_flag */ ) ) {
 
     /* Housekeeping */
