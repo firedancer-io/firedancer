@@ -535,10 +535,10 @@ fd_topo_tile_to_config( fd_topo_tile_t const * tile ) {
 ulong
 fdctl_obj_align( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
-  #define VAL(name) (__extension__({                                                               \
-    ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
-    if( FD_UNLIKELY( __x==ULONG_MAX ) ) FD_LOG_ERR(( "obj.%lu.%s was not set", obj->id, name )); \
-    __x; }))
+  ulong align = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, "align" );
+  if( align!=ULONG_MAX ) {
+    return align;
+  }
 
   if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
     fd_topo_tile_t const * tile = NULL;
@@ -564,10 +564,9 @@ fdctl_obj_align( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     return FD_METRICS_ALIGN;
   } else {
-    ulong align = VAL("align");
-    return align;
+    FD_LOG_ERR(( "unknown object `%s`", obj->name ));
+    return 0UL;
   }
-#undef VAL
 }
 
 ulong
@@ -578,6 +577,11 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
       if( FD_UNLIKELY( __x==ULONG_MAX ) ) FD_LOG_ERR(( "obj.%lu.%s was not set", obj->id, name )); \
       __x; }))
   
+  ulong sz = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, "sz" );
+  if( sz!=ULONG_MAX ) {
+    return sz;
+  }
+
   if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
     fd_topo_tile_t const * tile = NULL;
     for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -602,8 +606,8 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     return FD_METRICS_FOOTPRINT( VAL("in_cnt"), VAL("out_cnt") );
   } else {
-    ulong sz = VAL("sz");
-    return sz;
+    FD_LOG_ERR(( "unknown object `%s`", obj->name ));
+    return 0UL;
   }
 #undef VAL
 }
@@ -611,6 +615,11 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
 ulong
 fdctl_obj_loose( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
+  ulong loose = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, "loose" );
+  if( loose!=ULONG_MAX ) {
+    return loose;
+  }
+
   if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
     fd_topo_tile_t const * tile = NULL;
     for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -621,11 +630,6 @@ fdctl_obj_loose( fd_topo_t const *     topo,
     }
     fd_topo_run_tile_t * config = fd_topo_tile_to_config( tile );
     if( FD_LIKELY( config->loose_footprint ) ) return config->loose_footprint( tile );
-  } else {
-    ulong loose_sz = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, "loose" );
-    if( loose_sz!=ULONG_MAX ) {
-      return loose_sz;
-    }
   }
   return 0UL;
 }
