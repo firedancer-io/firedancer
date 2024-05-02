@@ -378,6 +378,19 @@ gossip_thread( void * arg ) {
   return 0;
 }
 
+struct shredcap_targ {
+  const char *      shred_cap_fpath;
+  fd_replay_t *     replay;
+};
+typedef struct shredcap_targ shredcap_targ_t;
+
+static void *
+shredcap_thread( void * arg ) {
+  shredcap_targ_t * args      = (shredcap_targ_t *)arg;
+  fd_shred_cap_replay(args->shred_cap_fpath, args->replay);
+  return 0;
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -643,25 +656,6 @@ main( int argc, char ** argv ) {
   FD_LOG_DEBUG( ( "Finish setup replay" ) );
 
   /**********************************************************************/
-  /* shredcap                                                           */
-  /**********************************************************************/
-
-  /* do replay+shredcap or archive+live_data */
-  replay->shred_cap = NULL;
-  if( strcmp( mode, "replay" ) == 0 ) {
-    FD_LOG_NOTICE( ( "test_consensus running in replay mode" ) );
-    fd_shred_cap_replay( shredcap, replay );
-    /* TODO: spawn a thread for shredcap */
-    goto slot_execute;
-  } else {
-    FD_LOG_NOTICE( ( "test_consensus running in live mode (shredcap archive)" ) );
-    if (shredcap) replay->shred_cap = fopen(shredcap, "w");
-    FD_TEST( replay->shred_cap );
-    replay->stable_slot_start = 0;
-    replay->stable_slot_end = 0;
-  }
-
-  /**********************************************************************/
   /* keys                                                               */
   /**********************************************************************/
 
@@ -869,6 +863,26 @@ main( int argc, char ** argv ) {
     fd_gossip_set_stake_weights( gossip, stake_weights, stake_weights_cnt );
   }
   FD_SCRATCH_SCOPE_END;
+
+  /**********************************************************************/
+  /* shredcap                                                           */
+  /**********************************************************************/
+
+  /* do replay+shredcap or archive+live_data */
+  replay->shred_cap = NULL;
+  if( strcmp( mode, "replay" ) == 0 ) {
+    FD_LOG_NOTICE( ( "test_consensus running in replay mode" ) );
+    shredcap_targ_t shredcap_targ = { .shred_cap_fpath = shredcap, .replay = replay };
+    pthread_t       shredcap_tid;
+    FD_TEST( !pthread_create( &shredcap_tid, NULL, shredcap_thread, &shredcap_targ ) );
+    goto slot_execute;
+  } else {
+    FD_LOG_NOTICE( ( "test_consensus running in live mode (shredcap archive)" ) );
+    if (shredcap) replay->shred_cap = fopen(shredcap, "w");
+    FD_TEST( replay->shred_cap );
+    replay->stable_slot_start = 0;
+    replay->stable_slot_end = 0;
+  }
 
   /**********************************************************************/
   /* turbine (tvu), repair, gossip threads                              */

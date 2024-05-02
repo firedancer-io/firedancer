@@ -44,14 +44,15 @@ fd_shred_cap_replay( const char *      shred_cap_fpath,
   FILE * shred_cap = fopen( shred_cap_fpath, "rb" );
   FD_TEST( shred_cap );
 
+  ulong cnt = 0, size = 0;
   for( ;; ) {
     fd_shred_cap_hdr_t header;
-    ulong bytes_read = fread( &header, sizeof( fd_shred_cap_hdr_t ), 1, shred_cap );
-    FD_TEST( bytes_read == sizeof(fd_shred_cap_hdr_t) );
+    ulong nshredcap_hdr = fread( &header, sizeof( fd_shred_cap_hdr_t ), 1, shred_cap );
+    FD_TEST( nshredcap_hdr = 1 );
     ulong n          = header.size;
 
     uchar buffer[FD_SHRED_MAX_SZ];
-    bytes_read = fread( buffer, sizeof( uchar ), n, shred_cap );
+    ulong bytes_read = fread( buffer, sizeof( uchar ), n, shred_cap );
     FD_TEST( bytes_read == n );
 
     fd_shred_t const * shred = fd_shred_parse( buffer, n );
@@ -62,8 +63,12 @@ fd_shred_cap_replay( const char *      shred_cap_fpath,
       fd_replay_repair_rx( replay, shred );
     }
 
+    size += sizeof(fd_shred_cap_hdr_t) + n;
+    if (++cnt % 1000 == 0)
+      FD_LOG_NOTICE( ("Replayed %lu shreds (%lu bytes)", cnt, size) );
     struct timespec ts = { .tv_sec = 0, .tv_nsec = (long)1e6 };
     nanosleep( &ts, NULL );
   }
+  FD_LOG_NOTICE( ("Finish replaying %lu shreds", cnt) );
   return 0;
 }
