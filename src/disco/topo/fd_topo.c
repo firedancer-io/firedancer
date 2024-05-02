@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "fd_topo.h"
 
 #include "../fd_disco_base.h"
@@ -10,6 +11,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 
 void
 fd_topo_join_workspace( fd_topo_t *      topo,
@@ -74,6 +76,29 @@ fd_topo_leave_workspaces( fd_topo_t * topo ) {
 
 extern char fd_shmem_private_base[ FD_SHMEM_PRIVATE_BASE_MAX ];
 
+static int
+fd_topo_grab_region( ulong addr,
+                     ulong size ) {
+  void *mmap_ret;
+  int err;
+
+  mmap_ret = mmap( (void*)addr, size, PROT_READ, MAP_ANON|MAP_PRIVATE, -1, 0 );
+
+  if( mmap_ret == MAP_FAILED )
+    return 0;
+
+  /* Only call munmap on failure case. On success we want to keep the mapping */
+  if( (ulong)mmap_ret != addr ) {
+    err = munmap( mmap_ret, size );
+    if ( err == -1 ) {
+      FD_LOG_ERR(( "failed to unmap temporary mapping, munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    return 0;
+  }
+
+  return 1;
+}
+
 int
 fd_topo_create_workspace( fd_topo_t *      topo,
                           fd_topo_wksp_t * wksp,
@@ -93,7 +118,22 @@ fd_topo_create_workspace( fd_topo_t *      topo,
   if( FD_UNLIKELY( err && errno==ENOMEM ) ) return -1;
   else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_create_multi failed" ));
 
-  void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL ); /* logs details */
+  uchar * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL ); /* logs details */
+
+  /* Guard the workspace */
+  if ( FD_LIKELY( fd_topo_grab_region( (ulong)(shmem - FD_SHMEM_NORMAL_PAGE_SZ), FD_SHMEM_NORMAL_PAGE_SZ ) ) ) {
+    void * guard_lo = (void *)(shmem - FD_SHMEM_NORMAL_PAGE_SZ );
+    if( FD_UNLIKELY( mmap( guard_lo, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
+                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_lo ) )
+      FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  if ( FD_LIKELY( fd_topo_grab_region( (ulong)(shmem + wksp->page_sz * wksp->page_cnt), FD_SHMEM_NORMAL_PAGE_SZ ) ) ) {
+    void * guard_hi = (void *)(shmem + wksp->page_sz * wksp->page_cnt);
+    if( FD_UNLIKELY( mmap( guard_hi, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
+                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_hi ) )
+      FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  } 
 
   void * wkspmem = fd_wksp_new( shmem, name, 0U, wksp->part_max, wksp->total_footprint ); /* logs details */
   if( FD_UNLIKELY( !wkspmem ) ) FD_LOG_ERR(( "fd_wksp_new failed" ));
