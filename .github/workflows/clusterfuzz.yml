@@ -55,7 +55,7 @@ jobs:
       - name: Find the tmpdir containing our binaries and rewritten libs
         id: find-fuzzdir
         run: |
-          FD_DIR=$(find -d /tmp/ | grep fdfuzz | head -n 1)
+          FD_DIR=$(find /tmp/ | grep fdfuzz | head -n 1)
           echo "fd-dir=$FD_DIR" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         name: Upload harness binaries
@@ -67,7 +67,7 @@ jobs:
         name: Upload .a dependency libraries
         with:
           name: ${{ github.run_id }}-${{ matrix.machine }}-lib
-          path: ${{ steps.find-fuzzdir.outputs.fd-dir }}/lib
+          path: ${{ steps.find-fuzzdir.outputs.fd-dir }}/lib/*.a
           retention-days: 1
 
   fc-publish:
