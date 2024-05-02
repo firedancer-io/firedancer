@@ -176,7 +176,7 @@ union fd_features {
     /* 0x74b022574093eeec */ ulong reduce_stake_warmup_cooldown;
     /* 0x81b8fd99bea25f9b */ ulong revise_turbine_epoch_stakes;
     /* 0x3cbf822ccb2eebd4 */ ulong enable_poseidon_syscall;
-    /* 0x86fa44f01141c71a */ ulong timely_vote_credits;
+    /* 0xe9d32123513c4d0d */ ulong timely_vote_credits;
     /* 0x64205286d7935342 */ ulong remaining_compute_units_syscall_enabled;
     /* 0x97f912be04ecd673 */ ulong enable_program_runtime_v2_and_loader_v4;
     /* 0x4b241cb4c6f3b3b2 */ ulong require_rent_exempt_split_destination;

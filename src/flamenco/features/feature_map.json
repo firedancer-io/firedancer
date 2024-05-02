@@ -162,7 +162,7 @@
   {"name":"reduce_stake_warmup_cooldown","pubkey": "GwtDQBghCTBgmX2cpEGNPxTEBUTQRaDMGTr5qychdGMj","hardcoded":1},
   {"name":"revise_turbine_epoch_stakes","pubkey": "BTWmtJC8U5ZLMbBUUA1k6As62sYjPEjAiNAT55xYGdJU"},
   {"name":"enable_poseidon_syscall","pubkey": "FL9RsQA6TVUoh5xJQ9d936RHSebA1NLQqe3Zv9sXZRpr"},
-  {"name":"timely_vote_credits","pubkey": "2oXpeh141pPZCTCFHBsvCwG2BtaHZZAtrVhwaxSy6brS"},
+  {"name":"timely_vote_credits","pubkey": "tvcF6b1TRz353zKuhBjinZkKzjmihXmBAHJdjNYw1sQ"},
   {"name":"remaining_compute_units_syscall_enabled","pubkey": "5TuppMutoyzhUSfuYdhgzD47F92GL1g89KpCZQKqedxP"},
   {"name":"enable_program_runtime_v2_and_loader_v4","pubkey": "8oBxsYqnCvUTGzgEpxPcnVf7MLbWWPYddE33PftFeBBd"},
   {"name":"require_rent_exempt_split_destination","pubkey": "D2aip4BBr8NPWtU9vLrwrBvbuaQ8w1zV38zFLxx4pfBV"},

@@ -940,8 +940,8 @@ fd_feature_id_t const ids[] = {
     .name   = "enable_poseidon_syscall" },
 
   { .index  = offsetof(fd_features_t, timely_vote_credits)>>3,
-    .id     = {"\x1a\xc7\x41\x11\xf0\x44\xfa\x86\x3f\x13\x7e\xa6\x7a\xb2\xd4\x6e\x16\x10\x57\xe6\x96\x23\x5f\x27\xa8\xe5\xf0\x4c\xe8\xf1\x65\x23"},
-              /* 2oXpeh141pPZCTCFHBsvCwG2BtaHZZAtrVhwaxSy6brS */
+    .id     = {"\x0d\x4d\x3c\x51\x23\x21\xd3\xe9\x47\x3d\xc8\x19\x36\x5e\x45\xf8\x09\x81\x7b\xaf\xff\x69\x17\x9f\x2e\x58\x3d\xf1\x6e\xc8\x10\x6b"},
+              /* tvcF6b1TRz353zKuhBjinZkKzjmihXmBAHJdjNYw1sQ */
     .name   = "timely_vote_credits" },
 
   { .index  = offsetof(fd_features_t, remaining_compute_units_syscall_enabled)>>3,
@@ -1289,7 +1289,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x74b022574093eeec: return &ids[ 160 ];
   case 0x81b8fd99bea25f9b: return &ids[ 161 ];
   case 0x3cbf822ccb2eebd4: return &ids[ 162 ];
-  case 0x86fa44f01141c71a: return &ids[ 163 ];
+  case 0xe9d32123513c4d0d: return &ids[ 163 ];
   case 0x64205286d7935342: return &ids[ 164 ];
   case 0x97f912be04ecd673: return &ids[ 165 ];
   case 0x4b241cb4c6f3b3b2: return &ids[ 166 ];

@@ -29,7 +29,7 @@ static ulong supported_features[] =
     0x6d22c4ce75df6f0b,  // stake_merge_with_unmatched_credits_observed
     0x4b241cb4c6f3b3b2,  // require_rent_exempt_split_destination
     0x74326f811fd7d861,  // vote_state_add_vote_latency
-    0x86fa44f01141c71a,  // timely_vote_credits
+    0xe9d32123513c4d0d,  // timely_vote_credits
     0x5795654d01457757,  // vote_authorize_with_seed
     0x8a8eb9085ca2bb0b,  // commission_updates_only_allowed_in_first_half_of_epoch
     0x7bc99a080444c8d9,  // allow_votes_to_directly_update_vote_state
