@@ -385,15 +385,35 @@ run_input( test_input_t const * input,
   assert( input_copy );
   fd_memcpy( input_copy, input->input, input->input_sz );
 
-  int vm_ok = !!
-    fd_vm_init( vm,
-                NULL,
-                0UL, 100UL,
-                (uchar *)text, text_cnt * sizeof(ulong),
-                text, text_cnt, 0UL,
-                0UL, NULL, NULL,
-                input_copy, input->input_sz,
-                NULL, NULL );
+  fd_sbpf_calldests_t * calldests =
+      fd_sbpf_calldests_join(
+      fd_sbpf_calldests_new(
+      aligned_alloc( fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( text_cnt ) ),
+        text_cnt ) );
+
+  fd_sbpf_syscalls_t * syscalls =
+      fd_sbpf_syscalls_join(
+      fd_sbpf_syscalls_new(
+      aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) ) );
+
+  int vm_ok = !!fd_vm_init(
+      /* vm        */ vm,
+      /* instr_ctx */ NULL,
+      /* heap_max  */ 0UL,
+      /* entry_cu  */ 100UL,
+      /* rodata    */ (uchar const *)text,
+      /* rodata_sz */ text_cnt * sizeof(ulong),
+      /* text      */ text,
+      /* text_cnt  */ text_cnt,
+      /* text_off  */ 0UL,
+      /* entry_pc  */ 0UL,
+      /* calldests */ calldests,
+      /* syscalls  */ syscalls,
+      /* input     */ input_copy,
+      /* input_sz  */ input->input_sz,
+      /* trace     */ NULL,
+      /* sha       */ NULL
+  );
   assert( vm_ok );
 
   for( uint i=0; i<REG_CNT; i++ ) {
@@ -402,6 +422,8 @@ run_input( test_input_t const * input,
 
   run_input2( out, vm );
 
+  free( fd_sbpf_syscalls_delete ( fd_sbpf_syscalls_leave ( syscalls  ) ) );
+  free( fd_sbpf_calldests_delete( fd_sbpf_calldests_leave( calldests ) ) );
   free( input_copy );
 }
 
@@ -535,8 +557,11 @@ main( int     argc,
 
   if( !executed_cnt ) {
     char const * default_paths[] = {
-      "src/flamenco/vm/instr_test/alu.instr",
+      "src/flamenco/vm/instr_test/bitwise.instr",
+      "src/flamenco/vm/instr_test/int_math.instr",
+      "src/flamenco/vm/instr_test/invalid.instr",
       "src/flamenco/vm/instr_test/load.instr",
+      "src/flamenco/vm/instr_test/shift.instr",
       NULL
     };
     for( char const ** path=default_paths; *path; path++ ) {
