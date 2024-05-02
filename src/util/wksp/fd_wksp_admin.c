@@ -785,7 +785,7 @@ fd_wksp_rebuild( fd_wksp_t * wksp,
 }
 
 void
-fd_wksp_set_readonly( fd_wksp_t * wksp, int flag ) {
+fd_wksp_mprotect( fd_wksp_t * wksp, int flag ) {
   if( FD_UNLIKELY( !wksp ) ) {
     FD_LOG_WARNING(( "NULL wksp" ));
     return;

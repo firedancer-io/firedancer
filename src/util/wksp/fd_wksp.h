@@ -1019,7 +1019,7 @@ fd_wksp_restore( fd_wksp_t *  wksp,
    a seg fault. */
 
 void
-fd_wksp_set_readonly( fd_wksp_t * wksp, int flag );
+fd_wksp_mprotect( fd_wksp_t * wksp, int flag );
 
 FD_PROTOTYPES_END
 
