@@ -623,10 +623,30 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
   instr_context->epoch_context.features.features = sorted_features;
 }
 
+/*  This function dumps individual instructions from a ledger replay.
+
+    The following arguments can be added when replaying ledger transactions:
+      --dump-insn-to-pb <0/1>
+        * If enabled, instructions will be dumped to the specified output directory
+      --dump-insn-sig-filter <base_58_enc_sig>
+        * If enabled, only instructions with the specified signature will be dumped 
+        * Provided signature must be base58-encoded
+        * Default behavior if signature filter is not provided is to dump EVERY instruction
+      --dump-insn-output-dir <output_dir>
+        * Each file represents a single instruction as a serialized InstrContext Protobuf message
+        * File name format is "instr-<base58_enc_sig>-<instruction_idx>.bin", where instruction_idx is 1-indexed
+
+    solana-conformance (https://github.com/firedancer-io/solana-conformance) 
+      * Allows decoding / debugging of instructions in an isolated environment
+      * Allows execution result(s) comparison with Solana / Agave
+      * See solana-conformance/README.md for functionality and use cases
+*/
 static void
 dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx,
                         fd_instr_info_t *instr,
                         ushort instruction_idx ) {
+
+
   FD_SCRATCH_SCOPE_BEGIN {
     // Get base58-encoded tx signature
     const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
