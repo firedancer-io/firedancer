@@ -267,7 +267,7 @@ make-bin-rust  = $(eval $(call _make-exe,$(1),$(2),$(3),rust,bin,$(4)))
 make-shared    = $(eval $(call _make-exe,$(1),$(2),$(3),lib,lib,-shared $(4)))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test,$(4)))
 run-unit-test  = $(eval $(call _run-unit-test,$(1)))
-make-integration-test = $(eval $(call _make-exe,$(1),$(2),$(3),integration-test,integration-test))
+make-integration-test = $(eval $(call _make-exe,$(1),$(2),$(3),integration-test,integration-test,$(4)))
 run-integration-test  = $(eval $(call _run-integration-test,$(1)))
 make-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3)))
 

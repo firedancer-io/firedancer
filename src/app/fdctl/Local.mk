@@ -1,7 +1,6 @@
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
-ifdef FD_HAS_SECP256K1
 
 include src/app/fdctl/with-version.mk
 $(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH))
@@ -41,7 +40,15 @@ $(call add-objs,configure/xdp,fd_fdctl)
 $(call add-objs,configure/ethtool,fd_fdctl)
 $(call add-objs,configure/workspace,fd_fdctl)
 
-$(call make-bin-rust,fdctl,main,fd_fdctl fd_choreo fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_ip fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator, $(SECP256K1_LIBS))
+ifdef FD_HAS_NO_SOLANA
+ifdef FD_HAS_SECP256K1
+$(call make-lib,external_functions)
+$(call add-objs,external_functions,external_functions)
+$(call make-bin-rust,fdctl,main,fd_fdctl fd_choreo fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_ip fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions, $(SECP256K1_LIBS))
+endif
+else
+$(call make-bin-rust,fdctl,main,fd_fdctl fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_ip fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator)
+endif
 $(call make-unit-test,test_tiles_verify,run/tiles/test_verify,fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_tiles_verify)
 
@@ -109,5 +116,3 @@ solana: $(OBJDIR)/bin/solana $(OBJDIR)/bin/solana
 endif
 endif
 endif
-endif
-
