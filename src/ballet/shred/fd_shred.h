@@ -300,19 +300,19 @@ fd_shred_merkle_sz( uchar variant ) {
 
 
 /* fd_is_chained_shred: Returns true if the shred is a chained merkle data or code shred. */
-FD_FN_CONST static inline uchar
+FD_FN_CONST static inline int
 fd_is_chained_shred( ulong type ) {
-  return ( type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED )
-       | ( type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED )
-       | ( type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED )
-       | ( type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED );
+  return (int)(( type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED )
+             | ( type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED )
+             | ( type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED )
+             | ( type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED ));
 }
 
 /* fd_is_resigned_shred: Returns true if the shred is resigned by the retransmitter */
-FD_FN_CONST static inline uchar
+FD_FN_CONST static inline int
 fd_is_resigned_shred( ulong type ) {
-  return ( type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED )
-       | ( type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED );
+  return (int)(( type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED )
+             | ( type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED ));
 }
 
 /* fd_shred_payload_sz: Returns the payload size of a shred.
