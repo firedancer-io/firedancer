@@ -26,10 +26,9 @@ one_repetition() {
   START_SLOT=$rooted_start_slot
   END_SLOT=$rooted_end_slot
 
-  echo "running multiple repetitions. current rooted repetition [$START_SLOT, $END_SLOT]"
+  echo "running one repetition. current rooted repetition [$START_SLOT, $END_SLOT]"
   source $ROOT_DIR/minify.sh
   source $ROOT_DIR/replay.sh
-
 }
 
 all_repetition() {
