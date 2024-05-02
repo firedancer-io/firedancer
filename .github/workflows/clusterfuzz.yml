@@ -76,7 +76,7 @@ jobs:
     steps:
 
     - uses: actions/checkout@v4
-    - uses: ./.github/actions/fc/fc.yml
+    - uses: ./.github/actions/fc
       with:
         previous_action_outputs: |
           ${{ github.run_id }}-linux_clang_haswell
