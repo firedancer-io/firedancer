@@ -506,7 +506,7 @@ handle_file( char const * file_path,
     test_fixture_t * f = NULL;
     f = parse_next( &parser, _f );
     if( !f ) break;
-    fail |= run_fixture( f, file_path, vm );
+    fail += run_fixture( f, file_path, vm );
   }
 
   if( FD_UNLIKELY( 0!=close( fd ) ) ) {
@@ -545,7 +545,7 @@ main( int     argc,
   for( int i=1; i<argc; i++ ) {
     int flag = 0==strncmp( argv[i], "--", 2 );
     if( literal || !flag ) {
-      fail |= handle_file( argv[i], vm );
+      fail += handle_file( argv[i], vm );
       executed_cnt += 1;
     } else {
       if( argv[i][2] == '\0' ) literal = 1;
@@ -559,8 +559,8 @@ main( int     argc,
     char const * default_paths[] = {
       "src/flamenco/vm/instr_test/bitwise.instr",
       "src/flamenco/vm/instr_test/int_math.instr",
-      "src/flamenco/vm/instr_test/invalid.instr",
       "src/flamenco/vm/instr_test/load.instr",
+      "src/flamenco/vm/instr_test/opcode.instr",
       "src/flamenco/vm/instr_test/shift.instr",
       NULL
     };
@@ -568,6 +568,9 @@ main( int     argc,
       fail |= handle_file( *path, vm );
     }
   }
+
+  if( !fail ) FD_LOG_NOTICE(( "pass" ));
+  else        FD_LOG_WARNING(( "fail cnt %d", fail ));
 
   fd_halt();
   return fail;

@@ -1,0 +1,258 @@
+dst=0 src=0 off=0000
+
+$ op=00 imm=0 : vfy
+$ op=01 imm=0 : vfy
+$ op=02 imm=0 : vfy
+$ op=03 imm=0 : vfy
+$ op=04 imm=0 : ok   # add32 reg, imm
+$ op=05 imm=0 : ok   # ja
+$ op=06 imm=0 : vfy
+$ op=07 imm=0 : ok   # add64 reg, imm
+$ op=08 imm=0 : vfy
+$ op=09 imm=0 : vfy
+$ op=0a imm=0 : vfy
+$ op=0b imm=0 : vfy
+$ op=0c imm=0 : ok   # add32 reg, reg
+$ op=0d imm=0 : vfy
+$ op=0e imm=0 : vfy
+$ op=0f imm=0 : ok   # add64 reg, reg
+$ op=10 imm=0 : vfy
+$ op=11 imm=0 : vfy
+$ op=12 imm=0 : vfy
+$ op=13 imm=0 : vfy
+$ op=14 imm=0 : ok   # sub32 reg, imm
+$ op=15 imm=0 : ok   # jeq reg, imm
+$ op=16 imm=0 : vfy
+$ op=17 imm=0 : ok   # sub64 reg, imm
+$ op=18 imm=0 : ok   # lddw
+$ op=19 imm=0 : vfy
+$ op=1a imm=0 : vfy
+$ op=1b imm=0 : vfy
+$ op=1c imm=0 : ok   # sub32 reg, reg
+$ op=1d imm=0 : ok   # jeq reg, reg
+$ op=1e imm=0 : vfy
+$ op=1f imm=0 : ok   # sub64 reg, reg
+$ op=20 imm=0 : vfy
+$ op=21 imm=0 : vfy
+$ op=22 imm=0 : vfy
+$ op=23 imm=0 : vfy
+$ op=24 imm=0 : ok   # mul32 reg, imm
+$ op=25 imm=0 : ok   # jgt reg, imm
+$ op=26 imm=0 : vfy
+$ op=27 imm=0 : ok   # mul64 reg, imm
+$ op=28 imm=0 : vfy
+$ op=29 imm=0 : vfy
+$ op=2a imm=0 : vfy
+$ op=2b imm=0 : vfy
+$ op=2c imm=0 : ok   # mul32 reg, reg
+$ op=2d imm=0 : ok   # jgt reg, reg
+$ op=2e imm=0 : vfy
+$ op=2f imm=0 : ok   # mul64 reg, reg
+$ op=30 imm=0 : vfy
+$ op=31 imm=0 : vfy
+$ op=32 imm=0 : vfy
+$ op=33 imm=0 : vfy
+$ op=34 imm=1 : ok   # div32 reg, imm
+$ op=35 imm=0 : ok   # jge reg, imm
+$ op=36 imm=0 : vfy
+$ op=37 imm=1 : ok   # div64 reg, imm
+$ op=38 imm=0 : vfy
+$ op=39 imm=0 : vfy
+$ op=3a imm=0 : vfy
+$ op=3b imm=0 : vfy
+$ op=3c imm=0 : err  # div32 reg, reg
+$ op=3d imm=0 : ok   # jge reg, reg
+$ op=3e imm=0 : vfy
+$ op=3f imm=0 : err  # div64 reg, reg
+$ op=40 imm=0 : vfy
+$ op=41 imm=0 : vfy
+$ op=42 imm=0 : vfy
+$ op=43 imm=0 : vfy
+$ op=44 imm=0 : ok   # or32 reg, imm
+$ op=45 imm=0 : ok   # jset reg, imm
+$ op=46 imm=0 : vfy
+$ op=47 imm=0 : ok   # or64 reg, imm
+$ op=48 imm=0 : vfy
+$ op=49 imm=0 : vfy
+$ op=4a imm=0 : vfy
+$ op=4b imm=0 : vfy
+$ op=4c imm=0 : ok   # or32 reg, reg
+$ op=4d imm=0 : ok   # jset reg, reg
+$ op=4e imm=0 : vfy
+$ op=4f imm=0 : ok   # or64 reg, reg
+$ op=50 imm=0 : vfy
+$ op=51 imm=0 : vfy
+$ op=52 imm=0 : vfy
+$ op=53 imm=0 : vfy
+$ op=54 imm=0 : ok   # and32 reg, imm
+$ op=55 imm=0 : ok   # jne reg, imm
+$ op=56 imm=0 : vfy
+$ op=57 imm=0 : ok   # and64 reg, imm
+$ op=58 imm=0 : vfy
+$ op=59 imm=0 : vfy
+$ op=5a imm=0 : vfy
+$ op=5b imm=0 : vfy
+$ op=5c imm=0 : ok   # and32 reg, reg
+$ op=5d imm=0 : ok   # jne reg, reg
+$ op=5e imm=0 : vfy
+$ op=5f imm=0 : ok   # and64 reg, reg
+$ op=60 imm=0 : vfy
+$ op=61 imm=0 : err  # ldxw reg, [reg+off]
+$ op=62 imm=0 : err  # stw [reg+off], imm
+$ op=63 imm=0 : err  # stxw [reg+off], reg
+$ op=64 imm=0 : ok   # lsh32 reg, imm
+$ op=65 imm=0 : ok   # jsgt reg, imm
+$ op=66 imm=0 : vfy
+$ op=67 imm=0 : ok   # lsh64 reg, imm
+$ op=68 imm=0 : vfy
+$ op=69 imm=0 : err  # ldxh reg, [reg+off]
+$ op=6a imm=0 : err  # sth [reg+off], imm
+$ op=6b imm=0 : err  # lsh32 reg, reg
+$ op=6c imm=0 : ok   # jsgt reg, reg
+$ op=6d imm=0 : ok
+$ op=6e imm=0 : vfy
+$ op=6f imm=0 : ok   # lsh64 reg, reg
+$ op=70 imm=0 : vfy
+$ op=71 imm=0 : err  # ldxb reg, [reg+off]
+$ op=72 imm=0 : err  # stb [reg+off], imm
+$ op=73 imm=0 : err  # stxb [reg+off], reg
+$ op=74 imm=0 : ok   # rsh32 reg, imm
+$ op=75 imm=0 : ok   # jsge reg, imm
+$ op=76 imm=0 : vfy
+$ op=77 imm=0 : ok   # rsh64 reg, imm
+$ op=78 imm=0 : vfy
+$ op=79 imm=0 : err  # ldxdw reg, [reg+off]
+$ op=7a imm=0 : err  # stdw [reg+off], imm
+$ op=7b imm=0 : err  # stxdw [reg+off], reg
+$ op=7c imm=0 : ok   # rsh32 reg, reg
+$ op=7d imm=0 : ok
+$ op=7e imm=0 : vfy
+$ op=7f imm=0 : ok   # rsh64 reg, reg
+$ op=80 imm=0 : vfy
+$ op=81 imm=0 : vfy
+$ op=82 imm=0 : vfy
+$ op=83 imm=0 : vfy
+$ op=84 imm=0 : ok   # neg32 reg
+$ op=85 imm=0 : err  # call imm
+$ op=86 imm=0 : vfy
+$ op=87 imm=0 : ok   # neg64 reg
+$ op=88 imm=0 : vfy
+$ op=89 imm=0 : vfy
+$ op=8a imm=0 : vfy
+$ op=8b imm=0 : vfy
+$ op=8c imm=0 : vfy
+$ op=8d imm=0 : err  # callx reg
+$ op=8e imm=0 : vfy
+$ op=8f imm=0 : vfy
+$ op=90 imm=0 : vfy
+$ op=91 imm=0 : vfy
+$ op=92 imm=0 : vfy
+$ op=93 imm=0 : vfy
+$ op=94 imm=0 : vfy  # mod32 reg, imm
+$ op=95 imm=0 : ok   # exit
+$ op=96 imm=0 : vfy
+$ op=97 imm=1 : ok   # mod64 reg, imm
+$ op=98 imm=0 : vfy
+$ op=99 imm=0 : vfy
+$ op=9a imm=0 : vfy
+$ op=9b imm=0 : vfy
+$ op=9c imm=0 : err  # mod32 reg, reg
+$ op=9d imm=0 : vfy
+$ op=9e imm=0 : vfy
+$ op=9f imm=0 : err  # mod64 reg, reg
+$ op=a0 imm=0 : vfy
+$ op=a1 imm=0 : vfy
+$ op=a2 imm=0 : vfy
+$ op=a3 imm=0 : vfy
+$ op=a4 imm=0 : ok   # xor32 reg, imm
+$ op=a5 imm=0 : ok   # jlt reg, imm
+$ op=a6 imm=0 : vfy
+$ op=a7 imm=0 : ok   # xor64 reg, imm
+$ op=a8 imm=0 : vfy
+$ op=a9 imm=0 : vfy
+$ op=aa imm=0 : vfy
+$ op=ab imm=0 : vfy
+$ op=ac imm=0 : ok   # xor32 reg, reg
+$ op=ad imm=0 : ok   # jlt reg, reg
+$ op=ae imm=0 : vfy
+$ op=af imm=0 : ok   # xor64 reg, reg
+$ op=b0 imm=0 : vfy
+$ op=b1 imm=0 : vfy
+$ op=b2 imm=0 : vfy
+$ op=b3 imm=0 : vfy
+$ op=b4 imm=0 : ok   # mov32 reg, imm
+$ op=b5 imm=0 : ok   # jle reg, imm
+$ op=b6 imm=0 : vfy
+$ op=b7 imm=0 : ok   # mov64 reg, imm
+$ op=b8 imm=0 : vfy
+$ op=b9 imm=0 : vfy
+$ op=ba imm=0 : vfy
+$ op=bb imm=0 : vfy
+$ op=bc imm=0 : ok   # mov32 reg, reg
+$ op=bd imm=0 : ok   # jle reg, reg
+$ op=be imm=0 : vfy
+$ op=bf imm=0 : ok   # mov64 reg, reg
+$ op=c0 imm=0 : vfy
+$ op=c1 imm=0 : vfy
+$ op=c2 imm=0 : vfy
+$ op=c3 imm=0 : vfy
+$ op=c4 imm=0 : ok   # arsh32 reg, imm
+$ op=c5 imm=0 : ok   # jslt reg, imm
+$ op=c6 imm=0 : vfy
+$ op=c7 imm=0 : ok   # arsh64 reg, imm
+$ op=c8 imm=0 : vfy
+$ op=c9 imm=0 : vfy
+$ op=ca imm=0 : vfy
+$ op=cb imm=0 : vfy
+$ op=cc imm=0 : ok   # arsh32 reg, reg
+$ op=cd imm=0 : ok   # jslt reg, reg
+$ op=ce imm=0 : vfy
+$ op=cf imm=0 : ok   # arsh64 reg, reg
+$ op=d0 imm=0 : vfy
+$ op=d1 imm=0 : vfy
+$ op=d2 imm=0 : vfy
+$ op=d3 imm=0 : vfy
+$ op=d4 imm=10: ok   # le reg, imm
+$ op=d5 imm=0 : ok   # jsle reg, imm
+$ op=d6 imm=0 : vfy
+$ op=d7 imm=0 : vfy
+$ op=d8 imm=0 : vfy
+$ op=d9 imm=0 : vfy
+$ op=da imm=0 : vfy
+$ op=db imm=0 : vfy
+$ op=dc imm=10: ok   # be reg, imm
+$ op=dd imm=0 : ok   # jsle reg, reg
+$ op=de imm=0 : vfy
+$ op=df imm=0 : vfy
+$ op=e0 imm=0 : vfy
+$ op=e1 imm=0 : vfy
+$ op=e2 imm=0 : vfy
+$ op=e3 imm=0 : vfy
+$ op=e4 imm=0 : vfy
+$ op=e5 imm=0 : vfy
+$ op=e6 imm=0 : vfy
+$ op=e7 imm=0 : vfy
+$ op=e8 imm=0 : vfy
+$ op=e9 imm=0 : vfy
+$ op=ea imm=0 : vfy
+$ op=eb imm=0 : vfy
+$ op=ec imm=0 : vfy
+$ op=ed imm=0 : vfy
+$ op=ee imm=0 : vfy
+$ op=ef imm=0 : vfy
+$ op=f0 imm=0 : vfy
+$ op=f1 imm=0 : vfy
+$ op=f2 imm=0 : vfy
+$ op=f3 imm=0 : vfy
+$ op=f4 imm=0 : vfy
+$ op=f5 imm=0 : vfy
+$ op=f6 imm=0 : vfy
+$ op=f7 imm=0 : vfy
+$ op=f8 imm=0 : vfy
+$ op=f9 imm=0 : vfy
+$ op=fa imm=0 : vfy
+$ op=fb imm=0 : vfy
+$ op=fc imm=0 : vfy
+$ op=fd imm=0 : vfy
+$ op=fe imm=0 : vfy
+$ op=ff imm=0 : vfy
