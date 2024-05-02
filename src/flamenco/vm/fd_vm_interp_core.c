@@ -661,8 +661,8 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
   /* 0x90 - 0x9f ******************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0x94) /* FD_SBPF_OP_MOD_IMM */ /* FIXME: IS MOD ZERO A FAULT?  DETECT IN VALIDATION? */
-    reg[ dst ] = (ulong)( FD_UNLIKELY( !imm ) ? (uint)reg_dst : ((uint)reg_dst % imm) );
+  FD_VM_INTERP_INSTR_BEGIN(0x94) /* FD_SBPF_OP_MOD_IMM */
+    reg[ dst ] = (ulong)( (uint)reg_dst % imm );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x95) /* FD_SBPF_OP_EXIT */
@@ -676,16 +676,18 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
     reg[10] -= FD_VM_STACK_FRAME_SZ + FD_VM_STACK_GUARD_SZ;
   FD_VM_INTERP_BRANCH_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x97) /* FD_SBPF_OP_MOD64_IMM */ /* FIXME: IS MOD ZERO A FAULT?  DETECT IN VALIDATION? */
-    reg[ dst ] = FD_UNLIKELY( !imm ) ? reg_dst : (reg_dst % (ulong)imm);
+  FD_VM_INTERP_INSTR_BEGIN(0x97) /* FD_SBPF_OP_MOD64_IMM */
+    reg[ dst ] = reg_dst % (ulong)(long)(int)imm;
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x9c) /* FD_SBPF_OP_MOD_REG */ /* FIXME: IS MOD ZERO A FAULT? */
-    reg[ dst ] = (ulong)( FD_UNLIKELY( !(uint)reg_src ) ? (uint)reg_dst : ((uint)reg_dst % (uint)reg_src) );
+  FD_VM_INTERP_INSTR_BEGIN(0x9c) /* FD_SBPF_OP_MOD_REG */
+    if( FD_UNLIKELY( !(uint)reg_src ) ) goto sigfpe;
+    reg[ dst ] = (ulong)( ((uint)reg_dst % (uint)reg_src) );
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x9f) /* FD_SBPF_OP_MOD64_REG */ /* FIXME: IS MOD ZERO A FAULT? */
-    reg[ dst ] = FD_UNLIKELY( !reg_src ) ? reg_dst : (reg_dst % reg_src);
+  FD_VM_INTERP_INSTR_BEGIN(0x9f) /* FD_SBPF_OP_MOD64_REG */
+    if( FD_UNLIKELY( !reg_src ) ) goto sigfpe;
+    reg[ dst ] = reg_dst % reg_src;
   FD_VM_INTERP_INSTR_END;
 
   /* 0xa0 - 0xaf ******************************************************/

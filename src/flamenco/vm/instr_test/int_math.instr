@@ -1,0 +1,288 @@
+# add32 reg, imm
+$ op=04 dst=0 src=1 off=a5a5 r0= 101010101010101 imm= 1010101 : ok  r0=         2020202  # truncate upper
+$ op=04 dst=1 src=1 off=a5a5 r1=        ffffffff imm=       2 : ok  r1=               1  # overflow
+$ op=04 dst=1 src=1 off=a5a5 r1=ffffffffffffffff imm=       2 : ok  r1=               1  # truncate upper, overflow
+$ op=04 dst=2 src=a off=5a5a r2=               1 imm=fffffffe : ok  r2=ffffffffffffffff  # underflow, sign extend
+$ op=04 dst=3 src=9 off=5a5a r3=        80000000 imm=       0 : ok  r3=ffffffff80000000  # sign extend
+$ op=04 dst=4 src=8 off=5a5a r4=        7fffffff imm=ffffffff : ok  r4=        7ffffffe  # subtract
+$ op=04 dst=5 src=7 off=5a5a r5=        80000000 imm=80000000 : ok  r5=               0
+$ op=04 dst=9 src=a off=0000 r9=               0 imm=       0 : ok  r9=               0
+$ op=04 dst=9 src=b                                           : vfy                      # invalid src
+$ op=04 dst=a src=1                                           : vfy                      # invalid dst
+$ op=04 dst=b src=1                                           : vfy                      # invalid dst
+
+# add32 reg, reg
+$ op=0c dst=0 src=0 off=a5a5 r0=ffffffff01010101                      : ok  r0=         2020202  # src==dst
+$ op=0c dst=1 src=2 off=a5a5 r1=        ffffffff r2=                2 : ok  r1=               1  # overflow
+$ op=0c dst=1 src=7 off=a5a5 r1=fffffffeffffffff r7 =5a5a5a5a00000002 : ok  r1=               1  # truncate upper, overflow
+$ op=0c dst=2 src=a off=5a5a r2=               1 r10=5a5a5a5afffffffe : ok  r2=ffffffffffffffff  # underflow, sign extend
+$ op=0c dst=3 src=9 off=5a5a r3=        80000000 r9 =5a5a5a5a00000000 : ok  r3=ffffffff80000000  # sign extend
+$ op=0c dst=4 src=8 off=5a5a r4=800000007fffffff r8 =5a5a5a5a00000000 : ok  r4=        7fffffff  # max u32
+$ op=0c dst=9 src=a off=0000 r9=fffffffa00000000 r10=5a5a5a5a00000000 : ok  r9=               0  # truncate upper
+$ op=0c dst=9 src=b                                                   : vfy                      # invalid src
+$ op=0c dst=a src=1                                                   : vfy                      # invalid dst
+$ op=0c dst=b src=1                                                   : vfy                      # invalid dst
+
+# add64 reg, imm
+$ op=07 dst=0 src=1 off=a5a5 r0= 101010101010101 imm= 1010101 : ok  r0= 101010102020202
+$ op=07 dst=1 src=1 off=a5a5 r1=        ffffffff imm=       2 : ok  r1=       100000001  # u32 overflow
+$ op=07 dst=1 src=1 off=a5a5 r1=ffffffffffffffff imm=       2 : ok  r1=               1  # overflow
+$ op=07 dst=2 src=a off=5a5a r2=               1 imm=fffffffe : ok  r2=ffffffffffffffff  # underflow
+$ op=07 dst=3 src=9 off=5a5a r3=        80000000 imm=       0 : ok  r3=        80000000  # nop
+$ op=07 dst=4 src=8 off=5a5a r4=       7ffffffff imm=ffffffff : ok  r4=       7fffffffe  # subtract
+$ op=07 dst=5 src=7 off=5a5a r5=        80000000 imm=80000000 : ok  r5=               0  # zero
+$ op=07 dst=6 src=6 off=5a5a r6=               0 imm=80000000 : ok  r6=ffffffff80000000  # subtract, underflow
+$ op=07 dst=9 src=a off=0000 r9=               0 imm=       0 : ok  r9=               0  # zero
+$ op=07 dst=9 src=b                                           : vfy                      # invalid src
+$ op=07 dst=a src=1                                           : vfy                      # invalid dst
+$ op=07 dst=b src=1                                           : vfy                      # invalid dst
+
+# add64 reg, reg
+$ op=0f dst=0 src=0 off=a5a5 r0= 101010101010101                      : ok  r0= 202020202020202  # src==dst
+$ op=0f dst=1 src=7 off=a5a5 r1=        ffffffff r7 =               2 : ok  r1=       100000001  # u32 overflow
+$ op=0f dst=1 src=7 off=a5a5 r1=ffffffffffffffff r7 =               2 : ok  r1=               1  # overflow
+$ op=0f dst=2 src=a off=5a5a r2=               1 r10=fffffffffffffffe : ok  r2=ffffffffffffffff  # underflow
+$ op=0f dst=3 src=9 off=5a5a r3=        80000000 r9 =               0 : ok  r3=        80000000  # nop
+$ op=0f dst=4 src=8 off=5a5a r4=       7ffffffff r8 =ffffffffffffffff : ok  r4=       7fffffffe  # subtract
+$ op=0f dst=5 src=7 off=5a5a r5=        80000000 r7 =ffffffff80000000 : ok  r5=               0  # zero
+$ op=0f dst=9 src=a off=0000 r9=               0 r10=               0 : ok  r9=               0  # zero
+$ op=0f dst=9 src=b                                                   : vfy                      # invalid src
+$ op=0f dst=a src=1                                                   : vfy                      # invalid dst
+$ op=0f dst=b src=1                                                   : vfy                      # invalid dst
+
+# sub32 reg, imm
+$ op=14 dst=0 src=1 off=a5a5 r0=e1e1e1e102020202 imm= 1010101 : ok  r0=         1010101  # truncate upper
+$ op=14 dst=1 src=1 off=a5a5 r1=e1e1e1e100000001 imm=       3 : ok  r1=fffffffffffffffe  # truncate upper, underflow
+$ op=14 dst=2 src=a off=5a5a r2=               1 imm=fffffffe : ok  r2=               3  # add
+$ op=14 dst=3 src=9 off=5a5a r3=        80000000 imm=       0 : ok  r3=ffffffff80000000  # sign extend
+$ op=14 dst=3 src=9 off=5a5a r3=        7fffffff imm=ffffffff : ok  r3=ffffffff80000000  # add, overflow, sign extend
+$ op=14 dst=4 src=8 off=5a5a r4=e1e1e1e17fffffff imm=       0 : ok  r4=        7fffffff  # truncate upper
+$ op=14 dst=5 src=7 off=5a5a r5=        ffffffff imm=fffffffe : ok  r5=               1  # add, overflow
+$ op=14 dst=9 src=a off=0000 r9=e1e1e1e100000000 imm=       0 : ok  r9=               0  # truncate upper
+$ op=14 dst=9 src=b                                           : vfy                      # invalid src
+$ op=14 dst=a src=1                                           : vfy                      # invalid dst
+$ op=14 dst=b src=1                                           : vfy                      # invalid dst
+
+# sub32 reg, reg
+$ op=1c dst=0 src=a off=a5a5 r0= 202020203030303 r10= 101010102020202 : ok  r0=         1010101  # truncate upper
+$ op=1c dst=1 src=7 off=a5a5 r1=       100000001 r7 =               3 : ok  r1=fffffffffffffffe  # underflow, sign extend
+$ op=1c dst=2 src=a off=5a5a r2=               1 r10=80000000fffffffe : ok  r2=               3  # add
+$ op=1c dst=3 src=9 off=5a5a r3=        80000000 r9 =               0 : ok  r3=ffffffff80000000  # sign extend
+$ op=1c dst=3 src=9 off=5a5a r3=        7fffffff r9 =10000000ffffffff : ok  r3=ffffffff80000000  # add, overflow, sign extend
+$ op=1c dst=4 src=8 off=5a5a r3=        7fffffff r8 =               0 : ok  r4=        7fffffff  # truncate upper
+$ op=1c dst=5 src=7 off=5a5a r5=      13ffffffff r7 =      7afffffffe : ok  r5=               1  # add, overflow
+$ op=1c dst=9 src=a off=0000 r9=               0 r10=               0 : ok  r9=               0  # zero
+$ op=1c dst=9 src=b                                                   : vfy                      # invalid src
+$ op=1c dst=a src=1                                                   : vfy                      # invalid dst
+$ op=1c dst=b src=1                                                   : vfy                      # invalid dst
+
+# sub64 reg, imm
+$ op=17 dst=0 src=a off=a5a5 r0= 202020203030303 imm= 2020202 : ok  r0= 202020201010101
+$ op=17 dst=1 src=7 off=a5a5 r1=ffffffffffffffff imm=fffffff2 : ok  r1=               d  # add, overflow
+$ op=17 dst=2 src=a off=5a5a r2=               1 imm=fffffffe : ok  r2=               3  # add
+$ op=17 dst=3 src=9 off=5a5a r3=        80000000 imm=       0 : ok  r3=        80000000  # nop
+$ op=17 dst=4 src=8 off=5a5a r4=        7fffffff imm=       0 : ok  r4=        7fffffff  # nop
+$ op=17 dst=5 src=5 off=5a5a r5=               1 imm=       2 : ok  r5=ffffffffffffffff  # underflow
+$ op=17 dst=9 src=a off=0000 r9=               0 imm=       0 : ok  r9=               0  # zero
+$ op=17 dst=9 src=b                                           : vfy                      # invalid src
+$ op=17 dst=a src=1                                           : vfy                      # invalid dst
+$ op=17 dst=b src=1                                           : vfy                      # invalid dst
+
+# sub64 reg, reg
+$ op=1f dst=0 src=a off=a5a5 r0= 202020203030303 r10=       102020202 : ok  r0= 202020101010101
+$ op=1f dst=1 src=7 off=a5a5 r1=ffffffffffffffff r7 =fffffffffffffff2 : ok  r1=               d  # add, overflow
+$ op=1f dst=2 src=a off=5a5a r2=               1 r10=        fffffffe : ok  r2=ffffffff00000003  # underflow
+$ op=1f dst=2 src=a off=5a5a r2=               1 r10=fffffffffffffffe : ok  r2=               3  # add
+$ op=1f dst=3 src=9 off=5a5a r3=        80000000 r9 =               0 : ok  r3=        80000000  # nop
+$ op=1f dst=4 src=8 off=5a5a r4=        7fffffff r8 =               0 : ok  r4=        7fffffff  # nop
+$ op=1f dst=5 src=6 off=5a5a r5=               1 r6 =               2 : ok  r5=ffffffffffffffff  # underflow
+$ op=1f dst=9 src=a off=0000 r9=               0 r10=               0 : ok  r9=               0  # zero
+$ op=1f dst=9 src=b                                                   : vfy                      # invalid src
+$ op=1f dst=a src=1                                                   : vfy                      # invalid dst
+$ op=1f dst=b src=1                                                   : vfy                      # invalid dst
+
+# mul32 reg, imm
+$ op=24 dst=0 src=a off=1111 r0=               0 imm=       0 : ok  r0=               0  # zero
+$ op=24 dst=1 src=9 off=1111 r1=               0 imm=ffffffff : ok  r1=               0  # zero
+$ op=24 dst=2 src=8 off=1111 r2=ffffffffffffffff imm=       0 : ok  r2=               0  # zero
+$ op=24 dst=3 src=7 off=1111 r3=ffffffffffffffff imm=ffffffff : ok  r3=               1  # negate
+$ op=24 dst=4 src=6 off=1111 r4=               1 imm=ffffffff : ok  r4=ffffffffffffffff  # negate
+$ op=24 dst=5 src=5 off=1111 r5=        7fffffff imm=7fffffff : ok  r5=               1  # large, truncate
+$ op=24 dst=6 src=4 off=1111 r6=cccccccc85ebca6b imm=c2b2ae35 : ok  r6=ffffffffd1cba227  # sign extend
+$ op=24 dst=7 src=3 off=1111 r7=        80000000 imm=       1 : ok  r7=ffffffff80000000  # sign extend
+$ op=24 dst=8 src=2 off=1111 r8=               1 imm=80000000 : ok  r8=ffffffff80000000  # sign extend
+$ op=24 dst=9 src=b                                           : vfy                      # invalid src
+$ op=24 dst=a src=1                                           : vfy                      # invalid dst
+$ op=24 dst=b src=1                                           : vfy                      # invalid dst
+
+# mul32 reg, reg
+$ op=2c dst=0 src=a off=1111 r0=               0 r10=               0 : ok  r0=               0  # zero
+$ op=2c dst=1 src=9 off=1111 r1=               0 r9 =        ffffffff : ok  r1=               0  # zero
+$ op=2c dst=2 src=8 off=1111 r2=ffffffffffffffff r8 =               0 : ok  r2=               0  # zero
+$ op=2c dst=3 src=7 off=1111 r3=ffffffffffffffff r7 =99999999ffffffff : ok  r3=               1  # negate
+$ op=2c dst=4 src=6 off=1111 r4=               1 r6 =99999999ffffffff : ok  r4=ffffffffffffffff  # negate
+$ op=2c dst=5 src=5 off=1111 r5=        7fffffff r5 =999999997fffffff : ok  r5=               1  # large, truncate
+$ op=2c dst=6 src=4 off=1111 r6=cccccccc85ebca6b r4 =99999999c2b2ae35 : ok  r6=ffffffffd1cba227  # sign extend
+$ op=2c dst=9 src=b                                                   : vfy                      # invalid src
+$ op=2c dst=a src=1                                                   : vfy                      # invalid dst
+$ op=2c dst=b src=1                                                   : vfy                      # invalid dst
+
+# mul64 reg, imm
+$ op=27 dst=0 src=a off=1111 r0=               0 imm=       0 : ok  r0=               0  # zero
+$ op=27 dst=1 src=9 off=1111 r1=               0 imm=ffffffff : ok  r1=               0  # zero
+$ op=27 dst=2 src=8 off=1111 r2=ffffffffffffffff imm=       0 : ok  r2=               0  # zero
+$ op=27 dst=3 src=7 off=1111 r3=ffffffffffffffff imm=ffffffff : ok  r3=               1  # negate
+$ op=27 dst=4 src=6 off=1111 r4=               1 imm=ffffffff : ok  r4=ffffffffffffffff  # negate
+$ op=27 dst=5 src=5 off=1111 r5=        7fffffff imm=7fffffff : ok  r5=3fffffff00000001  # large
+$ op=27 dst=6 src=4 off=1111 r6=        85ebca6b imm=c2b2ae35 : ok  r6=dfee5e0ed1cba227  # negative factor
+$ op=27 dst=7 src=3 off=1111 r7=        c2b2ae35 imm=85ebca6b : ok  r7=a3277a44d1cba227
+$ op=27 dst=8 src=2 off=1111 r8=        85ebca6b imm=1b873593 : ok  r8= e6699b7beba6271
+$ op=27 dst=9 src=b                                           : vfy                      # invalid src
+$ op=27 dst=a src=1                                           : vfy                      # invalid dst
+$ op=27 dst=b src=1                                           : vfy                      # invalid dst
+
+# mul64 reg, reg
+$ op=2f dst=0 src=a off=1111 r0=               0 r10=               0 : ok  r0=               0  # zero
+$ op=2f dst=1 src=9 off=1111 r1=               0 r9 =        ffffffff : ok  r1=               0  # zero
+$ op=2f dst=2 src=8 off=1111 r2=ffffffffffffffff r8 =               0 : ok  r2=               0  # zero
+$ op=2f dst=3 src=7 off=1111 r3=ffffffffffffffff r7 =        ffffffff : ok  r3=ffffffff00000001
+$ op=2f dst=3 src=7 off=1111 r3=ffffffffffffffff r7 =ffffffffffffffff : ok  r3=               1  # negate
+$ op=2f dst=4 src=6 off=1111 r4=               1 r6 =        ffffffff : ok  r4=        ffffffff
+$ op=2f dst=4 src=6 off=1111 r4=               1 r6 =ffffffffffffffff : ok  r4=ffffffffffffffff  # negate
+$ op=2f dst=5 src=5 off=1111 r5=        7fffffff r5 =        7fffffff : ok  r5=3fffffff00000001
+$ op=2f dst=5 src=5 off=1111 r5=7fffffffffffffff r5 =7fffffffffffffff : ok  r5=               1  # large
+$ op=2f dst=6 src=4 off=1111 r6=        85ebca6b r4 =        c2b2ae35 : ok  r6=65da2879d1cba227
+$ op=2f dst=6 src=4 off=1111 r6=        85ebca6b r4 =ffffffffc2b2ae35 : ok  r6=dfee5e0ed1cba227  # negative factor
+$ op=2f dst=7 src=3 off=1111 r7=        c2b2ae35 r3 =        85ebca6b : ok  r7=65da2879d1cba227
+$ op=2f dst=7 src=3 off=1111 r7=        c2b2ae35 r3 =ffffffff85ebca6b : ok  r7=a3277a44d1cba227  # negative factor
+$ op=2f dst=8 src=2 off=1111 r8=        85ebca6b r2 =        1b873593 : ok  r8= e6699b7beba6271
+$ op=2f dst=9 src=1 off=1111 r9=d1c4d28a53225e8b r1 =9b58a91d770d08dd : ok  r9=ff3fbf7341aef5ff  # large
+$ op=2f dst=9 src=b                                                   : vfy                      # invalid src
+$ op=2f dst=a src=1                                                   : vfy                      # invalid dst
+$ op=2f dst=b src=1                                                   : vfy                      # invalid dst
+
+# div32 reg, imm
+$ op=34 dst=0 src=a off=2222 r0=               0 imm=       0 : vfy # divide by zero
+$ op=34 dst=1 src=9 off=2222 r1=               0 imm=ffffffff : ok  r1=       0
+$ op=34 dst=2 src=8 off=2222 r2=               1 imm=ffffffff : ok  r2=       0
+$ op=34 dst=3 src=7 off=2222 r3=               1 imm=       1 : ok  r3=       1
+$ op=34 dst=3 src=6 off=2222 r3=        80000000 imm=       1 : ok  r3=80000000
+$ op=34 dst=4 src=5 off=2222 r4=               1 imm=       2 : ok  r4=       0
+$ op=34 dst=5 src=4 off=2222 r5=ffffffffffffffff imm=       1 : ok  r5=ffffffff
+$ op=34 dst=6 src=3 off=2222 r6=ffffffffffffffff imm=       2 : ok  r6=7fffffff
+$ op=34 dst=7 src=2 off=2222 r7=ffffffffffffffff imm=       3 : ok  r7=55555555
+$ op=34 dst=8 src=1 off=2222 r8=77777777ffe000ff imm=    ffef : ok  r8=    fff1
+$ op=34 dst=9 src=b                                           : vfy # invalid src
+$ op=34 dst=a src=1                                           : vfy # invalid dst
+$ op=34 dst=b src=1                                           : vfy # invalid dst
+
+# div32 reg, reg
+$ op=3c dst=0 src=0 off=2323 r0=               0                      : err              # divide by zero
+$ op=3c dst=0 src=a off=2323 r0=               0 r10=ffffffff00000000 : err              # divide by zero
+$ op=3c dst=1 src=a off=2323 r1=               0 r10=ffffffffffffffff : ok  r1=       0
+$ op=3c dst=2 src=9 off=2323 r2=               1 r9 =ffffffffffffffff : ok  r2=       0
+$ op=3c dst=3 src=8 off=2323 r3=               1 r8 =               1 : ok  r3=       1
+$ op=3c dst=3 src=7 off=2323 r3=        80000000 r7 =               1 : ok  r3=80000000
+$ op=3c dst=4 src=6 off=2323 r4=               1 r6 =               2 : ok  r4=       0
+$ op=3c dst=5 src=4 off=2323 r5=ffffffffffffffff r4 =               1 : ok  r5=ffffffff
+$ op=3c dst=6 src=3 off=2323 r6=ffffffffffffffff r3 =               2 : ok  r6=7fffffff
+$ op=3c dst=7 src=2 off=2323 r7=ffffffffffffffff r2 =               3 : ok  r7=55555555
+$ op=3c dst=8 src=1 off=2323 r8=77777777ffe000ff r1 =777777770000ffef : ok  r8=    fff1
+$ op=3c dst=9 src=0 off=2323 r9=        fffffffe r0 =               2 : ok  r9=7fffffff
+$ op=3c dst=9 src=b                                                   : vfy # invalid src
+$ op=3c dst=a src=1                                                   : vfy # invalid dst
+$ op=3c dst=b src=1                                                   : vfy # invalid dst
+
+# div64 reg, imm
+$ op=37 dst=0 src=a off=3333 r0=               0 imm=       0 : vfy # divide by zero
+$ op=37 dst=1 src=9 off=3333 r1=               0 imm=ffffffff : ok  r1=               0
+$ op=37 dst=2 src=8 off=3333 r2=               1 imm=ffffffff : ok  r2=               0
+$ op=37 dst=3 src=7 off=3333 r3=               1 imm=       1 : ok  r3=               1
+$ op=37 dst=3 src=6 off=3333 r3=        80000000 imm=       1 : ok  r3=        80000000
+$ op=37 dst=4 src=5 off=3333 r4=               1 imm=       2 : ok  r4=               0
+$ op=37 dst=5 src=4 off=3333 r5=ffffffffffffffff imm=       1 : ok  r5=ffffffffffffffff
+$ op=37 dst=6 src=3 off=3333 r6=ffffffffffffffff imm=       2 : ok  r6=7fffffffffffffff
+$ op=37 dst=7 src=2 off=3333 r7=ffffffffffffffff imm=       3 : ok  r7=5555555555555555
+$ op=37 dst=8 src=1 off=3333 r8=3ffffff600000013 imm=7fffffed : ok  r8=        7fffffff
+$ op=37 dst=9 src=b                                           : vfy # invalid src
+$ op=37 dst=a src=1                                           : vfy # invalid dst
+$ op=37 dst=b src=1                                           : vfy # invalid dst
+
+# div64 reg, reg
+$ op=3f dst=0 src=a off=3434 r0=               0 r10=               0 : err # divide by zero
+$ op=3f dst=1 src=9 off=3434 r1=               0 r9 =        ffffffff : ok  r1=               0
+$ op=3f dst=2 src=8 off=3434 r2=               1 r8 =        ffffffff : ok  r2=               0
+$ op=3f dst=3 src=7 off=3434 r3=               1 r7 =               1 : ok  r3=               1
+$ op=3f dst=3 src=6 off=3434 r3=        80000000 r6 =               1 : ok  r3=        80000000
+$ op=3f dst=4 src=5 off=3434 r4=               1 r5 =               2 : ok  r4=               0
+$ op=3f dst=5 src=4 off=3434 r5=ffffffffffffffff r4 =               1 : ok  r5=ffffffffffffffff
+$ op=3f dst=6 src=3 off=3434 r6=ffffffffffffffff r3 =               2 : ok  r6=7fffffffffffffff
+$ op=3f dst=7 src=2 off=3434 r7=ffffffffffffffff r2 =               3 : ok  r7=5555555555555555
+$ op=3f dst=8 src=1 off=3434 r8=3ffffff600000013 r1 =        7fffffed : ok  r8=        7fffffff
+$ op=3f dst=8 src=1 off=3434 r8=cea75784a71da55f r1 =77ba5bdf2c071b7a : ok  r8=               1
+$ op=3f dst=9 src=b                                                   : vfy # invalid src
+$ op=3f dst=a src=1                                                   : vfy # invalid dst
+$ op=3f dst=b src=1                                                   : vfy # invalid dst
+
+# mod32 reg, imm
+$ op=94 dst=0 src=a off=2222 r0=               0 imm=       0 : vfy # divide by zero
+$ op=94 dst=1 src=9 off=2222 r1=               0 imm=ffffffff : ok  r1=       0
+$ op=94 dst=2 src=8 off=2222 r2=               1 imm=ffffffff : ok  r2=       1
+$ op=94 dst=3 src=7 off=2222 r3=               1 imm=       1 : ok  r3=       0
+$ op=94 dst=3 src=6 off=2222 r3=        80000000 imm=       1 : ok  r3=       0
+$ op=94 dst=4 src=5 off=2222 r4=               1 imm=       2 : ok  r4=       1
+$ op=94 dst=5 src=4 off=2222 r5=ffffffffffffffff imm=512b95d3 : ok  r5= c7d3e86
+$ op=94 dst=6 src=3 off=2222 r6=ffffffffffffffff imm=97d48b08 : ok  r6=682b74f7
+$ op=94 dst=7 src=2 off=2222 r7=ffffffffffffffff imm=    2f83 : ok  r7=    1468
+$ op=94 dst=8 src=1 off=2222 r8=77777777ffe000ff imm=    f1ee : ok  r8=    9891
+$ op=94 dst=9 src=b                                           : vfy # invalid src
+$ op=94 dst=a src=1                                           : vfy # invalid dst
+$ op=94 dst=b src=1                                           : vfy # invalid dst
+
+# mod32 reg, reg
+$ op=9c dst=0 src=0 off=2323 r0=               0                      : err              # divide by zero
+$ op=9c dst=0 src=a off=2323 r0=               0 r10=ffffffff00000000 : err              # divide by zero
+$ op=9c dst=1 src=a off=2323 r1=               0 r10=ffffffffffffffff : ok  r1=       0
+$ op=9c dst=2 src=9 off=2323 r2=      9f9f9f9f9f r9 =         3333333 : ok  r2= 2d2d2dc
+$ op=9c dst=3 src=8 off=2323 r3=               1 r8 =               1 : ok  r3=       0
+$ op=9c dst=3 src=7 off=2323 r3=        80000000 r7 =        512b95d3 : ok  r3=2ed46a2d
+$ op=9c dst=4 src=6 off=2323 r4=               7 r6 =               3 : ok  r4=       1
+$ op=9c dst=5 src=4 off=2323 r5=ffffffffefffffff r4 =      f426aea1c1 : ok  r5= 7e83579
+$ op=9c dst=6 src=3 off=2323 r6=fffffffefeffffff r3 =      3e7d1c534d : ok  r6= 4c75965
+$ op=9c dst=7 src=2 off=2323 r7=fffffffeeeffffff r2 =      87e1f9ef86 : ok  r7= d061079
+$ op=9c dst=8 src=1 off=2323 r8=77777777ffe000ff r1 =777777770000ffef : ok  r8=       0
+$ op=9c dst=9 src=0 off=2323 r9=        fffffffe r0 =             777 : ok  r9=     20f
+$ op=9c dst=9 src=b                                                   : vfy # invalid src
+$ op=9c dst=a src=1                                                   : vfy # invalid dst
+$ op=9c dst=b src=1                                                   : vfy # invalid dst
+
+# mod64 reg, imm
+$ op=97 dst=0 src=a off=3333 r0=               0 imm=       0 : vfy # divide by zero
+$ op=97 dst=1 src=9 off=3333 r1=               0 imm=ffffffff : ok  r1=               0
+$ op=97 dst=2 src=8 off=3333 r2=               1 imm=ffffffff : ok  r2=               1
+$ op=97 dst=3 src=7 off=3333 r3=               1 imm=       1 : ok  r3=               0
+$ op=97 dst=3 src=6 off=3333 r3=0414aec3de7effb6 imm=1ba7b8ee : ok  r3=         c4a2324
+$ op=97 dst=4 src=5 off=3333 r4=               1 imm=       2 : ok  r4=               1
+$ op=97 dst=5 src=4 off=3333 r5=ffffffffffffffff imm=80000080 : ok  r5=        7fffff7f
+$ op=97 dst=6 src=3 off=3333 r6=ffffff3333ffffff imm=5655b2fc : ok  r6=         37a1287
+$ op=97 dst=7 src=2 off=3333 r7=ffffffffffffffff imm=fe30d1ae : ok  r7=         1cf2e51
+$ op=97 dst=8 src=1 off=3333 r8=31fffff600000013 imm=7fffffed : ok  r8=        6bffffa1
+$ op=97 dst=9 src=b                                           : vfy # invalid src
+$ op=97 dst=a src=1                                           : vfy # invalid dst
+$ op=97 dst=b src=1                                           : vfy # invalid dst
+
+# mod64 reg, reg
+$ op=9f dst=0 src=a off=3434 r0=               0 r10=               0 : err # divide by zero
+$ op=9f dst=1 src=9 off=3434 r1=               0 r9 =        ffffffff : ok  r1=               0
+$ op=9f dst=2 src=8 off=3434 r2=               1 r8 =        ffffffff : ok  r2=               1
+$ op=9f dst=3 src=7 off=3434 r3=               1 r7 =               1 : ok  r3=               0
+$ op=9f dst=3 src=6 off=3434 r3=        80000000 r6 =            f3f3 : ok  r3=            aa2a
+$ op=9f dst=4 src=5 off=3434 r4=               1 r5 =               2 : ok  r4=               1
+$ op=9f dst=5 src=4 off=3434 r5=a6fb5d65e3d11173 r4 =2c31ecc24805bdca : ok  r5=2265971f0bbfd815
+$ op=9f dst=6 src=3 off=3434 r6=d321b13aa309937d r3 =  373d77f9181714 : ok  r6=  18dce505016915
+$ op=9f dst=7 src=2 off=3434 r7=9851089dfb2ee3c7 r2 =    92f6d8e8a4a5 : ok  r7=    6f03ae3b59ed
+$ op=9f dst=8 src=1 off=3434 r8=091fdac36c21642d r1 =        7fffffed : ok  r8=        46dbdd58
+$ op=9f dst=8 src=1 off=3434 r8=3f4184478221fe89 r1 =77ba5bdf2c071b7a : ok  r8=3f4184478221fe89
+$ op=9f dst=9 src=b                                                   : vfy # invalid src
+$ op=9f dst=a src=1                                                   : vfy # invalid dst
+$ op=9f dst=b src=1                                                   : vfy # invalid dst
