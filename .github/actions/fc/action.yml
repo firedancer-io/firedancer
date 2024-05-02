@@ -28,9 +28,7 @@ runs:
 
     - name: Generate fuzz targets and .fc files
       run: |
-        ls
-        ls contrib
-        ls ./*
+        ls contrib/test || ls contrib/*
         chmod +x ./contrib/test/bundle-binaries-fc.sh
         ./contrib/test/bundle-binaries-fc.sh ./build fc-fd-latest.zip
       shell: bash
