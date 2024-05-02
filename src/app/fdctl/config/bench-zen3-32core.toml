@@ -9,8 +9,8 @@
   path = "/data/shm/{name}/ledger"
 
 [layout]
-  affinity = "14-57,f1"
-  solana_labs_affinity = "58-63"
+  affinity = "15-58,f1"
+  solana_labs_affinity = "59-63"
   verify_tile_count = 30
   bank_tile_count = 6
 
@@ -20,11 +20,24 @@
 
 [development.bench]
   benchg_tile_count = 12
-  benchs_tile_count = 2
-  affinity = "f1,0-13"
+  benchs_tile_count = 1
+  affinity = "0-14"
   larger_max_cost_per_block = true
   larger_shred_limits_per_block = true
 
 [rpc]
   transaction_history = false
   extended_tx_metadata_storage = false
+
+[tiles.quic]
+    regular_transaction_listen_port = 9001
+    quic_transaction_listen_port = 9007
+    max_concurrent_connections = 4
+    max_concurrent_streams_per_connection = 6000
+    stream_pool_cnt = 10000
+    txn_reassembly_count = 16384
+    max_concurrent_handshakes = 4
+    max_inflight_quic_packets = 2000
+    tx_buf_size = 4096
+    idle_timeout_millis = 10000
+    retry = false

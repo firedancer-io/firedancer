@@ -100,6 +100,7 @@ typedef struct {
   fd_quic_stream_t * stream;
 
   fd_wksp_t * mem;
+
 } fd_benchs_ctx_t;
 
 void
@@ -265,6 +266,7 @@ conn_final( fd_quic_conn_t * conn,
 
   if( ctx ) {
     ctx->quic_conn = NULL;
+    ctx->stream = NULL;
   }
 }
 
@@ -290,14 +292,14 @@ populate_quic_limits( fd_quic_limits_t * limits ) {
   limits->initial_stream_cnt[2] = 3000;
   limits->initial_stream_cnt[3] = 0;
 
-  limits->conn_cnt = 2;
+  limits->conn_cnt = 4;
   limits->handshake_cnt = limits->conn_cnt;
   limits->conn_id_cnt = 16;
   limits->conn_id_sparsity = 4.0;
   limits->stream_sparsity = 2.0;
   limits->inflight_pkt_cnt = 2500;
   limits->tx_buf_sz = 1<<12;
-  limits->stream_pool_cnt = 1<<16;
+  limits->stream_pool_cnt = 30000;
 }
 
 void
@@ -370,6 +372,15 @@ during_frag( void * _ctx,
 
     ctx->packet_cnt++;
   } else {
+
+    /* allows to accumulate multiple transactions before creating a UDP datagram */
+    /* make this configurable */
+    if( FD_UNLIKELY( ctx->service_ratio_idx++ == 7 ) ) {
+      ctx->service_ratio_idx = 0;
+      service_quic( ctx );
+      fd_quic_service( ctx->quic );
+    }
+
     if( FD_UNLIKELY( !ctx->quic_conn ) ) {
       ctx->no_stream = 0;
 
@@ -393,6 +404,12 @@ during_frag( void * _ctx,
          a connection dies */
       fd_quic_conn_set_context( ctx->quic_conn, ctx );
 
+      ctx->no_stream++;
+      service_quic( ctx );
+      fd_quic_service( ctx->quic );
+
+      /* conn and streams may be invalidated by fd_quic_service */
+
       return;
     }
 
@@ -406,6 +423,13 @@ during_frag( void * _ctx,
 
     if( FD_UNLIKELY( !stream ) ) {
       ctx->no_stream++;
+      service_quic( ctx );
+      fd_quic_service( ctx->quic );
+
+      /* conn and streams may be invalidated by fd_quic_service */
+
+      return;
+
     } else {
       int fin = 1;
       fd_aio_pkt_info_t   batch[1]  = { { .buf    = fd_chunk_to_laddr( ctx->mem, chunk ),
@@ -428,14 +452,6 @@ during_frag( void * _ctx,
           FD_LOG_ERR(( "fd_quic_stream_send failed with: %d", rtn ));
         }
       }
-    }
-
-    /* allows to accumulate multiple transactions before creating a UDP datagram */
-    /* make this configurable */
-    if( FD_UNLIKELY( ctx->service_ratio_idx++ == 4 ) ) {
-      ctx->service_ratio_idx = 0;
-      service_quic( ctx );
-      fd_quic_service( ctx->quic );
     }
   }
 }
@@ -611,9 +627,9 @@ unprivileged_init( fd_topo_t *      topo,
 static void
 quic_tx_aio_send_flush( fd_benchs_ctx_t * ctx ) {
   if( FD_LIKELY( ctx->tx_idx ) ) {
-    int flags = MSG_DONTWAIT;
+    int flags = 0;
     int rtn = sendmmsg( ctx->conn_fd[0], ctx->tx_msgs, (uint)ctx->tx_idx, flags );
-    if( FD_UNLIKELY( rtn < 0 ) ) {
+    if( FD_UNLIKELY( rtn <= 0 ) ) {
       FD_LOG_NOTICE(( "Error occurred in sendmmsg. Error: %d %s",
           errno, strerror( errno ) ));
     }
