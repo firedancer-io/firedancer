@@ -190,6 +190,7 @@ main( int     argc,
   char const * copy_txnstatus     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--copytxnstatus",    NULL, "true"    );
   ulong        index_max_unpruned = fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmaxunpruned", NULL, 450000000 );
   ulong        pages_pruned       = fd_env_strip_cmdline_ulong( &argc, &argv, "--pagespruned",      NULL, ULONG_MAX );
+  ulong        vote_acct_max      = fd_env_strip_cmdline_ulong( &argc, &argv, "--voteaccs",         NULL,   2000000 );
 
 #ifdef _ENABLE_LTHASH
   char const * lthash             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",           NULL, "false"   );
@@ -315,8 +316,8 @@ main( int     argc,
   fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( funk_wksp, funk->alloc_gaddr ), 0UL );
   if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", funk->alloc_gaddr ));
 
-  uchar * epoch_ctx_mem = fd_wksp_alloc_laddr( wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint(), FD_EXEC_EPOCH_CTX_MAGIC );
-  fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
+  uchar * epoch_ctx_mem = fd_wksp_alloc_laddr( wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ), FD_EXEC_EPOCH_CTX_MAGIC );
+  fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acct_max ) );
 
   uchar slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN)));
   fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
@@ -366,8 +367,8 @@ main( int     argc,
       FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", unpruned_funk->alloc_gaddr ));
     }
 
-    uchar epoch_ctx_mem_unpruned[FD_EXEC_EPOCH_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_EPOCH_CTX_ALIGN)));
-    fd_exec_epoch_ctx_t * epoch_ctx_unpruned = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem_unpruned ) );
+    uchar * epoch_ctx_mem_unpruned = fd_wksp_alloc_laddr( wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ), FD_EXEC_EPOCH_CTX_MAGIC );
+    fd_exec_epoch_ctx_t * epoch_ctx_unpruned = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem_unpruned, vote_acct_max ) );
 
     uchar slot_ctx_mem_unpruned[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN)));
     fd_exec_slot_ctx_t * slot_ctx_unpruned = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem_unpruned, fd_alloc_virtual( alloc_unpruned ) ) );
@@ -480,7 +481,7 @@ main( int     argc,
     if( FD_UNLIKELY( !alloc_unpruned ) ) {
       FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", unpruned_funk->alloc_gaddr ));
     }
-    epoch_ctx_unpruned = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem_unpruned ) );
+    epoch_ctx_unpruned = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem_unpruned, vote_acct_max ) );
     slot_ctx_unpruned = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem_unpruned, fd_alloc_virtual( alloc_unpruned ) ) );
     slot_ctx_unpruned->epoch_ctx = epoch_ctx_unpruned;
 
@@ -599,6 +600,7 @@ main( int     argc,
 
     fd_wksp_free_laddr( smem );
     fd_wksp_free_laddr( fmem );
+    fd_wksp_free_laddr( epoch_ctx_mem_unpruned );
 
     if ( backup ) {
       FD_LOG_NOTICE(( "writing %s", backup ));
@@ -729,7 +731,7 @@ main( int     argc,
       free(buf);
 
       fd_funk_start_write( funk );
-        
+
       /* If we are loading from a snapshot, do not overwrite from genesis */
       if ( !snapshotfile ) {
         fd_runtime_init_bank_from_genesis( slot_ctx, &genesis_block, &genesis_hash );

@@ -101,6 +101,9 @@
 static int gossip_sockfd = -1;
 static int repair_sockfd = -1;
 
+/* FIXME don't hardcode this */
+#define vote_acct_max (2000000UL)
+
 static void
 repair_deliver_fun( fd_shred_t const *                            shred,
                     FD_PARAM_UNUSED ulong                         shred_sz,
@@ -756,7 +759,7 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
     runtime_ctx->capture_ctx->checkpt_path = args->checkpt_path;
     runtime_ctx->capture_ctx->checkpt_freq = args->checkpt_freq;
   }
-  
+
   if ( has_prune ) {
     runtime_ctx->capture_ctx->pruned_funk = args->pruned_funk;
   }
@@ -894,7 +897,7 @@ void slot_ctx_setup( fd_valloc_t valloc,
                      slot_ctx_setup_t * out ) {
   fd_memset( out, 0, sizeof( slot_ctx_setup_t ) );
 
-  out->exec_epoch_ctx   = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
+  out->exec_epoch_ctx   = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acct_max ) );
   out->fork             = fd_fork_pool_ele_acquire( fork_pool );
   out->exec_slot_ctx    = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork_pool->slot_ctx, valloc ) );
 
@@ -1126,7 +1129,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   forks->funk = funk_setup_out.funk;
   forks->valloc = valloc;
   replay_setup_out.replay->forks = forks;
-  runtime_ctx->epoch_ctx_mem = fd_wksp_alloc_laddr( wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint(), FD_EXEC_EPOCH_CTX_MAGIC );
+  runtime_ctx->epoch_ctx_mem = fd_wksp_alloc_laddr( wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ), FD_EXEC_EPOCH_CTX_MAGIC );
   slot_ctx_setup_t slot_ctx_setup_out = {0};
   slot_ctx_setup( valloc,
                   runtime_ctx->epoch_ctx_mem,
