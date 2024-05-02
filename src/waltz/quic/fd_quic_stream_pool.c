@@ -106,7 +106,7 @@ fd_quic_stream_pool_alloc( fd_quic_stream_pool_t * pool ) {
 void
 fd_quic_stream_pool_free( fd_quic_stream_pool_t * pool,
                           fd_quic_stream_t *      stream ) {
-  FD_QUIC_STREAM_LIST_INSERT_BEFORE( pool->head, stream );
+  FD_QUIC_STREAM_LIST_INSERT_AFTER( pool->head, stream );
   pool->cur_cnt++;
 }
 

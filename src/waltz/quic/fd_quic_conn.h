@@ -268,6 +268,8 @@ struct fd_quic_conn {
   ulong                   num_pkt_meta;
   fd_quic_pkt_meta_t *    pkt_meta_mem;    /* owns the memory */
 
+  ulong dump_time;
+
   fd_quic_ack_t *      acks;               /* array of acks allocate during init */
   fd_quic_ack_t *      acks_free;          /* free list of acks */
 
@@ -334,6 +336,9 @@ struct fd_quic_conn {
   fd_quic_conn_t *     next;
   ulong token_len;
   uchar token[FD_QUIC_TOKEN_SZ_MAX];
+
+  ulong ackd_max_streams_bidir;
+  ulong ackd_max_streams_unidir;
 };
 
 FD_PROTOTYPES_BEGIN
