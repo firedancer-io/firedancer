@@ -84,9 +84,9 @@ else
     tar -czvf $FIREDANCER/$NETWORK-$rep_mismatch_slot.tar.gz $rep_temp_ledger_upload
     echo "[~] Uploading $FIREDANCER/$NETWORK-$rep_mismatch_slot.tar.gz to $UPLOAD_URL"
     /bin/gsutil cp -r "$FIREDANCER/$NETWORK-$rep_mismatch_slot.tar.gz" $UPLOAD_URL
-
-    # Set new values of START_SLOT for the next iteration; END_SLOT does not change
-    # this is used for `ledger_conformance all --mode exact --repetitions multiple` and ignored in other cases
-    START_SLOT=$((rep_mismatch_slot + 1))
   fi
+  
+  # Set new values of START_SLOT for the next iteration; END_SLOT does not change
+  # this is used for `ledger_conformance all --mode exact --repetitions multiple` and ignored in other cases
+  START_SLOT=$((rep_mismatch_slot + 1))
 fi
