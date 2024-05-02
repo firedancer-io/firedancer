@@ -12,7 +12,7 @@ runs:
   steps:
     - name: checkout fd
       uses: actions/checkout@v4
-      
+
     - name: Download artifacts from previous action
       id: get-artifacts
       uses: actions/download-artifact@v4
@@ -28,6 +28,9 @@ runs:
 
     - name: Generate fuzz targets and .fc files
       run: |
+        ls
+        ls contrib
+        ls ./*
         chmod +x ./contrib/test/bundle-binaries-fc.sh
         ./contrib/test/bundle-binaries-fc.sh ./build fc-fd-latest.zip
       shell: bash
