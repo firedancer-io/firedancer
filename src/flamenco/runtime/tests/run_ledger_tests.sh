@@ -142,10 +142,6 @@ while [[ $# -gt 0 ]]; do
         shift
         shift
         ;;
-    -P|--preingest)
-        ON_DEMAND=0
-        shift
-        ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
@@ -232,6 +228,7 @@ fi
 
 # If not on demand and not skipping ingest, ingest first
 if [[ $SKIP_INGEST = 0 && $ON_DEMAND = 0 ]]; then
+  echo_notice "Non on-demand ingest is deprecated!!"
   echo_notice "Starting ingest to checkpoint"
   set -x
   "$OBJDIR"/bin/fd_ledger \

@@ -123,6 +123,7 @@ struct fd_runtime_args {
   int          on_demand_block_ingest;
   ulong        on_demand_block_history;
   int          copy_txn_status;
+  ulong        trash_hash;
 };
 typedef struct fd_runtime_args fd_runtime_args_t;
 
