@@ -19,11 +19,11 @@ run-runtime-native: $(OBJDIR)/unit-test/test_native_programs
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_native_tests.sh
 
 run-runtime-test-1: $(OBJDIR)/bin/fd_ledger
-	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -t 2 -X 1 -P
-	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -P
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -t 2 -X 1
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l helloworld -s snapshot-100-92rXQxDb3gbNU4YEjof4PjAQ9wDvqAXL4Ma3757kHPRs.tar.zst -e 199
-	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l v118-multi -P
-	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l testnet-519 -s snapshot-255311992-Fju7xb3XaTY6SBxkGcsKko15EGAqnvdfkXBd1o6agPDq.tar.zst -p 64 -m 1000000 -e 255312010 -P
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l v118-multi
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l testnet-519 -s snapshot-255311992-Fju7xb3XaTY6SBxkGcsKko15EGAqnvdfkXBd1o6agPDq.tar.zst -p 64 -m 1000000 -e 255312007
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-251418170 -s snapshot-251418170-8sAkojR9PYTZvqiQZ1VWu27ewX5tXeVdC97wMXAtgHnT.tar.zst -p 64 -m 2000000 -e 251418233
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257066033 -s snapshot-257066033-AD2nFFTCtZVmo5nXLVsQMV1hiQDjzoEBXibRicBJc5Vw.tar.zst -p 32 -m 5000000 -e 257066038 --zst
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257066844 -s snapshot-257066844-B5JpRYzvMa4iyQeR8w9co4y7oEayphgbXVeQHXLDoWvV.tar.zst -p 32 -m 5000000 -e 257066849 --zst

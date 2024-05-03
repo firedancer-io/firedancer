@@ -194,6 +194,10 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
     fd_funk_set_num_partitions( pruned_funk, partvec->num_part );
   }
 
+  /* Setup trash_hash */
+  uchar trash_hash_buf[32];
+  memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
+
   for( ulong slot = start_slot; slot <= args->end_slot; ++slot ) {
     state->slot_ctx->slot_bank.prev_slot = prev_slot;
     state->slot_ctx->slot_bank.slot      = slot;
@@ -206,7 +210,8 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
 
     if( args->on_demand_block_ingest ) {
       if( fd_blockstore_block_query( blockstore, slot ) == NULL && slot_meta.slot == slot ) {
-        int err = fd_rocksdb_import_block_blockstore( &rocks_db, &slot_meta, blockstore, args->copy_txn_status, NULL );
+        int err = fd_rocksdb_import_block_blockstore( &rocks_db, &slot_meta, blockstore, 
+                                                      args->copy_txn_status, slot == (args->trash_hash) ? trash_hash_buf : NULL );
         if( FD_UNLIKELY( err ) ) {
           FD_LOG_ERR(( "Failed to import block %lu", start_slot ));
         }
@@ -1141,6 +1146,103 @@ replay( fd_ledger_args_t * args ) {
       fd_snapshot_load( args->incremental, slot_ctx, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ) ));
     }
+    if( args->genesis ) {
+      struct stat sbuf;
+      if( FD_UNLIKELY( stat( args->genesis, &sbuf ) < 0 ) ) {
+        FD_LOG_ERR(( "cannot open %s : %s", args->genesis, strerror(errno) ));
+      }
+      int fd = open( args->genesis, O_RDONLY );
+      if( FD_UNLIKELY( fd < 0 ) ) {
+        FD_LOG_ERR(( "cannot open %s : %s", args->genesis, strerror(errno) ));
+      }
+      uchar * buf = malloc( (ulong) sbuf.st_size );  /* TODO: Make this a scratch alloc */
+      ssize_t n = read( fd, buf, (ulong) sbuf.st_size );
+      close( fd );
+
+      fd_genesis_solana_t genesis_block;
+      fd_genesis_solana_new( &genesis_block );
+      fd_bincode_decode_ctx_t ctx = {
+        .data = buf,
+        .dataend = buf + n,
+        .valloc  = slot_ctx->valloc
+      };
+      if( fd_genesis_solana_decode( &genesis_block, &ctx ) ) {
+        FD_LOG_ERR(( "fd_genesis_solana_decode failed" ));
+      }
+
+      // The hash is generated from the raw data... don't mess with this..
+      fd_hash_t genesis_hash;
+      fd_sha256_hash( buf, (ulong)n, genesis_hash.uc );
+      FD_LOG_NOTICE(( "Genesis Hash: %32J", &genesis_hash ));
+      fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+      fd_memcpy( epoch_bank->genesis_hash.uc, genesis_hash.uc, 32U );
+      epoch_bank->cluster_type = genesis_block.cluster_type;
+
+      free( buf );
+
+      fd_funk_start_write( funk );
+
+      /* If we are loading from a snapshot, do not overwrite from genesis */
+      if ( !args->snapshot ) {
+        fd_runtime_init_bank_from_genesis( slot_ctx, &genesis_block, &genesis_hash );
+
+        fd_runtime_init_program( slot_ctx );
+
+        FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block.accounts_len ));
+
+        for( ulong i=0; i < genesis_block.accounts_len; i++ ) {
+          fd_pubkey_account_pair_t * a = &genesis_block.accounts[i];
+
+          FD_BORROWED_ACCOUNT_DECL(rec);
+
+          int err = fd_acc_mgr_modify(
+            slot_ctx->acc_mgr,
+            slot_ctx->funk_txn,
+            &a->key,
+            /* do_create */ 1,
+            a->account.data_len,
+            rec);
+          if( FD_UNLIKELY( err ) )
+            FD_LOG_ERR(( "fd_acc_mgr_modify failed (%d)", err ));
+
+          rec->meta->dlen            = a->account.data_len;
+          rec->meta->info.lamports   = a->account.lamports;
+          rec->meta->info.rent_epoch = a->account.rent_epoch;
+          rec->meta->info.executable = !!a->account.executable;
+          memcpy( rec->meta->info.owner, a->account.owner.key, 32UL );
+          if( a->account.data_len ) {
+            memcpy( rec->data, a->account.data, a->account.data_len );
+          }
+        }
+
+        FD_LOG_DEBUG(( "end genesis accounts"));
+
+        FD_LOG_DEBUG(( "native instruction processors - count: %lu", genesis_block.native_instruction_processors_len));
+
+        for( ulong i=0; i < genesis_block.native_instruction_processors_len; i++ ) {
+          fd_string_pubkey_pair_t * a = &genesis_block.native_instruction_processors[i];
+          fd_write_builtin_bogus_account( slot_ctx, a->pubkey.uc, a->string, strlen(a->string) );
+        }
+
+        /* Sort and update bank hash */
+        int result = fd_update_hash_bank( slot_ctx, NULL, &slot_ctx->slot_bank.banks_hash, slot_ctx->signature_cnt );
+        if( result != FD_EXECUTOR_INSTR_SUCCESS ) {
+          FD_LOG_ERR(( "unable to update hash bank" ));
+        }
+
+        slot_ctx->slot_bank.slot = 0UL;
+      }
+
+      FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_epoch_bank( slot_ctx ) );
+
+      FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_slot_bank( slot_ctx ) );
+
+      fd_funk_end_write( funk );
+
+      fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };
+      fd_genesis_solana_destroy( &genesis_block, &ctx2 );
+    }
+
   }
 
   fd_runtime_args_t runtime_args = {0};
@@ -1163,6 +1265,7 @@ replay( fd_ledger_args_t * args ) {
   runtime_args.dump_insn_to_pb         = args->dump_insn_to_pb;
   runtime_args.dump_insn_sig_filter    = args->dump_insn_sig_filter;
   runtime_args.dump_insn_output_dir    = args->dump_insn_output_dir;
+  runtime_args.trash_hash              = args->trash_hash;
 
   fd_replay_t * replay = NULL;
   fd_tvu_main_setup( &state, &replay, NULL, NULL, 0, wksp, &runtime_args, NULL );
