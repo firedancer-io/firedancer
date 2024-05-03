@@ -226,7 +226,7 @@ fd_exec_epoch_ctx_fixup_memory( fd_exec_epoch_ctx_t * epoch_ctx,
     if( FD_UNLIKELY( fd_delegation_pair_t_map_size( new_pool, new_root ) ) )
       FD_LOG_ERR(( "epoch_ctx->stake_delegations not empty" ));
     if( FD_UNLIKELY( fd_delegation_pair_t_map_max( new_pool ) != epoch_ctx->layout.vote_acct_max ) )
-      FD_LOG_ERR(( "epoch_ctx->stake_votes corrupt" ));
+      FD_LOG_ERR(( "epoch_ctx->stake_delegations corrupt" ));
 
     for( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum( old_pool, old_root ); n; n = fd_delegation_pair_t_map_successor( old_pool, n ) ) {
       fd_delegation_pair_t_mapnode_t * node = fd_delegation_pair_t_map_acquire( new_pool );
