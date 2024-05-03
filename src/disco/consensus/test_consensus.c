@@ -32,6 +32,7 @@
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
+#define MAX_ADDR_STRLEN      128
 #define TEST_CONSENSUS_MAGIC ( 0x7e57UL ) /* test */
 
 static void
@@ -88,7 +89,7 @@ create_socket( fd_gossip_peer_addr_t * addr ) {
   uchar saddr[sizeof( struct sockaddr_in6 )];
   int   addrlen = to_sockaddr( saddr, addr );
   if( addrlen < 0 || bind( fd, (struct sockaddr *)saddr, (uint)addrlen ) < 0 ) {
-    char tmp[100];
+    char tmp[MAX_ADDR_STRLEN];
     FD_LOG_ERR( ( "bind failed: %s for %s",
                   strerror( errno ),
                   fd_gossip_addr_str( tmp, sizeof( tmp ), addr ) ) );
@@ -132,7 +133,7 @@ gossip_send_fun( uchar const *                 data,
                  void *                        arg ) {
   uchar saddr[sizeof( struct sockaddr_in )];
   int   saddrlen = to_sockaddr( saddr, gossip_peer_addr );
-  char  s[1000]  = { 0 };
+  char  s[MAX_ADDR_STRLEN]  = { 0 };
   fd_gossip_addr_str( s, sizeof( s ), gossip_peer_addr );
   if( sendto( *(int *)arg,
               data,
@@ -196,7 +197,7 @@ resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res 
   fd_memset( res, 0, sizeof( fd_repair_peer_addr_t ) );
 
   /* Find the : and copy out the host */
-  char buf[128];
+  char buf[MAX_ADDR_STRLEN];
   uint i;
   for( i = 0;; ++i ) {
     if( str[i] == '\0' || i > sizeof( buf ) - 1U ) {
