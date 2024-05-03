@@ -142,7 +142,9 @@ typedef struct {
       ushort shred_listen_port;
       ushort quic_transaction_listen_port;
       ushort legacy_transaction_listen_port;
-      ushort repair_instake_listen_port;
+      ushort gossip_listen_port;
+      ushort repair_intake_listen_port;
+      ushort repair_serve_listen_port;
     } net;
 
     struct {
