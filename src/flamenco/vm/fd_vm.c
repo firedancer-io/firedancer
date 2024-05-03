@@ -176,7 +176,9 @@ fd_vm_validate( fd_vm_t const * vm ) {
 
     case FD_CHECK_ST: break; /* FIXME: HMMM ... */
 
+    /* https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/verifier.rs#L244 */
     case FD_CHECK_LDQ: {
+      /* https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/verifier.rs#L131 */
       if( FD_UNLIKELY( (i+1UL)>=text_cnt ) ) return FD_VM_ERR_INCOMPLETE_LDQ;
       /* FIXME: SHOULD THERE BE EXTRA CHECKS ON THE ADDL_IMM HERE? */
       /* FIXME: SET A BIT MAP HERE OF ADDL_IMM TO DENOTE * AS FORBIDDEN
@@ -185,10 +187,14 @@ fd_vm_validate( fd_vm_t const * vm ) {
       break;
     }
 
+    /* https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/elf.rs#L829-L830 */
     case FD_CHECK_CALL: { /* FIXME: Check to make sure we are really doing this right! (required for sbpf2?) */
-      if( instr.imm>=text_cnt                                                      &&
-          !fd_sbpf_syscalls_query_const( vm->syscalls, instr.imm, NULL )           &&
-          !fd_sbpf_calldests_test( vm->calldests, fd_pchash_inverse( instr.imm ) ) ) return FD_VM_ERR_NO_SUCH_EXT_CALL;
+      if ( instr.src_reg == 0 ) {
+        ulong target_pc = fd_ulong_sat_add( fd_ulong_sat_add( i, instr.imm ), 1 );
+        if ( FD_UNLIKELY( target_pc >= text_cnt ) ) {
+          return FD_VM_ERR_JMP_OUT_OF_BOUNDS;
+        }
+      }
       break;
     }
 
