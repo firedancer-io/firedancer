@@ -35,7 +35,9 @@ fd_vm_syscall_sol_sha256(
 
   for( ulong i = 0; i < slices_cnt; i++ ) {
     uchar const * slice = fd_vm_translate_vm_to_host_const( ctx, slices[i].addr, slices[i].len, alignof(uchar) );
-    if( FD_UNLIKELY( !slice ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+    if( FD_UNLIKELY( !slice && slices[i].len ) ) { 
+      return FD_VM_MEM_MAP_ERR_ACC_VIO;
+    }
 
     ulong cost = fd_ulong_max(vm_compute_budget.mem_op_base_cost, fd_ulong_sat_mul(vm_compute_budget.sha256_byte_cost, slices[i].len) / 2);
     ulong err = fd_vm_consume_compute_meter(ctx, cost);
@@ -92,7 +94,7 @@ fd_vm_syscall_sol_keccak256(
 
     for (ulong i = 0; i < slices_cnt; i++) {
       void const * slice = fd_vm_translate_vm_to_host_const( ctx, slices[i].addr, slices[i].len, alignof(uchar) );
-      if( FD_UNLIKELY( !slice ) ) {
+      if( FD_UNLIKELY( !slice && slices[i].len ) ) {
         FD_LOG_DEBUG(("Translate slice failed %lu %lu %lu", i, slices[i].addr, slices[i].len));
         return FD_VM_MEM_MAP_ERR_ACC_VIO;
       }
@@ -142,7 +144,9 @@ fd_vm_syscall_sol_blake3(
 
   for (ulong i = 0; i < slices_cnt; i++) {
     void const * slice = fd_vm_translate_vm_to_host( ctx, slices[i].addr, slices[i].len, alignof(uchar) );
-    if( FD_UNLIKELY( !slice ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+    if( FD_UNLIKELY( !slice && slices[i].len ) ) { 
+      return FD_VM_MEM_MAP_ERR_ACC_VIO;
+    }
 
     ulong cost = fd_ulong_max(vm_compute_budget.mem_op_base_cost, fd_ulong_sat_mul(vm_compute_budget.sha256_byte_cost, slices[i].len) / 2);
     ulong err = fd_vm_consume_compute_meter(ctx, cost);

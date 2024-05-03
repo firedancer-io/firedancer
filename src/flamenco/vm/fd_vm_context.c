@@ -164,6 +164,9 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
                                     ulong                   vm_addr,
                                     ulong                   sz,
                                     int                     write ) {
+  /* FIXME: if the size if zero, then we should not error out here 
+  https://github.com/firedancer-io/solana/blob/d8292b427adf8367d87068a3a88f6fd3ed8916a5/programs/bpf_loader/src/syscalls/mod.rs#L512-L514 */
+
   ulong mem_region = vm_addr & FD_VM_MEM_MAP_REGION_MASK;
   ulong start_addr = vm_addr & FD_VM_MEM_MAP_REGION_SZ;
   ulong end_addr = start_addr + sz;
