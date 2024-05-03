@@ -15,7 +15,7 @@ fd_topo_frankendancer( config_t * config ) {
   ulong bank_tile_cnt   = config->layout.bank_tile_count;
   ulong shred_tile_cnt  = config->layout.shred_tile_count;
 
-  fd_topo_t topo[1] = { fd_topob_new( config->name ) };
+  fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
 
   /*             topo, name */
   fd_topob_wksp( topo, "net_quic" );
