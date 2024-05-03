@@ -2,15 +2,29 @@
 
 #include "fd_pod_format.h"
 
-fd_topo_t
-fd_topob_new( char const * app_name ) {
-  fd_topo_t topo[1] = {0};
+fd_topo_t *
+fd_topob_new( void * mem,
+              char const * app_name ) {
+  fd_topo_t * topo = (fd_topo_t *)mem;
+
+  if( FD_UNLIKELY( !topo ) ) {
+    FD_LOG_WARNING( ( "NULL topo" ) );
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)topo, alignof(fd_topo_t) ) ) ) {
+    FD_LOG_WARNING( ( "misaligned topo" ) );
+    return NULL;
+  }
+
+  fd_memset( topo, 0, sizeof(fd_topo_t) );
+
   FD_TEST( fd_pod_new( topo->props, sizeof(topo->props) ) );
 
   if( FD_UNLIKELY( strlen( app_name )>=sizeof(topo->app_name) ) ) FD_LOG_ERR(( "app_name too long: %s", app_name ));
   strncpy( topo->app_name, app_name, sizeof(topo->app_name) );
 
-  return *topo;
+  return topo;
 }
 
 void
