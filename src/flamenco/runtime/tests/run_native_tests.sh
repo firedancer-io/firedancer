@@ -1,6 +1,6 @@
 #!/bin/bash -f
 
-# this assumes the test_runtime has already been built
+# this assumes fd_ledger has already been built
 
 OBJDIR=${OBJDIR:-build/native/gcc}
 

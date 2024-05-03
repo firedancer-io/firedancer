@@ -186,11 +186,23 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
     }
   }
 
+  if( state->capture_ctx && state->capture_ctx->pruned_funk != NULL ) {
+    fd_funk_t * funk = state->slot_ctx->acc_mgr->funk;
+    fd_wksp_t * wksp = fd_funk_wksp( funk );
+    fd_funk_partvec_t * partvec = fd_funk_get_partvec( funk, wksp );
+    fd_funk_t * pruned_funk = state->capture_ctx->pruned_funk;
+    fd_funk_set_num_partitions( pruned_funk, partvec->num_part );
+  }
+
   for( ulong slot = start_slot; slot <= args->end_slot; ++slot ) {
     state->slot_ctx->slot_bank.prev_slot = prev_slot;
     state->slot_ctx->slot_bank.slot      = slot;
 
     FD_LOG_DEBUG(( "reading slot %ld", slot ));
+
+    if( state->capture_ctx && state->capture_ctx->pruned_funk != NULL ) {
+      fd_runtime_collect_rent_accounts_prune( slot, state->slot_ctx, state->capture_ctx );
+    }
 
     if( args->on_demand_block_ingest ) {
       if( fd_blockstore_block_query( blockstore, slot ) == NULL && slot_meta.slot == slot ) {
@@ -272,6 +284,10 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
 
   if( state->tpool ) {
     fd_tpool_fini( state->tpool );
+  }
+
+  if( tpool_scr_mem ) {
+    fd_valloc_free( state->slot_ctx->valloc, tpool_scr_mem );
   }
 
   replay_time += fd_log_wallclock();
@@ -909,7 +925,7 @@ prune( fd_ledger_args_t * args ) {
   fd_funk_txn_t * prune_txn = fd_funk_txn_prepare( pruned_funk, NULL, &prune_xid, 1 );
   FD_TEST(( !!prune_txn ));
 
-  int err = fd_runtime_replay( &state, &runtime_args );
+  int err = runtime_replay( &state, &runtime_args );
   if( err != 0 ) {
     fd_tvu_main_teardown( &state, NULL );
     FD_LOG_ERR(("error in runtime replay"));

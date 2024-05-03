@@ -321,6 +321,12 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_tpool_t * tpool,
                                          ulong max_workers );
 
+void
+fd_runtime_collect_rent_accounts_prune( ulong slot, 
+                                        fd_exec_slot_ctx_t * slot_ctx, 
+                                        fd_capture_ctx_t * capture_ctx );
+
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_h */
