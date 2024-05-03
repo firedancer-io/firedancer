@@ -111,7 +111,7 @@ struct fd_ledger_args {
   ulong             on_demand_block_history;
   int               dump_insn_to_pb;
   char const *      dump_insn_sig_filter;
-  char const *      dump_insn_output_dir;  
+  char const *      dump_insn_output_dir;
   int               verify_funk;
   uint              verify_acc_hash;
   uint              check_acc_hash;
@@ -270,7 +270,7 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
     }
   }
 
-  if( state->tpool ) { 
+  if( state->tpool ) {
     fd_tpool_fini( state->tpool );
   }
 
@@ -385,7 +385,7 @@ init_scratch( fd_wksp_t * wksp ) {
 
 void
 cleanup_scratch( void ) {
-  void * fmem = NULL; 
+  void * fmem = NULL;
   void * smem = fd_scratch_detach( &fmem );
   fd_wksp_free_laddr( smem );
   fd_wksp_free_laddr( fmem );
@@ -425,7 +425,7 @@ init_funk( fd_ledger_args_t * args ) {
   args->funk = funk;
 }
 
-void 
+void
 init_blockstore( fd_ledger_args_t * args ) {
   fd_wksp_tag_query_info_t info;
   ulong blockstore_tag = FD_BLOCKSTORE_MAGIC;
@@ -443,7 +443,7 @@ init_blockstore( fd_ledger_args_t * args ) {
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
     }
     int lg_txn_max = 22;
-    args->blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, args->hashseed, args->shred_max, 
+    args->blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, args->hashseed, args->shred_max,
                                                               args->slot_history_max, lg_txn_max ) );
     if( args->blockstore == NULL ) {
       fd_wksp_free_laddr( shmem );
@@ -525,7 +525,7 @@ minify( fd_ledger_args_t * args ) {
   if( args->copy_txn_status ) {
     init_blockstore( args );
     /* Ingest block range into blockstore */
-    ingest_rocksdb( args->alloc, args->rocksdb_dir, args->start_slot, 
+    ingest_rocksdb( args->alloc, args->rocksdb_dir, args->start_slot,
                     args->end_slot, args->blockstore, 0, ULONG_MAX );
 
     fd_rocksdb_copy_over_txn_status_range( &big_rocksdb, &mini_rocksdb, args->blockstore,
@@ -606,7 +606,7 @@ ingest( fd_ledger_args_t * args ) {
     free( buf );
 
     fd_funk_start_write( funk );
-      
+
     /* If we are loading from a snapshot, do not overwrite from genesis */
     if ( !args->snapshot ) {
       fd_runtime_init_bank_from_genesis( slot_ctx, &genesis_block, &genesis_hash );
@@ -777,7 +777,7 @@ ingest( fd_ledger_args_t * args ) {
   checkpt( args, slot_ctx );
 }
 
-void 
+void
 prune( fd_ledger_args_t * args ) {
   // TODO: update to have the option to take in a checkpoint
   /* Unpruned setup */
@@ -866,9 +866,9 @@ prune( fd_ledger_args_t * args ) {
                   fd_funk_rec_cnt( fd_funk_rec_map( unpruned_funk, unpruned_wksp ) ) ));
 
   if( args->incremental ) {
-    fd_snapshot_load( args->incremental, slot_ctx_unpruned, args->verify_acc_hash, 
+    fd_snapshot_load( args->incremental, slot_ctx_unpruned, args->verify_acc_hash,
                       args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
-    FD_LOG_NOTICE(( "imported %lu records from snapshot", 
+    FD_LOG_NOTICE(( "imported %lu records from snapshot",
                     fd_funk_rec_cnt( fd_funk_rec_map( unpruned_funk, unpruned_wksp ) ) ));
   }
 
@@ -884,7 +884,7 @@ prune( fd_ledger_args_t * args ) {
   FD_LOG_NOTICE(( "imported unpruned rocksdb" ));
 
   slot_ctx->slot_bank.slot = slot_ctx_unpruned->slot_bank.slot;
-  ingest_rocksdb( alloc, args->rocksdb_dir, args->start_slot, args->end_slot, 
+  ingest_rocksdb( alloc, args->rocksdb_dir, args->start_slot, args->end_slot,
                   pruned_blockstore, args->copy_txn_status, args->trash_hash );
   FD_LOG_NOTICE(( "imported pruned rocksdb" ));
 
@@ -952,7 +952,7 @@ prune( fd_ledger_args_t * args ) {
 
   FD_LOG_NOTICE(("imported %lu records from snapshot",
                   fd_funk_rec_cnt( fd_funk_rec_map( unpruned_funk, unpruned_wksp ))));
-  
+
   /* After replaying, update all touched accounts to contain the data that is
      present before execution begins. Look up the corresponding account in the
      unpruned funk and copy over the contents */
@@ -1050,36 +1050,36 @@ prune( fd_ledger_args_t * args ) {
   checkpt( args, slot_ctx );
 }
 
-void
+int
 replay( fd_ledger_args_t * args ) {
   /* Allows for ingest and direct replay. This can be done with a full checkpoint
      that contains a blockstore and funk, a checkpoint that just has funk, or directly
      using a rocksdb and snapshot.
 
-    On demand block ingest is enabled by default and can be disabled with 
+    On demand block ingest is enabled by default and can be disabled with
     '--on-demand-block-ingest 0'. The number of blocks retained in a blockstore during
     on demand block ingest can be set with '--on-demand-block-history <N slots>'
 
     In order to replay from a checkpoint, use '--checkpoint <path to checkpoint>'.
-    
-    To use a checkpoint, but to consume blocks on demand use '--funkonly true'. 
+
+    To use a checkpoint, but to consume blocks on demand use '--funkonly true'.
     This option MUST be used if the checkpoint was generated during a replay with
     on demand block ingest.
 
     For blocks to contain transaction status information use '--txnstatus true'
-    
+
     Example command loading in from on demand checkpoint and replaying with on demand block ingest.
     It creates a checkpoint every 1000 slots.
     fd_ledger --restore <CHECKPOINT_TO_LOAD_IN> --cmd replay --page-cnt 400
-              --abort-on-mismatch 1 --tile-cpus 5-21 --allocator wksp 
-              --rocksdb dump/rocksdb --checkpt-path dump/checkpoint_new 
+              --abort-on-mismatch 1 --tile-cpus 5-21 --allocator wksp
+              --rocksdb dump/rocksdb --checkpt-path dump/checkpoint_new
               --checkpt-freq 1000 --funk-only 1 --on-demand-block-ingest 1
     Note: remove --on-demand-block-ingest 1 and --funk-only 1 if you want to replay from a full checkpoint
 
     Example command directly loading in a rocksdb and snapshot and replaying.
-    fd_ledger --reset 1 --cmd replay --rocksdb dump/mainnet-257068890/rocksdb --index-max 5000000 
+    fd_ledger --reset 1 --cmd replay --rocksdb dump/mainnet-257068890/rocksdb --index-max 5000000
               --end-slot 257068895 --txn-max 100 --page-cnt 16 --verify-acc-hash 1
-              --snapshot dump/mainnet-257068890/snapshot-257068890-uRVtagPzKhYorycp4CRtKdWrYPij6iBxCYYXmqRvdSp.tar.zst 
+              --snapshot dump/mainnet-257068890/snapshot-257068890-uRVtagPzKhYorycp4CRtKdWrYPij6iBxCYYXmqRvdSp.tar.zst
               --slot-history 5000 --copy-txn-status 0 --allocator wksp --tile-cpus 5-21
               --on-demand-block-ingest 1 --on-demand-block-history 100
 
@@ -1088,7 +1088,7 @@ replay( fd_ledger_args_t * args ) {
   if( args->restore != NULL ) {
     fd_wksp_restore( args->wksp, args->restore, args->hashseed );
   }
-  
+
   init_funk( args ); /* Joins or creates funk based on if one exists in the workspace */
 
   /* Remove the blockstore from the workspace if specified */
@@ -1104,7 +1104,7 @@ replay( fd_ledger_args_t * args ) {
      that you need to load in snapshot(s)  */
   ulong rec_cnt = fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) );
   if ( rec_cnt == 0 ) {
-    
+
     uchar * epoch_ctx_mem = fd_wksp_alloc_laddr( wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( args->vote_acct_max ), FD_EXEC_EPOCH_CTX_MAGIC );
     fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
 
@@ -1153,12 +1153,13 @@ replay( fd_ledger_args_t * args ) {
 
   FD_LOG_WARNING(( "tvu main setup done" ));
 
-  runtime_replay( &state, &runtime_args );
+  int ret = runtime_replay( &state, &runtime_args );
   fd_tvu_main_teardown( &state, NULL );
+  return ret;
 }
 
 /* Parse user arguments and setup shared data structures used across commands */
-int 
+int
 initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   if( FD_UNLIKELY( argc==1 ) ) {
     usage( argv[0] );
@@ -1219,7 +1220,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   gethostname( hostname, sizeof(hostname) );
   ulong hashseed = fd_hash( 0, hostname, strnlen( hostname, sizeof(hostname) ) );
   args->hashseed = (uint)hashseed;
-  
+
   /* Setup workspace */
   fd_wksp_t * wksp;
   if( wksp_name == NULL ) {
@@ -1250,7 +1251,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   if( FD_UNLIKELY( !alloc_shalloc ) ) { FD_LOG_ERR( ( "fd_allow_new failed" ) ); }
   fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, FD_ALLOC_TAG );
   args->alloc = alloc;
-  #undef FD_ALLOC_TAG  
+  #undef FD_ALLOC_TAG
 
   /* Copy over arguments */
   args->cmd                     = cmd;
@@ -1307,7 +1308,7 @@ int main ( int argc, char ** argv ) {
   if( args.cmd == NULL ) {
     FD_LOG_ERR(( "no command specified" ));
   } else if( strcmp( args.cmd, "replay" ) == 0 ) {
-    replay( &args );
+    return replay( &args );
   } else if( strcmp( args.cmd, "ingest" ) == 0 ) {
     ingest( &args );
   } else if( strcmp( args.cmd, "minify" ) == 0 ) {
