@@ -21,14 +21,20 @@
 # sudo build/linux/clang/x86_64/bin/fd_shmem_cfg alloc 64 gigantic 0
 # sudo build/linux/clang/x86_64/bin/fd_shmem_cfg alloc 32 huge 0
 
-# this assumes the test_runtime has already been built
+echo_notice() {
+  echo -e "\033[34m$1\033[0m"
+}
+
+echo_error() {
+  echo -e "\033[31m$1$2\033[0m"
+}
 
 LEDGER="v18-small"
 SNAPSHOT=""
 INC_SNAPSHOT=""
 END_SLOT="--end-slot 1010"
 PAGES="--page-cnt 20"
-IMAX="--index-max 100000"
+IMAX="--index-max 1000000"
 START="--start-slot 241819853"
 HISTORY="--slot-history 5000"
 TRASHHASH=""
@@ -198,7 +204,9 @@ if [ "" == "$SNAPSHOT" ]; then
   SNAPSHOT="--genesis dump/$LEDGER/genesis.bin"
 fi
 
+# If on demand, ingest and replay in a single pass
 if [[ $ON_DEMAND = 1 ]]; then
+  echo_notice "Starting on-demand ingest and replay"
   set -x
   "$OBJDIR"/bin/fd_ledger \
     --reset 1 \
@@ -218,9 +226,13 @@ if [[ $ON_DEMAND = 1 ]]; then
     --tile-cpus 5-21 >& $LOG
 
   status=$?
+  { set +x; } &> /dev/null
+  echo_notice "Finished on-demand ingest and replay\n"
 fi
 
+# If not on demand and not skipping ingest, ingest first
 if [[ $SKIP_INGEST = 0 && $ON_DEMAND = 0 ]]; then
+  echo_notice "Starting ingest to checkpoint"
   set -x
   "$OBJDIR"/bin/fd_ledger \
     --reset true \
@@ -236,35 +248,35 @@ if [[ $SKIP_INGEST = 0 && $ON_DEMAND = 0 ]]; then
     $INC_SNAPSHOT \
     $HISTORY \
     $TXN_STATUS
-
+  { set +x; } &> /dev/null
+  echo_notice "Finished ingest to checkpoint\n"
   status=$?
 
   if [ $status -ne 0 ]
   then
-    if [ "$status" -eq "$EXPECTED" ]; then
-      echo "inverted test passed"
-      exit 0
-    fi
-    echo 'ledger test failed: $status'
+    echo_error 'ledger ingest failed:' $status
     exit $status
   fi
 
   if [[ -n "$NOREPLAY" ]]; then
+    echo_notice "No replay enabed"
     exit 0
   fi
 fi
 
-ARGS=" --load dump/$CHECKPT \
+
+ARGS=" --restore dump/$CHECKPT \
   --cmd replay \
   $PAGES \
   --validate true \
   --abort-on-mismatch 1 \
   $SOLCAP \
   $END_SLOT \
+  $IMAX \
   --log-level-logfile 2 \
   --log-level-stderr 2 \
   --allocator wksp \
-  --tile-cpus 5-21"
+  --tile-cpus 5-21" \
 
 if [ -e dump/$LEDGER/capitalization.csv ]
 then
@@ -272,10 +284,12 @@ then
 fi
 
 if [[ $ON_DEMAND = 0 ]]; then
+  echo_notice "Starting replay from checkpoint"
   set -x
-  "$OBJDIR"/unit-test/test_runtime $ARGS >& $LOG
-
+  "$OBJDIR"/bin/fd_ledger $ARGS >& $LOG
+  { set +x; } &> /dev/null
   status=$?
+  echo_notice "Finished replay from checkpoint\n"
 fi
 
 if [ $status -ne 0 ] || grep -q "Bank hash mismatch" $LOG;
@@ -285,7 +299,7 @@ then
     exit 0
   fi
   tail -40 $LOG
-  echo 'ledger test failed:'
+  echo_error 'ledger test failed:'
   echo $LOG
   exit $status
 fi

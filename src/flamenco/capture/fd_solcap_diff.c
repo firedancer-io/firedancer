@@ -65,9 +65,9 @@ fd_solcap_account_tbl_lt( fd_solcap_account_tbl_t const * a,
 #include "../../util/tmpl/fd_sort.c"
 
 /* TODO this differ is currently a separate file, but it would make
-        sense to move/copy it to test_runtime.  Doing so would enable
+        sense to move/copy it to fd_ledger.  Doing so would enable
         a fast feedback cycle wherein a developer supplies the expected
-        (Labs) capture to test_runtime, then automatically runs the
+        (Labs) capture to fd_ledger, then automatically runs the
         differ after each execution. */
 
 struct fd_solcap_differ {

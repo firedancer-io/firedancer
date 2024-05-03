@@ -86,10 +86,10 @@ if [ -f "$FD_SOLCAP" ]; then
 else
     echo "Attempting to create firedancer solcap at file=${FD_SOLCAP}."
 
-    FD_LOG=/tmp/test_runtime_log$$
+    FD_LOG=/tmp/fd_ledger_log$$
 
-    "$OBJDIR"/unit-test/test_runtime --load $CHECKPOINT --cmd replay --page-cnt $PAGE_CNT --validate true \
-    --abort-on-mismatch 1 --capture $FD_SOLCAP --end-slot $END_SLOT --allocator libc &> $FD_LOG
+    "$OBJDIR"/bin/fd_ledger --restore $CHECKPOINT --cmd replay --page-cnt $PAGE_CNT \
+    --abort-on-mismatch 1 --capture-solcap $FD_SOLCAP --end-slot $END_SLOT --allocator wksp &> $FD_LOG
 
     if grep -q "ERR" $FD_LOG; then
       echo -e "\n${RED}Firedancer solcap file failed. See Log at file='$FD_LOG'${NC}"
