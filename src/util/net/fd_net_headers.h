@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_util_net_util_h
-#define HEADER_fd_src_util_net_util_h
+#ifndef HEADER_fd_src_util_net_headers_h
+#define HEADER_fd_src_util_net_headers_h
 
 #include "fd_udp.h"
 #include "fd_eth.h"
@@ -16,7 +16,7 @@ FD_PROTOTYPES_BEGIN
    containing ethernet, UDP and IP headers with
    default values. Used for pre-staging headers. */
 
-fd_net_hdrs_t *
+static inline fd_net_hdrs_t *
 fd_net_create_packet_header_template( fd_net_hdrs_t * pkt,
                                  ulong          payload_sz,
                                  uint           src_ip,
@@ -46,4 +46,4 @@ fd_net_create_packet_header_template( fd_net_hdrs_t * pkt,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_util_net_util_h */
+#endif /* HEADER_fd_src_util_net_headers_h */
