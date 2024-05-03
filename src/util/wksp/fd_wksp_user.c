@@ -235,6 +235,7 @@ fd_wksp_alloc_at_least( fd_wksp_t * wksp,
     align = fd_ulong_if( align < FD_ASAN_ALIGN, FD_ASAN_ALIGN, align );
     if ( sz && sz < ULONG_MAX )
       sz = fd_ulong_align_up( sz, FD_ASAN_ALIGN );
+    footprint = sz + align - 1UL;
   #endif
 
   if( FD_UNLIKELY( footprint < sz             ) ) { FD_LOG_WARNING(( "sz overflow" )); goto fail; }
