@@ -85,6 +85,11 @@ while [[ $# -gt 0 ]]; do
        shift
        shift
        ;;
+    --snapshot-no-verify)
+       SNAPSHOT=" --verify-acc-hash 0 --snapshot dump/$LEDGER/$2"
+       shift
+       shift
+       ;;
     -i|--incremental)
        INC_SNAPSHOT="--incremental dump/$LEDGER/$2"
        shift
@@ -210,7 +215,9 @@ if [[ $ON_DEMAND = 1 ]]; then
     $TXN_STATUS \
     --allocator wksp \
     --on-demand-block-ingest 1 \
-    --tile-cpus 5-21 >& $LOG 
+    --tile-cpus 5-21 >& $LOG
+
+  status=$?
 fi
 
 if [[ $SKIP_INGEST = 0 && $ON_DEMAND = 0 ]]; then
@@ -264,12 +271,12 @@ then
   ARGS="$ARGS --cap dump/$LEDGER/capitalization.csv"
 fi
 
-if [[ $ON_DEMAND = 0 ]]; then 
+if [[ $ON_DEMAND = 0 ]]; then
   set -x
   "$OBJDIR"/unit-test/test_runtime $ARGS >& $LOG
-fi
 
-status=$?
+  status=$?
+fi
 
 if [ $status -ne 0 ] || grep -q "Bank hash mismatch" $LOG;
 then
