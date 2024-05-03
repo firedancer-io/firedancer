@@ -221,6 +221,16 @@ typedef struct {
     struct {
       ushort prometheus_listen_port;
     } metric;
+
+    /* Firedancer-only tile configs */
+    struct {
+      ushort gossip_listen_port;
+    } gossip;
+
+    struct {
+      ushort repair_intake_listen_port;
+      ushort repair_serve_listen_port;
+    } repair;
   } tiles;
 } config_t;
 

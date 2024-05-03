@@ -80,12 +80,34 @@ init( config_t * const config ) {
       FD_LOG_ERR(( "fd_xdp_hook_iface failed" ));
   }
 
+/* update NUM_UDP_PORT_CANDIDATES when adding new ports */
+#define NUM_UDP_PORT_CANDIDATES (6UL) 
+  ushort udp_port_candidates[ NUM_UDP_PORT_CANDIDATES ] = { 
+    config->tiles.quic.regular_transaction_listen_port,
+    config->tiles.quic.quic_transaction_listen_port,
+    config->tiles.shred.shred_listen_port,
+    config->tiles.gossip.gossip_listen_port,
+    config->tiles.repair.repair_intake_listen_port,
+    config->tiles.repair.repair_serve_listen_port,
+  };
 
-  ushort udp_ports[] = { config->tiles.quic.regular_transaction_listen_port, config->tiles.quic.quic_transaction_listen_port,
-                         config->tiles.shred.shred_listen_port                                                                };
+  ushort udp_ports[ NUM_UDP_PORT_CANDIDATES ];
+  ulong  udp_ports_cnt = 0UL;
+
+  /* if at this point one of these udp listen ports is 0 it was not 
+     configured. */
+  for( ulong i = 0UL; i<NUM_UDP_PORT_CANDIDATES; i++ ) {
+    if( FD_UNLIKELY( udp_port_candidates[ i ]==0U ) ) {
+      continue;
+    }
+
+    udp_ports[ udp_ports_cnt++ ] = udp_port_candidates[ i ];
+  }
+#undef NUM_UDP_PORT_CANDIDATES
+
   if( FD_UNLIKELY( fd_xdp_listen_udp_ports( config->name,
                                             config->tiles.net.ip_addr,
-                                            3,
+                                            udp_ports_cnt,
                                             udp_ports,
                                             1 ) ) )
     FD_LOG_ERR(( "fd_xdp_listen_udp_ports failed" ));

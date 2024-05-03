@@ -48,12 +48,17 @@ typedef struct {
   ushort shred_listen_port;
   ushort quic_transaction_listen_port;
   ushort legacy_transaction_listen_port;
+  ushort gossip_listen_port;
+  ushort repair_intake_listen_port;
+  ushort repair_serve_listen_port;
 
   ulong in_cnt;
   fd_net_in_ctx_t in[ MAX_NET_INS ];
 
   fd_net_out_ctx_t quic_out[1];
   fd_net_out_ctx_t shred_out[1];
+  fd_net_out_ctx_t gossip_out[1];
+  fd_net_out_ctx_t repair_out[1];
 
   fd_ip_t *   ip;
   long        ip_next_upd;
@@ -148,22 +153,41 @@ net_rx_aio_send( void *                    _ctx,
     ushort udp_dstport = fd_ushort_bswap( *(ushort *)( udp+2UL    ) );
 
     ushort proto;
-    if(      FD_UNLIKELY( udp_dstport==ctx->shred_listen_port ) )             proto = DST_PROTO_SHRED;
-    else if( FD_UNLIKELY( udp_dstport==ctx->quic_transaction_listen_port) )   proto = DST_PROTO_TPU_QUIC;
-    else if( FD_UNLIKELY( udp_dstport==ctx->legacy_transaction_listen_port) ) proto = DST_PROTO_TPU_UDP;
-    else {
+    fd_net_out_ctx_t * out;
+    if(      FD_UNLIKELY( udp_dstport==ctx->shred_listen_port ) ) {
+      proto = DST_PROTO_SHRED;
+      out = ctx->shred_out;
+    } else if( FD_UNLIKELY( udp_dstport==ctx->quic_transaction_listen_port ) ) {
+      proto = DST_PROTO_TPU_QUIC;
+      out = ctx->quic_out;
+    } else if( FD_UNLIKELY( udp_dstport==ctx->legacy_transaction_listen_port ) ) {
+      proto = DST_PROTO_TPU_UDP;
+      out = ctx->quic_out;
+    } else if( FD_UNLIKELY( udp_dstport==ctx->gossip_listen_port ) ) {
+      proto = DST_PROTO_GOSSIP;
+      out = ctx->gossip_out;
+    } else if( FD_UNLIKELY( udp_dstport==ctx->repair_intake_listen_port ) ) {
+      proto = DST_PROTO_REPAIR;
+      out = ctx->repair_out;
+    } else if( FD_UNLIKELY( udp_dstport==ctx->repair_serve_listen_port ) ) {
+      proto = DST_PROTO_REPAIR;
+      out = ctx->repair_out;
+    } else {
+      
       FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
-                   "Only ports %hu, %hu, and %hu should be configured to forward packets. "
+                   "Only the following ports should be configured to forward packets: "
+                   "%hu, %hu, %hu, %hu, %hu, %hu (excluding any 0 ports, which can be ignored)."
                    "It is likely you changed the port configuration in your TOML file and "
                    "did not reload the XDP program. You can reload the program by running "
                    "`fdctl configure fini xdp && fdctl configure init xdp`.",
                    udp_dstport,
                    ctx->shred_listen_port,
                    ctx->quic_transaction_listen_port,
-                   ctx->legacy_transaction_listen_port ));
+                   ctx->legacy_transaction_listen_port,
+                   ctx->gossip_listen_port,
+                   ctx->repair_intake_listen_port,
+                   ctx->repair_serve_listen_port ));
     }
-
-    fd_net_out_ctx_t * out = ( proto==DST_PROTO_TPU_QUIC || proto==DST_PROTO_TPU_UDP ) ? ctx->quic_out : ctx->shred_out;
 
     fd_memcpy( fd_chunk_to_laddr( out->mem, out->chunk ), packet, batch[ i ].buf_sz );
 
@@ -473,6 +497,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->shred_listen_port = tile->net.shred_listen_port;
   ctx->quic_transaction_listen_port = tile->net.quic_transaction_listen_port;
   ctx->legacy_transaction_listen_port = tile->net.legacy_transaction_listen_port;
+  ctx->gossip_listen_port = tile->net.gossip_listen_port;
+  ctx->repair_intake_listen_port = tile->net.repair_intake_listen_port;
+  ctx->repair_serve_listen_port = tile->net.repair_serve_listen_port;
 
   /* Put a bound on chunks we read from the input, to make sure they
       are within in the data region of the workspace. */
@@ -487,27 +514,53 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
-
-  fd_topo_link_t * quic_out = &topo->links[ tile->out_link_id[ 0 ] ];
-  fd_topo_link_t * shred_out = &topo->links[ tile->out_link_id[ 1 ] ];
-
-  ctx->quic_out->mcache = quic_out->mcache;
-  ctx->quic_out->sync   = fd_mcache_seq_laddr( ctx->quic_out->mcache );
-  ctx->quic_out->depth  = fd_mcache_depth( ctx->quic_out->mcache );
-  ctx->quic_out->seq    = fd_mcache_seq_query( ctx->quic_out->sync );
-  ctx->quic_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( quic_out->dcache ), quic_out->dcache );
-  ctx->quic_out->mem    = topo->workspaces[ topo->objs[ quic_out->dcache_obj_id ].wksp_id ].wksp;
-  ctx->quic_out->wmark  = fd_dcache_compact_wmark ( ctx->quic_out->mem, quic_out->dcache, quic_out->mtu );
-  ctx->quic_out->chunk  = ctx->quic_out->chunk0;
-
-  ctx->shred_out->mcache = shred_out->mcache;
-  ctx->shred_out->sync   = fd_mcache_seq_laddr( ctx->shred_out->mcache );
-  ctx->shred_out->depth  = fd_mcache_depth( ctx->shred_out->mcache );
-  ctx->shred_out->seq    = fd_mcache_seq_query( ctx->shred_out->sync );
-  ctx->shred_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( shred_out->dcache ), shred_out->dcache );
-  ctx->shred_out->mem    = topo->workspaces[ topo->objs[ shred_out->dcache_obj_id ].wksp_id ].wksp;
-  ctx->shred_out->wmark  = fd_dcache_compact_wmark ( ctx->shred_out->mem, shred_out->dcache, shred_out->mtu );
-  ctx->shred_out->chunk  = ctx->shred_out->chunk0;
+  
+  for( ulong i = 0; i < tile->out_cnt; i++ ) {
+    fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ i  ] ];
+    if( strcmp( out_link->name, "net_quic" ) == 0 ) {
+      fd_topo_link_t * quic_out = out_link;
+      ctx->quic_out->mcache = quic_out->mcache;
+      ctx->quic_out->sync   = fd_mcache_seq_laddr( ctx->quic_out->mcache );
+      ctx->quic_out->depth  = fd_mcache_depth( ctx->quic_out->mcache );
+      ctx->quic_out->seq    = fd_mcache_seq_query( ctx->quic_out->sync );
+      ctx->quic_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( quic_out->dcache ), quic_out->dcache );
+      ctx->quic_out->mem    = topo->workspaces[ topo->objs[ quic_out->dcache_obj_id ].wksp_id ].wksp;
+      ctx->quic_out->wmark  = fd_dcache_compact_wmark ( ctx->quic_out->mem, quic_out->dcache, quic_out->mtu );
+      ctx->quic_out->chunk  = ctx->quic_out->chunk0;
+    } else if( strcmp( out_link->name, "net_shred" ) == 0 ) {
+      fd_topo_link_t * shred_out = out_link;
+      ctx->shred_out->mcache = shred_out->mcache;
+      ctx->shred_out->sync   = fd_mcache_seq_laddr( ctx->shred_out->mcache );
+      ctx->shred_out->depth  = fd_mcache_depth( ctx->shred_out->mcache );
+      ctx->shred_out->seq    = fd_mcache_seq_query( ctx->shred_out->sync );
+      ctx->shred_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( shred_out->dcache ), shred_out->dcache );
+      ctx->shred_out->mem    = topo->workspaces[ topo->objs[ shred_out->dcache_obj_id ].wksp_id ].wksp;
+      ctx->shred_out->wmark  = fd_dcache_compact_wmark ( ctx->shred_out->mem, shred_out->dcache, shred_out->mtu );
+      ctx->shred_out->chunk  = ctx->shred_out->chunk0;
+    } else if( strcmp( out_link->name, "net_gossip" ) == 0 ) {
+      fd_topo_link_t * gossip_out = out_link;
+      ctx->gossip_out->mcache = gossip_out->mcache;
+      ctx->gossip_out->sync   = fd_mcache_seq_laddr( ctx->gossip_out->mcache );
+      ctx->gossip_out->depth  = fd_mcache_depth( ctx->gossip_out->mcache );
+      ctx->gossip_out->seq    = fd_mcache_seq_query( ctx->gossip_out->sync );
+      ctx->gossip_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( gossip_out->dcache ), gossip_out->dcache );
+      ctx->gossip_out->mem    = topo->workspaces[ topo->objs[ gossip_out->dcache_obj_id ].wksp_id ].wksp;
+      ctx->gossip_out->wmark  = fd_dcache_compact_wmark ( ctx->gossip_out->mem, gossip_out->dcache, gossip_out->mtu );
+      ctx->gossip_out->chunk  = ctx->gossip_out->chunk0;
+    } else if( strcmp( out_link->name, "net_repair" ) == 0 ) {
+      fd_topo_link_t * repair_out = out_link;
+      ctx->repair_out->mcache = repair_out->mcache;
+      ctx->repair_out->sync   = fd_mcache_seq_laddr( ctx->repair_out->mcache );
+      ctx->repair_out->depth  = fd_mcache_depth( ctx->repair_out->mcache );
+      ctx->repair_out->seq    = fd_mcache_seq_query( ctx->repair_out->sync );
+      ctx->repair_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( repair_out->dcache ), repair_out->dcache );
+      ctx->repair_out->mem    = topo->workspaces[ topo->objs[ repair_out->dcache_obj_id ].wksp_id ].wksp;
+      ctx->repair_out->wmark  = fd_dcache_compact_wmark ( ctx->repair_out->mem, repair_out->dcache, repair_out->mtu );
+      ctx->repair_out->chunk  = ctx->repair_out->chunk0;
+    } else {
+      FD_LOG_ERR(( "unrecognized out link `%s`", out_link->name ));
+    }
+  }
 
   ctx->ip = init_ctx->ip;
 
