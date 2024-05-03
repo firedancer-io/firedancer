@@ -888,13 +888,17 @@ main( int argc, char ** argv ) {
     shredcap_targ_t shredcap_targ = { .metrics_shmem = metrics_shredcap, .shred_cap_fpath = shredcap, .replay = replay };
     pthread_t       shredcap_tid;
     FD_TEST( !pthread_create( &shredcap_tid, NULL, shredcap_thread, &shredcap_targ ) );
-    goto slot_execute;
+    goto run_replay;
   } else {
-    FD_LOG_NOTICE( ( "test_consensus running in live mode (shredcap archive)" ) );
-    if (shredcap) replay->shred_cap = fopen(shredcap, "w");
-    FD_TEST( replay->shred_cap );
-    replay->stable_slot_start = 0;
-    replay->stable_slot_end = 0;
+    if( shredcap ) {
+      FD_LOG_NOTICE( ( "test_consensus running in live mode (with shredcap archive)" ) );
+      replay->shred_cap = fopen( shredcap, "w" );
+      FD_TEST( replay->shred_cap );
+      replay->stable_slot_start = 0;
+      replay->stable_slot_end   = 0;
+    } else {
+      FD_LOG_NOTICE( ( "test_consensus running in live mode (without shredcap archive)" ) );
+    }
   }
 
   /**********************************************************************/
@@ -924,12 +928,13 @@ main( int argc, char ** argv ) {
   FD_TEST( !pthread_create( &gossip_tid, NULL, gossip_thread, &gossip_targ ) );
 
   /**********************************************************************/
-  /* slot prepare and slot execute                                      */
+  /* run replay                                                         */
   /**********************************************************************/
+
   fd_tpool_t * tpool = NULL;
   uchar tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
 
- slot_execute:
+ run_replay:
   if( tcnt > 3 ) {
     tpool = fd_tpool_init( tpool_mem, tcnt - 3 );
     if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
