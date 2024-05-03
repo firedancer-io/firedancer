@@ -29,6 +29,7 @@ run-runtime-test-1: $(OBJDIR)/bin/fd_ledger
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257066844 -s snapshot-257066844-B5JpRYzvMa4iyQeR8w9co4y7oEayphgbXVeQHXLDoWvV.tar.zst -p 32 -m 5000000 -e 257066849 --zst
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257067457 -s snapshot-257067457-DxbpHefwdjLkPecZG2jLuqyQp8me9dFZQMQ8hZMyfhsw.tar.zst -p 32 -m 5000000 -e 257067461 --zst
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257068890 -s snapshot-257068890-uRVtagPzKhYorycp4CRtKdWrYPij6iBxCYYXmqRvdSp.tar.zst -p 32 -m 5000000 -e 257068895 --zst
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257181622 -s snapshot-257181622-Fy996aeLW7kZ6AbBcPd3Vst77pkHDSAXpaexGiVHbB4S.tar.zst -p 32 -m 5000000 -e 257181624 --zst
 
 #	src/flamenco/runtime/run_bpf_tests.sh
 
