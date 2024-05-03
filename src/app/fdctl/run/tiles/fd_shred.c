@@ -720,8 +720,10 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !tile->shred.ip_addr ) ) FD_LOG_ERR(( "ip_addr not set" ));
   if( FD_UNLIKELY( !tile->shred.shred_listen_port ) ) FD_LOG_ERR(( "shred_listen_port not set" ));
 
-  ulong bank_cnt = fd_topo_tile_name_cnt( topo, "bank" );
-  if( FD_UNLIKELY( !bank_cnt ) ) FD_LOG_ERR(( "0 bank tiles" ));
+  ulong bank_cnt   = fd_topo_tile_name_cnt( topo, "bank" );
+  ulong replay_cnt = fd_topo_tile_name_cnt( topo, "replay" );
+
+  if( FD_UNLIKELY( !bank_cnt && !replay_cnt ) ) FD_LOG_ERR(( "0 bank/replay tiles" ));
   if( FD_UNLIKELY( bank_cnt>MAX_BANK_CNT ) ) FD_LOG_ERR(( "Too many banks" ));
 
   void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint()            );
