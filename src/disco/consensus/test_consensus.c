@@ -16,6 +16,7 @@
 #include "../shred/fd_shred_cap.h"
 #include "../tvu/fd_replay.h"
 #include "../tvu/fd_store.h"
+#include "../metrics/fd_metrics.h"
 
 #include "../../choreo/fd_choreo.h"
 #include "../../flamenco/fd_flamenco.h"
@@ -379,14 +380,16 @@ gossip_thread( void * arg ) {
 }
 
 struct shredcap_targ {
-  const char *      shred_cap_fpath;
+  void *            metrics_shmem;
   fd_replay_t *     replay;
+  const char *      shred_cap_fpath;
 };
 typedef struct shredcap_targ shredcap_targ_t;
 
 static void *
 shredcap_thread( void * arg ) {
   shredcap_targ_t * args      = (shredcap_targ_t *)arg;
+  fd_metrics_register( (ulong *)fd_metrics_new( args->metrics_shmem, 0UL, 0UL ) );
   fd_shred_cap_replay(args->shred_cap_fpath, args->replay);
   return 0;
 }
@@ -865,6 +868,16 @@ main( int argc, char ** argv ) {
   FD_SCRATCH_SCOPE_END;
 
   /**********************************************************************/
+  /* metrics                                                            */
+  /**********************************************************************/
+
+  void * metrics_main = fd_wksp_alloc_laddr(
+      wksp, FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( 0, 0 ), TEST_CONSENSUS_MAGIC );
+  void * metrics_shredcap = fd_wksp_alloc_laddr(
+      wksp, FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( 0, 0 ), TEST_CONSENSUS_MAGIC );
+  fd_metrics_register( (ulong *)fd_metrics_new( metrics_main, 0UL, 0UL ) );
+
+  /**********************************************************************/
   /* shredcap                                                           */
   /**********************************************************************/
 
@@ -872,7 +885,7 @@ main( int argc, char ** argv ) {
   replay->shred_cap = NULL;
   if( strcmp( mode, "replay" ) == 0 ) {
     FD_LOG_NOTICE( ( "test_consensus running in replay mode" ) );
-    shredcap_targ_t shredcap_targ = { .shred_cap_fpath = shredcap, .replay = replay };
+    shredcap_targ_t shredcap_targ = { .metrics_shmem = metrics_shredcap, .shred_cap_fpath = shredcap, .replay = replay };
     pthread_t       shredcap_tid;
     FD_TEST( !pthread_create( &shredcap_tid, NULL, shredcap_thread, &shredcap_targ ) );
     goto slot_execute;
