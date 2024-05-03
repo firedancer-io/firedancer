@@ -926,15 +926,24 @@ fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
     return;
   }
 
+  uchar pre_image[FD_PING_PRE_IMAGE_SZ];
+  fd_memcpy( pre_image, "SOLANA_PING_PONG", 16UL );
+  fd_memcpy( pre_image+16UL, val->pingtoken.uc, 32UL );
+
+
+  fd_hash_t pre_image_hash;
+  fd_sha256_hash( pre_image, FD_PING_PRE_IMAGE_SZ, pre_image_hash.uc );
+
   /* Confirm response hash token */
   fd_sha256_t sha[1];
   fd_sha256_init( sha );
   fd_sha256_append( sha, "SOLANA_PING_PONG", 16UL );
-  fd_sha256_append( sha, val->pingtoken.uc,  32UL );
+
+  fd_sha256_append( sha, pre_image_hash.uc, 32UL );
   fd_hash_t pongtoken;
   fd_sha256_fini( sha, pongtoken.uc );
   if (memcmp(pongtoken.uc, pong->token.uc, 32UL) != 0) {
-    // FD_LOG_WARNING(("received pong with wrong token"));
+    FD_LOG_DEBUG(( "received pong with wrong token" ));
     return;
   }
 
