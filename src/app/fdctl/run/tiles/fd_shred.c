@@ -660,6 +660,7 @@ after_frag( void *             _ctx,
   fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+0UL ), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
   if( FD_UNLIKELY( s34[ 1 ].shred_cnt ) )
     fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+1UL ), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
+  /* For ms1.4 only: avoid inserting parity shreds into the blockstore */
   // fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+2UL), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
   // if( FD_UNLIKELY( s34[ 3 ].shred_cnt ) )
   //   fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+3UL ), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
