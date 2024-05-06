@@ -6,7 +6,7 @@ LD:=g++
 # FD_USING_CLANG should not be both set simultaneously
 
 CPPFLAGS+=-DFD_USING_GCC=1
-LDFLAGS+=-static-libgcc
+LDFLAGS+=-static-libgcc -static-libstdc++
 
 FD_USING_GCC:=1
 

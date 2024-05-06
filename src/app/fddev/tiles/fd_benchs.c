@@ -283,11 +283,11 @@ populate_quic_limits( fd_quic_limits_t * limits ) {
   //fd_quic_limits_from_env( &argc, &argv, limits );
   limits->stream_cnt[0] = 0;
   limits->stream_cnt[1] = 0;
-  limits->stream_cnt[2] = 1500;
+  limits->stream_cnt[2] = 3000;
   limits->stream_cnt[3] = 0;
   limits->initial_stream_cnt[0] = 0;
   limits->initial_stream_cnt[1] = 0;
-  limits->initial_stream_cnt[2] = 1500;
+  limits->initial_stream_cnt[2] = 3000;
   limits->initial_stream_cnt[3] = 0;
 
   limits->conn_cnt = 2;
@@ -295,7 +295,7 @@ populate_quic_limits( fd_quic_limits_t * limits ) {
   limits->conn_id_cnt = 16;
   limits->conn_id_sparsity = 4.0;
   limits->stream_sparsity = 2.0;
-  limits->inflight_pkt_cnt = 1500;
+  limits->inflight_pkt_cnt = 2500;
   limits->tx_buf_sz = 1<<12;
   limits->stream_pool_cnt = 1<<16;
 }

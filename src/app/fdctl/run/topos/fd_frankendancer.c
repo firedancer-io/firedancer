@@ -60,12 +60,12 @@ fd_topo_frankendancer( config_t * config ) {
   /**/                 fd_topob_link( topo, "dedup_pack",   "dedup_pack",   0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
   /* gossip_pack could be FD_TPU_MTU for now, since txns are not parsed, but better to just share one size for all the ins of pack */
   /**/                 fd_topob_link( topo, "gossip_pack",  "dedup_pack",   0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
-  /**/                 fd_topob_link( topo, "stake_out",    "stake_out",    0,        128UL,                                    32UL + 40200UL * 40UL,  1UL );
-  /**/                 fd_topob_link( topo, "pack_bank",    "pack_bank",    0,        128UL,                                    USHORT_MAX,             1UL );
-  FOR(bank_tile_cnt)   fd_topob_link( topo, "bank_poh",     "bank_poh",     0,        128UL,                                    USHORT_MAX,             1UL );
-  /**/                 fd_topob_link( topo, "poh_pack",     "bank_poh",     0,        128UL,                                    sizeof(fd_became_leader_t), 1UL );
+  /**/                 fd_topob_link( topo, "stake_out",    "stake_out",    0,        4096UL,                                   32UL + 40200UL * 40UL,  1UL );
+  /**/                 fd_topob_link( topo, "pack_bank",    "pack_bank",    0,        65536UL,                                  USHORT_MAX,             1UL );
+  FOR(bank_tile_cnt)   fd_topob_link( topo, "bank_poh",     "bank_poh",     0,        4096UL,                                   USHORT_MAX,             1UL );
+  /**/                 fd_topob_link( topo, "poh_pack",     "bank_poh",     0,        65536UL,                                  sizeof(fd_became_leader_t), 1UL );
   /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    0,        16384UL,                                  USHORT_MAX,             1UL );
-  /**/                 fd_topob_link( topo, "crds_shred",   "poh_shred",    0,        128UL,                                    8UL  + 40200UL * 38UL,  1UL );
+  /**/                 fd_topob_link( topo, "crds_shred",   "poh_shred",    0,        4096UL,                                   8UL  + 40200UL * 38UL,  1UL );
   /* See long comment in fd_shred.c for an explanation about the size of this dcache. */
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_store",  "shred_store",  0,        65536UL,                                  4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
 
