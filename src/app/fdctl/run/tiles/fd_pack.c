@@ -88,7 +88,7 @@ FD_IMPORT( wait_duration, "src/ballet/pack/pack_delay.bin", ulong, 6, "" );
 
 #define DEQUE_NAME extra_txn_deq
 #define DEQUE_T    fd_txn_p_t
-#define DEQUE_MAX  (8UL*1024UL)
+#define DEQUE_MAX  (128UL*1024UL)
 #include "../../../../util/tmpl/fd_deque.c"
 
 
