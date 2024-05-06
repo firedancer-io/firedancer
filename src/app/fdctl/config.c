@@ -267,6 +267,10 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.shred,         max_pending_shred_sets                                    );
   ENTRY_USHORT( ., tiles.shred,         shred_listen_port                                         );
 
+  ENTRY_USHORT( ., tiles.gossip,        gossip_listen_port                                        );
+  ENTRY_STR   ( ., tiles.gossip,        peer_ip_addr                                              );
+  ENTRY_USHORT( ., tiles.gossip,        peer_port                                                 );
+
   ENTRY_USHORT( ., tiles.metric,        prometheus_listen_port                                    );
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );

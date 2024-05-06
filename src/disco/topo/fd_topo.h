@@ -220,6 +220,20 @@ typedef struct {
       char    repair_serve_addr[ 22 ];    // len('255.255.255.255:65535') == 22
       uchar   src_mac_addr[ 6 ];
     } repair;
+
+    struct {
+      uint    entrypoint_ip_addr;
+      ushort  entrypoint_port;
+      uint    ip_addr;
+      uchar   src_mac_addr[ 6 ];
+      char    identity_key_path[ PATH_MAX ];
+      ushort  gossip_listen_port;
+      ushort  tvu_port;
+      ushort  tvu_fwd_port;
+      ushort  tpu_port;
+      ushort  tpu_vote_port;
+      ulong  expected_shred_version;
+    } gossip;
   };
 } fd_topo_tile_t;
 
