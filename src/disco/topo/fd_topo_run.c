@@ -161,22 +161,27 @@ fd_topo_run_tile( fd_topo_t *          topo,
   if( FD_UNLIKELY( tile_run->lazy ) ) lazy = tile_run->lazy( tile_mem );
 
   fd_rng_t rng[1];
-  fd_mux_tile( tile->cnc,
-               tile_run->mux_flags,
-               polled_in_cnt,
-               in_mcache,
-               in_fseq,
-               tile->out_link_id_primary == ULONG_MAX ? NULL : topo->links[ tile->out_link_id_primary ].mcache,
-               out_cnt_reliable,
-               out_fseq,
-               tile_run->burst,
-               0,
-               lazy,
-               fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
-               fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( polled_in_cnt, out_cnt_reliable ) ),
-               ctx,
-               &callbacks );
-  FD_LOG_ERR(( "tile run loop returned" ));
+  int ret = 0;
+  if( FD_LIKELY( tile_run->main == NULL ) ) {
+    ret = fd_mux_tile( tile->cnc,
+                       tile_run->mux_flags,
+                       polled_in_cnt,
+                       in_mcache,
+                       in_fseq,
+                       tile->out_link_id_primary == ULONG_MAX ? NULL : topo->links[ tile->out_link_id_primary ].mcache,
+                       out_cnt_reliable,
+                       out_fseq,
+                       tile_run->burst,
+                       0,
+                       lazy,
+                       fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
+                       fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( polled_in_cnt, out_cnt_reliable ) ),
+                       ctx,
+                       &callbacks );
+  } else {
+    ret = tile_run->main();
+  }
+  FD_LOG_ERR(( "tile run loop returned: %d", ret ));
 }
 
 typedef struct {
@@ -279,7 +284,7 @@ fd_topo_tile_stack_new( int          optimize,
   return stack;
 }
 
-static inline pthread_t
+static inline void
 run_tile_thread( fd_topo_t *         topo,
                  fd_topo_tile_t *    tile,
                  fd_topo_run_tile_t  tile_run,
@@ -288,6 +293,9 @@ run_tile_thread( fd_topo_t *         topo,
                  int *               done_futex,
                  fd_cpuset_t const * floating_cpu_set,
                  int                 floating_priority ) {
+  /* tpool will assign a thread later */
+  if( FD_UNLIKELY( tile_run.for_tpool ) ) return;
+
   /* TODO: Use a better CPU idx for the stack if tile is floating */
   ulong stack_cpu_idx = 0UL;
   if( FD_LIKELY( tile->cpu_idx<65535UL ) ) stack_cpu_idx = tile->cpu_idx;
@@ -333,7 +341,6 @@ run_tile_thread( fd_topo_t *         topo,
   if( FD_UNLIKELY( pthread_create( &pthread, attr, run_tile_thread_main, &args ) ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   while( !FD_VOLATILE( args.copied ) ) FD_SPIN_PAUSE();
-  return pthread;
 }
 
 void
