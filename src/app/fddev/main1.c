@@ -51,6 +51,8 @@ extern fd_topo_run_tile_t fd_tile_bencho;
 extern fd_topo_run_tile_t fd_tile_benchg;
 extern fd_topo_run_tile_t fd_tile_benchs;
 
+fd_topo_run_tile_t fd_tile_tvu_thread = { .name = "thread", .for_tpool = 1 };
+
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
   &fd_tile_netmux,

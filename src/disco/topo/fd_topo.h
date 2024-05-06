@@ -254,6 +254,7 @@ typedef struct {
   ulong                         mux_flags;
   ulong                         burst;
   ulong                         rlimit_file_cnt;
+  int                           for_tpool;
   void * (*mux_ctx           )( void * scratch );
 
   fd_mux_during_housekeeping_fn * mux_during_housekeeping;
@@ -272,6 +273,7 @@ typedef struct {
   ulong (*loose_footprint         )( fd_topo_tile_t const * tile );
   void  (*privileged_init         )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
   void  (*unprivileged_init       )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
+  int   (*main                    )( void );
 } fd_topo_run_tile_t;
 
 FD_PROTOTYPES_BEGIN
