@@ -149,26 +149,39 @@ fd_exec_epoch_ctx_delete( void * mem ) {
   }
   fd_exec_epoch_ctx_layout_t const * layout = &hdr->layout;
 
-  void * stake_votes_mem         = (void *)( (ulong)mem + layout->stake_votes_off         );
-  void * stake_delegations_mem   = (void *)( (ulong)mem + layout->stake_delegations_off   );
-  void * stake_history_treap_mem = (void *)( (ulong)mem + layout->stake_history_treap_off );
-  void * stake_history_pool_mem  = (void *)( (ulong)mem + layout->stake_history_pool_off  );
   void * next_epoch_stakes_mem   = (void *)( (ulong)mem + layout->next_epoch_stakes_off   );
   void * leaders_mem             = (void *)( (ulong)mem + layout->leaders_off             );
   void * bank_hash_cmp_mem       = (void *)( (ulong)mem + layout->bank_hash_cmp_off       );
 
-  fd_vote_accounts_pair_t_map_delete( stake_votes_mem         );
-  fd_delegation_pair_t_map_delete   ( stake_delegations_mem   );
-  fd_stake_history_treap_delete     ( stake_history_treap_mem );
-  fd_stake_history_pool_delete      ( stake_history_pool_mem  );
   fd_vote_accounts_pair_t_map_delete( next_epoch_stakes_mem   );
   fd_epoch_leaders_delete           ( leaders_mem             );
   fd_bank_hash_cmp_delete           ( bank_hash_cmp_mem       );
+
+  fd_exec_epoch_ctx_epoch_bank_delete( hdr );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( hdr->magic ) = 0UL;
   FD_COMPILER_MFENCE();
 
+  return mem;
+}
+
+void *
+fd_exec_epoch_ctx_epoch_bank_delete( fd_exec_epoch_ctx_t * epoch_ctx ) {
+  void * mem = epoch_ctx;
+  fd_exec_epoch_ctx_layout_t const * layout = &epoch_ctx->layout;
+
+  void * stake_votes_mem         = (void *)( (ulong)mem + layout->stake_votes_off         );
+  void * stake_delegations_mem   = (void *)( (ulong)mem + layout->stake_delegations_off   );
+  void * stake_history_treap_mem = (void *)( (ulong)mem + layout->stake_history_treap_off );
+  void * stake_history_pool_mem  = (void *)( (ulong)mem + layout->stake_history_pool_off  );
+  
+  fd_vote_accounts_pair_t_map_delete( stake_votes_mem         );
+  fd_delegation_pair_t_map_delete   ( stake_delegations_mem   );
+  fd_stake_history_treap_delete     ( stake_history_treap_mem );
+  fd_stake_history_pool_delete      ( stake_history_pool_mem  );
+
+  memset( &epoch_ctx->epoch_bank, 0UL, FD_EPOCH_BANK_FOOTPRINT);
   return mem;
 }
 

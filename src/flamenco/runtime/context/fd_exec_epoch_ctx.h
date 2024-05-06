@@ -51,6 +51,9 @@ fd_exec_epoch_ctx_leave( fd_exec_epoch_ctx_t * ctx );
 void *
 fd_exec_epoch_ctx_delete( void * mem );
 
+void *
+fd_exec_epoch_ctx_epoch_bank_delete( fd_exec_epoch_ctx_t * epoch_ctx );
+
 ulong
 fd_exec_epoch_ctx_align( void );
 
