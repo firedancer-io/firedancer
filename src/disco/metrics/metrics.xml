@@ -325,6 +325,7 @@ metric introduced.
   <counter name="FecSetSpilled" summary="The number of FEC sets that were spilled because they didn't complete in time and we needed space" />
   <counter name="ShredRejectedInitial" summary="The number shreds that were rejected before any resources were allocated for the FEC set" />
   <counter name="FecRejectedFatal" summary="The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid" />
+  <counter name="TransactionsCompleted" summary="Estimate of total transaction count in the FEC sets that have been finalized" />
 </group>
 
 <group name="StoreTile" tile="store">
