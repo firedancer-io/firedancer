@@ -11,10 +11,6 @@ endif
 
 run-runtime-test: run-runtime-test-1 run-runtime-test-2 run-runtime-test-3
 
-run-runtime-test-small: $(OBJDIR)/unit-test/test_runtime $(OBJDIR)/bin/fd_ledger
-	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-262654839 --snapshot-no-verify snapshot-262654838-B6GkEWuehxZTZ77Ht9vWUzdX87BiWP5ohi84LMicYTBZ.tar.zst -p 64 -m 20000000 -e 262654840 --zst
-
-
 run-runtime-native: $(OBJDIR)/unit-test/test_native_programs
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_native_tests.sh
 
@@ -39,7 +35,7 @@ run-runtime-test-2: $(OBJDIR)/bin/fd_ledger
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-586 -s snapshot-253151900-HVhfam8TtRFVwFto5fWkhgR4mbBJmUxcnxeKZoW5MrSD.tar.zst  -p 64 -m 5000000 -e 253152100
 
 run-runtime-test-3: $(OBJDIR)/bin/fd_ledger
-#	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-262654839 --snapshot-no-verify snapshot-262654838-B6GkEWuehxZTZ77Ht9vWUzdX87BiWP5ohi84LMicYTBZ.tar.zst -p 64 -m 20000000 -e 262654840 --zst
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-262654839 --snapshot-no-verify snapshot-262654838-B6GkEWuehxZTZ77Ht9vWUzdX87BiWP5ohi84LMicYTBZ.tar.zst -p 32 -m 20000000 -e 262654840 --zst
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257039990 -s snapshot-257039990-BSgErEc6ppN4p91meqPvUiXPiEhbakBNHMQQ4wKmceYv.tar.zst -p 64 -m 20000000 -e 257040003 --zst
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257037451 -s snapshot-257037451-36ERh35nFMRFB8sLHLTUnAd41TuzKYSTyxsa2bgBoMEj.tar.zst -p 32 -m 5000000 -e 257037454 --zst
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257035225 -s snapshot-257035225-EgwCNhhmffR38XWBXVp3GFs6fmtHKgzw5vEcD9e2oz14.tar.zst -p 32 -m 5000000 -e 257035233 --zst

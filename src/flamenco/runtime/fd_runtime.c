@@ -812,12 +812,10 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
     for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
 
+      /* https://github.com/firedancer-io/solana/blob/4b31032e68f85848b02fcc4c9e580d57f32ec04b/runtime/src/bank.rs#L4672 */
       int err;
       int is_nonce = fd_has_nonce_account(txn_ctx, &err);
       if ((NULL == txn_ctx->txn_descriptor) || !is_nonce) {
-        if ( txn_ctx->_txn_raw->raw == NULL ) {
-          return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
-        }
         fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
 
         fd_hash_hash_age_pair_t_mapnode_t key;

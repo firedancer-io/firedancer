@@ -53,7 +53,7 @@ fd_load_nonce_account( fd_exec_txn_ctx_t const *   txn_ctx,
                        fd_valloc_t                 valloc,
                        int *                       perr );
 
-/* returns 1 if a nonce account is present in a transaction, zero otherwise*/
+/* returns 1 if a nonce account is present in a transaction, returns 0 otherwise. */
 
 int
 fd_has_nonce_account( fd_exec_txn_ctx_t const *   txn_ctx,
