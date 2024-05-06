@@ -254,8 +254,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
         FD_SCRATCH_SCOPE_END;
       }
     }
-
-    fd_exec_epoch_ctx_fixup_memory( epoch_ctx, &slot_ctx->valloc );
   }
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool;
   vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );  /* FIXME remove magic constant */
@@ -3555,7 +3553,8 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first ) {
   fd_exec_epoch_ctx_t * epoch_ctx   = slot_ctx->epoch_ctx;
   fd_epoch_bank_t *     epoch_bank  = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
   fd_valloc_t           slot_valloc = slot_ctx->valloc;
-
+FD_SCRATCH_SCOPE_BEGIN {
+  fd_valloc_t           epoch_valloc = fd_scratch_virtual();
   {
     if( delete_first ) {
       fd_bincode_destroy_ctx_t ctx = { .valloc  = slot_valloc };
@@ -3572,7 +3571,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first ) {
     fd_bincode_decode_ctx_t ctx;
     ctx.data = val;
     ctx.dataend = (uchar*)val + fd_funk_val_sz( rec );
-    ctx.valloc  = slot_ctx->valloc;
+    ctx.valloc  = epoch_valloc;
     FD_TEST( fd_epoch_bank_decode( epoch_bank, &ctx )==FD_BINCODE_SUCCESS );
 
     FD_LOG_NOTICE(( "recovered epoch_bank" ));
@@ -3605,7 +3604,8 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first ) {
     slot_ctx->slot_bank.collected_rent = 0;
   }
 
-  fd_exec_epoch_ctx_fixup_memory( epoch_ctx, &slot_valloc );
+  fd_exec_epoch_ctx_fixup_memory( epoch_ctx, &epoch_valloc );
+} FD_SCRATCH_SCOPE_END;
 }
 
 void
@@ -3614,19 +3614,20 @@ fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx ) {
   /* As the collection pointers are not owned by fd_alloc, zero them
      out to prevent invalid frees by the destroy function. */
 
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  // fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
 
-  epoch_bank->stakes.vote_accounts.vote_accounts_pool = NULL;
-  epoch_bank->stakes.vote_accounts.vote_accounts_root = NULL;
-  epoch_bank->stakes.stake_delegations_pool = NULL;
-  epoch_bank->stakes.stake_delegations_root = NULL;
-  epoch_bank->stakes.stake_history.treap = NULL;
-  epoch_bank->stakes.stake_history.pool  = NULL;
-  epoch_bank->next_epoch_stakes.vote_accounts_pool = NULL;
-  epoch_bank->next_epoch_stakes.vote_accounts_root = NULL;
+  // epoch_bank->stakes.vote_accounts.vote_accounts_pool = NULL;
+  // epoch_bank->stakes.vote_accounts.vote_accounts_root = NULL;
+  // epoch_bank->stakes.stake_delegations_pool = NULL;
+  // epoch_bank->stakes.stake_delegations_root = NULL;
+  // epoch_bank->stakes.stake_history.treap = NULL;
+  // epoch_bank->stakes.stake_history.pool  = NULL;
+  // epoch_bank->next_epoch_stakes.vote_accounts_pool = NULL;
+  // epoch_bank->next_epoch_stakes.vote_accounts_root = NULL;
 
   fd_bincode_destroy_ctx_t ctx = { .valloc = slot_ctx->valloc };
-  fd_epoch_bank_destroy( epoch_bank, &ctx );
+  // fd_epoch_bank_destroy( epoch_bank, &ctx );
+  fd_exec_epoch_ctx_epoch_bank_delete( slot_ctx->epoch_ctx );
   fd_slot_bank_destroy( &slot_ctx->slot_bank, &ctx );
 }
 
