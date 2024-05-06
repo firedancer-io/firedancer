@@ -165,6 +165,10 @@ fd_tile_private_boot( int *    pargc,
                       char *** pargv );
 
 void
+fd_tile_private_map_boot( ushort * tile_to_cpu,
+                          ulong    tile_cnt );
+
+void
 fd_tile_private_halt( void );
 
 FD_PROTOTYPES_END
