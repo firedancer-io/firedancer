@@ -53,7 +53,7 @@ txn_cmd_perm( args_t *         args,
 void
 txn_cmd_args( int *    pargc,
               char *** pargv,
-              args_t * args);
+              args_t * args );
 
 void
 txn_cmd_fn( args_t *         args,
@@ -67,25 +67,25 @@ bench_cmd_perm( args_t *         args,
 void
 bench_cmd_args( int *    pargc,
                 char *** pargv,
-                args_t * args);
+                args_t * args );
 
 void
 bench_cmd_fn( args_t *         args,
               config_t * const config );
 
 void
-spammer_cmd_args( int *    pargc,
-                  char *** pargv,
-                  args_t * args);
+hiit_cmd_args( int *    pargc,
+               char *** pargv,
+               args_t * args );
 
 void
-spammer_cmd_perm( args_t *         args,
-                  fd_caps_ctx_t *  caps,
-                  config_t * const config );
+hiit_cmd_perm( args_t *         args,
+               fd_caps_ctx_t *  caps,
+               config_t * const config );
 
 void
-spammer_cmd_fn( args_t *         args,
-                config_t * const config );
+hiit_cmd_fn( args_t *         args,
+             config_t * const config );
 
 void
 dump_cmd_args( int      * argc,
@@ -104,7 +104,7 @@ flame_cmd_perm( args_t *         args,
 void
 flame_cmd_args( int *    pargc,
                 char *** pargv,
-                args_t * args);
+                args_t * args );
 
 void
 flame_cmd_fn( args_t *         args,

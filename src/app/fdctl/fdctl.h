@@ -81,7 +81,7 @@ typedef union {
     ulong   benchg;
     ulong   benchs;
     int     no_quic;
-  } spammer;
+  } hiit;
 } args_t;
 
 typedef struct fd_caps_ctx fd_caps_ctx_t;

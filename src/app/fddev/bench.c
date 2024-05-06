@@ -46,7 +46,7 @@ bench_cmd_args( int *    pargc,
   (void)pargc;
   (void)pargv;
   (void)args;
-  args->spammer.no_quic = fd_env_strip_cmdline_contains( pargc, pargv, "--no-quic" );
+  args->hiit.no_quic = fd_env_strip_cmdline_contains( pargc, pargv, "--no-quic" );
 }
 
 static void *
@@ -117,7 +117,7 @@ bench_cmd_fn( args_t *         args,
               config_t * const config ) {
   (void)args;
 
-  ushort dest_port = fd_ushort_if( args->spammer.no_quic,
+  ushort dest_port = fd_ushort_if( args->hiit.no_quic,
                                    config->tiles.quic.regular_transaction_listen_port,
                                    config->tiles.quic.quic_transaction_listen_port );
 
@@ -131,7 +131,7 @@ bench_cmd_fn( args_t *         args,
                   config->tiles.net.ip_addr,
                   config->rpc.port,
                   config->tiles.net.ip_addr,
-                  args->spammer.no_quic );
+                  args->hiit.no_quic );
 
   if( FD_LIKELY( !args->dev.no_configure ) ) {
     args_t configure_args = {
