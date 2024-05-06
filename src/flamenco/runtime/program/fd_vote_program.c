@@ -828,8 +828,14 @@ last_voted_slot( fd_vote_state_t * self ) {
 
 static int
 contains_slot( fd_vote_state_t * vote_state, ulong slot ) {
+  // Prevent underflowing of end boundary
+  ulong size = deq_fd_landed_vote_t_cnt( vote_state->votes );
+  if( FD_UNLIKELY( size == 0 ) ) {
+    return 0;
+  }
+
   ulong start = 0UL;
-  ulong end   = deq_fd_landed_vote_t_cnt( vote_state->votes ) - 1;
+  ulong end   = size - 1;
 
   while( start <= end ) {
     ulong mid      = start + ( end - start ) / 2;
@@ -839,7 +845,7 @@ contains_slot( fd_vote_state_t * vote_state, ulong slot ) {
     } else if( mid_slot < slot ) {
       start = mid + 1;
     } else {
-      if (mid == 0) {
+      if( mid == 0 ) {
         break;
       }
       end = mid - 1;
