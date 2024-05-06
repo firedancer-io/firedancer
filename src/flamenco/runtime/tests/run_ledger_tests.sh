@@ -211,7 +211,7 @@ if [[ $ON_DEMAND = 1 ]]; then
     $TRASHHASH \
     $IMAX \
     $END_SLOT \
-    --txnmax 100 \
+    --txn-max 100 \
     $PAGES \
     $SNAPSHOT \
     $SOLCAP \

@@ -860,6 +860,7 @@ fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
   fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
 
+  fd_executor_setup_accessed_accounts_for_txn( txn_ctx );
   int err;
   int is_nonce = fd_has_nonce_account(txn_ctx, &err);
   if ((NULL == txn_descriptor) || !is_nonce) {
@@ -875,7 +876,6 @@ fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
     FD_LOG_WARNING(("Preparing Transaction %64J, %lu", sig, txn_ctx->heap_size));
   #endif
 
-  fd_executor_setup_accessed_accounts_for_txn( txn_ctx );
   int compute_budget_status = fd_executor_compute_budget_program_execute_instructions( txn_ctx, txn_ctx->_txn_raw );
 
   if ((NULL != txn_descriptor) && is_nonce) {
@@ -959,7 +959,7 @@ fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t * slot_ctx,
       ulong i = fd_txn_acct_iter_idx( ctrl );
       fd_pubkey_t * acct = &tx_accs[i];
       int is_writable = fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, tx_accs, (int)i) &&
-                          !fd_txn_account_is_demotion( txn_ctx, (int)i );
+                        !fd_txn_account_is_demotion( txn_ctx, (int)i );
       if (!is_writable) {
         continue;
       }
