@@ -29,6 +29,7 @@ for MACHINE in ${MACHINES[*]}; do
   OBJDIR="$(make help | grep OBJDIR | awk '{print $4}')"
   OBJDIRS+=( "${OBJDIR}" )
   make clean --silent >/dev/null
+  git status --porcelain | grep '^??' | cut -c4- | xargs rm -rf
   contrib/make-j all integration-test
   if [[ "$NOTEST" != 1 ]]; then
     make run-unit-test
