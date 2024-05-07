@@ -124,6 +124,7 @@ struct fd_runtime_args {
   ulong        on_demand_block_history;
   int          copy_txn_status;
   ulong        trash_hash;
+  fd_wksp_t *  funk_wksp;
 };
 typedef struct fd_runtime_args fd_runtime_args_t;
 

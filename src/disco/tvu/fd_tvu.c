@@ -1071,7 +1071,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   runtime_ctx->local_wksp = wksp;
 
   funk_setup_t funk_setup_out = {0};
-  funk_setup( wksp, args->funk_wksp_name, args->snapshot, args->load, args->txn_max, args->index_max, &funk_setup_out );
+  fd_wksp_t * funk_wksp = args->funk_wksp != NULL ? args->funk_wksp : wksp;
+  funk_setup( funk_wksp, args->funk_wksp_name, args->snapshot, args->load, args->txn_max, args->index_max, &funk_setup_out );
 
   fd_valloc_t valloc = allocator_setup( wksp, args->allocator );
 

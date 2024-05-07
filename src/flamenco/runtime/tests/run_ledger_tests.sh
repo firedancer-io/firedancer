@@ -33,6 +33,7 @@ LEDGER="v18-small"
 SNAPSHOT=""
 INC_SNAPSHOT=""
 END_SLOT="--end-slot 1010"
+FUNK_PAGES="--funk-page-cnt 20"
 PAGES="--page-cnt 20"
 IMAX="--index-max 1000000"
 START="--start-slot 241819853"
@@ -58,6 +59,11 @@ while [[ $# -gt 0 ]]; do
        ;;
     -p|--pages)
        PAGES="--page-cnt $2"
+       shift
+       shift
+       ;;
+    -y|--funk-pages)
+       FUNK_PAGES="--funk-page-cnt $2"
        shift
        shift
        ;;
@@ -213,6 +219,7 @@ if [[ $ON_DEMAND = 1 ]]; then
     $END_SLOT \
     --txn-max 100 \
     $PAGES \
+    $FUNK_PAGES \
     $SNAPSHOT \
     $SOLCAP \
     $INC_SNAPSHOT \
