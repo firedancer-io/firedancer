@@ -65,7 +65,6 @@ _PRIMARY_INTERFACE=$(ip route show default | awk '/default/ {print $5}')
 PRIMARY_IP=$(ip addr show $_PRIMARY_INTERFACE | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1)
 
 fd_shmem_cfg query
-sudo fd_shmem_cfg alloc 256 gigantic 0
 
 RUST_LOG=trace taskset -c 40,41 solana-validator \
     --identity id.json \
