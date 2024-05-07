@@ -328,103 +328,6 @@ after_frag( void *             _ctx,
 }
 
 static void
-read_genesis( void * _ctx,
-              char const * genesis_filepath,
-              uchar is_snapshot ) {
-  if ( strlen( genesis_filepath ) == 0 ) return;
-  fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
-  // TODO: Have a solcap capture?
-  fd_capture_ctx_t *    capture_ctx  = NULL;
-
-  struct stat sbuf;
-  if( FD_UNLIKELY( stat( genesis_filepath, &sbuf) < 0 ) )
-    FD_LOG_ERR(("cannot open %s : %s", genesis_filepath, strerror(errno)));
-  int fd = open( genesis_filepath, O_RDONLY );
-  if( FD_UNLIKELY( fd < 0 ) )
-    FD_LOG_ERR(("cannot open %s : %s", genesis_filepath, strerror(errno)));
-  uchar * buf = malloc((ulong) sbuf.st_size);  /* TODO Make this a scratch alloc */
-  ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
-  close(fd);
-
-  fd_genesis_solana_t genesis_block;
-  fd_genesis_solana_new(&genesis_block);
-  fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = buf,
-    .dataend = buf + n,
-    .valloc  = ctx->slot_ctx->valloc,
-  };
-  if( fd_genesis_solana_decode(&genesis_block, &decode_ctx) )
-    FD_LOG_ERR(("fd_genesis_solana_decode failed"));
-
-  // The hash is generated from the raw data... don't mess with this..
-  fd_hash_t genesis_hash;
-  fd_sha256_hash( buf, (ulong)n, genesis_hash.uc );
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
-  fd_memcpy( epoch_bank->genesis_hash.uc, genesis_hash.uc, 32U );
-  epoch_bank->cluster_type = genesis_block.cluster_type;
-
-  free(buf);
-  if ( !is_snapshot ) {
-    fd_runtime_init_bank_from_genesis( ctx->slot_ctx, &genesis_block, &genesis_hash );
-
-    fd_runtime_init_program( ctx->slot_ctx );
-
-    FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block.accounts_len));
-
-    for( ulong i=0; i < genesis_block.accounts_len; i++ ) {
-      fd_pubkey_account_pair_t * a = &genesis_block.accounts[i];
-
-      FD_BORROWED_ACCOUNT_DECL(rec);
-
-      int err = fd_acc_mgr_modify(
-        ctx->slot_ctx->acc_mgr,
-        ctx->slot_ctx->funk_txn,
-        &a->key,
-        /* do_create */ 1,
-        a->account.data_len,
-        rec);
-      if( FD_UNLIKELY( err ) )
-        FD_LOG_ERR(( "fd_acc_mgr_modify failed (%d)", err ));
-
-      rec->meta->dlen            = a->account.data_len;
-      rec->meta->info.lamports   = a->account.lamports;
-      rec->meta->info.rent_epoch = a->account.rent_epoch;
-      rec->meta->info.executable = a->account.executable;
-      memcpy( rec->meta->info.owner, a->account.owner.key, 32UL );
-      if( a->account.data_len )
-        memcpy( rec->data, a->account.data, a->account.data_len );
-    }
-
-    FD_LOG_DEBUG(( "end genesis accounts"));
-
-    FD_LOG_DEBUG(( "native instruction processors - count: %lu", genesis_block.native_instruction_processors_len));
-
-    for( ulong i=0; i < genesis_block.native_instruction_processors_len; i++ ) {
-      fd_string_pubkey_pair_t * a = &genesis_block.native_instruction_processors[i];
-      fd_write_builtin_bogus_account( ctx->slot_ctx, a->pubkey.uc, a->string, strlen(a->string) );
-    }
-
-    /* sort and update bank hash */
-    int result = fd_update_hash_bank( ctx->slot_ctx, capture_ctx, &ctx->slot_ctx->slot_bank.banks_hash, ctx->slot_ctx->signature_cnt );
-    if (result != FD_EXECUTOR_INSTR_SUCCESS) {
-      FD_LOG_ERR(("Failed to update bank hash with error=%d", result));
-    }
-
-    ctx->slot_ctx->slot_bank.slot = 0UL;
-  }
-  FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_epoch_bank( ctx->slot_ctx ) );
-
-  FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_slot_bank( ctx->slot_ctx ) );
-
-  fd_bincode_destroy_ctx_t ctx2 = { .valloc = ctx->slot_ctx->valloc };
-  fd_genesis_solana_destroy(&genesis_block, &ctx2);
-
-  // if( capture_ctx )  {
-  //   fd_solcap_writer_fini( capture_ctx->capture );
-  // }
-}
-
-static void
 read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
 
@@ -466,7 +369,7 @@ after_credit( void *             _ctx,
         fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( ctx->epoch_ctx );
         bank_hash_cmp->slot = ctx->replay->smr;
 
-        read_genesis( ctx, ctx->genesis, is_snapshot );
+        fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot );
 
         fd_features_restore( ctx->slot_ctx );
         fd_runtime_update_leaders( ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot );
