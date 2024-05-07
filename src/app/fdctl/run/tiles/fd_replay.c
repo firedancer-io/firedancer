@@ -39,6 +39,16 @@
 #define POH_OUT_IDX    (0UL)
 #define STORE_OUT_IDX  (1UL)
 
+
+/* Scratch space estimates.
+   TODO: Update constants and add explanation
+*/
+#define SCRATCH_MAX    (1024UL /*MiB*/ << 21)
+#define SCRATCH_DEPTH  (128UL) /* 128 scratch frames */
+
+#define VOTE_ACC_MAX   (2000000UL)
+#define FORKS_MAX      (fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH ))
+
 struct fd_replay_tile_ctx {
   fd_wksp_t * wksp;
 
@@ -119,6 +129,12 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
+  l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
+  l = FD_LAYOUT_APPEND( l, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_replay_align(), fd_replay_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FORKS_MAX ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -527,13 +543,17 @@ unprivileged_init( fd_topo_t *      topo,
   /* Scratch mem setup */
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
-  
-  ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
+  void * alloc_shmem         = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+  /* Create scratch region */
+  void * smem                = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
+  void * fmem                = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
+  /* NOTE: incremental snapshot load resets this and care should be taken if
+    adding any setup here. */
+  ctx->epoch_ctx_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
+  void * replay_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_align(), fd_replay_footprint() );
+  void *       forks_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FORKS_MAX ) );
 
-  void * alloc_shmem = fd_wksp_alloc_laddr( ctx->wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
-  if( FD_UNLIKELY( !alloc_shmem ) ) { 
-    FD_LOG_ERR(( "fd_alloc too large for workspace" )); 
-  }
+  ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
 
   ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
   FD_TEST( blockstore_obj_id!=ULONG_MAX );
@@ -564,15 +584,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "failed to attach to workspace" ));
   fd_wksp_reset( funk_wksp, (uint)hashseed);
 
-  /* Create scratch region */
-  // TODO: fix up and explain these constants.
-  ulong  smax   = 1024UL /*MiB*/ << 21;
-  ulong  sdepth = 128;      /* 128 scratch frames */
-  // TODO: move to scratch alloc for tile
-  void * smem   = fd_wksp_alloc_laddr( ctx->wksp, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax   ), 421UL );
-  void * fmem   = fd_wksp_alloc_laddr( ctx->wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ), 421UL );
-  FD_TEST( (!!smem) & (!!fmem) );
-  fd_scratch_attach( smem, fmem, smax, sdepth );
+  fd_scratch_attach( smem, fmem, SCRATCH_MAX, SCRATCH_DEPTH );
 
   // Funky setup
   fd_funk_t * funk;
@@ -587,12 +599,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   fd_valloc_t valloc = fd_alloc_virtual( alloc );
-  ulong vote_acc_max = 2000000UL;
-  /* NOTE: incremental snapshot load resets this and care should be taken if
-     adding any setup here. */
-  // TODO: move to scratch alloc for tile 
-  ctx->epoch_ctx_mem = fd_wksp_alloc_laddr( ctx->wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acc_max ), FD_EXEC_EPOCH_CTX_MAGIC );
-  ctx->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( ctx->epoch_ctx_mem , vote_acc_max ) );
+  
+  ctx->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( ctx->epoch_ctx_mem , VOTE_ACC_MAX ) );
   
   ctx->snapshot    = tile->replay.snapshot;
   ctx->incremental = tile->replay.incremental;
@@ -602,18 +610,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->parent_slot = ctx->curr_slot;
   fd_memset( ctx->blockhash.uc, 0, sizeof(fd_hash_t));
 
-  // TODO: move to scratch allocator for tile
-  void * replay_mem =
-      fd_wksp_alloc_laddr( ctx->wksp, fd_replay_align(), fd_replay_footprint(), 42UL );
   ctx->replay = fd_replay_join( fd_replay_new( replay_mem ) );
   ctx->replay->valloc       = valloc;
   ctx->replay->epoch_ctx    = ctx->epoch_ctx;
 
   fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( ctx->acc_mgr, funk );
 
-  ulong        forks_max = fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH );
-  void *       forks_mem = fd_wksp_alloc_laddr( ctx->wksp, fd_forks_align(), fd_forks_footprint( forks_max ), 1UL );
-  fd_forks_t * forks     = fd_forks_join( fd_forks_new( forks_mem, forks_max, 42UL ) );
+  fd_forks_t * forks     = fd_forks_join( fd_forks_new( forks_mem, FORKS_MAX, 42UL ) );
   FD_TEST( forks );
 
   forks->acc_mgr = acc_mgr;
