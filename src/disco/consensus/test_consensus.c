@@ -13,10 +13,10 @@
 #include <unistd.h>
 
 #include "../keyguard/fd_keyguard_client.h"
+#include "../metrics/fd_metrics.h"
 #include "../shred/fd_shred_cap.h"
 #include "../tvu/fd_replay.h"
 #include "../tvu/fd_store.h"
-#include "../metrics/fd_metrics.h"
 
 #include "../../choreo/fd_choreo.h"
 #include "../../flamenco/fd_flamenco.h"
@@ -24,6 +24,7 @@
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/fd_snapshot_loader.h"
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
+#include "../../flamenco/runtime/program/fd_vote_program.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../util/fd_util.h"
@@ -132,8 +133,8 @@ gossip_send_fun( uchar const *                 data,
                  fd_gossip_peer_addr_t const * gossip_peer_addr,
                  void *                        arg ) {
   uchar saddr[sizeof( struct sockaddr_in )];
-  int   saddrlen = to_sockaddr( saddr, gossip_peer_addr );
-  char  s[MAX_ADDR_STRLEN]  = { 0 };
+  int   saddrlen           = to_sockaddr( saddr, gossip_peer_addr );
+  char  s[MAX_ADDR_STRLEN] = { 0 };
   fd_gossip_addr_str( s, sizeof( s ), gossip_peer_addr );
   if( sendto( *(int *)arg,
               data,
@@ -220,7 +221,7 @@ resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res 
     return NULL;
   }
   /* Convert result to repair address */
-  res->l = 0;
+  res->l    = 0;
   res->addr = ( (struct in_addr *)host->h_addr_list[0] )->s_addr;
   int port  = atoi( str + i + 1 );
   if( ( port > 0 && port < 1024 ) || port > (int)USHORT_MAX ) {
@@ -381,17 +382,17 @@ gossip_thread( void * arg ) {
 }
 
 struct shredcap_targ {
-  void *            metrics_shmem;
-  fd_replay_t *     replay;
-  const char *      shred_cap_fpath;
+  void *        metrics_shmem;
+  fd_replay_t * replay;
+  const char *  shred_cap_fpath;
 };
 typedef struct shredcap_targ shredcap_targ_t;
 
 static void *
 shredcap_thread( void * arg ) {
-  shredcap_targ_t * args      = (shredcap_targ_t *)arg;
+  shredcap_targ_t * args = (shredcap_targ_t *)arg;
   fd_metrics_register( (ulong *)fd_metrics_new( args->metrics_shmem, 0UL, 0UL ) );
-  fd_shred_cap_replay(args->shred_cap_fpath, args->replay);
+  fd_shred_cap_replay( args->shred_cap_fpath, args->replay );
   return 0;
 }
 
@@ -408,6 +409,9 @@ main( int argc, char ** argv ) {
       fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, NULL );
   const char * repair_peer_addr =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-addr", NULL, NULL );
+  ushort gossip_port = fd_env_strip_cmdline_ushort( &argc, &argv, "--gossip-port", NULL, 9001 );
+  ushort repair_port = fd_env_strip_cmdline_ushort( &argc, &argv, "--repair-port", NULL, 9002 );
+  ushort tvu_port    = fd_env_strip_cmdline_ushort( &argc, &argv, "--tvu-port", NULL, 9003 );
   const char * repair_peer_id =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-id", NULL, NULL );
   const char * mode = fd_env_strip_cmdline_cstr( &argc, &argv, "--mode", NULL, "archive" );
@@ -564,17 +568,19 @@ main( int argc, char ** argv ) {
   snapshot_slot_ctx->valloc     = valloc;
 
   fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
-  ulong i, j;
-  FD_TEST( sscanf( incremental_snapshot, "incremental-snapshot-%lu-%lu", &i, &j ) == 2 );
-  FD_TEST( i == snapshot_slot_ctx->slot_bank.slot );
+
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( snapshot_slot_ctx->epoch_ctx );
-  FD_TEST( epoch_bank );
-  FD_TEST( fd_slot_to_epoch( &epoch_bank->epoch_schedule, i, NULL ) ==
-           fd_slot_to_epoch( &epoch_bank->epoch_schedule, j, NULL ) );
+  if( incremental_snapshot ) {
+    ulong i, j;
+    FD_TEST( sscanf( incremental_snapshot, "incremental-snapshot-%lu-%lu", &i, &j ) == 2 );
+    FD_TEST( i == snapshot_slot_ctx->slot_bank.slot );
+    FD_TEST( epoch_bank );
+    FD_TEST( fd_slot_to_epoch( &epoch_bank->epoch_schedule, i, NULL ) ==
+             fd_slot_to_epoch( &epoch_bank->epoch_schedule, j, NULL ) );
+    fd_snapshot_load( incremental_snapshot, snapshot_slot_ctx, 1, 1, FD_SNAPSHOT_TYPE_INCREMENTAL );
+  }
 
-  fd_snapshot_load( incremental_snapshot, snapshot_slot_ctx, 1, 1, FD_SNAPSHOT_TYPE_INCREMENTAL );
   fd_runtime_cleanup_incinerator( snapshot_slot_ctx );
-
   ulong snapshot_slot = snapshot_slot_ctx->slot_bank.slot;
   FD_LOG_NOTICE( ( "snapshot_slot: %lu", snapshot_slot ) );
 
@@ -681,8 +687,9 @@ main( int argc, char ** argv ) {
   fd_repair_config_t repair_config;
   repair_config.public_key  = &public_key;
   repair_config.private_key = private_key;
-  FD_TEST( resolve_hostport( ":9003", &repair_config.service_addr ) );
-  FD_TEST( resolve_hostport( ":9002", &repair_config.intake_addr ) );
+  char repair_addr[7]       = { 0 };
+  snprintf( repair_addr, sizeof( repair_addr ), ":%u", repair_port );
+  FD_TEST( resolve_hostport( repair_addr, &repair_config.intake_addr ) );
   repair_config.deliver_fun      = repair_deliver_fun;
   repair_config.send_fun         = repair_send_fun;
   repair_config.deliver_fail_fun = repair_deliver_fail_fun;
@@ -783,10 +790,12 @@ main( int argc, char ** argv ) {
   fd_gossip_config_t gossip_config;
   gossip_config.public_key  = &public_key;
   gossip_config.private_key = private_key;
-  FD_TEST( resolve_hostport( ":9001", &gossip_config.my_addr ) );
+  char gossip_addr[7]       = { 0 };
+  snprintf( gossip_addr, sizeof( gossip_addr ), ":%u", gossip_port );
+  FD_TEST( resolve_hostport( gossip_addr, &gossip_config.my_addr ) );
   gossip_config.shred_version             = 0;
   gossip_config.deliver_fun               = gossip_deliver_fun;
-  gossip_deliver_arg_t gossip_deliver_arg = { .repair = repair, .bft = bft };
+  gossip_deliver_arg_t gossip_deliver_arg = { .repair = repair, .bft = bft, .valloc = valloc };
   gossip_config.deliver_arg               = &gossip_deliver_arg;
   gossip_config.send_fun                  = gossip_send_fun;
   int gossip_sockfd                       = create_socket( &gossip_config.my_addr );
@@ -886,8 +895,9 @@ main( int argc, char ** argv ) {
   replay->shred_cap = NULL;
   if( strcmp( mode, "replay" ) == 0 ) {
     FD_LOG_NOTICE( ( "test_consensus running in replay mode" ) );
-    shredcap_targ_t shredcap_targ = { .metrics_shmem = metrics_shredcap, .shred_cap_fpath = shredcap, .replay = replay };
-    pthread_t       shredcap_tid;
+    shredcap_targ_t shredcap_targ = {
+        .metrics_shmem = metrics_shredcap, .shred_cap_fpath = shredcap, .replay = replay };
+    pthread_t shredcap_tid;
     FD_TEST( !pthread_create( &shredcap_tid, NULL, shredcap_thread, &shredcap_targ ) );
     goto run_replay;
   } else {
@@ -906,14 +916,19 @@ main( int argc, char ** argv ) {
   /* turbine (tvu), repair, gossip threads                              */
   /**********************************************************************/
 
-  fd_repair_peer_addr_t tvu_addr[1] = { 0 };
-  FD_TEST( resolve_hostport( ":9003", tvu_addr ) );
-  fd_repair_peer_addr_t tvu_fwd_addr[1] = { 0 };
-  FD_TEST( resolve_hostport( ":9004", tvu_fwd_addr ) );
+  fd_repair_peer_addr_t tvu_addr     = { 0 };
+  char                  tvu_addr_[7] = { 0 };
+  snprintf( tvu_addr_, sizeof( tvu_addr_ ), ":%u", tvu_port );
+  FD_TEST( resolve_hostport( tvu_addr_, &tvu_addr ) );
+
+  fd_repair_peer_addr_t tvu_fwd_addr     = { 0 };
+  char                  tvu_fwd_addr_[7] = { 0 };
+  snprintf( tvu_fwd_addr_, sizeof( tvu_fwd_addr_ ), ":%u", tvu_port + 1 );
+  FD_TEST( resolve_hostport( tvu_fwd_addr_, &tvu_fwd_addr ) );
 
   /* initialize tvu */
-  int tvu_sockfd = create_socket( tvu_addr );
-  if( fd_gossip_update_tvu_addr( gossip, tvu_addr, tvu_fwd_addr ) )
+  int tvu_sockfd = create_socket( &tvu_addr );
+  if( fd_gossip_update_tvu_addr( gossip, &tvu_addr, &tvu_fwd_addr ) )
     FD_LOG_ERR( ( "error setting gossip tvu" ) );
 
   turbine_targs_t turbine_targ = { .tvu_fd = tvu_sockfd, .replay = replay };
@@ -929,24 +944,31 @@ main( int argc, char ** argv ) {
   FD_TEST( !pthread_create( &gossip_tid, NULL, gossip_thread, &gossip_targ ) );
 
   /**********************************************************************/
-  /* run replay                                                         */
+  /* tpool                                                              */
   /**********************************************************************/
 
   fd_tpool_t * tpool = NULL;
   uchar tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
-
- run_replay:
-  if( tcnt > 3 ) {
-    tpool = fd_tpool_init( tpool_mem, tcnt - 3 );
-    if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
-    for( ulong i = 4; i < tcnt; ++i ) {
-      if( fd_tpool_worker_push( tpool, i, NULL, fd_scratch_smem_footprint( 256UL << 20UL ) ) ==
-          NULL )
-        FD_LOG_ERR( ( "failed to launch worker" ) );
-    }
+  ulong tile_cnt = fd_tile_cnt();
+  FD_LOG_NOTICE( ( "tile_cnt: %lu", tile_cnt ) );
+  tpool          = fd_tpool_init( tpool_mem, tile_cnt );
+  FD_TEST( tpool );
+  if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
+  ulong   scratch_sz = fd_scratch_smem_footprint( 256 << 20 );
+  uchar * scratch = fd_valloc_malloc( valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz * (fd_tile_cnt() - 1 ));
+  for( ulong i = 1; i < tile_cnt; i++ ) {
+    fd_tpool_t * worker =
+        fd_tpool_worker_push( tpool, i, scratch + ( scratch_sz * ( i - 1 ) ), scratch_sz );
+    FD_TEST( worker );
   }
   replay->max_workers = tcnt - 3;
   replay->tpool       = tpool;
+
+  /**********************************************************************/
+  /* run replay                                                         */
+  /**********************************************************************/
+
+run_replay:
 
   while( FD_LIKELY( 1 /* !fd_tile_shutdown_flag */ ) ) {
 
@@ -970,7 +992,7 @@ main( int argc, char ** argv ) {
     nanosleep( &ts, NULL );
   }
 
-  if (replay->shred_cap) fclose(replay->shred_cap);
+  if( replay->shred_cap ) fclose( replay->shred_cap );
   fd_halt();
   return 0;
 }
