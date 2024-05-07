@@ -233,6 +233,16 @@ typedef struct {
       ushort repair_intake_listen_port;
       ushort repair_serve_listen_port;
     } repair;
+
+    struct {
+      char snapshot[ PATH_MAX ];
+      char incremental[ PATH_MAX ];
+      char genesis[ PATH_MAX ];
+    } replay;
+
+    struct {
+      ulong snapshot_slot;
+    } store;
   } tiles;
 } config_t;
 

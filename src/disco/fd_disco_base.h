@@ -17,6 +17,9 @@
 #define POH_PKT_TYPE_BECAME_LEADER (1UL)
 #define POH_PKT_TYPE_DONE_PACKING  (2UL)
 
+#define REPLAY_FLAG_FINALIZE_BLOCK      (0x01UL)
+#define REPLAY_FLAG_PACKED_MICROBLOCK   (0x02UL)
+
 /* FD_NET_MTU is the max full packet size, with ethernet, IP, and UDP
    headers that can go in or out of the net tile.  2048 is the maximum
    XSK entry size, so this value follows naturally. */
@@ -88,6 +91,21 @@ fd_disco_poh_sig( ulong slot,
 FD_FN_CONST static inline ulong fd_disco_poh_sig_pkt_type( ulong sig ) { return (sig & 0x3UL); }
 FD_FN_CONST static inline ulong fd_disco_poh_sig_slot( ulong sig ) { return (sig >> 8); }
 FD_FN_CONST static inline ulong fd_disco_poh_sig_bank_tile( ulong sig ) { return (sig >> 2) & 0x3FUL; }
+
+FD_FN_CONST static inline ulong
+fd_disco_replay_sig( ulong slot,
+                     ulong flags ) {
+   /* The low byte of the signature field is the flags for replay message.
+      The higher 7 bytes are the slot number.  These flags indicate the status
+      of a microblock as it transits through the replay system.  Technically,
+      the slot number is a ulong, but it won't hit 256^7 for about 10^9 years
+      at the current rate.  The lowest bit of the low byte is the packet
+      type. */
+  return (slot << 8) | (flags & 0xFFUL);
+}
+
+FD_FN_CONST static inline ulong fd_disco_replay_sig_flags( ulong sig ) { return (sig & 0xFFUL); }
+FD_FN_CONST static inline ulong fd_disco_replay_sig_slot( ulong sig ) { return (sig >> 8); }
 
 FD_FN_PURE static inline ulong
 fd_disco_compact_chunk0( void * wksp ) {
