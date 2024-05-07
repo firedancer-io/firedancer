@@ -115,6 +115,22 @@ fd_exec_epoch_ctx_join( void * mem ) {
   return ctx;
 }
 
+static void
+epoch_ctx_bank_mem_leave( fd_exec_epoch_ctx_t * epoch_ctx ) {
+  void * mem = epoch_ctx;
+  fd_exec_epoch_ctx_layout_t const * layout = &epoch_ctx->layout;
+
+  void * stake_votes_mem         = (void *)( (ulong)mem + layout->stake_votes_off         );
+  void * stake_delegations_mem   = (void *)( (ulong)mem + layout->stake_delegations_off   );
+  void * stake_history_treap_mem = (void *)( (ulong)mem + layout->stake_history_treap_off );
+  void * stake_history_pool_mem  = (void *)( (ulong)mem + layout->stake_history_pool_off  );
+  
+  fd_vote_accounts_pair_t_map_leave  ( stake_votes_mem         );
+  fd_delegation_pair_t_map_leave     ( stake_delegations_mem   );
+  fd_stake_history_treap_leave       ( stake_history_treap_mem );
+  (void)fd_stake_history_pool_leave  ( stake_history_pool_mem  );
+}
+
 void *
 fd_exec_epoch_ctx_leave( fd_exec_epoch_ctx_t * ctx ) {
   if( FD_UNLIKELY( !ctx ) ) {
@@ -126,6 +142,8 @@ fd_exec_epoch_ctx_leave( fd_exec_epoch_ctx_t * ctx ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
+
+  epoch_ctx_bank_mem_leave( ctx );
 
   return (void *) ctx;
 }
@@ -166,8 +184,8 @@ fd_exec_epoch_ctx_delete( void * mem ) {
   return mem;
 }
 
-void *
-fd_exec_epoch_ctx_epoch_bank_delete( fd_exec_epoch_ctx_t * epoch_ctx ) {
+static void 
+epoch_ctx_bank_mem_delete( fd_exec_epoch_ctx_t * epoch_ctx ) {
   void * mem = epoch_ctx;
   fd_exec_epoch_ctx_layout_t const * layout = &epoch_ctx->layout;
 
@@ -180,9 +198,52 @@ fd_exec_epoch_ctx_epoch_bank_delete( fd_exec_epoch_ctx_t * epoch_ctx ) {
   fd_delegation_pair_t_map_delete   ( stake_delegations_mem   );
   fd_stake_history_treap_delete     ( stake_history_treap_mem );
   fd_stake_history_pool_delete      ( stake_history_pool_mem  );
+}
 
+void
+fd_exec_epoch_ctx_epoch_bank_delete( fd_exec_epoch_ctx_t * epoch_ctx ) {
+  epoch_ctx_bank_mem_delete( epoch_ctx );
   memset( &epoch_ctx->epoch_bank, 0UL, FD_EPOCH_BANK_FOOTPRINT);
-  return mem;
+}
+
+void
+fd_exec_epoch_ctx_bank_mem_clear( fd_exec_epoch_ctx_t * epoch_ctx ) {
+  fd_epoch_bank_t * const epoch_bank = &epoch_ctx->epoch_bank;
+{
+  fd_vote_accounts_pair_t_mapnode_t * old_pool = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
+  fd_vote_accounts_pair_t_mapnode_t * old_root = epoch_bank->stakes.vote_accounts.vote_accounts_root;
+  fd_vote_accounts_pair_t_map_release_tree( old_pool, old_root );
+}
+{
+  fd_delegation_pair_t_mapnode_t * old_pool = epoch_bank->stakes.stake_delegations_pool;
+  fd_delegation_pair_t_mapnode_t * old_root = epoch_bank->stakes.stake_delegations_root;
+  fd_delegation_pair_t_map_release_tree( old_pool, old_root );
+}
+{
+  fd_stake_history_entry_t * old_pool  = epoch_bank->stakes.stake_history.pool;
+  fd_stake_history_treap_t * old_treap = epoch_bank->stakes.stake_history.treap;
+
+  if ( old_pool && old_treap ) {
+    ulong elem_cnt = 0UL;
+    ulong keys[FD_SYSVAR_STAKE_HISTORY_CAP] = {0};
+    for( fd_stake_history_treap_fwd_iter_t iter = fd_stake_history_treap_fwd_iter_init( old_treap, old_pool );
+        !fd_stake_history_treap_fwd_iter_done( iter );
+        iter = fd_stake_history_treap_fwd_iter_next( iter, old_pool ) ) {
+      fd_stake_history_entry_t const * ele = fd_stake_history_treap_fwd_iter_ele_const( iter, old_pool );
+      keys[elem_cnt++] = ele->epoch;
+    }
+    for (ulong i=0UL; i<elem_cnt; i++) {
+      fd_stake_history_entry_t * ele = fd_stake_history_treap_ele_query( old_treap, keys[i], old_pool );
+      old_treap = fd_stake_history_treap_ele_remove( old_treap, ele, old_pool );
+      fd_stake_history_pool_ele_release( old_pool, ele );
+    }
+  }
+}
+{
+  fd_vote_accounts_pair_t_mapnode_t * old_pool = epoch_bank->next_epoch_stakes.vote_accounts_pool;
+  fd_vote_accounts_pair_t_mapnode_t * old_root = epoch_bank->next_epoch_stakes.vote_accounts_root;
+  fd_vote_accounts_pair_t_map_release_tree( old_pool, old_root );
+}
 }
 
 void

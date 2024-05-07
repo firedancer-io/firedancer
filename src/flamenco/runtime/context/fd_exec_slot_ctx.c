@@ -296,19 +296,11 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
     fd_vote_accounts_pair_t_mapnode_t * pool = stakes1->stakes.vote_accounts.vote_accounts_pool;
     fd_vote_accounts_pair_t_mapnode_t * root = stakes1->stakes.vote_accounts.vote_accounts_root;
+    
+    // Delete all nodes from existing
+    fd_vote_accounts_pair_t_map_release_tree( epoch_bank->next_epoch_stakes.vote_accounts_pool, epoch_bank->next_epoch_stakes.vote_accounts_root );
 
     epoch_bank->next_epoch_stakes.vote_accounts_pool = fd_exec_epoch_ctx_next_epoch_stakes_join( slot_ctx->epoch_ctx );
-
-    // Delete all nodes from existing
-    fd_vote_accounts_pair_t_mapnode_t * nn;
-    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_maximum(epoch_bank->next_epoch_stakes.vote_accounts_pool, epoch_bank->next_epoch_stakes.vote_accounts_root); 
-          n; 
-          n = nn ) {
-      nn = fd_vote_accounts_pair_t_map_predecessor(epoch_bank->next_epoch_stakes.vote_accounts_pool, n);
-      n = fd_vote_accounts_pair_t_map_remove( epoch_bank->next_epoch_stakes.vote_accounts_pool, &epoch_bank->next_epoch_stakes.vote_accounts_root, n );
-      fd_vote_accounts_pair_t_map_release( epoch_bank->next_epoch_stakes.vote_accounts_pool, n );
-    }
-  
     epoch_bank->next_epoch_stakes.vote_accounts_root = NULL;
 
     for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(pool, root); n; n = fd_vote_accounts_pair_t_map_successor(pool, n) ) {
