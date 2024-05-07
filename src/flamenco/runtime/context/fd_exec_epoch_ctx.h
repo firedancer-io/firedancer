@@ -131,7 +131,8 @@ fd_exec_epoch_ctx_leaders( fd_exec_epoch_ctx_t * ctx ) {
 
 FD_FN_PURE static inline fd_bank_hash_cmp_t *
 fd_exec_epoch_ctx_bank_hash_cmp( fd_exec_epoch_ctx_t * ctx ) {
-  return (fd_bank_hash_cmp_t *)((uchar *)ctx + ctx->layout.bank_hash_cmp_off);
+  void * mem = (void *)((ulong)ctx + ctx->layout.bank_hash_cmp_off);
+  return fd_bank_hash_cmp_join( mem );
 }
 
 FD_PROTOTYPES_END
