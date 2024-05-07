@@ -636,6 +636,10 @@ fd_runtime_execute_txn_task(void *tpool,
 
   fd_execute_txn_task_info_t * task_info = (fd_execute_txn_task_info_t *)tpool + m0;
 
+  if( task_info->txn->flags==0 ) {
+    task_info->exec_res = -1;
+    return;
+  }
 
   int res = fd_execute_txn_prepare_phase4( task_info->txn_ctx->slot_ctx, task_info->txn_ctx );
   if( res != 0 ) {
@@ -772,6 +776,10 @@ fd_collect_fee_task( void *tpool,
                      ulong m0, ulong m1 FD_PARAM_UNUSED,
                      ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED ) {
   fd_collect_fee_task_info_t * task_info = (fd_collect_fee_task_info_t *)tpool + m0;
+  if( task_info->result!=0 ) {
+    return;
+  }
+
   fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
   fd_exec_slot_ctx_t * slot_ctx = task_info->txn_ctx->slot_ctx;
 
@@ -804,6 +812,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                       ulong txn_cnt,
                                       fd_tpool_t * tpool,
                                       ulong max_workers ) {
+  int res = 0;
   FD_SCRATCH_SCOPE_BEGIN  {
     fd_borrowed_account_t * * fee_payer_accs = fd_scratch_alloc( FD_BORROWED_ACCOUNT_ALIGN, txn_cnt * FD_BORROWED_ACCOUNT_FOOTPRINT );
     fd_collect_fee_task_info_t * collect_fee_task_infos = fd_scratch_alloc( 8UL, txn_cnt * sizeof(fd_collect_fee_task_info_t) );
@@ -821,29 +830,34 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
         fd_hash_hash_age_pair_t_mapnode_t key;
         fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
 
-        if( fd_hash_hash_age_pair_t_map_find( slot_ctx->slot_bank.block_hash_queue.ages_pool, 
-                                              slot_ctx->slot_bank.block_hash_queue.ages_root, &key ) == NULL ) {
-          return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+        if ( fd_hash_hash_age_pair_t_map_find( slot_ctx->slot_bank.block_hash_queue.ages_pool, slot_ctx->slot_bank.block_hash_queue.ages_root, &key ) == NULL ) {
+          task_info[ txn_idx ].txn->flags = 0;
+          res |= FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+          continue;
         }
       }
 
       err = fd_executor_check_txn_accounts( txn_ctx );
-      if( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
-        return err;
+      if ( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
+        task_info[ txn_idx ].txn->flags = 0;
+        res |= err;
+        continue;
       }
 
       fee_payer_accs[txn_idx] = fd_borrowed_account_init( &collect_fee_task_infos[txn_idx].fee_payer_rec );
       collect_fee_task_infos[txn_idx].txn_ctx = txn_ctx;
-      collect_fee_task_infos[txn_idx].result = 0;
+      collect_fee_task_infos[txn_idx].result = (task_info[txn_idx].txn->flags==0) ? -1 : 0;
     }
 
     fd_tpool_exec_all_rrobin( tpool, 0, max_workers, fd_collect_fee_task, collect_fee_task_infos, NULL, NULL, 1, 0, txn_cnt );
 
     for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
       fd_collect_fee_task_info_t * collect_fee_task_info = &collect_fee_task_infos[txn_idx];
-      if( FD_UNLIKELY( collect_fee_task_info->result ) ) {
+      if( FD_UNLIKELY( collect_fee_task_info->result!=0 ) ) {
+        task_info[ txn_idx ].txn->flags = 0;
         FD_LOG_WARNING(( "failed to collect fees" ));
-        return -1;
+        res |= -1;
+        continue;
       }
       slot_ctx->slot_bank.collected_fees += collect_fee_task_info->fee;
     }
@@ -854,7 +868,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
       return -1;
     }
 
-    return 0;
+    return res;
   } FD_SCRATCH_SCOPE_END;
 }
 
@@ -866,6 +880,10 @@ fd_runtime_prepare_txns_phase3( fd_exec_slot_ctx_t * slot_ctx,
   /* Loop across transactions */
   for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
     fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
+
+    if( task_info[txn_idx].txn->flags==0 ) {
+      continue;
+    }
 
     int res = fd_execute_txn_prepare_phase3( slot_ctx, txn_ctx, task_info[txn_idx].txn );
     if( res != 0 ) {
@@ -1411,7 +1429,6 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
     int res = fd_runtime_prepare_txns_phase1( slot_ctx, task_infos, txns, txn_cnt );
     if( res != 0 ) {
       FD_LOG_WARNING(("Fail prep 1"));
-      return res;
     }
 
     ulong * incomplete_txn_idxs = fd_scratch_alloc( 8UL, txn_cnt * sizeof(ulong) );
@@ -1423,6 +1440,8 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
       incomplete_txn_idxs[i] = i;
       incomplete_accounts_cnt += task_infos[i].txn_ctx->accounts_cnt;
       task_infos[i].txn_ctx->capture_ctx = capture_ctx;
+
+      txns[i].flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     }
 
     ulong * next_incomplete_txn_idxs = fd_scratch_alloc( 8UL, txn_cnt * sizeof(ulong) );
@@ -1440,20 +1459,18 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
       next_incomplete_txn_idxs = temp_incomplete_txn_idxs;
       incomplete_txn_idxs_cnt = next_incomplete_txn_idxs_cnt;
 
-      res = fd_runtime_prepare_txns_phase2_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, tpool, max_workers );
+      res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, tpool, max_workers );
       if( res != 0 ) {
         FD_LOG_WARNING(("Fail prep 2"));
-        return res;
       }
 
-      res = fd_runtime_prepare_txns_phase3( slot_ctx, wave_task_infos, wave_task_infos_cnt );
+      res |= fd_runtime_prepare_txns_phase3( slot_ctx, wave_task_infos, wave_task_infos_cnt );
       if( res != 0 ) {
         FD_LOG_WARNING(("Fail prep 3"));
-        return res;
       }
 
       fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_runtime_execute_txn_task, wave_task_infos, NULL, NULL, 1, 0, wave_task_infos_cnt );
-      res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, wave_task_infos, wave_task_infos_cnt, tpool, max_workers );
+      res |= fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, wave_task_infos, wave_task_infos_cnt, tpool, max_workers );
       if( res != 0 ) {
         return res;
       }
@@ -1466,7 +1483,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
     slot_ctx->slot_bank.transaction_count += txn_cnt;
 
-    return 0;
+    return res;
   } FD_SCRATCH_SCOPE_END;
 }
 

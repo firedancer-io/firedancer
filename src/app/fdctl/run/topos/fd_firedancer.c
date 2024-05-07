@@ -34,6 +34,7 @@ fd_topo_firedancer( config_t * _config ) {
   config_t * config = (config_t *)_config;
   ulong net_tile_cnt    = config->layout.net_tile_count;
   ulong shred_tile_cnt  = config->layout.shred_tile_count;
+  ulong replay_tpool_thread_count = config->tiles.replay.tpool_thread_count;
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
 
@@ -73,6 +74,7 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topob_wksp( topo, "gossip"     );
   fd_topob_wksp( topo, "metric"     );
   fd_topob_wksp( topo, "replay"     );
+  fd_topob_wksp( topo, "thread"     );
   fd_topob_wksp( topo, "bhole"      );
   fd_topob_wksp( topo, "bstore"     );
   fd_topob_wksp( topo, "funk"       );
@@ -124,16 +126,18 @@ fd_topo_firedancer( config_t * _config ) {
     tile_to_cpu[ i ] = fd_ulong_if( parsed_tile_to_cpu[ i ]==65535, ULONG_MAX, (ulong)parsed_tile_to_cpu[ i ] );
   }
 
-  /*                                  topo, tile_name, tile_wksp, cnc_wksp,    metrics_wksp, cpu_idx,                       is_labs, out_link,       out_link_kind_id */
-  FOR(net_tile_cnt)    fd_topob_tile( topo, "net",     "net",     "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
-  FOR(shred_tile_cnt)  fd_topob_tile( topo, "shred",   "shred",   "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "shred_storei", i   );
-  /**/                 fd_topob_tile( topo, "gossip",  "gossip",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "gossip_net",   0UL );
-  /**/                 fd_topob_tile( topo, "repair",  "repair",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "repair_store",   0UL );
-  /**/                 fd_topob_tile( topo, "storei",  "storei",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
-  /**/                 fd_topob_tile( topo, "replay",  "replay",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "stake_out",    0UL );
-  /**/                 fd_topob_tile( topo, "bhole",   "bhole",   "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
-  /**/                 fd_topob_tile( topo, "sign",    "sign",    "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
-  /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
+  /*                                             topo, tile_name, tile_wksp, cnc_wksp,    metrics_wksp, cpu_idx,                       is_labs, out_link,       out_link_kind_id */
+  FOR(net_tile_cnt)                fd_topob_tile( topo, "net",     "net",     "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
+  FOR(shred_tile_cnt)              fd_topob_tile( topo, "shred",   "shred",   "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "shred_storei", i   );
+  /**/                             fd_topob_tile( topo, "gossip",  "gossip",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "gossip_net",   0UL );
+  /**/                             fd_topob_tile( topo, "repair",  "repair",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "repair_store", 0UL );
+  /**/                             fd_topob_tile( topo, "storei",  "storei",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
+  /**/                             fd_topob_tile( topo, "replay",  "replay",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "stake_out",    0UL );
+  /* These thread tiles must be defined immediately after the replay tile.  We subtract one because the replay tile acts as a thread in the tpool as well. */
+  FOR(replay_tpool_thread_count-1) fd_topob_tile( topo, "thread",  "thread",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
+  /**/                             fd_topob_tile( topo, "bhole",   "bhole",   "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
+  /**/                             fd_topob_tile( topo, "sign",    "sign",    "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
+  /**/                             fd_topob_tile( topo, "metric",  "metric",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
 
   fd_topo_tile_t * store_tile  = &topo->tiles[ fd_topo_find_tile( topo, "store",  0UL ) ];
   fd_topo_tile_t * replay_tile = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
@@ -285,11 +289,14 @@ fd_topo_firedancer( config_t * _config ) {
       strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
       strncpy( tile->replay.incremental, config->tiles.replay.incremental, sizeof(tile->replay.incremental) );
       tile->replay.snapshot_slot = parse_snapshot_slot( config->tiles.replay.snapshot, config->tiles.replay.incremental );
+      tile->replay.tpool_thread_count =  config->tiles.replay.tpool_thread_count;
 
       tile->replay.pages     = config->tiles.replay.funk_sz_gb;
       tile->replay.txn_max   = config->tiles.replay.funk_txn_max;
       tile->replay.index_max = config->tiles.replay.funk_rec_max;
       
+      if( FD_UNLIKELY( tile->replay.tpool_thread_count == 0 || tile->replay.tpool_thread_count>FD_TILE_MAX ) )
+        FD_LOG_ERR(( "bad tpool_thread_count %lu", tile->replay.tpool_thread_count ));
     } else if( FD_UNLIKELY( !strcmp( tile->name, "bhole" ) ) ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
@@ -298,6 +305,8 @@ fd_topo_firedancer( config_t * _config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) {
       tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "thread" ) ) ) {
+      /* Nothing for now */
     } else {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }
