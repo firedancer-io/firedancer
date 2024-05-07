@@ -80,7 +80,8 @@ typedef union {
     ulong   connections;
     ulong   benchg;
     ulong   benchs;
-  } spammer;
+    int     no_quic;
+  } hiit;
 } args_t;
 
 typedef struct fd_caps_ctx fd_caps_ctx_t;

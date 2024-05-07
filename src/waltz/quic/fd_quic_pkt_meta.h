@@ -30,6 +30,7 @@ struct fd_quic_range {
  */
 union fd_quic_pkt_meta_key {
   union {
+#define FD_QUIC_PKT_META_STREAM_MASK ((1UL<<62UL)-1UL)
     ulong stream_id;
     struct {
       ulong flags:62;
@@ -43,6 +44,12 @@ union fd_quic_pkt_meta_key {
      { .stream_id = ( ( (ulong)(STREAM_ID) )    |      \
                       ( (ulong)(TYPE) << 62UL ) |      \
                       ( (ulong)(FLAGS) ) ) } )
+    /* FD_QUIC_PKT_META_STREAM_ID
+     * This is used to extract the stream_id, since some of the bits are used
+     * for "type".
+     * The more natural way "stream_id:62" caused compilation warnings and ugly
+     * work-arounds */
+#define FD_QUIC_PKT_META_STREAM_ID( KEY ) ( (KEY).stream_id & FD_QUIC_PKT_META_STREAM_MASK )
   };
 };
 typedef union fd_quic_pkt_meta_key fd_quic_pkt_meta_key_t;
@@ -132,7 +139,7 @@ struct fd_quic_pkt_meta_pool {
   fd_quic_pkt_meta_list_t free;    /* free pkt_meta */
 
   /* one of each of these for each enc_level */
-  fd_quic_pkt_meta_list_t sent[4]; /* sent pkt_meta */
+  fd_quic_pkt_meta_list_t sent_pkt_meta[4]; /* sent pkt_meta */
 };
 
 
@@ -154,7 +161,6 @@ fd_quic_pkt_meta_pop_front( fd_quic_pkt_meta_list_t * list );
 void
 fd_quic_pkt_meta_push_front( fd_quic_pkt_meta_list_t * list,
                              fd_quic_pkt_meta_t *      pkt_meta );
-
 
 /* push onto back of list */
 void

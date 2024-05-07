@@ -8,7 +8,7 @@ include src/app/fdctl/with-version.mk
 .PHONY: fddev run monitor
 
 # fddev core
-$(call add-objs,main1 dev dev1 txn bench spammer dump flame,fd_fddev)
+$(call add-objs,main1 dev dev1 txn bench hiit dump flame,fd_fddev)
 
 # fddev tiles
 $(call add-objs,tiles/fd_bencho,fd_fddev)

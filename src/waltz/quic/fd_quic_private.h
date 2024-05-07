@@ -319,7 +319,8 @@ fd_quic_cb_stream_notify( fd_quic_t *        quic,
 void
 fd_quic_pkt_meta_retry( fd_quic_t *          quic,
                         fd_quic_conn_t *     conn,
-                        int                  force );
+                        int                  force,
+                        uint                 arg_enc_level );
 
 /* reclaim resources associated with packet metadata
    this is called in response to received acks */

@@ -117,7 +117,7 @@ typedef struct __attribute__((packed)) {
   fd_udp_hdr_t udp[1];
 } eth_ip_udp_t;
 
-
+#define FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT 2
 
 typedef struct {
   fd_shredder_t      * shredder;
@@ -198,6 +198,15 @@ typedef struct {
   ulong       store_out_chunk;
 
   struct {
+    fd_histf_t contact_info_cnt[ 1 ];
+    fd_histf_t batch_sz[ 1 ];
+    fd_histf_t batch_microblock_cnt[ 1 ];
+    fd_histf_t shredding_timing[ 1 ];
+    fd_histf_t add_shred_timing[ 1 ];
+    ulong shred_processing_result[ FD_FEC_RESOLVER_ADD_SHRED_RETVAL_CNT+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT ];
+  } metrics[ 1 ];
+
+  struct {
     ulong txn_cnt;
     ulong pos; /* in payload, so 0<=pos<63671 */
     ulong slot; /* set to 0 when pos==0 */
@@ -244,11 +253,25 @@ mux_ctx( void * scratch ) {
 }
 
 static inline void
+metrics_write( void * _ctx ) {
+  fd_shred_ctx_t * ctx = (fd_shred_ctx_t *)_ctx;
+
+  FD_MHIST_COPY( SHRED, CLUSTER_CONTACT_INFO_CNT,   ctx->metrics->contact_info_cnt      );
+  FD_MHIST_COPY( SHRED, BATCH_SZ,                   ctx->metrics->batch_sz              );
+  FD_MHIST_COPY( SHRED, BATCH_MICROBLOCK_CNT,       ctx->metrics->batch_microblock_cnt  );
+  FD_MHIST_COPY( SHRED, SHREDDING_DURATION_SECONDS, ctx->metrics->shredding_timing      );
+  FD_MHIST_COPY( SHRED, ADD_SHRED_DURATION_SECONDS, ctx->metrics->add_shred_timing      );
+
+  FD_MCNT_ENUM_COPY( SHRED, SHRED_PROCESSED, ctx->metrics->shred_processing_result      );
+}
+
+static inline void
 handle_new_cluster_contact_info( fd_shred_ctx_t * ctx,
-                           uchar const    * buf ) {
+                                 uchar const    * buf ) {
   ulong const * header = (ulong const *)fd_type_pun_const( buf );
 
   ulong dest_cnt = header[ 0 ];
+  fd_histf_sample( ctx->metrics->contact_info_cnt, dest_cnt );
 
   if( dest_cnt >= MAX_SHRED_DESTS )
     FD_LOG_ERR(( "Cluster nodes had %lu destinations, which was more than the max of %lu", dest_cnt, MAX_SHRED_DESTS ));
@@ -366,6 +389,8 @@ during_frag( void * _ctx,
       ctx->pending_batch.microblock_cnt = 0UL;
       ctx->pending_batch.txn_cnt        = 0UL;
       ctx->batch_cnt                    = 0UL;
+
+      FD_MCNT_INC( SHRED, MICROBLOCKS_ABANDONED, 1UL );
     }
 
     ctx->pending_batch.slot = target_slot;
@@ -391,16 +416,25 @@ during_frag( void * _ctx,
     if( FD_UNLIKELY( last_in_batch )) {
       if( FD_UNLIKELY( ctx->batch_cnt%ctx->round_robin_cnt==ctx->round_robin_id ) ) {
         /* If it's our turn, shred this batch */
-        fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, sizeof(ulong)+ctx->pending_batch.pos, target_slot, entry_meta );
+        ulong batch_sz = sizeof(ulong)+ctx->pending_batch.pos;
+
         /* We sized this so it fits in one FEC set */
+        long shredding_timing =  -fd_tickcount();
+        fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, batch_sz, target_slot, entry_meta );
         FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out ) );
         fd_shredder_fini_batch( ctx->shredder );
+        shredding_timing      +=  fd_tickcount();
 
         d_rcvd_join( d_rcvd_new( d_rcvd_delete( d_rcvd_leave( out->data_shred_rcvd   ) ) ) );
         p_rcvd_join( p_rcvd_new( p_rcvd_delete( p_rcvd_leave( out->parity_shred_rcvd ) ) ) );
         ctx->shredded_txn_cnt = ctx->pending_batch.txn_cnt;
 
         ctx->send_fec_set_idx = ctx->shredder_fec_set_idx;
+
+        /* Update metrics */
+        fd_histf_sample( ctx->metrics->batch_sz,             batch_sz                          );
+        fd_histf_sample( ctx->metrics->batch_microblock_cnt, ctx->pending_batch.microblock_cnt );
+        fd_histf_sample( ctx->metrics->shredding_timing,     (ulong)shredding_timing           );
       } else {
         /* If it's not our turn, update the indices for this slot */
         fd_shredder_skip_batch( ctx->shredder, sizeof(ulong)+ctx->pending_batch.pos, target_slot );
@@ -493,7 +527,6 @@ after_frag( void *             _ctx,
             ulong *            opt_tsorig,
             int *              opt_filter,
             fd_mux_context_t * mux ) {
-  (void)in_idx;
   (void)seq;
   (void)opt_sig;
   (void)opt_chunk;
@@ -526,17 +559,23 @@ after_frag( void *             _ctx,
     ulong   shred_buffer_sz = ctx->shred_buffer_sz;
 
     fd_shred_t const * shred = fd_shred_parse( shred_buffer, shred_buffer_sz );
-    if( FD_UNLIKELY( !shred ) ) return;
+    if( FD_UNLIKELY( !shred       ) ) { ctx->metrics->shred_processing_result[ 1 ]++; return; }
 
     fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, shred->slot );
-    if( FD_UNLIKELY( !lsched ) ) return;
+    if( FD_UNLIKELY( !lsched      ) ) { ctx->metrics->shred_processing_result[ 0 ]++; return; }
 
     fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( lsched, shred->slot );
-    if( FD_UNLIKELY( !slot_leader ) ) return;
+    if( FD_UNLIKELY( !slot_leader ) ) { ctx->metrics->shred_processing_result[ 0 ]++; return; } /* Count this as bad slot too */
 
     fd_fec_set_t const * out_fec_set[ 1 ];
     fd_shred_t   const * out_shred[ 1 ];
+
+    long add_shred_timing  = -fd_tickcount();
     int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred );
+    add_shred_timing      +=  fd_tickcount();
+
+    fd_histf_sample( ctx->metrics->add_shred_timing, (ulong)add_shred_timing );
+    ctx->metrics->shred_processing_result[ rv + FD_FEC_RESOLVER_ADD_SHRED_RETVAL_OFF+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT ]++;
 
     if( (rv==FD_FEC_RESOLVER_SHRED_OKAY) | (rv==FD_FEC_RESOLVER_SHRED_COMPLETES) ) {
       /* Relay this shred */
@@ -554,6 +593,41 @@ after_frag( void *             _ctx,
     FD_TEST( ctx->fec_sets <= *out_fec_set );
     ctx->send_fec_set_idx = (ulong)(*out_fec_set - ctx->fec_sets);
     ctx->shredded_txn_cnt = 0UL;
+
+    /* For milestone 1.4 only, compute the number of transactions.  It
+       seems like this is somewhat tricky without doing a full
+       deshred+transaction parse, because transactions and microblocks
+       can both be variable sized, but we have some shortcuts for the
+       milestone 1.4 demo:
+        * This FEC set is exactly one microblock batch, which means that
+          the number of microblocks+ticks it constains is stored in the
+          first 8 bytes of the data payload region of the first shred.
+          That means the amount of non-transaction data stored in this
+          shred is 8+48*(first 8 bytes), and all the rest is transaction
+          data.
+
+        * All transactions other than the occasional vote are 178 bytes.
+          This means that we can count the transactions by dividing the
+          transaction data size by 178.  Votes are so infrequent, that
+          the average transaction size is something like 178.0001.
+          Plus, as long as we only have 1 vote per microblock batch,
+          since the vote size is 319<2*178, the floor division will
+          ensure it's only counted once.
+
+       All the shreds in an FEC set other than perhaps the last one have
+       the same data size, so we can do this whole computation in O(1),
+       and in particular without needing to check each shred.  We'll
+       just reuse the variable that the shredder side uses, since it's
+       exactly what we want (other than perhaps the name) and that
+       minimizes the change that we'll need to back out later. */
+    if( 1 ) {
+      ulong data_shred_cnt = (*out_fec_set)->data_shred_cnt;
+      fd_shred_t const * shred0 = (fd_shred_t const *) (*out_fec_set)->data_shreds[ 0 ];
+      fd_shred_t const * shredN = (fd_shred_t const *) (*out_fec_set)->data_shreds[ data_shred_cnt-1UL ];
+
+      ctx->shredded_txn_cnt = ( (data_shred_cnt-1UL) * fd_shred_payload_sz( shred0 ) + fd_shred_payload_sz( shredN )
+                                - 8UL - 48UL*FD_LOAD( ulong, fd_shred_data_payload( shred0 ) ) )/178UL;
+    }
   } else {
     /* We know we didn't get overrun, so advance the index */
     ctx->shredder_fec_set_idx = (ctx->shredder_fec_set_idx+1UL)%ctx->shredder_max_fec_set_idx;
@@ -571,7 +645,7 @@ after_frag( void *             _ctx,
   s34[ 2 ].shred_cnt =                         fd_ulong_min( set->parity_shred_cnt, 34UL );
   s34[ 3 ].shred_cnt = set->parity_shred_cnt - fd_ulong_min( set->parity_shred_cnt, 34UL );
 
-  ulong s34_cnt     = 2UL + !!(s34[ 1 ].shred_cnt) + !!(s34[ 3 ].shred_cnt);
+  ulong s34_cnt     = 1UL + !!(s34[ 1 ].shred_cnt);
   ulong txn_per_s34 = ctx->shredded_txn_cnt / s34_cnt;
 
   /* Attribute the transactions evenly to the non-empty shred34s */
@@ -581,14 +655,17 @@ after_frag( void *             _ctx,
   s34[ fd_ulong_if( s34[ 3 ].shred_cnt>0UL, 3, 2 ) ].est_txn_cnt += ctx->shredded_txn_cnt - txn_per_s34*s34_cnt;
 
   /* Send to the blockstore, skipping any empty shred34_t s. */
-  ulong sig = 0UL;
+  ulong sig = (ulong)(in_idx==NET_IN_IDX);
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+0UL ), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
   if( FD_UNLIKELY( s34[ 1 ].shred_cnt ) )
     fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+1UL ), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
-  fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+2UL), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
-  if( FD_UNLIKELY( s34[ 3 ].shred_cnt ) )
-    fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+3UL ), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
+  /* For ms1.4 only: avoid inserting parity shreds into the blockstore */
+  // fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+2UL), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
+  // if( FD_UNLIKELY( s34[ 3 ].shred_cnt ) )
+  //   fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+3UL ), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
+
+  FD_MCNT_INC( SHRED, TRANSACTIONS_COMPLETED, ctx->shredded_txn_cnt );
 
   /* Compute all the destinations for all the new shreds */
 
@@ -848,6 +925,18 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->src_ip_addr = tile->shred.ip_addr;
   fd_memcpy( ctx->src_mac_addr, tile->shred.src_mac_addr, 6UL );
 
+  fd_histf_join( fd_histf_new( ctx->metrics->contact_info_cnt,     FD_MHIST_MIN(         SHRED, CLUSTER_CONTACT_INFO_CNT   ),
+                                                                   FD_MHIST_MAX(         SHRED, CLUSTER_CONTACT_INFO_CNT   ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics->batch_sz,             FD_MHIST_MIN(         SHRED, BATCH_SZ                   ),
+                                                                   FD_MHIST_MAX(         SHRED, BATCH_SZ                   ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics->batch_microblock_cnt, FD_MHIST_MIN(         SHRED, BATCH_MICROBLOCK_CNT       ),
+                                                                   FD_MHIST_MAX(         SHRED, BATCH_MICROBLOCK_CNT       ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics->shredding_timing,     FD_MHIST_SECONDS_MIN( SHRED, SHREDDING_DURATION_SECONDS ),
+                                                                   FD_MHIST_SECONDS_MAX( SHRED, SHREDDING_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics->add_shred_timing,     FD_MHIST_SECONDS_MIN( SHRED, ADD_SHRED_DURATION_SECONDS ),
+                                                                   FD_MHIST_SECONDS_MAX( SHRED, ADD_SHRED_DURATION_SECONDS ) ) );
+  memset( ctx->metrics->shred_processing_result, '\0', sizeof(ctx->metrics->shred_processing_result) );
+
   ctx->pending_batch.microblock_cnt = 0UL;
   ctx->pending_batch.txn_cnt        = 0UL;
   ctx->pending_batch.pos            = 0UL;
@@ -905,4 +994,5 @@ fd_topo_run_tile_t fd_tile_shred = {
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .mux_metrics_write        = metrics_write,
 };

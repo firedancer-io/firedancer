@@ -313,7 +313,7 @@ fd_topo_mem_sz_string( ulong sz, char out[static 24] ) {
 void
 fd_topo_print_log( int         stdout,
                    fd_topo_t * topo ) {
-  char message[ 4UL*4096UL ] = {0}; /* Same as FD_LOG_BUF_SZ */
+  char message[ 8UL*4096UL ] = {0}; /* Same as FD_LOG_BUF_SZ */
 
   char * cur = message;
   ulong remaining = sizeof(message) - 1; /* Leave one character at the end to ensure NUL terminated */
@@ -405,7 +405,7 @@ fd_topo_print_log( int         stdout,
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
 
-    char in[ 256 ] = {0};
+    char in[ 1024 ] = {0};
     char * cur_in = in;
     ulong remaining_in = sizeof( in ) - 1;
 
@@ -415,7 +415,7 @@ fd_topo_print_log( int         stdout,
       else PRINTIN( "%2ld", -tile->in_link_id[ j ] );
     }
 
-    char out[ 256 ] = {0};
+    char out[ 1024 ] = {0};
     char * cur_out = out;
     ulong remaining_out = sizeof( out ) - 1;
 

@@ -126,13 +126,13 @@ X( ack_delay_exponent,                                                          
 X( max_ack_delay,                                                                      \
   0x0b,                                                                                \
   VARINT,                                                                              \
-  DFT_UNKNOWN,                                                                         \
+  25,                                                                                  \
   "The maximum acknowledgment delay is an integer value indicating the maximum "       \
   "amount of time in milliseconds by which the endpoint will delay sending "           \
   "acknowledgments. This value SHOULD include the receiver's expected delays in "      \
   "alarms firing. For example, if a receiver sets a timer for 5ms and alarms "         \
   "commonly fire up to 1ms late, then it should send a max_ack_delay of 6ms. If "      \
-  "this value is absent, a default of 25 milliseconds is assumed. Values of 214 or "   \
+  "this value is absent, a default of 25 milliseconds is assumed. Values of 2^14 or "  \
   "greater are invalid.",                                                              \
   __VA_ARGS__ )                                                                        \
 X( disable_active_migration,                                                           \

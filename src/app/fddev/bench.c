@@ -46,6 +46,7 @@ bench_cmd_args( int *    pargc,
   (void)pargc;
   (void)pargv;
   (void)args;
+  args->hiit.no_quic = fd_env_strip_cmdline_contains( pargc, pargv, "--no-quic" );
 }
 
 static void *
@@ -68,7 +69,8 @@ add_bench_topo( fd_topo_t  * topo,
                 ushort       send_to_port,
                 uint         send_to_ip_addr,
                 ushort       rpc_port,
-                uint         rpc_ip_addr ) {
+                uint         rpc_ip_addr,
+                int          no_quic ) {
 
   fd_topob_wksp( topo, "bench" );
   fd_topob_link( topo, "bencho_out", "bench", 0, 128UL, 64UL, 1UL );
@@ -95,6 +97,7 @@ add_bench_topo( fd_topo_t  * topo,
     benchs->benchs.send_to_ip_addr = send_to_ip_addr;
     benchs->benchs.send_to_port    = send_to_port;
     benchs->benchs.conn_cnt        = conn_cnt;
+    benchs->benchs.no_quic         = no_quic;
   }
 
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) fd_topob_tile_in( topo, "benchg", i, "bench", "bencho_out", 0, 1, 1 );
@@ -114,16 +117,21 @@ bench_cmd_fn( args_t *         args,
               config_t * const config ) {
   (void)args;
 
+  ushort dest_port = fd_ushort_if( args->hiit.no_quic,
+                                   config->tiles.quic.regular_transaction_listen_port,
+                                   config->tiles.quic.quic_transaction_listen_port );
+
   add_bench_topo( &config->topo,
                   config->development.bench.affinity,
                   config->development.bench.benchg_tile_count,
                   config->development.bench.benchs_tile_count,
                   config->development.genesis.fund_initial_accounts,
                   config->layout.quic_tile_count,
-                  config->tiles.quic.regular_transaction_listen_port,
+                  dest_port,
                   config->tiles.net.ip_addr,
                   config->rpc.port,
-                  config->tiles.net.ip_addr );
+                  config->tiles.net.ip_addr,
+                  args->hiit.no_quic );
 
   if( FD_LIKELY( !args->dev.no_configure ) ) {
     args_t configure_args = {

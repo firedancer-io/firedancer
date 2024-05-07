@@ -123,6 +123,7 @@ struct fd_quic_conn {
   int                handshake_complete;  /* have we completed a successful handshake? */
   int                handshake_done_send; /* do we need to send handshake-done to peer? */
   int                handshake_done_ackd; /* was handshake_done ack'ed? */
+  int                hs_data_empty;       /* has all hs_data been consumed? */
   fd_quic_tls_hs_t * tls_hs;
 
   /* expected handshake data offset - one per encryption level
@@ -259,12 +260,15 @@ struct fd_quic_conn {
   uint state;
   uint reason;     /* quic reason for closing. see FD_QUIC_CONN_REASON_* */
   uint app_reason; /* application reason for closing */
+  uint int_reason; /* internal reason */
 
 
   /* TODO find better name than pool */
   fd_quic_pkt_meta_pool_t pkt_meta_pool;
   ulong                   num_pkt_meta;
   fd_quic_pkt_meta_t *    pkt_meta_mem;    /* owns the memory */
+
+  ulong dump_time;
 
   fd_quic_ack_t *      acks;               /* array of acks allocate during init */
   fd_quic_ack_t *      acks_free;          /* free list of acks */
@@ -332,6 +336,9 @@ struct fd_quic_conn {
   fd_quic_conn_t *     next;
   ulong token_len;
   uchar token[FD_QUIC_TOKEN_SZ_MAX];
+
+  ulong ackd_max_streams_bidir;
+  ulong ackd_max_streams_unidir;
 };
 
 FD_PROTOTYPES_BEGIN
