@@ -68,6 +68,26 @@ struct __attribute__((aligned(128UL))) fd_replay {
   ulong pending_start;
   ulong pending_end;
   ulong pending_lock;
+  
+  /* external joins */
+  fd_acc_mgr_t *        acc_mgr;
+  fd_bft_t *            bft;
+  fd_blockstore_t *     blockstore;
+  fd_forks_t *          forks;
+  fd_funk_t *           funk;
+  fd_exec_epoch_ctx_t * epoch_ctx;
+  fd_valloc_t           valloc;
+
+  /* tpool */
+  ulong                 max_workers;
+  fd_tpool_t *          tpool;
+
+  /* shred cap */
+  FILE*                 shred_cap;
+  ulong                 stable_slot_start;
+  ulong                 stable_slot_end;
+
+  /* only for live case */
 
   /* repair */
   fd_repair_t *      repair;
@@ -78,23 +98,8 @@ struct __attribute__((aligned(128UL))) fd_replay {
   fd_fec_set_t *      fec_sets;
   fd_fec_resolver_t * fec_resolver; /* turbine */
 
-  /* external joins */
-  fd_bft_t * bft;
-  fd_blockstore_t *     blockstore;
-  fd_forks_t *          forks;
-  fd_funk_t *           funk;
-  fd_acc_mgr_t *        acc_mgr;
-  fd_exec_epoch_ctx_t * epoch_ctx;
+  /* gossip */
   fd_gossip_t *         gossip;
-  fd_pubkey_t *         leader;
-  fd_tpool_t *          tpool;
-  ulong                 max_workers;
-  fd_valloc_t           valloc;
-
-  /* shred cap */
-  FILE*                 shred_cap;
-  ulong                 stable_slot_start;
-  ulong                 stable_slot_end;
 
 #ifdef FD_HAS_LIBMICROHTTP
   fd_rpc_ctx_t *        rpc_ctx;
