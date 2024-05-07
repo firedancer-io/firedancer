@@ -3553,6 +3553,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first ) {
   fd_exec_epoch_ctx_t * epoch_ctx   = slot_ctx->epoch_ctx;
   fd_epoch_bank_t *     epoch_bank  = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
   fd_valloc_t           slot_valloc = slot_ctx->valloc;
+  fd_exec_epoch_ctx_bank_mem_clear( epoch_ctx );
 FD_SCRATCH_SCOPE_BEGIN {
   fd_valloc_t           epoch_valloc = fd_scratch_virtual();
   {
@@ -3614,19 +3615,7 @@ fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx ) {
   /* As the collection pointers are not owned by fd_alloc, zero them
      out to prevent invalid frees by the destroy function. */
 
-  // fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-
-  // epoch_bank->stakes.vote_accounts.vote_accounts_pool = NULL;
-  // epoch_bank->stakes.vote_accounts.vote_accounts_root = NULL;
-  // epoch_bank->stakes.stake_delegations_pool = NULL;
-  // epoch_bank->stakes.stake_delegations_root = NULL;
-  // epoch_bank->stakes.stake_history.treap = NULL;
-  // epoch_bank->stakes.stake_history.pool  = NULL;
-  // epoch_bank->next_epoch_stakes.vote_accounts_pool = NULL;
-  // epoch_bank->next_epoch_stakes.vote_accounts_root = NULL;
-
   fd_bincode_destroy_ctx_t ctx = { .valloc = slot_ctx->valloc };
-  // fd_epoch_bank_destroy( epoch_bank, &ctx );
   fd_exec_epoch_ctx_epoch_bank_delete( slot_ctx->epoch_ctx );
   fd_slot_bank_destroy( &slot_ctx->slot_bank, &ctx );
 }
