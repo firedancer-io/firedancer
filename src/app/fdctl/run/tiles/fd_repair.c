@@ -27,18 +27,22 @@
 #define STAKE_IN_IDX    2
 #define STORE_IN_IDX    3
 
-#define STORE_OUT_IDX   0
+#define NET_OUT_IDX   0
 
 #define MAX_REPAIR_PEERS 40200UL
-
+#define MAX_BUFFER_SIZE  ( MAX_REPAIR_PEERS * sizeof(fd_shred_dest_wire_t))
 
 struct fd_repair_tile_ctx {
   fd_repair_t * repair;
   fd_repair_config_t repair_config;
+  
   ulong repair_seed;
 
   fd_repair_peer_addr_t repair_intake_addr;
   fd_repair_peer_addr_t repair_serve_addr;
+
+  ushort                repair_intake_listen_port;
+  ushort                repair_serve_listen_port;
 
   uchar       identity_private_key[ 32 ];
   fd_pubkey_t identity_public_key;
@@ -84,7 +88,7 @@ struct fd_repair_tile_ctx {
   uchar src_mac_addr[6];
   ushort net_id;
   /* Includes Ethernet, IP, UDP headers */
-  uchar buffer[ FD_NET_MTU ];
+  uchar buffer[ MAX_BUFFER_SIZE ];
   fd_net_hdrs_t hdr[1];
 
   fd_stake_ci_t * stake_ci;
@@ -92,45 +96,6 @@ struct fd_repair_tile_ctx {
   fd_mux_context_t * mux;
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
-
-static fd_gossip_peer_addr_t *
-resolve_hostport( const char * str /* host:port */, fd_gossip_peer_addr_t * res ) {
-  fd_memset( res, 0, sizeof( fd_gossip_peer_addr_t ) );
-
-  /* Find the : and copy out the host */
-  char buf[128];
-  uint i;
-  for( i = 0;; ++i ) {
-    if( str[i] == '\0' || i > sizeof( buf ) - 1U ) {
-      FD_LOG_ERR( ( "missing colon" ) );
-      return NULL;
-    }
-    if( str[i] == ':' ) {
-      buf[i] = '\0';
-      break;
-    }
-    buf[i] = str[i];
-  }
-  if( i == 0 ) /* :port means $HOST:port */
-    gethostname( buf, sizeof( buf ) );
-
-  struct hostent * host = gethostbyname( buf );
-  if( host == NULL ) {
-    FD_LOG_WARNING( ( "unable to resolve host %s", buf ) );
-    return NULL;
-  }
-  /* Convert result to repair address */
-  res->l    = 0;
-  res->addr = ( (struct in_addr *)host->h_addr )->s_addr;
-  int port  = atoi( str + i + 1 );
-  if( ( port > 0 && port < 1024 ) || port > (int)USHORT_MAX ) {
-    FD_LOG_ERR( ( "invalid port number" ) );
-    return NULL;
-  }
-  res->port = htons( (ushort)port );
-
-  return res;
-}
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -174,22 +139,23 @@ send_packet( fd_repair_tile_ctx_t * ctx,
 
   hdr->udp->net_dport = dst_port;
 
-  memcpy( hdr->eth->dst, ctx->src_mac_addr, 6UL );
+  memset( hdr->eth->dst, 0U, 6UL );
   memcpy( hdr->ip4->daddr_c, &dst_ip_addr, 4UL );
   hdr->ip4->net_id = fd_ushort_bswap( ctx->net_id++ );
   hdr->ip4->check  = 0U;
+  hdr->ip4->net_tot_len  = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)) );
   hdr->ip4->check  = fd_ip4_hdr_check( ( fd_ip4_hdr_t const *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4 ) );
 
   ulong packet_sz = payload_sz + sizeof(fd_net_hdrs_t);
   fd_memcpy( packet+sizeof(fd_net_hdrs_t), payload, payload_sz );
-
+  hdr->udp->net_len   = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
   hdr->udp->check = fd_ip4_udp_check( *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->saddr_c ), 
                                       *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->daddr_c ), 
                                       (fd_udp_hdr_t const *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->udp ), 
                                       packet + sizeof(fd_net_hdrs_t) );
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong sig = fd_disco_netmux_sig( ctx->repair_intake_addr.addr, ctx->repair_intake_addr.port, dst_ip_addr, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
+  ulong sig = fd_disco_netmux_sig( 0U, 0U, dst_ip_addr, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
   fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk, packet_sz, 0UL, tsorig, tspub );
   ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
@@ -199,25 +165,18 @@ static inline void
 handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
                                  uchar const *          buf,
                                  ulong                  buf_sz ) {
-  ulong const * header = (ulong const *)fd_type_pun_const( buf );
+  fd_shred_dest_wire_t const * in_dests = (fd_shred_dest_wire_t const *)fd_type_pun_const( buf );
 
-  FD_TEST( buf_sz >= sizeof(ulong) );
-  buf_sz -= sizeof(ulong);
-
-  ulong dest_cnt = FD_LOAD( ulong, header );
-
+  ulong dest_cnt = buf_sz;
   if( FD_UNLIKELY( dest_cnt >= MAX_REPAIR_PEERS ) ) {
     FD_LOG_WARNING(( "Cluster nodes had %lu destinations, which was more than the max of %lu", dest_cnt, MAX_REPAIR_PEERS ));
     return;
   }
 
-  FD_TEST( buf_sz >= dest_cnt * sizeof(fd_shred_dest_wire_t) );
-  fd_shred_dest_wire_t const * in_dests = (fd_shred_dest_wire_t const *)( header+1UL );
-
   for( ulong i=0UL; i<dest_cnt; i++ ) {
     fd_repair_peer_addr_t repair_peer = {
       .addr = in_dests[i].ip4_addr,
-      .port = in_dests[i].udp_port,
+      .port = fd_ushort_bswap( in_dests[i].udp_port ),
     };
    
     fd_repair_add_active_peer( ctx->repair, &repair_peer, in_dests[i].pubkey );
@@ -276,7 +235,7 @@ repair_send_packet( uchar const *                 msg,
                     fd_gossip_peer_addr_t const * addr, 
                     void * arg ) {
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-  send_packet( arg, addr->addr, fd_ushort_bswap( addr->port ), msg, msglen, tsorig );
+  send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
 }
 
 static void
@@ -328,6 +287,8 @@ during_frag( void * _ctx,
 
   fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *)_ctx;
   uchar const * dcache_entry;
+  ulong dcache_entry_sz;
+
   // TODO: check for sz>MTU for failure once MTUs are decided
   if( FD_UNLIKELY( in_idx==CONTACT_IN_IDX ) ) {
     if( FD_UNLIKELY( chunk<ctx->contact_in_chunk0 || chunk>ctx->contact_in_wmark ) ) {
@@ -335,6 +296,7 @@ during_frag( void * _ctx,
             ctx->contact_in_chunk0, ctx->contact_in_wmark ));
     }
     dcache_entry = fd_chunk_to_laddr_const( ctx->contact_in_mem, chunk );
+    dcache_entry_sz = sz * sizeof(fd_shred_dest_wire_t);
 
   } else if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
     if( FD_UNLIKELY( chunk<ctx->stake_weights_in_chunk0 || chunk>ctx->stake_weights_in_wmark ) ) {
@@ -353,19 +315,19 @@ during_frag( void * _ctx,
     }
 
     dcache_entry = fd_chunk_to_laddr_const( ctx->repair_req_in_mem, chunk );
-
+    dcache_entry_sz = sz * sizeof(fd_repair_request_t);
   } else if ( FD_LIKELY( in_idx == NET_IN_IDX ) ) {
     if( FD_UNLIKELY( chunk<ctx->net_in_chunk0 || chunk>ctx->net_in_wmark || sz>FD_NET_MTU ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->net_in_chunk0, ctx->net_in_wmark ));
     }
 
     dcache_entry = fd_chunk_to_laddr_const( ctx->net_in_mem, chunk );
-
+    dcache_entry_sz = sz;
   } else {
     FD_LOG_ERR(("Unknown in_idx %lu for repair", in_idx));
   }
 
-  fd_memcpy( ctx->buffer, dcache_entry, sz );
+  fd_memcpy( ctx->buffer, dcache_entry, dcache_entry_sz );
 }
 
 static void
@@ -398,14 +360,13 @@ after_frag( void *             _ctx,
   }
 
   ctx->mux = mux;
-  uint   ip = fd_disco_netmux_sig_dst_ip( *opt_sig );
   ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
   fd_net_hdrs_t * hdr = (fd_net_hdrs_t *)ctx->buffer;
 
   fd_repair_peer_addr_t peer_addr;
   peer_addr.l = 0;
-  peer_addr.addr = ip;
-  peer_addr.port = fd_ushort_bswap( hdr->udp->net_sport );
+  peer_addr.addr = FD_LOAD( uint, hdr->ip4->saddr_c );
+  peer_addr.port = hdr->udp->net_sport;
 
   fd_repair_recv_packet( ctx->repair, ctx->buffer + hdr_sz, *opt_sz - hdr_sz, &peer_addr );
 }
@@ -431,7 +392,7 @@ privileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_repair_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t) );
 
-  uchar const * identity_key = fd_keyload_load( tile->sign.identity_key_path, /* pubkey only: */ 0 );
+  uchar const * identity_key = fd_keyload_load( tile->repair.identity_key_path, /* pubkey only: */ 0 );
   fd_memcpy( ctx->identity_private_key, identity_key, sizeof(fd_pubkey_t) );
   fd_memcpy( ctx->identity_public_key.uc, identity_key + 32UL, sizeof(fd_pubkey_t) );
 
@@ -448,15 +409,15 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( tile->in_cnt != 4 ||
                    strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_repair")     ||
-                   strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "gossip_repair" ) ||
+                   strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "gossip_repai" ) ||
                    strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX ] ].name,   "stake_out" )     ||
                    strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX ] ].name,   "store_repair" ) ) ) {
-    FD_LOG_ERR(( "Repair tile has none or unexpected input links %lu %s %s",
+    FD_LOG_ERR(( "repair tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
   }
 
   if( FD_UNLIKELY( tile->out_cnt != 1 ||
-                   strcmp( topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ].name, "repair_store" ) ) ) {
+                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name, "repair_net" ) ) ) {
     FD_LOG_ERR(( "repair tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
   }
@@ -480,13 +441,22 @@ unprivileged_init( fd_topo_t *      topo,
 
   void * alloc_shmem = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
 
+  ctx->repair_intake_addr.addr = tile->repair.ip_addr;
+  ctx->repair_intake_addr.port = fd_ushort_bswap( tile->repair.repair_intake_listen_port );
+
+  ctx->repair_serve_addr.addr = tile->repair.ip_addr;
+  ctx->repair_serve_addr.port = fd_ushort_bswap( tile->repair.repair_serve_listen_port );
+  
+  ctx->repair_intake_listen_port = tile->repair.repair_intake_listen_port;
+  ctx->repair_serve_listen_port = tile->repair.repair_serve_listen_port;
+
   void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() );
   ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( _stake_ci , &ctx->identity_public_key ) );
 
   ctx->net_id = (ushort)0;
   fd_memcpy( ctx->src_mac_addr, tile->repair.src_mac_addr, 6 );
 
-  fd_net_create_packet_header_template( ctx->hdr, FD_REPAIR_MAX_PACKET_SIZE, ctx->repair_intake_addr.addr, ctx->src_mac_addr, ctx->repair_intake_addr.port );
+  fd_net_create_packet_header_template( ctx->hdr, FD_REPAIR_MAX_PACKET_SIZE, ctx->repair_intake_addr.addr, ctx->src_mac_addr, ctx->repair_intake_listen_port );
 
   fd_topo_link_t * netmux_link = &topo->links[ tile->in_link_id[ 0 ] ];
 
@@ -496,7 +466,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_LOG_NOTICE(( "repair starting" ));
 
-  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id_primary ];
+  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ NET_OUT_IDX ] ];
   ctx->net_out_mcache = net_out->mcache;
   ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );
   ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
@@ -507,7 +477,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_chunk  = ctx->net_out_chunk0;
 
 
-  fd_topo_link_t * store_out = &topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ];
+  fd_topo_link_t * store_out = &topo->links[ tile->out_link_id_primary ];
   ctx->store_out_mcache = store_out->mcache;
   ctx->store_out_sync   = fd_mcache_seq_laddr( ctx->store_out_mcache );
   ctx->store_out_depth  = fd_mcache_depth( ctx->store_out_mcache );
@@ -550,9 +520,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->repair = fd_repair_join( fd_repair_new( ctx->repair, ctx->repair_seed, valloc ) );
 
-  FD_LOG_NOTICE(( "repair my addr - intake addr: %s, serve_addr: %s", tile->repair.repair_intake_addr, tile->repair.repair_serve_addr ));
-  FD_TEST( resolve_hostport( tile->repair.repair_intake_addr, &ctx->repair_intake_addr ) );
-  FD_TEST( resolve_hostport( tile->repair.repair_serve_addr, &ctx->repair_serve_addr ) );
+  FD_LOG_NOTICE(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u, serve_addr: " FD_IP4_ADDR_FMT ":%u", 
+    FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port ),
+    FD_IP4_ADDR_FMT_ARGS( ctx->repair_serve_addr.addr ), fd_ushort_bswap( ctx->repair_serve_addr.port ) ));
 
   ctx->repair_config.fun_arg = ctx;
   ctx->repair_config.deliver_fun = repair_shred_deliver;
@@ -571,8 +541,6 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
-
-  FD_LOG_NOTICE(( "repair listening - intake port: %u, serve port: %u", ctx->repair_intake_addr.port, ctx->repair_serve_addr.port ));
 }
 
 static ulong
@@ -597,6 +565,7 @@ populate_allowed_fds( void * scratch FD_PARAM_UNUSED,
 }
 
 fd_topo_run_tile_t fd_tile_repair = {
+  .name                     = "repair",
   .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
   .burst                    = 1UL,
   .loose_footprint          = loose_footprint,
