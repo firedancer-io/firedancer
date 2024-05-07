@@ -479,7 +479,7 @@ void
 fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t * slot_ctx ) {
   fd_funk_txn_t *   txn_map    = fd_funk_txn_map( replay->funk, fd_funk_wksp( replay->funk ) );
   fd_hash_t const * block_hash = fd_blockstore_block_hash_query( replay->blockstore, slot );
-  FD_LOG_WARNING(("Current slot %lu", slot));
+  FD_LOG_DEBUG(("Current slot %lu", slot));
   if( !block_hash ) FD_LOG_ERR( ( "missing block hash of slot we're trying to restore" ) );
   fd_funk_txn_xid_t xid;
   fd_memcpy( xid.uc, block_hash, sizeof( fd_funk_txn_xid_t ) );
@@ -504,6 +504,11 @@ fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t
   slot_ctx->blockstore = replay->blockstore;
   slot_ctx->valloc     = replay->valloc;
 
+  fd_bincode_destroy_ctx_t destroy_ctx = {
+    .valloc = replay->valloc,
+  };
+
+  fd_slot_bank_destroy( &slot_ctx->slot_bank, &destroy_ctx );
   FD_TEST( fd_slot_bank_decode( &slot_ctx->slot_bank, &ctx ) == FD_BINCODE_SUCCESS );
   FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx ) );
   slot_ctx->leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot );

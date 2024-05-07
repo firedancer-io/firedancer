@@ -200,6 +200,18 @@ typedef struct {
     } metric;
 
     struct {
+      char  genesis[ PATH_MAX ];
+      char  snapshot[ PATH_MAX ];
+      char  incremental[ PATH_MAX ];
+      ulong pages;
+      ulong txn_max;
+      ulong index_max;
+      ulong shred_max;
+      ulong slot_history_max;
+      ulong snapshot_slot;
+    } replay;
+
+    struct {
       ushort send_to_port;
       uint   send_to_ip_addr;
       ulong  conn_cnt;
@@ -216,9 +228,11 @@ typedef struct {
     } benchg;
 
     struct {
-      char    repair_intake_addr[ 22 ];   // len('255.255.255.255:65535') == 22
-      char    repair_serve_addr[ 22 ];    // len('255.255.255.255:65535') == 22
+      ushort  repair_intake_listen_port;
+      ushort  repair_serve_listen_port;
+      uint    ip_addr;
       uchar   src_mac_addr[ 6 ];
+      char    identity_key_path[ PATH_MAX ];
     } repair;
 
     struct {
@@ -234,6 +248,11 @@ typedef struct {
       ushort  tpu_vote_port;
       ulong  expected_shred_version;
     } gossip;
+
+    struct {
+      ulong snapshot_slot;
+      char  identity_key_path[ PATH_MAX ];
+    } store_int;
   };
 } fd_topo_tile_t;
 

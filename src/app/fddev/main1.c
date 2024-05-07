@@ -46,10 +46,16 @@ extern fd_topo_run_tile_t fd_tile_store;
 extern fd_topo_run_tile_t fd_tile_sign;
 extern fd_topo_run_tile_t fd_tile_metric;
 extern fd_topo_run_tile_t fd_tile_blackhole;
-
 extern fd_topo_run_tile_t fd_tile_bencho;
 extern fd_topo_run_tile_t fd_tile_benchg;
 extern fd_topo_run_tile_t fd_tile_benchs;
+
+#ifdef FD_HAS_NO_SOLANA
+extern fd_topo_run_tile_t fd_tile_gossip;
+extern fd_topo_run_tile_t fd_tile_repair;
+extern fd_topo_run_tile_t fd_tile_store_int;
+extern fd_topo_run_tile_t fd_tile_replay;
+#endif
 
 fd_topo_run_tile_t fd_tile_tvu_thread = { .name = "thread", .for_tpool = 1 };
 
@@ -70,6 +76,12 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,
+#ifdef FD_HAS_NO_SOLANA
+  &fd_tile_gossip,
+  &fd_tile_repair,
+  &fd_tile_store_int,
+  &fd_tile_replay,
+#endif
   NULL,
 };
 
