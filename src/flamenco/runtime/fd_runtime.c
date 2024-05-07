@@ -1274,7 +1274,7 @@ fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
     task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
     if ( task_info->exec_res == 0 ) {
       txns[i].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-      slot_ctx->signature_cnt += TXN(&txns[i])->signature_cnt;
+      slot_ctx->signature_cnt += (ulong)(TXN(&txns[i])->signature_cnt);
     }
   }
 
@@ -1581,6 +1581,10 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
       fd_funk_end_write(slot_ctx->acc_mgr->funk);
     }
   }
+
+  slot_ctx->slot_bank.collected_fees = 0;
+  slot_ctx->slot_bank.collected_rent = 0;
+  slot_ctx->signature_cnt = 0;
 
   if( slot_ctx->slot_bank.slot != 0 && FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
     distribute_partitioned_epoch_rewards(slot_ctx);
@@ -2190,22 +2194,16 @@ fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
 }
 
 int
-fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
-                                fd_capture_ctx_t *capture_ctx,
-                                void const *block,
-                                ulong blocklen,
-                                fd_tpool_t *tpool,
-                                ulong max_workers,
-                                ulong scheduler,
-                                ulong * txn_cnt ) {
-  (void)scheduler;
-
+fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
+                             fd_capture_ctx_t * capture_ctx ) {
   /* Publish any transaction older than 31 slots */
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
   fd_funk_txn_t * txnmap = fd_funk_txn_map(funk, fd_funk_wksp(funk));
   uint depth = 0;
   for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnmap) ) {
-    if (++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1) ) {
+    /* TODO: tmp change */
+    // if (++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1) ) {
+    if (++depth == (4 - 1) ) {
       FD_LOG_DEBUG(("publishing %32J (slot %ld)", &txn->xid, txn->xid.ul[0]));
 
       fd_funk_start_write(funk);
@@ -2232,6 +2230,27 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
       break;
     }
   }
+
+  return 0;
+}
+
+int
+fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
+                                fd_capture_ctx_t *capture_ctx,
+                                void const *block,
+                                ulong blocklen,
+                                fd_tpool_t *tpool,
+                                ulong max_workers,
+                                ulong scheduler,
+                                ulong * txn_cnt ) {
+  (void)scheduler;
+
+  int err = fd_runtime_publish_old_txns( slot_ctx, capture_ctx );
+  if( err != 0 ) {
+    return err;
+  }
+  
+  fd_funk_t * funk = slot_ctx->acc_mgr->funk;
 
   long block_eval_time = -fd_log_wallclock();
   fd_block_info_t block_info;

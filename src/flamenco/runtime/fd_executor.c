@@ -303,43 +303,45 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     fd_pubkey_t readonly_lut_accs[128];
     ulong readonly_lut_accs_cnt = 0;
 
-    // Set up accounts in the account look up tables.
-    fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn_ctx->txn_descriptor );
-    for( ulong i = 0; i < txn_ctx->txn_descriptor->addr_table_lookup_cnt; i++ ) {
-      fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
-      fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + addr_lut->addr_off);
+    FD_SCRATCH_SCOPE_BEGIN {
+      // Set up accounts in the account look up tables.
+      fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn_ctx->txn_descriptor );
+      for( ulong i = 0; i < txn_ctx->txn_descriptor->addr_table_lookup_cnt; i++ ) {
+        fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
+        fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + addr_lut->addr_off);
 
-      FD_BORROWED_ACCOUNT_DECL(addr_lut_rec);
-      int err = fd_acc_mgr_view(txn_ctx->slot_ctx->acc_mgr, txn_ctx->slot_ctx->funk_txn, (fd_pubkey_t *) addr_lut_acc, addr_lut_rec);
-      if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_ERR(( "addr lut not found" )); // TODO: return txn err code
-      }
+        FD_BORROWED_ACCOUNT_DECL(addr_lut_rec);
+        int err = fd_acc_mgr_view(txn_ctx->slot_ctx->acc_mgr, txn_ctx->slot_ctx->funk_txn, (fd_pubkey_t *) addr_lut_acc, addr_lut_rec);
+        if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+          FD_LOG_ERR(( "addr lut not found" )); // TODO: return txn err code
+        }
 
-      fd_address_lookup_table_state_t addr_lookup_table_state;
-      fd_bincode_decode_ctx_t decode_ctx = {
-        .data = addr_lut_rec->const_data,
-        .dataend = &addr_lut_rec->const_data[56], // TODO macro const.
-        .valloc  = txn_ctx->valloc,
-      };
-      if( fd_address_lookup_table_state_decode( &addr_lookup_table_state, &decode_ctx ) ) {
-        FD_LOG_ERR(("fd_address_lookup_table_state_decode failed"));
-      }
-      if( addr_lookup_table_state.discriminant != fd_address_lookup_table_state_enum_lookup_table ) {
-        FD_LOG_ERR(("addr lut is uninit"));
-      }
+        fd_address_lookup_table_state_t addr_lookup_table_state;
+        fd_bincode_decode_ctx_t decode_ctx = {
+          .data = addr_lut_rec->const_data,
+          .dataend = &addr_lut_rec->const_data[56], // TODO macro const.
+          .valloc  = fd_scratch_virtual(),
+        };
+        if( fd_address_lookup_table_state_decode( &addr_lookup_table_state, &decode_ctx ) ) {
+          FD_LOG_ERR(("fd_address_lookup_table_state_decode failed"));
+        }
+        if( addr_lookup_table_state.discriminant != fd_address_lookup_table_state_enum_lookup_table ) {
+          FD_LOG_ERR(("addr lut is uninit"));
+        }
 
-      fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&addr_lut_rec->const_data[56];
+        fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&addr_lut_rec->const_data[56];
 
-      uchar * writable_lut_idxs = (uchar *)txn_ctx->_txn_raw->raw + addr_lut->writable_off;
-      for( ulong j = 0; j < addr_lut->writable_cnt; j++ ) {
-        txn_ctx->accounts[txn_ctx->accounts_cnt++] = lookup_addrs[writable_lut_idxs[j]];
-      }
+        uchar * writable_lut_idxs = (uchar *)txn_ctx->_txn_raw->raw + addr_lut->writable_off;
+        for( ulong j = 0; j < addr_lut->writable_cnt; j++ ) {
+          txn_ctx->accounts[txn_ctx->accounts_cnt++] = lookup_addrs[writable_lut_idxs[j]];
+        }
 
-      uchar * readonly_lut_idxs = (uchar *)txn_ctx->_txn_raw->raw + addr_lut->readonly_off;
-      for( ulong j = 0; j < addr_lut->readonly_cnt; j++ ) {
-        readonly_lut_accs[readonly_lut_accs_cnt++] = lookup_addrs[readonly_lut_idxs[j]];
+        uchar * readonly_lut_idxs = (uchar *)txn_ctx->_txn_raw->raw + addr_lut->readonly_off;
+        for( ulong j = 0; j < addr_lut->readonly_cnt; j++ ) {
+          readonly_lut_accs[readonly_lut_accs_cnt++] = lookup_addrs[readonly_lut_idxs[j]];
+        }
       }
-    }
+    } FD_SCRATCH_SCOPE_END;
 
     fd_memcpy( &txn_ctx->accounts[txn_ctx->accounts_cnt], readonly_lut_accs, readonly_lut_accs_cnt * sizeof(fd_pubkey_t) );
     txn_ctx->accounts_cnt += readonly_lut_accs_cnt;
@@ -907,21 +909,25 @@ fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
     // TODO: The fee payer does not seem to exist?!  what now?
     return -1;
   }
-  void * rec_data = fd_valloc_malloc( slot_ctx->valloc, 8UL, fd_borrowed_account_raw_size( rec ) );
-  fd_borrowed_account_make_modifiable( rec, rec_data );
 
-  ulong fee = fd_runtime_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw );
-  if( fd_executor_collect_fee( slot_ctx, rec, fee ) ) {
-    return -1;
-  }
-  slot_ctx->slot_bank.collected_fees += fee;
+  FD_SCRATCH_SCOPE_BEGIN {
+    void * rec_data = fd_valloc_malloc( fd_scratch_virtual(), 8UL, fd_borrowed_account_raw_size( rec ) );
+    fd_borrowed_account_make_modifiable( rec, rec_data );
 
-  err = fd_acc_mgr_save( slot_ctx->acc_mgr, rec );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "fd_acc_mgr_save(%32J) failed (%d-%s)", fee_payer_acc->uc, err, fd_acc_mgr_strerror( err ) ));
-    // TODO: The fee payer does not seem to exist?!  what now?
-    return -1;
-  }
+    ulong fee = fd_runtime_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw );
+    if( fd_executor_collect_fee( slot_ctx, rec, fee ) ) {
+      
+      return -1;
+    }
+    slot_ctx->slot_bank.collected_fees += fee;
+
+    err = fd_acc_mgr_save( slot_ctx->acc_mgr, rec );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "fd_acc_mgr_save(%32J) failed (%d-%s)", fee_payer_acc->uc, err, fd_acc_mgr_strerror( err ) ));
+      // TODO: The fee payer does not seem to exist?!  what now?
+      return -1;
+    }
+  } FD_SCRATCH_SCOPE_END;
 
   return 0;
 }
