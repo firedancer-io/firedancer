@@ -10,7 +10,7 @@
    an entire epoch. */
 
 struct fd_exec_epoch_ctx_layout {
-  ulong vote_acct_max;
+  ulong vote_acc_max;
   ulong footprint;
 
   ulong stake_votes_off;
@@ -40,7 +40,7 @@ FD_PROTOTYPES_BEGIN
 
 void *
 fd_exec_epoch_ctx_new( void * mem,
-                       ulong  vote_acct_max );
+                       ulong  vote_acc_max );
 
 fd_exec_epoch_ctx_t *
 fd_exec_epoch_ctx_join( void * mem );
@@ -55,7 +55,7 @@ ulong
 fd_exec_epoch_ctx_align( void );
 
 ulong
-fd_exec_epoch_ctx_footprint( ulong vote_acct_max );
+fd_exec_epoch_ctx_footprint( ulong vote_acc_max );
 
 /* fd_exec_epoch_ctx_fixup_memory makes an epoch context safe for reuse
    across different address spaces.  This function is very silly:  It

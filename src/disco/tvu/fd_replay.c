@@ -390,26 +390,26 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   fork->head->bank_hash       = *bank_hash;
   FD_LOG_NOTICE( ( "bank hash: %32J", bank_hash->hash ) );
 
-  fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( child->slot_ctx.epoch_ctx );
-  fd_bank_hash_cmp_lock( bank_hash_cmp );
-  fd_bank_hash_cmp_insert( bank_hash_cmp, slot, bank_hash, 1 );
+  // fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( child->slot_ctx.epoch_ctx );
+  // fd_bank_hash_cmp_lock( bank_hash_cmp );
+  // fd_bank_hash_cmp_insert( bank_hash_cmp, slot, bank_hash, 1 );
 
-  /* Try to move the bank hash comparison window forward */
-  while (1) {
-    ulong *children, nchildren, parent_slot = bank_hash_cmp->slot;
-    if ( fd_blockstore_next_slot_query( replay->blockstore, parent_slot, &children, &nchildren ) == FD_BLOCKSTORE_OK ) {
-      for (ulong i = 0; i < nchildren; i++) {
-        if( FD_LIKELY( fd_bank_hash_cmp_check( bank_hash_cmp, children[i] ) ) ) {
-          bank_hash_cmp->slot = children[i];
-          break;
-        }
-      }
-    } else {
-      FD_LOG_WARNING( ("failed at getting children of slot %lu", parent_slot) );
-    }
-    if(bank_hash_cmp->slot == parent_slot) break;
-  }
-  fd_bank_hash_cmp_unlock( bank_hash_cmp );
+  // /* Try to move the bank hash comparison window forward */
+  // while (1) {
+  //   ulong *children, nchildren, parent_slot = bank_hash_cmp->slot;
+  //   if ( fd_blockstore_next_slot_query( replay->blockstore, parent_slot, &children, &nchildren ) == FD_BLOCKSTORE_OK ) {
+  //     for (ulong i = 0; i < nchildren; i++) {
+  //       if( FD_LIKELY( fd_bank_hash_cmp_check( bank_hash_cmp, children[i] ) ) ) {
+  //         bank_hash_cmp->slot = children[i];
+  //         break;
+  //       }
+  //     }
+  //   } else {
+  //     FD_LOG_WARNING( ("failed at getting children of slot %lu", parent_slot) );
+  //   }
+  //   if(bank_hash_cmp->slot == parent_slot) break;
+  // }
+  // fd_bank_hash_cmp_unlock( bank_hash_cmp );
 
   // fd_bft_fork_update( replay->bft, child );
   // fd_bft_fork_choice( replay->bft );
