@@ -209,6 +209,10 @@ typedef struct {
       ulong shred_max;
       ulong slot_history_max;
       ulong snapshot_slot;
+      ulong tpool_thread_count;
+      ulong funk_sz_gb;
+      ulong funk_txn_max;
+      ulong funk_rec_max;
     } replay;
 
     struct {

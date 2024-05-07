@@ -55,9 +55,8 @@ extern fd_topo_run_tile_t fd_tile_gossip;
 extern fd_topo_run_tile_t fd_tile_repair;
 extern fd_topo_run_tile_t fd_tile_store_int;
 extern fd_topo_run_tile_t fd_tile_replay;
+extern fd_topo_run_tile_t fd_tile_replay_thread;
 #endif
-
-fd_topo_run_tile_t fd_tile_tvu_thread = { .name = "thread", .for_tpool = 1 };
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
@@ -81,6 +80,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_repair,
   &fd_tile_store_int,
   &fd_tile_replay,
+  &fd_tile_replay_thread,
 #endif
   NULL,
 };

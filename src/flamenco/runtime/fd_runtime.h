@@ -203,6 +203,14 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              ulong scheduler,
                              ulong * txn_cnt );
 
+int
+fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                                        fd_capture_ctx_t * capture_ctx,
+                                        fd_txn_p_t * txns,
+                                        ulong txn_cnt,
+                                        fd_tpool_t * tpool,
+                                        ulong max_workers );
+
 ulong
 fd_runtime_calculate_fee ( fd_exec_txn_ctx_t * txn_ctx,
                            fd_txn_t const * txn_descriptor,

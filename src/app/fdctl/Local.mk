@@ -34,6 +34,7 @@ $(call add-objs,run/tiles/fd_repair,fd_fdctl)
 $(call add-objs,run/tiles/fd_gossip,fd_fdctl)
 $(call add-objs,run/tiles/fd_store_int,fd_fdctl)
 $(call add-objs,run/tiles/fd_replay,fd_fdctl)
+$(call add-objs,run/tiles/fd_replay_thread,fd_fdctl)
 endif
 
 # fdctl topologies

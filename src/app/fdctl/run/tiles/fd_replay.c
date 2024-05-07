@@ -4,6 +4,7 @@
 
 #include "generated/replay_seccomp.h"
 #include "../../../../util/fd_util.h"
+#include "../../../../util/tile/fd_tile_private.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/tvu/fd_replay.h"
@@ -218,8 +219,6 @@ after_frag( void *             _ctx,
   fd_txn_p_t * txns       = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
 
   FD_SCRATCH_SCOPE_BEGIN {
-    fd_execute_txn_task_info_t * task_info = fd_scratch_alloc( 8UL, txn_cnt * sizeof(fd_execute_txn_task_info_t) );
-
     fd_fork_t * fork = fd_replay_prepare_ctx( ctx->replay, ctx->parent_slot );
     if( fork->slot_ctx.slot_bank.slot == ctx->parent_slot ) {
       // fork is advancing
@@ -250,19 +249,12 @@ after_frag( void *             _ctx,
       FD_LOG_ERR(( "unexpected fork switch mid block execution, cannot continue" ));
     }
 
-    int res = fd_runtime_prepare_txns( &fork->slot_ctx, task_info, txns, txn_cnt );
+    // Exeecute all txns which were succesfully prepared
+    int res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx, NULL,
+                                                      txns, txn_cnt,
+                                                      ctx->tpool, ctx->max_workers );
     if( res != 0 && !( ctx->flags & REPLAY_FLAG_PACKED_MICROBLOCK ) ) {
       FD_LOG_WARNING(( "block invalid - slot: %lu", ctx->curr_slot ));
-      // TODO: need to yeet this block from the replay frontier.
-      return;
-    }
-
-    // Exeecute all txns which were succesfully prepared
-    res = fd_runtime_execute_txns_tpool( &fork->slot_ctx, NULL,
-                                        txns, txn_cnt, task_info,
-                                        ctx->tpool, ctx->max_workers );
-    if ( res != 0 ) {
-      FD_LOG_WARNING(("txn finalize failed, should not happen"));
       *opt_filter = 1;
       return;
     }
@@ -328,6 +320,32 @@ after_frag( void *             _ctx,
       fd_bank_hash_cmp_unlock( bank_hash_cmp );
     }
   } FD_SCRATCH_SCOPE_END;
+}
+void
+tpool_boot( fd_topo_t * topo, ulong total_thread_count ) {
+  ushort tile_to_cpu[ FD_TILE_MAX ] = { 0 };
+  ulong thread_count = 0;
+  ulong main_thread_seen = 0;
+
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    if( strcmp( topo->tiles[i].name, "thread" ) == 0 ) {
+      tile_to_cpu[ 1+thread_count ] = (ushort)topo->tiles[i].cpu_idx;
+      thread_count++;
+    }
+    if( strcmp( topo->tiles[i].name, "replay" ) == 0 ) {
+      tile_to_cpu[ 0 ] = (ushort)topo->tiles[i].cpu_idx;
+      main_thread_seen = 1;
+    }
+  }
+
+  if( main_thread_seen ) {
+    thread_count++;
+  }
+
+  if( thread_count != total_thread_count )
+    FD_LOG_ERR(( "thread count mismatch thread_count=%lu total_thread_count=%lu main_thread_seen=%lu", thread_count, total_thread_count, main_thread_seen ));
+
+  fd_tile_private_map_boot( tile_to_cpu, thread_count );
 }
 
 static void
@@ -557,11 +575,24 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->replay->acc_mgr      = ctx->slot_ctx->acc_mgr;
   ctx->replay->funk         = funk;
 
-  ctx->tpool = fd_tpool_init( ctx->tpool_mem, 1 );
-  ctx->max_workers = 1;
+  ctx->max_workers = tile->replay.tpool_thread_count;
+  if( FD_LIKELY( ctx->max_workers > 1 ) )
+    tpool_boot( topo, ctx->max_workers );
+  ctx->tpool = fd_tpool_init( ctx->tpool_mem, ctx->max_workers );
+
+  if( FD_LIKELY( ctx->max_workers > 1 ) ) {
+    /* start the tpool workers */
+    ulong tpool_worker_stack_sz = (1UL<<28UL); /* 256MB */
+    uchar * tpool_worker_mem   = fd_wksp_alloc_laddr( ctx->wksp, FD_SCRATCH_ALIGN_DEFAULT, tpool_worker_stack_sz*ctx->max_workers, 421UL ); /* 256MB per thread */
+    for( ulong i =1; i<ctx->max_workers; i++ ) {
+      if( fd_tpool_worker_push( ctx->tpool, i, tpool_worker_mem + tpool_worker_stack_sz*(i - 1U), tpool_worker_stack_sz ) == NULL ) {
+        FD_LOG_ERR(( "failed to launch worker" ));
+      }
+    }
+  }
  
   ctx->replay->tpool = ctx->tpool;
-  ctx->replay->max_workers = 1;
+  ctx->replay->max_workers = ctx->max_workers;
 
   if( ctx->tpool == NULL ) {
     FD_LOG_ERR(("failed to create thread pool"));
