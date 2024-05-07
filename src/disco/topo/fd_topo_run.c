@@ -144,44 +144,17 @@ fd_topo_run_tile( fd_topo_t *          topo,
     }
   }
 
-  fd_mux_callbacks_t callbacks = {
-    .during_housekeeping = tile_run->mux_during_housekeeping,
-    .before_credit       = tile_run->mux_before_credit,
-    .after_credit        = tile_run->mux_after_credit,
-    .before_frag         = tile_run->mux_before_frag,
-    .during_frag         = tile_run->mux_during_frag,
-    .after_frag          = tile_run->mux_after_frag,
-    .metrics_write       = tile_run->mux_metrics_write,
-  };
-
-  void * ctx = NULL;
-  if( FD_LIKELY( tile_run->mux_ctx ) ) ctx = tile_run->mux_ctx( tile_mem );
-
-  long lazy = 0L;
-  if( FD_UNLIKELY( tile_run->lazy ) ) lazy = tile_run->lazy( tile_mem );
-
-  fd_rng_t rng[1];
-  int ret = 0;
-  if( FD_LIKELY( tile_run->main == NULL ) ) {
-    ret = fd_mux_tile( tile->cnc,
-                       tile_run->mux_flags,
-                       polled_in_cnt,
-                       in_mcache,
-                       in_fseq,
-                       tile->out_link_id_primary == ULONG_MAX ? NULL : topo->links[ tile->out_link_id_primary ].mcache,
-                       out_cnt_reliable,
-                       out_fseq,
-                       tile_run->burst,
-                       0,
-                       lazy,
-                       fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
-                       fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( polled_in_cnt, out_cnt_reliable ) ),
-                       ctx,
-                       &callbacks );
-  } else {
-    ret = tile_run->main();
-  }
-  FD_LOG_ERR(( "tile run loop returned: %d", ret ));
+  tile_run->run( topo,
+                 tile,
+                 tile_mem,
+                 tile->cnc,
+                 polled_in_cnt,
+                 in_mcache,
+                 in_fseq,
+                 tile->out_link_id_primary == ULONG_MAX ? NULL : topo->links[ tile->out_link_id_primary ].mcache,
+                 out_cnt_reliable,
+                 out_fseq );
+  FD_LOG_ERR(( "tile run loop returned" ));
 }
 
 typedef struct {

@@ -232,12 +232,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_pack_ctx_t ) );
-}
-
 static inline void
 metrics_write( void * _ctx ) {
   fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
@@ -690,21 +684,6 @@ unprivileged_init( fd_topo_t *      topo,
 
 }
 
-static long
-lazy( fd_topo_tile_t * tile ) {
-  (void)tile;
-  /* We want lazy (measured in ns) to be small enough that the producer
-     and the consumer never have to wait for credits.  For most tango
-     links, we use a default worst case speed coming from 100 Gbps
-     Ethernet.  That's not very suitable for microblocks that go from
-     pack to bank.  Instead we manually estimate the very aggressive
-     1000ns per microblock, and then reduce it further (in line with the
-     default lazy value computation) to ensure the random value chosen
-     based on this won't lead to credit return stalls. */
-  return 128L * 3000L;
-}
-
-
 static ulong
 populate_allowed_seccomp( void *               scratch,
                           ulong                out_cnt,
@@ -728,21 +707,63 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
+static void
+run( fd_topo_t *             topo,
+     fd_topo_tile_t *        tile,
+     void *                  scratch,
+     fd_cnc_t *              cnc,
+     ulong                   in_cnt,
+     fd_frag_meta_t const ** in_mcache,
+     ulong **                in_fseq,
+     fd_frag_meta_t *        mcache,
+     ulong                   out_cnt,
+     ulong **                out_fseq ) {
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
+
+  fd_mux_callbacks_t callbacks = {
+    .during_housekeeping  = during_housekeeping,
+    .before_credit        = before_credit,
+    .after_credit         = after_credit,
+    .during_frag          = during_frag,
+    .after_frag           = after_frag,
+    .metrics_write        = metrics_write,
+  };
+
+  /* We want lazy (measured in ns) to be small enough that the producer
+     and the consumer never have to wait for credits.  For most tango
+     links, we use a default worst case speed coming from 100 Gbps
+     Ethernet.  That's not very suitable for microblocks that go from
+     pack to bank.  Instead we manually estimate the very aggressive
+     1000ns per microblock, and then reduce it further (in line with the
+     default lazy value computation) to ensure the random value chosen
+     based on this won't lead to credit return stalls. */
+  long lazy = 128L*3000L;
+
+  fd_rng_t rng[1];
+  fd_mux_tile( cnc,
+               FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
+               in_cnt,
+               in_mcache,
+               in_fseq,
+               mcache,
+               out_cnt,
+               out_fseq,
+               1UL,
+               0UL,
+               lazy,
+               fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
+               fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( in_cnt, out_cnt ) ),
+               ctx,
+               &callbacks );
+}
+
 fd_topo_run_tile_t fd_tile_pack = {
   .name                     = "pack",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_during_housekeeping  = during_housekeeping,
-  .mux_before_credit        = before_credit,
-  .mux_after_credit         = after_credit,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
-  .mux_metrics_write        = metrics_write,
-  .lazy                     = lazy,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,
+  .run                      = run,
 };

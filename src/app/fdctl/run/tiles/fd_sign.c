@@ -46,11 +46,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_sign_ctx_t ) );
-}
-
 /* during_frag is called between pairs for sequence number checks, as
    we are reading incoming frags.  We don't actually need to copy the
    fragment here, see fd_dedup.c for why we do this.*/
@@ -252,7 +247,7 @@ populate_allowed_fds( void * scratch,
                       ulong  out_fds_cnt,
                       int *  out_fds ) {
   (void)scratch;
-  if( FD_UNLIKELY( out_fds_cnt < 2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -261,25 +256,50 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
-static long
-lazy( fd_topo_tile_t * tile ) {
-  (void)tile;
-  /* See explanation in fd_pack */
-  return 128L * 300L;
+static void
+run( fd_topo_t *             topo,
+     fd_topo_tile_t *        tile,
+     void *                  scratch,
+     fd_cnc_t *              cnc,
+     ulong                   in_cnt,
+     fd_frag_meta_t const ** in_mcache,
+     ulong **                in_fseq,
+     fd_frag_meta_t *        mcache,
+     ulong                   out_cnt,
+     ulong **                out_fseq ) {
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_sign_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
+
+  fd_mux_callbacks_t callbacks = {
+    .during_frag = during_frag,
+    .after_frag  = after_frag,
+  };
+
+  fd_rng_t rng[1];
+  fd_mux_tile( cnc,
+               FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
+               in_cnt,
+               in_mcache,
+               in_fseq,
+               mcache,
+               out_cnt,
+               out_fseq,
+               1UL,
+               0UL,
+               128L*300L, /* See explanation in fd_pack */
+               fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
+               fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( in_cnt, out_cnt ) ),
+               ctx,
+               &callbacks );
 }
 
 fd_topo_run_tile_t fd_tile_sign = {
   .name                     = "sign",
-  .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
-  .lazy                     = lazy,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .run                      = run,
 };

@@ -286,21 +286,10 @@ typedef struct fd_topo_t {
 typedef struct {
   char const *                  name;
 
-  ulong                         mux_flags;
-  ulong                         burst;
   ulong                         rlimit_file_cnt;
   int                           for_tpool;
   void * (*mux_ctx           )( void * scratch );
 
-  fd_mux_during_housekeeping_fn * mux_during_housekeeping;
-  fd_mux_before_credit_fn       * mux_before_credit;
-  fd_mux_after_credit_fn        * mux_after_credit;
-  fd_mux_before_frag_fn         * mux_before_frag;
-  fd_mux_during_frag_fn         * mux_during_frag;
-  fd_mux_after_frag_fn          * mux_after_frag;
-  fd_mux_metrics_write_fn       * mux_metrics_write;
-
-  long  (*lazy                    )( fd_topo_tile_t * tile );
   ulong (*populate_allowed_seccomp)( void * scratch, ulong out_cnt, struct sock_filter * out );
   ulong (*populate_allowed_fds    )( void * scratch, ulong out_fds_sz, int * out_fds );
   ulong (*scratch_align           )( void );
@@ -308,7 +297,7 @@ typedef struct {
   ulong (*loose_footprint         )( fd_topo_tile_t const * tile );
   void  (*privileged_init         )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
   void  (*unprivileged_init       )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
-  int   (*main                    )( void );
+  void  (*run                     )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch, fd_cnc_t * cnc, ulong in_cnt, fd_frag_meta_t const ** in_mcache, ulong ** in_fseq, fd_frag_meta_t * mcache, ulong out_cnt, ulong ** out_fseq );
 } fd_topo_run_tile_t;
 
 FD_PROTOTYPES_BEGIN
