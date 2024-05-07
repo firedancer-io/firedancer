@@ -221,7 +221,6 @@ fd_wksp_alloc_at_least( fd_wksp_t * wksp,
                         ulong       tag,
                         ulong *     _lo,
                         ulong *     _hi ) {
-  FD_LOG_DEBUG(( "wksp alloc - sz: %lu, align: %lu", sz, align ));
   align = fd_ulong_if( !align, FD_WKSP_ALIGN_DEFAULT, align );
   ulong footprint = sz + align - 1UL;
 

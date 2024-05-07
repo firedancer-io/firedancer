@@ -286,7 +286,7 @@ fd_store_slot_repair( fd_store_t * store,
       repair_req->type = FD_REPAIR_REQ_TYPE_NEED_WINDOW_INDEX;
     }
     if( repair_req_cnt ) {
-      FD_LOG_NOTICE( ( "[repair] need %lu [%lu, %lu], sent %lu requests", slot, slot_meta->consumed + 1, last_index, repair_req_cnt ) );
+      FD_LOG_DEBUG( ( "[repair] need %lu [%lu, %lu], sent %lu requests", slot, slot_meta->consumed + 1, last_index, repair_req_cnt ) );
     }
   }
     
