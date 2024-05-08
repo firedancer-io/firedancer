@@ -35,7 +35,7 @@ fd_sbpf_validated_program_rodata( fd_sbpf_validated_program_t * prog ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_sbpf_validated_program_t), sizeof(fd_sbpf_validated_program_t) );
   assert( l==offsetof(fd_sbpf_validated_program_t, calldests) );
   l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(prog->rodata_sz/8UL) );
-  l = FD_LAYOUT_FINI( l, 8UL );
+  l = FD_LAYOUT_FINI( l, FD_SBPF_PROG_RODATA_ALIGN );
   return (uchar *)fd_type_pun(prog) + l;
 }
 

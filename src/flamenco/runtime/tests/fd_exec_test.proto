@@ -115,3 +115,38 @@ message InstrFixture {
     InstrContext input = 1;
     InstrEffects output = 2;
 }
+
+message ELFBinary {
+    bytes data = 1
+        [(nanopb).type = FT_POINTER]; 
+}
+
+message ELFLoaderCtx {
+    ELFBinary elf = 1;
+    FeatureSet features = 2;
+    uint64 elf_sz = 3;
+    bool deploy_checks = 4;
+}
+
+// Captures the results of a elf binary load.
+// Structurally similar to fd_sbpf_program_t
+message ELFLoaderEffects {
+    // loaded program rodata
+    bytes rodata = 1
+        [(nanopb).type = FT_POINTER];
+    uint64 rodata_sz = 2;
+    
+    uint64 text_cnt = 4;
+    uint64 text_off = 5;
+
+    // program entry point
+    uint64 entry_pc = 6;
+
+     repeated uint64 calldests = 7
+        [(nanopb).type = FT_POINTER];
+}
+
+message ELFLoaderFixture {
+    ELFLoaderCtx input = 1;
+    ELFLoaderEffects output = 2;
+}

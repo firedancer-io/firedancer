@@ -151,7 +151,7 @@ deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   /* Allocate rodata segment */
-  void * rodata = fd_scratch_alloc( 32UL, elf_info->rodata_footprint );
+  void * rodata = fd_scratch_alloc( FD_SBPF_PROG_RODATA_ALIGN, elf_info->rodata_footprint );
   if( FD_UNLIKELY( !rodata ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }

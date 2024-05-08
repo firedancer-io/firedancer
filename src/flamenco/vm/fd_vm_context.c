@@ -133,6 +133,7 @@ fd_vm_context_validate( fd_vm_exec_context_t const * ctx ) {
         break;
       }
       /* https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/elf.rs#L829-L830 */
+      /* TODO: Remove, checked in ELF loader */
       case FD_CHECK_CALL: { /* CALL_IMM == FD_BPF_OP_CALL_IMM */
         if( instr.src_reg == 0 ) {
           ulong target_pc = fd_ulong_sat_add( fd_ulong_sat_add( i, instr.imm ), 1 );

@@ -93,7 +93,13 @@ fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
 
   /* Validate ELF magic */
   REQUIRE( ( fd_uint_load_4( ehdr->e_ident )==0x464c457fU          )
-  /* Validate file type/target identification */
+  /* Validate file type/target identification 
+     Solana/Agave performs header checks across two places:
+      - Elf64::parse https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf_parser/mod.rs#L108
+      - Executable::validate https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L518
+     These two sections are executed in close proximity, with no modifications to the header in between.
+     We can therefore consolidate the checks in one place.
+  */
          & ( ehdr->e_ident[ FD_ELF_EI_CLASS   ]==FD_ELF_CLASS_64   )
          & ( ehdr->e_ident[ FD_ELF_EI_DATA    ]==FD_ELF_DATA_LE    )
          & ( ehdr->e_ident[ FD_ELF_EI_VERSION ]==1                 )
@@ -255,6 +261,10 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
   ulong const pht_cnt    = elf->ehdr.e_phnum;
   ulong const pht_offend = pht_offset + (pht_cnt*sizeof(fd_elf64_phdr));
 
+  /* Overlap checks */
+  REQUIRE( (sht_offset>=eh_offend ) | (sht_offend<=eh_offset ) ); /* overlaps ELF file header */
+  REQUIRE( (sht_offset>=pht_offend) | (sht_offend<=pht_offset) ); /* overlaps program header table */
+
   /* Require SHT_STRTAB for section name table */
 
   REQUIRE( elf->ehdr.e_shstrndx < sht_cnt ); /* out of bounds */
@@ -295,14 +305,17 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
 
     /* check that physical range has no overflow and is within bounds */
     REQUIRE( sh_offend >= sh_offset );
-    REQUIRE( sh_offend <= elf_sz    );
+    REQUIRE( sh_offend <= elf_sz    ); // https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf_parser/mod.rs#L180
 
     if( sh_type!=FD_ELF_SHT_NOBITS ) {
       /* Overlap checks */
       REQUIRE( (sh_offset>=eh_offend ) | (sh_offend<=eh_offset ) ); /* overlaps ELF file header */
       REQUIRE( (sh_offset>=pht_offend) | (sh_offend<=pht_offset) ); /* overlaps program header table */
       REQUIRE( (sh_offset>=sht_offend) | (sh_offend<=sht_offset) ); /* overlaps section header table */
-      /* Ordering and overlap check */
+
+      /* Ordering and overlap check 
+         https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf_parser/mod.rs#L177
+      */
       REQUIRE( sh_offset >= min_sh_offset );
       min_sh_offset = sh_offend;
     }
@@ -387,14 +400,15 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
       /* Expand range to fit section */
       segment_end = fd_ulong_max( segment_end, sh_virtual_end );
 
-      /* Coherence check sum of section sizes (used to detect overlap) */
+      /* Coherence check sum of section sizes */
       REQUIRE( tot_section_sz + sh_actual_size >= tot_section_sz ); /* overflow check */
       tot_section_sz += sh_actual_size;
     }
   }
 
-  /* More coherence checks ... these should never fail */
-  REQUIRE( segment_end   <=elf_sz );
+  /* More coherence checks to conform with agave */
+  REQUIRE( segment_end   <=elf_sz ); // https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L782
+
 
   /* Check that the rodata segment is within bounds
      https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L725 */
@@ -423,6 +437,8 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
 
   ulong entry_off = fd_ulong_sat_sub( elf->ehdr.e_entry, shdr_text->sh_addr );
   ulong entry_pc = entry_off / 8UL;
+
+  /* Follows https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L443 */
   REQUIRE( fd_ulong_is_aligned( entry_off, 8UL ) );
   REQUIRE( entry_pc < ( info->rodata_sz / 8UL ) );
   info->entry_pc = (uint)entry_pc;
@@ -544,6 +560,12 @@ fd_sbpf_program_new( void *                     prog_mem,
     FD_LOG_WARNING(( "NULL rodata" ));
     return NULL;
   }
+
+  /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf_parser/mod.rs#L99 */
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong) rodata, FD_SBPF_PROG_RODATA_ALIGN ) ) ){
+    FD_LOG_WARNING(( "rodata is not 8-byte aligned" ));
+    return NULL;
+  } 
 
   /* Initialize program struct */
 
