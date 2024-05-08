@@ -313,6 +313,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_USHORT( ., tiles.gossip,        gossip_listen_port                                        );
   ENTRY_STR   ( ., tiles.gossip,        peer_ip_addr                                              );
   ENTRY_USHORT( ., tiles.gossip,        peer_port                                                 );
+  ENTRY_VSTR  ( ., tiles.gossip,        entrypoints                                               );
 
   ENTRY_USHORT( ., tiles.repair,        repair_intake_listen_port                                 );
   ENTRY_USHORT( ., tiles.repair,        repair_serve_listen_port                                  );

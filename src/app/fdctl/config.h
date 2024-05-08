@@ -227,6 +227,8 @@ typedef struct {
       ushort gossip_listen_port;
       char   peer_ip_addr[16];
       ushort peer_port;
+      ulong  entrypoints_cnt;
+      char   entrypoints[16][256];
     } gossip;
 
     struct {

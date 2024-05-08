@@ -300,6 +300,9 @@ struct fd_gossip {
     fd_weights_elem_t * weights;
     /* Heap allocator */
     fd_valloc_t valloc;
+    /* List of allowed entrypoints, used for shred version */
+    ulong allowed_entrypoints_cnt;
+    uint allowed_entrypoints[16];
 };
 
 ulong
@@ -1195,7 +1198,8 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
         fd_hash_copy(&val->id, &info->id);
       }
     }
-    if (glob->my_contact_info.shred_version == 0U) {
+    
+    if (glob->my_contact_info.shred_version == 0U && fd_gossip_is_allowed_entrypoint( glob, crd->data.inner.contact_info_v1.gossip.addr.inner.ip4 )) {
       FD_LOG_NOTICE(("using shred version %lu", (ulong)crd->data.inner.contact_info_v1.shred_version));
       glob->my_contact_info.shred_version = crd->data.inner.contact_info_v1.shred_version;
     }
@@ -1908,4 +1912,24 @@ fd_gossip_set_stake_weights( fd_gossip_t * gossip,
   }
 
   fd_gossip_unlock( gossip );
+}
+
+void
+fd_gossip_set_allowed_entrypoints( fd_gossip_t * gossip,
+                                   uint allowed_entrypoints[static 16], 
+                                   ulong allowed_entrypoints_cnt ) {
+  gossip->allowed_entrypoints_cnt = allowed_entrypoints_cnt;
+  for( ulong i = 0UL; i<allowed_entrypoints_cnt; i++) {
+    gossip->allowed_entrypoints[i] = allowed_entrypoints[i];
+  }
+}
+
+uint
+fd_gossip_is_allowed_entrypoint( fd_gossip_t * gossip, uint entrypoint ) {
+  for( ulong i=0UL; i<gossip->allowed_entrypoints_cnt; i++ ) {
+    if( entrypoint == gossip->allowed_entrypoints[i] ) {
+      return 1;
+    }
+  }
+  return 0;
 }
