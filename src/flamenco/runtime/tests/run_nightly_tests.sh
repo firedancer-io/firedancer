@@ -59,11 +59,11 @@ PKG_CONFIG_PATH=/usr/lib64/pkgconfig:$PKG_CONFIG_PATH
 
 make distclean && make clean
 ./deps.sh nuke
-echo "y" | ./deps.sh +dev 
+echo "y" | ./deps.sh +dev
 make -j
 
 # Run the test
-make run-runtime-test-nightly
+make run-runtime-test-nightly > ~/run_nightly_tests.txt
 status=$?
 
 # Notify the test status
@@ -72,6 +72,31 @@ if [ $status -eq 0 ]; then
 else
     end_message="@here Alert: Nightly Ledger Test Failed using Commit \`$COMMIT\` on Branch \`$BRANCH\`"
 fi
+
+mapfile -t log_infos < <(grep 'Log for ledger' ~/run_nightly_tests.txt)
+
+for log_info in "${log_infos[@]}"; do
+    echo $log_info
+
+    if [[ $log_info =~ ledger[[:space:]]+([a-zA-Z0-9-]+) ]]; then
+        ledger="${BASH_REMATCH[1]}"
+    fi
+
+    if [[ $log_info =~ Log[[:space:]]at[[:space:]]+\"([^\"]+)\" ]]; then
+        log_file="${BASH_REMATCH[1]}"
+    fi
+
+    replay_completed=$(grep "replay completed" "$log_file" | tail -n 1)
+
+    slot=$(grep "recovered slot_bank" "$log_file" | tail -n 1 | awk -F'slot=' '{print $2}' | awk '{print $1}')
+
+    if [[ -n "$replay_completed" ]]; then
+        info="${replay_completed#*replay completed - }"
+        end_message+=$'\n'" - Ledger \`$ledger\` Passed: $info"
+    else
+        end_message+=$'\n'" - Ledger \`$ledger\` Failed, Log at: \`$log_file\`"
+    fi
+done
 
 json_payload=$(cat <<EOF
 {
