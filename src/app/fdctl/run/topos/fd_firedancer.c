@@ -260,11 +260,6 @@ fd_topo_firedancer( config_t * _config ) {
       strncpy( tile->store_int.identity_key_path, config->consensus.identity_path, sizeof(tile->store_int.identity_key_path) );
       tile->store_int.snapshot_slot = parse_snapshot_slot( config->tiles.replay.snapshot, config->tiles.replay.incremental );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "gossip" ) ) ) {
-
-      if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.gossip.peer_ip_addr, &tile->gossip.entrypoint_ip_addr ) ) ) {
-        FD_LOG_ERR(( "configuration specifies invalid gossip peer IP address `%s`", config->tiles.gossip.peer_ip_addr ));
-      }
-      tile->gossip.entrypoint_port = config->tiles.gossip.peer_port;
       tile->gossip.ip_addr = config->tiles.net.ip_addr;
       memcpy( tile->gossip.src_mac_addr, config->tiles.net.mac_addr, 6UL );
       strncpy( tile->gossip.identity_key_path, config->consensus.identity_path, sizeof(tile->gossip.identity_key_path) );
@@ -273,11 +268,13 @@ fd_topo_firedancer( config_t * _config ) {
       tile->gossip.tvu_fwd_port = config->tiles.shred.shred_listen_port;
       tile->gossip.expected_shred_version = config->consensus.expected_shred_version;
       
-      tile->gossip.allowed_entrypoints_cnt = config->tiles.gossip.entrypoints_cnt;
+      FD_TEST( config->tiles.gossip.entrypoints_cnt == config->tiles.gossip.peer_ports_cnt );
+      tile->gossip.entrypoints_cnt = config->tiles.gossip.entrypoints_cnt;
       for (ulong i=0UL; i<config->tiles.gossip.entrypoints_cnt; i++) {
-        if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.gossip.entrypoints[i], &tile->gossip.allowed_entrypoints[i] ) ) ) {
+        if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.gossip.entrypoints[i], &tile->gossip.entrypoints[i] ) ) ) {
           FD_LOG_ERR(( "configuration specifies invalid gossip peer IP address `%s`", config->tiles.gossip.entrypoints[i] ));
         }
+        tile->gossip.entrypoint_ports[i] = (ushort)config->tiles.gossip.peer_ports[i];
       }
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {

@@ -100,7 +100,6 @@ struct fd_gossip_tile_ctx {
 
 
   fd_wksp_t *     wksp;
-  fd_gossip_peer_addr_t gossip_peer_addr;
   fd_gossip_peer_addr_t gossip_my_addr;
   fd_gossip_peer_addr_t tvu_my_addr;
   fd_gossip_peer_addr_t tvu_my_fwd_addr;
@@ -459,8 +458,6 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); 
   }
 
-  ctx->gossip_peer_addr.addr = tile->gossip.entrypoint_ip_addr;
-  ctx->gossip_peer_addr.port = fd_ushort_bswap( tile->gossip.entrypoint_port );
   ctx->gossip_my_addr.addr = tile->gossip.ip_addr;
   ctx->gossip_my_addr.port = fd_ushort_bswap( tile->gossip.gossip_listen_port );
 
@@ -517,13 +514,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR( ( "error setting gossip config" ) );
   }
 
-  fd_gossip_set_allowed_entrypoints( ctx->gossip, tile->gossip.allowed_entrypoints, tile->gossip.allowed_entrypoints_cnt );
-
-  FD_LOG_NOTICE(( "gossip initial peer - addr: " FD_IP4_ADDR_FMT ":%u", 
-    FD_IP4_ADDR_FMT_ARGS( ctx->gossip_peer_addr.addr ), fd_ushort_bswap( ctx->gossip_peer_addr.port ) ));
-  if( fd_gossip_add_active_peer( ctx->gossip, &ctx->gossip_peer_addr ) ) {
-    FD_LOG_ERR( ( "error adding gossip active peer" ) );
-  }
+  fd_gossip_set_entrypoints( ctx->gossip, tile->gossip.entrypoints, tile->gossip.entrypoints_cnt, tile->gossip.entrypoint_ports );
 
   fd_gossip_update_addr( ctx->gossip, &ctx->gossip_config.my_addr );
 

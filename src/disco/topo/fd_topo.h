@@ -236,8 +236,7 @@ typedef struct {
     } repair;
 
     struct {
-      uint    entrypoint_ip_addr;
-      ushort  entrypoint_port;
+      ushort  entrypoint_ports[16];
       uint    ip_addr;
       uchar   src_mac_addr[ 6 ];
       char    identity_key_path[ PATH_MAX ];
@@ -247,8 +246,8 @@ typedef struct {
       ushort  tpu_port;
       ushort  tpu_vote_port;
       ulong   expected_shred_version;
-      ulong   allowed_entrypoints_cnt;
-      uint    allowed_entrypoints[16];
+      ulong   entrypoints_cnt;
+      uint    entrypoints[16];
     } gossip;
 
     struct {

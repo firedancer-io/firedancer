@@ -225,8 +225,8 @@ typedef struct {
     /* Firedancer-only tile configs */
     struct {
       ushort gossip_listen_port;
-      char   peer_ip_addr[16];
-      ushort peer_port;
+      ulong  peer_ports_cnt;
+      uint   peer_ports[16];
       ulong  entrypoints_cnt;
       char   entrypoints[16][256];
     } gossip;
