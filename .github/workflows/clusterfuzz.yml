@@ -50,3 +50,13 @@ jobs:
           project-id: isol-clusterfuzz
           qualifier: ${{ matrix.qualifier }}
           service-account-credentials: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
+
+      - name: make lib
+        run: unset MACHINE && EXTRAS=fuzz make -j -Otarget lib
+
+      - name: upload lib artifact
+        uses: actions/upload-artifact@v4
+        with:
+          path: ./build/native/clang/lib/libfd_exec_sol_compat.so
+          name: libfd_exec_sol_compat
+          retention-days: 14
