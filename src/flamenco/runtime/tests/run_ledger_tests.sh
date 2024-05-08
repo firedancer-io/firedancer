@@ -297,6 +297,9 @@ if [[ $ON_DEMAND = 0 ]]; then
   echo_notice "Finished replay from checkpoint\n"
 fi
 
+fd_log_file=$(grep "Log at" $LOG)
+echo "Log for ledger $LEDGER at $fd_log_file"
+
 if [ $status -ne 0 ] || grep -q "Bank hash mismatch" $LOG;
 then
   if [ "$status" -eq "$EXPECTED" ]; then
