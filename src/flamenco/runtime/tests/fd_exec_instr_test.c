@@ -48,7 +48,7 @@ static FD_TL char _report_prefix[100] = {0};
 #define SORT_KEY_T void const *
 #define SORT_BEFORE(a,b) ( memcmp( (a), (b), sizeof(fd_pubkey_t) )<0 )
 #include "../../../util/tmpl/fd_sort.c"
-#include "../../vm/fd_vm_context.h"
+#include "../../vm/fd_vm_base.h"
 
 static uchar * data_wksp_ptrs[256] = {0};
 static ulong data_wksp_ptrs_idx = 0;
@@ -208,8 +208,8 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->valloc = fd_libc_alloc_virtual();
 
   /* Initial variables */
-  txn_ctx->loaded_accounts_data_size_limit = MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES;
-  txn_ctx->heap_size = FD_VM_DEFAULT_HEAP_SZ;
+  txn_ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
+  txn_ctx->heap_size = FD_VM_HEAP_SIZE;
 
   /* Set up epoch context */
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
