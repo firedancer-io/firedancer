@@ -240,9 +240,6 @@ typedef struct {
       char genesis[ PATH_MAX ];
     } replay;
 
-    struct {
-      ulong snapshot_slot;
-    } store;
   } tiles;
 } config_t;
 
