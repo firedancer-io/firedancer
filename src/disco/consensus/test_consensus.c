@@ -254,17 +254,16 @@ struct turbine_targs {
 };
 typedef struct turbine_targs turbine_targs_t;
 
-static void *
-turbine_thread( void * arg ) {
-  turbine_targs_t * args   = (turbine_targs_t *)arg;
+static int
+turbine_thread( FD_PARAM_UNUSED int argc, char ** argv ) {
+  turbine_targs_t * args   = (turbine_targs_t *)argv;
   int               tvu_fd = args->tvu_fd;
 
   setup_scratch( args->replay->valloc );
 
-  void * metrics = fd_wksp_alloc_laddr(
-      args->wksp, FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( 0, 0 ), TEST_CONSENSUS_MAGIC );
-  fd_metrics_register( (ulong *)fd_metrics_new( metrics, 0UL, 0UL ) );
-
+  // void * metrics = fd_wksp_alloc_laddr(
+  //     args->wksp, FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( 0, 0 ), TEST_CONSENSUS_MAGIC );
+  // fd_metrics_register( (ulong *)fd_metrics_new( metrics, 0UL, 0UL ) );
 
 #define VLEN 32U
   struct mmsghdr msgs[VLEN];
@@ -306,9 +305,9 @@ struct repair_targ {
 };
 typedef struct repair_targ repair_targ_t;
 
-static void *
-repair_thread( void * arg ) {
-  repair_targ_t * args      = (repair_targ_t *)arg;
+static int
+repair_thread( FD_PARAM_UNUSED int argc, char ** argv ) {
+  repair_targ_t * args      = (repair_targ_t *)argv;
   int             repair_fd = args->repair_fd;
   fd_repair_t *   repair    = args->replay->repair;
 
@@ -350,9 +349,9 @@ struct gossip_targ {
 };
 typedef struct gossip_targ gossip_targ_t;
 
-static void *
-gossip_thread( void * arg ) {
-  gossip_targ_t * _arg      = (gossip_targ_t *)arg;
+static int
+gossip_thread( FD_PARAM_UNUSED int argc, char ** argv ) {
+  gossip_targ_t * _arg      = (gossip_targ_t *)argv;
   int             gossip_fd = _arg->gossip_fd;
   fd_gossip_t *   gossip    = _arg->gossip;
 
@@ -418,10 +417,8 @@ main( int argc, char ** argv ) {
   ushort tvu_port    = fd_env_strip_cmdline_ushort( &argc, &argv, "--tvu-port", NULL, 9003 );
   const char * repair_peer_id =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-id", NULL, NULL );
-  const char * mode = fd_env_strip_cmdline_cstr( &argc, &argv, "--mode", NULL, "archive" );
-
+  const char * mode     = fd_env_strip_cmdline_cstr( &argc, &argv, "--mode", NULL, "archive" );
   const char * shredcap = fd_env_strip_cmdline_cstr( &argc, &argv, "--shredcap", NULL, NULL );
-  ulong        tcnt     = fd_env_strip_cmdline_ulong( &argc, &argv, "--tcnt", NULL, 4 );
 
   FD_TEST( page_cnt );
   FD_TEST( restore );
@@ -532,9 +529,11 @@ main( int argc, char ** argv ) {
   /* epoch_ctx                                                          */
   /**********************************************************************/
 
-  ulong vote_acc_max = 2000000;
-  uchar * epoch_ctx_mem = fd_wksp_alloc_laddr(
-      wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acc_max ), TEST_CONSENSUS_MAGIC );
+  ulong                 vote_acc_max  = 2000000;
+  uchar *               epoch_ctx_mem = fd_wksp_alloc_laddr( wksp,
+                                               fd_exec_epoch_ctx_align(),
+                                               fd_exec_epoch_ctx_footprint( vote_acc_max ),
+                                               TEST_CONSENSUS_MAGIC );
   fd_exec_epoch_ctx_t * epoch_ctx =
       fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acc_max ) );
   FD_TEST( epoch_ctx );
@@ -689,7 +688,7 @@ main( int argc, char ** argv ) {
   if( strcmp( mode, "replay" ) == 0 ) {
     FD_LOG_NOTICE( ( "test_consensus running in replay mode" ) );
     shredcap_targ_t shredcap_targ = { .shred_cap_fpath = shredcap, .replay = replay };
-    pthread_t shredcap_tid;
+    pthread_t       shredcap_tid;
     FD_TEST( !pthread_create( &shredcap_tid, NULL, shredcap_thread, &shredcap_targ ) );
     goto run_replay;
   } else {
@@ -907,7 +906,7 @@ main( int argc, char ** argv ) {
   FD_SCRATCH_SCOPE_END;
 
   /**********************************************************************/
-  /* turbine (tvu), repair, gossip threads                              */
+  /* tvu (turbine), repair, gossip threads                              */
   /**********************************************************************/
 
   fd_repair_peer_addr_t tvu_addr     = { 0 };
@@ -922,41 +921,49 @@ main( int argc, char ** argv ) {
 
   /* initialize tvu */
   int tvu_sockfd = create_socket( &tvu_addr );
-  if( fd_gossip_update_tvu_addr( gossip, &tvu_addr, &tvu_fwd_addr ) )
-    FD_LOG_ERR( ( "error setting gossip tvu" ) );
+  FD_TEST( !fd_gossip_update_tvu_addr( gossip, &tvu_addr, &tvu_fwd_addr ) );
 
-  turbine_targs_t turbine_targ = { .tvu_fd = tvu_sockfd, .replay = replay };
-  pthread_t       turbine_tid;
-  FD_TEST( !pthread_create( &turbine_tid, NULL, turbine_thread, &turbine_targ ) );
-
-  repair_targ_t repair_targ = { .repair_fd = repair_arg.sockfd, .replay = replay };
-  pthread_t     repair_tid;
-  FD_TEST( !pthread_create( &repair_tid, NULL, repair_thread, &repair_targ ) );
+  /**********************************************************************/
+  /* start threads                                                      */
+  /**********************************************************************/
 
   gossip_targ_t gossip_targ = { .gossip_fd = gossip_sockfd, .replay = replay, .gossip = gossip };
-  pthread_t     gossip_tid;
-  FD_TEST( !pthread_create( &gossip_tid, NULL, gossip_thread, &gossip_targ ) );
+  FD_TEST( fd_tile_exec_new( 1, gossip_thread, 0, fd_type_pun( &gossip_targ ) ) );
+
+  repair_targ_t repair_targ = { .repair_fd = repair_arg.sockfd, .replay = replay };
+  FD_TEST( fd_tile_exec_new( 2, repair_thread, 0, fd_type_pun( &repair_targ ) ) );
+
+  turbine_targs_t turbine_targ = { .tvu_fd = tvu_sockfd, .replay = replay };
+  FD_TEST( fd_tile_exec_new( 3, turbine_thread, 0, fd_type_pun( &turbine_targ ) ) );
 
   /**********************************************************************/
   /* tpool                                                              */
   /**********************************************************************/
 
-  fd_tpool_t * tpool = NULL;
-  uchar tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
   ulong tile_cnt = fd_tile_cnt();
   FD_LOG_NOTICE( ( "tile_cnt: %lu", tile_cnt ) );
-  tpool          = fd_tpool_init( tpool_mem, tile_cnt );
-  FD_TEST( tpool );
-  if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
-  ulong   scratch_sz = fd_scratch_smem_footprint( 256 << 20 );
-  uchar * scratch = fd_valloc_malloc( valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz * (fd_tile_cnt() - 1 ));
-  for( ulong i = 1; i < tile_cnt; i++ ) {
-    fd_tpool_t * worker =
-        fd_tpool_worker_push( tpool, i, scratch + ( scratch_sz * ( i - 1 ) ), scratch_sz );
-    FD_TEST( worker );
+  fd_tpool_t * tpool = NULL;
+  /* clang-format off */
+  uchar tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )]__attribute__((aligned(FD_TPOOL_ALIGN))) = { 0 };
+  /* clang-format on */
+  if( tile_cnt > 4 ) {
+    tpool = fd_tpool_init( tpool_mem, tile_cnt );
+    FD_TEST( tpool );
+    if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
+    ulong   scratch_sz = fd_scratch_smem_footprint( 256 << 20 );
+    uchar * scratch =
+        fd_valloc_malloc( valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz * ( fd_tile_cnt() - 1 ) );
+    for( ulong i = 4; i < tile_cnt; i++ ) {
+      fd_tpool_t * worker =
+          fd_tpool_worker_push( tpool, i, scratch + ( scratch_sz * ( i - 1 ) ), scratch_sz );
+      FD_TEST( worker );
+    }
+    replay->max_workers = fd_tile_cnt() - 3;
+    replay->tpool       = tpool;
+  } else {
+    replay->max_workers = 0;
+    replay->tpool       = NULL;
   }
-  replay->max_workers = tcnt - 3;
-  replay->tpool       = tpool;
 
   /**********************************************************************/
   /* run replay                                                         */
