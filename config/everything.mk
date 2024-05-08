@@ -450,7 +450,7 @@ seccomp-policies:
 #
 # 1. For each machine
 # 1.1. Compile with llvm-cov
-# 1.2. Run tests (This Makefile sets $LLVM_PROFILE_DATA appropriately for each kind of test)
+# 1.2. Run tests (This Makefile sets $LLVM_PROFILE_FILE appropriately for each kind of test)
 # 1.3. Merge raw profiles from test runs into a per-machine profile using 'llvm-profdata merge'
 # 1.4. Merge all machine objects into a thin .ar file
 # 1.5. Generate lcov tracefile from coverage mappings (step 1.4) and indexed profile data (step 1.3)
