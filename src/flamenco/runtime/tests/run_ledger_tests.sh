@@ -214,6 +214,7 @@ if [[ $ON_DEMAND = 1 ]]; then
     --txnmax 100 \
     $PAGES \
     $SNAPSHOT \
+    $SOLCAP \
     $INC_SNAPSHOT \
     $HISTORY \
     $TXN_STATUS \
