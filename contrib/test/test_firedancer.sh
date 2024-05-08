@@ -95,8 +95,6 @@ done
 
 FULL_SNAPSHOT=$(wget -c -nc -S --trust-server-names http://$PRIMARY_IP:8899/snapshot.tar.bz2 |& grep 'location:' | cut -d/ -f2)
 
-SNAPSHOT_SLOT=$(echo "$FULL_SNAPSHOT" | cut -d- -f2)
-
 echo "
 [gossip]
     port = 8700
@@ -110,8 +108,6 @@ echo "
         repair_serve_listen_port = 8702
     [tiles.replay]
         snapshot = \"$FULL_SNAPSHOT\"
-    [tiles.store]
-        snapshot_slot = $SNAPSHOT_SLOT
 [log]
   path = \"fddev.log\"
   level_stderr = \"NOTICE\"
