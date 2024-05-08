@@ -142,6 +142,7 @@ static int parse_key_value( config_t *   config,
       }                                                                              \
       config->esection edot ekey[ config->esection edot ekey##_cnt ] = (uint)result; \
       config->esection edot ekey##_cnt++;                                            \
+      return 1;                                                                        \
     }                                                                                \
   } while( 0 )
 
@@ -267,10 +268,6 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.shred,         max_pending_shred_sets                                    );
   ENTRY_USHORT( ., tiles.shred,         shred_listen_port                                         );
 
-  ENTRY_USHORT( ., tiles.gossip,        gossip_listen_port                                        );
-  ENTRY_STR   ( ., tiles.gossip,        peer_ip_addr                                              );
-  ENTRY_USHORT( ., tiles.gossip,        peer_port                                                 );
-
   ENTRY_USHORT( ., tiles.metric,        prometheus_listen_port                                    );
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
@@ -312,8 +309,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_ULONG ( ., tiles.replay,        funk_rec_max                                              );
 
   ENTRY_USHORT( ., tiles.gossip,        gossip_listen_port                                        );
-  ENTRY_STR   ( ., tiles.gossip,        peer_ip_addr                                              );
-  ENTRY_USHORT( ., tiles.gossip,        peer_port                                                 );
+  ENTRY_VUINT ( ., tiles.gossip,        peer_ports                                                );
   ENTRY_VSTR  ( ., tiles.gossip,        entrypoints                                               );
 
   ENTRY_USHORT( ., tiles.repair,        repair_intake_listen_port                                 );
@@ -354,6 +350,7 @@ config_parse_array( const char * path,
                     char * key,
                     int * in_array,
                     char * value ) {
+  if( *in_array ) value++;
   char * end = value + strlen( value ) - 1;
   while( FD_UNLIKELY( *end == ' ' ) ) end--;
   if( FD_LIKELY( *end == ']' ) ) {
