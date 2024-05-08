@@ -17,6 +17,7 @@
 
 /* FIXME make error types more specific */
 #define FD_SBPF_ERR_INVALID_ELF (1)
+#define FD_SBPF_PROG_RODATA_ALIGN 8UL
 
 
 /* Program struct *****************************************************/
@@ -157,7 +158,9 @@ fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info );
    elf_info may be deallocated on return.
 
    rodata is the read-only segment buffer that the program is configured
-   against and must be valid for the lifetime of the program object. */
+   against and must be valid for the lifetime of the program object. It 
+   should also meet the alignment requirements of the program object.
+   */
 
 fd_sbpf_program_t *
 fd_sbpf_program_new( void *                     prog_mem,
@@ -190,7 +193,11 @@ fd_sbpf_program_new( void *                     prog_mem,
      reject_broken_elfs: elf_deploy_checks
 
    For documentation on these config params, see:
-   https://github.com/solana-labs/rbpf/blob/v0.3.0/src/vm.rs#L198 */
+   https://github.com/solana-labs/rbpf/blob/v0.3.0/src/vm.rs#L198 
+
+   Solana/Agave equivalent:
+   https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L361
+   */
 
 int
 fd_sbpf_program_load( fd_sbpf_program_t *  prog,

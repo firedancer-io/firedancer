@@ -65,7 +65,7 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
 
   /* Allocate rodata segment */
 
-  void * rodata = fd_valloc_malloc( ctx.valloc, 32UL,  elf_info.rodata_footprint );
+  void * rodata = fd_valloc_malloc( ctx.valloc, FD_SBPF_PROG_RODATA_ALIGN,  elf_info.rodata_footprint );
   FD_TEST( rodata );
 
   /* Allocate program buffer */

@@ -41,7 +41,7 @@ void test_duplicate_entrypoint_entry( void ) {
 
   fd_sbpf_elf_peek( &info, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, true );
 
-  void* rodata = fd_valloc_malloc( valloc, 8UL, info.rodata_footprint );
+  void* rodata = fd_valloc_malloc( valloc, FD_SBPF_PROG_RODATA_ALIGN, info.rodata_footprint );
   FD_TEST( rodata );
 
   
