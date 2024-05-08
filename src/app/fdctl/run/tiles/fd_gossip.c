@@ -517,6 +517,8 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR( ( "error setting gossip config" ) );
   }
 
+  fd_gossip_set_allowed_entrypoints( ctx->gossip, tile->gossip.allowed_entrypoints, tile->gossip.allowed_entrypoints_cnt );
+
   FD_LOG_NOTICE(( "gossip initial peer - addr: " FD_IP4_ADDR_FMT ":%u", 
     FD_IP4_ADDR_FMT_ARGS( ctx->gossip_peer_addr.addr ), fd_ushort_bswap( ctx->gossip_peer_addr.port ) ));
   if( fd_gossip_add_active_peer( ctx->gossip, &ctx->gossip_peer_addr ) ) {

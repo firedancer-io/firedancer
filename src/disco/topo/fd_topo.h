@@ -251,7 +251,9 @@ typedef struct {
       ushort  tvu_fwd_port;
       ushort  tpu_port;
       ushort  tpu_vote_port;
-      ulong  expected_shred_version;
+      ulong   expected_shred_version;
+      ulong   allowed_entrypoints_cnt;
+      uint    allowed_entrypoints[16];
     } gossip;
 
     struct {

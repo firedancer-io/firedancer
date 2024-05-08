@@ -278,6 +278,13 @@ fd_topo_firedancer( config_t * _config ) {
       tile->gossip.tvu_port = config->tiles.shred.shred_listen_port;
       tile->gossip.tvu_fwd_port = config->tiles.shred.shred_listen_port;
       tile->gossip.expected_shred_version = config->consensus.expected_shred_version;
+      
+      tile->gossip.allowed_entrypoints_cnt = config->tiles.gossip.entrypoints_cnt;
+      for (ulong i=0UL; i<config->tiles.gossip.entrypoints_cnt; i++) {
+        if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.gossip.entrypoints[i], &tile->gossip.allowed_entrypoints[i] ) ) ) {
+          FD_LOG_ERR(( "configuration specifies invalid gossip peer IP address `%s`", config->tiles.gossip.entrypoints[i] ));
+        }
+      }
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
       tile->repair.repair_intake_listen_port =  config->tiles.repair.repair_intake_listen_port;
