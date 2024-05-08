@@ -497,6 +497,28 @@ fd_xsk_init( fd_xsk_t * xsk ) {
                      xsk->if_name_cstr, xsk->if_queue_id, errno, fd_io_strerror( errno ) ));
     return -1;
   }
+
+  /* We've seen that some popular Intel NICs seem to have a bug that
+     prevents them from working in SKB mode with certain kernel
+     versions.  We can identify them by sendto returning ENXIO or EINVAL
+     in newer versions.  The core of the problem is that the kernel
+     calls the generic ndo_bpf pointer instead of the driver-specific
+     version.  This means that the driver's pointer to the BPF program
+     never gets set, yet the driver's wakeup function gets called. */
+  if( FD_UNLIKELY( -1==sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
+    if( FD_LIKELY( errno==ENXIO || errno==EINVAL ) ) {
+      FD_LOG_ERR(( "xsk sendto failed xsk_fd=%d (%i-%s).  This likely indicates "
+                   "a bug with your NIC driver.  Try switching XDP mode using "
+                   "tiles.net.xdp_mode in the configuration TOML, and then running\n"
+                   "fdctl configure fini xdp --config path_to_configuration_toml.\n"
+                   "Certain Intel NICs with certain driver/kernel combinations "
+                   "are known to exhibit this issue in skb mode but work in drv "
+                   "mode.", xsk->xsk_fd, errno, fd_io_strerror( errno ) ));
+    } else {
+      FD_LOG_WARNING(( "xsk sendto failed xsk_fd=%d (%i-%s)", xsk->xsk_fd, errno, fd_io_strerror( errno ) ));
+    }
+  }
+
   FD_LOG_INFO(( "xsk bind() success" ));
 
   /* XSK successfully configured.  Traffic will arrive in XSK after
