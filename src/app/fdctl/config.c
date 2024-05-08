@@ -314,8 +314,6 @@ static int parse_key_value( config_t *   config,
   ENTRY_USHORT( ., tiles.repair,        repair_intake_listen_port                                 );
   ENTRY_USHORT( ., tiles.repair,        repair_serve_listen_port                                  );
 
-  ENTRY_ULONG ( ., tiles.store,         snapshot_slot                                             );
-  
   /* We have encountered a token that is not recognized, return 0 to indicate failure. */
   return 0;
 }
