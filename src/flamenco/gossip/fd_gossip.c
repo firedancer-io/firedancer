@@ -300,6 +300,9 @@ struct fd_gossip {
     fd_weights_elem_t * weights;
     /* Heap allocator */
     fd_valloc_t valloc;
+    /* List of added entrypoints at startup */
+    ulong entrypoints_cnt;
+    fd_gossip_peer_addr_t entrypoints[16];
 };
 
 ulong
@@ -1196,7 +1199,8 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
       }
     }
     
-    fd_gossip_peer_addr_t peer_addr = {.addr = crd->data.inner.contact_info_v1.gossip.addr.inner.ip4, .port = crd->data.inner.contact_info_v1.gossip.port };
+    fd_gossip_peer_addr_t peer_addr = { .addr = crd->data.inner.contact_info_v1.gossip.addr.inner.ip4, 
+                                        .port = crd->data.inner.contact_info_v1.gossip.port };
     if (glob->my_contact_info.shred_version == 0U && fd_gossip_is_allowed_entrypoint( glob, &peer_addr )) {
       FD_LOG_NOTICE(("using shred version %lu", (ulong)crd->data.inner.contact_info_v1.shred_version));
       glob->my_contact_info.shred_version = crd->data.inner.contact_info_v1.shred_version;
@@ -1917,6 +1921,7 @@ fd_gossip_set_entrypoints( fd_gossip_t * gossip,
                            uint entrypoints[static 16], 
                            ulong entrypoints_cnt,
                            ushort * ports ) {
+  gossip->entrypoints_cnt = entrypoints_cnt;
   for( ulong i = 0UL; i<entrypoints_cnt; i++) {
     fd_gossip_peer_addr_t addr;
     addr.addr = entrypoints[i];
@@ -1924,13 +1929,15 @@ fd_gossip_set_entrypoints( fd_gossip_t * gossip,
     FD_LOG_NOTICE(( "gossip initial peer - addr: " FD_IP4_ADDR_FMT ":%u", 
       FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
     fd_gossip_add_active_peer( gossip, &addr );
+    gossip->entrypoints[i] = addr;
   }
 }
 
 uint
 fd_gossip_is_allowed_entrypoint( fd_gossip_t * gossip, fd_gossip_peer_addr_t * addr ) {
-  fd_gossip_lock( gossip );
-  fd_active_elem_t * val = fd_active_table_query(gossip->actives, addr, NULL);
-  fd_gossip_unlock( gossip );
-  return val != NULL;
+  addr->port = fd_ushort_bswap( addr->port );
+  for( ulong i = 0UL; i<gossip->entrypoints_cnt; i++) {
+    if (fd_gossip_peer_addr_eq( addr, &gossip->entrypoints[i]) ) return 1;
+  }
+  return 0;
 }

@@ -98,8 +98,8 @@ echo "
     port = 8700
 [tiles]
     [tiles.gossip]
-        peer_ip_addr = \"$PRIMARY_IP\"
-        peer_port = 8001
+        entrypoints = [\"$PRIMARY_IP\"]
+        peer_ports = [8001]
         gossip_listen_port = 8700
     [tiles.repair]
         repair_intake_listen_port = 8701
