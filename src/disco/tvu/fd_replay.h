@@ -73,9 +73,9 @@ struct __attribute__((aligned(128UL))) fd_replay {
   fd_acc_mgr_t *        acc_mgr;
   fd_bft_t *            bft;
   fd_blockstore_t *     blockstore;
+  fd_exec_epoch_ctx_t * epoch_ctx;
   fd_forks_t *          forks;
   fd_funk_t *           funk;
-  fd_exec_epoch_ctx_t * epoch_ctx;
   fd_valloc_t           valloc;
 
   /* tpool */

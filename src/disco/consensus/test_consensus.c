@@ -464,22 +464,16 @@ main( int argc, char ** argv ) {
     funk         = fd_funk_join( shmem );
   }
   if( funk == NULL ) FD_LOG_ERR( ( "failed to join a funky" ) );
-  FD_LOG_DEBUG( ( "Finish setup funk" ) );
 
   /**********************************************************************/
   /* blockstore                                                         */
   /**********************************************************************/
 
-  fd_wksp_tag_query_info_t blockstore_info;
-  fd_blockstore_t *        blockstore     = NULL;
-  ulong                    blockstore_tag = FD_BLOCKSTORE_MAGIC;
-  if( fd_wksp_tag_query( wksp, &blockstore_tag, 1, &blockstore_info, 1 ) > 0 ) {
-    void * shmem = fd_wksp_laddr_fast( wksp, blockstore_info.gaddr_lo );
-    blockstore   = fd_blockstore_join( shmem );
-  }
+  void * blockstore_mem = fd_wksp_alloc_laddr(
+      wksp, fd_blockstore_align(), fd_blockstore_footprint(), TEST_CONSENSUS_MAGIC );
+  fd_blockstore_t * blockstore = fd_blockstore_join( fd_blockstore_new(
+      blockstore_mem, TEST_CONSENSUS_MAGIC, FD_BLOCKSTORE_MAGIC, 1 << 17, 1 << 13, 22 ) );
   FD_TEST( blockstore );
-  fd_blockstore_clear( blockstore );
-  FD_LOG_DEBUG( ( "Finish setup blockstore" ) );
 
   /**********************************************************************/
   /* acc_mgr                                                            */
@@ -487,7 +481,6 @@ main( int argc, char ** argv ) {
 
   fd_acc_mgr_t acc_mgr[1];
   fd_acc_mgr_new( acc_mgr, funk );
-  FD_LOG_DEBUG( ( "Finish setup acc mgr" ) );
 
   /**********************************************************************/
   /* alloc                                                              */
@@ -498,7 +491,6 @@ main( int argc, char ** argv ) {
   void *       alloc_shalloc = fd_alloc_new( alloc_shmem, TEST_CONSENSUS_MAGIC );
   fd_alloc_t * alloc         = fd_alloc_join( alloc_shalloc, 0UL );
   fd_valloc_t  valloc        = fd_alloc_virtual( alloc );
-  FD_LOG_DEBUG( ( "Finish setup allocator" ) );
 
   /**********************************************************************/
   /* scratch                                                            */
@@ -512,7 +504,6 @@ main( int argc, char ** argv ) {
       fd_valloc_malloc( valloc, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ) );
   FD_TEST( ( !!smem ) & ( !!fmem ) );
   fd_scratch_attach( smem, fmem, smax, sdepth );
-  FD_LOG_DEBUG( ( "Finish setup scratch" ) );
 
   /**********************************************************************/
   /* latest_votes                                                       */
@@ -523,7 +514,6 @@ main( int argc, char ** argv ) {
   fd_latest_vote_t * latest_votes =
       fd_latest_vote_deque_join( fd_latest_vote_deque_new( latest_votes_mem ) );
   FD_TEST( latest_votes );
-  FD_LOG_DEBUG( ( "Finish setup latest votes" ) );
 
   /**********************************************************************/
   /* epoch_ctx                                                          */
@@ -537,7 +527,6 @@ main( int argc, char ** argv ) {
   fd_exec_epoch_ctx_t * epoch_ctx =
       fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acc_max ) );
   FD_TEST( epoch_ctx );
-  FD_LOG_DEBUG( ( "Finish setup epoch ctx" ) );
 
   /**********************************************************************/
   /* forks                                                              */
@@ -554,7 +543,6 @@ main( int argc, char ** argv ) {
   forks->epoch_ctx  = epoch_ctx;
   forks->funk       = funk;
   forks->valloc     = valloc;
-  FD_LOG_DEBUG( ( "Finish setup forks" ) );
 
   /**********************************************************************/
   /* snapshot_slot_ctx                                                  */
@@ -625,7 +613,6 @@ main( int argc, char ** argv ) {
                          .hash = snapshot_fork->slot_ctx.slot_bank.banks_hash };
   fd_ghost_leaf_insert( ghost, &key, NULL );
   FD_TEST( fd_ghost_node_map_ele_query( ghost->node_map, &key, NULL, ghost->node_pool ) );
-  FD_LOG_DEBUG( ( "Finish setup ghost" ) );
 
   /**********************************************************************/
   /* bft                                                                */
@@ -636,7 +623,7 @@ main( int argc, char ** argv ) {
   fd_bft_t * bft = fd_bft_join( fd_bft_new( bft_mem ) );
 
   bft->snapshot_slot = snapshot_slot;
-  fd_bft_epoch_stake_update( bft, snapshot_slot_ctx->epoch_ctx );
+  fd_bft_epoch_stake_update( bft, epoch_ctx );
 
   bft->acc_mgr    = acc_mgr;
   bft->blockstore = blockstore;
@@ -644,8 +631,6 @@ main( int argc, char ** argv ) {
   bft->forks      = forks;
   bft->ghost      = ghost;
   bft->valloc     = valloc;
-  fd_bft_epoch_stake_update( bft, epoch_ctx );
-  FD_LOG_DEBUG( ( "Finish setup bft" ) );
 
   /**********************************************************************/
   /* replay                                                             */
@@ -655,6 +640,8 @@ main( int argc, char ** argv ) {
       fd_wksp_alloc_laddr( wksp, fd_replay_align(), fd_replay_footprint(), TEST_CONSENSUS_MAGIC );
   fd_replay_t * replay = fd_replay_join( fd_replay_new( replay_mem ) );
   FD_TEST( replay );
+
+  replay->now = fd_log_wallclock();
 
   replay->smr           = snapshot_slot;
   replay->snapshot_slot = snapshot_slot;
@@ -666,8 +653,6 @@ main( int argc, char ** argv ) {
   replay->funk       = funk;
   replay->epoch_ctx  = epoch_ctx;
   replay->valloc     = valloc;
-
-  FD_LOG_DEBUG( ( "Finish setup replay" ) );
 
   /**********************************************************************/
   /* keys                                                               */
@@ -684,6 +669,7 @@ main( int argc, char ** argv ) {
   /**********************************************************************/
 
   /* do replay+shredcap or archive+live_data */
+
   replay->shred_cap = NULL;
   if( strcmp( mode, "replay" ) == 0 ) {
     FD_LOG_NOTICE( ( "test_consensus running in replay mode" ) );
@@ -747,8 +733,6 @@ main( int argc, char ** argv ) {
     fd_repair_set_permanent( replay->repair, &_repair_peer_id );
   }
 
-  FD_LOG_DEBUG( ( "Finish setup repair" ) );
-
   /**********************************************************************/
   /* turbine                                                            */
   /**********************************************************************/
@@ -804,7 +788,6 @@ main( int argc, char ** argv ) {
   replay->parity_shreds = parity_shreds;
   replay->fec_sets      = fec_sets;
   replay->fec_resolver  = fec_resolver;
-  FD_LOG_DEBUG( ( "Finish setup turbine" ) );
 
   /**********************************************************************/
   /* gossip                                                             */
@@ -836,9 +819,6 @@ main( int argc, char ** argv ) {
   fd_gossip_peer_addr_t _gossip_peer_addr;
   FD_TEST( !fd_gossip_add_active_peer( gossip,
                                        resolve_hostport( gossip_peer_addr, &_gossip_peer_addr ) ) );
-  FD_LOG_DEBUG( ( "Finish setup gossip" ) );
-
-  replay->now = fd_log_wallclock();
 
   fd_gossip_update_addr( gossip, &gossip_config.my_addr );
   fd_gossip_settime( gossip, fd_log_wallclock() );
