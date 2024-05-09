@@ -306,6 +306,9 @@ static int parse_key_value( config_t *   config,
   ENTRY_STR   ( ., tiles.replay,        snapshot                                                  );
   ENTRY_STR   ( ., tiles.replay,        incremental                                               );
   ENTRY_STR   ( ., tiles.replay,        genesis                                                   );
+  ENTRY_ULONG ( ., tiles.replay,        funk_sz_gb                                                );
+  ENTRY_ULONG ( ., tiles.replay,        funk_txn_max                                              );
+  ENTRY_ULONG ( ., tiles.replay,        funk_rec_max                                              );
 
   ENTRY_USHORT( ., tiles.gossip,        gossip_listen_port                                        );
   ENTRY_STR   ( ., tiles.gossip,        peer_ip_addr                                              );

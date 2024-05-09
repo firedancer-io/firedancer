@@ -235,9 +235,12 @@ typedef struct {
     } repair;
 
     struct {
-      char snapshot[ PATH_MAX ];
-      char incremental[ PATH_MAX ];
-      char genesis[ PATH_MAX ];
+      char  snapshot[ PATH_MAX ];
+      char  incremental[ PATH_MAX ];
+      char  genesis[ PATH_MAX ];
+      ulong funk_sz_gb;
+      ulong funk_txn_max;
+      ulong funk_rec_max;
     } replay;
 
   } tiles;
