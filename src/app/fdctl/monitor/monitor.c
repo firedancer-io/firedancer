@@ -22,6 +22,9 @@ monitor_cmd_args( int *    pargc,
   args->monitor.seed            = fd_env_strip_cmdline_uint( pargc, pargv, "--seed",     NULL, (uint)fd_tickcount() );
   args->monitor.ns_per_tic      = 1./fd_tempo_tick_per_ns( NULL ); /* calibrate during init */
 
+  args->monitor.with_bench     = fd_env_strip_cmdline_contains( pargc, pargv, "--bench" );
+  args->monitor.with_sankey    = fd_env_strip_cmdline_contains( pargc, pargv, "--sankey" );
+
   if( FD_UNLIKELY( args->monitor.dt_min<0L                   ) ) FD_LOG_ERR(( "--dt-min should be positive"          ));
   if( FD_UNLIKELY( args->monitor.dt_max<args->monitor.dt_min ) ) FD_LOG_ERR(( "--dt-max should be at least --dt-min" ));
   if( FD_UNLIKELY( args->monitor.duration<0L                 ) ) FD_LOG_ERR(( "--duration should be non-negative"    ));
@@ -259,6 +262,7 @@ drain_to_buffer( char ** buf,
 void
 run_monitor( config_t * const config,
              int              drain_output_fd,
+             int              with_sankey,
              long             dt_min,
              long             dt_max,
              long             duration,
@@ -399,6 +403,89 @@ run_monitor( config_t * const config,
       }
     }
 
+
+    if( FD_UNLIKELY( with_sankey ) ) {
+      /* We only need to count from one of the benchs, since they both receive
+        all of the transactions. */
+      fd_topo_tile_t const * benchs = &topo->tiles[ fd_topo_find_tile( topo, "benchs", 0UL ) ];
+      ulong fseq_sum = 0UL;
+      for( ulong i=0UL; i<benchs->in_cnt; i++ ) {
+        ulong const * fseq = benchs->in_link_fseq[ i ];
+        fseq_sum += fd_fseq_query( fseq );
+      }
+
+      fd_topo_tile_t const * net = &topo->tiles[ fd_topo_find_tile( topo, "net", 0UL ) ];
+      ulong net_sent = fd_mcache_seq_query( fd_mcache_seq_laddr( topo->links[ net->out_link_id[ 0 ] ].mcache ) );
+      net_sent      += fd_mcache_seq_query( fd_mcache_seq_laddr( topo->links[ net->out_link_id[ 1 ] ].mcache ) );
+      net_sent = fseq_sum;
+
+      ulong verify_failed  = 0UL;
+      ulong verify_sent    = 0UL;
+      ulong verify_overrun = 0UL;
+      for( ulong i=0UL; i<config->layout.verify_tile_count; i++ ) {
+        fd_topo_tile_t const * verify = &topo->tiles[ fd_topo_find_tile( topo, "verify", i ) ];
+        verify_overrun += fd_metrics_link_in( verify->metrics, 0UL )[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_FRAG_COUNT_OFF ] / config->layout.verify_tile_count;
+        verify_failed += fd_metrics_link_in( verify->metrics, 0UL )[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
+        verify_sent += fd_mcache_seq_query( fd_mcache_seq_laddr( topo->links[ verify->out_link_id_primary ].mcache ) );
+      }
+
+      fd_topo_tile_t const * dedup = &topo->tiles[ fd_topo_find_tile( topo, "dedup", 0UL ) ];
+      ulong dedup_failed = 0UL;
+      for( ulong i=0UL; i<config->layout.verify_tile_count; i++) {
+        dedup_failed += fd_metrics_link_in( dedup->metrics, i )[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
+      }
+      ulong dedup_sent = fd_mcache_seq_query( fd_mcache_seq_laddr( topo->links[ dedup->out_link_id_primary ].mcache ) );
+
+      fd_topo_tile_t const * pack = &topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ];
+      ulong * pack_metrics = fd_metrics_tile( pack->metrics );
+      ulong pack_invalid = pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_FULL_OFF ] +
+                          pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_WRITE_SYSVAR_OFF ] +
+                          pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_ESTIMATION_FAIL_OFF ] +
+                          pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_TOO_LARGE_OFF ] +
+                          pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_EXPIRED_OFF ] +
+                          pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_ADDR_LUT_OFF ] +
+                          pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_UNAFFORDABLE_OFF ] +
+                          pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_DUPLICATE_OFF ] +
+                          pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_PRIORITY_OFF ] +
+                          pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_NONVOTE_REPLACE_OFF ] +
+                          pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_VOTE_REPLACE_OFF ];
+      ulong pack_overrun = pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_DROPPED_FROM_EXTRA_OFF ];
+      ulong pack_sent = pack_metrics[ FD_METRICS_HISTOGRAM_PACK_TOTAL_TRANSACTIONS_PER_MICROBLOCK_COUNT_OFF + FD_HISTF_BUCKET_CNT ];
+
+      static ulong last_fseq_sum;
+      static ulong last_net_sent;
+      static ulong last_verify_overrun;
+      static ulong last_verify_failed;
+      static ulong last_verify_sent;
+      static ulong last_dedup_failed;
+      static ulong last_dedup_sent;
+      static ulong last_pack_overrun;
+      static ulong last_pack_invalid;
+      static ulong last_pack_sent;
+
+      PRINT( "TXNS SENT:      %-10lu" TEXT_NEWLINE, fseq_sum );
+      PRINT( "NET TXNS SENT:  %-10lu %-5.2lf%%  %-5.2lf%%" TEXT_NEWLINE, net_sent,       100.0 * (double)net_sent/(double)fseq_sum,        100.0 * (double)(net_sent - last_net_sent)/(double)(fseq_sum - last_fseq_sum)               );
+      PRINT( "VERIFY OVERRUN: %-10lu %-5.2lf%%  %-5.2lf%%" TEXT_NEWLINE, verify_overrun, 100.0 * (double)verify_overrun/(double)net_sent,  100.0 * (double)(verify_overrun - last_verify_overrun)/(double)(net_sent - last_net_sent)   );
+      PRINT( "VERIFY FAILED:  %-10lu %-5.2lf%%  %-5.2lf%%" TEXT_NEWLINE, verify_failed,  100.0 * (double)verify_failed/(double)net_sent,   100.0 * (double)(verify_failed - last_verify_failed)/(double)(net_sent - last_net_sent)     );
+      PRINT( "VERIFY SENT:    %-10lu %-5.2lf%%  %-5.2lf%%" TEXT_NEWLINE, verify_sent,    100.0 * (double)verify_sent/(double)net_sent,     100.0 * (double)(verify_sent - last_verify_sent)/(double)(net_sent - last_net_sent)         );
+      PRINT( "DEDUP FAILED:   %-10lu %-5.2lf%%  %-5.2lf%%" TEXT_NEWLINE, dedup_failed,   100.0 * (double)dedup_failed/(double)verify_sent, 100.0 * (double)(dedup_failed - last_dedup_failed)/(double)(verify_sent - last_verify_sent) );
+      PRINT( "DEDUP SENT:     %-10lu %-5.2lf%%  %-5.2lf%%" TEXT_NEWLINE, dedup_sent,     100.0 * (double)dedup_sent/(double)verify_sent,   100.0 * (double)(dedup_sent - last_dedup_sent)/(double)(verify_sent - last_verify_sent)     );
+      PRINT( "PACK OVERRUN:   %-10lu %-5.2lf%%  %-5.2lf%%" TEXT_NEWLINE, pack_overrun,   100.0 * (double)pack_overrun/(double)dedup_sent,  100.0 * (double)(pack_overrun - last_pack_overrun)/(double)(dedup_sent - last_dedup_sent)   );
+      PRINT( "PACK INVALID:   %-10lu %-5.2lf%%  %-5.2lf%%" TEXT_NEWLINE, pack_invalid,   100.0 * (double)pack_invalid/(double)dedup_sent,  100.0 * (double)(pack_invalid - last_pack_invalid)/(double)(dedup_sent - last_dedup_sent)   );
+      PRINT( "PACK SENT:      %-10lu %-5.2lf%%  %-5.2lf%%" TEXT_NEWLINE, pack_sent,      100.0 * (double)pack_sent/(double)dedup_sent,     100.0 * (double)(pack_sent - last_pack_sent)/(double)(dedup_sent - last_dedup_sent)         );
+
+      last_fseq_sum = fseq_sum;
+      last_net_sent = net_sent;
+      last_verify_overrun = verify_overrun;
+      last_verify_failed = verify_failed;
+      last_verify_sent = verify_sent;
+      last_dedup_failed = dedup_failed;
+      last_dedup_sent = dedup_sent;
+      last_pack_overrun = pack_overrun;
+      last_pack_invalid = pack_invalid;
+      last_pack_sent = pack_sent;
+    }
+
     /* write entire monitor output buffer */
     write_stdout( buffer, sizeof(buffer) - buf_sz );
 
@@ -427,8 +514,35 @@ signal1( int sig ) {
 }
 
 void
+add_bench_topo( fd_topo_t  * topo,
+                char const * affinity,
+                ulong        benchg_tile_cnt,
+                ulong        benchs_tile_cnt,
+                ulong        accounts_cnt,
+                ulong        conn_cnt,
+                ushort       send_to_port,
+                uint         send_to_ip_addr,
+                ushort       rpc_port,
+                uint         rpc_ip_addr,
+                int          no_quic );
+
+void
 monitor_cmd_fn( args_t *         args,
                 config_t * const config ) {
+  if( FD_UNLIKELY( args->monitor.with_bench ) ) {
+    add_bench_topo( &config->topo,
+                    config->development.bench.affinity,
+                    config->development.bench.benchg_tile_count,
+                    config->development.bench.benchs_tile_count,
+                    0UL,
+                    0UL,
+                    0,
+                    0U,
+                    0,
+                    0U,
+                    1 );
+  }
+
   struct sigaction sa = {
     .sa_handler = signal1,
     .sa_flags   = 0,
@@ -469,6 +583,7 @@ monitor_cmd_fn( args_t *         args,
 
   run_monitor( config,
                args->monitor.drain_output_fd,
+               args->monitor.with_sankey,
                args->monitor.dt_min,
                args->monitor.dt_max,
                args->monitor.duration,
