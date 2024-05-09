@@ -30,7 +30,10 @@ typedef union {
     uint seed;
     double ns_per_tic;
     int drain_output_fd;
+    int with_bench;
+    int with_sankey;
   } monitor;
+
   struct {
     int                      command;
     struct configure_stage * stages[ CONFIGURE_STAGE_COUNT ];
