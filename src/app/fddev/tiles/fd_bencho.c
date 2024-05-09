@@ -12,6 +12,7 @@
 #define FD_BENCHO_STATE_READY 2UL
 #define FD_BENCHO_STATE_SENT  3UL
 
+#define FD_BENCHO_RPC_INITIALIZE_TIMEOUT (30L * 1000L * 1000L * 1000L)
 #define FD_BENCHO_RPC_RESPONSE_TIMEOUT (5L * 1000L * 1000L * 1000L)
 
 typedef struct {
@@ -83,6 +84,7 @@ service_block_hash( fd_bencho_ctx_t *  ctx,
       /* RPC server not yet responding, give it some more time... */
       ctx->blockhash_state = FD_BENCHO_STATE_WAIT;
       ctx->blockhash_deadline = fd_log_wallclock() + 100L * 1000L * 1000L; /* 100 millis to retry */
+      fd_rpc_client_close( ctx->rpc, ctx->blockhash_request );
       return;
     }
 
@@ -165,7 +167,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
 
-  ctx->rpc_ready_deadline = fd_log_wallclock() + 5L * 1000L * 1000L * 1000L; /* 30 seconds to initialize */
+  ctx->rpc_ready_deadline = fd_log_wallclock() + FD_BENCHO_RPC_INITIALIZE_TIMEOUT;
   ctx->blockhash_state    = FD_BENCHO_STATE_READY;
   ctx->txncount_nextprint = 0;
   ctx->txncount_state     = FD_BENCHO_STATE_READY;

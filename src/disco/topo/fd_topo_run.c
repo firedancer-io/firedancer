@@ -18,7 +18,8 @@
 static void
 initialize_logging( char const * tile_name,
                     ulong        tile_kind_id,
-                    ulong        pid ) {
+                    ulong        pid,
+                    ulong        tid ) {
   fd_log_cpu_set( NULL );
   fd_log_private_tid_set( pid );
   char thread_name[ 20 ];
@@ -26,7 +27,7 @@ initialize_logging( char const * tile_name,
   fd_log_thread_set( thread_name );
   fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ,
                                  &fd_tile_private_stack0, &fd_tile_private_stack1 );
-  FD_LOG_NOTICE(( "booting tile %s pid:%lu", thread_name, fd_log_group_id() ));
+  FD_LOG_NOTICE(( "booting tile %s pid:%lu tid:%lu", thread_name, fd_log_group_id(), tid ));
 }
 
 static void
@@ -59,7 +60,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
   ulong tid = fd_sandbox_gettid(); /* Need to read /proc again.. we got a new TID from clone */
 
   check_wait_debugger( pid, wait, debugger );
-  initialize_logging( tile->name, tile->kind_id, pid );
+  initialize_logging( tile->name, tile->kind_id, pid, tid );
 
   /* preload shared memory before sandboxing, so it is already mapped */
   fd_topo_join_tile_workspaces( topo, tile );
