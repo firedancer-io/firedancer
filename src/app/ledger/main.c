@@ -632,11 +632,11 @@ ingest( fd_ledger_args_t * args ) {
   /* Load in snapshot(s) */
   if( args->snapshot ) {
     fd_snapshot_load( args->snapshot, slot_ctx, args->verify_acc_hash, args->check_acc_hash , FD_SNAPSHOT_TYPE_FULL );
-    FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ) ));
+    FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
   if( args->incremental ) {
     fd_snapshot_load( args->incremental, slot_ctx, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
-    FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ) ));
+    FD_LOG_NOTICE(( "imported %lu records from incremental snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
 
   if( args->genesis ) {
