@@ -44,7 +44,7 @@ fd_vm_syscall_sol_sha256( /**/            void *  _vm,
   FD_VM_CU_UPDATE( vm, FD_VM_SHA256_BASE_COST );
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1924-L1929 */
-  void * hash_result = FD_VM_MEM_HADDR_ST( vm, result_addr, 8UL, 32UL );
+  void * hash_result = FD_VM_MEM_HADDR_ST( vm, result_addr, FD_VM_ALIGN_RUST_U8, 32UL );
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1930 */
   fd_sha256_t sha[1];
@@ -56,11 +56,11 @@ fd_vm_syscall_sol_sha256( /**/            void *  _vm,
     for( ulong i=0UL; i<vals_len; i++ ) {
       /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1939-L1944 */
       ulong val_len = input_vec_haddr[i].len;
-      void const * bytes = FD_VM_MEM_HADDR_LD( vm, input_vec_haddr[i].addr, 8UL, val_len );
+      void const * bytes = FD_VM_MEM_HADDR_LD( vm, input_vec_haddr[i].addr, FD_VM_ALIGN_RUST_U8, val_len );
 
       /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1945-L1951 */
       ulong cost = fd_ulong_max( FD_VM_MEM_OP_BASE_COST,
-                                  fd_ulong_sat_mul( FD_VM_SHA256_BYTE_COST, (val_len / 2) ) );
+                                 fd_ulong_sat_mul( FD_VM_SHA256_BYTE_COST, (val_len / 2) ) );
 
       /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1952 */
       FD_VM_CU_UPDATE( vm, cost );
@@ -97,7 +97,7 @@ fd_vm_syscall_sol_blake3( /**/            void *  _vm,
   FD_VM_CU_UPDATE( vm, FD_VM_SHA256_BASE_COST );
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1924-L1929 */
-  void * hash_result = FD_VM_MEM_HADDR_ST( vm, result_addr, 8UL, 32UL );
+  void * hash_result = FD_VM_MEM_HADDR_ST( vm, result_addr, FD_VM_ALIGN_RUST_U8, 32UL );
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1930 */
   fd_blake3_t sha[1];
@@ -109,11 +109,11 @@ fd_vm_syscall_sol_blake3( /**/            void *  _vm,
     for( ulong i=0UL; i<vals_len; i++ ) {
       /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1939-L1944 */
       ulong val_len = input_vec_haddr[i].len;
-      void const * bytes = FD_VM_MEM_HADDR_LD( vm, input_vec_haddr[i].addr, 8UL, val_len );
+      void const * bytes = FD_VM_MEM_HADDR_LD( vm, input_vec_haddr[i].addr, FD_VM_ALIGN_RUST_U8, val_len );
 
       /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1945-L1951 */
       ulong cost = fd_ulong_max( FD_VM_MEM_OP_BASE_COST,
-                                  fd_ulong_sat_mul( FD_VM_SHA256_BYTE_COST, (val_len / 2) ) );
+                                 fd_ulong_sat_mul( FD_VM_SHA256_BYTE_COST, (val_len / 2) ) );
 
       /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1952 */
       FD_VM_CU_UPDATE( vm, cost );
@@ -150,7 +150,7 @@ fd_vm_syscall_sol_keccak256( /**/            void *  _vm,
   FD_VM_CU_UPDATE( vm, FD_VM_SHA256_BASE_COST );
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1924-L1929 */
-  void * hash_result = FD_VM_MEM_HADDR_ST( vm, result_addr, 8UL, 32UL );
+  void * hash_result = FD_VM_MEM_HADDR_ST( vm, result_addr, FD_VM_ALIGN_RUST_U8, 32UL );
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1930 */
   fd_keccak256_t sha[1];
@@ -162,7 +162,7 @@ fd_vm_syscall_sol_keccak256( /**/            void *  _vm,
     for( ulong i=0UL; i<vals_len; i++ ) {
       /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1939-L1944 */
       ulong val_len = input_vec_haddr[i].len;
-      void const * bytes = FD_VM_MEM_HADDR_LD( vm, input_vec_haddr[i].addr, 8UL, val_len );
+      void const * bytes = FD_VM_MEM_HADDR_LD( vm, input_vec_haddr[i].addr, FD_VM_ALIGN_RUST_U8, val_len );
 
       /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1945-L1951 */
       ulong cost = fd_ulong_max( FD_VM_MEM_OP_BASE_COST,
