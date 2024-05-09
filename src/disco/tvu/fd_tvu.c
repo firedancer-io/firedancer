@@ -1177,7 +1177,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     runtime_ctx->repair_config.sign_arg         = NULL;
 
     void *        repair_mem = fd_valloc_malloc( valloc, fd_repair_align(), fd_repair_footprint() );
-    fd_repair_t * repair     = fd_repair_join( fd_repair_new( repair_mem, funk_setup_out.hashseed, valloc ) );
+    fd_repair_t * repair     = fd_repair_join( fd_repair_new( repair_mem, funk_setup_out.hashseed ) );
     runtime_ctx->repair      = repair;
 
     if( fd_repair_set_config( repair, &runtime_ctx->repair_config ) ) runtime_ctx->blowup = 1;

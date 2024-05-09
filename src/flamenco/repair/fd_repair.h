@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_repair_fd_repair_h
 
 #include "../types/fd_types.h"
-#include "../../util/valloc/fd_valloc.h"
 #include "../gossip/fd_gossip.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
@@ -24,10 +23,10 @@
 typedef struct fd_repair fd_repair_t;
 ulong         fd_repair_align    ( void );
 ulong         fd_repair_footprint( void );
-void *        fd_repair_new      ( void * shmem, ulong seed, fd_valloc_t valloc );
+void *        fd_repair_new      ( void * shmem, ulong seed );
 fd_repair_t * fd_repair_join     ( void * shmap );
 void *        fd_repair_leave    ( fd_repair_t * join );
-void *        fd_repair_delete   ( void * shmap, fd_valloc_t valloc );
+void *        fd_repair_delete   ( void * shmap );
 
 typedef fd_gossip_peer_addr_t fd_repair_peer_addr_t;
 
