@@ -84,6 +84,10 @@ add_bench_topo( fd_topo_t  * topo,
     FD_LOG_ERR(( "The benchmark topology you are using has %lu tiles, but the CPU affinity specified "
                  "in the [development.bench.affinity] only provides for %lu cores. ",
                  benchg_tile_cnt+1UL+benchs_tile_cnt, affinity_tile_cnt ));
+  else if( FD_UNLIKELY( affinity_tile_cnt>benchg_tile_cnt+1UL+benchs_tile_cnt ) )
+    FD_LOG_WARNING(( "The benchmark topology you are using has %lu tiles, but the CPU affinity specified "
+                     "in the [development.bench.affinity] provides for %lu cores. The extra cores will be unused.",
+                     benchg_tile_cnt+1UL+benchs_tile_cnt, affinity_tile_cnt ));
 
   fd_topo_tile_t * bencho = fd_topob_tile( topo, "bencho", "bench", "bench", "bench", tile_to_cpu[ 0 ], 0, "bencho_out", 0 );
   bencho->bencho.rpc_port    = rpc_port;
