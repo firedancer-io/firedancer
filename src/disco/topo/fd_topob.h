@@ -76,8 +76,8 @@ fd_topob_obj_concrete( fd_topo_t *  topo,
    for a tile, it will map the workspace required for this object in
    the appropriate mode.
 
-   mode should be one of FD_SHMEM_MAP_MODE_READ_ONLY or
-   FD_SHMEM_MAP_MODE_READ_WRITE. */
+   mode should be one of FD_SHMEM_JOIN_MODE_READ_ONLY or
+   FD_SHMEM_JOIN_MODE_READ_WRITE. */
 
 void
 fd_topob_tile_uses( fd_topo_t *      topo,
