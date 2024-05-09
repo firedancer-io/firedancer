@@ -178,8 +178,9 @@ fd_xsk_footprint( ulong frame_sz,
    fd_xsk_footprint().  frame_sz controls the frame size used in the
    UMEM ring buffers and should be either 2048 or 4096.
    {fr,rx,tx,cr}_depth control the number of frames allocated for the
-   Fill, RX, TX, Completion rings respectively.  Returns handle suitable
-   for fd_xsk_join() on success. */
+   Fill, RX, TX, Completion rings respectively.  If zero_copy is
+   non-zero, the xsk will be created in zero-copy mode.  Returns handle
+   suitable for fd_xsk_join() on success. */
 
 void *
 fd_xsk_new( void * shmem,
@@ -187,7 +188,8 @@ fd_xsk_new( void * shmem,
             ulong  fr_depth,
             ulong  rx_depth,
             ulong  tx_depth,
-            ulong  cr_depth);
+            ulong  cr_depth,
+            int    zero_copy );
 
 /* fd_xsk_bind assigns an XSK buffer to the network device with name
    ifname and RX queue index ifqueue.  fd_xsk_unbind unassigns an XSK

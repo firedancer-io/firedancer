@@ -230,6 +230,8 @@ fd_topo_firedancer( config_t * _config ) {
       tile->net.xdp_rx_queue_size              = config->tiles.net.xdp_rx_queue_size;
       tile->net.xdp_tx_queue_size              = config->tiles.net.xdp_tx_queue_size;
       tile->net.src_ip_addr                    = config->tiles.net.ip_addr;
+      tile->net.zero_copy                      = !!strcmp( config->tiles.net.xdp_mode, "skb" ); /* disable zc for skb */
+
       tile->net.shred_listen_port              = config->tiles.shred.shred_listen_port;
       tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
       tile->net.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
