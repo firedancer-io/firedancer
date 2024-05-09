@@ -11,9 +11,6 @@ endif
 
 run-runtime-test: run-runtime-test-1 run-runtime-test-2 run-runtime-test-3
 
-run-runtime-native: $(OBJDIR)/unit-test/test_native_programs
-	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_native_tests.sh
-
 run-runtime-test-1: $(OBJDIR)/bin/fd_ledger
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -t 2 -X 1
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh
