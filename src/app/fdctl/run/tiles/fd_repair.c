@@ -515,10 +515,11 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   fd_valloc_t valloc = fd_alloc_virtual( alloc );
+  (void) valloc;
 
   /* Gossip set up */
 
-  ctx->repair = fd_repair_join( fd_repair_new( ctx->repair, ctx->repair_seed, valloc ) );
+  ctx->repair = fd_repair_join( fd_repair_new( ctx->repair, ctx->repair_seed ) );
 
   FD_LOG_NOTICE(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u, serve_addr: " FD_IP4_ADDR_FMT ":%u", 
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port ),

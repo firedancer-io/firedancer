@@ -694,7 +694,7 @@ main( int argc, char ** argv ) {
   void * repair_mem =
       fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(), TEST_CONSENSUS_MAGIC );
   fd_repair_t * repair =
-      fd_repair_join( fd_repair_new( repair_mem, TEST_CONSENSUS_MAGIC, valloc ) );
+      fd_repair_join( fd_repair_new( repair_mem, TEST_CONSENSUS_MAGIC ) );
 
   fd_repair_config_t repair_config;
   repair_config.public_key  = &public_key;

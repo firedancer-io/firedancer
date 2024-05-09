@@ -202,29 +202,35 @@ struct fd_repair {
     /* Stake weights */
     ulong stake_weights_cnt;
     fd_stake_weight_t * stake_weights;
-    /* Heap allocator */
-    fd_valloc_t valloc;
 };
 
 ulong
-fd_repair_align ( void ) { return alignof(fd_repair_t); }
+fd_repair_align ( void ) { return 128UL; }
 
 ulong
-fd_repair_footprint( void ) { return sizeof(fd_repair_t); }
+fd_repair_footprint( void ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_repair_t), sizeof(fd_repair_t) );
+  l = FD_LAYOUT_APPEND( l, fd_active_table_align(), fd_active_table_footprint(FD_ACTIVE_KEY_MAX) );
+  l = FD_LAYOUT_APPEND( l, fd_needed_table_align(), fd_needed_table_footprint(FD_NEEDED_KEY_MAX) );
+  l = FD_LAYOUT_APPEND( l, fd_dupdetect_table_align(), fd_dupdetect_table_footprint(FD_NEEDED_KEY_MAX) );
+  l = FD_LAYOUT_APPEND( l, fd_stake_weight_align(), FD_STAKE_WEIGHTS_MAX * fd_stake_weight_footprint() );
+  return FD_LAYOUT_FINI(l, fd_repair_align() );
+}
 
 void *
-fd_repair_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
-  fd_memset(shmem, 0, sizeof(fd_repair_t));
-  fd_repair_t * glob = (fd_repair_t *)shmem;
-  glob->valloc = valloc;
-  glob->seed = seed;
-  void * shm = fd_valloc_malloc(valloc, fd_active_table_align(), fd_active_table_footprint(FD_ACTIVE_KEY_MAX));
+fd_repair_new ( void * shmem, ulong seed ) {
+  FD_SCRATCH_ALLOC_INIT(l, shmem);
+  fd_repair_t * glob = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_t), sizeof(fd_repair_t) );
+  fd_memset(glob, 0, sizeof(fd_repair_t));
+  void * shm = FD_SCRATCH_ALLOC_APPEND( l, fd_active_table_align(), fd_active_table_footprint(FD_ACTIVE_KEY_MAX) );
   glob->actives = fd_active_table_join(fd_active_table_new(shm, FD_ACTIVE_KEY_MAX, seed));
-  shm = fd_valloc_malloc(valloc, fd_needed_table_align(), fd_needed_table_footprint(FD_NEEDED_KEY_MAX));
+  glob->seed = seed;
+  shm = FD_SCRATCH_ALLOC_APPEND( l, fd_needed_table_align(), fd_needed_table_footprint(FD_NEEDED_KEY_MAX) );
   glob->needed = fd_needed_table_join(fd_needed_table_new(shm, FD_NEEDED_KEY_MAX, seed));
-  shm = fd_valloc_malloc(valloc, fd_dupdetect_table_align(), fd_dupdetect_table_footprint(FD_NEEDED_KEY_MAX));
+  shm = FD_SCRATCH_ALLOC_APPEND( l, fd_dupdetect_table_align(), fd_dupdetect_table_footprint(FD_NEEDED_KEY_MAX) );
   glob->dupdetect = fd_dupdetect_table_join(fd_dupdetect_table_new(shm, FD_NEEDED_KEY_MAX, seed));
-  glob->stake_weights = fd_valloc_malloc( valloc, fd_stake_weight_align(), FD_STAKE_WEIGHTS_MAX * fd_stake_weight_footprint() );
+  glob->stake_weights = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_weight_align(), FD_STAKE_WEIGHTS_MAX * fd_stake_weight_footprint() );
   glob->stake_weights_cnt = 0;
   glob->last_sends = 0;
   glob->last_decay = 0;
@@ -234,6 +240,11 @@ fd_repair_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
 
   glob->actives_sticky_cnt   = 0;
   glob->actives_random_seed  = 0;
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI(l, 1UL);
+  if ( scratch_top > (ulong)shmem + fd_repair_footprint() ) {
+    FD_LOG_ERR(("Enough space not allocated for repair"));
+  }
 
   return glob;
 }
@@ -245,12 +256,11 @@ void *
 fd_repair_leave ( fd_repair_t * join ) { return join; }
 
 void *
-fd_repair_delete ( void * shmap, fd_valloc_t valloc ) {
+fd_repair_delete ( void * shmap ) {
   fd_repair_t * glob = (fd_repair_t *)shmap;
-  fd_valloc_free(valloc, fd_active_table_delete(fd_active_table_leave(glob->actives)));
-  fd_valloc_free(valloc, fd_needed_table_delete(fd_needed_table_leave(glob->needed)));
-  fd_valloc_free(valloc, fd_dupdetect_table_delete(fd_dupdetect_table_leave(glob->dupdetect)));
-  fd_valloc_free( valloc, glob->stake_weights );
+  fd_active_table_delete(fd_active_table_leave(glob->actives));
+  fd_needed_table_delete(fd_needed_table_leave(glob->needed));
+  fd_dupdetect_table_delete(fd_dupdetect_table_leave(glob->dupdetect));
   return glob;
 }
 
@@ -554,19 +564,20 @@ fd_repair_recv_ping(fd_repair_t * glob, fd_gossip_ping_t const * ping, fd_gossip
 int
 fd_repair_recv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * from) {
   fd_repair_lock( glob );
+FD_SCRATCH_SCOPE_BEGIN {
   while (1) {
     fd_repair_response_t gmsg;
     fd_bincode_decode_ctx_t ctx;
     ctx.data    = msg;
     ctx.dataend = msg + msglen;
-    ctx.valloc  = glob->valloc;
+    ctx.valloc  = fd_scratch_virtual();
     if (fd_repair_response_decode(&gmsg, &ctx)) {
       /* Solana falls back to assuming we got a shred in this case
          https://github.com/solana-labs/solana/blob/master/core/src/repair/serve_repair.rs#L1198 */
       break;
     }
     fd_bincode_destroy_ctx_t ctx2;
-    ctx2.valloc = glob->valloc;
+    ctx2.valloc = fd_scratch_virtual();
     if (ctx.data != ctx.dataend) {
       fd_repair_response_destroy(&gmsg, &ctx2);
       break;
@@ -610,7 +621,7 @@ fd_repair_recv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, fd_go
   } else {
     (*glob->deliver_fun)(shred, shredlen, from, &val->id, glob->fun_arg);
   }
-
+} FD_SCRATCH_SCOPE_END;
   return 0;
 }
 
