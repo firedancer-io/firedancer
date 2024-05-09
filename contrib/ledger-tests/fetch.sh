@@ -11,10 +11,6 @@ TESTNET_GS_LEDGER="gs://testnet-ledger-us-sv15"
 TESTNET_GS_GENESIS="https://api.testnet.solana.com/genesis.tar.bz2"
 
 mainnet_gs_ledger=""
-fetch_latest_snapshot=""
-fetch_latest_snapshot_slot=""
-fetch_min_snapshot_slot=""
-fetch_max_snapshot_slot=""
 
 get_endpoint_by_location() {
   local country=$(curl -s https://ipinfo.io | jq -r '.country')
@@ -48,13 +44,13 @@ download_ext_rocksdb() {
 
   cd "$LEDGER" || exit
 
-  fetch_latest_snapshot="$(gcloud storage ls $ledger_url | sort -n -t / -k 4 | tail -1)"
-  fetch_latest_snapshot_slot=$(echo "$fetch_latest_snapshot" | sed 's#.*/\([0-9]\+\)/#\1#')
-  echo "[~] latest_snapshot=$fetch_latest_snapshot, latest_snapshot_slot=$fetch_latest_snapshot_slot"
+  LATEST_SNAPSHOT="$(gcloud storage ls $ledger_url | sort -n -t / -k 4 | tail -1)"
+  LATEST_SNAPSHOT_SLOT=$(echo "$LATEST_SNAPSHOT" | sed 's#.*/\([0-9]\+\)/#\1#')
+  echo "[~] latest_snapshot=$LATEST_SNAPSHOT, latest_snapshot_slot=$LATEST_SNAPSHOT_SLOT"
 
-  /bin/gsutil cp "$ledger_url/$fetch_latest_snapshot_slot/rocksdb.tar.zst" .
+  /bin/gsutil cp "$ledger_url/$LATEST_SNAPSHOT_SLOT/rocksdb.tar.zst" .
   if [ ! -f rocksdb.tar.zst ]; then
-    echo "[-] error rocksdb.tar.zst not found. $ledger_url/$fetch_latest_snapshot_slot/rocksdb.tar.zst might not be present"
+    echo "[-] error rocksdb.tar.zst not found. $ledger_url/$LATEST_SNAPSHOT_SLOT/rocksdb.tar.zst might not be present"
     exit 1
   fi
   unzstd <rocksdb.tar.zst | tar xvf -
@@ -63,27 +59,40 @@ download_ext_rocksdb() {
 
 download_ext_snapshot() {
   local ledger_url=$1
-  local fetch_latest_snapshot_slot=$2
-  local fetch_min_snapshot_slot=$3
 
-  fetch_snapshot=""
+  local fetch_snapshot=""
   cd "$LEDGER" || exit
 
-  # find a snapshot that is within the rocksdb_bounds
   set +x
-  if [[ $fetch_latest_snapshot_slot -lt $fetch_min_snapshot_slot ]]; then
-    local fetch_hourly_snapshots="$(gcloud storage ls $ledger_url/$fetch_latest_snapshot_slot/hourly | sort -n -t / -k 4)"
+
+  is_rooted_slot $((LATEST_SNAPSHOT_SLOT + 1))
+  local is_rooted_status=$?
+
+  if [[ $LATEST_SNAPSHOT_SLOT -ge $MIN_SNAPSHOT_SLOT && $is_rooted_status -eq 0 ]]; then
+    echo "[~] getting the latest snapshot $fetch_snapshot"
+    fetch_snapshot=${LATEST_SNAPSHOT}snapshot-${LATEST_SNAPSHOT_SLOT}-*.tar.zst  
+  else
+    local fetch_hourly_snapshots="$(gcloud storage ls $ledger_url/$LATEST_SNAPSHOT_SLOT/hourly | sort -n -t / -k 4)"
     for fetch_snap in $(echo $fetch_hourly_snapshots); do
-      if [[ $(echo $fetch_snap | awk -F '/' '{print $NF}' | awk -F '-' '{print $2}') -gt $fetch_min_snapshot_slot ]]; then
-        echo "[~] Found hourly snapshot, using $fetch_snap"
-        fetch_snapshot=$fetch_snap
-        break
+      local fetch_hourly_slot=$(echo $fetch_snap | awk -F '/' '{print $NF}' | awk -F '-' '{print $2}')
+      if [[ $fetch_hourly_slot -gt $MIN_SNAPSHOT_SLOT ]]; then
+        is_rooted_slot $((fetch_hourly_slot + 1))
+        is_rooted_status=$?
+        if [ $is_rooted_status -eq 0 ]; then
+          echo "[~] getting hourly snapshot, using $fetch_snap"
+          fetch_snapshot=$fetch_snap
+          break
+        else 
+          echo "[~] hourly snapshot $fetch_hourly_slot is not rooted"
+          continue 
+        fi
       fi
     done
   fi
+
   if [[ -z $fetch_snapshot ]]; then
-    echo "[~] Could not find hourly snapshot within rocksdb bounds, getting the latest snapshot instead $fetch_snapshot"
-    fetch_snapshot=${fetch_latest_snapshot}snapshot-${fetch_latest_snapshot_slot}-*.tar.zst
+    echo "[-] error no more snapshots to download"
+    exit 1
   fi
 
   /bin/gsutil cp "$fetch_snapshot" .
@@ -92,11 +101,11 @@ download_ext_snapshot() {
 
 rocksdb_bounds() {
   local rooted_bounds="$($SOLANA_LEDGER_TOOL bounds -l $LEDGER |& grep "rooted slots")"
-  fetch_min_snapshot_slot="$(echo $rooted_bounds | awk '{print $(NF-2)}')"
-  fetch_max_snapshot_slot="$(echo $rooted_bounds | awk '{print $(NF)}')"
-  echo "[~] rocksdb_bounds=$fetch_min_snapshot_slot-$fetch_max_snapshot_slot"
+  MIN_SNAPSHOT_SLOT="$(echo $rooted_bounds | awk '{print $(NF-2)}')"
+  MAX_SNAPSHOT_SLOT="$(echo $rooted_bounds | awk '{print $(NF)}')"
+  echo "[~] rocksdb_bounds=$MIN_SNAPSHOT_SLOT-$MAX_SNAPSHOT_SLOT"
 
-  if [[ -z $fetch_min_snapshot_slot || -z $fetch_max_snapshot_slot ]]; then
+  if [[ -z $MIN_SNAPSHOT_SLOT || -z $MAX_SNAPSHOT_SLOT ]]; then
     echo "[-] error could not get rocksdb bounds"
     exit 1
   fi
@@ -109,7 +118,7 @@ if [ ! -d "$LEDGER" ]; then
   exit 1
 fi
 
-if [ -d "$LEDGER/rocksdb" ]; then
+if [[ -d "$LEDGER/rocksdb" && -z $MIN_SNAPSHOT_SLOT ]]; then
   echo "[-] error $LEDGER/rocksdb already exists"
   exit 1
 fi
@@ -117,14 +126,18 @@ fi
 if [[ "$NETWORK" == "mainnet" ]]; then
   get_endpoint_by_location
   check_gs $mainnet_gs_ledger
-  download_ext_rocksdb $mainnet_gs_ledger $MAINNET_GS_GENESIS
-  rocksdb_bounds
-  download_ext_snapshot $mainnet_gs_ledger $fetch_latest_snapshot_slot $fetch_min_snapshot_slot
+  if [[ -z $MIN_SNAPSHOT_SLOT ]]; then
+    download_ext_rocksdb $mainnet_gs_ledger $MAINNET_GS_GENESIS
+    rocksdb_bounds
+  fi
+  download_ext_snapshot $mainnet_gs_ledger
 elif [[ "$NETWORK" == "testnet" ]]; then
   check_gs $TESTNET_GS_LEDGER
-  download_ext_rocksdb $TESTNET_GS_LEDGER $TESTNET_GS_GENESIS
-  rocksdb_bounds
-  download_ext_snapshot $TESTNET_GS_LEDGER $fetch_latest_snapshot_slot $fetch_min_snapshot_slot
+  if [[ -z $MIN_SNAPSHOT_SLOT ]]; then
+    download_ext_rocksdb $TESTNET_GS_LEDGER $TESTNET_GS_GENESIS
+    rocksdb_bounds
+  fi
+  download_ext_snapshot $TESTNET_GS_LEDGER 
 elif [[ "$NETWORK" == "internal" ]]; then
   cp "$LEDGER_INT"/genesis.bin "$LEDGER"
   cp "$LEDGER_INT"/genesis.tar.bz2 "$LEDGER"
