@@ -77,11 +77,10 @@ fd_vm_validate( fd_vm_t const * vm ) {
 # define FD_CHECK_END  ((uchar)2) /* Validation should check that the instruction is a valid endianness conversion */
 # define FD_CHECK_ST   ((uchar)3) /* Validation should check that the instruction is a valid store */
 # define FD_CHECK_LDQ  ((uchar)4) /* Validation should check that the instruction is a valid load-quad */
-# define FD_CHECK_CALL ((uchar)5) /* Validation should check that the instruction is a valid function call */
-# define FD_CHECK_DIV  ((uchar)6) /* Validation should check that the instruction is a valid division by immediate */
-# define FD_CHECK_SH32 ((uchar)7) /* Validation should check that the immediate is a valid 32-bit shift exponent */
-# define FD_CHECK_SH64 ((uchar)8) /* Validation should check that the immediate is a valid 64-bit shift exponent */
-# define FD_INVALID    ((uchar)9) /* The opcode is invalid */
+# define FD_CHECK_DIV  ((uchar)5) /* Validation should check that the instruction is a valid division by immediate */
+# define FD_CHECK_SH32 ((uchar)6) /* Validation should check that the immediate is a valid 32-bit shift exponent */
+# define FD_CHECK_SH64 ((uchar)7) /* Validation should check that the immediate is a valid 64-bit shift exponent */
+# define FD_INVALID    ((uchar)8) /* The opcode is invalid */
 
   static uchar const validation_map[ 256 ] = {
     /* 0x00 */ FD_INVALID,    /* 0x01 */ FD_INVALID,    /* 0x02 */ FD_INVALID,    /* 0x03 */ FD_INVALID,
@@ -117,7 +116,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
     /* 0x78 */ FD_INVALID,    /* 0x79 */ FD_VALID,      /* 0x7a */ FD_CHECK_ST,   /* 0x7b */ FD_CHECK_ST,
     /* 0x7c */ FD_VALID,      /* 0x7d */ FD_CHECK_JMP,  /* 0x7e */ FD_INVALID,    /* 0x7f */ FD_VALID,
     /* 0x80 */ FD_INVALID,    /* 0x81 */ FD_INVALID,    /* 0x82 */ FD_INVALID,    /* 0x83 */ FD_INVALID,
-    /* 0x84 */ FD_VALID,      /* 0x85 */ FD_CHECK_CALL, /* 0x86 */ FD_INVALID,    /* 0x87 */ FD_VALID,
+    /* 0x84 */ FD_VALID,      /* 0x85 */ FD_VALID,      /* 0x86 */ FD_INVALID,    /* 0x87 */ FD_VALID,
     /* 0x88 */ FD_INVALID,    /* 0x89 */ FD_INVALID,    /* 0x8a */ FD_INVALID,    /* 0x8b */ FD_INVALID,
     /* 0x8c */ FD_INVALID,    /* 0x8d */ FD_VALID,      /* 0x8e */ FD_INVALID,    /* 0x8f */ FD_INVALID,
     /* 0x90 */ FD_INVALID,    /* 0x91 */ FD_INVALID,    /* 0x92 */ FD_INVALID,    /* 0x93 */ FD_INVALID,
@@ -184,17 +183,6 @@ fd_vm_validate( fd_vm_t const * vm ) {
       /* FIXME: SET A BIT MAP HERE OF ADDL_IMM TO DENOTE * AS FORBIDDEN
          BRANCH TARGETS OF CALL_REG?? */
       i++;
-      break;
-    }
-
-    /* https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/elf.rs#L829-L830 */
-    case FD_CHECK_CALL: { /* FIXME: Check to make sure we are really doing this right! (required for sbpf2?) */
-      if ( instr.src_reg == 0 ) {
-        ulong target_pc = fd_ulong_sat_add( fd_ulong_sat_add( i, instr.imm ), 1 );
-        if ( FD_UNLIKELY( target_pc >= text_cnt ) ) {
-          return FD_VM_ERR_JMP_OUT_OF_BOUNDS;
-        }
-      }
       break;
     }
 

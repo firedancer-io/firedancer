@@ -559,6 +559,7 @@ main( int     argc,
     char const * default_paths[] = {
       "src/flamenco/vm/instr_test/bitwise.instr",
       "src/flamenco/vm/instr_test/int_math.instr",
+      "src/flamenco/vm/instr_test/jump.instr",
       "src/flamenco/vm/instr_test/load.instr",
       "src/flamenco/vm/instr_test/opcode.instr",
       "src/flamenco/vm/instr_test/shift.instr",
