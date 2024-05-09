@@ -90,6 +90,10 @@ fd_instr_any_signed( fd_instr_info_t const * info,
   return is_signer;
 }
 
+/*
+  TODO: We should modify this function to handle overflows / other issues similar to Agave.
+  https://github.com/anza-xyz/agave/blob/9706a6464665f7ebd6ead47f0d12f853ccacbab9/sdk/src/transaction_context.rs#L407
+*/
 ulong
 fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr ) {
   ulong total_lamports = 0;
