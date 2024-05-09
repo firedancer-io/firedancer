@@ -76,32 +76,29 @@ main( int     argc,
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
 
-  fd_vm_t vm = {
-    .heap_max  = FD_VM_HEAP_DEFAULT,
-    .entry_cu  = FD_VM_COMPUTE_UNIT_LIMIT,
-    .rodata    = rodata,
-    .rodata_sz = rodata_sz,
-    .text      = NULL,
-    .text_cnt  = 0,
-    .text_off  = 0,
-    .entry_pc  = 0,
-    .calldests = NULL,
-    .syscalls  = NULL,
-    .input     = NULL,
-    .input_sz  = 0,
-    .trace     = NULL,
-    .instr_ctx = &instr_ctx, /* we need an instr_ctx for FD_FEATURE_ACTIVE to work */
-    .sha       = sha,
-  };
+  fd_vm_t _vm[1];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+  FD_TEST( vm );
 
-  /* FIXME: GROSS */
-  vm.pc        = vm.entry_pc;
-  vm.ic        = 0UL;
-  vm.cu        = vm.entry_cu;
-  vm.frame_cnt = 0UL;
-  vm.heap_sz   = 0UL;
-  vm.log_sz    = 0UL;
-  fd_vm_mem_cfg( &vm );
+  int vm_ok = !!fd_vm_init(
+      /* vm        */ vm,
+      /* instr_ctx */ &instr_ctx,  /* required for FD_FEATURE_ACTIVE */
+      /* heap_max  */ FD_VM_HEAP_DEFAULT,
+      /* entry_cu  */ FD_VM_COMPUTE_UNIT_LIMIT,
+      /* rodata    */ rodata,
+      /* rodata_sz */ rodata_sz,
+      /* text      */ NULL,
+      /* text_cnt  */ 0UL,
+      /* text_off  */ 0UL,
+      /* entry_pc  */ 0UL,
+      /* calldests */ NULL,
+      /* syscalls  */ NULL,
+      /* input     */ NULL,
+      /* input_sz  */ 0UL,
+      /* trace     */ NULL,
+      /* sha       */ sha
+  );
+  FD_TEST( vm_ok );
 
   ulong scalar_vaddr = 0;
   ulong point_vaddr = 0;
@@ -113,7 +110,7 @@ main( int     argc,
   // invalid
   test_vm_syscall_sol_curve_multiscalar_mul(
     "test_vm_syscall_sol_curve_multiscalar_mul: invalid",
-    &vm,
+    vm,
     FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS,
     scalar_vaddr,
     point_vaddr,
@@ -127,7 +124,7 @@ main( int     argc,
   // invalid (max 512 points)
   test_vm_syscall_sol_curve_multiscalar_mul(
     "test_vm_syscall_sol_curve_multiscalar_mul: invalid",
-    &vm,
+    vm,
     FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS,
     scalar_vaddr,
     point_vaddr,
@@ -141,7 +138,7 @@ main( int     argc,
   // invalid (max 512 points)
   test_vm_syscall_sol_curve_multiscalar_mul(
     "test_vm_syscall_sol_curve_multiscalar_mul: invalid",
-    &vm,
+    vm,
     5, // invalid curve
     scalar_vaddr,
     point_vaddr,
@@ -174,8 +171,8 @@ main( int     argc,
       172, 185, 75, 244, 26, 70, 18, 248, 46, 207, 184, 235, 60,
     };
 
-    memcpy( &vm.heap[0], scalars, 64 );
-    memcpy( &vm.heap[64], points, 64 );
+    memcpy( &vm->heap[0], scalars, 64 );
+    memcpy( &vm->heap[64], points, 64 );
 
     scalar_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START;
     point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
@@ -184,7 +181,7 @@ main( int     argc,
 
     test_vm_syscall_sol_curve_multiscalar_mul(
       "test_vm_syscall_sol_curve_multiscalar_mul: ed25519",
-      &vm,
+      vm,
       FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS,
       scalar_vaddr,
       point_vaddr,
@@ -216,8 +213,8 @@ main( int     argc,
       94, 84, 118, 92, 140, 120, 81, 30, 246, 173, 140, 195, 86,
     };
 
-    memcpy( &vm.heap[0], scalars, 64 );
-    memcpy( &vm.heap[64], points, 64 );
+    memcpy( &vm->heap[0], scalars, 64 );
+    memcpy( &vm->heap[64], points, 64 );
 
     scalar_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START;
     point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
@@ -226,7 +223,7 @@ main( int     argc,
 
     test_vm_syscall_sol_curve_multiscalar_mul(
       "test_vm_syscall_sol_curve_multiscalar_mul: ristretto255",
-      &vm,
+      vm,
       FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO,
       scalar_vaddr,
       point_vaddr,
@@ -252,7 +249,7 @@ main( int     argc,
       141, 113, 125, 215, 161, 71, 49, 176, 87, 38, 180, 177, 39, 78,
     };
 
-    memcpy( &vm.heap[0], points, 64 );
+    memcpy( &vm->heap[0], points, 64 );
 
     in0_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START;
     in1_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 32UL;
@@ -261,7 +258,7 @@ main( int     argc,
 
     test_fd_vm_syscall_sol_curve_group_op(
       "fd_vm_syscall_sol_curve_group_op: ristretto255, add 0 + P",
-      &vm,
+      vm,
       FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO,
       FD_VM_SYSCALL_SOL_CURVE_ADD,
       in0_vaddr,
@@ -289,7 +286,7 @@ main( int     argc,
       141, 113, 125, 215, 161, 71, 49, 176, 87, 38, 180, 177, 39, 78,
     };
 
-    memcpy( &vm.heap[0], points, 64 );
+    memcpy( &vm->heap[0], points, 64 );
 
     in0_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START;
     in1_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 32UL;
@@ -298,7 +295,7 @@ main( int     argc,
 
     test_fd_vm_syscall_sol_curve_group_op(
       "fd_vm_syscall_sol_curve_group_op: ristretto255, add",
-      &vm,
+      vm,
       FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO,
       FD_VM_SYSCALL_SOL_CURVE_ADD,
       in0_vaddr,
@@ -323,7 +320,7 @@ main( int     argc,
       146, 110, 128, 24, 151, 187, 144, 108, 233, 221, 208, 157, 52,
     };
 
-    memcpy( &vm.heap[0], points, 64 );
+    memcpy( &vm->heap[0], points, 64 );
 
     in0_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START;
     in1_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 32UL;
@@ -332,7 +329,7 @@ main( int     argc,
 
     test_fd_vm_syscall_sol_curve_group_op(
       "fd_vm_syscall_sol_curve_group_op: ristretto255, sub",
-      &vm,
+      vm,
       FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO,
       FD_VM_SYSCALL_SOL_CURVE_SUB,
       in0_vaddr,
@@ -360,8 +357,8 @@ main( int     argc,
       21, 101, 124, 80, 19, 119, 100, 77, 108, 65, 187, 228, 5,
     };
 
-    memcpy( &vm.heap[0], scalars, 32 );
-    memcpy( &vm.heap[32], points, 32 );
+    memcpy( &vm->heap[0], scalars, 32 );
+    memcpy( &vm->heap[32], points, 32 );
 
     in0_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START;
     in1_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 32UL;
@@ -370,7 +367,7 @@ main( int     argc,
 
     test_fd_vm_syscall_sol_curve_group_op(
       "fd_vm_syscall_sol_curve_group_op: ristretto255, mul",
-      &vm,
+      vm,
       FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO,
       FD_VM_SYSCALL_SOL_CURVE_MUL,
       in0_vaddr,
@@ -382,7 +379,9 @@ main( int     argc,
     );
   }
 
-  fd_rng_delete( fd_rng_leave( rng ) );
+  fd_vm_delete    ( fd_vm_leave    ( vm  ) );
+  fd_sha256_delete( fd_sha256_leave( sha ) );
+  fd_rng_delete   ( fd_rng_leave   ( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
