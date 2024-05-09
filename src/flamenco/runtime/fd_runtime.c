@@ -1106,7 +1106,9 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
       /* Add all involved records to pruned funk */
       if ( capture_ctx != NULL && capture_ctx->pruned_funk != NULL ) {
+        fd_funk_start_write( capture_ctx->pruned_funk );
         fd_runtime_copy_accounts_to_pruned_funk( capture_ctx->pruned_funk, prune_txn, slot_ctx, txn_ctx );
+        fd_funk_end_write( capture_ctx->pruned_funk );
       }
 
       /* For ledgers that contain txn status, decode and write out for solcap */

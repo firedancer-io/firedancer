@@ -155,7 +155,9 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
   state->tpool       = tpool;
   state->max_workers = args->tcnt;
 
+  fd_funk_start_write( state->slot_ctx->acc_mgr->funk );
   ulong r = fd_funk_txn_cancel_all( state->slot_ctx->acc_mgr->funk, 1 );
+  fd_funk_end_write( state->slot_ctx->acc_mgr->funk );
   FD_LOG_INFO( ( "Cancelled old transactions %lu", r ) );
 
   fd_features_restore( state->slot_ctx );
@@ -190,11 +192,14 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
   }
 
   if( state->capture_ctx && state->capture_ctx->pruned_funk != NULL ) {
+    /* If prune enabled: setup rent partitions */
+    fd_funk_start_write( state->capture_ctx->pruned_funk );
     fd_funk_t * funk = state->slot_ctx->acc_mgr->funk;
     fd_wksp_t * wksp = fd_funk_wksp( funk );
     fd_funk_partvec_t * partvec = fd_funk_get_partvec( funk, wksp );
     fd_funk_t * pruned_funk = state->capture_ctx->pruned_funk;
     fd_funk_set_num_partitions( pruned_funk, partvec->num_part );
+    fd_funk_end_write( state->capture_ctx->pruned_funk );
   }
 
   /* Setup trash_hash */
@@ -208,7 +213,9 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
     FD_LOG_DEBUG(( "reading slot %ld", slot ));
 
     if( state->capture_ctx && state->capture_ctx->pruned_funk != NULL ) {
+      fd_funk_start_write( state->capture_ctx->pruned_funk );
       fd_runtime_collect_rent_accounts_prune( slot, state->slot_ctx, state->capture_ctx );
+      fd_funk_end_write( state->capture_ctx->pruned_funk );
     }
 
     if( args->on_demand_block_ingest ) {
@@ -429,18 +436,18 @@ init_funk( fd_ledger_args_t * args ) {
       FD_LOG_ERR(( "failed to join a funky" ));
     }
     if( args->verify_funk ) {
-      if ( fd_funk_verify( funk ) ) {
+      if( fd_funk_verify( funk ) ) {
         FD_LOG_ERR(( "verification failed" ));
       }
     }
   } else {
     shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
-    if ( shmem == NULL ) {
+    if( shmem == NULL ) {
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
     funk = fd_funk_join( fd_funk_new( shmem, 1, args->hashseed, args->txns_max, args->index_max ) );
 
-    if ( funk == NULL ) {
+    if( funk == NULL ) {
       fd_wksp_free_laddr( shmem );
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
@@ -479,14 +486,16 @@ init_blockstore( fd_ledger_args_t * args ) {
 
 void
 checkpt( fd_ledger_args_t * args, fd_exec_slot_ctx_t * slot_ctx ) {
-  if( !args->checkpt ) {
-    FD_LOG_WARNING(( "No backup argument specified" ));
+  if( !args->checkpt && !args->checkpt_funk ) {
+    FD_LOG_WARNING(( "No checkpt argument specified" ));
   }
 
-  fd_funk_start_write( args->funk );
-  FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_epoch_bank( slot_ctx ) );
-  FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_slot_bank( slot_ctx ) );
-  fd_funk_end_write( args->funk );
+  if( strcmp( args->cmd,  "prune" ) ) {
+    fd_funk_start_write( slot_ctx->acc_mgr->funk );
+    FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_epoch_bank( slot_ctx ) );
+    FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_slot_bank( slot_ctx ) );
+    fd_funk_end_write( slot_ctx->acc_mgr->funk );
+  }
 
   if( args->checkpt_funk ) {
     if( args->funk_wksp == NULL ) {
@@ -627,7 +636,7 @@ ingest( fd_ledger_args_t * args ) {
     FD_LOG_NOTICE(( "using shredcap" ));
     fd_shredcap_populate_blockstore( args->shredcap, blockstore, args->start_slot, args->end_slot );
   } else if( args->rocksdb_dir ) {
-    if ( args->end_slot >= slot_ctx->slot_bank.slot + args->slot_history_max ) {
+    if( args->end_slot >= slot_ctx->slot_bank.slot + args->slot_history_max ) {
       args->end_slot = slot_ctx->slot_bank.slot + args->slot_history_max - 1;
     }
     ingest_rocksdb( args->alloc, args->rocksdb_dir, args->start_slot, args->end_slot,
@@ -671,7 +680,7 @@ ingest( fd_ledger_args_t * args ) {
          !fd_funk_rec_map_iter_done( rec_map, iter );
          iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
       fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
-      if ( !fd_funk_key_is_acc( rec->pair.key ) ) {
+      if( !fd_funk_key_is_acc( rec->pair.key ) ) {
         continue;
       }
 
@@ -721,279 +730,6 @@ ingest( fd_ledger_args_t * args ) {
   }
 
   cleanup_scratch();
-  checkpt( args, slot_ctx );
-}
-
-void
-prune( fd_ledger_args_t * args ) {
-  // TODO: update to have the option to take in a checkpoint
-  /* Unpruned setup */
-  init_funk( args );
-  init_blockstore( args );
-  fd_wksp_t * unpruned_wksp             = args->wksp;
-  fd_funk_t * unpruned_funk             = args->funk;
-  fd_blockstore_t * unpruned_blockstore = args->blockstore;
-
-  uchar * epoch_ctx_mem_unpruned = fd_wksp_alloc_laddr( unpruned_wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( args->vote_acct_max ), FD_EXEC_EPOCH_CTX_MAGIC );
-  fd_exec_epoch_ctx_t * epoch_ctx_unpruned = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem_unpruned, args->vote_acct_max ) );
-
-  uchar slot_ctx_mem_unpruned[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN)));
-  fd_exec_slot_ctx_t * slot_ctx_unpruned = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem_unpruned, fd_alloc_virtual( args->alloc ) ) );
-  slot_ctx_unpruned->epoch_ctx = epoch_ctx_unpruned;
-  slot_ctx_unpruned->valloc = fd_alloc_virtual( args->alloc );
-
-  fd_acc_mgr_t mgr_unpruned[1];
-  slot_ctx_unpruned->acc_mgr = fd_acc_mgr_new( mgr_unpruned, unpruned_funk );
-  slot_ctx_unpruned->blockstore = unpruned_blockstore;
-
-  /* Setup pruned wksp */
-  fd_wksp_t * pruned_wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, args->pages_pruned, 0, "prunedwksp", 0UL );
-  if( pruned_wksp == NULL ) {
-    FD_LOG_ERR(( "failed to create and attach to a pruned_wksp" ));
-  }
-
-  /* Create pruned blockstore */
-  fd_blockstore_t * pruned_blockstore;
-  void * shmem = fd_wksp_alloc_laddr( pruned_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
-  if( shmem == NULL ) {
-    FD_LOG_ERR(( "failed to allocate a blockstore" ));
-  }
-  int lg_txn_max = 22;
-  pruned_blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, args->hashseed, args->shred_max,
-                                                             args->slot_history_max, lg_txn_max ) );
-  if( pruned_blockstore == NULL ) {
-    fd_wksp_free_laddr( shmem );
-    FD_LOG_ERR(( "failed to allocate a blockstore" ));
-  }
-  FD_LOG_NOTICE(( "pruned blockstore at global address 0x%016lx", fd_wksp_gaddr_fast( pruned_wksp, shmem ) ));
-
-  /* Create pruned funk */
-  fd_funk_t * pruned_funk;
-  shmem = fd_wksp_alloc_laddr( pruned_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
-  if ( shmem == NULL ) {
-    FD_LOG_ERR(( "failed to allocate a funky" ));
-  }
-  pruned_funk = fd_funk_join( fd_funk_new( shmem, FD_FUNK_MAGIC, args->hashseed,
-                                              args->txns_max, args->index_max_pruned ) );
-  if ( pruned_funk == NULL ) {
-    fd_wksp_free_laddr( shmem );
-    FD_LOG_ERR(( "failed to allocate a funky" ));
-  }
-  FD_LOG_NOTICE(( "pruned funky at global address 0x%016lx", fd_wksp_gaddr_fast( pruned_wksp, shmem ) ));
-
-  /* Setup slot and epoch contexts for unpruned slot and epoch tonexts*/
-  fd_alloc_t * alloc_unpruned = fd_alloc_join( fd_wksp_laddr_fast( unpruned_wksp, unpruned_funk->alloc_gaddr ), 0UL );
-  if( FD_UNLIKELY( !alloc_unpruned ) ) {
-    FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", unpruned_funk->alloc_gaddr ));
-  }
-
-  fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( pruned_wksp, pruned_funk->alloc_gaddr ), 0UL );
-  if( FD_UNLIKELY( !alloc ) ) { FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", pruned_funk->alloc_gaddr )); }
-
-  uchar * epoch_ctx_mem = fd_wksp_alloc_laddr( pruned_wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( args->vote_acct_max ), FD_EXEC_EPOCH_CTX_MAGIC );
-  fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
-
-  uchar slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN)));
-  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
-  slot_ctx->epoch_ctx = epoch_ctx;
-
-  fd_acc_mgr_t pruned_mgr[1];
-  slot_ctx->acc_mgr = fd_acc_mgr_new( pruned_mgr, pruned_funk );
-  slot_ctx->blockstore = pruned_blockstore;
-
-  fd_funk_leave( unpruned_funk );
-
-  /* Load in snapshot(s) into the unpruned funk */
-  if( args->snapshot == NULL ) {
-    FD_LOG_ERR(( "no snapshot file passed in" ));
-  }
-  fd_snapshot_load( args->snapshot, slot_ctx_unpruned, args->verify_acc_hash,
-                    args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL );
-  FD_LOG_NOTICE(( "imported %lu records from snapshot",
-                  fd_funk_rec_cnt( fd_funk_rec_map( unpruned_funk, unpruned_wksp ) ) ));
-
-  if( args->incremental ) {
-    fd_snapshot_load( args->incremental, slot_ctx_unpruned, args->verify_acc_hash,
-                      args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
-    FD_LOG_NOTICE(( "imported %lu records from snapshot",
-                    fd_funk_rec_cnt( fd_funk_rec_map( unpruned_funk, unpruned_wksp ) ) ));
-  }
-
-
-  if( args->start_slot == 0 ) {
-    args->start_slot = slot_ctx_unpruned->slot_bank.slot;
-  }
-  if( args->end_slot >= slot_ctx_unpruned->slot_bank.slot + args->slot_history_max ) {
-    args->end_slot = slot_ctx->slot_bank.slot + args->slot_history_max - 1;
-  }
-
-  ingest_rocksdb( args->alloc, args->rocksdb_dir, args->start_slot, args->end_slot, unpruned_blockstore, 0, args->trash_hash );
-  FD_LOG_NOTICE(( "imported unpruned rocksdb" ));
-
-  slot_ctx->slot_bank.slot = slot_ctx_unpruned->slot_bank.slot;
-  ingest_rocksdb( alloc, args->rocksdb_dir, args->start_slot, args->end_slot,
-                  pruned_blockstore, args->copy_txn_status, args->trash_hash );
-  FD_LOG_NOTICE(( "imported pruned rocksdb" ));
-
-  fd_scratch_detach( NULL );
-
-  /* Replay to get all accounts that are touched (r/w) during execution */
-  fd_runtime_args_t runtime_args = {0};
-  runtime_args.end_slot = args->end_slot;
-  runtime_args.pruned_funk = pruned_funk;
-  runtime_args.cmd = "replay";
-  runtime_args.allocator = "wksp";
-
-  fd_runtime_ctx_t state = {0};
-
-  fd_tvu_gossip_deliver_arg_t gossip_deliver_arg[1];
-  fd_replay_t * replay = NULL;
-  fd_tvu_main_setup( &state, &replay, NULL, NULL, 0, unpruned_wksp, &runtime_args, gossip_deliver_arg );
-
-  /* Junk xid for pruning transaction */ // TODO: factor out the xid nicely
-  fd_funk_txn_xid_t prune_xid;
-  fd_memset( &prune_xid, 0x42, sizeof(fd_funk_txn_xid_t) );
-  fd_funk_txn_t * prune_txn = fd_funk_txn_prepare( pruned_funk, NULL, &prune_xid, 1 );
-  FD_TEST(( !!prune_txn ));
-
-  int err = runtime_replay( &state, &runtime_args );
-  if( err != 0 ) {
-    fd_tvu_main_teardown( &state, NULL );
-    FD_LOG_ERR(("error in runtime replay"));
-  }
-
-  /* Reset the wksp and load in funk again. */
-  /* TODO: A better implementation of this would be to just rollback the
-      funk transactions. This can be done by publishing all funk transactions
-      into a parent and then cancelling the parent after execution is complete. */
-
-  fd_wksp_reset( unpruned_wksp, args->hashseed );
-
-  shmem = fd_wksp_alloc_laddr( unpruned_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
-  if( shmem == NULL ) {
-    FD_LOG_ERR(( "failed to allocate a funky" ));
-  }
-  unpruned_funk = fd_funk_join( fd_funk_new( shmem, FD_FUNK_MAGIC, args->hashseed,
-                                             args->txns_max, args->index_max ) );
-  init_scratch( unpruned_wksp );
-
-  alloc_unpruned = fd_alloc_join( fd_wksp_laddr_fast( unpruned_wksp, unpruned_funk->alloc_gaddr ), 0UL );
-  if( FD_UNLIKELY( !alloc_unpruned ) ) {
-    FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", unpruned_funk->alloc_gaddr ));
-  }
-  epoch_ctx_unpruned = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem_unpruned, args->vote_acct_max ) );
-  slot_ctx_unpruned = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem_unpruned, fd_alloc_virtual( alloc_unpruned ) ) );
-  slot_ctx_unpruned->epoch_ctx = epoch_ctx_unpruned;
-
-  slot_ctx_unpruned->valloc = fd_alloc_virtual( alloc_unpruned );
-
-  fd_acc_mgr_t mgr_unpruned_new[1];
-  slot_ctx_unpruned->acc_mgr = fd_acc_mgr_new( mgr_unpruned_new, unpruned_funk );
-  fd_snapshot_load( args->snapshot, slot_ctx_unpruned, args->verify_acc_hash,
-                    args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL );
-
-  if( args->incremental ) {
-    fd_snapshot_load( args->incremental, slot_ctx_unpruned, args->verify_acc_hash,
-                      args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
-  }
-
-  FD_LOG_NOTICE(("imported %lu records from snapshot",
-                  fd_funk_rec_cnt( fd_funk_rec_map( unpruned_funk, unpruned_wksp ))));
-
-  /* After replaying, update all touched accounts to contain the data that is
-     present before execution begins. Look up the corresponding account in the
-     unpruned funk and copy over the contents */
-  fd_funk_rec_t * rec_map = fd_funk_rec_map( pruned_funk, pruned_wksp );
-  for( const fd_funk_rec_t * rec = fd_funk_txn_rec_head( prune_txn, rec_map );
-        rec; rec = fd_funk_txn_next_rec( pruned_funk, rec ) ) {
-
-    const fd_funk_rec_t * original_rec = fd_funk_rec_query_global( unpruned_funk, NULL, rec->pair.key );
-    if( original_rec != NULL ) {
-      fd_funk_rec_t * mod_rec = fd_funk_rec_modify( pruned_funk, rec );
-      mod_rec = fd_funk_val_copy( mod_rec, fd_funk_val_const( original_rec, unpruned_wksp ),
-                                  fd_funk_val_sz( original_rec ),fd_funk_val_sz( original_rec ),
-                                  fd_funk_alloc( pruned_funk, pruned_wksp ), pruned_wksp, NULL );
-      FD_TEST(( memcmp( fd_funk_val( original_rec, unpruned_wksp ), fd_funk_val_const( rec, pruned_wksp ),
-                        fd_funk_val_sz( original_rec ) ) == 0 ));
-    } else {
-      fd_funk_rec_t * mod_rec = fd_funk_rec_modify( pruned_funk, rec );
-      int res = fd_funk_rec_remove( pruned_funk, mod_rec, 1 );
-      FD_TEST(( res == 0 ));
-    }
-  }
-  FD_LOG_NOTICE(( "Copied over all records from transactions" ));
-
-  /* Repeat above steps with all features */
-  for( fd_feature_id_t const * id = fd_feature_iter_init();
-        !fd_feature_iter_done( id ); id = fd_feature_iter_next( id ) ) {
-
-    fd_pubkey_t const *   pubkey      = (fd_pubkey_t *) id->id.key;
-    fd_funk_rec_key_t     feature_id  = fd_acc_funk_key( pubkey );
-    fd_funk_rec_t const * feature_rec = fd_funk_rec_query_global( unpruned_funk, NULL, &feature_id );
-    if( !feature_rec ) {
-      continue;
-    }
-    fd_funk_rec_t * new_feature_rec = fd_funk_rec_write_prepare( pruned_funk, prune_txn, &feature_id,
-                                                                 0, 1, NULL, NULL );
-    FD_TEST(( !!new_feature_rec ));
-    new_feature_rec = fd_funk_val_copy( new_feature_rec, fd_funk_val_const( feature_rec, unpruned_wksp ),
-                                        fd_funk_val_sz( feature_rec ), fd_funk_val_sz( feature_rec ),
-                                        fd_funk_alloc( pruned_funk, pruned_wksp ), pruned_wksp, NULL );
-    FD_TEST(( !!new_feature_rec ));
-  }
-  FD_LOG_NOTICE(("Copied over all features"));
-
-  /* Do the same with the epoch/slot bank keys and sysvars */
-  fd_funk_rec_key_t id_epoch_bank       = fd_runtime_epoch_bank_key();
-  fd_funk_rec_key_t id_slot_bank        = fd_runtime_slot_bank_key();
-  fd_funk_rec_key_t recent_block_hashes = fd_acc_funk_key( &fd_sysvar_recent_block_hashes_id );
-  fd_funk_rec_key_t clock               = fd_acc_funk_key( &fd_sysvar_clock_id );
-  fd_funk_rec_key_t slot_history        = fd_acc_funk_key( &fd_sysvar_slot_history_id );
-  fd_funk_rec_key_t slot_hashes         = fd_acc_funk_key( &fd_sysvar_slot_hashes_id );
-  fd_funk_rec_key_t epoch_schedule      = fd_acc_funk_key( &fd_sysvar_epoch_schedule_id );
-  fd_funk_rec_key_t epoch_rewards       = fd_acc_funk_key( &fd_sysvar_epoch_rewards_id );
-  fd_funk_rec_key_t sysvar_fees         = fd_acc_funk_key( &fd_sysvar_fees_id );
-  fd_funk_rec_key_t rent                = fd_acc_funk_key( &fd_sysvar_rent_id );
-  fd_funk_rec_key_t stake_history       = fd_acc_funk_key( &fd_sysvar_stake_history_id );
-  fd_funk_rec_key_t owner               = fd_acc_funk_key( &fd_sysvar_owner_id );
-  fd_funk_rec_key_t last_restart_slot   = fd_acc_funk_key( &fd_sysvar_last_restart_slot_id );
-  fd_funk_rec_key_t instructions        = fd_acc_funk_key( &fd_sysvar_instructions_id );
-  fd_funk_rec_key_t incinerator         = fd_acc_funk_key( &fd_sysvar_incinerator_id );
-
-  fd_funk_rec_key_t records[15] = { id_epoch_bank, id_slot_bank, recent_block_hashes, clock, slot_history,
-                                    slot_hashes, epoch_schedule, epoch_rewards, sysvar_fees, rent,
-                                    stake_history, owner, last_restart_slot, instructions, incinerator };
-  for( uint i = 0; i < sizeof( records ) / sizeof( fd_funk_rec_key_t ); ++i ) {
-    fd_funk_rec_t const * original_rec = fd_funk_rec_query_global( unpruned_funk, NULL, &records[i] );
-    if( !original_rec ) {
-      /* Some sysvars aren't touched during execution. Not a problem. */
-      FD_LOG_DEBUG(("Record is not in account pubkey=%32J", &records[i]));
-      continue;
-    }
-    fd_funk_rec_t * new_rec = fd_funk_rec_write_prepare( pruned_funk, prune_txn, &records[i], 0, 1, NULL, NULL );
-    FD_TEST(( !!new_rec ));
-    new_rec = fd_funk_val_copy( new_rec, fd_funk_val_const( original_rec, unpruned_wksp ),
-                                fd_funk_val_sz( original_rec ), fd_funk_val_sz( original_rec ),
-                                fd_funk_alloc( pruned_funk, pruned_wksp ), pruned_wksp, NULL );
-    FD_TEST(( !!new_rec ));
-  }
-  FD_LOG_NOTICE(("Copied over all sysvars and bank keys"));
-
-  /* Publish transaction with pruned records to the root of funk */
-  if( fd_funk_txn_publish( pruned_funk, prune_txn, 1 ) == 0 ) {
-    FD_LOG_ERR(("failed to publish transaction into pruned funk"));
-  }
-
-  /* Verify that the pruned records are in the funk */
-  FD_LOG_NOTICE(("Pruned funk record count is %lu", fd_funk_rec_global_cnt( pruned_funk, pruned_wksp )));
-
-  cleanup_scratch();
-  fd_funk_leave( unpruned_funk );
-
-  if( fd_funk_verify( pruned_funk ) ) {
-    FD_LOG_ERR(( "pruned funk verification failed" ));
-  }
-
   checkpt( args, slot_ctx );
 }
 
@@ -1099,6 +835,327 @@ replay( fd_ledger_args_t * args ) {
   return ret;
 }
 
+void
+prune( fd_ledger_args_t * args ) {
+
+  if( args->start_slot != 0 ) {
+    /* Set prune start and end slot */
+    ulong prune_start_slot = args->start_slot;
+    ulong prune_end_slot = args->end_slot;
+
+    /* Replay all slots before prune slot and checkpoint at prune_start_slot */
+    args->start_slot = 0;
+    args->end_slot = prune_start_slot + FD_RUNTIME_NUM_ROOT_BLOCKS;
+    args->checkpt_slot = prune_start_slot;
+    args->checkpt_path = args->checkpt_funk == NULL ? args->checkpt : args->checkpt_funk;
+
+    int err = replay( args );
+    if(err != 0) {
+      FD_LOG_ERR(( "Error on replay in prune" ));
+    }
+
+    /* Restore from checkpoint created in replay */
+    args->snapshot = NULL;
+    args->start_slot = prune_start_slot;
+    args->end_slot = prune_end_slot;
+    args->restore = args->checkpt;
+    args->restore_funk = args->checkpt_funk;
+  }
+
+  if( args->restore || args->restore_funk ) {
+    fd_wksp_restore( args->funk_wksp == NULL ? args->wksp : args->funk_wksp, args->restore_funk == NULL ? args->restore : args->restore_funk, args->hashseed );
+  }
+
+  init_funk( args );
+  init_blockstore( args );
+  fd_wksp_t * unpruned_wksp             = args->funk_wksp == NULL ? args->wksp : args->funk_wksp;
+  fd_funk_t * unpruned_funk             = args->funk;
+  fd_blockstore_t * unpruned_blockstore = args->blockstore;
+
+  uchar * epoch_ctx_mem_unpruned = fd_wksp_alloc_laddr( unpruned_wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( args->vote_acct_max ), FD_EXEC_EPOCH_CTX_MAGIC );
+  fd_exec_epoch_ctx_t * epoch_ctx_unpruned = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem_unpruned, args->vote_acct_max ) );
+
+  uchar slot_ctx_mem_unpruned[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN)));
+  fd_exec_slot_ctx_t * slot_ctx_unpruned = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem_unpruned, fd_alloc_virtual( args->alloc ) ) );
+  slot_ctx_unpruned->epoch_ctx = epoch_ctx_unpruned;
+  slot_ctx_unpruned->valloc = fd_alloc_virtual( args->alloc );
+
+  fd_acc_mgr_t mgr_unpruned[1];
+  slot_ctx_unpruned->acc_mgr = fd_acc_mgr_new( mgr_unpruned, unpruned_funk );
+  slot_ctx_unpruned->blockstore = unpruned_blockstore;
+
+  /* Setup pruned wksp */
+  fd_wksp_t * pruned_wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, args->pages_pruned, 0, "prunedwksp", 0UL );
+  if( pruned_wksp == NULL ) {
+    FD_LOG_ERR(( "failed to create and attach to a pruned_wksp" ));
+  }
+
+  /* Create pruned blockstore */
+  fd_blockstore_t * pruned_blockstore;
+  void * shmem = fd_wksp_alloc_laddr( pruned_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
+  if( shmem == NULL ) {
+    FD_LOG_ERR(( "failed to allocate a blockstore" ));
+  }
+  int lg_txn_max = 22;
+  pruned_blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, args->hashseed, args->shred_max,
+                                                             args->slot_history_max, lg_txn_max ) );
+  if( pruned_blockstore == NULL ) {
+    fd_wksp_free_laddr( shmem );
+    FD_LOG_ERR(( "failed to allocate a blockstore" ));
+  }
+  FD_LOG_NOTICE(( "pruned blockstore at global address 0x%016lx", fd_wksp_gaddr_fast( pruned_wksp, shmem ) ));
+
+  /* Create pruned funk */
+  fd_funk_t * pruned_funk;
+  shmem = fd_wksp_alloc_laddr( pruned_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
+  if( shmem == NULL ) {
+    FD_LOG_ERR(( "failed to allocate a funky" ));
+  }
+  pruned_funk = fd_funk_join( fd_funk_new( shmem, FD_FUNK_MAGIC, args->hashseed,
+                                              args->txns_max, args->index_max_pruned ) );
+  if( pruned_funk == NULL ) {
+    fd_wksp_free_laddr( shmem );
+    FD_LOG_ERR(( "failed to allocate a funky" ));
+  }
+  FD_LOG_NOTICE(( "pruned funky at global address 0x%016lx", fd_wksp_gaddr_fast( pruned_wksp, shmem ) ));
+
+  /* Setup slot and epoch contexts for unpruned slot and epoch contexts */
+  fd_alloc_t * alloc_unpruned = fd_alloc_join( fd_wksp_laddr_fast( unpruned_wksp, unpruned_funk->alloc_gaddr ), 0UL );
+  if( FD_UNLIKELY( !alloc_unpruned ) ) {
+    FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", unpruned_funk->alloc_gaddr ));
+  }
+
+  fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( pruned_wksp, pruned_funk->alloc_gaddr ), 0UL );
+  if( FD_UNLIKELY( !alloc ) ) { FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", pruned_funk->alloc_gaddr )); }
+
+  uchar * epoch_ctx_mem = fd_wksp_alloc_laddr( pruned_wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( args->vote_acct_max ), FD_EXEC_EPOCH_CTX_MAGIC );
+  fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
+
+  uchar slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN)));
+  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
+  slot_ctx->epoch_ctx = epoch_ctx;
+
+  fd_acc_mgr_t pruned_mgr[1];
+  slot_ctx->acc_mgr = fd_acc_mgr_new( pruned_mgr, pruned_funk );
+  slot_ctx->blockstore = pruned_blockstore;
+
+  fd_funk_leave( unpruned_funk );
+
+  /* Load in snapshot(s) into the unpruned funk */
+  if( args->snapshot ) {
+    fd_snapshot_load( args->snapshot, slot_ctx_unpruned, args->verify_acc_hash,
+                      args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL );
+    FD_LOG_NOTICE(( "imported %lu records from snapshot",
+                    fd_funk_rec_cnt( fd_funk_rec_map( unpruned_funk, unpruned_wksp ) ) ));
+  }
+
+  if( args->incremental ) {
+    fd_snapshot_load( args->incremental, slot_ctx_unpruned, args->verify_acc_hash,
+                      args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
+    FD_LOG_NOTICE(( "imported %lu records from snapshot",
+                    fd_funk_rec_cnt( fd_funk_rec_map( unpruned_funk, unpruned_wksp ) ) ));
+  }
+
+  fd_scratch_detach( NULL );
+
+  /* Replay to get all accounts that are touched (r/w) during execution */
+  fd_runtime_args_t runtime_args = {0};
+  runtime_args.end_slot = args->end_slot;
+  runtime_args.pruned_funk = pruned_funk;
+  runtime_args.cmd = "replay";
+  runtime_args.allocator = "wksp";
+  runtime_args.on_demand_block_ingest = args->on_demand_block_ingest;
+  runtime_args.rocksdb_dir = args->rocksdb_dir;
+  runtime_args.on_demand_block_history = args->on_demand_block_history;
+  runtime_args.funk_wksp = unpruned_wksp;
+
+  fd_runtime_ctx_t state = {0};
+
+  fd_tvu_gossip_deliver_arg_t gossip_deliver_arg[1];
+  fd_replay_t * replay = NULL;
+  fd_tvu_main_setup( &state, &replay, &slot_ctx_unpruned, NULL, 0, unpruned_wksp, &runtime_args, gossip_deliver_arg );
+
+  if( args->on_demand_block_ingest == 0 ) { // TODO: im pretty sure you can move to this to after the tvu_setup
+    if( args->start_slot == 0 ) {
+      args->start_slot = slot_ctx_unpruned->slot_bank.slot;
+    }
+    if( args->end_slot >= slot_ctx_unpruned->slot_bank.slot + args->slot_history_max ) {
+      args->end_slot = slot_ctx->slot_bank.slot + args->slot_history_max - 1;
+    }
+
+    ingest_rocksdb( args->alloc, args->rocksdb_dir, args->start_slot, args->end_slot, unpruned_blockstore, 0, args->trash_hash );
+    FD_LOG_NOTICE(( "imported unpruned rocksdb" ));
+  }
+
+  slot_ctx->slot_bank.slot = slot_ctx_unpruned->slot_bank.slot;
+
+  /* Junk xid for pruning transaction */ // TODO: factor out the xid nicely
+  fd_funk_txn_xid_t prune_xid;
+  fd_memset( &prune_xid, 0x42, sizeof(fd_funk_txn_xid_t) );
+  fd_funk_start_write( pruned_funk );
+  fd_funk_txn_t * prune_txn = fd_funk_txn_prepare( pruned_funk, NULL, &prune_xid, 1 );
+  fd_funk_end_write( pruned_funk );
+  FD_TEST(( !!prune_txn ));
+
+  int err = runtime_replay( &state, &runtime_args );
+  if( err != 0 ) {
+    fd_tvu_main_teardown( &state, NULL );
+    FD_LOG_ERR(("error in runtime replay"));
+  }
+
+  /* Reset the wksp and load in funk again. */
+
+  fd_wksp_reset( unpruned_wksp, args->hashseed );
+
+  shmem = fd_wksp_alloc_laddr( unpruned_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
+  if( shmem == NULL ) {
+    FD_LOG_ERR(( "failed to allocate a funky" ));
+  }
+  unpruned_funk = fd_funk_join( fd_funk_new( shmem, FD_FUNK_MAGIC, args->hashseed,
+                                             args->txns_max, args->index_max ) );
+  init_scratch( unpruned_wksp );
+
+  alloc_unpruned = fd_alloc_join( fd_wksp_laddr_fast( unpruned_wksp, unpruned_funk->alloc_gaddr ), 0UL );
+  if( FD_UNLIKELY( !alloc_unpruned ) ) {
+    FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", unpruned_funk->alloc_gaddr ));
+  }
+
+  epoch_ctx_mem_unpruned = fd_wksp_alloc_laddr( unpruned_wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( args->vote_acct_max ), FD_EXEC_EPOCH_CTX_MAGIC );
+  epoch_ctx_unpruned = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem_unpruned, args->vote_acct_max ) );
+  slot_ctx_unpruned = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem_unpruned, fd_alloc_virtual( alloc_unpruned ) ) );
+  slot_ctx_unpruned->epoch_ctx = epoch_ctx_unpruned;
+
+  slot_ctx_unpruned->valloc = fd_alloc_virtual( alloc_unpruned );
+
+  if( args->snapshot ) {
+    fd_acc_mgr_t mgr_unpruned_new[1];
+    slot_ctx_unpruned->acc_mgr = fd_acc_mgr_new( mgr_unpruned_new, unpruned_funk );
+    fd_snapshot_load( args->snapshot, slot_ctx_unpruned, 0, 0, FD_SNAPSHOT_TYPE_FULL );
+  }
+
+  if( args->incremental ) {
+    fd_snapshot_load( args->incremental, slot_ctx_unpruned, args->verify_acc_hash,
+                      args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
+  }
+
+  FD_LOG_NOTICE(( "imported %lu records from snapshot",
+                  fd_funk_rec_cnt( fd_funk_rec_map( unpruned_funk, unpruned_wksp ) ) ));
+
+
+  if( args->restore != NULL || args->restore_funk != NULL ) {
+    fd_wksp_restore( args->funk_wksp == NULL ? args->wksp : args->funk_wksp, args->restore_funk == NULL ? args->restore : args->restore_funk, args->hashseed );
+    init_funk( args );
+    unpruned_wksp = args->funk_wksp == NULL ? args->wksp : args->funk_wksp;
+    unpruned_funk = args->funk;
+
+    FD_LOG_NOTICE(( "imported %lu records from checkpoint",
+                    fd_funk_rec_cnt( fd_funk_rec_map( unpruned_funk, unpruned_wksp ) ) ));
+  }
+
+  /* After replaying, update all touched accounts to contain the data that is
+     present before execution begins. Look up the corresponding account in the
+     unpruned funk and copy over the contents */
+  fd_funk_start_write( pruned_funk );
+  fd_funk_start_write( unpruned_funk );
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( pruned_funk, pruned_wksp );
+  for( const fd_funk_rec_t * rec = fd_funk_txn_rec_head( prune_txn, rec_map );
+        rec; rec = fd_funk_txn_next_rec( pruned_funk, rec ) ) {
+
+    const fd_funk_rec_t * original_rec = fd_funk_rec_query_global( unpruned_funk, NULL, rec->pair.key );
+    if( original_rec != NULL ) {
+      fd_funk_rec_t * mod_rec = fd_funk_rec_modify( pruned_funk, rec );
+      mod_rec = fd_funk_val_copy( mod_rec, fd_funk_val_const( original_rec, unpruned_wksp ),
+                                  fd_funk_val_sz( original_rec ),fd_funk_val_sz( original_rec ),
+                                  fd_funk_alloc( pruned_funk, pruned_wksp ), pruned_wksp, NULL );
+      FD_TEST(( memcmp( fd_funk_val( original_rec, unpruned_wksp ), fd_funk_val_const( rec, pruned_wksp ),
+                        fd_funk_val_sz( original_rec ) ) == 0 ));
+    } else {
+      fd_funk_rec_t * mod_rec = fd_funk_rec_modify( pruned_funk, rec );
+      int res = fd_funk_rec_remove( pruned_funk, mod_rec, 1 );
+      FD_TEST(( res == 0 ));
+    }
+  }
+  FD_LOG_NOTICE(( "Copied over all records from transactions" ));
+
+  /* Repeat above steps with all features */
+  for( fd_feature_id_t const * id = fd_feature_iter_init();
+        !fd_feature_iter_done( id ); id = fd_feature_iter_next( id ) ) {
+
+    fd_pubkey_t const *   pubkey      = (fd_pubkey_t *) id->id.key;
+    fd_funk_rec_key_t     feature_id  = fd_acc_funk_key( pubkey );
+    fd_funk_rec_t const * feature_rec = fd_funk_rec_query_global( unpruned_funk, NULL, &feature_id );
+    if( !feature_rec ) {
+      continue;
+    }
+    fd_funk_rec_t * new_feature_rec = fd_funk_rec_write_prepare( pruned_funk, prune_txn, &feature_id,
+                                                                 0, 1, NULL, NULL );
+    FD_TEST(( !!new_feature_rec ));
+    new_feature_rec = fd_funk_val_copy( new_feature_rec, fd_funk_val_const( feature_rec, unpruned_wksp ),
+                                        fd_funk_val_sz( feature_rec ), fd_funk_val_sz( feature_rec ),
+                                        fd_funk_alloc( pruned_funk, pruned_wksp ), pruned_wksp, NULL );
+    FD_TEST(( !!new_feature_rec ));
+  }
+  FD_LOG_NOTICE(("Copied over all features"));
+
+  /* Do the same with the epoch/slot bank keys and sysvars */
+  fd_funk_rec_key_t id_epoch_bank       = fd_runtime_epoch_bank_key();
+  fd_funk_rec_key_t id_slot_bank        = fd_runtime_slot_bank_key();
+  fd_funk_rec_key_t recent_block_hashes = fd_acc_funk_key( &fd_sysvar_recent_block_hashes_id );
+  fd_funk_rec_key_t clock               = fd_acc_funk_key( &fd_sysvar_clock_id );
+  fd_funk_rec_key_t slot_history        = fd_acc_funk_key( &fd_sysvar_slot_history_id );
+  fd_funk_rec_key_t slot_hashes         = fd_acc_funk_key( &fd_sysvar_slot_hashes_id );
+  fd_funk_rec_key_t epoch_schedule      = fd_acc_funk_key( &fd_sysvar_epoch_schedule_id );
+  fd_funk_rec_key_t epoch_rewards       = fd_acc_funk_key( &fd_sysvar_epoch_rewards_id );
+  fd_funk_rec_key_t sysvar_fees         = fd_acc_funk_key( &fd_sysvar_fees_id );
+  fd_funk_rec_key_t rent                = fd_acc_funk_key( &fd_sysvar_rent_id );
+  fd_funk_rec_key_t stake_history       = fd_acc_funk_key( &fd_sysvar_stake_history_id );
+  fd_funk_rec_key_t owner               = fd_acc_funk_key( &fd_sysvar_owner_id );
+  fd_funk_rec_key_t last_restart_slot   = fd_acc_funk_key( &fd_sysvar_last_restart_slot_id );
+  fd_funk_rec_key_t instructions        = fd_acc_funk_key( &fd_sysvar_instructions_id );
+  fd_funk_rec_key_t incinerator         = fd_acc_funk_key( &fd_sysvar_incinerator_id );
+
+  fd_funk_rec_key_t records[15] = { id_epoch_bank, id_slot_bank, recent_block_hashes, clock, slot_history,
+                                    slot_hashes, epoch_schedule, epoch_rewards, sysvar_fees, rent,
+                                    stake_history, owner, last_restart_slot, instructions, incinerator };
+  for( uint i = 0; i < sizeof( records ) / sizeof( fd_funk_rec_key_t ); ++i ) {
+    fd_funk_rec_t const * original_rec = fd_funk_rec_query_global( unpruned_funk, NULL, &records[i] );
+    if( !original_rec ) {
+      /* Some sysvars aren't touched during execution. Not a problem. */
+      FD_LOG_DEBUG(("Record is not in account pubkey=%32J", &records[i]));
+      continue;
+    }
+    fd_funk_rec_t * new_rec = fd_funk_rec_write_prepare( pruned_funk, prune_txn, &records[i], 0, 1, NULL, NULL );
+    FD_TEST(( !!new_rec ));
+    new_rec = fd_funk_val_copy( new_rec, fd_funk_val_const( original_rec, unpruned_wksp ),
+                                fd_funk_val_sz( original_rec ), fd_funk_val_sz( original_rec ),
+                                fd_funk_alloc( pruned_funk, pruned_wksp ), pruned_wksp, NULL );
+    FD_TEST(( !!new_rec ));
+  }
+  FD_LOG_NOTICE(("Copied over all sysvars and bank keys"));
+
+  /* Publish transaction with pruned records to the root of funk */
+  if( fd_funk_txn_publish( pruned_funk, prune_txn, 1 ) == 0 ) {
+    FD_LOG_ERR(("failed to publish transaction into pruned funk"));
+  }
+
+  /* Verify that the pruned records are in the funk */
+  FD_LOG_NOTICE(("Pruned funk record count is %lu", fd_funk_rec_global_cnt( pruned_funk, pruned_wksp )));
+
+  cleanup_scratch();
+  fd_funk_leave( unpruned_funk );
+
+  if( fd_funk_verify( pruned_funk ) ) {
+    FD_LOG_ERR(( "pruned funk verification failed" ));
+  }
+
+  fd_funk_end_write( pruned_funk );
+  fd_funk_end_write( unpruned_funk );
+  args->funk = NULL;
+  args->wksp = pruned_wksp;
+  args->funk_wksp = pruned_wksp;
+  checkpt( args, slot_ctx );
+}
+
 /* Parse user arguments and setup shared data structures used across commands */
 int
 initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
@@ -1174,7 +1231,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
     wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, page_cnt, 0, "wksp", 0UL );
   } else {
     fd_shmem_info_t shmem_info[1];
-    if ( FD_UNLIKELY( fd_shmem_info( wksp_name, 0UL, shmem_info ) ) )
+    if( FD_UNLIKELY( fd_shmem_info( wksp_name, 0UL, shmem_info ) ) )
       FD_LOG_ERR(( "unable to query region \"%s\"\n\tprobably does not exist or bad permissions", wksp_name ));
     wksp = fd_wksp_attach( wksp_name );
   }
@@ -1190,14 +1247,14 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   init_scratch( wksp );
 
   /* Setup funk workspace if specified. */
-  if ( use_funk_wksp ) {
+  if( use_funk_wksp ) {
     fd_wksp_t * funk_wksp = NULL;
     if( wksp_name_funk == NULL ) {
       FD_LOG_NOTICE(( "--wksp-name-funk not specified, using an anonymous local funk workspace" ));
       funk_wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, funk_page_cnt, 0, "funk_wksp", 0UL );
     } else {
       fd_shmem_info_t shmem_info[1];
-      if ( FD_UNLIKELY( fd_shmem_info( wksp_name_funk, 0UL, shmem_info ) ) )
+      if( FD_UNLIKELY( fd_shmem_info( wksp_name_funk, 0UL, shmem_info ) ) )
         FD_LOG_ERR(( "unable to query region \"%s\"\n\tprobably does not exist or bad permissions", wksp_name_funk ));
       funk_wksp = fd_wksp_attach( wksp_name_funk );
     }
