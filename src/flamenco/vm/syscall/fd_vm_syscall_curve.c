@@ -21,14 +21,14 @@ fd_vm_syscall_sol_curve_validate_point( /**/            void *  _vm,
   case FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS:
 
     FD_VM_CU_UPDATE( vm, FD_VM_CURVE25519_EDWARDS_VALIDATE_POINT_COST );
-    point = FD_VM_MEM_HADDR_LD( vm, point_addr, 8UL, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
+    point = FD_VM_MEM_HADDR_LD( vm, point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
     ret = (ulong)!fd_ed25519_point_validate( point ); /* 0 if valid point, 1 if not */
     break;
 
   case FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO:
 
     FD_VM_CU_UPDATE( vm, FD_VM_CURVE25519_RISTRETTO_VALIDATE_POINT_COST );
-    point = FD_VM_MEM_HADDR_LD( vm, point_addr, 8UL, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
+    point = FD_VM_MEM_HADDR_LD( vm, point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
     ret = (ulong)!fd_ristretto255_point_validate( point ); /* 0 if valid point, 1 if not */
     break;
 
@@ -106,9 +106,9 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
   /* Note: left_input_addr is a point for add, sub, BUT it's a scalar for mul.
      However, from a memory mapping perspective it's always 32 bytes, so we unify the code. */
-  uchar const * inputL = FD_VM_MEM_HADDR_LD( vm, left_input_addr,   8UL, 32UL );
-  uchar const * inputR = FD_VM_MEM_HADDR_LD( vm, right_input_addr,  8UL, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
-  uchar * result       = FD_VM_MEM_HADDR_ST( vm, result_point_addr, 8UL, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
+  uchar const * inputL = FD_VM_MEM_HADDR_LD( vm, left_input_addr,   FD_VM_ALIGN_RUST_POD_U8_ARRAY, 32UL );
+  uchar const * inputR = FD_VM_MEM_HADDR_LD( vm, right_input_addr,  FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
+  uchar * result       = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
 
   switch( MATCH_ID_OP( curve_id, group_op ) ) {
 
@@ -327,9 +327,9 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
   FD_VM_CU_UPDATE( vm, cost );
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L1166-L1178 */
-  uchar const * scalars = FD_VM_MEM_HADDR_LD( vm, scalars_addr,      8UL, points_len*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ );
-  uchar const * points  = FD_VM_MEM_HADDR_LD( vm, points_addr,       8UL, points_len*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
-  uchar * result        = FD_VM_MEM_HADDR_ST( vm, result_point_addr, 8UL, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
+  uchar const * scalars = FD_VM_MEM_HADDR_LD( vm, scalars_addr,      FD_VM_ALIGN_RUST_POD_U8_ARRAY, points_len*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ );
+  uchar const * points  = FD_VM_MEM_HADDR_LD( vm, points_addr,       FD_VM_ALIGN_RUST_POD_U8_ARRAY, points_len*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
+  uchar * result        = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
 
   switch( curve_id ) {
 
