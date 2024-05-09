@@ -36,6 +36,8 @@
 #define MAX_ADDR_STRLEN      128
 #define TEST_CONSENSUS_MAGIC ( 0x7e57UL ) /* test */
 
+uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0, 0 ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
+
 static void
 sign_fun( void * arg, uchar * sig, uchar const * buffer, ulong len ) {
   fd_gossip_config_t * config = (fd_gossip_config_t *)arg;
@@ -247,10 +249,9 @@ setup_scratch( fd_valloc_t valloc ) {
 }
 
 struct turbine_targs {
-  int           tvu_fd;
-  fd_replay_t * replay;
-  fd_store_t *  store;
-  fd_wksp_t *   wksp;
+  int            tvu_fd;
+  fd_replay_t *  replay;
+  fd_store_t *   store;
 };
 typedef struct turbine_targs turbine_targs_t;
 
@@ -260,10 +261,6 @@ turbine_thread( FD_PARAM_UNUSED int argc, char ** argv ) {
   int               tvu_fd = args->tvu_fd;
 
   setup_scratch( args->replay->valloc );
-
-  // void * metrics = fd_wksp_alloc_laddr(
-  //     args->wksp, FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( 0, 0 ), TEST_CONSENSUS_MAGIC );
-  // fd_metrics_register( (ulong *)fd_metrics_new( metrics, 0UL, 0UL ) );
 
 #define VLEN 32U
   struct mmsghdr msgs[VLEN];
@@ -403,6 +400,7 @@ int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
+  fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL, 0UL ) );
 
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 0UL );
   const char * restore  = fd_env_strip_cmdline_cstr( &argc, &argv, "--restore", NULL, NULL );
