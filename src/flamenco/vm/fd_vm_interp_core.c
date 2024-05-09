@@ -111,9 +111,9 @@
     /* Bill linear text segment and this branch instruction as per the above */                         \
     ic_correction = pc - pc0 + 1UL - ic_correction;                                                     \
     ic += ic_correction;                                                                                \
-    if( FD_UNLIKELY( ic_correction>=cu ) ) goto sigcost; /* Note: untaken branches don't consume BTB */ \
+    if( FD_UNLIKELY( ic_correction>cu ) ) goto sigcost; /* Note: untaken branches don't consume BTB */  \
     cu -= ic_correction;                                                                                \
-    /* At this point, cu is positive */                                                                 \
+    /* At this point, cu>=0 */                                                                          \
     ic_correction = 0UL;
 
   /* FIXME: debatable if it is better to do pc++ here or have the
@@ -227,7 +227,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
     reg[ dst ] = (ulong)(long)( (int)reg_dst - (int)imm );
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_BRANCH_BEGIN(0x15) /* FD_SBPF_OP_JEQ_IMM */ /* FIXME: CHECK IMM SIGN EXTENSION */
+  FD_VM_INTERP_BRANCH_BEGIN(0x15) /* FD_SBPF_OP_JEQ_IMM */
     pc += fd_ulong_if( reg_dst==(ulong)(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
@@ -260,7 +260,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
     reg[ dst ] = (ulong)(long)( (int)reg_dst * (int)imm );
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_BRANCH_BEGIN(0x25) /* FD_SBPF_OP_JGT_IMM */ /* FIXME: CHECK IMM SIGN EXTENSION */
+  FD_VM_INTERP_BRANCH_BEGIN(0x25) /* FD_SBPF_OP_JGT_IMM */
     pc += fd_ulong_if( reg_dst>(ulong)(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
@@ -288,8 +288,8 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
     reg[ dst ] = (ulong)((uint)reg_dst / imm);
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_BRANCH_BEGIN(0x35) /* FD_SBPF_OP_JGE_IMM */ /* FIXME: CHECK IMM SIGN EXTENSION */
-    pc += fd_ulong_if( reg_dst>=(ulong)imm, (ulong)(long)offset, 0UL );
+  FD_VM_INTERP_BRANCH_BEGIN(0x35) /* FD_SBPF_OP_JGE_IMM */
+    pc += fd_ulong_if( reg_dst>=(ulong)(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x37) /* FD_SBPF_OP_DIV64_IMM */
@@ -317,7 +317,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x45) /* FD_SBPF_OP_JSET_IMM */
-    pc += fd_ulong_if( !!(reg_dst & (ulong)imm), (ulong)(long)offset, 0UL );
+    pc += fd_ulong_if( !!(reg_dst & (ulong)(long)(int)imm), (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x47) /* FD_SBPF_OP_OR64_IMM */
@@ -342,7 +342,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
     reg[ dst ] = (ulong)( (uint)reg_dst & imm );
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_BRANCH_BEGIN(0x55) /* FD_SBPF_OP_JNE_IMM */ /* FIXME: CHECK IMM SIGN EXTENSION */
+  FD_VM_INTERP_BRANCH_BEGIN(0x55) /* FD_SBPF_OP_JNE_IMM */
     pc += fd_ulong_if( reg_dst!=(ulong)(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
@@ -402,7 +402,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
     reg[ dst ] = (ulong)( (uint)reg_dst << imm );
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_BRANCH_BEGIN(0x65) /* FD_SBPF_OP_JSGT_IMM */ /* FIXME: CHECK IMM SIGN EXTENSION */
+  FD_VM_INTERP_BRANCH_BEGIN(0x65) /* FD_SBPF_OP_JSGT_IMM */
     pc += fd_ulong_if( (long)reg_dst>(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
@@ -482,7 +482,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
     reg[ dst ] = (ulong)( (uint)reg_dst >> imm ); /* FIXME: WIDE SHIFTS */
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_BRANCH_BEGIN(0x75) /* FD_SBPF_OP_JSGE_IMM */ /* FXIME: CHECK IMM SIGN EXTENSION */
+  FD_VM_INTERP_BRANCH_BEGIN(0x75) /* FD_SBPF_OP_JSGE_IMM */
     pc += fd_ulong_if( (long)reg_dst>=(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
@@ -639,7 +639,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
     /* FIXME: REALLY??  SBPF USES IMM TO INDEX THE REG FILE??  DOUBLE
        CHECK THIS.  AT LEAST MASKING THE LSB IN THE MEANTIME TO
-       GUARANTEE TO OVERFLOW.*/
+       GUARANTEE TO OVERFLOW. */
     ulong vaddr = reg[ imm & 15U ];
 
     ulong region = vaddr >> 32;
@@ -665,10 +665,6 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
     reg[ dst ] = (ulong)( (uint)reg_dst % imm );
   FD_VM_INTERP_INSTR_END;
 
-  /* FIXME: CHECK IF AN EXIT THAT EXACTLY HITS CU==0 SHOULD BE
-     CONSIDERED SIGCOST OR NORMAL TERMINATION.  IF CU EXACTLY EQUAL ZERO
-     IS ALLOWED ON TERMINATION, SIGCOST CAN CHECK IT HIT ON OP EXIT WITH
-     A ZERO FRAME COUNT AND RETURN NORMALLY. */
   FD_VM_INTERP_BRANCH_BEGIN(0x95) /* FD_SBPF_OP_EXIT */
     if( FD_UNLIKELY( !frame_cnt ) ) goto interp_halt; /* Exit program */
     frame_cnt--;
@@ -700,8 +696,8 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
     reg[ dst ] = (ulong)( (uint)reg_dst ^ imm );
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_BRANCH_BEGIN(0xa5) /* FD_SBPF_OP_JLT_IMM */ /* FIXME: CHECK IMM SIGN EXTENSION */
-    pc += fd_ulong_if( reg_dst<(ulong)imm, (ulong)(long)offset, 0UL );
+  FD_VM_INTERP_BRANCH_BEGIN(0xa5) /* FD_SBPF_OP_JLT_IMM */
+    pc += fd_ulong_if( reg_dst<(ulong)(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xa7) /* FD_SBPF_OP_XOR64_IMM */
@@ -726,8 +722,8 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
     reg[ dst ] = (ulong)imm;
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_BRANCH_BEGIN(0xb5) /* FD_SBPF_OP_JLE_IMM */ /* FIXME: CHECK IMM SIGN EXTENSION */
-    pc += fd_ulong_if( reg_dst<=(ulong)imm, (ulong)(long)offset, 0UL );
+  FD_VM_INTERP_BRANCH_BEGIN(0xb5) /* FD_SBPF_OP_JLE_IMM */
+    pc += fd_ulong_if( reg_dst<=(ulong)(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xb7) /* FD_SBPF_OP_MOV64_IMM */
@@ -778,7 +774,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
     /* fd machine is little endian */
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_BRANCH_BEGIN(0xd5) /* FD_SBPF_OP_JSLE_IMM */ /* FIXME: CHECK IMM SIGN EXTENSION */
+  FD_VM_INTERP_BRANCH_BEGIN(0xd5) /* FD_SBPF_OP_JSLE_IMM */
     pc += fd_ulong_if( (long)reg_dst<=(long)(int)imm, (ulong)(long)offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
