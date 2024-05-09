@@ -737,31 +737,6 @@ fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
   return !has_diff;
 }
 
-FD_FN_PURE static bool
-fd_instr_info_sum_account_lamports_no_crash( fd_instr_info_t const * instr ) {
-  ulong total_lamports = 0;
-
-  for( ulong i = 0; i < instr->acct_cnt; i++ ) {
-
-    if( instr->borrowed_accounts[i] == NULL ) {
-      continue;
-    }
-
-    if( ( instr->is_duplicate[i]                          ) |
-        ( instr->borrowed_accounts[i]->const_meta == NULL ) ) {
-      continue;
-    }
-
-    ulong acct_lamports = instr->borrowed_accounts[i]->const_meta->info.lamports;
-
-    if( FD_UNLIKELY( __builtin_uaddl_overflow( total_lamports, acct_lamports, &total_lamports ) ) ) {
-      FD_LOG_WARNING(("Sum of lamports exceeds UL MAX", total_lamports));
-      return false;
-    }
-  }
-  return true;
-}
-
 ulong
 fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
                         fd_exec_test_instr_context_t const * input,
@@ -776,12 +751,6 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
     return 0UL;
 
   fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
-
-  /* Check lamports beforehand to ensure we don't crash during test execution */
-  if (!fd_instr_info_sum_account_lamports_no_crash(instr)) {
-    _context_destroy( runner, ctx );
-    return 0UL;
-  }
 
   /* Execute the test */
   int exec_result = fd_execute_instr(ctx->txn_ctx, instr);
