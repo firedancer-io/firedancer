@@ -1,0 +1,16 @@
+name: On Nightly
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: 30 11 * * *
+jobs:
+  tests:
+    uses: ./.github/workflows/coverage_report_clusterfuzz.yml
+    secrets: inherit
+  ledgers:
+    uses: ./.github/workflows/ledgers.yml
+    secrets: inherit
+    with:
+      coverage: true
+      machine: linux_clang_zen2
+      extras: llvm-cov

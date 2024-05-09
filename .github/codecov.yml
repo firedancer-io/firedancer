@@ -7,3 +7,5 @@ flags:
   clusterfuzz:
     # We only report ClusterFuzz coverage nightly
     carryforward: true
+  ledgers:
+    carryforward: true

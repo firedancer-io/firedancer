@@ -1,0 +1,92 @@
+name: Replay Ledgers
+on:
+  workflow_call:
+    inputs:
+      coverage:
+        type: boolean
+        default: false
+      machine:
+        type: string
+        default: linux_gcc_zen2
+      extras:
+        type: string
+        default: ""
+jobs:
+  ledger-replay:
+    runs-on: private
+    strategy:
+      matrix:
+        ledger:
+          - run-runtime-test-1
+          - run-runtime-test-2
+          - run-runtime-test-3
+    env:
+      MACHINE: ${{ inputs.machine }}
+      EXTRAS: ${{ inputs.extras }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+
+      - uses: ./.github/actions/deps
+      - uses: ./.github/actions/hugepages
+
+      - name: build
+        run: ./contrib/make-j all
+
+      - name: Run tests
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          make ${{ matrix.ledger }}
+
+      - name: find OBJDIR
+        run: |
+          echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
+
+      - name: Merge coverage reports
+        if: ${{ inputs.coverage }}
+        run: |
+          make $OBJDIR/cov/cov.lcov
+          mv $OBJDIR/cov/cov.lcov ${{ matrix.ledger }}.lcov
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ inputs.coverage }}
+        with:
+          name: ledger-cov-${{ github.run_id }}-${{ matrix.ledger }}
+          path: ${{ matrix.ledger }}.lcov
+          overwrite: true
+          retention-days: 1
+
+  ledger-coverage:
+    runs-on: private
+    needs: ledger-replay
+    if: ${{ inputs.coverage }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/deps
+      - name: find OBJDIR
+        run: |
+          echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: cov
+          pattern: ledger-cov-${{ github.run_id }}-*
+          merge-multiple: true
+
+      - name: Merge coverage reports
+        run: |
+          find cov -type f
+          lcov -q $(for x in cov/*.lcov; do echo "-a $x"; done) -o all.cov
+
+      - name: Upload coverage report to CodeCov
+        uses: codecov/codecov-action@v3
+        timeout-minutes: 5
+        with:
+          files: all.cov
+          name: dist-cov-report-ledger
+          fail_ci_if_error: false
+          functionalities: search
+          flags: ledgers
+          token: ${{ secrets.CODECOV_TOKEN }}
