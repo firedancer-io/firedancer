@@ -665,6 +665,10 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
     reg[ dst ] = (ulong)( (uint)reg_dst % imm );
   FD_VM_INTERP_INSTR_END;
 
+  /* FIXME: CHECK IF AN EXIT THAT EXACTLY HITS CU==0 SHOULD BE
+     CONSIDERED SIGCOST OR NORMAL TERMINATION.  IF CU EXACTLY EQUAL ZERO
+     IS ALLOWED ON TERMINATION, SIGCOST CAN CHECK IT HIT ON OP EXIT WITH
+     A ZERO FRAME COUNT AND RETURN NORMALLY. */
   FD_VM_INTERP_BRANCH_BEGIN(0x95) /* FD_SBPF_OP_EXIT */
     if( FD_UNLIKELY( !frame_cnt ) ) goto interp_halt; /* Exit program */
     frame_cnt--;
@@ -830,17 +834,7 @@ sigill:      FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGILL;    got
 sigsegv:     FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGSEGV;   goto interp_halt;
 //sigbus:    FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGBUS;    goto interp_halt;
 //sigrdonly: FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGRDONLY; goto interp_halt;
-sigcost:
-  /* ic current */
-  cu = 0UL;
-  /* if frame count is 0, then we are in an edge case where an execution has consumed
-     exactly the right number of CUs, but FD_SBPF_OP_EXIT's FD_VM_INTERP_BRANCH_BEGIN
-     has thrown an error because cu == 0. Therefore we should not return an error in
-     this case. */
-  if ( FD_LIKELY( frame_cnt ) ) {
-    err = FD_VM_ERR_SIGCOST;
-  }
-  goto interp_halt;
+sigcost:     /* ic current */    cu = 0UL;        err = FD_VM_ERR_SIGCOST;   goto interp_halt;
 sigsyscall:  /* ic current */    /* cu current */ /* err current */          goto interp_halt;
 sigfpe:      FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGFPE;    goto interp_halt;
 
