@@ -9,3 +9,6 @@ jobs:
   tests:
     uses: ./.github/workflows/tests.yml
     secrets: inherit
+  ledgers:
+    uses: ./.github/workflows/ledgers.yml
+    secrets: inherit

@@ -53,3 +53,4 @@ jobs:
           fail_ci_if_error: false
           functionalities: search
           flags: ci
+          token: ${{ secrets.CODECOV_TOKEN }}

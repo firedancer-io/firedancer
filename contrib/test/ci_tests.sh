@@ -41,6 +41,9 @@ for MACHINE in ${MACHINES[*]}; do
       make "${OBJDIR}/cov/cov.lcov"
     fi
   fi
+  for ledger in $EXTRA_RUN_TARGETS; do
+    make $ledger
+  done
   export -n MACHINE
 done
 

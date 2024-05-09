@@ -5,9 +5,7 @@
 
 name: Coverage Report (ClusterFuzz)
 on:
-  schedule:
-    - cron: 30 11 * * *
-  workflow_dispatch:
+  workflow_call:
 jobs:
   coverage-report-clusterfuzz:
     name: Coverage Report (ClusterFuzz)
@@ -44,3 +42,4 @@ jobs:
           name: dist-cov-report-cf
           functionalities: search
           flags: clusterfuzz
+          token: ${{ secrets.CODECOV_TOKEN }}

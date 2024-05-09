@@ -46,6 +46,7 @@ SKIP_INGEST=0
 CHECKPT="test_ledger_backup"
 SOLCAP=""
 ON_DEMAND=1
+WITH_COVERAGE=0
 
 POSITION_ARGS=()
 OBJDIR=${OBJDIR:-build/native/gcc}
@@ -54,6 +55,11 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     -l|--ledger)
        LEDGER="$2"
+       shift
+       shift
+       ;;
+    -c|--with_coverage)
+       WITH_COVERAGE="$2"
        shift
        shift
        ;;
@@ -159,6 +165,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+
+export LLVM_PROFILE_FILE=$OBJDIR/cov/raw/ledger_test_$LEDGER.profraw
+mkdir -p $OBJDIR/cov/raw
 
 if [[ ! -e dump/$CHECKPT && SKIP_INGEST -eq 1 ]]; then
   mkdir -p dump
