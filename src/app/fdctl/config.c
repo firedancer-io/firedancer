@@ -142,7 +142,7 @@ static int parse_key_value( config_t *   config,
       }                                                                              \
       config->esection edot ekey[ config->esection edot ekey##_cnt ] = (uint)result; \
       config->esection edot ekey##_cnt++;                                            \
-      return 1;                                                                        \
+      return 1;                                                                      \
     }                                                                                \
   } while( 0 )
 
