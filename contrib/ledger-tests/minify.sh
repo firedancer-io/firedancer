@@ -62,7 +62,7 @@ minimize_snapshot_frank() {
     exit 1
   fi
   set -x
-  "$minf_fd_frank_minimize_tool" --cmd minify --rocksdb "$in_dir/rocksdb" --minified-rocksdb "$out_dir/rocksdb" --start-slot $start_slot --end-slot $end_slot --page-cnt $GIGANTIC_PAGES
+  "$minf_fd_frank_minimize_tool" --cmd minify --rocksdb "$in_dir/rocksdb" --minified-rocksdb "$out_dir/rocksdb" --start-slot $start_slot --end-slot $end_slot --page-cnt $GIGANTIC_PAGES --copy-txn-status 1
   set +x
   cd "$in_dir" || exit
   cp gen* "$out_dir"
