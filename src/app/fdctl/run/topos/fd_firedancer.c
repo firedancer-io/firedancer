@@ -7,6 +7,7 @@
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../flamenco/runtime/fd_blockstore.h"
+#include "../../../../funk/fd_funk.h"
 #include "../../../../util/tile/fd_tile_private.h"
 #include <sys/sysinfo.h>
 
@@ -66,7 +67,7 @@ fd_topo_firedancer( config_t * _config ) {
 
   fd_topob_wksp( topo, "net"        );
   fd_topob_wksp( topo, "shred"      );
-  fd_topob_wksp( topo, "storei"      );
+  fd_topob_wksp( topo, "storei"     );
   fd_topob_wksp( topo, "sign"       );
   fd_topob_wksp( topo, "repair"     );
   fd_topob_wksp( topo, "gossip"     );
@@ -74,6 +75,7 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topob_wksp( topo, "replay"     );
   fd_topob_wksp( topo, "bhole"      );
   fd_topob_wksp( topo, "bstore"     );
+  fd_topob_wksp( topo, "funk"       );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
@@ -133,15 +135,21 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                 fd_topob_tile( topo, "sign",    "sign",    "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
   /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
 
+  fd_topo_tile_t * store_tile  = &topo->tiles[ fd_topo_find_tile( topo, "store",  0UL ) ];
+  fd_topo_tile_t * replay_tile = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
 
   /* Create a shared blockstore to be used by store and replay. */
-  fd_topo_obj_t * blockstore_obj = fd_topob_obj_concrete( topo, "blockstore", "bstore", fd_blockstore_align(), fd_blockstore_footprint(), 32UL*1024UL*1024UL*1024UL );
-  fd_topo_tile_t * store_tile = &topo->tiles[ fd_topo_find_tile( topo, "store", 0UL ) ];
-  fd_topo_tile_t * replay_tile = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
-  fd_topob_tile_uses( topo, store_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topo_obj_t * blockstore_obj = fd_topob_obj_concrete( topo, "blockstore", "bstore", fd_blockstore_align(), fd_blockstore_footprint(), 32UL * FD_SHMEM_GIGANTIC_PAGE_SZ );
+  fd_topob_tile_uses( topo, store_tile,  blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );
+
+  /* Create a share1d blockstore to be used by replay. */
+  fd_topo_obj_t * funk_obj = fd_topob_obj_concrete( topo, "funk", "funk", fd_funk_align(), fd_funk_footprint(), config->tiles.replay.funk_sz_gb * FD_SHMEM_GIGANTIC_PAGE_SZ );
+  fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+  FD_TEST( fd_pod_insertf_ulong( topo->props, funk_obj->id, "funk" ) );
 
   if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) ) {
     FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
@@ -278,6 +286,10 @@ fd_topo_firedancer( config_t * _config ) {
       strncpy( tile->replay.incremental, config->tiles.replay.incremental, sizeof(tile->replay.incremental) );
       tile->replay.snapshot_slot = parse_snapshot_slot( config->tiles.replay.snapshot, config->tiles.replay.incremental );
 
+      tile->replay.pages     = config->tiles.replay.funk_sz_gb;
+      tile->replay.txn_max   = config->tiles.replay.funk_txn_max;
+      tile->replay.index_max = config->tiles.replay.funk_rec_max;
+      
     } else if( FD_UNLIKELY( !strcmp( tile->name, "bhole" ) ) ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {

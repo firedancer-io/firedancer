@@ -64,8 +64,6 @@ SHRED_VERSION=$(echo $GENESIS_OUTPUT | grep -o -P '(?<=Shred version:).*(?=Ticks
 _PRIMARY_INTERFACE=$(ip route show default | awk '/default/ {print $5}')
 PRIMARY_IP=$(ip addr show $_PRIMARY_INTERFACE | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1)
 
-fd_shmem_cfg query
-
 RUST_LOG=trace taskset -c 40,41 solana-validator \
     --identity id.json \
     --ledger ledger \
@@ -108,6 +106,9 @@ echo "
         repair_serve_listen_port = 8702
     [tiles.replay]
         snapshot = \"$FULL_SNAPSHOT\"
+        funk_sz_gb = 8
+        funk_rec_max = 100000
+        funk_txn_max = 1024
 [log]
   path = \"fddev.log\"
   level_stderr = \"NOTICE\"

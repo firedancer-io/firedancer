@@ -100,6 +100,7 @@ struct fd_replay_tile_ctx {
   fd_replay_t *         replay;
 
   fd_wksp_t  * blockstore_wksp;
+  fd_wksp_t  * funk_wksp;
   char const * snapshot;
   char const * incremental;
   char const * genesis;
@@ -112,6 +113,8 @@ struct fd_replay_tile_ctx {
   uchar        tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
   fd_tpool_t * tpool;
   ulong        max_workers;
+
+  ulong funk_seed;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -387,7 +390,7 @@ after_credit( void *             _ctx,
   if( now - ctx->last_stake_weights_push_time > (long)5e9 ) {
     ctx->last_stake_weights_push_time = now;
     fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
-    {
+    if( ctx->slot_ctx->slot_bank.epoch_stakes.vote_accounts_root!=NULL ) {
       ulong * stake_weights_msg         = fd_chunk_to_laddr( ctx->stake_weights_out_mem, ctx->stake_weights_out_chunk );
       fd_stake_weight_t * stake_weights = (fd_stake_weight_t *)&stake_weights_msg[4];
       ulong stake_weight_idx            = fd_stake_weights_by_node( &ctx->slot_ctx->slot_bank.epoch_stakes, stake_weights );
@@ -405,7 +408,7 @@ after_credit( void *             _ctx,
       ctx->stake_weights_out_chunk = fd_dcache_compact_next( ctx->stake_weights_out_chunk, stake_weights_sz, ctx->stake_weights_out_chunk0, ctx->stake_weights_out_wmark );
     }
 
-    {
+    if( epoch_bank->next_epoch_stakes.vote_accounts_root!=NULL ) {
       ulong * stake_weights_msg         = fd_chunk_to_laddr( ctx->stake_weights_out_mem, ctx->stake_weights_out_chunk );
       fd_stake_weight_t * stake_weights = (fd_stake_weight_t *)&stake_weights_msg[4];
       ulong stake_weight_idx            = fd_stake_weights_by_node( &epoch_bank->next_epoch_stakes, stake_weights );
@@ -436,6 +439,17 @@ during_housekeeping( void * _ctx ) {
 }
 
 static void
+privileged_init( fd_topo_t *      topo    FD_PARAM_UNUSED,
+                 fd_topo_tile_t * tile    FD_PARAM_UNUSED,
+                 void *           scratch ) {
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_replay_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
+
+  FD_TEST( sizeof(ulong) == getrandom( &ctx->funk_seed, sizeof(ulong), 0 ) );
+}
+
+static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
@@ -456,14 +470,37 @@ unprivileged_init( fd_topo_t *      topo,
   void * replay_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_align(), fd_replay_footprint() );
   void *       forks_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FORKS_MAX ) );
 
+  fd_scratch_attach( smem, fmem, SCRATCH_MAX, SCRATCH_DEPTH );
+
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
 
+  /* Blockstore setup */
   ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
   FD_TEST( blockstore_obj_id!=ULONG_MAX );
   ctx->blockstore_wksp = topo->workspaces[ topo->objs[ blockstore_obj_id ].wksp_id ].wksp;
 
   if( ctx->blockstore_wksp==NULL ) {
     FD_LOG_ERR(( "no blocktore workspace" ));
+  }
+
+  /* Funk setup */
+  ulong funk_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "funk" );
+  FD_TEST( funk_obj_id!=ULONG_MAX );
+  ctx->funk_wksp = topo->workspaces[ topo->objs[ funk_obj_id ].wksp_id ].wksp;
+
+  if( ctx->funk_wksp == NULL ) {
+    FD_LOG_ERR(( "no funk workspace" ));
+  }
+
+  fd_funk_t * funk;
+  void * shmem;
+  shmem = fd_wksp_alloc_laddr( ctx->funk_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
+  if (shmem == NULL)
+    FD_LOG_ERR(( "failed to allocate a funky" ));
+  funk = fd_funk_join( fd_funk_new( shmem, FD_FUNK_MAGIC, ctx->funk_seed, tile->replay.txn_max, tile->replay.index_max ) );
+  if (funk == NULL) {
+    fd_wksp_free_laddr(shmem);
+    FD_LOG_ERR(( "failed to allocate a funky" ));
   }
 
   ctx->last_stake_weights_push_time = 0;
@@ -475,30 +512,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, 3UL );
   if( FD_UNLIKELY( !alloc ) ) {
     FD_LOG_ERR( ( "fd_alloc_join failed" ) ); 
-  }
-
-  char hostname[64];
-  gethostname(hostname, sizeof(hostname));
-  ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
-
-  // Allocate new wksp
-  fd_wksp_t * funk_wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 8UL, 0UL, "wksp", 0UL );
-  if (funk_wksp == NULL)
-    FD_LOG_ERR(( "failed to attach to workspace" ));
-  fd_wksp_reset( funk_wksp, (uint)hashseed);
-
-  fd_scratch_attach( smem, fmem, SCRATCH_MAX, SCRATCH_DEPTH );
-
-  // Funky setup
-  fd_funk_t * funk;
-  void * shmem;
-  shmem = fd_wksp_alloc_laddr( funk_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
-  if (shmem == NULL)
-    FD_LOG_ERR(( "failed to allocate a funky" ));
-  funk = fd_funk_join(fd_funk_new(shmem, 42, hashseed, 1024UL, 300000UL));
-  if (funk == NULL) {
-    fd_wksp_free_laddr(shmem);
-    FD_LOG_ERR(( "failed to allocate a funky" ));
   }
 
   fd_valloc_t valloc = fd_alloc_virtual( alloc );
@@ -626,5 +639,6 @@ fd_topo_run_tile_t fd_tile_replay = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
 };
