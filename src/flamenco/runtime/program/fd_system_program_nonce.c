@@ -125,9 +125,11 @@ fd_system_program_set_nonce_state( fd_exec_instr_ctx_t *             ctx,
   do {
     fd_bincode_encode_ctx_t encode =
       { .data    = account->data,
-        .dataend = account->data + account->meta->hlen };
+        .dataend = account->data + account->meta->dlen };
     int err = fd_nonce_state_versions_encode( new_state, &encode );
-    if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    if( FD_UNLIKELY( err ) ) {
+      return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    }
   } while(0);
 
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -1003,9 +1005,9 @@ fd_has_nonce_account( fd_exec_txn_ctx_t const * txn_ctx, int * perr ) {
   }
 
   FD_BORROWED_ACCOUNT_DECL( durable_nonce_rec );
-  int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t const *)durable_nonce_acc, durable_nonce_rec );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+  int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->slot_ctx->funk_txn, (fd_pubkey_t const *)durable_nonce_acc, durable_nonce_rec );
 
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     *perr = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     return 0;
   }
@@ -1020,7 +1022,7 @@ fd_has_nonce_account( fd_exec_txn_ctx_t const * txn_ctx, int * perr ) {
   fd_bincode_decode_ctx_t decode = {
     .data    = durable_nonce_rec->const_data,
     .dataend = durable_nonce_rec->const_data + durable_nonce_rec->const_meta->dlen,
-    .valloc  = txn_ctx->slot_ctx->valloc
+    .valloc  = fd_scratch_virtual()
   };
 
   fd_nonce_state_versions_t state = {0};
@@ -1050,6 +1052,6 @@ fd_has_nonce_account( fd_exec_txn_ctx_t const * txn_ctx, int * perr ) {
       }
     }
   }
-  
+
   return 0;
 }
