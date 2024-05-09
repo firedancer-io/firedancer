@@ -89,18 +89,6 @@ sol_compat_instr_execute_v1( uchar *       out,
                              ulong         in_sz ) {
 
   ulong fmem[ 64 ];
-  /*
-  FIXME: Previously, there were issues with getting different execution results from this
-  function within different execution contexts. By setting the shared memory to 0 before every
-  execution, we can at least ensure that the context remains the same between executions. 
-  
-  Is this a permanent fix? No. But it allows us to continue testing, fuzzing, and then reproducing 
-  issues in an isolated context. The root cause is probably some out-of-bounds access
-  within execution that should be detectable with (deep)asan.
-
-  This will also slow down execution until the root cause is fixed, then the memset can be removed.
-  */
-  memset( smem, 0, smax );
   fd_scratch_attach( smem, fmem, smax, 64UL );
   fd_scratch_push();
 
