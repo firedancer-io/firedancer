@@ -8,13 +8,53 @@
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include "../runtime/context/fd_exec_txn_ctx.h"
 
+/* FD_VM_ALIGN_RUST_{} define the alignments for relevant rust types.
+   Alignments are derived with std::mem::align_of::<T>() and are enforced
+   by the VM (with the exception of v1 loader).
+
+   In our implementation, when calling FD_VM_MEM_HADDR_ST / FD_VM_MEM_HADDR_LD,
+   we need to make sure we're passing the correct alignment based on the Rust
+   type in the corresponding mapping in Agave.
+
+   FD_VM_ALIGN_RUST_{} has been generated with this Rust code:
+   ```rust
+      pub type Epoch = u64;
+      pub struct Pubkey(pub [u8; 32]);
+      pub struct AccountMeta {
+          pub lamports: u64,
+          pub rent_epoch: Epoch,
+          pub owner: Pubkey,
+          pub executable: bool,
+      }
+
+      pub struct PodScalar(pub [u8; 32]);
+
+      fn main() {
+          println!("u8: {}", std::mem::align_of::<u8>());
+          println!("u32: {}", std::mem::align_of::<u32>());
+          println!("u64: {}", std::mem::align_of::<u64>());
+          println!("u128: {}", std::mem::align_of::<u128>());
+          println!("&[u8]: {}", std::mem::align_of::<&[u8]>());
+          println!("AccountMeta: {}", std::mem::align_of::<AccountMeta>());
+          println!("PodScalar: {}", std::mem::align_of::<PodScalar>());
+      }
+    ``` */
+
+#define FD_VM_ALIGN_RUST_U8           (1UL)
+#define FD_VM_ALIGN_RUST_U32          (4UL)
+#define FD_VM_ALIGN_RUST_U64          (8UL)
+#define FD_VM_ALIGN_RUST_U128        (16UL)
+#define FD_VM_ALIGN_RUST_SLICE_U8_REF (8UL)
+#define FD_VM_ALIGN_RUST_ACCOUNT_META (8UL)
+#define FD_VM_ALIGN_RUST_POD_U8_ARRAY (1UL)
+
 /* fd_vm_vec_t is the in-memory representation of a vector descriptor.
    Equal in layout to the Rust slice header &[_] and various vector
    types in the C version of the syscall API. */
 /* FIXME: WHEN IS VADDR NULL AND/OR SZ 0 OKAY? */
 /* FIXME: MOVE FD_VM_RUST_VEC_T FROM SYSCALL/FD_VM_CPI.H HERE TOO? */
 
-#define FD_VM_VEC_ALIGN (8UL)
+#define FD_VM_VEC_ALIGN FD_VM_ALIGN_RUST_SLICE_U8_REF
 #define FD_VM_VEC_SIZE  (16UL)
 
 struct __attribute__((packed)) fd_vm_vec {
