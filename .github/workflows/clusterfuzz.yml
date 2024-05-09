@@ -35,11 +35,12 @@ jobs:
       - uses: asymmetric-research/clusterfuzz-fuzzbot-builder@main
         name: Build fuzz tests
         with:
-          command: make -j -Otarget fuzz-test
+          command: make -j -Otarget fuzz-test lib
 
       - name: List Artifacts
         run: |
           ls ${{ matrix.artifact_dir }}/fuzz-test
+          ls ${{ matrix.artifact_dir }}/lib
 
       - uses: asymmetric-research/firedancer-clusterfuzz-action@main
         name: Upload fuzz targets to ClusterFuzz
@@ -51,12 +52,10 @@ jobs:
           qualifier: ${{ matrix.qualifier }}
           service-account-credentials: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
 
-      - name: make lib
-        run: unset MACHINE && EXTRAS=fuzz make -j -Otarget lib
-
       - name: upload lib artifact
         uses: actions/upload-artifact@v4
+        if: ${{ matrix.machine == 'linux_clang_haswell' }}
         with:
-          path: ./build/native/clang/lib/libfd_exec_sol_compat.so
+          path: ${{ matrix.artifact_dir }}/lib/libfd_exec_sol_compat.so
           name: libfd_exec_sol_compat
           retention-days: 14
