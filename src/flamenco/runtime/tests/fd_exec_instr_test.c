@@ -230,14 +230,30 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Set up txn context */
 
-  txn_ctx->epoch_ctx = epoch_ctx;
-  txn_ctx->slot_ctx  = slot_ctx;
-  txn_ctx->funk_txn  = funk_txn;
-  txn_ctx->acc_mgr   = acc_mgr;
-  txn_ctx->valloc    = fd_scratch_virtual();
+  txn_ctx->epoch_ctx               = epoch_ctx;
+  txn_ctx->slot_ctx                = slot_ctx;
+  txn_ctx->funk_txn                = funk_txn;
+  txn_ctx->acc_mgr                 = acc_mgr;
+  txn_ctx->valloc                  = fd_scratch_virtual();
+  txn_ctx->compute_unit_limit      = test_ctx->cu_avail;
+  txn_ctx->compute_unit_price      = 0;
+  txn_ctx->compute_meter           = test_ctx->cu_avail;
+  txn_ctx->prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED;
+  txn_ctx->custom_err              = UINT_MAX;
+  txn_ctx->instr_stack_sz          = 0;
+  txn_ctx->executable_cnt          = 0;
+  txn_ctx->paid_fees               = 0;
+  txn_ctx->num_instructions        = 0;
+  txn_ctx->dirty_vote_acc          = 0;
+  txn_ctx->dirty_stake_acc         = 0;
+  txn_ctx->failed_instr            = NULL;
+  txn_ctx->capture_ctx             = NULL;
+  txn_ctx->vote_accounts_pool      = NULL;
 
-  txn_ctx->compute_meter      = test_ctx->cu_avail;
-  txn_ctx->compute_unit_limit = test_ctx->cu_avail;
+  memset( txn_ctx->_txn_raw, 0, sizeof(fd_rawtxn_b_t) );
+  memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
+  txn_ctx->return_data.len         = 0;
+
 
   /* Set up instruction context */
 
