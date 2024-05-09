@@ -53,8 +53,8 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1553-L1565 */
 
-  uchar const * input = FD_VM_MEM_HADDR_LD( vm, input_addr,  8UL, input_sz );
-  uchar * call_result = FD_VM_MEM_HADDR_ST( vm, result_addr, 8UL, output_sz );
+  uchar const * input = FD_VM_MEM_HADDR_LD( vm, input_addr,  FD_VM_ALIGN_RUST_U8, input_sz );
+  uchar * call_result = FD_VM_MEM_HADDR_ST( vm, result_addr, FD_VM_ALIGN_RUST_U8, output_sz );
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1567-L1598
      Note: this implementation is post SIMD-0129, we only support the simplified error codes. */
@@ -134,8 +134,8 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1815-L1827 */
 
-  void const * input = FD_VM_MEM_HADDR_LD( vm, input_addr,  8UL, input_sz );
-  void * call_result = FD_VM_MEM_HADDR_ST( vm, result_addr, 8UL, output_sz );
+  void const * input = FD_VM_MEM_HADDR_LD( vm, input_addr,  FD_VM_ALIGN_RUST_U8, input_sz );
+  void * call_result = FD_VM_MEM_HADDR_ST( vm, result_addr, FD_VM_ALIGN_RUST_U8, output_sz );
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1829-L1891
      Note: this implementation is post SIMD-0129, we only support the simplified error codes. */
@@ -242,7 +242,7 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1710-L1715 */
 
-  void * hash_result = FD_VM_MEM_HADDR_ST( vm, result_addr, 8UL, 32UL );
+  void * hash_result = FD_VM_MEM_HADDR_ST( vm, result_addr, FD_VM_ALIGN_RUST_U8, 32UL );
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1716-L1732 */
 
@@ -263,7 +263,7 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
   fd_vm_vec_t const * input_vec_haddr = (fd_vm_vec_t const *)FD_VM_MEM_HADDR_LD( vm, vals_addr, FD_VM_VEC_ALIGN, vals_len*sizeof(fd_vm_vec_t) );
   void const * inputs_haddr[ FD_VM_SYSCALL_SOL_POSEIDON_MAX_VALS ];
   for( ulong i=0UL; i<vals_len; i++ ) {
-    inputs_haddr[i] = FD_VM_MEM_HADDR_LD( vm, input_vec_haddr[i].addr, 8UL, input_vec_haddr[i].len );
+    inputs_haddr[i] = FD_VM_MEM_HADDR_LD( vm, input_vec_haddr[i].addr, FD_VM_ALIGN_RUST_U8, input_vec_haddr[i].len );
   }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1734-L1750
@@ -304,9 +304,9 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L823-L840 */
 
-  uchar const * hash    = FD_VM_MEM_HADDR_LD( vm, hash_vaddr,      FD_ALIGN, 32UL );
-  uchar const * sig     = FD_VM_MEM_HADDR_LD( vm, signature_vaddr, FD_ALIGN, 64UL );
-  uchar * pubkey_result = FD_VM_MEM_HADDR_ST( vm, result_vaddr,    FD_ALIGN, 64UL );
+  uchar const * hash    = FD_VM_MEM_HADDR_LD( vm, hash_vaddr,      FD_VM_ALIGN_RUST_U8, 32UL );
+  uchar const * sig     = FD_VM_MEM_HADDR_LD( vm, signature_vaddr, FD_VM_ALIGN_RUST_U8, 64UL );
+  uchar * pubkey_result = FD_VM_MEM_HADDR_ST( vm, result_vaddr,    FD_VM_ALIGN_RUST_U8, 64UL );
 
   /* CRITICAL */
 
