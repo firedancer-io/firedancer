@@ -136,6 +136,7 @@ typedef struct {
       ulong  xdp_rx_queue_size;
       ulong  xdp_tx_queue_size;
       ulong  xdp_aio_depth;
+      int    zero_copy;
       uint   src_ip_addr;
       uchar  src_mac_addr[6];
 

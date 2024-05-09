@@ -75,10 +75,13 @@ release-udp-port [BPF_DIR] [IP_ADDR] [UDP_PORT]
   to receive packets again.
 - Requires CAP_SYS_ADMIN, see capabilities(7).
 
-new-xsk [WKSP] [FRAME_SZ] [RX_DEPTH] [TX_DEPTH]
+new-xsk [WKSP] [FRAME_SZ] [RX_DEPTH] [TX_DEPTH] [ZERO_COPY]
 - Create a new XSK buffer in [WKSP] with the given frame size
   [FRAME_SZ], RX/Fill queue depth [RX_DEPTH], and TX/Completion
   queue depth [TX_DEPTH].
+- If [ZERO_COPY] is non-zero, the xsk will use zero copy mode.
+  Zero copy mode may not not supported if the xdp program is
+  installed in skb mode.
 - The value of [FRAME_SZ] is restricted by the Linux kernel.
   As of Linux 4.18, valid values include 2048 and 4096.
 - Prints the wksp gaddr of the xdp to stdout.

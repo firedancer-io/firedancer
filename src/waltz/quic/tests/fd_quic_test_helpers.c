@@ -359,7 +359,7 @@ fd_quic_udpsock_create( void *           _sock,
 
     FD_LOG_NOTICE(( "Creating XSK" ));
     void * xsk_mem = fd_wksp_alloc_laddr( wksp, fd_xsk_align(), xsk_sz, 1UL );
-    if( FD_UNLIKELY( !fd_xsk_new( xsk_mem, mtu, rx_depth, rx_depth, tx_depth, tx_depth ) ) ) {
+    if( FD_UNLIKELY( !fd_xsk_new( xsk_mem, mtu, rx_depth, rx_depth, tx_depth, tx_depth, 0 ) ) ) {
       FD_LOG_WARNING(( "failed to create XSK" ));
       return NULL;
     }
