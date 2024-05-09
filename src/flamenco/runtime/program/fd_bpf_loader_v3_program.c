@@ -192,15 +192,15 @@ fd_bpf_loader_v3_user_execute( fd_exec_instr_ctx_t ctx ) {
   // FD_LOG_DEBUG(("Starting CUs %lu", ctx.txn_ctx->compute_meter));
 
 #ifdef FD_DEBUG_SBPF_TRACES
-uchar * signature = (uchar*)vm.instr_ctx->txn_ctx->_txn_raw->raw + vm.instr_ctx->txn_ctx->txn_descriptor->signature_off;
+uchar * signature = (uchar*)vm->instr_ctx->txn_ctx->_txn_raw->raw + vm->instr_ctx->txn_ctx->txn_descriptor->signature_off;
 uchar   sig[64];
-fd_base58_decode_64( "mu7GV8tiEU58hnugxCcuuGh11MvM5tb2ib2qqYu9WYKHhc9Jsm187S31nEX1fg9RYM1NwWJiJkfXNNK21M6Yd8u", sig );
+fd_base58_decode_64( "LKBxtETTpyVDbW1kT5fFucSpmdPoXfKW8QUxdzE8ggwCaXayByPbceQA6KwqGy2WNh89aAG3r2Qjm9VNY9FPtw9", sig );
 if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
   ulong event_max      = 1UL<<30;
   ulong event_data_max = 2048UL;
-  vm.trace = fd_vm_trace_join( fd_vm_trace_new( fd_valloc_malloc(
+  vm->trace = fd_vm_trace_join( fd_vm_trace_new( fd_valloc_malloc(
     ctx.txn_ctx->valloc, fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max ) );
-  if( FD_UNLIKELY( !vm.trace ) ) FD_LOG_ERR(( "unable to create trace" ));
+  if( FD_UNLIKELY( !vm->trace ) ) FD_LOG_ERR(( "unable to create trace" ));
 }
 #endif
 
@@ -211,10 +211,10 @@ if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
   int exec_err = fd_vm_exec( vm );
 
 #ifdef FD_DEBUG_SBPF_TRACES
-if( FD_UNLIKELY( vm.trace ) ) {
-  int err = fd_vm_trace_printf( vm.trace, vm.text, vm.text_cnt, vm.syscalls );
+if( FD_UNLIKELY( vm->trace ) ) {
+  int err = fd_vm_trace_printf( vm->trace, vm->syscalls );
   if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_vm_trace_printf failed (%i-%s)", err, fd_vm_strerror( err ) ));
-  fd_valloc_free( ctx.txn_ctx->valloc, fd_vm_trace_delete( fd_vm_trace_leave( vm.trace ) ) );
+  fd_valloc_free( ctx.txn_ctx->valloc, fd_vm_trace_delete( fd_vm_trace_leave( vm->trace ) ) );
 }
 #endif
 
