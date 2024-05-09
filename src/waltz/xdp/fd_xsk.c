@@ -183,7 +183,8 @@ fd_xsk_new( void *       shmem,
             ulong        fr_depth,
             ulong        rx_depth,
             ulong        tx_depth,
-            ulong        cr_depth ) {
+            ulong        cr_depth,
+            int          zero_copy ) {
   /* Validate arguments */
 
   if( FD_UNLIKELY( !shmem ) ) {
@@ -219,6 +220,7 @@ fd_xsk_new( void *       shmem,
   xsk->params.rx_depth = rx_depth;
   xsk->params.tx_depth = tx_depth;
   xsk->params.cr_depth = cr_depth;
+  xsk->params.zerocopy = zero_copy ? XDP_ZEROCOPY : XDP_COPY;
 
   /* Derive offsets (TODO overflow check) */
 

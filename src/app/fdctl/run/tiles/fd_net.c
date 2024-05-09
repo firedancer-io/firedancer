@@ -402,7 +402,8 @@ privileged_init( fd_topo_t *      topo,
                            tile->net.xdp_rx_queue_size,
                            tile->net.xdp_rx_queue_size,
                            tile->net.xdp_tx_queue_size,
-                           tile->net.xdp_tx_queue_size );
+                           tile->net.xdp_tx_queue_size,
+                           tile->net.zero_copy );
   if( FD_UNLIKELY( !fd_xsk_bind( xsk, tile->net.app_name, tile->net.interface, (uint)tile->kind_id ) ) )
     FD_LOG_ERR(( "failed to bind xsk for net tile %lu", tile->kind_id ));
 
@@ -423,7 +424,8 @@ privileged_init( fd_topo_t *      topo,
                                 tile->net.xdp_rx_queue_size,
                                 tile->net.xdp_rx_queue_size,
                                 tile->net.xdp_tx_queue_size,
-                                tile->net.xdp_tx_queue_size );
+                                tile->net.xdp_tx_queue_size,
+                                0 /* Not zero-copy */ );
     if( FD_UNLIKELY( !fd_xsk_bind( lo_xsk, tile->net.app_name, "lo", (uint)tile->kind_id ) ) )
       FD_LOG_ERR(( "failed to bind lo_xsk for net tile %lu", tile->kind_id ));
 

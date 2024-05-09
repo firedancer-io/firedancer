@@ -180,10 +180,11 @@ main( int     argc,
 
       if( FD_UNLIKELY( argc<4 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
 
-      char const * _wksp    =                   argv[0];
-      ulong        frame_sz = fd_cstr_to_ulong( argv[1] );
-      ulong        rx_depth = fd_cstr_to_ulong( argv[2] );
-      ulong        tx_depth = fd_cstr_to_ulong( argv[3] );
+      char const * _wksp     =                   argv[0];
+      ulong        frame_sz  = fd_cstr_to_ulong( argv[1] );
+      ulong        rx_depth  = fd_cstr_to_ulong( argv[2] );
+      ulong        tx_depth  = fd_cstr_to_ulong( argv[3] );
+      int          zero_copy = fd_cstr_to_int  ( argv[4] );
       /* For now, have fill/completion ring depth match rx/tx rings */
       ulong        fr_depth = rx_depth;
       ulong        cr_depth = tx_depth;
@@ -212,7 +213,7 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_laddr( \"%s\", %lu ) failed\n\tDo %s help for help", cnt, cmd, _wksp, gaddr, bin ));
       }
 
-      void * shxsk = fd_xsk_new( shmem, frame_sz, fr_depth, rx_depth, tx_depth, cr_depth );
+      void * shxsk = fd_xsk_new( shmem, frame_sz, fr_depth, rx_depth, tx_depth, cr_depth, zero_copy );
       if( FD_UNLIKELY( !shxsk ) ) {
         fd_wksp_free( wksp, gaddr );
         fd_wksp_detach( wksp );
@@ -226,7 +227,7 @@ main( int     argc,
       fd_wksp_detach( wksp );
 
       FD_LOG_NOTICE(( "%i: %s %s %lu %lu %lu: success", cnt, cmd, _wksp, frame_sz, rx_depth, tx_depth ));
-      SHIFT( 4 );
+      SHIFT( 5 );
 
     } else if( 0==strcmp( cmd, "bind-xsk" ) ) {
 

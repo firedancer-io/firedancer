@@ -112,21 +112,21 @@ test_xsk( void ) {
 
   /* Invalid new params */
 
-  FD_TEST( NULL==fd_xsk_new( NULL,               2048UL, 1UL, 1UL, 1UL, 1UL ) ); /* NULL shmem     */
-  FD_TEST( NULL==fd_xsk_new( (void *)(_xsk+1UL), 2048UL, 1UL, 1UL, 1UL, 1UL ) ); /* unalign shmem  */
-  FD_TEST( NULL==fd_xsk_new( _xsk,               0UL,    1UL, 1UL, 1UL, 1UL ) ); /* zero frame_sz  */
-  FD_TEST( NULL==fd_xsk_new( _xsk,               1UL,    1UL, 1UL, 1UL, 1UL ) ); /* inval frame_sz */
-  FD_TEST( NULL==fd_xsk_new( _xsk,               8192UL, 1UL, 1UL, 1UL, 1UL ) ); /* inval frame_sz */
-  FD_TEST( NULL==fd_xsk_new( _xsk,               2048UL, 0UL, 1UL, 1UL, 1UL ) ); /* zero fr_depth  */
-  FD_TEST( NULL==fd_xsk_new( _xsk,               2048UL, 1UL, 0UL, 1UL, 1UL ) ); /* zero fr_depth  */
-  FD_TEST( NULL==fd_xsk_new( _xsk,               2048UL, 1UL, 1UL, 0UL, 1UL ) ); /* zero fr_depth  */
-  FD_TEST( NULL==fd_xsk_new( _xsk,               2048UL, 1UL, 1UL, 1UL, 0UL ) ); /* zero fr_depth  */
+  FD_TEST( NULL==fd_xsk_new( NULL,               2048UL, 1UL, 1UL, 1UL, 1UL, 0 ) ); /* NULL shmem     */
+  FD_TEST( NULL==fd_xsk_new( (void *)(_xsk+1UL), 2048UL, 1UL, 1UL, 1UL, 1UL, 0 ) ); /* unalign shmem  */
+  FD_TEST( NULL==fd_xsk_new( _xsk,               0UL,    1UL, 1UL, 1UL, 1UL, 0 ) ); /* zero frame_sz  */
+  FD_TEST( NULL==fd_xsk_new( _xsk,               1UL,    1UL, 1UL, 1UL, 1UL, 0 ) ); /* inval frame_sz */
+  FD_TEST( NULL==fd_xsk_new( _xsk,               8192UL, 1UL, 1UL, 1UL, 1UL, 0 ) ); /* inval frame_sz */
+  FD_TEST( NULL==fd_xsk_new( _xsk,               2048UL, 0UL, 1UL, 1UL, 1UL, 0 ) ); /* zero fr_depth  */
+  FD_TEST( NULL==fd_xsk_new( _xsk,               2048UL, 1UL, 0UL, 1UL, 1UL, 0 ) ); /* zero fr_depth  */
+  FD_TEST( NULL==fd_xsk_new( _xsk,               2048UL, 1UL, 1UL, 0UL, 1UL, 0 ) ); /* zero fr_depth  */
+  FD_TEST( NULL==fd_xsk_new( _xsk,               2048UL, 1UL, 1UL, 1UL, 0UL, 0 ) ); /* zero fr_depth  */
 
   /* Create new XSK */
 
   FD_TEST( fd_xsk_footprint( 2048UL, 8UL, 8UL, 8UL, 8UL )==69632UL );
 
-  void * shxsk = fd_xsk_new( _xsk, 2048UL, 8UL, 8UL, 8UL, 8UL );
+  void * shxsk = fd_xsk_new( _xsk, 2048UL, 8UL, 8UL, 8UL, 8UL, 0 );
   FD_TEST( shxsk );
 
   /* Invalid magic */
@@ -495,7 +495,7 @@ test_xsk_aio( void ) {
   /* Mock XSK */
 
   FD_TEST( fd_xsk_footprint( 2048UL, 8UL, 8UL, 8UL, 8UL )<=sizeof(_xsk) );
-  void * shxsk = fd_xsk_new( _xsk, 2048UL, 8UL, 8UL, 8UL, 8UL );
+  void * shxsk = fd_xsk_new( _xsk, 2048UL, 8UL, 8UL, 8UL, 8UL, 1 );
   FD_TEST( shxsk );
 
   fd_xsk_t * xsk = (fd_xsk_t *)shxsk;

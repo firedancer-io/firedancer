@@ -80,17 +80,6 @@ struct __attribute__((aligned(FD_XSK_ALIGN))) fd_xsk_private {
 
   fd_xsk_params_t params;
 
-  /* xdp_mode: XDP processing mode.  Defined by <linux/if_link.h>
-
-     Valid values:
-
-       0                   kernel default mode
-       XDP_FLAGS_SKB_MODE  sk_buff generic mode (hardware-agnostic)
-       XDP_FLAGS_DRV_MODE  driver XDP (requires driver support)
-       XDP_FLAGS_HW_MODE   hardware-accelerated XDP
-                           (requires NIC and driver support) */
-  ulong xdp_mode;
-
   /* Per-join thread-group-local objects ******************************/
 
   /* Kernel descriptor of UMEM in local address space */
