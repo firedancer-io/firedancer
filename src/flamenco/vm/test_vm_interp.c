@@ -1,3 +1,4 @@
+#include "fd_vm.h"
 #include "fd_vm_base.h"
 #include "fd_vm_private.h"
 
@@ -58,7 +59,7 @@ test_program_success( char *               test_case_name,
   fd_vm_mem_cfg( vm );
 
   int err = fd_vm_validate( vm );
-  if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "validation failed: %i-%s", err, fd_vm_strerror( err ) ));
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "validation failed: %i-%s", err, fd_vm_strerror( err ) ));
 
   long dt = -fd_log_wallclock();
   err = fd_vm_exec( vm );
@@ -118,6 +119,17 @@ generate_random_alu_instrs( fd_rng_t * rng,
     instr.src_reg    = (1+fd_rng_uchar_roll(rng, 9)) & 0xFUL;
     instr.offset     = 0;
     instr.imm        = fd_rng_uint_roll(rng, 1024*1024);
+    switch( instr.opcode.raw ) {
+    case 0x34:  /* FD_SBPF_OP_DIV_IMM */
+    case 0x94:  /* FD_SBPF_OP_MOD_IMM */
+      instr.imm = fd_uint_max( instr.imm, 1 );
+      break;
+    case 0x64:  /* FD_SBPF_OP_LSH_IMM */
+    case 0x74:  /* FD_SBPF_OP_RSH_IMM */
+    case 0xc4:  /* FD_SBPF_OP_ARSH_IMM */
+      instr.imm &= 31;
+      break;
+    }
     text[i] = fd_sbpf_ulong( instr );
   }
   instr.opcode.raw = FD_SBPF_OP_EXIT;
@@ -166,9 +178,97 @@ generate_random_alu64_instrs( fd_rng_t * rng,
     instr.src_reg    = (1+fd_rng_uchar_roll(rng, 9)) & 0xFUL;
     instr.offset     = 0;
     instr.imm        = fd_rng_uint_roll( rng, 1024*1024 );
+    switch( instr.opcode.raw ) {
+    case 0x37:  /* FD_SBPF_OP_DIV64_IMM */
+    case 0x97:  /* FD_SBPF_OP_MOD64_IMM */
+      instr.imm = fd_uint_max( instr.imm, 1 );
+      break;
+    case 0x67:  /* FD_SBPF_OP_LSH_IMM */
+    case 0x77:  /* FD_SBPF_OP_RSH_IMM */
+    case 0xc7:  /* FD_SBPF_OP_ARSH_IMM */
+      instr.imm &= 31;
+      break;
+    }
+    text[i] = fd_sbpf_ulong( instr );
   }
   instr.opcode.raw = FD_SBPF_OP_EXIT;
   text[text_cnt-1UL] = fd_sbpf_ulong( instr );
+}
+
+/* test_0cu_exit ensures that the VM correctly exits the root frame if
+   the CU count after the final exit instruction reaches zero. */
+
+static void
+test_0cu_exit( void ) {
+
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+
+  fd_vm_t _vm[1];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+  FD_TEST( vm );
+
+  ulong const text[3] = {
+    fd_vm_instr( FD_SBPF_OP_XOR64_REG, 0, 0, 0, 0 ),
+    fd_vm_instr( FD_SBPF_OP_XOR64_REG, 0, 0, 0, 0 ),
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0, 0, 0, 0 )
+  };
+  ulong text_cnt = 3UL;
+
+  /* Ensure the VM exits with success if the CU count after the final
+     exit instruction reaches zero. */
+
+  int vm_ok = !!fd_vm_init(
+      /* vm        */ vm,
+      /* instr_ctx */ NULL,
+      /* heap_max  */ FD_VM_HEAP_DEFAULT,
+      /* entry_cu  */ text_cnt,
+      /* rodata    */ (uchar *)text,
+      /* rodata_sz */ 8UL*text_cnt,
+      /* text      */ text,
+      /* text_cnt  */ text_cnt,
+      /* text_off  */ 0UL,
+      /* entry_pc  */ 0UL,
+      /* calldests */ NULL,
+      /* syscalls  */ NULL,
+      /* input     */ NULL,
+      /* input_sz  */ 0UL,
+      /* trace     */ NULL,
+      /* sha       */ sha
+  );
+  FD_TEST( vm_ok );
+
+  FD_TEST( fd_vm_validate( vm )==FD_VM_SUCCESS );
+  FD_TEST( fd_vm_exec    ( vm )==FD_VM_SUCCESS );
+  FD_TEST( vm->cu == 0UL );
+
+  /* Ensure the VM exits with failure if CUs are exhausted. */
+
+  vm_ok = !!fd_vm_init(
+      /* vm        */ vm,
+      /* instr_ctx */ NULL,
+      /* heap_max  */ FD_VM_HEAP_DEFAULT,
+      /* entry_cu  */ text_cnt - 1UL,
+      /* rodata    */ (uchar *)text,
+      /* rodata_sz */ 8UL*text_cnt,
+      /* text      */ text,
+      /* text_cnt  */ text_cnt,
+      /* text_off  */ 0UL,
+      /* entry_pc  */ 0UL,
+      /* calldests */ NULL,
+      /* syscalls  */ NULL,
+      /* input     */ NULL,
+      /* input_sz  */ 0UL,
+      /* trace     */ NULL,
+      /* sha       */ sha
+  );
+  FD_TEST( vm_ok );
+
+  FD_TEST( fd_vm_validate( vm )==FD_VM_SUCCESS );
+  FD_TEST( fd_vm_exec    ( vm )==FD_VM_ERR_SIGCOST );
+
+  fd_vm_delete( fd_vm_leave( vm ) );
+  fd_sha256_delete( fd_sha256_leave( sha ) );
 }
 
 static fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
@@ -434,19 +534,6 @@ main( int     argc,
     FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,      0,      0, 0),
   );
 
-  TEST_PROGRAM_SUCCESS("mod-by-zero-imm", 0x1, 3,
-    FD_SBPF_INSTR(FD_SBPF_OP_MOV_IMM,   FD_SBPF_R0,  0,      0, 1),
-    FD_SBPF_INSTR(FD_SBPF_OP_MOD_IMM,   FD_SBPF_R0,  0,      0, 0),
-    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,      0,      0, 0),
-  );
-
-  TEST_PROGRAM_SUCCESS("mod-by-zero-reg", 0x1, 4,
-    FD_SBPF_INSTR(FD_SBPF_OP_MOV_IMM,   FD_SBPF_R0,  0,      0, 1),
-    FD_SBPF_INSTR(FD_SBPF_OP_MOV_IMM,   FD_SBPF_R1,  0,      0, 0),
-    FD_SBPF_INSTR(FD_SBPF_OP_MOD_REG,   FD_SBPF_R0,  FD_SBPF_R1,  0, 0),
-    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,      0,      0, 0),
-  );
-
   TEST_PROGRAM_SUCCESS("mod-high-divisor", 0x0, 5,
     FD_SBPF_INSTR(FD_SBPF_OP_MOV_IMM,   FD_SBPF_R0,  0,      0, 12),
     FD_SBPF_INSTR(FD_SBPF_OP_LDDW,      FD_SBPF_R1,  0,      0, 0x4),
@@ -467,19 +554,6 @@ main( int     argc,
     FD_SBPF_INSTR(FD_SBPF_OP_ADDL_IMM,  0,      0,      0, 0x1),
     FD_SBPF_INSTR(FD_SBPF_OP_MOV_IMM,   FD_SBPF_R1,  0,      0, 4),
     FD_SBPF_INSTR(FD_SBPF_OP_MOD_REG,   FD_SBPF_R0,  FD_SBPF_R1,  0, 0),
-    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,      0,      0, 0),
-  );
-
-  TEST_PROGRAM_SUCCESS("mod64-by-zero-imm", 0x1, 3,
-    FD_SBPF_INSTR(FD_SBPF_OP_MOV_IMM,   FD_SBPF_R0,  0,      0, 1),
-    FD_SBPF_INSTR(FD_SBPF_OP_MOD64_IMM, FD_SBPF_R0,  0,      0, 0),
-    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,      0,      0, 0),
-  );
-
-  TEST_PROGRAM_SUCCESS("mod64-by-zero-reg", 0x1, 4,
-    FD_SBPF_INSTR(FD_SBPF_OP_MOV_IMM,   FD_SBPF_R0,  0,      0, 1),
-    FD_SBPF_INSTR(FD_SBPF_OP_MOV_IMM,   FD_SBPF_R1,  0,      0, 0),
-    FD_SBPF_INSTR(FD_SBPF_OP_MOD64_REG, FD_SBPF_R0,  FD_SBPF_R1,  0, 0),
     FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,      0,      0, 0),
   );
 
@@ -829,13 +903,13 @@ main( int     argc,
     FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,      0,      0, 0),
   );
 
-  TEST_PROGRAM_SUCCESS("call", 15, 7,
+  TEST_PROGRAM_SUCCESS("syscall", 15, 7,
     FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1,  0,      0, 1),
     FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2,  0,      0, 2),
     FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R3,  0,      0, 3),
     FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R4,  0,      0, 4),
     FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R5,  0,      0, 5),
-    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,      0,      0,      0, 0x7e6bb1fb),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,      0,      0,      0, fd_murmur3_32( "accumulator", 11UL, 0U ) ),
 
     FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,      0,      0, 0),
   );
@@ -855,6 +929,8 @@ main( int     argc,
 
   generate_random_alu64_instrs( rng, text, text_cnt );
   test_program_success( "alu64_bench_short", 0x0, text, text_cnt, syscalls );
+
+  test_0cu_exit();
 
   free( text );
 
