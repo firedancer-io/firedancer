@@ -11,6 +11,7 @@
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
+#include "../sysvar/fd_sysvar_cache.c"
 #include "../../../funk/fd_funk.h"
 #include "../../../util/bits/fd_float.h"
 #include <assert.h>
@@ -318,6 +319,35 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   /* Restore sysvar cache */
 
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+
+  /* Fill missing sysvar cache values with defaults */
+  /* Note: these default values are obtained by sysvar defaults from solfuzz-agave */
+
+  // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L466-L474
+  if( !slot_ctx->sysvar_cache->has_clock ) {
+    slot_ctx->sysvar_cache->has_clock                        = 1;
+    slot_ctx->sysvar_cache->val_clock->slot                  = 10UL;
+    slot_ctx->sysvar_cache->val_clock->epoch_start_timestamp = 0;
+    slot_ctx->sysvar_cache->val_clock->epoch                 = 0UL;
+    slot_ctx->sysvar_cache->val_clock->leader_schedule_epoch = 0UL;
+    slot_ctx->sysvar_cache->val_clock->unix_timestamp        = 0;
+  }
+  // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L476-L483
+  if( !slot_ctx->sysvar_cache->has_epoch_schedule ) {
+    slot_ctx->sysvar_cache->has_epoch_schedule                              = 1;
+    slot_ctx->sysvar_cache->val_epoch_schedule->slots_per_epoch             = MAX_SLOTS_CNT;
+    slot_ctx->sysvar_cache->val_epoch_schedule->leader_schedule_slot_offset = MAX_SLOTS_CNT;
+    slot_ctx->sysvar_cache->val_epoch_schedule->warmup                      = 1;
+    slot_ctx->sysvar_cache->val_epoch_schedule->first_normal_epoch          = 14UL;
+    slot_ctx->sysvar_cache->val_epoch_schedule->first_normal_slot           = 524256UL;
+  }
+  // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L487-L500
+  if( !slot_ctx->sysvar_cache->has_rent ) { 
+    slot_ctx->sysvar_cache->has_rent                          = 1;
+    slot_ctx->sysvar_cache->val_rent->lamports_per_uint8_year = 3480UL;
+    slot_ctx->sysvar_cache->val_rent->exemption_threshold     = 2.0;
+    slot_ctx->sysvar_cache->val_rent->burn_percent            = 50;
+  }
 
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 
