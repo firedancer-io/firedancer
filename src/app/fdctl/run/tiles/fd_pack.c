@@ -86,9 +86,25 @@ const float VOTE_FRACTION = 0.75;
 FD_IMPORT( wait_duration, "src/ballet/pack/pack_delay.bin", ulong, 6, "" );
 
 
+/* When we are done being leader for a slot and we are leader in the
+   very next slot, it can still take some time to transition.  This is
+   because the bank has to be finalized, a hash calculated, and various
+   other things done in the replay stage to create the new child bank.
+   
+   During that time, pack cannot send transactions to banks so it needs
+   to be able to buffer.  Typically, these so called "leader
+   transitions" are short (<15 millis), so a low value here would
+   suffice.  However, in some cases when there is memory pressure on the
+   NUMA node or when the operating system context switches relevant
+   threads out, it can take significantly longer.
+
+   To prevent drops in these cases and because we assume banks are fast
+   enough to drain this buffer once we do become leader, we set this
+   buffer size to be quite large. */
+
 #define DEQUE_NAME extra_txn_deq
 #define DEQUE_T    fd_txn_p_t
-#define DEQUE_MAX  (8UL*1024UL)
+#define DEQUE_MAX  (128UL*1024UL)
 #include "../../../../util/tmpl/fd_deque.c"
 
 
