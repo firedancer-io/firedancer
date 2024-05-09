@@ -855,7 +855,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
 
   fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
   FD_TEST( vm );
-  fd_vm_init( 
+  fd_vm_init(
     vm,
     ctx,
     input->vm_ctx.heap_max,
@@ -877,7 +877,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   FD_TEST( fd_vm_setup_state_for_execution( vm ) == FD_VM_SUCCESS );
 
   // Override some execution state values from the syscall fuzzer input
-  // This is so we can test if the syscall mutates any of these erroneously 
+  // This is so we can test if the syscall mutates any of these erroneously
   vm->reg[0] = input->vm_ctx.r0;
   vm->reg[1] = input->vm_ctx.r1;
   vm->reg[2] = input->vm_ctx.r2;
@@ -893,7 +893,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
 
   // Look up the syscall to execute
   const char * syscall_name = input->syscall_invocation.function_name;
-  fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( 
+  fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const(
     syscalls,
     fd_murmur3_32( syscall_name, strlen( syscall_name ), 0U ),
     NULL );
@@ -907,14 +907,14 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   /* Capture the effects */
   effects->error = syscall_err;
   effects->r0 = vm->reg[0];
-  effects->cu_avail = vm->cu;
+  effects->cu_avail = (ulong)vm->cu;
 
   effects->heap = FD_SCRATCH_ALLOC_APPEND(
     l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
-  effects->heap->size = (uint)vm->heap_max; 
+  effects->heap->size = (uint)vm->heap_max;
   fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
 
-  effects->stack = FD_SCRATCH_ALLOC_APPEND( 
+  effects->stack = FD_SCRATCH_ALLOC_APPEND(
     l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
   effects->stack->size = (uint)FD_VM_STACK_MAX;
   fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );

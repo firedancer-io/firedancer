@@ -176,7 +176,7 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
    known that the vaddr region has a valid mapping. */
 
 FD_FN_PURE static inline ulong
-fd_vm_mem_haddr( FD_FN_UNUSED fd_vm_t const *  vm,  
+fd_vm_mem_haddr( FD_FN_UNUSED fd_vm_t const *  vm,
                  ulong                         vaddr,
                  ulong                         sz,
                  ulong const *                 vm_region_haddr, /* indexed [0,6) */

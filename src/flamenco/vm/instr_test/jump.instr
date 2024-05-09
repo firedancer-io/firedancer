@@ -1,0 +1,364 @@
+# This file tests the condition logic in jump instructions.
+#
+# We use the vfy/ok/err oracle to determine whether the VM correctly
+# evaluated the jump condition.
+# The instructions in this test either jump to itself (off=ffff),
+# which is guaranteed to cause a VM fault due to compute unit exhaust
+# via spinloop (err).  Or to the next instruction (off=0000) which is
+# guaranteed to succeed (ok).  Or out of bounds (off=aaaa), which is a
+# verify error.
+
+# ja dst
+$ op=05 dst=7 src=7 off=aaaa imm=5555aaaa : vfy  # OOB
+$ op=05 dst=6 src=6 off=ffff imm=aaaa5555 : err  # spinloop
+$ op=05 dst=0 src=a off=0000 imm=00000000 : ok   # nop
+$ op=05 dst=a src=1 off=0000              : vfy
+$ op=05 dst=9 src=b off=0000              : vfy
+
+# jeq reg, imm  (jump if equal)
+$ op=15 dst=5 src=5 off=aaaa r5=1111111122222222 imm=5555aaaa : vfy  # OOB
+$ op=15 dst=4 src=4 off=ffff r4=2222222233333333 imm=aaaa5555 : ok   # not taken
+$ op=15 dst=3 src=3 off=ffff r3=fffffffff0000000 imm=f0000000 : err  #     taken (sign extend)
+$ op=15 dst=2 src=2 off=ffff r2=               1 imm=       1 : err  #     taken
+$ op=15 dst=1 src=1 off=0000 r1=ffffffff80000000 imm=80000000 : ok   # nop
+$ op=15 dst=a src=1 off=0000                                  : vfy
+$ op=15 dst=9 src=b off=0000                                  : vfy
+
+# jeq reg, reg  (jump if equal)
+$ op=1d dst=9 src=9 off=aaaa r9=1111111122222222                      : vfy  # OOB
+$ op=1d dst=8 src=8 off=0000 r8=ffffffff80000000                      : ok   # nop
+$ op=1d dst=7 src=a off=ffff r7=3333333344444444 r10=3333333344444444 : err  #     taken
+$ op=1d dst=6 src=5 off=ffff r6=3333383344444444 r5 =3333333344444444 : ok   # not taken
+$ op=1d dst=a src=1 off=0000                                          : vfy
+$ op=1d dst=9 src=b off=0000                                          : vfy
+
+# jgt reg, imm  (jump if greater than)
+$ op=25 dst=5 src=5 off=aaaa r5=1111111122222222 imm=5555aaaa : vfy  # OOB
+$ op=25 dst=4 src=4 off=ffff r4=2222222233333333 imm=aaaa5555 : ok   # not taken (sign extend)
+$ op=25 dst=3 src=3 off=ffff r3=fffffffff0000000 imm=f0000000 : ok   # not taken (sign extend)
+$ op=25 dst=3 src=3 off=ffff r3=ffffffffffffffff imm=ffffffff : ok   # not taken (sign extend)
+$ op=25 dst=3 src=3 off=ffff r3=fffffffff0000001 imm=f0000000 : err  #     taken (sign extend)
+$ op=25 dst=2 src=2 off=ffff r2=               2 imm=       1 : err  #     taken
+$ op=25 dst=1 src=1 off=0000 r1=ffffffff80000001 imm=80000000 : ok   # nop
+$ op=25 dst=7 src=6 off=ffff r7=ffffffffffffffff imm=ffffffff : ok   # not taken (max > max)
+$ op=25 dst=7 src=6 off=ffff r7=ffffffffffffffff imm=       0 : err  #     taken (max >   0)
+$ op=25 dst=7 src=6 off=ffff r7=ffffffffffffffff imm=       1 : err  #     taken (max >   1)
+$ op=25 dst=7 src=6 off=ffff r7=               0 imm=ffffffff : ok   # not taken (  0 > max)
+$ op=25 dst=7 src=6 off=ffff r7=               0 imm=       0 : ok   # not taken (  0 >   0)
+$ op=25 dst=7 src=6 off=ffff r7=               0 imm=       1 : ok   # not taken (  0 >   1)
+$ op=25 dst=7 src=6 off=ffff r7=               1 imm=ffffffff : ok   # not taken (  1 > max)
+$ op=25 dst=7 src=6 off=ffff r7=               1 imm=       0 : err  #     taken (  1 >   0)
+$ op=25 dst=7 src=6 off=ffff r7=               1 imm=       1 : ok   # not taken (  1 >   1)
+$ op=25 dst=a src=1 off=0000                                  : vfy
+$ op=25 dst=9 src=b off=0000                                  : vfy
+
+# jgt reg, reg  (jump if greater than)
+$ op=2d dst=9 src=9 off=aaaa r9=1111111122222222                      : vfy  # OOB
+$ op=2d dst=8 src=9 off=0000 r8=ffffffff80000001 r9 =ffffffff80000000 : ok   # nop
+$ op=2d dst=8 src=9 off=ffff r8=ffffffff80000001 r9 =ffffffff80000000 : err  #     taken
+$ op=2d dst=7 src=a off=ffff r7=3339333344444444 r10=3333333344444444 : err  #     taken
+$ op=2d dst=6 src=5 off=ffff r6=3333333344444444 r5 =3333333344494444 : ok   # not taken
+$ op=2d dst=6 src=5 off=ffff r6=3333333344444444 r5 =3333333344444444 : ok   # not taken
+$ op=2d dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =ffffffffffffffff : ok   # not taken (max > max)
+$ op=2d dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =               0 : err  #     taken (max >   0)
+$ op=2d dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =               1 : err  #     taken (max >   1)
+$ op=2d dst=2 src=5 off=ffff r2=               0 r5 =ffffffffffffffff : ok   # not taken (  0 > max)
+$ op=2d dst=2 src=5 off=ffff r2=               0 r5 =               0 : ok   # not taken (  0 >   0)
+$ op=2d dst=2 src=5 off=ffff r2=               0 r5 =               1 : ok   # not taken (  0 >   1)
+$ op=2d dst=2 src=5 off=ffff r2=               1 r5 =ffffffffffffffff : ok   # not taken (  1 > max)
+$ op=2d dst=2 src=5 off=ffff r2=               1 r5 =               0 : err  #     taken (  1 >   0)
+$ op=2d dst=2 src=5 off=ffff r2=               1 r5 =               1 : ok   # not taken (  1 >   1)
+$ op=2d dst=a src=1 off=0000                                          : vfy
+$ op=2d dst=9 src=b off=0000                                          : vfy
+
+# jge reg, imm  (jump if greater or equal)
+$ op=35 dst=5 src=5 off=aaaa r5=1111111122222222 imm=5555aaaa : vfy  # OOB
+$ op=35 dst=4 src=4 off=ffff r4=2222222233333333 imm=aaaa5555 : ok   # not taken
+$ op=35 dst=3 src=3 off=ffff r3=fffffffff0000000 imm=f0000000 : err  #     taken (sign extend)
+$ op=35 dst=3 src=3 off=ffff r3=ffffffffffffffff imm=ffffffff : err  #     taken (sign extend)
+$ op=35 dst=3 src=3 off=ffff r3=fffffffff0000001 imm=f0000000 : err  #     taken (sign extend)
+$ op=35 dst=2 src=2 off=ffff r2=               2 imm=       1 : err  #     taken
+$ op=35 dst=1 src=1 off=0000 r1=ffffffff80000001 imm=80000000 : ok   # nop
+$ op=35 dst=7 src=6 off=ffff r7=ffffffffffffffff imm=ffffffff : err  #     taken (max >= max)
+$ op=35 dst=7 src=6 off=ffff r7=ffffffffffffffff imm=       0 : err  #     taken (max >=   0)
+$ op=35 dst=7 src=6 off=ffff r7=ffffffffffffffff imm=       1 : err  #     taken (max >=   1)
+$ op=35 dst=7 src=6 off=ffff r7=               0 imm=ffffffff : ok   # not taken (  0 >= max)
+$ op=35 dst=7 src=6 off=ffff r7=               0 imm=       0 : err  #     taken (  0 >=   0)
+$ op=35 dst=7 src=6 off=ffff r7=               0 imm=       1 : ok   # not taken (  0 >=   1)
+$ op=35 dst=7 src=6 off=ffff r7=               1 imm=ffffffff : ok   # not taken (  1 >= max)
+$ op=35 dst=7 src=6 off=ffff r7=               1 imm=       0 : err  # not taken (  1 >=   0)
+$ op=35 dst=7 src=6 off=ffff r7=               1 imm=       1 : err  #     taken (  1 >=   1)
+$ op=35 dst=a src=1 off=0000                                  : vfy
+$ op=35 dst=9 src=b off=0000                                  : vfy
+
+# jge reg, reg  (jump if greater or equal)
+$ op=3d dst=9 src=9 off=aaaa r9=1111111122222222                      : vfy  # OOB
+$ op=3d dst=8 src=9 off=0000 r8=ffffffff80000001 r9 =ffffffff80000000 : ok   # nop
+$ op=3d dst=8 src=9 off=ffff r8=ffffffff80000001 r9 =ffffffff80000000 : err  #     taken
+$ op=3d dst=7 src=a off=ffff r7=3339333344444444 r10=3333333344444444 : err  #     taken
+$ op=3d dst=6 src=5 off=ffff r6=3333333344444444 r5 =3333333344494444 : ok   # not taken
+$ op=3d dst=6 src=5 off=ffff r6=3333333344444444 r5 =3333333344444444 : err  #     taken
+$ op=3d dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =ffffffffffffffff : err  #     taken (max >= max)
+$ op=3d dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =               0 : err  #     taken (max >=   0)
+$ op=3d dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =               1 : err  #     taken (max >=   1)
+$ op=3d dst=2 src=5 off=ffff r2=               0 r5 =ffffffffffffffff : ok   # not taken (  0 >= max)
+$ op=3d dst=2 src=5 off=ffff r2=               0 r5 =               0 : err  #     taken (  0 >=   0)
+$ op=3d dst=2 src=5 off=ffff r2=               0 r5 =               1 : ok   # not taken (  0 >=   1)
+$ op=3d dst=2 src=5 off=ffff r2=               1 r5 =ffffffffffffffff : ok   # not taken (  1 >= max)
+$ op=3d dst=2 src=5 off=ffff r2=               1 r5 =               0 : err  #     taken (  1 >=   0)
+$ op=3d dst=2 src=5 off=ffff r2=               1 r5 =               1 : err  #     taken (  1 >=   1)
+$ op=3d dst=a src=1 off=0000                                          : vfy
+$ op=3d dst=9 src=b off=0000                                          : vfy
+
+# jset reg, imm  (jump if bitwise AND not zero)
+$ op=45 dst=5 src=5 off=aaaa r5=1111111122222222 imm=5555aaaa : vfy  # OOB
+$ op=45 dst=3 src=4 off=ffff r3=ffffffffffffffff imm=       0 : ok   # not taken
+$ op=45 dst=3 src=4 off=ffff r3=               0 imm=ffffffff : ok   # not taken (sign extend)
+$ op=45 dst=3 src=4 off=ffff r3=8000000000000000 imm=ffffffff : err  #     taken (sign extend)
+$ op=45 dst=3 src=4 off=ffff r3=        a5a5a5a5 imm=5a5a5a5a : ok   # not taken
+$ op=45 dst=3 src=4 off=ffff r3=        a5a5a5a5 imm=5a5a5f5a : err  #     taken
+$ op=45 dst=3 src=4 off=0000 r3=        a5a5a5a5 imm=5a5a5f5a : ok   # nop
+$ op=45 dst=a src=1 off=0000                                  : vfy
+$ op=45 dst=9 src=b off=0000                                  : vfy
+
+# jset reg, reg  (jump if bitwise AND not zero)
+$ op=4d dst=9 src=9 off=aaaa r9=1111111122222222                      : vfy  # OOB
+$ op=4d dst=3 src=4 off=ffff r3=ffffffffffffffff r4=                0 : ok   # not taken
+$ op=4d dst=3 src=4 off=ffff r3=               0 r4=         ffffffff : ok   # not taken (sign extend)
+$ op=4d dst=3 src=4 off=ffff r3=8000000000000000 r4=         ffffffff : ok   # not taken (sign extend)
+$ op=4d dst=3 src=4 off=ffff r3=        a5a5a5a5 r4=         5a5a5a5a : ok   # not taken
+$ op=4d dst=3 src=4 off=ffff r3=        a5a5a5a5 r4=         5a5a5f5a : err  #     taken
+$ op=4d dst=a src=1 off=0000                                          : vfy
+$ op=4d dst=9 src=b off=0000                                          : vfy
+
+# jne reg, imm  (jump if not equal)
+$ op=55 dst=5 src=5 off=aaaa r5=1111111122222222 imm=5555aaaa : vfy  # OOB
+$ op=55 dst=4 src=4 off=ffff r4=2222222233333333 imm=aaaa5555 : err  #     taken
+$ op=55 dst=3 src=3 off=ffff r3=fffffffff0000000 imm=f0000000 : ok   # not taken (sign extend)
+$ op=55 dst=2 src=2 off=ffff r2=               1 imm=       1 : ok   # not taken
+$ op=55 dst=1 src=1 off=0000 r1=ffffffff80000000 imm=80000000 : ok   # nop
+$ op=55 dst=a src=1 off=0000                                  : vfy
+$ op=55 dst=9 src=b off=0000                                  : vfy
+
+# jne reg, reg (jump if not equal)
+$ op=5d dst=9 src=9 off=aaaa r9=1111111122222222                      : vfy  # OOB
+$ op=5d dst=8 src=8 off=ffff r8=ffffffff80000000                      : ok   # not taken
+$ op=5d dst=8 src=7 off=0000 r8=ffffffff80000000 r7 =               0 : ok   # nop
+$ op=5d dst=7 src=a off=ffff r7=3333333344444444 r10=3333333344444444 : ok   # not taken
+$ op=5d dst=6 src=5 off=ffff r6=3333383344444444 r5 =3333333344444444 : err  #     taken
+$ op=5d dst=a src=1 off=0000                                          : vfy
+$ op=5d dst=9 src=b off=0000                                          : vfy
+
+# jsgt reg, imm
+$ op=65 dst=5 src=5 off=aaaa r5=1111111122222222 imm=5555aaaa : vfy  # OOB
+$ op=65 dst=4 src=4 off=ffff r4=2222222233333333 imm=aaaa5555 : err  #     taken (sign extend)
+$ op=65 dst=3 src=3 off=ffff r3=fffffffff0000000 imm=f0000000 : ok   # not taken (sign extend)
+$ op=65 dst=3 src=3 off=ffff r3=fffffffff0000001 imm=f0000000 : err  #     taken (sign extend)
+$ op=65 dst=2 src=2 off=ffff r2=               2 imm=       1 : err  #     taken
+$ op=65 dst=2 src=2 off=ffff r2=ffffffffffffffff imm=ffffffff : ok   # not taken (-1 > -1)
+$ op=65 dst=2 src=2 off=ffff r2=ffffffffffffffff imm=       0 : ok   # not taken (-1 >  0)
+$ op=65 dst=2 src=2 off=ffff r2=ffffffffffffffff imm=       1 : ok   # not taken (-1 >  1)
+$ op=65 dst=2 src=2 off=ffff r2=               0 imm=ffffffff : err  #     taken ( 0 > -1)
+$ op=65 dst=2 src=2 off=ffff r2=               0 imm=       0 : ok   # not taken ( 0 >  0)
+$ op=65 dst=2 src=2 off=ffff r2=               0 imm=       1 : ok   # not taken ( 0 >  1)
+$ op=65 dst=2 src=2 off=ffff r2=               1 imm=ffffffff : err  #     taken ( 1 > -1)
+$ op=65 dst=2 src=2 off=ffff r2=               1 imm=       0 : err  #     taken ( 1 >  0)
+$ op=65 dst=2 src=2 off=ffff r2=               1 imm=       1 : ok   # not taken ( 1 >  1)
+$ op=65 dst=a src=1 off=0000                                  : vfy
+$ op=65 dst=9 src=b off=0000                                  : vfy
+
+# jsgt reg, reg
+$ op=6d dst=9 src=9 off=aaaa r9=1111111122222222                      : vfy  # OOB
+$ op=6d dst=8 src=9 off=0000 r8=ffffffff80000001 r9 =ffffffff80000000 : ok   # nop
+$ op=6d dst=8 src=9 off=ffff r8=ffffffff80000001 r9 =ffffffff80000000 : err  # taken
+$ op=6d dst=7 src=a off=ffff r7=3339333344444444 r10=3333333344444444 : err  # taken
+$ op=6d dst=6 src=5 off=ffff r6=3333333344444444 r5 =3333333344494444 : ok   # not taken
+$ op=6d dst=6 src=5 off=ffff r6=3333333344444444 r5 =3333333344444444 : ok   # not taken
+$ op=6d dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =ffffffffffffffff : ok   # not taken (-1 > -1)
+$ op=6d dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =               0 : ok   # not taken (-1 >  0)
+$ op=6d dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =               1 : ok   # not taken (-1 >  1)
+$ op=6d dst=2 src=5 off=ffff r2=               0 r5 =ffffffffffffffff : err  #     taken ( 0 > -1)
+$ op=6d dst=2 src=5 off=ffff r2=               0 r5 =               0 : ok   # not taken ( 0 >  0)
+$ op=6d dst=2 src=5 off=ffff r2=               0 r5 =               1 : ok   # not taken ( 0 >  1)
+$ op=6d dst=2 src=5 off=ffff r2=               1 r5 =ffffffffffffffff : err  #     taken ( 1 > -1)
+$ op=6d dst=2 src=5 off=ffff r2=               1 r5 =               0 : err  #     taken ( 1 >  0)
+$ op=6d dst=2 src=5 off=ffff r2=               1 r5 =               1 : ok   # not taken ( 1 >  1)
+$ op=6d dst=a src=1 off=0000                                          : vfy
+$ op=6d dst=9 src=b off=0000                                          : vfy
+
+# jsge reg, imm
+$ op=75 dst=5 src=5 off=aaaa r5=1111111122222222 imm=5555aaaa : vfy  # OOB
+$ op=75 dst=4 src=4 off=ffff r4=2222222233333333 imm=aaaa5555 : err  # taken (sign extend)
+$ op=75 dst=3 src=3 off=ffff r3=fffffffff0000000 imm=f0000000 : err  # taken (sign extend)
+$ op=75 dst=3 src=3 off=ffff r3=ffffffffffffffff imm=ffffffff : err  # taken (sign extend)
+$ op=75 dst=3 src=3 off=ffff r3=fffffffff0000001 imm=f0000000 : err  # taken (sign extend)
+$ op=75 dst=2 src=2 off=ffff r2=               2 imm=       1 : err  # taken
+$ op=75 dst=1 src=1 off=0000 r1=ffffffff80000001 imm=80000000 : ok   # nop
+$ op=75 dst=2 src=2 off=ffff r2=ffffffffffffffff imm=ffffffff : err  #     taken (-1 >= -1)
+$ op=75 dst=2 src=2 off=ffff r2=ffffffffffffffff imm=       0 : ok   # not taken (-1 >=  0)
+$ op=75 dst=2 src=2 off=ffff r2=ffffffffffffffff imm=       1 : ok   # not taken (-1 >=  1)
+$ op=75 dst=2 src=2 off=ffff r2=               0 imm=ffffffff : err  #     taken ( 0 >= -1)
+$ op=75 dst=2 src=2 off=ffff r2=               0 imm=       0 : err  #     taken ( 0 >=  0)
+$ op=75 dst=2 src=2 off=ffff r2=               0 imm=       1 : ok   # not taken ( 0 >=  1)
+$ op=75 dst=2 src=2 off=ffff r2=               1 imm=ffffffff : err  #     taken ( 1 >= -1)
+$ op=75 dst=2 src=2 off=ffff r2=               1 imm=       0 : err  #     taken ( 1 >=  0)
+$ op=75 dst=2 src=2 off=ffff r2=               1 imm=       1 : err  #     taken ( 1 >=  1)
+$ op=75 dst=a src=1 off=0000                                  : vfy
+$ op=75 dst=9 src=b off=0000                                  : vfy
+
+# jsge reg, reg
+$ op=7d dst=9 src=9 off=aaaa r9=1111111122222222                      : vfy  # OOB
+$ op=7d dst=8 src=9 off=0000 r8=ffffffff80000001 r9 =ffffffff80000000 : ok   # nop
+$ op=7d dst=8 src=9 off=ffff r8=ffffffff80000001 r9 =ffffffff80000000 : err  #     taken
+$ op=7d dst=7 src=a off=ffff r7=3339333344444444 r10=3333333344444444 : err  #     taken
+$ op=7d dst=6 src=5 off=ffff r6=3333333344444444 r5 =3333333344494444 : ok   # not taken
+$ op=7d dst=6 src=5 off=ffff r6=3333333344444444 r5 =3333333344444444 : err  #     taken
+$ op=7d dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =ffffffffffffffff : err  #     taken (-1 >= -1)
+$ op=7d dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =               0 : ok   # not taken (-1 >=  0)
+$ op=7d dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =               1 : ok   # not taken (-1 >=  1)
+$ op=7d dst=2 src=5 off=ffff r2=               0 r5 =ffffffffffffffff : err  #     taken ( 0 >= -1)
+$ op=7d dst=2 src=5 off=ffff r2=               0 r5 =               0 : err  #     taken ( 0 >=  0)
+$ op=7d dst=2 src=5 off=ffff r2=               0 r5 =               1 : ok   # not taken ( 0 >=  1)
+$ op=7d dst=2 src=5 off=ffff r2=               1 r5 =ffffffffffffffff : err  #     taken ( 1 >= -1)
+$ op=7d dst=2 src=5 off=ffff r2=               1 r5 =               0 : err  #     taken ( 1 >=  0)
+$ op=7d dst=2 src=5 off=ffff r2=               1 r5 =               1 : err  #     taken ( 1 >=  1)
+$ op=7d dst=a src=1 off=0000                                          : vfy
+$ op=7d dst=9 src=b off=0000                                          : vfy
+
+# jlt reg, imm
+$ op=a5 dst=5 src=5 off=aaaa r5=1111111122222222 imm=5555aaaa : vfy  # OOB
+$ op=a5 dst=4 src=4 off=ffff r4=2222222233333333 imm=aaaa5555 : err  # taken
+$ op=a5 dst=3 src=3 off=ffff r3=fffffffff0000000 imm=f0000000 : ok   # not taken (sign extend)
+$ op=a5 dst=3 src=3 off=ffff r3=fffffffff0000000 imm=f0000001 : err  #     taken (sign extend)
+$ op=a5 dst=3 src=3 off=ffff r3=ffffffffffffffff imm=ffffffff : ok   # not taken (sign extend)
+$ op=a5 dst=3 src=3 off=ffff r3=fffffffff0000001 imm=f0000000 : ok   # not taken (sign extend)
+$ op=a5 dst=2 src=2 off=ffff r2=               2 imm=       1 : ok   # not taken
+$ op=a5 dst=1 src=1 off=0000 r1=ffffffff80000000 imm=8000000a : ok   # nop
+$ op=a5 dst=7 src=6 off=ffff r7=ffffffffffffffff imm=ffffffff : ok   # not taken (max < max)
+$ op=a5 dst=7 src=6 off=ffff r7=ffffffffffffffff imm=       0 : ok   # not taken (max <   0)
+$ op=a5 dst=7 src=6 off=ffff r7=ffffffffffffffff imm=       1 : ok   # not taken (max <   1)
+$ op=a5 dst=7 src=6 off=ffff r7=               0 imm=ffffffff : err  #     taken (  0 < max)
+$ op=a5 dst=7 src=6 off=ffff r7=               0 imm=       0 : ok   # not taken (  0 <   0)
+$ op=a5 dst=7 src=6 off=ffff r7=               0 imm=       1 : err  #     taken (  0 <   1)
+$ op=a5 dst=7 src=6 off=ffff r7=               1 imm=ffffffff : err  #     taken (  1 < max)
+$ op=a5 dst=7 src=6 off=ffff r7=               1 imm=       0 : ok   # not taken (  1 <   0)
+$ op=a5 dst=7 src=6 off=ffff r7=               1 imm=       1 : ok   # not taken (  1 <   1)
+$ op=a5 dst=a src=1 off=0000                                  : vfy
+$ op=a5 dst=9 src=b off=0000                                  : vfy
+
+# jlt reg, reg
+$ op=ad dst=9 src=9 off=aaaa r9=1111111122222222                      : vfy  # OOB
+$ op=ad dst=8 src=9 off=0000 r8=ffffffff80000001 r9 =ffffffff80000000 : ok   # nop
+$ op=ad dst=8 src=9 off=ffff r8=ffffffff80000001 r9 =ffffffff80000000 : ok   # not taken
+$ op=ad dst=7 src=a off=ffff r7=3339333344444444 r10=3333333344444444 : ok   # not taken
+$ op=ad dst=6 src=5 off=ffff r6=3333333344444444 r5 =3333333344494444 : err  #     taken
+$ op=ad dst=6 src=5 off=ffff r6=3333333344444444 r5 =3333333344444444 : ok   # not taken
+$ op=ad dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =ffffffffffffffff : ok   # not taken (max < max)
+$ op=ad dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =               0 : ok   # not taken (max <   0)
+$ op=ad dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =               1 : ok   # not taken (max <   1)
+$ op=ad dst=2 src=5 off=ffff r2=               0 r5 =ffffffffffffffff : err  #     taken (  0 < max)
+$ op=ad dst=2 src=5 off=ffff r2=               0 r5 =               0 : ok   # not taken (  0 <   0)
+$ op=ad dst=2 src=5 off=ffff r2=               0 r5 =               1 : err  #     taken (  0 <   1)
+$ op=ad dst=2 src=5 off=ffff r2=               1 r5 =ffffffffffffffff : err  #     taken (  1 < max)
+$ op=ad dst=2 src=5 off=ffff r2=               1 r5 =               0 : ok   # not taken (  1 <   0)
+$ op=ad dst=2 src=5 off=ffff r2=               1 r5 =               1 : ok   # not taken (  1 <   1)
+$ op=ad dst=a src=1 off=0000                                          : vfy
+$ op=ad dst=9 src=b off=0000                                          : vfy
+
+# jle reg, imm
+$ op=b5 dst=5 src=5 off=aaaa r5=1111111122222222 imm=5555aaaa : vfy  # OOB
+$ op=b5 dst=4 src=4 off=ffff r4=2222222233333333 imm=aaaa5555 : err  #     taken
+$ op=b5 dst=3 src=3 off=ffff r3=fffffffff0000000 imm=f0000000 : err  #     taken (sign extend)
+$ op=b5 dst=3 src=3 off=ffff r3=fffffffff0000000 imm=f0000001 : err  #     taken (sign extend)
+$ op=b5 dst=3 src=3 off=ffff r3=ffffffffffffffff imm=ffffffff : err  #     taken (sign extend)
+$ op=b5 dst=3 src=3 off=ffff r3=fffffffff0000001 imm=f0000000 : ok   # not taken (sign extend)
+$ op=b5 dst=2 src=2 off=ffff r2=               2 imm=       1 : ok   # not taken
+$ op=b5 dst=1 src=1 off=0000 r1=ffffffff80000000 imm=8000000a : ok   # nop
+$ op=b5 dst=7 src=6 off=ffff r7=ffffffffffffffff imm=ffffffff : err  #     taken (max <= max)
+$ op=b5 dst=7 src=6 off=ffff r7=ffffffffffffffff imm=       0 : ok   # not taken (max <=   0)
+$ op=b5 dst=7 src=6 off=ffff r7=ffffffffffffffff imm=       1 : ok   # not taken (max <=   1)
+$ op=b5 dst=7 src=6 off=ffff r7=               0 imm=ffffffff : err  #     taken (  0 <= max)
+$ op=b5 dst=7 src=6 off=ffff r7=               0 imm=       0 : err  #     taken (  0 <=   0)
+$ op=b5 dst=7 src=6 off=ffff r7=               0 imm=       1 : err  #     taken (  0 <=   1)
+$ op=b5 dst=7 src=6 off=ffff r7=               1 imm=ffffffff : err  #     taken (  1 <= max)
+$ op=b5 dst=7 src=6 off=ffff r7=               1 imm=       0 : ok   # not taken (  1 <=   0)
+$ op=b5 dst=7 src=6 off=ffff r7=               1 imm=       1 : err  #     taken (  1 <=   1)
+$ op=b5 dst=a src=1 off=0000                                  : vfy
+$ op=b5 dst=9 src=b off=0000                                  : vfy
+
+# jle reg, reg
+$ op=bd dst=9 src=9 off=aaaa r9=1111111122222222                      : vfy  # OOB
+$ op=bd dst=8 src=9 off=0000 r8=ffffffff80000001 r9 =ffffffff80000000 : ok   # nop
+$ op=bd dst=8 src=9 off=ffff r8=ffffffff80000001 r9 =ffffffff80000000 : ok   # not taken
+$ op=bd dst=7 src=a off=ffff r7=3339333344444444 r10=3333333344444444 : ok   # not taken
+$ op=bd dst=6 src=5 off=ffff r6=3333333344444444 r5 =3333333344494444 : err  #     taken
+$ op=bd dst=6 src=5 off=ffff r6=3333333344444444 r5 =3333333344444444 : err  #     taken
+$ op=bd dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =ffffffffffffffff : err  #     taken (max <= max)
+$ op=bd dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =               0 : ok   # not taken (max <=   0)
+$ op=bd dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =               1 : ok   # not taken (max <=   1)
+$ op=bd dst=2 src=5 off=ffff r2=               0 r5 =ffffffffffffffff : err  #     taken (  0 <= max)
+$ op=bd dst=2 src=5 off=ffff r2=               0 r5 =               0 : err  #     taken (  0 <=   0)
+$ op=bd dst=2 src=5 off=ffff r2=               0 r5 =               1 : err  #     taken (  0 <=   1)
+$ op=bd dst=2 src=5 off=ffff r2=               1 r5 =ffffffffffffffff : err  #     taken (  1 <= max)
+$ op=bd dst=2 src=5 off=ffff r2=               1 r5 =               0 : ok   # not taken (  1 <=   0)
+$ op=bd dst=2 src=5 off=ffff r2=               1 r5 =               1 : err  #     taken (  1 <=   1)
+$ op=bd dst=a src=1 off=0000                                          : vfy
+$ op=bd dst=9 src=b off=0000                                          : vfy
+
+# jslt reg, imm
+$ op=c5 dst=5 src=5 off=aaaa r5=1111111122222222 imm=5555aaaa : vfy  # OOB
+$ op=c5 dst=4 src=4 off=ffff r4=2222222233333333 imm=aaaa5555 : ok   # not taken (sign extend)
+$ op=c5 dst=3 src=3 off=ffff r3=fffffffff0000000 imm=f0000000 : ok   # not taken (sign extend)
+$ op=c5 dst=3 src=3 off=ffff r3=fffffffff0000000 imm=f0000001 : err  #     taken (sign extend)
+$ op=c5 dst=2 src=2 off=ffff r2=               1 imm=       2 : err  #     taken
+$ op=c5 dst=2 src=2 off=ffff r2=ffffffffffffffff imm=ffffffff : ok   # not taken (-1 < -1)
+$ op=c5 dst=2 src=2 off=ffff r2=ffffffffffffffff imm=       0 : err  #     taken (-1 <  0)
+$ op=c5 dst=2 src=2 off=ffff r2=ffffffffffffffff imm=       1 : err  #     taken (-1 <  1)
+$ op=c5 dst=2 src=2 off=ffff r2=               0 imm=ffffffff : ok   # not taken ( 0 < -1)
+$ op=c5 dst=2 src=2 off=ffff r2=               0 imm=       0 : ok   # not taken ( 0 <  0)
+$ op=c5 dst=2 src=2 off=ffff r2=               0 imm=       1 : err  #     taken ( 0 <  1)
+$ op=c5 dst=2 src=2 off=ffff r2=               1 imm=ffffffff : ok   # not taken ( 1 < -1)
+$ op=c5 dst=2 src=2 off=ffff r2=               1 imm=       0 : ok   # not taken ( 1 <  0)
+$ op=c5 dst=2 src=2 off=ffff r2=               1 imm=ffffffff : ok   # not taken ( 1 <  1)
+$ op=c5 dst=a src=1 off=0000                                  : vfy
+$ op=c5 dst=9 src=b off=0000                                  : vfy
+
+# jslt reg, reg
+$ op=cd dst=9 src=9 off=aaaa r9=1111111122222222                      : vfy  # OOB
+$ op=cd dst=8 src=9 off=0000 r8=ffffffff80000000 r9 =ffffffff80000001 : ok   # nop
+$ op=cd dst=8 src=9 off=ffff r8=ffffffff80000000 r9 =ffffffff80000001 : err  #     taken
+$ op=cd dst=7 src=a off=ffff r7=3333333344444444 r10=3333933344444444 : err  #     taken
+$ op=cd dst=6 src=5 off=ffff r6=3333333344449444 r5 =3333333344444444 : ok   # not taken
+$ op=cd dst=6 src=5 off=ffff r6=3333333344444444 r5 =3333333344444444 : ok   # not taken
+$ op=cd dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =ffffffffffffffff : ok   # not taken (-1 < -1)
+$ op=cd dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =               0 : err  #     taken (-1 <  0)
+$ op=cd dst=2 src=5 off=ffff r2=ffffffffffffffff r5 =               1 : err  #     taken (-1 <  1)
+$ op=cd dst=2 src=5 off=ffff r2=               0 r5 =ffffffffffffffff : ok   # not taken ( 0 < -1)
+$ op=cd dst=2 src=5 off=ffff r2=               0 r5 =               0 : ok   # not taken ( 0 <  0)
+$ op=cd dst=2 src=5 off=ffff r2=               0 r5 =               1 : err  #     taken ( 0 <  1)
+$ op=cd dst=2 src=5 off=ffff r2=               1 r5 =ffffffffffffffff : ok   # not taken ( 1 < -1)
+$ op=cd dst=2 src=5 off=ffff r2=               1 r5 =               0 : ok   # not taken ( 1 <  0)
+$ op=cd dst=2 src=5 off=ffff r2=               1 r5 =               1 : ok   # not taken ( 1 <  1)
+$ op=cd dst=a src=1 off=0000                                          : vfy
+$ op=cd dst=9 src=b off=0000                                          : vfy
+
+# jsle reg, imm
+$ op=d5 dst=5 src=5 off=aaaa r5=1111111122222222 imm=5555aaaa : vfy  # OOB
+$ op=d5 dst=4 src=4 off=ffff r4=2222222233333333 imm=aaaa5555 : ok   # not taken (sign extend)
+$ op=d5 dst=3 src=3 off=ffff r3=fffffffff0000000 imm=f0000000 : err  #     taken (sign extend)
+$ op=d5 dst=3 src=3 off=ffff r3=ffffffffffffffff imm=ffffffff : err  #     taken (sign extend)
+$ op=d5 dst=3 src=3 off=ffff r3=fffffffff0000000 imm=f0000001 : err  #     taken (sign extend)
+$ op=d5 dst=2 src=2 off=ffff r2=               1 imm=       2 : err  #     taken
+$ op=d5 dst=1 src=1 off=0000 r1=ffffffff80000001 imm=80000000 : ok   # nop
+$ op=d5 dst=a src=1 off=0000                                  : vfy
+$ op=d5 dst=9 src=b off=0000                                  : vfy
+
+# jsle reg, reg
+$ op=dd dst=9 src=9 off=aaaa r9=1111111122222222                      : vfy  # OOB
+$ op=dd dst=8 src=9 off=0000 r8=ffffffff80000000 r9 =ffffffff80000001 : ok   # nop
+$ op=dd dst=8 src=9 off=ffff r8=ffffffff80000000 r9 =ffffffff80000001 : err  #     taken
+$ op=dd dst=7 src=a off=ffff r7=3333333344444444 r10=3333933344444444 : err  #     taken
+$ op=dd dst=6 src=5 off=ffff r6=3333333344449444 r5 =3333333344444444 : ok   # not taken
+$ op=dd dst=6 src=5 off=ffff r6=3333333344444444 r5 =3333333344444444 : err  #     taken
+$ op=dd dst=a src=1 off=0000                                          : vfy
+$ op=dd dst=9 src=b off=0000                                          : vfy
