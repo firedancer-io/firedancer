@@ -106,6 +106,7 @@ echo "
         repair_serve_listen_port = 8702
     [tiles.replay]
         snapshot = \"$FULL_SNAPSHOT\"
+        tpool_thread_count = 10
         funk_sz_gb = 8
         funk_rec_max = 100000
         funk_txn_max = 1024
