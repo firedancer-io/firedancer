@@ -1171,10 +1171,8 @@ after_credit( void *             _ctx,
      We know h_{j+1) >= m_{j+1} from before, so then h'_{j+1} >=
      m_{j+1}, as desired. */
 
-  if( FD_LIKELY( !low_power_mode ) ) {
-    ulong next_tick_hashcnt = ctx->hashcnt_per_tick * (1UL+(ctx->hashcnt/ctx->hashcnt_per_tick));
-    target_hashcnt = fd_ulong_min( target_hashcnt, next_tick_hashcnt );
-  }
+  ulong next_tick_hashcnt = ctx->hashcnt_per_tick * (1UL+(ctx->hashcnt/ctx->hashcnt_per_tick));
+  target_hashcnt = fd_ulong_min( target_hashcnt, next_tick_hashcnt );
 
   /* We still need to enforce rule (i). We know that min_hashcnt%T !=
      T-1 because of rule (ii).  That means that if target_hashcnt%T ==
@@ -1195,7 +1193,7 @@ after_credit( void *             _ctx,
   }
 
   if( FD_UNLIKELY( !is_leader && ctx->hashcnt>=ctx->next_leader_slot_hashcnt ) ) {
-    /* We were not leader but beame leader... we don't want to do any
+    /* We were not leader but became leader... we don't want to do any
        other hashing until we get the leader bank from the replay
        stage. */
     return;
