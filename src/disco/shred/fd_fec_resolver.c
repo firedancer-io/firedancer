@@ -378,7 +378,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
       /* Remove from linked list and then from the map */
       ctx_map_remove( curr_map, ctx_ll_remove( victim_ctx ) );
 
-      FD_MCNT_INC( SHRED, FEC_SET_SPILLED, 1UL );
+      // FD_MCNT_INC( SHRED, FEC_SET_SPILLED, 1UL );
     }
     /* Now we know |free_list|>partial_depth and |bmtree_free_list|>1 */
 

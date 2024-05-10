@@ -393,6 +393,9 @@ fd_wksp_restore( fd_wksp_t *  wksp,
         goto unlock;
       }
 
+        // FD_LOG_WARNING(( "Restore \"%s\" to wksp \"%s\" failed because checkpt partition [0x%016lx,0x%016lx) tag %lu "
+        //                  "does not fit into wksp data region [0x%016lx,0x%016lx) (data_max checkpt %lu, wksp %lu)",
+        //                  path, wksp->name, gaddr_lo, gaddr_hi, tag, wksp_data_lo, wksp_data_hi, data_max, wksp_data_max ));
       if( FD_UNLIKELY( !((wksp_data_lo<=gaddr_lo) & (gaddr_hi<=wksp_data_hi)) ) ) {
         FD_LOG_WARNING(( "Restore \"%s\" to wksp \"%s\" failed because checkpt partition [0x%016lx,0x%016lx) tag %lu "
                          "does not fit into wksp data region [0x%016lx,0x%016lx) (data_max checkpt %lu, wksp %lu)",

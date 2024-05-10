@@ -1199,9 +1199,9 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
       }
     }
     
-    fd_gossip_peer_addr_t peer_addr = { .addr = crd->data.inner.contact_info_v1.gossip.addr.inner.ip4, 
-                                        .port = crd->data.inner.contact_info_v1.gossip.port };
-    if (glob->my_contact_info.shred_version == 0U && fd_gossip_is_allowed_entrypoint( glob, &peer_addr )) {
+    // fd_gossip_peer_addr_t peer_addr = { .addr = crd->data.inner.contact_info_v1.gossip.addr.inner.ip4, 
+    //                                     .port = crd->data.inner.contact_info_v1.gossip.port };
+    if (glob->my_contact_info.shred_version == 0U ) {
       FD_LOG_NOTICE(("using shred version %lu", (ulong)crd->data.inner.contact_info_v1.shred_version));
       glob->my_contact_info.shred_version = crd->data.inner.contact_info_v1.shred_version;
     }
