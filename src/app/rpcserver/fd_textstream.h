@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_util_textstream_fd_textstream_h
 #define HEADER_fd_src_util_textstream_fd_textstream_h
 
-#include "../valloc/fd_valloc.h"
+#include "../../util/valloc/fd_valloc.h"
 
 struct fd_textstream_blk;
 
