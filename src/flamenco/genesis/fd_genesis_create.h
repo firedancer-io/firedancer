@@ -17,8 +17,9 @@ struct fd_genesis_options {
   fd_pubkey_t stake_pubkey;
   fd_pubkey_t vote_pubkey;
 
-  ulong creation_time; /* unix time, i.e. seconds since the unix epoch */
-  ulong faucet_balance; /* in lamports */
+  ulong creation_time;      /* unix time, i.e. seconds since the unix epoch */
+  ulong faucet_balance;     /* in lamports */
+  ulong vote_account_stake; /* in lamports */
 
   ulong hashes_per_tick; /* 0 means unset */
   ulong ticks_per_slot;
@@ -26,6 +27,8 @@ struct fd_genesis_options {
 
   ulong fund_initial_accounts;
   ulong fund_initial_amount_lamports;
+
+  int   warmup_epochs;
 
   /* features points to an externally owned feature map.
      Adds a feature account to the genesis blob for feature enabled at

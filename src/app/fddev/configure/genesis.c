@@ -149,8 +149,9 @@ create_genesis( config_t * const config,
   memcpy( options->vote_pubkey.key, vote_pubkey_, 32 );
 
 
-  options->creation_time  = (ulong)fd_log_wallclock() / (ulong)1e9;
-  options->faucet_balance = 500000000000000000UL;
+  options->creation_time      = (ulong)fd_log_wallclock() / (ulong)1e9;
+  options->faucet_balance     = 500000000000000000UL;
+  options->vote_account_stake = config->development.genesis.vote_account_stake_lamports;
 
   /* Set up PoH config */
 
@@ -186,6 +187,8 @@ create_genesis( config_t * const config,
 
   options->fund_initial_accounts        = config->development.genesis.fund_initial_accounts;
   options->fund_initial_amount_lamports = config->development.genesis.fund_initial_amount_lamports;
+
+  options->warmup_epochs                = config->development.genesis.warmup_epochs;
 
   fd_features_t features[1];
   fd_features_disable_all( features );
