@@ -153,9 +153,9 @@ _load_sysvar( fd_exec_txn_ctx_t * txn_ctx,
               ulong               data_size ) {
   FD_BORROWED_ACCOUNT_DECL(borrowed_account);
   
-  pb_bytes_array_t data[PB_BYTES_ARRAY_T_ALLOCSIZE(40)];
+  pb_bytes_array_t * data = fd_scratch_alloc(alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(data_size));
   data->size = (pb_size_t) data_size;
-  memcpy( data->bytes, sysvar_raw_data, data->size );
+  memcpy( data->bytes, sysvar_raw_data, data_size );
 
   fd_exec_test_acct_state_t acct_state = {0};
   acct_state.lamports   = 1;
@@ -341,31 +341,49 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   /* Fill missing sysvar cache values with defaults */
   /* We create mock accounts for each of the sysvars and hardcode the data fields before loading it into the account manager */
   /* We use Agave sysvar defaults for data field values */
+  fd_bincode_encode_ctx_t encode_ctx;
+  ulong sz = 128;
+  uchar enc[sz]; memset( enc, 0, sz );
 
   /* Clock */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L466-L474
-  uchar clock_raw_data[40] = {10, 0, 0, 0, 0, 0, 0, 0, // slot = 10
-                              0, 0, 0, 0, 0, 0, 0, 0,  // epoch_start_timestamp = 0
-                              0, 0, 0, 0, 0, 0, 0, 0,  // epoch = 0
-                              0, 0, 0, 0, 0, 0, 0, 0,  // leader_schedule_epoch = 0
-                              0, 0, 0, 0, 0, 0, 0, 0}; // unix_timestamp = 0
-  _load_sysvar( txn_ctx, fd_sysvar_clock_id, clock_raw_data, sizeof(clock_raw_data) );
+  fd_sol_sysvar_clock_t sysvar_clock = {
+                                        .slot = 10,
+                                        .epoch_start_timestamp = 0,
+                                        .epoch = 0,
+                                        .leader_schedule_epoch = 0,
+                                        .unix_timestamp = 0
+                                      };
+  encode_ctx.data = enc;
+  encode_ctx.dataend = enc + sizeof(sysvar_clock);
+  fd_sol_sysvar_clock_encode( &sysvar_clock, &encode_ctx );
+  _load_sysvar( txn_ctx, fd_sysvar_clock_id, enc, sizeof(sysvar_clock) );
   
   /* Epoch schedule */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L476-L483
-  uchar epoch_schedule_raw_data[33] = {0x80, 0x97, 0x06, 0, 0, 0, 0, 0,  // slots_per_epoch = 432000
-                                       0x80, 0x97, 0x06, 0, 0, 0, 0, 0,  // leader_schedule_slot_offset = 432000
-                                       1,                                // warmup = 1
-                                       14, 0, 0, 0, 0, 0, 0, 0,          // first_normal_epoch = 14
-                                       0xe0, 0xff, 0x07, 0, 0, 0, 0, 0}; // first_normal_slot = 524256
-  _load_sysvar( txn_ctx, fd_sysvar_epoch_schedule_id, epoch_schedule_raw_data, sizeof(epoch_schedule_raw_data) );
+  fd_epoch_schedule_t sysvar_epoch_schedule = {
+                                                .slots_per_epoch = 432000,
+                                                .leader_schedule_slot_offset = 432000,
+                                                .warmup = 1,
+                                                .first_normal_epoch = 14,
+                                                .first_normal_slot = 524256
+                                              };
+  encode_ctx.data = enc;
+  encode_ctx.dataend = enc + sizeof(sysvar_epoch_schedule);
+  fd_epoch_schedule_encode( &sysvar_epoch_schedule, &encode_ctx );
+  _load_sysvar( txn_ctx, fd_sysvar_epoch_schedule_id, enc, sizeof(sysvar_epoch_schedule) );
 
   /* Rent */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L487-L500
-  uchar rent_raw_data[17] = {0x98, 0x0d, 0, 0, 0, 0, 0, 0, // lamports_per_uint8_year = 3480
-                             0, 0, 0, 0, 0, 0, 0, 0x40,    // exemption_threshold = 2.0
-                             50};                          // burn_percent = 50
-  _load_sysvar( txn_ctx, fd_sysvar_rent_id, rent_raw_data, sizeof(rent_raw_data) );
+  fd_rent_t sysvar_rent = {
+                            .lamports_per_uint8_year = 3480,
+                            .exemption_threshold = 2.0,
+                            .burn_percent = 50
+                          };
+  encode_ctx.data = enc;
+  encode_ctx.dataend = enc + sizeof(sysvar_rent);
+  fd_rent_encode( &sysvar_rent, &encode_ctx );
+  _load_sysvar( txn_ctx, fd_sysvar_rent_id, enc, sizeof(sysvar_rent) );
 
   /* Restore sysvar cache */
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
