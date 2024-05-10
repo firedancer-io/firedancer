@@ -3,10 +3,12 @@ on:
   workflow_call:
   workflow_dispatch:
   pull_request:
+    types: [synchronize, opened, reopened, ready_for_review]
   merge_group:
 jobs:
   firedancer-tests:
     runs-on: private
+    if: github.event.pull_request.draft == false
     env:
       CC: gcc
       EXTRAS: no-solana
@@ -16,7 +18,7 @@ jobs:
           submodules: recursive
 
       - uses: ./.github/actions/deps
-      - uses: ./.github/actions/hugepages-selfhosted
+      - uses: ./.github/actions/hugepages
         with:
           count_gigantic: 128
           count_huge: 1000 # TODO: this is required until we can handle anonymouse workspaces and loose huge pages in fddev
@@ -29,4 +31,3 @@ jobs:
           sudo prlimit --pid=$$ --nofile=1048576
           sudo prlimit --pid=$$ --memlock=unlimited
           ./contrib/test/test_firedancer.sh
-
