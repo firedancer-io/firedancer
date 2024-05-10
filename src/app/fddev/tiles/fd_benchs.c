@@ -266,6 +266,7 @@ conn_final( fd_quic_conn_t * conn,
 
   if( ctx ) {
     ctx->quic_conn = NULL;
+    ctx->stream    = NULL;
   }
 }
 
@@ -371,6 +372,14 @@ during_frag( void * _ctx,
 
     ctx->packet_cnt++;
   } else {
+    /* allows to accumulate multiple transactions before creating a UDP datagram */
+    /* make this configurable */
+    if( FD_UNLIKELY( ctx->service_ratio_idx++ == 8 ) ) {
+      ctx->service_ratio_idx = 0;
+      service_quic( ctx );
+      fd_quic_service( ctx->quic );
+    }
+
     if( FD_UNLIKELY( !ctx->quic_conn ) ) {
       ctx->no_stream = 0;
 
@@ -382,7 +391,8 @@ during_frag( void * _ctx,
 
       /* failed? try later */
       if( FD_UNLIKELY( !ctx->quic_conn ) ) {
-        FD_LOG_NOTICE(( "no connection available" ));
+        service_quic( ctx );
+        fd_quic_service( ctx->quic );
         return;
       }
 
@@ -393,6 +403,11 @@ during_frag( void * _ctx,
          this allows the notification to NULL the value when
          a connection dies */
       fd_quic_conn_set_context( ctx->quic_conn, ctx );
+
+      service_quic( ctx );
+      fd_quic_service( ctx->quic );
+
+      /* conn and streams may be invalidated by fd_quic_service */
 
       return;
     }
@@ -407,6 +422,12 @@ during_frag( void * _ctx,
 
     if( FD_UNLIKELY( !stream ) ) {
       ctx->no_stream++;
+      service_quic( ctx );
+      fd_quic_service( ctx->quic );
+
+      /* conn and streams may be invalidated by fd_quic_service */
+
+      return;
     } else {
       int fin = 1;
       fd_aio_pkt_info_t   batch[1]  = { { .buf    = fd_chunk_to_laddr( ctx->mem, chunk ),
@@ -429,14 +450,6 @@ during_frag( void * _ctx,
           FD_LOG_ERR(( "fd_quic_stream_send failed with: %d", rtn ));
         }
       }
-    }
-
-    /* allows to accumulate multiple transactions before creating a UDP datagram */
-    /* make this configurable */
-    if( FD_UNLIKELY( ctx->service_ratio_idx++ == 4 ) ) {
-      ctx->service_ratio_idx = 0;
-      service_quic( ctx );
-      fd_quic_service( ctx->quic );
     }
   }
 }
@@ -613,7 +626,7 @@ unprivileged_init( fd_topo_t *      topo,
 static void
 quic_tx_aio_send_flush( fd_benchs_ctx_t * ctx ) {
   if( FD_LIKELY( ctx->tx_idx ) ) {
-    int flags = MSG_DONTWAIT;
+    int flags = 0;
     int rtn = sendmmsg( ctx->conn_fd[0], ctx->tx_msgs, (uint)ctx->tx_idx, flags );
     if( FD_UNLIKELY( rtn < 0 ) ) {
       FD_LOG_NOTICE(( "Error occurred in sendmmsg. Error: %d %s",
