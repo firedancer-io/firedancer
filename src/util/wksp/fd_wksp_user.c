@@ -22,8 +22,6 @@
    fd_wksp_private_split_after is identical except the partition created
    by the split is after the original partition. */
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 static ulong                                                      /* In [0,part_max) */
 fd_wksp_private_split_before( ulong                     i2,       /* In [0,part_max) */
@@ -144,6 +142,7 @@ fd_wksp_private_free( ulong                     i,        /* Partition to free, 
   ulong part_max = wksp->part_max;
 
   /* Officially free i */
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( pinfo[ i ].tag ) = 0UL;
   FD_COMPILER_MFENCE();
@@ -151,7 +150,6 @@ fd_wksp_private_free( ulong                     i,        /* Partition to free, 
 # if FD_HAS_DEEPASAN
   /* Unpoison partition local addresses */
   void * laddr_lo = fd_wksp_laddr_fast( wksp, pinfo[ i ].gaddr_lo );
-  FD_LOG_NOTICE(("%lx", laddr_lo ));
   ulong sz = pinfo[ i ].gaddr_hi - pinfo[ i ].gaddr_lo;
   fd_asan_poison( laddr_lo, sz );  
 # endif
