@@ -11,7 +11,6 @@
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
-#include "../sysvar/fd_sysvar_cache.c"
 #include "../../../funk/fd_funk.h"
 #include "../../../util/bits/fd_float.h"
 #include <assert.h>
@@ -144,6 +143,29 @@ _load_account( fd_borrowed_account_t *           acc,
   memcpy( acc->meta->info.owner, state->owner, sizeof(fd_pubkey_t) );
 
   return 1;
+}
+
+/* Loads sysvars if they don't exist already */
+static void
+_load_sysvar( fd_exec_txn_ctx_t * txn_ctx,
+              fd_pubkey_t         sysvar_pubkey,
+              uchar             * sysvar_raw_data,
+              ulong               data_size ) {
+  FD_BORROWED_ACCOUNT_DECL(borrowed_account);
+  
+  pb_bytes_array_t data[PB_BYTES_ARRAY_T_ALLOCSIZE(40)];
+  data->size = (pb_size_t) data_size;
+  memcpy( data->bytes, sysvar_raw_data, data->size );
+
+  fd_exec_test_acct_state_t acct_state = {0};
+  acct_state.lamports   = 1;
+  acct_state.data       = data;
+  acct_state.executable = 1;
+  acct_state.rent_epoch = 0;
+  memcpy( acct_state.address, &sysvar_pubkey, sizeof(fd_pubkey_t) );
+  memcpy( acct_state.owner, &fd_sysvar_owner_id, sizeof(fd_pubkey_t) );
+
+  _load_account( borrowed_account, txn_ctx->acc_mgr, txn_ctx->funk_txn, &acct_state );
 }
 
 static int
@@ -316,38 +338,37 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   /* Add accounts to bpf program cache */
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
 
-  /* Restore sysvar cache */
-
-  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
-
   /* Fill missing sysvar cache values with defaults */
-  /* Note: these default values are obtained by sysvar defaults from solfuzz-agave */
+  /* We create mock accounts for each of the sysvars and hardcode the data fields before loading it into the account manager */
+  /* We use Agave sysvar defaults for data field values */
 
+  /* Clock */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L466-L474
-  if( !slot_ctx->sysvar_cache->has_clock ) {
-    slot_ctx->sysvar_cache->has_clock                        = 1;
-    slot_ctx->sysvar_cache->val_clock->slot                  = 10UL;
-    slot_ctx->sysvar_cache->val_clock->epoch_start_timestamp = 0;
-    slot_ctx->sysvar_cache->val_clock->epoch                 = 0UL;
-    slot_ctx->sysvar_cache->val_clock->leader_schedule_epoch = 0UL;
-    slot_ctx->sysvar_cache->val_clock->unix_timestamp        = 0;
-  }
+  uchar clock_raw_data[40] = {10, 0, 0, 0, 0, 0, 0, 0, // slot = 10
+                              0, 0, 0, 0, 0, 0, 0, 0,  // epoch_start_timestamp = 0
+                              0, 0, 0, 0, 0, 0, 0, 0,  // epoch = 0
+                              0, 0, 0, 0, 0, 0, 0, 0,  // leader_schedule_epoch = 0
+                              0, 0, 0, 0, 0, 0, 0, 0}; // unix_timestamp = 0
+  _load_sysvar( txn_ctx, fd_sysvar_clock_id, clock_raw_data, sizeof(clock_raw_data) );
+  
+  /* Epoch schedule */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L476-L483
-  if( !slot_ctx->sysvar_cache->has_epoch_schedule ) {
-    slot_ctx->sysvar_cache->has_epoch_schedule                              = 1;
-    slot_ctx->sysvar_cache->val_epoch_schedule->slots_per_epoch             = MAX_SLOTS_CNT;
-    slot_ctx->sysvar_cache->val_epoch_schedule->leader_schedule_slot_offset = MAX_SLOTS_CNT;
-    slot_ctx->sysvar_cache->val_epoch_schedule->warmup                      = 1;
-    slot_ctx->sysvar_cache->val_epoch_schedule->first_normal_epoch          = 14UL;
-    slot_ctx->sysvar_cache->val_epoch_schedule->first_normal_slot           = 524256UL;
-  }
+  uchar epoch_schedule_raw_data[33] = {0x80, 0x97, 0x06, 0, 0, 0, 0, 0,  // slots_per_epoch = 432000
+                                       0x80, 0x97, 0x06, 0, 0, 0, 0, 0,  // leader_schedule_slot_offset = 432000
+                                       1,                                // warmup = 1
+                                       14, 0, 0, 0, 0, 0, 0, 0,          // first_normal_epoch = 14
+                                       0xe0, 0xff, 0x07, 0, 0, 0, 0, 0}; // first_normal_slot = 524256
+  _load_sysvar( txn_ctx, fd_sysvar_epoch_schedule_id, epoch_schedule_raw_data, sizeof(epoch_schedule_raw_data) );
+
+  /* Rent */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L487-L500
-  if( !slot_ctx->sysvar_cache->has_rent ) { 
-    slot_ctx->sysvar_cache->has_rent                          = 1;
-    slot_ctx->sysvar_cache->val_rent->lamports_per_uint8_year = 3480UL;
-    slot_ctx->sysvar_cache->val_rent->exemption_threshold     = 2.0;
-    slot_ctx->sysvar_cache->val_rent->burn_percent            = 50;
-  }
+  uchar rent_raw_data[17] = {0x98, 0x0d, 0, 0, 0, 0, 0, 0, // lamports_per_uint8_year = 3480
+                             0, 0, 0, 0, 0, 0, 0, 0x40,    // exemption_threshold = 2.0
+                             50};                          // burn_percent = 50
+  _load_sysvar( txn_ctx, fd_sysvar_rent_id, rent_raw_data, sizeof(rent_raw_data) );
+
+  /* Restore sysvar cache */
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
 
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 
