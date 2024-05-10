@@ -49,7 +49,7 @@ fd_quic_stream_pool_new( void * mem, ulong count, ulong tx_buf_sz ) {
     fd_quic_stream_t * stream = fd_quic_stream_new( (void*)( ul_mem + offs ), NULL, tx_buf_sz );
 
     FD_QUIC_STREAM_LIST_INIT_STREAM( stream );
-    FD_QUIC_STREAM_LIST_INSERT_BEFORE( pool->head, stream );
+    FD_QUIC_STREAM_LIST_INSERT_AFTER( pool->head, stream );
     pool->cur_cnt++;
 
     offs += stream_foot;
@@ -106,7 +106,7 @@ fd_quic_stream_pool_alloc( fd_quic_stream_pool_t * pool ) {
 void
 fd_quic_stream_pool_free( fd_quic_stream_pool_t * pool,
                           fd_quic_stream_t *      stream ) {
-  FD_QUIC_STREAM_LIST_INSERT_BEFORE( pool->head, stream );
+  FD_QUIC_STREAM_LIST_INSERT_AFTER( pool->head, stream );
   pool->cur_cnt++;
 }
 
