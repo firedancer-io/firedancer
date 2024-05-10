@@ -1235,6 +1235,10 @@ fd_gossip_handle_prune(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   signdata.destination = msg->data.destination;
   signdata.wallclock = msg->data.wallclock;
 
+  /* Verify the signature. You would think that solana would use
+     msg->pubkey.uc for this, but that pubkey is actually ignored. The
+     inclusion of two pubkeys in this message is confusing and
+     problematic. */
   uchar buf[FD_ETH_PAYLOAD_MAX];
   fd_bincode_encode_ctx_t ctx;
   ctx.data = buf;
@@ -1247,7 +1251,7 @@ fd_gossip_handle_prune(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   if (fd_ed25519_verify( /* msg */ buf,
                          /* sz  */ (ulong)((uchar*)ctx.data - buf),
                          /* sig */ msg->data.signature.uc,
-                         /* public_key */ msg->pubkey.uc,
+                         /* public_key */ msg->data.pubkey.uc,
                          sha )) {
     FD_LOG_WARNING(("received prune_msg with invalid signature"));
     return;
