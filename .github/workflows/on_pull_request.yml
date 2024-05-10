@@ -2,13 +2,16 @@ name: On Pull Request
 on:
   merge_group:
   pull_request:
+    types: [synchronize, opened, reopened, ready_for_review]
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   tests:
+    if: github.event.pull_request.draft == false
     uses: ./.github/workflows/tests.yml
     secrets: inherit
   ledgers:
+    if: github.event.pull_request.draft == false
     uses: ./.github/workflows/ledgers.yml
     secrets: inherit

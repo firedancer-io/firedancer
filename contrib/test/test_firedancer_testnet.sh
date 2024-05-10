@@ -54,8 +54,8 @@ echo "
     port = 8720
 [tiles]
     [tiles.gossip]
-        peer_ip_addr = \"$(dig +short $ENTRYPOINT)\"
-        peer_port = 8001
+        entrypoints = [\"$(dig +short $ENTRYPOINT)\"]
+        peer_ports = [8001]
         gossip_listen_port = 8720
     [tiles.repair]
         repair_intake_listen_port = 8721
