@@ -121,12 +121,6 @@ fd_wksp_checkpt( fd_wksp_t *  wksp,
 
         ulong sz = gaddr_hi - gaddr_lo;
         void * laddr_lo = fd_wksp_laddr_fast( wksp, gaddr_lo );
-        
-        #if FD_HAS_DEEPASAN
-        /* Copy the entire wksp over. This includes regions that may have been
-           poisoned at one point. */
-        fd_asan_unpoison( laddr_lo, sz );
-        #endif
 
         /* Checkpt partition header */
 
@@ -406,7 +400,16 @@ fd_wksp_restore( fd_wksp_t *  wksp,
       wksp_dirty = 1;
 
       #if FD_HAS_DEEPASAN
-      fd_asan_unpoison( fd_wksp_laddr_fast( wksp, gaddr_lo ), sz );
+      /* Poison the restored allocations. Potentially under poison to respect
+         manual poisoning alignment requirements. Don't poison if the allocation
+         is smaller than FD_ASAN_ALIGN. */
+      ulong laddr_lo = (ulong)fd_wksp_laddr_fast( wksp, gaddr_lo );
+      ulong laddr_hi = laddr_lo + sz;
+      ulong aligned_laddr_lo = fd_ulong_align_up( laddr_lo, FD_ASAN_ALIGN );
+      ulong aligned_laddr_hi = fd_ulong_align_dn( laddr_hi, FD_ASAN_ALIGN );
+      if( aligned_laddr_lo < aligned_laddr_hi ) {
+        fd_asan_poison( (void*)aligned_laddr_lo, aligned_laddr_hi - aligned_laddr_lo );
+      }
       #endif
 
       err = fd_io_buffered_istream_read( restore, fd_wksp_laddr_fast( wksp, gaddr_lo ), sz );

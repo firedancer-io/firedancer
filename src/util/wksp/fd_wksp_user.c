@@ -22,6 +22,9 @@
    fd_wksp_private_split_after is identical except the partition created
    by the split is after the original partition. */
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 static ulong                                                      /* In [0,part_max) */
 fd_wksp_private_split_before( ulong                     i2,       /* In [0,part_max) */
                               ulong                     s2,       /* In (0,size of i2) */
@@ -141,10 +144,17 @@ fd_wksp_private_free( ulong                     i,        /* Partition to free, 
   ulong part_max = wksp->part_max;
 
   /* Officially free i */
-
   FD_COMPILER_MFENCE();
   FD_VOLATILE( pinfo[ i ].tag ) = 0UL;
   FD_COMPILER_MFENCE();
+
+# if FD_HAS_DEEPASAN
+  /* Unpoison partition local addresses */
+  void * laddr_lo = fd_wksp_laddr_fast( wksp, pinfo[ i ].gaddr_lo );
+  FD_LOG_NOTICE(("%lx", laddr_lo ));
+  ulong sz = pinfo[ i ].gaddr_hi - pinfo[ i ].gaddr_lo;
+  fd_asan_poison( laddr_lo, sz );  
+# endif
 
   /* Remove it from various structures.  It is okay if we are killed in
      this as next person to try to lock the wksp will detect this and
@@ -231,10 +241,12 @@ fd_wksp_alloc_at_least( fd_wksp_t * wksp,
 
   #if FD_HAS_DEEPASAN
     /* ASan requires 8 byte alignment for poisoning because memory is mapped in
-       8 byte intervals to ASan shadow bytes. */
+       8 byte intervals to ASan shadow bytes. Update alignment, sz, and
+       footprint to meet requirements. */
     align = fd_ulong_if( align < FD_ASAN_ALIGN, FD_ASAN_ALIGN, align );
-    if ( sz && sz < ULONG_MAX )
+    if( sz && sz < ULONG_MAX ) {
       sz = fd_ulong_align_up( sz, FD_ASAN_ALIGN );
+    }
     footprint = sz + align - 1UL;
   #endif
 
@@ -323,9 +335,9 @@ trimmed:
   FD_VOLATILE( pinfo[ i ].tag ) = tag;
   FD_COMPILER_MFENCE();
 
-  #if FD_HAS_DEEPASAN
+# if FD_HAS_DEEPASAN
   fd_asan_unpoison( fd_wksp_laddr_fast( wksp, lo ), hi - lo );
-  #endif
+# endif
 
   fd_wksp_private_unlock( wksp );
   *_lo = lo;
@@ -356,11 +368,6 @@ fd_wksp_free( fd_wksp_t * wksp,
   fd_wksp_private_unlock( wksp );
 
   if( FD_UNLIKELY( i>=part_max ) ) FD_LOG_WARNING(( "gaddr does not appear to be a current wksp allocation" ));
-  else {
-    #if FD_HAS_DEEPASAN
-    fd_asan_poison( fd_wksp_laddr_fast( wksp, pinfo[ i ].gaddr_lo ), pinfo[ i ].gaddr_hi - pinfo[ i ].gaddr_lo );
-    #endif
-  }
 }
 
 ulong
@@ -513,6 +520,12 @@ void
 fd_wksp_reset( fd_wksp_t * wksp,
                uint        seed ) {
   if( FD_UNLIKELY( !wksp ) ) { FD_LOG_WARNING(( "NULL wksp" )); return; }
+
+# if FD_HAS_DEEPASAN
+  ulong footprint  = fd_wksp_footprint( wksp->part_max, wksp->data_max );
+  void * wksp_data = wksp + sizeof(fd_wksp_t);
+  fd_asan_unpoison( wksp_data, footprint - sizeof(fd_wksp_t) );
+# endif
 
   ulong                     part_max = wksp->part_max;
   fd_wksp_private_pinfo_t * pinfo    = fd_wksp_private_pinfo( wksp );
