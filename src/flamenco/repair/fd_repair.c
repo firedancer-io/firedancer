@@ -258,9 +258,9 @@ fd_repair_leave ( fd_repair_t * join ) { return join; }
 void *
 fd_repair_delete ( void * shmap ) {
   fd_repair_t * glob = (fd_repair_t *)shmap;
-  fd_active_table_delete(fd_active_table_leave(glob->actives));
-  fd_needed_table_delete(fd_needed_table_leave(glob->needed));
-  fd_dupdetect_table_delete(fd_dupdetect_table_leave(glob->dupdetect));
+  fd_active_table_delete( fd_active_table_leave( glob->actives ) );
+  fd_needed_table_delete( fd_needed_table_leave( glob->needed ) );
+  fd_dupdetect_table_delete( fd_dupdetect_table_leave( glob->dupdetect ) );
   return glob;
 }
 
@@ -564,64 +564,64 @@ fd_repair_recv_ping(fd_repair_t * glob, fd_gossip_ping_t const * ping, fd_gossip
 int
 fd_repair_recv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * from) {
   fd_repair_lock( glob );
-FD_SCRATCH_SCOPE_BEGIN {
-  while (1) {
-    fd_repair_response_t gmsg;
-    fd_bincode_decode_ctx_t ctx;
-    ctx.data    = msg;
-    ctx.dataend = msg + msglen;
-    ctx.valloc  = fd_scratch_virtual();
-    if (fd_repair_response_decode(&gmsg, &ctx)) {
-      /* Solana falls back to assuming we got a shred in this case
-         https://github.com/solana-labs/solana/blob/master/core/src/repair/serve_repair.rs#L1198 */
-      break;
-    }
-    fd_bincode_destroy_ctx_t ctx2;
-    ctx2.valloc = fd_scratch_virtual();
-    if (ctx.data != ctx.dataend) {
+  FD_SCRATCH_SCOPE_BEGIN {
+    while (1) {
+      fd_repair_response_t gmsg;
+      fd_bincode_decode_ctx_t ctx;
+      ctx.data    = msg;
+      ctx.dataend = msg + msglen;
+      ctx.valloc  = fd_scratch_virtual();
+      if (fd_repair_response_decode(&gmsg, &ctx)) {
+        /* Solana falls back to assuming we got a shred in this case
+          https://github.com/solana-labs/solana/blob/master/core/src/repair/serve_repair.rs#L1198 */
+        break;
+      }
+      fd_bincode_destroy_ctx_t ctx2;
+      ctx2.valloc = fd_scratch_virtual();
+      if (ctx.data != ctx.dataend) {
+        fd_repair_response_destroy(&gmsg, &ctx2);
+        break;
+      }
+
+      switch (gmsg.discriminant) {
+      case fd_repair_response_enum_ping:
+        fd_repair_recv_ping(glob, &gmsg.inner.ping, from);
+        break;
+      }
+
       fd_repair_response_destroy(&gmsg, &ctx2);
-      break;
+      fd_repair_unlock( glob );
+      return 0;
     }
 
-    switch (gmsg.discriminant) {
-    case fd_repair_response_enum_ping:
-      fd_repair_recv_ping(glob, &gmsg.inner.ping, from);
-      break;
+    /* Look at the nonse */
+    if ( msglen < sizeof(fd_repair_nonce_t) ) {
+      fd_repair_unlock( glob );
+      return 0;
+    }
+    ulong shredlen = msglen - sizeof(fd_repair_nonce_t); /* Nonce is at the end */
+    fd_repair_nonce_t key = *(fd_repair_nonce_t const *)(msg + shredlen);
+    fd_needed_elem_t * val = fd_needed_table_query(glob->needed, &key, NULL);
+    if ( NULL == val ) {
+      fd_repair_unlock( glob );
+      return 0;
     }
 
-    fd_repair_response_destroy(&gmsg, &ctx2);
-    fd_repair_unlock( glob );
-    return 0;
-  }
+    fd_active_elem_t * active = fd_active_table_query( glob->actives, &val->id, NULL );
+    if ( NULL != active ) {
+      /* Update statistics */
+      active->avg_reps++;
+      active->avg_lat += glob->now - val->when;
+    }
 
-  /* Look at the nonse */
-  if ( msglen < sizeof(fd_repair_nonce_t) ) {
+    fd_shred_t const * shred = fd_shred_parse(msg, shredlen);
     fd_repair_unlock( glob );
-    return 0;
-  }
-  ulong shredlen = msglen - sizeof(fd_repair_nonce_t); /* Nonce is at the end */
-  fd_repair_nonce_t key = *(fd_repair_nonce_t const *)(msg + shredlen);
-  fd_needed_elem_t * val = fd_needed_table_query(glob->needed, &key, NULL);
-  if ( NULL == val ) {
-    fd_repair_unlock( glob );
-    return 0;
-  }
-
-  fd_active_elem_t * active = fd_active_table_query( glob->actives, &val->id, NULL );
-  if ( NULL != active ) {
-    /* Update statistics */
-    active->avg_reps++;
-    active->avg_lat += glob->now - val->when;
-  }
-
-  fd_shred_t const * shred = fd_shred_parse(msg, shredlen);
-  fd_repair_unlock( glob );
-  if (shred == NULL) {
-    FD_LOG_WARNING(("invalid shread"));
-  } else {
-    (*glob->deliver_fun)(shred, shredlen, from, &val->id, glob->fun_arg);
-  }
-} FD_SCRATCH_SCOPE_END;
+    if (shred == NULL) {
+      FD_LOG_WARNING(("invalid shread"));
+    } else {
+      (*glob->deliver_fun)(shred, shredlen, from, &val->id, glob->fun_arg);
+    }
+  } FD_SCRATCH_SCOPE_END;
   return 0;
 }
 
