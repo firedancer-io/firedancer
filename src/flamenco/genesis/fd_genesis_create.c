@@ -79,12 +79,18 @@ genesis_create( void *                       buf,
   /* Create epoch schedule */
   /* TODO The epoch schedule should be configurable! */
 
+  /* If warmup is enabled:
+     MINIMUM_SLOTS_PER_EPOCH = 32
+     first_normal_epoch = log2( slots_per_epoch ) - log2( MINIMUM_SLOTS_PER_EPOCH  )
+     first_normal_slot  = MINIMUM_SLOTS_PER_EPOCH * ( 2^( first_normal_epoch ) - 1 )
+  */
+
   genesis->epoch_schedule = (fd_epoch_schedule_t) {
     .slots_per_epoch             = 8192UL,
     .leader_schedule_slot_offset = 8192UL,
-    .warmup                      =    0,
-    .first_normal_epoch          =    0UL,
-    .first_normal_slot           =    0UL,
+    .warmup                      = fd_uchar_if( options->warmup_epochs,    1,   0   ),
+    .first_normal_epoch          = fd_ulong_if( options->warmup_epochs,    8UL, 0UL ),
+    .first_normal_slot           = fd_ulong_if( options->warmup_epochs, 8160UL, 0UL ),
   };
 
   /* Create faucet account */
@@ -166,7 +172,7 @@ genesis_create( void *                       buf,
     stake->stake = (fd_stake_t) {
       .delegation = (fd_delegation_t) {
         .voter_pubkey       = options->vote_pubkey,
-        .stake              = fd_ulong_max( stake_state_min_bal, 500000000UL /* 0.5 SOL */ ),
+        .stake              = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
         .activation_epoch   = ULONG_MAX, /*  bootstrap stake denoted with ULONG_MAX */
         .deactivation_epoch = ULONG_MAX
       },
@@ -229,7 +235,7 @@ genesis_create( void *                       buf,
   genesis->accounts[ stake_account_index ] = (fd_pubkey_account_pair_t) {
     .key     = options->stake_pubkey,
     .account = (fd_solana_account_t) {
-      .lamports   = stake_state_min_bal,
+      .lamports   = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
       .data_len   = FD_STAKE_STATE_V2_SZ,
       .data       = stake_data,
       .owner      = fd_solana_stake_program_id

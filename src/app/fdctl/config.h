@@ -158,6 +158,8 @@ typedef struct {
       ulong ticks_per_slot;
       ulong fund_initial_accounts;
       ulong fund_initial_amount_lamports;
+      ulong vote_account_stake_lamports;
+      int   warmup_epochs;
     } genesis;
 
     struct {

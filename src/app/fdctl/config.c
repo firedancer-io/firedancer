@@ -290,6 +290,8 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., development.genesis, ticks_per_slot                                            );
   ENTRY_UINT  ( ., development.genesis, fund_initial_accounts                                     );
   ENTRY_ULONG ( ., development.genesis, fund_initial_amount_lamports                              );
+  ENTRY_ULONG ( ., development.genesis, vote_account_stake_lamports                               );
+  ENTRY_BOOL  ( ., development.genesis, warmup_epochs                                             );
 
   ENTRY_UINT  ( ., development.bench,   benchg_tile_count                                         );
   ENTRY_UINT  ( ., development.bench,   benchs_tile_count                                         );
