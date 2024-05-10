@@ -3014,9 +3014,7 @@ int
 fd_runtime_run_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_BORROWED_ACCOUNT_DECL(rec);
 
-  fd_funk_start_write( slot_ctx->acc_mgr->funk );
   int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_incinerator_id, 0, 0UL, rec );
-  fd_funk_end_write(slot_ctx->acc_mgr->funk);
   if( FD_UNLIKELY(err != FD_ACC_MGR_SUCCESS) ) {
     // TODO: not really an error! This is fine!
     return -1;
