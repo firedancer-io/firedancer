@@ -115,7 +115,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
   l = FD_LAYOUT_APPEND( l, fd_repair_align(), fd_repair_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -439,8 +438,6 @@ unprivileged_init( fd_topo_t *      topo,
   
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
 
-  void * alloc_shmem = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
-
   ctx->repair_intake_addr.addr = tile->repair.ip_addr;
   ctx->repair_intake_addr.port = fd_ushort_bswap( tile->repair.repair_intake_listen_port );
 
@@ -505,19 +502,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_req_in_chunk0 = fd_dcache_compact_chunk0( ctx->repair_req_in_mem, repair_req_in_link->dcache );
   ctx->repair_req_in_wmark  = fd_dcache_compact_wmark ( ctx->repair_req_in_mem, repair_req_in_link->dcache, repair_req_in_link->mtu );
 
-  /* Valloc setup */
-  void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
-  if( FD_UNLIKELY( !alloc_shalloc ) ) { 
-    FD_LOG_ERR( ( "fd_allow_new failed" ) ); }
-  fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, 3UL );
-  if( FD_UNLIKELY( !alloc ) ) {
-    FD_LOG_ERR( ( "fd_alloc_join failed" ) ); 
-  }
-
-  fd_valloc_t valloc = fd_alloc_virtual( alloc );
-  (void) valloc;
-
-  /* Gossip set up */
+  /* Repair set up */
 
   ctx->repair = fd_repair_join( fd_repair_new( ctx->repair, ctx->repair_seed ) );
 
@@ -531,7 +516,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_config.send_fun = repair_send_packet;
 
   if( fd_repair_set_config( ctx->repair, &ctx->repair_config ) ) {
-    FD_LOG_ERR( ( "error setting gossip config" ) );
+    FD_LOG_ERR( ( "error setting repair config" ) );
   }
 
   fd_repair_update_addr( ctx->repair, &ctx->repair_intake_addr, &ctx->repair_serve_addr );
