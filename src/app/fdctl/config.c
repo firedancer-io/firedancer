@@ -61,7 +61,7 @@ static int parse_key_value( config_t *   config,
     if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) {                    \
       ulong len = strlen( value );                                                                   \
       if( FD_UNLIKELY( len < 2 || value[ 0 ] != '"' || value[ len - 1 ] != '"' ) ) {                 \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));                       \
+        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));                        \
         return 1;                                                                                    \
       }                                                                                              \
       if( FD_UNLIKELY( len >= sizeof( config->esection edot ekey[ 0 ] ) + 2 ) )                      \
@@ -353,7 +353,6 @@ config_parse_array( const char * path,
                     char * key,
                     int * in_array,
                     char * value ) {
-  if( *in_array ) value++;
   char * end = value + strlen( value ) - 1;
   while( FD_UNLIKELY( *end == ' ' ) ) end--;
   if( FD_LIKELY( *end == ']' ) ) {
@@ -418,6 +417,7 @@ config_parse_line( const char * path,
 
   if( FD_UNLIKELY( *value == '[' ) ) {
     *in_array = 1;
+    value++;
     config_parse_array( path, out, section, key, in_array, value );
   } else {
     if( FD_UNLIKELY( !parse_key_value( out, section, key, value ) ) ) {
