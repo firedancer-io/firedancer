@@ -22,6 +22,7 @@
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/repair/fd_repair.h"
 #include "../../flamenco/runtime/fd_hashes.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_snapshot_loader.h"
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../flamenco/runtime/program/fd_vote_program.h"
@@ -114,6 +115,10 @@ struct gossip_deliver_arg {
 };
 typedef struct gossip_deliver_arg gossip_deliver_arg_t;
 
+int
+fd_vote_decode_compact_update( fd_compact_vote_state_update_t * compact_update,
+                               fd_vote_state_update_t *         vote_update );
+
 /* functions for fd_gossip_config_t and fd_repair_config_t */
 static void
 gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
@@ -126,6 +131,53 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
             arg_->repair, &repair_peer_addr, &data->inner.contact_info_v1.id ) ) ) {
       FD_LOG_DEBUG( ( "error adding peer" ) ); /* Probably filled up the table */
     };
+  } else if ( data->discriminant == fd_crds_data_enum_vote ) {
+    fd_gossip_vote_t *vote = &data->inner.vote;
+    fd_txn_t *parsed_txn = (fd_txn_t *)fd_type_pun( vote->txn.txn );
+
+    FD_TEST( parsed_txn );
+    FD_TEST( parsed_txn->instr_cnt == 1);
+
+    uchar program_id = parsed_txn->instr[0].program_id;
+    uchar* account_addr = (vote->txn.raw + parsed_txn->acct_addr_off
+                           + FD_TXN_ACCT_ADDR_SZ * program_id );
+
+    if ( !memcmp( account_addr, fd_solana_vote_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      fd_vote_instruction_t vote_instr = { 0 };
+      ushort data_sz = parsed_txn->instr[0].data_sz;
+      uchar* data = vote->txn.raw + parsed_txn->instr[0].data_off;
+      fd_bincode_decode_ctx_t decode = {
+                                        .data    = data,
+                                        .dataend = data + data_sz,
+                                        .valloc  = arg_->valloc
+      };
+      int decode_result = fd_vote_instruction_decode( &vote_instr, &decode );
+      if( decode_result == FD_BINCODE_SUCCESS) {
+        if  ( vote_instr.discriminant == fd_vote_instruction_enum_compact_update_vote_state ) {
+          fd_vote_state_update_t vote_update = { 0 };
+          fd_vote_decode_compact_update(&vote_instr.inner.compact_update_vote_state,
+                                        &vote_update);
+
+          fd_vote_lockout_t *head = deq_fd_vote_lockout_t_peek_head (vote_update.lockouts);
+          fd_vote_lockout_t *tail = deq_fd_vote_lockout_t_peek_tail (vote_update.lockouts);
+          FD_LOG_WARNING( ("Receive gossip vote idx=%u from gossip, raw_sz=%lu, voter_addr=%32J, tower_head_slot=%lu, tower_tail_slot=%lu, vote_update_root=%lu, tail_hash=%32J",
+                           vote->index,
+                           vote->txn.raw_sz,
+                           &vote->from,
+                           head->slot, tail->slot,
+                           vote_update.root,
+                           &vote_update.hash) );
+        } else {
+          FD_LOG_WARNING( ("Gossip receives vote instruction with other discriminant") );
+        }
+      } else {
+        FD_LOG_ERR( ("Unable to decode the vote instruction in gossip, error=%d", decode_result) );
+      }
+    } else {
+      FD_LOG_ERR( ("Received gossip vote txn targets program %32J instead of %32J",
+                   account_addr,
+                   fd_solana_vote_program_id.key) );
+    }
   }
 }
 
