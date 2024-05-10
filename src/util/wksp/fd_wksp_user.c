@@ -514,6 +514,12 @@ fd_wksp_reset( fd_wksp_t * wksp,
                uint        seed ) {
   if( FD_UNLIKELY( !wksp ) ) { FD_LOG_WARNING(( "NULL wksp" )); return; }
 
+# if FD_HAS_DEEPASAN
+  ulong footprint = fd_wksp_footprint( wksp->part_max, wksp->data_max );
+  void * wksp_data = wksp + sizeof(fd_wksp_t);
+  fd_asan_unpoison( wksp_data, footprint - sizeof(fd_wksp_t) );
+# endif
+
   ulong                     part_max = wksp->part_max;
   fd_wksp_private_pinfo_t * pinfo    = fd_wksp_private_pinfo( wksp );
 

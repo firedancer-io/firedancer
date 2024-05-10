@@ -160,7 +160,6 @@ fd_scratch_attach( void * smem,
                    void * fmem,
                    ulong  smax,
                    ulong  depth ) {
-
 # if FD_SCRATCH_USE_HANDHOLDING
   if( FD_UNLIKELY( fd_scratch_private_frame_max ) ) FD_LOG_ERR(( "already attached" ));
   if( FD_UNLIKELY( !smem                        ) ) FD_LOG_ERR(( "bad smem"  ));
@@ -182,6 +181,7 @@ fd_scratch_attach( void * smem,
   /* Poison the entire smem region and populate with junk bytes for debugging.
      Alignment should be hanmdled by the caller */
   fd_memset( smem, 'A', smax );
+  //FD_LOG_NOTICE(("wtf is going on here %lx %lu", smem, smax));
   fd_asan_poison( smem, smax );
 # endif
 }

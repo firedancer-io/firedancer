@@ -309,6 +309,11 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
     fd_valloc_free( state->slot_ctx->valloc, tpool_scr_mem );
   }
 
+  if( args->on_demand_block_ingest ) {
+    fd_rocksdb_root_iter_destroy( &iter );
+    fd_rocksdb_destroy( &rocks_db );
+  }
+
   replay_time += fd_log_wallclock();
   double replay_time_s = (double)replay_time * 1e-9;
   double tps           = (double)txn_cnt / replay_time_s;
@@ -835,7 +840,7 @@ replay( fd_ledger_args_t * args ) {
   FD_LOG_WARNING(( "tvu main setup done" ));
 
   int ret = runtime_replay( &state, &runtime_args );
-  fd_tvu_main_teardown( &state, NULL );
+  fd_tvu_main_teardown( &state, NULL );  
   return ret;
 }
 

@@ -2,6 +2,10 @@
 #define HEADER_fd_src_util_sanitize_fd_asan_h
 
 #include "../fd_util_base.h"
+#include "../log/fd_log.h"
+
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 /* AddressSanitizer (ASan) tracks allocated memory regions and
    instruments all memory accesses to detect possible out-of-bounds
@@ -91,8 +95,14 @@ void   __asan_unpoison_memory_region( void const volatile * addr, ulong sz );
 int    __asan_address_is_poisoned   ( void const volatile * addr           );
 void * __asan_region_is_poisoned    ( void *                addr, ulong sz );
 
-static inline void * fd_asan_poison  ( void * addr, ulong sz ) { __asan_poison_memory_region  ( addr, sz ); return addr; }
-static inline void * fd_asan_unpoison( void * addr, ulong sz ) { __asan_unpoison_memory_region( addr, sz ); return addr; }
+static inline void * fd_asan_poison  ( void * addr, ulong sz ) { 
+  //FD_LOG_NOTICE(("poison %lx %lu", addr, sz));
+  __asan_poison_memory_region  ( addr, sz ); 
+  return addr; }
+static inline void * fd_asan_unpoison( void * addr, ulong sz ) { 
+  //FD_LOG_NOTICE(("unpoison %lx %lu", addr, sz));
+  __asan_unpoison_memory_region( addr, sz );
+   return addr; }
 static inline int    fd_asan_test    ( void * addr           ) { return __asan_address_is_poisoned( addr );     }
 static inline void * fd_asan_query   ( void * addr, ulong sz ) { return __asan_region_is_poisoned ( addr, sz ); }
 

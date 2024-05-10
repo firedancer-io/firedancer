@@ -207,8 +207,9 @@ fd_wksp_new( void *       shmem,
   }
 
   #if FD_HAS_DEEPASAN
-  void * laddr_lo = fd_wksp_laddr_fast( wksp, wksp->gaddr_lo + sizeof(fd_wksp_t) );
-  fd_asan_poison( laddr_lo, footprint - sizeof(fd_wksp_t) );
+  /* Make sure that the wksp header is not poisoned */
+  void * wksp_data = wksp + sizeof(fd_wksp_t);
+  fd_asan_poison( wksp_data, footprint - sizeof(fd_wksp_t) );
   #endif
 
   fd_wksp_private_unlock( wksp );

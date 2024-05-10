@@ -14,7 +14,7 @@
 char *
 fd_rocksdb_init( fd_rocksdb_t * db,
                  char const *   db_name ) {
-  fd_memset(db, 0, sizeof(fd_rocksdb_t));
+  fd_memset( db, 0, sizeof(fd_rocksdb_t) );
 
   db->opts = rocksdb_options_create();
   db->cfgs[ FD_ROCKSDB_CFIDX_DEFAULT                  ] = "default";
@@ -42,8 +42,9 @@ fd_rocksdb_init( fd_rocksdb_t * db,
 
 
   rocksdb_options_t const * cf_options[ FD_ROCKSDB_CF_CNT ];
-  for( ulong i=0UL; i<FD_ROCKSDB_CF_CNT; i++ )
+  for( ulong i=0UL; i<FD_ROCKSDB_CF_CNT; i++ ) {
     cf_options[ i ] = db->opts;
+  }
 
   char *err = NULL;
 
@@ -57,7 +58,9 @@ fd_rocksdb_init( fd_rocksdb_t * db,
       false,
       &err );
 
-  if( FD_UNLIKELY( err ) ) return err;
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   db->ro = rocksdb_readoptions_create();
 
@@ -112,7 +115,8 @@ fd_rocksdb_new( fd_rocksdb_t * db,
   rocksdb_options_set_compression( db->opts, rocksdb_lz4_compression );
 }
 
-void fd_rocksdb_destroy(fd_rocksdb_t *db) {
+void 
+fd_rocksdb_destroy( fd_rocksdb_t *db ) {
 
   for( ulong i=0UL; i<FD_ROCKSDB_CF_CNT; i++ ) {
     if( db->cf_handles[i] ) {
@@ -246,6 +250,14 @@ void *
 fd_rocksdb_root_iter_leave   ( fd_rocksdb_root_iter_t * ptr ) {
   return ptr;
 }
+
+// void
+// fd_rocksdb_root_iter_destroy( fd_rocksdb_root_iter_t * iter ) {
+//   if( !iter ) {
+//     return;
+//   }
+//   rocksdb_destroy_iterator_cf( iter );
+// }
 
 int
 fd_rocksdb_root_iter_seek( fd_rocksdb_root_iter_t * self,
