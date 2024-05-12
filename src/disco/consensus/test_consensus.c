@@ -36,7 +36,8 @@
 #define MAX_ADDR_STRLEN      128
 #define TEST_CONSENSUS_MAGIC ( 0x7e57UL ) /* test */
 
-uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0, 0 ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
+uchar metrics_scratch[FD_METRICS_FOOTPRINT( 0, 0 )]
+    __attribute__( ( aligned( FD_METRICS_ALIGN ) ) );
 
 static void
 sign_fun( void * arg, uchar * sig, uchar const * buffer, ulong len ) {
@@ -249,9 +250,9 @@ setup_scratch( fd_valloc_t valloc ) {
 }
 
 struct turbine_targs {
-  int            tvu_fd;
-  fd_replay_t *  replay;
-  fd_store_t *   store;
+  int           tvu_fd;
+  fd_replay_t * replay;
+  fd_store_t *  store;
 };
 typedef struct turbine_targs turbine_targs_t;
 
@@ -406,6 +407,8 @@ main( int argc, char ** argv ) {
   const char * restore  = fd_env_strip_cmdline_cstr( &argc, &argv, "--restore", NULL, NULL );
   const char * incremental_snapshot =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--incremental-snapshot", NULL, NULL );
+  const char * incremental_snapshot_url =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--incremental-snapshot-url", NULL, NULL );
   const char * gossip_peer_addr =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, NULL );
   const char * repair_peer_addr =
@@ -421,6 +424,8 @@ main( int argc, char ** argv ) {
   FD_TEST( page_cnt );
   FD_TEST( restore );
   FD_TEST( gossip_peer_addr );
+  FD_TEST( ( incremental_snapshot && !incremental_snapshot_url ) ||
+           ( !incremental_snapshot && incremental_snapshot_url ) );
 
   /**********************************************************************/
   /* wksp                                                               */
@@ -560,6 +565,28 @@ main( int argc, char ** argv ) {
   fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
 
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( snapshot_slot_ctx->epoch_ctx );
+  char              incremental_snapshot_out[128] = { 0 };
+  if( incremental_snapshot_url ) {
+    FILE * fp;
+
+    /* Open the command for reading. */
+    char cmd[128];
+    snprintf( cmd, sizeof( cmd ), "./shenanigans.sh %s", incremental_snapshot );
+    FD_LOG_NOTICE( ( "cmd: %s", cmd ) );
+    fp = popen( cmd, "r" );
+    if( fp == NULL ) {
+      printf( "Failed to run command\n" );
+      exit( 1 );
+    }
+
+    /* Read the output a line at a time - output it. */
+    if( !fgets( incremental_snapshot_out, sizeof( incremental_snapshot_out ) - 1, fp ) ) {
+      FD_LOG_ERR( ( "failed to pass snapshot name" ) );
+    }
+    incremental_snapshot_out[strcspn( incremental_snapshot_out, "\n" )] = '\0';
+    incremental_snapshot                                                = incremental_snapshot_out;
+    pclose( fp );
+  }
   if( incremental_snapshot ) {
     ulong i, j;
     FD_TEST( sscanf( incremental_snapshot, "incremental-snapshot-%lu-%lu", &i, &j ) == 2 );
@@ -904,6 +931,10 @@ main( int argc, char ** argv ) {
   /**********************************************************************/
   /* start threads                                                      */
   /**********************************************************************/
+
+  FD_LOG_NOTICE( ( "gossip: %s", gossip_addr ) );
+  FD_LOG_NOTICE( ( "repair: %s", repair_addr ) );
+  FD_LOG_NOTICE( ( "tvu: %s", tvu_addr ) );
 
   gossip_targ_t gossip_targ = { .gossip_fd = gossip_sockfd, .replay = replay, .gossip = gossip };
   FD_TEST( fd_tile_exec_new( 1, gossip_thread, 0, fd_type_pun( &gossip_targ ) ) );
