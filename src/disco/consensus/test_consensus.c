@@ -571,7 +571,7 @@ main( int argc, char ** argv ) {
 
     /* Open the command for reading. */
     char cmd[128];
-    snprintf( cmd, sizeof( cmd ), "./shenanigans.sh %s", incremental_snapshot );
+    snprintf( cmd, sizeof( cmd ), "./shenanigans.sh %s", incremental_snapshot_url );
     FD_LOG_NOTICE( ( "cmd: %s", cmd ) );
     fp = popen( cmd, "r" );
     if( fp == NULL ) {
