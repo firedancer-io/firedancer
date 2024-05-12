@@ -914,10 +914,10 @@ main( int argc, char ** argv ) {
   /* tvu (turbine), repair, gossip threads                              */
   /**********************************************************************/
 
-  fd_repair_peer_addr_t tvu_addr     = { 0 };
-  char                  tvu_addr_[7] = { 0 };
-  snprintf( tvu_addr_, sizeof( tvu_addr_ ), ":%u", tvu_port );
-  FD_TEST( resolve_hostport( tvu_addr_, &tvu_addr ) );
+  fd_repair_peer_addr_t tvu_addr_     = { 0 };
+  char                  tvu_addr[7] = { 0 };
+  snprintf( tvu_addr, sizeof( tvu_addr ), ":%u", tvu_port );
+  FD_TEST( resolve_hostport( tvu_addr, &tvu_addr_ ) );
 
   fd_repair_peer_addr_t tvu_fwd_addr     = { 0 };
   char                  tvu_fwd_addr_[7] = { 0 };
@@ -925,8 +925,8 @@ main( int argc, char ** argv ) {
   FD_TEST( resolve_hostport( tvu_fwd_addr_, &tvu_fwd_addr ) );
 
   /* initialize tvu */
-  int tvu_sockfd = create_socket( &tvu_addr );
-  FD_TEST( !fd_gossip_update_tvu_addr( gossip, &tvu_addr, &tvu_fwd_addr ) );
+  int tvu_sockfd = create_socket( &tvu_addr_ );
+  FD_TEST( !fd_gossip_update_tvu_addr( gossip, &tvu_addr_, &tvu_fwd_addr ) );
 
   /**********************************************************************/
   /* start threads                                                      */
@@ -934,7 +934,7 @@ main( int argc, char ** argv ) {
 
   FD_LOG_NOTICE( ( "gossip: %s", gossip_addr ) );
   FD_LOG_NOTICE( ( "repair: %s", repair_addr ) );
-  FD_LOG_NOTICE( ( "tvu: %s", tvu_addr ) );
+  FD_LOG_NOTICE( ( "tvu: %s", tvu_addr_ ) );
 
   gossip_targ_t gossip_targ = { .gossip_fd = gossip_sockfd, .replay = replay, .gossip = gossip };
   FD_TEST( fd_tile_exec_new( 1, gossip_thread, 0, fd_type_pun( &gossip_targ ) ) );
