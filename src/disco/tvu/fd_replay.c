@@ -220,7 +220,7 @@ fd_replay_slot_prepare( fd_replay_t * replay, ulong slot ) {
     goto end;
   }
 
-  ulong            parent_slot = slot_meta->parent_slot;
+  ulong parent_slot = slot_meta->parent_slot;
 
   fd_slot_meta_t * parent_slot_meta =
       fd_blockstore_slot_meta_query( replay->blockstore, parent_slot );
@@ -319,7 +319,7 @@ fd_replay_slot_prepare( fd_replay_t * replay, ulong slot ) {
 
   return fork;
 
-/* Not ready to execute, so cleanup. */
+  /* Not ready to execute, so cleanup. */
 
 end:
   fd_blockstore_end_read( replay->blockstore );
@@ -337,7 +337,7 @@ fd_replay_slot_execute( fd_replay_t *      replay,
                         fd_capture_ctx_t * capture_ctx ) {
   fd_shred_cap_mark_stable( replay, slot );
 
-  ulong txn_cnt                        = 0;
+  ulong txn_cnt                      = 0;
   fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
   fork->slot_ctx.slot_bank.slot      = slot;
   FD_TEST(
@@ -378,6 +378,12 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   child->slot_ctx.slot_bank.collected_fees = 0;
   child->slot_ctx.slot_bank.collected_rent = 0;
 
+  if( FD_UNLIKELY( replay->curr_turbine_slot == FD_SLOT_NULL || slot == FD_SLOT_NULL ||
+                   ( replay->curr_turbine_slot - slot ) > 1000000000 ) ) {
+    FD_LOG_WARNING( ( "invalid turbine slot" ) );
+    __asm__( "int $3" );
+  }
+
   FD_LOG_NOTICE( ( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
                    "executed: %lu, caught up: %d",
                    replay->first_turbine_slot,
@@ -390,13 +396,14 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   fork->head->bank_hash       = *bank_hash;
   FD_LOG_NOTICE( ( "bank hash: %32J", bank_hash->hash ) );
 
-  // fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( child->slot_ctx.epoch_ctx );
-  // fd_bank_hash_cmp_lock( bank_hash_cmp );
-  // fd_bank_hash_cmp_insert( bank_hash_cmp, slot, bank_hash, 1 );
+  // fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( child->slot_ctx.epoch_ctx
+  // ); fd_bank_hash_cmp_lock( bank_hash_cmp ); fd_bank_hash_cmp_insert( bank_hash_cmp, slot,
+  // bank_hash, 1 );
   /* Try to move the bank hash comparison window forward */
   // while (1) {
   //   ulong *children, nchildren, parent_slot = bank_hash_cmp->slot;
-  //   if ( fd_blockstore_next_slot_query( replay->blockstore, parent_slot, &children, &nchildren ) == FD_BLOCKSTORE_OK ) {
+  //   if ( fd_blockstore_next_slot_query( replay->blockstore, parent_slot, &children, &nchildren )
+  //   == FD_BLOCKSTORE_OK ) {
   //     for (ulong i = 0; i < nchildren; i++) {
   //       if( FD_LIKELY( fd_bank_hash_cmp_check( bank_hash_cmp, children[i] ) ) ) {
   //         bank_hash_cmp->slot = children[i];
@@ -478,7 +485,7 @@ void
 fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t * slot_ctx ) {
   fd_funk_txn_t *   txn_map    = fd_funk_txn_map( replay->funk, fd_funk_wksp( replay->funk ) );
   fd_hash_t const * block_hash = fd_blockstore_block_hash_query( replay->blockstore, slot );
-  FD_LOG_DEBUG(("Current slot %lu", slot));
+  FD_LOG_DEBUG( ( "Current slot %lu", slot ) );
   if( !block_hash ) FD_LOG_ERR( ( "missing block hash of slot we're trying to restore" ) );
   fd_funk_txn_xid_t xid;
   fd_memcpy( xid.uc, block_hash, sizeof( fd_funk_txn_xid_t ) );
@@ -504,7 +511,7 @@ fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t
   slot_ctx->valloc     = replay->valloc;
 
   fd_bincode_destroy_ctx_t destroy_ctx = {
-    .valloc = replay->valloc,
+      .valloc = replay->valloc,
   };
 
   fd_slot_bank_destroy( &slot_ctx->slot_bank, &destroy_ctx );
@@ -540,7 +547,8 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
                   fd_shred_type( shred->variant ) & FD_SHRED_TYPEMASK_DATA,
                   shred->slot,
                   shred->idx ) );
-  fd_pubkey_t const * leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( replay->epoch_ctx ), shred->slot );
+  fd_pubkey_t const * leader =
+      fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( replay->epoch_ctx ), shred->slot );
   if( FD_UNLIKELY( !leader ) ) {
     FD_LOG_WARNING( ( "unable to get current leader, ignoring turbine packet" ) );
     return;
@@ -628,8 +636,7 @@ fd_replay_repair_rx( fd_replay_t * replay, fd_shred_t const * shred ) {
 }
 
 fd_fork_t *
-fd_replay_prepare_ctx( fd_replay_t * replay,
-                       ulong parent_slot ) {
+fd_replay_prepare_ctx( fd_replay_t * replay, ulong parent_slot ) {
 
   /* Query for the fork to execute the block on in the frontier */
 
