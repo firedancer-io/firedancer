@@ -14,7 +14,7 @@ ulong         fd_gossip_footprint( void );
 void *        fd_gossip_new      ( void * shmem, ulong seed, fd_valloc_t valloc );
 fd_gossip_t * fd_gossip_join     ( void * shmap );
 void *        fd_gossip_leave    ( fd_gossip_t * join );
-void *        fd_gossip_delete   ( void * shmap, fd_valloc_t valloc );
+void *        fd_gossip_delete   ( void * shmap );
 
 
 union fd_gossip_peer_addr {
