@@ -44,6 +44,7 @@ BUILDDIR?=native/$(CC)
 CPPFLAGS+=-march=native -mtune=native
 RUSTFLAGS+=-C target-cpu=native
 
+FD_DISABLE_OPTIMIZATION:=1
 include config/extra/with-brutality.mk
 include config/extra/with-optimization.mk
 include config/extra/with-debug.mk
