@@ -934,7 +934,7 @@ main( int argc, char ** argv ) {
 
   FD_LOG_NOTICE( ( "gossip: %s", gossip_addr ) );
   FD_LOG_NOTICE( ( "repair: %s", repair_addr ) );
-  FD_LOG_NOTICE( ( "tvu: %s", tvu_addr_ ) );
+  FD_LOG_NOTICE( ( "tvu: %s", tvu_addr ) );
 
   gossip_targ_t gossip_targ = { .gossip_fd = gossip_sockfd, .replay = replay, .gossip = gossip };
   FD_TEST( fd_tile_exec_new( 1, gossip_thread, 0, fd_type_pun( &gossip_targ ) ) );
