@@ -871,7 +871,9 @@ prune( fd_ledger_args_t * args ) {
   }
 
   init_funk( args );
-  init_blockstore( args );
+  if( !args->funk_only ) {
+    init_blockstore( args );
+  }
   fd_wksp_t * unpruned_wksp             = args->funk_wksp == NULL ? args->wksp : args->funk_wksp;
   fd_funk_t * unpruned_funk             = args->funk;
   fd_blockstore_t * unpruned_blockstore = args->blockstore;

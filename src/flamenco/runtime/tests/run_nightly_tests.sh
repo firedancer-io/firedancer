@@ -76,8 +76,6 @@ fi
 mapfile -t log_infos < <(grep 'Log for ledger' ~/run_nightly_tests.txt)
 
 for log_info in "${log_infos[@]}"; do
-    echo $log_info
-
     if [[ $log_info =~ ledger[[:space:]]+([a-zA-Z0-9-]+) ]]; then
         ledger="${BASH_REMATCH[1]}"
     fi
@@ -86,15 +84,16 @@ for log_info in "${log_infos[@]}"; do
         log_file="${BASH_REMATCH[1]}"
     fi
 
-    replay_completed=$(grep "replay completed" "$log_file" | tail -n 1)
+    start_slot=$(grep "recovered slot_bank" "$log_file" | tail -n 1 | awk -F'slot=' '{print $2}' | awk '{print $1}')
+    mismatched=$(grep "Bank hash mismatch!" "$log_file" | tail -n 1)
 
-    slot=$(grep "recovered slot_bank" "$log_file" | tail -n 1 | awk -F'slot=' '{print $2}' | awk '{print $1}')
-
-    if [[ -n "$replay_completed" ]]; then
-        info="${replay_completed#*replay completed - }"
-        end_message+=$'\n'" - Ledger \`$ledger\` Passed: $info"
+    if [[ -n "$mismatched" ]]; then
+        mismatch_slot=$(grep "Bank hash mismatch!" "$log_file" | tail -n 1 | awk -F'slot=' '{print $2}' | awk '{print $1}')
+        end_message+=$'\n'" - Ledger \`$ledger\` Starting at Slot \`$start_slot\` Failed at Slot \`$mismatch_slot\`, Log at: \`$log_file\`"
     else
-        end_message+=$'\n'" - Ledger \`$ledger\` Failed, Log at: \`$log_file\`"
+        replay_completed=$(grep "replay completed" "$log_file" | tail -n 1)
+        info="${replay_completed#*replay completed - }"
+        end_message+=$'\n'" - Ledger \`$ledger\` Starting at Slot \`$start_slot\` Passed: $info"
     fi
 done
 
