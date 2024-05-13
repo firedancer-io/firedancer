@@ -794,7 +794,7 @@ main( int argc, char ** argv ) {
   void * gossip_shmem =
       fd_wksp_alloc_laddr( wksp, fd_gossip_align(), fd_gossip_footprint(), TEST_CONSENSUS_MAGIC );
   fd_gossip_t * gossip =
-      fd_gossip_join( fd_gossip_new( gossip_shmem, TEST_CONSENSUS_MAGIC, valloc ) );
+      fd_gossip_join( fd_gossip_new( gossip_shmem, TEST_CONSENSUS_MAGIC ) );
 
   fd_gossip_config_t gossip_config;
   gossip_config.public_key  = &public_key;

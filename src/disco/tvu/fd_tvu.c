@@ -1322,7 +1322,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     ulong seed = fd_hash( 0, funk_setup_out.hostname, strnlen( funk_setup_out.hostname, sizeof( funk_setup_out.hostname ) ) );
 
     void *        gossip_mem = fd_valloc_malloc( valloc, fd_gossip_align(), fd_gossip_footprint() );
-    fd_gossip_t * gossip     = fd_gossip_join( fd_gossip_new( gossip_mem, seed, valloc ) );
+    fd_gossip_t * gossip     = fd_gossip_join( fd_gossip_new( gossip_mem, seed ) );
     runtime_ctx->gossip      = gossip;
 
     if( fd_gossip_set_config( gossip, &runtime_ctx->gossip_config ) )

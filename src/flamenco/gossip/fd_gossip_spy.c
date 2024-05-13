@@ -246,7 +246,7 @@ main( int     argc,
   ulong seed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
 
   void * shm = fd_valloc_malloc(valloc, fd_gossip_align(), fd_gossip_footprint());
-  fd_gossip_t * glob = fd_gossip_join(fd_gossip_new(shm, seed, valloc));
+  fd_gossip_t * glob = fd_gossip_join(fd_gossip_new(shm, seed));
 
   if ( fd_gossip_set_config(glob, &config) )
     return 1;
