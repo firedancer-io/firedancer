@@ -298,7 +298,7 @@ dynamic_port_range = "8900-9000"
     # Set how frequently incremental snapshots are taken, measured in
     # slots.  Must be a multiple of the accounts hash interval (which is
     # 100 by default).
-    incremental_snapshot_interval_slots = 100
+    incremental_snapshot_interval_slots = 50
 
     # Absolute directory path for storing snapshots.  If no path is
     # provided, it defaults to the [ledger.path] option from above.
