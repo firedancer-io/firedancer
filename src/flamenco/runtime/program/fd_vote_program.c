@@ -1035,9 +1035,14 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
   }
 
   vote_state_update_index = 0;
-  for( ulong i = 0; i < filter_index; i++ ) {
+  ulong lockout_cnt = deq_fd_vote_lockout_t_cnt(proposed_lockouts);
+
+  for( ulong i = 0; i < filter_index && lockout_cnt > 0; i++ ) {
+    if( vote_state_update_indexes_to_filter[i] >= lockout_cnt )
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     deq_fd_vote_lockout_t_pop_idx_tail( proposed_lockouts,
                                         vote_state_update_indexes_to_filter[i] );
+    lockout_cnt--;
   }
 
   } FD_SCRATCH_SCOPE_END;

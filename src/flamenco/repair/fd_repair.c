@@ -23,6 +23,8 @@
 #define FD_REPAIR_STICKY_MAX   32
 /* Max number of validator identities in stake weights */
 #define FD_STAKE_WEIGHTS_MAX (1<<14)
+/* Max number of validator clients that we ping */
+#define FD_REPAIR_PINGED_MAX (1<<14)
 
 /* Test if two hash values are equal */
 static int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
@@ -154,6 +156,22 @@ typedef struct fd_needed_elem fd_needed_elem_t;
 #define MAP_T        fd_needed_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
 
+struct fd_pinged_elem {
+  fd_repair_peer_addr_t key;
+  ulong next;
+  fd_pubkey_t id;
+  fd_hash_t token;
+  int good;
+};
+typedef struct fd_pinged_elem fd_pinged_elem_t;
+#define MAP_NAME     fd_pinged_table
+#define MAP_KEY_T    fd_repair_peer_addr_t
+#define MAP_KEY_EQ   fd_repair_peer_addr_eq
+#define MAP_KEY_HASH fd_repair_peer_addr_hash
+#define MAP_KEY_COPY fd_repair_peer_addr_copy
+#define MAP_T        fd_pinged_elem_t
+#include "../../util/tmpl/fd_map_giant.c"
+
 /* Global data for repair service */
 struct fd_repair {
     /* Concurrency lock */
@@ -168,8 +186,12 @@ struct fd_repair {
     fd_repair_peer_addr_t intake_addr;
     /* Function used to deliver repair messages to the application */
     fd_repair_shred_deliver_fun deliver_fun;
+    /* Functions used to handle repair requests */
+    fd_repair_serv_get_shred_fun serv_get_shred_fun;
+    fd_repair_serv_get_parent_fun serv_get_parent_fun;
     /* Function used to send raw packets on the network */
-    fd_repair_send_packet_fun send_fun;
+    fd_repair_send_packet_fun clnt_send_fun; /* Client requests */
+    fd_repair_send_packet_fun serv_send_fun; /* Service responses */
     /* Function used to send packets for signing to remote tile */
     fd_repair_sign_fun sign_fun;
     /* Argument to fd_repair_sign_fun */
@@ -189,6 +211,8 @@ struct fd_repair {
     fd_repair_nonce_t oldest_nonce;
     fd_repair_nonce_t current_nonce;
     fd_repair_nonce_t next_nonce;
+    /* Table of validator clients that we have pinged */
+    fd_pinged_elem_t * pinged;
     /* Last batch of sends */
     long last_sends;
     /* Last statistics decay */
@@ -214,6 +238,7 @@ fd_repair_footprint( void ) {
   l = FD_LAYOUT_APPEND( l, fd_active_table_align(), fd_active_table_footprint(FD_ACTIVE_KEY_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_needed_table_align(), fd_needed_table_footprint(FD_NEEDED_KEY_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_dupdetect_table_align(), fd_dupdetect_table_footprint(FD_NEEDED_KEY_MAX) );
+  l = FD_LAYOUT_APPEND( l, fd_pinged_table_align(), fd_pinged_table_footprint(FD_REPAIR_PINGED_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_stake_weight_align(), FD_STAKE_WEIGHTS_MAX * fd_stake_weight_footprint() );
   return FD_LAYOUT_FINI(l, fd_repair_align() );
 }
@@ -230,6 +255,8 @@ fd_repair_new ( void * shmem, ulong seed ) {
   glob->needed = fd_needed_table_join(fd_needed_table_new(shm, FD_NEEDED_KEY_MAX, seed));
   shm = FD_SCRATCH_ALLOC_APPEND( l, fd_dupdetect_table_align(), fd_dupdetect_table_footprint(FD_NEEDED_KEY_MAX) );
   glob->dupdetect = fd_dupdetect_table_join(fd_dupdetect_table_new(shm, FD_NEEDED_KEY_MAX, seed));
+  shm = FD_SCRATCH_ALLOC_APPEND( l, fd_pinged_table_align(), fd_pinged_table_footprint(FD_REPAIR_PINGED_MAX) );
+  glob->pinged = fd_pinged_table_join(fd_pinged_table_new(shm, FD_REPAIR_PINGED_MAX, seed));
   glob->stake_weights = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_weight_align(), FD_STAKE_WEIGHTS_MAX * fd_stake_weight_footprint() );
   glob->stake_weights_cnt = 0;
   glob->last_sends = 0;
@@ -261,6 +288,7 @@ fd_repair_delete ( void * shmap ) {
   fd_active_table_delete( fd_active_table_leave( glob->actives ) );
   fd_needed_table_delete( fd_needed_table_leave( glob->needed ) );
   fd_dupdetect_table_delete( fd_dupdetect_table_leave( glob->dupdetect ) );
+  fd_pinged_table_delete( fd_pinged_table_leave( glob->pinged ) );
   return glob;
 }
 
@@ -299,7 +327,10 @@ fd_repair_set_config( fd_repair_t * glob, const fd_repair_config_t * config ) {
   fd_repair_peer_addr_copy(&glob->intake_addr, &config->intake_addr);
   fd_repair_peer_addr_copy(&glob->service_addr, &config->service_addr);
   glob->deliver_fun = config->deliver_fun;
-  glob->send_fun = config->send_fun;
+  glob->serv_get_shred_fun = config->serv_get_shred_fun;
+  glob->serv_get_parent_fun = config->serv_get_parent_fun;
+  glob->clnt_send_fun = config->clnt_send_fun;
+  glob->serv_send_fun = config->serv_send_fun;
   glob->fun_arg = config->fun_arg;
   glob->sign_fun = config->sign_fun;
   glob->sign_arg = config->sign_arg;
@@ -384,7 +415,7 @@ fd_repair_sign_and_send( fd_repair_t * glob, fd_repair_protocol_t * protocol, fd
   }
   fd_memcpy(buf + 4U, &sig, 64U);
 
-  (*glob->send_fun)(buf, buflen, addr, glob->fun_arg);
+  (*glob->clnt_send_fun)(buf, buflen, addr, glob->fun_arg);
 }
 
 static void
@@ -558,11 +589,11 @@ fd_repair_recv_ping(fd_repair_t * glob, fd_gossip_ping_t const * ping, fd_gossip
   FD_TEST(0 == fd_repair_protocol_encode(&protocol, &ctx));
   ulong buflen = (ulong)((uchar*)ctx.data - buf);
 
-  (*glob->send_fun)(buf, buflen, from, glob->fun_arg);
+  (*glob->clnt_send_fun)(buf, buflen, from, glob->fun_arg);
 }
 
 int
-fd_repair_recv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * from) {
+fd_repair_recv_clnt_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * from) {
   fd_repair_lock( glob );
   FD_SCRATCH_SCOPE_BEGIN {
     while (1) {
@@ -899,4 +930,185 @@ fd_repair_set_stake_weights( fd_repair_t * repair,
   repair->stake_weights_cnt = stake_weights_cnt;
 
   fd_repair_unlock( repair );
+}
+
+static void
+fd_repair_send_ping(fd_repair_t * glob, fd_gossip_peer_addr_t const * addr, fd_pinged_elem_t * val) {
+  fd_repair_response_t gmsg;
+  fd_repair_response_new_disc( &gmsg, fd_repair_response_enum_ping );
+  fd_gossip_ping_t * ping = &gmsg.inner.ping;
+  fd_hash_copy( &ping->from, glob->public_key );
+  for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); ++i )
+    ping->token.ul[i] = val->token.ul[i] = fd_rng_ulong(glob->rng);
+
+  if( glob->sign_fun ) {
+    (*glob->sign_fun)( glob->sign_arg, ping->signature.uc, ping->token.uc, 32UL );
+  } else {
+    fd_sha512_t sha[1];
+    fd_ed25519_sign( /* sig */ ping->signature.uc,
+                     /* msg */ ping->token.uc,
+                     /* sz  */ 32UL,
+                     /* public_key  */ glob->public_key->key,
+                     /* private_key */ glob->private_key,
+                     sha );
+  }
+
+  fd_bincode_encode_ctx_t ctx;
+  uchar buf[1024];
+  ctx.data = buf;
+  ctx.dataend = buf + sizeof(buf);
+  FD_TEST(0 == fd_repair_response_encode(&gmsg, &ctx));
+  ulong buflen = (ulong)((uchar*)ctx.data - buf);
+
+  (*glob->serv_send_fun)(buf, buflen, addr, glob->fun_arg);
+}
+
+static void
+fd_repair_recv_pong(fd_repair_t * glob, fd_gossip_ping_t const * pong, fd_gossip_peer_addr_t const * from) {
+  fd_pinged_elem_t * val = fd_pinged_table_query(glob->pinged, from, NULL);
+  if( val == NULL || !fd_hash_eq( &val->id, &pong->from ) )
+    return;
+
+  /* Verify response hash token */
+  fd_sha256_t sha[1];
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, "SOLANA_PING_PONG", 16UL );
+  fd_sha256_append( sha, val->token.uc,     32UL );
+  fd_hash_t golden;
+  fd_sha256_fini( sha, golden.uc );
+
+  fd_sha512_t sha2[1];
+  if( fd_ed25519_verify( /* msg */ golden.uc,
+                         /* sz */ 32U,
+                         /* sig */ pong->signature.uc,
+                         /* public_key */ pong->from.uc,
+                         sha2 )) {
+    return;
+  }
+
+  val->good = 1;
+}
+
+int
+fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * from) {
+  FD_SCRATCH_SCOPE_BEGIN {
+    fd_repair_protocol_t protocol;
+    fd_bincode_decode_ctx_t ctx;
+    ctx.data = msg;
+    ctx.dataend = msg + msglen;
+    ctx.valloc = fd_scratch_virtual();
+    if( fd_repair_protocol_decode(&protocol, &ctx) ||
+        ctx.data != ctx.dataend ) {
+      FD_LOG_WARNING(( "failed to decode repair request packet" ));
+      return 0;
+    }
+
+    fd_repair_request_header_t * header;
+    switch (protocol.discriminant) {
+    case fd_repair_protocol_enum_pong:
+      fd_repair_lock( glob );
+      fd_repair_recv_pong( glob, &protocol.inner.pong, from );
+      fd_repair_unlock( glob );
+      return 0;
+    case fd_repair_protocol_enum_window_index: {
+      fd_repair_window_index_t * wi = &protocol.inner.window_index;
+      header = &wi->header;
+      break;
+    }
+    case fd_repair_protocol_enum_highest_window_index: {
+      fd_repair_highest_window_index_t * wi = &protocol.inner.highest_window_index;
+      header = &wi->header;
+      break;
+    }
+    case fd_repair_protocol_enum_orphan: {
+      fd_repair_orphan_t * wi = &protocol.inner.orphan;
+      header = &wi->header;
+      break;
+    }
+
+    default:
+      FD_LOG_WARNING(( "received repair request of unknown type: %d", (int)protocol.discriminant ));
+      return 0;
+    }
+
+    if( !fd_hash_eq( &header->recipient, glob->public_key ) ) {
+      FD_LOG_WARNING(( "received repair request with wrong recipient, %32J instead of %32J", header->recipient.uc, glob->public_key ));
+      return 0;
+    }
+
+    /* Verify the signature */
+    fd_sha512_t sha2[1];
+    fd_signature_t sig;
+    fd_memcpy( &sig, header->signature.uc, sizeof(sig) );
+    fd_memcpy( (uchar *)msg + 64U, msg, 4U );
+    if( fd_ed25519_verify( /* msg */ msg + 64U,
+                           /* sz */ msglen - 64U,
+                           /* sig */ sig.uc,
+                           /* public_key */ header->sender.uc,
+                           sha2 )) {
+      FD_LOG_WARNING(("received repair request with with invalid signature"));
+      return 0;
+    }
+
+    fd_repair_lock( glob );
+
+    fd_pinged_elem_t * val = fd_pinged_table_query(glob->pinged, from, NULL);
+    if( val == NULL || !val->good || !fd_hash_eq( &val->id, &header->sender ) ) {
+      /* Need to ping this client */
+      if( val == NULL ) {
+        if( fd_pinged_table_is_full(glob->pinged) ) {
+          FD_LOG_WARNING(("pinged table is full"));
+          fd_repair_unlock( glob );
+          return 0;
+        }
+        val = fd_pinged_table_insert(glob->pinged, from);
+      }
+      fd_hash_copy( &val->id, &header->sender );
+      val->good = 0;
+      fd_repair_send_ping( glob, from, val );
+
+    } else {
+      uchar buf[FD_SHRED_MAX_SZ + sizeof(uint)];
+      switch (protocol.discriminant) {
+      case fd_repair_protocol_enum_window_index: {
+        fd_repair_window_index_t const * wi = &protocol.inner.window_index;
+        long sz = (*glob->serv_get_shred_fun)( wi->slot, (int)wi->shred_index, buf, FD_SHRED_MAX_SZ, glob->fun_arg );
+        if( sz < 0 ) break;
+        *(uint *)(buf + sz) = wi->header.nonce;
+        (*glob->serv_send_fun)( buf, (ulong)sz + sizeof(uint), from, glob->fun_arg );
+        break;
+      }
+
+      case fd_repair_protocol_enum_highest_window_index: {
+        fd_repair_highest_window_index_t const * wi = &protocol.inner.highest_window_index;
+        long sz = (*glob->serv_get_shred_fun)( wi->slot, -1, buf, FD_SHRED_MAX_SZ, glob->fun_arg );
+        if( sz < 0 ) break;
+        *(uint *)(buf + sz) = wi->header.nonce;
+        (*glob->serv_send_fun)( buf, (ulong)sz + sizeof(uint), from, glob->fun_arg );
+        break;
+      }
+
+      case fd_repair_protocol_enum_orphan: {
+        fd_repair_orphan_t const * wi = &protocol.inner.orphan;
+        ulong slot = wi->slot;
+        for(unsigned i = 0; i < 10; ++i) {
+          long r = (*glob->serv_get_parent_fun)( slot, glob->fun_arg );
+          if( r < 0 ) break;
+          slot = (ulong)r;
+          long sz = (*glob->serv_get_shred_fun)( slot, -1, buf, FD_SHRED_MAX_SZ, glob->fun_arg );
+          if( sz < 0 ) continue;
+          *(uint *)(buf + sz) = wi->header.nonce;
+          (*glob->serv_send_fun)( buf, (ulong)sz + sizeof(uint), from, glob->fun_arg );
+        }
+        break;
+      }
+
+      default:
+        break;
+      }
+    }
+
+    fd_repair_unlock( glob );
+  } FD_SCRATCH_SCOPE_END;
+  return 0;
 }
