@@ -449,7 +449,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
   bool found_program_id = false;
   for( uint i = 0; i < test_ctx->accounts_count; i++ ) {
-    if( 0 == memcmp(test_ctx->accounts[i].address, test_ctx->program_id, sizeof(fd_pubkey_t)) ) {
+    if( 0 == memcmp( test_ctx->accounts[i].address, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
       info->program_id = (uchar) i;
       found_program_id = true;
       break;
@@ -457,6 +457,14 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   }
   if( !found_program_id ) {
     REPORT( NOTICE, "Unable to find program_id in accounts" );
+    return 0;
+  }
+
+  /* For native programs, check that the owner is the native loader */
+  fd_pubkey_t * const program_id = &txn_ctx->accounts[info->program_id];
+  fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( program_id );
+  if( native_prog_fn && 0 != memcmp( test_ctx->accounts[info->program_id].owner, &fd_solana_native_loader_id, sizeof(fd_pubkey_t) ) ) {
+    REPORT( NOTICE, "Native program owner is not NativeLoader" );
     return 0;
   }
 
