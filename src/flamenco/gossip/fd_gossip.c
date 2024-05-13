@@ -145,7 +145,7 @@ struct fd_value_elem {
     ulong next;
     fd_pubkey_t origin; /* Where did this value originate */
     ulong wallclock; /* Original timestamp of value in millis */
-    uchar * data;    /* Serialized form of value (bincode) including signature */
+    uchar data[PACKET_DATA_SIZE]; /* Serialized form of value (bincode) including signature */
     ulong datalen;
 };
 /* Value table */
@@ -333,7 +333,6 @@ fd_gossip_footprint( void ) {
   l = FD_LAYOUT_APPEND( l, fd_stats_table_align(), fd_stats_table_footprint(FD_STATS_KEY_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_weights_table_align(), fd_weights_table_footprint(MAX_STAKE_WEIGHTS) );
   l = FD_LAYOUT_APPEND( l, fd_push_states_pool_align(), fd_push_states_pool_footprint(FD_PUSH_LIST_MAX) );
-  l = FD_LAYOUT_APPEND( l, fd_push_state_deque_align(), fd_push_state_deque_footprint() );
   l = FD_LAYOUT_FINI(l, fd_gossip_align());
   return l;
 }
@@ -401,12 +400,6 @@ fd_gossip_delete ( void * shmap ) {
   fd_weights_table_delete( fd_weights_table_leave( glob->weights ) );
   fd_push_states_pool_delete( fd_push_states_pool_leave( glob->push_states_pool ) );
 
-  for( fd_value_table_iter_t iter = fd_value_table_iter_init( glob->values );
-       !fd_value_table_iter_done( glob->values, iter );
-       iter = fd_value_table_iter_next( glob->values, iter ) ) {
-    fd_value_elem_t * ele = fd_value_table_iter_ele( glob->values, iter );
-    fd_valloc_free( glob->valloc, ele->data );
-  }
   return glob;
 }
 
@@ -1204,7 +1197,9 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   msg->wallclock = wallclock;
   fd_hash_copy(&msg->origin, pubkey);
   /* We store the serialized form for convenience */
-  msg->data = fd_valloc_malloc(glob->valloc, 1U, datalen);
+  if( datalen > PACKET_DATA_SIZE ) {
+    FD_LOG_ERR(( "deserialized packet is too big" ));
+  }
   fd_memcpy(msg->data, buf, datalen);
   msg->datalen = datalen;
 
@@ -1700,7 +1695,9 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
   msg->wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* convert to ms */
   fd_hash_copy(&msg->origin, glob->public_key);
   /* We store the serialized form for convenience */
-  msg->data = fd_valloc_malloc(glob->valloc, 1U, datalen);
+  if( datalen > PACKET_DATA_SIZE ) {
+    FD_LOG_ERR(( "deserialized packet is too big" ));
+  }
   fd_memcpy(msg->data, buf, datalen);
   msg->datalen = datalen;
 
