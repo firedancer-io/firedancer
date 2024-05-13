@@ -152,7 +152,7 @@ _load_sysvar( fd_exec_txn_ctx_t * txn_ctx,
               uchar             * sysvar_raw_data,
               ulong               data_size ) {
   FD_BORROWED_ACCOUNT_DECL(borrowed_account);
-  
+
   pb_bytes_array_t * data = fd_scratch_alloc(alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(data_size));
   data->size = (pb_size_t) data_size;
   memcpy( data->bytes, sysvar_raw_data, data_size );
@@ -358,7 +358,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   encode_ctx.dataend = enc + sizeof(sysvar_clock);
   fd_sol_sysvar_clock_encode( &sysvar_clock, &encode_ctx );
   _load_sysvar( txn_ctx, fd_sysvar_clock_id, enc, sizeof(sysvar_clock) );
-  
+
   /* Epoch schedule */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L476-L483
   fd_epoch_schedule_t sysvar_epoch_schedule = {
@@ -456,7 +456,8 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
     }
   }
   if( !found_program_id ) {
-    FD_LOG_WARNING(("Unable to find program_id in accounts"));
+    REPORT( NOTICE, "Unable to find program_id in accounts" );
+    return 0;
   }
 
   ctx->epoch_ctx = epoch_ctx;
