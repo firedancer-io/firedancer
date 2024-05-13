@@ -309,8 +309,6 @@ struct fd_gossip {
     ulong not_push_cnt;
     /* Stake weights */
     fd_weights_elem_t * weights;
-    /* Heap allocator */
-    fd_valloc_t valloc;
     /* List of added entrypoints at startup */
     ulong entrypoints_cnt;
     fd_gossip_peer_addr_t entrypoints[16];
@@ -338,11 +336,10 @@ fd_gossip_footprint( void ) {
 }
 
 void *
-fd_gossip_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
+fd_gossip_new ( void * shmem, ulong seed ) {
   FD_SCRATCH_ALLOC_INIT(l, shmem);
   fd_gossip_t * glob = (fd_gossip_t*)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t), sizeof(fd_gossip_t)) ;
   fd_memset(glob, 0, sizeof(fd_gossip_t));
-  glob->valloc = valloc;
   glob->seed = seed;
 
   void * shm = FD_SCRATCH_ALLOC_APPEND(l, fd_peer_table_align(), fd_peer_table_footprint(FD_PEER_KEY_MAX));
@@ -1895,34 +1892,32 @@ fd_gossip_continue( fd_gossip_t * glob ) {
 int
 fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * from ) {
   fd_gossip_lock( glob );
-  glob->recv_pkt_cnt++;
-  /* Deserialize the message */
-  fd_gossip_msg_t gmsg;
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data    = msg;
-  ctx.dataend = msg + msglen;
-  ctx.valloc  = glob->valloc;
-  if (fd_gossip_msg_decode(&gmsg, &ctx)) {
-    FD_LOG_WARNING(("corrupt gossip message"));
+  FD_SCRATCH_SCOPE_BEGIN {
+    glob->recv_pkt_cnt++;
+    /* Deserialize the message */
+    fd_gossip_msg_t gmsg;
+    fd_bincode_decode_ctx_t ctx;
+    ctx.data    = msg;
+    ctx.dataend = msg + msglen;
+    ctx.valloc  = fd_scratch_virtual();
+    if (fd_gossip_msg_decode(&gmsg, &ctx)) {
+      FD_LOG_WARNING(("corrupt gossip message"));
+      fd_gossip_unlock( glob );
+      return -1;
+    }
+    if (ctx.data != ctx.dataend) {
+      FD_LOG_WARNING(("corrupt gossip message"));
+      fd_gossip_unlock( glob );
+      return -1;
+    }
+
+    char tmp[100];
+
+    FD_LOG_DEBUG(("recv msg type %d from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from)));
+    fd_gossip_recv(glob, from, &gmsg);
+
     fd_gossip_unlock( glob );
-    return -1;
-  }
-  if (ctx.data != ctx.dataend) {
-    FD_LOG_WARNING(("corrupt gossip message"));
-    fd_gossip_unlock( glob );
-    return -1;
-  }
-
-  char tmp[100];
-
-  FD_LOG_DEBUG(("recv msg type %d from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from)));
-  fd_gossip_recv(glob, from, &gmsg);
-
-  fd_bincode_destroy_ctx_t ctx2;
-  ctx2.valloc = glob->valloc;
-  fd_gossip_msg_destroy(&gmsg, &ctx2);
-
-  fd_gossip_unlock( glob );
+  } FD_SCRATCH_SCOPE_END;
   return 0;
 }
 
