@@ -66,7 +66,11 @@ static inline fd_shmem_join_info_t *
 fd_shmem_private_map_query_by_addr( fd_shmem_join_info_t * map,
                                     ulong                  a0,
                                     ulong                  a1,      /* Assumes a1>=a0 */
+#ifndef FD_HAS_UBSAN
+                                    fd_shmem_join_info_t * def ) {
+#else
                                     fd_shmem_join_info_t * def ) __attribute__((no_sanitize("unsigned-integer-overflow"))) {
+#endif
   for( ulong slot_idx=0UL; slot_idx<FD_SHMEM_PRIVATE_MAP_SLOT_CNT; slot_idx++ ) {
     ulong j0 = (ulong)map[slot_idx].shmem;
     ulong j1 = j0 + map[slot_idx].page_sz*map[slot_idx].page_cnt - 1UL;
