@@ -9,11 +9,6 @@
 #include "fd_methods.h"
 #include "fd_webserver.h"
 
-/**
- * Number of threads to run in the thread pool.
- */
-#define NUMBER_OF_THREADS 10
-
 // Read the next json lexical token and report any error to the client
 #define NEXT_TOKEN                                                      \
   do {                                                                  \
@@ -21,7 +16,9 @@
     prevtoken = lex->last_tok;                                          \
     token = json_lex_next_token(lex);                                   \
     if (token == JSON_TOKEN_ERROR) {                                    \
-      fd_web_replier_error(replier, json_lex_get_text(lex, NULL));      \
+      ulong sz;                                                         \
+      const char* text = json_lex_get_text(lex, &sz);                   \
+      fd_web_replier_simple_error(replier, text, (uint)sz);             \
       CLEANUP                                                           \
       return 0;                                                         \
     }                                                                   \
@@ -34,8 +31,8 @@
 // Report a json parsing syntax error
 #define SYNTAX_ERROR(format, ...)                                       \
   do {                                                                  \
-    snprintf(message, sizeof(message), format, __VA_ARGS__);            \
-    fd_web_replier_error(replier, message);                             \
+    int x = snprintf(message, sizeof(message), format, __VA_ARGS__);    \
+    fd_web_replier_simple_error(replier, message, (uint)x);             \
     CLEANUP                                                             \
     return 0;                                                           \
   } while (0)
@@ -155,14 +152,14 @@ json_parse_params_value(struct fd_web_replier* replier, json_lex_state_t* lex, s
     break;
 
   case JSON_TOKEN_RBRACKET:
-    if (prevtoken == JSON_TOKEN_LBRACKET) {      
+    if (prevtoken == JSON_TOKEN_LBRACKET) {
       /* Empty array */
       UNNEXT_TOKEN;
       break;
     }
     SYNTAX_ERROR("unexpected ']' at position %lu", prevpos);
     break;
-    
+
   case JSON_TOKEN_RBRACE:
     if (prevtoken == JSON_TOKEN_LBRACE) {
       /* Empty object */
@@ -171,7 +168,7 @@ json_parse_params_value(struct fd_web_replier* replier, json_lex_state_t* lex, s
     }
     SYNTAX_ERROR("unexpected '}' at position %lu", prevpos);
     break;
-    
+
   default:
     SYNTAX_ERROR("expected json value at position %lu", prevpos);
   }
@@ -241,6 +238,16 @@ void fd_web_replier_done(struct fd_web_replier* r) {
 }
 
 void fd_web_replier_error( struct fd_web_replier* r, const char* format, ... ) {
+  char text[4096];
+  va_list ap;
+  va_start(ap, format);
+  /* Would be nice to vsnprintf directly into the textstream, but that's messy */
+  int x = vsnprintf(text, sizeof(text), format, ap);
+  va_end(ap);
+  fd_web_replier_simple_error(r, text, (uint)x);
+}
+
+void fd_web_replier_simple_error( struct fd_web_replier* r, const char* text, uint text_size) {
 #define CRLF "\r\n"
   static const char* DOC1 =
 "<html>" CRLF
@@ -260,14 +267,7 @@ void fd_web_replier_error( struct fd_web_replier* r, const char* format, ... ) {
   fd_textstream_t * ts = &r->textstream;
   fd_textstream_clear(ts);
   fd_textstream_append(ts, DOC1, strlen(DOC1));
-  char text[4096];
-  va_list ap;
-  va_start(ap, format);
-  /* Would be nice to vsnprintf directly into the textstream, but that's messy */
-  int x = vsnprintf(text, sizeof(text), format, ap);
-  va_end(ap);
-  if (x >= 0 && (uint)x < sizeof(text))
-    fd_textstream_append(ts, text, (uint)x);
+  fd_textstream_append(ts, text, text_size);
   fd_textstream_append(ts, DOC2, strlen(DOC2));
   fd_textstream_append(ts, r->upload_data, r->upload_data_size);
   fd_textstream_append(ts, DOC3, strlen(DOC3));
@@ -386,15 +386,15 @@ static enum MHD_Result handler(void* cls,
   return MHD_YES;
 }
 
-int fd_webserver_start(uint portno, fd_webserver_t * ws, void * cb_arg) {
+int fd_webserver_start(ulong num_threads, ushort portno, fd_webserver_t * ws, void * cb_arg) {
   ws->daemon = MHD_start_daemon(
     MHD_USE_INTERNAL_POLLING_THREAD
       | MHD_USE_SUPPRESS_DATE_NO_CLOCK
       | MHD_USE_EPOLL | MHD_USE_TURBO,
-    (ushort) portno,
+    portno,
     NULL, NULL, &handler, cb_arg,
     MHD_OPTION_CONNECTION_TIMEOUT, (unsigned int) 120,
-    MHD_OPTION_THREAD_POOL_SIZE, (unsigned int) NUMBER_OF_THREADS,
+    MHD_OPTION_THREAD_POOL_SIZE, (unsigned int) num_threads,
     MHD_OPTION_NOTIFY_COMPLETED, &completed_cb, ws,
     MHD_OPTION_CONNECTION_LIMIT, (unsigned int) 1000,
     MHD_OPTION_END);

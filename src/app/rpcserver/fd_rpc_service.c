@@ -6,13 +6,9 @@
 #include "../../flamenco/types/fd_solana_block.pb.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
-#include "../../flamenco/runtime/fd_blockstore.h"
-#include "../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "keywords.h"
 #include "fd_block_to_json.h"
-#include "../../flamenco/rewards/fd_rewards.h"
-#include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
 
 #define API_VERSION "1.17.6"
 
@@ -25,19 +21,6 @@ struct fd_rpc_ctx {
   fd_blockstore_t * blockstore;
   long call_id;
 };
-
-static fd_exec_slot_ctx_t *
-get_slot_ctx( fd_rpc_ctx_t * ctx ) {
-  fd_exec_slot_ctx_t * result = NULL;
-  for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( ctx->replay->forks->frontier, ctx->replay->forks->pool );
-       !fd_fork_frontier_iter_done( iter, ctx->replay->forks->frontier, ctx->replay->forks->pool );
-       iter = fd_fork_frontier_iter_next( iter, ctx->replay->forks->frontier, ctx->replay->forks->pool ) ) {
-    fd_exec_slot_ctx_t * t = &fd_fork_frontier_iter_ele( iter, ctx->replay->forks->frontier, ctx->replay->forks->pool )->slot_ctx;
-    if ( !result || t->slot_bank.slot > result->slot_bank.slot )
-      result = t;
-  }
-  return result;
-}
 
 // Implementation of the "getAccountInfo" method
 // curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d '{ "jsonrpc": "2.0", "id": 1, "method": "getAccountInfo", "params": [ "21bVZhkqPJRVYDG3YpYtzHLMvkc7sa4KB7fMwGekTquG", { "encoding": "base64" } ] }'
@@ -64,7 +47,7 @@ method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   if (rec == NULL) {
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%lu}" CRLF,
-                          get_slot_ctx(ctx)->slot_bank.slot, ctx->call_id);
+                          /*slot*/ 0UL, ctx->call_id);
     fd_web_replier_done(replier);
     return 0;
   }
@@ -142,7 +125,7 @@ method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values
   }
 
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":{\"data\":[\"",
-                        get_slot_ctx(ctx)->slot_bank.slot);
+                        /*slot*/0UL);
 
   if (val_sz) {
     switch (enc) {
@@ -168,7 +151,7 @@ method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values
   char owner[50];
   fd_base58_encode_32((uchar*)metadata->info.owner, 0, owner);
   fd_textstream_sprintf(ts, "\",\"%s\"],\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"rentEpoch\":%lu,\"space\":%lu}},\"id\":%lu}" CRLF,
-                        enc_str,
+                        (const char*)enc_str,
                         (metadata->info.executable ? "true" : "false"),
                         metadata->info.lamports,
                         owner,
@@ -208,7 +191,7 @@ method_getBalance(struct fd_web_replier* replier, struct json_values* values, fd
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%lu}" CRLF,
-                        get_slot_ctx(ctx)->slot_bank.slot, metadata->info.lamports, ctx->call_id);
+                        /*slot*/ 0UL, metadata->info.lamports, ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
 }
@@ -325,7 +308,7 @@ method_getBlockHeight(struct fd_web_replier* replier, struct json_values* values
   (void) values;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
-                        get_slot_ctx(ctx)->slot_bank.block_height,
+                        /*block_height*/ 0UL,
                         ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
@@ -364,13 +347,12 @@ method_getBlocks(struct fd_web_replier* replier, struct json_values* values, fd_
   };
   ulong endslot_sz = 0;
   const void* endslot = json_get_value(values, PATH_ENDSLOT, 3, &endslot_sz);
-  fd_exec_slot_ctx_t * slot_ctx = get_slot_ctx(ctx);
-  ulong endslotn = (endslot == NULL ? slot_ctx->slot_bank.slot : (ulong)(*(long*)endslot));
+  ulong endslotn = (endslot == NULL ? ULONG_MAX : (ulong)(*(long*)endslot));
 
   if (startslotn < ctx->blockstore->min)
     startslotn = ctx->blockstore->min;
-  if (endslotn > slot_ctx->slot_bank.slot)
-    endslotn = slot_ctx->slot_bank.slot;
+  if (endslotn > ctx->blockstore->max)
+    endslotn = ctx->blockstore->max;
 
   fd_blockstore_start_read( ctx->blockstore );
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
@@ -429,8 +411,7 @@ method_getBlocksWithLimit(struct fd_web_replier* replier, struct json_values* va
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
-  fd_exec_slot_ctx_t * slot_ctx = get_slot_ctx(ctx);
-  for ( ulong i = startslotn; i <= slot_ctx->slot_bank.slot && cnt < limitn; ++i ) {
+    for ( ulong i = startslotn; i <= ctx->blockstore->max && cnt < limitn; ++i ) {
     fd_block_t * blk = fd_blockstore_block_query(ctx->blockstore, i);
     if (blk != NULL) {
       fd_textstream_sprintf(ts, "%s%lu", (cnt==0 ? "" : ","), i);
@@ -513,6 +494,10 @@ method_getConfirmedTransaction(struct fd_web_replier* replier, struct json_value
 static int
 method_getEpochInfo(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getEpochInfo is not implemented");
+  return 0;
+  /*
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_exec_slot_ctx_t * slot_ctx = get_slot_ctx(ctx);
   ulong slot_idx = 0;
@@ -529,6 +514,7 @@ method_getEpochInfo(struct fd_web_replier* replier, struct json_values* values, 
                         ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
+  */
 }
 
 // Implementation of the "getEpochSchedule" methods
@@ -537,6 +523,10 @@ method_getEpochInfo(struct fd_web_replier* replier, struct json_values* values, 
 static int
 method_getEpochSchedule(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getEpochSchedule is not implemented");
+  return 0;
+  /*
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->replay->epoch_ctx );
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"firstNormalEpoch\":%lu,\"firstNormalSlot\":%lu,\"leaderScheduleSlotOffset\":%lu,\"slotsPerEpoch\":%lu,\"warmup\":%s},\"id\":%lu}" CRLF,
@@ -548,6 +538,7 @@ method_getEpochSchedule(struct fd_web_replier* replier, struct json_values* valu
                         ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
+  */
 }
 
 // Implementation of the "getFeeCalculatorForBlockhash" methods
@@ -601,6 +592,10 @@ method_getFirstAvailableBlock(struct fd_web_replier* replier, struct json_values
 static int
 method_getGenesisHash(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getGenesisHash is not implemented");
+  return 0;
+  /*
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":\"");
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->replay->epoch_ctx );
@@ -608,6 +603,7 @@ method_getGenesisHash(struct fd_web_replier* replier, struct json_values* values
   fd_textstream_sprintf(ts, "\",\"id\":%lu}" CRLF, ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
+  */
 }
 
 // Implementation of the "getHealth" methods
@@ -635,12 +631,17 @@ method_getHighestSnapshotSlot(struct fd_web_replier* replier, struct json_values
 static int
 method_getIdentity(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getIdentity is not implemented");
+  return 0;
+  /*
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"identity\":\"");
   fd_textstream_encode_base58(ts, ctx->identity->uc, sizeof(fd_pubkey_t));
   fd_textstream_sprintf(ts, "\"},\"id\":%lu}" CRLF, ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
+  */
 }
 // Implementation of the "getInflationGovernor" methods
 static int
@@ -657,6 +658,10 @@ method_getInflationGovernor(struct fd_web_replier* replier, struct json_values* 
 static int
 method_getInflationRate(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getInflationRate is not implemented");
+  return 0;
+  /*
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_inflation_rates_t rates;
   calculate_inflation_rates( get_slot_ctx(ctx), &rates );
@@ -668,6 +673,7 @@ method_getInflationRate(struct fd_web_replier* replier, struct json_values* valu
                         ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
+  */
 }
 
 // Implementation of the "getInflationReward" methods
@@ -694,6 +700,10 @@ method_getLargestAccounts(struct fd_web_replier* replier, struct json_values* va
 static int
 method_getLatestBlockhash(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getLatestBlockhash is not implemented");
+  return 0;
+  /*
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_exec_slot_ctx_t * slot_ctx = get_slot_ctx(ctx);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":{\"blockhash\":\"",
@@ -704,6 +714,7 @@ method_getLatestBlockhash(struct fd_web_replier* replier, struct json_values* va
                         ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
+  */
 }
 
 // Implementation of the "getLeaderSchedule" methods
@@ -739,6 +750,11 @@ method_getMaxShredInsertSlot(struct fd_web_replier* replier, struct json_values*
 
 static int
 method_getMinimumBalanceForRentExemption(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getMinimumBalanceForRentExemption is not implemented");
+  return 0;
+  /*
   static const uint PATH_SIZE[3] = {
     (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
     (JSON_TOKEN_LBRACKET<<16) | 0,
@@ -756,6 +772,7 @@ method_getMinimumBalanceForRentExemption(struct fd_web_replier* replier, struct 
                         ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
+  */
 }
 
 // Implementation of the "getMultipleAccounts" method
@@ -787,7 +804,7 @@ method_getMultipleAccounts(struct fd_web_replier* replier, struct json_values* v
 
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":[",
-                        get_slot_ctx(ctx)->slot_bank.slot);
+                        /*slot*/ 0UL);
 
   // Iterate through account ids
   for ( ulong i = 0; ; ++i ) {
@@ -854,7 +871,7 @@ method_getMultipleAccounts(struct fd_web_replier* replier, struct json_values* v
     char owner[50];
     fd_base58_encode_32((uchar*)metadata->info.owner, 0, owner);
     fd_textstream_sprintf(ts, "\",\"%s\"],\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"rentEpoch\":%lu,\"space\":%lu}",
-                          enc_str,
+                          (const char*)enc_str,
                           (metadata->info.executable ? "true" : "false"),
                           metadata->info.lamports,
                           owner,
@@ -919,7 +936,7 @@ static int
 method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":[",
-                        get_slot_ctx(ctx)->slot_bank.slot);
+                        /*slot*/ 0UL);
 
   // Iterate through account ids
   fd_blockstore_start_read( ctx->blockstore );
@@ -969,7 +986,7 @@ method_getSlot(struct fd_web_replier* replier, struct json_values* values, fd_rp
   (void) values;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
-                        get_slot_ctx(ctx)->slot_bank.slot,
+                        /*slot*/ 0UL,
                         ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
@@ -980,13 +997,17 @@ method_getSlot(struct fd_web_replier* replier, struct json_values* values, fd_rp
 
 static int
 method_getSlotLeader(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void) values;
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getSlotLeader is not implemented");
+  /*
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":\"");
   fd_pubkey_t const * leader = fd_epoch_leaders_get(fd_exec_epoch_ctx_leaders( ctx->replay->epoch_ctx ), get_slot_ctx(ctx)->slot_bank.slot);
   fd_textstream_encode_base58(ts, leader->uc, sizeof(fd_pubkey_t));
   fd_textstream_sprintf(ts, "\",\"id\":%lu}" CRLF, ctx->call_id);
   fd_web_replier_done(replier);
+  */
   return 0;
 }
 
@@ -1156,7 +1177,7 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
   void * meta = (meta_gaddr ? fd_wksp_laddr_fast( fd_blockstore_wksp( ctx->blockstore ), meta_gaddr ) : NULL);
 
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"blockTime\":%ld,\"slot\":%lu,",
-                        get_slot_ctx(ctx)->slot_bank.slot, blk->ts/(long)1e9, elem->slot);
+                        /*slot*/0UL, blk->ts/(long)1e9, elem->slot);
   fd_txn_to_json( ts, (fd_txn_t *)txn_out, raw, meta, meta_sz, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
   fd_textstream_sprintf(ts, "},\"id\":%lu}" CRLF, ctx->call_id);
 
@@ -1559,8 +1580,10 @@ fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* 
 }
 
 void
-fd_rpc_start_service(ushort portno, fd_rpc_ctx_t * ctx) {
-  if (fd_webserver_start(portno, &ctx->ws, ctx))
+fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
+  fd_rpc_ctx_t * ctx = (fd_rpc_ctx_t *)malloc(sizeof(fd_rpc_ctx_t));
+  *ctx_p = ctx;
+  if (fd_webserver_start(args->num_threads, args->port, &ctx->ws, ctx))
     FD_LOG_ERR(("fd_webserver_start failed"));
 }
 
@@ -1568,4 +1591,5 @@ void
 fd_rpc_stop_service(fd_rpc_ctx_t * ctx) {
   if (fd_webserver_stop(&ctx->ws))
     FD_LOG_ERR(("fd_webserver_stop failed"));
+  free(ctx);
 }

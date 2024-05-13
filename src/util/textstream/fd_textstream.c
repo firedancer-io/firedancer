@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
-#include "../../util/fd_util.h"
+#include "../fd_util.h"
 #include "fd_textstream.h"
 
 struct fd_textstream_blk {

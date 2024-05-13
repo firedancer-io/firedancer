@@ -2,14 +2,14 @@
 #define HEADER_fd_src_tango_webserver_fd_webserver_h
 
 #include "fd_methods.h"
-#include "fd_textstream.h"
+#include "../../util/textstream/fd_textstream.h"
 
 struct fd_webserver {
-    struct MHD_Daemon* daemon;
+  struct MHD_Daemon* daemon;
 };
 typedef struct fd_webserver fd_webserver_t;
 
-int fd_webserver_start(uint portno, fd_webserver_t * ws, void * cb_arg);
+int fd_webserver_start(ulong num_threads, ushort portno, fd_webserver_t * ws, void * cb_arg);
 
 int fd_webserver_stop(fd_webserver_t * ws);
 
@@ -27,5 +27,6 @@ void fd_web_replier_done(struct fd_web_replier* replier);
 
 void fd_web_replier_error( struct fd_web_replier* replier, const char* format, ... )
   __attribute__ ((format (printf, 2, 3)));
+void fd_web_replier_simple_error( struct fd_web_replier* replier, const char* text, uint text_size);
 
 #endif /* HEADER_fd_src_tango_webserver_fd_webserver_h */
