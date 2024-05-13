@@ -248,5 +248,5 @@ spy_cmd_fn( args_t *         args,
 
   fd_valloc_free(valloc, fd_flamenco_yaml_delete(yamldump));
 
-  fd_valloc_free(valloc, fd_gossip_delete(fd_gossip_leave(glob), valloc));
+  fd_valloc_free(valloc, fd_gossip_delete(fd_gossip_leave(glob)));
 }
