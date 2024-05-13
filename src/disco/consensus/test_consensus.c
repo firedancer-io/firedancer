@@ -113,11 +113,27 @@ void
 echo_gossip_vote ( fd_vote_state_update_t *vote_update ){
   fd_vote_lockout_t *head = deq_fd_vote_lockout_t_peek_head (vote_update->lockouts);
   fd_vote_lockout_t *tail = deq_fd_vote_lockout_t_peek_tail (vote_update->lockouts);
-  FD_LOG_WARNING( ("echo_gossip_vote: tower_head_slot=%lu, tower_tail_slot=%lu, vote_update_root=%lu, tail_hash=%32J",
+
+  fd_vote_state_update_t echo_vote_update;
+  memset( &echo_vote_update, 0, sizeof(fd_vote_state_update_t) );
+  echo_vote_update.lockouts = vote_update->lockouts;
+  echo_vote_update.root = vote_update->root;
+  echo_vote_update.hash = vote_update->hash;
+  //ulong ts = (ulong)fd_log_wallclock();
+  echo_vote_update.timestamp = vote_update->timestamp;
+
+  fd_vote_instruction_t echo_vote_instr;
+  echo_vote_instr.discriminant = fd_vote_instruction_enum_update_vote_state;
+  echo_vote_instr.inner.update_vote_state = echo_vote_update;
+  uchar* instr_buf[FD_TXN_MTU];
+  fd_bincode_encode_ctx_t encode = { .data = instr_buf, .dataend = (instr_buf + FD_TXN_MTU) };
+  fd_vote_instruction_encode ( &echo_vote_instr, &encode );
+
+  FD_LOG_WARNING( ("echo_gossip_vote: echo_size=%lu, tower_head_slot=%lu, tower_tail_slot=%lu, vote_update_root=%lu, tail_hash=%32J",
+                   fd_vote_instruction_size( &echo_vote_instr ),
                    head->slot, tail->slot,
                    vote_update->root,
                    &vote_update->hash) );
-  // TODO: construct a new vote txn usig flamenco/txn/fd_txn_generate and send back to gossip
 }
 
 struct gossip_deliver_arg {
@@ -170,12 +186,20 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
           fd_vote_decode_compact_update(&vote_instr.inner.compact_update_vote_state,
                                         &vote_update);
 
-          FD_LOG_NOTICE( ("Receive gossip vote idx=%u from gossip, raw_sz=%lu, voter_addr=%32J",
-                          vote->index,
-                          vote->txn.raw_sz,
-                          &vote->from ) );
+          FD_LOG_NOTICE( ("Receive gossip vote: voter_addr=%32J, txn_acct_cnt=%u, vote_program_id=%u | instruction data_sz=%lu, acct_cnt=%u",
+                          &vote->from,
+                          parsed_txn->acct_addr_cnt,
+                          program_id,
+                          data_sz,
+                          parsed_txn->instr[0].acct_cnt ) );
+
+          for (ushort i = 0; i < parsed_txn->instr[0].acct_cnt; i++) {
+            uchar acct_id = *(vote->txn.raw + parsed_txn->instr[0].acct_off + i);
+            uchar* acct = vote->txn.raw + parsed_txn->acct_addr_off + FD_TXN_ACCT_ADDR_SZ * acct_id;
+            FD_LOG_NOTICE( ("    instruction account#%u: id=%u, %32J", i, acct_id, acct) );
+          }
           echo_gossip_vote( &vote_update );
-         } else {
+        } else {
           FD_LOG_WARNING( ("Gossip receives vote instruction with other discriminant") );
         }
       } else {
