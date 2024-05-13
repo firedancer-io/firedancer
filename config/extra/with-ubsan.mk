@@ -19,6 +19,7 @@ CPPFLAGS+=-fsanitize=undefined \
           -fsanitize=null \
           -fsanitize=return \
           -fsanitize=signed-integer-overflow \
+          -fsanitize=unsigned-integer-overflow \
           -fsanitize=bounds \
           -fsanitize=alignment \
           -fsanitize=object-size \

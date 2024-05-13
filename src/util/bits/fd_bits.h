@@ -443,7 +443,7 @@ static inline void fd_char_store_if( int c, char * p, char v ) { char _[ 1 ]; *(
    tests of randomness when used as a PRNG. */
 
 FD_FN_CONST static inline uint
-fd_uint_hash( uint x ) {
+fd_uint_hash( uint x ) __attribute__((no_sanitize("unsigned-integer-overflow"))) {
   x ^= x >> 16;
   x *= 0x85ebca6bU;
   x ^= x >> 13;
@@ -453,7 +453,7 @@ fd_uint_hash( uint x ) {
 }
 
 FD_FN_CONST static inline ulong
-fd_ulong_hash( ulong x ) {
+fd_ulong_hash( ulong x ) __attribute__((no_sanitize("unsigned-integer-overflow"))) {
   x ^= x >> 33;
   x *= 0xff51afd7ed558ccdUL;
   x ^= x >> 33;
