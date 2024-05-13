@@ -308,6 +308,11 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
   if( tpool_scr_mem ) {
     fd_valloc_free( state->slot_ctx->valloc, tpool_scr_mem );
   }
+  
+  if( args->on_demand_block_ingest ) {
+    fd_rocksdb_root_iter_destroy( &iter );
+    fd_rocksdb_destroy( &rocks_db );
+  }
 
   replay_time += fd_log_wallclock();
   double replay_time_s = (double)replay_time * 1e-9;
@@ -538,6 +543,13 @@ minify( fd_ledger_args_t * args ) {
     fd_ledger --cmd minify --rocksdb <LARGE_ROCKSDB> --minified-rocksdb <MINI_ROCKSDB>
               --start-slot <START_SLOT> --end-slot <END_SLOT> --copy-txn-status 1
   */
+  if( args->rocksdb_dir == NULL ) {
+    FD_LOG_ERR(( "rocksdb path is NULL" ));
+  }
+  if( args->mini_db_dir == NULL ) {
+    FD_LOG_ERR(( "minified rocksdb path is NULL" ));
+  }
+
 
   fd_rocksdb_t big_rocksdb;
   char *err = fd_rocksdb_init( &big_rocksdb, args->rocksdb_dir );
@@ -588,6 +600,9 @@ minify( fd_ledger_args_t * args ) {
 
   /* TODO: Currently, the address signatures column family isn't copied as it
            is indexed on the pubkey. */
+
+  fd_rocksdb_destroy( &big_rocksdb );
+  fd_rocksdb_destroy( &mini_rocksdb );
 }
 
 void

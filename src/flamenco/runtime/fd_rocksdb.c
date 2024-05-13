@@ -135,6 +135,10 @@ void fd_rocksdb_destroy(fd_rocksdb_t *db) {
     rocksdb_close( db->db );
     db->db = NULL;
   }
+
+  if( db->wo ) {
+    rocksdb_writeoptions_destroy( db->wo );
+  }
 }
 
 ulong fd_rocksdb_last_slot(fd_rocksdb_t *db, char **err) {
