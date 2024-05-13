@@ -97,7 +97,7 @@ static int
 fd_double_is_normal( double dbl ) {
   ulong x = fd_dblbits( dbl );
   int is_denorm =
-    ( fd_dblbits_bexp( x ) == 0 ) |
+    ( fd_dblbits_bexp( x ) == 0 ) &
     ( fd_dblbits_mant( x ) != 0 );
   int is_inf =
     ( fd_dblbits_bexp( x ) == 2047 ) &
