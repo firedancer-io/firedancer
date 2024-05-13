@@ -1,0 +1,42 @@
+# Milestone 1.4 Leader config
+
+# The leader runs on a 80-core Intel Icelake node with
+# support for AVX512. The scratch_directory is assumed
+# to be on memory and not on disk.
+
+user = "firedancer"
+dynamic_port_range = "8100-8200"
+scratch_directory = "/dev/shm/fd1"
+
+[layout]
+  affinity = "4-74"
+  solana_labs_affinity = "75-79"
+  verify_tile_count = 33
+  bank_tile_count = 19
+  quic_tile_count = 8
+
+[development.genesis]
+  hashes_per_tick = 12500
+  fund_initial_accounts = 9000
+
+[development.bench]
+  larger_max_cost_per_block = true
+  larger_shred_limits_per_block = true
+
+[rpc]
+  transaction_history = false
+  extended_tx_metadata_storage = false
+
+[tiles.net]
+  xdp_mode = "drv"
+
+[snapshots]
+  incremental_snapshot_interval_slots = 50
+  full_snapshot_interval_slots = 100
+
+[tiles.quic]
+  max_concurrent_streams_per_connection = 3000
+  max_concurrent_connections = 256
+  max_concurrent_handshakes = 256
+  max_inflight_quic_packets = 2500
+  stream_pool_cnt = 2000000

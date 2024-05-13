@@ -1,0 +1,38 @@
+# Milestone 1.4 Follower config
+
+# The followers run on a 80-core Intel Icelake node
+# with support for AVX512. The scratch_directory is
+# assumed to be on memory and not on disk.
+
+# Replace the entrypoint and path to keys as needed.
+
+user = "firedancer"
+dynamic_port_range = "8100-8200"
+scratch_directory = "/dev/shm/fd1"
+
+[gossip]
+  entrypoints = [
+    "<LEADER-IP-ADDRESS>:8001"
+  ]
+
+[layout]
+  affinity = "14-29"
+  solana_labs_affinity = "30-79"
+  verify_tile_count = 2
+  bank_tile_count = 2
+  shred_tile_count = 3
+
+[rpc]
+  transaction_history = false
+  extended_tx_metadata_storage = false
+
+[consensus]
+  identity_path = "<PATH-TO-IDENTITY-JSON>"
+
+[development.bench]
+  larger_max_cost_per_block = true
+  larger_shred_limits_per_block = true
+  rocksdb_disable_wal = true
+
+[tiles.net]
+  xdp_mode = "drv"
