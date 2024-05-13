@@ -113,6 +113,15 @@ _load_account( fd_borrowed_account_t *           acc,
                fd_acc_mgr_t *                    acc_mgr,
                fd_funk_txn_t *                   funk_txn,
                fd_exec_test_acct_state_t const * state ) {
+  /* Although missing addresses / owners may be interpreted as 0-set bytes,
+     the Agave fuzz harness fails to parse these messages out and fails
+     before execution. The following check is meant to keep behavior
+     consistent between fuzz harnesses.
+   */
+  if( !state->has_address || !state->has_owner ) {
+    return 0;
+  }
+
   fd_borrowed_account_init( acc );
   ulong size = 0UL;
   if( state->data ) size = state->data->size;
