@@ -52,6 +52,7 @@ SOLCAP=""
 ON_DEMAND=1
 WITH_COVERAGE=0
 PRUNE_FAILURE=0
+TILE_CPUS="--tile-cpus 5-21"
 
 POSITION_ARGS=()
 OBJDIR=${OBJDIR:-build/native/gcc}
@@ -182,6 +183,11 @@ while [[ $# -gt 0 ]]; do
         shift
         shift
         ;;
+    --tile-cpus)
+        TILE_CPUS="--tile-cpus $2"
+        shift
+        shift
+        ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
@@ -232,7 +238,7 @@ if [[ ! -e dump/$LEDGER && SKIP_INGEST -eq 0 ]]; then
     fi
   fi
   if [[ -n "$ZST" ]]; then
-    gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.zst | zstd -d | tar xf - -C ./dump
+    gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.zst | zstd -d --stdout | tar xf - -C ./dump
   else
     gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tar zxf - -C ./dump
   fi
@@ -267,9 +273,12 @@ if [[ $ON_DEMAND = 1 ]]; then
     $TXN_STATUS \
     --allocator wksp \
     --on-demand-block-ingest 1 \
-    --tile-cpus 5-21 >& $LOG
+    $TILE_CPUS >& $LOG
 
   status=$?
+  if [ $status -ne 0 ]; then
+    echo_error "on demand 1 $LOG"
+  fi
   { set +x; } &> /dev/null
   echo_notice "Finished on-demand ingest and replay\n"
 fi
@@ -324,7 +333,7 @@ ARGS=" --restore dump/$CHECKPT \
   --log-level-logfile 2 \
   --log-level-stderr 2 \
   --allocator wksp \
-  --tile-cpus 5-21" \
+  $TILE_CPUS" \
 
 if [ -e dump/$LEDGER/capitalization.csv ]
 then
