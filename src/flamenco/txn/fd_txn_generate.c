@@ -38,6 +38,9 @@ ulong fd_txn_base_generate( uchar out_txn_meta[ static FD_TXN_MAX_SZ ],
   txn_meta->acct_addr_off        = (ushort)(txn_meta->message_off + (sizeof(fd_txn_message_hdr_t)) + compact_acct_cnt_sz);
   txn_meta->recent_blockhash_off = (ushort)(txn_meta->acct_addr_off + (txn_meta->acct_addr_cnt * ACCOUNT_SZ));
 
+  // Fill num_signatures at the beginning
+  out_txn_payload[0] = (uchar) num_signatures;
+
   // Fill message header in txn payload
   uchar * write_ptr = out_txn_payload + txn_meta->message_off;
   fd_txn_message_hdr_t msg_header = { .num_signatures = (uchar)accounts->signature_cnt, 

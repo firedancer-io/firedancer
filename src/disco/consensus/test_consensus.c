@@ -123,12 +123,10 @@ ushort vote_instr_fun( uchar * out_buf, uchar * FD_PARAM_UNUSED opt_args, ulong 
   return (ushort)vote_instr_size;
 }
 
-void echo_vote_txn_info( uchar* payload ) {
+void echo_vote_txn_info( uchar* payload, ulong size ) {
   uchar out_buf[ FD_TXN_MAX_SZ ];
   fd_txn_t * parsed_txn = (fd_txn_t *)out_buf;
-  ulong payload_sz;
-  ulong out_sz = fd_txn_parse_core( payload, FD_TXN_MAX_SZ, out_buf, NULL, &payload_sz, 0 );
-  FD_LOG_INFO(("payload size=%lu", payload_sz));
+  ulong out_sz = fd_txn_parse( payload, size, out_buf, NULL );
   FD_TEST( out_sz );
   FD_TEST( parsed_txn );
   FD_TEST( parsed_txn->instr_cnt == 1);
@@ -137,7 +135,8 @@ void echo_vote_txn_info( uchar* payload ) {
   uchar* account_addr = (payload + parsed_txn->acct_addr_off
                         + FD_TXN_ACCT_ADDR_SZ * program_id );
 
-  FD_LOG_WARNING( ("Echoing vote: voter_addr=%32J, txn_acct_cnt=%u(readonly_s=%u, readonly_us=%u), sign_cnt=%u | instruction#0: program=%32J",
+  FD_LOG_WARNING( ("Echoing vote: payload=%lu, voter_addr=%32J, txn_acct_cnt=%u(readonly_s=%u, readonly_us=%u), sign_cnt=%u | instruction#0: program=%32J",
+                   size,
                    payload + parsed_txn->acct_addr_off,
                    parsed_txn->acct_addr_cnt,
                    parsed_txn->readonly_signed_cnt,
@@ -195,9 +194,7 @@ echo_vote_txn ( fd_vote_state_update_t *vote_update ){
   instr_accounts[0] = 1;
   instr_accounts[1] = 1; /* this one seems to be 1 on local and 0 on testnet */
   ulong size = fd_txn_add_instr(txn_meta_buf, txn_buf, 2, instr_accounts, 2, vote_instr_fun, NULL, 0);
-
-  FD_LOG_NOTICE(("vote_instr_size=%lu, txn_buf_size=%lu", vote_instr_size, size));
-  echo_vote_txn_info(txn_buf);
+  echo_vote_txn_info(txn_buf, size);
   /*
   fd_vote_lockout_t *head = deq_fd_vote_lockout_t_peek_head (vote_update->lockouts);
   fd_vote_lockout_t *tail = deq_fd_vote_lockout_t_peek_tail (vote_update->lockouts);
