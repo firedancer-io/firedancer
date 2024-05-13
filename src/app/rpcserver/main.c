@@ -17,6 +17,7 @@ static void usage( char const * progname ) {
 static void
 init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   char const * wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-funk", NULL, "fd1_funk.wksp" );
+  FD_LOG_NOTICE(( "attaching to workspace \"%s\"", wksp_name ));
   fd_wksp_t * wksp = fd_wksp_attach( wksp_name );
   if( FD_UNLIKELY( !wksp ) )
     FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", wksp_name ));
@@ -33,6 +34,7 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   fd_wksp_mprotect( wksp, 1 );
 
   wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-blockstore", NULL, "fd1_bstore.wksp" );
+  FD_LOG_NOTICE(( "attaching to workspace \"%s\"", wksp_name ));
   wksp = fd_wksp_attach( wksp_name );
   if( FD_UNLIKELY( !wksp ) )
     FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", wksp_name ));

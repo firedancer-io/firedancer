@@ -1596,12 +1596,14 @@ fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
   *ctx_p = ctx;
   ctx->funk = args->funk;
   ctx->blockstore = args->blockstore;
+  FD_LOG_NOTICE(( "starting web server with %lu threads on port %u", args->num_threads, (uint)args->port ));
   if (fd_webserver_start(args->num_threads, args->port, &ctx->ws, ctx))
     FD_LOG_ERR(("fd_webserver_start failed"));
 }
 
 void
 fd_rpc_stop_service(fd_rpc_ctx_t * ctx) {
+  FD_LOG_NOTICE(( "stopping web server" ));
   if (fd_webserver_stop(&ctx->ws))
     FD_LOG_ERR(("fd_webserver_stop failed"));
   free(ctx);
