@@ -37,6 +37,7 @@ for MACHINE in ${MACHINES[*]}; do
     fi
     make run-fuzz-test
     make run-script-test
+    make run-test-vectors
     if [[ "$HAS_LLVM_COV" == 1 ]]; then
       make "${OBJDIR}/cov/cov.lcov"
     fi

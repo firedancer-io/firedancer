@@ -422,7 +422,16 @@ run-script-test: bin unit-test
 OBJDIR=$(OBJDIR) \
 MACHINE=$(MACHINE) \
 LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/script_test-%p.profraw" \
+LOG_PATH="$(OBJDIR)/log/fd-script-test-report" \
 contrib/test/run_script_tests.sh
+
+run-test-vectors: bin unit-test
+	mkdir -p "$(OBJDIR)/cov/raw" && \
+OBJDIR=$(OBJDIR) \
+MACHINE=$(MACHINE) \
+LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/test_vectors-%p.profraw" \
+LOG_PATH="$(OBJDIR)/log/fd-test-vectors-report" \
+contrib/test/run_test_vectors.sh
 
 seccomp-policies:
 	$(FIND) . -name '*.seccomppolicy' -exec $(PYTHON) contrib/codegen/generate_filters.py {} \;

@@ -5,7 +5,6 @@ set -x
 #
 # Expects OBJDIR and MACHINE to be set
 
-LOG_PATH="/tmp/fd-unit-test-${MACHINE:?}-report"
 BIN="${OBJDIR:?}/bin"
 UNIT_TEST="${OBJDIR}/unit-test"
 
