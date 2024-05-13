@@ -48,6 +48,9 @@
 
 #define FD_NANOSEC_TO_MILLI(_ts_) ((ulong)(_ts_/1000000))
 
+/* Maximum number of stake weights, mirrors fd_stake_ci */
+#define MAX_STAKE_WEIGHTS (40200UL)
+
 /* Test if two addresses are equal */
 static int fd_gossip_peer_addr_eq( const fd_gossip_peer_addr_t * key1, const fd_gossip_peer_addr_t * key2 ) {
   FD_STATIC_ASSERT(sizeof(fd_gossip_peer_addr_t) == sizeof(ulong),"messed up size");
@@ -330,6 +333,7 @@ fd_gossip_footprint( void ) {
   l = FD_LAYOUT_APPEND( l, fd_stats_table_align(), fd_stats_table_footprint(FD_STATS_KEY_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_weights_table_align(), fd_weights_table_footprint(MAX_STAKE_WEIGHTS) );
   l = FD_LAYOUT_APPEND( l, fd_push_states_pool_align(), fd_push_states_pool_footprint(FD_PUSH_LIST_MAX) );
+  l = FD_LAYOUT_APPEND( l, fd_push_state_deque_align(), fd_push_state_deque_footprint() );
   l = FD_LAYOUT_FINI(l, fd_gossip_align());
   return l;
 }
@@ -1018,12 +1022,9 @@ fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   peerval->wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* In millisecs */
   fd_hash_copy(&peerval->id, &pong->from);
 
-  if( glob->weights ) {
-    fd_weights_elem_t const * val2 = fd_weights_table_query_const( glob->weights, &val->id, NULL );
-    val->weight = ( val2 == NULL ? 1UL : val2->weight );
-  } else {
-    val->weight = 1UL;
-  }
+  fd_weights_elem_t const * val2 = fd_weights_table_query_const( glob->weights, &val->id, NULL );
+  val->weight = ( val2 == NULL ? 1UL : val2->weight );
+
 }
 
 /* Initiate a ping/pong with a random active partner to confirm it is
@@ -1941,12 +1942,20 @@ fd_gossip_set_stake_weights( fd_gossip_t * gossip,
     FD_LOG_ERR(( "stake weights NULL" ));
   }
 
+  if( stake_weights_cnt > MAX_STAKE_WEIGHTS ) {
+    FD_LOG_ERR(( "num stake weights (%lu) is larger than max allowed stake weights", stake_weights_cnt ));
+  }
+
   fd_gossip_lock( gossip );
 
-  if( gossip->weights )
-    fd_valloc_free(gossip->valloc, fd_weights_table_delete(fd_weights_table_leave(gossip->weights)));
-  void * shm = fd_valloc_malloc(gossip->valloc, fd_weights_table_align(), fd_weights_table_footprint(stake_weights_cnt));
-  gossip->weights = fd_weights_table_join(fd_weights_table_new(shm, stake_weights_cnt, gossip->seed));
+  /* Clear out the table for new stake weights. */
+  for ( fd_weights_table_iter_t iter = fd_weights_table_iter_init( gossip->weights );
+        !fd_weights_table_iter_done( gossip->weights, iter);
+        iter = fd_weights_table_iter_next( gossip->weights, iter ) ) {
+    fd_weights_elem_t * e = fd_weights_table_iter_ele( gossip->weights, iter );
+    fd_weights_table_remove( gossip->weights, &e->key );
+  }
+
   for( ulong i = 0; i < stake_weights_cnt; ++i ) {
     if( !stake_weights[i].stake ) continue;
     fd_weights_elem_t * val = fd_weights_table_insert( gossip->weights, &stake_weights[i].key );
