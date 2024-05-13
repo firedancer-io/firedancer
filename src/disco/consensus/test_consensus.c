@@ -109,25 +109,59 @@ create_socket( fd_gossip_peer_addr_t * addr ) {
   return fd;
 }
 
+static uchar keys_initialized;
+static uchar vote_identity_privkey[32], vote_authority_privkey[32];
+static fd_sha512_t vote_identity_sha[1], vote_authority_sha[1];
+static fd_pubkey_t vote_pubkeys[2], vote_program_pubkey; /* identity and authority  */
+
 void
 echo_gossip_vote ( fd_vote_state_update_t *vote_update ){
   fd_vote_lockout_t *head = deq_fd_vote_lockout_t_peek_head (vote_update->lockouts);
   fd_vote_lockout_t *tail = deq_fd_vote_lockout_t_peek_tail (vote_update->lockouts);
 
+  /* Create fd_vote_state_update */
   fd_vote_state_update_t echo_vote_update;
   memset( &echo_vote_update, 0, sizeof(fd_vote_state_update_t) );
   echo_vote_update.lockouts = vote_update->lockouts;
   echo_vote_update.root = vote_update->root;
   echo_vote_update.hash = vote_update->hash;
-  //ulong ts = (ulong)fd_log_wallclock();
   echo_vote_update.timestamp = vote_update->timestamp;
 
+  /* Create fd_vote_instruction_t */
   fd_vote_instruction_t echo_vote_instr;
   echo_vote_instr.discriminant = fd_vote_instruction_enum_update_vote_state;
   echo_vote_instr.inner.update_vote_state = echo_vote_update;
   uchar* instr_buf[FD_TXN_MTU];
   fd_bincode_encode_ctx_t encode = { .data = instr_buf, .dataend = (instr_buf + FD_TXN_MTU) };
   fd_vote_instruction_encode ( &echo_vote_instr, &encode );
+
+  /* Create keys if needed */
+  if (!keys_initialized) {
+    FD_TEST( 32UL == getrandom( vote_identity_privkey, 32UL, 0 ) );
+    FD_TEST( fd_ed25519_public_from_private( vote_pubkeys[0].uc, vote_identity_privkey, vote_identity_sha ) );
+    FD_TEST( 32UL == getrandom( vote_authority_privkey, 32UL, 0 ) );
+    FD_TEST( fd_ed25519_public_from_private( vote_pubkeys[1].uc, vote_authority_privkey, vote_authority_sha ) );
+
+    keys_initialized = 1;
+  }
+
+  /* Create vote transaction as fd_txn_t */
+  uchar txn_meta_buf[ FD_TXN_MAX_SZ ];
+  uchar txn_buf [ FD_TXN_MTU ];
+  fd_txn_accounts_t vote_txn_accounts;
+  vote_txn_accounts.signature_cnt = 2;
+  vote_txn_accounts.readonly_signed_cnt = 0;
+  vote_txn_accounts.readonly_unsigned_cnt = 1;
+  vote_txn_accounts.acct_cnt = 3;
+  vote_txn_accounts.signers_w = vote_pubkeys;  /* 2 pubkeys: vote identity, vote authority */
+  vote_txn_accounts.signers_r = NULL;          /* 0 pubkey */
+  vote_txn_accounts.non_signers_w = NULL;      /* 0 pubkey  */
+  memcpy( &vote_program_pubkey, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) );
+  vote_txn_accounts.non_signers_r = &vote_program_pubkey; /* 1 pubkey */
+
+  fd_txn_base_generate( txn_meta_buf, txn_buf, 2, &vote_txn_accounts, NULL );
+
+  /* Add fd_vote_instruction to the vote transaction (TODO) */
 
   FD_LOG_WARNING( ("echo_gossip_vote: echo_size=%lu, tower_head_slot=%lu, tower_tail_slot=%lu, vote_update_root=%lu, tail_hash=%32J",
                    fd_vote_instruction_size( &echo_vote_instr ),
@@ -186,12 +220,15 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
           fd_vote_decode_compact_update(&vote_instr.inner.compact_update_vote_state,
                                         &vote_update);
 
-          FD_LOG_NOTICE( ("Receive gossip vote: voter_addr=%32J, txn_acct_cnt=%u, vote_program_id=%u | instruction data_sz=%lu, acct_cnt=%u",
+          FD_LOG_NOTICE( ("Receive gossip vote: voter_addr=%32J, txn_acct_cnt=%u(readonly_s=%u, readonly_us=%u), vote_program_id=%u, sign_cnt=%u | instruction data_sz=%lu, acct_cnt=%u",
                           &vote->from,
                           parsed_txn->acct_addr_cnt,
+                          parsed_txn->readonly_signed_cnt,
+                          parsed_txn->readonly_unsigned_cnt,
                           program_id,
+                          parsed_txn->signature_cnt,
                           data_sz,
-                          parsed_txn->instr[0].acct_cnt ) );
+                          parsed_txn->instr[0].acct_cnt) );
 
           for (ushort i = 0; i < parsed_txn->instr[0].acct_cnt; i++) {
             uchar acct_id = *(vote->txn.raw + parsed_txn->instr[0].acct_off + i);
