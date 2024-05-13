@@ -13,7 +13,7 @@ static void usage( char const * progname ) {
 
 static void
 init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
-  char const * wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-funk", NULL, "/mnt/.fd/.gigantic/fd1_funk.wksp" );
+  char const * wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-funk", NULL, "fd1_funk.wksp" );
   fd_wksp_t * wksp = fd_wksp_attach( wksp_name );
   if( FD_UNLIKELY( !wksp ) )
     FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", wksp_name ));
@@ -28,7 +28,7 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
     FD_LOG_ERR(( "failed to join a funky" ));
   }
 
-  wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-blockstore", NULL, "/mnt/.fd/.gigantic/fd1_bstore.wksp" );
+  wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-blockstore", NULL, "fd1_bstore.wksp" );
   wksp = fd_wksp_attach( wksp_name );
   if( FD_UNLIKELY( !wksp ) )
     FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", wksp_name ));
