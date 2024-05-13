@@ -1,4 +1,7 @@
 #include <stdio.h>
+#include <signal.h>
+#include <errno.h>
+#include <unistd.h>
 #include "fd_rpc_service.h"
 
 /*
@@ -27,6 +30,7 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   if( args->funk == NULL ) {
     FD_LOG_ERR(( "failed to join a funky" ));
   }
+  fd_wksp_mprotect( wksp, 1 );
 
   wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-blockstore", NULL, "fd1_bstore.wksp" );
   wksp = fd_wksp_attach( wksp_name );
@@ -47,13 +51,34 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   args->port = (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--port", NULL, 8899 );
 }
 
+static int stopflag = 0;
+static void
+signal1( int sig ) {
+  (void)sig;
+  stopflag = 1;
+}
+
 int main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   fd_rpcserver_args_t args;
   init_args( &argc, &argv, &args );
 
+  struct sigaction sa = {
+    .sa_handler = signal1,
+    .sa_flags   = 0,
+  };
+  if( FD_UNLIKELY( sigaction( SIGTERM, &sa, NULL ) ) )
+    FD_LOG_ERR(( "sigaction(SIGTERM) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) )
+    FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
   fd_rpc_ctx_t * ctx = NULL;
   fd_rpc_start_service( &args, &ctx );
+
+  while( !stopflag ) {
+    sleep( 1 );
+  }
+
   fd_rpc_stop_service( ctx );
 
   fd_halt();

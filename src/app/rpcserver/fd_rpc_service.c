@@ -22,6 +22,12 @@ struct fd_rpc_ctx {
   long call_id;
 };
 
+static void *
+read_account( fd_rpc_ctx_t * ctx, fd_pubkey_t * acct, ulong * result_len ) {
+  fd_funk_rec_key_t recid = fd_acc_funk_key(acct);
+  return fd_funk_rec_query_safe(ctx->funk, &recid, fd_libc_alloc_virtual(), result_len);
+}
+
 // Implementation of the "getAccountInfo" method
 // curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d '{ "jsonrpc": "2.0", "id": 1, "method": "getAccountInfo", "params": [ "21bVZhkqPJRVYDG3YpYtzHLMvkc7sa4KB7fMwGekTquG", { "encoding": "base64" } ] }'
 
@@ -39,27 +45,26 @@ method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values
     fd_web_replier_error(replier, "getAccountInfo requires a string as first parameter");
     return 0;
   }
-  fd_pubkey_t acct;
-  fd_base58_decode_32((const char *)arg, acct.uc);
-  fd_funk_rec_key_t recid = fd_acc_funk_key(&acct);
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global(ctx->funk, NULL, &recid);
 
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  if (rec == NULL) {
+
+  fd_pubkey_t acct;
+  fd_base58_decode_32((const char *)arg, acct.uc);
+  ulong val_sz;
+  void * val = read_account(ctx, &acct, &val_sz);
+  if (val == NULL) {
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%lu}" CRLF,
                           /*slot*/ 0UL, ctx->call_id);
     fd_web_replier_done(replier);
     return 0;
   }
 
-  fd_wksp_t * wksp = fd_funk_wksp(ctx->funk);
-  void * val = fd_funk_val(rec, wksp);
-  ulong val_sz = fd_funk_val_sz(rec);
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;
   if (val_sz < metadata->hlen) {
     fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
     return 0;
   }
+  void * orig_val = val;
   val = (char*)val + metadata->hlen;
   val_sz = val_sz - metadata->hlen;
   if (val_sz > metadata->dlen)
@@ -159,6 +164,9 @@ method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values
                         val_sz,
                         ctx->call_id);
   fd_web_replier_done(replier);
+
+  free(orig_val);
+
   return 0;
 }
 
@@ -181,23 +189,23 @@ method_getBalance(struct fd_web_replier* replier, struct json_values* values, fd
   }
   fd_pubkey_t acct;
   fd_base58_decode_32((const char *)arg, acct.uc);
-  fd_funk_rec_key_t recid = fd_acc_funk_key(&acct);
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global(ctx->funk, NULL, &recid);
-  if (rec == NULL) {
+  ulong val_sz;
+  void * val = read_account(ctx, &acct, &val_sz);
+  if (val == NULL) {
     fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
     return 0;
   }
-  void * val = fd_funk_val(rec, fd_funk_wksp(ctx->funk));
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%lu}" CRLF,
                         /*slot*/ 0UL, metadata->info.lamports, ctx->call_id);
   fd_web_replier_done(replier);
+  free(val);
   return 0;
 }
 
 // Implementation of the "getBlock" method
-// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc": "2.0","id":1, "method":"getBlock", "params": [255389538, {"encoding": "json", "maxSupportedTransactionVersion":0, "transactionDetails":"full", "rewards":false}]} '
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc": "2.0","id":1, "method":"getBlock", "params": [270562740, {"encoding": "json", "maxSupportedTransactionVersion":0, "transactionDetails":"full", "rewards":false}]} '
 
 static int
 method_getBlock(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
@@ -324,7 +332,7 @@ method_getBlockProduction(struct fd_web_replier* replier, struct json_values* va
 }
 
 // Implementation of the "getBlocks" method
-// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc": "2.0", "id": 1, "method": "getBlocks", "params": [255392051, 255392061]} '
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc": "2.0", "id": 1, "method": "getBlocks", "params": [270562730, 270562740]} '
 
 static int
 method_getBlocks(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
@@ -373,7 +381,7 @@ method_getBlocks(struct fd_web_replier* replier, struct json_values* values, fd_
 }
 
 // Implementation of the "getBlocksWithLimit" method
-// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc": "2.0", "id":1, "method":"getBlocksWithLimit", "params":[255571764, 3]} '
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc": "2.0", "id":1, "method":"getBlocksWithLimit", "params":[270562730, 3]} '
 
 static int
 method_getBlocksWithLimit(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
@@ -825,23 +833,22 @@ method_getMultipleAccounts(struct fd_web_replier* replier, struct json_values* v
 
     fd_pubkey_t acct;
     fd_base58_decode_32((const char *)arg, acct.uc);
-    fd_funk_rec_key_t recid = fd_acc_funk_key(&acct);
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global(ctx->funk, NULL, &recid);
-    if (rec == NULL) {
+    ulong val_sz;
+    void * val = read_account(ctx, &acct, &val_sz);
+    if (val == NULL) {
       fd_textstream_sprintf(ts, "null");
       continue;
     }
 
     fd_textstream_sprintf(ts, "{\"data\":[\"");
 
-    fd_wksp_t * wksp = fd_funk_wksp(ctx->funk);
-    void * val = fd_funk_val(rec, wksp);
-    ulong val_sz = fd_funk_val_sz(rec);
     fd_account_meta_t * metadata = (fd_account_meta_t *)val;
     if (val_sz < metadata->hlen) {
       fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
+      free(val);
       return 0;
     }
+    void * orig_val = val;
     val = (char*)val + metadata->hlen;
     val_sz = val_sz - metadata->hlen;
     if (val_sz > metadata->dlen)
@@ -852,12 +859,14 @@ method_getMultipleAccounts(struct fd_web_replier* replier, struct json_values* v
       case ENC_BASE58:
         if (fd_textstream_encode_base58(ts, val, val_sz)) {
           fd_web_replier_error(replier, "failed to encode data in base58");
+          free(orig_val);
           return 0;
         }
         break;
       case ENC_BASE64:
         if (fd_textstream_encode_base64(ts, val, val_sz)) {
           fd_web_replier_error(replier, "failed to encode data in base64");
+          free(orig_val);
           return 0;
         }
         break;
@@ -877,6 +886,8 @@ method_getMultipleAccounts(struct fd_web_replier* replier, struct json_values* v
                           owner,
                           metadata->info.rent_epoch,
                           val_sz);
+
+    free(orig_val);
   }
 
   fd_textstream_sprintf(ts, "]},\"id\":%lu}" CRLF, ctx->call_id);
@@ -930,7 +941,7 @@ method_getSignaturesForAddress(struct fd_web_replier* replier, struct json_value
 }
 
 // Implementation of the "getSignatureStatuses" methods
-// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc": "2.0", "id": 1, "method": "getSignatureStatuses", "params": [["5drbPbSkXkuVJane6FN5ghEBDrHvmUGq9ffdRripUc9nbik5VSFtTGqfdmEsbW4HkSKRv8QKefg996EhASpae3Hp"], {"searchTransactionHistory": true}]} '
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc": "2.0", "id": 1, "method": "getSignatureStatuses", "params": [["4qj8WecUytFE96SFhdiTkc3v2AYLY7795sbSQTnYG7cPL9s6xKNHNyi3wraQc83PsNSgV8yedWbfGa4vRXfzBDzB"], {"searchTransactionHistory": true}]} '
 
 static int
 method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
@@ -1103,7 +1114,7 @@ method_getTokenSupply(struct fd_web_replier* replier, struct json_values* values
 }
 
 // Implementation of the "getTransaction" method
-// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc": "2.0", "id": 1, "method": "getTransaction", "params": ["2ksfn7BNHFTeKNTJ3U5NHd8aHM8yMtsGvQ7UiNpGNyekJ4cd3RbnxuJtsUC11tkqdTr2xzxtV6kHfg34ri6CE4cS", "json"]} '
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc": "2.0", "id": 1, "method": "getTransaction", "params": ["4qj8WecUytFE96SFhdiTkc3v2AYLY7795sbSQTnYG7cPL9s6xKNHNyi3wraQc83PsNSgV8yedWbfGa4vRXfzBDzB", "json"]} '
 
 static int
 method_getTransaction(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
@@ -1583,6 +1594,8 @@ void
 fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
   fd_rpc_ctx_t * ctx = (fd_rpc_ctx_t *)malloc(sizeof(fd_rpc_ctx_t));
   *ctx_p = ctx;
+  ctx->funk = args->funk;
+  ctx->blockstore = args->blockstore;
   if (fd_webserver_start(args->num_threads, args->port, &ctx->ws, ctx))
     FD_LOG_ERR(("fd_webserver_start failed"));
 }
