@@ -16,16 +16,16 @@ main( int     argc,
     FD_TEST( fd_fltbits_pack( s, b, m )==u );                           \
     FD_TEST( fd_float( u )==_f );                                       \
   } while(0)
-  _(  0.f,         0x00000000UL, 0UL,   0UL,       0UL ); 
-  _(  FLT_MIN,     0x00800000UL, 0UL,   1UL,       0UL ); 
-  _(  FLT_EPSILON, 0x34000000UL, 0UL, 104UL,       0UL ); 
-  _(  1.f,         0x3f800000UL, 0UL, 127UL,       0UL ); 
-  _(  FLT_MAX,     0x7f7fffffUL, 0UL, 254UL, 8388607UL ); 
-  _( -0.f,         0x80000000UL, 1UL,   0UL,       0UL ); 
-  _( -FLT_MIN,     0x80800000UL, 1UL,   1UL,       0UL ); 
-  _( -FLT_EPSILON, 0xb4000000UL, 1UL, 104UL,       0UL ); 
-  _( -1.f,         0xbf800000UL, 1UL, 127UL,       0UL ); 
-  _( -FLT_MAX,     0xff7fffffUL, 1UL, 254UL, 8388607UL ); 
+  _(  0.f,         0x00000000UL, 0UL,   0UL,       0UL );
+  _(  FLT_MIN,     0x00800000UL, 0UL,   1UL,       0UL );
+  _(  FLT_EPSILON, 0x34000000UL, 0UL, 104UL,       0UL );
+  _(  1.f,         0x3f800000UL, 0UL, 127UL,       0UL );
+  _(  FLT_MAX,     0x7f7fffffUL, 0UL, 254UL, 8388607UL );
+  _( -0.f,         0x80000000UL, 1UL,   0UL,       0UL );
+  _( -FLT_MIN,     0x80800000UL, 1UL,   1UL,       0UL );
+  _( -FLT_EPSILON, 0xb4000000UL, 1UL, 104UL,       0UL );
+  _( -1.f,         0xbf800000UL, 1UL, 127UL,       0UL );
+  _( -FLT_MAX,     0xff7fffffUL, 1UL, 254UL, 8388607UL );
 # undef _
 
 # if FD_HAS_DOUBLE

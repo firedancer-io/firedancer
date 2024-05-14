@@ -7,7 +7,7 @@
 
    "float" / single precision:
 
-            biased    unbiased   
+            biased    unbiased
      sign  exponent   exponent     mantissa
         0         0       -127            0 -> zero              / +0.f
         1         0       -127            0 -> signed zero       / -0.f
@@ -18,9 +18,9 @@
         s       255        128  [2^22,2^23) -> quiet nan         / qnan (", 0 allowed for bits 0:21 here)
         s         b   e==b-127            m -> normal            / (-1)^s 2^e (1 + m/2^23)
 
-   "double" / double precision 
+   "double" / double precision
 
-            biased    unbiased   
+            biased    unbiased
      sign  exponent   exponent     mantissa
         0         0      -1023            0 -> zero              / +0.
         1         0      -1023            0 -> signed zero       / -0.
@@ -45,7 +45,7 @@ FD_PROTOTYPES_BEGIN
    fd_fltbits_pack           packs a sign, biased exponent and mantissa
                              into a fltbits
    fd_fltbits_unbias         return the exponent for a biased exponent
-   fd_fltbits_bias           return the biased exponent for an exponent 
+   fd_fltbits_bias           return the biased exponent for an exponent
 
    As these don't do any interpretation of the bits, these in principle
    are just linguistic operations as opposed to an actual operation
@@ -56,7 +56,7 @@ FD_PROTOTYPES_BEGIN
    register files for integers and floats under the hood), this might
    require some operations on the target (generally fast O(1)
    operations).
-   
+
    The APIs below use ulong for bit fields in general (even in cases
    where 32-bit might be sufficient) to avoid unnecessary assembly ops
    under the hood. */
