@@ -114,6 +114,7 @@ struct fd_runtime_args {
   ushort       rpc_port;
   ulong        checkpt_freq;
   char const * checkpt_path;
+  int          checkpt_mismatch;
   fd_funk_t *  pruned_funk;
   int          dump_insn_to_pb;
   char const * dump_insn_sig_filter;

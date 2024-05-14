@@ -2206,19 +2206,21 @@ fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
   if( !is_checkpt_freq && !is_abort_slot ) {
     return;
   }
-  FD_LOG_NOTICE(("checkpointing at slot=%lu", slot));
 
-  if( is_checkpt_freq ) {
+  if( !is_abort_slot ) {
+    FD_LOG_NOTICE(( "checkpointing at slot=%lu", slot ));
     fd_funk_end_write( slot_ctx->acc_mgr->funk );
+  } else {
+    FD_LOG_NOTICE(( "checkpointing after mismatch" ));
   }
 
   unlink( capture_ctx->checkpt_path );
   int err = fd_wksp_checkpt( fd_funk_wksp( slot_ctx->acc_mgr->funk ), capture_ctx->checkpt_path, 0666, 0, NULL );
   if ( err ) {
-    FD_LOG_ERR(("backup failed: error %d", err));
+    FD_LOG_ERR(( "backup failed: error %d", err ));
   }
 
-  if( is_checkpt_freq ) {
+  if( !is_abort_slot ) {
     fd_funk_start_write( slot_ctx->acc_mgr->funk );
   }
 }
