@@ -344,6 +344,11 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
                          char const * genesis_filepath,
                          uchar is_snapshot );
 
+void
+fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
+                    fd_exec_slot_ctx_t * slot_ctx,
+                    ulong slot );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_h */

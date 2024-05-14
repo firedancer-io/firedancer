@@ -264,6 +264,7 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
                         expected->hash,
                         state->slot_ctx->slot_bank.poh.hash ));
       if( state->abort_on_mismatch ) {
+        fd_runtime_checkpt( state->capture_ctx, state->slot_ctx, ULONG_MAX );
         fd_blockstore_end_read( blockstore );
         return 1;
       }
@@ -280,6 +281,7 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
                         expected->hash,
                         state->slot_ctx->slot_bank.banks_hash.hash ));
       if( state->abort_on_mismatch ) {
+        fd_runtime_checkpt( state->capture_ctx, state->slot_ctx, ULONG_MAX );
         fd_blockstore_end_read( blockstore );
         return 1;
       }
