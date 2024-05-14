@@ -378,19 +378,11 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   child->slot_ctx.slot_bank.collected_fees = 0;
   child->slot_ctx.slot_bank.collected_rent = 0;
 
-  if( FD_UNLIKELY( replay->curr_turbine_slot == FD_SLOT_NULL || slot == FD_SLOT_NULL ||
-                   ( replay->curr_turbine_slot - slot ) > 1000000000 ) ) {
-    FD_LOG_WARNING( ( "invalid turbine slot" ) );
-    __asm__( "int $3" );
-  }
-
-  FD_LOG_NOTICE( ( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
-                   "executed: %lu, caught up: %d",
-                   replay->first_turbine_slot,
-                   replay->curr_turbine_slot,
-                   replay->curr_turbine_slot - slot,
-                   slot,
-                   slot > replay->first_turbine_slot ) );
+  FD_LOG_NOTICE( ( "slot: %lu", slot ) );
+  FD_LOG_NOTICE( ( "curr turbine: %lu", replay->curr_turbine_slot ) );
+  FD_LOG_NOTICE( ( "first turbine: %lu", replay->first_turbine_slot ) );
+  FD_LOG_NOTICE(
+      ( "behind: %lu", slot > replay->curr_turbine_slot ? 0 : replay->curr_turbine_slot - slot ) );
 
   fd_hash_t const * bank_hash = &child->slot_ctx.slot_bank.banks_hash;
   fork->head->bank_hash       = *bank_hash;
@@ -615,24 +607,20 @@ fd_replay_repair_rx( fd_replay_t * replay, fd_shred_t const * shred ) {
   if( fd_blockstore_block_query( blockstore, shred->slot ) != NULL ) {
     fd_blockstore_end_write( blockstore );
     return;
-    // return FD_BLOCKSTORE_OK;
   }
   int rc = fd_blockstore_shred_insert( blockstore, shred );
-
-  /* TODO @yunzhang: write to shred_cap */
   fd_shred_cap_archive( replay, shred, FD_SHRED_CAP_FLAG_MARK_REPAIR( 0 ) );
-
   fd_blockstore_end_write( blockstore );
 
   /* FIXME */
   if( FD_UNLIKELY( rc < FD_BLOCKSTORE_OK ) ) {
     FD_LOG_ERR( ( "failed to insert shred. reason: %d", rc ) );
   } else if( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
+    FD_LOG_NOTICE(("completed slot %lu", shred->slot));
     fd_replay_add_pending( replay, shred->slot, 0 );
   } else {
     fd_replay_add_pending( replay, shred->slot, FD_REPAIR_BACKOFF_TIME );
   }
-  // return rc;
 }
 
 fd_fork_t *

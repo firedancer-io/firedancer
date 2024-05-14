@@ -24,6 +24,7 @@ typedef struct fd_fork fd_fork_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct fd_forks {
+  ulong smr; /* super-majority root */
 
   /* internal joins */
 
@@ -52,11 +53,12 @@ FD_FN_CONST static inline ulong
 fd_forks_footprint( ulong max ) {
   return FD_LAYOUT_FINI(
       FD_LAYOUT_APPEND(
-      FD_LAYOUT_APPEND(
-      FD_LAYOUT_APPEND(
-         FD_LAYOUT_INIT, alignof( fd_forks_t ), sizeof( fd_forks_t ) ),
-         fd_fork_pool_align(), fd_fork_pool_footprint( max ) ),
-         fd_fork_frontier_align(), fd_fork_frontier_footprint( max ) ),
+          FD_LAYOUT_APPEND(
+              FD_LAYOUT_APPEND( FD_LAYOUT_INIT, alignof( fd_forks_t ), sizeof( fd_forks_t ) ),
+              fd_fork_pool_align(),
+              fd_fork_pool_footprint( max ) ),
+          fd_fork_frontier_align(),
+          fd_fork_frontier_footprint( max ) ),
       alignof( fd_forks_t ) );
 }
 

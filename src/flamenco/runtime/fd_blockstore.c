@@ -663,7 +663,9 @@ fail_deshred:
 
 int
 fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
+
   /* Check if we already have this shred */
+
   fd_blockstore_shred_t *     shred_pool = fd_blockstore_shred_pool( blockstore );
   fd_blockstore_shred_map_t * shred_map  = fd_blockstore_shred_map( blockstore );
   fd_shred_key_t              shred_key  = { .slot = shred->slot, .idx = shred->idx };

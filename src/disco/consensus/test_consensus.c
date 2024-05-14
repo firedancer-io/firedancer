@@ -424,8 +424,7 @@ main( int argc, char ** argv ) {
   FD_TEST( page_cnt );
   FD_TEST( restore );
   FD_TEST( gossip_peer_addr );
-  FD_TEST( ( incremental_snapshot && !incremental_snapshot_url ) ||
-           ( !incremental_snapshot && incremental_snapshot_url ) );
+  FD_TEST( !incremental_snapshot || !incremental_snapshot_url );
 
   /**********************************************************************/
   /* wksp                                                               */
@@ -535,8 +534,10 @@ main( int argc, char ** argv ) {
   /* forks                                                              */
   /**********************************************************************/
 
-  // ulong  forks_max = fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH );
-  ulong  forks_max = fd_ulong_pow2_up( 10 );
+  ulong forks_max =
+      fd_ulong_if( page_cnt > 64, fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH ), 64 );
+  FD_LOG_NOTICE(("forks_max: %lu", forks_max));
+  FD_LOG_NOTICE( ( "fork footprint: %lu", fd_forks_footprint( forks_max ) ) );
   void * forks_mem = fd_wksp_alloc_laddr(
       wksp, fd_forks_align(), fd_forks_footprint( forks_max ), TEST_CONSENSUS_MAGIC );
   fd_forks_t * forks = fd_forks_join( fd_forks_new( forks_mem, forks_max, TEST_CONSENSUS_MAGIC ) );
@@ -914,7 +915,7 @@ main( int argc, char ** argv ) {
   /* tvu (turbine), repair, gossip threads                              */
   /**********************************************************************/
 
-  fd_repair_peer_addr_t tvu_addr_     = { 0 };
+  fd_repair_peer_addr_t tvu_addr_   = { 0 };
   char                  tvu_addr[7] = { 0 };
   snprintf( tvu_addr, sizeof( tvu_addr ), ":%u", tvu_port );
   FD_TEST( resolve_hostport( tvu_addr, &tvu_addr_ ) );
@@ -980,24 +981,20 @@ main( int argc, char ** argv ) {
 
 run_replay:
 
-  while( FD_LIKELY( 1 /* !fd_tile_shutdown_flag */ ) ) {
-
-    /* Housekeeping */
+  while( 1 ) {
     long now    = fd_log_wallclock();
     replay->now = now;
 
-    /* Try to progress replay */
-    for( ulong i = fd_replay_pending_iter_init( replay );
-         ( i = fd_replay_pending_iter_next( replay, now, i ) ) != ULONG_MAX; ) {
-      fd_fork_t * fork = fd_replay_slot_prepare( replay, i );
+    for( ulong slot = fd_replay_pending_iter_init( replay );
+         ( slot = fd_replay_pending_iter_next( replay, now, slot ) ) != ULONG_MAX; ) {
+      fd_fork_t * fork = fd_replay_slot_prepare( replay, slot );
       if( FD_LIKELY( fork ) ) {
-        fd_replay_slot_execute( replay, i, fork, NULL );
-        if( i > 64U ) replay->smr = fd_ulong_max( replay->smr, i - 64U );
+        fd_replay_slot_execute( replay, slot, fork, NULL );
+        if( slot > 64U ) replay->smr = fd_ulong_max( replay->smr, slot - 64U );
         replay->now = now = fd_log_wallclock();
       }
     }
 
-    /* Allow other threads to add pendings */
     struct timespec ts = { .tv_sec = 0, .tv_nsec = (long)1e6 };
     nanosleep( &ts, NULL );
   }
