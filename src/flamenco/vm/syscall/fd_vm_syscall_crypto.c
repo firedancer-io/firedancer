@@ -213,7 +213,7 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1691-L1698 */
 
   if( FD_UNLIKELY( vals_len > FD_VM_SYSCALL_SOL_POSEIDON_MAX_VALS ) ) {
-    /* TODO Log: "Poseidon hashing {} sequences is not supported" */
+    fd_vm_log_appendf( vm, "Poseidon hashing %lu sequences is not supported", vals_len );
     return FD_VM_ERR_INVAL; /* SyscallError::InvalidLength */
   }
 
@@ -231,7 +231,7 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
 
   /* The following can never happen, left as comment for completeness.
      if( FD_UNLIKELY( cost == ULONG_MAX ) ) {
-       // TODO Log: "Overflow while calculating the compute cost"
+       fd_vm_log_appendf( vm, "Overflow while calculating the compute cost" );
        return FD_VM_ERR_INVAL; // SyscallError::ArithmeticOverflow
      }
   */
