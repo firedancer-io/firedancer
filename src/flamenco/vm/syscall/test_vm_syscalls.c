@@ -435,6 +435,27 @@ main( int     argc,
 
 # undef APPEND
 
+  /* tests for fd_vm_log_append_printf()
+     Note: we're simply testing that we don't overflow the memory region.
+     We're not testing behavior like how should multiple logs be appended,
+     should we add any custom messages when truncating, etc.
+
+     fd_vm_log_append_printf( vm, "test" ); // does NOT compile
+  */
+  FD_TEST( fd_vm_log_reset( vm )==vm );
+  FD_TEST( vm->log_sz == 0UL );
+  FD_TEST( fd_vm_log_append_printf( vm, "test %d", 10 ) == vm );
+  FD_TEST( vm->log_sz == 7UL );  /* "test 10" = 7 char */
+  FD_TEST( fd_vm_log_append_printf( vm, "test %s", "hello" ) == vm );
+  FD_TEST( vm->log_sz == 17UL ); /* "test hello" += 17 char */
+  vm->log_sz = FD_VM_LOG_MAX - 2;
+  FD_TEST( vm->log_sz == FD_VM_LOG_MAX - 2 );
+  FD_TEST( fd_vm_log_append_printf( vm, "test %d", 10 ) == vm );
+  FD_TEST( vm->log_sz == FD_VM_LOG_MAX ); /* no more than FD_VM_LOG_MAX */
+  FD_TEST( fd_vm_log_append_printf( vm, "test %s", "hello" ) == vm );
+  FD_TEST( vm->log_sz == FD_VM_LOG_MAX ); /* no more than FD_VM_LOG_MAX */
+  FD_LOG_NOTICE(( "Passed test program (%s)", "fd_vm_log_append_printf" ));
+
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );
   fd_sha256_delete( fd_sha256_leave( sha ) );
   fd_rng_delete   ( fd_rng_leave   ( rng ) );
