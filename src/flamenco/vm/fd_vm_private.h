@@ -382,6 +382,27 @@ fd_vm_log_append( fd_vm_t *    vm,
   return vm;
 }
 
+/* fd_vm_log_appendf is a convenience wrapper to fd_vm_log_append that
+   allows to format strings like printf.
+   Returns NULL on formatting error, vm on success. */
+
+#include <stdio.h>
+#include <stdarg.h>
+
+static inline fd_vm_t *
+fd_vm_log_appendf( fd_vm_t *    vm,
+                   const char * format,
+                   ... ) {
+  char msg[ FD_VM_LOG_TAIL+1 ];
+  va_list args;
+  va_start (args, format);
+  int msg_sz = vsnprintf( msg, FD_VM_LOG_TAIL, format, args );
+  if( FD_UNLIKELY( msg_sz<0 ) ) {
+    return NULL;
+  }
+  return fd_vm_log_append( vm, msg, (ulong)msg_sz );
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_vm_fd_vm_private_h */
