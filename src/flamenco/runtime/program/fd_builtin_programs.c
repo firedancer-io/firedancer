@@ -78,6 +78,11 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_vote_program_id.key,           "vote_program",           12UL );
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_stake_program_id.key,          "stake_program",          13UL );
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_config_program_id.key,         "config_program",         14UL );
+  fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_deprecated_program_id.key,  "solana_bpf_loader_deprecated_program",  36UL );
+  fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_program_id.key,             "solana_bpf_loader_program",             25UL );
+  fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_upgradeable_program_id.key, "solana_bpf_loader_upgradeable_program", 37UL );
+  fd_write_builtin_bogus_account( slot_ctx, fd_solana_compute_budget_program_id.key, "compute_budget_program", 22UL );
+  fd_write_builtin_bogus_account( slot_ctx, fd_solana_address_lookup_table_program_id.key,   "address_lookup_table_program",          28UL );
 
   if( FD_FEATURE_ACTIVE( slot_ctx, zk_token_sdk_enabled ) ) {
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_zk_token_proof_program_id.key, "zk_token_proof_program", 22UL );
@@ -87,13 +92,8 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_v4_program_id.key,   "loader_v4",             9UL );
   }
 
-  fd_write_builtin_bogus_account( slot_ctx, fd_solana_address_lookup_table_program_id.key,   "address_lookup_table_program",          28UL );
-  fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_deprecated_program_id.key,  "solana_bpf_loader_deprecated_program",  36UL );
 
-  fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_program_id.key,             "solana_bpf_loader_program",             25UL );
-  fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_upgradeable_program_id.key, "solana_bpf_loader_upgradeable_program", 37UL );
 
-  fd_write_builtin_bogus_account( slot_ctx, fd_solana_compute_budget_program_id.key, "compute_budget_program", 22UL );
 
   /* Precompiles have empty account data */
   char data[1] = {1};
