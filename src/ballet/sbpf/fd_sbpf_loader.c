@@ -937,15 +937,17 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const * loader,
     /* Register new entry */
     uint hash;
     if( name_len >= 10UL && 0==strncmp( name, "entrypoint", name_len ) ) {
-      /* TODO register entrypoint */
+      /* Skip insertion of "entrypoint" relocation entries to calldests. This
+         emulates Solana/Agave's behavior of unregistering these entries before
+         registering the entrypoint manually.
+         Entrypoint is registered in fd_sbpf_program_load.
+         Hash is still applied. */
       hash = 0x71e3cf81;
     } else {
       hash = fd_murmur3_32( &target_pc, 8UL, 0U );
+      if( FD_LIKELY( target_pc < (info->rodata_sz / 8UL ) ) )
+        fd_sbpf_calldests_insert( loader->calldests, target_pc );
     }
-
-    if( FD_LIKELY( target_pc < (info->rodata_sz / 8UL ) ) )
-      fd_sbpf_calldests_insert( loader->calldests, target_pc );
-
     V = (uint)hash;
   } else {
     /* FIXME Should cache Murmur hashes.
@@ -1028,7 +1030,6 @@ fd_sbpf_hash_calls( fd_sbpf_loader_t *    loader,
     ulong target_pc = (ulong)target_pc_s;
     REQUIRE( target_pc<insn_cnt );  /* bounds check target */
 
-    /* Derive hash and insert */
     fd_sbpf_calldests_insert( calldests, target_pc );
 
     /* Replace immediate with hash */
@@ -1191,6 +1192,9 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
   /* Load dynamic section */
   if( FD_UNLIKELY( (err=fd_sbpf_load_dynamic( &loader, elf, elf_sz ))!=0 ) )
     return err;
+  
+  /* Register entrypoint to calldests. */
+  fd_sbpf_calldests_insert( prog->calldests, prog->entry_pc );
 
   /* Copy rodata segment */
   fd_memcpy( prog->rodata, elf->bin, prog->info.rodata_footprint );
