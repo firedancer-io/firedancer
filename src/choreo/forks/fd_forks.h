@@ -24,6 +24,7 @@ typedef struct fd_fork fd_fork_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct fd_forks {
+  ulong root;
   ulong smr; /* super-majority root */
 
   /* internal joins */
