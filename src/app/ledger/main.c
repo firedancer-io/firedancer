@@ -71,8 +71,8 @@ static void usage( char const * progname ) {
   fprintf( stderr, " --capture-solcap <capture file>            capture solcap\n" ); /* Capture context tool for solcaps*/
   fprintf( stderr, " --capture-txns <int>                       capture transactions\n" );
   fprintf( stderr, " --checkpt-path <checkpoint path>           path to checkpoint\n" ); /* Capture context tool for runtime checkpoints */
-  fprintf( stderr, " --checkpt-slot <ulong>                     checkpoint slot\n" );
   fprintf( stderr, " --checkpt-freq <ulong>                     checkpoint frequency\n" );
+  fprintf( stderr, " --checkpt-mismatch <int>                   checkpoint on mismatch at last rooted slot\n" );
   fprintf( stderr, " --allocator <allocator>                    allocator to use\n" );
   fprintf( stderr, " --dump-insn-to-pb <int>                    dump instructions to pb\n" ); /* Capture ctx tool for insn dumping*/
   fprintf( stderr, " --dump-insn-sig-filter <insn sig filter>   dump instructions signature filter\n" );
@@ -113,8 +113,8 @@ struct fd_ledger_args {
   char const *      capture_fpath; /* solcap */
   int               capture_txns;
   char const *      checkpt_path; /* runtime checkpoints */
-  ulong             checkpt_slot;
   ulong             checkpt_freq;
+  int               checkpt_mismatch;
   ulong             on_demand_block_history;
   int               dump_insn_to_pb;
   char const *      dump_insn_sig_filter;
@@ -266,6 +266,9 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
                         expected->hash,
                         state->slot_ctx->slot_bank.poh.hash ));
       if( state->abort_on_mismatch ) {
+        if( args->checkpt_mismatch ) {
+          fd_runtime_checkpt( state->capture_ctx, state->slot_ctx, ULONG_MAX );
+        }
         fd_blockstore_end_read( blockstore );
         return 1;
       }
@@ -282,6 +285,9 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
                         expected->hash,
                         state->slot_ctx->slot_bank.banks_hash.hash ));
       if( state->abort_on_mismatch ) {
+        if( args->checkpt_mismatch ) {
+          fd_runtime_checkpt( state->capture_ctx, state->slot_ctx, ULONG_MAX );
+        }
         fd_blockstore_end_read( blockstore );
         return 1;
       }
@@ -833,7 +839,7 @@ replay( fd_ledger_args_t * args ) {
   runtime_args.capture_fpath           = args->capture_fpath;
   runtime_args.capture_txns            = args->capture_txns;
   runtime_args.checkpt_path            = args->checkpt_path;
-  runtime_args.checkpt_slot            = args->checkpt_slot;
+  runtime_args.checkpt_mismatch        = args->checkpt_mismatch;
   runtime_args.checkpt_freq            = args->checkpt_freq;
   runtime_args.copy_txn_status         = args->copy_txn_status;
   runtime_args.on_demand_block_ingest  = args->on_demand_block_ingest;
@@ -865,7 +871,7 @@ prune( fd_ledger_args_t * args ) {
     /* Replay all slots before prune slot and checkpoint at prune_start_slot */
     args->start_slot = 0;
     args->end_slot = prune_start_slot + FD_RUNTIME_NUM_ROOT_BLOCKS;
-    args->checkpt_slot = prune_start_slot;
+    args->checkpt_freq = prune_start_slot;
     args->checkpt_path = args->checkpt_funk == NULL ? args->checkpt : args->checkpt_funk;
 
     int err = replay( args );
@@ -1222,8 +1228,8 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   char const * capture_fpath           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture-solcap",          NULL, NULL      );
   int          capture_txns            = fd_env_strip_cmdline_int  ( &argc, &argv, "--capture-txns",            NULL, 1         );
   char const * checkpt_path            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-path",            NULL, NULL      );
-  ulong        checkpt_slot            = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-slot",            NULL, 0         );
   ulong        checkpt_freq            = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-freq",            NULL, ULONG_MAX );
+  int          checkpt_mismatch        = fd_env_strip_cmdline_int  ( &argc, &argv, "--checkpt-mismatch",        NULL, 0         );
   char const * allocator               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--allocator",               NULL, "wksp"    );
   int          abort_on_mismatch       = fd_env_strip_cmdline_int  ( &argc, &argv, "--abort-on-mismatch",       NULL, 1         );
   int          on_demand_block_ingest  = fd_env_strip_cmdline_int  ( &argc, &argv, "--on-demand-block-ingest",  NULL, 0         );
@@ -1325,8 +1331,8 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->capture_fpath           = capture_fpath;
   args->capture_txns            = capture_txns;
   args->checkpt_path            = checkpt_path;
-  args->checkpt_slot            = checkpt_slot;
   args->checkpt_freq            = checkpt_freq;
+  args->checkpt_mismatch        = checkpt_mismatch;
   args->allocator               = allocator;
   args->abort_on_mismatch       = abort_on_mismatch;
   args->on_demand_block_ingest  = on_demand_block_ingest;
