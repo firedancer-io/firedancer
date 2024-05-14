@@ -1014,6 +1014,14 @@ fd_wksp_restore( fd_wksp_t *  wksp,
                  char const * path,
                  uint         seed );
 
+/* fd_wksp_restore_preview extracts key parameters from a checkpoint
+   file. These can be used with fd_funk_new for a correct restore. */
+int
+fd_wksp_restore_preview( char const * path,
+                         uint *       out_seed,
+                         ulong *      out_part_max,
+                         ulong *      out_data_max );
+
 /* fd_wksp_mprotect marks all the memory in a workspace as read-only
    (flag==1) or read-write (flag==0). Accessing read-only memory produces
    a seg fault. */

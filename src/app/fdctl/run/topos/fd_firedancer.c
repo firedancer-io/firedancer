@@ -300,5 +300,26 @@ fd_topo_firedancer( config_t * _config ) {
   }
 
   fd_topob_finish( topo, fdctl_obj_align, fdctl_obj_footprint, fdctl_obj_loose );
+
+  const char * snapshot = config->tiles.replay.snapshot;
+  if ( strncmp(snapshot, "wksp:", 5) == 0 ) {
+    /* Make the funk workspace match the parameters used to create the
+       checkpoint. This is a bit nonintuitive because of the way
+       fd_topo_create_workspace works. */
+    uint seed;
+    ulong part_max;
+    ulong data_max;
+    int err = fd_wksp_restore_preview( snapshot+5, &seed, &part_max, &data_max );
+    if( err ) FD_LOG_ERR(( "unable to restore %s: error %d", snapshot, err ));
+    fd_topo_wksp_t * wksp = &topo->workspaces[ topo->objs[ funk_obj->id ].wksp_id ];
+    wksp->part_max = part_max;
+    wksp->known_footprint = 0;
+    wksp->total_footprint = data_max;
+    ulong page_sz = FD_SHMEM_GIGANTIC_PAGE_SZ;
+    wksp->page_sz = page_sz;
+    ulong footprint = fd_wksp_footprint( part_max, data_max );
+    wksp->page_cnt = footprint / page_sz;
+  }
+
   config->topo = *topo;
 }

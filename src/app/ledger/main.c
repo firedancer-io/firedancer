@@ -224,7 +224,7 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
 
     if( args->on_demand_block_ingest ) {
       if( fd_blockstore_block_query( blockstore, slot ) == NULL && slot_meta.slot == slot ) {
-        int err = fd_rocksdb_import_block_blockstore( &rocks_db, &slot_meta, blockstore, 
+        int err = fd_rocksdb_import_block_blockstore( &rocks_db, &slot_meta, blockstore,
                                                       args->copy_txn_status, slot == (args->trash_hash) ? trash_hash_buf : NULL );
         if( FD_UNLIKELY( err ) ) {
           FD_LOG_ERR(( "Failed to import block %lu", start_slot ));
@@ -314,7 +314,7 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
   if( tpool_scr_mem ) {
     fd_valloc_free( state->slot_ctx->valloc, tpool_scr_mem );
   }
-  
+
   if( args->on_demand_block_ingest ) {
     fd_rocksdb_root_iter_destroy( &iter );
     fd_rocksdb_destroy( &rocks_db );

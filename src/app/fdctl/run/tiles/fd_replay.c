@@ -354,11 +354,21 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
 
   const char * snapshot = snapshotfile;
 
-  fd_snapshot_load(snapshot, ctx->slot_ctx, false, false, FD_SNAPSHOT_TYPE_FULL );
-  if ( strlen(incremental) > 0 ) {
-    ctx->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( ctx->epoch_ctx_mem, 2000000UL ) );
+  if ( strncmp(snapshot, "wksp:", 5) == 0 ) {
+    /* Already loaded the main snapshot when we initialized funk */
+    if ( strlen(incremental) > 0 ) {
+      ctx->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( ctx->epoch_ctx_mem, 2000000UL ) );
+      fd_snapshot_load(incremental, ctx->slot_ctx, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL );
+    } else {
+      fd_runtime_recover_banks( ctx->slot_ctx, 0 );
+    }
 
-    fd_snapshot_load(incremental, ctx->slot_ctx, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL );
+  } else {
+    fd_snapshot_load(snapshot, ctx->slot_ctx, false, false, FD_SNAPSHOT_TYPE_FULL );
+    if ( strlen(incremental) > 0 ) {
+      ctx->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( ctx->epoch_ctx_mem, 2000000UL ) );
+      fd_snapshot_load(incremental, ctx->slot_ctx, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL );
+    }
   }
 
   fd_blockstore_snapshot_insert( ctx->slot_ctx->blockstore, &ctx->slot_ctx->slot_bank );
@@ -529,15 +539,35 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "no funk workspace" ));
   }
 
-  fd_funk_t * funk;
-  void * shmem;
-  shmem = fd_wksp_alloc_laddr( ctx->funk_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
-  if (shmem == NULL)
-    FD_LOG_ERR(( "failed to allocate a funky" ));
-  funk = fd_funk_join( fd_funk_new( shmem, FD_FUNK_MAGIC, ctx->funk_seed, tile->replay.txn_max, tile->replay.index_max ) );
-  if (funk == NULL) {
-    fd_wksp_free_laddr(shmem);
-    FD_LOG_ERR(( "failed to allocate a funky" ));
+  fd_funk_t * funk = NULL;
+  void * shmem = NULL;
+  ctx->snapshot = tile->replay.snapshot;
+  if ( strncmp(ctx->snapshot, "wksp:", 5) == 0 ) {
+    int err = fd_wksp_restore( ctx->funk_wksp, ctx->snapshot+5U, (uint)ctx->funk_seed );
+    if (err) {
+      FD_LOG_ERR(( "failed to restore %s: error %d", ctx->snapshot, err ));
+    }
+    fd_wksp_tag_query_info_t info;
+    ulong tag = FD_FUNK_MAGIC;
+    if( fd_wksp_tag_query( ctx->funk_wksp, &tag, 1, &info, 1 ) > 0 ) {
+      shmem = fd_wksp_laddr_fast( ctx->funk_wksp, info.gaddr_lo );
+      funk = fd_funk_join( shmem );
+      if( funk == NULL ) {
+        FD_LOG_ERR(( "failed to join a funky in %s", ctx->snapshot ));
+      }
+    } else {
+      FD_LOG_ERR(( "failed to find a funky in %s", ctx->snapshot ));
+    }
+
+  } else {
+    shmem = fd_wksp_alloc_laddr( ctx->funk_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
+    if (shmem == NULL)
+      FD_LOG_ERR(( "failed to allocate a funky" ));
+    funk = fd_funk_join( fd_funk_new( shmem, FD_FUNK_MAGIC, ctx->funk_seed, tile->replay.txn_max, tile->replay.index_max ) );
+    if (funk == NULL) {
+      fd_wksp_free_laddr(shmem);
+      FD_LOG_ERR(( "failed to allocate a funky" ));
+    }
   }
 
   ctx->last_stake_weights_push_time = 0;
