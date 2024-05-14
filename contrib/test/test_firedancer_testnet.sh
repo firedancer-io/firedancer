@@ -43,7 +43,7 @@ if ! command -v fddev > /dev/null; then
 fi
 
 if [ -z "${ENTRYPOINT-}" ]; then
-  ENTRYPOINT=entrypoint3.testnet.solana.com
+  ENTRYPOINT=147.75.84.157
 fi
 
 snapshot=$(download_snapshot http://$ENTRYPOINT:8899/snapshot.tar.bz2)
@@ -54,8 +54,8 @@ echo "
     port = 8720
 [tiles]
     [tiles.gossip]
-        entrypoints = [\"$(dig +short $ENTRYPOINT)\"]
-        peer_ports = [8001]
+        entrypoints = [\"$ENTRYPOINT\"]
+        peer_ports = [8000]
         gossip_listen_port = 8720
     [tiles.repair]
         repair_intake_listen_port = 8721
