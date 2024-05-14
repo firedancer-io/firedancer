@@ -206,8 +206,13 @@ struct fd_push_state {
     uchar packet[FD_ETH_PAYLOAD_MAX]; /* Partially assembled packet containing a fd_gossip_push_msg_t */
     uchar * packet_end_init;       /* Initial end of the packet when there are zero values */
     uchar * packet_end;            /* Current end of the packet including values so far */
+    ulong next;
 };
 typedef struct fd_push_state fd_push_state_t;
+
+#define POOL_NAME fd_push_states_pool
+#define POOL_T    fd_push_state_t
+#include "../../util/tmpl/fd_pool.c"
 
 /* Receive statistics table element. */
 struct fd_stats_elem {
@@ -275,6 +280,7 @@ struct fd_gossip {
     /* Array of push destinations currently in use */
     fd_push_state_t * push_states[FD_PUSH_LIST_MAX];
     ulong push_states_cnt;
+    fd_push_state_t * push_states_pool;
     /* Queue of values that need pushing */
     fd_hash_t * need_push;
     ulong need_push_head;
@@ -323,6 +329,7 @@ fd_gossip_footprint( void ) {
   l = FD_LAYOUT_APPEND( l, fd_pending_heap_align(), fd_pending_heap_footprint(FD_PENDING_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_stats_table_align(), fd_stats_table_footprint(FD_STATS_KEY_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_weights_table_align(), fd_weights_table_footprint(MAX_STAKE_WEIGHTS) );
+  l = FD_LAYOUT_APPEND( l, fd_push_states_pool_align(), fd_push_states_pool_footprint(FD_PUSH_LIST_MAX) );
   l = FD_LAYOUT_FINI(l, fd_gossip_align());
   return l;
 }
@@ -358,8 +365,11 @@ fd_gossip_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   shm = FD_SCRATCH_ALLOC_APPEND(l, fd_stats_table_align(), fd_stats_table_footprint(FD_STATS_KEY_MAX));
   glob->stats = fd_stats_table_join(fd_stats_table_new(shm, FD_STATS_KEY_MAX, seed));
 
-  shm = FD_SCRATCH_ALLOC_APPEND( l, fd_weights_table_align(), fd_weights_table_footprint(MAX_STAKE_WEIGHTS) );
+  shm = FD_SCRATCH_ALLOC_APPEND(l, fd_weights_table_align(), fd_weights_table_footprint(MAX_STAKE_WEIGHTS));
   glob->weights = fd_weights_table_join( fd_weights_table_new( shm, MAX_STAKE_WEIGHTS, seed ) );
+
+  shm = FD_SCRATCH_ALLOC_APPEND(l, fd_push_states_pool_align(), fd_push_states_pool_footprint(FD_PUSH_LIST_MAX));
+  glob->push_states_pool = fd_push_states_pool_join( fd_push_states_pool_new( shm, FD_PUSH_LIST_MAX ) );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI(l, 1UL);
   if ( scratch_top > (ulong)shmem + fd_gossip_footprint() ) {
@@ -385,8 +395,7 @@ fd_gossip_delete ( void * shmap ) {
   fd_pending_heap_delete( fd_pending_heap_leave( glob->event_heap ) );
   fd_stats_table_delete( fd_stats_table_leave( glob->stats ) );
   fd_weights_table_delete( fd_weights_table_leave( glob->weights ) );
-  for (ulong i = 0; i < glob->push_states_cnt; ++i)
-    fd_valloc_free( glob->valloc, glob->push_states[i] );
+  fd_push_states_pool_delete( fd_push_states_pool_leave( glob->push_states_pool ) );
 
   for( fd_value_table_iter_t iter = fd_value_table_iter_init( glob->values );
        !fd_value_table_iter_done( glob->values, iter );
@@ -1506,7 +1515,7 @@ fd_gossip_refresh_push_states( fd_gossip_t * glob, fd_pending_event_arg_t * arg 
   for (ulong i = 0; i < glob->push_states_cnt; ++i) {
     fd_push_state_t* s = glob->push_states[i];
     if (fd_active_table_query(glob->actives, &s->addr, NULL) == NULL) {
-      fd_valloc_free(glob->valloc, s);
+      fd_push_states_pool_ele_release(glob->push_states_pool, glob->push_states[i]);
       /* Replace with the one at the end */
       glob->push_states[i--] = glob->push_states[--(glob->push_states_cnt)];
     }
@@ -1522,7 +1531,7 @@ fd_gossip_refresh_push_states( fd_gossip_t * glob, fd_pending_event_arg_t * arg 
         worst_i = i;
       }
     }
-    fd_valloc_free(glob->valloc, worst_s);
+    fd_push_states_pool_ele_release(glob->push_states_pool, worst_s);
     /* Replace with the one at the end */
     glob->push_states[worst_i] = glob->push_states[--(glob->push_states_cnt)];
   }
@@ -1541,7 +1550,7 @@ fd_gossip_refresh_push_states( fd_gossip_t * glob, fd_pending_event_arg_t * arg 
     failcnt = 0;
 
     /* Build the pusher state */
-    fd_push_state_t * s = (fd_push_state_t *)fd_valloc_malloc(glob->valloc, alignof(fd_push_state_t), sizeof(fd_push_state_t));
+    fd_push_state_t * s = fd_push_states_pool_ele_acquire(glob->push_states_pool);
     fd_memset(s, 0, sizeof(fd_push_state_t));
     fd_gossip_peer_addr_copy(&s->addr, &a->key);
     fd_hash_copy(&s->id, &a->id);
