@@ -35,7 +35,9 @@ INC_SNAPSHOT=""
 END_SLOT="--end-slot 1010"
 FUNK_PAGES="--funk-page-cnt 20"
 PAGES="--page-cnt 20"
+PRUNED_PAGES="--page-cnt-pruned 20"
 IMAX="--index-max 1000000"
+PRUNED_IMAX="--index-max-pruned 1000000"
 START="--start-slot 241819853"
 HISTORY="--slot-history 5000"
 TRASHHASH=""
@@ -44,9 +46,12 @@ LOG="/tmp/ledger_log$$"
 TXN_STATUS="--copy-txn-status 0"
 SKIP_INGEST=0
 CHECKPT="test_ledger_backup"
+CHECKPT_PATH=""
+CHECKPT_FREQ=""
 SOLCAP=""
 ON_DEMAND=1
 WITH_COVERAGE=0
+PRUNE_FAILURE=0
 
 POSITION_ARGS=()
 OBJDIR=${OBJDIR:-build/native/gcc}
@@ -68,6 +73,11 @@ while [[ $# -gt 0 ]]; do
        shift
        shift
        ;;
+    -P|--page-cnt-pruned)
+       PRUNED_PAGES="--page-cnt-pruned $2"
+       shift
+       shift
+       ;;
     -y|--funk-pages)
        FUNK_PAGES="--funk-page-cnt $2"
        shift
@@ -85,6 +95,11 @@ while [[ $# -gt 0 ]]; do
        ;;
     -m|--indexmax)
        IMAX="--index-max $2"
+       shift
+       shift
+       ;;
+    -M|--indexmax-pruned)
+       PRUNED_IMAX="--index-max-pruned $2"
        shift
        shift
        ;;
@@ -136,12 +151,25 @@ while [[ $# -gt 0 ]]; do
         ZST=1
         shift
         ;;
+    -pf|--prune-failure)
+       PRUNE_FAILURE="$2"
+       shift
+       shift
+       ;;
     -S|--skipingest)
         SKIP_INGEST=1
         shift
         ;;
     -C|--checkpoint)
         CHECKPT="$2"
+        shift
+        ;;
+    -cp|--checkpt-path)
+        CHECKPT_PATH="--checkpt-path $2"
+        shift
+        ;;
+    -cf|--checkpt-freq)
+        CHECKPT_FREQ="--checkpt-freq $2"
         shift
         ;;
     -c|--capture)
@@ -226,6 +254,9 @@ if [[ $ON_DEMAND = 1 ]]; then
     $TRASHHASH \
     $IMAX \
     $END_SLOT \
+    $CHECKPT_PATH \
+    $CHECKPT_FREQ \
+    --funk-only 1 \
     --txn-max 100 \
     $PAGES \
     $FUNK_PAGES \
@@ -287,6 +318,9 @@ ARGS=" --restore dump/$CHECKPT \
   $SOLCAP \
   $END_SLOT \
   $IMAX \
+  $CHECKPT_PATH \
+  $CHECKPT_FREQ \
+  --funk-only 1 \
   --log-level-logfile 2 \
   --log-level-stderr 2 \
   --allocator wksp \
@@ -318,6 +352,51 @@ then
   tail -40 $LOG
   echo_error 'ledger test failed:'
   echo $LOG
+
+  # create prune here
+  mismatch_slot=$(grep "Bank hash mismatch!" "$LOG" | tail -n 1 | awk -F'slot=' '{print $2}' | awk '{print $1}')
+  prune_start_slot=$((mismatch_slot - 100))
+  prune_end_slot=$((mismatch_slot + 100))
+
+  if [[ $PRUNE_FAILURE = 1 ]]; then
+    RESTORE_PATH=${CHECKPT_PATH#* }
+    PRUNE_PATH=${CHECKPT_PATH#* }_pruned
+
+    echo_notice "Starting prune on failed slots"
+    set -x
+    "$OBJDIR"/bin/fd_ledger \
+      --reset 1 \
+      --cmd prune \
+      --rocksdb dump/$LEDGER/rocksdb \
+      $TRASHHASH \
+      $IMAX \
+      --start-slot $prune_start_slot \
+      --end-slot $prune_end_slot \
+      --restore-funk $RESTORE_PATH \
+      --checkpt-funk $PRUNE_PATH \
+      --funk-only 1 \
+      --txn-max 100 \
+      $PAGES \
+      $FUNK_PAGES \
+      $PRUNED_PAGES \
+      $PRUNED_IMAX \
+      $SOLCAP \
+      $INC_SNAPSHOT \
+      $HISTORY \
+      $TXN_STATUS \
+      --allocator wksp \
+      --on-demand-block-ingest 1 \
+      --tile-cpus 5-21 >& $LOG
+
+      prune_status=$?
+
+      if [ $prune_status -eq 0 ]; then
+        gsutil cp ${PRUNE_PATH} gs://firedancer-ci-resources${PRUNE_PATH}
+      else
+        echo_error 'ledger prune failed:' $prune_status
+      fi
+    fi
+
   exit $status
 fi
 

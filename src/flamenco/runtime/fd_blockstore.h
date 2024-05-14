@@ -112,6 +112,8 @@ typedef struct fd_blockstore_shred fd_blockstore_shred_t;
 /* A shred that has been deshredded and is part of a block (beginning at off) */
 struct fd_block_shred {
   fd_shred_t hdr; /* ptr to the data shred header */
+  uchar      merkle[FD_SHRED_MERKLE_ROOT_SZ + FD_SHRED_MERKLE_NODE_SZ*9U /* FD_FEC_SET_MAX_BMTREE_DEPTH */];
+  ulong      merkle_sz;
   ulong      off; /* offset to the payload relative to the start of the block's data region */
 };
 typedef struct fd_block_shred fd_block_shred_t;
@@ -424,17 +426,21 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
 
 /* Query blockstore for shred at slot, shred_idx. Returns a pointer to the shred or NULL if not in
  * blockstore. The returned pointer lifetime is until the shred is removed. Check return value for
- * error info.
- *
- * If the block corresponding to that shred is incomplete, the returned pointer's lifetime is only
- * as long as the slot remains incomplete. Otherwise, the returned pointer's lifetime is as long as
- * the slot remains in the blockstore.
+ * error info. This API only works for shreds from incomplete blocks.
  *
  * Callers should hold the read lock during the entirety of its read to ensure the pointer remains
  * valid.
  */
 fd_shred_t *
 fd_blockstore_shred_query( fd_blockstore_t * blockstore, ulong slot, uint shred_idx );
+
+/* Query blockstore for shred at slot, shred_idx. Copies the shred
+ * data to the given buffer and returns the data size. Returns -1 on failure.
+ *
+ * Callers should hold the read lock during the entirety of this call.
+ */
+long
+fd_blockstore_shred_query_copy_data( fd_blockstore_t * blockstore, ulong slot, uint shred_idx, void * buf, ulong buf_max );
 
 /* Query blockstore for block at slot. Returns a pointer to the block or NULL if not in
  * blockstore. The returned pointer lifetime is until the block is removed. Check return value for

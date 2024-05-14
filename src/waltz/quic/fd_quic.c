@@ -1162,20 +1162,11 @@ int fd_quic_gen_initial_secret_and_keys(
 ulong
 fd_quic_send_retry( fd_quic_t *                  quic,
                     fd_quic_pkt_t *              pkt,
-                    fd_quic_transport_params_t * tp,
                     fd_quic_conn_id_t const *    orig_dst_conn_id,
                     fd_quic_conn_id_t const *    new_conn_id,
                     uchar const                  dst_mac_addr_u6[ 6 ],
                     uint                         dst_ip_addr,
                     ushort                       dst_udp_port ) {
-  /* Set the retry_source_connection_id tp. The server response to the post-retry initial
-      will be another SCID. */
-  tp->retry_source_connection_id_present = 1;
-  tp->retry_source_connection_id_len = new_conn_id->sz;
-  fd_memcpy(tp->retry_source_connection_id,
-          new_conn_id->conn_id,
-          new_conn_id->sz);
-
   fd_quic_retry_t retry_pkt = {
     .hdr_form = 1,
     .fixed_bit = 1,
@@ -1357,7 +1348,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
          closed.  (Mitigates UDP amplification) */
 
       if( pkt->datagram_sz < FD_QUIC_INITIAL_PAYLOAD_SZ_MIN ) {
-        /* FIXME Arguably no need to inform client of misbehavior */
+        /* can't trust the included values, so can't reply */
         return FD_QUIC_PARSE_FAIL;
       }
 
@@ -1402,7 +1393,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       uint version = pkt->long_hdr->version;
       if( FD_UNLIKELY( version != 1u ) ) {
         /* FIXME this should already have been checked */
-        FD_LOG_WARNING(( "Unsupported version reached fd_quic_handle_v1_initial" ));
         return FD_QUIC_PARSE_FAIL;
       }
 
@@ -1417,11 +1407,14 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
       fd_quic_transport_params_t * tp = &state->transport_params;
 
+      /* assume no retry */
+      tp->retry_source_connection_id_present = 0;
+
       /* Send orig conn ID back to client (server only) */
 
       tp->original_destination_connection_id_present = 1;
       tp->original_destination_connection_id_len     = orig_dst_conn_id.sz;
-      fd_memcpy( state->transport_params.original_destination_connection_id,
+      fd_memcpy( tp->original_destination_connection_id,
           orig_dst_conn_id.conn_id,
           FD_QUIC_MAX_CONN_ID_SZ );
 
@@ -1443,19 +1436,33 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           new_conn_id.conn_id,
           FD_QUIC_MAX_CONN_ID_SZ );
 
+      fd_quic_conn_id_t retry_src_conn_id[1] = {0};
+
       /* Handle retry if configured. */
-      if (quic->config.retry)
-      {
+      if( quic->config.retry ) {
         fd_quic_metrics_t * metrics = &quic->metrics;
 
         /* This is the initial packet before retry. */
-        if (initial->token_len == 0)
-        {
+        if( initial->token_len == 0 ) {
+          /* FIXME we pass the "tp" here to allow the function to add the retry_source_connection_ip
+           * transport parameter to be added.
+           * This is incorrect, since:
+           *   1. "tp" is transient, and will likely be modified before it is encoded into a packet
+           *   2. RETRY is supposed to be stateless
+           *
+           * The fix is thus:
+           *   1. put the new source connection id (or some seed from which it's generated)
+           *          into the token in the RETRY packet
+           *   2. upon receiving the token back in a new INITIAL packet, unpack the connection id
+           *          from the token and store in the newly created connection id
+           *   3. when the "tp" is about to be encoded, add the "retry_source_connection_ip"
+           *          from the appropriate member of "conn" */
           if( FD_UNLIKELY( fd_quic_send_retry(
-                quic, pkt, tp,
+                quic, pkt,
                 &orig_dst_conn_id, &new_conn_id,
-                dst_mac_addr_u6, dst_ip_addr, dst_udp_port ) ) )
+                dst_mac_addr_u6, dst_ip_addr, dst_udp_port ) ) ) {
             return FD_QUIC_FAILED;
+          }
           return (initial->pkt_num_pnoff + initial->len);
         }
 
@@ -1467,23 +1474,67 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           return FD_QUIC_PARSE_FAIL;
         }
 
+        /* The destination_connection_id was chosen by us, and must be length FD_QUIC_CONN_ID_SZ */
+        if( FD_UNLIKELY( initial->dst_conn_id_len != FD_QUIC_CONN_ID_SZ ) ) {
+          return FD_QUIC_PARSE_FAIL;
+        }
+
         /* Validate the relevant fields of this post-retry INITIAL packet,
            i.e. retry src conn id, ip, port */
-        fd_quic_conn_id_t retry_src_conn_id;
-        retry_src_conn_id.sz = initial->dst_conn_id_len;
-        fd_memcpy( &retry_src_conn_id.conn_id, initial->dst_conn_id, FD_QUIC_MAX_CONN_ID_SZ );
+        retry_src_conn_id->sz = initial->dst_conn_id_len;
+        fd_memcpy( &retry_src_conn_id->conn_id, initial->dst_conn_id, FD_QUIC_CONN_ID_SZ );
 
-        fd_quic_conn_id_t retry_odcid;
-        ulong issued;
-        if (FD_UNLIKELY(fd_quic_retry_token_decrypt((uchar *) initial->token, &retry_src_conn_id, dst_ip_addr, dst_udp_port, &retry_odcid, &issued))) {
+        fd_quic_conn_id_t orig_dst_conn_id;
+        ulong issued = 0UL;
+        if( FD_UNLIKELY( fd_quic_retry_token_decrypt( (uchar*)initial->token,
+                                                      retry_src_conn_id,
+                                                      dst_ip_addr,
+                                                      dst_udp_port,
+                                                      &orig_dst_conn_id,
+                                                      &issued ) ) ) {
+          FD_LOG_WARNING(( "fd_quic_handle_v1_initial - fd_quic_retry_token_decrypt - failed" ));
           metrics->conn_err_retry_fail_cnt++;
           /* No need to set conn error, no conn object exists */
           return FD_QUIC_PARSE_FAIL;
         };
-        tp->original_destination_connection_id_len     = retry_odcid.sz;
-        fd_memcpy( state->transport_params.original_destination_connection_id,
-          retry_odcid.conn_id,
-          FD_QUIC_MAX_CONN_ID_SZ );
+
+        /* From rfc 9000:
+
+	      Figure 8 shows a similar handshake that includes a Retry packet.
+
+	      Client                                                  Server
+	      Initial: DCID=S1, SCID=C1 ->
+						  <- Retry: DCID=C1, SCID=S2
+	      Initial: DCID=S2, SCID=C1 ->
+						<- Initial: DCID=C1, SCID=S3
+					   ...
+	      1-RTT: DCID=S3 ->
+							   <- 1-RTT: DCID=C1
+
+	      Figure 8: Use of Connection IDs in a Handshake with Retry
+	      In both cases (Figures 7 and 8), the client sets the value of the initial_source_connection_id
+		  transport parameter to C1.
+
+	      When the handshake does not include a Retry (Figure 7), the server sets
+		  original_destination_connection_id to S1 (note that this value is chosen by the client) and
+		  initial_source_connection_id to S3. In this case, the server does not include a
+                  retry_source_connection_id transport parameter.
+
+              When the handshake includes a Retry (Figure 8), the server sets
+                  original_destination_connection_id to S1, retry_source_connection_id
+                  to S2, and initial_source_connection_id to S3.  */
+        tp->original_destination_connection_id_present = 1;
+        tp->original_destination_connection_id_len     = orig_dst_conn_id.sz;
+        memcpy( tp->original_destination_connection_id,
+                orig_dst_conn_id.conn_id,
+                orig_dst_conn_id.sz );
+
+        tp->retry_source_connection_id_present = 1;
+        tp->retry_source_connection_id_len     = retry_src_conn_id->sz;
+        memcpy( tp->retry_source_connection_id,
+                retry_src_conn_id->conn_id,
+                retry_src_conn_id->sz );
+
         ulong now = state->now;
         if ( FD_UNLIKELY( now < issued || ( now - issued ) > FD_QUIC_RETRY_TOKEN_LIFETIME ) ) {
           metrics->conn_err_retry_fail_cnt++;
@@ -1529,6 +1580,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
       memcpy( &conn->orig_dst_conn_id, &orig_dst_conn_id, sizeof( orig_dst_conn_id ) );
 
+      /* keep retry_src_conn_id */
+      memcpy( &conn->retry_src_conn_id, retry_src_conn_id, sizeof( retry_src_conn_id ) );
 
       /* set the value for the caller */
       *p_conn = conn;
@@ -1885,6 +1938,11 @@ fd_quic_handle_v1_retry(
     return FD_QUIC_PARSE_FAIL;
   }
 
+  if( FD_UNLIKELY( retry_pkt.src_conn_id_len == 0 ) ) {
+    /* something is horribly broken or some attack - ignore packet */
+    return FD_QUIC_FAILED;
+  }
+
   fd_quic_conn_id_t * orig_dst_conn_id = &conn->peer[0].conn_id;
 
   /* Validate the Retry Integrity Tag. TODO can we make this more efficient? */
@@ -1942,10 +2000,10 @@ fd_quic_handle_v1_retry(
 
   /* Need to regenerate keys using the retry source connection id */
   fd_quic_crypto_suite_t *suite = &state->crypto_ctx->suites[TLS_AES_128_GCM_SHA256_ID];
-  fd_quic_conn_id_t retry_src_conn_id;
-  retry_src_conn_id.sz = retry_pkt.src_conn_id_len;
-  fd_memcpy(&retry_src_conn_id.conn_id, &retry_pkt.src_conn_id, retry_pkt.src_conn_id_len);
-  if (FD_UNLIKELY(fd_quic_gen_initial_secret_and_keys(suite, conn, &retry_src_conn_id)) == FD_QUIC_FAILED)
+  conn->retry_src_conn_id.sz = retry_pkt.src_conn_id_len;
+  fd_memcpy( &conn->retry_src_conn_id.conn_id, &retry_pkt.src_conn_id, retry_pkt.src_conn_id_len );
+  if( FD_UNLIKELY( fd_quic_gen_initial_secret_and_keys( suite, conn, &conn->retry_src_conn_id ) )
+                   == FD_QUIC_FAILED )
   {
     conn->state = FD_QUIC_CONN_STATE_DEAD;
     fd_quic_reschedule_conn( conn, 0 );
@@ -1959,7 +2017,17 @@ fd_quic_handle_v1_retry(
     conn->token_len = 0UL;
     return FD_QUIC_PARSE_FAIL;
   }
-  fd_memcpy(&conn->token, retry_pkt.retry_token, conn->token_len);
+  fd_memcpy( &conn->token, retry_pkt.retry_token, conn->token_len );
+
+  /* have to rewind the handshake data */
+  uint enc_level                 = 0;
+  conn->hs_sent_bytes[enc_level] = 0;
+  conn->hs_data_empty            = 0;
+
+  /* send the INITIAL */
+  conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+
+  fd_quic_reschedule_conn( conn, 0 );
 
   return cur_sz;
 }
@@ -2671,8 +2739,6 @@ fd_quic_process_packet( fd_quic_t * quic,
 
   if( FD_UNLIKELY( data_sz > 0xffffu ) ) {
     /* sanity check */
-    FD_LOG_WARNING(( "unreasonably large packet received (%lu). Discarding",
-                         (ulong)data_sz ));
     return;
   }
 
@@ -2954,7 +3020,6 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
       fd_quic_reschedule_conn( conn, 0 );
       quic->metrics.conn_aborted_cnt++;
       quic->metrics.conn_err_tls_fail_cnt++;
-      FD_LOG_WARNING(( "fd_quic_gen_keys failed on client" ));
     }
 
     /* gen initial keys */
@@ -3075,6 +3140,26 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
         conn->rx_initial_max_stream_data_uni         = our_tp->initial_max_stream_data_uni;
         conn->rx_initial_max_stream_data_bidi_local  = our_tp->initial_max_stream_data_bidi_local;
         conn->rx_initial_max_stream_data_bidi_remote = our_tp->initial_max_stream_data_bidi_remote;
+
+        if( !conn->server ) {
+          /* verify retry_src_conn_id */
+          uint retry_src_conn_id_sz = conn->retry_src_conn_id.sz;
+          if( retry_src_conn_id_sz ) {
+            if( FD_UNLIKELY( !peer_tp->retry_source_connection_id_present
+                             || peer_tp->retry_source_connection_id_len != retry_src_conn_id_sz
+                             || 0 != memcmp( peer_tp->retry_source_connection_id,
+                                             conn->retry_src_conn_id.conn_id,
+                                             retry_src_conn_id_sz ) ) ) {
+              fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_TRANSPORT_PARAMETER_ERROR, __LINE__ );
+              return;
+            }
+          } else {
+            if( FD_UNLIKELY( peer_tp->retry_source_connection_id_present ) ) {
+              fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_TRANSPORT_PARAMETER_ERROR, __LINE__ );
+              return;
+            }
+          }
+        }
 
         /* max datagram size */
         ulong tx_max_datagram_sz = peer_tp->max_udp_payload_size;
@@ -3520,7 +3605,7 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
       // .dst_conn_id
       pkt_hdr->quic_pkt.initial.src_conn_id_len  = conn_id->sz;
       // .src_conn_id
-      // .token
+      // .token - below
       pkt_hdr->quic_pkt.initial.len              = 0;  /* length of payload initially 0 */
       pkt_hdr->quic_pkt.initial.pkt_num          = pkt_number;
 
@@ -6709,6 +6794,21 @@ fd_quic_frame_handle_conn_close_0_frame(
     return FD_QUIC_PARSE_FAIL;
   }
 
+  /* the information here can be invaluble for debugging */
+  FD_DEBUG(
+    char reason_buf[256] = {0};
+    ulong reason_len = fd_ulong_min( sizeof(reason_buf)-1, reason_phrase_length );
+    memcpy( reason_buf, p, reason_len );
+
+    FD_LOG_WARNING(( "fd_quic_frame_handle_conn_close_frame - "
+        "error_code: %lu  "
+        "frame_type: %lx  "
+        "reason: %s",
+        data->error_code,
+        data->frame_type,
+        reason_buf ));
+  );
+
   fd_quic_frame_handle_conn_close_frame( vp_context );
 
   return reason_phrase_length;
@@ -6726,6 +6826,19 @@ fd_quic_frame_handle_conn_close_1_frame(
   if( FD_UNLIKELY( reason_phrase_length > p_sz ) ) {
     return FD_QUIC_PARSE_FAIL;
   }
+
+  /* the information here can be invaluble for debugging */
+  FD_DEBUG(
+    char reason_buf[256] = {0};
+    ulong reason_len = fd_ulong_min( sizeof(reason_buf)-1, reason_phrase_length );
+    memcpy( reason_buf, p, reason_len );
+
+    FD_LOG_WARNING(( "fd_quic_frame_handle_conn_close_frame - "
+        "error_code: %lu  "
+        "reason: %s",
+        data->error_code,
+        reason_buf ));
+  );
 
   fd_quic_frame_handle_conn_close_frame( vp_context );
 

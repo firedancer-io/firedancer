@@ -333,7 +333,7 @@ repair_thread( FD_PARAM_UNUSED int argc, char ** argv ) {
     for( uint i = 0; i < (uint)repair_rc; ++i ) {
       fd_repair_peer_addr_t from;
       from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
-      fd_repair_recv_packet( repair, bufs[i], msgs[i].msg_len, &from );
+      fd_repair_recv_clnt_packet( repair, bufs[i], msgs[i].msg_len, &from );
     }
   }
   return 0;
@@ -703,7 +703,7 @@ main( int argc, char ** argv ) {
   snprintf( repair_addr, sizeof( repair_addr ), ":%u", repair_port );
   FD_TEST( resolve_hostport( repair_addr, &repair_config.intake_addr ) );
   repair_config.deliver_fun      = repair_deliver_fun;
-  repair_config.send_fun         = repair_send_fun;
+  repair_config.clnt_send_fun    = repair_send_fun;
   repair_config.deliver_fail_fun = repair_deliver_fail_fun;
   repair_arg_t repair_arg        = { .replay = replay,
                                      .sockfd = create_socket( &repair_config.intake_addr ) };
