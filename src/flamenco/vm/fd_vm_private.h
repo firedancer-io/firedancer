@@ -69,13 +69,18 @@ FD_PROTOTYPES_BEGIN
 /* fd_vm_cu API *******************************************************/
 
 /* FIXME: CONSIDER MOVING TO FD_VM_SYSCALL.H */
-/* FD_VM_CU_UPDATE charges the vm cost compute units.  If the vm does
-   not have more than cost cu available, this will cause the caller to
-   zero out the vm->cu and return with FD_VM_ERR_SIGCOST.  If
-   successful, on exit, vm->cu will be positive and at most the value it
-   was on entry.  This macro is robust.  This is meant to be used by
-   syscall implementations and strictly conforms with the vm-syscall ABI
-   interface.
+/* FD_VM_CU_UPDATE charges the vm cost compute units.
+
+   If the vm does not have more than cost cu available, this will cause
+   the caller to zero out the vm->cu and return with FD_VM_ERR_SIGCOST.
+   This macro is robust.
+   This is meant to be used by syscall implementations and strictly
+   conforms with the vm-syscall ABI interface.
+
+   Note: in Agave a sycall can return success leaving 0 available CUs.
+   The instruction will fail at the next instruction (e.g., exit).
+   To reproduce the same behavior, we do not return FD_VM_ERR_SIGCOST
+   when cu == 0.
 
    FD_VM_CU_MEM_UPDATE charges the vm the equivalent of sz bytes of
    compute units.  Behavior is otherwise identical to FD_VM_CU_UPDATE.
@@ -85,7 +90,7 @@ FD_PROTOTYPES_BEGIN
     fd_vm_t * _vm   = (vm);                          \
     ulong     _cost = (cost);                        \
     ulong     _cu   = _vm->cu;                       \
-    if( FD_UNLIKELY( _cost>=_cu ) ) {                \
+    if( FD_UNLIKELY( _cost>_cu ) ) {                 \
       _vm->cu = 0UL;                                 \
       return FD_VM_ERR_SIGCOST;                      \
     }                                                \
@@ -99,7 +104,7 @@ FD_PROTOTYPES_BEGIN
     ulong     _sz   = (sz);                                                                   \
     ulong     _cost = fd_ulong_max( FD_VM_MEM_OP_BASE_COST, _sz / FD_VM_CPI_BYTES_PER_UNIT ); \
     ulong     _cu   = _vm->cu;                                                                \
-    if( FD_UNLIKELY( _cost>=_cu ) ) {                                                         \
+    if( FD_UNLIKELY( _cost>_cu ) ) {                                                          \
       _vm->cu = 0UL;                                                                          \
       return FD_VM_ERR_SIGCOST;                                                               \
     }                                                                                         \
