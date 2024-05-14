@@ -13,7 +13,7 @@ run-runtime-test: run-runtime-test-1 run-runtime-test-2 run-runtime-test-3
 
 run-runtime-test-1: $(OBJDIR)/bin/fd_ledger
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -t 2 -X 1
-	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -t 2
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l helloworld -s snapshot-100-92rXQxDb3gbNU4YEjof4PjAQ9wDvqAXL4Ma3757kHPRs.tar.zst -e 199
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l v118-multi
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l testnet-519 -s snapshot-255311992-Fju7xb3XaTY6SBxkGcsKko15EGAqnvdfkXBd1o6agPDq.tar.zst -p 32 -y 32 -m 1000000 -e 255312007
