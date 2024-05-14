@@ -52,6 +52,48 @@ main( int     argc,
 # undef _
 # endif
 
+  FD_TEST( fd_fltbits_is_zero( fd_fltbits_pack( 0UL,   0UL, 0UL ) )==1 );
+  FD_TEST( fd_fltbits_is_zero( fd_fltbits_pack( 1UL,   0UL, 0UL ) )==1 );
+  FD_TEST( fd_fltbits_is_inf ( fd_fltbits_pack( 0UL, 255UL, 0UL ) )==1 );
+  FD_TEST( fd_fltbits_is_inf ( fd_fltbits_pack( 1UL, 255UL, 0UL ) )==1 );
+  FD_TEST( fd_fltbits_is_nan ( fd_fltbits_pack( 0UL, 255UL, 1UL ) )==1 );
+  FD_TEST( fd_fltbits_is_nan ( fd_fltbits_pack( 1UL, 255UL, 1UL ) )==1 );
+
+  for( ulong mant=1UL; mant < (1UL<<23); mant+=(1UL<<10) ) {
+    for( ulong sign=0UL; sign < (1UL<<1); sign++ ) {
+      FD_TEST( fd_fltbits_is_denorm( fd_fltbits_pack( sign,   0UL, mant ) )==1 );
+      FD_TEST( fd_fltbits_is_nan   ( fd_fltbits_pack( sign,   0UL, mant ) )==0 );
+      FD_TEST( fd_fltbits_is_denorm( fd_fltbits_pack( sign, 255UL, mant ) )==0 );
+      FD_TEST( fd_fltbits_is_nan   ( fd_fltbits_pack( sign, 255UL, mant ) )==1 );
+      for( ulong bexp=0UL; bexp < (1UL<<8); bexp++ ) {
+        FD_TEST( fd_fltbits_is_zero( fd_fltbits_pack( sign, bexp, mant ) )==0 );
+        FD_TEST( fd_fltbits_is_inf ( fd_fltbits_pack( sign, bexp, mant ) )==0 );
+      }
+    }
+  }
+
+# if FD_HAS_DOUBLE
+  FD_TEST( fd_dblbits_is_zero( fd_dblbits_pack( 0UL,    0UL, 0UL ) )==1 );
+  FD_TEST( fd_dblbits_is_zero( fd_dblbits_pack( 1UL,    0UL, 0UL ) )==1 );
+  FD_TEST( fd_dblbits_is_inf ( fd_dblbits_pack( 0UL, 2047UL, 0UL ) )==1 );
+  FD_TEST( fd_dblbits_is_inf ( fd_dblbits_pack( 1UL, 2047UL, 0UL ) )==1 );
+  FD_TEST( fd_dblbits_is_nan ( fd_dblbits_pack( 0UL, 2047UL, 1UL ) )==1 );
+  FD_TEST( fd_dblbits_is_nan ( fd_dblbits_pack( 1UL, 2047UL, 1UL ) )==1 );
+
+  for( ulong mant=1UL; mant < (1UL<<52); mant+=(1UL<<39) ) {
+    for( ulong sign=0UL; sign < (1UL<<1); sign++ ) {
+      FD_TEST( fd_dblbits_is_denorm( fd_dblbits_pack( sign,    0UL, mant ) )==1 );
+      FD_TEST( fd_dblbits_is_nan   ( fd_dblbits_pack( sign,    0UL, mant ) )==0 );
+      FD_TEST( fd_dblbits_is_denorm( fd_dblbits_pack( sign, 2047UL, mant ) )==0 );
+      FD_TEST( fd_dblbits_is_nan   ( fd_dblbits_pack( sign, 2047UL, mant ) )==1 );
+      for( ulong bexp=0UL; bexp < (1UL<<8); bexp++ ) {
+        FD_TEST( fd_dblbits_is_zero( fd_dblbits_pack( sign, bexp, mant ) )==0 );
+        FD_TEST( fd_dblbits_is_inf ( fd_dblbits_pack( sign, bexp, mant ) )==0 );
+      }
+    }
+  }
+# endif
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
