@@ -2201,7 +2201,7 @@ void
 fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
                     fd_exec_slot_ctx_t * slot_ctx,
                     ulong slot ) {
-  if( capture_ctx->checkpt_slot != slot && slot % capture_ctx->checkpt_freq != 0 ) {
+  if( slot % capture_ctx->checkpt_freq != 0 ) {
     return;
   }
   FD_LOG_NOTICE(("checkpointing at slot=%lu", slot));

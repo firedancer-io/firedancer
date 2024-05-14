@@ -112,7 +112,6 @@ struct fd_runtime_args {
   ulong        tcnt;
   ulong        txn_max;
   ushort       rpc_port;
-  ulong        checkpt_slot;
   ulong        checkpt_freq;
   char const * checkpt_path;
   fd_funk_t *  pruned_funk;
