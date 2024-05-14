@@ -167,9 +167,6 @@ txn_cmd_fn( args_t *         args,
   fd_quic_t * quic = fd_quic_join( fd_quic_new( mem, &quic_limits ) );
   FD_TEST( quic );
 
-  if( FD_UNLIKELY( 32UL!=getrandom( quic->config.identity_public_key, 32UL, 0 ) ) )
-    FD_LOG_ERR(( "failed to generate identity key: getrandom(32,0) failed" ));
-
   /* Signer */
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
   fd_tls_test_sign_ctx_t * sign_ctx = fd_wksp_alloc_laddr( wksp, alignof(fd_tls_test_sign_ctx_t), sizeof(fd_tls_test_sign_ctx_t), 1UL );
