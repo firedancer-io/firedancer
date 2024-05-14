@@ -773,8 +773,7 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
   runtime_ctx->capture_file = NULL;
 
   int has_solcap           = args->capture_fpath && args->capture_fpath[0] != '\0';
-  int has_checkpt_dump     = args->checkpt_path && args->checkpt_path[0] != '\0' &&
-                             ( args->checkpt_slot != 0 || args->checkpt_freq != 0 );
+  int has_checkpt_dump     = args->checkpt_path && args->checkpt_path[0] != '\0';
   int has_prune            = args->pruned_funk != NULL;
   int has_dump_to_protobuf = args->dump_insn_to_pb;
 
@@ -787,7 +786,6 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
   fd_memset( capture_ctx_mem, 0, sizeof( fd_capture_ctx_t ) );
   runtime_ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
 
-  runtime_ctx->capture_ctx->checkpt_slot = ULONG_MAX;
   runtime_ctx->capture_ctx->checkpt_freq = ULONG_MAX;
 
   if( has_solcap ) {
@@ -802,7 +800,6 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
   }
 
   if( has_checkpt_dump ) {
-    runtime_ctx->capture_ctx->checkpt_slot = args->checkpt_slot;
     runtime_ctx->capture_ctx->checkpt_path = args->checkpt_path;
     runtime_ctx->capture_ctx->checkpt_freq = args->checkpt_freq;
   }
@@ -1495,9 +1492,9 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
   args->retrace       = fd_env_strip_cmdline_int( &argc, &argv, "--retrace", NULL, 0 );
   args->abort_on_mismatch =
       (uchar)fd_env_strip_cmdline_int( &argc, &argv, "--abort-on-mismatch", NULL, 0 );
-  args->checkpt_slot = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-slot", NULL, 0 );
-  args->checkpt_freq = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-freq", NULL, ULONG_MAX );
-  args->checkpt_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--checkpt-path", NULL, NULL );
+  args->checkpt_freq     = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-freq", NULL, ULONG_MAX );
+  args->checkpt_path     = fd_env_strip_cmdline_cstr( &argc, &argv, "--checkpt-path", NULL, NULL );
+  args->checkpt_mismatch = fd_env_strip_cmdline_int ( &argc, &argv, "--checkpt-mismatch", NULL, 0 );
   args->dump_insn_to_pb = fd_env_strip_cmdline_int( &argc, &argv, "--dump-insn-to-pb", NULL, 0 );
   args->dump_insn_sig_filter = fd_env_strip_cmdline_cstr( &argc, &argv, "--dump-insn-sig-filter", NULL, NULL );
   args->dump_insn_output_dir = fd_env_strip_cmdline_cstr( &argc, &argv, "--dump-insn-output-dir", NULL, "protobuf_tests_from_executed_instr" );

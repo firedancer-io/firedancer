@@ -2201,20 +2201,28 @@ void
 fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
                     fd_exec_slot_ctx_t * slot_ctx,
                     ulong slot ) {
-  if( capture_ctx->checkpt_slot != slot && slot % capture_ctx->checkpt_freq != 0 ) {
+  int is_checkpt_freq = capture_ctx != NULL && slot % capture_ctx->checkpt_freq == 0;
+  int is_abort_slot   = slot == ULONG_MAX; 
+  if( !is_checkpt_freq && !is_abort_slot ) {
     return;
   }
-  FD_LOG_NOTICE(("checkpointing at slot=%lu", slot));
 
-  fd_funk_end_write( slot_ctx->acc_mgr->funk );
+  if( !is_abort_slot ) {
+    FD_LOG_NOTICE(( "checkpointing at slot=%lu to file=%s", slot, capture_ctx->checkpt_path ));
+    fd_funk_end_write( slot_ctx->acc_mgr->funk );
+  } else {
+    FD_LOG_NOTICE(( "checkpointing after mismatch to file=%s", capture_ctx->checkpt_path ));
+  }
 
   unlink( capture_ctx->checkpt_path );
   int err = fd_wksp_checkpt( fd_funk_wksp( slot_ctx->acc_mgr->funk ), capture_ctx->checkpt_path, 0666, 0, NULL );
   if ( err ) {
-    FD_LOG_ERR(("backup failed: error %d", err));
+    FD_LOG_ERR(( "backup failed: error %d", err ));
   }
 
-  fd_funk_start_write( slot_ctx->acc_mgr->funk );
+  if( !is_abort_slot ) {
+    fd_funk_start_write( slot_ctx->acc_mgr->funk );
+  }
 }
 
 int

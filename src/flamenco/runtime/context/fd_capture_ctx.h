@@ -16,8 +16,7 @@ struct __attribute__((aligned(FD_CAPTURE_CTX_ALIGN))) fd_capture_ctx {
   int                      capture_txns; /* Capturing txns can add significant time */
 
   /* Checkpointing */
-  ulong                    checkpt_slot; /* Must be a rooted slot */
-  ulong                    checkpt_freq;
+  ulong                    checkpt_freq; /* Must be a rooted slot */
   char const *             checkpt_path;
 
   /* Prune */
