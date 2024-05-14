@@ -49,3 +49,31 @@ main( int     argc,
       char ** argv ) {
   main1( argc, argv );
 }
+
+/* Kind of a hack for now, we sometimes want to view bench generation
+   in the monitor binary, but it's not part of the production binary. */
+
+void
+add_bench_topo( fd_topo_t  * topo,
+                char const * affinity,
+                ulong        benchg_tile_cnt,
+                ulong        benchs_tile_cnt,
+                ulong        accounts_cnt,
+                ulong        conn_cnt,
+                ushort       send_to_port,
+                uint         send_to_ip_addr,
+                ushort       rpc_port,
+                uint         rpc_ip_addr,
+                int          no_quic ) {
+  (void)topo;
+  (void)affinity;
+  (void)benchg_tile_cnt;
+  (void)benchs_tile_cnt;
+  (void)accounts_cnt;
+  (void)conn_cnt;
+  (void)send_to_port;
+  (void)send_to_ip_addr;
+  (void)rpc_port;
+  (void)rpc_ip_addr;
+  (void)no_quic;
+}
