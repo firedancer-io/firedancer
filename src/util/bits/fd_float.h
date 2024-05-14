@@ -47,7 +47,7 @@ FD_PROTOTYPES_BEGIN
    fd_fltbits_unbias         return the exponent for a biased exponent
    fd_fltbits_bias           return the biased exponent for an exponent
 
-   As these don't do any interpretation of the bits, these in principle
+   As these don't do any interpretation of the bits, above in principle
    are just linguistic operations as opposed to an actual operation
    (e.g. in FPGA synthesis, these amount to reinterpretation of the
    meaning of some voltages on some wires).  But because of the way
@@ -56,6 +56,19 @@ FD_PROTOTYPES_BEGIN
    register files for integers and floats under the hood), this might
    require some operations on the target (generally fast O(1)
    operations).
+
+   The functions below do classification of IEEE-754 bit patterns as
+   described in the table at the start of the file.  These functions
+   return stable results regardless of compiler flags and hardware
+   behavior.  This means they may not behave the same as ISO C
+   fpclassify(3) and friends.  For example, when compiling on Clang 18
+   with -ffast-math, 0==isnan(NAN).  Whereas 1==fd_fltbits_is_nan( fd_fltbits( NAN ) ).
+
+   fd_fltbits_is_zero        returns 1 if fltbits is a (signed) zero, else 0
+   fd_fltbits_is_denorm      returns 1 if fltbits is a denorm number, else 0
+   fd_fltbits_is_inf         returns 1 if fltbits is -inf or +inf, else 0
+   fd_fltbits_is_nan         returns 1 if fltbits is a nan, else 0
+   fd_fltbits_is_normal      returns 0 if fltbits is a zero, a denorm, -inf, +inf, or nan; else 1
 
    The APIs below use ulong for bit fields in general (even in cases
    where 32-bit might be sufficient) to avoid unnecessary assembly ops
@@ -91,6 +104,38 @@ fd_float( ulong u ) { /* 32-bit */
   return tmp.f[0];
 }
 
+FD_FN_CONST static inline int
+fd_fltbits_is_zero( ulong u ) {
+  return ( fd_fltbits_bexp( u )==0 ) &
+         ( fd_fltbits_mant( u )==0 );
+}
+
+FD_FN_CONST static inline int
+fd_fltbits_is_denorm( ulong u ) {
+  return ( fd_fltbits_bexp( u )==0 ) &
+         ( fd_fltbits_mant( u )!=0 );
+}
+
+FD_FN_CONST static inline int
+fd_fltbits_is_inf( ulong u ) {
+  return ( fd_fltbits_bexp( u )==255 ) &
+         ( fd_fltbits_mant( u )==  0 );
+}
+
+FD_FN_CONST static inline int
+fd_fltbits_is_nan( ulong u ) {
+  return ( fd_fltbits_bexp( u )==255 ) &
+         ( fd_fltbits_mant( u )!=  0 );
+}
+
+FD_FN_CONST static inline int
+fd_fltbits_is_normal( ulong u ) {
+  return ( !fd_fltbits_is_zero  ( u ) ) &
+         ( !fd_fltbits_is_denorm( u ) ) &
+         ( !fd_fltbits_is_inf   ( u ) ) &
+         ( !fd_fltbits_is_nan   ( u ) );
+}
+
 #if FD_HAS_DOUBLE /* These are 64-bit / double precision counterparts to the above */
 
 FD_FN_CONST static inline ulong
@@ -119,6 +164,38 @@ fd_double( ulong u ) {
   union { ulong u[1]; double d[1]; } tmp;
   tmp.u[0] = u;
   return tmp.d[0];
+}
+
+FD_FN_CONST static inline int
+fd_dblbits_is_zero( ulong u ) {
+  return ( fd_dblbits_bexp( u )==0 ) &
+         ( fd_dblbits_mant( u )==0 );
+}
+
+FD_FN_CONST static inline int
+fd_dblbits_is_denorm( ulong u ) {
+  return ( fd_dblbits_bexp( u )==0 ) &
+         ( fd_dblbits_mant( u )!=0 );
+}
+
+FD_FN_CONST static inline int
+fd_dblbits_is_inf( ulong u ) {
+  return ( fd_dblbits_bexp( u )==2047 ) &
+         ( fd_dblbits_mant( u )==   0 );
+}
+
+FD_FN_CONST static inline int
+fd_dblbits_is_nan( ulong u ) {
+  return ( fd_dblbits_bexp( u )==2047 ) &
+         ( fd_dblbits_mant( u )!=   0 );
+}
+
+FD_FN_CONST static inline int
+fd_dblbits_is_normal( ulong u ) {
+  return ( !fd_dblbits_is_zero  ( u ) ) &
+         ( !fd_dblbits_is_denorm( u ) ) &
+         ( !fd_dblbits_is_inf   ( u ) ) &
+         ( !fd_dblbits_is_nan   ( u ) );
 }
 
 #endif
