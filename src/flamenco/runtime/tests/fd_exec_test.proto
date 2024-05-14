@@ -179,6 +179,9 @@ message SyscallInvocation {
     // The sBPF function name of the syscall
     string function_name = 1
         [(nanopb).max_size = 1400];
+    // The initial portion of the heap, for example to store syscall inputs
+    bytes heap_prefix = 2
+        [(nanopb).type = FT_POINTER];
 }
 
 // Execution context for a VM Syscall execution.

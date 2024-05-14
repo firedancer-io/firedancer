@@ -975,6 +975,12 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   vm->reg[10] = input->vm_ctx.r10;
   vm->reg[11] = input->vm_ctx.r11;
 
+  // Override initial part of the heap, if specified the syscall fuzzer input
+  if( input->syscall_invocation.heap_prefix ) {
+    fd_memcpy( vm->heap, input->syscall_invocation.heap_prefix->bytes,
+               fd_ulong_min(input->syscall_invocation.heap_prefix->size, vm->heap_max) );
+  }
+
   // Look up the syscall to execute
   const char * syscall_name = input->syscall_invocation.function_name;
   fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const(
@@ -984,12 +990,10 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   FD_TEST( syscall );
 
   /* Actually invoke the syscall */
-  ulong ret[1];
-  int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], ret );
-  vm->reg[0] = ret[0]; /* TODO: does this mirror the behaviour of the other target? */
+  int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
 
   /* Capture the effects */
-  effects->error = syscall_err;
+  effects->error = -syscall_err;
   effects->r0 = vm->reg[0];
   effects->cu_avail = (ulong)vm->cu;
 
