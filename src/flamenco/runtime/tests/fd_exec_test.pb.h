@@ -167,6 +167,8 @@ typedef struct fd_exec_test_vm_context {
 typedef struct fd_exec_test_syscall_invocation {
     /* The sBPF function name of the syscall */
     char function_name[1400];
+    /* The initial portion of the heap, for example to store syscall inputs */
+    pb_bytes_array_t *heap_prefix;
 } fd_exec_test_syscall_invocation_t;
 
 /* Execution context for a VM Syscall execution. */
@@ -215,7 +217,7 @@ extern "C" {
 #define FD_EXEC_TEST_INSTR_FIXTURE_INIT_DEFAULT  {false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_DEFAULT {0, NULL, 0}
 #define FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT     {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-#define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT {""}
+#define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT {"", NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT}
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT {0, 0, 0, NULL, NULL, NULL, 0, NULL}
 #define FD_EXEC_TEST_FEATURE_SET_INIT_ZERO       {0, NULL}
@@ -229,7 +231,7 @@ extern "C" {
 #define FD_EXEC_TEST_INSTR_FIXTURE_INIT_ZERO     {false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO}
 #define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_ZERO {0, NULL, 0}
 #define FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO        {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-#define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO {""}
+#define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO {"", NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO}
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO   {0, 0, 0, NULL, NULL, NULL, 0, NULL}
 
@@ -281,6 +283,7 @@ extern "C" {
 #define FD_EXEC_TEST_VM_CONTEXT_R10_TAG          16
 #define FD_EXEC_TEST_VM_CONTEXT_R11_TAG          17
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_FUNCTION_NAME_TAG 1
+#define FD_EXEC_TEST_SYSCALL_INVOCATION_HEAP_PREFIX_TAG 2
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_VM_CTX_TAG  1
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INSTR_CTX_TAG 2
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_SYSCALL_INVOCATION_TAG 3
@@ -397,7 +400,8 @@ X(a, STATIC,   SINGULAR, UINT64,   r11,              17)
 #define fd_exec_test_vm_context_t_input_data_regions_MSGTYPE fd_exec_test_input_data_region_t
 
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, STRING,   function_name,     1)
+X(a, STATIC,   SINGULAR, STRING,   function_name,     1) \
+X(a, POINTER,  SINGULAR, BYTES,    heap_prefix,       2)
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_CALLBACK NULL
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_DEFAULT NULL
 
@@ -463,13 +467,13 @@ extern const pb_msgdesc_t fd_exec_test_syscall_effects_t_msg;
 /* fd_exec_test_InstrFixture_size depends on runtime parameters */
 /* fd_exec_test_InputDataRegion_size depends on runtime parameters */
 /* fd_exec_test_VmContext_size depends on runtime parameters */
+/* fd_exec_test_SyscallInvocation_size depends on runtime parameters */
 /* fd_exec_test_SyscallContext_size depends on runtime parameters */
 /* fd_exec_test_SyscallEffects_size depends on runtime parameters */
 #define FD_EXEC_TEST_INSTR_ACCT_SIZE             10
 #define FD_EXEC_TEST_SLOT_CONTEXT_SIZE           0
-#define FD_EXEC_TEST_SYSCALL_INVOCATION_SIZE     1402
 #define FD_EXEC_TEST_TXN_CONTEXT_SIZE            0
-#define ORG_SOLANA_SEALEVEL_V1_FD_EXEC_TEST_PB_H_MAX_SIZE FD_EXEC_TEST_SYSCALL_INVOCATION_SIZE
+#define ORG_SOLANA_SEALEVEL_V1_FD_EXEC_TEST_PB_H_MAX_SIZE FD_EXEC_TEST_INSTR_ACCT_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
 #define org_solana_sealevel_v1_FeatureSet fd_exec_test_FeatureSet
