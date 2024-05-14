@@ -108,8 +108,29 @@ create_socket( fd_gossip_peer_addr_t * addr ) {
   return fd;
 }
 
+static void
+gossip_send_fun( uchar const *                 data,
+                 size_t                        sz,
+                 fd_gossip_peer_addr_t const * gossip_peer_addr,
+                 void *                        arg ) {
+  uchar saddr[sizeof( struct sockaddr_in )];
+  int   saddrlen           = to_sockaddr( saddr, gossip_peer_addr );
+  char  s[MAX_ADDR_STRLEN] = { 0 };
+  fd_gossip_addr_str( s, sizeof( s ), gossip_peer_addr );
+  if( sendto( *(int *)arg,
+              data,
+              sz,
+              MSG_DONTWAIT,
+              (const struct sockaddr *)saddr,
+              (socklen_t)saddrlen ) < 0 ) {
+    FD_LOG_WARNING( ( "sendto failed: %s", strerror( errno ) ) );
+  }
+}
+
 struct gossip_deliver_arg {
-  fd_valloc_t   valloc;
+  fd_valloc_t        valloc;
+  fd_gossip_t        *gossip;
+  fd_gossip_config_t *gossip_config;
 };
 typedef struct gossip_deliver_arg gossip_deliver_arg_t;
 
@@ -134,11 +155,11 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
 
     if ( !memcmp( account_addr, fd_solana_vote_program_id.key, sizeof( fd_pubkey_t ) ) ) {
       fd_vote_instruction_t vote_instr = { 0 };
-      ushort data_sz = parsed_txn->instr[0].data_sz;
-      uchar* data = vote->txn.raw + parsed_txn->instr[0].data_off;
+      ushort instr_data_sz = parsed_txn->instr[0].data_sz;
+      uchar* instr_data = vote->txn.raw + parsed_txn->instr[0].data_off;
       fd_bincode_decode_ctx_t decode = {
-                                        .data    = data,
-                                        .dataend = data + data_sz,
+                                        .data    = instr_data,
+                                        .dataend = instr_data + instr_data_sz,
                                         .valloc  = arg_->valloc
       };
       int decode_result = fd_vote_instruction_decode( &vote_instr, &decode );
@@ -148,21 +169,33 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
           fd_vote_decode_compact_update(&vote_instr.inner.compact_update_vote_state,
                                         &vote_update);
 
-          FD_LOG_NOTICE( ("Receive gossip vote: voter_addr=%32J, txn_acct_cnt=%u(readonly_s=%u, readonly_us=%u), sign_cnt=%u | instruction#0: program=%32J",
+          /* Replace the voter addresses and signatures */
+          uchar* acct_addr = vote->txn.raw + parsed_txn->acct_addr_off;
+          memcpy(acct_addr, arg_->gossip_config->public_key, FD_TXN_ACCT_ADDR_SZ);
+          memcpy(acct_addr + FD_TXN_ACCT_ADDR_SZ, arg_->gossip_config->public_key, FD_TXN_ACCT_ADDR_SZ);
+          #define SIGNATURE_SZ 64
+          uchar sig[ SIGNATURE_SZ ];
+          fd_sha512_t sha[1];
+          fd_ed25519_sign( /* sig */ sig,
+                           /* msg */ vote->txn.raw + parsed_txn->message_off,
+                           /* sz  */ vote->txn.raw_sz - parsed_txn->message_off,
+                           /* public_key  */ arg_->gossip_config->public_key->uc,
+                           /* private_key */ arg_->gossip_config->private_key,
+                           sha );
+          uchar* sign_addr = vote->txn.raw + parsed_txn->signature_off;
+          memcpy(sign_addr, sig, SIGNATURE_SZ);
+          memcpy(sign_addr + SIGNATURE_SZ, sig, SIGNATURE_SZ);
+          fd_gossip_push_value( arg_->gossip, data, NULL );
+          FD_LOG_NOTICE( ("Echo gossip vote: from=%32J, my_pubkey=%32J, txn_acct_cnt=%u(readonly_s=%u, readonly_us=%u), sign_cnt=%u | instruction#0: program=%32J",
                           &vote->from,
+                          arg_->gossip_config->public_key,
                           parsed_txn->acct_addr_cnt,
                           parsed_txn->readonly_signed_cnt,
                           parsed_txn->readonly_unsigned_cnt,
                           parsed_txn->signature_cnt,
                           account_addr) );
 
-          for (ushort i = 0; i < parsed_txn->instr[0].acct_cnt; i++) {
-            uchar acct_id = *(vote->txn.raw + parsed_txn->instr[0].acct_off + i);
-            uchar* acct = vote->txn.raw + parsed_txn->acct_addr_off + FD_TXN_ACCT_ADDR_SZ * acct_id;
-            FD_LOG_NOTICE( ("    instruction account#%u: id=%u, %32J", i, acct_id, acct) );
-          }
-          //echo_vote_txn( &vote_update );
-        } else {
+       } else {
           FD_LOG_WARNING( ("Gossip receives vote instruction with other discriminant") );
         }
       } else {
@@ -173,25 +206,6 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
                    account_addr,
                    fd_solana_vote_program_id.key) );
     }
-  }
-}
-
-static void
-gossip_send_fun( uchar const *                 data,
-                 size_t                        sz,
-                 fd_gossip_peer_addr_t const * gossip_peer_addr,
-                 void *                        arg ) {
-  uchar saddr[sizeof( struct sockaddr_in )];
-  int   saddrlen           = to_sockaddr( saddr, gossip_peer_addr );
-  char  s[MAX_ADDR_STRLEN] = { 0 };
-  fd_gossip_addr_str( s, sizeof( s ), gossip_peer_addr );
-  if( sendto( *(int *)arg,
-              data,
-              sz,
-              MSG_DONTWAIT,
-              (const struct sockaddr *)saddr,
-              (socklen_t)saddrlen ) < 0 ) {
-    FD_LOG_WARNING( ( "sendto failed: %s", strerror( errno ) ) );
   }
 }
 
@@ -378,7 +392,7 @@ main( int argc, char ** argv ) {
   FD_TEST( resolve_hostport( gossip_addr, &gossip_config.my_addr ) );
   gossip_config.shred_version             = 0;
   gossip_config.deliver_fun               = gossip_deliver_fun;
-  gossip_deliver_arg_t gossip_deliver_arg = { .valloc = valloc };
+  gossip_deliver_arg_t gossip_deliver_arg = { .valloc = valloc, .gossip_config = &gossip_config, .gossip = gossip };
   gossip_config.deliver_arg               = &gossip_deliver_arg;
   gossip_config.send_fun                  = gossip_send_fun;
   int gossip_sockfd                       = create_socket( &gossip_config.my_addr );
