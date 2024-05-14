@@ -9,6 +9,7 @@
 #include "../../util/net/fd_ip4.h"
 #include "../../util/tile/fd_tile_private.h"
 
+#include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -20,6 +21,7 @@
 #include <sys/sysinfo.h>
 #include <sys/ioctl.h>
 #include <sys/utsname.h>
+#include <sys/wait.h>
 
 FD_IMPORT_CSTR( default_config, "src/app/fdctl/config/default.toml" );
 
@@ -506,36 +508,52 @@ mac_address( const char * interface,
 
 static void
 username_to_id( config_t * config ) {
-  FILE * fp = fopen( "/etc/passwd", "rb" );
-  if( FD_UNLIKELY( !fp) ) FD_LOG_ERR(( "could not open /etc/passwd (%i-%s)", errno, fd_io_strerror( errno ) ));
+  uint * results = mmap( NULL, 4096, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_SHARED, -1, 0 );
+  if( FD_UNLIKELY( results==MAP_FAILED ) ) FD_LOG_ERR(( "mmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  char line[ 4096 ];
-  while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
-    if( FD_UNLIKELY( strlen( line ) == 4095 ) ) FD_LOG_ERR(( "line too long in /etc/passwd" ));
-    char * s = strchr( line, ':' );
-    if( FD_UNLIKELY( !s ) ) continue;
-    *s = 0;
-    if( FD_LIKELY( strcmp( line, config->user ) ) ) continue;
+  results[ 0 ] = UINT_MAX;
+  results[ 1 ] = UINT_MAX;
 
-    char * u = strchr( s + 1, ':' );
-    if( FD_UNLIKELY( !u ) ) continue;
+  /* This is extremely unfortunate.  We just want to call getpwnam but
+     on various glibc it can open `/var/lib/sss/mc/passwd` and then not
+     close it.  We could go and find this file descriptor and close it
+     for the library, but that is a bit of a hack.  Instead we fork a
+     new process to call getpwnam and then exit.
 
-    char * g = strchr( u + 1, ':' );
-    if( FD_UNLIKELY( !g ) ) continue;
+     We could try just reading /etc/passwd here instead, but the glibc
+     getpwnam implementation does a lot of things we need, including
+     potentially reading from NCSD or SSSD. */
 
-    if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "could not close /etc/passwd (%i-%s)", errno, fd_io_strerror( errno ) ));
-    char * endptr;
-    ulong uid = strtoul( u + 1, &endptr, 10 );
-    if( FD_UNLIKELY( *endptr != ':' || uid > UINT_MAX ) ) FD_LOG_ERR(( "could not parse uid in /etc/passwd"));
-    ulong gid = strtoul( g + 1, &endptr, 10 );
-    if( FD_UNLIKELY( *endptr != ':' || gid > UINT_MAX ) ) FD_LOG_ERR(( "could not parse gid in /etc/passwd"));
+  pid_t pid = fork();
+  if( FD_UNLIKELY( pid == -1 ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    config->uid = ( uint )uid;
-    config->gid = ( uint )gid;
-    return;
+  if( FD_LIKELY( !pid ) ) {
+    char buf[ 16384 ];
+    struct passwd pwd;
+    struct passwd * result;
+    int error = getpwnam_r( config->user, &pwd, buf, sizeof(buf), &result );
+    if( FD_UNLIKELY( error ) ) {
+      if( FD_LIKELY( error==ENOENT || error==ESRCH ) ) FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", config->user ));
+      else FD_LOG_ERR(( "could not get user id for `%s` (%i-%s)", config->user, errno, fd_io_strerror( errno ) ));
+    }
+    if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", config->user ));
+    results[ 0 ] = pwd.pw_uid;
+    results[ 1 ] = pwd.pw_gid;
+    exit_group( 0 );
+  } else {
+    int wstatus;
+    if( FD_UNLIKELY( waitpid( pid, &wstatus, 0 )==-1 ) ) FD_LOG_ERR(( "waitpid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( WIFSIGNALED( wstatus ) ) )
+      FD_LOG_ERR(( "uid fetch process terminated by signal %i-%s", WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+    if( FD_UNLIKELY( WEXITSTATUS( wstatus ) ) )
+      FD_LOG_ERR(( "uid fetch process exited with status %i", WEXITSTATUS( wstatus ) ));
   }
 
-  FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", config->user ));
+  if( FD_UNLIKELY( results[ 0 ]==UINT_MAX || results[ 1 ]==UINT_MAX ) ) FD_LOG_ERR(( "could not get user id for `%s`", config->user ));
+  config->uid = results[ 0 ];
+  config->gid = results[ 1 ];
+
+  if( FD_UNLIKELY( munmap( results, 4096 ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 FD_FN_CONST fd_topo_run_tile_t *
