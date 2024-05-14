@@ -382,26 +382,25 @@ fd_vm_log_append( fd_vm_t *    vm,
   return vm;
 }
 
-/* fd_vm_log_appendf is a convenience wrapper to fd_vm_log_append that
-   allows to format strings like printf.
-   Returns NULL on formatting error, vm on success. */
+/* fd_vm_log_append_printf is analogous to fd_vm_log_append and allows
+   to format arguments like printf.
+   It cancels any VM log message in preparation on vm and appends the message
+   resulting from formatting args to the VM's log.  The formatted message
+   includes a last byte set to 0.
+   Assumes vm is valid.
+   In case of formatting errors, no log is appended and the error is ignored
+   (internally, _vm->log[_vm->log_sz] is overwritten with 0).
+   Returns vm. */
 
-#include <stdio.h>
-#include <stdarg.h>
-
-static inline fd_vm_t *
-fd_vm_log_appendf( fd_vm_t *    vm,
-                   const char * format,
-                   ... ) {
-  char msg[ FD_VM_LOG_TAIL+1 ];
-  va_list args;
-  va_start (args, format);
-  int msg_sz = vsnprintf( msg, FD_VM_LOG_TAIL, format, args );
-  if( FD_UNLIKELY( msg_sz<0 ) ) {
-    return NULL;
-  }
-  return fd_vm_log_append( vm, msg, (ulong)msg_sz );
-}
+#define fd_vm_log_append_printf( vm, fmt, ... ) (__extension__({             \
+    fd_vm_t * _vm  = (vm);                                                   \
+    ulong     _sz  = _vm->log_sz; /* In [0,FD_VM_LOG_MAX] */                 \
+    ulong     _len;                                                          \
+    fd_cstr_printf_check( (char *)_vm->log + _sz, FD_VM_LOG_MAX + 1UL - _sz, \
+                          &_len, (fmt), __VA_ARGS__ );                       \
+    _vm->log_sz = _sz + _len;                                                \
+    (_vm);                                                                   \
+}))
 
 FD_PROTOTYPES_END
 
