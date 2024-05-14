@@ -19,7 +19,6 @@ struct fd_exec_epoch_ctx_layout {
   ulong stake_history_pool_off;
   ulong next_epoch_stakes_off;
   ulong leaders_off; /* Current epoch only */
-  ulong bank_hash_cmp_off;
 };
 
 typedef struct fd_exec_epoch_ctx_layout fd_exec_epoch_ctx_layout_t;
@@ -31,6 +30,8 @@ struct __attribute__((aligned(64UL))) fd_exec_epoch_ctx {
 
   fd_features_t   features;
   fd_epoch_bank_t epoch_bank;
+
+  fd_bank_hash_cmp_t * bank_hash_cmp;
 };
 
 #define FD_EXEC_EPOCH_CTX_ALIGN (4096UL)
@@ -138,12 +139,6 @@ fd_exec_epoch_ctx_next_epoch_stakes_join( fd_exec_epoch_ctx_t * ctx ) {
 FD_FN_PURE static inline fd_epoch_leaders_t *
 fd_exec_epoch_ctx_leaders( fd_exec_epoch_ctx_t * ctx ) {
   return (fd_epoch_leaders_t *)((uchar *)ctx + ctx->layout.leaders_off);
-}
-
-FD_FN_PURE static inline fd_bank_hash_cmp_t *
-fd_exec_epoch_ctx_bank_hash_cmp( fd_exec_epoch_ctx_t * ctx ) {
-  void * mem = (void *)((ulong)ctx + ctx->layout.bank_hash_cmp_off);
-  return fd_bank_hash_cmp_join( mem );
 }
 
 FD_PROTOTYPES_END

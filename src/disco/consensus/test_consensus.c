@@ -514,6 +514,15 @@ main( int argc, char ** argv ) {
   FD_TEST( latest_votes );
 
   /**********************************************************************/
+  /* bank_hash_cmp                                                      */
+  /**********************************************************************/
+
+  void * bank_hash_cmp_mem = fd_wksp_alloc_laddr(
+      wksp, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( 14 ), TEST_CONSENSUS_MAGIC );
+  fd_bank_hash_cmp_t * bank_hash_cmp =
+      fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_mem, 14 ) );
+
+  /**********************************************************************/
   /* epoch_ctx                                                          */
   /**********************************************************************/
 
@@ -524,6 +533,7 @@ main( int argc, char ** argv ) {
                                                TEST_CONSENSUS_MAGIC );
   fd_exec_epoch_ctx_t * epoch_ctx =
       fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acc_max ) );
+  epoch_ctx->bank_hash_cmp = bank_hash_cmp;
   FD_TEST( epoch_ctx );
 
   /**********************************************************************/
@@ -557,6 +567,8 @@ main( int argc, char ** argv ) {
   snapshot_slot_ctx->blockstore = blockstore;
   snapshot_slot_ctx->valloc     = valloc;
 
+  snapshot_slot_ctx->latest_votes = latest_votes;
+
   fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
 
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( snapshot_slot_ctx->epoch_ctx );
@@ -574,6 +586,7 @@ main( int argc, char ** argv ) {
   ulong snapshot_slot = snapshot_slot_ctx->slot_bank.slot;
   FD_LOG_NOTICE( ( "snapshot_slot: %lu", snapshot_slot ) );
 
+  bank_hash_cmp->slot                         = snapshot_slot + 1;
   snapshot_fork->slot                         = snapshot_slot;
   snapshot_slot_ctx->slot_bank.collected_fees = 0;
   snapshot_slot_ctx->slot_bank.collected_rent = 0;
@@ -613,6 +626,10 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_ghost_node_map_ele_query( ghost->node_map, &key, NULL, ghost->node_pool ) );
 
   /**********************************************************************/
+  /* tower                                                              */
+  /**********************************************************************/
+
+  /**********************************************************************/
   /* bft                                                                */
   /**********************************************************************/
 
@@ -629,6 +646,8 @@ main( int argc, char ** argv ) {
   bft->forks      = forks;
   bft->ghost      = ghost;
   bft->valloc     = valloc;
+
+  bft->vote_accounts = &epoch_ctx->epoch_bank.stakes.vote_accounts;
 
   /**********************************************************************/
   /* replay                                                             */

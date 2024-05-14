@@ -92,7 +92,8 @@ struct __attribute__((aligned(128UL))) fd_ghost {
   fd_ghost_node_t *     node_pool; /* memory pool of ghost nodes */
   fd_ghost_node_map_t * node_map;  /* map of slot_hash->fd_ghost_node_t */
   fd_ghost_vote_t *     vote_pool; /* memory pool of ghost votes */
-  fd_ghost_vote_map_t * vote_map;  /* each node's latest vote. map of pubkey->fd_ghost_vote_t */
+  fd_ghost_vote_map_t * replay_vote_map;  /* each node's latest replay vote. map of pubkey->fd_ghost_vote_t */
+  fd_ghost_vote_map_t * gossip_vote_map;  /* same as replay vote, but from gossip */
 };
 typedef struct fd_ghost fd_ghost_t;
 /* clang-format on */
@@ -172,39 +173,40 @@ fd_ghost_leaf_insert( fd_ghost_t *           ghost,
                       fd_slot_hash_t const * key,
                       fd_slot_hash_t const * parent_key_opt );
 
-/* fd_ghost_node_query finds the node corresponding to key. */
+/* fd_ghost_node_query queries for slot_hash in ghost. */
 
 fd_ghost_node_t *
-fd_ghost_node_query( fd_ghost_t * ghost, fd_slot_hash_t const * key );
+fd_ghost_node_query( fd_ghost_t * ghost, fd_slot_hash_t const * slot_hash );
 
-/* fd_ghost_replay_vote_upsert updates or inserts pubkey's stake in ghost.
+/* fd_ghost_replay_vote_upsert counts pubkey's stake towards slot_hash in ghost. Caller promises
+   slot_hash is in ghost.
 
-   The stake associated with pubkey is added to the ancestry chain beginning at slot hash
-   ("insert"). If pubkey has previously voted, the previous vote's stake is removed from the
-   previous vote slot hash's ancestry chain ("update").
+   Stake is added to the ancestry chain beginning at slot_hash ("insert"). If pubkey has previously
+   voted, the previous vote's stake is removed from the previous vote slot hash's ancestry chain
+   ("update").
+
+   If a gossip vote by pubkey has previously counted towards slot_hash, it is subtracted from
+   gossip_stake.
 
    TODO the implementation can be made more efficient by short-circuiting and doing fewer
-   traversals, but as it exists this is bounded to O(h), where h is the height of ghost.
-
-   Note it is specific to the replay vote case that stake is propagated up the ancestry
-   chain.
-*/
+   traversals. Asymptotically this has time complexity O(h), where h is the height of ghost. */
 
 void
 fd_ghost_replay_vote_upsert( fd_ghost_t *           ghost,
-                             fd_slot_hash_t const * key,
+                             fd_slot_hash_t const * slot_hash,
                              fd_pubkey_t const *    pubkey,
                              ulong                  stake );
 
-/* fd_ghost_gossip_vote_upsert updates or inserts pubkey's stake in ghost.
-
-   Unlike fd_ghost_replay_vote_upsert, the stake associated with pubkey is not propagated. It is
-   only counted towards the individual slot hash voted for.
-*/
+/* fd_ghost_gossip_vote_upsert counts pubkey's stake towards slot_hash in ghost. Caller promises
+   slot_hash is in ghost.
+.
+   Unlike fd_ghost_replay_vote_upsert, the stake associated with pubkey is not propagated up the
+   ancestry chain. It is only counted towards the individual slot hash voted for, and counted
+   towards a separately tracked gossip_stake sum. */
 
 void
 fd_ghost_gossip_vote_upsert( fd_ghost_t *           ghost,
-                             fd_slot_hash_t const * key,
+                             fd_slot_hash_t const * slot_hash,
                              fd_pubkey_t const *    pubkey,
                              ulong                  stake );
 

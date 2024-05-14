@@ -77,7 +77,7 @@ main( int argc, char ** argv ) {
   FD_TEST( ghost->node_pool );
   FD_TEST( ghost->node_map );
   FD_TEST( ghost->vote_pool );
-  FD_TEST( ghost->vote_map );
+  FD_TEST( ghost->replay_vote_map );
 
   test_ghost_simple( ghost );
 

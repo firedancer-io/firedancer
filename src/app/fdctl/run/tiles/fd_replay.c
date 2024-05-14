@@ -296,28 +296,28 @@ after_frag( void *             _ctx,
       child->slot_ctx.slot_bank.collected_fees = 0;
       child->slot_ctx.slot_bank.collected_rent = 0;
 
-      fd_hash_t const * bank_hash = &child->slot_ctx.slot_bank.banks_hash;
+      // fd_hash_t const * bank_hash = &child->slot_ctx.slot_bank.banks_hash;
 
-      fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( child->slot_ctx.epoch_ctx );
-      fd_bank_hash_cmp_lock( bank_hash_cmp );
-      fd_bank_hash_cmp_insert( bank_hash_cmp, ctx->curr_slot, bank_hash, 1 );
+      // fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( child->slot_ctx.epoch_ctx );
+      // fd_bank_hash_cmp_lock( bank_hash_cmp );
+      // fd_bank_hash_cmp_insert( bank_hash_cmp, ctx->curr_slot, bank_hash, 1 );
 
-      /* Try to move the bank hash comparison window forward */
-      while (1) {
-        ulong *children, nchildren, parent_slot = bank_hash_cmp->slot;
-        if ( fd_blockstore_next_slot_query( ctx->replay->blockstore, parent_slot, &children, &nchildren ) == FD_BLOCKSTORE_OK ) {
-          for (ulong i = 0; i < nchildren; i++) {
-            if( FD_LIKELY( fd_bank_hash_cmp_check( bank_hash_cmp, children[i] ) ) ) {
-              bank_hash_cmp->slot = children[i];
-              break;
-            }
-          }
-        } else {
-          FD_LOG_WARNING( ("failed at getting children of slot %lu", parent_slot) );
-        }
-        if(bank_hash_cmp->slot == parent_slot) break;
-      }
-      fd_bank_hash_cmp_unlock( bank_hash_cmp );
+      // /* Try to move the bank hash comparison window forward */
+      // while (1) {
+      //   ulong *children, nchildren, parent_slot = bank_hash_cmp->slot;
+      //   if ( fd_blockstore_next_slot_query( ctx->replay->blockstore, parent_slot, &children, &nchildren ) == FD_BLOCKSTORE_OK ) {
+      //     for (ulong i = 0; i < nchildren; i++) {
+      //       if( FD_LIKELY( fd_bank_hash_cmp_check( bank_hash_cmp, children[i] ) ) ) {
+      //         bank_hash_cmp->slot = children[i];
+      //         break;
+      //       }
+      //     }
+      //   } else {
+      //     FD_LOG_WARNING( ("failed at getting children of slot %lu", parent_slot) );
+      //   }
+      //   if(bank_hash_cmp->slot == parent_slot) break;
+      // }
+      // fd_bank_hash_cmp_unlock( bank_hash_cmp );
     }
   } FD_SCRATCH_SCOPE_END;
 }
@@ -387,8 +387,8 @@ after_credit( void *             _ctx,
         if ( is_snapshot ) {
           read_snapshot( ctx, ctx->snapshot, ctx->incremental );
         }
-        fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( ctx->epoch_ctx );
-        bank_hash_cmp->slot = ctx->replay->smr;
+        // fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( ctx->epoch_ctx );
+        // bank_hash_cmp->slot = ctx->replay->smr;
 
         fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot );
 
@@ -563,8 +563,8 @@ unprivileged_init( fd_topo_t *      topo,
   replay_slot->slot   = snapshot_slot;
   ctx->replay->smr    = snapshot_slot;
 
-  fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( ctx->epoch_ctx );
-  bank_hash_cmp->slot = snapshot_slot;
+  // fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( ctx->epoch_ctx );
+  // bank_hash_cmp->slot = snapshot_slot;
 
   ctx->slot_ctx =
             fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &replay_slot->slot_ctx, valloc ) );

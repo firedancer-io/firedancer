@@ -42,8 +42,8 @@ fd_ghost_new( void * shmem, ulong node_max, ulong vote_max, ulong seed ) {
   ghost->vote_pool = fd_ghost_vote_pool_new( (void *)laddr, vote_max );
   laddr += fd_ghost_vote_pool_footprint( vote_max );
 
-  laddr           = fd_ulong_align_up( laddr, fd_ghost_vote_map_align() );
-  ghost->vote_map = fd_ghost_vote_map_new( (void *)laddr, vote_max, seed );
+  laddr                  = fd_ulong_align_up( laddr, fd_ghost_vote_map_align() );
+  ghost->replay_vote_map = fd_ghost_vote_map_new( (void *)laddr, vote_max, seed );
   laddr += fd_ghost_vote_map_footprint( vote_max );
 
   laddr = fd_ulong_align_up( laddr, alignof( fd_ghost_t ) );
@@ -84,8 +84,8 @@ fd_ghost_join( void * shghost ) { /* process 1: 0xFA   process 2: 0x2F */
   ulong vote_max   = fd_ghost_vote_pool_max( ghost->vote_pool );
   laddr += fd_ghost_vote_pool_footprint( vote_max );
 
-  laddr           = fd_ulong_align_up( laddr, fd_ghost_vote_map_align() );
-  ghost->vote_map = fd_ghost_vote_map_join( (void *)laddr );
+  laddr                  = fd_ulong_align_up( laddr, fd_ghost_vote_map_align() );
+  ghost->replay_vote_map = fd_ghost_vote_map_join( (void *)laddr );
   laddr += fd_ghost_vote_map_footprint( fd_ghost_vote_map_ele_max() );
 
   return ghost;
@@ -212,11 +212,11 @@ fd_ghost_node_query( fd_ghost_t * ghost, fd_slot_hash_t const * key ) {
 
 void
 fd_ghost_replay_vote_upsert( fd_ghost_t *           ghost,
-                             fd_slot_hash_t const * key,
+                             fd_slot_hash_t const * slot_hash,
                              fd_pubkey_t const *    pubkey,
                              ulong                  stake ) {
   fd_ghost_node_t * node =
-      fd_ghost_node_map_ele_query( ghost->node_map, key, NULL, ghost->node_pool );
+      fd_ghost_node_map_ele_query( ghost->node_map, slot_hash, NULL, ghost->node_pool );
 
 #if FD_GHOST_USE_HANDHOLDING
   /* This indicates a programming error, because caller promises node is already in ghost. */
@@ -225,36 +225,34 @@ fd_ghost_replay_vote_upsert( fd_ghost_t *           ghost,
 
   /* Ignore votes for slots older than the current root. */
 
-  if( FD_UNLIKELY( key->slot < ghost->root.slot ) ) return;
+  if( FD_UNLIKELY( slot_hash->slot < ghost->root.slot ) ) return;
 
   /* Query pubkey's previous vote. */
 
-  fd_ghost_vote_t * vote =
-      fd_ghost_vote_map_ele_query( ghost->vote_map, pubkey, NULL, ghost->vote_pool );
+  fd_ghost_vote_t * prev_vote =
+      fd_ghost_vote_map_ele_query( ghost->replay_vote_map, pubkey, NULL, ghost->vote_pool );
 
   /* Subtract the vote stake from the old tree. */
 
-  if( FD_LIKELY( vote ) ) {
+  if( FD_LIKELY( prev_vote ) ) {
 
     /* Return early if the vote hasn't changed. */
 
-    if( FD_SLOT_HASH_EQ( key, &vote->slot_hash ) ) return;
+    if( FD_SLOT_HASH_EQ( slot_hash, &prev_vote->slot_hash ) ) return;
 
-    /* TODO also keep track of node's stake changes to return early? */
-
-    fd_ghost_node_t * node =
-        fd_ghost_node_map_ele_query( ghost->node_map, &vote->slot_hash, NULL, ghost->node_pool );
+    fd_ghost_node_t * prev_node =
+        fd_ghost_node_map_ele_query( ghost->node_map, &prev_vote->slot_hash, NULL, ghost->node_pool );
 
 #if FD_GHOST_USE_HANDHOLDING
     /* This indicates a programming error, because if there is a vote that implies there must be a
      * node. */
-    if( FD_UNLIKELY( !node ) ) FD_LOG_ERR( ( "missing ghost node that is in votes" ) );
+    if( FD_UNLIKELY( !prev_node ) ) FD_LOG_ERR( ( "missing ghost node that is in votes" ) );
 #endif
 
-    node->stake -= vote->stake;
-    fd_ghost_node_t * ancestor = node;
+    prev_node->stake -= prev_vote->stake;
+    fd_ghost_node_t * ancestor = prev_node;
     while( ancestor ) {
-      ancestor->weight -= vote->stake;
+      ancestor->weight -= prev_vote->stake;
       ancestor = ancestor->parent;
     }
   } else {
@@ -269,17 +267,17 @@ fd_ghost_replay_vote_upsert( fd_ghost_t *           ghost,
     }
 #endif
 
-    vote            = fd_ghost_vote_pool_ele_acquire( ghost->vote_pool );
-    vote->pubkey    = *pubkey;
-    vote->slot_hash = *key;
-    vote->stake     = stake;
-    fd_ghost_vote_map_ele_insert( ghost->vote_map, vote, ghost->vote_pool );
+    prev_vote            = fd_ghost_vote_pool_ele_acquire( ghost->vote_pool );
+    prev_vote->pubkey    = *pubkey;
+    prev_vote->slot_hash = *slot_hash;
+    prev_vote->stake     = stake;
+    fd_ghost_vote_map_ele_insert( ghost->replay_vote_map, prev_vote, ghost->vote_pool );
   }
 
   /* Add the vote stake to the fork ancestry beginning at key. */
 
-  vote->slot_hash = *key;
-  vote->stake     = stake;
+  prev_vote->slot_hash = *slot_hash;
+  prev_vote->stake     = stake;
   node->stake += stake;
   fd_ghost_node_t * ancestor = node;
   while( ancestor ) {
@@ -306,14 +304,66 @@ fd_ghost_replay_vote_upsert( fd_ghost_t *           ghost,
       ancestor       = ancestor->parent;
     }
   }
+
+  /* Remove the vote from gossip stake, if a gossip vote was previously counted. */
+
+  fd_ghost_vote_t * latest_gossip_vote =
+      fd_ghost_vote_map_ele_query( ghost->gossip_vote_map, pubkey, NULL, ghost->vote_pool );
+  if( FD_UNLIKELY( latest_gossip_vote && latest_gossip_vote->slot_hash.slot == slot_hash->slot ) ) {
+    node->gossip_stake -= latest_gossip_vote->stake;
+  }
 }
 
 void
-fd_ghost_gossip_vote_upsert( FD_PARAM_UNUSED fd_ghost_t *           ghost,
-                             FD_PARAM_UNUSED fd_slot_hash_t const * slot_hash,
-                             FD_PARAM_UNUSED fd_pubkey_t const *    pubkey,
-                             FD_PARAM_UNUSED ulong                  stake ) {
-  FD_LOG_ERR( ( "unimplemented" ) );
+fd_ghost_gossip_vote_upsert( fd_ghost_t *           ghost,
+                             fd_slot_hash_t const * slot_hash,
+                             fd_pubkey_t const *    pubkey,
+                             ulong                  stake ) {
+  fd_ghost_node_t * node =
+      fd_ghost_node_map_ele_query( ghost->node_map, slot_hash, NULL, ghost->node_pool );
+
+#if FD_GHOST_USE_HANDHOLDING
+  /* This indicates a programming error, because caller promises node is already in ghost. */
+  if( FD_UNLIKELY( !node ) ) FD_LOG_ERR( ( "missing ghost node" ) );
+#endif
+
+  ulong             slot = slot_hash->slot;
+  fd_ghost_vote_t * latest_gossip_vote =
+      fd_ghost_vote_map_ele_query( ghost->gossip_vote_map, pubkey, NULL, ghost->vote_pool );
+  fd_ghost_vote_t * latest_replay_vote =
+      fd_ghost_vote_map_ele_query( ghost->replay_vote_map, pubkey, NULL, ghost->vote_pool );
+
+  /* Ignore votes for slots older than the current root. */
+
+  if( FD_UNLIKELY( slot < ghost->root.slot ) ) return;
+
+  /* Ignore duplicate or stale gossip votes. */
+
+  if( FD_UNLIKELY( latest_gossip_vote && slot <= latest_gossip_vote->slot_hash.slot ) ) return;
+
+  /* Ignore gossip votes less recent than replay votes. */
+
+  if( FD_UNLIKELY( latest_replay_vote && slot <= latest_replay_vote->slot_hash.slot ) ) return;
+
+  /* Gossip vote is more recent than replay vote, so count it towards the gossip stake */
+
+  node->gossip_stake += stake;
+
+  /* Insert the new pubkey's vote. */
+
+#if FD_GHOST_USE_HANDHOLDING
+  /* This indicates a programming error, because we've exceeded the max # of node pubkeys that
+   * were statically allocated. */
+  if( FD_UNLIKELY( !fd_ghost_vote_pool_free( ghost->vote_pool ) ) ) {
+    FD_LOG_ERR( ( "vote pool full" ) ); /* OOM */
+  }
+#endif
+
+  fd_ghost_vote_t * vote = fd_ghost_vote_pool_ele_acquire( ghost->vote_pool );
+  vote->pubkey           = *pubkey;
+  vote->slot_hash        = *slot_hash;
+  vote->stake            = stake;
+  fd_ghost_vote_map_ele_insert( ghost->gossip_vote_map, vote, ghost->vote_pool );
 }
 
 static void

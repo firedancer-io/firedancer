@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_disco_shred_fd_shredcap_h
-#define HEADER_fd_src_disco_shred_fd_shredcap_h
+#ifndef HEADER_fd_src_disco_shred_fd_shred_cap_h
+#define HEADER_fd_src_disco_shred_fd_shred_cap_h
 
 /* Header include for fd_replay_t, fd_shred_t and fd_blockstoe_t */
 #include "../tvu/fd_replay.h"
@@ -31,4 +31,4 @@ int fd_shred_cap_mark_stable( fd_replay_t * replay, ulong slot );
 int fd_shred_cap_archive( fd_replay_t * replay, fd_shred_t const * shred , uchar flags);
 int fd_shred_cap_replay( const char * shred_pcap, fd_replay_t * replay );
 
-#endif
+#endif /* HEADER_fd_src_disco_shred_fd_shred_cap_h */

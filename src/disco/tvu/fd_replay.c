@@ -319,7 +319,7 @@ fd_replay_slot_prepare( fd_replay_t * replay, ulong slot ) {
 
   return fork;
 
-/* Not ready to execute, so cleanup. */
+  /* Not ready to execute, so cleanup. */
 
 end:
   fd_blockstore_end_read( replay->blockstore );
@@ -390,25 +390,69 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   fork->head->bank_hash       = *bank_hash;
   FD_LOG_NOTICE( ( "bank hash: %32J", bank_hash->hash ) );
 
-  // fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( child->slot_ctx.epoch_ctx );
-  // fd_bank_hash_cmp_lock( bank_hash_cmp );
-  // fd_bank_hash_cmp_insert( bank_hash_cmp, slot, bank_hash, 1 );
+  fd_bank_hash_cmp_t * bank_hash_cmp = replay->epoch_ctx->bank_hash_cmp;
+  fd_bank_hash_cmp_lock( bank_hash_cmp );
+  fd_bank_hash_cmp_insert( bank_hash_cmp, slot, bank_hash, 1 );
+
   /* Try to move the bank hash comparison window forward */
-  // while (1) {
-  //   ulong *children, nchildren, parent_slot = bank_hash_cmp->slot;
-  //   if ( fd_blockstore_next_slot_query( replay->blockstore, parent_slot, &children, &nchildren ) == FD_BLOCKSTORE_OK ) {
-  //     for (ulong i = 0; i < nchildren; i++) {
-  //       if( FD_LIKELY( fd_bank_hash_cmp_check( bank_hash_cmp, children[i] ) ) ) {
-  //         bank_hash_cmp->slot = children[i];
+
+  while( bank_hash_cmp->slot < slot ) {
+    if( fd_bank_hash_cmp_check( bank_hash_cmp, bank_hash_cmp->slot ) ) bank_hash_cmp->slot++;
+    else break;
+  }
+
+  // while( 1 ) {
+  //   ulong curr = bank_hash_cmp->slot;
+  //   ulong * next_slot = NULL;
+  //   ulong next_slot_len = 0;
+  //   if( FD_LIKELY( fd_blockstore_next_slot_query( replay->blockstore, curr, &next_slot, &next_slot_len ) ==
+  //       FD_BLOCKSTORE_OK )) {
+  //     for( ulong i = 0; i < next_slot_len; i++ ) {
+  //       if( FD_LIKELY( fd_bank_hash_cmp_check( bank_hash_cmp, next_slot[i] ) ) ) {
+  //         bank_hash_cmp->slot = next_slot[i];
   //         break;
   //       }
   //     }
   //   } else {
-  //     FD_LOG_WARNING( ("failed at getting children of slot %lu", parent_slot) );
+  //     FD_LOG_WARNING( ( "failed at getting children of slot %lu", parent_slot ) );
   //   }
-  //   if(bank_hash_cmp->slot == parent_slot) break;
+  //   if( bank_hash_cmp->slot == parent_slot ) break;
   // }
-  // fd_bank_hash_cmp_unlock( bank_hash_cmp );
+
+  fd_bank_hash_cmp_unlock( bank_hash_cmp );
+
+  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool =
+      replay->bft->vote_accounts->vote_accounts_pool;
+  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root =
+      replay->bft->vote_accounts->vote_accounts_root;
+
+  for( fd_vote_accounts_pair_t_mapnode_t const * node =
+           fd_vote_accounts_pair_t_map_minimum_const( vote_accounts_pool, vote_accounts_root );
+       node;
+       node = fd_vote_accounts_pair_t_map_successor_const( vote_accounts_pool, node ) ) {
+
+    fd_solana_account_t const * vote_account = &node->elem.value;
+
+    fd_bincode_decode_ctx_t decode_ctx = { .data    = vote_account->data,
+                                           .dataend = vote_account->data + vote_account->data_len,
+                                           .valloc  = replay->valloc };
+
+    fd_vote_state_versioned_t versioned;
+    int                       rc = fd_vote_state_versioned_decode( &versioned, &decode_ctx );
+    if( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) FD_LOG_ERR( ( "failed to decode" ) );
+    fd_vote_convert_to_current( &versioned, replay->valloc );
+    fd_vote_state_t * vote_state = &versioned.inner.current;
+
+    fd_landed_vote_t * landed_vote = deq_fd_landed_vote_t_peek_tail( vote_state->votes );
+    // ulong              vote_slot   = landed_vote->lockout.slot;
+    // fd_hash_t const *  bank_hash   = fd_blockstore_bank_hash_query( replay->blockstore, vote_slot );
+    if( landed_vote && vote_state->last_timestamp.slot != 0 && node->elem.stake ) {
+      // FD_LOG_NOTICE( ( "node: %32J. vote: %lu %32J",
+      //                  &vote_state->node_pubkey.key,
+      //                  vote_slot,
+      //                  &bank_hash->hash ) );
+    }
+  }
 
   // fd_bft_fork_update( replay->bft, child );
   // fd_bft_fork_choice( replay->bft );
@@ -504,7 +548,7 @@ fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t
   slot_ctx->valloc     = replay->valloc;
 
   fd_bincode_destroy_ctx_t destroy_ctx = {
-    .valloc = replay->valloc,
+      .valloc = replay->valloc,
   };
 
   fd_slot_bank_destroy( &slot_ctx->slot_bank, &destroy_ctx );

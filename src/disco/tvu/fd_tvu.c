@@ -1052,9 +1052,9 @@ snapshot_insert( fd_fork_t *        fork,
 
   replay->bft->snapshot_slot = snapshot_slot;
 
-  /* Add snapshot slot to bash hash cmp. */
-  fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( replay->epoch_ctx );
-  bank_hash_cmp->slot = snapshot_slot;
+  // /* Add snapshot slot to bash hash cmp. */
+  // fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( replay->epoch_ctx );
+  // bank_hash_cmp->slot = snapshot_slot;
 
   /* Set the SMR on replay.*/
 
@@ -1389,11 +1389,11 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
 
     /* bank hash cmp */
 
-    int    bank_hash_cmp_lg_slot_cnt = 10; /* max vote lag 512 => fill ratio 0.5 => 1024 */
-    void * bank_hash_cmp_mem = fd_exec_epoch_ctx_bank_hash_cmp( replay_setup_out.replay->epoch_ctx );
+    // int    bank_hash_cmp_lg_slot_cnt = 10; /* max vote lag 512 => fill ratio 0.5 => 1024 */
+    // void * bank_hash_cmp_mem = fd_exec_epoch_ctx_bank_hash_cmp( replay_setup_out.replay->epoch_ctx );
 
-    fd_bank_hash_cmp_join(
-        fd_bank_hash_cmp_new( bank_hash_cmp_mem, bank_hash_cmp_lg_slot_cnt ) );
+    // fd_bank_hash_cmp_join(
+    //     fd_bank_hash_cmp_new( bank_hash_cmp_mem, bank_hash_cmp_lg_slot_cnt ) );
 
     /* bootstrap replay with the snapshot slot */
 

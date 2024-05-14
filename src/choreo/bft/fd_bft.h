@@ -23,18 +23,19 @@
 /* fd_bft implements Solana's Proof-of-Stake consensus protocol. */
 
 struct fd_bft {
-  ulong      snapshot_slot;
-  ulong      epoch_stake; /* total amount of stake in the current epoch */
-  fd_tower_t tower;       /* our local vote tower */
+  ulong snapshot_slot;
+  ulong epoch_stake; /* total amount of stake in the current epoch */
 
   /* external joins, pointer don't need updating */
 
-  fd_acc_mgr_t *    acc_mgr;
-  fd_blockstore_t * blockstore;
-  fd_commitment_t * commitment;
-  fd_forks_t *      forks;
-  fd_ghost_t *      ghost;
-  fd_valloc_t       valloc;
+  fd_acc_mgr_t *       acc_mgr;
+  fd_blockstore_t *    blockstore;
+  fd_commitment_t *    commitment;
+  fd_forks_t *         forks;
+  fd_ghost_t *         ghost;
+  fd_tower_t *         tower;
+  fd_valloc_t          valloc;
+  fd_vote_accounts_t * vote_accounts;
 };
 typedef struct fd_bft fd_bft_t;
 
