@@ -161,8 +161,7 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
 
   /* TLS config ********************************************/
 
-  /* identity_key: Ed25519 public key of node identity
-     (Can be random bytes) */
+  /* identity_key: Ed25519 public key of node identity */
   uchar identity_public_key[ 32 ];
 
   /* Callback for signing TLS 1.3 certificate verify payload */

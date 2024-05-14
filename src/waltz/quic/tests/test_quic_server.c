@@ -1,11 +1,3 @@
-#include <math.h>
-
-#include <linux/if_xdp.h>
-
-#include "../../../util/fd_util_base.h"
-#include "../../../util/net/fd_eth.h"
-#include "../../../util/net/fd_ip4.h"
-
 #include "../fd_quic.h"
 #include "fd_quic_test_helpers.h"
 #include "../../tls/test_tls_helper.h"
@@ -32,7 +24,7 @@ main( int argc, char ** argv ) {
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
   char const * _page_sz = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",  NULL, "gigantic"                 );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt", NULL, 1UL                        );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt", NULL, 2UL                        );
   ulong        numa_idx = fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx(cpu_idx) );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
