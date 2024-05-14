@@ -2,7 +2,7 @@
 
 static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
-static void
+static int
 test_vm_syscall_sol_curve_multiscalar_mul( char const * test_case_name,
                                            fd_vm_t *    vm,
                                            ulong        curve_id,
@@ -20,15 +20,17 @@ test_vm_syscall_sol_curve_multiscalar_mul( char const * test_case_name,
       FD_TEST( ret_code == expected_ret_code );
     }
 
-    void * result_point_host_addr = fd_vm_translate_vm_to_host( vm, result_point_vaddr, 32, 1 );
+    const void * result_point_host_addr = FD_VM_MEM_HADDR_LD( vm, result_point_vaddr, 1, 32 );
     if (ret_code == 0 && syscall_ret == 0) {
         FD_TEST( memcmp( result_point_host_addr, expected_result_host_ptr, 32 ) == 0 );
     }
 
     FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
+    
+    return FD_VM_SUCCESS;
 }
 
-static void
+static int
 test_fd_vm_syscall_sol_curve_group_op( char const * test_case_name,
                                        fd_vm_t *    vm,
                                        ulong        curve_id,
@@ -44,12 +46,14 @@ test_fd_vm_syscall_sol_curve_group_op( char const * test_case_name,
     FD_TEST( ret_code == expected_ret_code );
     FD_TEST( syscall_ret == expected_syscall_ret );
 
-    void * result_point_host_addr = fd_vm_translate_vm_to_host( vm, result_point_vaddr, 32, 1 );
+    const void * result_point_host_addr = FD_VM_MEM_HADDR_LD( vm, result_point_vaddr, 1, 32 );
     if (ret_code == 0 && syscall_ret == 0) {
         FD_TEST( memcmp( result_point_host_addr, expected_result_host_ptr, 32 ) == 0 );
     }
 
     FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
+
+    return FD_VM_SUCCESS;
 }
 
 int
@@ -108,7 +112,7 @@ main( int     argc,
   void * expected_result_host_ptr = NULL;
 
   // invalid
-  test_vm_syscall_sol_curve_multiscalar_mul(
+  FD_TEST( test_vm_syscall_sol_curve_multiscalar_mul(
     "test_vm_syscall_sol_curve_multiscalar_mul: invalid",
     vm,
     FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS,
@@ -119,10 +123,10 @@ main( int     argc,
     0UL, // ret_code
     FD_VM_ERR_SIGSEGV, // syscall_ret
     expected_result_host_ptr
-  );
+  ) );
 
   // invalid (max 512 points)
-  test_vm_syscall_sol_curve_multiscalar_mul(
+  FD_TEST( test_vm_syscall_sol_curve_multiscalar_mul(
     "test_vm_syscall_sol_curve_multiscalar_mul: invalid",
     vm,
     FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS,
@@ -133,10 +137,10 @@ main( int     argc,
     0UL, // ret_code
     FD_VM_ERR_INVAL, // syscall_ret
     expected_result_host_ptr
-  );
+  ) );
 
   // invalid (max 512 points)
-  test_vm_syscall_sol_curve_multiscalar_mul(
+  FD_TEST( test_vm_syscall_sol_curve_multiscalar_mul(
     "test_vm_syscall_sol_curve_multiscalar_mul: invalid",
     vm,
     5, // invalid curve
@@ -147,7 +151,7 @@ main( int     argc,
     0UL, // ret_code
     FD_VM_ERR_INVAL, // syscall_ret
     expected_result_host_ptr
-  );
+  ) );
 
   // success
   // https://github.com/solana-labs/solana/blob/v1.17.15/programs/bpf_loader/src/syscalls/mod.rs#L3107
@@ -179,7 +183,7 @@ main( int     argc,
     result_point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 128UL;
     expected_result_host_ptr = _expected;
 
-    test_vm_syscall_sol_curve_multiscalar_mul(
+    FD_TEST( test_vm_syscall_sol_curve_multiscalar_mul(
       "test_vm_syscall_sol_curve_multiscalar_mul: ed25519",
       vm,
       FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS,
@@ -190,7 +194,7 @@ main( int     argc,
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
-    );
+    ) );
   }
 
   {
@@ -221,7 +225,7 @@ main( int     argc,
     result_point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 128UL;
     expected_result_host_ptr = _expected;
 
-    test_vm_syscall_sol_curve_multiscalar_mul(
+    FD_TEST( test_vm_syscall_sol_curve_multiscalar_mul(
       "test_vm_syscall_sol_curve_multiscalar_mul: ristretto255",
       vm,
       FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO,
@@ -232,7 +236,7 @@ main( int     argc,
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
-    );
+    ) );
   }
 
   // test 0 + P
@@ -256,7 +260,7 @@ main( int     argc,
     result_point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
     expected_result_host_ptr = _expected;
 
-    test_fd_vm_syscall_sol_curve_group_op(
+    FD_TEST( test_fd_vm_syscall_sol_curve_group_op(
       "fd_vm_syscall_sol_curve_group_op: ristretto255, add 0 + P",
       vm,
       FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO,
@@ -267,7 +271,7 @@ main( int     argc,
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
-    );
+    ) );
   }
 
   // https://github.com/solana-labs/solana/blob/v1.17.15/programs/bpf_loader/src/syscalls/mod.rs#L2948C8-L2948C46
@@ -293,7 +297,7 @@ main( int     argc,
     result_point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
     expected_result_host_ptr = _expected;
 
-    test_fd_vm_syscall_sol_curve_group_op(
+    FD_TEST( test_fd_vm_syscall_sol_curve_group_op(
       "fd_vm_syscall_sol_curve_group_op: ristretto255, add",
       vm,
       FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO,
@@ -304,7 +308,7 @@ main( int     argc,
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
-    );
+    ) );
   }
 
   {
@@ -327,7 +331,7 @@ main( int     argc,
     result_point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
     expected_result_host_ptr = _expected;
 
-    test_fd_vm_syscall_sol_curve_group_op(
+    FD_TEST( test_fd_vm_syscall_sol_curve_group_op(
       "fd_vm_syscall_sol_curve_group_op: ristretto255, sub",
       vm,
       FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO,
@@ -338,7 +342,7 @@ main( int     argc,
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
-    );
+    ) );
   }
 
   {
@@ -365,7 +369,7 @@ main( int     argc,
     result_point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
     expected_result_host_ptr = _expected;
 
-    test_fd_vm_syscall_sol_curve_group_op(
+    FD_TEST( test_fd_vm_syscall_sol_curve_group_op(
       "fd_vm_syscall_sol_curve_group_op: ristretto255, mul",
       vm,
       FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO,
@@ -376,7 +380,7 @@ main( int     argc,
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
-    );
+    ) );
   }
 
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );
