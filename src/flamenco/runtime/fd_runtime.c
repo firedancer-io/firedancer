@@ -2203,7 +2203,7 @@ fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
                     fd_exec_slot_ctx_t * slot_ctx,
                     ulong slot ) {
   int is_checkpt_freq = capture_ctx != NULL && slot % capture_ctx->checkpt_freq == 0;
-  int is_abort_slot   = slot == ULONG_MAX; 
+  int is_abort_slot   = slot == ULONG_MAX;
   if( !is_checkpt_freq && !is_abort_slot ) {
     return;
   }
@@ -2281,7 +2281,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
   if( err != 0 ) {
     return err;
   }
-  
+
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
 
   long block_eval_time = -fd_log_wallclock();
@@ -3600,8 +3600,7 @@ FD_SCRATCH_SCOPE_BEGIN {
     fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
     fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
     if ( rec == NULL )
-      __asm__("int $3");
-      // FD_LOG_ERR(("failed to read banks record"));
+      FD_LOG_ERR(("failed to read banks record"));
     void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
     fd_bincode_decode_ctx_t ctx;
     ctx.data = val;
