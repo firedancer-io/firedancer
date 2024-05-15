@@ -273,8 +273,8 @@ main( int     argc,
   text[0] = fd_rng_ulong( rng );
   text[1] = fd_rng_ulong( rng );
 
-  FD_TEST( fd_vm_trace_event_exe( NULL, reg[0UL] & 0xffffUL, reg[1UL] & 0xffffUL, reg[2UL], reg+3UL, text, 2UL )==FD_VM_ERR_INVAL );
-  FD_TEST( fd_vm_trace_event_mem( NULL, 1, 2UL, 3UL, reg                                                       )==FD_VM_ERR_INVAL );
+  FD_TEST( fd_vm_trace_event_exe( NULL, reg[0UL] & 0xffffUL, reg[1UL] & 0xffffUL, reg[2UL], reg+3UL, text, 2UL, 6UL, 4UL )==FD_VM_ERR_INVAL );
+  FD_TEST( fd_vm_trace_event_mem( NULL, 1, 2UL, 3UL, reg                                                                 )==FD_VM_ERR_INVAL );
 
   for(;;) {
     uint r = fd_rng_uint( rng );
@@ -286,7 +286,7 @@ main( int     argc,
       for( ulong i=0UL; i<3UL+FD_VM_REG_CNT; i++ ) reg[i] = fd_rng_ulong( rng );
       text[0] = fd_rng_ulong( rng );
       text[1] = fd_rng_ulong( rng );
-      int err = fd_vm_trace_event_exe( trace, reg[0UL] & 0xffffUL, reg[1UL] & 0xffffUL, reg[2UL], reg+3UL, text, 2UL );
+      int err = fd_vm_trace_event_exe( trace, reg[0UL] & 0xffffUL, reg[1UL] & 0xffffUL, reg[2UL], reg+3UL, text, 2UL, 7UL, 4UL );
       if( FD_UNLIKELY( err==FD_VM_ERR_FULL ) ) goto vm_trace_done;
       FD_TEST( !err );
       break;
