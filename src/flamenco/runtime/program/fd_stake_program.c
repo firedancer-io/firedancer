@@ -645,19 +645,22 @@ acceptable_reference_epoch_credits( fd_vote_epoch_credits_t * epoch_credits,
   };
 }
 
+/* https://github.com/firedancer-io/solana/blob/06ec63044892e5ee14b6fa15d8c55da9953d0c09/sdk/program/src/stake/tools.rs#L67-L83 */
 static inline int
 eligible_for_deactivate_delinquent( fd_vote_epoch_credits_t * epoch_credits, ulong current_epoch ) {
-  fd_vote_epoch_credits_t * last = deq_fd_vote_epoch_credits_t_peek_index(
-      epoch_credits, deq_fd_vote_epoch_credits_t_cnt( epoch_credits ) - 1 );
-  if( !last ) { // FIXME FD_LIKELY
+  if( FD_LIKELY( deq_fd_vote_epoch_credits_t_empty( epoch_credits ) ) ) { 
+    return 1; 
+  }
+
+  fd_vote_epoch_credits_t * last = deq_fd_vote_epoch_credits_t_peek_tail( epoch_credits );
+  if( FD_LIKELY( !last ) ) {
     return 1;
   } else {
-    ulong * epoch         = &last->epoch;
-    ulong   minimum_epoch = ULONG_MAX;
-    int     cf            = __builtin_usubl_overflow(
-        current_epoch, MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION, &minimum_epoch );
-    if( !cf ) { // FIXME FD_LIKELY
-      return *epoch <= minimum_epoch;
+    ulong epoch         = last->epoch;
+    ulong minimum_epoch = ULONG_MAX;
+    int res = fd_ulong_checked_sub( current_epoch, MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION, &minimum_epoch );
+    if( FD_LIKELY( res == 0 ) ) {
+      return epoch <= minimum_epoch;
     } else {
       return 0;
     }
