@@ -342,7 +342,8 @@ BRANCH_PRE_CODE
 
   /* tally the current basic block */
 
-  due_insn_cnt  += (ulong)insns - skipped_insns;
+  due_insn_cnt   += (ulong)insns - skipped_insns;
+  ic             += (ulong)insns - skipped_insns;
   insns          = 0UL;
   skipped_insns  = 0UL;
   start_pc       = pc;
