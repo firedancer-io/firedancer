@@ -14,8 +14,7 @@ metric introduced.
     <int value="0" name="Success" label="Success" />
     <int value="1" name="ErrorOversize" label="Oversize message" />
     <int value="2" name="ErrorSkip" label="Out-of-order data within QUIC stream" />
-    <int value="3" name="ErrorTransaction" label="Rejected transaction" />
-    <int value="4" name="ErrorState" label="Unexpected slot state" />
+    <int value="3" name="ErrorState" label="Unexpected slot state" />
 </enum>
 
 <enum name="QuicStreamType">

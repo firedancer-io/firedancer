@@ -153,23 +153,6 @@ main( int     argc,
   fd_tpu_reasm_reset( reasm );
   verify_state( reasm, mcache );
 
-  FD_LOG_INFO(( "Test invalid txn" ));
-
-  do {
-    fd_tpu_reasm_slot_t * slot = fd_tpu_reasm_prepare( reasm, 0UL );
-    FD_TEST( slot->state == FD_TPU_REASM_STATE_BUSY );
-    slot->sz = 0UL;  /* guaranteed to fail parse */
-    FD_TEST( fd_tpu_reasm_publish( reasm, slot, mcache, reasm, seq, 0UL )
-             == FD_TPU_REASM_ERR_TXN );
-    FD_TEST( slot->state == FD_TPU_REASM_STATE_FREE );
-    verify_state( reasm, mcache );
-
-    fd_frag_meta_t * mline = mcache + fd_mcache_line_idx( seq, depth );
-    FD_TEST( mline->seq != seq );
-
-    seq = fd_seq_inc( seq, 1UL );
-  } while(0);
-
   FD_LOG_INFO(( "Test basic publishing" ));
 
   do {
@@ -186,7 +169,7 @@ main( int     argc,
     fd_frag_meta_t * mline    = mcache + line_idx;
 
     FD_TEST( mline->seq == seq );
-    FD_TEST( mline->sz >= transaction4_sz+sizeof(fd_txn_t) );
+    FD_TEST( mline->sz == transaction4_sz );
     FD_TEST( (ulong)(slot - slots) == pub_slots[ line_idx ] );
 
     uchar const * data = fd_chunk_to_laddr_const( tpu_reasm_mem, mline->chunk );
@@ -230,11 +213,6 @@ main( int     argc,
         fd_tpu_reasm_cancel( reasm, slot );
         FD_TEST( slot->state == FD_TPU_REASM_STATE_FREE );
         FD_TEST( reasm->tail == slot_idx );
-        check_free_diff( verify_state( reasm, mcache ), +1L );
-      } else if( roll<0x40000000U ) {
-        FD_TEST( fd_tpu_reasm_publish( reasm, slot, mcache, reasm, seq, fd_rng_ulong( rng ) )
-                 == FD_TPU_REASM_ERR_TXN );
-        seq = fd_seq_inc( seq, 1UL );
         check_free_diff( verify_state( reasm, mcache ), +1L );
       } else {
         FD_TEST( fd_tpu_reasm_append( reasm, slot, transaction4, transaction4_sz, 0UL )

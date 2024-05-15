@@ -166,62 +166,6 @@ fd_tpu_reasm_append( fd_tpu_reasm_t *      reasm,
   return FD_TPU_REASM_SUCCESS;
 }
 
-static fd_tpu_reasm_slot_t *
-append_descriptor( fd_tpu_reasm_slot_t * slot,
-                   uchar *               data ) {
-
-  /* At this point, the payload only contains the serialized txn.
-     Beyond end of txn, but within bounds of msg layout, add a trailer
-     describing the txn layout.
-
-     [ payload      ] (txn_sz bytes)
-     [ pad-align 2B ] (? bytes)
-     [ fd_txn_t     ] (? bytes)
-     [ payload_sz   ] (2B) */
-
-  ulong txn_sz   = slot->sz;
-  ulong txnt_off = fd_ulong_align_up( txn_sz, 2UL );
-
-  /* Ensure sufficient space to store trailer */
-
-  long txnt_maxsz = (long)FD_TPU_DCACHE_MTU -
-                    (long)txnt_off -
-                    (long)sizeof(ushort);
-  if( FD_UNLIKELY( txnt_maxsz < (long)FD_TXN_MAX_SZ ) ) {
-    FD_LOG_WARNING(( "not enough chunks to fit txn (sz %lu)", txn_sz ));
-    return NULL;
-  }
-
-  uchar const * txn   = data;
-  void *        txn_t = data + txnt_off;
-
-  /* Parse transaction */
-
-  ulong txn_t_sz = fd_txn_parse( txn, txn_sz, txn_t, NULL );
-  if( FD_UNLIKELY( !txn_t_sz ) ) {
-    FD_LOG_DEBUG(( "fd_txn_parse(sz=%lu) failed", txn_sz ));
-    return NULL;  /* invalid txn (punish QUIC client?) */
-  }
-
-  /* Write payload_sz */
-
-  ushort * payload_sz_p = (ushort *)( (ulong)txn_t + txn_t_sz );
-  /* TODO assert payload_sz is aligned by alignof(ushort)? */
-  *payload_sz_p = (ushort)txn_sz;
-
-  /* End of message */
-
-  ulong new_sz = ( (ulong)payload_sz_p + sizeof(ushort) ) - (ulong)data;
-  if( FD_UNLIKELY( new_sz>FD_TPU_DCACHE_MTU ) ) {
-    FD_LOG_CRIT(( "memory corruption detected (txn_sz=%lu txn_t_sz=%lu)",
-                  txn_sz, txn_t_sz ));
-    return NULL;
-  }
-
-  slot->sz = (ushort)new_sz;
-  return slot;
-}
-
 int
 fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
                       fd_tpu_reasm_slot_t * slot,
@@ -243,12 +187,6 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
                    ( chunk>UINT_MAX         ) ) ) {
     FD_LOG_CRIT(( "invalid base %p for slot %p in tpu_reasm %p",
                   base, (void *)slot, (void *)reasm ));
-  }
-
-  /* Parse transaction and append descriptor */
-  if( FD_UNLIKELY( !append_descriptor( slot, data ) ) ) {
-    fd_tpu_reasm_cancel( reasm, slot );
-    return FD_TPU_REASM_ERR_TXN;
   }
 
   /* Acquire mcache line */

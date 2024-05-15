@@ -17,7 +17,7 @@
 /* FD_TPU_REASM_MTU is the max tango frag sz sent by an fd_tpu_reasm_t.
    FD_TPU_REASM_CHUNK_MTU*FD_CHUNK_SZ == FD_TPU_REASM_MTU */
 
-#define FD_TPU_REASM_CHUNK_MTU (FD_ULONG_ALIGN_UP( FD_TPU_DCACHE_MTU, FD_CHUNK_SZ )>>FD_CHUNK_LG_SZ)
+#define FD_TPU_REASM_CHUNK_MTU (FD_ULONG_ALIGN_UP( FD_TPU_MTU, FD_CHUNK_SZ )>>FD_CHUNK_LG_SZ)
 #define FD_TPU_REASM_MTU       (FD_TPU_REASM_CHUNK_MTU<<FD_CHUNK_LG_SZ)
 
 #define FD_TPU_REASM_ALIGN FD_CHUNK_ALIGN
@@ -36,8 +36,7 @@
 #define FD_TPU_REASM_SUCCESS   (0)
 #define FD_TPU_REASM_ERR_SZ    (1)  /* oversz msg */
 #define FD_TPU_REASM_ERR_SKIP  (2)  /* out-of-order data within QUIC stream */
-#define FD_TPU_REASM_ERR_TXN   (3)  /* rejected transaction (invalid?) */
-#define FD_TPU_REASM_ERR_STATE (4)  /* unexpected slot state */
+#define FD_TPU_REASM_ERR_STATE (3)  /* unexpected slot state */
 
 /* FD_TPU_REASM_STATE_{...} are reasm slot states */
 
