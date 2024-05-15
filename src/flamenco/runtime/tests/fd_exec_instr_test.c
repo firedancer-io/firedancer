@@ -279,6 +279,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->dirty_vote_acc          = 0;
   txn_ctx->dirty_stake_acc         = 0;
   txn_ctx->failed_instr            = NULL;
+  txn_ctx->instr_err_idx           = INT_MAX;
   txn_ctx->capture_ctx             = NULL;
   txn_ctx->vote_accounts_pool      = NULL;
 

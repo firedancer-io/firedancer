@@ -1061,6 +1061,7 @@ fd_runtime_write_transaction_status( fd_capture_ctx_t * capture_ctx,
         .solana_txn_err  = solana_txn_err,
         .fd_cus_used     = fd_cus_consumed,
         .solana_cus_used = solana_cus_consumed,
+        .instr_err_idx = txn_ctx->instr_err_idx == INT_MAX ? -1 : txn_ctx->instr_err_idx,
       };
       memcpy( txn.txn_sig, sig, sizeof(fd_signature_t) );
 

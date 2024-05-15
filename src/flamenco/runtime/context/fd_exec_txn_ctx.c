@@ -213,6 +213,7 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
   txn_ctx->dirty_vote_acc  = 0;
   txn_ctx->dirty_stake_acc = 0;
   txn_ctx->failed_instr    = NULL;
+  txn_ctx->instr_err_idx   = INT_MAX;
   txn_ctx->capture_ctx     = NULL;
 }
 
