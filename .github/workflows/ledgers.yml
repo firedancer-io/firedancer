@@ -1,0 +1,92 @@
+name: Replay Ledgers
+on:
+  workflow_call:
+    inputs:
+      coverage:
+        type: boolean
+        default: false
+      machine:
+        type: string
+        default: linux_gcc_zen2
+      extras:
+        type: string
+        default: ""
+  workflow_dispatch:
+  merge_group:
+jobs:
+  ledger-replay:
+    runs-on: private
+    env:
+      CC: gcc
+      MACHINE: ${{ inputs.machine }}
+      EXTRAS: ${{ inputs.extras }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: ./.github/actions/deps
+      - uses: ./.github/actions/hugepages
+        with:
+          count_gigantic: 300
+          count_huge: 1000 # TODO: this is required until we can handle anonymouse workspaces and loose huge pages in fddev
+
+      - name: build
+        run: |
+          make -j bin
+
+      - name: find OBJDIR
+        run: |
+          echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
+
+      - name: test replay ledgers
+        run: |
+          sudo prlimit --pid=$$ --nofile=1048576
+          sudo prlimit --pid=$$ --memlock=unlimited
+          make run-runtime-test
+
+      - name: Merge coverage reports
+        if: ${{ inputs.coverage }}
+        run: |
+          make $OBJDIR/cov/cov.lcov
+          mv $OBJDIR/cov/cov.lcov run-runtime-test.lcov
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ inputs.coverage }}
+        with:
+          name: ledger-cov-${{ github.run_id }}-run-runtime-test
+          path: run-runtime-test.lcov
+          overwrite: true
+          retention-days: 1
+
+
+  ledger-coverage:
+    runs-on: private
+    needs: ledger-replay
+    if: ${{ inputs.coverage }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/deps
+      - name: find OBJDIR
+        run: |
+          echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
+      - uses: actions/download-artifact@v4
+        with:
+          path: cov
+          pattern: ledger-cov-${{ github.run_id }}-*
+          merge-multiple: true
+
+      - name: Merge coverage reports
+        run: |
+          find cov -type f
+          lcov -q $(for x in cov/*.lcov; do echo "-a $x"; done) -o all.cov
+      - name: Upload coverage report to CodeCov
+        uses: codecov/codecov-action@v3
+        timeout-minutes: 5
+        with:
+          files: all.cov
+          name: dist-cov-report-ledger
+          fail_ci_if_error: false
+          functionalities: search
+          flags: ledgers
+          token: ${{ secrets.CODECOV_TOKEN }}
