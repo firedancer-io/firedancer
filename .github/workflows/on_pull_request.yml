@@ -11,3 +11,7 @@ jobs:
     if: github.event.pull_request.draft == false
     uses: ./.github/workflows/tests.yml
     secrets: inherit
+  ledgers:
+    if: github.event.pull_request.draft == false
+    uses: ./.github/workflows/ledgers.yml
+    secrets: inherit
