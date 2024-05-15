@@ -113,7 +113,9 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
                        ulong           cu,
                        ulong           reg[ FD_VM_REG_CNT ],
                        ulong const *   text,
-                       ulong           text_cnt ) {
+                       ulong           text_cnt,
+                       ulong           ic_correction,
+                       ulong           frame_cnt ) {
 
   /* Acquire event storage */
 
@@ -140,6 +142,8 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
   event->cu      = cu;
   memcpy( event->reg, reg, FD_VM_REG_CNT*sizeof(ulong) );
   event->text[0] = text0;
+  event->ic_correction = ic_correction;
+  event->frame_cnt = frame_cnt;
   if( FD_UNLIKELY( multiword ) ) event->text[1] = text[1];
 
   return FD_VM_SUCCESS;
@@ -222,14 +226,12 @@ fd_vm_trace_printf( fd_vm_trace_t const *      trace,
       ulong event_pc = event->pc;
 
       /* Pretty print the architectural state before the instruction */
-      /* FIXME: PRINT CUS? */
-      /* FIXME: THIS OFFSET IS FOR TESTING ONLY (DOUBLE FIXME) */
 
       printf( "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
               event->ic,
               event->reg[ 0], event->reg[ 1], event->reg[ 2], event->reg[ 3],
               event->reg[ 4], event->reg[ 5], event->reg[ 6], event->reg[ 7],
-              event->reg[ 8], event->reg[ 9], event->reg[10], event_pc + 29UL );
+              event->reg[ 8], event->reg[ 9], event->reg[10], event_pc );
 
       /* Print the instruction */
 
@@ -237,8 +239,12 @@ fd_vm_trace_printf( fd_vm_trace_t const *      trace,
       char  out[128];
       out[0] = '\0';
       int err = fd_vm_disasm_instr( event->text, fd_ulong_if( !multiword, 1UL, 2UL ), event_pc, syscalls, out, 128UL, &out_len );
-      if( FD_UNLIKELY( err ) ) printf( "disasm failed (%i-%s)\n", err, fd_vm_strerror( err ) );
-      else                     printf( "%s\n", out );
+      if( FD_UNLIKELY( err ) ) printf( "disasm failed (%i-%s)", err, fd_vm_strerror( err ) );
+      else                     printf( "%s", out );
+
+      /* Print CUs  */
+      printf( " %lu\n", event->cu );
+
       break;
     }
 

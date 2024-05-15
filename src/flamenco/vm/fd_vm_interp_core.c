@@ -66,7 +66,7 @@
 
 # define FD_VM_INTERP_INSTR_BEGIN(opcode) interp_##opcode:
 
-# if 0 /* Non-tracing path only, ~0.3% faster in some benchmarks, slower in others but more code footprint */
+# ifndef FD_VM_INTERP_EXE_TRACING_ENABLED /* Non-tracing path only, ~0.3% faster in some benchmarks, slower in others but more code footprint */
 # define FD_VM_INTERP_INSTR_END pc++; FD_VM_INTERP_INSTR_EXEC
 # else /* Use this version when tracing or optimizing code footprint */
 # define FD_VM_INTERP_INSTR_END pc++; goto interp_exec
@@ -119,7 +119,7 @@
   /* FIXME: debatable if it is better to do pc++ here or have the
      instruction implementations do it in their code path. */
 
-# if 0 /* Non-tracing path only, ~4% faster in some benchmarks, slower in others but more code footprint */
+# ifndef FD_VM_INTERP_EXE_TRACING_ENABLED /* Non-tracing path only, ~4% faster in some benchmarks, slower in others but more code footprint */
 # define FD_VM_INTERP_BRANCH_END               \
     pc++;                                      \
     pc0 = pc; /* Start a new linear segment */ \
@@ -191,7 +191,7 @@ interp_exec:
      instruction execution starts here such that this is only point
      where exe tracing diagnostics are needed. */
 
-  fd_vm_trace_event_exe( vm->trace, pc, ic, pc - pc0 + 1UL - ic_correction, reg, vm->text + pc, vm->text_cnt - pc );
+  fd_vm_trace_event_exe( vm->trace, pc, ic + ( pc - pc0 - ic_correction ), cu, reg, vm->text + pc, vm->text_cnt - pc, ic_correction, frame_cnt );
 # endif
 
   FD_VM_INTERP_INSTR_EXEC;
