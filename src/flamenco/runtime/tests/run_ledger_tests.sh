@@ -35,9 +35,9 @@ INC_SNAPSHOT=""
 END_SLOT="--end-slot 1010"
 FUNK_PAGES="--funk-page-cnt 20"
 PAGES="--page-cnt 20"
-PRUNED_PAGES="--page-cnt-pruned 20"
+PRUNED_PAGES="--pruned-page-cnt 20"
 IMAX="--index-max 1000000"
-PRUNED_IMAX="--index-max-pruned 1000000"
+PRUNED_IMAX="--pruned-index-max 1000000"
 START="--start-slot 241819853"
 HISTORY="--slot-history 5000"
 TRASHHASH=""
@@ -74,8 +74,8 @@ while [[ $# -gt 0 ]]; do
        shift
        shift
        ;;
-    -P|--page-cnt-pruned)
-       PRUNED_PAGES="--page-cnt-pruned $2"
+    -P|--pruned-page-cnt)
+       PRUNED_PAGES="--pruned-page-cnt $2"
        shift
        shift
        ;;
@@ -100,7 +100,7 @@ while [[ $# -gt 0 ]]; do
        shift
        ;;
     -M|--indexmax-pruned)
-       PRUNED_IMAX="--index-max-pruned $2"
+       PRUNED_IMAX="--pruned-index-max $2"
        shift
        shift
        ;;
@@ -381,7 +381,7 @@ then
       $IMAX \
       --start-slot $prune_start_slot \
       --end-slot $prune_end_slot \
-      --restore-funk $RESTORE_PATH \
+      --funk-restore $RESTORE_PATH \
       --checkpt-funk $PRUNE_PATH \
       --funk-only 1 \
       --txn-max 100 \
