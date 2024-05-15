@@ -279,6 +279,16 @@ fd_replay_slot_prepare( fd_replay_t * replay, ulong slot ) {
 
     /* Alloc a new slot_ctx */
 
+#if FD_GHOST_USE_HANDHOLDING
+
+    /* this shouldn't happen: SLOTS_PER_EPOCH nodes are pre-allocated. triggering this condition
+       likely indicates a bug in pruning logic. */
+
+    if( FD_UNLIKELY( !fd_fork_pool_free( replay->forks->pool ) ) ) {
+      FD_LOG_ERR( ( "fork pool full" ) ); /* OOM */
+    }
+#endif
+
     fork       = fd_fork_pool_ele_acquire( replay->forks->pool );
     fork->slot = parent_slot;
 
@@ -616,7 +626,6 @@ fd_replay_repair_rx( fd_replay_t * replay, fd_shred_t const * shred ) {
   if( FD_UNLIKELY( rc < FD_BLOCKSTORE_OK ) ) {
     FD_LOG_ERR( ( "failed to insert shred. reason: %d", rc ) );
   } else if( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
-    FD_LOG_NOTICE(("completed slot %lu", shred->slot));
     fd_replay_add_pending( replay, shred->slot, 0 );
   } else {
     fd_replay_add_pending( replay, shred->slot, FD_REPAIR_BACKOFF_TIME );

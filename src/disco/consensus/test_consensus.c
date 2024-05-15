@@ -508,14 +508,13 @@ main( int argc, char ** argv ) {
   fd_scratch_attach( smem, fmem, smax, sdepth );
 
   /**********************************************************************/
-  /* latest_votes                                                       */
+  /* bank_hash_cmp                                                      */
   /**********************************************************************/
 
-  void * latest_votes_mem = fd_wksp_alloc_laddr(
-      wksp, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint(), TEST_CONSENSUS_MAGIC );
-  fd_latest_vote_t * latest_votes =
-      fd_latest_vote_deque_join( fd_latest_vote_deque_new( latest_votes_mem ) );
-  FD_TEST( latest_votes );
+  void * bank_hash_cmp_mem = fd_wksp_alloc_laddr(
+      wksp, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( 14 ), TEST_CONSENSUS_MAGIC );
+  fd_bank_hash_cmp_t * bank_hash_cmp =
+      fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_mem, 14 ) );
 
   /**********************************************************************/
   /* epoch_ctx                                                          */
@@ -529,14 +528,15 @@ main( int argc, char ** argv ) {
   fd_exec_epoch_ctx_t * epoch_ctx =
       fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acc_max ) );
   FD_TEST( epoch_ctx );
+  epoch_ctx->bank_hash_cmp = bank_hash_cmp;
 
   /**********************************************************************/
   /* forks                                                              */
   /**********************************************************************/
 
   ulong forks_max =
-      fd_ulong_if( page_cnt > 64, fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH ), 64 );
-  FD_LOG_NOTICE(("forks_max: %lu", forks_max));
+      fd_ulong_if( page_cnt > 64, fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH ), 1024 );
+  FD_LOG_NOTICE( ( "forks_max: %lu", forks_max ) );
   FD_LOG_NOTICE( ( "fork footprint: %lu", fd_forks_footprint( forks_max ) ) );
   void * forks_mem = fd_wksp_alloc_laddr(
       wksp, fd_forks_align(), fd_forks_footprint( forks_max ), TEST_CONSENSUS_MAGIC );
@@ -602,6 +602,7 @@ main( int argc, char ** argv ) {
   ulong snapshot_slot = snapshot_slot_ctx->slot_bank.slot;
   FD_LOG_NOTICE( ( "snapshot_slot: %lu", snapshot_slot ) );
 
+  bank_hash_cmp->slot                         = snapshot_slot + 1;
   snapshot_fork->slot                         = snapshot_slot;
   snapshot_slot_ctx->slot_bank.collected_fees = 0;
   snapshot_slot_ctx->slot_bank.collected_rent = 0;

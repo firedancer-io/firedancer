@@ -445,7 +445,7 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
       nanosleep(&ts, NULL);
       //if( fd_tile_shutdown_flag ) goto shutdown;
     }
-    slot_ctx = fd_tvu_late_incr_snap( runtime_ctx, runtime_args, replay, slot_ctx->slot_bank.slot, slot_ctx->latest_votes );
+    // slot_ctx = fd_tvu_late_incr_snap( runtime_ctx, runtime_args, replay, slot_ctx->slot_bank.slot, slot_ctx->latest_votes );
     runtime_ctx->need_incr_snap = 0;
   }
 
@@ -965,7 +965,7 @@ snapshot_insert( fd_fork_t *        fork,
                  ulong              snapshot_slot,
                  fd_blockstore_t *  blockstore,
                  fd_replay_t *      replay,
-                 fd_latest_vote_t * latest_votes ) {
+                 FD_PARAM_UNUSED fd_latest_vote_t * latest_votes ) {
 
   /* Add snapshot slot to blockstore.*/
 
@@ -978,7 +978,7 @@ snapshot_insert( fd_fork_t *        fork,
 
   /* Set the latest_votes pointer to passed-in latest_votes mem. */
 
-  fork->slot_ctx.latest_votes = latest_votes;
+  // fork->slot_ctx.latest_votes = latest_votes;
 
   /* Add snapshot slot to ghost. */
 
@@ -990,8 +990,8 @@ snapshot_insert( fd_fork_t *        fork,
   replay->bft->snapshot_slot = snapshot_slot;
 
   /* Add snapshot slot to bash hash cmp. */
-  fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( replay->epoch_ctx );
-  bank_hash_cmp->slot = snapshot_slot;
+  // fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( replay->epoch_ctx );
+  // bank_hash_cmp->slot = snapshot_slot;
 
   /* Set the SMR on replay.*/
 
@@ -999,7 +999,7 @@ snapshot_insert( fd_fork_t *        fork,
   replay->snapshot_slot = snapshot_slot;
 }
 
-static fd_exec_slot_ctx_t *
+FD_PARAM_UNUSED static fd_exec_slot_ctx_t *
 fd_tvu_late_incr_snap( fd_runtime_ctx_t *  runtime_ctx,
                        fd_runtime_args_t * runtime_args,
                        fd_replay_t *       replay,
@@ -1323,15 +1323,15 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
 
     /* bank hash cmp */
 
-    int    bank_hash_cmp_lg_slot_cnt = 10; /* max vote lag 512 => fill ratio 0.5 => 1024 */
-    void * bank_hash_cmp_mem = fd_exec_epoch_ctx_bank_hash_cmp( replay_setup_out.replay->epoch_ctx );
+    // int    bank_hash_cmp_lg_slot_cnt = 10; /* max vote lag 512 => fill ratio 0.5 => 1024 */
+    // void * bank_hash_cmp_mem = fd_exec_epoch_ctx_bank_hash_cmp( replay_setup_out.replay->epoch_ctx );
 
-    fd_bank_hash_cmp_join(
-        fd_bank_hash_cmp_new( bank_hash_cmp_mem, bank_hash_cmp_lg_slot_cnt ) );
+    // fd_bank_hash_cmp_join(
+    //     fd_bank_hash_cmp_new( bank_hash_cmp_mem, bank_hash_cmp_lg_slot_cnt ) );
 
     /* bootstrap replay with the snapshot slot */
 
-    slot_ctx_setup_out.exec_slot_ctx->latest_votes = latest_votes;
+    // slot_ctx_setup_out.exec_slot_ctx->latest_votes = latest_votes;
     if( !runtime_ctx->need_incr_snap ) {
       snapshot_insert( slot_ctx_setup_out.fork,
                        slot_ctx_setup_out.exec_slot_ctx->slot_bank.slot,

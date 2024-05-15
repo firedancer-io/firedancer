@@ -29,12 +29,13 @@ struct fd_bft {
 
   /* external joins, pointer don't need updating */
 
-  fd_acc_mgr_t *    acc_mgr;
-  fd_blockstore_t * blockstore;
-  fd_commitment_t * commitment;
-  fd_forks_t *      forks;
-  fd_ghost_t *      ghost;
-  fd_valloc_t       valloc;
+  fd_acc_mgr_t *       acc_mgr;
+  fd_blockstore_t *    blockstore;
+  fd_commitment_t *    commitment;
+  fd_forks_t *         forks;
+  fd_ghost_t *         ghost;
+  fd_valloc_t          valloc;
+  fd_vote_accounts_t * vote_accounts;
 };
 typedef struct fd_bft fd_bft_t;
 

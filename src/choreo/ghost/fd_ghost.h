@@ -37,6 +37,7 @@ struct __attribute__((aligned(128UL))) fd_ghost_node {
   ulong             weight;       /* sum of stake for the subtree rooted at this slot hash */
   ulong             stake;        /* vote stake for this slot hash (replay votes only) */
   ulong             gossip_stake; /* vote stake from gossip (sans replay overlap) for this slot hash */
+  ulong             rooted_stake; /* vote stake that has rooted this block */
   int               eqv;          /* flag for equivocation (multiple blocks) in this slot */
   int               eqv_safe;     /* flag for equivocation safety (ie. 52% of stake has voted for this slot hash) */
   int               opt_conf;     /* flag for optimistic confirmation (ie. 2/3 of stake has voted for this slot hash ) */

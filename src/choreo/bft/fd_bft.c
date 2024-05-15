@@ -77,48 +77,79 @@ fd_bft_delete( void * bft ) {
 }
 
 static ulong
-query_pubkey_stake( fd_pubkey_t const * pubkey, fd_stakes_t const * epoch_stakes ) {
-  fd_vote_accounts_pair_t_mapnode_t * root = epoch_stakes->vote_accounts.vote_accounts_root;
-  fd_vote_accounts_pair_t_mapnode_t * pool = epoch_stakes->vote_accounts.vote_accounts_pool;
-  fd_vote_accounts_pair_t_mapnode_t   key  = { 0 };
-  key.elem.key                             = *pubkey;
-  fd_vote_accounts_pair_t_mapnode_t * vote_node =
-      fd_vote_accounts_pair_t_map_find( pool, root, &key );
+query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t * vote_accounts ) {
+  fd_vote_accounts_pair_t_mapnode_t key         = { 0 };
+  key.elem.key                                  = *pubkey;
+  fd_vote_accounts_pair_t_mapnode_t * vote_node = fd_vote_accounts_pair_t_map_find(
+      vote_accounts->vote_accounts_pool, vote_accounts->vote_accounts_root, &key );
   return vote_node ? vote_node->elem.stake : 0;
 }
 
 static void
-count_replay_votes( fd_bft_t * bft, fd_latest_vote_t * replay_votes, fd_stakes_t * epoch_stakes ) {
-  for( fd_latest_vote_deque_iter_t iter = fd_latest_vote_deque_iter_init( replay_votes );
-       !fd_latest_vote_deque_iter_done( replay_votes, iter );
-       iter = fd_latest_vote_deque_iter_next( replay_votes, iter ) ) {
+count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
+  int                  rc;
+  fd_vote_accounts_t * vote_accounts = &fork->slot_ctx.epoch_ctx->epoch_bank.stakes.vote_accounts;
+  fd_vote_accounts_pair_t_mapnode_t const * vote_accounts_pool = vote_accounts->vote_accounts_pool;
+  fd_vote_accounts_pair_t_mapnode_t const * vote_accounts_root = vote_accounts->vote_accounts_root;
+  long tic = fd_log_wallclock();
+  ulong cnt = 0;
+  for( fd_vote_accounts_pair_t_mapnode_t const * node =
+           fd_vote_accounts_pair_t_map_minimum_const( vote_accounts_pool, vote_accounts_root );
+       node;
+       node = fd_vote_accounts_pair_t_map_successor_const( vote_accounts_pool, node ) ) {
+    // long total_tic = fd_log_wallclock();
 
-    fd_latest_vote_t * vote      = fd_latest_vote_deque_iter_ele( replay_votes, iter );
-    ulong              vote_slot = vote->slot_hash.slot;
+    fd_pubkey_t const * node_pubkey = &node->elem.key;
+
+    FD_BORROWED_ACCOUNT_DECL( vote_account );
+    // long view_tic = fd_log_wallclock();
+    rc = fd_acc_mgr_view( bft->acc_mgr, fork->slot_ctx.funk_txn, node_pubkey, vote_account );
+    if( rc != FD_ACC_MGR_SUCCESS ) FD_LOG_ERR( ( "failed to view vote account" ) );
+    // long view_toc = fd_log_wallclock();
+    // if (view_toc - view_tic > 10000) {
+    //   FD_LOG_NOTICE( ( "view took: %ld", view_toc - view_tic ) );
+    // }
+
+    // long decode_tic = fd_log_wallclock();
+    fd_bincode_decode_ctx_t decode_ctx = { .data    = vote_account->const_data,
+                                           .dataend = vote_account->const_data +
+                                                      vote_account->const_meta->dlen,
+                                           .valloc = bft->valloc };
+
+    fd_vote_state_versioned_t versioned;
+    rc = fd_vote_state_versioned_decode( &versioned, &decode_ctx );
+    if( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) FD_LOG_ERR( ( "failed to decode" ) );
+    fd_vote_convert_to_current( &versioned, bft->valloc );
+    fd_vote_state_t * vote_state = &versioned.inner.current;
+    // long decode_toc = fd_log_wallclock();
+    // if( decode_toc - decode_tic > 10000 ) {
+    //   FD_LOG_NOTICE( ( "decode took: %ld", decode_toc - decode_tic ) );
+    // }
+
+    if( vote_state->last_timestamp.slot == 0 || !node->elem.stake ) continue;
+
+    fd_landed_vote_t * vote      = deq_fd_landed_vote_t_peek_tail( vote_state->votes );
+    ulong              vote_slot = vote->lockout.slot;
 
     /* Ignore votes for slots < snapshot_slot. */
 
-    if( FD_UNLIKELY( vote_slot < bft->snapshot_slot ) ) continue;
+    if( FD_UNLIKELY( vote_slot <= bft->snapshot_slot ) ) continue;
 
     /* Look up _our_ bank hash for this vote. Note, because these are replay votes that come from
-     * the vote program, the bank hashes must match (see below check). */
+       the vote program, the bank hashes must match. */
 
     fd_hash_t const * bank_hash = fd_blockstore_bank_hash_query( bft->blockstore, vote_slot );
 
 #if FD_BFT_USE_HANDHOLDING
     /* This indicates a programming error, because if these are replay votes that were successfully
-       executed by the vote program, we by definition must have a bank hash for it and must be
-       matching the bank hash (the vote program attempts to look up the bank hash the vote is voting
-       on). */
-    if( FD_UNLIKELY( !bank_hash ||
-                     ( 0 != memcmp( bank_hash, &vote->slot_hash, sizeof( fd_hash_t ) ) ) ) ) {
-      FD_LOG_ERR( ( "replay bank hashes did not match %lu", vote_slot ) );
-    }
+       executed by the vote program that should imply the vote program attempts to look up the bank
+       hash the vote is voting on). This invariant is broken if the bank hash is missing. */
+    if( FD_UNLIKELY( !bank_hash ) ) FD_LOG_ERR( ( "missing bank hash %lu", vote_slot ) );
 #endif
 
     /* Look up the stake for this pubkey. */
 
-    ulong stake = query_pubkey_stake( &vote->node_pubkey, epoch_stakes );
+    ulong stake = query_pubkey_stake( &node->elem.key, vote_accounts );
 
     /* Look up the ghost node. */
 
@@ -131,12 +162,11 @@ count_replay_votes( fd_bft_t * bft, fd_latest_vote_t * replay_votes, fd_stakes_t
     if( FD_UNLIKELY( !ghost_node ) ) {
       FD_LOG_ERR( ( "missing ghost key %lu %32J", slot_hash.slot, slot_hash.hash.hash ) );
     };
-
 #endif
 
     /* Upsert the vote into ghost. */
 
-    fd_ghost_replay_vote_upsert( bft->ghost, &slot_hash, &vote->node_pubkey, stake );
+    fd_ghost_replay_vote_upsert( bft->ghost, &slot_hash, node_pubkey, stake );
 
     /* Check the fork's stake pct in ghost, and mark stake threshold accordingly if reached. */
 
@@ -159,11 +189,18 @@ count_replay_votes( fd_bft_t * bft, fd_latest_vote_t * replay_votes, fd_stakes_t
           ( "[bft] opt conf (%lf): (%lu, %32J)", pct, slot_hash.slot, slot_hash.hash.hash ) );
 #endif
     }
+    cnt++;
+    // long total_toc = fd_log_wallclock();
+    // FD_LOG_NOTICE(("total took: %ld", total_toc - total_tic));
   }
+  long toc = fd_log_wallclock();
+  FD_LOG_NOTICE( ( "iterating %lu vote accounts took: %ld", cnt, toc - tic ) );
 }
 
-static void
-count_gossip_votes( fd_bft_t * bft, fd_latest_vote_t * gossip_votes, FD_PARAM_UNUSED fd_stakes_t * epoch_stakes ) {
+FD_FN_UNUSED static void
+count_gossip_votes( fd_bft_t *                    bft,
+                    fd_latest_vote_t *            gossip_votes,
+                    FD_PARAM_UNUSED fd_stakes_t * epoch_stakes ) {
   for( fd_latest_vote_deque_iter_t iter = fd_latest_vote_deque_iter_init( gossip_votes );
        !fd_latest_vote_deque_iter_done( gossip_votes, iter );
        iter = fd_latest_vote_deque_iter_next( gossip_votes, iter ) ) {
@@ -249,15 +286,15 @@ fd_bft_fork_update( fd_bft_t * bft, fd_fork_t * fork ) {
 
   // fd_slot_commitment_t * slot_commitment = fd_commitment_slot_insert( forks->commitment, slot );
 
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx.epoch_ctx );
+  // fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx.epoch_ctx );
 
   /* Count replay votes in this fork's block. */
 
-  count_replay_votes( bft, fork->slot_ctx.latest_votes, &epoch_bank->stakes );
+  count_replay_votes( bft, fork );
 
   /* Count gossip votes received since the last process. */
 
-  count_gossip_votes( bft, fork->slot_ctx.latest_votes, &epoch_bank->stakes );
+  // count_gossip_votes( bft, fork->slot_ctx.latest_votes, &epoch_bank->stakes );
 
   /* Update slot commitment. */
 
@@ -308,7 +345,8 @@ fd_bft_fork_choice( fd_bft_t * bft ) {
     if( FD_UNLIKELY( node->eqv && !node->eqv_safe ) ) continue;
 
 #if FD_BFT_USE_HANDHOLDING
-    /* This indicates a programmer error, because node must have been inserted into ghost earlier in fd_bft_fork_update. */
+    /* This indicates a programmer error, because node must have been inserted into ghost earlier in
+     * fd_bft_fork_update. */
     if( !node ) FD_LOG_ERR( ( "missing ghost node %lu", fork->slot ) );
 #endif
 

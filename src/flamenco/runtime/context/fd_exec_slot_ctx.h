@@ -81,7 +81,6 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_hash_t                account_delta_hash;
   fd_hash_t                prev_banks_hash;
 
-  fd_latest_vote_t *       latest_votes;
   fd_sysvar_cache_t *      sysvar_cache;
   fd_account_compute_elem_t * account_compute_table;
 };
