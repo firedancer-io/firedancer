@@ -1,6 +1,7 @@
 #include "../fd_account.h"
 #include "../../vm/fd_vm_syscalls.h"
 #include "../../vm/fd_vm_interp.h"
+#include "../../../util/bits/fd_uwide.h"
 
 int 
 fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
@@ -20,7 +21,9 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
     }
   }
 
-  ulong starting_lamports = 0;
+  /* TODO: Lamport check may be redundant */
+  ulong starting_lamports_h = 0;
+  ulong starting_lamports_l = 0;
   uchar acc_idx_seen[256];
   memset( acc_idx_seen, 0, 256 );
 
@@ -41,7 +44,9 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
           /* This is the first time seeing this account */
           acc_idx_seen[k] = 1;
           if( instr_info->borrowed_accounts[j]->const_meta != NULL ) {
-            starting_lamports += instr_info->borrowed_accounts[j]->const_meta->info.lamports;
+            fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, 
+                          starting_lamports_h, starting_lamports_l,
+                          instr_info->borrowed_accounts[j]->const_meta->info.lamports );
           }
         }
 
@@ -63,7 +68,8 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
       }
     }
 
-    instr_info->starting_lamports = starting_lamports;
+    instr_info->starting_lamports_h = starting_lamports_h;
+    instr_info->starting_lamports_l = starting_lamports_l;
   }
 
   fd_bincode_encode_ctx_t ctx2;
