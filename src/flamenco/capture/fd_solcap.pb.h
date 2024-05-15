@@ -79,6 +79,7 @@ typedef struct _fd_solcap_Transaction {
     uint32_t failed_instr_path[4];
     /* instr_err is the instruction processing error code. */
     uint32_t instr_err;
+    int32_t instr_err_idx;
 } fd_solcap_Transaction;
 
 
@@ -91,12 +92,12 @@ extern "C" {
 #define fd_solcap_BankPreimage_init_default      {0, {0}, {0}, {0}, {0}, 0, 0, 0}
 #define fd_solcap_AccountTableMeta_init_default  {0, 0, 0}
 #define fd_solcap_AccountMeta_init_default       {0, 0, 0, {0}, 0, 0, 0}
-#define fd_solcap_Transaction_init_default       {{0}, 0, 0, 0, 0, 0, 0, 0, {0, 0, 0, 0}, 0}
+#define fd_solcap_Transaction_init_default       {{0}, 0, 0, 0, 0, 0, 0, 0, {0, 0, 0, 0}, 0, 0}
 #define fd_solcap_FileMeta_init_zero             {0, 0, 0}
 #define fd_solcap_BankPreimage_init_zero         {0, {0}, {0}, {0}, {0}, 0, 0, 0}
 #define fd_solcap_AccountTableMeta_init_zero     {0, 0, 0}
 #define fd_solcap_AccountMeta_init_zero          {0, 0, 0, {0}, 0, 0, 0}
-#define fd_solcap_Transaction_init_zero          {{0}, 0, 0, 0, 0, 0, 0, 0, {0, 0, 0, 0}, 0}
+#define fd_solcap_Transaction_init_zero          {{0}, 0, 0, 0, 0, 0, 0, 0, {0, 0, 0, 0}, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define fd_solcap_FileMeta_first_slot_tag        1
@@ -129,6 +130,7 @@ extern "C" {
 #define fd_solcap_Transaction_solana_cus_used_tag 7
 #define fd_solcap_Transaction_failed_instr_path_tag 8
 #define fd_solcap_Transaction_instr_err_tag      9
+#define fd_solcap_Transaction_instr_err_idx_tag 10
 
 /* Struct field encoding specification for nanopb */
 #define fd_solcap_FileMeta_FIELDLIST(X, a) \
@@ -176,8 +178,9 @@ X(a, STATIC,   SINGULAR, UINT32,   fd_custom_err,     4) \
 X(a, STATIC,   SINGULAR, UINT64,   solana_txn_err,    5) \
 X(a, STATIC,   SINGULAR, UINT64,   fd_cus_used,       6) \
 X(a, STATIC,   SINGULAR, UINT64,   solana_cus_used,   7) \
-X(a, STATIC,   REPEATED, UINT32,   failed_instr_path,   8) \
-X(a, STATIC,   SINGULAR, UINT32,   instr_err,         9)
+X(a, STATIC,   REPEATED, UINT32,   failed_instr_path, 8) \
+X(a, STATIC,   SINGULAR, UINT32,   instr_err,         9) \
+X(a, STATIC,   SINGULAR, INT32,    instr_err_idx,    10)
 #define fd_solcap_Transaction_CALLBACK NULL
 #define fd_solcap_Transaction_DEFAULT NULL
 
@@ -199,7 +202,7 @@ extern const pb_msgdesc_t fd_solcap_Transaction_msg;
 #define fd_solcap_AccountTableMeta_size          33
 #define fd_solcap_BankPreimage_size              180
 #define fd_solcap_FileMeta_size                  31
-#define fd_solcap_Transaction_size               157
+#define fd_solcap_Transaction_size               168
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
 #define solana_capture_FileMeta fd_solcap_FileMeta

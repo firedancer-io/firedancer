@@ -432,10 +432,12 @@ if ( verbose < 3 )
   printf(
     "    - txn_sig:        '%64J'\n"
     "      txn_err:         %d\n"
-    "      cus_used:        %lu\n",
+    "      cus_used:        %lu\n"
+    "      instr_err_idx:   %d\n",
     meta.txn_sig,
     meta.fd_txn_err,
-    meta.fd_cus_used );
+    meta.fd_cus_used,
+    meta.instr_err_idx);
 
   /* Only print custom error if it has been set*/
   if ( meta.fd_txn_err == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR) {

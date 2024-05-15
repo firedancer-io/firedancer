@@ -1116,6 +1116,10 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
       int exec_result = fd_execute_instr( txn_ctx, &instrs[i] );
       if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
+        if ( txn_ctx->instr_err_idx == INT_MAX )
+        {
+          txn_ctx->instr_err_idx = i;
+        }
   #ifdef VLOG
         if ( 257037453 == txn_ctx->slot_ctx->slot_bank.slot ) {
   #endif
