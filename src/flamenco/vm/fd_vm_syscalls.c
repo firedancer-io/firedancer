@@ -15,6 +15,7 @@
 #include "../runtime/context/fd_exec_txn_ctx.h"
 #include "../runtime/context/fd_exec_instr_ctx.h"
 #include "../../ballet/ed25519/fd_curve25519.h"
+#include "../../util/bits/fd_uwide.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -717,7 +718,8 @@ fd_vm_syscall_cpi_c_instruction_to_instr( fd_vm_exec_context_t * ctx,
     }
   }
 
-  ulong starting_lamports = 0;
+  ulong starting_lamports_h = 0;
+  ulong starting_lamports_l = 0;
   uchar acc_idx_seen[256];
   memset(acc_idx_seen, 0, 256);
   for( ulong i = 0; i < cpi_instr->accounts_len; i++ ) {
@@ -742,7 +744,9 @@ fd_vm_syscall_cpi_c_instruction_to_instr( fd_vm_exec_context_t * ctx,
           /* This is the first time seeing this account */
           acc_idx_seen[j] = 1;
           if( instr->borrowed_accounts[i]->const_meta != NULL ) {
-            starting_lamports += instr->borrowed_accounts[i]->const_meta->info.lamports;
+            fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, 
+                          starting_lamports_h, starting_lamports_l, 
+                          instr->borrowed_accounts[i]->const_meta->info.lamports );
           }
         }
          // TODO: should check the parent has writable flag set
@@ -769,10 +773,11 @@ fd_vm_syscall_cpi_c_instruction_to_instr( fd_vm_exec_context_t * ctx,
     }
   }
 
-  instr->data_sz = (ushort)cpi_instr->data_len;
-  instr->data = (uchar *)cpi_instr_data;
-  instr->acct_cnt = (ushort)cpi_instr->accounts_len;
-  instr->starting_lamports = starting_lamports;
+  instr->starting_lamports_h = starting_lamports_h;
+  instr->starting_lamports_l = starting_lamports_l;
+  instr->data_sz             = (ushort)cpi_instr->data_len;
+  instr->data                = (uchar *)cpi_instr_data;
+  instr->acct_cnt            = (ushort)cpi_instr->accounts_len;
 
 }
 
@@ -797,7 +802,8 @@ fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_exec_context_t const * ctx,
     }
   }
 
-  ulong starting_lamports = 0;
+  ulong starting_lamports_h = 0;
+  ulong starting_lamports_l = 0;
   uchar acc_idx_seen[256];
   memset(acc_idx_seen, 0, 256);
   // FD_LOG_DEBUG(("Accounts cnt %lu %lu", ctx->instr_ctx->txn_ctx->accounts_cnt, ctx->instr_ctx->txn_ctx->txn_descriptor->acct_addr_cnt));
@@ -817,7 +823,9 @@ fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_exec_context_t const * ctx,
           /* This is the first time seeing this account */
           acc_idx_seen[j] = 1;
           if( instr->borrowed_accounts[i]->const_meta != NULL ) {
-            starting_lamports += instr->borrowed_accounts[i]->const_meta->info.lamports;
+            fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, 
+                          starting_lamports_h, starting_lamports_l, 
+                          instr->borrowed_accounts[i]->const_meta->info.lamports );
           }
         }
 
@@ -844,12 +852,11 @@ fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_exec_context_t const * ctx,
     }
   }
 
-  instr->data_sz = (ushort)cpi_instr->data.len;
-  instr->data = (uchar *)cpi_instr_data;
-  instr->acct_cnt = (ushort)cpi_instr->accounts.len;
-  instr->starting_lamports = starting_lamports;
-
-  // FD_LOG_WARNING(("starting lamps CPI: %lu", instr->starting_lamports));
+  instr->data_sz             = (ushort)cpi_instr->data.len;
+  instr->data                = (uchar *)cpi_instr_data;
+  instr->acct_cnt            = (ushort)cpi_instr->accounts.len;
+  instr->starting_lamports_h = starting_lamports_h;
+  instr->starting_lamports_l = starting_lamports_l;
 
 }
 
@@ -1593,9 +1600,6 @@ fd_vm_syscall_cpi_c(
     memcpy( acct_keys[i].uc, acct_addr->uc, sizeof(fd_pubkey_t) );
   }
 
-  /* TODO: Dispatch CPI to executor.
-           For now, we'll just log parameters. */
-
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
   fd_instr_info_t cpi_instr;
@@ -1603,7 +1607,7 @@ fd_vm_syscall_cpi_c(
   fd_vm_syscall_cpi_c_instruction_to_instr( ctx, instruction, accounts, signers, signers_seeds_cnt, data, &cpi_instr );
   err = fd_vm_prepare_instruction(ctx->instr_ctx->instr, &cpi_instr, ctx->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
   if( err != 0 ) {
-    FD_LOG_WARNING(("PREPARE FAILED"));
+    FD_LOG_WARNING(("vm preparation failed"));
     return err;
   }
 
@@ -1617,12 +1621,21 @@ fd_vm_syscall_cpi_c(
     return err;
   }
 
-  ulong caller_lamports = fd_instr_info_sum_account_lamports( ctx->instr_ctx->instr );
-  if( caller_lamports != ctx->instr_ctx->instr->starting_lamports ) {
+  /* TODO: lamport checks in cpi_c may be redundant as it is checked in fd_execute_instr */
+  ulong caller_lamports_h = 0;
+  ulong caller_lamports_l = 0;
+  int err_exec = fd_instr_info_sum_account_lamports( ctx->instr_ctx->instr, &caller_lamports_h, &caller_lamports_l );
+  if( err_exec ) {
     return FD_VM_SYSCALL_ERR_INSTR_ERR;
   }
+
+  if( caller_lamports_h != ctx->instr_ctx->instr->starting_lamports_h || 
+      caller_lamports_l != ctx->instr_ctx->instr->starting_lamports_l ) {
+    return FD_VM_SYSCALL_ERR_INSTR_ERR;
+  }
+
   ctx->instr_ctx->txn_ctx->compute_meter = ctx->compute_meter;
-  int err_exec = fd_execute_instr( ctx->instr_ctx->txn_ctx, &cpi_instr );
+  err_exec = fd_execute_instr( ctx->instr_ctx->txn_ctx, &cpi_instr );
   ulong instr_exec_res = (ulong)err_exec;
   // uchar * sig = (uchar *)ctx->instr_ctx->txn_ctx->_txn_raw->raw + ctx->instr_ctx->txn_ctx->txn_descriptor->signature_off;
   // FD_LOG_WARNING(( "CPI CUs CONSUMED: %lu %lu %lu %64J", ctx->compute_meter, ctx->instr_ctx->txn_ctx->compute_meter, ctx->compute_meter - ctx->instr_ctx->txn_ctx->compute_meter, sig));
@@ -1640,8 +1653,15 @@ fd_vm_syscall_cpi_c(
     if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
   }
 
-  caller_lamports = fd_instr_info_sum_account_lamports( ctx->instr_ctx->instr );
-  if( caller_lamports != ctx->instr_ctx->instr->starting_lamports ) {
+  caller_lamports_h = 0;
+  caller_lamports_l = 0;
+  err_exec = fd_instr_info_sum_account_lamports( ctx->instr_ctx->instr, &caller_lamports_h, &caller_lamports_l );
+  if( err_exec ) {
+    return FD_VM_SYSCALL_ERR_INSTR_ERR;
+  }
+
+  if( caller_lamports_h != ctx->instr_ctx->instr->starting_lamports_h || 
+      caller_lamports_l != ctx->instr_ctx->instr->starting_lamports_l ) {
     return FD_VM_SYSCALL_ERR_INSTR_ERR;
   }
 
@@ -1750,9 +1770,6 @@ fd_vm_syscall_cpi_rust(
     memcpy( acct_keys[i].uc, acct_addr->uc, sizeof(fd_pubkey_t) );
   }
 
-  /* TODO: Dispatch CPI to executor.
-           For now, we'll just log parameters. */
-
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
   fd_instr_info_t cpi_instr;
@@ -1760,7 +1777,7 @@ fd_vm_syscall_cpi_rust(
   fd_vm_syscall_cpi_rust_instruction_to_instr( ctx, instruction, accounts, signers, signers_seeds_cnt, data, &cpi_instr );
   err = fd_vm_prepare_instruction(ctx->instr_ctx->instr, &cpi_instr, ctx->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
   if( err != 0 ) {
-    FD_LOG_WARNING(("PREPARE FAILED"));
+    FD_LOG_WARNING(("vm prepare failed"));
     return err;
   }
 
@@ -1774,12 +1791,21 @@ fd_vm_syscall_cpi_rust(
     return err;
   }
 
-  ulong caller_lamports = fd_instr_info_sum_account_lamports( ctx->instr_ctx->instr );
-  if( caller_lamports != ctx->instr_ctx->instr->starting_lamports ) {
+  /* TODO: lamport checks in cpi_c may be redundant as it is checked in fd_execute_instr */
+  ulong caller_lamports_h = 0;
+  ulong caller_lamports_l = 0;
+  int err_exec = fd_instr_info_sum_account_lamports( ctx->instr_ctx->instr, &caller_lamports_h, &caller_lamports_l );
+  if( err_exec ) {
     return FD_VM_SYSCALL_ERR_INSTR_ERR;
   }
+
+  if( caller_lamports_h != ctx->instr_ctx->instr->starting_lamports_h || 
+      caller_lamports_l != ctx->instr_ctx->instr->starting_lamports_l ) {
+    return FD_VM_SYSCALL_ERR_INSTR_ERR;
+  }
+  
   ctx->instr_ctx->txn_ctx->compute_meter = ctx->compute_meter;
-  int err_exec = fd_execute_instr( ctx->instr_ctx->txn_ctx, &cpi_instr );
+  err_exec = fd_execute_instr( ctx->instr_ctx->txn_ctx, &cpi_instr );
   ulong instr_exec_res = (ulong)err_exec;
   #ifdef VLOG
   uchar * sig = (uchar *)ctx->instr_ctx->txn_ctx->_txn_raw->raw + ctx->instr_ctx->txn_ctx->txn_descriptor->signature_off;
@@ -1803,8 +1829,15 @@ fd_vm_syscall_cpi_rust(
     }
   }
 
-  caller_lamports = fd_instr_info_sum_account_lamports( ctx->instr_ctx->instr );
-  if( caller_lamports != ctx->instr_ctx->instr->starting_lamports ) {
+  caller_lamports_h = 0;
+  caller_lamports_l = 0;
+  err_exec = fd_instr_info_sum_account_lamports( ctx->instr_ctx->instr, &caller_lamports_h, &caller_lamports_l );
+  if( err_exec ) {
+    return FD_VM_SYSCALL_ERR_INSTR_ERR;
+  }
+
+  if( caller_lamports_h != ctx->instr_ctx->instr->starting_lamports_h || 
+      caller_lamports_l != ctx->instr_ctx->instr->starting_lamports_l ) {
     return FD_VM_SYSCALL_ERR_INSTR_ERR;
   }
 

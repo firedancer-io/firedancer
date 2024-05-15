@@ -276,9 +276,6 @@ if [[ $ON_DEMAND = 1 ]]; then
     $TILE_CPUS >& $LOG
 
   status=$?
-  if [ $status -ne 0 ]; then
-    echo_error "on demand 1 $LOG"
-  fi
   { set +x; } &> /dev/null
   echo_notice "Finished on-demand ingest and replay\n"
 fi
