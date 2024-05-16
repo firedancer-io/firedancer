@@ -17,3 +17,7 @@ jobs:
   coverage-report:
     uses: ./.github/workflows/coverage_report.yml
     secrets: inherit
+  test-firedancer-testnet:
+    uses: ./.github/workflows/test_firedancer_testnet.yml
+    secrets: inherit
+  

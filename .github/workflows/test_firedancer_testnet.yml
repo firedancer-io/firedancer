@@ -2,15 +2,12 @@ name: Firedancer Testnet
 on:
   workflow_call:
   workflow_dispatch:
-  pull_request:
-    types: [synchronize, opened, reopened, ready_for_review]
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   firedancer-testnet:
     runs-on: private
-    if: github.event.pull_request.draft == false
     env:
       CC: gcc
       EXTRAS: no-solana
