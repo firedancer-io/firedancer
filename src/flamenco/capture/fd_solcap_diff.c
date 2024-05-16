@@ -767,6 +767,7 @@ fd_solcap_transaction_fd_diff( fd_solcap_txn_differ_t * txn_differ ) {
   else {
     bool diff_txns = txn_differ->transaction[0].fd_txn_err != txn_differ->transaction[1].fd_txn_err;
     bool diff_cus = txn_differ->transaction[0].fd_cus_used != txn_differ->transaction[1].fd_cus_used;
+    bool diff_instr_err_idx = txn_differ->transaction[0].instr_err_idx != txn_differ->transaction[1].instr_err_idx;
     if ( diff_txns || diff_cus ) {
       printf(
         "\nslot:             %lu\n"
@@ -787,6 +788,13 @@ fd_solcap_transaction_fd_diff( fd_solcap_txn_differ_t * txn_differ ) {
         "    (-) cus_used: %lu\n",
         txn_differ->transaction[0].fd_cus_used,
         txn_differ->transaction[1].fd_cus_used );
+    }
+    if ( diff_instr_err_idx ) {
+      printf(
+        "    (+) instr_err_idx: %d\n"
+        "    (-) instr_err_idx: %d\n",
+        txn_differ->transaction[0].instr_err_idx,
+        txn_differ->transaction[1].instr_err_idx );
     }
   }
 }
@@ -820,6 +828,7 @@ fd_solcap_transaction_solana_diff( fd_solcap_Transaction * transaction,
       "    (-) solana_txn_err:  %lu\n"
       "    (+) cus_used:        %lu\n"
       "    (-) solana_cus_used: %lu\n"
+      "    instr_err_idx:       %d\n"
       "    explorer:           'https://explorer.solana.com/tx/%64J'\n"
       "    solscan:            'https://solscan.io/tx/%64J'\n"
       "    solanafm:           'https://solana.fm/tx/%64J'\n",
@@ -829,6 +838,7 @@ fd_solcap_transaction_solana_diff( fd_solcap_Transaction * transaction,
       transaction->solana_txn_err,
       transaction->fd_cus_used,
       transaction->solana_cus_used,
+      transaction->instr_err_idx,
       transaction->txn_sig,
       transaction->txn_sig,
       transaction->txn_sig );
