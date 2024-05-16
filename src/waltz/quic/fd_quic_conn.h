@@ -260,8 +260,6 @@ struct fd_quic_conn {
   uchar * tx_ptr; /* ptr to free space in tx_scratch */
   ulong   tx_sz;  /* sz remaining at ptr */
 
-  ulong   stream_tx_buf_sz; /* size of per-stream tx buffer */
-
   uint state;
   uint reason;     /* quic reason for closing. see FD_QUIC_CONN_REASON_* */
   uint app_reason; /* application reason for closing */
@@ -320,10 +318,6 @@ struct fd_quic_conn {
      if we time out this packet (or possibly a later packet) we resend the frame
        and update this value */
   ulong                upd_pkt_number;
-
-  /* for timing out data and resending
-     should be at least the smoothed round-trip-time */
-  ulong                base_timeout;
 
   /* current round-trip-time */
   ulong                rtt;

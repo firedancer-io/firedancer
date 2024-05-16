@@ -138,8 +138,6 @@ struct fd_quic_pkt {
 # define ACK_FLAG_CANCEL  2
 };
 
-typedef struct fd_quic_pkt fd_quic_pkt_t;
-
 FD_PROTOTYPES_BEGIN
 
 /* fd_quic_get_state returns a pointer to private state area given a
@@ -352,6 +350,38 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
                            fd_quic_pkt_t *  pkt,
                            uchar *          cur_ptr,
                            ulong            cur_sz );
+
+/* fd_quic_handle_v1_frame is the primary entrypoint for handling of
+   incoming QUIC frames.  {quic,conn,pkt} identify the frame context.
+   Memory region [frame_ptr,frame_ptr+frame_sz) contains the serialized
+   QUIC frame (may contain arbitrary zero padding at the beginning).
+   frame_scratch is used as scratch space for deserialization and frame
+   handling.
+
+   Returns value in (0,buf_sz) if the frame was successfully processed.
+   Returns FD_QUIC_PARSE_FAIL if the frame was inherently malformed.
+   Returns 0 or value in [buf_sz,ULONG_MAX) in case of a protocol
+   violation. */
+
+ulong
+fd_quic_handle_v1_frame( fd_quic_t *       quic,
+                         fd_quic_conn_t *  conn,
+                         fd_quic_pkt_t *   pkt,
+                         uchar const *     frame_ptr,
+                         ulong             frame_sz,
+                         fd_quic_frame_u * frame_scratch );
+
+/* fd_quic_conn_error sets the connection state to aborted.  This does
+   not destroy the connection object.  Rather, it will eventually cause
+   the connection to be freed during a later fd_quic_service call.
+   reason is a RFC 9000 QUIC error code.  error_line is a implementation
+   defined error code for internal use (usually the source line of code
+   in fd_quic.c) */
+
+void
+fd_quic_conn_error( fd_quic_conn_t * conn,
+                    uint             reason,
+                    uint             error_line );
 
 /* fd_quic_assign_streams attempts to distribute streams across         */
 /* connections fairly                                                   */

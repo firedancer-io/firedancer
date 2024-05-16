@@ -26,10 +26,6 @@
 #include "templ/fd_quic_frames_templ.h"
 #include "templ/fd_quic_undefs.h"
 
-#include "templ/fd_quic_frame_handler_decl.h"
-#include "templ/fd_quic_frames_templ.h"
-#include "templ/fd_quic_undefs.h"
-
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"

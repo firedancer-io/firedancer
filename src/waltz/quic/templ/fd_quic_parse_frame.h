@@ -1,4 +1,6 @@
-/* QUIC frame parser */
+/* fd_quic_parse_frame.h generates a switch table that parses and then
+   immediately handles an incoming encoded frame.  This code is used as
+   part of fd_quic_handle_v1_frame. */
 
 /* this is defines the body of the frame parsing logic
    there should be a set up prior to including this, and a tear down after

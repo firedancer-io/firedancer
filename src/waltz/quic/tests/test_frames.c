@@ -5,21 +5,6 @@
 #include "../fd_quic_types.h"
 #include "../fd_quic_proto.h"
 
-/* define empty functions for handlers */
-#define FD_TEMPL_DEF_STRUCT_BEGIN(NAME)                     \
-          static ulong                                      \
-          fd_quic_frame_handle_##NAME(                      \
-                    void *                    context,      \
-                    fd_quic_##NAME##_t *      data,         \
-                    uchar const *             p,            \
-                    ulong                     p_sz ) {      \
-            (void)context; (void)data; (void)p; (void)p_sz; \
-            return 0u;                                      \
-          }
-#include "../templ/fd_quic_dft.h"
-#include "../templ/fd_quic_frames_templ.h"
-#include "../templ/fd_quic_undefs.h"
-
 uchar raw_crypto_frame[] =
 "\x06\x00\x41\x79\x01\x00\x01\x75\x03\x03\x6f\x2d\xa1\x28\xdd\x7e"
 "\xff\xa9\x8c\x1c\xe4\x84\x55\x04\xa2\xcc\xc6\x35\x46\xfa\xfa\xfa"

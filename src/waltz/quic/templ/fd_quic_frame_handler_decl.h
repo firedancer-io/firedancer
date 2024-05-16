@@ -5,8 +5,7 @@
                     void *                    context,     \
                     fd_quic_##NAME##_t *      data,        \
                     uchar const *             p,           \
-                    ulong                     p_sz )       \
-          __attribute__(( used ));
+                    ulong                     p_sz );
 
 #include "fd_quic_dft.h"
 

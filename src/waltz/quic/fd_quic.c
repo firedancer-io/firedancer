@@ -5,6 +5,10 @@
 #include "fd_quic_conn_map.h"
 #include "fd_quic_proto.h"
 
+#include "templ/fd_quic_frame_handler_decl.h"
+#include "templ/fd_quic_frames_templ.h"
+#include "templ/fd_quic_undefs.h"
+
 #include "crypto/fd_quic_crypto_suites.h"
 #include "templ/fd_quic_transport_params.h"
 #include "templ/fd_quic_parse_util.h"
@@ -5264,7 +5268,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->flags                = 0;
   conn->spin_bit             = 0;
   conn->upd_pkt_number       = 0;
-  conn->base_timeout         = 0;
 
   /* initialize connection members */
   ulong our_conn_id_idx = 0;

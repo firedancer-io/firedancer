@@ -19,6 +19,7 @@ typedef struct fd_quic_tls         fd_quic_tls_t;
 typedef struct fd_quic_tls_hs      fd_quic_tls_hs_t;
 typedef struct fd_quic_tls_secret  fd_quic_tls_secret_t;
 typedef struct fd_quic_tls_hs_data fd_quic_tls_hs_data_t;
+typedef struct fd_quic_pkt         fd_quic_pkt_t;
 
 #endif /* HEADER_fd_src_waltz_quic_fd_quic_common_h */
 
