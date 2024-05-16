@@ -48,6 +48,7 @@ SKIP_INGEST=0
 CHECKPT="test_ledger_backup"
 CHECKPT_PATH=""
 CHECKPT_FREQ=""
+CHECKPT_MISMATCH=""
 SOLCAP=""
 ON_DEMAND=1
 WITH_COVERAGE=0
@@ -173,6 +174,10 @@ while [[ $# -gt 0 ]]; do
         CHECKPT_FREQ="--checkpt-freq $2"
         shift
         ;;
+    -cm|--checkpt-mismatch)
+        CHECKPT_MISMATCH="--checkpt-mismatch $2"
+        shift
+        ;;
     -c|--capture)
         SOLCAP="--capture-solcap $2"
         shift
@@ -262,6 +267,7 @@ if [[ $ON_DEMAND = 1 ]]; then
     $END_SLOT \
     $CHECKPT_PATH \
     $CHECKPT_FREQ \
+    $CHECKPT_MISMATCH \
     --funk-only 1 \
     --txn-max 100 \
     $PAGES \
@@ -326,6 +332,7 @@ ARGS=" --restore dump/$CHECKPT \
   $IMAX \
   $CHECKPT_PATH \
   $CHECKPT_FREQ \
+  $CHECKPT_MISMATCH \
   --funk-only 1 \
   --log-level-logfile 2 \
   --log-level-stderr 2 \
