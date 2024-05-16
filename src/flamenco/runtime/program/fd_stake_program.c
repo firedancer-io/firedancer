@@ -1384,7 +1384,7 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
     fd_vote_convert_to_current( &vote_state, scratch_valloc ); // FIXME
     fd_stake_t stake =
         new_stake( stake_amount, vote_pubkey, &vote_state.inner.current, clock->epoch );
-    fd_stake_state_v2_t new_stake_state = { .discriminant = fd_stake_state_v2_enum_stake,
+    fd_stake_state_v2_t new_stake_state = { .discriminant = fd_stake_state_v2_enum_initialized,
                                             .inner        = { .stake = {
                                                                   .meta        = meta,
                                                                   .stake       = stake,
