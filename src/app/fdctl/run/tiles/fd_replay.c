@@ -369,6 +369,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   ulong snapshot_slot = ctx->slot_ctx->slot_bank.slot;
   if( snapshot_slot != ctx->curr_slot ) {
     /* The initial snapshot_slot was wrong or unspecified. Fix everything. */
+    FD_LOG_NOTICE(( "detected snapshot slot %lu, prev_slot %lu", snapshot_slot, ctx->slot_ctx->slot_bank.prev_slot ));
     fd_fork_t * ele = fd_fork_frontier_ele_remove( ctx->replay->forks->frontier, &ctx->curr_slot, NULL, ctx->replay->forks->pool );
     ele->slot                = snapshot_slot;
     fd_fork_frontier_ele_insert( ctx->replay->forks->frontier, ele, ctx->replay->forks->pool );
