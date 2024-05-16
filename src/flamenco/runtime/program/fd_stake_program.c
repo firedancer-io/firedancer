@@ -2285,8 +2285,9 @@ fd_stake_program_execute( fd_exec_instr_ctx_t ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/stake/src/stake_instruction.rs#L72 */
 
+  fd_valloc_t valloc = fd_scratch_virtual();
   fd_bincode_decode_ctx_t decode =
-    { .valloc  = fd_scratch_virtual(),
+    { .valloc  = valloc,
       .data    = ctx.instr->data,
       .dataend = ctx.instr->data + ctx.instr->data_sz };
 
@@ -2471,7 +2472,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t ctx ) {
       fd_bincode_decode_ctx_t decode_ctx;
       decode_ctx.data    = config_account->const_data;
       decode_ctx.dataend = config_account->const_data + config_account->const_meta->dlen;
-      decode_ctx.valloc  = decode_ctx.valloc;
+      decode_ctx.valloc  = valloc;
 
       fd_stake_config_t stake_config;
       rc = fd_stake_config_decode( &stake_config, &decode_ctx );
