@@ -231,19 +231,6 @@ int main( int     argc,
     fd_poseidon_fini( pos, res );
     FD_TEST(memcmp(res, FLIST[12], FD_POSEIDON_HASH_SZ) == 0);
 
-    /*
-       fd_poseidon_hash(1)   9.530K/s/core 104927.617 ns/call
-       fd_poseidon_hash(2)   5.372K/s/core 186157.594 ns/call
-       fd_poseidon_hash(4)   2.213K/s/core 451814.312 ns/call
-       fd_poseidon_hash(6)   1.159K/s/core 862762.500 ns/call
-       fd_poseidon_hash(12)  0.349K/s/core 2869402.500 ns/call
-
-       fd_poseidon_hash(1)   25.282K/s/core  39553.863 ns/call
-       fd_poseidon_hash(2)   15.764K/s/core  63437.676 ns/call
-       fd_poseidon_hash(4)    7.002K/s/core 142807.094 ns/call
-       fd_poseidon_hash(6)    3.658K/s/core 273403.594 ns/call
-       fd_poseidon_hash(12)   1.116K/s/core 896352.188 ns/call
-    */
     /* benchmark */
     char cstr[128];
     ulong iter = 1000UL;
