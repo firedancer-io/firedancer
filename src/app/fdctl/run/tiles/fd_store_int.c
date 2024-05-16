@@ -263,8 +263,8 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
   switch( store_slot_prepare_mode ) {
     case FD_STORE_SLOT_PREPARE_CONTINUE: {
       if( slot > 64UL ) {
-        ctx->store->smr = fd_ulong_max( ctx->store->smr, slot - 64UL );
-        fd_pending_slots_set_lo_wmark( ctx->store->pending_slots, ctx->store->smr );
+        ctx->blockstore->smr = fd_ulong_max( ctx->blockstore->smr, slot - 64UL );
+        fd_pending_slots_set_lo_wmark( ctx->store->pending_slots, ctx->blockstore->smr );
       }
       ctx->store->now = fd_log_wallclock();
       break;

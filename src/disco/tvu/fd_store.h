@@ -20,7 +20,6 @@ struct __attribute__((aligned(128UL))) fd_store {
   long now;            /* Current time */
 
   /* metadata */
-  ulong smr;           /* super-majority root */
   ulong snapshot_slot; /* the snapshot slot */
   ulong first_turbine_slot;  /* the first turbine slot we received on startup */
   ulong curr_turbine_slot;
@@ -50,7 +49,7 @@ fd_store_footprint( void ) {
 void *
 fd_store_new( void * mem, ulong lo_wmark_slot );
 
-fd_store_t * 
+fd_store_t *
 fd_store_join( void * store );
 
 void *
