@@ -14,3 +14,6 @@ jobs:
       coverage: true
       machine: linux_clang_zen2
       extras: llvm-cov
+  coverage-report:
+    uses: ./.github/workflows/coverage_report.yml
+    secrets: inherit
