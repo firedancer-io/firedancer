@@ -53,17 +53,13 @@ EOF
 curl -X POST -H 'Content-type: application/json' --data "$start_json_payload" $SLACK_WEBHOOK_URL
 
 # Set up environment
-PATH=/opt/rh/gcc-toolset-12/root/usr/bin:$PATH
-export PATH
-PKG_CONFIG_PATH=/usr/lib64/pkgconfig:$PKG_CONFIG_PATH
-
 make distclean && make clean
 ./deps.sh nuke
 echo "y" | ./deps.sh +dev
-make -j
+make -j CC=clang EXTRAS=llvm-cov
 
 # Run the test
-make run-runtime-test-nightly > ~/run_nightly_tests.txt
+make run-runtime-test-nightly -j CC=clang EXTRAS=llvm-cov > ~/run_nightly_tests.txt
 status=$?
 
 # Notify the test status
