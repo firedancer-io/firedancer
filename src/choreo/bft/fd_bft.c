@@ -87,49 +87,48 @@ query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t * vote_accoun
 
 static void
 count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
-  int                  rc;
-  fd_vote_accounts_t * vote_accounts = &fork->slot_ctx.epoch_ctx->epoch_bank.stakes.vote_accounts;
-  fd_vote_accounts_pair_t_mapnode_t const * vote_accounts_pool = vote_accounts->vote_accounts_pool;
-  fd_vote_accounts_pair_t_mapnode_t const * vote_accounts_root = vote_accounts->vote_accounts_root;
-  long tic = fd_log_wallclock();
+  fd_latest_vote_t * latest_votes = fork->slot_ctx.latest_votes;
+  fd_root_t *        roots        = fork->slot_ctx.roots;
+
+  long  tic = fd_log_wallclock();
   ulong cnt = 0;
-  for( fd_vote_accounts_pair_t_mapnode_t const * node =
-           fd_vote_accounts_pair_t_map_minimum_const( vote_accounts_pool, vote_accounts_root );
-       node;
-       node = fd_vote_accounts_pair_t_map_successor_const( vote_accounts_pool, node ) ) {
+  for( fd_latest_vote_deque_iter_t iter = fd_latest_vote_deque_iter_init( latest_votes );
+       !fd_latest_vote_deque_iter_done( latest_votes, iter );
+       iter = fd_latest_vote_deque_iter_next( latest_votes, iter ) ) {
     // long total_tic = fd_log_wallclock();
 
-    fd_pubkey_t const * node_pubkey = &node->elem.key;
+    fd_latest_vote_t *  latest_vote = fd_latest_vote_deque_iter_ele( latest_votes, iter );
+    fd_pubkey_t const * node_pubkey = &latest_vote->node_pubkey;
 
-    FD_BORROWED_ACCOUNT_DECL( vote_account );
+    // FD_BORROWED_ACCOUNT_DECL( vote_account );
     // long view_tic = fd_log_wallclock();
-    rc = fd_acc_mgr_view( bft->acc_mgr, fork->slot_ctx.funk_txn, node_pubkey, vote_account );
-    if( rc != FD_ACC_MGR_SUCCESS ) FD_LOG_ERR( ( "failed to view vote account" ) );
+    // rc = fd_acc_mgr_view( bft->acc_mgr, fork->slot_ctx.funk_txn, node_pubkey, vote_account );
+    // if( rc != FD_ACC_MGR_SUCCESS ) FD_LOG_ERR( ( "failed to view vote account" ) );
     // long view_toc = fd_log_wallclock();
     // if (view_toc - view_tic > 10000) {
     //   FD_LOG_NOTICE( ( "view took: %ld", view_toc - view_tic ) );
     // }
 
     // long decode_tic = fd_log_wallclock();
-    fd_bincode_decode_ctx_t decode_ctx = { .data    = vote_account->const_data,
-                                           .dataend = vote_account->const_data +
-                                                      vote_account->const_meta->dlen,
-                                           .valloc = bft->valloc };
+    // fd_bincode_decode_ctx_t decode_ctx = { .data    = vote_account->const_data,
+    //                                        .dataend = vote_account->const_data +
+    //                                                   vote_account->const_meta->dlen,
+    //                                        .valloc = bft->valloc };
 
-    fd_vote_state_versioned_t versioned;
-    rc = fd_vote_state_versioned_decode( &versioned, &decode_ctx );
-    if( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) FD_LOG_ERR( ( "failed to decode" ) );
-    fd_vote_convert_to_current( &versioned, bft->valloc );
-    fd_vote_state_t * vote_state = &versioned.inner.current;
+    // fd_vote_state_versioned_t versioned;
+    // rc = fd_vote_state_versioned_decode( &versioned, &decode_ctx );
+    // if( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) FD_LOG_ERR( ( "failed to decode" ) );
+    // fd_vote_convert_to_current( &versioned, bft->valloc );
+    // fd_vote_state_t * vote_state = &versioned.inner.current;
     // long decode_toc = fd_log_wallclock();
     // if( decode_toc - decode_tic > 10000 ) {
     //   FD_LOG_NOTICE( ( "decode took: %ld", decode_toc - decode_tic ) );
     // }
 
-    if( vote_state->last_timestamp.slot == 0 || !node->elem.stake ) continue;
+    // fd_landed_vote_t * vote      = deq_fd_landed_vote_t_peek_tail( vote_state->votes );
+    // ulong              vote_slot = vote->lockout.slot;
 
-    fd_landed_vote_t * vote      = deq_fd_landed_vote_t_peek_tail( vote_state->votes );
-    ulong              vote_slot = vote->lockout.slot;
+    ulong vote_slot = latest_vote->slot_hash.slot;
 
     /* Ignore votes for slots < snapshot_slot. */
 
@@ -149,7 +148,8 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 
     /* Look up the stake for this pubkey. */
 
-    ulong stake = query_pubkey_stake( &node->elem.key, vote_accounts );
+    ulong stake = query_pubkey_stake( node_pubkey,
+                                      &fork->slot_ctx.epoch_ctx->epoch_bank.stakes.vote_accounts );
 
     /* Look up the ghost node. */
 
@@ -167,6 +167,63 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
     /* Upsert the vote into ghost. */
 
     fd_ghost_replay_vote_upsert( bft->ghost, &slot_hash, node_pubkey, stake );
+
+    /* Update the stake for the root. */
+
+    fd_root_t * prev_root = fd_root_map_query( roots, roots->node_pubkey, NULL );
+    if( !prev_root || prev_root->root < bft->root ) {
+      if( latest_vote->root >= bft->root ) {
+        bft->rooted_stake += stake;
+        fd_root_t * curr_root = fd_root_map_insert( roots, latest_vote->node_pubkey );
+        curr_root->root       = latest_vote->root;
+
+        double pct = (double)bft->rooted_stake / (double)bft->epoch_stake;
+        if( pct > FD_BFT_SMR ) {
+          FD_LOG_NOTICE( ( "[bft] smr (%lf): %lu", pct, slot_hash.slot ) );
+
+          ulong cnt             = 0;
+          ulong prune_slots[64] = { 0 };
+
+          /* prune forks */
+
+          fd_fork_frontier_t * frontier = bft->forks->frontier;
+          fd_fork_t *          pool     = bft->forks->pool;
+          for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( frontier, pool );
+               !fd_fork_frontier_iter_done( iter, frontier, pool );
+               iter = fd_fork_frontier_iter_next( iter, frontier, pool ) ) {
+
+            fd_fork_t * fork = fd_fork_frontier_iter_ele( iter, frontier, pool );
+            if( fork->slot < bft->root ) prune_slots[cnt++] = fork->slot;
+          }
+
+          for( ulong i = 0; i < cnt; i++ ) {
+            ulong       slot   = prune_slots[i];
+            fd_fork_t * remove = fd_fork_frontier_ele_remove( frontier, &slot, NULL, pool );
+            /* invariant violation if we can't remove what we just marked for removal */
+            FD_TEST( remove );
+            fd_fork_pool_ele_release( pool, remove );
+          }
+
+          /* prune ghost */
+          fd_blockstore_start_read( bft->blockstore );
+          fd_hash_t const * bank_hash = fd_blockstore_bank_hash_query( bft->blockstore, bft->root );
+#if FD_BFT_USE_HANDHOLDING
+          /* This indicates a programming error because this root must be present in the blockstore
+           * with a bank hash. */
+          if( FD_UNLIKELY( !bank_hash ) ) FD_LOG_ERR( ( "missing bank hash %lu", bft->root ) );
+#endif
+          fd_slot_hash_t ghost_root = { .slot = bft->root, .hash = *bank_hash };
+          fd_ghost_prune( bft->ghost, &ghost_root );
+          fd_blockstore_end_read( bft->blockstore );
+
+          /* prune blockstore */
+          fd_blockstore_prune( bft->blockstore, bft->root );
+
+          /* publish funk */
+          // fd_funk_txn_publish(bft->funk, fork->slot_ctx.funk_txn, 1);
+        }
+      }
+    }
 
     /* Check the fork's stake pct in ghost, and mark stake threshold accordingly if reached. */
 

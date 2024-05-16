@@ -19,6 +19,7 @@
 
 #define FD_BFT_EQV_SAFE ( 0.52 )
 #define FD_BFT_OPT_CONF ( 2.0 / 3.0 )
+#define FD_BFT_SMR FD_BFT_OPT_CONF
 
 /* fd_bft implements Solana's Proof-of-Stake consensus protocol. */
 
@@ -26,6 +27,9 @@ struct fd_bft {
   ulong      snapshot_slot;
   ulong      epoch_stake; /* total amount of stake in the current epoch */
   fd_tower_t tower;       /* our local vote tower */
+
+  ulong root;
+  ulong rooted_stake;
 
   /* external joins, pointer don't need updating */
 

@@ -517,6 +517,14 @@ main( int argc, char ** argv ) {
       fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_mem, 14 ) );
 
   /**********************************************************************/
+  /* latest_votes                                                       */
+  /**********************************************************************/
+
+  void * latest_votes_mem = fd_wksp_alloc_laddr(
+      wksp, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint(), TEST_CONSENSUS_MAGIC );
+  fd_latest_vote_t * latest_votes = fd_latest_vote_deque_join(fd_latest_vote_deque_new( latest_votes_mem ));
+
+  /**********************************************************************/
   /* epoch_ctx                                                          */
   /**********************************************************************/
 
@@ -562,6 +570,8 @@ main( int argc, char ** argv ) {
   snapshot_slot_ctx->acc_mgr    = acc_mgr;
   snapshot_slot_ctx->blockstore = blockstore;
   snapshot_slot_ctx->valloc     = valloc;
+
+  snapshot_slot_ctx->latest_votes = latest_votes;
 
   fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
 

@@ -316,6 +316,34 @@ fd_ghost_gossip_vote_upsert( FD_PARAM_UNUSED fd_ghost_t *           ghost,
   FD_LOG_ERR( ( "unimplemented" ) );
 }
 
+void
+fd_ghost_prune( fd_ghost_t * ghost, fd_slot_hash_t const * root ) {
+  ulong          cnt                   = 0;
+  fd_slot_hash_t prune_slot_hashes[64] = { 0 };
+  ulong          root_slot             = root->slot;
+  for( fd_ghost_node_map_iter_t iter =
+           fd_ghost_node_map_iter_init( ghost->node_map, ghost->node_pool );
+       !fd_ghost_node_map_iter_done( iter, ghost->node_map, ghost->node_pool );
+       iter = fd_ghost_node_map_iter_next( iter, ghost->node_map, ghost->node_pool ) ) {
+    fd_ghost_node_t * node = fd_ghost_node_map_iter_ele( iter, ghost->node_map, ghost->node_pool );
+    if( node->slot_hash.slot < root_slot ) prune_slot_hashes[cnt++] = node->slot_hash;
+  }
+
+  for( ulong i = 0; i < cnt; i++ ) {
+    fd_slot_hash_t    slot_hash = prune_slot_hashes[i];
+    fd_ghost_node_t * remove =
+        fd_ghost_node_map_ele_remove( ghost->node_map, &slot_hash, NULL, ghost->node_pool );
+
+#if FD_GHOST_USE_HANDHOLDING
+    /* This indicates a programming error because we marked it for removal above while iterating. */
+    if( FD_UNLIKELY( !remove ) ) FD_LOG_ERR( ( "missing slot_hash marked for removal." ) );
+#endif
+
+    fd_ghost_node_pool_ele_release( ghost->node_pool, remove );
+  }
+  ghost->root = *root;
+}
+
 static void
 fd_ghost_print_node( fd_ghost_node_t * node, int depth ) {
   if( !node ) return;

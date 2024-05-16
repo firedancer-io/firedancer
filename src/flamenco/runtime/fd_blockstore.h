@@ -502,6 +502,10 @@ fd_blockstore_is_slot_ancient( fd_blockstore_t * blockstore, ulong slot ) {
 void
 fd_blockstore_block_height_set( fd_blockstore_t * blockstore, ulong slot, ulong block_height );
 
+/* Prune the blockstore. */
+void
+fd_blockstore_prune( fd_blockstore_t * blockstore, ulong root );
+
 /* Acquire a read lock */
 static inline void
 fd_blockstore_start_read( fd_blockstore_t * blockstore ) {

@@ -893,6 +893,14 @@ fd_blockstore_block_height_set( fd_blockstore_t * blockstore, ulong slot, ulong 
 }
 
 void
+fd_blockstore_prune( fd_blockstore_t * blockstore, ulong smr ) {
+  for (ulong i = blockstore->smr; i < smr; i++) {
+    fd_blockstore_slot_remove( blockstore, i );
+  }
+  blockstore->smr = smr;
+}
+
+void
 fd_blockstore_log_block_status( fd_blockstore_t * blockstore, ulong around_slot ) {
   for( ulong i = around_slot - 5; i < around_slot + 20; ++i ) {
     fd_blockstore_slot_map_t * slot_entry =

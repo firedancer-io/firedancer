@@ -14,15 +14,38 @@
 /* fd_latest_vote_t records the latest voted slot hash by a given node. */
 
 struct fd_latest_vote {
-   fd_pubkey_t node_pubkey;
-   fd_slot_hash_t slot_hash;
+  fd_pubkey_t    node_pubkey;
+  fd_slot_hash_t slot_hash;
+  ulong          root;
 };
 typedef struct fd_latest_vote fd_latest_vote_t;
 
 #define DEQUE_NAME fd_latest_vote_deque
 #define DEQUE_T    fd_latest_vote_t
-#define DEQUE_MAX  (1UL << 16)
+#define DEQUE_MAX  (1UL << 12)
 #include "../../../util/tmpl/fd_deque.c"
+
+struct fd_root {
+  fd_pubkey_t    node_pubkey;
+  uint           hash; /* internal use by fd_map.c do not modify */
+  ulong          root;
+};
+typedef struct fd_root fd_root_t;
+
+/* clang-format off */
+#define MAP_NAME              fd_root_map
+#define MAP_T                 fd_root_t
+#define MAP_KEY               node_pubkey
+#define MAP_KEY_T             fd_pubkey_t
+#define MAP_KEY_NULL          pubkey_null
+#define MAP_KEY_INVAL(k)      !(memcmp(&k,&pubkey_null,sizeof(fd_pubkey_t)))
+#define MAP_KEY_EQUAL(k0,k1)  !(memcmp((&k0),(&k1),sizeof(fd_pubkey_t)))
+#define MAP_KEY_EQUAL_IS_SLOW 1
+#define MAP_KEY_HASH(key)     ((uint)(fd_hash(0UL,&key,sizeof(fd_pubkey_t))))
+#define MAP_MEMOIZE           1
+#define MAP_LG_SLOT_CNT       14
+#include "../../../util/tmpl/fd_map.c"
+/* clang-format on */
 
 struct fd_account_compute_elem {
   fd_pubkey_t key;
@@ -83,6 +106,9 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 
   fd_sysvar_cache_t *      sysvar_cache;
   fd_account_compute_elem_t * account_compute_table;
+
+  fd_latest_vote_t * latest_votes;
+  fd_root_t *        roots;
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))

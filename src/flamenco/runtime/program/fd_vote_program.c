@@ -1761,10 +1761,16 @@ process_vote_state_update( ulong                         vote_acct_idx,
   rc = set_vote_account_state( vote_acct_idx, vote_account, &vote_state, ctx );
 
   /* only when running live or sim (vs. offline backtest) */
-  if( FD_LIKELY( rc == FD_EXECUTOR_INSTR_SUCCESS &&
+  if( FD_LIKELY( rc == FD_EXECUTOR_INSTR_SUCCESS && ctx->slot_ctx->latest_votes &&
                  vote_state_update->has_root ) ) {
     fd_vote_lockout_t * lockout = deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts );
     if( FD_LIKELY( lockout ) ) {
+      fd_latest_vote_t latest_vote = {
+          .node_pubkey = *vote_account->pubkey,
+          .slot_hash   = { .slot = lockout->slot, .hash = vote_state_update->hash }
+      };
+      fd_latest_vote_deque_push_tail( ctx->slot_ctx->latest_votes, latest_vote );
+
       fd_bank_hash_cmp_t * bank_hash_cmp = ctx->slot_ctx->epoch_ctx->bank_hash_cmp;
       fd_bank_hash_cmp_lock( bank_hash_cmp );
       fd_bank_hash_cmp_insert( bank_hash_cmp, vote_state_update->root, &vote_state_update->hash, 0 );
