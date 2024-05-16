@@ -252,11 +252,12 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
 
      We must be careful in returning the correct fatal vs soft error.
 
-     The special case of vals_len==0 returns a soft_error, so for simplicity
+     The special case of vals_len==0 returns success, so for simplicity
      we capture it explicitly. */
 
   if( FD_UNLIKELY( !vals_len ) ) {
-    goto soft_error;
+    ret = 0;
+    return FD_VM_SUCCESS;
   }
 
   /* First loop to memory map. This can return a fatal error. */
