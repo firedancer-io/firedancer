@@ -1,4 +1,4 @@
-#define _GNU_SOURCE 
+#define _GNU_SOURCE
 
 #include "tiles.h"
 
@@ -110,7 +110,7 @@ struct fd_replay_tile_ctx {
   ulong     parent_slot;
   ulong     flags;
   fd_hash_t blockhash;
-  
+
   uchar        tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
   fd_tpool_t * tpool;
   ulong        max_workers;
@@ -156,14 +156,14 @@ during_frag( void * _ctx,
              ulong  sz,
              int *  opt_filter  FD_PARAM_UNUSED ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
-  
+
   if( FD_UNLIKELY( chunk<ctx->store_in_chunk0 || chunk>ctx->store_in_wmark || sz>MAX_TXNS_PER_REPLAY ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->store_in_chunk0, ctx->store_in_wmark ));
   }
 
   void * dst_poh = fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->store_in_mem, chunk );
-     
+
   /* Incoming packet from store tile. Format:
    * Parent slot (ulong - 8 bytes)
    * Updated block hash/PoH hash (fd_hash_t - 32 bytes)
@@ -226,7 +226,7 @@ after_frag( void *             _ctx,
 
       fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
       fork->slot_ctx.slot_bank.slot      = ctx->curr_slot;
-  
+
       fd_funk_txn_xid_t xid;
 
       fd_memcpy(xid.uc, ctx->blockhash.uc, sizeof(fd_funk_txn_xid_t));
@@ -270,7 +270,7 @@ after_frag( void *             _ctx,
         *opt_filter = 1;
         return;
       }
-      
+
       fd_blockstore_start_write( ctx->replay->blockstore );
 
       fd_block_t * block_ = fd_blockstore_block_query( ctx->replay->blockstore, ctx->curr_slot );
@@ -365,7 +365,30 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
 }
 
 static void
-after_credit( void *             _ctx, 
+init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
+  ulong snapshot_slot = ctx->slot_ctx->slot_bank.slot;
+  if( snapshot_slot != ctx->curr_slot ) {
+    /* The initial snapshot_slot was wrong or unspecified. Fix everything. */
+    fd_fork_t * ele = fd_fork_frontier_ele_remove( ctx->replay->forks->frontier, &ctx->curr_slot, NULL, ctx->replay->forks->pool );
+    ele->slot                = snapshot_slot;
+    fd_fork_frontier_ele_insert( ctx->replay->forks->frontier, ele, ctx->replay->forks->pool );
+    ctx->replay->smr         = snapshot_slot;
+    fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( ctx->epoch_ctx );
+    bank_hash_cmp->slot      = snapshot_slot;
+    ctx->curr_slot           = snapshot_slot;
+    ctx->parent_slot         = ctx->slot_ctx->slot_bank.prev_slot;
+  }
+
+  fd_features_restore( ctx->slot_ctx );
+  fd_runtime_update_leaders( ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot );
+  fd_calculate_epoch_accounts_hash_values( ctx->slot_ctx );
+  fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( ctx->slot_ctx, ctx->slot_ctx->funk_txn );
+  fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
+}
+
+static void
+after_credit( void *             _ctx,
               fd_mux_context_t * mux_ctx ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
 
@@ -392,12 +415,7 @@ after_credit( void *             _ctx,
 
         fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot );
 
-        fd_features_restore( ctx->slot_ctx );
-        fd_runtime_update_leaders( ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot );
-        fd_calculate_epoch_accounts_hash_values( ctx->slot_ctx );
-        fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
-        fd_bpf_scan_and_create_bpf_program_cache_entry( ctx->slot_ctx, ctx->slot_ctx->funk_txn );
-        fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
+        init_after_snapshot( ctx );
       } FD_SCRATCH_SCOPE_END;
     }
   }
@@ -525,17 +543,17 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Valloc setup */
   void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
-  if( FD_UNLIKELY( !alloc_shalloc ) ) { 
+  if( FD_UNLIKELY( !alloc_shalloc ) ) {
     FD_LOG_ERR( ( "fd_allow_new failed" ) ); }
   fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, 3UL );
   if( FD_UNLIKELY( !alloc ) ) {
-    FD_LOG_ERR( ( "fd_alloc_join failed" ) ); 
+    FD_LOG_ERR( ( "fd_alloc_join failed" ) );
   }
 
   fd_valloc_t valloc = fd_alloc_virtual( alloc );
-  
+
   ctx->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( ctx->epoch_ctx_mem , VOTE_ACC_MAX ) );
-  
+
   ctx->snapshot    = tile->replay.snapshot;
   ctx->incremental = tile->replay.incremental;
   ctx->genesis     = tile->replay.genesis;
@@ -590,7 +608,7 @@ unprivileged_init( fd_topo_t *      topo,
       }
     }
   }
- 
+
   ctx->replay->tpool = ctx->tpool;
   ctx->replay->max_workers = ctx->max_workers;
 
@@ -612,7 +630,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->store_out_chunk0 = fd_dcache_compact_chunk0( ctx->store_out_mem, store_out_link->dcache );
   ctx->store_out_wmark  = fd_dcache_compact_wmark( ctx->store_out_mem, store_out_link->dcache, store_out_link->mtu );
   ctx->store_out_chunk  = ctx->store_out_chunk0;
-  
+
   fd_topo_link_t * poh_out_link = &topo->links[ tile->out_link_id[ POH_OUT_IDX ] ];
   ctx->poh_out_mem    = topo->workspaces[ topo->objs[ poh_out_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->poh_out_chunk0 = fd_dcache_compact_chunk0( ctx->poh_out_mem, poh_out_link->dcache );

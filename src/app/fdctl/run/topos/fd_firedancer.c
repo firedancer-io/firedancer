@@ -1,4 +1,4 @@
-/* Firedancer topology used for testing the full validator. 
+/* Firedancer topology used for testing the full validator.
    Associated test script: test-firedancer.sh */
 #include "topos.h"
 #include "../tiles/tiles.h"
@@ -11,26 +11,8 @@
 #include "../../../../util/tile/fd_tile_private.h"
 #include <sys/sysinfo.h>
 
-static ulong
-parse_snapshot_slot( char const * snapshot, char const * incremental ) {
-  char const * str = strlen( incremental ) > 0 ? incremental : snapshot;
-  ulong str_len = strlen( str );
-  char const * end_ptr = &str[str_len - 1];
-
-  while( end_ptr > str && *end_ptr != '-') end_ptr--;
-
-  if( end_ptr == str ) FD_LOG_ERR(("Could not parse snapshot slot out of snapshot file %s", str));
-
-  char const * start_ptr = (end_ptr - 1);
-  while( start_ptr > str && *start_ptr != '-') start_ptr--;
-
-  if( start_ptr++ == str ) FD_LOG_ERR(("Could not parse snapshot slot out of snapshot file %s", str));
-  char *eptr;
-  return strtoul(start_ptr, &eptr, 10);
-}
-
 void
-fd_topo_firedancer( config_t * _config ) { 
+fd_topo_firedancer( config_t * _config ) {
   config_t * config = (config_t *)_config;
   ulong net_tile_cnt    = config->layout.net_tile_count;
   ulong shred_tile_cnt  = config->layout.shred_tile_count;
@@ -52,7 +34,7 @@ fd_topo_firedancer( config_t * _config ) {
 
   fd_topob_wksp( topo, "shred_sign" );
   fd_topob_wksp( topo, "sign_shred" );
-  
+
   fd_topob_wksp( topo, "gossip_sign" );
   fd_topob_wksp( topo, "sign_gossip" );
 
@@ -185,11 +167,11 @@ fd_topo_firedancer( config_t * _config ) {
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "crds_shred",    0UL,          FD_TOPOB_RELIABLE,     FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_out( topo, "shred",  i,                          "shred_net",     i                                                  );
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "shred_storei",  i,            FD_TOPOB_RELIABLE,     FD_TOPOB_POLLED );
-  
+
   /**/                 fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "repair_store",  0UL,          FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_out( topo, "repair",  0UL,                        "repair_net",   0UL                                                  );  
-  /**/                 fd_topob_tile_out( topo, "storei",  0UL,                       "store_repair",  0UL                                                  );  
-  /**/                 fd_topob_tile_out( topo, "storei",  0UL,                       "store_replay",  0UL                                                  );  
+  /**/                 fd_topob_tile_out( topo, "repair",  0UL,                        "repair_net",   0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "storei",  0UL,                       "store_repair",  0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "storei",  0UL,                       "store_replay",  0UL                                                  );
   /**/                 fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "stake_out",     0UL,          FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED );
 
 
@@ -205,7 +187,7 @@ fd_topo_firedancer( config_t * _config ) {
     /**/               fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "sign_shred",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
     /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_shred",    i                                                    );
   }
-  
+
   FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",      i,                         "net_gossip",   i                                                    );
   FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "gossip",   0UL,          "metric_in", "net_gossip",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "crds_shred",   0UL                                                  );
@@ -221,7 +203,7 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "gossip_repai",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "stake_out",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "store_repair",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-  
+
   /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "store_replay",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "replay",  0UL,                        "replay_poh",   0UL                                                  );
 
@@ -264,7 +246,7 @@ fd_topo_firedancer( config_t * _config ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "storei" ) ) ) {
       strncpy( tile->store_int.identity_key_path, config->consensus.identity_path, sizeof(tile->store_int.identity_key_path) );
-      tile->store_int.snapshot_slot = parse_snapshot_slot( config->tiles.replay.snapshot, config->tiles.replay.incremental );
+      tile->store_int.snapshot_slot = ULONG_MAX; /* Determine when we load the snapshot */
     } else if( FD_UNLIKELY( !strcmp( tile->name, "gossip" ) ) ) {
       tile->gossip.ip_addr = config->tiles.net.ip_addr;
       memcpy( tile->gossip.src_mac_addr, config->tiles.net.mac_addr, 6UL );
@@ -273,7 +255,7 @@ fd_topo_firedancer( config_t * _config ) {
       tile->gossip.tvu_port = config->tiles.shred.shred_listen_port;
       tile->gossip.tvu_fwd_port = config->tiles.shred.shred_listen_port;
       tile->gossip.expected_shred_version = config->consensus.expected_shred_version;
-      
+
       FD_TEST( config->tiles.gossip.entrypoints_cnt == config->tiles.gossip.peer_ports_cnt );
       tile->gossip.entrypoints_cnt = config->tiles.gossip.entrypoints_cnt;
       for (ulong i=0UL; i<config->tiles.gossip.entrypoints_cnt; i++) {
@@ -294,13 +276,13 @@ fd_topo_firedancer( config_t * _config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
       strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
       strncpy( tile->replay.incremental, config->tiles.replay.incremental, sizeof(tile->replay.incremental) );
-      tile->replay.snapshot_slot = parse_snapshot_slot( config->tiles.replay.snapshot, config->tiles.replay.incremental );
+      tile->replay.snapshot_slot = ULONG_MAX; /* Determine when we load the snapshot */
       tile->replay.tpool_thread_count =  config->tiles.replay.tpool_thread_count;
 
       tile->replay.pages     = config->tiles.replay.funk_sz_gb;
       tile->replay.txn_max   = config->tiles.replay.funk_txn_max;
       tile->replay.index_max = config->tiles.replay.funk_rec_max;
-      
+
       if( FD_UNLIKELY( tile->replay.tpool_thread_count == 0 || tile->replay.tpool_thread_count>FD_TILE_MAX ) )
         FD_LOG_ERR(( "bad tpool_thread_count %lu", tile->replay.tpool_thread_count ));
     } else if( FD_UNLIKELY( !strcmp( tile->name, "bhole" ) ) ) {
