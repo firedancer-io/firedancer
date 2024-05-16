@@ -32,8 +32,10 @@ fd_txn_base_generate( uchar out_txn_meta[ static FD_TXN_MAX_SZ ],
                       fd_txn_accounts_t * accounts,
                       uchar * opt_recent_blockhash ) {
 
-  FD_TEST(num_signatures <= 128);
+  /* Number of signatures cannot exceed 127. */
+  FD_TEST(num_signatures <= FD_TXN_SIG_MAX);
   *out_txn_payload = (uchar)num_signatures;
+
   /* Fill out txn metadata */
   fd_txn_t * txn_meta             = (fd_txn_t *) out_txn_meta;
   txn_meta->acct_addr_cnt         = accounts->acct_cnt;
@@ -45,7 +47,7 @@ fd_txn_base_generate( uchar out_txn_meta[ static FD_TXN_MAX_SZ ],
   txn_meta->signature_off         = (ushort)1UL;
   txn_meta->instr_cnt             = 0;
 
-  FD_TEST(txn_meta->acct_addr_cnt <= 128);
+  FD_TEST(txn_meta->acct_addr_cnt < FD_TXN_ACCT_ADDR_MAX);
   txn_meta->acct_addr_off        = (ushort)(txn_meta->message_off + (sizeof(fd_txn_message_hdr_t)) + 1);
   txn_meta->recent_blockhash_off = (ushort)(txn_meta->acct_addr_off + (txn_meta->acct_addr_cnt * FD_TXN_ACCT_ADDR_SZ));
 
@@ -105,13 +107,13 @@ fd_txn_add_instr( uchar * txn_meta_ptr,
   txn_meta->instr_cnt++;
   uchar * write_ptr       = instr_start;
 
-  uchar compact_instr_cnt_sz = (uchar) fd_cu16_enc( (ushort)txn_meta->instr_cnt, write_ptr );
+  uint compact_instr_cnt_sz = fd_cu16_enc( (ushort)txn_meta->instr_cnt, write_ptr );
   FD_TEST( compact_instr_cnt_sz == 1 );
 
   write_ptr += compact_instr_cnt_sz;
 
   /* Calculate offset of next instruction. */
-  if ( txn_meta->instr_cnt > 1 ) {
+  if ( FD_UNLIKELY( txn_meta->instr_cnt > 1 ) ) {
     write_ptr = out_txn_payload + txn_meta->instr[txn_meta->instr_cnt-2].data_off + txn_meta->instr[txn_meta->instr_cnt-2].data_sz;
   }
 
@@ -120,9 +122,10 @@ fd_txn_add_instr( uchar * txn_meta_ptr,
   *write_ptr = program_id;
   write_ptr += sizeof(uchar);
 
-  uchar compact_accts_len_sz = (uchar) fd_cu16_enc( (ushort)accounts_sz, write_ptr );
+  uint compact_accts_len_sz = fd_cu16_enc( (ushort)accounts_sz, write_ptr );
   write_ptr += compact_accts_len_sz;
 
+  ushort acct_off = (ushort) (write_ptr - out_txn_payload);
   fd_memcpy( write_ptr, accounts, accounts_sz );
   write_ptr += accounts_sz;
 
@@ -134,11 +137,24 @@ fd_txn_add_instr( uchar * txn_meta_ptr,
   ushort data_off = (ushort) (write_ptr - out_txn_payload);
   fd_memcpy( write_ptr, instr_buf, data_sz );
   write_ptr += data_sz;
-  ushort acct_off = (ushort) (instr_start + sizeof(uchar) + compact_accts_len_sz - out_txn_payload);
 
   (void) fd_txn_instr_meta_generate( (uchar*)&txn_meta->instr[txn_meta->instr_cnt-1], 
                                       program_id, 
                                       (ushort)accounts_sz,
                                       data_sz, acct_off, data_off );
-  return (ulong)(write_ptr - out_txn_payload);
+  return (ulong)(instr_start - out_txn_payload);
+}
+
+void
+fd_txn_reset_instrs( uchar * txn_meta_ptr,
+                     uchar out_txn_payload[ static FD_TXN_MTU ] ) {
+  fd_txn_t * txn_meta = (fd_txn_t *)txn_meta_ptr;
+  if( FD_UNLIKELY( txn_meta->instr_cnt == 0 ) ) {
+    return;
+  }
+
+  ulong instr_start   = txn_meta->recent_blockhash_off + FD_TXN_BLOCKHASH_SZ;
+
+  *(out_txn_payload + instr_start) = 0;
+  txn_meta->instr_cnt = 0;
 }
