@@ -24,7 +24,7 @@ jobs:
       - uses: ./.github/actions/hugepages
         with:
           count_gigantic: 128
-          count_huge: 1000 # TODO: this is required until we can handle anonymouse workspaces and loose huge pages in fddev
+          count_huge: 500 # TODO: this is required until we can handle anonymouse workspaces and loose huge pages in fddev
 
       - name: build
         run: |
