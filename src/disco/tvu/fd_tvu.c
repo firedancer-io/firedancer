@@ -811,7 +811,7 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
     runtime_ctx->capture_ctx->dump_insn_sig_filter = args->dump_insn_sig_filter;
     runtime_ctx->capture_ctx->dump_insn_output_dir = args->dump_insn_output_dir;
   }
-                      
+
 }
 
 typedef struct {
@@ -1289,7 +1289,6 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     void *        store_mem = fd_valloc_malloc( valloc, fd_store_align(), fd_store_footprint() );
     fd_store_t * store     = fd_store_join( fd_store_new( store_mem, snapshot_slot ) );
     store->blockstore = blockstore_setup_out.blockstore;
-    store->smr = snapshot_slot;
     store->snapshot_slot = snapshot_slot;
     store->valloc = valloc;
 
