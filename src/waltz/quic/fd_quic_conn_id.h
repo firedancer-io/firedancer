@@ -34,6 +34,19 @@ struct fd_quic_conn_id {
 };
 typedef struct fd_quic_conn_id fd_quic_conn_id_t;
 
+FD_PROTOTYPES_BEGIN
+
+static inline fd_quic_conn_id_t
+fd_quic_conn_id_new( void const * conn_id,
+                     ulong        sz /* in [0,16] */ ) {
+  /* TODO debug assertion verifying sz */
+  fd_quic_conn_id_t id = { .sz = (uchar)sz };
+  fd_memcpy( id.conn_id, conn_id, sz );
+  return id;
+}
+
+FD_PROTOTYPES_END
+
 /* Defines a NULL connection id
    Used as a NULL key in hash maps
    Note that the QUIC protocol supports zero-length connection ids.
