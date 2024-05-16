@@ -1,6 +1,6 @@
 /* Store tile manages a blockstore and serves requests to repair and replay. */
 
-#define _GNU_SOURCE 
+#define _GNU_SOURCE
 
 #include "tiles.h"
 
@@ -66,7 +66,7 @@ struct fd_store_tile_ctx {
   fd_wksp_t * replay_in_mem;
   ulong       replay_in_chunk0;
   ulong       replay_in_wmark;
-  
+
   fd_wksp_t * pack_in_mem;
   ulong       pack_in_chunk0;
   ulong       pack_in_wmark;
@@ -182,7 +182,7 @@ after_frag( void *             _ctx,
             fd_mux_context_t * mux          FD_PARAM_UNUSED ) {
 
   fd_store_tile_ctx_t * ctx = (fd_store_tile_ctx_t *)_ctx;
-  
+
   ctx->store->now = fd_log_wallclock();
 
   if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
@@ -220,7 +220,7 @@ privileged_init( fd_topo_t *      topo  FD_PARAM_UNUSED,
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_key[ 0 ] = *(fd_pubkey_t *)fd_keyload_load( tile->store_int.identity_key_path, /* pubkey only: */ 1 );
-  
+
   FD_TEST( sizeof(ulong) == getrandom( &ctx->blockstore_seed, sizeof(ulong), 0 ) );
 }
 
@@ -243,11 +243,11 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
   }
 
   /* We are leader at this slot and the slot is newer than turbine! */
-  // FIXME: I dont think that this `ctx->store->curr_turbine_slot >= slot` 
+  // FIXME: I dont think that this `ctx->store->curr_turbine_slot >= slot`
   // check works on fork switches to lower slot numbers. Use a given fork height
   // instead
 
-  if( ctx->store->curr_turbine_slot >= slot 
+  if( ctx->store->curr_turbine_slot >= slot
       && memcmp( ctx->identity_key, slot_leader, sizeof(fd_pubkey_t) ) == 0 ) {
     if( store_slot_prepare_mode == FD_STORE_SLOT_PREPARE_CONTINUE ) {
       fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, slot );
@@ -258,7 +258,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       return;
     }
   }
-  
+
   ulong repair_req_cnt = 0;
   switch( store_slot_prepare_mode ) {
     case FD_STORE_SLOT_PREPARE_CONTINUE: {
@@ -292,7 +292,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       return;
     }
   }
-  
+
   if( store_slot_prepare_mode == FD_STORE_SLOT_PREPARE_CONTINUE ) {
 
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -318,14 +318,14 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
     out_buf += sizeof(ulong);
 
     memcpy( out_buf, block_hash->uc, sizeof(fd_hash_t) );
-    out_buf += sizeof(fd_hash_t); 
+    out_buf += sizeof(fd_hash_t);
 
     uchar * block_data = fd_blockstore_block_data_laddr( ctx->blockstore, block );
 
     FD_SCRATCH_SCOPE_BEGIN {
       fd_block_info_t block_info;
       fd_runtime_block_prepare( block_data, block->data_sz, fd_scratch_virtual(), &block_info );
-    
+
       FD_LOG_DEBUG(( "block prepared - slot: %lu", slot ));
       FD_LOG_NOTICE(( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
                       "executed: %lu, caught up: %d",
@@ -395,7 +395,7 @@ unprivileged_init( fd_topo_t *      topo,
                    strcmp( topo->links[ tile->out_link_id[ REPLAY_OUT_IDX ] ].name, "store_replay" ) ) )
     FD_LOG_ERR(( "store tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
-      
+
   if( FD_UNLIKELY( tile->out_link_id_primary != ULONG_MAX ) )
     FD_LOG_ERR(( "store tile has a primary output link" ));
 
@@ -414,9 +414,9 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( (!!smem) & (!!fmem) );
   fd_scratch_attach( smem, fmem, SCRATCH_SMAX, SCRATCH_SDEPTH );
 
-  
+
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
-    
+
   ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
   FD_TEST( blockstore_obj_id!=ULONG_MAX );
   ctx->blockstore_wksp = topo->workspaces[ topo->objs[ blockstore_obj_id ].wksp_id ].wksp;
@@ -445,25 +445,12 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR( ( "failed to allocate a blockstore" ) );
   }
 
-  FD_LOG_WARNING(("snapshot slot %lu", tile->store_int.snapshot_slot ));
-  /* fake the snapshot slot's block and mark it as executed */
-  // fd_blockstore_slot_map_t * slot_entry =
-  //   fd_blockstore_slot_map_insert( fd_blockstore_slot_map( blockstore ), tile->store_int.snapshot_slot );
-  // slot_entry->block.data_gaddr = ULONG_MAX;
-  // slot_entry->block.flags = fd_uchar_set_bit( slot_entry->block.flags, FD_BLOCK_FLAG_SNAPSHOT );
-  // slot_entry->block.flags = fd_uchar_set_bit( slot_entry->block.flags, FD_BLOCK_FLAG_PROCESSED );
-  
-  // if( FD_LIKELY( tile->store_int.snapshot_slot != 0 ) ) {
-  //   blockstore->root = tile->store_int.snapshot_slot;
-  //   blockstore->min  = tile->store_int.snapshot_slot;
-  // }
-
   ctx->blockstore = blockstore;
   ctx->store->blockstore = blockstore;
 
   void * alloc_shmem = fd_wksp_alloc_laddr( ctx->wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
-  if( FD_UNLIKELY( !alloc_shmem ) ) { 
-    FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); 
+  if( FD_UNLIKELY( !alloc_shmem ) ) {
+    FD_LOG_ERR( ( "fd_alloc too large for workspace" ) );
   }
 
   /* Set up shred tile input */
