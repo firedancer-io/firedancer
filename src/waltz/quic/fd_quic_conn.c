@@ -145,9 +145,8 @@ fd_quic_conn_new( void *                   mem,
   fd_quic_conn_t * conn = (fd_quic_conn_t *)mem;
   fd_memset( conn, 0, sizeof(fd_quic_conn_t) );
 
-  conn->quic             = quic;
-  conn->stream_tx_buf_sz = limits->tx_buf_sz;
-  conn->state            = FD_QUIC_CONN_STATE_INVALID;
+  conn->quic  = quic;
+  conn->state = FD_QUIC_CONN_STATE_INVALID;
 
   /* Initialize streams */
 
