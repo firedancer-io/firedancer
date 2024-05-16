@@ -1087,6 +1087,12 @@ fd_feature_id_t const ids[] = {
               /* 3opE3EzAKnUftUDURkzMgwpNgimBAypW1mNDYH4x4Zg7 */
     .name   = "reward_full_priority_fee" },
 
+  { .index  = offsetof(fd_features_t, simplify_alt_bn128_syscall_error_codes)>>3,
+    .id     = {"\xff\xdc\x9f\x8d\x03\xe9\xa9\x8b\x11\x73\xd7\xf4\x57\x73\x30\xb9\x37\xc4\x25\xcd\xa9\xd8\xc1\x3e\xcc\xb7\x16\x4a\x1a\xfd\xf9\xec"},
+              /* JDn5q3GBeqzvUa7z67BbmVHVdE3EbUAjvFep3weR3jxX */
+    .name   = "simplify_alt_bn128_syscall_error_codes",
+    .hardcoded = 1 },
+
   { .index  = offsetof(fd_features_t, abort_on_invalid_curve)>>3,
     .id     = {"\xdd\x72\x21\x65\xad\x48\xe1\xaf\xda\x46\x3f\x70\xf5\xe7\x27\xdf\x99\x16\x8f\xf9\xbb\xcb\x52\x76\xdb\x98\x53\x4e\x33\xf1\xf5\x86"},
               /* FuS3FPfJDKSNot99ECLXtp3rueq36hMNStJkPJwWodLh */
@@ -1294,7 +1300,8 @@ fd_feature_id_query( ulong prefix ) {
   case 0xf711255aedfe2d0d: return &ids[ 190 ];
   case 0x81f658d2653a6051: return &ids[ 191 ];
   case 0xf1f206f6027db529: return &ids[ 192 ];
-  case 0xafe148ad652172dd: return &ids[ 193 ];
+  case 0x8ba9e9038d9fdcff: return &ids[ 193 ];
+  case 0xafe148ad652172dd: return &ids[ 194 ];
   default: break;
   }
 
@@ -1496,6 +1503,7 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, remove_rounding_in_fee_calculation   
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_tower_sync_ix                                    )>>3==190UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, deprecate_unused_legacy_vote_plumbing                   )>>3==191UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, reward_full_priority_fee                                )>>3==192UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, abort_on_invalid_curve                                  )>>3==193UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, simplify_alt_bn128_syscall_error_codes                  )>>3==193UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, abort_on_invalid_curve                                  )>>3==194UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

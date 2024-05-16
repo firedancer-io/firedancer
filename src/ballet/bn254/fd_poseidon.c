@@ -98,7 +98,8 @@ fd_poseidon_append( fd_poseidon_t * pos,
   if( FD_UNLIKELY( pos->cnt >= FD_POSEIDON_MAX_WIDTH ) ) {
     return NULL;
   }
-  if( FD_UNLIKELY( sz>32UL ) ) {
+  /* Empty input and non-field are errors. Short element is extended with 0s. */
+  if( FD_UNLIKELY( sz==0 || sz>32UL ) ) {
     return NULL;
   }
 

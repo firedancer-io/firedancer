@@ -192,5 +192,6 @@
   {"name":"enable_tower_sync_ix","pubkey":"tSynMCspg4xFiCj1v3TDb4c7crMR5tSBhLz4sF7rrNA"},
   {"name":"deprecate_unused_legacy_vote_plumbing","pubkey":"6Uf8S75PVh91MYgPQSHnjRAPQq6an5BDv9vomrCwDqLe"},
   {"name":"reward_full_priority_fee","pubkey":"3opE3EzAKnUftUDURkzMgwpNgimBAypW1mNDYH4x4Zg7"},
+  {"name":"simplify_alt_bn128_syscall_error_codes","pubkey": "JDn5q3GBeqzvUa7z67BbmVHVdE3EbUAjvFep3weR3jxX","hardcoded":1,"comment":"only impl the activated path"},
   {"name":"abort_on_invalid_curve","pubkey":"FuS3FPfJDKSNot99ECLXtp3rueq36hMNStJkPJwWodLh"}
 ]

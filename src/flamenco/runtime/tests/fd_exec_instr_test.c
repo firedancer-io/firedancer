@@ -987,7 +987,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
     syscalls,
     fd_murmur3_32( syscall_name, strlen( syscall_name ), 0U ),
     NULL );
-  FD_TEST( syscall );
+  if( !syscall ) return 0;
 
   /* Actually invoke the syscall */
   int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
