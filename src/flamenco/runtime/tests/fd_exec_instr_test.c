@@ -329,6 +329,15 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   txn_descriptor->addr_table_adtl_cnt = 0;
   txn_ctx->txn_descriptor = txn_descriptor;
 
+  /* Precompiles are allowed to read data from all instructions.
+     We need to at least set pointers to the current instruction.
+     Note: for simplicity we point the entire raw tx data to the
+     instruction data, this is probably something we can improve. */
+  txn_descriptor->instr_cnt = 1;
+  txn_ctx->_txn_raw->raw = info->data;
+  txn_descriptor->instr[0].data_off = 0;
+  txn_descriptor->instr[0].data_sz = info->data_sz;
+
   /* Load accounts into database */
 
   assert( acc_mgr->funk );

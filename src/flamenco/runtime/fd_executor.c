@@ -16,8 +16,7 @@
 #include "program/fd_bpf_loader_v3_program.h"
 #include "program/fd_compute_budget_program.h"
 #include "program/fd_config_program.h"
-#include "program/fd_ed25519_program.h"
-#include "program/fd_secp256k1_program.h"
+#include "program/fd_precompiles.h"
 #include "program/fd_stake_program.h"
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
@@ -51,7 +50,9 @@
 
 fd_exec_instr_fn_t
 fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
-  /* TODO: replace with proper lookup table */
+  /* TODO:
+     - replace with proper lookup table
+     - precompiles ed25519, secp256k1 should not be here */
   if ( !memcmp( pubkey, fd_solana_vote_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_vote_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) {
@@ -61,9 +62,9 @@ fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
   } else if ( !memcmp( pubkey, fd_solana_stake_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_stake_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_ed25519_sig_verify_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_ed25519_program_execute;
+    return fd_precompile_ed25519_verify;
   } else if ( !memcmp( pubkey, fd_solana_keccak_secp_256k_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_executor_secp256k1_program_execute_instruction;
+    return fd_precompile_secp256k1_verify;
   } else if ( !memcmp( pubkey, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_bpf_loader_v3_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_bpf_loader_program_id.key, sizeof( fd_pubkey_t ) ) ) {
