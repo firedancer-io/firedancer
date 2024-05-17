@@ -6,6 +6,7 @@
 #include "../../flamenco/types/fd_solana_block.pb.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "keywords.h"
 #include "fd_block_to_json.h"
@@ -825,29 +826,24 @@ method_getMaxShredInsertSlot(struct fd_web_replier* replier, struct json_values*
 
 static int
 method_getMinimumBalanceForRentExemption(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getMinimumBalanceForRentExemption is not implemented");
-  return 0;
-  /*
+  FD_METHOD_SCRATCH_BEGIN( 1<<29 ) {
     static const uint PATH_SIZE[3] = {
-    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
-    (JSON_TOKEN_LBRACKET<<16) | 0,
-    (JSON_TOKEN_INTEGER<<16)
+      (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+      (JSON_TOKEN_LBRACKET<<16) | 0,
+      (JSON_TOKEN_INTEGER<<16)
     };
     ulong size_sz = 0;
     const void* size = json_get_value(values, PATH_SIZE, 3, &size_sz);
     ulong sizen = (size == NULL ? 0UL : (ulong)(*(long*)size));
-    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->replay->epoch_ctx );
+    fd_epoch_bank_t * epoch_bank = read_epoch_bank(ctx, fd_scratch_virtual());
     ulong min_balance = fd_rent_exempt_minimum_balance2(&epoch_bank->rent, sizen);
 
     fd_textstream_t * ts = fd_web_replier_textstream(replier);
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
-    min_balance,
-    ctx->call_id);
+                          min_balance, ctx->call_id);
     fd_web_replier_done(replier);
-    return 0;
-  */
+  } FD_METHOD_SCRATCH_END;
+  return 0;
 }
 
 // Implementation of the "getMultipleAccounts" method
