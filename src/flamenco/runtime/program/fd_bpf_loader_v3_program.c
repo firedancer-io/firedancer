@@ -175,6 +175,42 @@ fd_bpf_loader_v3_user_execute( fd_exec_instr_ctx_t ctx ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
+  /* Lookup account and its programdata account, error out if program data slot
+     is same as the current slot */
+  FD_BORROWED_ACCOUNT_DECL( program_account );
+  const fd_pubkey_t * program_id_pubkey = &ctx.instr->program_id_pubkey;
+  int err = fd_acc_mgr_view( ctx.txn_ctx->acc_mgr, ctx.txn_ctx->funk_txn, program_id_pubkey, program_account );
+  if( err ) {
+    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+  }
+  fd_bpf_upgradeable_loader_state_t program_account_state = {0};
+  fd_bincode_decode_ctx_t program_acc_ctx = {
+    .data    = program_account->const_data,
+    .dataend = program_account->const_data + program_account->const_meta->dlen,
+    .valloc  = ctx.valloc,
+  };
+  fd_bpf_upgradeable_loader_state_decode( &program_account_state, &program_acc_ctx );
+
+  /* lookup program_data_account */
+  FD_BORROWED_ACCOUNT_DECL( program_data_account );
+  fd_pubkey_t * programdata_pubkey = (fd_pubkey_t *)&program_account_state.inner.program.programdata_address;
+  err = fd_acc_mgr_view( ctx.txn_ctx->acc_mgr, ctx.txn_ctx->funk_txn, programdata_pubkey, program_data_account );
+  if( err ) {
+    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+  }
+  fd_bpf_upgradeable_loader_state_t program_data_account_state = {0};
+  fd_bincode_decode_ctx_t program_data_account_ctx = {
+    .data    = program_data_account->const_data,
+    .dataend = program_data_account->const_data + program_data_account->const_meta->dlen,
+    .valloc  = ctx.valloc,
+  };
+  fd_bpf_upgradeable_loader_state_decode( &program_data_account_state, &program_data_account_ctx );
+
+  ulong program_data_slot = program_data_account_state.inner.program_data.slot;
+  if( program_data_slot >= ctx.slot_ctx->slot_bank.slot ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+
   // FD_LOG_DEBUG(("Starting CUs %lu", ctx.txn_ctx->compute_meter));
   fd_vm_exec_context_t vm_ctx = {
     .entrypoint          = (long)prog->entry_pc,
@@ -968,6 +1004,8 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
       .inner.program_data.slot = clock.slot,
       .inner.program_data.upgrade_authority_address = (fd_pubkey_t *)authority_acc,
     };
+
+    FD_LOG_NOTICE(("clock slot %lu", clock.slot));
 
     fd_bincode_encode_ctx_t encode_ctx = {
       .data = programdata_acc_data,
