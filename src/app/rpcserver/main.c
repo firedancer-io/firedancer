@@ -47,6 +47,8 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   if( args->blockstore == NULL ) {
     FD_LOG_ERR(( "failed to join a blockstore" ));
   }
+  FD_LOG_NOTICE(( "blockstore has slot min=%lu smr=%lu max=%lu",
+                  args->blockstore->min, args->blockstore->smr, args->blockstore->max ));
 
   args->num_threads = fd_env_strip_cmdline_ulong( argc, argv, "--num-threads", NULL, 10 );
 

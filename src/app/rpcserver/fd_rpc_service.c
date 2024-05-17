@@ -16,156 +16,222 @@
 #define MATCH_STRING(_text_,_text_sz_,_str_) (_text_sz_ == sizeof(_str_)-1 && memcmp(_text_, _str_, sizeof(_str_)-1) == 0)
 
 struct fd_rpc_ctx {
-  fd_webserver_t ws;
-  fd_funk_t * funk;
-  fd_blockstore_t * blockstore;
-  long call_id;
+    fd_webserver_t ws;
+    fd_funk_t * funk;
+    fd_blockstore_t * blockstore;
+    long call_id;
 };
 
 static void *
-read_account( fd_rpc_ctx_t * ctx, fd_pubkey_t * acct, ulong * result_len ) {
+read_account( fd_rpc_ctx_t * ctx, fd_pubkey_t * acct, fd_valloc_t valloc, ulong * result_len ) {
   fd_funk_rec_key_t recid = fd_acc_funk_key(acct);
-  return fd_funk_rec_query_safe(ctx->funk, &recid, fd_libc_alloc_virtual(), result_len);
+  return fd_funk_rec_query_safe(ctx->funk, &recid, valloc, result_len);
 }
+
+fd_epoch_bank_t *
+read_epoch_bank( fd_rpc_ctx_t * ctx, fd_valloc_t valloc ) {
+  fd_funk_rec_key_t recid = fd_runtime_epoch_bank_key();
+  ulong vallen;
+  void * val = fd_funk_rec_query_safe(ctx->funk, &recid, valloc, &vallen);
+  if( val == NULL ) {
+    FD_LOG_WARNING(( "failed to decode epoch_bank" ));
+    return NULL;
+  }
+  fd_epoch_bank_t * epoch_bank = fd_valloc_malloc( valloc, fd_epoch_bank_align(), fd_epoch_bank_footprint() );
+  fd_epoch_bank_new( epoch_bank );
+  fd_bincode_decode_ctx_t binctx;
+  binctx.data = val;
+  binctx.dataend = (uchar*)val + vallen;
+  binctx.valloc  = valloc;
+  if( fd_epoch_bank_decode( epoch_bank, &binctx )!=FD_BINCODE_SUCCESS ) {
+    FD_LOG_WARNING(( "failed to decode epoch_bank" ));
+    fd_valloc_free( valloc, val );
+    return NULL;
+  }
+  fd_valloc_free( valloc, val );
+  return epoch_bank;
+}
+
+fd_slot_bank_t *
+read_slot_bank( fd_rpc_ctx_t * ctx, fd_valloc_t valloc ) {
+  fd_funk_rec_key_t recid = fd_runtime_slot_bank_key();
+  ulong vallen;
+  void * val = fd_funk_rec_query_safe(ctx->funk, &recid, valloc, &vallen);
+  if( val == NULL ) {
+    FD_LOG_WARNING(( "failed to decode slot_bank" ));
+    return NULL;
+  }
+  fd_slot_bank_t * slot_bank = fd_valloc_malloc( valloc, fd_slot_bank_align(), fd_slot_bank_footprint() );
+  fd_slot_bank_new( slot_bank );
+  fd_bincode_decode_ctx_t binctx;
+  binctx.data = val;
+  binctx.dataend = (uchar*)val + vallen;
+  binctx.valloc  = valloc;
+  if( fd_slot_bank_decode( slot_bank, &binctx )!=FD_BINCODE_SUCCESS ) {
+    FD_LOG_WARNING(( "failed to decode slot_bank" ));
+    fd_valloc_free( valloc, val );
+    return NULL;
+  }
+  fd_valloc_free( valloc, val );
+  return slot_bank;
+}
+
+static void fd_method_cleanup( uchar ** smem ) {
+  fd_scratch_detach( NULL );
+  free( *smem );
+}
+
+/* Setup scratch space */
+#define FD_METHOD_SCRATCH_BEGIN( SMAX ) do {                              \
+  uchar * smem = aligned_alloc( FD_SCRATCH_SMEM_ALIGN,                  \
+    fd_ulong_align_up( fd_scratch_smem_footprint( SMAX  ), FD_SCRATCH_SMEM_ALIGN ) ); \
+  ulong fmem[4U];                                                       \
+  fd_scratch_attach( smem, fmem, SMAX, 4U );                            \
+  fd_scratch_push();                                                    \
+  uchar * __fd_scratch_guard_ ## __LINE__                               \
+    __attribute__((cleanup(fd_method_cleanup))) = smem;                 \
+  do
+
+#define FD_METHOD_SCRATCH_END while(0); } while(0)
 
 // Implementation of the "getAccountInfo" method
 // curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d '{ "jsonrpc": "2.0", "id": 1, "method": "getAccountInfo", "params": [ "21bVZhkqPJRVYDG3YpYtzHLMvkc7sa4KB7fMwGekTquG", { "encoding": "base64" } ] }'
 
 static int
 method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  // Path to argument
-  static const uint PATH[3] = {
-    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
-    (JSON_TOKEN_LBRACKET<<16) | 0,
-    (JSON_TOKEN_STRING<<16)
-  };
-  ulong arg_sz = 0;
-  const void* arg = json_get_value(values, PATH, 3, &arg_sz);
-  if (arg == NULL) {
-    fd_web_replier_error(replier, "getAccountInfo requires a string as first parameter");
-    return 0;
-  }
-
-  fd_textstream_t * ts = fd_web_replier_textstream(replier);
-
-  fd_pubkey_t acct;
-  fd_base58_decode_32((const char *)arg, acct.uc);
-  ulong val_sz;
-  void * val = read_account(ctx, &acct, &val_sz);
-  if (val == NULL) {
-    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%lu}" CRLF,
-                          /*slot*/ 0UL, ctx->call_id);
-    fd_web_replier_done(replier);
-    return 0;
-  }
-
-  fd_account_meta_t * metadata = (fd_account_meta_t *)val;
-  if (val_sz < metadata->hlen) {
-    fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
-    return 0;
-  }
-  void * orig_val = val;
-  val = (char*)val + metadata->hlen;
-  val_sz = val_sz - metadata->hlen;
-  if (val_sz > metadata->dlen)
-    val_sz = metadata->dlen;
-
-  static const uint PATH2[4] = {
-    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
-    (JSON_TOKEN_LBRACKET<<16) | 1,
-    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_ENCODING,
-    (JSON_TOKEN_STRING<<16)
-  };
-  ulong enc_str_sz = 0;
-  const void* enc_str = json_get_value(values, PATH2, 4, &enc_str_sz);
-  enum { ENC_BASE58, ENC_BASE64, ENC_BASE64_ZSTD, ENC_JSON } enc;
-  if (enc_str == NULL || MATCH_STRING(enc_str, enc_str_sz, "base58"))
-    enc = ENC_BASE58;
-  else if (MATCH_STRING(enc_str, enc_str_sz, "base64"))
-    enc = ENC_BASE64;
-  else if (MATCH_STRING(enc_str, enc_str_sz, "base64+zstd"))
-    enc = ENC_BASE64_ZSTD;
-  else if (MATCH_STRING(enc_str, enc_str_sz, "jsonParsed"))
-    enc = ENC_JSON;
-  else {
-    fd_web_replier_error(replier, "invalid data encoding %s", (const char*)enc_str);
-    return 0;
-  }
-
-  static const uint PATH3[4] = {
-    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
-    (JSON_TOKEN_LBRACKET<<16) | 2,
-    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_LENGTH,
-    (JSON_TOKEN_INTEGER<<16)
-  };
-  static const uint PATH4[4] = {
-    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
-    (JSON_TOKEN_LBRACKET<<16) | 2,
-    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_OFFSET,
-    (JSON_TOKEN_INTEGER<<16)
-  };
-  ulong len_sz = 0;
-  const void* len_ptr = json_get_value(values, PATH3, 4, &len_sz);
-  ulong off_sz = 0;
-  const void* off_ptr = json_get_value(values, PATH4, 4, &off_sz);
-  if (len_ptr && off_ptr) {
-    if (enc == ENC_JSON) {
-      fd_web_replier_error(replier, "cannot use jsonParsed encoding with slice");
+  FD_METHOD_SCRATCH_BEGIN( 11<<20 ) {
+    // Path to argument
+    static const uint PATH[3] = {
+      (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+      (JSON_TOKEN_LBRACKET<<16) | 0,
+      (JSON_TOKEN_STRING<<16)
+    };
+    ulong arg_sz = 0;
+    const void* arg = json_get_value(values, PATH, 3, &arg_sz);
+    if (arg == NULL) {
+      fd_web_replier_error(replier, "getAccountInfo requires a string as first parameter");
       return 0;
     }
-    long len = *(long*)len_ptr;
-    long off = *(long*)off_ptr;
-    if (off < 0 || (ulong)off >= val_sz) {
-      val = NULL;
-      val_sz = 0;
-    } else {
-      val = (char*)val + (ulong)off;
-      val_sz = val_sz - (ulong)off;
+
+    fd_textstream_t * ts = fd_web_replier_textstream(replier);
+
+    fd_pubkey_t acct;
+    fd_base58_decode_32((const char *)arg, acct.uc);
+    ulong val_sz;
+    void * val = read_account(ctx, &acct, fd_scratch_virtual(), &val_sz);
+    if (val == NULL) {
+      fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%lu}" CRLF,
+                            ctx->blockstore->smr, ctx->call_id);
+      fd_web_replier_done(replier);
+      return 0;
     }
-    if (len < 0) {
-      val = NULL;
-      val_sz = 0;
-    } else if ((ulong)len < val_sz)
-      val_sz = (ulong)len;
-  }
 
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":{\"data\":[\"",
-                        /*slot*/0UL);
+    fd_account_meta_t * metadata = (fd_account_meta_t *)val;
+    if (val_sz < metadata->hlen) {
+      fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
+      return 0;
+    }
+    val = (char*)val + metadata->hlen;
+    val_sz = val_sz - metadata->hlen;
+    if (val_sz > metadata->dlen)
+      val_sz = metadata->dlen;
 
-  if (val_sz) {
-    switch (enc) {
-    case ENC_BASE58:
-      if (fd_textstream_encode_base58(ts, val, val_sz)) {
-        fd_web_replier_error(replier, "failed to encode data in base58");
+    static const uint PATH2[4] = {
+      (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+      (JSON_TOKEN_LBRACKET<<16) | 1,
+      (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_ENCODING,
+      (JSON_TOKEN_STRING<<16)
+    };
+    ulong enc_str_sz = 0;
+    const void* enc_str = json_get_value(values, PATH2, 4, &enc_str_sz);
+    enum { ENC_BASE58, ENC_BASE64, ENC_BASE64_ZSTD, ENC_JSON } enc;
+    if (enc_str == NULL || MATCH_STRING(enc_str, enc_str_sz, "base58"))
+      enc = ENC_BASE58;
+    else if (MATCH_STRING(enc_str, enc_str_sz, "base64"))
+      enc = ENC_BASE64;
+    else if (MATCH_STRING(enc_str, enc_str_sz, "base64+zstd"))
+      enc = ENC_BASE64_ZSTD;
+    else if (MATCH_STRING(enc_str, enc_str_sz, "jsonParsed"))
+      enc = ENC_JSON;
+    else {
+      fd_web_replier_error(replier, "invalid data encoding %s", (const char*)enc_str);
+      return 0;
+    }
+
+    static const uint PATH3[4] = {
+      (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+      (JSON_TOKEN_LBRACKET<<16) | 2,
+      (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_LENGTH,
+      (JSON_TOKEN_INTEGER<<16)
+    };
+    static const uint PATH4[4] = {
+      (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+      (JSON_TOKEN_LBRACKET<<16) | 2,
+      (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_OFFSET,
+      (JSON_TOKEN_INTEGER<<16)
+    };
+    ulong len_sz = 0;
+    const void* len_ptr = json_get_value(values, PATH3, 4, &len_sz);
+    ulong off_sz = 0;
+    const void* off_ptr = json_get_value(values, PATH4, 4, &off_sz);
+    if (len_ptr && off_ptr) {
+      if (enc == ENC_JSON) {
+        fd_web_replier_error(replier, "cannot use jsonParsed encoding with slice");
         return 0;
       }
-      break;
-    case ENC_BASE64:
-      if (fd_textstream_encode_base64(ts, val, val_sz)) {
-        fd_web_replier_error(replier, "failed to encode data in base64");
-        return 0;
+      long len = *(long*)len_ptr;
+      long off = *(long*)off_ptr;
+      if (off < 0 || (ulong)off >= val_sz) {
+        val = NULL;
+        val_sz = 0;
+      } else {
+        val = (char*)val + (ulong)off;
+        val_sz = val_sz - (ulong)off;
       }
-      break;
-    case ENC_BASE64_ZSTD:
-      break;
-    case ENC_JSON:
-      break;
+      if (len < 0) {
+        val = NULL;
+        val_sz = 0;
+      } else if ((ulong)len < val_sz)
+        val_sz = (ulong)len;
     }
-  }
 
-  char owner[50];
-  fd_base58_encode_32((uchar*)metadata->info.owner, 0, owner);
-  fd_textstream_sprintf(ts, "\",\"%s\"],\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"rentEpoch\":%lu,\"space\":%lu}},\"id\":%lu}" CRLF,
-                        (const char*)enc_str,
-                        (metadata->info.executable ? "true" : "false"),
-                        metadata->info.lamports,
-                        owner,
-                        metadata->info.rent_epoch,
-                        val_sz,
-                        ctx->call_id);
-  fd_web_replier_done(replier);
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":{\"data\":[\"",
+                          ctx->blockstore->smr);
 
-  free(orig_val);
+    if (val_sz) {
+      switch (enc) {
+      case ENC_BASE58:
+        if (fd_textstream_encode_base58(ts, val, val_sz)) {
+          fd_web_replier_error(replier, "failed to encode data in base58");
+          return 0;
+        }
+        break;
+      case ENC_BASE64:
+        if (fd_textstream_encode_base64(ts, val, val_sz)) {
+          fd_web_replier_error(replier, "failed to encode data in base64");
+          return 0;
+        }
+        break;
+      case ENC_BASE64_ZSTD:
+        break;
+      case ENC_JSON:
+        break;
+      }
+    }
+
+    char owner[50];
+    fd_base58_encode_32((uchar*)metadata->info.owner, 0, owner);
+    fd_textstream_sprintf(ts, "\",\"%s\"],\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"rentEpoch\":%lu,\"space\":%lu}},\"id\":%lu}" CRLF,
+                          (const char*)enc_str,
+                          (metadata->info.executable ? "true" : "false"),
+                          metadata->info.lamports,
+                          owner,
+                          metadata->info.rent_epoch,
+                          val_sz,
+                          ctx->call_id);
+    fd_web_replier_done(replier);
+
+  } FD_METHOD_SCRATCH_END;
 
   return 0;
 }
@@ -175,32 +241,33 @@ method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values
 
 static int
 method_getBalance(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  // Path to argument
-  static const uint PATH[3] = {
-    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
-    (JSON_TOKEN_LBRACKET<<16) | 0,
-    (JSON_TOKEN_STRING<<16)
-  };
-  ulong arg_sz = 0;
-  const void* arg = json_get_value(values, PATH, 3, &arg_sz);
-  if (arg == NULL) {
-    fd_web_replier_error(replier, "getBalance requires a string as first parameter");
-    return 0;
-  }
-  fd_pubkey_t acct;
-  fd_base58_decode_32((const char *)arg, acct.uc);
-  ulong val_sz;
-  void * val = read_account(ctx, &acct, &val_sz);
-  if (val == NULL) {
-    fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
-    return 0;
-  }
-  fd_account_meta_t * metadata = (fd_account_meta_t *)val;
-  fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%lu}" CRLF,
-                        /*slot*/ 0UL, metadata->info.lamports, ctx->call_id);
-  fd_web_replier_done(replier);
-  free(val);
+  FD_METHOD_SCRATCH_BEGIN( 11<<20 ) {
+    // Path to argument
+    static const uint PATH[3] = {
+      (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+      (JSON_TOKEN_LBRACKET<<16) | 0,
+      (JSON_TOKEN_STRING<<16)
+    };
+    ulong arg_sz = 0;
+    const void* arg = json_get_value(values, PATH, 3, &arg_sz);
+    if (arg == NULL) {
+      fd_web_replier_error(replier, "getBalance requires a string as first parameter");
+      return 0;
+    }
+    fd_pubkey_t acct;
+    fd_base58_decode_32((const char *)arg, acct.uc);
+    ulong val_sz;
+    void * val = read_account(ctx, &acct, fd_scratch_virtual(), &val_sz);
+    if (val == NULL) {
+      fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
+      return 0;
+    }
+    fd_account_meta_t * metadata = (fd_account_meta_t *)val;
+    fd_textstream_t * ts = fd_web_replier_textstream(replier);
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%lu}" CRLF,
+                          ctx->blockstore->smr, metadata->info.lamports, ctx->call_id);
+    fd_web_replier_done(replier);
+  } FD_METHOD_SCRATCH_END;
   return 0;
 }
 
@@ -419,7 +486,7 @@ method_getBlocksWithLimit(struct fd_web_replier* replier, struct json_values* va
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
-    for ( ulong i = startslotn; i <= ctx->blockstore->max && cnt < limitn; ++i ) {
+  for ( ulong i = startslotn; i <= ctx->blockstore->max && cnt < limitn; ++i ) {
     fd_block_t * blk = fd_blockstore_block_query(ctx->blockstore, i);
     if (blk != NULL) {
       fd_textstream_sprintf(ts, "%s%lu", (cnt==0 ? "" : ","), i);
@@ -506,22 +573,22 @@ method_getEpochInfo(struct fd_web_replier* replier, struct json_values* values, 
   fd_web_replier_error(replier, "getEpochInfo is not implemented");
   return 0;
   /*
-  fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  fd_exec_slot_ctx_t * slot_ctx = get_slot_ctx(ctx);
-  ulong slot_idx = 0;
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->replay->epoch_ctx );
-  ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
-  ulong slots_per_epoch = fd_epoch_slot_cnt( &epoch_bank->epoch_schedule, epoch );
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%lu}" CRLF,
-                        slot_ctx->slot_bank.slot,
-                        slot_ctx->slot_bank.block_height,
-                        epoch,
-                        slot_idx,
-                        slots_per_epoch,
-                        slot_ctx->slot_bank.transaction_count,
-                        ctx->call_id);
-  fd_web_replier_done(replier);
-  return 0;
+    fd_textstream_t * ts = fd_web_replier_textstream(replier);
+    fd_exec_slot_ctx_t * slot_ctx = get_slot_ctx(ctx);
+    ulong slot_idx = 0;
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->replay->epoch_ctx );
+    ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
+    ulong slots_per_epoch = fd_epoch_slot_cnt( &epoch_bank->epoch_schedule, epoch );
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%lu}" CRLF,
+    slot_ctx->slot_bank.slot,
+    slot_ctx->slot_bank.block_height,
+    epoch,
+    slot_idx,
+    slots_per_epoch,
+    slot_ctx->slot_bank.transaction_count,
+    ctx->call_id);
+    fd_web_replier_done(replier);
+    return 0;
   */
 }
 
@@ -535,17 +602,17 @@ method_getEpochSchedule(struct fd_web_replier* replier, struct json_values* valu
   fd_web_replier_error(replier, "getEpochSchedule is not implemented");
   return 0;
   /*
-  fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->replay->epoch_ctx );
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"firstNormalEpoch\":%lu,\"firstNormalSlot\":%lu,\"leaderScheduleSlotOffset\":%lu,\"slotsPerEpoch\":%lu,\"warmup\":%s},\"id\":%lu}" CRLF,
-                        epoch_bank->epoch_schedule.first_normal_epoch,
-                        epoch_bank->epoch_schedule.first_normal_slot,
-                        epoch_bank->epoch_schedule.leader_schedule_slot_offset,
-                        epoch_bank->epoch_schedule.slots_per_epoch,
-                        (epoch_bank->epoch_schedule.warmup ? "true" : "false"),
-                        ctx->call_id);
-  fd_web_replier_done(replier);
-  return 0;
+    fd_textstream_t * ts = fd_web_replier_textstream(replier);
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->replay->epoch_ctx );
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"firstNormalEpoch\":%lu,\"firstNormalSlot\":%lu,\"leaderScheduleSlotOffset\":%lu,\"slotsPerEpoch\":%lu,\"warmup\":%s},\"id\":%lu}" CRLF,
+    epoch_bank->epoch_schedule.first_normal_epoch,
+    epoch_bank->epoch_schedule.first_normal_slot,
+    epoch_bank->epoch_schedule.leader_schedule_slot_offset,
+    epoch_bank->epoch_schedule.slots_per_epoch,
+    (epoch_bank->epoch_schedule.warmup ? "true" : "false"),
+    ctx->call_id);
+    fd_web_replier_done(replier);
+    return 0;
   */
 }
 
@@ -604,13 +671,13 @@ method_getGenesisHash(struct fd_web_replier* replier, struct json_values* values
   fd_web_replier_error(replier, "getGenesisHash is not implemented");
   return 0;
   /*
-  fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":\"");
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->replay->epoch_ctx );
-  fd_textstream_encode_base58(ts, epoch_bank->genesis_hash.uc, sizeof(fd_pubkey_t));
-  fd_textstream_sprintf(ts, "\",\"id\":%lu}" CRLF, ctx->call_id);
-  fd_web_replier_done(replier);
-  return 0;
+    fd_textstream_t * ts = fd_web_replier_textstream(replier);
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":\"");
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->replay->epoch_ctx );
+    fd_textstream_encode_base58(ts, epoch_bank->genesis_hash.uc, sizeof(fd_pubkey_t));
+    fd_textstream_sprintf(ts, "\",\"id\":%lu}" CRLF, ctx->call_id);
+    fd_web_replier_done(replier);
+    return 0;
   */
 }
 
@@ -643,12 +710,12 @@ method_getIdentity(struct fd_web_replier* replier, struct json_values* values, f
   fd_web_replier_error(replier, "getIdentity is not implemented");
   return 0;
   /*
-  fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"identity\":\"");
-  fd_textstream_encode_base58(ts, ctx->identity->uc, sizeof(fd_pubkey_t));
-  fd_textstream_sprintf(ts, "\"},\"id\":%lu}" CRLF, ctx->call_id);
-  fd_web_replier_done(replier);
-  return 0;
+    fd_textstream_t * ts = fd_web_replier_textstream(replier);
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"identity\":\"");
+    fd_textstream_encode_base58(ts, ctx->identity->uc, sizeof(fd_pubkey_t));
+    fd_textstream_sprintf(ts, "\"},\"id\":%lu}" CRLF, ctx->call_id);
+    fd_web_replier_done(replier);
+    return 0;
   */
 }
 // Implementation of the "getInflationGovernor" methods
@@ -670,17 +737,17 @@ method_getInflationRate(struct fd_web_replier* replier, struct json_values* valu
   fd_web_replier_error(replier, "getInflationRate is not implemented");
   return 0;
   /*
-  fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  fd_inflation_rates_t rates;
-  calculate_inflation_rates( get_slot_ctx(ctx), &rates );
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"epoch\":%lu,\"foundation\":%.18f,\"total\":%.18f,\"validator\":%.18f},\"id\":%lu}" CRLF,
-                        rates.epoch,
-                        rates.foundation,
-                        rates.total,
-                        rates.validator,
-                        ctx->call_id);
-  fd_web_replier_done(replier);
-  return 0;
+    fd_textstream_t * ts = fd_web_replier_textstream(replier);
+    fd_inflation_rates_t rates;
+    calculate_inflation_rates( get_slot_ctx(ctx), &rates );
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"epoch\":%lu,\"foundation\":%.18f,\"total\":%.18f,\"validator\":%.18f},\"id\":%lu}" CRLF,
+    rates.epoch,
+    rates.foundation,
+    rates.total,
+    rates.validator,
+    ctx->call_id);
+    fd_web_replier_done(replier);
+    return 0;
   */
 }
 
@@ -712,16 +779,16 @@ method_getLatestBlockhash(struct fd_web_replier* replier, struct json_values* va
   fd_web_replier_error(replier, "getLatestBlockhash is not implemented");
   return 0;
   /*
-  fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  fd_exec_slot_ctx_t * slot_ctx = get_slot_ctx(ctx);
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":{\"blockhash\":\"",
-                        slot_ctx->slot_bank.slot);
-  fd_textstream_encode_base58(ts, slot_ctx->slot_bank.poh.uc, sizeof(fd_pubkey_t));
-  fd_textstream_sprintf(ts, "\",\"lastValidBlockHeight\":%lu}},\"id\":%lu}" CRLF,
-                        slot_ctx->slot_bank.block_height,
-                        ctx->call_id);
-  fd_web_replier_done(replier);
-  return 0;
+    fd_textstream_t * ts = fd_web_replier_textstream(replier);
+    fd_exec_slot_ctx_t * slot_ctx = get_slot_ctx(ctx);
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":{\"blockhash\":\"",
+    slot_ctx->slot_bank.slot);
+    fd_textstream_encode_base58(ts, slot_ctx->slot_bank.poh.uc, sizeof(fd_pubkey_t));
+    fd_textstream_sprintf(ts, "\",\"lastValidBlockHeight\":%lu}},\"id\":%lu}" CRLF,
+    slot_ctx->slot_bank.block_height,
+    ctx->call_id);
+    fd_web_replier_done(replier);
+    return 0;
   */
 }
 
@@ -763,23 +830,23 @@ method_getMinimumBalanceForRentExemption(struct fd_web_replier* replier, struct 
   fd_web_replier_error(replier, "getMinimumBalanceForRentExemption is not implemented");
   return 0;
   /*
-  static const uint PATH_SIZE[3] = {
+    static const uint PATH_SIZE[3] = {
     (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
     (JSON_TOKEN_LBRACKET<<16) | 0,
     (JSON_TOKEN_INTEGER<<16)
-  };
-  ulong size_sz = 0;
-  const void* size = json_get_value(values, PATH_SIZE, 3, &size_sz);
-  ulong sizen = (size == NULL ? 0UL : (ulong)(*(long*)size));
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->replay->epoch_ctx );
-  ulong min_balance = fd_rent_exempt_minimum_balance2(&epoch_bank->rent, sizen);
+    };
+    ulong size_sz = 0;
+    const void* size = json_get_value(values, PATH_SIZE, 3, &size_sz);
+    ulong sizen = (size == NULL ? 0UL : (ulong)(*(long*)size));
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->replay->epoch_ctx );
+    ulong min_balance = fd_rent_exempt_minimum_balance2(&epoch_bank->rent, sizen);
 
-  fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
-                        min_balance,
-                        ctx->call_id);
-  fd_web_replier_done(replier);
-  return 0;
+    fd_textstream_t * ts = fd_web_replier_textstream(replier);
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
+    min_balance,
+    ctx->call_id);
+    fd_web_replier_done(replier);
+    return 0;
   */
 }
 
@@ -788,110 +855,109 @@ method_getMinimumBalanceForRentExemption(struct fd_web_replier* replier, struct 
 
 static int
 method_getMultipleAccounts(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  static const uint ENC_PATH[4] = {
-    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
-    (JSON_TOKEN_LBRACKET<<16) | 1,
-    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_ENCODING,
-    (JSON_TOKEN_STRING<<16)
-  };
-  ulong enc_str_sz = 0;
-  const void* enc_str = json_get_value(values, ENC_PATH, 4, &enc_str_sz);
-  enum { ENC_BASE58, ENC_BASE64, ENC_BASE64_ZSTD, ENC_JSON } enc;
-  if (enc_str == NULL || MATCH_STRING(enc_str, enc_str_sz, "base58"))
-    enc = ENC_BASE58;
-  else if (MATCH_STRING(enc_str, enc_str_sz, "base64"))
-    enc = ENC_BASE64;
-  else if (MATCH_STRING(enc_str, enc_str_sz, "base64+zstd"))
-    enc = ENC_BASE64_ZSTD;
-  else if (MATCH_STRING(enc_str, enc_str_sz, "jsonParsed"))
-    enc = ENC_JSON;
-  else {
-    fd_web_replier_error(replier, "invalid data encoding %s", (const char*)enc_str);
-    return 0;
-  }
-
-  fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":[",
-                        /*slot*/ 0UL);
-
-  // Iterate through account ids
-  for ( ulong i = 0; ; ++i ) {
-    // Path to argument
-    uint path[4];
-    path[0] = (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS;
-    path[1] = (JSON_TOKEN_LBRACKET<<16) | 0;
-    path[2] = (uint) ((JSON_TOKEN_LBRACKET<<16) | i);
-    path[3] = (JSON_TOKEN_STRING<<16);
-    ulong arg_sz = 0;
-    const void* arg = json_get_value(values, path, 4, &arg_sz);
-    if (arg == NULL)
-      // End of list
-      break;
-
-    if (i > 0)
-      fd_textstream_append(ts, ",", 1);
-
-    fd_pubkey_t acct;
-    fd_base58_decode_32((const char *)arg, acct.uc);
-    ulong val_sz;
-    void * val = read_account(ctx, &acct, &val_sz);
-    if (val == NULL) {
-      fd_textstream_sprintf(ts, "null");
-      continue;
-    }
-
-    fd_textstream_sprintf(ts, "{\"data\":[\"");
-
-    fd_account_meta_t * metadata = (fd_account_meta_t *)val;
-    if (val_sz < metadata->hlen) {
-      fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
-      free(val);
+  FD_METHOD_SCRATCH_BEGIN( 11<<20 ) {
+    static const uint ENC_PATH[4] = {
+      (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+      (JSON_TOKEN_LBRACKET<<16) | 1,
+      (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_ENCODING,
+      (JSON_TOKEN_STRING<<16)
+    };
+    ulong enc_str_sz = 0;
+    const void* enc_str = json_get_value(values, ENC_PATH, 4, &enc_str_sz);
+    enum { ENC_BASE58, ENC_BASE64, ENC_BASE64_ZSTD, ENC_JSON } enc;
+    if (enc_str == NULL || MATCH_STRING(enc_str, enc_str_sz, "base58"))
+      enc = ENC_BASE58;
+    else if (MATCH_STRING(enc_str, enc_str_sz, "base64"))
+      enc = ENC_BASE64;
+    else if (MATCH_STRING(enc_str, enc_str_sz, "base64+zstd"))
+      enc = ENC_BASE64_ZSTD;
+    else if (MATCH_STRING(enc_str, enc_str_sz, "jsonParsed"))
+      enc = ENC_JSON;
+    else {
+      fd_web_replier_error(replier, "invalid data encoding %s", (const char*)enc_str);
       return 0;
     }
-    void * orig_val = val;
-    val = (char*)val + metadata->hlen;
-    val_sz = val_sz - metadata->hlen;
-    if (val_sz > metadata->dlen)
-      val_sz = metadata->dlen;
 
-    if (val_sz) {
-      switch (enc) {
-      case ENC_BASE58:
-        if (fd_textstream_encode_base58(ts, val, val_sz)) {
-          fd_web_replier_error(replier, "failed to encode data in base58");
-          free(orig_val);
-          return 0;
-        }
+    fd_textstream_t * ts = fd_web_replier_textstream(replier);
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":[",
+                          ctx->blockstore->smr);
+
+    // Iterate through account ids
+    for ( ulong i = 0; ; ++i ) {
+      // Path to argument
+      uint path[4];
+      path[0] = (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS;
+      path[1] = (JSON_TOKEN_LBRACKET<<16) | 0;
+      path[2] = (uint) ((JSON_TOKEN_LBRACKET<<16) | i);
+      path[3] = (JSON_TOKEN_STRING<<16);
+      ulong arg_sz = 0;
+      const void* arg = json_get_value(values, path, 4, &arg_sz);
+      if (arg == NULL)
+        // End of list
         break;
-      case ENC_BASE64:
-        if (fd_textstream_encode_base64(ts, val, val_sz)) {
-          fd_web_replier_error(replier, "failed to encode data in base64");
-          free(orig_val);
-          return 0;
-        }
-        break;
-      case ENC_BASE64_ZSTD:
-        break;
-      case ENC_JSON:
-        break;
+
+      if (i > 0)
+        fd_textstream_append(ts, ",", 1);
+
+      fd_pubkey_t acct;
+      fd_base58_decode_32((const char *)arg, acct.uc);
+      fd_scratch_push();
+      ulong val_sz;
+      void * val = read_account(ctx, &acct, fd_scratch_virtual(), &val_sz);
+      if (val == NULL) {
+        fd_textstream_sprintf(ts, "null");
+        continue;
       }
+
+      fd_textstream_sprintf(ts, "{\"data\":[\"");
+
+      fd_account_meta_t * metadata = (fd_account_meta_t *)val;
+      if (val_sz < metadata->hlen) {
+        fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
+        return 0;
+      }
+      val = (char*)val + metadata->hlen;
+      val_sz = val_sz - metadata->hlen;
+      if (val_sz > metadata->dlen)
+        val_sz = metadata->dlen;
+
+      if (val_sz) {
+        switch (enc) {
+        case ENC_BASE58:
+          if (fd_textstream_encode_base58(ts, val, val_sz)) {
+            fd_web_replier_error(replier, "failed to encode data in base58");
+            return 0;
+          }
+          break;
+        case ENC_BASE64:
+          if (fd_textstream_encode_base64(ts, val, val_sz)) {
+            fd_web_replier_error(replier, "failed to encode data in base64");
+            return 0;
+          }
+          break;
+        case ENC_BASE64_ZSTD:
+          break;
+        case ENC_JSON:
+          break;
+        }
+      }
+
+      char owner[50];
+      fd_base58_encode_32((uchar*)metadata->info.owner, 0, owner);
+      fd_textstream_sprintf(ts, "\",\"%s\"],\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"rentEpoch\":%lu,\"space\":%lu}",
+                            (const char*)enc_str,
+                            (metadata->info.executable ? "true" : "false"),
+                            metadata->info.lamports,
+                            owner,
+                            metadata->info.rent_epoch,
+                            val_sz);
+
+      fd_scratch_pop();
     }
 
-    char owner[50];
-    fd_base58_encode_32((uchar*)metadata->info.owner, 0, owner);
-    fd_textstream_sprintf(ts, "\",\"%s\"],\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"rentEpoch\":%lu,\"space\":%lu}",
-                          (const char*)enc_str,
-                          (metadata->info.executable ? "true" : "false"),
-                          metadata->info.lamports,
-                          owner,
-                          metadata->info.rent_epoch,
-                          val_sz);
-
-    free(orig_val);
-  }
-
-  fd_textstream_sprintf(ts, "]},\"id\":%lu}" CRLF, ctx->call_id);
-  fd_web_replier_done(replier);
+    fd_textstream_sprintf(ts, "]},\"id\":%lu}" CRLF, ctx->call_id);
+    fd_web_replier_done(replier);
+  } FD_METHOD_SCRATCH_END;
   return 0;
 }
 
@@ -947,7 +1013,7 @@ static int
 method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":[",
-                        /*slot*/ 0UL);
+                        ctx->blockstore->smr);
 
   // Iterate through account ids
   fd_blockstore_start_read( ctx->blockstore );
@@ -980,7 +1046,7 @@ method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* 
 
     // TODO other fields
     fd_textstream_sprintf(ts, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"confirmationStatus\":\"finalized\"}",
-                         elem->slot);
+                          elem->slot);
   }
   fd_blockstore_end_read( ctx->blockstore );
 
@@ -997,8 +1063,7 @@ method_getSlot(struct fd_web_replier* replier, struct json_values* values, fd_rp
   (void) values;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
-                        /*slot*/ 0UL,
-                        ctx->call_id);
+                        ctx->blockstore->smr, ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
 }
@@ -1012,12 +1077,12 @@ method_getSlotLeader(struct fd_web_replier* replier, struct json_values* values,
   (void)ctx;
   fd_web_replier_error(replier, "getSlotLeader is not implemented");
   /*
-  fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":\"");
-  fd_pubkey_t const * leader = fd_epoch_leaders_get(fd_exec_epoch_ctx_leaders( ctx->replay->epoch_ctx ), get_slot_ctx(ctx)->slot_bank.slot);
-  fd_textstream_encode_base58(ts, leader->uc, sizeof(fd_pubkey_t));
-  fd_textstream_sprintf(ts, "\",\"id\":%lu}" CRLF, ctx->call_id);
-  fd_web_replier_done(replier);
+    fd_textstream_t * ts = fd_web_replier_textstream(replier);
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":\"");
+    fd_pubkey_t const * leader = fd_epoch_leaders_get(fd_exec_epoch_ctx_leaders( ctx->replay->epoch_ctx ), get_slot_ctx(ctx)->slot_bank.slot);
+    fd_textstream_encode_base58(ts, leader->uc, sizeof(fd_pubkey_t));
+    fd_textstream_sprintf(ts, "\",\"id\":%lu}" CRLF, ctx->call_id);
+    fd_web_replier_done(replier);
   */
   return 0;
 }
@@ -1188,7 +1253,7 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
   void * meta = (meta_gaddr ? fd_wksp_laddr_fast( fd_blockstore_wksp( ctx->blockstore ), meta_gaddr ) : NULL);
 
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"blockTime\":%ld,\"slot\":%lu,",
-                        /*slot*/0UL, blk->ts/(long)1e9, elem->slot);
+                        ctx->blockstore->smr, blk->ts/(long)1e9, elem->slot);
   fd_txn_to_json( ts, (fd_txn_t *)txn_out, raw, meta, meta_sz, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
   fd_textstream_sprintf(ts, "},\"id\":%lu}" CRLF, ctx->call_id);
 
@@ -1578,13 +1643,13 @@ fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* 
 
   /* Probably should make an error here */
   static const char* DOC=
-"<html>" CRLF
-"<head>" CRLF
-"<title>OK</title>" CRLF
-"</head>" CRLF
-"<body>" CRLF
-"</body>" CRLF
-"</html>";
+    "<html>" CRLF
+    "<head>" CRLF
+    "<title>OK</title>" CRLF
+    "</head>" CRLF
+    "<body>" CRLF
+    "</body>" CRLF
+    "</html>";
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_append(ts, DOC, strlen(DOC));
   fd_web_replier_done(replier);
