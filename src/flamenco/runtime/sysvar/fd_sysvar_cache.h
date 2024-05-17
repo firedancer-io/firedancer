@@ -165,6 +165,14 @@ fd_recent_block_hashes_t          const * fd_sysvar_from_instr_acct_recent_block
 fd_stake_history_t                const * fd_sysvar_from_instr_acct_stake_history      ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
 fd_sol_sysvar_last_restart_slot_t const * fd_sysvar_from_instr_acct_last_restart_slot  ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
 
+/* fd_check_sysvar_account does a check on if an instruction account index
+   matches the expected pubkey of a specific sysvar. */
+   
+int
+fd_check_sysvar_account( fd_exec_instr_ctx_t const * ctx,
+                         ulong                       insn_acc_idx,
+                         fd_pubkey_t const *         expected_id );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_cache_h */

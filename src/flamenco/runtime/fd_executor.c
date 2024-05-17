@@ -65,8 +65,6 @@ fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
     return fd_precompile_ed25519_verify;
   } else if ( !memcmp( pubkey, fd_solana_keccak_secp_256k_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_precompile_secp256k1_verify;
-  } else if ( !memcmp( pubkey, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_bpf_loader_v3_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_bpf_loader_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_bpf_loader_v2_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_bpf_loader_deprecated_program_id.key, sizeof( fd_pubkey_t ) ) ) {
@@ -751,8 +749,9 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
     if( native_prog_fn != NULL ) {
       exec_result = native_prog_fn( *ctx );
-    } else if( fd_bpf_loader_v3_is_executable( ctx->slot_ctx, program_id )==0 ) {
-      exec_result = fd_bpf_loader_v3_user_execute( *ctx );
+    } else if( fd_bpf_loader_v3_is_executable( ctx->slot_ctx, program_id )==0 ||
+               !memcmp( program_id, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      exec_result = fd_bpf_loader_v3_program_execute( *ctx );
     } else if( fd_bpf_loader_v2_is_executable( ctx->slot_ctx, program_id )==0 ) {
       exec_result = fd_bpf_loader_v2_user_execute( *ctx );
     } else {
