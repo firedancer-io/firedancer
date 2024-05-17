@@ -113,6 +113,15 @@ _load_account( fd_borrowed_account_t *           acc,
                fd_acc_mgr_t *                    acc_mgr,
                fd_funk_txn_t *                   funk_txn,
                fd_exec_test_acct_state_t const * state ) {
+  /* Although missing addresses / owners may be interpreted as 0-set bytes,
+     the Agave fuzz harness fails to parse these messages out and fails
+     before execution. The following check is meant to keep behavior
+     consistent between fuzz harnesses.
+   */
+  if( !state->has_address || !state->has_owner ) {
+    return 0;
+  }
+
   fd_borrowed_account_init( acc );
   ulong size = 0UL;
   if( state->data ) size = state->data->size;
@@ -270,6 +279,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->dirty_vote_acc          = 0;
   txn_ctx->dirty_stake_acc         = 0;
   txn_ctx->failed_instr            = NULL;
+  txn_ctx->instr_err_idx           = INT_MAX;
   txn_ctx->capture_ctx             = NULL;
   txn_ctx->vote_accounts_pool      = NULL;
 
@@ -449,7 +459,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
   bool found_program_id = false;
   for( uint i = 0; i < test_ctx->accounts_count; i++ ) {
-    if( 0 == memcmp(test_ctx->accounts[i].address, test_ctx->program_id, sizeof(fd_pubkey_t)) ) {
+    if( 0 == memcmp( test_ctx->accounts[i].address, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
       info->program_id = (uchar) i;
       found_program_id = true;
       break;
@@ -457,6 +467,14 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   }
   if( !found_program_id ) {
     REPORT( NOTICE, "Unable to find program_id in accounts" );
+    return 0;
+  }
+
+  /* For native programs, check that the owner is the native loader */
+  fd_pubkey_t * const program_id = &txn_ctx->accounts[info->program_id];
+  fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( program_id );
+  if( native_prog_fn && 0 != memcmp( test_ctx->accounts[info->program_id].owner, &fd_solana_native_loader_id, sizeof(fd_pubkey_t) ) ) {
+    REPORT( NOTICE, "Native program owner is not NativeLoader" );
     return 0;
   }
 

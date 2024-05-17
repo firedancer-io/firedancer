@@ -112,9 +112,9 @@ struct fd_runtime_args {
   ulong        tcnt;
   ulong        txn_max;
   ushort       rpc_port;
-  ulong        checkpt_slot;
   ulong        checkpt_freq;
   char const * checkpt_path;
+  int          checkpt_mismatch;
   fd_funk_t *  pruned_funk;
   int          dump_insn_to_pb;
   char const * dump_insn_sig_filter;
@@ -344,6 +344,11 @@ void
 fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
                          char const * genesis_filepath,
                          uchar is_snapshot );
+
+void
+fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
+                    fd_exec_slot_ctx_t * slot_ctx,
+                    ulong slot );
 
 FD_PROTOTYPES_END
 

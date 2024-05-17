@@ -102,7 +102,7 @@ fetch () {
 
   checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.5"
-  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.4.1"
+  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.5.0"
   #checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.0"
   if [[ $DEVMODE == 1 ]]; then
     checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.1.0"

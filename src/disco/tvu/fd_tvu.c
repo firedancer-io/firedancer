@@ -773,8 +773,7 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
   runtime_ctx->capture_file = NULL;
 
   int has_solcap           = args->capture_fpath && args->capture_fpath[0] != '\0';
-  int has_checkpt_dump     = args->checkpt_path && args->checkpt_path[0] != '\0' &&
-                             ( args->checkpt_slot != 0 || args->checkpt_freq != 0 );
+  int has_checkpt_dump     = args->checkpt_path && args->checkpt_path[0] != '\0';
   int has_prune            = args->pruned_funk != NULL;
   int has_dump_to_protobuf = args->dump_insn_to_pb;
 
@@ -787,7 +786,6 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
   fd_memset( capture_ctx_mem, 0, sizeof( fd_capture_ctx_t ) );
   runtime_ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
 
-  runtime_ctx->capture_ctx->checkpt_slot = ULONG_MAX;
   runtime_ctx->capture_ctx->checkpt_freq = ULONG_MAX;
 
   if( has_solcap ) {
@@ -802,7 +800,6 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
   }
 
   if( has_checkpt_dump ) {
-    runtime_ctx->capture_ctx->checkpt_slot = args->checkpt_slot;
     runtime_ctx->capture_ctx->checkpt_path = args->checkpt_path;
     runtime_ctx->capture_ctx->checkpt_freq = args->checkpt_freq;
   }
@@ -814,7 +811,7 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
     runtime_ctx->capture_ctx->dump_insn_sig_filter = args->dump_insn_sig_filter;
     runtime_ctx->capture_ctx->dump_insn_output_dir = args->dump_insn_output_dir;
   }
-                      
+
 }
 
 typedef struct {
@@ -1292,7 +1289,6 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     void *        store_mem = fd_valloc_malloc( valloc, fd_store_align(), fd_store_footprint() );
     fd_store_t * store     = fd_store_join( fd_store_new( store_mem, snapshot_slot ) );
     store->blockstore = blockstore_setup_out.blockstore;
-    store->smr = snapshot_slot;
     store->snapshot_slot = snapshot_slot;
     store->valloc = valloc;
 
@@ -1322,7 +1318,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     ulong seed = fd_hash( 0, funk_setup_out.hostname, strnlen( funk_setup_out.hostname, sizeof( funk_setup_out.hostname ) ) );
 
     void *        gossip_mem = fd_valloc_malloc( valloc, fd_gossip_align(), fd_gossip_footprint() );
-    fd_gossip_t * gossip     = fd_gossip_join( fd_gossip_new( gossip_mem, seed, valloc ) );
+    fd_gossip_t * gossip     = fd_gossip_join( fd_gossip_new( gossip_mem, seed ) );
     runtime_ctx->gossip      = gossip;
 
     if( fd_gossip_set_config( gossip, &runtime_ctx->gossip_config ) )
@@ -1495,9 +1491,9 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
   args->retrace       = fd_env_strip_cmdline_int( &argc, &argv, "--retrace", NULL, 0 );
   args->abort_on_mismatch =
       (uchar)fd_env_strip_cmdline_int( &argc, &argv, "--abort-on-mismatch", NULL, 0 );
-  args->checkpt_slot = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-slot", NULL, 0 );
-  args->checkpt_freq = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-freq", NULL, ULONG_MAX );
-  args->checkpt_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--checkpt-path", NULL, NULL );
+  args->checkpt_freq     = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-freq", NULL, ULONG_MAX );
+  args->checkpt_path     = fd_env_strip_cmdline_cstr( &argc, &argv, "--checkpt-path", NULL, NULL );
+  args->checkpt_mismatch = fd_env_strip_cmdline_int ( &argc, &argv, "--checkpt-mismatch", NULL, 0 );
   args->dump_insn_to_pb = fd_env_strip_cmdline_int( &argc, &argv, "--dump-insn-to-pb", NULL, 0 );
   args->dump_insn_sig_filter = fd_env_strip_cmdline_cstr( &argc, &argv, "--dump-insn-sig-filter", NULL, NULL );
   args->dump_insn_output_dir = fd_env_strip_cmdline_cstr( &argc, &argv, "--dump-insn-output-dir", NULL, "protobuf_tests_from_executed_instr" );

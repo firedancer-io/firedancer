@@ -11,52 +11,54 @@ on:
       extras:
         type: string
         default: ""
+  workflow_dispatch:
+  merge_group:
 jobs:
   ledger-replay:
     runs-on: private
-    strategy:
-      matrix:
-        ledger:
-          - run-runtime-test-1
-          - run-runtime-test-2
-          - run-runtime-test-3
     env:
+      CC: gcc
       MACHINE: ${{ inputs.machine }}
       EXTRAS: ${{ inputs.extras }}
     steps:
       - uses: actions/checkout@v4
         with:
-          lfs: true
           submodules: recursive
 
       - uses: ./.github/actions/deps
       - uses: ./.github/actions/hugepages
+        with:
+          count_gigantic: 300
+          count_huge: 1000 # TODO: this is required until we can handle anonymouse workspaces and loose huge pages in fddev
 
       - name: build
-        run: ./contrib/make-j all
-
-      - name: Run tests
         run: |
-          sudo prlimit --pid $$ --memlock=-1:-1
-          make ${{ matrix.ledger }}
+          make -j bin
 
       - name: find OBJDIR
         run: |
           echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
 
+      - name: test replay ledgers
+        run: |
+          sudo prlimit --pid=$$ --nofile=1048576
+          sudo prlimit --pid=$$ --memlock=unlimited
+          make run-runtime-test
+
       - name: Merge coverage reports
         if: ${{ inputs.coverage }}
         run: |
           make $OBJDIR/cov/cov.lcov
-          mv $OBJDIR/cov/cov.lcov ${{ matrix.ledger }}.lcov
+          mv $OBJDIR/cov/cov.lcov run-runtime-test.lcov
 
       - uses: actions/upload-artifact@v4
         if: ${{ inputs.coverage }}
         with:
-          name: ledger-cov-${{ github.run_id }}-${{ matrix.ledger }}
-          path: ${{ matrix.ledger }}.lcov
+          name: ledger-cov-${{ github.run_id }}-run-runtime-test
+          path: run-runtime-test.lcov
           overwrite: true
           retention-days: 1
+
 
   ledger-coverage:
     runs-on: private
@@ -68,7 +70,6 @@ jobs:
       - name: find OBJDIR
         run: |
           echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
-
       - uses: actions/download-artifact@v4
         with:
           path: cov
@@ -79,7 +80,6 @@ jobs:
         run: |
           find cov -type f
           lcov -q $(for x in cov/*.lcov; do echo "-a $x"; done) -o all.cov
-
       - name: Upload coverage report to CodeCov
         uses: codecov/codecov-action@v3
         timeout-minutes: 5

@@ -20,7 +20,7 @@ download_snapshot() {
   local url=$1
   local num_tries=${2:-10}
   local s
-  for i in $(seq 1 $num_tries); do
+  for _ in $(seq 1 $num_tries); do
     s=$(curl -s --max-redirs 0 $url)
     if ! wget -q --trust-server-names $url; then
       sleep 1
@@ -34,6 +34,14 @@ download_snapshot() {
   return 1
 }
 
+is_ip() {
+  if [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    return 0  # True, it's an IP
+  else
+    return 1  # False, it's not an IP
+  fi
+}
+
 trap cleanup EXIT SIGINT SIGTERM
 sudo killall fddev || true
 
@@ -43,19 +51,27 @@ if ! command -v fddev > /dev/null; then
 fi
 
 if [ -z "${ENTRYPOINT-}" ]; then
-  ENTRYPOINT=entrypoint3.testnet.solana.com
+  ENTRYPOINT=entrypoint2.testnet.solana.com
+  ENTRYPOINT_PORT=8001
 fi
+
+ENTRYPOINT_BACKUP=147.75.84.157
+ENTRYPOINT_BACKUP_PORT=8000
 
 snapshot=$(download_snapshot http://$ENTRYPOINT:8899/snapshot.tar.bz2)
 incremental=$(download_snapshot http://$ENTRYPOINT:8899/incremental-snapshot.tar.bz2)
+
+if ! is_ip "$ENTRYPOINT"; then
+  ENTRYPOINT=$(dig +short "$ENTRYPOINT")
+fi
 
 echo "
 [gossip]
     port = 8720
 [tiles]
     [tiles.gossip]
-        entrypoints = [\"$(dig +short $ENTRYPOINT)\"]
-        peer_ports = [8001]
+        entrypoints = [\"$ENTRYPOINT\", \"$ENTRYPOINT_BACKUP\"]
+        peer_ports = [$ENTRYPOINT_PORT, $ENTRYPOINT_BACKUP_PORT]
         gossip_listen_port = 8720
     [tiles.repair]
         repair_intake_listen_port = 8721

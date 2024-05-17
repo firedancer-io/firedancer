@@ -3,21 +3,6 @@
 #include "../templ/fd_quic_union.h"
 #include "../templ/fd_quic_parse_util.h"
 
-/* define empty functions for handlers */
-#define FD_TEMPL_DEF_STRUCT_BEGIN(NAME)                     \
-          static ulong                                      \
-          fd_quic_frame_handle_##NAME(                      \
-                    void *                    context,      \
-                    fd_quic_##NAME##_t *      data,         \
-                    uchar const *             p,            \
-                    ulong                     p_sz ) {      \
-            (void)context; (void)data; (void)p; (void)p_sz; \
-            return 0u;                                      \
-          }
-#include "../templ/fd_quic_dft.h"
-#include "../templ/fd_quic_frames_templ.h"
-#include "../templ/fd_quic_undefs.h"
-
 int
 main( int argc, char ** argv ) {
   (void)argc;

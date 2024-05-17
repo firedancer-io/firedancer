@@ -52,7 +52,7 @@ join this cluster with other validators, you can define
 validator and run `fddev dev` again.
 
 ### Code Coverage
-Test and fuzzing coverage are available [here](https://storage.googleapis.com/firedancer-ci-artifacts-public/index.html).
+For the latest Code Coverage Reports, please see the links at [Deployments](https://github.com/firedancer-io/firedancer/deployments) 
 
 ## License
 Firedancer is available under the [Apache 2

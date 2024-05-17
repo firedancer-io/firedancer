@@ -35,6 +35,13 @@
 
 #define CONTACT_INFO_PUBLISH_TIME_NS ((long)5e9)
 
+/* Scratch space is used for deserializing a gossip message.
+   TODO: update */
+#define SCRATCH_MAX (1<<16UL)
+/* A minimal number of frames
+   TODO: update */
+#define SCRATCH_DEPTH (16UL)
+
 static int
 fd_pubkey_eq( fd_pubkey_t const * key1, fd_pubkey_t const * key2 ) {
   return memcmp( key1->key, key2->key, sizeof(fd_pubkey_t) ) == 0;
@@ -154,6 +161,8 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_gossip_align(), fd_gossip_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_contact_info_table_align(), fd_contact_info_table_footprint( FD_PEER_KEY_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -440,6 +449,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->gossip = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_align(), fd_gossip_footprint() );
   ctx->contact_info_table = fd_contact_info_table_join( fd_contact_info_table_new( FD_SCRATCH_ALLOC_APPEND( l, fd_contact_info_table_align(), fd_contact_info_table_footprint( FD_PEER_KEY_MAX ) ), FD_PEER_KEY_MAX, 0 ) );
   
+  void * smem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX ) );
+  void * fmem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
+
+  FD_TEST( ( !!smem ) & ( !!fmem ) );
+  fd_scratch_attach( smem, fmem, SCRATCH_MAX, SCRATCH_DEPTH );
+
   fd_topo_link_t * net_out = &topo->links[ tile->out_link_id_primary ];
 
   ctx->net_out_mcache = net_out->mcache;
@@ -452,11 +467,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_chunk  = ctx->net_out_chunk0;
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
-
-  void * alloc_shmem = fd_wksp_alloc_laddr( ctx->wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
-  if( FD_UNLIKELY( !alloc_shmem ) ) { 
-    FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); 
-  }
 
   ctx->gossip_my_addr.addr = tile->gossip.ip_addr;
   ctx->gossip_my_addr.port = fd_ushort_bswap( tile->gossip.gossip_listen_port );
@@ -482,20 +492,8 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Keyguard join failed" ));
   }
 
-  /* Valloc setup */
-  void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
-  if( FD_UNLIKELY( !alloc_shalloc ) ) { 
-    FD_LOG_ERR( ( "fd_allow_new failed" ) ); }
-  fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, 3UL );
-  if( FD_UNLIKELY( !alloc ) ) {
-    FD_LOG_ERR( ( "fd_alloc_join failed" ) ); 
-  }
-
-  fd_valloc_t valloc = fd_alloc_virtual( alloc );
-
   /* Gossip set up */
-  // TODO: remove valloc and make gossip statically (bump) allocated
-  ctx->gossip = fd_gossip_join( fd_gossip_new( ctx->gossip, ctx->gossip_seed, valloc ) );
+  ctx->gossip = fd_gossip_join( fd_gossip_new( ctx->gossip, ctx->gossip_seed ) );
 
   FD_LOG_NOTICE(( "gossip my addr - addr: " FD_IP4_ADDR_FMT ":%u", 
     FD_IP4_ADDR_FMT_ARGS( ctx->gossip_my_addr.addr ), fd_ushort_bswap( ctx->gossip_my_addr.port ) ));
