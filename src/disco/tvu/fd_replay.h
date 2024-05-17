@@ -101,6 +101,8 @@ struct __attribute__((aligned(128UL))) fd_replay {
   /* gossip */
   fd_gossip_t *         gossip;
 
+  fd_bank_hash_cmp_t * bank_hash_cmp;
+
 #ifdef FD_HAS_LIBMICROHTTP
   fd_rpc_ctx_t *        rpc_ctx;
 #endif

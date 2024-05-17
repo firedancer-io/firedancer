@@ -401,8 +401,6 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   fd_bank_hash_cmp_t * bank_hash_cmp = child->slot_ctx.epoch_ctx->bank_hash_cmp;
   fd_bank_hash_cmp_lock( bank_hash_cmp );
   fd_bank_hash_cmp_insert( bank_hash_cmp, slot, bank_hash, 1 );
-  fd_bank_hash_cmp_unlock( bank_hash_cmp );
-
 
   /* Try to move the bank hash comparison window forward */
 
@@ -410,6 +408,7 @@ fd_replay_slot_execute( fd_replay_t *      replay,
     if( fd_bank_hash_cmp_check( bank_hash_cmp, bank_hash_cmp->slot ) ) bank_hash_cmp->slot++;
     else break;
   }
+  fd_bank_hash_cmp_unlock( bank_hash_cmp );
 
   // while (1) {
   //   ulong *children, nchildren, parent_slot = bank_hash_cmp->slot;
