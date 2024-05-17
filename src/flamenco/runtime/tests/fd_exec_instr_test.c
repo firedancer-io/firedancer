@@ -171,6 +171,8 @@ _load_sysvar( fd_exec_txn_ctx_t * txn_ctx,
   acct_state.data       = data;
   acct_state.executable = 1;
   acct_state.rent_epoch = 0;
+  acct_state.has_address = true;
+  acct_state.has_owner = true;
   memcpy( acct_state.address, &sysvar_pubkey, sizeof(fd_pubkey_t) );
   memcpy( acct_state.owner, &fd_sysvar_owner_id, sizeof(fd_pubkey_t) );
 
