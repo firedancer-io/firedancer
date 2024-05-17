@@ -6,7 +6,7 @@
 
 /* FEATURE_ID_CNT is the number of features in ids */
 
-#define FD_FEATURE_ID_CNT (193UL)
+#define FD_FEATURE_ID_CNT (198UL)
 
 union fd_features {
 
@@ -97,7 +97,7 @@ union fd_features {
     /* 0x2bf29bf13f0e1d5d */ ulong executables_incur_cpi_data_cost;
     /* 0x073a0a7d3f570b55 */ ulong fix_recent_blockhashes;
     /* 0x4d6ae02c256bdf10 */ ulong update_rewards_from_cached_accounts;
-    /* 0x2e2d4501d149cd2c */ ulong enable_partitioned_epoch_reward;
+    /* 0x5bf898a97b29c67f */ ulong enable_partitioned_epoch_reward;
     /* 0xe8f10f26141749dd */ ulong spl_token_v3_4_0;
     /* 0xe02ac5f848d395d8 */ ulong spl_associated_token_account_v1_1_0;
     /* 0x7b285d0430faf2fc */ ulong default_units_per_instruction;
@@ -176,7 +176,7 @@ union fd_features {
     /* 0x74b022574093eeec */ ulong reduce_stake_warmup_cooldown;
     /* 0x81b8fd99bea25f9b */ ulong revise_turbine_epoch_stakes;
     /* 0x3cbf822ccb2eebd4 */ ulong enable_poseidon_syscall;
-    /* 0x86fa44f01141c71a */ ulong timely_vote_credits;
+    /* 0xe9d32123513c4d0d */ ulong timely_vote_credits;
     /* 0x64205286d7935342 */ ulong remaining_compute_units_syscall_enabled;
     /* 0x97f912be04ecd673 */ ulong enable_program_runtime_v2_and_loader_v4;
     /* 0x4b241cb4c6f3b3b2 */ ulong require_rent_exempt_split_destination;
@@ -206,6 +206,11 @@ union fd_features {
     /* 0xf711255aedfe2d0d */ ulong enable_tower_sync_ix;
     /* 0x81f658d2653a6051 */ ulong deprecate_unused_legacy_vote_plumbing;
     /* 0xf1f206f6027db529 */ ulong reward_full_priority_fee;
+    /* 0x1d15c9469c7c0ca8 */ ulong disable_rent_fees_collection;
+    /* 0xb6edac8134dff06e */ ulong add_new_reserved_account_keys;
+    /* 0x7e4172e5ba362509 */ ulong chained_merkle_conflict_duplicate_proofs;
+    /* 0x8ba9e9038d9fdcff */ ulong simplify_alt_bn128_syscall_error_codes;
+    /* 0xafe148ad652172dd */ ulong abort_on_invalid_curve;
   };
 
 };

@@ -77,6 +77,7 @@ main( int     argc,
   assert_eq( "AddressLookupTab1e1111111111111111111111111", fd_solana_address_lookup_table_program_id   );
   assert_eq( "So11111111111111111111111111111111111111112", fd_solana_spl_native_mint_id                );
   assert_eq( "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", fd_solana_spl_token_id                      );
+  assert_eq( "ZkE1Gama1Proof11111111111111111111111111111", fd_solana_zk_el_gamal_program_id            );
 
   char const * const test_pubkeys[ 34 ] = {
     "Sysvar1111111111111111111111111111111111111",

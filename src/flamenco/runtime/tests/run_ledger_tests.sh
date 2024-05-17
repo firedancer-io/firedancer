@@ -29,7 +29,7 @@ echo_error() {
   echo -e "\033[31m$1$2\033[0m"
 }
 
-LEDGER="v18-small"
+LEDGER="mainnet-254462437"
 SNAPSHOT=""
 INC_SNAPSHOT=""
 END_SLOT="--end-slot 1010"
@@ -369,7 +369,7 @@ then
     exit 0
   fi
   tail -40 $LOG
-  echo_error 'ledger test failed:'
+  echo_error "ledger test failed: $*"
   echo $LOG
 
   # create prune here
