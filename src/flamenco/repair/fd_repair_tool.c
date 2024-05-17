@@ -147,24 +147,12 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
   fd_repair_peer_addr_t peeraddr;
   if ( fd_repair_add_active_peer(glob, resolve_hostport(addr_cstr, &peeraddr), &id) )
     return -1;
+  fd_repair_add_sticky(glob, &id);
+  fd_repair_set_permanent(glob, &id);
 
   char const * slot_cstr = fd_env_strip_cmdline_cstr ( argc, argv, "--slot", NULL, NULL );
   if ( slot_cstr == NULL )
     FD_LOG_ERR(("--slot command line argument required"));
-  do {
-    ulong slot = strtoul(slot_cstr, (char **)&slot_cstr, 10);
-    if ( *slot_cstr != ':' )
-      FD_LOG_ERR(("--slot takes <slot>:<idx>,<slot>:<idx>,<slot>:<idx>..."));
-    ++slot_cstr;
-    ulong idx = strtoul(slot_cstr, (char **)&slot_cstr, 10);
-    if ( fd_repair_need_highest_window_index(glob, slot, (uint)idx) )
-      return -1;
-    if ( *slot_cstr == '\0' )
-      break;
-    if ( *slot_cstr != ',' )
-      FD_LOG_ERR(("--slot takes <slot>:<idx>,<slot>:<idx>,<slot>:<idx>..."));
-    ++slot_cstr;
-  } while (1);
 
 #define VLEN 32U
   struct mmsghdr msgs[VLEN];
@@ -172,8 +160,38 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
   uchar bufs[VLEN][FD_ETH_PAYLOAD_MAX];
   uchar sockaddrs[VLEN][sizeof(struct sockaddr_in6)]; /* sockaddr is smaller than sockaddr_in6 */
 
+  long lastreq = 0;
   while ( !*stopflag ) {
-    fd_repair_settime(glob, fd_log_wallclock());
+    long now = fd_log_wallclock();
+
+    if (now - lastreq > (long)3e9) {
+      lastreq = now;
+      char* cstr = (char*)slot_cstr;
+      do {
+        ulong slot = strtoul(cstr, &cstr, 10);
+        if ( *cstr != ':' )
+          FD_LOG_ERR(("--slot takes <slot>:<idx>,<slot>:<idx>,<slot>:<idx>..."));
+        ++cstr;
+        long idx = strtol(cstr, &cstr, 10);
+        if( idx == -1 ) {
+          if( fd_repair_need_highest_window_index(glob, slot, 0U) )
+            return -1;
+        } else if( idx == -2 ) {
+          if( fd_repair_need_orphan(glob, slot) )
+            return -1;
+        } else if( idx >= 0 ) {
+          if( fd_repair_need_window_index(glob, slot, (uint)idx) != 1 )
+            return -1;
+        }
+        if ( *cstr == '\0' )
+          break;
+        if ( *cstr != ',' )
+          FD_LOG_ERR(("--slot takes <slot>:<idx>,<slot>:<idx>,<slot>:<idx>..."));
+        ++cstr;
+      } while (1);
+    }
+    
+    fd_repair_settime(glob, now);
     fd_repair_continue(glob);
 
     fd_memset(msgs, 0, sizeof(msgs));
@@ -201,7 +219,7 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
       fd_repair_peer_addr_t from;
       repair_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
       FD_LOG_HEXDUMP_NOTICE(("recv: ", bufs[i], msgs[i].msg_len));
-      fd_repair_recv_packet(glob, bufs[i], msgs[i].msg_len, &from);
+      fd_repair_recv_clnt_packet(glob, bufs[i], msgs[i].msg_len, &from);
     }
   }
 
@@ -258,14 +276,13 @@ int main(int argc, char **argv) {
   FD_TEST( resolve_hostport(my_addr, &config.intake_addr) );
 
   config.deliver_fun = recv_shred;
-  config.deliver_fail_fun = deliver_fail_fun;
-  config.send_fun = send_packet;
+  config.clnt_send_fun = send_packet;
   config.deliver_fail_fun = deliver_fail_fun;
 
   ulong seed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
 
   void * shm = fd_valloc_malloc(valloc, fd_repair_align(), fd_repair_footprint());
-  fd_repair_t * glob = fd_repair_join(fd_repair_new(shm, seed, valloc));
+  fd_repair_t * glob = fd_repair_join(fd_repair_new(shm, seed ));
 
   if ( fd_repair_set_config(glob, &config) )
     return 1;
@@ -276,7 +293,7 @@ int main(int argc, char **argv) {
   if ( main_loop(&argc, &argv, glob, &config, &stopflag) )
     return 1;
 
-  fd_valloc_free(valloc, fd_repair_delete(fd_repair_leave(glob), valloc));
+  fd_valloc_free(valloc, fd_repair_delete(fd_repair_leave(glob) ));
 
   fd_halt();
 

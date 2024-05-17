@@ -93,4 +93,5 @@ message Transaction {
 
     // instr_err is the instruction processing error code.
     uint32 instr_err = 9;
+    int32 instr_err_idx = 10;
 }

@@ -1,0 +1,33 @@
+name: Firedancer Testnet
+on:
+  workflow_call:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  firedancer-testnet:
+    runs-on: private
+    env:
+      CC: gcc
+      EXTRAS: no-solana
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: ./.github/actions/deps
+      - uses: ./.github/actions/hugepages
+        with:
+          count_gigantic: 128
+          count_huge: 1000 # TODO: this is required until we can handle anonymouse workspaces and loose huge pages in fddev
+
+      - name: build
+        run: |
+          ./contrib/make-j fddev all
+      - name: test firedancer - testnet
+        run: |
+          sudo prlimit --pid=$$ --nofile=1048576
+          sudo prlimit --pid=$$ --memlock=unlimited
+          ./contrib/test/test_firedancer_testnet.sh
+

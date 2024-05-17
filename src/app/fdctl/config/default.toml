@@ -578,16 +578,14 @@ dynamic_port_range = "8900-9000"
 #        +-- scratch2.wksp
 [hugetlbfs]
     # The absolute path to a directory in the filesystem.  Firedancer
-    # will mount the hugetlbfs filesystem for gigantic pages at this
-    # path, or if the path already exists, will use it as-is.  If the
-    # mount already exists it should be writable by the Firedancer user.
-    gigantic_page_mount_path = "/mnt/.fd/.gigantic"
-
-    # The absolute path to a directory in the filesystem.  Firedancer
-    # will mount the hugetlbfs filesystem for huge pages at this path,
-    # or if the path already exists, will use it as-is.  If the mount
-    # already exists it should be writable by the Firedancer user.
-    huge_page_mount_path = "/mnt/.fd/.huge"
+    # will mount the hugetlbfs filesystem for gigantic pages at a
+    # subdirectory named .gigantic under this path, or if the entire
+    # path already exists, will use it as-is.  Firedancer will also
+    # mount the hugetlbfs filesystem for huge pages at a subdirectory
+    # named .huge under this path, or if the entire path already exists,
+    # will use it as-is.  If the mount already exists it should be
+    # writable by the Firedancer user.
+    mount_path = "/mnt/.fd"
 
 # Tiles are described in detail in the layout section above.  While the
 # layout configuration determines how many of each tile to place on
@@ -759,7 +757,7 @@ dynamic_port_range = "8900-9000"
         # QUIC retry is a feature to combat new connection request
         # spamming.  See rfc9000 8.1.2 for more details.  This flag
         # determines whether the feature is enabled in the validator.
-        retry = false
+        retry = true
 
     # Verify tiles perform signature verification of incoming
     # transactions, making sure that the data is well-formed, and that
@@ -1010,6 +1008,22 @@ dynamic_port_range = "8900-9000"
 
         # The amount of SOL to pre-fund each account with.
         fund_initial_amount_lamports = 50000000000000
+
+        # The number of lamports to stake on the voting account of the
+        # validator that starts up from the genesis.  Genesis creation
+        # will fund the staking account passed to it with this amount
+        # and then stake it on the voting account.  Note that the voting
+        # account key used in the genesis needs to be the same as the
+        # one that is used by the bootstrap validator.
+        vote_account_stake_lamports = 500000000
+
+        # Setting warmup epochs to true will allow shorter epochs towards
+        # the beginning of the cluster.  This allows for faster stake
+        # activation.  The first epoch will be 32 slots long and the
+        # duration of each subsequent epoch will be double that of the
+        # one before it until it reaches the desired epoch duration of the
+        # cluster.
+        warmup_epochs = false
 
     [development.bench]
         # How many benchg tiles to run when benchmarking.  benchg tiles

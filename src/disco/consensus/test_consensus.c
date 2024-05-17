@@ -334,7 +334,7 @@ repair_thread( FD_PARAM_UNUSED int argc, char ** argv ) {
     for( uint i = 0; i < (uint)repair_rc; ++i ) {
       fd_repair_peer_addr_t from;
       from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
-      fd_repair_recv_packet( repair, bufs[i], msgs[i].msg_len, &from );
+      fd_repair_recv_clnt_packet( repair, bufs[i], msgs[i].msg_len, &from );
     }
   }
   return 0;
@@ -751,7 +751,7 @@ main( int argc, char ** argv ) {
   void * repair_mem =
       fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(), TEST_CONSENSUS_MAGIC );
   fd_repair_t * repair =
-      fd_repair_join( fd_repair_new( repair_mem, TEST_CONSENSUS_MAGIC, valloc ) );
+      fd_repair_join( fd_repair_new( repair_mem, TEST_CONSENSUS_MAGIC ) );
 
   fd_repair_config_t repair_config;
   repair_config.public_key  = &public_key;
@@ -760,7 +760,7 @@ main( int argc, char ** argv ) {
   snprintf( repair_addr, sizeof( repair_addr ), ":%u", repair_port );
   FD_TEST( resolve_hostport( repair_addr, &repair_config.intake_addr ) );
   repair_config.deliver_fun      = repair_deliver_fun;
-  repair_config.send_fun         = repair_send_fun;
+  repair_config.clnt_send_fun    = repair_send_fun;
   repair_config.deliver_fail_fun = repair_deliver_fail_fun;
   repair_arg_t repair_arg        = { .replay = replay,
                                      .sockfd = create_socket( &repair_config.intake_addr ) };
@@ -851,7 +851,7 @@ main( int argc, char ** argv ) {
   void * gossip_shmem =
       fd_wksp_alloc_laddr( wksp, fd_gossip_align(), fd_gossip_footprint(), TEST_CONSENSUS_MAGIC );
   fd_gossip_t * gossip =
-      fd_gossip_join( fd_gossip_new( gossip_shmem, TEST_CONSENSUS_MAGIC, valloc ) );
+      fd_gossip_join( fd_gossip_new( gossip_shmem, TEST_CONSENSUS_MAGIC ) );
 
   fd_gossip_config_t gossip_config;
   gossip_config.public_key  = &public_key;

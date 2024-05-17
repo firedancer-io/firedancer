@@ -344,7 +344,6 @@ fd_quic_tls_provide_data( fd_quic_tls_hs_t * self,
     if( FD_UNLIKELY( res<0L ) ) {
       int alert = (int)-res;
       self->alert = (uint)alert;
-      FD_LOG_NOTICE(( "state %u reason %s", self->hs.base.state, fd_tls_reason_cstr( self->hs.base.reason ) ));
       self->quic_tls->alert_cb( self, self->context, alert );
       return FD_QUIC_TLS_FAILED;
     }

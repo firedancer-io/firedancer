@@ -113,6 +113,15 @@ _load_account( fd_borrowed_account_t *           acc,
                fd_acc_mgr_t *                    acc_mgr,
                fd_funk_txn_t *                   funk_txn,
                fd_exec_test_acct_state_t const * state ) {
+  /* Although missing addresses / owners may be interpreted as 0-set bytes,
+     the Agave fuzz harness fails to parse these messages out and fails
+     before execution. The following check is meant to keep behavior
+     consistent between fuzz harnesses.
+   */
+  if( !state->has_address || !state->has_owner ) {
+    return 0;
+  }
+
   fd_borrowed_account_init( acc );
   ulong size = 0UL;
   if( state->data ) size = state->data->size;
@@ -143,6 +152,29 @@ _load_account( fd_borrowed_account_t *           acc,
   memcpy( acc->meta->info.owner, state->owner, sizeof(fd_pubkey_t) );
 
   return 1;
+}
+
+/* Loads sysvars if they don't exist already */
+static void
+_load_sysvar( fd_exec_txn_ctx_t * txn_ctx,
+              fd_pubkey_t         sysvar_pubkey,
+              uchar             * sysvar_raw_data,
+              ulong               data_size ) {
+  FD_BORROWED_ACCOUNT_DECL(borrowed_account);
+
+  pb_bytes_array_t * data = fd_scratch_alloc(alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(data_size));
+  data->size = (pb_size_t) data_size;
+  memcpy( data->bytes, sysvar_raw_data, data_size );
+
+  fd_exec_test_acct_state_t acct_state = {0};
+  acct_state.lamports   = 1;
+  acct_state.data       = data;
+  acct_state.executable = 1;
+  acct_state.rent_epoch = 0;
+  memcpy( acct_state.address, &sysvar_pubkey, sizeof(fd_pubkey_t) );
+  memcpy( acct_state.owner, &fd_sysvar_owner_id, sizeof(fd_pubkey_t) );
+
+  _load_account( borrowed_account, txn_ctx->acc_mgr, txn_ctx->funk_txn, &acct_state );
 }
 
 static int
@@ -247,6 +279,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->dirty_vote_acc          = 0;
   txn_ctx->dirty_stake_acc         = 0;
   txn_ctx->failed_instr            = NULL;
+  txn_ctx->instr_err_idx           = INT_MAX;
   txn_ctx->capture_ctx             = NULL;
   txn_ctx->vote_accounts_pool      = NULL;
 
@@ -315,8 +348,54 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   /* Add accounts to bpf program cache */
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
 
-  /* Restore sysvar cache */
+  /* Fill missing sysvar cache values with defaults */
+  /* We create mock accounts for each of the sysvars and hardcode the data fields before loading it into the account manager */
+  /* We use Agave sysvar defaults for data field values */
+  fd_bincode_encode_ctx_t encode_ctx;
+  ulong sz = 128;
+  uchar enc[sz]; memset( enc, 0, sz );
 
+  /* Clock */
+  // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L466-L474
+  fd_sol_sysvar_clock_t sysvar_clock = {
+                                        .slot = 10,
+                                        .epoch_start_timestamp = 0,
+                                        .epoch = 0,
+                                        .leader_schedule_epoch = 0,
+                                        .unix_timestamp = 0
+                                      };
+  encode_ctx.data = enc;
+  encode_ctx.dataend = enc + sizeof(sysvar_clock);
+  fd_sol_sysvar_clock_encode( &sysvar_clock, &encode_ctx );
+  _load_sysvar( txn_ctx, fd_sysvar_clock_id, enc, sizeof(sysvar_clock) );
+
+  /* Epoch schedule */
+  // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L476-L483
+  fd_epoch_schedule_t sysvar_epoch_schedule = {
+                                                .slots_per_epoch = 432000,
+                                                .leader_schedule_slot_offset = 432000,
+                                                .warmup = 1,
+                                                .first_normal_epoch = 14,
+                                                .first_normal_slot = 524256
+                                              };
+  encode_ctx.data = enc;
+  encode_ctx.dataend = enc + sizeof(sysvar_epoch_schedule);
+  fd_epoch_schedule_encode( &sysvar_epoch_schedule, &encode_ctx );
+  _load_sysvar( txn_ctx, fd_sysvar_epoch_schedule_id, enc, sizeof(sysvar_epoch_schedule) );
+
+  /* Rent */
+  // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L487-L500
+  fd_rent_t sysvar_rent = {
+                            .lamports_per_uint8_year = 3480,
+                            .exemption_threshold = 2.0,
+                            .burn_percent = 50
+                          };
+  encode_ctx.data = enc;
+  encode_ctx.dataend = enc + sizeof(sysvar_rent);
+  fd_rent_encode( &sysvar_rent, &encode_ctx );
+  _load_sysvar( txn_ctx, fd_sysvar_rent_id, enc, sizeof(sysvar_rent) );
+
+  /* Restore sysvar cache */
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
 
   /* Handle undefined behavior if sysvars are malicious (!!!) */
@@ -380,14 +459,23 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
   bool found_program_id = false;
   for( uint i = 0; i < test_ctx->accounts_count; i++ ) {
-    if( 0 == memcmp(test_ctx->accounts[i].address, test_ctx->program_id, sizeof(fd_pubkey_t)) ) {
+    if( 0 == memcmp( test_ctx->accounts[i].address, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
       info->program_id = (uchar) i;
       found_program_id = true;
       break;
     }
   }
   if( !found_program_id ) {
-    FD_LOG_WARNING(("Unable to find program_id in accounts"));
+    REPORT( NOTICE, "Unable to find program_id in accounts" );
+    return 0;
+  }
+
+  /* For native programs, check that the owner is the native loader */
+  fd_pubkey_t * const program_id = &txn_ctx->accounts[info->program_id];
+  fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( program_id );
+  if( native_prog_fn && 0 != memcmp( test_ctx->accounts[info->program_id].owner, &fd_solana_native_loader_id, sizeof(fd_pubkey_t) ) ) {
+    REPORT( NOTICE, "Native program owner is not NativeLoader" );
+    return 0;
   }
 
   ctx->epoch_ctx = epoch_ctx;
@@ -668,31 +756,6 @@ fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
   return !has_diff;
 }
 
-FD_FN_PURE static bool
-fd_instr_info_sum_account_lamports_no_crash( fd_instr_info_t const * instr ) {
-  ulong total_lamports = 0;
-
-  for( ulong i = 0; i < instr->acct_cnt; i++ ) {
-
-    if( instr->borrowed_accounts[i] == NULL ) {
-      continue;
-    }
-
-    if( ( instr->is_duplicate[i]                          ) |
-        ( instr->borrowed_accounts[i]->const_meta == NULL ) ) {
-      continue;
-    }
-
-    ulong acct_lamports = instr->borrowed_accounts[i]->const_meta->info.lamports;
-
-    if( FD_UNLIKELY( __builtin_uaddl_overflow( total_lamports, acct_lamports, &total_lamports ) ) ) {
-      FD_LOG_WARNING(("Sum of lamports exceeds UL MAX", total_lamports));
-      return false;
-    }
-  }
-  return true;
-}
-
 ulong
 fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
                         fd_exec_test_instr_context_t const * input,
@@ -707,12 +770,6 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
     return 0UL;
 
   fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
-
-  /* Check lamports beforehand to ensure we don't crash during test execution */
-  if (!fd_instr_info_sum_account_lamports_no_crash(instr)) {
-    _context_destroy( runner, ctx );
-    return 0UL;
-  }
 
   /* Execute the test */
   int exec_result = fd_execute_instr(ctx->txn_ctx, instr);

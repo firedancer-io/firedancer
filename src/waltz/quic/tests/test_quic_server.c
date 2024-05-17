@@ -1,11 +1,3 @@
-#include <math.h>
-
-#include <linux/if_xdp.h>
-
-#include "../../../util/fd_util_base.h"
-#include "../../../util/net/fd_eth.h"
-#include "../../../util/net/fd_ip4.h"
-
 #include "../fd_quic.h"
 #include "fd_quic_test_helpers.h"
 #include "../../tls/test_tls_helper.h"
@@ -32,7 +24,7 @@ main( int argc, char ** argv ) {
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
   char const * _page_sz = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",  NULL, "gigantic"                 );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt", NULL, 1UL                        );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt", NULL, 2UL                        );
   ulong        numa_idx = fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx(cpu_idx) );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
@@ -83,18 +75,6 @@ main( int argc, char ** argv ) {
   quic_config->net.ip_addr         = udpsock->listen_ip;
   quic_config->net.listen_udp_port = udpsock->listen_port;
   fd_quic_set_aio_net_tx( quic, udpsock->aio );
-  uchar pkey[32]        = {
-      137, 115, 254, 55, 116, 55, 118, 19,  151, 66,  229, 24, 188, 62,  99,  209,
-      162, 16,  6,   7,  24,  81, 152, 128, 139, 234, 170, 93, 88,  204, 245, 205,
-  };
-  uchar pubkey[32]      = { 44, 174, 25,  39, 43, 255, 200, 81, 55, 73, 10,  113, 174, 91, 223, 80,
-                            50, 51,  102, 25, 63, 110, 36,  28, 51, 11, 174, 179, 110, 8,  25,  152 };
-  FD_LOG_HEXDUMP_NOTICE(( "Solana private key", pkey, 32 ));  /* TODO use base-58 format specifier */
-  FD_LOG_HEXDUMP_NOTICE(( "Solana public key", pubkey, 32 ));  /* TODO use base-58 format specifier */
-
-  fd_tls_test_sign_ctx_t * ctx = quic_config->sign_ctx;
-  fd_memcpy( ctx->private_key, pkey, 32UL );
-  fd_memcpy( ctx->public_key, pubkey, 32UL );
 
   FD_LOG_NOTICE(( "Initializing QUIC" ));
   FD_TEST( fd_quic_init( quic ) );

@@ -49,6 +49,7 @@ include config/extra/with-brutality.mk
 include config/extra/with-optimization.mk
 include config/extra/with-debug.mk
 include config/extra/with-security.mk
+include config/extra/with-rpcserver.mk
 
 $(call map-define,FD_HAS_SHANI, __SHA__)
 $(call map-define,FD_HAS_INT128, __SIZEOF_INT128__)

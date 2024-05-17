@@ -645,19 +645,22 @@ acceptable_reference_epoch_credits( fd_vote_epoch_credits_t * epoch_credits,
   };
 }
 
+/* https://github.com/firedancer-io/solana/blob/06ec63044892e5ee14b6fa15d8c55da9953d0c09/sdk/program/src/stake/tools.rs#L67-L83 */
 static inline int
 eligible_for_deactivate_delinquent( fd_vote_epoch_credits_t * epoch_credits, ulong current_epoch ) {
-  fd_vote_epoch_credits_t * last = deq_fd_vote_epoch_credits_t_peek_index(
-      epoch_credits, deq_fd_vote_epoch_credits_t_cnt( epoch_credits ) - 1 );
-  if( !last ) { // FIXME FD_LIKELY
+  if( FD_LIKELY( deq_fd_vote_epoch_credits_t_empty( epoch_credits ) ) ) { 
+    return 1; 
+  }
+
+  fd_vote_epoch_credits_t * last = deq_fd_vote_epoch_credits_t_peek_tail( epoch_credits );
+  if( FD_LIKELY( !last ) ) {
     return 1;
   } else {
-    ulong * epoch         = &last->epoch;
-    ulong   minimum_epoch = ULONG_MAX;
-    int     cf            = __builtin_usubl_overflow(
-        current_epoch, MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION, &minimum_epoch );
-    if( !cf ) { // FIXME FD_LIKELY
-      return *epoch <= minimum_epoch;
+    ulong epoch         = last->epoch;
+    ulong minimum_epoch = ULONG_MAX;
+    int res = fd_ulong_checked_sub( current_epoch, MINIMUM_DELINQUENT_EPOCHS_FOR_DEACTIVATION, &minimum_epoch );
+    if( FD_LIKELY( res == 0 ) ) {
+      return epoch <= minimum_epoch;
     } else {
       return 0;
     }
@@ -902,15 +905,14 @@ stake_weighted_credits_observed( fd_stake_t const * stake,
                                  ulong              absorbed_lamports,
                                  ulong              absorbed_credits_observed,
                                  ulong *            out ) {
-  // FIXME: FD_LIKELY
-  if( stake->credits_observed == absorbed_credits_observed ) {
+  if( FD_LIKELY( stake->credits_observed == absorbed_credits_observed ) ) {
     *out = stake->credits_observed;
     return 1;
   } else {
     /* total_stake = stake->delegation.stake + absorbed_lamports */
-    ulong total_stake_h = 0;
-    ulong total_stake_l = 0;
-    fd_uwide_inc( &total_stake_h, &total_stake_l, 0, stake->delegation.stake,
+    ulong total_stake_h = 0UL;
+    ulong total_stake_l = 0UL;
+    fd_uwide_inc( &total_stake_h, &total_stake_l, 0UL, stake->delegation.stake,
                   absorbed_lamports );
 
     /* stake_weighted_credits = stake->credits_observed + stake->delegation.stake */
@@ -930,26 +932,26 @@ stake_weighted_credits_observed( fd_stake_t const * stake,
     ulong total_weighted_credits_partial_one_l;
     fd_uwide_add( &total_weighted_credits_partial_one_h, &total_weighted_credits_partial_one_l,
                   stake_weighted_credits_h, stake_weighted_credits_l,
-                  absorbed_weighted_credits_h, absorbed_weighted_credits_l, 0 );
+                  absorbed_weighted_credits_h, absorbed_weighted_credits_l, 0UL );
 
     ulong total_weighted_credits_partial_two_h;
     ulong total_weighted_credits_partial_two_l;
     fd_uwide_add( &total_weighted_credits_partial_two_h, &total_weighted_credits_partial_two_l,
                   total_weighted_credits_partial_one_h, total_weighted_credits_partial_one_l,
-                  total_stake_h, total_stake_l, 0 );
+                  total_stake_h, total_stake_l, 0UL );
 
     ulong total_weighted_credits_h;
     ulong total_weighted_credits_l;
     fd_uwide_dec( &total_weighted_credits_h, &total_weighted_credits_l,
-                  total_weighted_credits_partial_two_h, total_weighted_credits_partial_two_l, 1 );
+                  total_weighted_credits_partial_two_h, total_weighted_credits_partial_two_l, 1UL );
 
     /* FIXME: fd_uwide_div doesn't support denominator that is an fd_uwide */
     /* res = totalWeighted_credits / total_stake */
     ulong res_h;
     ulong res_l;
-    FD_TEST(( total_stake_h == 0 ));
+    FD_TEST( total_stake_h == 0UL );
     fd_uwide_div( &res_h, &res_l, total_weighted_credits_h, total_weighted_credits_l, total_stake_l );
-    FD_TEST(( res_h == 0 ));
+    FD_TEST( res_h == 0UL );
     //*out = total_weighted_credits / total_stake;
     *out = res_l;
     return 1;

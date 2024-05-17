@@ -579,16 +579,22 @@ credits_for_vote_at_index( fd_vote_state_t * self, ulong index ) {
 
   // If latency is 0, this means that the Lockout was created and stored from a software version
   // that did not store vote latencies; in this case, 1 credit is awarded
-  if( FD_UNLIKELY( latency == 0 ) ) return 1;
+  if( FD_UNLIKELY( latency == 0 ) ) {
+    return 1;
+  }
 
-  ulong diff = ULONG_MAX;
+  ulong diff = 0;
   int   cf   = fd_ulong_checked_sub( latency, VOTE_CREDITS_GRACE_SLOTS, &diff );
-  // https://github.com/firedancer-io/solana/blob/v1.17.5/sdk/program/src/vote/state/mod.rs#L507-L523
-  return fd_ulong_if(
-      cf | !diff,
-      VOTE_CREDITS_MAXIMUM_PER_SLOT,
-      fd_ulong_if(
-          fd_ulong_checked_sub( VOTE_CREDITS_MAXIMUM_PER_SLOT, diff, &diff ) | !diff, 1, diff ) );
+  if( cf != 0 || diff == 0 ) {
+    return VOTE_CREDITS_MAXIMUM_PER_SLOT;
+  }
+
+  ulong credits = 0;
+  cf = fd_ulong_checked_sub( VOTE_CREDITS_MAXIMUM_PER_SLOT, diff, &credits );
+  if( cf != 0 || credits == 0 ) {
+    return 1;
+  }
+  return credits;
 }
 
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L447
@@ -1037,9 +1043,14 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
   }
 
   vote_state_update_index = 0;
-  for( ulong i = 0; i < filter_index; i++ ) {
+  ulong lockout_cnt = deq_fd_vote_lockout_t_cnt(proposed_lockouts);
+
+  for( ulong i = 0; i < filter_index && lockout_cnt > 0; i++ ) {
+    if( vote_state_update_indexes_to_filter[i] >= lockout_cnt )
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     deq_fd_vote_lockout_t_pop_idx_tail( proposed_lockouts,
                                         vote_state_update_indexes_to_filter[i] );
+    lockout_cnt--;
   }
 
   } FD_SCRATCH_SCOPE_END;

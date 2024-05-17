@@ -48,6 +48,9 @@
 
 #define FD_NANOSEC_TO_MILLI(_ts_) ((ulong)(_ts_/1000000))
 
+/* Maximum number of stake weights, mirrors fd_stake_ci */
+#define MAX_STAKE_WEIGHTS (40200UL)
+
 /* Test if two addresses are equal */
 static int fd_gossip_peer_addr_eq( const fd_gossip_peer_addr_t * key1, const fd_gossip_peer_addr_t * key2 ) {
   FD_STATIC_ASSERT(sizeof(fd_gossip_peer_addr_t) == sizeof(ulong),"messed up size");
@@ -142,7 +145,7 @@ struct fd_value_elem {
     ulong next;
     fd_pubkey_t origin; /* Where did this value originate */
     ulong wallclock; /* Original timestamp of value in millis */
-    uchar * data;    /* Serialized form of value (bincode) including signature */
+    uchar data[PACKET_DATA_SIZE]; /* Serialized form of value (bincode) including signature */
     ulong datalen;
 };
 /* Value table */
@@ -206,8 +209,13 @@ struct fd_push_state {
     uchar packet[FD_ETH_PAYLOAD_MAX]; /* Partially assembled packet containing a fd_gossip_push_msg_t */
     uchar * packet_end_init;       /* Initial end of the packet when there are zero values */
     uchar * packet_end;            /* Current end of the packet including values so far */
+    ulong next;
 };
 typedef struct fd_push_state fd_push_state_t;
+
+#define POOL_NAME fd_push_states_pool
+#define POOL_T    fd_push_state_t
+#include "../../util/tmpl/fd_pool.c"
 
 /* Receive statistics table element. */
 struct fd_stats_elem {
@@ -275,6 +283,7 @@ struct fd_gossip {
     /* Array of push destinations currently in use */
     fd_push_state_t * push_states[FD_PUSH_LIST_MAX];
     ulong push_states_cnt;
+    fd_push_state_t * push_states_pool;
     /* Queue of values that need pushing */
     fd_hash_t * need_push;
     ulong need_push_head;
@@ -288,6 +297,8 @@ struct fd_gossip {
     fd_rng_t rng[1];
     /* RNG seed */
     ulong seed;
+    /* Total number of packeets received */
+    ulong recv_pkt_cnt;
     /* Total number of duplicate values received */
     ulong recv_dup_cnt;
     /* Total number of non-duplicate values received */
@@ -298,42 +309,72 @@ struct fd_gossip {
     ulong not_push_cnt;
     /* Stake weights */
     fd_weights_elem_t * weights;
-    /* Heap allocator */
-    fd_valloc_t valloc;
     /* List of added entrypoints at startup */
     ulong entrypoints_cnt;
     fd_gossip_peer_addr_t entrypoints[16];
 };
 
 ulong
-fd_gossip_align ( void ) { return alignof(fd_gossip_t); }
+fd_gossip_align ( void ) { return 128UL; }
 
 ulong
-fd_gossip_footprint( void ) { return sizeof(fd_gossip_t); }
+fd_gossip_footprint( void ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_t), sizeof(fd_gossip_t) );
+  l = FD_LAYOUT_APPEND( l, fd_peer_table_align(), fd_peer_table_footprint(FD_PEER_KEY_MAX) );
+  l = FD_LAYOUT_APPEND( l, fd_active_table_align(), fd_active_table_footprint(FD_ACTIVE_KEY_MAX) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_peer_addr_t), INACTIVES_MAX*sizeof(fd_gossip_peer_addr_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_hash_t), FD_NEED_PUSH_MAX*sizeof(fd_hash_t) );
+  l = FD_LAYOUT_APPEND( l, fd_value_table_align(), fd_value_table_footprint(FD_VALUE_KEY_MAX) );
+  l = FD_LAYOUT_APPEND( l, fd_pending_pool_align(), fd_pending_pool_footprint(FD_PENDING_MAX) );
+  l = FD_LAYOUT_APPEND( l, fd_pending_heap_align(), fd_pending_heap_footprint(FD_PENDING_MAX) );
+  l = FD_LAYOUT_APPEND( l, fd_stats_table_align(), fd_stats_table_footprint(FD_STATS_KEY_MAX) );
+  l = FD_LAYOUT_APPEND( l, fd_weights_table_align(), fd_weights_table_footprint(MAX_STAKE_WEIGHTS) );
+  l = FD_LAYOUT_APPEND( l, fd_push_states_pool_align(), fd_push_states_pool_footprint(FD_PUSH_LIST_MAX) );
+  l = FD_LAYOUT_FINI(l, fd_gossip_align());
+  return l;
+}
 
 void *
-fd_gossip_new ( void * shmem, ulong seed, fd_valloc_t valloc ) { 
-  fd_memset(shmem, 0, sizeof(fd_gossip_t));
-  fd_gossip_t * glob = (fd_gossip_t *)shmem;
-  glob->valloc = valloc;
+fd_gossip_new ( void * shmem, ulong seed ) {
+  FD_SCRATCH_ALLOC_INIT(l, shmem);
+  fd_gossip_t * glob = (fd_gossip_t*)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t), sizeof(fd_gossip_t)) ;
+  fd_memset(glob, 0, sizeof(fd_gossip_t));
   glob->seed = seed;
-  void * shm = fd_valloc_malloc(valloc, fd_peer_table_align(), fd_peer_table_footprint(FD_PEER_KEY_MAX));
+
+  void * shm = FD_SCRATCH_ALLOC_APPEND(l, fd_peer_table_align(), fd_peer_table_footprint(FD_PEER_KEY_MAX));
   glob->peers = fd_peer_table_join(fd_peer_table_new(shm, FD_PEER_KEY_MAX, seed));
-  shm = fd_valloc_malloc(valloc, fd_active_table_align(), fd_active_table_footprint(FD_ACTIVE_KEY_MAX));
+
+  shm = FD_SCRATCH_ALLOC_APPEND(l, fd_active_table_align(), fd_active_table_footprint(FD_ACTIVE_KEY_MAX));
   glob->actives = fd_active_table_join(fd_active_table_new(shm, FD_ACTIVE_KEY_MAX, seed));
-  glob->inactives = (fd_gossip_peer_addr_t*)fd_valloc_malloc(valloc, alignof(fd_gossip_peer_addr_t), INACTIVES_MAX*sizeof(fd_gossip_peer_addr_t));
-  glob->need_push = (fd_hash_t*)fd_valloc_malloc(valloc, alignof(fd_hash_t), FD_NEED_PUSH_MAX*sizeof(fd_hash_t));
-  shm = fd_valloc_malloc(valloc, fd_value_table_align(), fd_value_table_footprint(FD_VALUE_KEY_MAX));
+
+  glob->inactives = (fd_gossip_peer_addr_t*)FD_SCRATCH_ALLOC_APPEND(l, alignof(fd_gossip_peer_addr_t), INACTIVES_MAX*sizeof(fd_gossip_peer_addr_t));
+  glob->need_push = (fd_hash_t*)FD_SCRATCH_ALLOC_APPEND(l, alignof(fd_hash_t), FD_NEED_PUSH_MAX*sizeof(fd_hash_t));
+
+  shm = FD_SCRATCH_ALLOC_APPEND(l, fd_value_table_align(), fd_value_table_footprint(FD_VALUE_KEY_MAX));
   glob->values = fd_value_table_join(fd_value_table_new(shm, FD_VALUE_KEY_MAX, seed));
+
   glob->last_contact_time = 0;
-  shm = fd_valloc_malloc(valloc, fd_pending_pool_align(), fd_pending_pool_footprint(FD_PENDING_MAX));
+  shm = FD_SCRATCH_ALLOC_APPEND(l, fd_pending_pool_align(), fd_pending_pool_footprint(FD_PENDING_MAX));
   glob->event_pool = fd_pending_pool_join(fd_pending_pool_new(shm, FD_PENDING_MAX));
-  shm = fd_valloc_malloc(valloc, fd_pending_heap_align(), fd_pending_heap_footprint(FD_PENDING_MAX));
+
+  shm = FD_SCRATCH_ALLOC_APPEND(l, fd_pending_heap_align(), fd_pending_heap_footprint(FD_PENDING_MAX));
   glob->event_heap = fd_pending_heap_join(fd_pending_heap_new(shm, FD_PENDING_MAX));
+
   fd_rng_new(glob->rng, (uint)seed, 0UL);
-  shm = fd_valloc_malloc(valloc, fd_stats_table_align(), fd_stats_table_footprint(FD_STATS_KEY_MAX));
+  shm = FD_SCRATCH_ALLOC_APPEND(l, fd_stats_table_align(), fd_stats_table_footprint(FD_STATS_KEY_MAX));
   glob->stats = fd_stats_table_join(fd_stats_table_new(shm, FD_STATS_KEY_MAX, seed));
-  glob->weights = NULL;
+
+  shm = FD_SCRATCH_ALLOC_APPEND(l, fd_weights_table_align(), fd_weights_table_footprint(MAX_STAKE_WEIGHTS));
+  glob->weights = fd_weights_table_join( fd_weights_table_new( shm, MAX_STAKE_WEIGHTS, seed ) );
+
+  shm = FD_SCRATCH_ALLOC_APPEND(l, fd_push_states_pool_align(), fd_push_states_pool_footprint(FD_PUSH_LIST_MAX));
+  glob->push_states_pool = fd_push_states_pool_join( fd_push_states_pool_new( shm, FD_PUSH_LIST_MAX ) );
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI(l, 1UL);
+  if ( scratch_top > (ulong)shmem + fd_gossip_footprint() ) {
+    FD_LOG_ERR(("Not enough space allocated for gossip"));
+  }
   return glob;
 }
 
@@ -344,26 +385,18 @@ void *
 fd_gossip_leave ( fd_gossip_t * join ) { return join; }
 
 void *
-fd_gossip_delete ( void * shmap, fd_valloc_t valloc ) {
+fd_gossip_delete ( void * shmap ) {
   fd_gossip_t * glob = (fd_gossip_t *)shmap;
-  fd_valloc_free(valloc, fd_peer_table_delete(fd_peer_table_leave(glob->peers)));
-  fd_valloc_free(valloc, fd_active_table_delete(fd_active_table_leave(glob->actives)));
-  fd_valloc_free(valloc, glob->inactives);
-  fd_valloc_free(valloc, glob->need_push);
-  for (ulong i = 0; i < glob->push_states_cnt; ++i)
-    fd_valloc_free(valloc, glob->push_states[i]);
-  for( fd_value_table_iter_t iter = fd_value_table_iter_init( glob->values );
-       !fd_value_table_iter_done( glob->values, iter );
-       iter = fd_value_table_iter_next( glob->values, iter ) ) {
-    fd_value_elem_t * ele = fd_value_table_iter_ele( glob->values, iter );
-    fd_valloc_free(valloc, ele->data);
-  }
-  fd_valloc_free(valloc, fd_value_table_delete(fd_value_table_leave(glob->values)));
-  fd_valloc_free(valloc, fd_pending_pool_delete(fd_pending_pool_leave(glob->event_pool)));
-  fd_valloc_free(valloc, fd_pending_heap_delete(fd_pending_heap_leave(glob->event_heap)));
-  fd_valloc_free(valloc, fd_stats_table_delete(fd_stats_table_leave(glob->stats)));
-  if( glob->weights )
-    fd_valloc_free(valloc, fd_weights_table_delete(fd_weights_table_leave(glob->weights)));
+  fd_peer_table_delete( fd_peer_table_leave( glob->peers ) );
+  fd_active_table_delete( fd_active_table_leave( glob->actives ) );
+
+  fd_value_table_delete( fd_value_table_leave( glob->values ) );
+  fd_pending_pool_delete( fd_pending_pool_leave( glob->event_pool ) );
+  fd_pending_heap_delete( fd_pending_heap_leave( glob->event_heap ) );
+  fd_stats_table_delete( fd_stats_table_leave( glob->stats ) );
+  fd_weights_table_delete( fd_weights_table_leave( glob->weights ) );
+  fd_push_states_pool_delete( fd_push_states_pool_leave( glob->push_states_pool ) );
+
   return glob;
 }
 
@@ -417,7 +450,7 @@ const char * fd_gossip_addr_str( char * dst, size_t dstlen, fd_gossip_peer_addr_
 int
 fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config ) {
   fd_gossip_lock( glob );
-  
+
   char tmp[100];
   char keystr[ FD_BASE58_ENCODED_32_SZ ];
   fd_base58_encode_32( config->public_key->uc, NULL, keystr );
@@ -445,6 +478,9 @@ fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config ) {
 
     fd_base58_encode_32( glob->tmp_contact_info.id.uc, NULL, keystr );
     FD_LOG_NOTICE(("configuring temporary id %s", keystr));
+
+    fd_base58_encode_32( glob->my_contact_info.id.uc, NULL, keystr );
+    FD_LOG_NOTICE(("permanent id will be %s", keystr));
   }
 
   fd_gossip_unlock( glob );
@@ -498,7 +534,7 @@ fd_gossip_update_tpu_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tpu
   fd_gossip_lock( glob );
   fd_gossip_to_soladdr(&glob->my_contact_info.tpu, tpu);
   fd_gossip_unlock( glob );
-  
+
   return 0;
 }
 
@@ -510,7 +546,7 @@ fd_gossip_update_tpu_vote_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t 
   fd_gossip_lock( glob );
   fd_gossip_to_soladdr(&glob->my_contact_info.tpu_vote, tpu_vote);
   fd_gossip_unlock( glob );
-  
+
   return 0;
 }
 
@@ -626,7 +662,7 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   } else {
     (*glob->sign_fun)(glob->sign_arg, ping->signature.uc, pre_image, FD_PING_PRE_IMAGE_SZ);
   }
-  
+
   fd_gossip_send( glob, key, &gmsg );
 }
 
@@ -870,7 +906,6 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     fd_hash_t * hash = &(ele->key);
     /* Purge expired values */
     if (ele->wallclock < expire) {
-      fd_valloc_free( glob->valloc, ele->data );
       fd_value_table_remove( glob->values, hash );
       continue;
     }
@@ -977,12 +1012,9 @@ fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   peerval->wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* In millisecs */
   fd_hash_copy(&peerval->id, &pong->from);
 
-  if( glob->weights ) {
-    fd_weights_elem_t const * val2 = fd_weights_table_query_const( glob->weights, &val->id, NULL );
-    val->weight = ( val2 == NULL ? 1UL : val2->weight );
-  } else {
-    val->weight = 1UL;
-  }
+  fd_weights_elem_t const * val2 = fd_weights_table_query_const( glob->weights, &val->id, NULL );
+  val->weight = ( val2 == NULL ? 1UL : val2->weight );
+
 }
 
 /* Initiate a ping/pong with a random active partner to confirm it is
@@ -1162,7 +1194,9 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   msg->wallclock = wallclock;
   fd_hash_copy(&msg->origin, pubkey);
   /* We store the serialized form for convenience */
-  msg->data = fd_valloc_malloc(glob->valloc, 1U, datalen);
+  if( datalen > PACKET_DATA_SIZE ) {
+    FD_LOG_ERR(( "deserialized packet is too big" ));
+  }
   fd_memcpy(msg->data, buf, datalen);
   msg->datalen = datalen;
 
@@ -1230,6 +1264,10 @@ fd_gossip_handle_prune(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   signdata.destination = msg->data.destination;
   signdata.wallclock = msg->data.wallclock;
 
+  /* Verify the signature. You would think that solana would use
+     msg->pubkey.uc for this, but that pubkey is actually ignored. The
+     inclusion of two pubkeys in this message is confusing and
+     problematic. */
   uchar buf[FD_ETH_PAYLOAD_MAX];
   fd_bincode_encode_ctx_t ctx;
   ctx.data = buf;
@@ -1242,7 +1280,7 @@ fd_gossip_handle_prune(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   if (fd_ed25519_verify( /* msg */ buf,
                          /* sz  */ (ulong)((uchar*)ctx.data - buf),
                          /* sig */ msg->data.signature.uc,
-                         /* public_key */ msg->pubkey.uc,
+                         /* public_key */ msg->data.pubkey.uc,
                          sha )) {
     FD_LOG_WARNING(("received prune_msg with invalid signature"));
     return;
@@ -1289,11 +1327,10 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
     /* Remove the old value */
     fd_value_elem_t * ele = fd_value_table_query(glob->values, &glob->last_contact_key, NULL);
     if (ele != NULL) {
-      fd_valloc_free( glob->valloc, ele->data );
       fd_value_table_remove( glob->values, &glob->last_contact_key );
     }
   }
-  
+
   glob->last_contact_time = glob->now;
 
   fd_crds_data_t crd;
@@ -1471,7 +1508,7 @@ fd_gossip_refresh_push_states( fd_gossip_t * glob, fd_pending_event_arg_t * arg 
   for (ulong i = 0; i < glob->push_states_cnt; ++i) {
     fd_push_state_t* s = glob->push_states[i];
     if (fd_active_table_query(glob->actives, &s->addr, NULL) == NULL) {
-      fd_valloc_free(glob->valloc, s);
+      fd_push_states_pool_ele_release(glob->push_states_pool, glob->push_states[i]);
       /* Replace with the one at the end */
       glob->push_states[i--] = glob->push_states[--(glob->push_states_cnt)];
     }
@@ -1487,7 +1524,7 @@ fd_gossip_refresh_push_states( fd_gossip_t * glob, fd_pending_event_arg_t * arg 
         worst_i = i;
       }
     }
-    fd_valloc_free(glob->valloc, worst_s);
+    fd_push_states_pool_ele_release(glob->push_states_pool, worst_s);
     /* Replace with the one at the end */
     glob->push_states[worst_i] = glob->push_states[--(glob->push_states_cnt)];
   }
@@ -1497,7 +1534,7 @@ fd_gossip_refresh_push_states( fd_gossip_t * glob, fd_pending_event_arg_t * arg 
   while (glob->push_states_cnt < FD_PUSH_LIST_MAX && failcnt < 5) {
     fd_active_elem_t * a = fd_gossip_random_active( glob );
     if( a == NULL ) break;
-    
+
     for (ulong i = 0; i < glob->push_states_cnt; ++i) {
       fd_push_state_t* s = glob->push_states[i];
       if (fd_gossip_peer_addr_eq(&s->addr, &a->key))
@@ -1506,7 +1543,7 @@ fd_gossip_refresh_push_states( fd_gossip_t * glob, fd_pending_event_arg_t * arg 
     failcnt = 0;
 
     /* Build the pusher state */
-    fd_push_state_t * s = (fd_push_state_t *)fd_valloc_malloc(glob->valloc, alignof(fd_push_state_t), sizeof(fd_push_state_t));
+    fd_push_state_t * s = fd_push_states_pool_ele_acquire(glob->push_states_pool);
     fd_memset(s, 0, sizeof(fd_push_state_t));
     fd_gossip_peer_addr_copy(&s->addr, &a->key);
     fd_hash_copy(&s->id, &a->id);
@@ -1655,7 +1692,9 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
   msg->wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* convert to ms */
   fd_hash_copy(&msg->origin, glob->public_key);
   /* We store the serialized form for convenience */
-  msg->data = fd_valloc_malloc(glob->valloc, 1U, datalen);
+  if( datalen > PACKET_DATA_SIZE ) {
+    FD_LOG_ERR(( "deserialized packet is too big" ));
+  }
   fd_memcpy(msg->data, buf, datalen);
   msg->datalen = datalen;
 
@@ -1759,6 +1798,11 @@ fd_gossip_log_stats( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     ev->fun = fd_gossip_log_stats;
   }
 
+  if( glob->recv_pkt_cnt == 0 )
+    FD_LOG_WARNING(("received no gossip packets!!"));
+  else
+    FD_LOG_NOTICE(("received %lu packets", glob->recv_pkt_cnt));
+  glob->recv_pkt_cnt = 0;
   FD_LOG_NOTICE(("received %lu dup values and %lu new", glob->recv_dup_cnt, glob->recv_nondup_cnt));
   glob->recv_dup_cnt = glob->recv_nondup_cnt = 0;
   FD_LOG_NOTICE(("pushed %lu values and filtered %lu", glob->push_cnt, glob->not_push_cnt));
@@ -1848,33 +1892,32 @@ fd_gossip_continue( fd_gossip_t * glob ) {
 int
 fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * from ) {
   fd_gossip_lock( glob );
-  /* Deserialize the message */
-  fd_gossip_msg_t gmsg;
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data    = msg;
-  ctx.dataend = msg + msglen;
-  ctx.valloc  = glob->valloc;
-  if (fd_gossip_msg_decode(&gmsg, &ctx)) {
-    FD_LOG_WARNING(("corrupt gossip message"));
+  FD_SCRATCH_SCOPE_BEGIN {
+    glob->recv_pkt_cnt++;
+    /* Deserialize the message */
+    fd_gossip_msg_t gmsg;
+    fd_bincode_decode_ctx_t ctx;
+    ctx.data    = msg;
+    ctx.dataend = msg + msglen;
+    ctx.valloc  = fd_scratch_virtual();
+    if (fd_gossip_msg_decode(&gmsg, &ctx)) {
+      FD_LOG_WARNING(("corrupt gossip message"));
+      fd_gossip_unlock( glob );
+      return -1;
+    }
+    if (ctx.data != ctx.dataend) {
+      FD_LOG_WARNING(("corrupt gossip message"));
+      fd_gossip_unlock( glob );
+      return -1;
+    }
+
+    char tmp[100];
+
+    FD_LOG_DEBUG(("recv msg type %d from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from)));
+    fd_gossip_recv(glob, from, &gmsg);
+
     fd_gossip_unlock( glob );
-    return -1;
-  }
-  if (ctx.data != ctx.dataend) {
-    FD_LOG_WARNING(("corrupt gossip message"));
-    fd_gossip_unlock( glob );
-    return -1;
-  }
-
-  char tmp[100];
-
-  FD_LOG_DEBUG(("recv msg type %d from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from)));
-  fd_gossip_recv(glob, from, &gmsg);
-
-  fd_bincode_destroy_ctx_t ctx2;
-  ctx2.valloc = glob->valloc;
-  fd_gossip_msg_destroy(&gmsg, &ctx2);
-
-  fd_gossip_unlock( glob );
+  } FD_SCRATCH_SCOPE_END;
   return 0;
 }
 
@@ -1883,20 +1926,28 @@ fd_gossip_get_shred_version( fd_gossip_t const * glob ) {
   return glob->my_contact_info.shred_version;
 }
 
-void 
-fd_gossip_set_stake_weights( fd_gossip_t * gossip, 
+void
+fd_gossip_set_stake_weights( fd_gossip_t * gossip,
                              fd_stake_weight_t const * stake_weights,
                              ulong stake_weights_cnt ) {
   if( stake_weights == NULL ) {
     FD_LOG_ERR(( "stake weights NULL" ));
   }
 
+  if( stake_weights_cnt > MAX_STAKE_WEIGHTS ) {
+    FD_LOG_ERR(( "num stake weights (%lu) is larger than max allowed stake weights", stake_weights_cnt ));
+  }
+
   fd_gossip_lock( gossip );
 
-  if( gossip->weights )
-    fd_valloc_free(gossip->valloc, fd_weights_table_delete(fd_weights_table_leave(gossip->weights)));
-  void * shm = fd_valloc_malloc(gossip->valloc, fd_weights_table_align(), fd_weights_table_footprint(stake_weights_cnt));
-  gossip->weights = fd_weights_table_join(fd_weights_table_new(shm, stake_weights_cnt, gossip->seed));
+  /* Clear out the table for new stake weights. */
+  for ( fd_weights_table_iter_t iter = fd_weights_table_iter_init( gossip->weights );
+        !fd_weights_table_iter_done( gossip->weights, iter);
+        iter = fd_weights_table_iter_next( gossip->weights, iter ) ) {
+    fd_weights_elem_t * e = fd_weights_table_iter_ele( gossip->weights, iter );
+    fd_weights_table_remove( gossip->weights, &e->key );
+  }
+
   for( ulong i = 0; i < stake_weights_cnt; ++i ) {
     if( !stake_weights[i].stake ) continue;
     fd_weights_elem_t * val = fd_weights_table_insert( gossip->weights, &stake_weights[i].key );
@@ -1918,7 +1969,7 @@ fd_gossip_set_stake_weights( fd_gossip_t * gossip,
 
 void
 fd_gossip_set_entrypoints( fd_gossip_t * gossip,
-                           uint entrypoints[static 16], 
+                           uint entrypoints[static 16],
                            ulong entrypoints_cnt,
                            ushort * ports ) {
   gossip->entrypoints_cnt = entrypoints_cnt;
@@ -1926,7 +1977,7 @@ fd_gossip_set_entrypoints( fd_gossip_t * gossip,
     fd_gossip_peer_addr_t addr;
     addr.addr = entrypoints[i];
     addr.port = fd_ushort_bswap( ports[i] );
-    FD_LOG_NOTICE(( "gossip initial peer - addr: " FD_IP4_ADDR_FMT ":%u", 
+    FD_LOG_NOTICE(( "gossip initial peer - addr: " FD_IP4_ADDR_FMT ":%u",
       FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
     fd_gossip_add_active_peer( gossip, &addr );
     gossip->entrypoints[i] = addr;

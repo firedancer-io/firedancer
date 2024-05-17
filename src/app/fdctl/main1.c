@@ -170,6 +170,14 @@ fdctl_boot( int *        pargc,
       strncpy( config->log.path, log_path, sizeof( config->log.path ) - 1 );
   }
 
+  char * shmem_args[ 3 ];
+  /* pass in --shmem-path value from the config */
+  shmem_args[ 0 ] = "--shmem-path";
+  shmem_args[ 1 ] = config->hugetlbfs.mount_path;
+  shmem_args[ 2 ] = NULL;
+  char ** argv = shmem_args;
+  int     argc = 2;
+
   int * log_lock = map_log_memfd( config->log.lock_fd );
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc since we might be in a PID namespace now */;
 
@@ -199,7 +207,7 @@ fdctl_boot( int *        pargc,
                               config->log.log_fd,
                               log_path );
   config->log.log_fd = fd_log_private_logfile_fd();
-  fd_shmem_private_boot( pargc, pargv );;
+  fd_shmem_private_boot( &argc, &argv );
   fd_tile_private_boot( 0, NULL );
 
   /* Kind of a hack but initializing NUMA config depends on shmem, which

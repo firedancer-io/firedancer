@@ -633,6 +633,11 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
     FD_TEST( rc >= 0 );
 
     shreds_laddr[i].hdr = *shred;
+    ulong merkle_sz = shreds_laddr[i].merkle_sz = fd_shred_merkle_sz( shred->variant );
+    FD_TEST( merkle_sz <= sizeof(shreds_laddr[i].merkle) );
+    if( merkle_sz ) {
+      fd_memcpy( shreds_laddr[i].merkle, (uchar const*)shred + fd_shred_merkle_off( shred ), merkle_sz );
+    }
     shreds_laddr[i].off = off;
 
     FD_TEST( !memcmp( &shreds_laddr[i].hdr, shred, sizeof( fd_shred_t ) ) );
@@ -849,6 +854,43 @@ fd_blockstore_shred_query( fd_blockstore_t * blockstore, ulong slot, uint shred_
       fd_blockstore_shred_map_ele_query( shred_map, &key, NULL, shred_pool );
   if( FD_UNLIKELY( !query ) ) return NULL;
   return &query->hdr;
+}
+
+long
+fd_blockstore_shred_query_copy_data( fd_blockstore_t * blockstore, ulong slot, uint shred_idx, void * buf, ulong buf_max ) {
+  if( buf_max < FD_SHRED_MAX_SZ ) return -1;
+  
+  fd_blockstore_shred_t *     shred_pool = fd_blockstore_shred_pool( blockstore );
+  fd_blockstore_shred_map_t * shred_map  = fd_blockstore_shred_map( blockstore );
+  fd_shred_key_t              key        = { .slot = slot, .idx = shred_idx };
+  fd_blockstore_shred_t *     shred =
+      fd_blockstore_shred_map_ele_query( shred_map, &key, NULL, shred_pool );
+  if( shred ) {
+    ulong sz = fd_shred_sz( &shred->hdr );
+    fd_memcpy( buf, shred->raw, sz);
+    return (long)sz;
+  }
+  
+  fd_blockstore_slot_map_t * blk =
+      fd_blockstore_slot_map_query( fd_blockstore_slot_map( blockstore ), slot, NULL );
+  if( FD_UNLIKELY( !blk || blk->block.data_gaddr == 0 ) ) return -1;
+  if( shred_idx > blk->slot_meta.last_index ) return -1;
+  fd_block_shred_t * shreds = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), blk->block.shreds_gaddr );
+  ulong sz = fd_shred_payload_sz( &shreds[shred_idx].hdr );
+  if( FD_SHRED_DATA_HEADER_SZ + sz > buf_max ) return -1L;
+  fd_memcpy( buf, &shreds[shred_idx].hdr, FD_SHRED_DATA_HEADER_SZ );
+  fd_memcpy( (uchar*)buf + FD_SHRED_DATA_HEADER_SZ, fd_blockstore_block_data_laddr( blockstore, &blk->block ) + shreds[shred_idx].off, sz );
+  ulong tot_sz = FD_SHRED_DATA_HEADER_SZ + sz;
+  ulong merkle_sz = shreds[shred_idx].merkle_sz;
+  if( merkle_sz ) {
+    if( tot_sz + merkle_sz > buf_max ) return -1;
+    fd_memcpy( (uchar*)buf + tot_sz, shreds[shred_idx].merkle, merkle_sz );
+    tot_sz += merkle_sz;
+  }
+  if( tot_sz >= FD_SHRED_MIN_SZ ) return (long)tot_sz;
+  /* Zero pad */
+  memset( (uchar*)buf + tot_sz, 0, FD_SHRED_MIN_SZ - tot_sz );
+  return (long)FD_SHRED_MIN_SZ;
 }
 
 fd_block_t *

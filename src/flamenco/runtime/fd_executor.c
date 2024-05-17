@@ -704,8 +704,15 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     }
     txn_ctx->num_instructions++;
     fd_pubkey_t const * txn_accs = txn_ctx->accounts;
-    ulong starting_lamports = fd_instr_info_sum_account_lamports( instr );
-    instr->starting_lamports = starting_lamports;
+
+    ulong starting_lamports_h = 0;
+    ulong starting_lamports_l = 0;
+    int err = fd_instr_info_sum_account_lamports( instr, &starting_lamports_h, &starting_lamports_l );
+    if( err ) {
+      return err;
+    }
+    instr->starting_lamports_h = starting_lamports_h;
+    instr->starting_lamports_l = starting_lamports_l;
 
     fd_exec_instr_ctx_t * parent = NULL;
     if( txn_ctx->instr_stack_sz )
@@ -754,11 +761,14 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     // FD_LOG_NOTICE(("COMPUTE METER END %lu %lu %lu %64J", before_instr_cus - txn_ctx->compute_meter, txn_ctx->compute_meter, txn_ctx->compute_unit_limit, sig ));
 
     if( exec_result == FD_EXECUTOR_INSTR_SUCCESS ) {
-      ulong ending_lamports = fd_instr_info_sum_account_lamports( instr );
-      // FD_LOG_WARNING(("check lamports %lu %lu %lu", starting_lamports, instr->starting_lamports, ending_lamports ));
+      ulong ending_lamports_h = 0UL;
+      ulong ending_lamports_l = 0UL;
+      err = fd_instr_info_sum_account_lamports( instr, &ending_lamports_h, &ending_lamports_l );
+      if( err ) {
+        return err;
+      }
 
-      if( starting_lamports != ending_lamports ) {
-        FD_LOG_WARNING(("starting lamports mismatched %lu %lu %lu", starting_lamports, instr->starting_lamports, ending_lamports ));
+      if( ending_lamports_l != starting_lamports_l || ending_lamports_h != starting_lamports_h ) {
         exec_result = FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
       }
 
@@ -1116,6 +1126,10 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
       int exec_result = fd_execute_instr( txn_ctx, &instrs[i] );
       if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
+        if ( txn_ctx->instr_err_idx == INT_MAX )
+        {
+          txn_ctx->instr_err_idx = i;
+        }
   #ifdef VLOG
         if ( 257037453 == txn_ctx->slot_ctx->slot_bank.slot ) {
   #endif

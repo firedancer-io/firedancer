@@ -97,6 +97,11 @@ struct fd_quic_conn {
      Also used when retransmitting the first initial packet */
   fd_quic_conn_id_t  orig_dst_conn_id;
 
+  /* Save original retry_source_connection_id
+   * This is used by clients to compare against the retry_source_connection_id
+   * in the transport parameters as specified in rfc 9000 7.3 */
+  fd_quic_conn_id_t  retry_src_conn_id;
+
   /* Host network endpoint
      - for server, just a copy of config->net
      - for client, an allocated ephemeral UDP port */
@@ -255,8 +260,6 @@ struct fd_quic_conn {
   uchar * tx_ptr; /* ptr to free space in tx_scratch */
   ulong   tx_sz;  /* sz remaining at ptr */
 
-  ulong   stream_tx_buf_sz; /* size of per-stream tx buffer */
-
   uint state;
   uint reason;     /* quic reason for closing. see FD_QUIC_CONN_REASON_* */
   uint app_reason; /* application reason for closing */
@@ -315,10 +318,6 @@ struct fd_quic_conn {
      if we time out this packet (or possibly a later packet) we resend the frame
        and update this value */
   ulong                upd_pkt_number;
-
-  /* for timing out data and resending
-     should be at least the smoothed round-trip-time */
-  ulong                base_timeout;
 
   /* current round-trip-time */
   ulong                rtt;

@@ -62,6 +62,7 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   uchar                 instr_stack_sz;                  /* Current depth of the instruction execution stack. */
   fd_exec_instr_ctx_t   instr_stack[6];                  /* Instruction execution stack. */
   fd_exec_instr_ctx_t * failed_instr;
+  int                   instr_err_idx;
   ulong                 accounts_cnt;                    /* Number of account pubkeys accessed by this transaction. */
   fd_pubkey_t           accounts[128];                   /* Array of account pubkeys accessed by this transaction. */
   ulong                 executable_cnt;                  /* Number of BPF upgradeable loader accounts. */
