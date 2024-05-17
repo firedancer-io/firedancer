@@ -26,8 +26,8 @@ test_vm_syscall_sol_curve_multiscalar_mul( char const * test_case_name,
     }
 
     FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
-    
-    return FD_VM_SUCCESS;
+
+    return 1;
 }
 
 static int
@@ -53,7 +53,7 @@ test_fd_vm_syscall_sol_curve_group_op( char const * test_case_name,
 
     FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 
-    return FD_VM_SUCCESS;
+    return 1;
 }
 
 int
