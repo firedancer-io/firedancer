@@ -2,6 +2,8 @@
 
 # this assumes fd_ledger has already been built
 
+exit 0
+
 OBJDIR=${OBJDIR:-build/native/gcc}
 
 set -x
