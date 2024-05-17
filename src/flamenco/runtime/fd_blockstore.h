@@ -133,7 +133,7 @@ typedef struct fd_block_txn_ref fd_block_txn_ref_t;
 
 /* If the 0th bit is set, this indicates the block is prepared, and about to be executed.
    Blockstore clients should be careful not to modify or remove blocks while this flag is set.
-   
+
    The remaining flags are mainly metadata. */
 #define FD_BLOCK_FLAG_PREPARED  0 /* xxxxxxx1 */
 #define FD_BLOCK_FLAG_PROCESSED 1 /* xxxxxx1x */
@@ -148,8 +148,8 @@ struct fd_block {
 
   /* metadata region */
 
-  long      ts;         /* timestamp in nanosecs */
-  ulong     height;     /* block height */
+  long      ts;     /* timestamp in nanosecs */
+  ulong     height; /* block height */
   fd_hash_t bank_hash;
   uchar     flags;
 
@@ -157,8 +157,8 @@ struct fd_block {
 
   A block's data region is indexed to support iterating by shred, microblock, or
   transaction. This is done by iterating the headers for each, stored in allocated memory. To
-  iterate shred payloads, for example, a caller should iterate the headers in tandem with the data region
-  (offsetting by the bytes indicated in the shred header).
+  iterate shred payloads, for example, a caller should iterate the headers in tandem with the data
+  region (offsetting by the bytes indicated in the shred header).
 
   Note random access of individual shred indices is not performant, due to the variable-length
   nature of shreds. */
@@ -461,7 +461,10 @@ fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot );
 
 /* Query the child slots of slot. `next_slot_out` must be at least   */
 int
-fd_blockstore_next_slot_query( fd_blockstore_t * blockstore, ulong slot , ulong ** next_slot_out, ulong * next_slot_len_out);
+fd_blockstore_next_slot_query( fd_blockstore_t * blockstore,
+                               ulong             slot,
+                               ulong **          next_slot_out,
+                               ulong *           next_slot_len_out );
 
 /* Query the frontier ie. all the blocks that need to be replayed that haven't been. These are the
    slot children of the current frontier that are shred complete. */
@@ -477,6 +480,11 @@ fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[FD_ED2551
 /* Remove slot from blockstore, including all relevant internal structures. */
 int
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot );
+
+/* Update the super-majority root, pruning any forks in the ancestry path to the previous SMR. The
+   SMR is monotonically increasing, so `smr` must be > blockstore->smr. */
+int
+fd_blockstore_smr_update( fd_blockstore_t * blockstore, ulong smr );
 
 /* Remove all the unassembled shreds for a slot */
 int

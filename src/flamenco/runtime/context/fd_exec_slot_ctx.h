@@ -85,12 +85,13 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                    magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
   fd_exec_epoch_ctx_t *    epoch_ctx;
-
-  fd_funk_txn_t *          funk_txn;
   fd_acc_mgr_t *           acc_mgr;
   fd_blockstore_t *        blockstore;
   fd_valloc_t              valloc;
+  fd_latest_vote_t *       latest_votes;
+  fd_root_t *              roots;
 
+  fd_funk_txn_t *          funk_txn;
   fd_slot_bank_t           slot_bank;
   fd_sysvar_cache_old_t    sysvar_cache_old; // TODO make const
   fd_pubkey_t const *      leader; /* Current leader */
@@ -106,9 +107,6 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 
   fd_sysvar_cache_t *      sysvar_cache;
   fd_account_compute_elem_t * account_compute_table;
-
-  fd_latest_vote_t * latest_votes;
-  fd_root_t *        roots;
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))

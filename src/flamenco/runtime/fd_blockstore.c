@@ -335,10 +335,10 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
 
 #define MAX_MICROS ( 16 << 10 )
   fd_block_micro_t micros[MAX_MICROS];
-  ulong                 micros_cnt = 0;
+  ulong            micros_cnt = 0;
 #define MAX_TXNS ( 1 << 18 )
   fd_block_txn_ref_t txns[MAX_TXNS];
-  ulong                   txns_cnt = 0;
+  ulong              txns_cnt = 0;
 
   uchar * data = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->data_gaddr );
   ulong   sz   = block->data_sz;
@@ -356,7 +356,7 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
         FD_LOG_ERR( ( "premature end of block" ) );
       if( micros_cnt < MAX_MICROS ) {
         fd_block_micro_t * m = micros + ( micros_cnt++ );
-        m->off                    = blockoff;
+        m->off               = blockoff;
       }
       fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)( (const uchar *)data + blockoff );
       blockoff += sizeof( fd_microblock_hdr_t );
@@ -373,11 +373,12 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
                                           &pay_sz,
                                           0 );
         if( txn_sz == 0 || txn_sz > FD_TXN_MTU ) {
-          FD_LOG_ERR( ( "failed to parse transaction %lu in microblock %lu in slot %lu. txn size: %lu",
-                        txn_idx,
-                        mblk,
-                        slot,
-                        txn_sz ) );
+          FD_LOG_ERR(
+              ( "failed to parse transaction %lu in microblock %lu in slot %lu. txn size: %lu",
+                txn_idx,
+                mblk,
+                slot,
+                txn_sz ) );
         }
         fd_txn_t const * txn = (fd_txn_t const *)txn_out;
 
@@ -408,9 +409,9 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
 
           if( txns_cnt < MAX_TXNS ) {
             fd_block_txn_ref_t * ref = &txns[txns_cnt++];
-            ref->txn_off                  = blockoff;
-            ref->id_off                   = (ulong)( sigs + j ) - (ulong)data;
-            ref->sz                       = pay_sz;
+            ref->txn_off             = blockoff;
+            ref->id_off              = (ulong)( sigs + j ) - (ulong)data;
+            ref->sz                  = pay_sz;
           }
         }
 
@@ -419,18 +420,16 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
     }
   }
 
-  fd_block_micro_t * micros_laddr =
-      fd_alloc_malloc( fd_blockstore_alloc( blockstore ),
-                       alignof( fd_block_micro_t ),
-                       sizeof( fd_block_micro_t ) * micros_cnt );
+  fd_block_micro_t * micros_laddr = fd_alloc_malloc( fd_blockstore_alloc( blockstore ),
+                                                     alignof( fd_block_micro_t ),
+                                                     sizeof( fd_block_micro_t ) * micros_cnt );
   fd_memcpy( micros_laddr, micros, sizeof( fd_block_micro_t ) * micros_cnt );
   block->micros_gaddr = fd_wksp_gaddr_fast( fd_blockstore_wksp( blockstore ), micros_laddr );
   block->micros_cnt   = micros_cnt;
 
-  fd_block_txn_ref_t * txns_laddr =
-      fd_alloc_malloc( fd_blockstore_alloc( blockstore ),
-                       alignof( fd_block_txn_ref_t ),
-                       sizeof( fd_block_txn_ref_t ) * txns_cnt );
+  fd_block_txn_ref_t * txns_laddr = fd_alloc_malloc( fd_blockstore_alloc( blockstore ),
+                                                     alignof( fd_block_txn_ref_t ),
+                                                     sizeof( fd_block_txn_ref_t ) * txns_cnt );
   fd_memcpy( txns_laddr, txns, sizeof( fd_block_txn_ref_t ) * txns_cnt );
   block->txns_gaddr = fd_wksp_gaddr_fast( fd_blockstore_wksp( blockstore ), txns_laddr );
   block->txns_cnt   = txns_cnt;
@@ -442,7 +441,7 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   fd_wksp_t *                wksp       = fd_blockstore_wksp( blockstore );
   fd_blockstore_slot_map_t * slot_map   = fd_wksp_laddr_fast( wksp, blockstore->slot_map_gaddr );
   fd_blockstore_slot_map_t * slot_entry = fd_blockstore_slot_map_query( slot_map, slot, NULL );
-  if( FD_UNLIKELY( !slot_entry ) ) return FD_BLOCKSTORE_OK;
+  if( FD_UNLIKELY( !slot_entry ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
 
   fd_alloc_t * alloc = fd_wksp_laddr_fast( wksp, blockstore->alloc_gaddr );
   if( slot_entry->slot_meta.next_slot ) fd_alloc_free( alloc, slot_entry->slot_meta.next_slot );
@@ -465,15 +464,49 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
           fd_blockstore_txn_map_remove( txn_map, txn_map_entry );
         }
       }
-      if( block->shreds_gaddr ) fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, block->shreds_gaddr ) );
-      if( block->micros_gaddr ) fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, block->micros_gaddr ) );
-      if( block->txns_gaddr )   fd_alloc_free( alloc, txns );
-      if( block->data_gaddr && block->data_gaddr != ULONG_MAX )
-        fd_alloc_free( alloc, data );
+      if( block->shreds_gaddr )
+        fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, block->shreds_gaddr ) );
+      if( block->micros_gaddr )
+        fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, block->micros_gaddr ) );
+      if( block->txns_gaddr ) fd_alloc_free( alloc, txns );
+      if( block->data_gaddr && block->data_gaddr != ULONG_MAX ) fd_alloc_free( alloc, data );
     }
   }
   fd_blockstore_slot_map_remove( slot_map, slot_entry );
   return FD_BLOCKSTORE_OK;
+}
+
+static int
+prune( fd_blockstore_t * blockstore, ulong prev_smr ) {
+  int   rc;
+  ulong curr = blockstore->smr;
+  while( FD_LIKELY( curr != FD_SLOT_NULL && curr >= prev_smr ) ) {
+    ulong   parent = fd_blockstore_parent_slot_query( blockstore, blockstore->smr );
+    ulong   next_slots_[FD_BLOCKSTORE_NEXT_SLOT_MAX] = { 0 };
+    ulong * next_slots                               = next_slots_;
+    ulong   next_slots_len                           = 0;
+    rc = fd_blockstore_next_slot_query( blockstore, parent, &next_slots, &next_slots_len );
+    if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) return rc;
+    for( ulong i = 0; i < next_slots_len; i++ ) {
+      /* forks are unlikely */
+      if( FD_UNLIKELY( next_slots[i] != curr ) ) {
+        rc = fd_blockstore_slot_remove( blockstore, next_slots[i] );
+        if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) return rc;
+      };
+    }
+    curr = parent;
+  }
+  return FD_BLOCKSTORE_OK;
+}
+
+int
+fd_blockstore_smr_update( fd_blockstore_t * blockstore, ulong smr ) {
+  if( FD_UNLIKELY( !fd_blockstore_block_query( blockstore, smr ) ) ) {
+    return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+  }
+  ulong prev_smr  = blockstore->smr;
+  blockstore->smr = smr;
+  return prune( blockstore, prev_smr );
 }
 
 /* Remove all the unassembled shreds for a slot */
@@ -524,7 +557,7 @@ fd_blockstore_clear( fd_blockstore_t * blockstore ) {
 
 /* Deshred and construct a block once we've received all shreds for a slot. */
 static int
-fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
+deshred( fd_blockstore_t * blockstore, ulong slot ) {
 
   /* TODO add duplicate block logic */
   FD_LOG_DEBUG( ( "deshredding %lu", slot ) );
@@ -560,18 +593,18 @@ fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
   }
 
   // alloc mem for the block
-  fd_block_t *       block        = &slot_entry->block;
-  fd_alloc_t *       alloc        = fd_blockstore_alloc( blockstore );
-  fd_wksp_t *        wksp         = fd_blockstore_wksp( blockstore );
+  fd_block_t * block = &slot_entry->block;
+  fd_alloc_t * alloc = fd_blockstore_alloc( blockstore );
+  fd_wksp_t *  wksp  = fd_blockstore_wksp( blockstore );
 
-  block->ts           = fd_log_wallclock();
-  block->height       = 0;
+  block->ts     = fd_log_wallclock();
+  block->height = 0;
   memset( &block->bank_hash, 0, sizeof( fd_hash_t ) );
-  block->flags        = 0;
+  block->flags = 0;
 
-  uchar * data_laddr  = fd_alloc_malloc( alloc, 128UL, block_sz );
-  block->data_gaddr   = fd_wksp_gaddr_fast( wksp, data_laddr );
-  block->data_sz      = block_sz;
+  uchar * data_laddr              = fd_alloc_malloc( alloc, 128UL, block_sz );
+  block->data_gaddr               = fd_wksp_gaddr_fast( wksp, data_laddr );
+  block->data_sz                  = block_sz;
   fd_block_shred_t * shreds_laddr = fd_alloc_malloc(
       alloc, alignof( fd_block_shred_t ), sizeof( fd_block_shred_t ) * shreds_cnt );
   block->shreds_gaddr = fd_wksp_gaddr_fast( wksp, shreds_laddr );
@@ -681,9 +714,10 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
   if( FD_UNLIKELY( !fd_blockstore_shred_pool_free( shred_pool ) ) ) {
     return FD_BLOCKSTORE_ERR_SHRED_FULL;
   }
-  fd_blockstore_shred_t * ele = fd_blockstore_shred_pool_ele_acquire( shred_pool ); /* always non-NULL */
-  ele->key                    = shred_key;
-  ele->hdr                    = *shred;
+  fd_blockstore_shred_t * ele =
+      fd_blockstore_shred_pool_ele_acquire( shred_pool ); /* always non-NULL */
+  ele->key = shred_key;
+  ele->hdr = *shred;
   fd_memcpy( &ele->raw, shred, fd_shred_sz( shred ) );
   fd_blockstore_shred_map_ele_insert( shred_map, ele, shred_pool ); /* always non-NULL */
 
@@ -745,8 +779,8 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
     slot_meta->is_connected = 1;
 
     ulong found = 0;
-    for (ulong i = 0; i < parent_slot_meta->next_slot_len; i++)
-      if (parent_slot_meta->next_slot[i] == slot_meta->slot) {
+    for( ulong i = 0; i < parent_slot_meta->next_slot_len; i++ )
+      if( parent_slot_meta->next_slot[i] == slot_meta->slot ) {
         found = 1;
         break;
       }
@@ -790,7 +824,7 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
     }
   }
 
-  int rc = fd_blockstore_deshred( blockstore, shred->slot );
+  int rc = deshred( blockstore, shred->slot );
   switch( rc ) {
   case FD_BLOCKSTORE_OK:
     return FD_BLOCKSTORE_OK_SLOT_COMPLETE;
@@ -819,6 +853,7 @@ fd_blockstore_shred_query( fd_blockstore_t * blockstore, ulong slot, uint shred_
 
 fd_block_t *
 fd_blockstore_block_query( fd_blockstore_t * blockstore, ulong slot ) {
+  __asm__("int $3");
   fd_blockstore_slot_map_t * query =
       fd_blockstore_slot_map_query( fd_blockstore_slot_map( blockstore ), slot, NULL );
   if( FD_UNLIKELY( !query || query->block.data_gaddr == 0 ) ) return NULL;
@@ -831,10 +866,10 @@ fd_blockstore_block_hash_query( fd_blockstore_t * blockstore, ulong slot ) {
       fd_blockstore_slot_map_query( fd_blockstore_slot_map( blockstore ), slot, NULL );
   if( FD_UNLIKELY( !query ) ) return NULL;
   if( FD_UNLIKELY( query->block.micros_gaddr == 0 ) ) return NULL;
-  fd_wksp_t *             wksp   = fd_blockstore_wksp( blockstore );
-  fd_block_micro_t * micros = fd_wksp_laddr_fast( wksp, query->block.micros_gaddr );
-  uchar *                 data   = fd_wksp_laddr_fast( wksp, query->block.data_gaddr );
-  fd_microblock_hdr_t *   last_micro =
+  fd_wksp_t *           wksp   = fd_blockstore_wksp( blockstore );
+  fd_block_micro_t *    micros = fd_wksp_laddr_fast( wksp, query->block.micros_gaddr );
+  uchar *               data   = fd_wksp_laddr_fast( wksp, query->block.data_gaddr );
+  fd_microblock_hdr_t * last_micro =
       (fd_microblock_hdr_t *)( data + micros[query->block.micros_cnt - 1].off );
   return (fd_hash_t *)fd_type_pun( last_micro->hash );
 }
@@ -867,11 +902,14 @@ fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot ) {
 }
 
 int
-fd_blockstore_next_slot_query( fd_blockstore_t * blockstore, ulong slot , ulong ** next_slot_out, ulong * next_slot_len_out) {
+fd_blockstore_next_slot_query( fd_blockstore_t * blockstore,
+                               ulong             slot,
+                               ulong **          next_slot_out,
+                               ulong *           next_slot_len_out ) {
   fd_blockstore_slot_map_t * query =
       fd_blockstore_slot_map_query( fd_blockstore_slot_map( blockstore ), slot, NULL );
   if( FD_UNLIKELY( !query ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
-  *next_slot_out = query->slot_meta.next_slot;
+  *next_slot_out     = query->slot_meta.next_slot;
   *next_slot_len_out = query->slot_meta.next_slot_len;
   return FD_BLOCKSTORE_OK;
 }
@@ -894,7 +932,7 @@ fd_blockstore_block_height_set( fd_blockstore_t * blockstore, ulong slot, ulong 
 
 void
 fd_blockstore_prune( fd_blockstore_t * blockstore, ulong smr ) {
-  for (ulong i = blockstore->smr; i < smr; i++) {
+  for( ulong i = blockstore->smr; i < smr; i++ ) {
     fd_blockstore_slot_remove( blockstore, i );
   }
   blockstore->smr = smr;
@@ -918,14 +956,12 @@ fd_blockstore_log_block_status( fd_blockstore_t * blockstore, ulong around_slot 
 
 static char *
 fd_smart_size( ulong sz, char * tmp, size_t tmpsz ) {
-  if( sz <= (1UL<<7) )
-    snprintf( tmp, tmpsz, "%lu B", sz );
-  else if( sz <= (1UL<<17) )
-    snprintf( tmp, tmpsz, "%.3f KB", ((double)sz/((double)(1UL<<10))) );
-  else if( sz <= (1UL<<27) )
-    snprintf( tmp, tmpsz, "%.3f MB", ((double)sz/((double)(1UL<<20))) );
-  else
-    snprintf( tmp, tmpsz, "%.3f GB", ((double)sz/((double)(1UL<<30))) );
+  if( sz <= ( 1UL << 7 ) ) snprintf( tmp, tmpsz, "%lu B", sz );
+  else if( sz <= ( 1UL << 17 ) )
+    snprintf( tmp, tmpsz, "%.3f KB", ( (double)sz / ( (double)( 1UL << 10 ) ) ) );
+  else if( sz <= ( 1UL << 27 ) )
+    snprintf( tmp, tmpsz, "%.3f MB", ( (double)sz / ( (double)( 1UL << 20 ) ) ) );
+  else snprintf( tmp, tmpsz, "%.3f GB", ( (double)sz / ( (double)( 1UL << 30 ) ) ) );
   return tmp;
 }
 
@@ -935,51 +971,55 @@ fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore ) {
   char tmp2[100];
   char tmp3[100];
 
-  FD_LOG_NOTICE(( "blockstore base footprint: %s",
-                  fd_smart_size( fd_blockstore_footprint(), tmp1, sizeof(tmp1) ) ));
+  FD_LOG_NOTICE( ( "blockstore base footprint: %s",
+                   fd_smart_size( fd_blockstore_footprint(), tmp1, sizeof( tmp1 ) ) ) );
   fd_blockstore_shred_t * shred_pool = fd_blockstore_shred_pool( blockstore );
-  ulong shred_used = fd_blockstore_shred_pool_used( shred_pool );
-  ulong shred_max = fd_blockstore_shred_pool_max( shred_pool );
-  FD_LOG_NOTICE(( "shred pool footprint: %s (%lu entries used out of %lu, %lu%%)",
-                  fd_smart_size( fd_blockstore_shred_pool_footprint( shred_max ), tmp1, sizeof(tmp1) ),
-                  shred_used,
-                  shred_max,
-                  (100U*shred_used) / shred_max ));
-  fd_blockstore_shred_map_t * shred_map = fd_blockstore_shred_map( blockstore );
-  ulong shred_map_cnt = fd_blockstore_shred_map_chain_cnt( shred_map );
-  FD_LOG_NOTICE(( "shred map footprint: %s (%lu chains, load is %.3f)",
-                  fd_smart_size( fd_blockstore_shred_map_footprint( shred_map_cnt ), tmp1, sizeof(tmp1) ),
-                  shred_map_cnt,
-                  ((double)shred_used)/((double)shred_map_cnt) ));
-  fd_blockstore_slot_map_t * slot_map = fd_blockstore_slot_map( blockstore );
-  ulong slot_map_cnt = fd_blockstore_slot_map_key_cnt( slot_map );
-  ulong slot_map_max = fd_blockstore_slot_map_slot_cnt( slot_map );
-  int slot_map_lg_max = fd_blockstore_slot_map_lg_slot_cnt( slot_map );
-  FD_LOG_NOTICE(( "slot map footprint: %s (%lu entries used out of %lu, %lu%%)",
-                  fd_smart_size( fd_blockstore_slot_map_footprint( slot_map_lg_max ), tmp1, sizeof(tmp1) ),
-                  slot_map_cnt,
-                  slot_map_max,
-                  (100U*slot_map_cnt)/slot_map_max ));
-  fd_blockstore_txn_map_t * txn_map = fd_blockstore_txn_map( blockstore );
-  ulong txn_map_cnt = fd_blockstore_txn_map_key_cnt( txn_map );
-  ulong txn_map_max = fd_blockstore_txn_map_slot_cnt( txn_map );
-  int txn_map_lg_max = fd_blockstore_txn_map_lg_slot_cnt( txn_map );
-  FD_LOG_NOTICE(( "txn map footprint: %s (%lu entries used out of %lu, %lu%%)",
-                  fd_smart_size( fd_blockstore_txn_map_footprint( txn_map_lg_max ), tmp1, sizeof(tmp1) ),
-                  txn_map_cnt,
-                  txn_map_max,
-                  (100U*txn_map_cnt)/txn_map_max ));
+  ulong                   shred_used = fd_blockstore_shred_pool_used( shred_pool );
+  ulong                   shred_max  = fd_blockstore_shred_pool_max( shred_pool );
+  FD_LOG_NOTICE(
+      ( "shred pool footprint: %s (%lu entries used out of %lu, %lu%%)",
+        fd_smart_size( fd_blockstore_shred_pool_footprint( shred_max ), tmp1, sizeof( tmp1 ) ),
+        shred_used,
+        shred_max,
+        ( 100U * shred_used ) / shred_max ) );
+  fd_blockstore_shred_map_t * shred_map     = fd_blockstore_shred_map( blockstore );
+  ulong                       shred_map_cnt = fd_blockstore_shred_map_chain_cnt( shred_map );
+  FD_LOG_NOTICE(
+      ( "shred map footprint: %s (%lu chains, load is %.3f)",
+        fd_smart_size( fd_blockstore_shred_map_footprint( shred_map_cnt ), tmp1, sizeof( tmp1 ) ),
+        shred_map_cnt,
+        ( (double)shred_used ) / ( (double)shred_map_cnt ) ) );
+  fd_blockstore_slot_map_t * slot_map        = fd_blockstore_slot_map( blockstore );
+  ulong                      slot_map_cnt    = fd_blockstore_slot_map_key_cnt( slot_map );
+  ulong                      slot_map_max    = fd_blockstore_slot_map_slot_cnt( slot_map );
+  int                        slot_map_lg_max = fd_blockstore_slot_map_lg_slot_cnt( slot_map );
+  FD_LOG_NOTICE(
+      ( "slot map footprint: %s (%lu entries used out of %lu, %lu%%)",
+        fd_smart_size( fd_blockstore_slot_map_footprint( slot_map_lg_max ), tmp1, sizeof( tmp1 ) ),
+        slot_map_cnt,
+        slot_map_max,
+        ( 100U * slot_map_cnt ) / slot_map_max ) );
+  fd_blockstore_txn_map_t * txn_map        = fd_blockstore_txn_map( blockstore );
+  ulong                     txn_map_cnt    = fd_blockstore_txn_map_key_cnt( txn_map );
+  ulong                     txn_map_max    = fd_blockstore_txn_map_slot_cnt( txn_map );
+  int                       txn_map_lg_max = fd_blockstore_txn_map_lg_slot_cnt( txn_map );
+  FD_LOG_NOTICE(
+      ( "txn map footprint: %s (%lu entries used out of %lu, %lu%%)",
+        fd_smart_size( fd_blockstore_txn_map_footprint( txn_map_lg_max ), tmp1, sizeof( tmp1 ) ),
+        txn_map_cnt,
+        txn_map_max,
+        ( 100U * txn_map_cnt ) / txn_map_max ) );
   ulong data_cnt = 0;
   ulong data_tot = 0;
   ulong data_max = 0;
-  ulong txn_tot = 0;
-  ulong txn_max = 0;
+  ulong txn_tot  = 0;
+  ulong txn_max  = 0;
   for( ulong i = blockstore->min; i < blockstore->max; ++i ) {
     fd_blockstore_slot_map_t * slot_entry = fd_blockstore_slot_map_query( slot_map, i, NULL );
     if( FD_UNLIKELY( !slot_entry ) ) continue;
     fd_block_t * block = &slot_entry->block;
     if( block->data_gaddr && block->data_gaddr != ULONG_MAX ) {
-      data_cnt ++;
+      data_cnt++;
       data_tot += block->data_sz;
       data_max = fd_ulong_max( data_max, block->data_sz );
       txn_tot += block->txns_cnt;
@@ -987,25 +1027,27 @@ fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore ) {
     }
   }
   if( data_cnt )
-    FD_LOG_NOTICE(( "block cnt: %lu, total size: %s, avg size: %s, max size: %s, avg txns per block: %lu, max txns: %lu",
-                    data_cnt,
-                    fd_smart_size( data_tot, tmp1, sizeof(tmp1) ),
-                    fd_smart_size( data_tot/data_cnt, tmp2, sizeof(tmp2) ),
-                    fd_smart_size( data_max, tmp3, sizeof(tmp3) ),
-                    txn_tot/data_cnt,
-                    txn_max ));
+    FD_LOG_NOTICE( ( "block cnt: %lu, total size: %s, avg size: %s, max size: %s, avg txns per "
+                     "block: %lu, max txns: %lu",
+                     data_cnt,
+                     fd_smart_size( data_tot, tmp1, sizeof( tmp1 ) ),
+                     fd_smart_size( data_tot / data_cnt, tmp2, sizeof( tmp2 ) ),
+                     fd_smart_size( data_max, tmp3, sizeof( tmp3 ) ),
+                     txn_tot / data_cnt,
+                     txn_max ) );
 }
 
 void
-fd_blockstore_snapshot_insert( fd_blockstore_t * blockstore, fd_slot_bank_t const * snapshot_slot_bank ) {
+fd_blockstore_snapshot_insert( fd_blockstore_t *      blockstore,
+                               fd_slot_bank_t const * snapshot_slot_bank ) {
   blockstore->min = blockstore->max = blockstore->smr = snapshot_slot_bank->slot;
 
-  fd_blockstore_slot_map_t * slot_entry =
-      fd_blockstore_slot_map_insert( fd_blockstore_slot_map( blockstore ), snapshot_slot_bank->slot );
-  
+  fd_blockstore_slot_map_t * slot_entry = fd_blockstore_slot_map_insert(
+      fd_blockstore_slot_map( blockstore ), snapshot_slot_bank->slot );
+
   /* fake the snapshot slot meta */
 
-  fd_slot_meta_t * slot_meta = &slot_entry->slot_meta;
+  fd_slot_meta_t * slot_meta       = &slot_entry->slot_meta;
   slot_meta->slot                  = snapshot_slot_bank->slot;
   slot_meta->consumed              = 0;
   slot_meta->received              = 0;
@@ -1020,10 +1062,10 @@ fd_blockstore_snapshot_insert( fd_blockstore_t * blockstore, fd_slot_bank_t cons
   /* fake the snapshot block. */
 
   fd_block_t * block = &slot_entry->block;
-  block->data_gaddr   = ULONG_MAX;
-  block->height    = snapshot_slot_bank->block_height;
-  block->bank_hash = snapshot_slot_bank->banks_hash;
-  uchar flags[8] = {
+  block->data_gaddr  = ULONG_MAX;
+  block->height      = snapshot_slot_bank->block_height;
+  block->bank_hash   = snapshot_slot_bank->banks_hash;
+  uchar flags[8]     = {
       FD_BLOCK_FLAG_PROCESSED,
       FD_BLOCK_FLAG_EQV_SAFE,
       FD_BLOCK_FLAG_CONFIRMED, /* safe to assume opt conf? */

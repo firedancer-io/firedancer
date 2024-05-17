@@ -91,7 +91,7 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
   fd_root_t *        roots        = fork->slot_ctx.roots;
 
   long  tic = fd_log_wallclock();
-  ulong cnt = 0;
+  ulong vote_cnt = 0;
   for( fd_latest_vote_deque_iter_t iter = fd_latest_vote_deque_iter_init( latest_votes );
        !fd_latest_vote_deque_iter_done( latest_votes, iter );
        iter = fd_latest_vote_deque_iter_next( latest_votes, iter ) ) {
@@ -143,7 +143,8 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
     /* This indicates a programming error, because if these are replay votes that were successfully
        executed by the vote program that should imply the vote program attempts to look up the bank
        hash the vote is voting on). This invariant is broken if the bank hash is missing. */
-    if( FD_UNLIKELY( !bank_hash ) ) FD_LOG_ERR( ( "missing bank hash %lu", vote_slot ) );
+    // if( FD_UNLIKELY( !bank_hash ) ) FD_LOG_ERR( ( "missing bank hash %lu", vote_slot ) );
+    if( FD_UNLIKELY( !bank_hash ) ) __asm__("int $3");
 #endif
 
     /* Look up the stake for this pubkey. */
@@ -165,6 +166,8 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 #endif
 
     /* Upsert the vote into ghost. */
+ 
+    FD_LOG_NOTICE( ( "upserting vote: %lu %32J %lu", slot_hash.slot, slot_hash.hash.hash, stake ) );
 
     fd_ghost_replay_vote_upsert( bft->ghost, &slot_hash, node_pubkey, stake );
 
@@ -204,16 +207,17 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
             fd_fork_pool_ele_release( pool, remove );
           }
 
-          /* prune ghost */
           fd_blockstore_start_read( bft->blockstore );
           fd_hash_t const * bank_hash = fd_blockstore_bank_hash_query( bft->blockstore, bft->root );
 #if FD_BFT_USE_HANDHOLDING
           /* This indicates a programming error because this root must be present in the blockstore
            * with a bank hash. */
-          if( FD_UNLIKELY( !bank_hash ) ) FD_LOG_ERR( ( "missing bank hash %lu", bft->root ) );
+          if( FD_UNLIKELY( !bank_hash ) ) __asm__("int $3");
 #endif
           fd_slot_hash_t ghost_root = { .slot = bft->root, .hash = *bank_hash };
+
           fd_ghost_prune( bft->ghost, &ghost_root );
+
           fd_blockstore_end_read( bft->blockstore );
 
           /* prune blockstore */
@@ -246,12 +250,15 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
           ( "[bft] opt conf (%lf): (%lu, %32J)", pct, slot_hash.slot, slot_hash.hash.hash ) );
 #endif
     }
-    cnt++;
+    vote_cnt++;
     // long total_toc = fd_log_wallclock();
     // FD_LOG_NOTICE(("total took: %ld", total_toc - total_tic));
   }
+  fd_latest_vote_deque_remove_all( latest_votes );
   long toc = fd_log_wallclock();
-  FD_LOG_NOTICE( ( "iterating %lu vote accounts took: %ld", cnt, toc - tic ) );
+  (void)tic;
+  (void)toc;
+  // FD_LOG_NOTICE( ( "iterating %lu vote accounts took: %.2lf ns", cnt, (double)(toc - tic) / 1e6 ) );
 }
 
 FD_FN_UNUSED static void

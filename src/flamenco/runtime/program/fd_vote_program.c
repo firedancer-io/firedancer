@@ -1027,10 +1027,12 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
     ctx->txn_ctx->custom_err = FD_VOTE_ERR_SLOTS_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
-  if( memcmp( &deq_fd_slot_hash_t_peek_index_const( slot_hashes->hashes, slot_hashes_index )->hash,
+  fd_hash_t const * hash = &deq_fd_slot_hash_t_peek_index_const( slot_hashes->hashes, slot_hashes_index )->hash;
+  if( memcmp( hash,
               proposed_hash,
               sizeof( fd_hash_t ) ) != 0 ) {
     ctx->txn_ctx->custom_err = FD_VOTE_ERR_SLOTS_HASH_MISMATCH;
+    __asm__("int $3");
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -1773,6 +1775,7 @@ process_vote_state_update( ulong                         vote_acct_idx,
       if( FD_LIKELY( ctx->epoch_ctx->bank_hash_cmp ) ) {
         fd_bank_hash_cmp_t * bank_hash_cmp = ctx->slot_ctx->epoch_ctx->bank_hash_cmp;
         fd_bank_hash_cmp_lock( bank_hash_cmp );
+        FD_LOG_NOTICE(("inserting theirs %lu", lockout->slot));
         fd_bank_hash_cmp_insert( bank_hash_cmp, lockout->slot, &vote_state_update->hash, 0 );
         if( vote_state_update->has_root ) {
           fd_bank_hash_cmp_entry_t * curr =

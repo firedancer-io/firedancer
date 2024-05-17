@@ -400,6 +400,7 @@ fd_replay_slot_execute( fd_replay_t *      replay,
 
   fd_bank_hash_cmp_t * bank_hash_cmp = child->slot_ctx.epoch_ctx->bank_hash_cmp;
   fd_bank_hash_cmp_lock( bank_hash_cmp );
+  FD_LOG_NOTICE( ( "inserting ours %lu", slot ) );
   fd_bank_hash_cmp_insert( bank_hash_cmp, slot, bank_hash, 1 );
 
   /* Try to move the bank hash comparison window forward */
@@ -427,8 +428,11 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   // }
   // fd_bank_hash_cmp_unlock( bank_hash_cmp );
 
+  long tic = fd_log_wallclock();
   fd_bft_fork_update( replay->bft, child );
   fd_bft_fork_choice( replay->bft );
+  long toc = fd_log_wallclock();
+  FD_LOG_NOTICE( ( "fork selection took %.2lf ms", (double)( toc - tic ) / 1e6 ) );
 }
 
 void

@@ -430,12 +430,20 @@ main( int argc, char ** argv ) {
   /* wksp                                                               */
   /**********************************************************************/
 
+  /* -> restore funk */
+  /* -> restore blockstore */
+  /* join the named wksps from test_consensus */
+  /* join the named wksps from rpc_service */
+
   char * _page_sz = "gigantic";
   ulong  numa_idx = fd_shmem_numa_idx( 0 );
   FD_LOG_NOTICE( ( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)",
                    page_cnt,
                    _page_sz,
                    numa_idx ) );
+
+  fd_wksp_t * funk_wksp = fd_wksp_attach("funk");
+
   fd_wksp_t * wksp = fd_wksp_new_anonymous(
       fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
@@ -525,6 +533,14 @@ main( int argc, char ** argv ) {
   fd_latest_vote_t * latest_votes = fd_latest_vote_deque_join(fd_latest_vote_deque_new( latest_votes_mem ));
 
   /**********************************************************************/
+  /* roots                                                              */
+  /**********************************************************************/
+
+  void * roots_mem = fd_wksp_alloc_laddr(
+      wksp, fd_root_map_align(), fd_root_map_footprint(), TEST_CONSENSUS_MAGIC );
+  fd_root_t * roots = fd_root_map_join( fd_root_map_new( roots_mem ) );
+
+  /**********************************************************************/
   /* epoch_ctx                                                          */
   /**********************************************************************/
 
@@ -566,12 +582,11 @@ main( int argc, char ** argv ) {
   FD_TEST( snapshot_slot_ctx );
 
   snapshot_slot_ctx->epoch_ctx = epoch_ctx;
-
   snapshot_slot_ctx->acc_mgr    = acc_mgr;
   snapshot_slot_ctx->blockstore = blockstore;
   snapshot_slot_ctx->valloc     = valloc;
-
   snapshot_slot_ctx->latest_votes = latest_votes;
+  snapshot_slot_ctx->roots = roots;
 
   fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
 
@@ -661,6 +676,9 @@ main( int argc, char ** argv ) {
 
   bft->snapshot_slot = snapshot_slot;
   fd_bft_epoch_stake_update( bft, epoch_ctx );
+
+  bft->root = snapshot_slot;
+  bft->rooted_stake = 0;
 
   bft->acc_mgr    = acc_mgr;
   bft->blockstore = blockstore;
