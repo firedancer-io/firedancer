@@ -78,9 +78,19 @@
 #define FD_EXECUTOR_SYSTEM_ERR_NONCE_BLOCKHASH_NOT_EXPIRED       ( -8 ) /* stored nonce is still in recent_blockhashes */
 #define FD_EXECUTOR_SYSTEM_ERR_NONCE_UNEXPECTED_BLOCKHASH_VALUE  ( -9 ) /* specified nonce does not match stored nonce */
 
-#define FD_EXECUTOR_SIGN_ERR_DATA_OFFSETS                        (-100)
-#define FD_EXECUTOR_SIGN_ERR_INSTRUCTION_DATA_SIZE               (-101)
-#define FD_EXECUTOR_SIGN_ERR_SIGNATURE                           (-102)
+/* PrecompileError
+   https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/precompiles.rs#L16
+   Agave distinguishes between 5 errors and the returned one depends on
+   the order they decided to write their code.
+   These are all fatal errors, so the specific errors doesn't matter for
+   consensus.
+   We cover a number of them, but to reduce complexity we just summarize
+   them in 2 codes: error verifying signature, error retrieving data. */
+#define FD_EXECUTOR_PRECOMPILE_ERR_PUBLIC_KEY                    ( -1 )
+#define FD_EXECUTOR_PRECOMPILE_ERR_RECOVERY_ID                   ( -2 )
+#define FD_EXECUTOR_PRECOMPILE_ERR_SIGNATURE                     ( -3 )
+#define FD_EXECUTOR_PRECOMPILE_ERR_DATA_OFFSET                   ( -4 )
+#define FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE               ( -5 )
 
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)
