@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 199
+#define FD_TYPE_NAME_COUNT 200
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_pubkey",
@@ -79,6 +79,7 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_vote_state_update",
  "fd_compact_vote_state_update",
  "fd_compact_vote_state_update_switch",
+ "fd_compact_tower_sync",
  "fd_tower_sync",
  "fd_tower_sync_switch",
  "fd_slot_history_inner",
