@@ -41,7 +41,7 @@ struct __attribute__((aligned(128UL))) fd_ghost_node {
   int               eqv_safe;     /* flag for equivocation safety (ie. 52% of stake has voted for this slot hash) */
   int               opt_conf;     /* flag for optimistic confirmation (ie. 2/3 of stake has voted for this slot hash ) */
   fd_ghost_node_t * head;         /* the head of the fork i.e. leaf of the highest-weight subtree */
-  fd_ghost_node_t * parent;       /* parent slot hash */
+  fd_ghost_node_t * parent;       /* pointer to the parent */
   fd_ghost_node_t * child;        /* pointer to the left-most child */
   fd_ghost_node_t * sibling;      /* pointer to next sibling */
 };
