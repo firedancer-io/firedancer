@@ -8,7 +8,7 @@
 #include "fd_runtime.h"
 #include <assert.h>
 
-#define MAX_PERMITTED_DATA_LENGTH ( 10 * 1024 * 1024 )
+#define MAX_PERMITTED_DATA_LENGTH ( 10UL * 1024UL * 1024UL )
 
 /* Represents the lamport balance associated with an account. */
 typedef ulong fd_acc_lamports_t;

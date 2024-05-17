@@ -18,9 +18,9 @@
 #include "../repair/fd_repair.h"
 #include "../../ballet/pack/fd_microblock.h"
 
-#define MAX_PERMITTED_DATA_LENGTH ( 10 * 1024 * 1024 )
+#define MAX_PERMITTED_DATA_LENGTH ( 10UL * 1024UL * 1024UL )
 
-#define DEFAULT_HASHES_PER_TICK  12500
+#define DEFAULT_HASHES_PER_TICK   12500
 #define UPDATED_HASHES_PER_TICK2  17500
 #define UPDATED_HASHES_PER_TICK3  27500
 #define UPDATED_HASHES_PER_TICK4  47500

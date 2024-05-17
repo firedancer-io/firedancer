@@ -3,6 +3,7 @@
 #include "../fd_executor.h"
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_instr_ctx.h"
+#include "../context/fd_exec_txn_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 
 #define FD_SYSVAR_CACHE_MAGIC (0x195a0e78828cacd5UL)
@@ -155,3 +156,23 @@ fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
   }
   FD_SYSVAR_CACHE_ITER(X)
 # undef X
+
+/* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/program-runtime/src/sysvar_cache.rs#L223-L234 */
+int
+fd_check_sysvar_account( fd_exec_instr_ctx_t const * ctx,
+                         ulong                       insn_acc_idx,
+                         fd_pubkey_t const *         expected_id ) {
+  uchar const *       instr_acc_idxs = ctx->instr->acct_txn_idxs;
+  fd_pubkey_t const * txn_accs       = ctx->txn_ctx->accounts;
+
+  if( insn_acc_idx>=ctx->instr->acct_cnt ) {
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  }
+
+  fd_pubkey_t const * insn_acc_key = &txn_accs[ instr_acc_idxs[ insn_acc_idx ] ];
+
+  if( memcmp( expected_id, insn_acc_key, sizeof(fd_pubkey_t) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  }
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
