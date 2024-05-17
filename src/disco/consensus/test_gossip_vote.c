@@ -12,6 +12,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyguard_client.h"
 #include "../metrics/fd_metrics.h"
 #include "../shred/fd_shred_cap.h"
@@ -131,12 +132,11 @@ struct gossip_deliver_arg {
   fd_valloc_t        valloc;
   fd_gossip_t        *gossip;
   fd_gossip_config_t *gossip_config;
+
+  const uchar* voter_keypair;
+  const uchar* validator_keypair;
 };
 typedef struct gossip_deliver_arg gossip_deliver_arg_t;
-
-int
-fd_vote_decode_compact_update( fd_compact_vote_state_update_t * compact_update,
-                               fd_vote_state_update_t *         vote_update );
 
 /* functions for fd_gossip_config_t and fd_repair_config_t */
 static void
@@ -165,34 +165,41 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
       int decode_result = fd_vote_instruction_decode( &vote_instr, &decode );
       if( decode_result == FD_BINCODE_SUCCESS) {
         if  ( vote_instr.discriminant == fd_vote_instruction_enum_compact_update_vote_state ) {
-          fd_vote_state_update_t vote_update = { 0 };
-          fd_vote_decode_compact_update(&vote_instr.inner.compact_update_vote_state,
-                                        &vote_update);
+          /* Replace the timestamp in compact_update_vote_state */
+          static ulong MAGIC_TIMESTAMP = 19950128;
+          vote_instr.inner.compact_update_vote_state.timestamp = &MAGIC_TIMESTAMP;
+          fd_bincode_encode_ctx_t encode = { .data = instr_data, .dataend = instr_data + instr_data_sz };
+          fd_vote_instruction_encode ( &vote_instr, &encode );
+          FD_TEST( fd_vote_instruction_size( &vote_instr) == instr_data_sz );
 
-          /* Replace the voter addresses and signatures */
-          uchar* acct_addr = vote->txn.raw + parsed_txn->acct_addr_off;
-          memcpy(acct_addr, arg_->gossip_config->public_key, FD_TXN_ACCT_ADDR_SZ);
-          memcpy(acct_addr + FD_TXN_ACCT_ADDR_SZ, arg_->gossip_config->public_key, FD_TXN_ACCT_ADDR_SZ);
           #define SIGNATURE_SZ 64
-          uchar sig[ SIGNATURE_SZ ];
-          fd_sha512_t sha[1];
-          fd_ed25519_sign( /* sig */ sig,
+          uchar validator_sig[ SIGNATURE_SZ ], voter_sig[ SIGNATURE_SZ ];
+          fd_sha512_t sha[2];
+          fd_ed25519_sign( /* sig */ validator_sig,
                            /* msg */ vote->txn.raw + parsed_txn->message_off,
                            /* sz  */ vote->txn.raw_sz - parsed_txn->message_off,
-                           /* public_key  */ arg_->gossip_config->public_key->uc,
-                           /* private_key */ arg_->gossip_config->private_key,
-                           sha );
+                           /* public_key  */ arg_->validator_keypair + 32UL,//  arg_->gossip_config->public_key->uc,
+                           /* private_key */ arg_->validator_keypair,//arg_->gossip_config->private_key,
+                           &sha[0] );
+          fd_ed25519_sign( /* sig */ voter_sig,
+                           /* msg */ vote->txn.raw + parsed_txn->message_off,
+                           /* sz  */ vote->txn.raw_sz - parsed_txn->message_off,
+                           /* public_key  */ arg_->voter_keypair + 32UL,//  arg_->gossip_config->public_key->uc,
+                           /* private_key */ arg_->voter_keypair,//arg_->gossip_config->private_key,
+                           &sha[0] );
           uchar* sign_addr = vote->txn.raw + parsed_txn->signature_off;
-          memcpy(sign_addr, sig, SIGNATURE_SZ);
-          memcpy(sign_addr + SIGNATURE_SZ, sig, SIGNATURE_SZ);
+          FD_LOG_WARNING(("Old signatures: %32J, %32J || New signatures: %32J, %32J", sign_addr, sign_addr + SIGNATURE_SZ, validator_sig, voter_sig));
+          memcpy(sign_addr, validator_sig, SIGNATURE_SZ);
+          memcpy(sign_addr + SIGNATURE_SZ, voter_sig, SIGNATURE_SZ);
           fd_gossip_push_value( arg_->gossip, data, NULL );
-          FD_LOG_NOTICE( ("Echo gossip vote: from=%32J, my_pubkey=%32J, txn_acct_cnt=%u(readonly_s=%u, readonly_us=%u), sign_cnt=%u | instruction#0: program=%32J",
+          FD_LOG_NOTICE( ("Echo gossip vote: from=%32J, gossip_pubkey=%32J, txn_acct_cnt=%u(readonly_s=%u, readonly_us=%u), sign_cnt=%u, sign_off=%u | instruction#0: program=%32J",
                           &vote->from,
                           arg_->gossip_config->public_key,
                           parsed_txn->acct_addr_cnt,
                           parsed_txn->readonly_signed_cnt,
                           parsed_txn->readonly_unsigned_cnt,
                           parsed_txn->signature_cnt,
+                          parsed_txn->signature_off,
                           account_addr) );
 
        } else {
@@ -326,6 +333,12 @@ main( int argc, char ** argv ) {
       fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, NULL );
   ushort gossip_port = fd_env_strip_cmdline_ushort( &argc, &argv, "--gossip-port", NULL, 9001 );
   FD_TEST( gossip_peer_addr );
+  const char * voter_keypair_file =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--voter-keypair-file", NULL, NULL );
+   const char * validator_keypair_file =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--validator-keypair-file", NULL, NULL );
+  FD_TEST( voter_keypair_file );
+  FD_TEST( validator_keypair_file );
 
   /**********************************************************************/
   /* wksp                                                               */
@@ -392,7 +405,11 @@ main( int argc, char ** argv ) {
   FD_TEST( resolve_hostport( gossip_addr, &gossip_config.my_addr ) );
   gossip_config.shred_version             = 0;
   gossip_config.deliver_fun               = gossip_deliver_fun;
-  gossip_deliver_arg_t gossip_deliver_arg = { .valloc = valloc, .gossip_config = &gossip_config, .gossip = gossip };
+  gossip_deliver_arg_t gossip_deliver_arg = { .valloc = valloc,
+                                              .gossip_config = &gossip_config,
+                                              .gossip = gossip,
+                                              .voter_keypair = fd_keyload_load(voter_keypair_file, 0),
+                                              .validator_keypair = fd_keyload_load(validator_keypair_file, 0)};
   gossip_config.deliver_arg               = &gossip_deliver_arg;
   gossip_config.send_fun                  = gossip_send_fun;
   int gossip_sockfd                       = create_socket( &gossip_config.my_addr );
