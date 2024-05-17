@@ -755,7 +755,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     } else if( fd_bpf_loader_v2_is_executable( ctx->slot_ctx, program_id )==0 ) {
       exec_result = fd_bpf_loader_v2_user_execute( *ctx );
     } else {
-      exec_result = FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+      exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
     // FD_LOG_NOTICE(("COMPUTE METER END %lu %lu %lu %64J", before_instr_cus - txn_ctx->compute_meter, txn_ctx->compute_meter, txn_ctx->compute_unit_limit, sig ));
