@@ -374,7 +374,8 @@ fd_vm_setup_state_for_execution( fd_vm_t * vm ) {
   fd_vm_mem_cfg( vm );
 
   /* Initialize registers */
-  /* FIXME: Zero out reg, shadow, stack and heap here? */
+  /* FIXME: Zero out shadow, stack and heap here? */
+  fd_memset( vm->reg, 0, FD_VM_REG_MAX * sizeof(ulong) );
   vm->reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
   vm->reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
