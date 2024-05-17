@@ -33,6 +33,7 @@ const fd_pubkey_t fd_solana_zk_token_proof_program_id         = { .uc = { ZK_TOK
 const fd_pubkey_t fd_solana_address_lookup_table_program_id   = { .uc = { ADDR_LUT_PROG_ID         } };
 const fd_pubkey_t fd_solana_spl_native_mint_id                = { .uc = { NATIVE_MINT_ID           } };
 const fd_pubkey_t fd_solana_spl_token_id                      = { .uc = { TOKEN_PROG_ID            } };
+const fd_pubkey_t fd_solana_zk_el_gamal_program_id            = { .uc = { ZK_EL_GAMAL_PROG_ID      } };
 
 #define MAP_PERFECT_NAME fd_pubkey_sysvar_tbl
 #define MAP_PERFECT_LG_TBL_SZ 4

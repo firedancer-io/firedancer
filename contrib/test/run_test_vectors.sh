@@ -6,8 +6,13 @@ set -x
 
 OBJDIR=${OBJDIR:-build/native/gcc}
 
-rm    -rf $LOG_PATH
-mkdir -pv $LOG_PATH
+if [ "$LOG_PATH" == "" ]; then
+  LOG_PATH="`mktemp -d`"
+else
+  rm    -rf $LOG_PATH
+  mkdir -pv $LOG_PATH
+fi
+
 
 mkdir -p dump
 
@@ -29,6 +34,7 @@ if [ "$failed" != "0" ]
 then
   echo 'test vector execution failed'
   grep -w FAIL $LOG_PATH/test_vectors_exec
+  echo $LOG_PATH
   exit 1
 else
   echo 'test vector execution passed'

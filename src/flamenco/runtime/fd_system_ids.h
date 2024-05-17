@@ -37,6 +37,7 @@ extern const fd_pubkey_t fd_solana_zk_token_proof_program_id;
 extern const fd_pubkey_t fd_solana_address_lookup_table_program_id;
 extern const fd_pubkey_t fd_solana_spl_native_mint_id;
 extern const fd_pubkey_t fd_solana_spl_token_id;
+extern const fd_pubkey_t fd_solana_zk_el_gamal_program_id;
 
 /* fd_pubkey_is_{sysvar_id, builtin_program, sysvar_or_builtin} checks
    whether the provided pubkey is included in the hardcoded list of
