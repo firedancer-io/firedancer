@@ -498,6 +498,15 @@ unprivileged_init( fd_topo_t *      topo,
   FD_LOG_NOTICE(( "gossip my addr - addr: " FD_IP4_ADDR_FMT ":%u", 
     FD_IP4_ADDR_FMT_ARGS( ctx->gossip_my_addr.addr ), fd_ushort_bswap( ctx->gossip_my_addr.port ) ));
   ctx->gossip_config.my_addr       = ctx->gossip_my_addr;
+  ctx->gossip_config.my_version = (fd_gossip_version_v2_t){
+    .from = ctx->identity_public_key,
+    .major = 1337U,
+    .minor = 1337U,
+    .patch = 1337U,
+    .commit = 0U,
+    .has_commit = 0U,
+    .feature_set = 0U,
+  };
   ctx->gossip_config.private_key   = ctx->identity_private_key;
   ctx->gossip_config.public_key    = &ctx->identity_public_key;
   ctx->gossip_config.deliver_fun   = gossip_deliver_fun;
