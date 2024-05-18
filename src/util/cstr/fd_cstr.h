@@ -382,6 +382,36 @@ fd_cstr_tokenize( char ** tok,
                   char *  cstr,
                   char    delim );
 
+/* fd_cstr_append_utf8 appends the UTF-8 encoding of a Unicode code
+   point into p.  Assumes p is valid (non-NULL and room for 1-4 chars
+   and a final terminating '\0'). */
+
+static inline char *
+fd_cstr_append_utf8( char * p,
+                     uint   rune ) {
+  if( FD_LIKELY( rune<=0x7f ) ) {
+    *(p++) = (char)rune;
+  } else if( rune<=0x7ff ) {
+    *(p++) = (char)( 0xc0 |  (rune>>6)       );
+    *(p++) = (char)( 0x80 | ((rune   )&0x3f) );
+  } else if( rune<=0xffff ) {
+    *(p++) = (char)( 0xe0 |  (rune>>12)       );
+    *(p++) = (char)( 0x80 | ((rune>> 6)&0x3f) );
+    *(p++) = (char)( 0x80 | ((rune    )&0x3f) );
+  } else if( rune<=0x10ffff ) {
+    *(p++) = (char)( 0xf0 |  (rune>>18)       );
+    *(p++) = (char)( 0x80 | ((rune>>12)&0x3f) );
+    *(p++) = (char)( 0x80 | ((rune>> 6)&0x3f) );
+    *(p++) = (char)( 0x80 |  (rune     &0x3f) );
+  } else {
+    /* replacement char */
+    *(p++) = (char)0xef;
+    *(p++) = (char)0xbf;
+    *(p++) = (char)0xbd;
+  }
+  return p;
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_cstr_fd_cstr_h */

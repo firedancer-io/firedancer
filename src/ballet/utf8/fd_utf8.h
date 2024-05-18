@@ -3,6 +3,8 @@
 
 #include "../fd_ballet_base.h"
 
+FD_PROTOTYPES_BEGIN
+
 /* fd_utf8_verify checks whether a byte array contains valid UTF-8.
 
    This function matches the validation rules of Rust's
@@ -37,5 +39,7 @@
 FD_FN_PURE int
 fd_utf8_verify( char const * str,
                 ulong        sz );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_utf8_fd_utf8_h */
