@@ -133,9 +133,6 @@ fd_snapshot_load( const char *         snapshotfile,
     break;
   }
 
-  fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
-  fd_funk_txn_xid_t xid;
-
   size_t slen = strlen(snapshotfile);
   const char *hptr = &snapshotfile[slen - 1];
   while ((hptr >= snapshotfile) && (*hptr != '-'))
@@ -152,13 +149,20 @@ fd_snapshot_load( const char *         snapshotfile,
   if( FD_UNLIKELY( !fd_base58_decode_32( hash, fhash.uc ) ) )
     FD_LOG_ERR(( "invalid snapshot hash" ));
 
-  FD_TEST(sizeof(xid) == sizeof(fhash));
-  memcpy(&xid, &fhash.ul[0], sizeof(xid));
-
   fd_funk_start_write( slot_ctx->acc_mgr->funk );
-  
-  fd_funk_txn_t * child_txn = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, parent_txn, &xid, 1 );
-  slot_ctx->funk_txn = child_txn;
+
+  fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
+  fd_funk_txn_t * child_txn;
+
+  if( snapshot_type == FD_SNAPSHOT_TYPE_FULL ) {
+    child_txn = parent_txn;
+  } else {
+    fd_funk_txn_xid_t xid;
+    FD_TEST(sizeof(xid) == sizeof(fhash));
+    memcpy(&xid, &fhash.ul[0], sizeof(xid));
+    child_txn = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, parent_txn, &xid, 1 );
+    slot_ctx->funk_txn = child_txn;
+  }
 
   fd_scratch_push();
   load_one_snapshot( slot_ctx, snapshotfile );
@@ -168,7 +172,8 @@ fd_snapshot_load( const char *         snapshotfile,
   fd_features_restore( slot_ctx );
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
 
-  if (!FD_FEATURE_ACTIVE(slot_ctx, incremental_snapshot_only_incremental_hash_calculation)) {
+  if( !FD_FEATURE_ACTIVE( slot_ctx, incremental_snapshot_only_incremental_hash_calculation ) &&
+      child_txn != parent_txn ) {
     FD_LOG_WARNING(("flushing accounts to the root since this is not a incremental hash"));
     /* We need to flush the incremental snapshot's changes if we are
         using the OLD verification method.  Otherwise, iterating over
@@ -208,7 +213,7 @@ fd_snapshot_load( const char *         snapshotfile,
   }
 
   /* flush if we haven't done so already */
-  if( child_txn ) {
+  if( child_txn && child_txn != parent_txn ) {
     fd_funk_txn_publish( slot_ctx->acc_mgr->funk, child_txn, 0 );
     slot_ctx->funk_txn = parent_txn;
     child_txn = NULL;
