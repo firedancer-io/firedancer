@@ -64,7 +64,7 @@ fd_txn_base_generate( uchar out_txn_meta[ static FD_TXN_MAX_SZ ],
   write_ptr += 1;
 
   /* Write accounts list to txn payload */
-  ulong signers_write_sz = FD_TXN_ACCT_ADDR_SZ * (accounts->signature_cnt - accounts->readonly_signed_cnt);
+  ulong signers_write_sz = FD_TXN_ACCT_ADDR_SZ * (ulong)(accounts->signature_cnt - accounts->readonly_signed_cnt);
   fd_memcpy( write_ptr, accounts->signers_w, signers_write_sz );
   write_ptr += signers_write_sz;
 
@@ -138,8 +138,8 @@ fd_txn_add_instr( uchar * txn_meta_ptr,
   fd_memcpy( write_ptr, instr_buf, data_sz );
   write_ptr += data_sz;
 
-  (void) fd_txn_instr_meta_generate( (uchar*)&txn_meta->instr[txn_meta->instr_cnt-1], 
-                                      program_id, 
+  (void) fd_txn_instr_meta_generate( (uchar*)&txn_meta->instr[txn_meta->instr_cnt-1],
+                                      program_id,
                                       (ushort)accounts_sz,
                                       data_sz, acct_off, data_off );
   return (ulong)(instr_start - out_txn_payload);
