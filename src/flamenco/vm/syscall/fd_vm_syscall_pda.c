@@ -165,7 +165,6 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
   for ( ulong i=0UL; i<256UL; i++ ) {
     bump_seed[0] = (uchar)(255UL - i);
 
-    FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
     fd_pubkey_t const * program_id = FD_VM_MEM_HADDR_LD( vm, program_id_vaddr, alignof(fd_pubkey_t), sizeof(fd_pubkey_t) );
 
     fd_pubkey_t derived[1];
@@ -182,6 +181,9 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
     } else if ( FD_UNLIKELY( err && (err != FD_VM_ERR_INVALID_PDA) ) ) {
       return err;
     }
+
+    /* TODO: can we move this to the top of the loop? */
+    FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
 
   }
 
