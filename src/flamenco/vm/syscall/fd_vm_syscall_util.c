@@ -215,6 +215,8 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
   fd_vm_log_append( vm, "Program data: ", 14UL );
 
   for( ulong slice_idx=0UL; slice_idx<slice_cnt; slice_idx++ ) {
+    FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
+
     if( FD_UNLIKELY( !fd_vm_log_rem( vm ) ) ) break; /* If the log is at limit, don't waste time on fully discarded messages */
 
     /* Note that buf_sz requires:
