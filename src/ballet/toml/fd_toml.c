@@ -143,10 +143,11 @@ fd_toml_upsert_empty_pod( fd_toml_parser_t * parser ) {
   if( !fd_pod_query_subpod( parser->pod, parser->key ) ) {
     uchar   subpod_mem[ FD_POD_FOOTPRINT_MIN ];
     uchar * subpod = fd_pod_join( fd_pod_new( subpod_mem, FD_POD_FOOTPRINT_MIN ) );
-    if( FD_UNLIKELY( !fd_pod_insert_subpod( parser->pod, parser->key, subpod ) ) ) {
+    if( FD_UNLIKELY( !fd_pod_insert( parser->pod, parser->key, FD_POD_VAL_TYPE_SUBPOD, FD_POD_FOOTPRINT_MIN, subpod ) ) ) {
       parser->error = FD_TOML_ERR_POD;
       return 0;
     }
+    fd_pod_delete( fd_pod_leave( subpod ) );
   }
   return 1;
 }
