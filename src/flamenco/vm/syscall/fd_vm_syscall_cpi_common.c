@@ -153,7 +153,8 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
   VM_SYSCALL_CPI_ACC_INFO_DATA( vm, account_info, caller_acc_data );
   (void)caller_acc_data_vm_addr;
 
-  FD_VM_CU_MEM_UPDATE( vm, caller_acc_data_len );
+  // FIXME: should this be FD_VM_CU_MEM_UPDATE? Changing this changes the CU behaviour from main
+  FD_VM_CU_UPDATE( vm, caller_acc_data_len / FD_VM_CPI_BYTES_PER_UNIT );
 
   /* Update the account data, if the account data can be changed */
   int err1;
