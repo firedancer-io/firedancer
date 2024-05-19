@@ -38,23 +38,21 @@ default_user( void ) {
   return name;
 }
 
-static int parse_key_value( config_t *   config,
-                            const char * section,
-                            const char * key,
-                            char * value ) {
-#define ENTRY_STR(edot, esection, ekey) do {                                          \
-    if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) {     \
-      ulong len = strlen( value );                                                    \
-      if( FD_UNLIKELY( len < 2 || value[ 0 ] != '"' || value[ len - 1 ] != '"' ) ) {  \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));         \
-        return 1;                                                                     \
-      }                                                                               \
-      if( FD_UNLIKELY( len >= sizeof( config->esection edot ekey ) + 2 ) )            \
-        FD_LOG_ERR(( "value for %s.%s is too long: `%s`", section, key, value ));     \
-      strncpy( config->esection edot ekey, value + 1, len - 2 );                      \
-      config->esection edot ekey[ len - 2 ] = '\0';                                   \
-      return 1;                                                                       \
-    }                                                                                 \
+static int
+pod_to_config( config_t *    config,
+               uchar const * pod ) {
+
+#define ENTRY_STR(edot, esection, ekey) do {                                   \
+    char const * key = #esection #edot #ekey;                                  \
+    fd_pod_info_t info[1];                                                     \
+    if( 0==fd_pod_query( pod, key, info ) ) {                                  \
+      if( FD_UNLIKELY( info->val_type!=FD_POD_VAL_TYPE_CSTR ) )                \
+        FD_LOG_ERR(( "invalid value for %s", key ));                           \
+      if( FD_UNLIKELY( info->val_sz > sizeof( config->esection edot ekey ) ) ) \
+        FD_LOG_ERR(( "value for %s is too long", key ));                       \
+      fd_memcpy( config->esection edot ekey, info->val, info->val_sz );        \
+      return 1;                                                                \
+    }                                                                          \
   } while( 0 )
 
 #define ENTRY_VSTR(edot, esection, ekey) do {                                                        \
@@ -75,52 +73,29 @@ static int parse_key_value( config_t *   config,
     }                                                                                                \
   } while( 0 )
 
-#define ENTRY_UINT(edot, esection, ekey) do {                                     \
-    if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) { \
-      if( FD_UNLIKELY( strlen( value ) < 1 ) ) {                                  \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return 1;                                                                 \
-      }                                                                           \
-      char * src = value;                                                         \
-      char * dst = value;                                                         \
-      while( *src ) {                                                             \
-        if( *src != '_' ) *dst++ = *src;                                          \
-        src++;                                                                    \
-      }                                                                           \
-      *dst = '\0';                                                                \
-      char * endptr;                                                              \
-      ulong result = strtoul( value, &endptr, 10 );                               \
-      if( FD_UNLIKELY( *endptr != '\0' || result > UINT_MAX ) ) {                 \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return 1;                                                                 \
-      }                                                                           \
-      config->esection edot ekey = (uint)result;                                  \
-      return 1;                                                                   \
-    }                                                                             \
+#define ENTRY_UINT(edot, esection, ekey) do {                                  \
+    char const * key = #esection #edot #ekey;                                  \
+    fd_pod_info_t info[1];                                                     \
+    if( 0==fd_pod_query( pod, key, info ) ) {                                  \
+      if( FD_UNLIKELY( info->val_type!=FD_POD_VAL_TYPE_ULONG ) )               \
+        FD_LOG_ERR(( "invalid value for %s", key ));                           \
+      ulong u; fd_ulong_svw_dec( (uchar const *)info->val, &u );               \
+      if( FD_UNLIKELY( u>UINT_MAX ) )                                          \
+        FD_LOG_ERR(( "value for %s is too large", key ));                      \
+      config->esection edot ekey = (uint)u;                                    \
+      return 1;                                                                \
+    }                                                                          \
   } while( 0 )
 
-#define ENTRY_ULONG(edot, esection, ekey) do {                                    \
-    if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) { \
-      if( FD_UNLIKELY( strlen( value ) < 1 ) ) {                                  \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return 1;                                                                 \
-      }                                                                           \
-      char * src = value;                                                         \
-      char * dst = value;                                                         \
-      while( *src ) {                                                             \
-        if( *src != '_' ) *dst++ = *src;                                          \
-        src++;                                                                    \
-      }                                                                           \
-      *dst = '\0';                                                                \
-      char * endptr;                                                              \
-      ulong result = strtoul( value, &endptr, 10 );                               \
-      if( FD_UNLIKELY( *endptr!='\0' ) ) {                                        \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return 1;                                                                 \
-      }                                                                           \
-      config->esection edot ekey = result;                                        \
-      return 1;                                                                   \
-    }                                                                             \
+#define ENTRY_ULONG(edot, esection, ekey) do {                                   \
+    char const * key = #esection #edot #ekey;                                    \
+    fd_pod_info_t info[1];                                                       \
+    if( 0==fd_pod_query( pod, key, info ) ) {                                    \
+      if( FD_UNLIKELY( info->val_type!=FD_POD_VAL_TYPE_ULONG ) )                 \
+        FD_LOG_ERR(( "invalid value for %s", key ));                             \
+      fd_ulong_svw_dec( (uchar const *)info->val, &config->esection edot ekey ); \
+      return 1;                                                                  \
+    }                                                                            \
   } while( 0 )
 
 #define ENTRY_VUINT(edot, esection, ekey) do {                                       \
@@ -148,33 +123,33 @@ static int parse_key_value( config_t *   config,
     }                                                                                \
   } while( 0 )
 
-#define ENTRY_USHORT(edot, esection, ekey) do {                                   \
-    if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) { \
-      if( FD_UNLIKELY( strlen( value ) < 1 ) ) {                                  \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return 1;                                                                 \
-      }                                                                           \
-      char * endptr;                                                              \
-      unsigned long int result = strtoul( value, &endptr, 10 );                   \
-      if( FD_UNLIKELY( *endptr != '\0' || result > USHORT_MAX ) ) {               \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return 1;                                                                 \
-      }                                                                           \
-      config->esection edot ekey = (ushort)result;                                \
-      return 1;                                                                   \
-    }                                                                             \
+#define ENTRY_USHORT(edot, esection, ekey) do {                                \
+    char const * key = #esection #edot #ekey;                                  \
+    fd_pod_info_t info[1];                                                     \
+    if( 0==fd_pod_query( pod, key, info ) ) {                                  \
+      if( FD_UNLIKELY( info->val_type!=FD_POD_VAL_TYPE_ULONG ) )               \
+        FD_LOG_ERR(( "invalid value for %s", key ));                           \
+      ulong u; fd_ulong_svw_dec( (uchar const *)info->val, &u );               \
+      if( FD_UNLIKELY( u>USHORT_MAX ) )                                        \
+        FD_LOG_ERR(( "value for %s is too large", key ));                      \
+      config->esection edot ekey = (uint)u;                                    \
+      return 1;                                                                \
+    }                                                                          \
   } while( 0 )
 
-#define ENTRY_BOOL(edot, esection, ekey) do {                                     \
-    if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) { \
-      if( FD_LIKELY( !strcmp( value, "true" ) ) )                                 \
-        config->esection edot ekey = 1;                                           \
-      else if( FD_LIKELY( !strcmp( value, "false" ) ) )                           \
-        config->esection edot ekey = 0;                                           \
-      else                                                                        \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-      return 1;                                                                   \
-    }                                                                             \
+#define ENTRY_BOOL(edot, esection, ekey) do {                                  \
+    char const * key = #esection #edot #ekey;                                  \
+    fd_pod_info_t info[1];                                                     \
+    if( 0==fd_pod_query( pod, key, info ) ) {                                  \
+      if( FD_UNLIKELY( info->val_type!=FD_POD_VAL_TYPE_INT ) )                 \
+        FD_LOG_ERR(( "invalid value for %s", key ));                           \
+      ulong u; fd_ulong_svw_dec( (uchar const *)info->val, &u );               \
+      long  z = fd_long_zz_dec( u );                                           \
+      if( FD_UNLIKELY( z<INT_MIN || z>INT_MAX ) )                              \
+        FD_LOG_ERR(( "value for %s is out of bonuds", key ));                  \
+      config->esection edot ekey = (int)z;                                     \
+      return 1;                                                                \
+    }                                                                          \
   } while( 0 )
 
   ENTRY_STR   ( , ,                     name                                                      );
@@ -343,90 +318,6 @@ replace( char *       in,
     ulong after_len = strlen( ( const char * ) after );
     fd_memcpy( replace + sub_len, after, after_len );
     in[ total_len ] = '\0';
-  }
-}
-
-static void
-config_parse_array( const char * path,
-                    config_t * config,
-                    char * section,
-                    char * key,
-                    int * in_array,
-                    char * value ) {
-  char * end = value + strlen( value ) - 1;
-  while( FD_UNLIKELY( *end == ' ' ) ) end--;
-  if( FD_LIKELY( *end == ']' ) ) {
-    *end = '\0';
-    *in_array = 0;
-  }
-
-  char * saveptr;
-  char * token = strtok_r( value, ",", &saveptr );
-  while( token ) {
-    while( FD_UNLIKELY( *token == ' ' ) ) token++;
-    char * end = token + strlen( token ) - 1;
-    while( FD_UNLIKELY( *end == ' ' ) ) end--;
-    *(end+1) = '\0';
-    if( FD_LIKELY( end > token ) ) {
-      if( FD_UNLIKELY( !parse_key_value( config, section, key, token ) ) ) {
-        if( FD_UNLIKELY( path == NULL ) ) {
-          FD_LOG_ERR(( "Error while parsing the embedded configuration. The configuration had an unrecognized key [%s.%s].", section, key ));
-        } else {
-          FD_LOG_ERR(( "Error while parsing user configuration TOML file at %s. The configuration had an unrecognized key [%s.%s].", path, section, key ));
-        }
-      }
-    }
-    token = strtok_r( NULL, ",", &saveptr );
-  }
-}
-
-static void
-config_parse_line( const char * path,
-                   uint         lineno,
-                   char *       line,
-                   char *       section,
-                   int *        in_array,
-                   char *       key,
-                   config_t *   out ) {
-  while( FD_LIKELY( *line == ' ' ) ) line++;
-  if( FD_UNLIKELY( *line == '#' || *line == '\0' || *line == '\n' ) ) return;
-
-  if( FD_UNLIKELY( *in_array ) ) {
-    config_parse_array( path, out, section, key, in_array, line );
-    return;
-  }
-
-  if( FD_UNLIKELY( *line == '[' ) ) {
-    char * end = strchr( line, ']' );
-    if( FD_UNLIKELY( !end ) ) FD_LOG_ERR(( "invalid line %u: no closing bracket `%s`", lineno, line ));
-    if( FD_UNLIKELY( *(end+1) != '\0' ) ) FD_LOG_ERR(( "invalid line %u: no newline after closing bracket `%s`", lineno, line ));
-    *end = '\0';
-    strcpy( section, line + 1 );
-    return;
-  }
-
-  char * equals = strchr( line, '=' );
-  if( FD_UNLIKELY( !equals ) ) FD_LOG_ERR(( "invalid line %u: no equal character `%s`", lineno, line ));
-
-  char * value = equals + 1;
-  while( FD_LIKELY( *value == ' ' ) ) value++;
-  while ( FD_UNLIKELY( equals > line && *(equals - 1) == ' ' ) ) equals--;
-
-  *equals = '\0';
-  strcpy( key, line );
-
-  if( FD_UNLIKELY( *value == '[' ) ) {
-    *in_array = 1;
-    value++;
-    config_parse_array( path, out, section, key, in_array, value );
-  } else {
-    if( FD_UNLIKELY( !parse_key_value( out, section, key, value ) ) ) {
-      if( FD_UNLIKELY( path == NULL ) ) {
-        FD_LOG_ERR(( "Error while parsing the embedded configuration. The configuration had an unrecognized key [%s.%s].", section, key ));
-      } else {
-        FD_LOG_ERR(( "Error while parsing user configuration TOML file at %s. The configuration had an unrecognized key [%s.%s].", path, section, key ));
-      }
-    }
   }
 }
 
@@ -613,7 +504,7 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
       ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
       if( FD_UNLIKELY( __x==ULONG_MAX ) ) FD_LOG_ERR(( "obj.%lu.%s was not set", obj->id, name )); \
       __x; }))
-  
+
   ulong sz = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, "sz" );
   if( sz!=ULONG_MAX ) {
     return sz;
