@@ -116,6 +116,7 @@ struct fd_replay_tile_ctx {
   ulong        max_workers;
 
   ulong funk_seed;
+  fd_latest_vote_t * latest_votes;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -139,6 +140,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_replay_align(), fd_replay_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FORKS_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -226,7 +228,7 @@ after_frag( void *             _ctx,
 
       fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
       fork->slot_ctx.slot_bank.slot      = ctx->curr_slot;
-
+      fork->slot_ctx.latest_votes        = ctx->latest_votes;
       fd_funk_txn_xid_t xid;
 
       fd_memcpy(xid.uc, ctx->blockhash.uc, sizeof(fd_funk_txn_xid_t));
@@ -303,20 +305,13 @@ after_frag( void *             _ctx,
       fd_bank_hash_cmp_insert( bank_hash_cmp, ctx->curr_slot, bank_hash, 1 );
 
       /* Try to move the bank hash comparison window forward */
-      while (1) {
-        ulong *children, nchildren, parent_slot = bank_hash_cmp->slot;
-        if ( fd_blockstore_next_slot_query( ctx->replay->blockstore, parent_slot, &children, &nchildren ) == FD_BLOCKSTORE_OK ) {
-          for (ulong i = 0; i < nchildren; i++) {
-            if( FD_LIKELY( fd_bank_hash_cmp_check( bank_hash_cmp, children[i] ) ) ) {
-              bank_hash_cmp->slot = children[i];
-              break;
-            }
-          }
-        } else {
-          FD_LOG_WARNING( ("failed at getting children of slot %lu", parent_slot) );
+      ulong parent_slot = bank_hash_cmp->slot;
+      for (ulong i = parent_slot; i <= ctx->curr_slot; i++) {
+        if( FD_LIKELY( fd_bank_hash_cmp_check( bank_hash_cmp, i ) ) ) {
+          bank_hash_cmp->slot = i;
         }
-        if(bank_hash_cmp->slot == parent_slot) break;
       }
+
       fd_bank_hash_cmp_unlock( bank_hash_cmp );
     }
   } FD_SCRATCH_SCOPE_END;
@@ -515,7 +510,8 @@ unprivileged_init( fd_topo_t *      topo,
     adding any setup here. */
   ctx->epoch_ctx_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
   void * replay_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_align(), fd_replay_footprint() );
-  void *       forks_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FORKS_MAX ) );
+  void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FORKS_MAX ) );
+  void * latest_votes_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint() );
 
   fd_scratch_attach( smem, fmem, SCRATCH_MAX, SCRATCH_DEPTH );
 
@@ -649,6 +645,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* add it to the frontier */
   fd_fork_frontier_ele_insert( ctx->replay->forks->frontier, replay_slot, ctx->replay->forks->pool );
+
+  ctx->latest_votes = fd_latest_vote_deque_join( fd_latest_vote_deque_new( latest_votes_mem ) );
+  ctx->slot_ctx->latest_votes = ctx->latest_votes;
 
   /* Set up store tile input */
   fd_topo_link_t * store_in_link = &topo->links[ tile->in_link_id[ STORE_IN_IDX ] ];
