@@ -1786,13 +1786,11 @@ process_vote_state_update( ulong                         vote_acct_idx,
       if( FD_LIKELY( ctx->epoch_ctx->bank_hash_cmp ) ) {
         fd_bank_hash_cmp_t * bank_hash_cmp = ctx->slot_ctx->epoch_ctx->bank_hash_cmp;
         fd_bank_hash_cmp_lock( bank_hash_cmp );
-        FD_LOG_NOTICE(("inserting theirs %lu", lockout->slot));
         fd_bank_hash_cmp_insert( bank_hash_cmp, lockout->slot, &vote_state_update->hash, 0 );
         if( vote_state_update->has_root ) {
           fd_bank_hash_cmp_entry_t * curr =
               fd_bank_hash_cmp_map_query( bank_hash_cmp->map, vote_state_update->root, NULL );
           if( FD_LIKELY( curr ) ) {
-            FD_LOG_NOTICE( ( "rooting %lu", vote_state_update->root ) );
             curr->rooted = 1;
           }
         }

@@ -167,8 +167,6 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 
     /* Upsert the vote into ghost. */
  
-    FD_LOG_NOTICE( ( "upserting vote: %lu %32J %lu", slot_hash.slot, slot_hash.hash.hash, stake ) );
-
     fd_ghost_replay_vote_upsert( bft->ghost, &slot_hash, node_pubkey, stake );
 
     /* Update the stake for the root. */

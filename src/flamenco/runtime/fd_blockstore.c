@@ -895,7 +895,6 @@ fd_blockstore_shred_query_copy_data( fd_blockstore_t * blockstore, ulong slot, u
 
 fd_block_t *
 fd_blockstore_block_query( fd_blockstore_t * blockstore, ulong slot ) {
-  __asm__("int $3");
   fd_blockstore_slot_map_t * query =
       fd_blockstore_slot_map_query( fd_blockstore_slot_map( blockstore ), slot, NULL );
   if( FD_UNLIKELY( !query || query->block.data_gaddr == 0 ) ) return NULL;

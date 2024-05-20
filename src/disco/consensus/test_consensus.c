@@ -442,8 +442,6 @@ main( int argc, char ** argv ) {
                    _page_sz,
                    numa_idx ) );
 
-  fd_wksp_t * funk_wksp = fd_wksp_attach("funk");
-
   fd_wksp_t * wksp = fd_wksp_new_anonymous(
       fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
@@ -457,8 +455,11 @@ main( int argc, char ** argv ) {
     FD_LOG_ERR( ( "For now, both live (archive shredcap) and sim (replay shredcap) need to restore "
                   "a funk for the snapshot." ) );
   }
+  fd_wksp_t * funk_wksp = fd_wksp_attach( "funk" );
+  FD_TEST( funk_wksp );
+  fd_wksp_reset( funk_wksp, 0 );
   FD_LOG_NOTICE( ( "fd_wksp_restore %s", restore ) );
-  int err = fd_wksp_restore( wksp, restore, TEST_CONSENSUS_MAGIC );
+  int err = fd_wksp_restore( funk_wksp, restore, TEST_CONSENSUS_MAGIC );
   if( err ) FD_LOG_ERR( ( "fd_wksp_restore failed: error %d", err ) );
   FD_LOG_DEBUG( ( "Finish restore funk" ) );
 
@@ -469,8 +470,8 @@ main( int argc, char ** argv ) {
   fd_wksp_tag_query_info_t funk_info;
   fd_funk_t *              funk     = NULL;
   ulong                    funk_tag = FD_FUNK_MAGIC;
-  if( fd_wksp_tag_query( wksp, &funk_tag, 1, &funk_info, 1 ) > 0 ) {
-    void * shmem = fd_wksp_laddr_fast( wksp, funk_info.gaddr_lo );
+  if( fd_wksp_tag_query( funk_wksp, &funk_tag, 1, &funk_info, 1 ) > 0 ) {
+    void * shmem = fd_wksp_laddr_fast( funk_wksp, funk_info.gaddr_lo );
     funk         = fd_funk_join( shmem );
   }
   if( funk == NULL ) FD_LOG_ERR( ( "failed to join a funky" ) );
@@ -479,10 +480,13 @@ main( int argc, char ** argv ) {
   /* blockstore                                                         */
   /**********************************************************************/
 
+  fd_wksp_t * blockstore_wksp = fd_wksp_attach( "blockstore" );
+  FD_TEST( blockstore_wksp );
+  fd_wksp_reset( blockstore_wksp, (uint)FD_BLOCKSTORE_MAGIC );
   void * blockstore_mem = fd_wksp_alloc_laddr(
-      wksp, fd_blockstore_align(), fd_blockstore_footprint(), TEST_CONSENSUS_MAGIC );
+      blockstore_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
   fd_blockstore_t * blockstore = fd_blockstore_join( fd_blockstore_new(
-      blockstore_mem, TEST_CONSENSUS_MAGIC, FD_BLOCKSTORE_MAGIC, 1 << 17, 1 << 13, 22 ) );
+      blockstore_mem, FD_BLOCKSTORE_MAGIC, FD_BLOCKSTORE_MAGIC, 1 << 17, 1 << 13, 22 ) );
   FD_TEST( blockstore );
 
   /**********************************************************************/
@@ -530,7 +534,8 @@ main( int argc, char ** argv ) {
 
   void * latest_votes_mem = fd_wksp_alloc_laddr(
       wksp, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint(), TEST_CONSENSUS_MAGIC );
-  fd_latest_vote_t * latest_votes = fd_latest_vote_deque_join(fd_latest_vote_deque_new( latest_votes_mem ));
+  fd_latest_vote_t * latest_votes =
+      fd_latest_vote_deque_join( fd_latest_vote_deque_new( latest_votes_mem ) );
 
   /**********************************************************************/
   /* roots                                                              */
@@ -581,12 +586,12 @@ main( int argc, char ** argv ) {
       fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &snapshot_fork->slot_ctx, valloc ) );
   FD_TEST( snapshot_slot_ctx );
 
-  snapshot_slot_ctx->epoch_ctx = epoch_ctx;
-  snapshot_slot_ctx->acc_mgr    = acc_mgr;
-  snapshot_slot_ctx->blockstore = blockstore;
-  snapshot_slot_ctx->valloc     = valloc;
+  snapshot_slot_ctx->epoch_ctx    = epoch_ctx;
+  snapshot_slot_ctx->acc_mgr      = acc_mgr;
+  snapshot_slot_ctx->blockstore   = blockstore;
+  snapshot_slot_ctx->valloc       = valloc;
   snapshot_slot_ctx->latest_votes = latest_votes;
-  snapshot_slot_ctx->roots = roots;
+  snapshot_slot_ctx->roots        = roots;
 
   fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
 
@@ -626,11 +631,11 @@ main( int argc, char ** argv ) {
   fd_runtime_cleanup_incinerator( snapshot_slot_ctx );
   ulong snapshot_slot = snapshot_slot_ctx->slot_bank.slot;
   FD_LOG_NOTICE( ( "snapshot_slot: %lu", snapshot_slot ) );
-
   bank_hash_cmp->slot                         = snapshot_slot + 1;
   snapshot_fork->slot                         = snapshot_slot;
   snapshot_slot_ctx->slot_bank.collected_fees = 0;
   snapshot_slot_ctx->slot_bank.collected_rent = 0;
+  
   FD_TEST( !fd_runtime_sysvar_cache_load( snapshot_slot_ctx ) );
 
   fd_features_restore( snapshot_slot_ctx );
@@ -677,7 +682,7 @@ main( int argc, char ** argv ) {
   bft->snapshot_slot = snapshot_slot;
   fd_bft_epoch_stake_update( bft, epoch_ctx );
 
-  bft->root = snapshot_slot;
+  bft->root         = snapshot_slot;
   bft->rooted_stake = 0;
 
   bft->acc_mgr    = acc_mgr;
@@ -750,8 +755,7 @@ main( int argc, char ** argv ) {
 
   void * repair_mem =
       fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(), TEST_CONSENSUS_MAGIC );
-  fd_repair_t * repair =
-      fd_repair_join( fd_repair_new( repair_mem, TEST_CONSENSUS_MAGIC ) );
+  fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, TEST_CONSENSUS_MAGIC ) );
 
   fd_repair_config_t repair_config;
   repair_config.public_key  = &public_key;
@@ -850,8 +854,7 @@ main( int argc, char ** argv ) {
 
   void * gossip_shmem =
       fd_wksp_alloc_laddr( wksp, fd_gossip_align(), fd_gossip_footprint(), TEST_CONSENSUS_MAGIC );
-  fd_gossip_t * gossip =
-      fd_gossip_join( fd_gossip_new( gossip_shmem, TEST_CONSENSUS_MAGIC ) );
+  fd_gossip_t * gossip = fd_gossip_join( fd_gossip_new( gossip_shmem, TEST_CONSENSUS_MAGIC ) );
 
   fd_gossip_config_t gossip_config;
   gossip_config.public_key  = &public_key;

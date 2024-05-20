@@ -11,7 +11,7 @@
 #include "keywords.h"
 #include "fd_block_to_json.h"
 
-#define API_VERSION "1.17.6"
+#define API_VERSION "1.17.33-fd"
 
 #define CRLF "\r\n"
 #define MATCH_STRING(_text_,_text_sz_,_str_) (_text_sz_ == sizeof(_str_)-1 && memcmp(_text_, _str_, sizeof(_str_)-1) == 0)
