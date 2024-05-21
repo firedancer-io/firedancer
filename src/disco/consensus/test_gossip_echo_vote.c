@@ -193,8 +193,9 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
           memcpy(sign_addr + SIGNATURE_SZ, voter_sig, SIGNATURE_SZ);
           fd_gossip_push_value( arg_->gossip, data, NULL );
           static ulong echo_cnt = 0;
-          FD_LOG_NOTICE( ("Echo gossip vote#%lu: from=%32J, gossip_pubkey=%32J, txn_acct_cnt=%u(readonly_s=%u, readonly_us=%u), sign_cnt=%u, sign_off=%u | instruction#0: program=%32J",
+          FD_LOG_NOTICE( ("Echo gossip vote#%lu: root=%lu, from=%32J, gossip_pubkey=%32J, txn_acct_cnt=%u(readonly_s=%u, readonly_us=%u), sign_cnt=%u, sign_off=%u | instruction#0: program=%32J",
                           echo_cnt++,
+                          vote_instr.inner.compact_update_vote_state.root,
                           &vote->from,
                           arg_->gossip_config->public_key,
                           parsed_txn->acct_addr_cnt,
@@ -279,8 +280,6 @@ typedef struct gossip_targ gossip_targ_t;
     msgs[i].msg_hdr.msg_namelen = sizeof( struct sockaddr_in6 );                                   \
   }
 
-//static int
-//gossip_thread( FD_PARAM_UNUSED int argc, char ** argv ) {
 void*
 gossip_thread( void* arg ) {
   gossip_targ_t * _arg      = (gossip_targ_t *)arg;
@@ -434,7 +433,6 @@ main( int argc, char ** argv ) {
   /**********************************************************************/
 
   gossip_targ_t gossip_targ = { .gossip_fd = gossip_sockfd, .valloc = valloc, .gossip = gossip };
-  //FD_TEST( fd_tile_exec_new( 1, gossip_thread, 0, fd_type_pun( &gossip_targ ) ) );
   pthread_t t;
   pthread_create(&t, NULL, gossip_thread, &gossip_targ);
   while( FD_LIKELY( 1 /* !fd_tile_shutdown_flag */ ) );
