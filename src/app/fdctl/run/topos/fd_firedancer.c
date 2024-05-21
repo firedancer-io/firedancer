@@ -275,6 +275,7 @@ fd_topo_firedancer( config_t * _config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
       strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
       strncpy( tile->replay.incremental, config->tiles.replay.incremental, sizeof(tile->replay.incremental) );
+      strncpy( tile->replay.capture, config->tiles.replay.capture, sizeof(tile->replay.capture) );
       tile->replay.snapshot_slot = ULONG_MAX; /* Determine when we load the snapshot */
       tile->replay.tpool_thread_count =  config->tiles.replay.tpool_thread_count;
 

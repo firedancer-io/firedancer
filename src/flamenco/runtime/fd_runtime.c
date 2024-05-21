@@ -1429,6 +1429,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
     fd_execute_txn_task_info_t * task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
     fd_execute_txn_task_info_t * wave_task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
     ulong wave_task_infos_cnt = 0;
+
     int res = fd_runtime_prepare_txns_phase1( slot_ctx, task_infos, txns, txn_cnt );
     if( res != 0 ) {
       FD_LOG_WARNING(("Fail prep 1"));
@@ -1478,6 +1479,9 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
         return res;
       }
 
+      for( ulong j = 0UL; j < wave_task_infos_cnt; j++ ) {
+        slot_ctx->signature_cnt += wave_task_infos[j].txn_ctx->txn_descriptor->signature_cnt;
+      }
       wave_time += fd_log_wallclock();
       double wave_time_ms = (double)wave_time * 1e-6;
       cum_wave_time_ms += wave_time_ms;
