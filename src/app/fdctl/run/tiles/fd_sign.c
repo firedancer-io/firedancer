@@ -80,9 +80,19 @@ during_frag( void * _ctx,
       fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], 130UL );
       break;
     case FD_KEYGUARD_ROLE_GOSSIP:
+      if( sz>FD_KEYGUARD_SIGN_REQ_MTU ) {
+        FD_LOG_WARNING(("Corrupt gossip signing message with size %lu", sz));
+        *opt_filter = 1;
+        return;
+      }
       fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], sz );
       break;
     case FD_KEYGUARD_ROLE_REPAIR:
+      if( sz>FD_KEYGUARD_SIGN_REQ_MTU ) {
+        FD_LOG_WARNING(("Corrupt repair signing message with size %lu", sz));
+        *opt_filter = 1;
+        return;
+      }
       fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], sz );
       break;
     default:
