@@ -17,11 +17,10 @@ FD_PROTOTYPES_BEGIN
 /* Role definitions ***************************************************/
 
 #define FD_KEYGUARD_ROLE_VOTER   (0)  /* vote transaction sender */
-#define FD_KEYGUARD_ROLE_GOSSIP  (1)  /* gossip participant */
+#define FD_KEYGUARD_ROLE_GOSSIP_REPAIR  (1)  /* gossip/repair participant */
 #define FD_KEYGUARD_ROLE_LEADER  (2)  /* block producer (shreds) */
 #define FD_KEYGUARD_ROLE_TLS     (3)  /* TLS peer (certificate verify) */
 #define FD_KEYGUARD_ROLE_X509_CA (4)  /* self-signed cert CA */
-#define FD_KEYGUARD_ROLE_REPAIR  (5)
 
 /* Type confusion/ambiguity checks ************************************/
 
@@ -38,12 +37,12 @@ FD_PROTOTYPES_BEGIN
      tls_cv:      TLS 1.3 certificate verify payload
      x509_csr:    X.509 certificate signing request */
 
-FD_FN_PURE int fd_keyguard_payload_matches_txn_msg   ( uchar const * data, ulong sz );
-FD_FN_PURE int fd_keyguard_payload_matches_gossip_msg( uchar const * data, ulong sz );
-FD_FN_PURE int fd_keyguard_payload_matches_shred     ( uchar const * data, ulong sz );
-FD_FN_PURE int fd_keyguard_payload_matches_tls_cv    ( uchar const * data, ulong sz );
-FD_FN_PURE int fd_keyguard_payload_matches_x509_csr  ( uchar const * data, ulong sz );
-FD_FN_PURE int fd_keyguard_payload_matches_ping_msg  ( uchar const * data, ulong sz );
+FD_FN_PURE int fd_keyguard_payload_matches_txn_msg          ( uchar const * data, ulong sz );
+FD_FN_PURE int fd_keyguard_payload_matches_gossip_repair_msg( uchar const * data, ulong sz );
+FD_FN_PURE int fd_keyguard_payload_matches_shred            ( uchar const * data, ulong sz );
+FD_FN_PURE int fd_keyguard_payload_matches_tls_cv           ( uchar const * data, ulong sz );
+FD_FN_PURE int fd_keyguard_payload_matches_x509_csr         ( uchar const * data, ulong sz );
+FD_FN_PURE int fd_keyguard_payload_matches_ping_msg         ( uchar const * data, ulong sz );
 
 /* fd_keyguard_payload_check_ambiguous returns 1 if the given byte array
    could be susceptible to fake signing (false positives allowed).  This
@@ -58,7 +57,7 @@ fd_keyguard_payload_check_ambiguous( uchar const * data,
                                      ulong         sz ) {
   int match_cnt =
       ( !!fd_keyguard_payload_matches_txn_msg   ( data, sz ) )
-    + ( !!fd_keyguard_payload_matches_gossip_msg( data, sz ) )
+    + ( !!fd_keyguard_payload_matches_gossip_repair_msg( data, sz ) )
     + ( !!fd_keyguard_payload_matches_shred     ( data, sz ) )
     + ( !!fd_keyguard_payload_matches_tls_cv    ( data, sz ) )
     + ( !!fd_keyguard_payload_matches_x509_csr  ( data, sz ) );

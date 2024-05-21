@@ -26,8 +26,10 @@
 #define CONTACT_IN_IDX  1
 #define STAKE_IN_IDX    2
 #define STORE_IN_IDX    3
+#define SIGN_IN_IDX     4
 
 #define NET_OUT_IDX   0
+#define SIGN_OUT_IDX  1
 
 #define MAX_REPAIR_PEERS 40200UL
 #define MAX_BUFFER_SIZE  ( MAX_REPAIR_PEERS * sizeof(fd_shred_dest_wire_t))
@@ -95,6 +97,7 @@ struct fd_repair_tile_ctx {
   fd_stake_ci_t * stake_ci;
 
   fd_mux_context_t * mux;
+  fd_keyguard_client_t keyguard_client[1];
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
@@ -274,6 +277,15 @@ repair_shred_deliver_fail( fd_pubkey_t const * id FD_PARAM_UNUSED,
   FD_LOG_WARNING(( "repair failed to get shred - slot: %lu, shred_index: %u, reason: %u", slot, shred_index, reason ));
 }
 
+void
+repair_signer( void *        signer_ctx,
+               uchar         signature[ static 64 ],
+               uchar const * buffer,
+               ulong         len ) {
+  fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *) signer_ctx;
+  fd_keyguard_client_sign( ctx->keyguard_client, signature, buffer, len );
+}
+
 static void
 before_frag( void * _ctx FD_PARAM_UNUSED,
              ulong  in_idx,
@@ -438,17 +450,19 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
 
-  if( FD_UNLIKELY( tile->in_cnt != 4 ||
+  if( FD_UNLIKELY( tile->in_cnt != 5 ||
                    strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_repair")     ||
                    strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "gossip_repai" ) ||
                    strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX ] ].name,   "stake_out" )     ||
-                   strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX ] ].name,   "store_repair" ) ) ) {
+                   strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX ] ].name,   "store_repair" ) ||
+                   strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ].name,    "sign_repair" ) ) ) {
     FD_LOG_ERR(( "repair tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
   }
 
-  if( FD_UNLIKELY( tile->out_cnt != 1 ||
-                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name, "repair_net" ) ) ) {
+  if( FD_UNLIKELY( tile->out_cnt != 2 ||
+                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name,  "repair_net" ) ||
+                   strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].name, "repair_sign" ) ) ) {
     FD_LOG_ERR(( "repair tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
   }
@@ -487,6 +501,16 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_net_create_packet_header_template( ctx->intake_hdr, FD_REPAIR_MAX_PACKET_SIZE, ctx->repair_intake_addr.addr, ctx->src_mac_addr, ctx->repair_intake_listen_port );
   fd_net_create_packet_header_template( ctx->serve_hdr, FD_REPAIR_MAX_PACKET_SIZE, ctx->repair_serve_addr.addr, ctx->src_mac_addr, ctx->repair_serve_listen_port );
+
+  fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ];
+  fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ];
+  if ( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
+                                                        sign_out->mcache,
+                                                        sign_out->dcache,
+                                                        sign_in->mcache,
+                                                        sign_in->dcache ) ) == NULL ) {
+    FD_LOG_ERR(( "Keyguard join failed" ));
+  }
 
   fd_topo_link_t * netmux_link = &topo->links[ tile->in_link_id[ 0 ] ];
 
@@ -550,6 +574,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_config.serv_send_fun = repair_send_serve_packet;
   ctx->repair_config.serv_get_shred_fun = repair_get_shred;
   ctx->repair_config.serv_get_parent_fun = repair_get_parent;
+  ctx->repair_config.sign_fun = repair_signer;
+  ctx->repair_config.sign_arg = ctx;
 
   if( fd_repair_set_config( ctx->repair, &ctx->repair_config ) ) {
     FD_LOG_ERR( ( "error setting repair config" ) );
