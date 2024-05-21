@@ -420,9 +420,15 @@ main( int argc, char ** argv ) {
 
   FD_TEST( !fd_gossip_set_config( gossip, &gossip_config ) );
 
+  uint entrypoints[16];
   fd_gossip_peer_addr_t _gossip_peer_addr;
-  FD_TEST( !fd_gossip_add_active_peer( gossip,
-                                       resolve_hostport( gossip_peer_addr, &_gossip_peer_addr ) ) );
+  resolve_hostport( gossip_peer_addr, &_gossip_peer_addr );
+  entrypoints[0] = _gossip_peer_addr.addr;
+  ushort port = fd_ushort_bswap(_gossip_peer_addr.port);
+  fd_gossip_set_entrypoints( gossip, entrypoints, 1, &port);
+
+  //FD_TEST( !fd_gossip_add_active_peer( gossip,
+  //                                     resolve_hostport( gossip_peer_addr, &_gossip_peer_addr ) ) );
 
   fd_gossip_update_addr( gossip, &gossip_config.my_addr );
   fd_gossip_settime( gossip, fd_log_wallclock() );
