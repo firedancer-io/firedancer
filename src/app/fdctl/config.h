@@ -243,6 +243,7 @@ typedef struct {
       char  snapshot[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
+      char  capture[ PATH_MAX ];
       ulong tpool_thread_count;
       ulong funk_sz_gb;
       ulong funk_txn_max;

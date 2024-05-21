@@ -13,7 +13,7 @@ cleanup() {
   sudo killall -9 -q solana-validator || true
   sudo killall -9 -q fddev || true
   fddev configure fini all >/dev/null 2>&1 || true
-  # rm -rf "$TMPDIR"
+  rm -rf "$TMPDIR"
 }
 
 trap cleanup EXIT SIGINT SIGTERM
