@@ -192,7 +192,9 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
           memcpy(sign_addr, validator_sig, SIGNATURE_SZ);
           memcpy(sign_addr + SIGNATURE_SZ, voter_sig, SIGNATURE_SZ);
           fd_gossip_push_value( arg_->gossip, data, NULL );
-          FD_LOG_NOTICE( ("Echo gossip vote: from=%32J, gossip_pubkey=%32J, txn_acct_cnt=%u(readonly_s=%u, readonly_us=%u), sign_cnt=%u, sign_off=%u | instruction#0: program=%32J",
+          static ulong echo_cnt = 0;
+          FD_LOG_NOTICE( ("Echo gossip vote#%lu: from=%32J, gossip_pubkey=%32J, txn_acct_cnt=%u(readonly_s=%u, readonly_us=%u), sign_cnt=%u, sign_off=%u | instruction#0: program=%32J",
+                          echo_cnt++,
                           &vote->from,
                           arg_->gossip_config->public_key,
                           parsed_txn->acct_addr_cnt,
