@@ -1287,7 +1287,7 @@ int fd_epoch_schedule_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_uint8_decode_preflight( ctx );
+  err = fd_bincode_bool_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -1298,7 +1298,7 @@ int fd_epoch_schedule_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
 void fd_epoch_schedule_decode_unsafe( fd_epoch_schedule_t * self, fd_bincode_decode_ctx_t * ctx ) {
   fd_bincode_uint64_decode_unsafe( &self->slots_per_epoch, ctx );
   fd_bincode_uint64_decode_unsafe( &self->leader_schedule_slot_offset, ctx );
-  fd_bincode_uint8_decode_unsafe( &self->warmup, ctx );
+  fd_bincode_bool_decode_unsafe( &self->warmup, ctx );
   fd_bincode_uint64_decode_unsafe( &self->first_normal_epoch, ctx );
   fd_bincode_uint64_decode_unsafe( &self->first_normal_slot, ctx );
 }
@@ -1312,7 +1312,7 @@ int fd_epoch_schedule_decode_offsets( fd_epoch_schedule_off_t * self, fd_bincode
   err = fd_bincode_uint64_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   self->warmup_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_bincode_uint8_decode_preflight( ctx );
+  err = fd_bincode_bool_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   self->first_normal_epoch_off = (uint)( (ulong)ctx->data - (ulong)data );
   err = fd_bincode_uint64_decode_preflight( ctx );
@@ -1335,7 +1335,7 @@ void fd_epoch_schedule_walk( void * w, fd_epoch_schedule_t const * self, fd_type
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_epoch_schedule", level++ );
   fun( w, &self->slots_per_epoch, "slots_per_epoch", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->leader_schedule_slot_offset, "leader_schedule_slot_offset", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  fun( w, &self->warmup, "warmup", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+  fun( w, &self->warmup, "warmup", FD_FLAMENCO_TYPE_BOOL, "bool", level );
   fun( w, &self->first_normal_epoch, "first_normal_epoch", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->first_normal_slot, "first_normal_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_epoch_schedule", level-- );
@@ -1356,7 +1356,7 @@ int fd_epoch_schedule_encode( fd_epoch_schedule_t const * self, fd_bincode_encod
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->leader_schedule_slot_offset, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint8_encode( (uchar)(self->warmup), ctx );
+  err = fd_bincode_bool_encode( (uchar)(self->warmup), ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->first_normal_epoch, ctx );
   if( FD_UNLIKELY( err ) ) return err;

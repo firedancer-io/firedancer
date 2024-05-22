@@ -1391,35 +1391,6 @@ update_validator_identity( ulong                       vote_acct_idx,
   return set_vote_account_state( vote_acct_idx, vote_account, vote_state, ctx );
 }
 
-// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L843
-static int
-update_commission( ulong                       vote_acct_idx,
-                   fd_borrowed_account_t *     vote_account,
-                   uchar                       commission,
-                   fd_pubkey_t const *         signers[static FD_TXN_SIG_MAX],
-                   fd_exec_instr_ctx_t const * ctx /* feature_set */ ) {
-  int rc;
-
-  fd_valloc_t scratch_valloc = fd_scratch_virtual();
-
-  // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L959-L965
-  fd_vote_state_versioned_t vote_state_versioned;
-  rc = get_state( vote_account, scratch_valloc, &vote_state_versioned );
-  if( FD_UNLIKELY( rc ) ) return rc;
-  convert_to_current( &vote_state_versioned, scratch_valloc );
-  fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
-
-  // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L832
-  rc = verify_authorized_signer( &vote_state->authorized_withdrawer, signers );
-  if( FD_UNLIKELY( rc ) ) return rc;
-
-  // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L837
-  vote_state->commission = commission;
-
-  // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L839
-  return set_vote_account_state( vote_acct_idx, vote_account, vote_state, ctx );
-}
-
 // https://github.com/firedancer-io/solana/blob/v1.17/programs/vote/src/vote_state/mod.rs#L874
 static int
 is_commission_update_allowed( ulong slot, fd_epoch_schedule_t const * epoch_schedule ) {
@@ -1431,6 +1402,50 @@ is_commission_update_allowed( ulong slot, fd_epoch_schedule_t const * epoch_sche
   } else {
     return 1;
   }
+}
+
+// https://github.com/anza-xyz/agave/blob/master/programs/vote/src/vote_state/mod.rs#L916
+static int
+update_commission( ulong                       vote_acct_idx,
+                   fd_borrowed_account_t *     vote_account,
+                   uchar                       commission,
+                   fd_pubkey_t const *         signers[static FD_TXN_SIG_MAX],
+                   fd_epoch_schedule_t const * epoch_schedule,
+                   fd_sol_sysvar_clock_t const * clock,
+                   fd_exec_instr_ctx_t const * ctx /* feature_set */ ) {
+  int rc;
+
+  fd_valloc_t scratch_valloc = fd_scratch_virtual();
+  // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L959-L965
+  fd_vote_state_versioned_t vote_state_versioned;
+  rc = get_state( vote_account, scratch_valloc, &vote_state_versioned );
+  if( FD_UNLIKELY( rc ) ) return rc;
+  convert_to_current( &vote_state_versioned, scratch_valloc );
+  fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
+
+  // https://github.com/anza-xyz/agave/blob/master/programs/vote/src/vote_state/mod.rs#L927
+  int enforce_commission_update_rule = 1;
+  if (FD_FEATURE_ACTIVE( ctx->slot_ctx, allow_commission_decrease_at_any_time ))
+    enforce_commission_update_rule = commission > vote_state->commission;
+
+  // https://github.com/anza-xyz/agave/blob/master/programs/vote/src/vote_state/mod.rs#L940
+  if( FD_LIKELY( enforce_commission_update_rule && FD_FEATURE_ACTIVE( ctx->slot_ctx,
+        commission_updates_only_allowed_in_first_half_of_epoch ) ) ) {
+    if( FD_UNLIKELY( !is_commission_update_allowed( clock->slot, epoch_schedule ) ) ) {
+      ctx->txn_ctx->custom_err = FD_VOTE_ERR_COMMISSION_UPDATE_TOO_LATE;
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    }
+  }
+
+  // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L832
+  rc = verify_authorized_signer( &vote_state->authorized_withdrawer, signers );
+  if( FD_UNLIKELY( rc ) ) return rc;
+
+  // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L837
+  vote_state->commission = commission;
+
+  // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L839
+  return set_vote_account_state( vote_acct_idx, vote_account, vote_state, ctx );
 }
 
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L889
@@ -2368,6 +2383,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
   }
 
   case fd_vote_instruction_enum_update_commission: {
+
     fd_epoch_schedule_t const * epoch_schedule = fd_sysvar_cache_epoch_schedule( ctx.slot_ctx->sysvar_cache );
     if( FD_UNLIKELY( !epoch_schedule ) )
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
@@ -2375,17 +2391,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
     if( FD_UNLIKELY( !clock ) )
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
-    // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L150-L155
-    if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx.slot_ctx,
-                                      commission_updates_only_allowed_in_first_half_of_epoch ) ) ) {
-      if( FD_UNLIKELY( !is_commission_update_allowed( clock->slot, epoch_schedule ) ) ) {
-        ctx.txn_ctx->custom_err = FD_VOTE_ERR_COMMISSION_UPDATE_TOO_LATE;
-        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-      }
-    }
-
-    // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L157-L162
-    rc = update_commission( 0, me, instruction.inner.update_commission, signers, &ctx );
+    // https://github.com/anza-xyz/agave/blob/master/programs/vote/src/vote_processor.rs#L145
+    rc = update_commission( 0, me, instruction.inner.update_commission, signers, epoch_schedule, clock, &ctx );
 
     break;
   }

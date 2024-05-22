@@ -156,7 +156,7 @@
       "fields": [
         { "name": "slots_per_epoch", "type": "ulong" },
         { "name": "leader_schedule_slot_offset", "type": "ulong" },
-        { "name": "warmup", "type": "uchar" },
+        { "name": "warmup", "type": "bool" },
         { "name": "first_normal_epoch", "type": "ulong" },
         { "name": "first_normal_slot", "type": "ulong" }
       ],
