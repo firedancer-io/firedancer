@@ -185,8 +185,11 @@ fd_keyguard_payload_matches_gossip_repair_msg( uchar const * data,
 
 #define MIN_PRUNE_MSG_SZ 80
   if ( sz>=MIN_PRUNE_MSG_SZ ) {
-    ulong prune_len = *(ulong *)(data + 32);
-    if ( sz==(MIN_PRUNE_MSG_SZ + prune_len * 32) ) return 1;
+    ulong prune_len = FD_LOAD( ulong, data + 32UL );
+    ulong checked_sz = fd_ulong_sat_mul( prune_len, 32UL );
+    checked_sz = fd_ulong_sat_add( checked_sz, MIN_PRUNE_MSG_SZ );
+    if( checked_sz == ULONG_MAX ) return 0;
+    if( sz==checked_sz ) return 1;
   }
 #undef MIN_PRUNE_MSG_SZ
 
