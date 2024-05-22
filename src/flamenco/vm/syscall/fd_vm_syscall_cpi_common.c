@@ -52,7 +52,8 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
   }
 
   /* Calculate summary information for the account list */
-  ulong starting_lamports = 0UL;
+  ulong starting_lamports_h = 0UL;
+  ulong starting_lamports_l = 0UL;
   uchar acc_idx_seen[256] = {0};
   for( ulong i=0UL; i<VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr ); i++ ) {
     VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_meta = &cpi_acct_metas[i];
@@ -72,7 +73,10 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
           acc_idx_seen[j] = 1;
           if( out_instr->borrowed_accounts[i]->const_meta ) {
             /* TODO: what if this account is borrowed as writable? */
-            starting_lamports += out_instr->borrowed_accounts[i]->const_meta->info.lamports;
+            fd_uwide_inc( 
+              &starting_lamports_h, &starting_lamports_l,
+              starting_lamports_h, starting_lamports_l,
+              out_instr->borrowed_accounts[i]->const_meta->info.lamports );
           }
         }
 
@@ -102,7 +106,8 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
   out_instr->data_sz = (ushort)VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instr );
   out_instr->data = (uchar *)cpi_instr_data;
   out_instr->acct_cnt = (ushort)VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr );
-  out_instr->starting_lamports = starting_lamports;
+  out_instr->starting_lamports_h = starting_lamports_h;
+  out_instr->starting_lamports_l = starting_lamports_l;
 
   return FD_VM_SUCCESS;
 }
@@ -471,8 +476,17 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   err = VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(vm, instruction_accounts, instruction_accounts_cnt, acc_infos, acct_info_cnt, callee_account_keys, caller_accounts_to_update, &caller_accounts_to_update_len);
   if( FD_UNLIKELY( err ) ) return err;
 
-  ulong caller_lamports = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr );
-  if( caller_lamports!=vm->instr_ctx->instr->starting_lamports ) return FD_VM_ERR_INSTR_ERR;
+  /* Check that the caller lamports haven't changed */
+  ulong caller_lamports_h = 0UL;
+  ulong caller_lamports_l = 0UL;
+
+  err = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr, &caller_lamports_h, &caller_lamports_l );
+  if ( FD_UNLIKELY( err ) ) return FD_VM_ERR_INSTR_ERR;
+
+  if( caller_lamports_h != vm->instr_ctx->instr->starting_lamports_h || 
+      caller_lamports_l != vm->instr_ctx->instr->starting_lamports_l ) {
+    return FD_VM_ERR_INSTR_ERR;
+  }
   
   /* Set the transaction compute meter to be the same as the VM's compute meter,
      so that the callee cannot use compute units that the caller has already used. */
@@ -496,9 +510,16 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     if( FD_UNLIKELY( err ) ) return err;
   }
 
-  caller_lamports = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr );
-  if( caller_lamports!=vm->instr_ctx->instr->starting_lamports ) return FD_VM_ERR_INSTR_ERR;
+  caller_lamports_h = 0UL;
+  caller_lamports_l = 0UL;
+  err = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr, &caller_lamports_h, &caller_lamports_l );
+  if ( FD_UNLIKELY( err ) ) return FD_VM_ERR_INSTR_ERR;
 
+  if( caller_lamports_h != vm->instr_ctx->instr->starting_lamports_h || 
+      caller_lamports_l != vm->instr_ctx->instr->starting_lamports_l ) {
+    return FD_VM_ERR_INSTR_ERR;
+  }
+  
   return FD_VM_SUCCESS;
 }
 
