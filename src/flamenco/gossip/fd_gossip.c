@@ -206,7 +206,7 @@ struct fd_push_state {
     ulong drop_cnt;                /* Number of values dropped due to pruning */
     ulong prune_keys[FD_PRUNE_NUM_KEYS];     /* Keys used for bloom filter for pruning */
     ulong prune_bits[FD_PRUNE_NUM_BITS/64U]; /* Bits table used for bloom filter for pruning */
-    uchar packet[FD_ETH_PAYLOAD_MAX]; /* Partially assembled packet containing a fd_gossip_push_msg_t */
+    uchar packet[PACKET_DATA_SIZE]; /* Partially assembled packet containing a fd_gossip_push_msg_t */
     uchar * packet_end_init;       /* Initial end of the packet when there are zero values */
     uchar * packet_end;            /* Current end of the packet including values so far */
     ulong next;
@@ -566,10 +566,10 @@ fd_gossip_send_raw( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, void
 static void
 fd_gossip_send( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, fd_gossip_msg_t * gmsg ) {
   /* Encode the data */
-  uchar buf[FD_ETH_PAYLOAD_MAX];
+  uchar buf[PACKET_DATA_SIZE];
   fd_bincode_encode_ctx_t ctx;
   ctx.data = buf;
-  ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+  ctx.dataend = buf + PACKET_DATA_SIZE;
   if ( fd_gossip_msg_encode( gmsg, &ctx ) ) {
     FD_LOG_WARNING(("fd_gossip_msg_encode failed"));
     return;
@@ -733,10 +733,10 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
   *wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* convert to ms */
 
   /* Sign it */
-  uchar buf[FD_ETH_PAYLOAD_MAX];
+  uchar buf[PACKET_DATA_SIZE];
   fd_bincode_encode_ctx_t ctx;
   ctx.data = buf;
-  ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+  ctx.dataend = buf + PACKET_DATA_SIZE;
   if ( fd_crds_data_encode( &crd->data, &ctx ) ) {
     FD_LOG_WARNING(("fd_crds_data_encode failed"));
     return;
@@ -1069,10 +1069,10 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   if (memcmp(pubkey->uc, glob->public_key->uc, 32U) == 0)
     /* Ignore my own messages */
     return;
-  uchar buf[FD_ETH_PAYLOAD_MAX];
+  uchar buf[PACKET_DATA_SIZE];
   fd_bincode_encode_ctx_t ctx;
   ctx.data = buf;
-  ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+  ctx.dataend = buf + PACKET_DATA_SIZE;
   if ( fd_crds_data_encode( &crd->data, &ctx ) ) {
     FD_LOG_ERR(("fd_crds_data_encode failed"));
     return;
@@ -1089,7 +1089,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
 
   /* Perform the value hash to get the value table key */
   ctx.data = buf;
-  ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+  ctx.dataend = buf + PACKET_DATA_SIZE;
   if ( fd_crds_value_encode( crd, &ctx ) ) {
     FD_LOG_ERR(("fd_crds_value_encode failed"));
     return;
@@ -1141,10 +1141,8 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   msg = fd_value_table_insert(glob->values, &key);
   msg->wallclock = wallclock;
   fd_hash_copy(&msg->origin, pubkey);
+
   /* We store the serialized form for convenience */
-  if( datalen > PACKET_DATA_SIZE ) {
-    FD_LOG_ERR(( "deserialized packet is too big" ));
-  }
   fd_memcpy(msg->data, buf, datalen);
   msg->datalen = datalen;
 
@@ -1216,10 +1214,10 @@ fd_gossip_handle_prune(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
      msg->pubkey.uc for this, but that pubkey is actually ignored. The
      inclusion of two pubkeys in this message is confusing and
      problematic. */
-  uchar buf[FD_ETH_PAYLOAD_MAX];
+  uchar buf[PACKET_DATA_SIZE];
   fd_bincode_encode_ctx_t ctx;
   ctx.data = buf;
-  ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+  ctx.dataend = buf + PACKET_DATA_SIZE;
   if ( fd_gossip_prune_sign_data_encode( &signdata, &ctx ) ) {
     FD_LOG_ERR(("fd_gossip_prune_sign_data_encode failed"));
     return;
@@ -1327,10 +1325,10 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   fd_gossip_pull_resp_t * pull_resp = &gmsg.inner.pull_resp;
   fd_hash_copy( &pull_resp->pubkey, glob->public_key );
 
-  uchar buf[FD_ETH_PAYLOAD_MAX];
+  uchar buf[PACKET_DATA_SIZE];
   fd_bincode_encode_ctx_t ctx;
   ctx.data = buf;
-  ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+  ctx.dataend = buf + PACKET_DATA_SIZE;
   if ( fd_gossip_msg_encode( &gmsg, &ctx ) ) {
     FD_LOG_WARNING(("fd_gossip_msg_encode failed"));
     return;
@@ -1523,7 +1521,7 @@ fd_gossip_refresh_push_states( fd_gossip_t * glob, fd_pending_event_arg_t * arg 
     fd_hash_copy( &push_msg->pubkey, glob->public_key );
     fd_bincode_encode_ctx_t ctx;
     ctx.data = s->packet;
-    ctx.dataend = s->packet + FD_ETH_PAYLOAD_MAX;
+    ctx.dataend = s->packet + PACKET_DATA_SIZE;
     if ( fd_gossip_msg_encode( &gmsg, &ctx ) ) {
       FD_LOG_WARNING(("fd_gossip_msg_encode failed"));
       return;
@@ -1627,10 +1625,10 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
   fd_gossip_sign_crds_value(glob, &crd);
 
   /* Perform the value hash to get the value table key */
-  uchar buf[FD_ETH_PAYLOAD_MAX];
+  uchar buf[PACKET_DATA_SIZE];
   fd_bincode_encode_ctx_t ctx;
   ctx.data = buf;
-  ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+  ctx.dataend = buf + PACKET_DATA_SIZE;
   if ( fd_crds_value_encode( &crd, &ctx ) ) {
     FD_LOG_ERR(("fd_crds_value_encode failed"));
     return -1;
@@ -1657,10 +1655,8 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
   msg = fd_value_table_insert(glob->values, &key);
   msg->wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* convert to ms */
   fd_hash_copy(&msg->origin, glob->public_key);
+
   /* We store the serialized form for convenience */
-  if( datalen > PACKET_DATA_SIZE ) {
-    FD_LOG_ERR(( "deserialized packet is too big" ));
-  }
   fd_memcpy(msg->data, buf, datalen);
   msg->datalen = datalen;
 
@@ -1738,10 +1734,10 @@ fd_gossip_make_prune( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     fd_hash_copy(&signdata.destination, &peerval->id);
     signdata.wallclock = wc;
 
-    uchar buf[FD_ETH_PAYLOAD_MAX];
+    uchar buf[PACKET_DATA_SIZE];
     fd_bincode_encode_ctx_t ctx;
     ctx.data = buf;
-    ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+    ctx.dataend = buf + PACKET_DATA_SIZE;
     if ( fd_gossip_prune_sign_data_encode( &signdata, &ctx ) ) {
       FD_LOG_ERR(("fd_gossip_prune_sign_data_encode failed"));
       return;
