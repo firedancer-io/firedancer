@@ -161,10 +161,12 @@ int
 fd_bn254_g1_scalar_mul_syscall( uchar       out[64],
                                 uchar const in[],
                                 ulong       in_sz ) {
-  /* Expected 96-byte input (1 point + 1 scalar). Pad input with 0s. */
-  if( FD_UNLIKELY( in_sz > 96UL ) ) return -1;
+  /* Expected 96-byte input (1 point + 1 scalar). Pad input with 0s.
+     Note: Agave checks for 128 bytes instead of 96. We have to do the same check.
+     https://github.com/anza-xyz/agave/blob/master/sdk/program/src/alt_bn128/mod.rs#L17 */
+  if( FD_UNLIKELY( in_sz > 128UL ) ) return -1;
   uchar FD_ALIGNED buf[96] = { 0 };
-  fd_memcpy( buf, in, in_sz );
+  fd_memcpy( buf, in, fd_ulong_min( in_sz, 96UL ) );
 
   /* Validate inputs */
   fd_bn254_g1_t r[1], a[1];
@@ -186,14 +188,21 @@ int
 fd_bn254_pairing_is_one_syscall( uchar       out[32],
                                  uchar const in[],
                                  ulong       in_sz ) {
-  /* Expected a multiple of 192-byte input (n G1 + n G2). */
-  if( FD_UNLIKELY( (in_sz%192UL)!=0 ) ) return -1;
+  /* Expected a multiple of 192-byte input (n G1 + n G2)...
+     ... you'd thing:
+     https://github.com/anza-xyz/agave/blob/master/sdk/program/src/alt_bn128/mod.rs#L242
+     192usize.checked_rem(192) -> Some(0)
+     so this check is actually useless.
 
+     Not needed:
+     if( FD_UNLIKELY( (in_sz%192UL)!=0 ) ) return -1; */
   ulong elements_len = in_sz / 192UL;
   fd_bn254_g1_t p[FD_BN254_PAIRING_BATCH_MAX];
   fd_bn254_g2_t q[FD_BN254_PAIRING_BATCH_MAX];
 
+  /* Important: set r=1 so that the result of 0 pairings is 1. */
   fd_bn254_fp12_t r[1];
+  fd_bn254_fp12_set_one( r );
 
   for( ulong i=0; i<elements_len; i+=FD_BN254_PAIRING_BATCH_MAX ) {
     ulong sz = fd_ulong_min( elements_len-i, FD_BN254_PAIRING_BATCH_MAX );
