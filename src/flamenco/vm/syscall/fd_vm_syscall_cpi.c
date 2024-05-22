@@ -1,6 +1,7 @@
 #include "fd_vm_syscall.h"
 
 #include "../../../ballet/ed25519/fd_curve25519.h"
+#include "../../../util/bits/fd_uwide.h"
 #include "../../runtime/fd_account.h"
 #include "../../runtime/fd_account_old.h" /* FIXME: remove this and update to use new APIs */
 
