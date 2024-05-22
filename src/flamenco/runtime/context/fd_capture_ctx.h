@@ -26,6 +26,7 @@ struct __attribute__((aligned(FD_CAPTURE_CTX_ALIGN))) fd_capture_ctx {
   int                      dump_insn_to_pb;
   char const *             dump_insn_sig_filter;
   char const *             dump_insn_output_dir;
+  ulong                    dump_insn_start_slot;
 };
 typedef struct fd_capture_ctx fd_capture_ctx_t;
 #define FD_CAPTURE_CTX_FOOTPRINT ( sizeof(fd_capture_ctx_t) + fd_solcap_writer_footprint() )

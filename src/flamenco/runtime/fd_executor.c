@@ -1120,7 +1120,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
         }
       }
 
-      if (txn_ctx->capture_ctx && txn_ctx->capture_ctx->dump_insn_to_pb) {
+      if (txn_ctx->capture_ctx && txn_ctx->capture_ctx->dump_insn_to_pb && txn_ctx->slot_ctx->slot_bank.slot >= txn_ctx->capture_ctx->dump_insn_start_slot) {
         // Capture the input and convert it into a Protobuf message
         dump_instr_to_protobuf(txn_ctx, &instrs[i], i);
       }
