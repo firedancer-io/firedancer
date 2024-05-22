@@ -1,5 +1,5 @@
 #define FD_SCRATCH_USE_HANDHOLDING 1
-#include "fd_snapshot_load.h"
+#include "fd_snapshot_loader.h"
 #include "fd_snapshot_http.h"
 #include "fd_snapshot_restore_private.h"
 #include "../runtime/fd_acc_mgr.h"
@@ -32,16 +32,9 @@ struct fd_snapshot_dumper {
   fd_exec_epoch_ctx_t * epoch_ctx;
   fd_exec_slot_ctx_t *  slot_ctx;
 
-  int                 snapshot_fd;
-  fd_zstd_dstream_t * zstd;
-  fd_tar_reader_t *   tar;
+  int snapshot_fd;
 
-  fd_io_istream_obj_t    vsrc;
-  fd_snapshot_http_t *   vhttp;
-  fd_io_istream_file_t * vfile;
-  fd_io_istream_zstd_t * vzstd;
-  fd_tar_io_reader_t *   vtar;
-
+  fd_snapshot_loader_t *  loader;
   fd_snapshot_restore_t * restore;
 
   int                      yaml_fd;
@@ -71,45 +64,14 @@ fd_snapshot_dumper_new( void * mem ) {
 static void *
 fd_snapshot_dumper_delete( fd_snapshot_dumper_t * dumper ) {
 
+  if( dumper->loader ) {
+    fd_snapshot_loader_delete( dumper->loader );
+    dumper->loader = NULL;
+  }
+
   if( dumper->restore ) {
     fd_snapshot_restore_delete( dumper->restore );
     dumper->restore = NULL;
-  }
-
-  if( dumper->vtar ) {
-    fd_tar_io_reader_delete( dumper->vtar );
-    dumper->vtar = NULL;
-  }
-
-  if( dumper->vzstd ) {
-    fd_io_istream_zstd_delete( dumper->vzstd );
-    dumper->vzstd = NULL;
-  }
-
-  if( dumper->vfile ) {
-    fd_io_istream_file_delete( dumper->vfile );
-    dumper->vfile = NULL;
-  }
-
-  if( dumper->vhttp ) {
-    fd_snapshot_http_delete( dumper->vhttp );
-    dumper->vhttp = NULL;
-  }
-
-  if( dumper->tar ) {
-    fd_tar_reader_delete( dumper->tar );
-    dumper->tar = NULL;
-  }
-
-  if( dumper->zstd ) {
-    fd_zstd_dstream_delete( dumper->zstd );
-    dumper->zstd = NULL;
-  }
-
-  if( dumper->snapshot_fd>=0 ) {
-    if( FD_UNLIKELY( 0!=close( dumper->snapshot_fd ) ) )
-      FD_LOG_WARNING(( "close(%d) failed (%d-%s)", dumper->snapshot_fd, errno, fd_io_strerror( errno ) ));
-    dumper->snapshot_fd = -1;
   }
 
   if( dumper->slot_ctx ) {
@@ -297,15 +259,8 @@ fd_snapshot_dumper_release( fd_snapshot_dumper_t * d ) {
 static int
 fd_snapshot_dumper_advance( fd_snapshot_dumper_t * dumper ) {
 
-  fd_tar_io_reader_t * vtar = dumper->vtar;
-
-  int untar_err = fd_tar_io_reader_advance( vtar );
-  if( untar_err==0 )     { /* ok */ }
-  else if( untar_err<0 ) { /* EOF */ return -1; }
-  else {
-    FD_LOG_WARNING(( "Failed to load snapshot (%d-%s)", untar_err, fd_io_strerror( untar_err ) ));
-    return untar_err;
-  }
+  int advance_err = fd_snapshot_loader_advance( dumper->loader );
+  if( FD_UNLIKELY( advance_err ) ) return advance_err;
 
   int collect_err = fd_snapshot_dumper_release( dumper );
   if( FD_UNLIKELY( collect_err ) ) return collect_err;
@@ -330,130 +285,6 @@ struct fd_snapshot_dump_args {
 
 typedef struct fd_snapshot_dump_args fd_snapshot_dump_args_t;
 
-/* FD_SNAPSHOT_SRC_{...} specifies the type of snapshot source. */
-
-#define FD_SNAPSHOT_SRC_FILE (1)
-#define FD_SNAPSHOT_SRC_HTTP (2)
-
-/* fd_snapshot_src_t specifies the snapshot source. */
-
-struct fd_snapshot_src {
-  int type;
-  union {
-
-    struct {
-      char const * path;
-    } file;
-
-    struct {
-      uint         ip4;
-      ushort       port;
-      char const * path;
-      ulong        path_len;
-    } http;
-
-  };
-};
-
-typedef struct fd_snapshot_src fd_snapshot_src_t;
-
-/* fd_snapshot_src_parse determines the source from the given cstr. */
-
-fd_snapshot_src_t *
-fd_snapshot_src_parse( fd_snapshot_src_t * src,
-                       char *              cstr ) {
-
-  fd_memset( src, 0, sizeof(fd_snapshot_src_t) );
-
-  if( 0==strncmp( cstr, "http://", 7 ) ) {
-    static char const url_regex[] = "^http://([^:/[:space:]]+)(:[[:digit:]]+)?(/.*)?$";
-    regex_t url_re;
-    FD_TEST( 0==regcomp( &url_re, url_regex, REG_EXTENDED ) );
-    regmatch_t group[4] = {0};
-    int url_re_res = regexec( &url_re, cstr, 4, group, 0 );
-    regfree( &url_re );
-    if( FD_UNLIKELY( url_re_res!=0 ) ) {
-      FD_LOG_WARNING(( "Bad URL: %s", cstr ));
-      return NULL;
-    }
-
-    regmatch_t * m_hostname = &group[1];
-    regmatch_t * m_port     = &group[2];
-    regmatch_t * m_path     = &group[3];
-
-    src->type = FD_SNAPSHOT_SRC_HTTP;
-    src->http.path     = cstr + m_path->rm_so;
-    src->http.path_len = (ulong)m_path->rm_eo - (ulong)m_path->rm_so;
-
-    /* Resolve port to IPv4 address */
-
-    if( m_port->rm_so==m_port->rm_eo ) {
-      src->http.port = 80;
-    } else {
-      char port_cstr[7] = {0};
-      strncpy( port_cstr, cstr + m_port->rm_so,
-               fd_ulong_min( 7, (ulong)m_port->rm_eo - (ulong)m_port->rm_so ) );
-      char * port = port_cstr + 1;
-      char * end;
-      ulong port_ul = strtoul( port, &end, 10 );
-      if( FD_UNLIKELY( *end!='\0' ) ) {
-        FD_LOG_WARNING(( "Bad port: %s", port ));
-        return NULL;
-      }
-      if( FD_UNLIKELY( port_ul>65535 ) ) {
-        FD_LOG_WARNING(( "Port out of range: %lu", port_ul ));
-        return NULL;
-      }
-      src->http.port = (ushort)port_ul;
-    }
-
-    /* Resolve host to IPv4 address */
-
-    int sep = cstr[ m_hostname->rm_eo ];
-    cstr[ m_hostname->rm_eo ] = '\0';
-    char * hostname = cstr + m_hostname->rm_so;
-
-    struct sockaddr_in default_addr = {
-      .sin_family = AF_INET,
-      .sin_port   = htons( 80 ),
-      .sin_addr   = { .s_addr = htonl( INADDR_ANY ) }
-    };
-    struct addrinfo hints = {
-      .ai_family   = AF_INET,
-      .ai_socktype = SOCK_STREAM,
-      .ai_addr     = fd_type_pun( &default_addr ),
-      .ai_addrlen  = sizeof(struct sockaddr_in)
-    };
-    struct addrinfo * result = NULL;
-    int lookup_res = getaddrinfo( hostname, NULL, &hints, &result );
-    if( FD_UNLIKELY( lookup_res ) ) {
-      FD_LOG_WARNING(( "getaddrinfo(%s) failed (%d-%s)", hostname, lookup_res, gai_strerror( lookup_res ) ));
-      return NULL;
-    }
-
-    cstr[ m_hostname->rm_eo ] = (char)sep;
-
-    for( struct addrinfo * rp = result; rp; rp = rp->ai_next ) {
-      if( rp->ai_family==AF_INET ) {
-        struct sockaddr_in * addr = (struct sockaddr_in *)rp->ai_addr;
-        src->http.ip4 = addr->sin_addr.s_addr;
-        freeaddrinfo( result );
-        return src;
-      }
-    }
-
-    FD_LOG_WARNING(( "Failed to resolve socket address for %s", hostname ));
-    freeaddrinfo( result );
-    return NULL;
-  } else {
-    src->type = FD_SNAPSHOT_SRC_FILE;
-    src->file.path = cstr;
-    return src;
-  }
-
-  __builtin_unreachable();
-}
-
 static int
 do_dump( fd_snapshot_dumper_t *    d,
          fd_snapshot_dump_args_t * args,
@@ -474,28 +305,6 @@ do_dump( fd_snapshot_dumper_t *    d,
   fd_wksp_usage_t wksp_usage[1] = {0};
   fd_wksp_usage( wksp, NULL, 0UL, wksp_usage );
 
-  switch( src->type ) {
-  case FD_SNAPSHOT_SRC_FILE:
-    d->snapshot_fd = open( args->snapshot, O_RDONLY );
-    if( FD_UNLIKELY( d->snapshot_fd<0 ) ) { FD_LOG_WARNING(( "open(%s) failed (%d-%s)", args->snapshot, errno, fd_io_strerror( errno ) )); return EXIT_FAILURE; }
-
-    d->vfile = fd_io_istream_file_new( fd_scratch_alloc( alignof(fd_io_istream_file_t), sizeof(fd_io_istream_file_t) ), d->snapshot_fd );
-    if( FD_UNLIKELY( !d->vfile ) ) { FD_LOG_WARNING(( "Failed to create fd_io_istream_file_t" )); return EXIT_FAILURE; }
-
-    d->vsrc = fd_io_istream_file_virtual( d->vfile );
-    break;
-  case FD_SNAPSHOT_SRC_HTTP:
-    d->vhttp = fd_snapshot_http_new( fd_scratch_alloc( alignof(fd_snapshot_http_t), sizeof(fd_snapshot_http_t) ), src->http.ip4, src->http.port );
-    if( FD_UNLIKELY( !d->vhttp ) ) { FD_LOG_WARNING(( "Failed to create fd_snapshot_http_t" )); return EXIT_FAILURE; }
-    fd_snapshot_http_set_path( d->vhttp, src->http.path, src->http.path_len );
-    d->vhttp->hops = (ushort)args->http_redirs;
-
-    d->vsrc = fd_io_istream_snapshot_http_virtual( d->vhttp );
-    break;
-  default:
-    __builtin_unreachable();
-  }
-
   if( args->csv_path ) {
     d->csv_fd = open( args->csv_path, O_WRONLY|O_CREAT|O_TRUNC, 0644 );
     if( FD_UNLIKELY( d->csv_fd<0 ) ) { FD_LOG_WARNING(( "open(%s) failed (%d-%s)", args->csv_path, errno, fd_io_strerror( errno ) )); return EXIT_FAILURE; }
@@ -506,6 +315,11 @@ do_dump( fd_snapshot_dumper_t *    d,
     d->yaml_fd = open( args->manifest_path, O_WRONLY|O_CREAT|O_TRUNC, 0644 );
     if( FD_UNLIKELY( d->yaml_fd<0 ) ) { FD_LOG_WARNING(( "open(%s) failed (%d-%s)", args->manifest_path, errno, fd_io_strerror( errno ) )); return EXIT_FAILURE; }
   }
+
+  /* Create loader */
+
+  d->loader = fd_snapshot_loader_new( fd_scratch_alloc( fd_snapshot_loader_align(), fd_snapshot_loader_footprint( args->zstd_window_sz ) ), args->zstd_window_sz );
+  if( FD_UNLIKELY( !d->loader ) ) { FD_LOG_WARNING(( "Failed to create fd_snapshot_loader_t" )); return EXIT_FAILURE; }
 
   /* Create a high-quality hash seed for fd_funk */
 
@@ -521,6 +335,7 @@ do_dump( fd_snapshot_dumper_t *    d,
   ulong funk_tag = 42UL;
   d->funk = fd_funk_join( fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), funk_tag ), funk_tag, funk_seed, txn_max, rec_max ) );
   if( FD_UNLIKELY( !d->funk ) ) { FD_LOG_WARNING(( "Failed to create fd_funk_t" )); return EXIT_FAILURE; }
+  fd_funk_start_write( d->funk );
 
   /* Create a new processing context */
 
@@ -534,35 +349,28 @@ do_dump( fd_snapshot_dumper_t *    d,
   d->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT ), fd_alloc_virtual( d->alloc ) ) );
   if( FD_UNLIKELY( !d->slot_ctx ) ) { FD_LOG_WARNING(( "Failed to create fd_exec_slot_ctx_t" )); return EXIT_FAILURE; }
 
-  d->slot_ctx ->valloc = fd_alloc_virtual( d->alloc );
-  d->slot_ctx ->acc_mgr   = d->acc_mgr;
-  d->slot_ctx ->epoch_ctx = d->epoch_ctx;
-
-  void * restore_mem = fd_scratch_alloc( fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
-  if( FD_UNLIKELY( !restore_mem ) ) FD_LOG_ERR(( "Failed to allocate restore buffer" ));  /* unreachable */
-
-  /* Set up the snapshot reader */
+  d->slot_ctx->valloc = fd_alloc_virtual( d->alloc );
+  d->slot_ctx->acc_mgr   = d->acc_mgr;
+  d->slot_ctx->epoch_ctx = d->epoch_ctx;
 
   /* funk_txn is destroyed automatically when deleting fd_funk_t. */
+
   fd_funk_txn_xid_t funk_txn_xid = { .ul = { 1UL } };
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( d->funk, NULL, &funk_txn_xid, 1 );
   d->slot_ctx->funk_txn = funk_txn;
 
+  void * restore_mem = fd_scratch_alloc( fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
+  if( FD_UNLIKELY( !restore_mem ) ) FD_LOG_ERR(( "Failed to allocate restore buffer" ));  /* unreachable */
+
   d->restore = fd_snapshot_restore_new( restore_mem, d->acc_mgr, funk_txn, d->slot_ctx->valloc, d, fd_snapshot_dumper_on_manifest );
   if( FD_UNLIKELY( !d->restore ) ) { FD_LOG_WARNING(( "Failed to create fd_snapshot_restore_t" )); return EXIT_FAILURE; }
 
-  d->tar = fd_tar_reader_new( fd_scratch_alloc( alignof(fd_tar_reader_t), sizeof(fd_tar_reader_t) ), &fd_snapshot_restore_tar_vt, d->restore );
-  if( FD_UNLIKELY( !d->tar ) ) { FD_LOG_WARNING(( "Failed to create fd_tar_reader_t" )); return EXIT_FAILURE; }
+  /* Set up the snapshot loader */
 
-  uchar * zstd_mem = fd_scratch_alloc( fd_zstd_dstream_align(), fd_zstd_dstream_footprint( args->zstd_window_sz ) );
-  d->zstd = fd_zstd_dstream_new( zstd_mem, args->zstd_window_sz );
-  if( FD_UNLIKELY( !d->zstd ) ) { FD_LOG_WARNING(( "Failed to create fd_zstd_dstream_t" )); return EXIT_FAILURE; }
-
-  d->vzstd = fd_io_istream_zstd_new( fd_scratch_alloc( alignof(fd_io_istream_zstd_t), sizeof(fd_io_istream_zstd_t) ), d->zstd, d->vsrc );
-  if( FD_UNLIKELY( !d->vzstd ) ) { FD_LOG_WARNING(( "Failed to create fd_io_istream_zstd_t" )); return EXIT_FAILURE; }
-
-  d->vtar = fd_tar_io_reader_new( fd_scratch_alloc( alignof(fd_tar_io_reader_t), sizeof(fd_tar_io_reader_t) ), d->tar, fd_io_istream_zstd_virtual( d->vzstd ) );
-  if( FD_UNLIKELY( !d->vtar ) ) { FD_LOG_WARNING(( "Failed to create fd_tar_io_reader_t" )); return EXIT_FAILURE; }
+  if( FD_UNLIKELY( !fd_snapshot_loader_init( d->loader, d->restore, src ) ) ) {
+    FD_LOG_WARNING(( "fd_snapshot_loader_init failed" ));
+    return EXIT_FAILURE;
+  }
 
   d->want_manifest = (!!args->manifest_path);
   d->want_accounts = (!!args->csv_path);

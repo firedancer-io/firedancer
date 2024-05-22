@@ -1,7 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_snapshot_fd_snapshot_http_h
 #define HEADER_fd_src_flamenco_snapshot_fd_snapshot_http_h
 
-#include "fd_snapshot_load.h"
+#include "fd_snapshot_loader.h"
+#include "fd_snapshot_istream.h"
 
 /* fd_snapshot_http.h provides APIs for streaming download of Solana
    snapshots via HTTP.  It is currently hardcoded to use non-blocking
@@ -86,7 +87,7 @@ fd_snapshot_http_set_timeout( fd_snapshot_http_t * this,
 
 int
 fd_snapshot_http_set_path( fd_snapshot_http_t * this,
-                           char const *         path, 
+                           char const *         path,
                            ulong                path_len );
 
 int

@@ -21,11 +21,11 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/types/fd_solana_block.pb.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
-#include "../../flamenco/runtime/fd_snapshot_loader.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/program/fd_builtin_programs.h"
 #include "../../flamenco/shredcap/fd_shredcap.h"
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
+#include "../../flamenco/snapshot/fd_snapshot.h"
 
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"

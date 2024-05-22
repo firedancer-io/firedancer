@@ -68,7 +68,6 @@ void *
 fd_zstd_dstream_delete( fd_zstd_dstream_t * dstream ) {
 
   if( FD_UNLIKELY( !dstream ) ) return NULL;
-  fd_zstd_dstream_ctx( dstream );
 
   /* No need to inform libzstd */
 
