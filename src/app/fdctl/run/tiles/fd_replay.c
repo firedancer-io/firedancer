@@ -20,6 +20,7 @@
 #include "../../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../../../flamenco/stakes/fd_stakes.h"
 #include "../../../../flamenco/fd_flamenco.h"
+#include "fd_replay_notif.h"
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -38,8 +39,7 @@
 
 #define STORE_IN_IDX   (0UL)
 #define POH_OUT_IDX    (0UL)
-#define STORE_OUT_IDX  (1UL)
-
+#define NOTIF_OUT_IDX  (1UL)
 
 /* Scratch space estimates.
    TODO: Update constants and add explanation
@@ -59,26 +59,21 @@ struct fd_replay_tile_ctx {
   ulong       store_in_wmark;
 
   // PoH tile output defs
-  fd_frag_meta_t * poh_out_mcache;
-  ulong *          poh_out_sync;
-  ulong            poh_out_depth;
-  ulong            poh_out_seq;
-
   fd_wksp_t * poh_out_mem;
   ulong       poh_out_chunk0;
   ulong       poh_out_wmark;
   ulong       poh_out_chunk;
 
-  // Store tile output defs
-  fd_frag_meta_t * store_out_mcache;
-  ulong *          store_out_sync;
-  ulong            store_out_depth;
-  ulong            store_out_seq;
+  // Notification output defs
+  fd_frag_meta_t * notif_out_mcache;
+  ulong *          notif_out_sync;
+  ulong            notif_out_depth;
+  ulong            notif_out_seq;
 
-  fd_wksp_t * store_out_mem;
-  ulong       store_out_chunk0;
-  ulong       store_out_wmark;
-  ulong       store_out_chunk;
+  fd_wksp_t * notif_out_mem;
+  ulong       notif_out_chunk0;
+  ulong       notif_out_wmark;
+  ulong       notif_out_chunk;
 
   // Stake weights output link defs
   fd_frag_meta_t * stake_weights_out_mcache;
@@ -275,6 +270,36 @@ after_frag( void *             _ctx,
         FD_LOG_WARNING(("block finalize failed"));
         *opt_filter = 1;
         return;
+      }
+
+      // Notify for all the updated accounts
+      fd_replay_notif_msg_t * msg = NULL;
+      for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( ctx->replay->funk, fork->slot_ctx.funk_txn );
+           rec != NULL;
+           rec = fd_funk_txn_next_rec( ctx->replay->funk, rec ) ) {
+        if( !fd_funk_key_is_acc( rec->pair.key ) ) continue;
+        if( msg == NULL ) {
+          msg = fd_chunk_to_laddr( ctx->notif_out_mem, ctx->notif_out_chunk );
+          msg->type = FD_REPLAY_SAVED_TYPE;
+          msg->acct_saved.funk_xid = rec->pair.xid[0];
+          msg->acct_saved.acct_id_cnt = 0;
+        }
+        fd_memcpy( msg->acct_saved.acct_id[ msg->acct_saved.acct_id_cnt++ ].uc, rec->pair.key->uc, sizeof(fd_pubkey_t) );
+        if( msg->acct_saved.acct_id_cnt == FD_REPLAY_NOTIF_ACCT_MAX ) {
+          fd_mcache_publish( ctx->notif_out_mcache, ctx->notif_out_depth, ctx->notif_out_seq, 0UL, ctx->notif_out_chunk,
+                             sizeof(fd_replay_notif_msg_t), 0UL, 0UL, 0UL );
+          ctx->notif_out_seq   = fd_seq_inc( ctx->notif_out_seq, 1UL );
+          ctx->notif_out_chunk = fd_dcache_compact_next( ctx->notif_out_chunk, sizeof(fd_replay_notif_msg_t),
+                                                         ctx->notif_out_chunk0, ctx->notif_out_wmark );
+          msg = NULL;
+        }
+      }
+      if( msg ) {
+        fd_mcache_publish( ctx->notif_out_mcache, ctx->notif_out_depth, ctx->notif_out_seq, 0UL, ctx->notif_out_chunk,
+                           sizeof(fd_replay_notif_msg_t), 0UL, 0UL, 0UL );
+        ctx->notif_out_seq   = fd_seq_inc( ctx->notif_out_seq, 1UL );
+        ctx->notif_out_chunk = fd_dcache_compact_next( ctx->notif_out_chunk, sizeof(fd_replay_notif_msg_t),
+                                                       ctx->notif_out_chunk0, ctx->notif_out_wmark );
       }
 
       fd_blockstore_start_write( ctx->replay->blockstore );
@@ -483,8 +508,6 @@ static void
 during_housekeeping( void * _ctx ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
   (void)ctx;
-  // fd_mcache_seq_update( ctx->poh_out_sync, ctx->poh_out_seq );
-  // fd_mcache_seq_update( ctx->store_out_sync, ctx->store_out_seq );
 }
 
 static void
@@ -674,17 +697,21 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->store_in_chunk0 = fd_dcache_compact_chunk0( ctx->store_in_mem, store_in_link->dcache );
   ctx->store_in_wmark  = fd_dcache_compact_wmark( ctx->store_in_mem, store_in_link->dcache, store_in_link->mtu );
 
-  fd_topo_link_t * store_out_link = &topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ];
-  ctx->store_out_mem    = topo->workspaces[ topo->objs[ store_out_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->store_out_chunk0 = fd_dcache_compact_chunk0( ctx->store_out_mem, store_out_link->dcache );
-  ctx->store_out_wmark  = fd_dcache_compact_wmark( ctx->store_out_mem, store_out_link->dcache, store_out_link->mtu );
-  ctx->store_out_chunk  = ctx->store_out_chunk0;
-
   fd_topo_link_t * poh_out_link = &topo->links[ tile->out_link_id[ POH_OUT_IDX ] ];
   ctx->poh_out_mem    = topo->workspaces[ topo->objs[ poh_out_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->poh_out_chunk0 = fd_dcache_compact_chunk0( ctx->poh_out_mem, poh_out_link->dcache );
   ctx->poh_out_wmark  = fd_dcache_compact_wmark( ctx->poh_out_mem, poh_out_link->dcache, poh_out_link->mtu );
   ctx->poh_out_chunk  = ctx->poh_out_chunk0;
+
+  fd_topo_link_t * notif_out = &topo->links[ tile->out_link_id[ NOTIF_OUT_IDX ] ];
+  ctx->notif_out_mcache = notif_out->mcache;
+  ctx->notif_out_sync   = fd_mcache_seq_laddr( ctx->notif_out_mcache );
+  ctx->notif_out_depth  = fd_mcache_depth( ctx->notif_out_mcache );
+  ctx->notif_out_seq    = fd_mcache_seq_query( ctx->notif_out_sync );
+  ctx->notif_out_mem    = topo->workspaces[ topo->objs[ notif_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->notif_out_chunk0 = fd_dcache_compact_chunk0( ctx->notif_out_mem, notif_out->dcache );
+  ctx->notif_out_wmark  = fd_dcache_compact_wmark ( ctx->notif_out_mem, notif_out->dcache, notif_out->mtu );
+  ctx->notif_out_chunk  = ctx->notif_out_chunk0;
 
   /* Set up stake weights tile output */
   fd_topo_link_t * stake_weights_out = &topo->links[ tile->out_link_id_primary ];
