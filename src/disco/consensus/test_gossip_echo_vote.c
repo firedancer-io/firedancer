@@ -29,7 +29,6 @@
 #include "../../flamenco/repair/fd_repair.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
-#include "../../flamenco/runtime/fd_snapshot_loader.h"
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../flamenco/runtime/program/fd_vote_program.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"

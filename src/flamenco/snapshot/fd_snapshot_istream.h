@@ -1,11 +1,12 @@
-#ifndef HEADER_fd_src_flamenco_snapshot_fd_snapshot_load_h
-#define HEADER_fd_src_flamenco_snapshot_fd_snapshot_load_h
+#ifndef HEADER_fd_src_flamenco_snapshot_fd_snapshot_istream_h
+#define HEADER_fd_src_flamenco_snapshot_fd_snapshot_istream_h
 
-#include "fd_snapshot_restore.h"
+#include "../../util/archive/fd_tar.h"
 #include "../../ballet/zstd/fd_zstd.h"
 
-/* fd_snapshot_load.h manages a single-threaded streaming pipeline for
-   loading snapshots.
+/* Input stream API ***************************************************/
+
+/* Below are APIs to support the streaming read pipeline.
 
    TODO: The indirect call architecture used here is suboptimal.
          In the future, we'd want to use a fd_tango based message
@@ -13,9 +14,7 @@
          multiple cores.  This scales better, is more secure, faster,
          and more flexible.  However, it requires non-trivial tile
          orchestration, which is still being worked on at the time of
-         writing. */
-
-/* Input stream API ***************************************************/
+         writing.*/
 
 /* Below is an experimental object-oriented API for handling output
    streams of data.  It is dynamically dispatched (C++ style virtual
@@ -165,4 +164,4 @@ fd_tar_io_reader_advance( fd_tar_io_reader_t * this );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_snapshot_fd_snapshot_load_h */
+#endif /* HEADER_fd_src_flamenco_snapshot_fd_snapshot_istream_h */

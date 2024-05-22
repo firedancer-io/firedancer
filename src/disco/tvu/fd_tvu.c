@@ -69,7 +69,6 @@
 
 #include "fd_tvu.h"
 #include "../../flamenco/fd_flamenco.h"
-#include "../../flamenco/runtime/fd_snapshot_loader.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_eth.h"
@@ -77,6 +76,7 @@
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../flamenco/snapshot/fd_snapshot.h"
 #include "fd_replay.h"
 #ifdef FD_HAS_LIBMICROHTTP
 #include "../rpc/fd_rpc_service.h"
@@ -976,7 +976,7 @@ void snapshot_setup( char const * snapshot,
   }
 
   const char * p = strstr( snapshot, "incremental-snapshot-" );
-  fd_snapshot_type_t snapshot_type = FD_SNAPSHOT_TYPE_UNSPECIFIED;
+  int snapshot_type = FD_SNAPSHOT_TYPE_UNSPECIFIED;
   if( p != NULL ) {
     snapshot_type = FD_SNAPSHOT_TYPE_INCREMENTAL;
     ulong i, j;

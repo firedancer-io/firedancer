@@ -27,11 +27,6 @@ $(call add-hdrs,fd_rent_lists.h)
 
 $(call add-hdrs,fd_runtime.h fd_runtime_err.h)
 $(call add-objs,fd_runtime,fd_flamenco)
-
-ifdef FD_HAS_ZSTD
-$(call add-hdrs,fd_snapshot_loader.h)
-$(call add-objs,fd_snapshot_loader,fd_flamenco)
-endif
 endif
 
 $(call add-hdrs,fd_system_ids.h)

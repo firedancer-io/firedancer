@@ -1,5 +1,8 @@
-#include "fd_snapshot_load.h"
+#include "fd_snapshot_istream.h"
+#include "../../util/fd_util.h"
 #include <errno.h>
+
+#if FD_HAS_ZSTD
 
 /* fd_io_istream_zstd_t ***********************************************/
 
@@ -67,6 +70,7 @@ fd_io_istream_zstd_read( void *  _this,
 fd_io_istream_vt_t const fd_io_istream_zstd_vt =
   { .read = fd_io_istream_zstd_read };
 
+#endif /* FD_HAS_ZSTD */
 
 /* fd_io_istream_file_t ***********************************************/
 

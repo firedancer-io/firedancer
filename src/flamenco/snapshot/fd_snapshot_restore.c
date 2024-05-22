@@ -12,7 +12,7 @@
 
 /* Snapshot Restore Buffer Handling ***********************************/
 
-void
+static void
 fd_snapshot_restore_discard_buf( fd_snapshot_restore_t * self ) {
   /* self->buf might be NULL */
   fd_valloc_free( self->valloc, self->buf );
@@ -291,8 +291,7 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
   fd_bincode_destroy_ctx_t destroy = { .valloc = restore->valloc };
   fd_solana_accounts_db_fields_destroy( &accounts_db, &destroy );
 
-  /* Discard buffer to reclaim heap space (which could be used by
-     fd_funk accounts instead) */
+  /* Discard buffer to reclaim heap space */
 
   fd_snapshot_restore_discard_buf( restore );
 
@@ -309,7 +308,7 @@ fd_snapshot_restore_accv_prepare( fd_snapshot_restore_t * const restore,
                                   fd_tar_meta_t const *   const meta,
                                   ulong                   const real_sz ) {
 
-  if( FD_UNLIKELY( !fd_snapshot_restore_prepare_buf( restore, FD_SNAPSHOT_RESTORE_BUFSZ ) ) ) {
+  if( FD_UNLIKELY( !fd_snapshot_restore_prepare_buf( restore, sizeof(fd_solana_account_hdr_t) ) ) ) {
     FD_LOG_WARNING(( "Failed to allocate read buffer while restoring accounts from snapshot" ));
     return ENOMEM;
   }
