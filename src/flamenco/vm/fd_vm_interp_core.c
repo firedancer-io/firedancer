@@ -666,7 +666,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x95) /* FD_SBPF_OP_EXIT */
-    if( FD_UNLIKELY( !frame_cnt ) ) goto interp_halt; /* Exit program */
+    if( FD_UNLIKELY( !frame_cnt ) ) goto sigexit; /* Exit program */
     frame_cnt--;
     reg[6]   = shadow[ frame_cnt ].r6;
     reg[7]   = shadow[ frame_cnt ].r7;
@@ -833,6 +833,7 @@ sigsegv:     FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGSEGV;   got
 sigcost:     /* ic current */    cu = 0UL;        err = FD_VM_ERR_SIGCOST;   goto interp_halt;
 sigsyscall:  /* ic current */    /* cu current */ /* err current */          goto interp_halt;
 sigfpe:      FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGFPE;    goto interp_halt;
+sigexit:     FD_VM_INTERP_FAULT; cu++;           /* err current */           goto interp_halt;
 
 #undef FD_VM_INTERP_FAULT
 
