@@ -133,6 +133,15 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
                                       VM_SYSCALL_CPI_ACC_INFO_T const * account_info,
                                       fd_pubkey_t const * callee_acc_pubkey ) {
 
+  /* Consume compute units for the account data access */
+
+  /* FIXME: do we also need to consume the compute units if the account is not known? */
+  VM_SYSCALL_CPI_ACC_INFO_DATA( vm, account_info, caller_acc_data );
+  (void)caller_acc_data_vm_addr;
+
+  // FIXME: should this be FD_VM_CU_MEM_UPDATE? Changing this changes the CU behaviour from main
+  FD_VM_CU_UPDATE( vm, caller_acc_data_len / FD_VM_CPI_BYTES_PER_UNIT );
+
   fd_borrowed_account_t * callee_acc = NULL;
   int err = fd_instr_borrowed_account_modify(vm->instr_ctx, callee_acc_pubkey, 0, &callee_acc);
   if( FD_UNLIKELY( err ) ) {
@@ -148,13 +157,6 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
   /* Update the lamports */
   VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, account_info, caller_acc_lamports );
   if( callee_acc->meta->info.lamports!=*caller_acc_lamports ) callee_acc->meta->info.lamports = *caller_acc_lamports;
-
-  /* FIXME: do we also need to consume the compute units if the account is not known? */
-  VM_SYSCALL_CPI_ACC_INFO_DATA( vm, account_info, caller_acc_data );
-  (void)caller_acc_data_vm_addr;
-
-  // FIXME: should this be FD_VM_CU_MEM_UPDATE? Changing this changes the CU behaviour from main
-  FD_VM_CU_UPDATE( vm, caller_acc_data_len / FD_VM_CPI_BYTES_PER_UNIT );
 
   /* Update the account data, if the account data can be changed */
   int err1;
@@ -248,7 +250,8 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     /* If the account is known and executable, we only need to consume the compute units.
        Executable accounts can't be modified, so we don't need to update the callee account. */
     if( known_account && fd_account_is_executable( acc_meta ) ) {
-      FD_VM_CU_MEM_UPDATE( vm, acc_meta->dlen );
+      // FIXME: should this be FD_VM_CU_MEM_UPDATE? Changing this changes the CU behaviour from main (because of the base cost)
+      FD_VM_CU_UPDATE( vm, acc_meta->dlen / FD_VM_CPI_BYTES_PER_UNIT );
       continue;
     }
 
@@ -402,7 +405,8 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     FD_VM_MEM_HADDR_LD( vm, instruction_va, VM_SYSCALL_CPI_INSTR_ALIGN, VM_SYSCALL_CPI_INSTR_SIZE );
 
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
-    FD_VM_CU_MEM_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) );
+    // FIXME: should this be FD_VM_CU_MEM_UPDATE? Changing this changes the CU behaviour from main
+    FD_VM_CU_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT );
   }
 
   /* Derive PDA signers ************************************************/
