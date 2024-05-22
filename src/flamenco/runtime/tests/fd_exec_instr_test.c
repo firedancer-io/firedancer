@@ -14,6 +14,7 @@
 #include "../../../funk/fd_funk.h"
 #include "../../../util/bits/fd_float.h"
 #include <assert.h>
+#include "../sysvar/fd_sysvar_cache.h"
 
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
@@ -152,31 +153,6 @@ _load_account( fd_borrowed_account_t *           acc,
   memcpy( acc->meta->info.owner, state->owner, sizeof(fd_pubkey_t) );
 
   return 1;
-}
-
-/* Loads sysvars if they don't exist already */
-static void
-_load_sysvar( fd_exec_txn_ctx_t * txn_ctx,
-              fd_pubkey_t         sysvar_pubkey,
-              uchar             * sysvar_raw_data,
-              ulong               data_size ) {
-  FD_BORROWED_ACCOUNT_DECL(borrowed_account);
-
-  pb_bytes_array_t * data = fd_scratch_alloc(alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(data_size));
-  data->size = (pb_size_t) data_size;
-  memcpy( data->bytes, sysvar_raw_data, data_size );
-
-  fd_exec_test_acct_state_t acct_state = {0};
-  acct_state.lamports   = 1;
-  acct_state.data       = data;
-  acct_state.executable = 1;
-  acct_state.rent_epoch = 0;
-  acct_state.has_address = true;
-  acct_state.has_owner = true;
-  memcpy( acct_state.address, &sysvar_pubkey, sizeof(fd_pubkey_t) );
-  memcpy( acct_state.owner, &fd_sysvar_owner_id, sizeof(fd_pubkey_t) );
-
-  _load_account( borrowed_account, txn_ctx->acc_mgr, txn_ctx->funk_txn, &acct_state );
 }
 
 static int
@@ -363,55 +339,55 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   /* Add accounts to bpf program cache */
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
 
+  /* Restore sysvar cache */
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+
   /* Fill missing sysvar cache values with defaults */
   /* We create mock accounts for each of the sysvars and hardcode the data fields before loading it into the account manager */
   /* We use Agave sysvar defaults for data field values */
-  fd_bincode_encode_ctx_t encode_ctx;
-  ulong sz = 128;
-  uchar enc[sz]; memset( enc, 0, sz );
 
   /* Clock */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L466-L474
-  fd_sol_sysvar_clock_t sysvar_clock = {
-                                        .slot = 10,
-                                        .epoch_start_timestamp = 0,
-                                        .epoch = 0,
-                                        .leader_schedule_epoch = 0,
-                                        .unix_timestamp = 0
-                                      };
-  encode_ctx.data = enc;
-  encode_ctx.dataend = enc + sizeof(sysvar_clock);
-  fd_sol_sysvar_clock_encode( &sysvar_clock, &encode_ctx );
-  _load_sysvar( txn_ctx, fd_sysvar_clock_id, enc, sizeof(sysvar_clock) );
+  if( !slot_ctx->sysvar_cache->has_clock ) {
+    slot_ctx->sysvar_cache->has_clock = 1;
+    fd_sol_sysvar_clock_t sysvar_clock = {
+                                          .slot = 10,
+                                          .epoch_start_timestamp = 0,
+                                          .epoch = 0,
+                                          .leader_schedule_epoch = 0,
+                                          .unix_timestamp = 0
+                                        };
+    memcpy( slot_ctx->sysvar_cache->val_clock, &sysvar_clock, sizeof(fd_sol_sysvar_clock_t) );
+  }
 
   /* Epoch schedule */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L476-L483
-  fd_epoch_schedule_t sysvar_epoch_schedule = {
-                                                .slots_per_epoch = 432000,
-                                                .leader_schedule_slot_offset = 432000,
-                                                .warmup = 1,
-                                                .first_normal_epoch = 14,
-                                                .first_normal_slot = 524256
-                                              };
-  encode_ctx.data = enc;
-  encode_ctx.dataend = enc + sizeof(sysvar_epoch_schedule);
-  fd_epoch_schedule_encode( &sysvar_epoch_schedule, &encode_ctx );
-  _load_sysvar( txn_ctx, fd_sysvar_epoch_schedule_id, enc, sizeof(sysvar_epoch_schedule) );
+  if ( !slot_ctx->sysvar_cache->has_epoch_schedule ) {
+    slot_ctx->sysvar_cache->has_epoch_schedule = 1;
+    fd_epoch_schedule_t sysvar_epoch_schedule = {
+                                                  .slots_per_epoch = 432000,
+                                                  .leader_schedule_slot_offset = 432000,
+                                                  .warmup = 1,
+                                                  .first_normal_epoch = 14,
+                                                  .first_normal_slot = 524256
+                                                };
+    memcpy( slot_ctx->sysvar_cache->val_epoch_schedule, &sysvar_epoch_schedule, sizeof(fd_epoch_schedule_t) );
+  }
 
   /* Rent */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L487-L500
-  fd_rent_t sysvar_rent = {
-                            .lamports_per_uint8_year = 3480,
-                            .exemption_threshold = 2.0,
-                            .burn_percent = 50
-                          };
-  encode_ctx.data = enc;
-  encode_ctx.dataend = enc + sizeof(sysvar_rent);
-  fd_rent_encode( &sysvar_rent, &encode_ctx );
-  _load_sysvar( txn_ctx, fd_sysvar_rent_id, enc, sizeof(sysvar_rent) );
+  if ( !slot_ctx->sysvar_cache->has_rent ) {
+    slot_ctx->sysvar_cache->has_rent = 1;
+    fd_rent_t sysvar_rent = {
+                              .lamports_per_uint8_year = 3480,
+                              .exemption_threshold = 2.0,
+                              .burn_percent = 50
+                            };
+    memcpy( slot_ctx->sysvar_cache->val_rent, &sysvar_rent, sizeof(fd_rent_t) );
+  }
 
-  /* Restore sysvar cache */
-  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+  /* Set slot bank variables */
+  slot_ctx->slot_bank.slot = fd_sysvar_cache_clock( slot_ctx->sysvar_cache )->slot;
 
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 
