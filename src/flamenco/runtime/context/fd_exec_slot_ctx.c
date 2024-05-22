@@ -91,7 +91,7 @@ fd_exec_slot_ctx_delete( void * mem ) {
 
   fd_valloc_free( hdr->valloc, fd_sysvar_cache_delete( hdr->sysvar_cache ) );
   hdr->sysvar_cache = NULL;
-  fd_valloc_free( hdr->valloc, fd_account_compute_table_delete( hdr->account_compute_table ) );
+  fd_valloc_free( hdr->valloc, fd_account_compute_table_delete( fd_account_compute_table_leave( hdr->account_compute_table ) ) );
   hdr->account_compute_table = NULL;
 
   FD_COMPILER_MFENCE();

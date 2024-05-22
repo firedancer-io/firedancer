@@ -182,8 +182,8 @@ _load_sysvar( fd_exec_txn_ctx_t * txn_ctx,
 static int
 _context_create( fd_exec_instr_test_runner_t *        runner,
                  fd_exec_instr_ctx_t *                ctx,
-                 fd_exec_test_instr_context_t const * test_ctx,
-                 fd_wksp_t *                          wksp) {
+                 fd_exec_test_instr_context_t const * test_ctx ) {
+  // TODO: Add an option to use workspace allocators
 
   memset( ctx, 0, sizeof(fd_exec_instr_ctx_t) );
 
@@ -206,23 +206,21 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
   ulong vote_acct_max = 128UL;
 
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 4 ), 4 ), 0 );
-
   /* Allocate contexts */
   uchar *               epoch_ctx_mem = fd_scratch_alloc( fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ) );
   uchar *               slot_ctx_mem  = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
   uchar *               txn_ctx_mem   = fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
 
   fd_exec_epoch_ctx_t * epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acct_max ) );
-  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
+  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_libc_alloc_virtual() ) );
   fd_exec_txn_ctx_t *   txn_ctx       = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem   ) );
 
   assert( epoch_ctx );
   assert( slot_ctx  );
 
-  ctx->slot_ctx  = slot_ctx;
-  ctx->txn_ctx   = txn_ctx;
-  txn_ctx->valloc                  = fd_alloc_virtual( alloc );
+  ctx->slot_ctx   = slot_ctx;
+  ctx->txn_ctx    = txn_ctx;
+  txn_ctx->valloc = fd_libc_alloc_virtual();
 
   /* Initial variables */
   txn_ctx->loaded_accounts_data_size_limit = MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES;
@@ -506,20 +504,17 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
 static void
 _context_destroy( fd_exec_instr_test_runner_t * runner,
-                  fd_exec_instr_ctx_t *         ctx,
-                  fd_wksp_t *                   wksp) {
+                  fd_exec_instr_ctx_t *         ctx ) {
   if( !ctx ) return;
   fd_exec_slot_ctx_t *  slot_ctx  = ctx->slot_ctx;
   if( !slot_ctx ) return;
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
 
-  fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( ctx->txn_ctx->valloc.self ) ) );
-  fd_exec_slot_ctx_delete ( fd_exec_slot_ctx_leave ( slot_ctx  ) );
+  fd_exec_slot_ctx_free( slot_ctx );
   fd_acc_mgr_delete( acc_mgr );
   fd_scratch_pop();
   fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
-  fd_wksp_detach( wksp );
 
   ctx->slot_ctx = NULL;
 }
@@ -738,10 +733,9 @@ int
 fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
                            fd_exec_test_instr_fixture_t const * test,
                            char const *                         log_name ) {
-  fd_wksp_t * wksp = fd_wksp_attach( "wksp" );
   fd_exec_instr_ctx_t ctx[1];
-  if( FD_UNLIKELY( !_context_create( runner, ctx, &test->input, wksp ) ) ) {
-    _context_destroy( runner, ctx, wksp );
+  if( FD_UNLIKELY( !_context_create( runner, ctx, &test->input ) ) ) {
+    _context_destroy( runner, ctx );
     return 0;
   }
 
@@ -768,7 +762,7 @@ fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
     has_diff = diff.has_diff;
   } while(0);
 
-  _context_destroy( runner, ctx, wksp );
+  _context_destroy( runner, ctx );
   return !has_diff;
 }
 
@@ -780,10 +774,9 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
                         ulong                                output_bufsz ) {
 
   /* Convert the Protobuf inputs to a fd_exec context */
-  fd_wksp_t * wksp = fd_wksp_attach( "wksp" );
   fd_exec_instr_ctx_t ctx[1];
-  if( !_context_create( runner, ctx, input, wksp ) ) {
-    _context_destroy( runner, ctx, wksp );
+  if( !_context_create( runner, ctx, input ) ) {
+    _context_destroy( runner, ctx );
     return 0UL;
   }
 
@@ -801,7 +794,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_instr_effects_t),
                                 sizeof (fd_exec_test_instr_effects_t) );
   if( FD_UNLIKELY( _l > output_end ) ) {
-    _context_destroy( runner, ctx, wksp );
+    _context_destroy( runner, ctx );
     return 0UL;
   }
   fd_memset( effects, 0, sizeof(fd_exec_test_instr_effects_t) );
@@ -830,7 +823,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t),
                                 sizeof (fd_exec_test_acct_state_t) * modified_acct_cnt );
   if( FD_UNLIKELY( _l > output_end ) ) {
-    _context_destroy( runner, ctx, wksp );
+    _context_destroy( runner, ctx );
     return 0;
   }
   effects->modified_accounts       = modified_accts;
@@ -859,7 +852,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
       FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
                                   PB_BYTES_ARRAY_T_ALLOCSIZE( acc->const_meta->dlen ) );
     if( FD_UNLIKELY( _l > output_end ) ) {
-      _context_destroy( runner, ctx, wksp );
+      _context_destroy( runner, ctx );
       return 0UL;
     }
     out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
@@ -886,7 +879,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
   /* TODO verify that there are no outstanding funk records */
 
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  _context_destroy( runner, ctx, wksp );
+  _context_destroy( runner, ctx );
 
   *output = effects;
   return actual_end - (ulong)output_buf;
