@@ -3590,27 +3590,20 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first ) {
   fd_funk_txn_t *       txn         = slot_ctx->funk_txn;
   fd_exec_epoch_ctx_t * epoch_ctx   = slot_ctx->epoch_ctx;
   fd_epoch_bank_t *     epoch_bank  = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
-  fd_valloc_t           slot_valloc = slot_ctx->valloc;
-  fd_exec_epoch_ctx_bank_mem_clear( epoch_ctx );
-FD_SCRATCH_SCOPE_BEGIN {
   fd_valloc_t           epoch_valloc = fd_scratch_virtual();
   {
-    if( delete_first ) {
-      fd_bincode_destroy_ctx_t ctx = { .valloc  = slot_valloc };
-      /* TODO ensure that all child objects are owned by slot_valloc
-              (and not epoch_ctx) */
-      fd_epoch_bank_destroy( epoch_bank, &ctx );
-    }
     fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
     fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
     if ( rec == NULL )
       FD_LOG_ERR(("failed to read banks record"));
     void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
+
+    fd_exec_epoch_ctx_bank_mem_clear( epoch_ctx );
     fd_bincode_decode_ctx_t ctx;
     ctx.data = val;
     ctx.dataend = (uchar*)val + fd_funk_val_sz( rec );
     ctx.valloc  = epoch_valloc;
-    FD_TEST( fd_epoch_bank_decode( epoch_bank, &ctx )==FD_BINCODE_SUCCESS );
+    FD_TEST( fd_epoch_bank_decode_no_malloc( epoch_bank, &ctx, epoch_ctx )==FD_BINCODE_SUCCESS );
 
     FD_LOG_NOTICE(( "recovered epoch_bank" ));
   }
@@ -3642,8 +3635,6 @@ FD_SCRATCH_SCOPE_BEGIN {
     slot_ctx->slot_bank.collected_rent = 0;
   }
 
-  fd_exec_epoch_ctx_fixup_memory( epoch_ctx, &epoch_valloc );
-} FD_SCRATCH_SCOPE_END;
 }
 
 void
