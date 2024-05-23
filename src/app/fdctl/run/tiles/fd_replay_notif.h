@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_appdctl_run_tiles_fd_replay_notif_h
+#define HEADER_fd_src_appdctl_run_tiles_fd_replay_notif_h 1
+
 /* Data structure which is passed through replay_notif link */
 
 #define FD_REPLAY_NOTIF_MTU 2048U
@@ -19,3 +22,5 @@ typedef struct fd_replay_notif_msg fd_replay_notif_msg_t;
 
 /* MTU on replay_notif link is 128 */
 FD_STATIC_ASSERT( sizeof(fd_replay_notif_msg_t) <= FD_REPLAY_NOTIF_MTU, notify message too big);
+
+#endif /* HEADER_fd_src_appdctl_run_tiles_fd_replay_notif_h */
