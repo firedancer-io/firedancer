@@ -139,26 +139,48 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
-static long
-lazy( fd_topo_tile_t * tile ) {
-  (void)tile;
-  /* See explanation in fd_pack */
-  return 128L * 300L;
+static void
+run( fd_topo_t *             topo,
+     fd_topo_tile_t *        tile,
+     void *                  scratch,
+     fd_cnc_t *              cnc,
+     ulong                   in_cnt,
+     fd_frag_meta_t const ** in_mcache,
+     ulong **                in_fseq,
+     fd_frag_meta_t *        mcache,
+     ulong                   out_cnt,
+     ulong **                out_fseq ) {
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_store_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_store_ctx_t ), sizeof( fd_store_ctx_t ) );
+
+  fd_mux_callbacks_t callbacks = {
+    .during_frag   = during_frag,
+    .after_frag    = after_frag,
+    .metrics_write = metrics_write,
+  };
+
+  fd_rng_t rng[1];
+  fd_mux_tile( cnc,
+               FD_MUX_FLAG_MANUAL_PUBLISH,
+               in_cnt,
+               in_mcache,
+               in_fseq,
+               mcache,
+               out_cnt,
+               out_fseq,
+               1UL,
+               0UL,
+               128L*300L, /* See explanation in fd_pack */
+               fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
+               fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( in_cnt, out_cnt ) ),
+               ctx,
+               &callbacks );
 }
 
 fd_topo_run_tile_t fd_tile_store = {
-  .name                     = "store",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
-  .mux_metrics_write        = metrics_write,
-  .lazy                     = lazy,
-  .populate_allowed_seccomp = NULL,
-  .populate_allowed_fds     = NULL,
-  .scratch_align            = scratch_align,
-  .scratch_footprint        = scratch_footprint,
-  .privileged_init          = NULL,
-  .unprivileged_init        = unprivileged_init,
+  .name              = "store",
+  .scratch_align     = scratch_align,
+  .scratch_footprint = scratch_footprint,
+  .unprivileged_init = unprivileged_init,
+  .run               = run,
 };

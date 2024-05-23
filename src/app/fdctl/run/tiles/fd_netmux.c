@@ -33,11 +33,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_netmux_ctx_t ) );
-}
-
 static inline void
 during_frag( void * _ctx,
              ulong  in_idx,
@@ -134,17 +129,49 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
+static void
+run( fd_topo_t *             topo,
+     fd_topo_tile_t *        tile,
+     void *                  scratch,
+     fd_cnc_t *              cnc,
+     ulong                   in_cnt,
+     fd_frag_meta_t const ** in_mcache,
+     ulong **                in_fseq,
+     fd_frag_meta_t *        mcache,
+     ulong                   out_cnt,
+     ulong **                out_fseq ) {
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_netmux_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_netmux_ctx_t ), sizeof( fd_netmux_ctx_t ) );
+
+  fd_mux_callbacks_t callbacks = {
+    .during_frag = during_frag,
+    .after_frag  = after_frag,
+  };
+
+  fd_rng_t rng[1];
+  fd_mux_tile( cnc,
+               FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
+               in_cnt,
+               in_mcache,
+               in_fseq,
+               mcache,
+               out_cnt,
+               out_fseq,
+               1UL,
+               0UL,
+               0L,
+               fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
+               fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( in_cnt, out_cnt ) ),
+               ctx,
+               &callbacks );
+}
+
 fd_topo_run_tile_t fd_tile_netmux = {
   .name                     = "netmux",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
-  .privileged_init          = NULL,
   .unprivileged_init        = unprivileged_init,
+  .run                      = run,
 };

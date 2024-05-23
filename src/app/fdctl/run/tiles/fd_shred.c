@@ -230,11 +230,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_shred_ctx_t ) );
-}
-
 static inline void
 metrics_write( void * _ctx ) {
   fd_shred_ctx_t * ctx = (fd_shred_ctx_t *)_ctx;
@@ -893,27 +888,52 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
-static long
-lazy( fd_topo_tile_t * tile ) {
-  (void)tile;
-  /* See explanation in fd_pack */
-  return 128L * 300L;
+static void
+run( fd_topo_t *             topo,
+     fd_topo_tile_t *        tile,
+     void *                  scratch,
+     fd_cnc_t *              cnc,
+     ulong                   in_cnt,
+     fd_frag_meta_t const ** in_mcache,
+     ulong **                in_fseq,
+     fd_frag_meta_t *        mcache,
+     ulong                   out_cnt,
+     ulong **                out_fseq ) {
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_shred_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
+
+  fd_mux_callbacks_t callbacks = {
+    .before_frag   = before_frag,
+    .during_frag   = during_frag,
+    .after_frag    = after_frag,
+    .metrics_write = metrics_write,
+  };
+
+  fd_rng_t rng[1];
+  fd_mux_tile( cnc,
+               FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
+               in_cnt,
+               in_mcache,
+               in_fseq,
+               mcache,
+               out_cnt,
+               out_fseq,
+               4UL,
+               0UL,
+               128L*300L, /* See explanation in fd_pack */
+               fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
+               fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( in_cnt, out_cnt ) ),
+               ctx,
+               &callbacks );
 }
 
 fd_topo_run_tile_t fd_tile_shred = {
   .name                     = "shred",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                    = 4UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_before_frag          = before_frag,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
-  .lazy                     = lazy,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
-  .mux_metrics_write        = metrics_write,
+  .run                      = run,
 };
