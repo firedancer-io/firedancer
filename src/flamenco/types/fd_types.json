@@ -1629,7 +1629,7 @@
       "type": "struct",
       "fields": [
         { "name": "frozen_hash", "type": "hash" },
-        { "name": "frozen_status", "type": "uchar" }
+        { "name": "is_duplicate_confirmed", "type": "bool" }
       ],
       "comment": "https://github.com/firedancer-io/solana/blob/f4b7c54f9e021b40cfc7cbd32dc12b19dedbe791/ledger/src/blockstore_meta.rs#L178"
     },
