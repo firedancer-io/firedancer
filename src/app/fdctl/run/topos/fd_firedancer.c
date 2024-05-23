@@ -256,6 +256,7 @@ fd_topo_firedancer( config_t * _config ) {
       memcpy( tile->gossip.src_mac_addr, config->tiles.net.mac_addr, 6UL );
       strncpy( tile->gossip.identity_key_path, config->consensus.identity_path, sizeof(tile->gossip.identity_key_path) );
       tile->gossip.gossip_listen_port =  config->gossip.port;
+      FD_TEST( config->gossip.port == config->tiles.gossip.gossip_listen_port );
       tile->gossip.tvu_port = config->tiles.shred.shred_listen_port;
       tile->gossip.tvu_fwd_port = config->tiles.shred.shred_listen_port;
       tile->gossip.expected_shred_version = config->consensus.expected_shred_version;
