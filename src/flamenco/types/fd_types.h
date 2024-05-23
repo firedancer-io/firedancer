@@ -3400,7 +3400,7 @@ typedef struct fd_bpf_upgradeable_loader_state fd_bpf_upgradeable_loader_state_t
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_frozen_hash_status {
   fd_hash_t frozen_hash;
-  uchar frozen_status;
+  uchar is_duplicate_confirmed;
 };
 typedef struct fd_frozen_hash_status fd_frozen_hash_status_t;
 #define FD_FROZEN_HASH_STATUS_FOOTPRINT sizeof(fd_frozen_hash_status_t)
@@ -3408,7 +3408,7 @@ typedef struct fd_frozen_hash_status fd_frozen_hash_status_t;
 
 struct __attribute__((aligned(8UL))) fd_frozen_hash_status_off {
   uint frozen_hash_off;
-  uint frozen_status_off;
+  uint is_duplicate_confirmed_off;
 };
 typedef struct fd_frozen_hash_status_off fd_frozen_hash_status_off_t;
 #define FD_FROZEN_HASH_STATUS_OFF_FOOTPRINT sizeof(fd_frozen_hash_status_off_t)
