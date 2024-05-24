@@ -64,7 +64,6 @@ struct __attribute__((aligned(128UL))) fd_ghost_node {
 #define MAP_KEY_EQ(k0,k1)      FD_SLOT_HASH_EQ(k0,k1)
 #define MAP_KEY_HASH(key,seed) (key->slot^seed)
 #include "../../util/tmpl/fd_map_chain.c"
-/* clang-format on */
 
 struct fd_ghost_vote {
   fd_pubkey_t    pubkey;    /* validator's pubkey, also the map key */
@@ -78,7 +77,6 @@ typedef struct fd_ghost_vote fd_ghost_vote_t;
 #define POOL_T    fd_ghost_vote_t
 #include "../../util/tmpl/fd_pool.c"
 
-/* clang-format off */
 #define MAP_NAME               fd_ghost_vote_map
 #define MAP_ELE_T              fd_ghost_vote_t
 #define MAP_KEY                pubkey
@@ -87,12 +85,18 @@ typedef struct fd_ghost_vote fd_ghost_vote_t;
 #define MAP_KEY_HASH(key,seed) (key->ui[0]^seed)
 #include "../../util/tmpl/fd_map_chain.c"
 
+#define DEQUE_NAME fd_ghost_bfs_q
+#define DEQUE_T    fd_ghost_node_t *
+#include "../../util/tmpl/fd_deque_dynamic.c"
+
 struct __attribute__((aligned(128UL))) fd_ghost {
-  fd_slot_hash_t        root;      /* root slot */
+  fd_ghost_node_t *     root;
   fd_ghost_node_t *     node_pool; /* memory pool of ghost nodes */
   fd_ghost_node_map_t * node_map;  /* map of slot_hash->fd_ghost_node_t */
   fd_ghost_vote_t *     vote_pool; /* memory pool of ghost votes */
   fd_ghost_vote_map_t * vote_map;  /* each node's latest vote. map of pubkey->fd_ghost_vote_t */
+  fd_ghost_node_t **    bfs_q;     /* deque reserved for BFS */
+  ulong                 bfs_q_cnt;
 };
 typedef struct fd_ghost fd_ghost_t;
 /* clang-format on */
@@ -112,17 +116,22 @@ fd_ghost_footprint( ulong node_max, ulong vote_max ) {
   return FD_LAYOUT_FINI(
       FD_LAYOUT_APPEND(
           FD_LAYOUT_APPEND(
-              FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
-                                                                    alignof( fd_ghost_t ),
-                                                                    sizeof( fd_ghost_t ) ),
-                                                  fd_ghost_node_pool_align(),
-                                                  fd_ghost_node_pool_footprint( node_max ) ),
-                                fd_ghost_node_map_align(),
-                                fd_ghost_node_map_footprint( node_max ) ),
-              fd_ghost_vote_pool_align(),
-              fd_ghost_vote_pool_footprint( vote_max ) ),
-          fd_ghost_vote_map_align(),
-          fd_ghost_vote_map_footprint( vote_max ) ),
+              FD_LAYOUT_APPEND(
+                  FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
+                                                                        alignof( fd_ghost_t ),
+                                                                        sizeof( fd_ghost_t ) ),
+                                                      fd_ghost_node_pool_align(),
+                                                      fd_ghost_node_pool_footprint( node_max ) ),
+                                    fd_ghost_node_map_align(),
+                                    fd_ghost_node_map_footprint( node_max ) ),
+                  fd_ghost_vote_pool_align(),
+                  fd_ghost_vote_pool_footprint( vote_max ) ),
+              fd_ghost_vote_map_align(),
+              fd_ghost_vote_map_footprint( vote_max ) ),
+         fd_ghost_bfs_q_align(),
+         fd_ghost_bfs_q_footprint(node_max)),
+         //  sizeof( ulong ),
+         //  sizeof( ulong ) * node_max ),
       alignof( fd_ghost_t ) );
 }
 
@@ -209,7 +218,7 @@ fd_ghost_gossip_vote_upsert( fd_ghost_t *           ghost,
                              ulong                  stake );
 
 void
-fd_ghost_prune( fd_ghost_t * ghost, fd_slot_hash_t const * root );
+fd_ghost_prune( fd_ghost_t * ghost, fd_ghost_node_t const * root );
 
 /* fd_ghost_print formats and prints ghost to stdout. */
 

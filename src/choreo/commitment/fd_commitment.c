@@ -1,22 +1,24 @@
 #include "fd_commitment.h"
 
-fd_slot_commitment_t *
-fd_commitment_slot_insert( fd_commitment_t * commitment, ulong slot ) {
-  fd_slot_commitment_t * slot_commitment = fd_slot_commitment_pool_ele_acquire( commitment->pool );
-  slot_commitment->slot                  = slot;
-  fd_slot_commitment_map_ele_insert( commitment->map, slot_commitment, commitment->pool );
-  return slot_commitment;
-}
+// fd_slot_commitment_t *
+// fd_commitment_slot_insert( fd_commitment_t * commitment, ulong slot ) {
+//   fd_slot_commitment_t * slot_commitment = fd_slot_commitment_pool_ele_acquire( commitment->pool );
+//   slot_commitment->slot                  = slot;
+//   fd_slot_commitment_map_ele_insert( commitment->map, slot_commitment, commitment->pool );
+//   return slot_commitment;
+// }
 
-ulong
-fd_commitment_highest_confirmed_query( FD_PARAM_UNUSED fd_commitment_t const * commitment ) {
-  return 0;
-}
+// ulong
+// fd_commitment_highest_confirmed_query( FD_PARAM_UNUSED fd_commitment_t const * commitment ) {
+//   return 0;
+// }
 
-ulong
-fd_commitment_highest_finalized_query( FD_PARAM_UNUSED fd_commitment_t const * commitment ) {
-  return 0;
-}
+// ulong
+// fd_commitment_highest_finalized_query( FD_PARAM_UNUSED fd_commitment_t const * commitment ) {
+//   return 0;
+// }
+
+
 
 // fd_option_slot_t root_slot = vote_state->inner.current.root_slot;
 

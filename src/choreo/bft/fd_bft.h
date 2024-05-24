@@ -19,27 +19,55 @@
 
 #define FD_BFT_EQV_SAFE ( 0.52 )
 #define FD_BFT_OPT_CONF ( 2.0 / 3.0 )
-#define FD_BFT_SMR FD_BFT_OPT_CONF
+#define FD_BFT_SMR      FD_BFT_OPT_CONF
+
+// TODO move this
+
+/* fd_root_vote_t is a map of (node_pubkey->root) that records the latest root a given node_pubkey
+   has reported via votes. */
+
+struct fd_root_vote {
+  fd_pubkey_t node_pubkey;
+  uint        hash; /* Internal use by fd_map. Do not modify */
+  ulong       root;
+};
+typedef struct fd_root_vote fd_root_vote_t;
+
+/* clang-format off */
+#define MAP_NAME              fd_root_vote_map
+#define MAP_T                 fd_root_vote_t
+#define MAP_KEY               node_pubkey
+#define MAP_KEY_T             fd_pubkey_t
+#define MAP_KEY_NULL          pubkey_null
+#define MAP_KEY_INVAL(k)      !(memcmp(&k,&pubkey_null,sizeof(fd_pubkey_t)))
+#define MAP_KEY_EQUAL(k0,k1)  !(memcmp((&k0),(&k1),sizeof(fd_pubkey_t)))
+#define MAP_KEY_EQUAL_IS_SLOW 1
+#define MAP_KEY_HASH(key)     ((uint)(fd_hash(0UL,&key,sizeof(fd_pubkey_t))))
+#define MAP_MEMOIZE           1
+#define MAP_LG_SLOT_CNT       (FD_LG_NODE_PUBKEY_MAX+1) /* fill ratio < 0.5 */
+#include "../../util/tmpl/fd_map.c"
+/* clang-format on */
 
 /* fd_bft implements Solana's Proof-of-Stake consensus protocol. */
 
 struct fd_bft {
   ulong      snapshot_slot;
+  ulong      smr;         /* super-majority root */
   ulong      epoch_stake; /* total amount of stake in the current epoch */
   fd_tower_t tower;       /* our local vote tower */
 
-  ulong root;
-  ulong rooted_stake;
-
   /* external joins, pointer don't need updating */
 
-  fd_acc_mgr_t *       acc_mgr;
-  fd_blockstore_t *    blockstore;
-  fd_commitment_t *    commitment;
-  fd_forks_t *         forks;
-  fd_ghost_t *         ghost;
-  fd_valloc_t          valloc;
-  fd_vote_accounts_t * vote_accounts;
+  fd_acc_mgr_t *         acc_mgr;
+  fd_blockstore_t *      blockstore;
+  fd_commitment_t *      commitment;
+  fd_forks_t *           forks;
+  fd_funk_t *            funk;
+  fd_ghost_t *           ghost;
+  fd_root_vote_t *       root_votes;
+  fd_slot_commitment_t * slot_commitments;
+  fd_valloc_t            valloc;
+  fd_vote_accounts_t *   vote_accounts;
 };
 typedef struct fd_bft fd_bft_t;
 
@@ -92,7 +120,7 @@ fd_bft_delete( void * bft );
 void
 fd_bft_fork_update( fd_bft_t * bft, fd_fork_t * fork );
 
-fd_slot_hash_t *
+fd_fork_t *
 fd_bft_fork_choice( fd_bft_t * bft );
 
 void
@@ -100,5 +128,11 @@ fd_bft_epoch_stake_update( fd_bft_t * bft, fd_exec_epoch_ctx_t * epoch_ctx );
 
 void
 fd_bft_tower_threshold_check( fd_bft_t * bft );
+
+void
+fd_bft_prune( fd_bft_t * bft, ulong slot );
+
+void
+fd_bft_smr_update( fd_bft_t * bft, ulong smr );
 
 #endif /* HEADER_fd_src_choreo_bft_fd_bft_h */

@@ -28,6 +28,10 @@ fd_replay_new( void * mem ) {
   ulong laddr                = (ulong)mem;
   laddr                      = fd_ulong_align_up( laddr, alignof( fd_replay_t ) );
   fd_replay_t * replay       = (void *)laddr;
+
+  replay->now = 0;
+  replay->turbine_ts = 0;
+
   replay->smr                = FD_SLOT_NULL;
   replay->snapshot_slot      = FD_SLOT_NULL;
   replay->first_turbine_slot = FD_SLOT_NULL;
@@ -345,6 +349,8 @@ fd_replay_slot_execute( fd_replay_t *      replay,
                         ulong              slot,
                         fd_fork_t *        fork,
                         fd_capture_ctx_t * capture_ctx ) {
+  long now = fd_log_wallclock();
+
   fd_shred_cap_mark_stable( replay, slot );
 
   ulong txn_cnt                      = 0;
@@ -393,6 +399,8 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   FD_LOG_NOTICE( ( "first turbine: %lu", replay->first_turbine_slot ) );
   FD_LOG_NOTICE(
       ( "behind: %lu", slot > replay->curr_turbine_slot ? 0 : replay->curr_turbine_slot - slot ) );
+  FD_LOG_NOTICE(
+      ( "behind first: %lu", slot > replay->first_turbine_slot ? 0 : replay->first_turbine_slot - slot ) );
 
   fd_hash_t const * bank_hash = &child->slot_ctx.slot_bank.banks_hash;
   fork->head->bank_hash       = *bank_hash;
@@ -400,7 +408,6 @@ fd_replay_slot_execute( fd_replay_t *      replay,
 
   fd_bank_hash_cmp_t * bank_hash_cmp = child->slot_ctx.epoch_ctx->bank_hash_cmp;
   fd_bank_hash_cmp_lock( bank_hash_cmp );
-  FD_LOG_NOTICE( ( "inserting ours %lu", slot ) );
   fd_bank_hash_cmp_insert( bank_hash_cmp, slot, bank_hash, 1 );
 
   /* Try to move the bank hash comparison window forward */
@@ -428,11 +435,11 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   // }
   // fd_bank_hash_cmp_unlock( bank_hash_cmp );
 
-  long tic = fd_log_wallclock();
   fd_bft_fork_update( replay->bft, child );
-  fd_bft_fork_choice( replay->bft );
-  long toc = fd_log_wallclock();
-  FD_LOG_NOTICE( ( "fork selection took %.2lf ms", (double)( toc - tic ) / 1e6 ) );
+  fd_fork_t * best_fork = fd_bft_fork_choice( replay->bft );
+  FD_LOG_NOTICE(("picked best fork %lu", best_fork->slot));
+
+  FD_LOG_NOTICE( ( "[fd_replay_slot_execute] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 }
 
 void
@@ -561,6 +568,8 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
                   fd_shred_type( shred->variant ) & FD_SHRED_TYPEMASK_DATA,
                   shred->slot,
                   shred->idx ) );
+  replay->turbine_ts = fd_log_wallclock();
+
   fd_pubkey_t const * leader =
       fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( replay->epoch_ctx ), shred->slot );
   if( FD_UNLIKELY( !leader ) ) {

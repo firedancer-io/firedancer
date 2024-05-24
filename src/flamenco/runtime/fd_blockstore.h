@@ -112,7 +112,8 @@ typedef struct fd_blockstore_shred fd_blockstore_shred_t;
 /* A shred that has been deshredded and is part of a block (beginning at off) */
 struct fd_block_shred {
   fd_shred_t hdr; /* ptr to the data shred header */
-  uchar      merkle[FD_SHRED_MERKLE_ROOT_SZ + FD_SHRED_MERKLE_NODE_SZ*9U /* FD_FEC_SET_MAX_BMTREE_DEPTH */];
+  uchar      merkle[FD_SHRED_MERKLE_ROOT_SZ +
+               FD_SHRED_MERKLE_NODE_SZ * 9U /* FD_FEC_SET_MAX_BMTREE_DEPTH */];
   ulong      merkle_sz;
   ulong      off; /* offset to the payload relative to the start of the block's data region */
 };
@@ -440,7 +441,11 @@ fd_blockstore_shred_query( fd_blockstore_t * blockstore, ulong slot, uint shred_
  * Callers should hold the read lock during the entirety of this call.
  */
 long
-fd_blockstore_shred_query_copy_data( fd_blockstore_t * blockstore, ulong slot, uint shred_idx, void * buf, ulong buf_max );
+fd_blockstore_shred_query_copy_data( fd_blockstore_t * blockstore,
+                                     ulong             slot,
+                                     uint              shred_idx,
+                                     void *            buf,
+                                     ulong             buf_max );
 
 /* Query blockstore for block at slot. Returns a pointer to the block or NULL if not in
  * blockstore. The returned pointer lifetime is until the block is removed. Check return value for
@@ -487,8 +492,6 @@ fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[FD_ED2551
 int
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot );
 
-/* Update the super-majority root, pruning any forks in the ancestry path to the previous SMR. The
-   SMR is monotonically increasing, so `smr` must be > blockstore->smr. */
 int
 fd_blockstore_smr_update( fd_blockstore_t * blockstore, ulong smr );
 
@@ -516,29 +519,30 @@ fd_blockstore_is_slot_ancient( fd_blockstore_t * blockstore, ulong slot ) {
 void
 fd_blockstore_block_height_set( fd_blockstore_t * blockstore, ulong slot, ulong block_height );
 
-/* Prune the blockstore. */
-void
-fd_blockstore_prune( fd_blockstore_t * blockstore, ulong root );
+/* Prune the blockstore, removing all slots < the subtree rooted at slot. If there are multiple
+   blocks at slot (equivocation), then the pruning will stop at each occurence. */
+int
+fd_blockstore_prune( fd_blockstore_t * blockstore, ulong slot );
 
-/* Acquire a read lock */
+/* Acquire a read lock. */
 static inline void
 fd_blockstore_start_read( fd_blockstore_t * blockstore ) {
   fd_readwrite_start_read( &blockstore->lock );
 }
 
-/* Release a read lock */
+/* Release a read lock. */
 static inline void
 fd_blockstore_end_read( fd_blockstore_t * blockstore ) {
   fd_readwrite_end_read( &blockstore->lock );
 }
 
-/* Acquire a write lock */
+/* Acquire a write lock. */
 static inline void
 fd_blockstore_start_write( fd_blockstore_t * blockstore ) {
   fd_readwrite_start_write( &blockstore->lock );
 }
 
-/* Release a write lock */
+/* Release a write lock. */
 static inline void
 fd_blockstore_end_write( fd_blockstore_t * blockstore ) {
   fd_readwrite_end_write( &blockstore->lock );

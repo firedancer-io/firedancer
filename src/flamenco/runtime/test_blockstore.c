@@ -30,8 +30,6 @@ setup_blockstore( fd_blockstore_t * blockstore ) {
     fd_block_t * query = fd_blockstore_block_query( blockstore, i );
     FD_TEST( query );
   }
-
-  fd_blockstore_smr_update( blockstore, 0 );
 }
 
 void
@@ -46,7 +44,7 @@ test_blockstore_smr_update( fd_blockstore_t * blockstore,
 
   FD_TEST( s_cnt + sc_cnt == 7 );
 
-  rc = fd_blockstore_smr_update( blockstore, smr );
+  rc = fd_blockstore_prune( blockstore, smr );
   FD_TEST( rc == FD_BLOCKSTORE_OK );
 
   for( ulong i = 0; i < s_cnt; i++ ) {
@@ -135,7 +133,7 @@ main( int argc, char ** argv ) {
         blockstore, smr, s, sizeof( s ) / sizeof( ulong ), sc, sizeof( sc ) / sizeof( ulong ) );
   }
 
-  FD_TEST( fd_blockstore_smr_update( blockstore, 7 ) == FD_BLOCKSTORE_ERR_SLOT_MISSING );
+  FD_TEST( fd_blockstore_prune( blockstore, 7 ) == FD_BLOCKSTORE_ERR_SLOT_MISSING );
 
   fd_halt();
   return 0;

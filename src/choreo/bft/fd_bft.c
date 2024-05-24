@@ -87,11 +87,13 @@ query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t * vote_accoun
 
 static void
 count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
-  fd_latest_vote_t * latest_votes = fork->slot_ctx.latest_votes;
-  fd_root_t *        roots        = fork->slot_ctx.roots;
+  long now = fd_log_wallclock();
 
-  long  tic = fd_log_wallclock();
+  fd_latest_vote_t * latest_votes = fork->slot_ctx.latest_votes;
+  fd_root_vote_t *   root_votes   = bft->root_votes;
+
   ulong vote_cnt = 0;
+  ulong smr      = bft->smr;
   for( fd_latest_vote_deque_iter_t iter = fd_latest_vote_deque_iter_init( latest_votes );
        !fd_latest_vote_deque_iter_done( latest_votes, iter );
        iter = fd_latest_vote_deque_iter_next( latest_votes, iter ) ) {
@@ -130,9 +132,9 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 
     ulong vote_slot = latest_vote->slot_hash.slot;
 
-    /* Ignore votes for slots < snapshot_slot. */
+    /* Ignore votes for slots < smr. */
 
-    if( FD_UNLIKELY( vote_slot <= bft->snapshot_slot ) ) continue;
+    if( FD_UNLIKELY( vote_slot <= bft->smr ) ) continue;
 
     /* Look up _our_ bank hash for this vote. Note, because these are replay votes that come from
        the vote program, the bank hashes must match. */
@@ -144,7 +146,7 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
        executed by the vote program that should imply the vote program attempts to look up the bank
        hash the vote is voting on). This invariant is broken if the bank hash is missing. */
     // if( FD_UNLIKELY( !bank_hash ) ) FD_LOG_ERR( ( "missing bank hash %lu", vote_slot ) );
-    if( FD_UNLIKELY( !bank_hash ) ) __asm__("int $3");
+    if( FD_UNLIKELY( !bank_hash ) ) __asm__( "int $3" );
 #endif
 
     /* Look up the stake for this pubkey. */
@@ -166,74 +168,15 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 #endif
 
     /* Upsert the vote into ghost. */
- 
+
     fd_ghost_replay_vote_upsert( bft->ghost, &slot_hash, node_pubkey, stake );
 
-    /* Update the stake for the root. */
-
-    fd_root_t * prev_root = fd_root_map_query( roots, roots->node_pubkey, NULL );
-    if( !prev_root || prev_root->root < bft->root ) {
-      if( latest_vote->root >= bft->root ) {
-        bft->rooted_stake += stake;
-        fd_root_t * curr_root = fd_root_map_insert( roots, latest_vote->node_pubkey );
-        curr_root->root       = latest_vote->root;
-
-        double pct = (double)bft->rooted_stake / (double)bft->epoch_stake;
-        if( pct > FD_BFT_SMR ) {
-          FD_LOG_NOTICE( ( "[bft] smr (%lf): %lu", pct, slot_hash.slot ) );
-
-          ulong cnt             = 0;
-          ulong prune_slots[64] = { 0 };
-
-          /* prune forks */
-
-          fd_fork_frontier_t * frontier = bft->forks->frontier;
-          fd_fork_t *          pool     = bft->forks->pool;
-          for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( frontier, pool );
-               !fd_fork_frontier_iter_done( iter, frontier, pool );
-               iter = fd_fork_frontier_iter_next( iter, frontier, pool ) ) {
-
-            fd_fork_t * fork = fd_fork_frontier_iter_ele( iter, frontier, pool );
-            if( fork->slot < bft->root ) prune_slots[cnt++] = fork->slot;
-          }
-
-          for( ulong i = 0; i < cnt; i++ ) {
-            ulong       slot   = prune_slots[i];
-            fd_fork_t * remove = fd_fork_frontier_ele_remove( frontier, &slot, NULL, pool );
-            /* invariant violation if we can't remove what we just marked for removal */
-            FD_TEST( remove );
-            fd_fork_pool_ele_release( pool, remove );
-          }
-
-          fd_blockstore_start_read( bft->blockstore );
-          fd_hash_t const * bank_hash = fd_blockstore_bank_hash_query( bft->blockstore, bft->root );
-#if FD_BFT_USE_HANDHOLDING
-          /* This indicates a programming error because this root must be present in the blockstore
-           * with a bank hash. */
-          if( FD_UNLIKELY( !bank_hash ) ) __asm__("int $3");
-#endif
-          fd_slot_hash_t ghost_root = { .slot = bft->root, .hash = *bank_hash };
-
-          fd_ghost_prune( bft->ghost, &ghost_root );
-
-          fd_blockstore_end_read( bft->blockstore );
-
-          /* prune blockstore */
-          fd_blockstore_prune( bft->blockstore, bft->root );
-
-          /* publish funk */
-          // fd_funk_txn_publish(bft->funk, fork->slot_ctx.funk_txn, 1);
-        }
-      }
-    }
-
-    /* Check the fork's stake pct in ghost, and mark stake threshold accordingly if reached. */
+    /* Check this slot's stake pct in ghost, and mark stake threshold accordingly if reached. */
 
     double pct = (double)ghost_node->stake / (double)bft->epoch_stake;
 
     if( FD_UNLIKELY( !ghost_node->eqv_safe && pct > FD_BFT_EQV_SAFE ) ) {
       ghost_node->eqv_safe = 1;
-
 #if FD_BFT_USE_HANDHOLDING
       FD_LOG_NOTICE(
           ( "[bft] eqv safe (%lf): (%lu, %32J)", pct, slot_hash.slot, slot_hash.hash.hash ) );
@@ -242,21 +185,85 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 
     if( FD_UNLIKELY( !ghost_node->opt_conf && pct > FD_BFT_OPT_CONF ) ) {
       ghost_node->opt_conf = 1;
-
 #if FD_BFT_USE_HANDHOLDING
       FD_LOG_NOTICE(
           ( "[bft] opt conf (%lf): (%lu, %32J)", pct, slot_hash.slot, slot_hash.hash.hash ) );
 #endif
     }
+
+    /* Only process vote slots higher than our SMR. */
+
+    if( FD_LIKELY( latest_vote->root > bft->smr ) ) {
+
+      /* Find the previous root vote by node pubkey. */
+
+      fd_root_vote_t * prev_root_vote =
+          fd_root_vote_map_query( root_votes, latest_vote->node_pubkey, NULL );
+
+      if( FD_UNLIKELY( !prev_root_vote ) ) {
+
+        /* This node pubkey has not yet voted. */
+
+        prev_root_vote = fd_root_vote_map_insert( root_votes, latest_vote->node_pubkey );
+      } else {
+
+        /* Subtract the stake from the ancestry beginning from previous vote's root. */
+
+        ulong ancestor = prev_root_vote->root;
+        while( ancestor > bft->smr ) {
+          FD_LOG_NOTICE( ( "ancestor: %lu", ancestor ) );
+          fd_slot_commitment_t * ancestor_slot_commitment =
+              fd_slot_commitment_map_query( bft->slot_commitments, ancestor, NULL );
+          if( FD_LIKELY( ancestor_slot_commitment ) )
+            ancestor_slot_commitment->rooted_stake -= stake;
+          ancestor = fd_blockstore_parent_slot_query( bft->blockstore, ancestor );
+#if FD_BFT_USE_HANDHOLDING
+          /* someone has rooted something not in the ancestry back to our SMR. */
+          if( FD_UNLIKELY( ancestor == FD_SLOT_NULL ) ) __asm__( "int $3" );
+#endif
+        }
+      }
+
+      /* Update this node pubkey's stake is counted towards root. */
+
+      prev_root_vote->root = latest_vote->root;
+
+      /* Add this node pubkey's stake to all slots along the ancestry back to the current SMR. */
+
+      ulong ancestor = latest_vote->root;
+      while( ancestor > bft->smr ) {
+        fd_slot_commitment_t * slot_commitment =
+            fd_slot_commitment_map_query( bft->slot_commitments, latest_vote->root, NULL );
+        if( FD_UNLIKELY( !slot_commitment ) ) {
+          slot_commitment =
+              fd_slot_commitment_map_insert( bft->slot_commitments, latest_vote->root );
+        }
+        slot_commitment->rooted_stake += stake;
+
+        double pct = (double)slot_commitment->rooted_stake / (double)bft->epoch_stake;
+        if( pct > FD_BFT_SMR ) {
+          FD_LOG_NOTICE( ( "[bft] new_smr (%lf): %lu", pct, ancestor ) );
+          smr = fd_ulong_max( ancestor, smr );
+        }
+
+        ancestor = fd_blockstore_parent_slot_query( bft->blockstore, ancestor );
+      }
+    }
+
     vote_cnt++;
     // long total_toc = fd_log_wallclock();
     // FD_LOG_NOTICE(("total took: %ld", total_toc - total_tic));
   }
+
+  if( FD_LIKELY( smr > bft->smr ) ) {
+    fd_bft_prune( bft, smr );
+    fd_bft_smr_update( bft, smr );
+  }
+
   fd_latest_vote_deque_remove_all( latest_votes );
-  long toc = fd_log_wallclock();
-  (void)tic;
-  (void)toc;
-  // FD_LOG_NOTICE( ( "iterating %lu vote accounts took: %.2lf ns", cnt, (double)(toc - tic) / 1e6 ) );
+  FD_LOG_NOTICE( ( "[count_replay_votes] processed %lu votes", vote_cnt ) );
+  FD_LOG_NOTICE(
+      ( "[count_replay_votes] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 }
 
 FD_FN_UNUSED static void
@@ -309,6 +316,8 @@ count_gossip_votes( fd_bft_t *                    bft,
 /* Update fork with the votes in the block. */
 void
 fd_bft_fork_update( fd_bft_t * bft, fd_fork_t * fork ) {
+  long now = fd_log_wallclock();
+
   fd_slot_bank_t * bank = &fork->slot_ctx.slot_bank;
 
   /* Update the current fork head's bft key. */
@@ -342,6 +351,11 @@ fd_bft_fork_update( fd_bft_t * bft, fd_fork_t * fork ) {
                      parent_slot,
                      parent_bank_hash->hash ) );
     fd_ghost_leaf_insert( bft->ghost, &curr_key, &parent_key );
+    if( curr_key.slot == bft->snapshot_slot + 1 ) {
+      fd_ghost_node_t * snapshot_node = fd_ghost_node_query( bft->ghost, &curr_key );
+      (void)snapshot_node;
+      // __asm__("int $3");
+    }
   }
 
   /* Insert this fork into commitment. */
@@ -380,53 +394,89 @@ fd_bft_fork_update( fd_bft_t * bft, fd_fork_t * fork ) {
   //   FD_TEST( landed_vote->lockout.confirmation_count < 32 ); // FIXME remove
   //   commitment->confirmed_stake[landed_vote->lockout.confirmation_count] += stake;
   // }
+
+  FD_LOG_NOTICE(
+      ( "fd_bft_fork_update took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 }
 
-fd_slot_hash_t *
+fd_fork_t *
 fd_bft_fork_choice( fd_bft_t * bft ) {
+  long now = fd_log_wallclock();
+
   fd_ghost_t * ghost = bft->ghost;
 
-  ulong            heaviest_fork_weight = 0;
-  fd_slot_hash_t * heaviest_fork_key    = NULL;
+  /* get the fork head. */
 
-  /* query every fork in the frontier to retrieve the heaviest bank */
+  fd_ghost_node_t * head = ghost->root->head;
 
-  fd_fork_frontier_t * frontier = bft->forks->frontier;
-  fd_fork_t *          pool     = bft->forks->pool;
-  for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( frontier, pool );
-       !fd_fork_frontier_iter_done( iter, frontier, pool );
-       iter = fd_fork_frontier_iter_next( iter, frontier, pool ) ) {
+  /* do not pick forks with equivocating blocks along its ancestry. */
 
-    fd_fork_t * fork = fd_fork_frontier_iter_ele( iter, frontier, pool );
+  fd_ghost_node_t * ancestor = head;
+  while( ancestor ) {
+    if( FD_UNLIKELY( ancestor->eqv && !ancestor->eqv_safe ) ) { return NULL; }
+    ancestor = ancestor->parent;
+  }
 
-    fd_slot_hash_t    key  = { .slot = fork->slot, .hash = fork->slot_ctx.slot_bank.banks_hash };
-    fd_ghost_node_t * node = fd_ghost_node_query( ghost, &key );
+  /* search for the fork head in the frontier. */
 
-    /* do not pick forks with equivocating blocks. */
-
-    if( FD_UNLIKELY( node->eqv && !node->eqv_safe ) ) continue;
-
+  fd_fork_t * fork = fd_fork_frontier_ele_query(
+      bft->forks->frontier, &head->slot_hash.slot, NULL, bft->forks->pool );
 #if FD_BFT_USE_HANDHOLDING
-    /* This indicates a programmer error, because node must have been inserted into ghost earlier in
-     * fd_bft_fork_update. */
-    if( !node ) FD_LOG_ERR( ( "missing ghost node %lu", fork->slot ) );
+  /* the ghost head must exist in the frontier. */
+  if( FD_UNLIKELY( !fork ) ) {
+    FD_LOG_ERR( ( "missing fork head (%lu, %32J)", head->slot_hash.slot, &head->slot_hash.hash ) );
+  }
 #endif
 
-    if( FD_LIKELY( !heaviest_fork_key || node->weight > heaviest_fork_weight ) ) {
-      heaviest_fork_weight = node->weight;
-      heaviest_fork_key    = &node->slot_hash;
-    }
-  }
+  return fork;
 
-  if( heaviest_fork_key ) {
-    double pct = (double)heaviest_fork_weight / (double)bft->epoch_stake;
-    FD_LOG_NOTICE( ( "[bft] voting for heaviest fork %lu %lu (%lf)",
-                     heaviest_fork_key->slot,
-                     heaviest_fork_weight,
-                     pct ) );
-  }
+  //   fd_slot_hash_t root = ghost->root;
 
-  return heaviest_fork_key; /* lifetime as long as it remains in the frontier */
+  //   ulong            heaviest_fork_weight = 0;
+  //   fd_slot_hash_t * heaviest_fork_key    = NULL;
+
+  //   /* query every fork in the frontier to retrieve the heaviest bank */
+
+  //   fd_fork_frontier_t * frontier = bft->forks->frontier;
+  //   fd_fork_t *          pool     = bft->forks->pool;
+  //   for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( frontier, pool );
+  //        !fd_fork_frontier_iter_done( iter, frontier, pool );
+  //        iter = fd_fork_frontier_iter_next( iter, frontier, pool ) ) {
+
+  //     fd_fork_t * fork = fd_fork_frontier_iter_ele( iter, frontier, pool );
+
+  //     fd_slot_hash_t    key  = { .slot = fork->slot, .hash = fork->slot_ctx.slot_bank.banks_hash
+  //     }; fd_ghost_node_t * node = fd_ghost_node_query( ghost, &key );
+
+  //     /* do not pick forks with equivocating blocks. */
+
+  //     if( FD_UNLIKELY( node->eqv && !node->eqv_safe ) ) continue;
+
+  // #if FD_BFT_USE_HANDHOLDING
+  //     /* This indicates a programmer error, because node must have been inserted into ghost
+  //     earlier in
+  //      * fd_bft_fork_update. */
+  //     if( !node ) FD_LOG_ERR( ( "missing ghost node %lu", fork->slot ) );
+  // #endif
+
+  //     if( FD_LIKELY( !heaviest_fork_key || node->weight > heaviest_fork_weight ) ) {
+  //       heaviest_fork_weight = node->weight;
+  //       heaviest_fork_key    = &node->slot_hash;
+  //     }
+  //   }
+
+  //   if( heaviest_fork_key ) {
+  //     double pct = (double)heaviest_fork_weight / (double)bft->epoch_stake;
+  //     FD_LOG_NOTICE( ( "[bft] voting for heaviest fork %lu %lu (%lf)",
+  //                      heaviest_fork_key->slot,
+  //                      heaviest_fork_weight,
+  //                      pct ) );
+  //   }
+
+  //   return heaviest_fork_key; /* lifetime as long as it remains in the frontier */
+
+  FD_LOG_NOTICE(
+      ( "fd_bft_fork_choice took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 }
 
 void
@@ -514,4 +564,110 @@ fd_bft_epoch_stake_update( fd_bft_t * bft, fd_exec_epoch_ctx_t * epoch_ctx ) {
     epoch_stake += node->elem.stake;
   }
   bft->epoch_stake = epoch_stake;
+}
+
+void
+fd_bft_prune( fd_bft_t * bft, ulong slot ) {
+  fd_blockstore_t * blockstore = bft->blockstore;
+  fd_funk_t *       funk       = bft->funk;
+
+  /* Read the slot's bank hash. */
+
+  fd_blockstore_start_read( blockstore );
+  fd_hash_t const * bank_hash = fd_blockstore_bank_hash_query( blockstore, slot );
+#if FD_BFT_USE_HANDHOLDING
+  /* root must be present in the blockstore with a bank hash. */
+  if( FD_UNLIKELY( !bank_hash ) ) __asm__( "int $3" );
+#endif
+  fd_slot_hash_t slot_hash = { .slot = slot, .hash = *bank_hash };
+  fd_blockstore_end_read( blockstore );
+
+  /* Update the super-majority root (SMR), after pruning any forks in the ancestry path to
+     the previous SMR across all relevant forking structures (ghost, blockstore, funk). The
+     SMR is monotonically increasing, so `smr` must be > blockstore->smr. */
+
+  /* Prune ghost. */
+
+  fd_ghost_node_t const * root =
+      fd_ghost_node_query( bft->ghost, &slot_hash ); /* ghost_root must exist */
+  fd_ghost_prune( bft->ghost, root );
+
+  /* Prune forks. */
+
+  fd_forks_prune( bft->forks, slot );
+
+  /* If it's the snapshot slot, return early. */
+
+  if( FD_UNLIKELY( slot == bft->snapshot_slot ) ) return;
+
+  /* Remove the slot from the slot commitments. */
+
+  fd_slot_commitment_t * slot_commitment =
+      fd_slot_commitment_map_query( bft->slot_commitments, slot, NULL );
+  fd_slot_commitment_map_remove( bft->slot_commitments, slot_commitment );
+
+  /* Prune blockstore. */
+
+  fd_blockstore_start_write( blockstore );
+  fd_blockstore_prune( blockstore, slot );
+  fd_blockstore_end_write( blockstore );
+
+  /* Query the funk txn xid. */
+
+  fd_blockstore_start_read( blockstore );
+  fd_hash_t const * block_hash_ = fd_blockstore_block_hash_query( blockstore, slot );
+#if FD_BFT_USE_HANDHOLDING
+  if( FD_UNLIKELY( !block_hash_ ) ) {
+    __asm__( "int $3" );
+    FD_LOG_ERR( ( "missing block hash of slot we're trying to restore" ) );
+  }
+#endif
+  fd_hash_t block_hash = *block_hash_;
+  fd_blockstore_end_read( blockstore );
+
+  fd_funk_txn_xid_t xid;
+  fd_memcpy( xid.uc, &block_hash, sizeof( fd_funk_txn_xid_t ) );
+  xid.ul[0] = slot;
+
+  /* Publish funk. */
+
+  fd_funk_start_write( funk );
+  fd_funk_txn_t * funk_txn =
+      fd_funk_txn_query( &xid, fd_funk_txn_map( funk, fd_funk_wksp( funk ) ) );
+#if FD_BFT_USE_HANDHOLDING
+  if( !funk_txn ) {
+    __asm__( "int $3" );
+    FD_LOG_ERR( ( "missing block hash that should be in funk. slot %lu", slot ) );
+  }
+#endif
+  ulong rc = fd_funk_txn_publish( funk, funk_txn, 1 );
+  if( rc == 0 ) FD_LOG_ERR( ( "publish err" ) );
+  fd_funk_end_write( funk );
+}
+
+void
+fd_bft_smr_update( fd_bft_t * bft, ulong smr ) {
+  bft->smr = smr;
+
+  /* Update blockstore. */
+
+  bft->blockstore->smr = smr;
+
+  /* Update forks. */
+
+  bft->forks->smr = smr;
+
+  /* Update ghost. */
+
+  fd_blockstore_start_read( bft->blockstore );
+  fd_hash_t const * bank_hash = fd_blockstore_bank_hash_query( bft->blockstore, smr );
+#if FD_BFT_USE_HANDHOLDING
+  /* root must be present in the blockstore with a bank hash. */
+  if( FD_UNLIKELY( !bank_hash ) ) __asm__( "int $3" );
+#endif
+  fd_slot_hash_t slot_hash = { .slot = smr, .hash = *bank_hash };
+  fd_blockstore_end_read( bft->blockstore );
+
+  fd_ghost_node_t * root = fd_ghost_node_query( bft->ghost, &slot_hash );
+  bft->ghost->root       = root;
 }

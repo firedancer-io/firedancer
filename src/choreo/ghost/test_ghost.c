@@ -73,7 +73,7 @@ main( int argc, char ** argv ) {
   FD_TEST( mem );
   fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, node_max, vote_max, 0UL ) );
   FD_TEST( ghost );
-  FD_TEST( FD_SLOT_HASH_EQ( &ghost->root, &FD_SLOT_HASH_NULL ) );
+  FD_TEST( !ghost->root );
   FD_TEST( ghost->node_pool );
   FD_TEST( ghost->node_map );
   FD_TEST( ghost->vote_pool );

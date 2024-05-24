@@ -33,7 +33,9 @@
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
-#define MAX_ADDR_STRLEN      128
+#define LG_SLOT_MAX          10
+#define LG_TXN_MAX           22
+#define SADDR_MAX            128
 #define TEST_CONSENSUS_MAGIC ( 0x7e57UL ) /* test */
 
 uchar metrics_scratch[FD_METRICS_FOOTPRINT( 0, 0 )]
@@ -43,12 +45,25 @@ static void
 sign_fun( void * arg, uchar * sig, uchar const * buffer, ulong len ) {
   fd_gossip_config_t * config = (fd_gossip_config_t *)arg;
   fd_sha512_t          sha[1];
-  fd_ed25519_sign( /* sig */ sig,
-                   /* msg */ buffer,
-                   /* sz  */ len,
-                   /* public_key  */ config->public_key->uc,
-                   /* private_key */ config->private_key,
-                   sha );
+
+  if( len == 48 && memcmp( buffer, "SOLANA_PING_PONG", 16UL ) == 0 ) {
+    /* handle the special case of gossip ping/pong messages */
+    uchar hash[32];
+    fd_sha256_hash( buffer, len, hash );
+    fd_ed25519_sign( /* sig */ sig,
+                     /* msg */ hash,
+                     /* sz  */ 32,
+                     /* public_key  */ config->public_key->uc,
+                     /* private_key */ config->private_key,
+                     sha );
+  } else {
+    fd_ed25519_sign( /* sig */ sig,
+                     /* msg */ buffer,
+                     /* sz  */ len,
+                     /* public_key  */ config->public_key->uc,
+                     /* private_key */ config->private_key,
+                     sha );
+  }
 }
 
 static int
@@ -93,7 +108,7 @@ create_socket( fd_gossip_peer_addr_t * addr ) {
   uchar saddr[sizeof( struct sockaddr_in6 )];
   int   addrlen = to_sockaddr( saddr, addr );
   if( addrlen < 0 || bind( fd, (struct sockaddr *)saddr, (uint)addrlen ) < 0 ) {
-    char tmp[MAX_ADDR_STRLEN];
+    char tmp[SADDR_MAX];
     FD_LOG_ERR( ( "bind failed: %s for %s",
                   strerror( errno ),
                   fd_gossip_addr_str( tmp, sizeof( tmp ), addr ) ) );
@@ -136,8 +151,8 @@ gossip_send_fun( uchar const *                 data,
                  fd_gossip_peer_addr_t const * gossip_peer_addr,
                  void *                        arg ) {
   uchar saddr[sizeof( struct sockaddr_in )];
-  int   saddrlen           = to_sockaddr( saddr, gossip_peer_addr );
-  char  s[MAX_ADDR_STRLEN] = { 0 };
+  int   saddrlen     = to_sockaddr( saddr, gossip_peer_addr );
+  char  s[SADDR_MAX] = { 0 };
   fd_gossip_addr_str( s, sizeof( s ), gossip_peer_addr );
   if( sendto( *(int *)arg,
               data,
@@ -201,7 +216,7 @@ resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res 
   fd_memset( res, 0, sizeof( fd_repair_peer_addr_t ) );
 
   /* Find the : and copy out the host */
-  char buf[MAX_ADDR_STRLEN];
+  char buf[SADDR_MAX];
   uint i;
   for( i = 0;; ++i ) {
     if( str[i] == '\0' || i > sizeof( buf ) - 1U ) {
@@ -420,6 +435,10 @@ main( int argc, char ** argv ) {
       fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-id", NULL, NULL );
   const char * mode     = fd_env_strip_cmdline_cstr( &argc, &argv, "--mode", NULL, "archive" );
   const char * shredcap = fd_env_strip_cmdline_cstr( &argc, &argv, "--shredcap", NULL, NULL );
+  const char * env      = fd_env_strip_cmdline_cstr( &argc, &argv, "--env", NULL, "" );
+
+  FD_TEST( 0 == strcmp( env, "mainnet" ) || 0 == strcmp( env, "testnet" ) ||
+           0 == strcmp( env, "devnet" ) || 0 == strcmp( env, "local" ) );
 
   FD_TEST( page_cnt );
   FD_TEST( restore );
@@ -455,9 +474,14 @@ main( int argc, char ** argv ) {
     FD_LOG_ERR( ( "For now, both live (archive shredcap) and sim (replay shredcap) need to restore "
                   "a funk for the snapshot." ) );
   }
-  fd_wksp_t * funk_wksp = fd_wksp_attach( "funk" );
+  fd_wksp_t * funk_wksp = NULL;
+  if( 0 == strcmp( env, "mainnet" ) || 0 == strcmp( env, "testnet" ) ) {
+    funk_wksp = fd_wksp_attach( "funk" );
+    fd_wksp_reset( funk_wksp, 0 );
+  } else {
+    funk_wksp = wksp;
+  }
   FD_TEST( funk_wksp );
-  fd_wksp_reset( funk_wksp, 0 );
   FD_LOG_NOTICE( ( "fd_wksp_restore %s", restore ) );
   int err = fd_wksp_restore( funk_wksp, restore, TEST_CONSENSUS_MAGIC );
   if( err ) FD_LOG_ERR( ( "fd_wksp_restore failed: error %d", err ) );
@@ -470,6 +494,7 @@ main( int argc, char ** argv ) {
   fd_wksp_tag_query_info_t funk_info;
   fd_funk_t *              funk     = NULL;
   ulong                    funk_tag = FD_FUNK_MAGIC;
+
   if( fd_wksp_tag_query( funk_wksp, &funk_tag, 1, &funk_info, 1 ) > 0 ) {
     void * shmem = fd_wksp_laddr_fast( funk_wksp, funk_info.gaddr_lo );
     funk         = fd_funk_join( shmem );
@@ -480,13 +505,18 @@ main( int argc, char ** argv ) {
   /* blockstore                                                         */
   /**********************************************************************/
 
-  fd_wksp_t * blockstore_wksp = fd_wksp_attach( "blockstore" );
+  fd_wksp_t * blockstore_wksp = NULL;
+  if( 0 == strcmp( env, "mainnet" ) || 0 == strcmp( env, "testnet" ) ) {
+    blockstore_wksp = fd_wksp_attach( "blockstore" );
+    fd_wksp_reset( blockstore_wksp, (uint)FD_BLOCKSTORE_MAGIC );
+  } else {
+    blockstore_wksp = wksp;
+  }
   FD_TEST( blockstore_wksp );
-  fd_wksp_reset( blockstore_wksp, (uint)FD_BLOCKSTORE_MAGIC );
   void * blockstore_mem = fd_wksp_alloc_laddr(
       blockstore_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
   fd_blockstore_t * blockstore = fd_blockstore_join( fd_blockstore_new(
-      blockstore_mem, FD_BLOCKSTORE_MAGIC, FD_BLOCKSTORE_MAGIC, 1 << 17, 1 << 13, 22 ) );
+      blockstore_mem, FD_BLOCKSTORE_MAGIC, FD_BLOCKSTORE_MAGIC, 1 << 17, 1 << LG_SLOT_MAX, 22 ) );
   FD_TEST( blockstore );
 
   /**********************************************************************/
@@ -538,14 +568,6 @@ main( int argc, char ** argv ) {
       fd_latest_vote_deque_join( fd_latest_vote_deque_new( latest_votes_mem ) );
 
   /**********************************************************************/
-  /* roots                                                              */
-  /**********************************************************************/
-
-  void * roots_mem = fd_wksp_alloc_laddr(
-      wksp, fd_root_map_align(), fd_root_map_footprint(), TEST_CONSENSUS_MAGIC );
-  fd_root_t * roots = fd_root_map_join( fd_root_map_new( roots_mem ) );
-
-  /**********************************************************************/
   /* epoch_ctx                                                          */
   /**********************************************************************/
 
@@ -563,8 +585,7 @@ main( int argc, char ** argv ) {
   /* forks                                                              */
   /**********************************************************************/
 
-  ulong forks_max =
-      fd_ulong_if( page_cnt > 64, fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH ), 1024 );
+  ulong forks_max = 1 << LG_SLOT_MAX;
   FD_LOG_NOTICE( ( "forks_max: %lu", forks_max ) );
   FD_LOG_NOTICE( ( "fork footprint: %lu", fd_forks_footprint( forks_max ) ) );
   void * forks_mem = fd_wksp_alloc_laddr(
@@ -591,7 +612,6 @@ main( int argc, char ** argv ) {
   snapshot_slot_ctx->blockstore   = blockstore;
   snapshot_slot_ctx->valloc       = valloc;
   snapshot_slot_ctx->latest_votes = latest_votes;
-  snapshot_slot_ctx->roots        = roots;
 
   fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
 
@@ -635,7 +655,7 @@ main( int argc, char ** argv ) {
   snapshot_fork->slot                         = snapshot_slot;
   snapshot_slot_ctx->slot_bank.collected_fees = 0;
   snapshot_slot_ctx->slot_bank.collected_rent = 0;
-  
+
   FD_TEST( !fd_runtime_sysvar_cache_load( snapshot_slot_ctx ) );
 
   fd_features_restore( snapshot_slot_ctx );
@@ -657,7 +677,7 @@ main( int argc, char ** argv ) {
   /**********************************************************************/
 
   ulong        ghost_node_max = forks_max;
-  ulong        ghost_vote_max = 1UL << 16;
+  ulong        ghost_vote_max = 1 << FD_LG_NODE_PUBKEY_MAX;
   void *       ghost_mem      = fd_wksp_alloc_laddr( wksp,
                                           fd_ghost_align(),
                                           fd_ghost_footprint( ghost_node_max, ghost_vote_max ),
@@ -669,7 +689,6 @@ main( int argc, char ** argv ) {
   fd_slot_hash_t key = { .slot = snapshot_fork->slot,
                          .hash = snapshot_fork->slot_ctx.slot_bank.banks_hash };
   fd_ghost_leaf_insert( ghost, &key, NULL );
-  FD_TEST( fd_ghost_node_map_ele_query( ghost->node_map, &key, NULL, ghost->node_pool ) );
 
   /**********************************************************************/
   /* bft                                                                */
@@ -680,17 +699,24 @@ main( int argc, char ** argv ) {
   fd_bft_t * bft = fd_bft_join( fd_bft_new( bft_mem ) );
 
   bft->snapshot_slot = snapshot_slot;
+  bft->smr        = snapshot_slot;
   fd_bft_epoch_stake_update( bft, epoch_ctx );
 
-  bft->root         = snapshot_slot;
-  bft->rooted_stake = 0;
-
-  bft->acc_mgr    = acc_mgr;
-  bft->blockstore = blockstore;
-  bft->commitment = NULL;
-  bft->forks      = forks;
-  bft->ghost      = ghost;
-  bft->valloc     = valloc;
+  bft->acc_mgr          = acc_mgr;
+  bft->blockstore       = blockstore;
+  bft->commitment       = NULL;
+  bft->forks            = forks;
+  bft->funk             = funk;
+  bft->ghost            = ghost;
+  bft->root_votes       = fd_root_vote_map_join( fd_root_vote_map_new( fd_wksp_alloc_laddr(
+      wksp, fd_root_vote_map_align(), fd_root_vote_map_footprint(), TEST_CONSENSUS_MAGIC ) ) );
+  bft->slot_commitments = fd_slot_commitment_map_join( fd_slot_commitment_map_new(
+      fd_wksp_alloc_laddr( wksp,
+                           fd_slot_commitment_map_align(),
+                           fd_slot_commitment_map_footprint( LG_SLOT_MAX ),
+                           TEST_CONSENSUS_MAGIC ),
+      LG_SLOT_MAX ) );
+  bft->valloc           = valloc;
 
   /**********************************************************************/
   /* replay                                                             */
@@ -1017,8 +1043,10 @@ run_replay:
     long now    = fd_log_wallclock();
     replay->now = now;
 
+    int pending_empty = 1;
     for( ulong slot = fd_replay_pending_iter_init( replay );
          ( slot = fd_replay_pending_iter_next( replay, now, slot ) ) != ULONG_MAX; ) {
+      pending_empty    = 0;
       fd_fork_t * fork = fd_replay_slot_prepare( replay, slot );
       if( FD_LIKELY( fork ) ) {
         fd_replay_slot_execute( replay, slot, fork, NULL );
@@ -1026,6 +1054,26 @@ run_replay:
         replay->now = now = fd_log_wallclock();
       }
     }
+    (void)pending_empty;
+
+    // /* if the pending queue was empty and we received turbine packets for at least 1 second, start
+    //    repairing from every fork head in the frontier. */
+    // if( FD_UNLIKELY( pending_empty && ( now - replay->turbine_ts ) > (long)1e9 ) ) {
+    //   fd_fork_frontier_t * frontier = replay->forks->frontier;
+    //   fd_fork_t *          pool     = replay->forks->pool;
+    //   ulong                slot     = 0;
+    //   for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( frontier, pool );
+    //        !fd_fork_frontier_iter_done( iter, frontier, pool );
+    //        iter = fd_fork_frontier_iter_next( iter, frontier, pool ) ) {
+
+    //     fd_fork_t * fork = fd_fork_frontier_iter_ele( iter, frontier, pool );
+    //     slot             = fd_ulong_max( slot, fork->slot );
+    //   }
+
+    //   for( ulong i = 1; i <= 4; i++ ) {
+    //     fd_replay_add_pending( replay, slot + i, 0 );
+    //   }
+    // }
 
     struct timespec ts = { .tv_sec = 0, .tv_nsec = (long)1e6 };
     nanosleep( &ts, NULL );

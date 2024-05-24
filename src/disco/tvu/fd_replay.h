@@ -22,8 +22,8 @@
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_runtime.h"
-#include "fd_pending_slots.h"
 #include "../shred/fd_fec_resolver.h"
+#include "fd_pending_slots.h"
 
 #ifdef FD_HAS_LIBMICROHTTP
 typedef struct fd_rpc_ctx fd_rpc_ctx_t;
@@ -32,8 +32,8 @@ typedef struct fd_rpc_ctx fd_rpc_ctx_t;
 #define FD_REPLAY_DATA_SHRED_CNT   ( 32UL )
 #define FD_REPLAY_PARITY_SHRED_CNT ( 32UL )
 
-#define FD_REPLAY_PENDING_MAX      ( 1U << 14U ) /* 16 kb */
-#define FD_REPLAY_PENDING_MASK     ( FD_REPLAY_PENDING_MAX - 1U )
+#define FD_REPLAY_PENDING_MAX  ( 1U << 14U ) /* 16 kb */
+#define FD_REPLAY_PENDING_MASK ( FD_REPLAY_PENDING_MAX - 1U )
 
 /* The standard amount of time that we wait before repeating a slot */
 #define FD_REPAIR_BACKOFF_TIME ( (long)150e6 )
@@ -54,7 +54,8 @@ typedef struct fd_replay_commitment fd_replay_commitment_t;
 
 /* clang-format off */
 struct __attribute__((aligned(128UL))) fd_replay {
-  long now;            /* Current time */
+  long now;        /* Current time */
+  long turbine_ts; /* Timestamp of last rx of turbine */
 
   /* metadata */
   ulong smr;           /* super-majority root */
@@ -108,7 +109,6 @@ struct __attribute__((aligned(128UL))) fd_replay {
 #endif
 };
 typedef struct fd_replay fd_replay_t;
-
 
 /* clang-format on */
 
@@ -185,6 +185,8 @@ fd_replay_delete( void * replay );
 /* fd_replay_add_pending adds the slot to the list of slots which
    require attention (getting shreds or executing). delay is the
    number of nanosecs before we should actually act on this. */
+void
+fd_replay_add_pending( fd_replay_t * replay, ulong slot, long delay );
 
 /* fd_replay_shred_insert inserts a shred into the blockstore. If this completes a block, and it is
    connected to a frontier fork, it also executes the block and updates the frontier accordingly. */
@@ -233,8 +235,7 @@ ulong
 fd_replay_pending_iter_next( fd_replay_t * replay, long now, ulong i );
 
 fd_fork_t *
-fd_replay_prepare_ctx( fd_replay_t * replay,
-                       ulong parent_slot );
+fd_replay_prepare_ctx( fd_replay_t * replay, ulong parent_slot );
 
 FD_PROTOTYPES_END
 

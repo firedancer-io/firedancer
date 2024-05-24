@@ -27,7 +27,7 @@ fd_ghost_new( void * shmem, ulong node_max, ulong vote_max, ulong seed ) {
   fd_memset( shmem, 0, footprint );
   ulong        laddr = (ulong)shmem;
   fd_ghost_t * ghost = (void *)laddr;
-  ghost->root        = FD_SLOT_HASH_NULL;
+  ghost->root        = NULL;
   laddr += sizeof( fd_ghost_t );
 
   laddr            = fd_ulong_align_up( laddr, fd_ghost_node_pool_align() );
@@ -46,8 +46,11 @@ fd_ghost_new( void * shmem, ulong node_max, ulong vote_max, ulong seed ) {
   ghost->vote_map = fd_ghost_vote_map_new( (void *)laddr, vote_max, seed );
   laddr += fd_ghost_vote_map_footprint( vote_max );
 
-  laddr = fd_ulong_align_up( laddr, alignof( fd_ghost_t ) );
+  laddr        = fd_ulong_align_up( laddr, fd_ghost_bfs_q_align() );
+  ghost->bfs_q = fd_ghost_bfs_q_new( (void *)laddr, node_max );
+  laddr += fd_ghost_bfs_q_footprint( node_max );
 
+  laddr = fd_ulong_align_up( laddr, fd_ghost_align() );
   FD_TEST( laddr == (ulong)shmem + footprint );
 
   return shmem;
@@ -86,7 +89,14 @@ fd_ghost_join( void * shghost ) { /* process 1: 0xFA   process 2: 0x2F */
 
   laddr           = fd_ulong_align_up( laddr, fd_ghost_vote_map_align() );
   ghost->vote_map = fd_ghost_vote_map_join( (void *)laddr );
-  laddr += fd_ghost_vote_map_footprint( fd_ghost_vote_map_ele_max() );
+  laddr += fd_ghost_vote_map_footprint( vote_max );
+
+  laddr        = fd_ulong_align_up( laddr, fd_ghost_bfs_q_align() );
+  ghost->bfs_q = fd_ghost_bfs_q_join( (void *)laddr );
+  laddr += fd_ghost_bfs_q_footprint( node_max );
+
+  laddr = fd_ulong_align_up( laddr, fd_ghost_align() );
+  FD_TEST( laddr == (ulong)shghost + fd_ghost_footprint( node_max, vote_max ) );
 
   return ghost;
 }
@@ -122,7 +132,6 @@ void
 fd_ghost_leaf_insert( fd_ghost_t *           ghost,
                       fd_slot_hash_t const * key,
                       fd_slot_hash_t const * parent_key_opt ) {
-
 #if FD_GHOST_USE_HANDHOLDING
 
   /* caller promises key is not already in ghost. this is to maintain the invariant that processing
@@ -167,9 +176,10 @@ fd_ghost_leaf_insert( fd_ghost_t *           ghost,
   node->sibling = NULL;
 
   if( FD_UNLIKELY( !parent_key_opt ) ) {
-    ghost->root = *key;
+    ghost->root = node;
     return;
   }
+  FD_LOG_NOTICE( ( "inserting slot %lu parent %lu", key->slot, parent_key_opt->slot ) );
   fd_ghost_node_t * parent =
       fd_ghost_node_map_ele_query( ghost->node_map, parent_key_opt, NULL, ghost->node_pool );
 
@@ -189,8 +199,9 @@ fd_ghost_leaf_insert( fd_ghost_t *           ghost,
     head          = node; /* if leaf's parent had no children, then leaf is the new fork head */
   } else {
     fd_ghost_node_t * curr = parent->child;
-    while( curr->sibling )
+    while( curr->sibling ) {
       curr = curr->sibling;
+    }
     curr->sibling = node;
     head          = FD_GHOST_NODE_MAX( parent->head, node );
   }
@@ -225,7 +236,7 @@ fd_ghost_replay_vote_upsert( fd_ghost_t *           ghost,
 
   /* Ignore votes for slots older than the current root. */
 
-  if( FD_UNLIKELY( key->slot < ghost->root.slot ) ) return;
+  if( FD_UNLIKELY( key->slot < ghost->root->slot_hash.slot ) ) return;
 
   /* Query pubkey's previous vote. */
 
@@ -254,6 +265,8 @@ fd_ghost_replay_vote_upsert( fd_ghost_t *           ghost,
     node->stake -= vote->stake;
     fd_ghost_node_t * ancestor = node;
     while( ancestor ) {
+      if( ancestor->parent && ancestor->slot_hash.slot < ancestor->parent->slot_hash.slot )
+        __asm__( "int $3" );
       ancestor->weight -= vote->stake;
       ancestor = ancestor->parent;
     }
@@ -317,31 +330,29 @@ fd_ghost_gossip_vote_upsert( FD_PARAM_UNUSED fd_ghost_t *           ghost,
 }
 
 void
-fd_ghost_prune( fd_ghost_t * ghost, fd_slot_hash_t const * root ) {
-  ulong          cnt                   = 0;
-  fd_slot_hash_t prune_slot_hashes[64] = { 0 };
-  ulong          root_slot             = root->slot;
-  for( fd_ghost_node_map_iter_t iter =
-           fd_ghost_node_map_iter_init( ghost->node_map, ghost->node_pool );
-       !fd_ghost_node_map_iter_done( iter, ghost->node_map, ghost->node_pool );
-       iter = fd_ghost_node_map_iter_next( iter, ghost->node_map, ghost->node_pool ) ) {
-    fd_ghost_node_t * node = fd_ghost_node_map_iter_ele( iter, ghost->node_map, ghost->node_pool );
-    if( node->slot_hash.slot < root_slot ) prune_slot_hashes[cnt++] = node->slot_hash;
-  }
+fd_ghost_prune( fd_ghost_t * ghost, fd_ghost_node_t const * root ) {
+  long now = fd_log_wallclock(); 
 
-  for( ulong i = 0; i < cnt; i++ ) {
-    fd_slot_hash_t    slot_hash = prune_slot_hashes[i];
-    fd_ghost_node_t * remove =
-        fd_ghost_node_map_ele_remove( ghost->node_map, &slot_hash, NULL, ghost->node_pool );
-
+  fd_ghost_node_t ** q = ghost->bfs_q;
+  fd_ghost_node_t * remove = fd_ghost_bfs_q_pop_head( q );
+  fd_ghost_bfs_q_push_tail( q, remove );
+  while( !fd_ghost_bfs_q_empty( q ) ) {
+    fd_ghost_node_t * remove = fd_ghost_bfs_q_pop_head( q );
+    fd_ghost_node_t * curr   = remove;
+    while( curr ) {
+      if( FD_LIKELY( curr != root ) ) fd_ghost_bfs_q_push_tail( q, curr->child );
+      curr = curr->sibling;
+    }
+    remove->child->parent = NULL;
+    remove =
+        fd_ghost_node_map_ele_remove( ghost->node_map, &remove->slot_hash, NULL, ghost->node_pool );
 #if FD_GHOST_USE_HANDHOLDING
-    /* This indicates a programming error because we marked it for removal above while iterating. */
-    if( FD_UNLIKELY( !remove ) ) FD_LOG_ERR( ( "missing slot_hash marked for removal." ) );
+    if( FD_UNLIKELY( !remove ) ) FD_LOG_ERR( ( "unable to remove." ) );
 #endif
-
     fd_ghost_node_pool_ele_release( ghost->node_pool, remove );
   }
-  ghost->root = *root;
+
+  FD_LOG_NOTICE( ( "[fd_ghost_prune] took %.1lf us", (double)( fd_log_wallclock() - now ) / 1e3 ) );
 }
 
 static void
@@ -357,32 +368,5 @@ fd_ghost_print_node( fd_ghost_node_t * node, int depth ) {
 
 void
 fd_ghost_print( fd_ghost_t * ghost ) {
-  fd_ghost_node_t * root =
-      fd_ghost_node_map_ele_query( ghost->node_map, &ghost->root, NULL, ghost->node_pool );
-  fd_ghost_print_node( root, 0 );
-}
-
-#define DEQUE_NAME fd_ghost_bfs_q
-#define DEQUE_T    ulong
-#define DEQUE_MAX  64UL
-#include "../../util/tmpl/fd_deque.c"
-
-FD_FN_UNUSED static void
-bfs( fd_ghost_t * ghost ) {
-  uchar   mem[1 << 20] = { 0 };
-  ulong * q            = fd_ghost_bfs_q_join( fd_ghost_bfs_q_new( mem ) );
-
-  fd_ghost_bfs_q_push_tail( q, ghost->root.slot );
-  while( !fd_ghost_bfs_q_empty( q ) ) {
-    ulong             slot = fd_ghost_bfs_q_pop_head( q );
-    fd_slot_hash_t    key  = { .slot = slot, .hash = pubkey_null };
-    fd_ghost_node_t * node =
-        fd_ghost_node_map_ele_query( ghost->node_map, &key, NULL, ghost->node_pool );
-    if( !node ) FD_LOG_ERR( ( "missing bfs node" ) );
-    fd_ghost_node_t * curr = node->child;
-    while( curr ) {
-      fd_ghost_bfs_q_push_tail( q, curr->slot_hash.slot );
-      curr = curr->sibling;
-    }
-  }
+  fd_ghost_print_node( ghost->root, 0 );
 }

@@ -14,10 +14,12 @@
 
 #define FD_SUPERMAJORITY ( 2.0 / 3.0 )
 
+// TODO unify commitment and ghost?
+
 struct fd_slot_commitment {
-  ulong     slot;                  /* map key */
-  ulong     next;                  /* reserved for internal use by fd_pool, fd_map_chain (and the linked list) */
-  fd_hash_t hash;                  /* bank hash */
+  ulong     slot; /* map key */
+  uint      hash; /* internal use by fd_map */
+  fd_hash_t bank_hash;
   ulong     confirmed_stake[32UL]; /* how much stake has voted on this slot */
   ulong     rooted_stake;          /* how much stake has rooted this slot or any descendant */
   int       confirmed;             /* confirmed ie. optimistically-confirmed in ghost  */
@@ -25,19 +27,14 @@ struct fd_slot_commitment {
 };
 typedef struct fd_slot_commitment fd_slot_commitment_t;
 
-#define POOL_NAME fd_slot_commitment_pool
-#define POOL_T    fd_slot_commitment_t
-#include "../../util/tmpl/fd_pool.c"
-
-#define MAP_NAME  fd_slot_commitment_map
-#define MAP_ELE_T fd_slot_commitment_t
-#define MAP_KEY   slot
-#include "../../util/tmpl/fd_map_chain.c"
+#define MAP_NAME fd_slot_commitment_map
+#define MAP_T    fd_slot_commitment_t
+#define MAP_KEY  slot
+#include "../../util/tmpl/fd_map_dynamic.c"
 
 struct fd_commitment {
-  ulong                      slot; /* the last slot at which commitment was computed */
-  fd_slot_commitment_t *     pool;
-  fd_slot_commitment_map_t * map;
+  ulong                  slot; /* the last slot at which commitment was computed */
+  fd_slot_commitment_t * map;
 };
 typedef struct fd_commitment fd_commitment_t;
 

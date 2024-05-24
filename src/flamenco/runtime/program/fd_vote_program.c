@@ -1106,6 +1106,7 @@ check_slots_are_valid( fd_vote_state_t *        vote_state,
                                 vote_hash,
                                 32UL ) ) ) {
     ctx->txn_ctx->custom_err = FD_VOTE_ERR_SLOTS_HASH_MISMATCH;
+    __asm__("int $3");
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
   return 0;
@@ -1779,7 +1780,8 @@ process_vote_state_update( ulong                         vote_acct_idx,
     if( FD_LIKELY( lockout ) ) {
       fd_latest_vote_t latest_vote = {
           .node_pubkey = *vote_account->pubkey,
-          .slot_hash   = { .slot = lockout->slot, .hash = vote_state_update->hash }
+          .slot_hash   = { .slot = lockout->slot, .hash = vote_state_update->hash },
+          .root = vote_state_update->root
       };
       fd_latest_vote_deque_push_tail( ctx->slot_ctx->latest_votes, latest_vote );
 

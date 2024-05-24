@@ -104,4 +104,9 @@ fd_forks_delete( void * forks );
 fd_fork_t *
 fd_forks_rollback( fd_forks_t * forks, ulong slot );
 
+/* fd_forks_prune removes all fork heads in the frontier not originating from root. */
+void
+fd_forks_prune( fd_forks_t * forks, ulong root );
+
+
 #endif /* HEADER_fd_src_choreo_forks_fd_forks_h */
