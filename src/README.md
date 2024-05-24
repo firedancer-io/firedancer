@@ -1,0 +1,1 @@
+/Users/alvarozamora/crypto/fd/doc/organization.md

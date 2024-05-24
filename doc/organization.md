@@ -1,5 +1,6 @@
-Firedancer source tree
+# Firedancer source tree
 
+```txt
   firedancer/
   │
   ├── .github/         GitHub CI configuration
@@ -51,9 +52,11 @@ Firedancer source tree
   │   └── waltz/       Networking
   │
   └── verification/    CBMC-based code verification system
+```
 
-Important files
+## Important files
 
+```txt
   README.md
 
   # Prepare external dependencies
@@ -69,3 +72,4 @@ Important files
 
   # Licensing information for imported third-party code
   NOTICE
+```
