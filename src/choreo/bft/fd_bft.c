@@ -396,7 +396,7 @@ fd_bft_fork_update( fd_bft_t * bft, fd_fork_t * fork ) {
   // }
 
   FD_LOG_NOTICE(
-      ( "fd_bft_fork_update took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
+      ( "[fd_bft_fork_update] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 }
 
 fd_fork_t *
@@ -427,6 +427,10 @@ fd_bft_fork_choice( fd_bft_t * bft ) {
     FD_LOG_ERR( ( "missing fork head (%lu, %32J)", head->slot_hash.slot, &head->slot_hash.hash ) );
   }
 #endif
+
+  FD_LOG_NOTICE(("[fd_bft_fork_choice] picked slot: %lu", fork->slot));
+  FD_LOG_NOTICE(
+      ( "[fd_bft_fork_choice] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 
   return fork;
 
@@ -474,9 +478,6 @@ fd_bft_fork_choice( fd_bft_t * bft ) {
   //   }
 
   //   return heaviest_fork_key; /* lifetime as long as it remains in the frontier */
-
-  FD_LOG_NOTICE(
-      ( "fd_bft_fork_choice took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 }
 
 void

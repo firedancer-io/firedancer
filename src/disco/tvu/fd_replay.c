@@ -436,8 +436,7 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   // fd_bank_hash_cmp_unlock( bank_hash_cmp );
 
   fd_bft_fork_update( replay->bft, child );
-  fd_fork_t * best_fork = fd_bft_fork_choice( replay->bft );
-  FD_LOG_NOTICE(("picked best fork %lu", best_fork->slot));
+  fd_bft_fork_choice( replay->bft );
 
   FD_LOG_NOTICE( ( "[fd_replay_slot_execute] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 }
