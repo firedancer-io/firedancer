@@ -26,7 +26,7 @@ fd_bn254_g1_compress( uchar       out[32],
 
   if( FD_UNLIKELY( is_inf ) ) {
     fd_memset( out, 0, 32 );
-    out[0] = FLAG_INF;
+    /* no flags */
     return out;
   }
 
@@ -86,7 +86,7 @@ fd_bn254_g2_compress( uchar       out[64],
 
   if( FD_UNLIKELY( is_inf ) ) {
     fd_memset( out, 0, 64 );
-    out[0] = FLAG_INF;
+    /* no flags */
     return out;
   }
 
