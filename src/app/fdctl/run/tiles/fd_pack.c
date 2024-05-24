@@ -142,6 +142,14 @@ typedef struct {
   ulong slot_max_data;
   int   larger_shred_limits_per_block;
 
+  /* If drain_banks is non-zero, then the pack tile must wait until all
+     banks are idle before scheduling any more microblocks.  This is
+     primarily helpful in irregular leader transitions, e.g. while being
+     leader for slot N, we switch forks to a slot M (!=N+1) in which we
+     are also leader.  We don't want to execute microblocks for
+     different slots concurrently. */
+  int drain_banks;
+
   /* Updated during housekeeping and used only for checking if the
      leader slot has ended.  Might be off by one housekeeping duration,
      but that should be small relative to a slot duration. */
@@ -347,9 +355,10 @@ after_credit( void *             _ctx,
       ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_done_packing_t), ctx->out_chunk0, ctx->out_wmark );
     }
 
-    ctx->leader_slot = ULONG_MAX;
-    fd_pack_end_block( ctx->pack );
+    ctx->drain_banks         = 1;
+    ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
+    fd_pack_end_block( ctx->pack );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_LEADER,       0 );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_BANKS,        0 );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS,  0 );
@@ -358,6 +367,12 @@ after_credit( void *             _ctx,
 
   /* Am I leader? If not, nothing to do. */
   if( FD_UNLIKELY( ctx->leader_slot==ULONG_MAX ) ) return;
+
+  /* Am I in drain mode?  If so, check if I can exit it */
+  if( FD_UNLIKELY( ctx->drain_banks ) ) {
+    if( FD_LIKELY( ctx->bank_idle_bitset==fd_ulong_mask_lsb( (int)bank_cnt ) ) ) ctx->drain_banks = 0;
+    else                                                                         return;
+  }
 
   /* Have I sent the max allowed microblocks? Nothing to do. */
   if( FD_UNLIKELY( ctx->slot_microblock_cnt>=ctx->slot_max_microblocks ) ) return;
@@ -448,7 +463,8 @@ after_credit( void *             _ctx,
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_LEADER,       0 );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_BANKS,        0 );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS,  0 );
-    ctx->leader_slot = ULONG_MAX;
+    ctx->drain_banks         = 1;
+    ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
     fd_pack_end_block( ctx->pack );
   }
@@ -482,7 +498,13 @@ during_frag( void * _ctx,
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_became_leader_t) ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-    FD_TEST( ctx->leader_slot==ULONG_MAX );
+    if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
+      FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining bank tiles.", fd_disco_poh_sig_slot( sig ), ctx->leader_slot ));
+      ctx->drain_banks         = 1;
+      ctx->leader_slot         = ULONG_MAX;
+      ctx->slot_microblock_cnt = 0UL;
+      fd_pack_end_block( ctx->pack );
+    }
     ctx->leader_slot = fd_disco_poh_sig_slot( sig );
 
     fd_became_leader_t * became_leader = (fd_became_leader_t *)dcache_entry;
