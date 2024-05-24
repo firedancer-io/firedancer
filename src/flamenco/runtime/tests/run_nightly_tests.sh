@@ -97,6 +97,8 @@ for log_info in "${log_infos[@]}"; do
     fi
 done
 
+./src/flamenco/runtime/tests/run_conformance_tests.sh -i /data/insn_pb/ -fdr $REPO_DIR -fdb $BRANCH
+
 json_payload=$(cat <<EOF
 {
     "text": "$end_message",
