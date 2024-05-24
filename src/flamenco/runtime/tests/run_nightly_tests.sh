@@ -18,6 +18,10 @@ while [[ $# -gt 0 ]]; do
        SLACK_WEBHOOK_URL="$2"
        shift 2
        ;;
+    -cc|--codecov-token)
+       CODECOV_TOKEN="$2"
+       shift 2
+       ;;
     *)
       echo "Unknown flag"
       exit 1
@@ -33,6 +37,11 @@ fi
 
 if [ -z "${SLACK_WEBHOOK_URL}" ]; then
   echo "Error: Slack webhook URL not specified"
+  exit 1
+fi
+
+if [ -z "${CODECOV_TOKEN}" ]; then
+  echo "Error: Codecov token not specified"
   exit 1
 fi
 
@@ -103,3 +112,13 @@ json_payload=$(cat <<EOF
 EOF
 )
 curl -X POST -H 'Content-type: application/json' --data "$json_payload" $SLACK_WEBHOOK_URL
+
+OBJDIR=${OBJDIR:-build/native/clang}
+find "${REPO_DIR}/${OBJDIR}/cov/raw" -name '*.profraw' -print0 | xargs -0 llvm-profdata merge --sparse -o "${REPO_DIR}/${OBJDIR}/cov/raw/codecov.profdata"
+llvm-cov export -format=lcov -instr-profile=${REPO_DIR}/${OBJDIR}/cov/raw/codecov.profdata ${REPO_DIR}/${OBJDIR}/bin/fd_ledger > ${REPO_DIR}/${OBJDIR}/cov/raw/codecov.lcov
+
+curl -Os https://uploader.codecov.io/latest/linux/codecov
+chmod +x codecov
+./codecov -f ${REPO_DIR}/${OBJDIR}/cov/raw/codecov.lcov -t $CODECOV_TOKEN -F nightly_ledgers --name dist-cov-nightly-report
+rm codecov
+rm ${REPO_DIR}/${OBJDIR}/cov/raw/ -rf
