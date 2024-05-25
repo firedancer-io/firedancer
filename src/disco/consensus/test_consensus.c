@@ -45,9 +45,7 @@ static void
 sign_fun( void * arg, uchar * sig, uchar const * buffer, ulong len ) {
   fd_gossip_config_t * config = (fd_gossip_config_t *)arg;
   fd_sha512_t          sha[1];
-
-  if( len == 48 && memcmp( buffer, "SOLANA_PING_PONG", 16UL ) == 0 ) {
-    /* handle the special case of gossip ping/pong messages */
+  if( len == 48UL && ( memcmp( buffer, "SOLANA_PING_PONG", 16UL ) == 0 ) ) {
     uchar hash[32];
     fd_sha256_hash( buffer, len, hash );
     fd_ed25519_sign( /* sig */ sig,
@@ -140,7 +138,7 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
     if( repair_peer_addr.port == 0 ) return;
     if( FD_UNLIKELY( fd_repair_add_active_peer(
             arg_->repair, &repair_peer_addr, &data->inner.contact_info_v1.id ) ) ) {
-      FD_LOG_DEBUG( ( "error adding peer" ) ); /* Probably filled up the table */
+      FD_LOG_WARNING( ( "error adding peer" ) ); /* Probably filled up the table */
     };
   }
 }
@@ -249,6 +247,19 @@ resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res 
   res->port = htons( (ushort)port );
 
   return res;
+}
+
+static void
+add_perm( fd_repair_t * repair, const char * repair_peer_id, const char * repair_peer_addr ) {
+  fd_pubkey_t _repair_peer_id;
+  fd_base58_decode_32( repair_peer_id, _repair_peer_id.uc );
+  fd_repair_peer_addr_t _repair_peer_addr = { 0 };
+  if( FD_UNLIKELY( fd_repair_add_active_peer(
+          repair, resolve_hostport( repair_peer_addr, &_repair_peer_addr ), &_repair_peer_id ) ) ) {
+    FD_LOG_ERR( ( "error adding repair active peer" ) );
+  }
+  fd_repair_add_sticky( repair, &_repair_peer_id );
+  fd_repair_set_permanent( repair, &_repair_peer_id );
 }
 
 static ulong
@@ -464,7 +475,6 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous(
       fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
-  FD_LOG_DEBUG( ( "Finish setup wksp" ) );
 
   /**********************************************************************/
   /* restore                                                            */
@@ -485,7 +495,6 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE( ( "fd_wksp_restore %s", restore ) );
   int err = fd_wksp_restore( funk_wksp, restore, TEST_CONSENSUS_MAGIC );
   if( err ) FD_LOG_ERR( ( "fd_wksp_restore failed: error %d", err ) );
-  FD_LOG_DEBUG( ( "Finish restore funk" ) );
 
   /**********************************************************************/
   /* funk                                                               */
@@ -607,69 +616,48 @@ main( int argc, char ** argv ) {
       fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &snapshot_fork->slot_ctx, valloc ) );
   FD_TEST( snapshot_slot_ctx );
 
-  snapshot_slot_ctx->epoch_ctx    = epoch_ctx;
-  snapshot_slot_ctx->acc_mgr      = acc_mgr;
-  snapshot_slot_ctx->blockstore   = blockstore;
-  snapshot_slot_ctx->valloc       = valloc;
+  snapshot_slot_ctx->epoch_ctx  = epoch_ctx;
+  snapshot_slot_ctx->acc_mgr    = acc_mgr;
+  snapshot_slot_ctx->blockstore = blockstore;
+  snapshot_slot_ctx->valloc     = valloc;
 
   fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
-
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( snapshot_slot_ctx->epoch_ctx );
-  char              incremental_snapshot_out[128] = { 0 };
-  if( incremental_snapshot_url ) {
-    FILE * fp;
-
-    /* Open the command for reading. */
-    char cmd[128];
-    snprintf( cmd, sizeof( cmd ), "./shenanigans.sh %s", incremental_snapshot_url );
-    FD_LOG_NOTICE( ( "cmd: %s", cmd ) );
-    fp = popen( cmd, "r" );
-    if( fp == NULL ) {
-      printf( "Failed to run command\n" );
-      exit( 1 );
-    }
-
-    /* Read the output a line at a time - output it. */
-    if( !fgets( incremental_snapshot_out, sizeof( incremental_snapshot_out ) - 1, fp ) ) {
-      FD_LOG_ERR( ( "failed to pass snapshot name" ) );
-    }
-    incremental_snapshot_out[strcspn( incremental_snapshot_out, "\n" )] = '\0';
-    incremental_snapshot                                                = incremental_snapshot_out;
-    pclose( fp );
-  }
-  if( incremental_snapshot ) {
-    ulong i, j;
-    FD_TEST( sscanf( incremental_snapshot, "incremental-snapshot-%lu-%lu", &i, &j ) == 2 );
-    FD_TEST( i == snapshot_slot_ctx->slot_bank.slot );
-    FD_TEST( epoch_bank );
-    FD_TEST( fd_slot_to_epoch( &epoch_bank->epoch_schedule, i, NULL ) ==
-             fd_slot_to_epoch( &epoch_bank->epoch_schedule, j, NULL ) );
-    fd_snapshot_load( incremental_snapshot, snapshot_slot_ctx, 1, 1, FD_SNAPSHOT_TYPE_INCREMENTAL );
-  }
-
-  fd_runtime_cleanup_incinerator( snapshot_slot_ctx );
-  ulong snapshot_slot = snapshot_slot_ctx->slot_bank.slot;
-  FD_LOG_NOTICE( ( "snapshot_slot: %lu", snapshot_slot ) );
-  bank_hash_cmp->slot                         = snapshot_slot + 1;
-  snapshot_fork->slot                         = snapshot_slot;
-  snapshot_slot_ctx->slot_bank.collected_fees = 0;
-  snapshot_slot_ctx->slot_bank.collected_rent = 0;
-
   FD_TEST( !fd_runtime_sysvar_cache_load( snapshot_slot_ctx ) );
-
   fd_features_restore( snapshot_slot_ctx );
   fd_runtime_update_leaders( snapshot_slot_ctx, snapshot_slot_ctx->slot_bank.slot );
   fd_calculate_epoch_accounts_hash_values( snapshot_slot_ctx );
-
   fd_funk_start_write( funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry( snapshot_slot_ctx, snapshot_slot_ctx->funk_txn );
   fd_funk_end_write( funk );
-  snapshot_slot_ctx->leader =
-      fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( epoch_ctx ), snapshot_slot );
+  snapshot_slot_ctx->leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( epoch_ctx ),
+                                                    snapshot_slot_ctx->slot_bank.slot );
 
-  fd_blockstore_snapshot_insert( blockstore, &snapshot_slot_ctx->slot_bank );
-  fd_fork_frontier_ele_insert( forks->frontier, snapshot_fork, forks->pool );
-  FD_LOG_DEBUG( ( "Finish setup snapshot" ) );
+  /**********************************************************************/
+  /* stake weights                                                      */
+  /**********************************************************************/
+
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( snapshot_slot_ctx->epoch_ctx );
+  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool =
+      epoch_bank->stakes.vote_accounts.vote_accounts_pool;
+  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root =
+      epoch_bank->stakes.vote_accounts.vote_accounts_root;
+  ulong stake_weights_cnt =
+      fd_vote_accounts_pair_t_map_size( vote_accounts_pool, vote_accounts_root );
+  fd_stake_weight_t * stake_weights =
+      fd_wksp_alloc_laddr( wksp,
+                           fd_stake_weight_align(),
+                           stake_weights_cnt * fd_stake_weight_footprint(),
+                           TEST_CONSENSUS_MAGIC );
+  ulong                               stake_weights_idx = 0;
+  fd_vote_accounts_pair_t_mapnode_t * pool = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
+  fd_vote_accounts_pair_t_mapnode_t * root = epoch_bank->stakes.vote_accounts.vote_accounts_root;
+  for( fd_vote_accounts_pair_t_mapnode_t * node = fd_vote_accounts_pair_t_map_minimum( pool, root );
+       node;
+       node = fd_vote_accounts_pair_t_map_successor( pool, node ) ) {
+    fd_stake_weight_t * stake_weight = &stake_weights[stake_weights_idx++];
+    stake_weight->key                = node->elem.key;
+    stake_weight->stake              = node->elem.stake;
+  }
 
   /**********************************************************************/
   /* ghost                                                              */
@@ -685,10 +673,6 @@ main( int argc, char ** argv ) {
       fd_ghost_new( ghost_mem, ghost_node_max, ghost_vote_max, TEST_CONSENSUS_MAGIC ) );
   FD_TEST( ghost );
 
-  fd_slot_hash_t key = { .slot = snapshot_fork->slot,
-                         .hash = snapshot_fork->slot_ctx.slot_bank.banks_hash };
-  fd_ghost_leaf_insert( ghost, &key, NULL );
-
   /**********************************************************************/
   /* bft                                                                */
   /**********************************************************************/
@@ -697,8 +681,6 @@ main( int argc, char ** argv ) {
       fd_wksp_alloc_laddr( wksp, fd_bft_align(), fd_bft_footprint(), TEST_CONSENSUS_MAGIC );
   fd_bft_t * bft = fd_bft_join( fd_bft_new( bft_mem ) );
 
-  bft->snapshot_slot = snapshot_slot;
-  bft->smr        = snapshot_slot;
   fd_bft_epoch_stake_update( bft, epoch_ctx );
 
   bft->acc_mgr          = acc_mgr;
@@ -727,9 +709,6 @@ main( int argc, char ** argv ) {
   FD_TEST( replay );
 
   replay->now = fd_log_wallclock();
-
-  replay->smr           = snapshot_slot;
-  replay->snapshot_slot = snapshot_slot;
 
   replay->acc_mgr      = acc_mgr;
   replay->bft          = bft;
@@ -804,18 +783,18 @@ main( int argc, char ** argv ) {
 
   /* optionally specify a repair peer identity to skip waiting for a contact info to come through */
 
-  if( repair_peer_id ) {
-    fd_pubkey_t _repair_peer_id;
-    fd_base58_decode_32( repair_peer_id, _repair_peer_id.uc );
-    fd_repair_peer_addr_t _repair_peer_addr = { 0 };
-    if( FD_UNLIKELY(
-            fd_repair_add_active_peer( replay->repair,
-                                       resolve_hostport( repair_peer_addr, &_repair_peer_addr ),
-                                       &_repair_peer_id ) ) ) {
-      FD_LOG_ERR( ( "error adding repair active peer" ) );
-    }
-    fd_repair_add_sticky( replay->repair, &_repair_peer_id );
-    fd_repair_set_permanent( replay->repair, &_repair_peer_id );
+  if( repair_peer_id ) add_perm( repair, repair_peer_id, repair_peer_addr );
+
+  /* testnet fast set */
+
+  if( 0 == strcmp( env, "testnet" ) ) {
+    add_perm( repair, "8mnnoUHX2ALegD5ShUQL6zadGB2QUDwHbEQAe8ZZuAGA", "205.209.108.222:8008" );
+    add_perm( repair, "B17qEhhj98EQDXk4xFnpivSnrNpPTdkmfV9ACRJ2KsFd", "64.20.37.202:8008" );
+    add_perm( repair, "7M3jvtAidjggHNhs1RcJDD56mWYzym8Em8RoKhkHp35h", "104.237.50.146:8009" );
+    add_perm( repair, "7r26PeJYQ3jpYvhf5ju8Zpv7XEcXunZhYMnHYS4wdTvm", "104.243.47.251:8008" );
+    add_perm( repair, "HGPE7645ZDiUzeBVe9A8YtrCpA441j2R1kN1PPZE3EAD", "69.10.55.138:8008" );
+    add_perm( repair, "9SXpQRC2veMSkTRY1G2vLktNgc3Bbw4Nkg4xK1a1aVjH", "69.10.60.90:8008" );
+    add_perm( repair, "5TLhtuxkDdN4Mp2iHeSEZrDzpZ2xZRiEdFxcA9ipbPJV", "67.217.60.246:8008" );
   }
 
   /**********************************************************************/
@@ -916,58 +895,8 @@ main( int argc, char ** argv ) {
   fd_repair_settime( replay->repair, fd_log_wallclock() );
   fd_repair_start( replay->repair );
 
-  /**********************************************************************/
-  /* stake weights                                                      */
-  /**********************************************************************/
-
-  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool =
-      epoch_bank->stakes.vote_accounts.vote_accounts_pool;
-  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root =
-      epoch_bank->stakes.vote_accounts.vote_accounts_root;
-
-  ulong stake_weights_cnt =
-      fd_vote_accounts_pair_t_map_size( vote_accounts_pool, vote_accounts_root );
-  ulong stake_weight_idx = 0;
-
-  FD_SCRATCH_SCOPE_BEGIN {
-    fd_stake_weight_t * stake_weights = fd_scratch_alloc(
-        fd_stake_weight_align(), stake_weights_cnt * fd_stake_weight_footprint() );
-    for( fd_vote_accounts_pair_t_mapnode_t const * n =
-             fd_vote_accounts_pair_t_map_minimum_const( vote_accounts_pool, vote_accounts_root );
-         n;
-         n = fd_vote_accounts_pair_t_map_successor_const( vote_accounts_pool, n ) ) {
-      fd_vote_state_versioned_t versioned;
-      fd_bincode_decode_ctx_t   decode_ctx;
-      decode_ctx.data    = n->elem.value.data;
-      decode_ctx.dataend = n->elem.value.data + n->elem.value.data_len;
-      decode_ctx.valloc  = fd_scratch_virtual();
-      int rc             = fd_vote_state_versioned_decode( &versioned, &decode_ctx );
-      if( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) continue;
-      fd_stake_weight_t * stake_weight = &stake_weights[stake_weight_idx];
-      stake_weight->stake              = n->elem.stake;
-
-      switch( versioned.discriminant ) {
-      case fd_vote_state_versioned_enum_current:
-        stake_weight->key = versioned.inner.current.node_pubkey;
-        break;
-      case fd_vote_state_versioned_enum_v0_23_5:
-        stake_weight->key = versioned.inner.v0_23_5.node_pubkey;
-        break;
-      case fd_vote_state_versioned_enum_v1_14_11:
-        stake_weight->key = versioned.inner.v1_14_11.node_pubkey;
-        break;
-      default:
-        FD_LOG_DEBUG( ( "unrecognized vote_state_versioned type" ) );
-        continue;
-      }
-
-      stake_weight_idx++;
-    }
-
-    fd_repair_set_stake_weights( repair, stake_weights, stake_weights_cnt );
-    fd_gossip_set_stake_weights( gossip, stake_weights, stake_weights_cnt );
-  }
-  FD_SCRATCH_SCOPE_END;
+  fd_repair_set_stake_weights( repair, stake_weights, stake_weights_cnt );
+  fd_gossip_set_stake_weights( gossip, stake_weights, stake_weights_cnt );
 
   /**********************************************************************/
   /* tvu (turbine), repair, gossip threads                              */
@@ -1034,10 +963,70 @@ main( int argc, char ** argv ) {
   }
 
   /**********************************************************************/
-  /* run replay                                                         */
+  /* incremental                                                        */
   /**********************************************************************/
 
 run_replay:
+  while( 1 ) {
+    if( FD_LIKELY( replay->first_turbine_slot != FD_SLOT_NULL ) ) break;
+  }
+
+  char incremental_snapshot_out[128] = { 0 };
+  if( incremental_snapshot_url ) {
+    FILE * fp;
+
+    /* Open the command for reading. */
+    char cmd[128];
+    snprintf( cmd, sizeof( cmd ), "./shenanigans.sh %s", incremental_snapshot_url );
+    FD_LOG_NOTICE( ( "cmd: %s", cmd ) );
+    fp = popen( cmd, "r" );
+    if( fp == NULL ) {
+      printf( "Failed to run command\n" );
+      exit( 1 );
+    }
+
+    /* Read the output a line at a time - output it. */
+    if( !fgets( incremental_snapshot_out, sizeof( incremental_snapshot_out ) - 1, fp ) ) {
+      FD_LOG_ERR( ( "failed to pass snapshot name" ) );
+    }
+    incremental_snapshot_out[strcspn( incremental_snapshot_out, "\n" )] = '\0';
+    incremental_snapshot                                                = incremental_snapshot_out;
+    pclose( fp );
+  }
+  if( incremental_snapshot ) {
+    ulong i, j;
+    FD_TEST( sscanf( incremental_snapshot, "incremental-snapshot-%lu-%lu", &i, &j ) == 2 );
+    FD_TEST( i == snapshot_slot_ctx->slot_bank.slot );
+    FD_TEST( epoch_bank );
+    FD_TEST( fd_slot_to_epoch( &epoch_bank->epoch_schedule, i, NULL ) ==
+             fd_slot_to_epoch( &epoch_bank->epoch_schedule, j, NULL ) );
+    fd_snapshot_load( incremental_snapshot, snapshot_slot_ctx, 0, 0, FD_SNAPSHOT_TYPE_INCREMENTAL );
+  }
+
+  fd_runtime_cleanup_incinerator( snapshot_slot_ctx );
+  ulong snapshot_slot = snapshot_slot_ctx->slot_bank.slot;
+  FD_LOG_NOTICE( ( "snapshot_slot: %lu", snapshot_slot ) );
+  bank_hash_cmp->slot                         = snapshot_slot + 1;
+  snapshot_fork->slot                         = snapshot_slot;
+  snapshot_slot_ctx->slot_bank.collected_fees = 0;
+  snapshot_slot_ctx->slot_bank.collected_rent = 0;
+
+  fd_blockstore_snapshot_insert( blockstore, &snapshot_slot_ctx->slot_bank );
+  fd_fork_frontier_ele_insert( forks->frontier, snapshot_fork, forks->pool );
+  fd_slot_hash_t key = { .slot = snapshot_fork->slot,
+                         .hash = snapshot_fork->slot_ctx.slot_bank.banks_hash };
+  fd_ghost_leaf_insert( ghost, &key, NULL );
+
+
+  bft->snapshot_slot = snapshot_slot;
+  bft->smr           = snapshot_slot;
+
+  replay->smr           = snapshot_slot;
+  replay->snapshot_slot = snapshot_slot;
+
+  /**********************************************************************/
+  /* run replay                                                         */
+  /**********************************************************************/
 
   while( 1 ) {
     long now    = fd_log_wallclock();
@@ -1056,7 +1045,8 @@ run_replay:
     }
     (void)pending_empty;
 
-    // /* if the pending queue was empty and we received turbine packets for at least 1 second, start
+    // /* if the pending queue was empty and we received turbine packets for at least 1 second,
+    // start
     //    repairing from every fork head in the frontier. */
     // if( FD_UNLIKELY( pending_empty && ( now - replay->turbine_ts ) > (long)1e9 ) ) {
     //   fd_fork_frontier_t * frontier = replay->forks->frontier;
@@ -1074,9 +1064,6 @@ run_replay:
     //     fd_replay_add_pending( replay, slot + i, 0 );
     //   }
     // }
-
-    struct timespec ts = { .tv_sec = 0, .tv_nsec = (long)1e6 };
-    nanosleep( &ts, NULL );
   }
 
   if( replay->shred_cap ) fclose( replay->shred_cap );

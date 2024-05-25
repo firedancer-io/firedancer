@@ -452,6 +452,7 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   if( FD_LIKELY( !fd_uchar_extract_bit( block->flags, FD_BLOCK_FLAG_PREPARED ) ) ) {
     return FD_BLOCKSTORE_OK;
   }
+  FD_LOG_NOTICE( ( "[fd_blockstore_slot_remove] removing slot %lu", slot ) );
 
   /* Free next slots. */
 

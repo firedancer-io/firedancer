@@ -331,10 +331,10 @@ fd_ghost_gossip_vote_upsert( FD_PARAM_UNUSED fd_ghost_t *           ghost,
 
 void
 fd_ghost_prune( fd_ghost_t * ghost, fd_ghost_node_t const * root ) {
-  long now = fd_log_wallclock(); 
+  long now = fd_log_wallclock();
 
-  fd_ghost_node_t ** q = ghost->bfs_q;
-  fd_ghost_node_t * remove = fd_ghost_bfs_q_pop_head( q );
+  fd_ghost_node_t ** q      = ghost->bfs_q;
+  fd_ghost_node_t *  remove = fd_ghost_bfs_q_pop_head( q );
   fd_ghost_bfs_q_push_tail( q, remove );
   while( !fd_ghost_bfs_q_empty( q ) ) {
     fd_ghost_node_t * remove = fd_ghost_bfs_q_pop_head( q );
@@ -349,6 +349,7 @@ fd_ghost_prune( fd_ghost_t * ghost, fd_ghost_node_t const * root ) {
 #if FD_GHOST_USE_HANDHOLDING
     if( FD_UNLIKELY( !remove ) ) FD_LOG_ERR( ( "unable to remove." ) );
 #endif
+    FD_LOG_NOTICE( ( "[fd_ghost_prune] removing %lu", remove->slot_hash.slot ) );
     fd_ghost_node_pool_ele_release( ghost->node_pool, remove );
   }
 

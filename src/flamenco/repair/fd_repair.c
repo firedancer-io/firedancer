@@ -538,7 +538,7 @@ fd_repair_continue( fd_repair_t * glob ) {
     fd_repair_send_requests( glob );
     glob->last_sends = glob->now;
   }
-  if ( glob->now - glob->last_print > (long)30e9 ) { /* 30 seconds */
+  if ( glob->now - glob->last_print > (long)10e9 ) { /* 30 seconds */
     fd_repair_print_all_stats( glob );
     glob->last_print = glob->now;
     fd_actives_shuffle( glob );
@@ -879,12 +879,16 @@ print_stats( fd_active_elem_t * val ) {
     FD_LOG_DEBUG(( "repair peer %32J: no requests sent", id ));
   else if( val->avg_reps == 0 )
     FD_LOG_NOTICE(( "repair peer %32J: avg_requests=%lu, no responses received", id, val->avg_reqs ));
-  else
-    FD_LOG_NOTICE(( "repair peer %32J: avg_requests=%lu, response_rate=%f, latency=%f",
+  else {
+    char addr[100];
+    const char * addrs = fd_gossip_addr_str( addr, sizeof(addr), &val->addr );
+    FD_LOG_NOTICE(( "repair peer %32J %s: latency=%f",
                     id,
-                    val->avg_reqs,
-                    ((double)val->avg_reps)/((double)val->avg_reqs),
+                    addrs,
+                    // val->avg_reqs,
+                    // ((double)val->avg_reps)/((double)val->avg_reqs),
                     1.0e-9*((double)val->avg_lat)/((double)val->avg_reps) ));
+  }
 }
 
 static void
