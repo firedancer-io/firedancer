@@ -211,39 +211,40 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 
         ulong ancestor = prev_root_vote->root;
         while( ancestor > bft->smr ) {
-          FD_LOG_NOTICE( ( "ancestor: %lu", ancestor ) );
+          // FD_LOG_NOTICE( ( "ancestor: %lu", ancestor ) );
           fd_slot_commitment_t * ancestor_slot_commitment =
               fd_slot_commitment_map_query( bft->slot_commitments, ancestor, NULL );
           if( FD_LIKELY( ancestor_slot_commitment ) )
             ancestor_slot_commitment->rooted_stake -= stake;
           ancestor = fd_blockstore_parent_slot_query( bft->blockstore, ancestor );
+
 #if FD_BFT_USE_HANDHOLDING
-          /* someone has rooted something not in the ancestry back to our SMR. */
+          /* this validator has a different ancestry back to our SMR. */
           if( FD_UNLIKELY( ancestor == FD_SLOT_NULL ) ) __asm__( "int $3" );
 #endif
         }
       }
 
-      /* Update this node pubkey's stake is counted towards root. */
+      /* Update our bookkeeping of this node pubkey's root. */
 
       prev_root_vote->root = latest_vote->root;
 
-      /* Add this node pubkey's stake to all slots along the ancestry back to the current SMR. */
+      /* Add this node pubkey's stake to all slots in the ancestry back to the SMR. */
 
       ulong ancestor = latest_vote->root;
       while( ancestor > bft->smr ) {
         fd_slot_commitment_t * slot_commitment =
-            fd_slot_commitment_map_query( bft->slot_commitments, latest_vote->root, NULL );
+            fd_slot_commitment_map_query( bft->slot_commitments, ancestor, NULL );
         if( FD_UNLIKELY( !slot_commitment ) ) {
-          slot_commitment =
-              fd_slot_commitment_map_insert( bft->slot_commitments, latest_vote->root );
+          slot_commitment = fd_slot_commitment_map_insert( bft->slot_commitments, ancestor );
         }
         slot_commitment->rooted_stake += stake;
 
         double pct = (double)slot_commitment->rooted_stake / (double)bft->epoch_stake;
-        if( pct > FD_BFT_SMR ) {
+        if( FD_UNLIKELY( pct > FD_BFT_SMR && !slot_commitment->finalized ) ) {
           FD_LOG_NOTICE( ( "[bft] new_smr (%lf): %lu", pct, ancestor ) );
-          smr = fd_ulong_max( ancestor, smr );
+          smr                        = fd_ulong_max( ancestor, smr );
+          slot_commitment->finalized = 1;
         }
 
         ancestor = fd_blockstore_parent_slot_query( bft->blockstore, ancestor );
@@ -260,7 +261,6 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
     fd_bft_smr_update( bft, smr );
   }
 
-  fd_latest_vote_deque_remove_all( latest_votes );
   FD_LOG_NOTICE( ( "[count_replay_votes] processed %lu votes", vote_cnt ) );
   FD_LOG_NOTICE(
       ( "[count_replay_votes] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
@@ -413,7 +413,7 @@ fd_bft_fork_choice( fd_bft_t * bft ) {
 
   fd_ghost_node_t * ancestor = head;
   while( ancestor ) {
-    if( FD_UNLIKELY( ancestor->eqv && !ancestor->eqv_safe ) ) { return NULL; }
+    if( FD_UNLIKELY( ancestor->eqv && !ancestor->eqv_safe ) ) return NULL;
     ancestor = ancestor->parent;
   }
 
@@ -428,7 +428,7 @@ fd_bft_fork_choice( fd_bft_t * bft ) {
   }
 #endif
 
-  FD_LOG_NOTICE(("[fd_bft_fork_choice] picked slot: %lu", fork->slot));
+  FD_LOG_NOTICE( ( "[fd_bft_fork_choice] picked slot: %lu", fork->slot ) );
   FD_LOG_NOTICE(
       ( "[fd_bft_fork_choice] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 

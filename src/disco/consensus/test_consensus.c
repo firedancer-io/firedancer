@@ -611,7 +611,6 @@ main( int argc, char ** argv ) {
   snapshot_slot_ctx->acc_mgr      = acc_mgr;
   snapshot_slot_ctx->blockstore   = blockstore;
   snapshot_slot_ctx->valloc       = valloc;
-  snapshot_slot_ctx->latest_votes = latest_votes;
 
   fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
 
@@ -732,13 +731,14 @@ main( int argc, char ** argv ) {
   replay->smr           = snapshot_slot;
   replay->snapshot_slot = snapshot_slot;
 
-  replay->acc_mgr    = acc_mgr;
-  replay->bft        = bft;
-  replay->blockstore = blockstore;
-  replay->forks      = forks;
-  replay->funk       = funk;
-  replay->epoch_ctx  = epoch_ctx;
-  replay->valloc     = valloc;
+  replay->acc_mgr      = acc_mgr;
+  replay->bft          = bft;
+  replay->blockstore   = blockstore;
+  replay->forks        = forks;
+  replay->funk         = funk;
+  replay->epoch_ctx    = epoch_ctx;
+  replay->latest_votes = latest_votes;
+  replay->valloc       = valloc;
 
   /**********************************************************************/
   /* keys                                                               */

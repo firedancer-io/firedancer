@@ -25,11 +25,11 @@ fd_replay_new( void * mem ) {
   }
 
   fd_memset( mem, 0, footprint );
-  ulong laddr                = (ulong)mem;
-  laddr                      = fd_ulong_align_up( laddr, alignof( fd_replay_t ) );
-  fd_replay_t * replay       = (void *)laddr;
+  ulong laddr          = (ulong)mem;
+  laddr                = fd_ulong_align_up( laddr, alignof( fd_replay_t ) );
+  fd_replay_t * replay = (void *)laddr;
 
-  replay->now = 0;
+  replay->now        = 0;
   replay->turbine_ts = 0;
 
   replay->smr                = FD_SLOT_NULL;
@@ -147,11 +147,13 @@ fd_replay_add_pending( fd_replay_t * replay, ulong slot, long delay ) {
 
   } else if( slot >= replay->pending_end ) {
     /* Grow up */
-    if( slot - replay->pending_start > FD_REPLAY_PENDING_MAX )
+    if( slot - replay->pending_start > FD_REPLAY_PENDING_MAX ) {
+      __asm__( "int $3" );
       FD_LOG_ERR( ( "pending queue overrun: start=%lu, end=%lu, new slot=%lu",
                     replay->pending_start,
                     replay->pending_end,
                     slot ) );
+    }
     pending[slot & FD_REPLAY_PENDING_MASK] = when;
     for( ulong i = replay->pending_end; i < slot; ++i ) {
       /* Zero fill */
@@ -281,6 +283,8 @@ fd_replay_slot_prepare( fd_replay_t * replay, ulong slot ) {
 
   if( FD_UNLIKELY( !fork ) ) {
 
+    FD_LOG_NOTICE( ( "[fd_replay_slot_prepare] new fork: %lu -> %lu", parent_slot, slot ) );
+
     /* Alloc a new slot_ctx */
 
 #if FD_GHOST_USE_HANDHOLDING
@@ -356,6 +360,8 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   ulong txn_cnt                      = 0;
   fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
   fork->slot_ctx.slot_bank.slot      = slot;
+  fd_latest_vote_deque_remove_all( replay->latest_votes );
+  fork->slot_ctx.latest_votes = replay->latest_votes;
   FD_TEST(
       fd_runtime_block_eval_tpool( &fork->slot_ctx,
                                    capture_ctx,
@@ -368,13 +374,11 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   (void)txn_cnt;
 
   fd_blockstore_start_write( replay->blockstore );
-
   fd_block_t * block_ = fd_blockstore_block_query( replay->blockstore, slot );
   if( FD_LIKELY( block_ ) ) {
     block_->flags = fd_uchar_set_bit( block_->flags, FD_BLOCK_FLAG_PROCESSED );
     memcpy( &block_->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
   }
-
   fd_blockstore_end_write( replay->blockstore );
 
   /* Re-key the replay_slot_ctx to be the slot of the block we just executed. */
@@ -399,8 +403,8 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   FD_LOG_NOTICE( ( "first turbine: %lu", replay->first_turbine_slot ) );
   FD_LOG_NOTICE(
       ( "behind: %lu", slot > replay->curr_turbine_slot ? 0 : replay->curr_turbine_slot - slot ) );
-  FD_LOG_NOTICE(
-      ( "behind first: %lu", slot > replay->first_turbine_slot ? 0 : replay->first_turbine_slot - slot ) );
+  FD_LOG_NOTICE( ( "behind first: %lu",
+                   slot > replay->first_turbine_slot ? 0 : replay->first_turbine_slot - slot ) );
 
   fd_hash_t const * bank_hash = &child->slot_ctx.slot_bank.banks_hash;
   fork->head->bank_hash       = *bank_hash;
@@ -438,7 +442,8 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   fd_bft_fork_update( replay->bft, child );
   fd_bft_fork_choice( replay->bft );
 
-  FD_LOG_NOTICE( ( "[fd_replay_slot_execute] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
+  FD_LOG_NOTICE(
+      ( "[fd_replay_slot_execute] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 }
 
 void
@@ -646,6 +651,12 @@ fd_replay_repair_rx( fd_replay_t * replay, fd_shred_t const * shred ) {
   if( FD_UNLIKELY( rc < FD_BLOCKSTORE_OK ) ) {
     FD_LOG_ERR( ( "failed to insert shred. reason: %d", rc ) );
   } else if( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
+    long now = fd_log_wallclock();
+    if( FD_LIKELY( replay->repair_rx_ts ) ) {
+      FD_LOG_NOTICE( ( "[fd_replay_repair_rx]: repaired slot %lu after %.2lf ms",
+                       (double)( now - replay->repair_rx_ts ) / 1e6 ) );
+    }
+    replay->repair_rx_ts = now;
     fd_replay_add_pending( replay, shred->slot, 0 );
   } else {
     fd_replay_add_pending( replay, shred->slot, FD_REPAIR_BACKOFF_TIME );

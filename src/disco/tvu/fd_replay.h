@@ -56,6 +56,7 @@ typedef struct fd_replay_commitment fd_replay_commitment_t;
 struct __attribute__((aligned(128UL))) fd_replay {
   long now;        /* Current time */
   long turbine_ts; /* Timestamp of last rx of turbine */
+  long repair_rx_ts; /* Timestamp of last complete repair block */
 
   /* metadata */
   ulong smr;           /* super-majority root */
@@ -77,6 +78,7 @@ struct __attribute__((aligned(128UL))) fd_replay {
   fd_exec_epoch_ctx_t * epoch_ctx;
   fd_forks_t *          forks;
   fd_funk_t *           funk;
+  fd_latest_vote_t *    latest_votes;
   fd_valloc_t           valloc;
 
   /* tpool */
