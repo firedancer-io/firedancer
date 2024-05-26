@@ -466,8 +466,8 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
     ulong   next_slot_cnt = 0;
     int rc = fd_blockstore_next_slot_query( blockstore, parent_slot, &next_slot, &next_slot_cnt );
     if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) {
-      __asm__( "int $3" );
-      FD_LOG_ERR( ( "invariant violation: parent_slot not present in blockstore" ) );
+      // __asm__( "int $3" );
+      FD_LOG_WARNING( ( "invariant violation: parent_slot not present in blockstore" ) );
     }
     for( ulong i = 0; i < next_slot_cnt; i++ ) {
       if( FD_LIKELY( next_slot[i] == slot ) ) { /* Forks are unlikely. */
