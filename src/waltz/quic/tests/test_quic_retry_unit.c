@@ -41,18 +41,21 @@ test_retry_token_encrypt_decrypt( void ) {
   uchar                  retry_token[FD_QUIC_RETRY_TOKEN_SZ];
   ulong                  now = (ulong)fd_log_wallclock();
 
+  uchar retry_secret[FD_QUIC_RETRY_SECRET_SZ] = { 151, 6, 238, 205, 153, 2, 103, 12, 63, 212, 88, 23 };
+
   for ( int i = 0; i < NUM_TEST_CASES; i++ ) {
     fd_quic_conn_id_t orig_dst_conn_id  = orig_dst_conn_ids[i];
     fd_quic_conn_id_t retry_src_conn_id = retry_src_conn_ids[i];
 
     fd_quic_retry_token_encrypt(
-        &orig_dst_conn_id, now, &retry_src_conn_id, client.ip_addr, client.udp_port, retry_token
+        retry_secret, &orig_dst_conn_id, now, &retry_src_conn_id, client.ip_addr, client.udp_port, retry_token
     );
 
     fd_quic_conn_id_t orig_dst_conn_id_decrypt;
     ulong             now_decrypt;
 
     fd_quic_retry_token_decrypt(
+        retry_secret,
         retry_token,
         &retry_src_conn_id,
         client.ip_addr,
@@ -130,14 +133,16 @@ test_retry_integrity_tag( void ) {
 
 void
 test_retry_token_invalid_length( void ) {
-  uchar invalid_length_retry_token[42] = {0};
+  uchar invalid_length_retry_token[77] = {0};
   uchar *invalid_length_retry_token_ptr = invalid_length_retry_token;
   fd_quic_conn_id_t retry_src_conn_id = { .sz = 8, .conn_id = "\x42\x41\x40\x3F\x3E\x3D\x3C\x3B" };
   fd_quic_conn_id_t orig_dst_conn_id = { .sz = 20,
        .conn_id =
             "\x83\x94\xc8\xf0\x3e\x51\x57\x08\x83\x94\xc8\xf0\x3e\x51\x57\x08\x00\x00\x00\x00" };
   ulong now;
+  uchar retry_secret[FD_QUIC_RETRY_SECRET_SZ] = {0};
   int rc = fd_quic_retry_token_decrypt(
+    retry_secret,
     invalid_length_retry_token_ptr,
     &retry_src_conn_id,
     FD_IP4_ADDR(127, 0, 0, 1),

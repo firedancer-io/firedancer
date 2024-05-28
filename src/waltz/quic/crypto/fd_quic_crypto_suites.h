@@ -159,6 +159,10 @@ extern uchar FD_QUIC_CRYPTO_V1_INITIAL_SALT[ 20UL ];
 #define FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ 32
 /* retry token = prepended random bytes + encrypted ciphertext + appended authentication tag */
 #define FD_QUIC_RETRY_TOKEN_SZ (FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ + FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ + FD_QUIC_CRYPTO_TAG_SZ)
+/* RETRY secret size in bytes */
+#define FD_QUIC_RETRY_SECRET_SZ 32
+/* RETRY iv size in bytes */
+#define FD_QUIC_RETRY_IV_SZ 12
 /* 256-bit output from HKDF */
 #define FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ 32
 /* HKFD application-specific context (similar to a salt) */
@@ -504,22 +508,26 @@ fd_quic_crypto_lookup_suite( uchar major,
     original Solana validator client), though a similar HKDF + AEAD scheme is used in other
     implementations as well (quic-go, msquic). The differences are mainly what metadata is passed
     to AEAD as plaintext vs. as associated data. */
-int fd_quic_retry_token_encrypt(
+int
+fd_quic_retry_token_encrypt(
+    uchar const               retry_secret[static FD_QUIC_RETRY_SECRET_SZ],
     /* plaintext (timestamp calculated in function) */
     fd_quic_conn_id_t const * orig_dst_conn_id,
-    ulong               now,
+    ulong                     now,
     /* aad */
     fd_quic_conn_id_t const * retry_src_conn_id,
-    uint                ip_addr,
-    ushort              udp_port,
+    uint                      ip_addr,
+    ushort                    udp_port,
     /* ciphertext */
-    uchar retry_token[static FD_QUIC_RETRY_TOKEN_SZ]
+    uchar                     retry_token[static FD_QUIC_RETRY_TOKEN_SZ]
 );
 
 /* Decrypt a retry token, and checks it for validity (see `fd_quic_retry_token_encrypt`). */
-int fd_quic_retry_token_decrypt(
+int
+fd_quic_retry_token_decrypt(
+    uchar const         retry_secret[static FD_QUIC_RETRY_SECRET_SZ],
     /* ciphertext */
-    uchar * retry_token,
+    uchar               retry_token[static FD_QUIC_RETRY_TOKEN_SZ],
     /* aad */
     fd_quic_conn_id_t * retry_src_conn_id,
     uint                ip_addr,

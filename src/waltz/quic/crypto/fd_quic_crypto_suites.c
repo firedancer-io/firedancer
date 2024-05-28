@@ -607,20 +607,32 @@ fd_quic_crypto_rand( uchar * buf,
   return FD_QUIC_SUCCESS;
 }
 
-int fd_quic_retry_token_encrypt(
+int
+fd_quic_retry_token_encrypt(
+    uchar const         retry_secret[static FD_QUIC_RETRY_SECRET_SZ],
     fd_quic_conn_id_t const * orig_dst_conn_id,
     ulong               now,
     fd_quic_conn_id_t const * retry_src_conn_id,
     uint                ip_addr,
     ushort              udp_port,
-    uchar               retry_token[static FD_QUIC_RETRY_TOKEN_SZ]
-) {
+    uchar               retry_token[static FD_QUIC_RETRY_TOKEN_SZ] ) {
+
+  /* currently we use a server retry secret the same length as the key size */
+  if( FD_UNLIKELY( FD_QUIC_RETRY_SECRET_SZ != FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ ) ) {
+    FD_LOG_ERR(( "FD_QUIC_RETRY_SECRET_SZ must equal FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ" ));
+  }
+
   /* Generate pseudorandom bytes to use as the key for the AEAD HKDF. Note these bytes form the
      beginning of the retry token. */
-  uchar * hkdf_key = retry_token;
-  int     rc       = fd_quic_crypto_rand( retry_token, FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ );
+  int rc = fd_quic_crypto_rand( retry_token, FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ );
   if ( FD_UNLIKELY( rc == FD_QUIC_FAILED ) ) {
     return FD_QUIC_FAILED;
+  }
+
+  /* xor the random bytes with the server retry secret */
+  uchar hkdf_key[FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ];
+  for( ulong j = 0; j < FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ; ++j ) {
+    hkdf_key[j] = retry_token[j] ^ retry_secret[j];
   }
 
   /* The `extract` step of HKDF is unnecessary because what's being passed in to `expand` are
@@ -637,9 +649,19 @@ int fd_quic_retry_token_encrypt(
       FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ
   );
 
-  /* Since the key is derived from random bytes and only used once, we use a zero IV (nonce).
-     Note the IV length is by default 12 bytes (which is the recommended length for AES-GCM). */
-  uchar iv[FD_QUIC_NONCE_SZ] = { 0 };
+  /* hash a portion of the entropy to generate the IV */
+  /* use of a constant IV is strongly discouraged */
+  union {
+    uchar   iv[FD_QUIC_NONCE_SZ];
+
+    /* ensures alignment and size */
+    ulong   ulong_iv[(FD_QUIC_NONCE_SZ+7)/8];
+  } u_iv;
+
+  for( ulong j = 0; j < sizeof(u_iv); j += 8 ) {
+    *(ulong*)fd_type_pun( u_iv.iv + j )
+      = fd_ulong_hash( *(ulong const*)fd_type_pun( hkdf_key + j ) );
+  }
 
   /* The AAD is the client IPv4 address, UDP port, and retry source connection id. */
   ulong aad_sz = (ulong)FD_QUIC_RETRY_TOKEN_AAD_PREFIX_SZ + retry_src_conn_id->sz;
@@ -660,28 +682,39 @@ int fd_quic_retry_token_encrypt(
   memcpy( plaintext + 1 + orig_dst_conn_id->sz, &now, sizeof( ulong ) );
 
   /* Append the ciphertext after random bytes in the retry_token. */
-  uchar * ciphertext = hkdf_key + FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ;
+  uchar * ciphertext = retry_token + FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ;
 
   /* Append the authentication tag after ciphertext in the retry_token. */
   uchar * tag = ciphertext + FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ;
 
   fd_aes_gcm_t gcm[1];
-  fd_aes_256_gcm_init( gcm, aead_key, iv );
+  fd_aes_256_gcm_init( gcm, aead_key, u_iv.iv );
   fd_aes_gcm_aead_encrypt( gcm, ciphertext, plaintext, FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ, aad, aad_sz, tag );
 
   return FD_QUIC_SUCCESS;
 }
 
 int fd_quic_retry_token_decrypt(
-    uchar *             retry_token,
+    uchar const         retry_secret[static FD_QUIC_RETRY_SECRET_SZ],
+    uchar               retry_token[static FD_QUIC_RETRY_TOKEN_SZ],
     fd_quic_conn_id_t * retry_src_conn_id,
     uint                ip_addr,
     ushort              udp_port,
     fd_quic_conn_id_t * orig_dst_conn_id,
-    ulong *             now
-) {
+    ulong *             now) {
+
+  /* currently we use a server retry secret the same length as the key size */
+  if( FD_UNLIKELY( FD_QUIC_RETRY_SECRET_SZ != FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ ) ) {
+    FD_LOG_ERR(( "FD_QUIC_RETRY_SECRET_SZ must equal FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ" ));
+  }
+
+  /* xor the random bytes with the server retry secret */
+  uchar hkdf_key[FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ];
+  for( ulong j = 0; j < FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ; ++j ) {
+    hkdf_key[j] = retry_token[j] ^ retry_secret[j];
+  }
+
   /* Regenerate the AEAD key (the HKDF key is the first 32 bytes of the token). */
-  uchar * hkdf_key = retry_token;
   uchar   aead_key[FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ] = { 0 };
   fd_quic_hkdf_expand_label(
       aead_key,
@@ -694,7 +727,7 @@ int fd_quic_retry_token_decrypt(
       FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ
   );
 
-  uchar * ciphertext = hkdf_key + FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ;
+  uchar * ciphertext = retry_token + FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ;
   ulong   aad_sz     = (ulong)FD_QUIC_RETRY_TOKEN_AAD_PREFIX_SZ + retry_src_conn_id->sz;
   uchar   aad[aad_sz];
   memset( aad, 0, aad_sz );
@@ -708,12 +741,26 @@ int fd_quic_retry_token_decrypt(
         retry_src_conn_id->sz
     );
   }
-  uchar   iv[FD_QUIC_NONCE_SZ] = { 0 };
-  uchar * tag                  = ciphertext + FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ;
+
+  /* hash a portion of the entropy to generate the IV */
+  /* use of a constant IV is strongly discouraged */
+  union {
+    uchar   iv[FD_QUIC_NONCE_SZ];
+
+    /* ensures alignment and size */
+    ulong   ulong_iv[(FD_QUIC_NONCE_SZ+7)/8];
+  } u_iv;
+
+  for( ulong j = 0; j < sizeof(u_iv); j += 8 ) {
+    *(ulong*)fd_type_pun( u_iv.iv + j )
+      = fd_ulong_hash( *(ulong const*)fd_type_pun( hkdf_key + j ) );
+  }
+
+  uchar * tag = ciphertext + FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ;
   uchar   plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ] = { 0 };
 
   fd_aes_gcm_t gcm[1];
-  fd_aes_256_gcm_init( gcm, aead_key, iv );
+  fd_aes_256_gcm_init( gcm, aead_key, u_iv.iv );
   int decrypt_ok =
     fd_aes_gcm_aead_decrypt( gcm, ciphertext, plaintext, FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ, aad, aad_sz, tag );
   if( FD_UNLIKELY( !decrypt_ok ) )
