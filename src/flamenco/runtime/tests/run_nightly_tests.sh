@@ -95,6 +95,7 @@ for log_info in "${log_infos[@]}"; do
     if [[ -n "$mismatched" ]]; then
         mismatch_slot=$(grep "Bank hash mismatch!" "$log_file" | tail -n 1 | awk -F'slot=' '{print $2}' | awk '{print $1}')
         end_message+=$'\n'" - Ledger \`$ledger\` Starting at Slot \`$start_slot\` Failed at Slot \`$mismatch_slot\`, Log at: \`$log_file\`"
+        ./src/flamenco/runtime/tests/run_conformance_tests.sh -i /data/insn_pb/ -fdr $REPO_DIR -fdb $BRANCH
     else
         replay_completed=$(grep "replay completed" "$log_file" | tail -n 1)
         info="${replay_completed#*replay completed - }"
@@ -102,7 +103,6 @@ for log_info in "${log_infos[@]}"; do
     fi
 done
 
-./src/flamenco/runtime/tests/run_conformance_tests.sh -i /data/insn_pb/ -fdr $REPO_DIR -fdb $BRANCH
 
 json_payload=$(cat <<EOF
 {
@@ -121,4 +121,3 @@ curl -Os https://uploader.codecov.io/latest/linux/codecov
 chmod +x codecov
 ./codecov -f ${REPO_DIR}/${OBJDIR}/cov/raw/codecov.lcov -t $CODECOV_TOKEN -F nightly_ledgers --name dist-cov-nightly-report
 rm codecov
-rm ${REPO_DIR}/${OBJDIR}/cov/raw/ -rf
