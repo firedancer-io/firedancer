@@ -524,12 +524,8 @@ main( int argc, char ** argv ) {
   FD_TEST( blockstore_wksp );
   void * blockstore_mem = fd_wksp_alloc_laddr(
       blockstore_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
-  fd_blockstore_t * blockstore = fd_blockstore_join( fd_blockstore_new( blockstore_mem,
-                                                                        FD_BLOCKSTORE_MAGIC,
-                                                                        FD_BLOCKSTORE_MAGIC,
-                                                                        1 << 17,
-                                                                        1 << LG_SLOT_MAX,
-                                                                        22 ) );
+  fd_blockstore_t * blockstore = fd_blockstore_join( fd_blockstore_new(
+      blockstore_mem, FD_BLOCKSTORE_MAGIC, FD_BLOCKSTORE_MAGIC, 1 << 17, 1 << LG_SLOT_MAX, 22 ) );
   FD_TEST( blockstore );
 
   /**********************************************************************/
@@ -883,9 +879,12 @@ main( int argc, char ** argv ) {
 
   FD_TEST( !fd_gossip_set_config( gossip, &gossip_config ) );
 
+  uint entrypoints[16];
   fd_gossip_peer_addr_t _gossip_peer_addr;
-  FD_TEST( !fd_gossip_add_active_peer( gossip,
-                                       resolve_hostport( gossip_peer_addr, &_gossip_peer_addr ) ) );
+  resolve_hostport( gossip_peer_addr, &_gossip_peer_addr );
+  entrypoints[0] = _gossip_peer_addr.addr;
+  ushort port = fd_ushort_bswap(_gossip_peer_addr.port);
+  fd_gossip_set_entrypoints( gossip, entrypoints, 1, &port);
 
   fd_gossip_update_addr( gossip, &gossip_config.my_addr );
   fd_gossip_settime( gossip, fd_log_wallclock() );

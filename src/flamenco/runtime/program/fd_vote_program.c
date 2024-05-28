@@ -1789,17 +1789,6 @@ process_vote_state_update( ulong                         vote_acct_idx,
     return rc;
   }
 
-  /* Save latest vote for insertion on success. */
-  fd_landed_vote_t * latest_landed_vote = deq_fd_landed_vote_t_peek_tail( vote_state.votes );
-  fd_latest_vote_t   latest_vote = {0};
-  fd_latest_vote_t * new_latest_vote = NULL;
-  if( FD_LIKELY( latest_landed_vote ) ) {
-    latest_vote.node_pubkey = *vote_account->pubkey;
-    latest_vote.slot_hash   = (fd_slot_hash_t){ .slot = latest_landed_vote->lockout.slot, .hash = vote_state_update->hash };
-    new_latest_vote = &latest_vote;
-  }
-
-  /* Destroys vote_state. */
   rc = set_vote_account_state( vote_acct_idx, vote_account, &vote_state, ctx );
 
   /* only when running live or sim (vs. offline backtest) */
