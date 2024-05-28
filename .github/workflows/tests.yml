@@ -25,16 +25,18 @@ jobs:
         include:
           - machine: linux_gcc_noarch64
             notest: true
+            label: self-hosted
           - machine: linux_gcc_icelake
-            group: rhel85-icelake
+            label: icelake
           - machine: linux_clang_x86_64
+            label: X64
           - machine: native
             env: CC=clang
+            label: self-hosted
           - machine: linux_clang_icelake
-            group: rhel85-icelake
+            label: icelake
             extras: asan ubsan
-    runs-on:
-      group: ${{ matrix.group || 'github-v1' }}
+    runs-on: ${{ matrix.label }}
     steps:
       - uses: actions/checkout@v4
         with:
