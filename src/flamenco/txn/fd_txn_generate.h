@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_flamenco_txn_fd_txn_generate_h
+#define HEADER_fd_src_flamenco_txn_fd_txn_generate_h
+
 /* Provides utility methods to create txn templates for
    pre-staging, as well as a mechanism to build out an
    entire transaction with instructions. */
@@ -56,3 +59,5 @@ void
 fd_txn_reset_instrs( uchar * txn_meta_ptr,
                      uchar out_txn_payload[ static FD_TXN_MTU ] );
 FD_PROTOTYPES_END
+
+#endif

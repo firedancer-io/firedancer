@@ -142,7 +142,7 @@ fd_txn_add_instr( uchar * txn_meta_ptr,
                                       program_id,
                                       (ushort)accounts_sz,
                                       data_sz, acct_off, data_off );
-  return (ulong)(instr_start - out_txn_payload);
+  return (ulong)(write_ptr - out_txn_payload);
 }
 
 void
