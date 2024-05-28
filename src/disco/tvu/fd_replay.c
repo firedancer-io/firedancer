@@ -211,9 +211,7 @@ fd_replay_slot_prepare( fd_replay_t * replay, ulong slot ) {
   ulong re_adds[2];
   uint  re_adds_cnt = 0;
 
-  if (FD_UNLIKELY(slot < replay->blockstore->smr)) {
-    goto end;
-  }
+  if( FD_UNLIKELY( slot < replay->blockstore->smr ) ) { goto end; }
 
   fd_block_t * block = fd_blockstore_block_query( replay->blockstore, slot );
 
@@ -357,7 +355,7 @@ fd_replay_slot_execute( fd_replay_t *      replay,
                         ulong              slot,
                         fd_fork_t *        fork,
                         fd_capture_ctx_t * capture_ctx ) {
-  long now = fd_log_wallclock();
+  FD_PARAM_UNUSED long now = fd_log_wallclock();
 
   fd_shred_cap_mark_stable( replay, slot );
 
@@ -402,17 +400,15 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   child->slot_ctx.slot_bank.collected_fees = 0;
   child->slot_ctx.slot_bank.collected_rent = 0;
 
-  FD_LOG_NOTICE( ( "[fd_replay_slot_execute] slot: %lu", slot ) );
-  FD_LOG_NOTICE( ( "[fd_replay_slot_execute] curr turbine: %lu", replay->curr_turbine_slot ) );
-  FD_LOG_NOTICE( ( "[fd_replay_slot_execute] first turbine: %lu", replay->first_turbine_slot ) );
-  FD_LOG_NOTICE(
-      ( "[fd_replay_slot_execute] behind: %lu", slot > replay->curr_turbine_slot ? 0 : replay->curr_turbine_slot - slot ) );
-  FD_LOG_NOTICE( ( "[fd_replay_slot_execute] behind first: %lu",
+  FD_LOG_NOTICE( ( "curr turbine: %lu", replay->curr_turbine_slot ) );
+  FD_LOG_NOTICE( ( "first turbine: %lu", replay->first_turbine_slot ) );
+  FD_LOG_NOTICE( ( "behind: %lu",
+                   slot > replay->curr_turbine_slot ? 0 : replay->curr_turbine_slot - slot ) );
+  FD_LOG_NOTICE( ( "behind first: %lu",
                    slot > replay->first_turbine_slot ? 0 : replay->first_turbine_slot - slot ) );
 
   fd_hash_t const * bank_hash = &child->slot_ctx.slot_bank.banks_hash;
   fork->head->bank_hash       = *bank_hash;
-  FD_LOG_NOTICE( ( "bank hash: %32J", bank_hash->hash ) );
 
   fd_bank_hash_cmp_t * bank_hash_cmp = child->slot_ctx.epoch_ctx->bank_hash_cmp;
   fd_bank_hash_cmp_lock( bank_hash_cmp );
@@ -446,8 +442,8 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   fd_bft_fork_update( replay->bft, child );
   fd_bft_fork_choice( replay->bft );
 
-  FD_LOG_NOTICE(
-      ( "[fd_replay_slot_execute] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
+  // FD_LOG_NOTICE(
+  //     ( "[fd_replay_slot_execute] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 }
 
 void
@@ -501,12 +497,13 @@ fd_replay_slot_repair( fd_replay_t * replay, ulong slot ) {
       if( fd_blockstore_shred_query( replay->blockstore, slot, (uint)i ) != NULL ) continue;
       if( fd_repair_need_window_index( replay->repair, slot, (uint)i ) > 0 ) ++cnt;
     }
-    if( cnt )
-      FD_LOG_NOTICE( ( "[repair] need %lu [%lu, %lu], sent %lu requests",
-                       slot,
-                       slot_meta->consumed + 1,
-                       last_index,
-                       cnt ) );
+    if( cnt ) {
+      // FD_LOG_NOTICE( ( "[repair] need %lu [%lu, %lu], sent %lu requests",
+      //                  slot,
+      //                  slot_meta->consumed + 1,
+      //                  last_index,
+      //                  cnt ) );
+    }
   }
 }
 
@@ -589,6 +586,7 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
   int                  rc          = fd_fec_resolver_add_shred(
       replay->fec_resolver, shred, shred_sz, leader->uc, &out_fec_set, &out_shred );
   if( rc == FD_FEC_RESOLVER_SHRED_COMPLETES ) {
+    __asm__("int $3");
     if( FD_UNLIKELY( replay->first_turbine_slot == FD_SLOT_NULL ) ) {
       replay->first_turbine_slot = shred->slot;
     }
@@ -622,7 +620,7 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
           replay->first_turbine_slot = slot;
         }
         replay->curr_turbine_slot = fd_ulong_max( slot, replay->curr_turbine_slot );
-        FD_LOG_NOTICE( ( "[turbine] slot %lu complete", slot ) );
+        // FD_LOG_NOTICE( ( "[turbine] slot %lu complete", slot ) );
 
         fd_blockstore_end_write( blockstore );
 
@@ -658,6 +656,7 @@ fd_replay_repair_rx( fd_replay_t * replay, fd_shred_t const * shred ) {
     long now = fd_log_wallclock();
     if( FD_LIKELY( replay->repair_rx_ts ) ) {
       FD_LOG_NOTICE( ( "[fd_replay_repair_rx]: repaired slot %lu after %.2lf ms",
+                       shred->slot,
                        (double)( now - replay->repair_rx_ts ) / 1e6 ) );
     }
     replay->repair_rx_ts = now;

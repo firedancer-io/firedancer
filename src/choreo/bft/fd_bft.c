@@ -87,16 +87,18 @@ query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t * vote_accoun
 
 static void
 count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
-  long now = fd_log_wallclock();
+  FD_PARAM_UNUSED long now = fd_log_wallclock();
 
   fd_latest_vote_t * latest_votes = fork->slot_ctx.latest_votes;
   fd_root_vote_t *   root_votes   = bft->root_votes;
 
   ulong vote_cnt = 0;
   ulong smr      = bft->smr;
+
   for( fd_latest_vote_deque_iter_t iter = fd_latest_vote_deque_iter_init( latest_votes );
        !fd_latest_vote_deque_iter_done( latest_votes, iter );
        iter = fd_latest_vote_deque_iter_next( latest_votes, iter ) ) {
+    FD_PARAM_UNUSED long tic = fd_log_wallclock();
 
     // long total_tic = fd_log_wallclock();
 
@@ -157,6 +159,8 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
     ulong stake = query_pubkey_stake( node_pubkey,
                                       &fork->slot_ctx.epoch_ctx->epoch_bank.stakes.vote_accounts );
 
+    // FD_LOG_NOTICE( ( "[1] took %.1lf us", (double)( fd_log_wallclock() - tic ) / 1e3 ) );
+
     /* Look up the ghost node. */
 
     fd_slot_hash_t    slot_hash  = { .slot = vote_slot, .hash = *bank_hash };
@@ -173,6 +177,8 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
     /* Upsert the vote into ghost. */
 
     fd_ghost_replay_vote_upsert( bft->ghost, &slot_hash, node_pubkey, stake );
+
+    // FD_LOG_NOTICE( ( "[2] took %.1lf us", (double)( fd_log_wallclock() - tic ) / 1e3 ) );
 
     /* Check this slot's stake pct in ghost, and mark stake threshold accordingly if reached. */
 
@@ -245,7 +251,7 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 
         double pct = (double)slot_commitment->rooted_stake / (double)bft->epoch_stake;
         if( FD_UNLIKELY( pct > FD_BFT_SMR && !slot_commitment->finalized ) ) {
-          FD_LOG_NOTICE( ( "[count_replay_votes] new SMR: %lu (%lf)", ancestor, pct ) );
+          FD_LOG_NOTICE( ( "new SMR: %lu (%lf)", ancestor, pct ) );
           smr                        = fd_ulong_max( ancestor, smr );
           slot_commitment->finalized = 1;
         }
@@ -256,16 +262,20 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
       }
     }
 
+    // FD_LOG_NOTICE( ( "[3] took %.1lf us", (double)( fd_log_wallclock() - tic ) / 1e3 ) );
+
     vote_cnt++;
     // long total_toc = fd_log_wallclock();
     // FD_LOG_NOTICE(("total took: %ld", total_toc - total_tic));
+    // FD_LOG_NOTICE(
+    //     ( "[loop iteration] took %.1lf us", (double)( fd_log_wallclock() - tic ) / 1e3 ) );
   }
-  FD_LOG_NOTICE( ( "[count_replay_votes] processed %lu votes", vote_cnt ) );
-  FD_LOG_NOTICE(
-      ( "[count_replay_votes] took %.2lf ms", (double)( fd_log_wallclock() - now  ) / 1e6 ) );
+  FD_LOG_NOTICE( ( "processed %lu votes", vote_cnt ) );
+  // FD_LOG_NOTICE(
+  //     ( "[count_replay_votes] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 
   if( FD_LIKELY( smr > bft->smr ) ) {
-    fd_bft_prune( bft, smr );
+    // fd_bft_prune( bft, smr );
     fd_bft_smr_update( bft, smr );
   }
 
@@ -323,7 +333,7 @@ count_gossip_votes( fd_bft_t *                    bft,
 /* Update fork with the votes in the block. */
 void
 fd_bft_fork_update( fd_bft_t * bft, fd_fork_t * fork ) {
-  long now = fd_log_wallclock();
+  FD_PARAM_UNUSED long now = fd_log_wallclock();
 
   fd_slot_bank_t * bank = &fork->slot_ctx.slot_bank;
 
@@ -352,11 +362,6 @@ fd_bft_fork_update( fd_bft_t * bft, fd_fork_t * fork ) {
         .slot = parent_slot,
         .hash = *parent_bank_hash,
     };
-    FD_LOG_NOTICE( ( "[ghost] insert slot: %lu hash: %32J parent: %lu parent_hash: %32J",
-                     curr_key.slot,
-                     curr_key.hash.hash,
-                     parent_slot,
-                     parent_bank_hash->hash ) );
     fd_ghost_leaf_insert( bft->ghost, &curr_key, &parent_key );
     if( curr_key.slot == bft->snapshot_slot + 1 ) {
       fd_ghost_node_t * snapshot_node = fd_ghost_node_query( bft->ghost, &curr_key );
@@ -402,8 +407,8 @@ fd_bft_fork_update( fd_bft_t * bft, fd_fork_t * fork ) {
   //   commitment->confirmed_stake[landed_vote->lockout.confirmation_count] += stake;
   // }
 
-  FD_LOG_NOTICE(
-      ( "[fd_bft_fork_update] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
+  // FD_LOG_NOTICE(
+  //     ( "[fd_bft_fork_update] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 }
 
 fd_fork_t *
@@ -435,9 +440,8 @@ fd_bft_fork_choice( fd_bft_t * bft ) {
   }
 #endif
 
-  FD_LOG_NOTICE( ( "[fd_bft_fork_choice] picked slot: %lu", fork->slot ) );
-  FD_LOG_NOTICE(
-      ( "[fd_bft_fork_choice] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
+  FD_LOG_NOTICE( ( "picked fork head: slot %lu", fork->slot ) );
+  FD_LOG_NOTICE( ( "fork selection took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 
   return fork;
 
@@ -576,7 +580,7 @@ fd_bft_epoch_stake_update( fd_bft_t * bft, fd_exec_epoch_ctx_t * epoch_ctx ) {
 
 void
 fd_bft_prune( fd_bft_t * bft, ulong slot ) {
-  long now = fd_log_wallclock();
+  FD_PARAM_UNUSED long now = fd_log_wallclock();
 
   fd_blockstore_t * blockstore = bft->blockstore;
   fd_funk_t *       funk       = bft->funk;
@@ -622,11 +626,12 @@ fd_bft_prune( fd_bft_t * bft, ulong slot ) {
   fd_blockstore_prune( blockstore, slot );
   fd_blockstore_end_write( blockstore );
 
-  FD_LOG_NOTICE( ( "[fd_bft_prune no funk] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
+  // FD_LOG_NOTICE(
+  //     ( "[fd_bft_prune no funk] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 
   /* Query the funk txn xid. */
 
-  long funk_now = fd_log_wallclock();
+  FD_PARAM_UNUSED long funk_now = fd_log_wallclock();
 
   fd_blockstore_start_read( blockstore );
   fd_hash_t const * block_hash_ = fd_blockstore_block_hash_query( blockstore, slot );
@@ -658,8 +663,10 @@ fd_bft_prune( fd_bft_t * bft, ulong slot ) {
   if( rc == 0 ) FD_LOG_ERR( ( "publish err" ) );
   fd_funk_end_write( funk );
 
-  FD_LOG_NOTICE( ( "[fd_bft_prune funk] took %.2lf ms", (double)( fd_log_wallclock() - funk_now ) / 1e6 ) );
-  FD_LOG_NOTICE( ( "[fd_bft_prune] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
+  // FD_LOG_NOTICE(
+  //     ( "[fd_bft_prune funk] took %.2lf ms", (double)( fd_log_wallclock() - funk_now ) / 1e6 ) );
+  // FD_LOG_NOTICE( ( "[fd_bft_prune] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 )
+  // );
 }
 
 void

@@ -848,7 +848,7 @@ fd_repair_need_orphan( fd_repair_t * glob, ulong slot ) {
     return -1;
   };
   fd_pubkey_t * const id = &peer->key;
-  FD_LOG_NOTICE( ( "[repair] need orphan %lu from %32J", slot, id ) );
+  // FD_LOG_NOTICE( ( "[repair] need orphan %lu from %32J", slot, id ) );
   fd_dupdetect_key_t dupkey = { .type = fd_needed_orphan, .slot = slot, .shred_index = UINT_MAX };
   if( fd_dupdetect_table_query( glob->dupdetect, &dupkey, NULL ) != NULL ) {
     fd_repair_unlock( glob );

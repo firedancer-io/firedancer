@@ -777,6 +777,7 @@ main( int argc, char ** argv ) {
   repair_config.sign_fun         = sign_fun;
   repair_config.sign_arg         = &repair_config;
 
+  FD_LOG_NOTICE(("setting config"));
   FD_TEST( !fd_repair_set_config( repair, &repair_config ) );
 
   replay->repair = repair;
@@ -1031,7 +1032,10 @@ run_replay:
   /* run replay                                                         */
   /**********************************************************************/
 
+  FD_LOG_NOTICE(("here"));
+
   while( 1 ) {
+    __asm__("int $3");
     long now    = fd_log_wallclock();
     replay->now = now;
 
@@ -1045,6 +1049,9 @@ run_replay:
         if( slot > 64U ) replay->smr = fd_ulong_max( replay->smr, slot - 64U );
         replay->now = now = fd_log_wallclock();
       }
+    }
+    if (pending_empty) {
+      FD_LOG_NOTICE(("pending empty"));
     }
     (void)pending_empty;
 

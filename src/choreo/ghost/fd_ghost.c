@@ -159,11 +159,11 @@ fd_ghost_leaf_insert( fd_ghost_t *           ghost,
   node->head             = node; /* by definition, a leaf is the highest weight subtree of itself */
 
 #if FD_GHOST_USE_HANDHOLDING
-  FD_LOG_NOTICE( ( "[ghost] inserting: %lu hash: %32J parent: %lu parent_hash: %32J",
-                   key->slot,
-                   key->hash.hash,
-                   parent_key_opt ? parent_key_opt->slot : ULONG_MAX,
-                   parent_key_opt ? parent_key_opt->hash.hash : NULL ) );
+  // FD_LOG_NOTICE( ( "[ghost] inserting: %lu hash: %32J parent: %lu parent_hash: %32J",
+  //                  key->slot,
+  //                  key->hash.hash,
+  //                  parent_key_opt ? parent_key_opt->slot : ULONG_MAX,
+  //                  parent_key_opt ? parent_key_opt->hash.hash : NULL ) );
 #endif
 
   /* map insertion */
@@ -179,7 +179,7 @@ fd_ghost_leaf_insert( fd_ghost_t *           ghost,
     ghost->root = node;
     return;
   }
-  FD_LOG_NOTICE( ( "inserting slot %lu parent %lu", key->slot, parent_key_opt->slot ) );
+  // FD_LOG_NOTICE( ( "inserting slot %lu parent %lu", key->slot, parent_key_opt->slot ) );
   fd_ghost_node_t * parent =
       fd_ghost_node_map_ele_query( ghost->node_map, parent_key_opt, NULL, ghost->node_pool );
 
@@ -331,7 +331,7 @@ fd_ghost_gossip_vote_upsert( FD_PARAM_UNUSED fd_ghost_t *           ghost,
 
 void
 fd_ghost_prune( fd_ghost_t * ghost, fd_ghost_node_t const * root ) {
-  long now = fd_log_wallclock();
+  FD_PARAM_UNUSED long now = fd_log_wallclock();
 
   fd_ghost_node_t ** q      = ghost->bfs_q;
   fd_ghost_node_t *  remove = fd_ghost_bfs_q_pop_head( q );
@@ -353,7 +353,7 @@ fd_ghost_prune( fd_ghost_t * ghost, fd_ghost_node_t const * root ) {
     fd_ghost_node_pool_ele_release( ghost->node_pool, remove );
   }
 
-  FD_LOG_NOTICE( ( "[fd_ghost_prune] took %.1lf us", (double)( fd_log_wallclock() - now ) / 1e3 ) );
+  // FD_LOG_NOTICE( ( "[fd_ghost_prune] took %.1lf us", (double)( fd_log_wallclock() - now ) / 1e3 ) );
 }
 
 static void
