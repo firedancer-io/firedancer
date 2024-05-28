@@ -59,11 +59,11 @@ if [ -z "${ENTRYPOINT-}" ]; then
   ENTRYPOINT="147.75.84.157"
 fi
 
-# snapshot=$(download_snapshot http://entrypoint3.testnet.solana.com:8899/snapshot.tar.bz2)
+snapshot=$(download_snapshot http://entrypoint3.testnet.solana.com:8899/snapshot.tar.bz2)
 
-fd_ledger --cmd ingest --funk-page-cnt 140 --index-max 100000000 --txns-max 1024 --funk-only 1 --checkpt-funk funk.checkpt --snapshot $snapshot
+fd_ledger --cmd ingest --funk-page-cnt 140 --index-max 100000000 --txns-max 1024 --funk-only 1 --checkpt-funk funk.checkpt --snapshot 
 
-# incremental=$(download_snapshot http://entrypoint3.testnet.solana.com:8899/incremental-snapshot.tar.bz2)
+incremental=$(download_snapshot http://entrypoint3.testnet.solana.com:8899/incremental-snapshot.tar.bz2)
 
 echo "
 [gossip]
@@ -90,6 +90,6 @@ echo "
   level_stderr = \"NOTICE\"
 [development]
     topology = \"firedancer\"
-" > fddev.toml
+" > testnet.toml
 
-fddev --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --no-sandbox --no-clone --no-solana-labs
+fddev --log-path $(readlink -f fddev.log) --config $(readlink -f testnet.toml) --no-sandbox --no-clone --no-solana-labs

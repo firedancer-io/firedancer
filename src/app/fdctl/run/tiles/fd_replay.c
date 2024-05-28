@@ -50,8 +50,6 @@
 #define VOTE_ACC_MAX   (2000000UL)
 #define FORKS_MAX      (fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH ))
 
-#define LG_SLOT_MAX          FD_LG_NODE_PUBKEY_MAX /* both 4k */
-
 struct fd_replay_tile_ctx {
   fd_wksp_t * wksp;
 
@@ -116,8 +114,6 @@ struct fd_replay_tile_ctx {
   fd_latest_vote_t * latest_votes;
   fd_capture_ctx_t * capture_ctx;
   FILE * capture_file;
-
-  fd_ghost_t * ghost;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -334,7 +330,7 @@ after_frag( void *             _ctx,
 
       fd_hash_t const * bank_hash = &child->slot_ctx.slot_bank.banks_hash;
 
-      fd_bank_hash_cmp_t * bank_hash_cmp = child->slot_ctx.epoch_ctx->bank_hash_cmp;
+      fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( child->slot_ctx.epoch_ctx );
       fd_bank_hash_cmp_lock( bank_hash_cmp );
       fd_bank_hash_cmp_insert( bank_hash_cmp, ctx->curr_slot, bank_hash, 1 );
 
@@ -549,10 +545,6 @@ unprivileged_init( fd_topo_t *      topo,
   void * latest_votes_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint() );
   void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
 
-  ulong        ghost_node_max = 1 << LG_SLOT_MAX;
-  ulong        ghost_vote_max = 1 << FD_LG_NODE_PUBKEY_MAX;
-  void *       ghost_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( ghost_node_max, ghost_vote_max ) );
-
   fd_scratch_attach( smem, fmem, SCRATCH_MAX, SCRATCH_DEPTH );
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
@@ -736,12 +728,6 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top>( (ulong)scratch + scratch_footprint( tile ) ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
-
-  /* consensus */
-
-  // fd_ghost_t * ghost          = fd_ghost_join(
-  //     fd_ghost_new( ghost_mem, ghost_node_max, ghost_vote_max, TEST_CONSENSUS_MAGIC ) );
-  // FD_TEST( ghost );
 }
 
 static ulong

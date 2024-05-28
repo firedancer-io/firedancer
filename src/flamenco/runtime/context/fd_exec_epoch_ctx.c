@@ -25,6 +25,7 @@ fd_exec_epoch_ctx_footprint_ext( fd_exec_epoch_ctx_layout_t * layout,
   ulong stake_history_pool_sz  = fd_stake_history_pool_footprint ( FD_SYSVAR_STAKE_HISTORY_CAP );  if( !stake_history_pool_sz  ) FD_LOG_CRIT(( "invalid fd_stake_history_pool footprint"  ));
   ulong next_epoch_stakes_sz   = fd_vote_accounts_pair_t_map_footprint( vote_acc_max );           if( !next_epoch_stakes_sz   ) return 0UL;
   ulong leaders_sz             = fd_epoch_leaders_footprint( MAX_PUB_CNT, MAX_SLOTS_CNT );         if( !leaders_sz             ) FD_LOG_CRIT(( "invalid fd_epoch_leaders footprint" ));
+  ulong bank_hash_cmp_sz       = fd_bank_hash_cmp_footprint( MAX_LG_SLOT_CNT );                    if( !bank_hash_cmp_sz       ) FD_LOG_CRIT(( "invalid fd_bank_hash_cmp footprint" ));
 
   FD_SCRATCH_ALLOC_INIT( l, 0 );
   FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_epoch_ctx_t), sizeof(fd_exec_epoch_ctx_t) );
@@ -34,6 +35,7 @@ fd_exec_epoch_ctx_footprint_ext( fd_exec_epoch_ctx_layout_t * layout,
   layout->stake_history_pool_off  = (ulong)FD_SCRATCH_ALLOC_APPEND( l, fd_stake_history_pool_align(),       stake_history_pool_sz  );
   layout->next_epoch_stakes_off   = (ulong)FD_SCRATCH_ALLOC_APPEND( l, fd_vote_accounts_pair_t_map_align(), next_epoch_stakes_sz   );
   layout->leaders_off             = (ulong)FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_leaders_align(),            leaders_sz             );
+  layout->bank_hash_cmp_off       = (ulong)FD_SCRATCH_ALLOC_APPEND( l, fd_bank_hash_cmp_align(),            bank_hash_cmp_sz       );
 
   return layout->footprint = (ulong)FD_SCRATCH_ALLOC_FINI( l, fd_exec_epoch_ctx_align() );
 }
@@ -78,6 +80,7 @@ fd_exec_epoch_ctx_new( void * mem,
   void * stake_history_pool_mem  = (void *)( (ulong)mem + layout->stake_history_pool_off  );
   void * next_epoch_stakes_mem   = (void *)( (ulong)mem + layout->next_epoch_stakes_off   );
   //void * leaders_mem             = (void *)( (ulong)mem + layout->leaders_off             );
+  void * bank_hash_cmp_mem       = (void *)( (ulong)mem + layout->bank_hash_cmp_off       );
 
   fd_vote_accounts_pair_t_map_new( stake_votes_mem,         vote_acc_max               );
   fd_delegation_pair_t_map_new   ( stake_delegations_mem,   vote_acc_max               );
@@ -86,6 +89,7 @@ fd_exec_epoch_ctx_new( void * mem,
   fd_vote_accounts_pair_t_map_new( next_epoch_stakes_mem,   vote_acc_max               );
   //TODO support separate epoch leaders new and init
   //fd_epoch_leaders_new           ( leaders_mem,             MAX_PUB_CNT, MAX_SLOTS_CNT );
+  fd_bank_hash_cmp_new           ( bank_hash_cmp_mem,       MAX_LG_SLOT_CNT             );
 
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_EPOCH_CTX_MAGIC;
@@ -165,9 +169,11 @@ fd_exec_epoch_ctx_delete( void * mem ) {
 
   void * next_epoch_stakes_mem   = (void *)( (ulong)mem + layout->next_epoch_stakes_off   );
   void * leaders_mem             = (void *)( (ulong)mem + layout->leaders_off             );
+  void * bank_hash_cmp_mem       = (void *)( (ulong)mem + layout->bank_hash_cmp_off       );
 
   fd_vote_accounts_pair_t_map_delete( next_epoch_stakes_mem   );
   fd_epoch_leaders_delete           ( leaders_mem             );
+  fd_bank_hash_cmp_delete           ( bank_hash_cmp_mem       );
 
   fd_exec_epoch_ctx_epoch_bank_delete( hdr );
 

@@ -588,7 +588,7 @@ main( int argc, char ** argv ) {
   fd_exec_epoch_ctx_t * epoch_ctx =
       fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acc_max ) );
   FD_TEST( epoch_ctx );
-  epoch_ctx->bank_hash_cmp = bank_hash_cmp;
+  // epoch_ctx->bank_hash_cmp = bank_hash_cmp;
 
   /**********************************************************************/
   /* forks                                                              */
