@@ -327,13 +327,16 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       fd_runtime_block_prepare( block_data, block->data_sz, fd_scratch_virtual(), &block_info );
 
       FD_LOG_DEBUG(( "block prepared - slot: %lu", slot ));
-      FD_LOG_NOTICE(( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
-                      "executed: %lu, caught up: %d",
-                      ctx->store->first_turbine_slot,
-                      ctx->store->curr_turbine_slot,
-                      ctx->store->curr_turbine_slot - slot,
-                      slot,
-                      slot > ctx->store->first_turbine_slot ) );
+
+      FD_LOG_NOTICE( ( "curr turbine: %lu", ctx->store->curr_turbine_slot ) );
+      FD_LOG_NOTICE( ( "first turbine: %lu", ctx->store->first_turbine_slot ) );
+      FD_LOG_NOTICE(
+          ( "behind: %lu",
+            slot > ctx->store->curr_turbine_slot ? 0 : ctx->store->curr_turbine_slot - slot ) );
+      FD_LOG_NOTICE(
+          ( "behind first: %lu",
+            slot > ctx->store->first_turbine_slot ? 0 : ctx->store->first_turbine_slot - slot ) );
+      FD_LOG_NOTICE( ( "live? %d", slot > (ctx->store->curr_turbine_slot - 5) ) );
       fd_txn_p_t * txns = fd_type_pun( out_buf );
       ulong txn_cnt = fd_runtime_block_collect_txns( &block_info, txns );
 

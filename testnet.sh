@@ -1,7 +1,7 @@
 set -e
 
-make -j
 EXTRAS=no-solana make -j fddev
+make -j
 
 
 # sudo ./build/native/gcc/bin/fd_shmem_cfg fini || true
@@ -45,5 +45,5 @@ echo "[gossip]
     topology = \"firedancer\"
 " > testnet.toml
 
-./build/native/gcc/bin/fddev configure fini all
+./build/native/gcc/bin/fddev configure fini all || true
 ./build/native/gcc/bin/fddev --config testnet.toml --no-sandbox --no-clone --no-solana-labs
