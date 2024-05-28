@@ -48,10 +48,12 @@ SKIP_INGEST=0
 CHECKPT="test_ledger_backup"
 CHECKPT_PATH=""
 CHECKPT_FREQ=""
+CHECKPT_MISMATCH=""
 SOLCAP=""
 ON_DEMAND=1
 WITH_COVERAGE=0
 PRUNE_FAILURE=0
+PROTO_BUF_FAILURE=0
 TILE_CPUS="--tile-cpus 5-21"
 
 POSITION_ARGS=()
@@ -157,6 +159,11 @@ while [[ $# -gt 0 ]]; do
        shift
        shift
        ;;
+    -pbf|--proto-buf-failure)
+        PROTO_BUF_FAILURE="$2"
+        shift
+        shift
+        ;;
     -S|--skipingest)
         SKIP_INGEST=1
         shift
@@ -171,6 +178,10 @@ while [[ $# -gt 0 ]]; do
         ;;
     -cf|--checkpt-freq)
         CHECKPT_FREQ="--checkpt-freq $2"
+        shift
+        ;;
+    -cm|--checkpt-mismatch)
+        CHECKPT_MISMATCH="--checkpt-mismatch $2"
         shift
         ;;
     -c|--capture)
@@ -262,6 +273,7 @@ if [[ $ON_DEMAND = 1 ]]; then
     $END_SLOT \
     $CHECKPT_PATH \
     $CHECKPT_FREQ \
+    $CHECKPT_MISMATCH \
     --funk-only 1 \
     --txn-max 100 \
     $PAGES \
@@ -326,6 +338,7 @@ ARGS=" --restore dump/$CHECKPT \
   $IMAX \
   $CHECKPT_PATH \
   $CHECKPT_FREQ \
+  $CHECKPT_MISMATCH \
   --funk-only 1 \
   --log-level-logfile 2 \
   --log-level-stderr 2 \
@@ -364,6 +377,7 @@ then
   prune_start_slot=$((mismatch_slot - 100))
   prune_end_slot=$((mismatch_slot + 100))
 
+  prune_status=1
   if [[ $PRUNE_FAILURE = 1 ]]; then
     RESTORE_PATH=${CHECKPT_PATH#* }
     PRUNE_PATH=${CHECKPT_PATH#* }_pruned
@@ -392,16 +406,56 @@ then
       $TXN_STATUS \
       --allocator wksp \
       --on-demand-block-ingest 1 \
-      --tile-cpus 5-21 >& $LOG
+      --tile-cpus 5-21
 
-      prune_status=$?
+    prune_status=$?
 
-      if [ $prune_status -eq 0 ]; then
-        gsutil cp ${PRUNE_PATH} gs://firedancer-ci-resources${PRUNE_PATH}
-      else
-        echo_error 'ledger prune failed:' $prune_status
-      fi
+    if [ $prune_status -eq 0 ]; then
+      gsutil cp ${PRUNE_PATH} gs://firedancer-ci-resources${PRUNE_PATH}
+    else
+      echo_error 'ledger prune failed:' $prune_status
     fi
+  fi
+
+  proto_buf_end_slot=$((mismatch_slot + 1))
+
+  if [[ $PROTO_BUF_FAILURE = 1 ]]; then
+    echo_notice "Starting replay on fail with protobuf"
+    if [[ $PRUNE_FAILURE = 1 && $prune_status = 0 ]]; then
+      RESTORE_PATH=${CHECKPT_PATH#* }_pruned
+      PAGES="$(echo $PAGES | cut -d' ' -f1) $(echo $PRUNED_PAGES | cut -d' ' -f2)"
+      FUNK_PAGES="$(echo $FUNK_PAGES | cut -d' ' -f1) $(echo $PRUNED_PAGES | cut -d' ' -f2)"
+    else
+      RESTORE_PATH=${CHECKPT_PATH#* }
+      PAGES="$(echo $PAGES | cut -d' ' -f1) $(echo $PAGES | cut -d' ' -f2)"
+      FUNK_PAGES="$(echo $FUNK_PAGES | cut -d' ' -f1) $(echo $FUNK_PAGES | cut -d' ' -f2)"
+    fi
+
+    set -x
+    "$OBJDIR"/bin/fd_ledger \
+      --reset 1 \
+      --cmd replay \
+      --rocksdb dump/$LEDGER/rocksdb \
+      $TRASHHASH \
+      $IMAX \
+      --end-slot $proto_buf_end_slot \
+      --funk-restore $RESTORE_PATH \
+      --funk-only 1 \
+      --txn-max 100 \
+      $PAGES \
+      $FUNK_PAGES \
+      $SNAPSHOT \
+      $SOLCAP \
+      $INC_SNAPSHOT \
+      $HISTORY \
+      $TXN_STATUS \
+      --allocator wksp \
+      --on-demand-block-ingest 1 \
+      --dump-insn-to-pb 1 \
+      --dump-insn-start-slot $mismatch_slot \
+      --dump-insn-output-dir /data/insn_pb \
+      $TILE_CPUS
+  fi
 
   exit $status
 fi

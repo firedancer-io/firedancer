@@ -46,6 +46,7 @@ struct fd_gossip_config {
     fd_pubkey_t * public_key;
     uchar * private_key;
     fd_gossip_peer_addr_t my_addr;
+    fd_gossip_version_v2_t my_version;
     ushort shred_version;
     fd_gossip_data_deliver_fun deliver_fun;
     void * deliver_arg;

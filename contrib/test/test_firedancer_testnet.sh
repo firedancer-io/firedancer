@@ -112,6 +112,8 @@ for _ in $(seq 1 600); do
 done
 set -x
 
+grep -q "Bank hash match" $(readlink -f fddev.log)
+
 if grep -q "Bank hash mismatch" $(readlink -f fddev.log); then
   BAD_SLOT=$( grep "Bank hash mismatch" fddev.log | awk 'NR==1 {for (i=1; i<=NF; i++) if ($i == "slot:") {gsub(/[^0-9]/, "", $(i+1)); print $(i+1); exit}}' )
   echo "*** BANK HASH MISMATCH $BAD_SLOT ***"

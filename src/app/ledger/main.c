@@ -48,6 +48,7 @@ static void usage( char const * progname ) {
   fprintf( stderr, " --dump-insn-output-dir <insn output dir>   dump instructions output directory\n" ); /* Capture ctx tool for insn dumping*/
   fprintf( stderr, " --dump-insn-sig-filter <insn sig filter>   dump instructions signature filter\n" );
   fprintf( stderr, " --dump-insn-to-pb <int>                    dump instructions to pb\n" );
+  fprintf( stderr, " --dump-insn-start-slot <int>               dump instructions to pb start slot\n" );
   fprintf( stderr, " --end-slot <ulong>                         end slot\n" );
   fprintf( stderr, " --funk-only <int>                          if enabled only funk will be checkpointed\n" ); /* Funk related */
   fprintf( stderr, " --funk-page-cnt <page count>               number of pages for funk anon wksp\n" );
@@ -117,6 +118,7 @@ struct fd_ledger_args {
   int               checkpt_mismatch;
   ulong             on_demand_block_history;
   int               dump_insn_to_pb;
+  ulong             dump_insn_start_slot;
   char const *      dump_insn_sig_filter;
   char const *      dump_insn_output_dir;
   int               verify_funk;
@@ -224,7 +226,7 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
 
     if( args->on_demand_block_ingest ) {
       if( fd_blockstore_block_query( blockstore, slot ) == NULL && slot_meta.slot == slot ) {
-        int err = fd_rocksdb_import_block_blockstore( &rocks_db, &slot_meta, blockstore, 
+        int err = fd_rocksdb_import_block_blockstore( &rocks_db, &slot_meta, blockstore,
                                                       args->copy_txn_status, slot == (args->trash_hash) ? trash_hash_buf : NULL );
         if( FD_UNLIKELY( err ) ) {
           FD_LOG_ERR(( "Failed to import block %lu", start_slot ));
@@ -265,10 +267,11 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
                         slot,
                         expected->hash,
                         state->slot_ctx->slot_bank.poh.hash ));
+
+      if( args->checkpt_mismatch ) {
+        fd_runtime_checkpt( state->capture_ctx, state->slot_ctx, ULONG_MAX );
+      }
       if( state->abort_on_mismatch ) {
-        if( args->checkpt_mismatch ) {
-          fd_runtime_checkpt( state->capture_ctx, state->slot_ctx, ULONG_MAX );
-        }
         fd_blockstore_end_read( blockstore );
         return 1;
       }
@@ -284,10 +287,11 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
                         slot,
                         expected->hash,
                         state->slot_ctx->slot_bank.banks_hash.hash ));
+
+      if( args->checkpt_mismatch ) {
+        fd_runtime_checkpt( state->capture_ctx, state->slot_ctx, ULONG_MAX );
+      }
       if( state->abort_on_mismatch ) {
-        if( args->checkpt_mismatch ) {
-          fd_runtime_checkpt( state->capture_ctx, state->slot_ctx, ULONG_MAX );
-        }
         fd_blockstore_end_read( blockstore );
         return 1;
       }
@@ -314,7 +318,7 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
   if( tpool_scr_mem ) {
     fd_valloc_free( state->slot_ctx->valloc, tpool_scr_mem );
   }
-  
+
   if( args->on_demand_block_ingest ) {
     fd_rocksdb_root_iter_destroy( &iter );
     fd_rocksdb_destroy( &rocks_db );
@@ -845,6 +849,7 @@ replay( fd_ledger_args_t * args ) {
   runtime_args.on_demand_block_ingest  = args->on_demand_block_ingest;
   runtime_args.on_demand_block_history = args->on_demand_block_history;
   runtime_args.dump_insn_to_pb         = args->dump_insn_to_pb;
+  runtime_args.dump_insn_start_slot    = args->dump_insn_start_slot;
   runtime_args.dump_insn_sig_filter    = args->dump_insn_sig_filter;
   runtime_args.dump_insn_output_dir    = args->dump_insn_output_dir;
   runtime_args.trash_hash              = args->trash_hash;
@@ -1235,6 +1240,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   int          on_demand_block_ingest  = fd_env_strip_cmdline_int  ( &argc, &argv, "--on-demand-block-ingest",  NULL, 0         );
   ulong        on_demand_block_history = fd_env_strip_cmdline_ulong( &argc, &argv, "--on-demand-block-history", NULL, 100       );
   int          dump_insn_to_pb         = fd_env_strip_cmdline_int  ( &argc, &argv, "--dump-insn-to-pb",         NULL, 0         );
+  ulong        dump_insn_start_slot    = fd_env_strip_cmdline_ulong( &argc, &argv, "--dump-insn-start-slot",    NULL, 0         );
   char const * dump_insn_sig_filter    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dump-insn-sig-filter",    NULL, NULL      );
   char const * dump_insn_output_dir    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dump-insn-output-dir",    NULL, NULL      );
   ulong        vote_acct_max           = fd_env_strip_cmdline_ulong( &argc, &argv, "--vote_acct_max",           NULL, 2000000UL );
@@ -1338,6 +1344,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->on_demand_block_ingest  = on_demand_block_ingest;
   args->on_demand_block_history = on_demand_block_history;
   args->dump_insn_to_pb         = dump_insn_to_pb;
+  args->dump_insn_start_slot    = dump_insn_start_slot;
   args->dump_insn_sig_filter    = dump_insn_sig_filter;
   args->dump_insn_output_dir    = dump_insn_output_dir;
   args->vote_acct_max           = vote_acct_max;

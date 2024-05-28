@@ -121,6 +121,7 @@ fddev --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --n
 sleep 120
 
 grep -q "bank_hash" $(readlink -f fddev.log)
+grep -q "Bank hash match" $(readlink -f fddev.log)
 if grep -q "Bank hash mismatch" $(readlink -f fddev.log); then
   echo "*** BANK HASH MISMATCH ***"
 fi

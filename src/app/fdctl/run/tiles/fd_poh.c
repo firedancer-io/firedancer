@@ -1254,7 +1254,7 @@ before_frag( void * _ctx,
   (void)seq;
 
   fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_ctx;
-  if( FD_UNLIKELY( in_idx==ctx->pack_in_idx ) ) {
+  if( FD_UNLIKELY( in_idx!=ctx->stake_in_idx ) ) {
     if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ||
                    fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
       ulong slot = fd_disco_poh_sig_slot( sig );
@@ -1427,8 +1427,10 @@ after_frag( void *             _ctx,
 
   ulong current_slot = ctx->hashcnt/ctx->hashcnt_per_slot;
   ulong leader_slot = ctx->next_leader_slot_hashcnt/ctx->hashcnt_per_slot;
-  if( FD_UNLIKELY( target_slot!=leader_slot || target_slot!=current_slot ) )
-    FD_LOG_ERR(( "packed too early or late target_slot=%lu, current_slot=%lu", target_slot, current_slot ));
+  if( FD_UNLIKELY( target_slot!=leader_slot || target_slot!=current_slot ) ) {
+    FD_LOG_ERR(( "packed too early or late target_slot=%lu, current_slot=%lu. last_hashcnt=%lu in slot %lu",
+                 target_slot, current_slot, ctx->last_hashcnt, ctx->last_hashcnt/ctx->hashcnt_per_slot ));
+  }
 
   FD_TEST( ctx->current_leader_bank );
   FD_TEST( ctx->microblocks_lower_bound<ctx->max_microblocks_per_slot );

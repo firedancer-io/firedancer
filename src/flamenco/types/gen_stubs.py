@@ -126,6 +126,8 @@ class PrimitiveMember:
     }
 
     def isFixedSize(self):
+        if self.varint:
+            return False
         return PrimitiveMember.isFixedSizeMap.get(self.type, False)
 
     fixedSizeMap = {
@@ -145,6 +147,8 @@ class PrimitiveMember:
     }
 
     def fixedSize(self):
+        if self.varint:
+            return False;
         return PrimitiveMember.fixedSizeMap[self.type]
 
     def string_decode_preflight(n, varint):
@@ -575,6 +579,7 @@ class DequeMember:
         print("#undef DEQUE_MAX", file=header)
         print(f'static inline {element_type} *', file=header)
         print(f'{dp}_alloc( fd_valloc_t valloc, ulong max ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow', file=header)
         print(f'  void * mem = fd_valloc_malloc( valloc, {dp}_align(), {dp}_footprint( max ) );', file=header)
         print(f'  return {dp}_join( {dp}_new( mem, max ) );', file=header)
         print("}", file=header)
@@ -789,6 +794,7 @@ class MapMember:
         print("};", file=header)
         print(f'static inline {nodename}_t *', file=header)
         print(f'{mapname}_alloc( fd_valloc_t valloc, ulong len ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow', file=header)
         print(f'  void * mem = fd_valloc_malloc( valloc, {mapname}_align(), {mapname}_footprint(len));', file=header)
         print(f'  return {mapname}_join({mapname}_new(mem, len));', file=header)
         print("}", file=header)
@@ -1569,6 +1575,7 @@ class StructType:
             self.fields.append(parseMember(self.fullname, f))
         self.comment = (json["comment"] if "comment" in json else None)
         self.nomethods = ("attribute" in json)
+        self.encoders = (json["encoders"] if "encoders" in json else None)
         if "alignment" in json:
             self.attribute = f'__attribute__((aligned({json["alignment"]}UL))) '
             self.alignment = json["alignment"]
@@ -1648,42 +1655,43 @@ class StructType:
             return
         n = self.fullname
 
-        print(f'int {n}_decode( {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print(f'  void const * data = ctx->data;', file=body)
-        print(f'  int err = {n}_decode_preflight( ctx );', file=body)
-        print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-        print(f'  ctx->data = data;', file=body)
-        print(f'  {n}_new( self );', file=body)
-        print(f'  {n}_decode_unsafe( self, ctx );', file=body)
-        print(f'  return FD_BINCODE_SUCCESS;', file=body)
-        print(f'}}', file=body)
+        if self.encoders is not False:
+            print(f'int {n}_decode( {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+            print(f'  void const * data = ctx->data;', file=body)
+            print(f'  int err = {n}_decode_preflight( ctx );', file=body)
+            print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+            print(f'  ctx->data = data;', file=body)
+            print(f'  {n}_new( self );', file=body)
+            print(f'  {n}_decode_unsafe( self, ctx );', file=body)
+            print(f'  return FD_BINCODE_SUCCESS;', file=body)
+            print(f'}}', file=body)
 
-        print(f'int {n}_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print('  int err;', file=body)
-        for f in self.fields:
-            if hasattr(f, "ignore_underflow") and f.ignore_underflow:
-                print('  if( ctx->data == ctx->dataend ) return FD_BINCODE_SUCCESS;', file=body)
-            f.emitDecodePreflight()
-        print('  return FD_BINCODE_SUCCESS;', file=body)
-        print("}", file=body)
+            print(f'int {n}_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+            print('  int err;', file=body)
+            for f in self.fields:
+                if hasattr(f, "ignore_underflow") and f.ignore_underflow:
+                    print('  if( ctx->data == ctx->dataend ) return FD_BINCODE_SUCCESS;', file=body)
+                f.emitDecodePreflight()
+            print('  return FD_BINCODE_SUCCESS;', file=body)
+            print("}", file=body)
 
-        print(f'void {n}_decode_unsafe( {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        for f in self.fields:
-            if hasattr(f, "ignore_underflow") and f.ignore_underflow:
-                print('  if( ctx->data == ctx->dataend ) return;', file=body)
-            f.emitDecodeUnsafe()
-        print("}", file=body)
+            print(f'void {n}_decode_unsafe( {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+            for f in self.fields:
+                if hasattr(f, "ignore_underflow") and f.ignore_underflow:
+                    print('  if( ctx->data == ctx->dataend ) return;', file=body)
+                f.emitDecodeUnsafe()
+            print("}", file=body)
 
-        print(f'int {n}_decode_offsets( {n}_off_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print('  uchar const * data = ctx->data;', file=body)
-        print('  int err;', file=body)
-        for f in self.fields:
-            print(f'  self->{f.name}_off = (uint)( (ulong)ctx->data - (ulong)data );', file=body)
-            if hasattr(f, "ignore_underflow") and f.ignore_underflow:
-                print('  if( ctx->data == ctx->dataend ) return FD_BINCODE_SUCCESS;', file=body)
-            f.emitDecodePreflight()
-        print('  return FD_BINCODE_SUCCESS;', file=body)
-        print("}", file=body)
+            print(f'int {n}_decode_offsets( {n}_off_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+            print('  uchar const * data = ctx->data;', file=body)
+            print('  int err;', file=body)
+            for f in self.fields:
+                print(f'  self->{f.name}_off = (uint)( (ulong)ctx->data - (ulong)data );', file=body)
+                if hasattr(f, "ignore_underflow") and f.ignore_underflow:
+                    print('  if( ctx->data == ctx->dataend ) return FD_BINCODE_SUCCESS;', file=body)
+                f.emitDecodePreflight()
+            print('  return FD_BINCODE_SUCCESS;', file=body)
+            print("}", file=body)
 
         print(f'void {n}_new({n}_t * self) {{', file=body)
         print(f'  fd_memset( self, 0, sizeof({n}_t) );', file=body)
@@ -1716,12 +1724,13 @@ class StructType:
         print("}", file=body)
         print("", file=body)
 
-        print(f'int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
-        print('  int err;', file=body)
-        for f in self.fields:
-            f.emitEncode()
-        print('  return FD_BINCODE_SUCCESS;', file=body)
-        print("}", file=body)
+        if self.encoders is not False:
+            print(f'int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
+            print('  int err;', file=body)
+            for f in self.fields:
+                f.emitEncode()
+            print('  return FD_BINCODE_SUCCESS;', file=body)
+            print("}", file=body)
         print("", file=body)
 
     def emitPostamble(self):

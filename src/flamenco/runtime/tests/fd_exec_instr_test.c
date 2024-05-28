@@ -14,13 +14,14 @@
 #include "../../../funk/fd_funk.h"
 #include "../../../util/bits/fd_float.h"
 #include <assert.h>
+#include "../sysvar/fd_sysvar_cache.h"
 
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 /* LOGFMT_REPORT is the log prefix for instruction processing tests */
 
 #define LOGFMT_REPORT "%s"
-static FD_TL char _report_prefix[65] = {0};
+static FD_TL char _report_prefix[100] = {0};
 
 #define REPORTV( level, fmt, ... ) \
   FD_LOG_##level(( LOGFMT_REPORT fmt, _report_prefix, __VA_ARGS__ ))
@@ -32,7 +33,7 @@ static FD_TL char _report_prefix[65] = {0};
     char         _acct_log_private_addr[ FD_BASE58_ENCODED_32_SZ ];            \
     void const * _acct_log_private_addr_ptr = (addr);                          \
     fd_acct_addr_cstr( _acct_log_private_addr, _acct_log_private_addr_ptr );        \
-    REPORTV( level, "account %-44s: " fmt, _acct_log_private_addr, __VA_ARGS__ ); \
+    REPORTV( level, "account %s: " fmt, _acct_log_private_addr, __VA_ARGS__ ); \
   } while(0);
 
 #define REPORT_ACCT( level, addr, fmt ) REPORT_ACCTV( level, addr, fmt, 0 )
@@ -154,33 +155,11 @@ _load_account( fd_borrowed_account_t *           acc,
   return 1;
 }
 
-/* Loads sysvars if they don't exist already */
-static void
-_load_sysvar( fd_exec_txn_ctx_t * txn_ctx,
-              fd_pubkey_t         sysvar_pubkey,
-              uchar             * sysvar_raw_data,
-              ulong               data_size ) {
-  FD_BORROWED_ACCOUNT_DECL(borrowed_account);
-
-  pb_bytes_array_t * data = fd_scratch_alloc(alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(data_size));
-  data->size = (pb_size_t) data_size;
-  memcpy( data->bytes, sysvar_raw_data, data_size );
-
-  fd_exec_test_acct_state_t acct_state = {0};
-  acct_state.lamports   = 1;
-  acct_state.data       = data;
-  acct_state.executable = 1;
-  acct_state.rent_epoch = 0;
-  memcpy( acct_state.address, &sysvar_pubkey, sizeof(fd_pubkey_t) );
-  memcpy( acct_state.owner, &fd_sysvar_owner_id, sizeof(fd_pubkey_t) );
-
-  _load_account( borrowed_account, txn_ctx->acc_mgr, txn_ctx->funk_txn, &acct_state );
-}
-
 static int
 _context_create( fd_exec_instr_test_runner_t *        runner,
                  fd_exec_instr_ctx_t *                ctx,
                  fd_exec_test_instr_context_t const * test_ctx ) {
+  // TODO: Add an option to use workspace allocators
 
   memset( ctx, 0, sizeof(fd_exec_instr_ctx_t) );
 
@@ -209,11 +188,15 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   uchar *               txn_ctx_mem   = fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
 
   fd_exec_epoch_ctx_t * epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acct_max ) );
-  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_scratch_virtual() ) );
+  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_libc_alloc_virtual() ) );
   fd_exec_txn_ctx_t *   txn_ctx       = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem   ) );
 
   assert( epoch_ctx );
   assert( slot_ctx  );
+
+  ctx->slot_ctx   = slot_ctx;
+  ctx->txn_ctx    = txn_ctx;
+  txn_ctx->valloc = fd_libc_alloc_virtual();
 
   /* Initial variables */
   txn_ctx->loaded_accounts_data_size_limit = MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES;
@@ -224,6 +207,17 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   epoch_bank->rent.lamports_per_uint8_year = 3480;
   epoch_bank->rent.exemption_threshold = 2;
   epoch_bank->rent.burn_percent = 50;
+
+  /* Create account manager */
+
+  fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_scratch_alloc( FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), funk );
+  assert( acc_mgr );
+
+  /* Set up slot context */
+
+  slot_ctx->epoch_ctx = epoch_ctx;
+  slot_ctx->funk_txn  = funk_txn;
+  slot_ctx->acc_mgr   = acc_mgr;
 
   /* Restore feature flags */
 
@@ -241,17 +235,6 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
     fd_features_set( &epoch_ctx->features, id, 0UL );
   }
 
-  /* Create account manager */
-
-  fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_scratch_alloc( FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), funk );
-  assert( acc_mgr );
-
-  /* Set up slot context */
-
-  slot_ctx->epoch_ctx = epoch_ctx;
-  slot_ctx->funk_txn  = funk_txn;
-  slot_ctx->acc_mgr   = acc_mgr;
-
   /* TODO: Restore slot_bank */
 
   fd_slot_bank_new( &slot_ctx->slot_bank );
@@ -266,7 +249,6 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->slot_ctx                = slot_ctx;
   txn_ctx->funk_txn                = funk_txn;
   txn_ctx->acc_mgr                 = acc_mgr;
-  txn_ctx->valloc                  = fd_scratch_virtual();
   txn_ctx->compute_unit_limit      = test_ctx->cu_avail;
   txn_ctx->compute_unit_price      = 0;
   txn_ctx->compute_meter           = test_ctx->cu_avail;
@@ -321,6 +303,15 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   txn_descriptor->addr_table_adtl_cnt = 0;
   txn_ctx->txn_descriptor = txn_descriptor;
 
+  /* Precompiles are allowed to read data from all instructions.
+     We need to at least set pointers to the current instruction.
+     Note: for simplicity we point the entire raw tx data to the
+     instruction data, this is probably something we can improve. */
+  txn_descriptor->instr_cnt = 1;
+  txn_ctx->_txn_raw->raw = info->data;
+  txn_descriptor->instr[0].data_off = 0;
+  txn_descriptor->instr[0].data_sz = info->data_sz;
+
   /* Load accounts into database */
 
   assert( acc_mgr->funk );
@@ -348,55 +339,55 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   /* Add accounts to bpf program cache */
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
 
+  /* Restore sysvar cache */
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+
   /* Fill missing sysvar cache values with defaults */
   /* We create mock accounts for each of the sysvars and hardcode the data fields before loading it into the account manager */
   /* We use Agave sysvar defaults for data field values */
-  fd_bincode_encode_ctx_t encode_ctx;
-  ulong sz = 128;
-  uchar enc[sz]; memset( enc, 0, sz );
 
   /* Clock */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L466-L474
-  fd_sol_sysvar_clock_t sysvar_clock = {
-                                        .slot = 10,
-                                        .epoch_start_timestamp = 0,
-                                        .epoch = 0,
-                                        .leader_schedule_epoch = 0,
-                                        .unix_timestamp = 0
-                                      };
-  encode_ctx.data = enc;
-  encode_ctx.dataend = enc + sizeof(sysvar_clock);
-  fd_sol_sysvar_clock_encode( &sysvar_clock, &encode_ctx );
-  _load_sysvar( txn_ctx, fd_sysvar_clock_id, enc, sizeof(sysvar_clock) );
+  if( !slot_ctx->sysvar_cache->has_clock ) {
+    slot_ctx->sysvar_cache->has_clock = 1;
+    fd_sol_sysvar_clock_t sysvar_clock = {
+                                          .slot = 10,
+                                          .epoch_start_timestamp = 0,
+                                          .epoch = 0,
+                                          .leader_schedule_epoch = 0,
+                                          .unix_timestamp = 0
+                                        };
+    memcpy( slot_ctx->sysvar_cache->val_clock, &sysvar_clock, sizeof(fd_sol_sysvar_clock_t) );
+  }
 
   /* Epoch schedule */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L476-L483
-  fd_epoch_schedule_t sysvar_epoch_schedule = {
-                                                .slots_per_epoch = 432000,
-                                                .leader_schedule_slot_offset = 432000,
-                                                .warmup = 1,
-                                                .first_normal_epoch = 14,
-                                                .first_normal_slot = 524256
-                                              };
-  encode_ctx.data = enc;
-  encode_ctx.dataend = enc + sizeof(sysvar_epoch_schedule);
-  fd_epoch_schedule_encode( &sysvar_epoch_schedule, &encode_ctx );
-  _load_sysvar( txn_ctx, fd_sysvar_epoch_schedule_id, enc, sizeof(sysvar_epoch_schedule) );
+  if ( !slot_ctx->sysvar_cache->has_epoch_schedule ) {
+    slot_ctx->sysvar_cache->has_epoch_schedule = 1;
+    fd_epoch_schedule_t sysvar_epoch_schedule = {
+                                                  .slots_per_epoch = 432000,
+                                                  .leader_schedule_slot_offset = 432000,
+                                                  .warmup = 1,
+                                                  .first_normal_epoch = 14,
+                                                  .first_normal_slot = 524256
+                                                };
+    memcpy( slot_ctx->sysvar_cache->val_epoch_schedule, &sysvar_epoch_schedule, sizeof(fd_epoch_schedule_t) );
+  }
 
   /* Rent */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L487-L500
-  fd_rent_t sysvar_rent = {
-                            .lamports_per_uint8_year = 3480,
-                            .exemption_threshold = 2.0,
-                            .burn_percent = 50
-                          };
-  encode_ctx.data = enc;
-  encode_ctx.dataend = enc + sizeof(sysvar_rent);
-  fd_rent_encode( &sysvar_rent, &encode_ctx );
-  _load_sysvar( txn_ctx, fd_sysvar_rent_id, enc, sizeof(sysvar_rent) );
+  if ( !slot_ctx->sysvar_cache->has_rent ) {
+    slot_ctx->sysvar_cache->has_rent = 1;
+    fd_rent_t sysvar_rent = {
+                              .lamports_per_uint8_year = 3480,
+                              .exemption_threshold = 2.0,
+                              .burn_percent = 50
+                            };
+    memcpy( slot_ctx->sysvar_cache->val_rent, &sysvar_rent, sizeof(fd_rent_t) );
+  }
 
-  /* Restore sysvar cache */
-  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+  /* Set slot bank variables */
+  slot_ctx->slot_bank.slot = fd_sysvar_cache_clock( slot_ctx->sysvar_cache )->slot;
 
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 
@@ -479,8 +470,6 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   }
 
   ctx->epoch_ctx = epoch_ctx;
-  ctx->slot_ctx  = slot_ctx;
-  ctx->txn_ctx   = txn_ctx;
   ctx->funk_txn  = funk_txn;
   ctx->acc_mgr   = acc_mgr;
   ctx->valloc    = fd_scratch_virtual();
@@ -495,12 +484,10 @@ _context_destroy( fd_exec_instr_test_runner_t * runner,
   if( !ctx ) return;
   fd_exec_slot_ctx_t *  slot_ctx  = ctx->slot_ctx;
   if( !slot_ctx ) return;
-  fd_exec_epoch_ctx_t * epoch_ctx = slot_ctx->epoch_ctx;
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
 
-  fd_exec_slot_ctx_delete ( fd_exec_slot_ctx_leave ( slot_ctx  ) );
-  fd_exec_epoch_ctx_delete( fd_exec_epoch_ctx_leave( epoch_ctx ) );
+  fd_exec_slot_ctx_free( slot_ctx );
   fd_acc_mgr_delete( acc_mgr );
   fd_scratch_pop();
   fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
@@ -536,7 +523,13 @@ _diff_acct( fd_exec_test_acct_state_t const * want,
     diff = 1;
   }
 
-  if( want->data->size != have->meta->dlen ) {
+  if( !want->data && have->meta->dlen > 0 ) {
+    REPORT_ACCTV( NOTICE, want->address, "expected no data, but got %lu bytes",
+                  have->meta->dlen );
+    diff = 1;
+  }
+
+  if( want->data && want->data->size != have->meta->dlen ) {
     REPORT_ACCTV( NOTICE, want->address, "expected data sz %u, got %lu",
                   want->data->size, have->meta->dlen );
     diff = 1;
@@ -564,7 +557,7 @@ _diff_acct( fd_exec_test_acct_state_t const * want,
     diff = 1;
   }
 
-  if( 0!=memcmp( want->data->bytes, have->data, want->data->size ) ) {
+  if( want->data && 0!=memcmp( want->data->bytes, have->data, want->data->size ) ) {
     REPORT_ACCT( NOTICE, want->address, "data mismatch" );
     diff = 1;
   }
@@ -627,8 +620,8 @@ _diff_effects( fd_exec_instr_fixture_diff_t * check ) {
   if( expected->result != exec_result ) {
     check->has_diff = 1;
     REPORTV( NOTICE, "expected result (%d-%s), got (%d-%s)",
-             expected->result, fd_executor_instr_strerror( expected->result ),
-             exec_result,      fd_executor_instr_strerror( exec_result      ) );
+             expected->result, fd_executor_instr_strerror( -expected->result ),
+             exec_result,      fd_executor_instr_strerror( -exec_result      ) );
 
     if( ( expected->result == FD_EXECUTOR_INSTR_SUCCESS ) |
         ( exec_result      == FD_EXECUTOR_INSTR_SUCCESS ) ) {
@@ -716,23 +709,16 @@ int
 fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
                            fd_exec_test_instr_fixture_t const * test,
                            char const *                         log_name ) {
-
   fd_exec_instr_ctx_t ctx[1];
-  if( FD_UNLIKELY( !_context_create( runner, ctx, &test->input ) ) )
+  if( FD_UNLIKELY( !_context_create( runner, ctx, &test->input ) ) ) {
+    _context_destroy( runner, ctx );
     return 0;
-
-  fd_pubkey_t program_id[1];  memcpy( program_id, test->input.program_id, sizeof(fd_pubkey_t) );
-  fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( program_id );
-
-  int exec_result;
-  if( FD_LIKELY( native_prog_fn ) ) {
-    exec_result = native_prog_fn( *ctx );
-  } else {
-    char program_id_cstr[ FD_BASE58_ENCODED_32_SZ ];
-    REPORTV( NOTICE, "execution failed (program %s not found)",
-             fd_acct_addr_cstr( program_id_cstr, test->input.program_id ) );
-    exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
+
+  fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
+
+  /* Execute the test */
+  int exec_result = fd_execute_instr(ctx->txn_ctx, instr);
 
   int has_diff;
   do {
@@ -744,7 +730,7 @@ fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
       { .ctx         = ctx,
         .input       = &test->input,
         .expected    = &test->output,
-        .exec_result = exec_result };
+        .exec_result = -exec_result };
     _diff_effects( &diff );
 
     _report_prefix[0] = '\0';
@@ -764,10 +750,11 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
                         ulong                                output_bufsz ) {
 
   /* Convert the Protobuf inputs to a fd_exec context */
-
   fd_exec_instr_ctx_t ctx[1];
-  if( !_context_create( runner, ctx, input ) )
+  if( !_context_create( runner, ctx, input ) ) {
+    _context_destroy( runner, ctx );
     return 0UL;
+  }
 
   fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
 

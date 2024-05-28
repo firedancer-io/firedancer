@@ -1429,6 +1429,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
     fd_execute_txn_task_info_t * task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
     fd_execute_txn_task_info_t * wave_task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
     ulong wave_task_infos_cnt = 0;
+
     int res = fd_runtime_prepare_txns_phase1( slot_ctx, task_infos, txns, txn_cnt );
     if( res != 0 ) {
       FD_LOG_WARNING(("Fail prep 1"));
@@ -1478,6 +1479,9 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
         return res;
       }
 
+      for( ulong j = 0UL; j < wave_task_infos_cnt; j++ ) {
+        slot_ctx->signature_cnt += wave_task_infos[j].txn_ctx->txn_descriptor->signature_cnt;
+      }
       wave_time += fd_log_wallclock();
       double wave_time_ms = (double)wave_time * 1e-6;
       cum_wave_time_ms += wave_time_ms;
@@ -2203,7 +2207,7 @@ fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
                     fd_exec_slot_ctx_t * slot_ctx,
                     ulong slot ) {
   int is_checkpt_freq = capture_ctx != NULL && slot % capture_ctx->checkpt_freq == 0;
-  int is_abort_slot   = slot == ULONG_MAX; 
+  int is_abort_slot   = slot == ULONG_MAX;
   if( !is_checkpt_freq && !is_abort_slot ) {
     return;
   }
@@ -2281,7 +2285,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
   if( err != 0 ) {
     return err;
   }
-  
+
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
 
   long block_eval_time = -fd_log_wallclock();
@@ -3602,8 +3606,7 @@ FD_SCRATCH_SCOPE_BEGIN {
     fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
     fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
     if ( rec == NULL )
-      __asm__("int $3");
-      // FD_LOG_ERR(("failed to read banks record"));
+      FD_LOG_ERR(("failed to read banks record"));
     void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
     fd_bincode_decode_ctx_t ctx;
     ctx.data = val;

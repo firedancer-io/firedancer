@@ -10,6 +10,7 @@
 #include "../../../../funk/fd_funk.h"
 #include "../../../../util/tile/fd_tile_private.h"
 #include <sys/sysinfo.h>
+#include "../tiles/fd_replay_notif.h"
 
 void
 fd_topo_firedancer( config_t * _config ) {
@@ -47,6 +48,7 @@ fd_topo_firedancer( config_t * _config ) {
 
   fd_topob_wksp( topo, "store_replay" );
   fd_topob_wksp( topo, "replay_poh" );
+  fd_topob_wksp( topo, "replay_notif" );
 
   fd_topob_wksp( topo, "net"        );
   fd_topob_wksp( topo, "shred"      );
@@ -91,6 +93,7 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                 fd_topob_link( topo, "repair_net",   "net_repair",   0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL   );
   /**/                 fd_topob_link( topo, "store_replay", "store_replay", 0,        128UL,                                    8UL + 32UL + 8192UL * 2104UL,  16UL  );
   /**/                 fd_topob_link( topo, "replay_poh",   "replay_poh",   0,        128UL,                                    128UL*1024UL*1024UL,           16UL  );
+  /**/                 fd_topob_link( topo, "replay_notif", "replay_notif", 0,        1024UL,                                   FD_REPLAY_NOTIF_MTU,           1UL   );
 
   /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    0,        128UL,                                    FD_NET_MTU,                    1UL   );
 
@@ -206,9 +209,11 @@ fd_topo_firedancer( config_t * _config ) {
 
   /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "store_replay",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "replay",  0UL,                        "replay_poh",   0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "replay",  0UL,                      "replay_notif",   0UL                                                  );
 
   /**/                 fd_topob_tile_in(  topo, "bhole",  0UL,           "metric_in", "gossip_pack",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "bhole",  0UL,           "metric_in", "replay_poh",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                 fd_topob_tile_in(  topo, "bhole",  0UL,           "metric_in", "replay_notif",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_out( topo, "bhole",  0UL,                        "poh_shred",     0UL                                                  );
   FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "bhole",  0UL,           "metric_in", "net_quic",      i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 
@@ -251,6 +256,7 @@ fd_topo_firedancer( config_t * _config ) {
       memcpy( tile->gossip.src_mac_addr, config->tiles.net.mac_addr, 6UL );
       strncpy( tile->gossip.identity_key_path, config->consensus.identity_path, sizeof(tile->gossip.identity_key_path) );
       tile->gossip.gossip_listen_port =  config->gossip.port;
+      FD_TEST( config->gossip.port == config->tiles.gossip.gossip_listen_port );
       tile->gossip.tvu_port = config->tiles.shred.shred_listen_port;
       tile->gossip.tvu_fwd_port = config->tiles.shred.shred_listen_port;
       tile->gossip.expected_shred_version = config->consensus.expected_shred_version;
@@ -275,6 +281,7 @@ fd_topo_firedancer( config_t * _config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
       strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
       strncpy( tile->replay.incremental, config->tiles.replay.incremental, sizeof(tile->replay.incremental) );
+      strncpy( tile->replay.capture, config->tiles.replay.capture, sizeof(tile->replay.capture) );
       tile->replay.snapshot_slot = ULONG_MAX; /* Determine when we load the snapshot */
       tile->replay.tpool_thread_count =  config->tiles.replay.tpool_thread_count;
 
@@ -300,5 +307,26 @@ fd_topo_firedancer( config_t * _config ) {
   }
 
   fd_topob_finish( topo, fdctl_obj_align, fdctl_obj_footprint, fdctl_obj_loose );
+
+  const char * snapshot = config->tiles.replay.snapshot;
+  if ( strncmp(snapshot, "wksp:", 5) == 0 ) {
+    /* Make the funk workspace match the parameters used to create the
+       checkpoint. This is a bit nonintuitive because of the way
+       fd_topo_create_workspace works. */
+    uint seed;
+    ulong part_max;
+    ulong data_max;
+    int err = fd_wksp_restore_preview( snapshot+5, &seed, &part_max, &data_max );
+    if( err ) FD_LOG_ERR(( "unable to restore %s: error %d", snapshot, err ));
+    fd_topo_wksp_t * wksp = &topo->workspaces[ topo->objs[ funk_obj->id ].wksp_id ];
+    wksp->part_max = part_max;
+    wksp->known_footprint = 0;
+    wksp->total_footprint = data_max;
+    ulong page_sz = FD_SHMEM_GIGANTIC_PAGE_SZ;
+    wksp->page_sz = page_sz;
+    ulong footprint = fd_wksp_footprint( part_max, data_max );
+    wksp->page_cnt = footprint / page_sz;
+  }
+
   config->topo = *topo;
 }

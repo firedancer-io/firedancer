@@ -121,7 +121,7 @@ fd_wksp_checkpt( fd_wksp_t *  wksp,
 
         ulong sz = gaddr_hi - gaddr_lo;
         void * laddr_lo = fd_wksp_laddr_fast( wksp, gaddr_lo );
-        
+
         #if FD_HAS_DEEPASAN
         /* Copy the entire wksp over. This includes regions that may have been
            poisoned at one point. */
@@ -494,4 +494,62 @@ stream_err: /* Note: wksp locked at this point */
 # undef RESTORE_ULONG
 # undef RBUF_FOOTPRINT
 # undef RBUF_ALIGN
+}
+
+int
+fd_wksp_restore_preview( char const * path,
+                         uint *       out_seed,
+                         ulong *      out_part_max,
+                         ulong *      out_data_max ) {
+  if( FD_UNLIKELY( !path ) ) {
+    FD_LOG_WARNING(( "NULL path" ));
+    return FD_WKSP_ERR_INVAL;
+  }
+
+  int fd = open( path, O_RDONLY, (mode_t)0 );
+  if( FD_UNLIKELY( fd==-1 ) ) {
+    FD_LOG_WARNING(( "open(\"%s\",O_RDONLY,0) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    return FD_WKSP_ERR_FAIL;
+  }
+
+# define RBUF_ALIGN     (4096UL)
+# define RBUF_FOOTPRINT (65536UL)
+
+  uchar                    rbuf[ RBUF_FOOTPRINT ] __attribute__((aligned( RBUF_ALIGN )));
+  fd_io_buffered_istream_t restore[1];
+  fd_io_buffered_istream_init( restore, fd, rbuf, RBUF_FOOTPRINT );
+
+  int err = FD_WKSP_SUCCESS;
+
+# define RESTORE_ULONG(v) do {                               \
+    err = fd_wksp_private_restore_ulong( restore, &v );      \
+    if( FD_UNLIKELY( err ) ) { goto io_err; } \
+  } while(0)
+
+  ulong magic;    RESTORE_ULONG( magic    );
+  if( magic!=FD_WKSP_MAGIC ) { err = FD_WKSP_ERR_FAIL; goto io_err; }
+  ulong style_ul; RESTORE_ULONG( style_ul ); int style = (int)(uint)style_ul;
+
+  switch( style ) {
+  case FD_WKSP_CHECKPT_STYLE_RAW: {
+    ulong tseed_ul;   RESTORE_ULONG( tseed_ul  ); *out_seed = (uint)tseed_ul;
+    ulong tpart_max;  RESTORE_ULONG( tpart_max ); *out_part_max = tpart_max;
+    ulong tdata_max;  RESTORE_ULONG( tdata_max ); *out_data_max = tdata_max;
+    break;
+  } /* FD_WKSP_CHECKPT_STYLE_RAW */
+
+  default:
+    err = FD_WKSP_ERR_FAIL;
+    break;
+  }
+
+ io_err:
+  fd_io_buffered_istream_fini( restore );
+
+  if( FD_UNLIKELY( close( fd ) ) )
+    FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
+
+  return err;
+
+#undef RESTORE_ULONG
 }

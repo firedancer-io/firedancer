@@ -124,6 +124,9 @@ fd_bank_hash_cmp_insert( fd_bank_hash_cmp_t * bank_hash_cmp,
     /* Save the bank hash for later, to check it matches our own bank hash */
 
     curr = fd_bank_hash_cmp_map_insert( bank_hash_cmp->map, slot );
+    curr->rooted = 0;
+    curr->ours   = null_hash;
+    curr->theirs = null_hash;
 
   } else if( FD_UNLIKELY( !ours &&
                           ( 0 != memcmp( &curr->theirs, &null_hash, sizeof( fd_hash_t ) ) ) &&
@@ -151,8 +154,7 @@ fd_bank_hash_cmp_check( fd_bank_hash_cmp_t * bank_hash_cmp, ulong slot ) {
                         cmp->ours.hash,
                         cmp->theirs.hash ) );
       if( ++bank_hash_cmp->mismatch_cnt >= 5U ) {
-        FD_LOG_WARNING( ( "Too many mismatches, shutting down!" ) );
-        _exit(-2);
+        FD_LOG_ERR( ( "Too many mismatches, shutting down!" ) );
       }
     } else {
       FD_LOG_NOTICE( ( "Bank hash match on rooted slot: %lu. hash: %32J",

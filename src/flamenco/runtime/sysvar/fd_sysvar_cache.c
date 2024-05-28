@@ -7,44 +7,6 @@
 
 #define FD_SYSVAR_CACHE_MAGIC (0x195a0e78828cacd5UL)
 
-/* Reuse this table to avoid code duplication */
-#define FD_SYSVAR_CACHE_ITER(X) \
-  X( fd_sol_sysvar_clock,             clock               ) \
-  X( fd_epoch_schedule,               epoch_schedule      ) \
-  X( fd_sysvar_epoch_rewards,         epoch_rewards       ) \
-  X( fd_sysvar_fees,                  fees                ) \
-  X( fd_rent,                         rent                ) \
-  X( fd_slot_hashes,                  slot_hashes         ) \
-  X( fd_recent_block_hashes,          recent_block_hashes ) \
-  X( fd_stake_history,                stake_history       ) \
-  X( fd_sol_sysvar_last_restart_slot, last_restart_slot   )
-
-/* The memory of fd_sysvar_cache_t fits as much sysvar information into
-   the struct as possible.  Unfortunately some parts of the sysvar
-   spill out onto the heap due to how the type generator works.
-
-   The has_{...} bits specify whether a sysvar logically exists.
-   The val_{...} structs contain the top-level struct of each sysvar.
-   If has_{...}==0 then any heap pointers in val_{...} are NULL,
-   allowing for safe idempotent calls to fd_sol_sysvar_{...}_destroy() */
-
-struct __attribute__((aligned(16UL))) fd_sysvar_cache_private {
-  ulong       magic;  /* ==FD_SYSVAR_CACHE_MAGIC */
-  fd_valloc_t valloc;
-
-  /* Declare the val_{...} values */
-# define X( type, name ) \
-  type##_t val_##name[1];
-  FD_SYSVAR_CACHE_ITER(X)
-# undef X
-
-  /* Declare the has_{...} bits */
-# define X( _type, name ) \
-  ulong has_##name : 1;
-  FD_SYSVAR_CACHE_ITER(X)
-# undef X
-};
-
 ulong
 fd_sysvar_cache_align( void ) {
   return alignof(fd_sysvar_cache_t);

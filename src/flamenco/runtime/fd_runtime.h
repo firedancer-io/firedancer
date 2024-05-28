@@ -117,6 +117,7 @@ struct fd_runtime_args {
   int          checkpt_mismatch;
   fd_funk_t *  pruned_funk;
   int          dump_insn_to_pb;
+  ulong        dump_insn_start_slot;
   char const * dump_insn_sig_filter;
   char const * dump_insn_output_dir;
   char const * rocksdb_dir;

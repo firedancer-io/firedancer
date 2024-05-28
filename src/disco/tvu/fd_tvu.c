@@ -810,6 +810,7 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
     runtime_ctx->capture_ctx->dump_insn_to_pb      = args->dump_insn_to_pb;
     runtime_ctx->capture_ctx->dump_insn_sig_filter = args->dump_insn_sig_filter;
     runtime_ctx->capture_ctx->dump_insn_output_dir = args->dump_insn_output_dir;
+    runtime_ctx->capture_ctx->dump_insn_start_slot = args->dump_insn_start_slot;
   }
 
 }
@@ -1495,6 +1496,7 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
   args->checkpt_path     = fd_env_strip_cmdline_cstr( &argc, &argv, "--checkpt-path", NULL, NULL );
   args->checkpt_mismatch = fd_env_strip_cmdline_int ( &argc, &argv, "--checkpt-mismatch", NULL, 0 );
   args->dump_insn_to_pb = fd_env_strip_cmdline_int( &argc, &argv, "--dump-insn-to-pb", NULL, 0 );
+  args->dump_insn_start_slot = fd_env_strip_cmdline_ulong( &argc, &argv, "--dump-insn-start-slot", NULL, 0 );
   args->dump_insn_sig_filter = fd_env_strip_cmdline_cstr( &argc, &argv, "--dump-insn-sig-filter", NULL, NULL );
   args->dump_insn_output_dir = fd_env_strip_cmdline_cstr( &argc, &argv, "--dump-insn-output-dir", NULL, "protobuf_tests_from_executed_instr" );
 

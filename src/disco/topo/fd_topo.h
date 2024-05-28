@@ -204,6 +204,7 @@ typedef struct {
       char  genesis[ PATH_MAX ];
       char  snapshot[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
+      char  capture[ PATH_MAX ];
       ulong pages;
       ulong txn_max;
       ulong index_max;
