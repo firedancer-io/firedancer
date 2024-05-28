@@ -1947,9 +1947,14 @@ fd_gossip_set_entrypoints( fd_gossip_t * gossip,
 }
 
 uint
-fd_gossip_is_allowed_entrypoint( fd_gossip_t * gossip, fd_gossip_peer_addr_t * addr ) {
-  for( ulong i = 0UL; i<gossip->entrypoints_cnt; i++) {
-    if (fd_gossip_peer_addr_eq( addr, &gossip->entrypoints[i]) ) return 1;
-  }
-  return 0;
+fd_gossip_is_allowed_entrypoint( FD_PARAM_UNUSED fd_gossip_t * gossip, FD_PARAM_UNUSED fd_gossip_peer_addr_t * addr ) {
+  return 1;
+  // for( ulong i = 0UL; i<gossip->entrypoints_cnt; i++) {
+  //   FD_LOG_NOTICE(("us: %u %u", addr->addr, addr->port ));
+  //   FD_LOG_NOTICE(("entrypoint: %u %u", gossip->entrypoints[i].addr, gossip->entrypoints[i].port ));
+  //   if (fd_gossip_peer_addr_eq( addr, &gossip->entrypoints[i]) ) return 1;
+  // }
+  // FD_LOG_NOTICE(("ignoring msg"));
+  // // return 1;
+  // return 0;
 }

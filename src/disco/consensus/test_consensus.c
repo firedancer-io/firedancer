@@ -881,6 +881,7 @@ main( int argc, char ** argv ) {
 
   uint entrypoints[16];
   fd_gossip_peer_addr_t _gossip_peer_addr;
+
   resolve_hostport( gossip_peer_addr, &_gossip_peer_addr );
   entrypoints[0] = _gossip_peer_addr.addr;
   ushort port = fd_ushort_bswap(_gossip_peer_addr.port);
