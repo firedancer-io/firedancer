@@ -33,6 +33,7 @@
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
+#define LG_SLOT_MAX          FD_LG_NODE_PUBKEY_MAX /* both 4k */
 #define LG_TXN_MAX           22
 #define SADDR_MAX            128
 #define TEST_CONSENSUS_MAGIC ( 0x7e57UL ) /* test */
@@ -523,8 +524,12 @@ main( int argc, char ** argv ) {
   FD_TEST( blockstore_wksp );
   void * blockstore_mem = fd_wksp_alloc_laddr(
       blockstore_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
-  fd_blockstore_t * blockstore = fd_blockstore_join( fd_blockstore_new(
-      blockstore_mem, FD_BLOCKSTORE_MAGIC, FD_BLOCKSTORE_MAGIC, 1 << 17, 1 << FD_LG_NODE_PUBKEY_MAX, 22 ) );
+  fd_blockstore_t * blockstore = fd_blockstore_join( fd_blockstore_new( blockstore_mem,
+                                                                        FD_BLOCKSTORE_MAGIC,
+                                                                        FD_BLOCKSTORE_MAGIC,
+                                                                        1 << 17,
+                                                                        1 << LG_SLOT_MAX,
+                                                                        22 ) );
   FD_TEST( blockstore );
 
   /**********************************************************************/
@@ -593,7 +598,7 @@ main( int argc, char ** argv ) {
   /* forks                                                              */
   /**********************************************************************/
 
-  ulong forks_max = 1 << FD_LG_NODE_PUBKEY_MAX;
+  ulong forks_max = 1 << LG_SLOT_MAX;
   FD_LOG_NOTICE( ( "forks_max: %lu", forks_max ) );
   FD_LOG_NOTICE( ( "fork footprint: %lu", fd_forks_footprint( forks_max ) ) );
   void * forks_mem = fd_wksp_alloc_laddr(
@@ -662,7 +667,7 @@ main( int argc, char ** argv ) {
   /* ghost                                                              */
   /**********************************************************************/
 
-  ulong        ghost_node_max = forks_max;
+  ulong        ghost_node_max = 1 << LG_SLOT_MAX;
   ulong        ghost_vote_max = 1 << FD_LG_NODE_PUBKEY_MAX;
   void *       ghost_mem      = fd_wksp_alloc_laddr( wksp,
                                           fd_ghost_align(),
@@ -693,9 +698,9 @@ main( int argc, char ** argv ) {
   bft->slot_commitments = fd_slot_commitment_map_join( fd_slot_commitment_map_new(
       fd_wksp_alloc_laddr( wksp,
                            fd_slot_commitment_map_align(),
-                           fd_slot_commitment_map_footprint( FD_LG_NODE_PUBKEY_MAX ),
+                           fd_slot_commitment_map_footprint( LG_SLOT_MAX ),
                            TEST_CONSENSUS_MAGIC ),
-      FD_LG_NODE_PUBKEY_MAX ) );
+      LG_SLOT_MAX ) );
   bft->valloc           = valloc;
 
   /**********************************************************************/
@@ -1015,7 +1020,6 @@ run_replay:
   fd_slot_hash_t key = { .slot = snapshot_fork->slot,
                          .hash = snapshot_fork->slot_ctx.slot_bank.banks_hash };
   fd_ghost_leaf_insert( ghost, &key, NULL );
-
 
   bft->snapshot_slot = snapshot_slot;
   bft->smr           = snapshot_slot;

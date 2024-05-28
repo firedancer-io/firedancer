@@ -97,6 +97,7 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
   for( fd_latest_vote_deque_iter_t iter = fd_latest_vote_deque_iter_init( latest_votes );
        !fd_latest_vote_deque_iter_done( latest_votes, iter );
        iter = fd_latest_vote_deque_iter_next( latest_votes, iter ) ) {
+
     // long total_tic = fd_log_wallclock();
 
     fd_latest_vote_t *  latest_vote = fd_latest_vote_deque_iter_ele( latest_votes, iter );
@@ -180,16 +181,16 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
     if( FD_UNLIKELY( !ghost_node->eqv_safe && pct > FD_BFT_EQV_SAFE ) ) {
       ghost_node->eqv_safe = 1;
 #if FD_BFT_USE_HANDHOLDING
-      FD_LOG_NOTICE(
-          ( "[bft] eqv safe (%lf): (%lu, %32J)", pct, slot_hash.slot, slot_hash.hash.hash ) );
+      // FD_LOG_NOTICE(
+      //     ( "[bft] eqv safe (%lf): (%lu, %32J)", pct, slot_hash.slot, slot_hash.hash.hash ) );
 #endif
     }
 
     if( FD_UNLIKELY( !ghost_node->opt_conf && pct > FD_BFT_OPT_CONF ) ) {
       ghost_node->opt_conf = 1;
 #if FD_BFT_USE_HANDHOLDING
-      FD_LOG_NOTICE(
-          ( "[bft] opt conf (%lf): (%lu, %32J)", pct, slot_hash.slot, slot_hash.hash.hash ) );
+      // FD_LOG_NOTICE(
+      //     ( "[bft] opt conf (%lf): (%lu, %32J)", pct, slot_hash.slot, slot_hash.hash.hash ) );
 #endif
     }
 
@@ -244,7 +245,7 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 
         double pct = (double)slot_commitment->rooted_stake / (double)bft->epoch_stake;
         if( FD_UNLIKELY( pct > FD_BFT_SMR && !slot_commitment->finalized ) ) {
-          FD_LOG_NOTICE( ( "[bft] new_smr (%lf): %lu", pct, ancestor ) );
+          FD_LOG_NOTICE( ( "[count_replay_votes] new SMR: %lu (%lf)", ancestor, pct ) );
           smr                        = fd_ulong_max( ancestor, smr );
           slot_commitment->finalized = 1;
         }
@@ -259,15 +260,17 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
     // long total_toc = fd_log_wallclock();
     // FD_LOG_NOTICE(("total took: %ld", total_toc - total_tic));
   }
+  FD_LOG_NOTICE( ( "[count_replay_votes] processed %lu votes", vote_cnt ) );
+  FD_LOG_NOTICE(
+      ( "[count_replay_votes] took %.2lf ms", (double)( fd_log_wallclock() - now  ) / 1e6 ) );
 
   if( FD_LIKELY( smr > bft->smr ) ) {
     fd_bft_prune( bft, smr );
     fd_bft_smr_update( bft, smr );
   }
 
-  FD_LOG_NOTICE( ( "[count_replay_votes] processed %lu votes", vote_cnt ) );
-  FD_LOG_NOTICE(
-      ( "[count_replay_votes] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
+  // FD_LOG_NOTICE(
+  //     ( "[count_replay_votes] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 }
 
 FD_FN_UNUSED static void
@@ -573,6 +576,8 @@ fd_bft_epoch_stake_update( fd_bft_t * bft, fd_exec_epoch_ctx_t * epoch_ctx ) {
 
 void
 fd_bft_prune( fd_bft_t * bft, ulong slot ) {
+  long now = fd_log_wallclock();
+
   fd_blockstore_t * blockstore = bft->blockstore;
   fd_funk_t *       funk       = bft->funk;
 
@@ -617,7 +622,11 @@ fd_bft_prune( fd_bft_t * bft, ulong slot ) {
   fd_blockstore_prune( blockstore, slot );
   fd_blockstore_end_write( blockstore );
 
+  FD_LOG_NOTICE( ( "[fd_bft_prune no funk] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
+
   /* Query the funk txn xid. */
+
+  long funk_now = fd_log_wallclock();
 
   fd_blockstore_start_read( blockstore );
   fd_hash_t const * block_hash_ = fd_blockstore_block_hash_query( blockstore, slot );
@@ -648,6 +657,9 @@ fd_bft_prune( fd_bft_t * bft, ulong slot ) {
   ulong rc = fd_funk_txn_publish( funk, funk_txn, 1 );
   if( rc == 0 ) FD_LOG_ERR( ( "publish err" ) );
   fd_funk_end_write( funk );
+
+  FD_LOG_NOTICE( ( "[fd_bft_prune funk] took %.2lf ms", (double)( fd_log_wallclock() - funk_now ) / 1e6 ) );
+  FD_LOG_NOTICE( ( "[fd_bft_prune] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 }
 
 void

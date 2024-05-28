@@ -211,6 +211,10 @@ fd_replay_slot_prepare( fd_replay_t * replay, ulong slot ) {
   ulong re_adds[2];
   uint  re_adds_cnt = 0;
 
+  if (FD_UNLIKELY(slot < replay->blockstore->smr)) {
+    goto end;
+  }
+
   fd_block_t * block = fd_blockstore_block_query( replay->blockstore, slot );
 
   /* We already executed this block */
@@ -398,12 +402,12 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   child->slot_ctx.slot_bank.collected_fees = 0;
   child->slot_ctx.slot_bank.collected_rent = 0;
 
-  FD_LOG_NOTICE( ( "slot: %lu", slot ) );
-  FD_LOG_NOTICE( ( "curr turbine: %lu", replay->curr_turbine_slot ) );
-  FD_LOG_NOTICE( ( "first turbine: %lu", replay->first_turbine_slot ) );
+  FD_LOG_NOTICE( ( "[fd_replay_slot_execute] slot: %lu", slot ) );
+  FD_LOG_NOTICE( ( "[fd_replay_slot_execute] curr turbine: %lu", replay->curr_turbine_slot ) );
+  FD_LOG_NOTICE( ( "[fd_replay_slot_execute] first turbine: %lu", replay->first_turbine_slot ) );
   FD_LOG_NOTICE(
-      ( "behind: %lu", slot > replay->curr_turbine_slot ? 0 : replay->curr_turbine_slot - slot ) );
-  FD_LOG_NOTICE( ( "behind first: %lu",
+      ( "[fd_replay_slot_execute] behind: %lu", slot > replay->curr_turbine_slot ? 0 : replay->curr_turbine_slot - slot ) );
+  FD_LOG_NOTICE( ( "[fd_replay_slot_execute] behind first: %lu",
                    slot > replay->first_turbine_slot ? 0 : replay->first_turbine_slot - slot ) );
 
   fd_hash_t const * bank_hash = &child->slot_ctx.slot_bank.banks_hash;

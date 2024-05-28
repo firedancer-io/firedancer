@@ -195,6 +195,8 @@ fd_forks_rollback( fd_forks_t * forks, ulong slot ) {
 
 void
 fd_forks_prune( fd_forks_t * forks, ulong root ) {
+  long now = fd_log_wallclock();
+
   // FIXME scratch
   ulong cnt             = 0;
   ulong prune_slots[64] = { 0 };
@@ -225,4 +227,7 @@ fd_forks_prune( fd_forks_t * forks, ulong root ) {
     FD_TEST( remove );
     fd_fork_pool_ele_release( pool, remove );
   }
+
+  FD_LOG_NOTICE(
+      ( "[fd_forks_prune] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 }

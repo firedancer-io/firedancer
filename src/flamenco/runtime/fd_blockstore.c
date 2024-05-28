@@ -438,6 +438,8 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
 /* Remove a slot from blockstore */
 int
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
+  FD_PARAM_UNUSED long now = fd_log_wallclock();
+
   fd_wksp_t *                wksp       = fd_blockstore_wksp( blockstore );
   fd_blockstore_slot_map_t * slot_map   = fd_wksp_laddr_fast( wksp, blockstore->slot_map_gaddr );
   fd_blockstore_slot_map_t * slot_entry = fd_blockstore_slot_map_query( slot_map, slot, NULL );
@@ -452,13 +454,12 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   if( FD_LIKELY( !fd_uchar_extract_bit( block->flags, FD_BLOCK_FLAG_PREPARED ) ) ) {
     return FD_BLOCKSTORE_OK;
   }
-  FD_LOG_NOTICE( ( "[fd_blockstore_slot_remove] removing slot %lu", slot ) );
 
   /* Free next slots. */
 
   fd_alloc_free( alloc, slot_entry->slot_meta.next_slot );
 
-  /* Unlink as parent. */
+  /* Unlink from parent. */
 
   ulong parent_slot = fd_blockstore_parent_slot_query( blockstore, slot );
   if( FD_LIKELY( parent_slot != FD_SLOT_NULL ) ) {
@@ -467,7 +468,10 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
     int rc = fd_blockstore_next_slot_query( blockstore, parent_slot, &next_slot, &next_slot_cnt );
     if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) {
       // __asm__( "int $3" );
-      FD_LOG_WARNING( ( "slot %lu's parent %lu not present in blockstore", slot, parent_slot ) );
+      // FD_LOG_WARNING(
+      //     ( "[fd_blockstore_slot_remove] slot %lu's parent %lu not present in blockstore",
+      //       slot,
+      //       parent_slot ) );
     }
     for( ulong i = 0; i < next_slot_cnt; i++ ) {
       if( FD_LIKELY( next_slot[i] == slot ) ) { /* Forks are unlikely. */
@@ -498,8 +502,8 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
 
   /* Remove txns from txn_map */
 
-  uchar *                   data    = fd_wksp_laddr_fast( wksp, block->data_gaddr );
-  fd_block_txn_ref_t *      txns    = fd_wksp_laddr_fast( wksp, block->txns_gaddr );
+  uchar *                   data             = fd_wksp_laddr_fast( wksp, block->data_gaddr );
+  fd_block_txn_ref_t *      txns             = fd_wksp_laddr_fast( wksp, block->txns_gaddr );
   fd_blockstore_txn_map_t * txn_map = fd_wksp_laddr_fast( wksp, blockstore->txn_map_gaddr );
   for( ulong j = 0; j < block->txns_cnt; ++j ) {
     fd_blockstore_txn_key_t sig;
@@ -525,24 +529,34 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
 
   fd_blockstore_slot_map_remove( slot_map, slot_entry );
 
+  // FD_LOG_NOTICE( ( "[4] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
+
+  // FD_LOG_NOTICE(
+  //     ( "[fd_blockstore_slot_remove] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
+
   return FD_BLOCKSTORE_OK;
 }
 
 #define DEQUE_NAME _q
 #define DEQUE_T    ulong
+#define DEQUE_MAX  ( 1UL << 64 )
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
 /* Prune the blockstore, removing all slots < the subtree rooted at slot. If there are multiple
    blocks at slot (equivocation), then the pruning will stop at each occurence. */
 int
 fd_blockstore_prune( fd_blockstore_t * blockstore, ulong slot ) {
-  fd_alloc_t * alloc = fd_blockstore_alloc( blockstore );
-  uchar *      q_mem = fd_alloc_malloc( alloc, _q_align(), _q_footprint( blockstore->slot_max ) );
-  ulong *      q     = _q_join( _q_new( q_mem, blockstore->slot_max ) );
+  long now = fd_log_wallclock();
 
-  _q_push_tail( q, blockstore->smr );
-  while( !_q_empty( q ) ) {
-    ulong   curr          = _q_pop_head( q );
+  ulong q[64];
+  ulong q_cnt = 0;
+
+  q[0] = blockstore->smr;
+  q_cnt++;
+  ulong iterations = 0;
+  while( q_cnt ) {
+    iterations++;
+    ulong   curr          = q[--q_cnt];
     ulong * next_slot     = NULL;
     ulong   next_slot_len = 0;
     int     rc = fd_blockstore_next_slot_query( blockstore, curr, &next_slot, &next_slot_len );
@@ -560,11 +574,13 @@ fd_blockstore_prune( fd_blockstore_t * blockstore, ulong slot ) {
 
       /* Stop pruning at slot. */
 
-      if( FD_LIKELY( next_slot[i] != slot ) ) { _q_push_tail( q, next_slot[i] ); }
+      if( FD_LIKELY( next_slot[i] != slot ) ) q[q_cnt++] = next_slot[i];
     }
     fd_blockstore_slot_remove( blockstore, curr );
   }
-  fd_alloc_free( alloc, q_mem );
+  FD_LOG_NOTICE( ( "iterations %lu", iterations ) );
+  FD_LOG_NOTICE(
+      ( "[fd_blockstore_prune] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
   return FD_BLOCKSTORE_OK;
 }
 
@@ -1014,11 +1030,14 @@ fd_blockstore_next_slot_query( fd_blockstore_t * blockstore,
                                ulong             slot,
                                ulong **          next_slot_out,
                                ulong *           next_slot_len_out ) {
+  long                       now = fd_log_wallclock();
   fd_blockstore_slot_map_t * query =
       fd_blockstore_slot_map_query( fd_blockstore_slot_map( blockstore ), slot, NULL );
   if( FD_UNLIKELY( !query ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
   *next_slot_out     = query->slot_meta.next_slot;
   *next_slot_len_out = query->slot_meta.next_slot_len;
+  FD_LOG_NOTICE( ( "[fd_blockstore_next_slot_query] took %.2lf ms",
+                   (double)( fd_log_wallclock() - now ) / 1e6 ) );
   return FD_BLOCKSTORE_OK;
 }
 
