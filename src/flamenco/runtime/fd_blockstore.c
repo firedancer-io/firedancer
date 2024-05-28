@@ -467,10 +467,14 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
     int rc = fd_blockstore_next_slot_query( blockstore, parent_slot, &next_slot, &next_slot_cnt );
     if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) {
       // __asm__( "int $3" );
-      FD_LOG_WARNING( ( "invariant violation: parent_slot not present in blockstore" ) );
+      FD_LOG_WARNING( ( "slot %lu's parent %lu not present in blockstore", slot, parent_slot ) );
     }
     for( ulong i = 0; i < next_slot_cnt; i++ ) {
       if( FD_LIKELY( next_slot[i] == slot ) ) { /* Forks are unlikely. */
+        FD_LOG_NOTICE(
+            ( "[fd_blockstore_slot_remove] removed slot %lu from parent %lu's next slots",
+              slot,
+              parent_slot ) );
         next_slot[i] = next_slot[next_slot_cnt - 1];
         next_slot_cnt--;
         break;
@@ -533,8 +537,8 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
 int
 fd_blockstore_prune( fd_blockstore_t * blockstore, ulong slot ) {
   fd_alloc_t * alloc = fd_blockstore_alloc( blockstore );
-  uchar *      q_mem = fd_alloc_malloc( alloc, _q_align(), _q_footprint( blockstore->max ) );
-  ulong *      q     = _q_join( _q_new( q_mem, blockstore->max ) );
+  uchar *      q_mem = fd_alloc_malloc( alloc, _q_align(), _q_footprint( blockstore->slot_max ) );
+  ulong *      q     = _q_join( _q_new( q_mem, blockstore->slot_max ) );
 
   _q_push_tail( q, blockstore->smr );
   while( !_q_empty( q ) ) {
@@ -546,12 +550,13 @@ fd_blockstore_prune( fd_blockstore_t * blockstore, ulong slot ) {
       __asm__( "int $3" );
       FD_LOG_ERR( ( "curr %lu not present in blockstore", curr ) );
     };
+
     for( ulong i = 0; i < next_slot_len; i++ ) {
 
-      /* Mark it as orphan. */
+      // /* Mark it as orphan. */
 
-      fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( blockstore, next_slot[i] );
-      slot_meta->parent_slot     = FD_SLOT_NULL;
+      // fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( blockstore, next_slot[i] );
+      // slot_meta->parent_slot     = FD_SLOT_NULL;
 
       /* Stop pruning at slot. */
 

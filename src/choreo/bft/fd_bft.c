@@ -139,7 +139,9 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
     /* Look up _our_ bank hash for this vote. Note, because these are replay votes that come from
        the vote program, the bank hashes must match. */
 
+    fd_blockstore_start_read( bft->blockstore );
     fd_hash_t const * bank_hash = fd_blockstore_bank_hash_query( bft->blockstore, vote_slot );
+    fd_blockstore_end_read( bft->blockstore );
 
 #if FD_BFT_USE_HANDHOLDING
     /* This indicates a programming error, because if these are replay votes that were successfully
@@ -247,7 +249,9 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
           slot_commitment->finalized = 1;
         }
 
+        fd_blockstore_start_read( bft->blockstore );
         ancestor = fd_blockstore_parent_slot_query( bft->blockstore, ancestor );
+        fd_blockstore_end_read( bft->blockstore );
       }
     }
 
