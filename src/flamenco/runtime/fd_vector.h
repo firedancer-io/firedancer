@@ -19,6 +19,7 @@ void VECT_(new)(struct VECT_NAME* self) {
 static inline
 void VECT_(destroy)(struct VECT_NAME* self) {
   free(self->elems);
+  self->elems = NULL;
 }
 
 static inline

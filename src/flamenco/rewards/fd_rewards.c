@@ -800,15 +800,15 @@ calculate_rewards_for_partitioning(
 
     ulong num_partitions = get_reward_distribution_num_blocks(&epoch_bank->epoch_schedule, slot_bank->slot, validator_result->stake_reward_deq);
 
-    fd_stake_rewards_vector_t * hash_rewards_result = malloc(sizeof(fd_stake_rewards_vector_t));
-    hash_rewards_into_partitions(slot_bank, validator_result->stake_reward_deq, num_partitions, hash_rewards_result);
+    fd_stake_rewards_vector_t hash_rewards_result = {0};
+    hash_rewards_into_partitions(slot_bank, validator_result->stake_reward_deq, num_partitions, &hash_rewards_result);
 
     /* free stake_reward_deq */
     deq_fd_stake_reward_t_delete( validator_result->stake_reward_deq );
 
     *result = (fd_partitioned_rewards_calculation_t) {
         .vote_account_rewards = validator_result->vote_reward_map,
-        .stake_rewards_by_partition = hash_rewards_result,
+        .stake_rewards_by_partition = { hash_rewards_result },
         .total_stake_rewards_lamports = validator_result->total_stake_rewards_lamports,
         .old_vote_balance_and_staked = old_vote_balance_and_staked,
         .validator_rewards = rewards.validator_rewards,
@@ -884,7 +884,7 @@ calculate_rewards_and_distribute_vote_rewards(
 
     result->total_rewards = fd_ulong_sat_add(validator_rewards_paid,  rewards_calc_result->total_stake_rewards_lamports);
     result->distributed_rewards = validator_rewards_paid;
-    result->stake_rewards_by_partition = rewards_calc_result->stake_rewards_by_partition;
+    *result->stake_rewards_by_partition = *rewards_calc_result->stake_rewards_by_partition;
 }
 
 static void
@@ -1041,7 +1041,7 @@ begin_partitioned_rewards(
     // self.set_epoch_reward_status_active(stake_rewards_by_partition);
     slot_ctx->epoch_reward_status = (fd_epoch_reward_status_t){
         .is_active = 1,
-        .stake_rewards_by_partition = rewards_result->stake_rewards_by_partition,
+        .stake_rewards_by_partition = { *rewards_result->stake_rewards_by_partition },
         .start_block_height = slot_ctx->slot_bank.block_height
     };
     // create EpochRewards sysvar that holds the balance of undistributed rewards with
@@ -1126,8 +1126,7 @@ distribute_partitioned_epoch_rewards(
         for ( ulong i = 0; i < slot_ctx->epoch_reward_status.stake_rewards_by_partition->cnt; ++i ) {
             fd_stake_rewards_destroy( &slot_ctx->epoch_reward_status.stake_rewards_by_partition->elems[i] );
         }
-        fd_stake_rewards_vector_destroy(slot_ctx->epoch_reward_status.stake_rewards_by_partition);
-        fd_valloc_free( slot_ctx->valloc, slot_ctx->epoch_reward_status.stake_rewards_by_partition );
+        fd_stake_rewards_vector_destroy( slot_ctx->epoch_reward_status.stake_rewards_by_partition );
     }
 
     slot_ctx->slot_bank.capitalization = fd_ulong_sat_add(slot_ctx->slot_bank.capitalization, validator_rewards_paid);
