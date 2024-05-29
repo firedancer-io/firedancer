@@ -1796,7 +1796,7 @@ process_vote_state_update( ulong                         vote_acct_idx,
     fd_vote_lockout_t * vote_lockout = deq_fd_vote_lockout_t_peek_tail(vote_state_update->lockouts);
      
     if( FD_LIKELY( vote_lockout ) ) {
-      FD_LOG_NOTICE(("pushing vote"));
+      fd_bank_hash_cmp_lock( bank_hash_cmp );
       fd_latest_vote_t latest_vote = {
           .node_pubkey = *vote_account->pubkey,
           .slot_hash   = { .slot = vote_lockout->slot, .hash = vote_state_update->hash },
@@ -1804,7 +1804,6 @@ process_vote_state_update( ulong                         vote_acct_idx,
       };
       fd_latest_vote_deque_push_tail( ctx->slot_ctx->latest_votes, latest_vote );
 
-      fd_bank_hash_cmp_lock( bank_hash_cmp );
       fd_bank_hash_cmp_insert( bank_hash_cmp, vote_lockout->slot, &vote_state_update->hash, 0 );
       fd_bank_hash_cmp_unlock( bank_hash_cmp );
     }

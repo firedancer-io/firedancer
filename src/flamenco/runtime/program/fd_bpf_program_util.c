@@ -197,6 +197,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_funk_txn_t * cache_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
   if( !cache_txn ) {
+    __asm__("int $3");
     FD_LOG_ERR(( "fd_funk_txn_prepare() failed" ));
     return -1;
   }

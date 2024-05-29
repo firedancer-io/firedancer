@@ -90,7 +90,6 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
   FD_PARAM_UNUSED long now = fd_log_wallclock();
 
   fd_latest_vote_t * latest_votes = fork->slot_ctx.latest_votes;
-  FD_LOG_NOTICE(("after latest vote cnt: %lu", fd_latest_vote_deque_cnt(latest_votes)));
 
   // fd_root_vote_t *   root_votes   = bft->root_votes;
 

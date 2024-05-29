@@ -235,7 +235,6 @@ after_frag( void *             _ctx,
 
       fd_latest_vote_deque_remove_all( ctx->latest_votes );
       fork->slot_ctx.latest_votes = ctx->latest_votes;
-      FD_LOG_NOTICE(("before latest vote cnt: %lu", fd_latest_vote_deque_cnt(ctx->slot_ctx->latest_votes)));
 
       fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
       fork->slot_ctx.slot_bank.slot      = ctx->curr_slot;

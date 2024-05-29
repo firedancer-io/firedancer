@@ -762,12 +762,13 @@ main( int argc, char ** argv ) {
       fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(), TEST_CONSENSUS_MAGIC );
   fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, TEST_CONSENSUS_MAGIC ) );
 
-  fd_repair_config_t repair_config;
+  fd_repair_config_t repair_config = { 0 };
   repair_config.public_key  = &public_key;
   repair_config.private_key = private_key;
   char repair_addr[7]       = { 0 };
   snprintf( repair_addr, sizeof( repair_addr ), ":%u", repair_port );
   FD_TEST( resolve_hostport( repair_addr, &repair_config.intake_addr ) );
+  FD_TEST( resolve_hostport( ":5000", &repair_config.service_addr ) );
   repair_config.deliver_fun      = repair_deliver_fun;
   repair_config.clnt_send_fun    = repair_send_fun;
   repair_config.deliver_fail_fun = repair_deliver_fail_fun;
@@ -778,7 +779,8 @@ main( int argc, char ** argv ) {
   repair_config.sign_arg         = &repair_config;
 
   FD_LOG_NOTICE(("setting config"));
-  FD_TEST( !fd_repair_set_config( repair, &repair_config ) );
+  // __asm__("int $3");
+  fd_repair_set_config( repair, &repair_config );
 
   replay->repair = repair;
 
@@ -1035,7 +1037,6 @@ run_replay:
   FD_LOG_NOTICE(("here"));
 
   while( 1 ) {
-    __asm__("int $3");
     long now    = fd_log_wallclock();
     replay->now = now;
 

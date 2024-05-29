@@ -586,7 +586,6 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
   int                  rc          = fd_fec_resolver_add_shred(
       replay->fec_resolver, shred, shred_sz, leader->uc, &out_fec_set, &out_shred );
   if( rc == FD_FEC_RESOLVER_SHRED_COMPLETES ) {
-    __asm__("int $3");
     if( FD_UNLIKELY( replay->first_turbine_slot == FD_SLOT_NULL ) ) {
       replay->first_turbine_slot = shred->slot;
     }

@@ -421,6 +421,7 @@ setup_program( fd_exec_instr_ctx_t * ctx,
 
   ulong validate_result = fd_vm_context_validate( &vm_ctx );
   if (validate_result != FD_VM_SBPF_VALIDATE_SUCCESS) {
+    __asm__("int $3");
     FD_LOG_ERR(( "fd_vm_context_validate() failed: %lu", validate_result ));
   }
 
