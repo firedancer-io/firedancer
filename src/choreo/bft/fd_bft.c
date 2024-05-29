@@ -246,6 +246,9 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
       /* Add this node pubkey's stake to all slots in the ancestry back to the SMR. */
 
       fd_root_stake_t * root_stake = fd_root_stake_map_query( bft->root_stakes, latest_vote->root, NULL );
+      if ( FD_UNLIKELY(!root_stake) ) {
+        root_stake = fd_root_stake_map_insert( bft->root_stakes, latest_vote->root );
+      }
       root_stake->stake += stake;
 
       // ulong ancestor = latest_vote->root;
