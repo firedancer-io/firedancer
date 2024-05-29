@@ -20,7 +20,7 @@
 #define FD_BFT_EQV_SAFE ( 0.52 )
 #define FD_BFT_OPT_CONF ( 2.0 / 3.0 )
 #define FD_BFT_SMR      FD_BFT_OPT_CONF
-#define FD_LG_SLOT_MAX 16UL
+#define FD_BFT_LG_SLOT_MAX 16UL
 
 
 // TODO move this
@@ -63,7 +63,7 @@ typedef struct fd_root_stake fd_root_stake_t;
 #define MAP_NAME              fd_root_stake_map
 #define MAP_T                 fd_root_stake_t
 #define MAP_KEY               root
-#define MAP_LG_SLOT_CNT       (FD_LG_SLOT_MAX) /* fill ratio < 0.5 */
+#define MAP_LG_SLOT_CNT       (FD_BFT_LG_SLOT_MAX) /* fill ratio < 0.5 */
 #include "../../util/tmpl/fd_map.c"
 /* clang-format on */
 

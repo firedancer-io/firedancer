@@ -47,6 +47,8 @@
 #define SCRATCH_MAX    (1024UL /*MiB*/ << 21)
 #define SCRATCH_DEPTH  (128UL) /* 128 scratch frames */
 
+#define VOTE_ACC_MAX   (2000000UL)
+
 struct fd_replay_tile_ctx {
   fd_wksp_t * wksp;
 
@@ -139,14 +141,14 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
-  l = FD_LAYOUT_APPEND( l, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( FD_LG_NODE_PUBKEY_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_replay_align(), fd_replay_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_LG_SLOT_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BFT_LG_SLOT_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint() );
   l = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
 
   l = FD_LAYOUT_APPEND( l, fd_bft_align(), fd_bft_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( 1 << FD_LG_SLOT_MAX, 1 << FD_LG_NODE_PUBKEY_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( 1 << FD_BFT_LG_SLOT_MAX, 1 << FD_LG_NODE_PUBKEY_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_root_stake_map_align(), fd_root_stake_map_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_root_vote_map_align(), fd_root_vote_map_footprint() );
 
@@ -600,16 +602,16 @@ unprivileged_init( fd_topo_t *      topo,
   void * fmem                = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   /* NOTE: incremental snapshot load resets this and care should be taken if
     adding any setup here. */
-  ctx->epoch_ctx_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( FD_LG_NODE_PUBKEY_MAX ) );
+  ctx->epoch_ctx_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
   void * replay_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_align(), fd_replay_footprint() );
-  void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_LG_SLOT_MAX ) );
+  void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BFT_LG_SLOT_MAX ) );
   void * latest_votes_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint() );
   void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
 
   /* consensus */
 
   void * bft_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_bft_align(), fd_bft_footprint() );
-  void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( 1 << FD_LG_SLOT_MAX, 1 << FD_LG_NODE_PUBKEY_MAX ) );
+  void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( 1 << FD_BFT_LG_SLOT_MAX, 1 << FD_LG_NODE_PUBKEY_MAX ) );
   void * root_votes_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_root_vote_map_align(), fd_root_vote_map_footprint() );
   void * root_stakes_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_root_stake_map_align(), fd_root_stake_map_footprint() );
 
@@ -679,7 +681,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_valloc_t valloc = fd_alloc_virtual( alloc );
 
-  ctx->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( ctx->epoch_ctx_mem , FD_LG_NODE_PUBKEY_MAX ) );
+  ctx->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( ctx->epoch_ctx_mem , VOTE_ACC_MAX ) );
 
   ctx->snapshot    = tile->replay.snapshot;
   ctx->incremental = tile->replay.incremental;
@@ -695,7 +697,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( ctx->acc_mgr, funk );
 
-  fd_forks_t * forks     = fd_forks_join( fd_forks_new( forks_mem, FD_LG_SLOT_MAX, 42UL ) );
+  fd_forks_t * forks     = fd_forks_join( fd_forks_new( forks_mem, FD_BFT_LG_SLOT_MAX, 42UL ) );
   FD_TEST( forks );
 
   forks->acc_mgr = acc_mgr;
@@ -761,7 +763,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   ctx->bft = fd_bft_join( fd_bft_new( bft_mem ) );
-  ctx->ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 1 << FD_LG_SLOT_MAX, 1 << FD_LG_NODE_PUBKEY_MAX, 42 ) );
+  ctx->ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 1 << FD_BFT_LG_SLOT_MAX, 1 << FD_LG_NODE_PUBKEY_MAX, 42 ) );
   ctx->root_votes = fd_root_vote_map_join( fd_root_vote_map_new( root_votes_mem ) );
   ctx->root_stakes = fd_root_stake_map_join( fd_root_stake_map_new( root_stakes_mem ) );
   ctx->replay->bft = ctx->bft;
