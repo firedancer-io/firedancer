@@ -100,11 +100,11 @@ checkout_repo () {
 fetch () {
   mkdir -pv ./opt/git
 
-  checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.5"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.5.0"
   #checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.0"
   if [[ $DEVMODE == 1 ]]; then
+    checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
     checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.1.0"
     checkout_repo snappy    https://github.com/google/snappy          "1.1.10"
     checkout_repo libff     https://github.com/firedancer-io/libff.git "develop"
@@ -457,11 +457,11 @@ install () {
 
   mkdir -p ./opt/{include,lib}
 
-  ( install_zlib      )
   ( install_zstd      )
   ( install_secp256k1 )
   #( install_openssl   )
   if [[ $DEVMODE == 1 ]]; then
+    ( install_zlib      )
     ( install_snappy    )
     ( install_rocksdb   )
     #( install_libff     )
