@@ -23,8 +23,8 @@ echo "[gossip]
     port = $GOSSIP_PORT
 [tiles]
     [tiles.gossip]
-        entrypoints = [\"147.75.84.157\"]
-        peer_ports = [8000]
+        entrypoints = [\"51.195.234.217\"]
+        peer_ports = [8001]
         gossip_listen_port = $GOSSIP_PORT
     [tiles.repair]
         repair_intake_listen_port = $(shuf -i 8000-10000 -n 1)

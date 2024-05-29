@@ -730,6 +730,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 1 << LG_SLOT_MAX, 1 << FD_LG_NODE_PUBKEY_MAX, 42 ) );
   ctx->bft = fd_bft_join( fd_bft_new( bft_mem ) );
+  ctx->replay->bft = ctx->bft;
 
   /* Set up store tile input */
   fd_topo_link_t * store_in_link = &topo->links[ tile->in_link_id[ STORE_IN_IDX ] ];

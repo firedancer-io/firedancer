@@ -698,6 +698,9 @@ fd_replay_prepare_ctx( fd_replay_t * replay, ulong parent_slot ) {
     /* Add to frontier */
 
     fd_fork_frontier_ele_insert( replay->forks->frontier, fork, replay->forks->pool );
+
+    FD_LOG_NOTICE(("new fork at %lu", parent_slot));
+    // fd_ghost_print( replay->bft->ghost );
   }
 
   return fork;
