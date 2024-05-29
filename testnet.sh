@@ -45,5 +45,5 @@ echo "[gossip]
     topology = \"firedancer\"
 " > testnet.toml
 
-./build/native/gcc/bin/fddev configure fini all || true
+sudo ./build/native/gcc/bin/fddev configure fini all || true
 sudo gdb -ex=r --args ./build/native/gcc/bin/fddev --config testnet.toml --no-sandbox --no-clone --no-solana-labs

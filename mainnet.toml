@@ -1,16 +1,16 @@
 [gossip]
-    port = 9406
+    port = 8613
 [tiles]
     [tiles.gossip]
-        entrypoints = ["147.75.84.157"]
-        peer_ports = [8000]
-        gossip_listen_port = 9406
+        entrypoints = ["51.195.234.217"]
+        peer_ports = [8001]
+        gossip_listen_port = 8613
     [tiles.repair]
-        repair_intake_listen_port = 8633
-        repair_serve_listen_port = 9874
+        repair_intake_listen_port = 8713
+        repair_serve_listen_port = 9567
     [tiles.replay]
         snapshot = "wksp:/data/chali/mainnet-funk"
-        incremental = "/data/chali/incremental-snapshot-268513121-268538757-CytUvAc3XbCDL8gm7qTZEnKTxuMH2LsLKvMjsN5AnNMS.tar.zst"
+        incremental = "/data/chali/incremental-snapshot-268539268-268544967-57wfP6zzQXtuzGzG8wKyK7YMfVpGG3cMqf2jBcVHv1so.tar.zst"
         tpool_thread_count = 13
         funk_sz_gb = 600
         funk_txn_max = 1024
