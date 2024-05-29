@@ -143,16 +143,51 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
           fd_vote_accounts_pair_t_map_acquire(vacc_pool);
       FD_TEST(node);
 
+    fd_vote_block_timestamp_t last_timestamp;
+    fd_pubkey_t node_pubkey;
+    FD_SCRATCH_SCOPE_BEGIN {
+      /* Deserialize content */
+      fd_vote_state_versioned_t vs[1];
+      fd_bincode_decode_ctx_t decode =
+          { .data    = acc->account.data,
+            .dataend = acc->account.data + acc->account.data_len,
+            .valloc  = fd_scratch_virtual() };
+      int decode_err = fd_vote_state_versioned_decode( vs, &decode );
+      if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
+        FD_LOG_WARNING(( "fd_vote_state_versioned_decode failed (%d)", decode_err ));
+        return;
+      }
+
+      switch( vs->discriminant )
+      {
+      case fd_vote_state_versioned_enum_current:
+        last_timestamp = vs->inner.current.last_timestamp;
+        node_pubkey    = vs->inner.current.node_pubkey;
+        break;
+      case fd_vote_state_versioned_enum_v0_23_5:
+        last_timestamp = vs->inner.v0_23_5.last_timestamp;
+        node_pubkey    = vs->inner.v0_23_5.node_pubkey;
+        break;
+      case fd_vote_state_versioned_enum_v1_14_11:
+        last_timestamp = vs->inner.v1_14_11.last_timestamp;
+        node_pubkey    = vs->inner.v1_14_11.node_pubkey;
+        break;
+      default:
+        __builtin_unreachable();
+      }
+
+    } FD_SCRATCH_SCOPE_END;
+
       fd_memcpy(node->elem.key.key, acc->key.key, sizeof(fd_pubkey_t));
       node->elem.stake = acc->account.lamports;
-      node->elem.value = (fd_solana_account_t){
+      node->elem.value = (fd_solana_vote_account_t){
           .lamports = acc->account.lamports,
-          .data_len = acc->account.data_len,
-          .data = fd_valloc_malloc(slot_ctx->valloc, 1UL, acc->account.data_len),
+          .node_pubkey = node_pubkey,
+          .last_timestamp_ts = last_timestamp.timestamp,
+          .last_timestamp_slot = last_timestamp.slot,
           .owner = acc->account.owner,
           .executable = acc->account.executable,
           .rent_epoch = acc->account.rent_epoch};
-      fd_memcpy(node->elem.value.data, acc->account.data, acc->account.data_len);
 
       fd_vote_accounts_pair_t_map_insert(vacc_pool, &vacc_root, node);
 
@@ -2905,28 +2940,15 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
     fd_validator_stake_pair_t * validator_stakes = fd_scratch_alloc( 8UL, sizeof(fd_validator_stake_pair_t) * num_validator_stakes );
     ulong i = 0;
 
-    fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = fd_scratch_virtual() };
     for( fd_vote_accounts_pair_t_mapnode_t *n = fd_vote_accounts_pair_t_map_minimum( vote_accounts_pool, vote_accounts_root );
         n;
         n = fd_vote_accounts_pair_t_map_successor( vote_accounts_pool, n ), i++) {
-      fd_vote_state_versioned_t vote_state_versioned;
-      fd_vote_state_versioned_new(&vote_state_versioned);
-      fd_bincode_decode_ctx_t decode_ctx = {
-          .data = n->elem.value.data,
-          .dataend = &n->elem.value.data[n->elem.value.data_len],
-          .valloc = fd_scratch_virtual()
-      };
-      if( fd_vote_state_versioned_decode( &vote_state_versioned, &decode_ctx ) ) {
-        FD_LOG_WARNING(( "fd_vote_state_versioned_decode failed" ));
-        return;
-      }
 
-      validator_stakes[i].pubkey = vote_state_versioned.inner.current.node_pubkey;
+      validator_stakes[i].pubkey = n->elem.value.node_pubkey;
       validator_stakes[i].stake = n->elem.stake;
 
       total_staked += n->elem.stake;
 
-      fd_vote_state_versioned_destroy(&vote_state_versioned, &destroy_ctx);
     }
 
     sort_validator_stake_pair_inplace(validator_stakes, num_validator_stakes);
@@ -3582,6 +3604,7 @@ void fd_process_new_epoch(
   fd_update_epoch_stakes( slot_ctx );
 
   fd_runtime_update_leaders(slot_ctx, slot_ctx->slot_bank.slot);
+  FD_LOG_WARNING(("Updated leader %32J", slot_ctx->leader->uc));
 }
 
 void

@@ -1788,14 +1788,14 @@ int fd_vote_accounts_pair_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_solana_account_decode_preflight( ctx );
+  err = fd_solana_vote_account_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_accounts_pair_decode_unsafe( fd_vote_accounts_pair_t * self, fd_bincode_decode_ctx_t * ctx ) {
   fd_pubkey_decode_unsafe( &self->key, ctx );
   fd_bincode_uint64_decode_unsafe( &self->stake, ctx );
-  fd_solana_account_decode_unsafe( &self->value, ctx );
+  fd_solana_vote_account_decode_unsafe( &self->value, ctx );
 }
 int fd_vote_accounts_pair_decode_offsets( fd_vote_accounts_pair_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
   uchar const * data = ctx->data;
@@ -1807,18 +1807,18 @@ int fd_vote_accounts_pair_decode_offsets( fd_vote_accounts_pair_off_t * self, fd
   err = fd_bincode_uint64_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   self->value_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_solana_account_decode_preflight( ctx );
+  err = fd_solana_vote_account_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_accounts_pair_new(fd_vote_accounts_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_accounts_pair_t) );
   fd_pubkey_new( &self->key );
-  fd_solana_account_new( &self->value );
+  fd_solana_vote_account_new( &self->value );
 }
 void fd_vote_accounts_pair_destroy( fd_vote_accounts_pair_t * self, fd_bincode_destroy_ctx_t * ctx ) {
   fd_pubkey_destroy( &self->key, ctx );
-  fd_solana_account_destroy( &self->value, ctx );
+  fd_solana_vote_account_destroy( &self->value, ctx );
 }
 
 ulong fd_vote_accounts_pair_footprint( void ){ return FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT; }
@@ -1828,14 +1828,14 @@ void fd_vote_accounts_pair_walk( void * w, fd_vote_accounts_pair_t const * self,
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_accounts_pair", level++ );
   fd_pubkey_walk( w, &self->key, fun, "key", level );
   fun( w, &self->stake, "stake", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  fd_solana_account_walk( w, &self->value, fun, "value", level );
+  fd_solana_vote_account_walk( w, &self->value, fun, "value", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote_accounts_pair", level-- );
 }
 ulong fd_vote_accounts_pair_size( fd_vote_accounts_pair_t const * self ) {
   ulong size = 0;
   size += fd_pubkey_size( &self->key );
   size += sizeof(ulong);
-  size += fd_solana_account_size( &self->value );
+  size += fd_solana_vote_account_size( &self->value );
   return size;
 }
 
@@ -1845,7 +1845,7 @@ int fd_vote_accounts_pair_encode( fd_vote_accounts_pair_t const * self, fd_binco
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->stake, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_solana_account_encode( &self->value, ctx );
+  err = fd_solana_vote_account_encode( &self->value, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }

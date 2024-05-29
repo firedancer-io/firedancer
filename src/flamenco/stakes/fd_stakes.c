@@ -35,56 +35,30 @@ fd_stakes_accum_by_node( fd_vote_accounts_t const * in,
     /* ... filter(|(stake, _)| *stake != 0u64) */
     if( n->elem.stake == 0UL ) continue;
 
-    /* Create scratch allocator for current scope */
-    FD_SCRATCH_SCOPE_BEGIN {
+    /* Extract node pubkey */
+    fd_pubkey_t const * node_pubkey = &n->elem.value.node_pubkey;
 
-      fd_valloc_t scratch = fd_scratch_virtual();
+    fd_pubkey_t null_key = {0};
+    if( memcmp( node_pubkey, null_key.uc, sizeof(fd_pubkey_t) ) == 0 ) {
+      FD_LOG_WARNING(( "vote account %32J skipped", n->elem.key.key ));
+      continue;
+    }
+    /* Check if node identity was previously visited */
+    fd_stake_weight_t_mapnode_t * query = fd_stake_weight_t_map_acquire( out_pool );
+    FD_TEST( query );
+    query->elem.key = *node_pubkey;
+    fd_stake_weight_t_mapnode_t * node = fd_stake_weight_t_map_find( out_pool, out_root, query );
 
-      /* Decode vote account */
-      uchar const * vote_acc_data = n->elem.value.data;
-      fd_bincode_decode_ctx_t decode_ctx = {
-        .data    = vote_acc_data,
-        .dataend = vote_acc_data + n->elem.value.data_len,
-        .valloc  = scratch,
-      };
-      fd_vote_state_versioned_t vote_state_versioned;
-      if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( &vote_state_versioned, &decode_ctx ) ) ) {
-        /* TODO can this occur on a real cluster? */
-        FD_LOG_WARNING(( "Failed to deserialize vote account %32J", n->elem.key.key ));
-        continue;
-      }
-
-      /* Extract node pubkey */
-      fd_pubkey_t const * node_pubkey;
-      switch( vote_state_versioned.discriminant ) {
-      case fd_vote_state_versioned_enum_v0_23_5:
-        node_pubkey = &vote_state_versioned.inner.v0_23_5.node_pubkey; break;
-      case fd_vote_state_versioned_enum_v1_14_11:
-        node_pubkey = &vote_state_versioned.inner.v1_14_11.node_pubkey; break;
-      case fd_vote_state_versioned_enum_current:
-        node_pubkey = &vote_state_versioned.inner.current.node_pubkey; break;
-      default:
-        FD_LOG_WARNING(( "Unrecognized vote version in account %32J", n->elem.key.key ));
-        continue;
-      }
-
-      /* Check if node identity was previously visited */
-      fd_stake_weight_t_mapnode_t * query = fd_stake_weight_t_map_acquire( out_pool );
-      FD_TEST( query );
-      query->elem.key = *node_pubkey;
-      fd_stake_weight_t_mapnode_t * node = fd_stake_weight_t_map_find( out_pool, out_root, query );
-
-      if( FD_UNLIKELY( node ) ) {
-        /* Accumulate to previously created entry */
-        fd_stake_weight_t_map_release( out_pool, query );
-        node->elem.stake += n->elem.stake;
-      } else {
-        /* Create new entry */
-        node = query;
-        node->elem.stake = n->elem.stake;
-        fd_stake_weight_t_map_insert( out_pool, &out_root, node );
-      }
-    } FD_SCRATCH_SCOPE_END;
+    if( FD_UNLIKELY( node ) ) {
+      /* Accumulate to previously created entry */
+      fd_stake_weight_t_map_release( out_pool, query );
+      node->elem.stake += n->elem.stake;
+    } else {
+      /* Create new entry */
+      node = query;
+      node->elem.stake = n->elem.stake;
+      fd_stake_weight_t_map_insert( out_pool, &out_root, node );
+    }
   }
 
   return out_root;

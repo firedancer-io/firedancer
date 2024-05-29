@@ -500,7 +500,7 @@ typedef struct fd_account_meta_off fd_account_meta_off_t;
 struct __attribute__((aligned(8UL))) fd_vote_accounts_pair {
   fd_pubkey_t key;
   ulong stake;
-  fd_solana_account_t value;
+  fd_solana_vote_account_t value;
 };
 typedef struct fd_vote_accounts_pair fd_vote_accounts_pair_t;
 #define FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT sizeof(fd_vote_accounts_pair_t)

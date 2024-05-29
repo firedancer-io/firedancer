@@ -118,40 +118,15 @@ recover_clock( fd_exec_slot_ctx_t * slot_ctx ) {
        n = fd_vote_accounts_pair_t_map_successor( vote_accounts_pool, n ) ) {
     /* Extract vote timestamp of account */
 
-    fd_vote_block_timestamp_t vote_state_timestamp;
-    FD_SCRATCH_SCOPE_BEGIN {
-      /* Deserialize content */
-      fd_vote_state_versioned_t vs[1];
-      fd_bincode_decode_ctx_t decode =
-          { .data    = n->elem.value.data,
-            .dataend = n->elem.value.data + n->elem.value.data_len,
-            .valloc  = fd_scratch_virtual() };
-      int decode_err = fd_vote_state_versioned_decode( vs, &decode );
-      if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "fd_vote_state_versioned_decode failed (%d)", decode_err ));
-        return 0;
-      }
+    fd_vote_block_timestamp_t vote_state_timestamp = {
+      .timestamp = n->elem.value.last_timestamp_ts,
+      .slot      = n->elem.value.last_timestamp_slot
+    };
 
-      switch( vs->discriminant )
-      {
-      case fd_vote_state_versioned_enum_current:
-        vote_state_timestamp = vs->inner.current.last_timestamp;
-        break;
-      case fd_vote_state_versioned_enum_v0_23_5:
-        vote_state_timestamp = vs->inner.v0_23_5.last_timestamp;
-        break;
-      case fd_vote_state_versioned_enum_v1_14_11:
-        vote_state_timestamp = vs->inner.v1_14_11.last_timestamp;
-        break;
-      default:
-        __builtin_unreachable();
-      }
-
-      /* Record timestamp */
-      if( vote_state_timestamp.slot != 0 || n->elem.stake != 0 ) {
-        fd_vote_record_timestamp_vote_with_slot(slot_ctx, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot);
-      }
-    } FD_SCRATCH_SCOPE_END;
+    /* Record timestamp */
+    if( vote_state_timestamp.slot != 0 || n->elem.stake != 0 ) {
+      fd_vote_record_timestamp_vote_with_slot(slot_ctx, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot);
+    }
   }
 
   return 1;
@@ -159,15 +134,7 @@ recover_clock( fd_exec_slot_ctx_t * slot_ctx ) {
 
 /* Implementation note: fd_exec_slot_ctx_recover moves objects from
    manifest to slot_ctx.  This function must not share pointers between
-   slot_ctx and manifest.  Otherwise, would cause a use-after-free.
-
-   Note on memory mgmt:  At this point, fd_types allocated a bunch of
-   hash maps and red black trees for us.  The capacity of all of these
-   is too small though (they fit exactly the current amount of stake
-   delegations, etc).  This method thus also moves these collections
-   over to epoch context memory and deallocates the heap structuers.
-   This is obviously not ideal, but there's no better way for now.
-   See fd_exec_epoch_ctx_fixup_memory.  */
+   slot_ctx and manifest.  Otherwise, would cause a use-after-free. */
 
 static fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,

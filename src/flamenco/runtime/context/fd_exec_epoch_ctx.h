@@ -60,31 +60,6 @@ fd_exec_epoch_ctx_align( void );
 ulong
 fd_exec_epoch_ctx_footprint( ulong vote_acc_max );
 
-/* fd_exec_epoch_ctx_fixup_memory makes an epoch context safe for reuse
-   across different address spaces.  This function is very silly:  It
-   checks whether any of its dynamically object objects are allocated
-   outside its own memory region.  This typically happens when restoring
-   an epoch context from genesis, a snapshot, or a checkpoint.  (Because
-   the fd_types deserializer allocates dynamic data structures on the
-   fd_alloc heap)  The foreign-owned objects are moved into epoch
-   context memory and the original objects are deallocated (via the
-   given valloc).
-
-   The following objects are migrated:
-
-     epoch_bank->stakes.vote_accounts.vote_accounts_pool => stake_votes
-     epoch_bank->stakes.stake_delegations_pool           => stake_delegations
-     epoch_bank->stakes.stake_history.treap              => stake_history_treap
-     epoch_bank->stakes.stake_history.pool               => stake_history_pool
-     epoch_bank->next_epoch_stakes                       => next_epoch_stakes
-
-   FIXME This function becomes redundant once we fix the problem
-         upstream and stop heap allocating */
-
-void
-fd_exec_epoch_ctx_fixup_memory( fd_exec_epoch_ctx_t * epoch_ctx,
-                                fd_valloc_t const *   valloc );
-
 /* fd_exec_epoch_ctx_bank_mem_clear empties out the existing bank
    data structures (votes, delegations, stake history, next_epoch_stakes).
    This method should be used before decoding a bank from funk so as
