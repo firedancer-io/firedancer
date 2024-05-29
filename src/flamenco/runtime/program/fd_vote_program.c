@@ -1787,27 +1787,25 @@ process_vote_state_update( ulong                         vote_acct_idx,
     return rc;
   }
 
-  /* Save latest vote for insertion on success. */
-  fd_landed_vote_t * latest_landed_vote = deq_fd_landed_vote_t_peek_tail( vote_state.votes );
-  fd_latest_vote_t   latest_vote = {0};
-  fd_latest_vote_t * new_latest_vote = NULL;
-  if( FD_LIKELY( latest_landed_vote ) ) {
-    latest_vote.node_pubkey = *vote_account->pubkey;
-    latest_vote.slot_hash   = (fd_slot_hash_t){ .slot = latest_landed_vote->lockout.slot, .hash = vote_state_update->hash };
-    new_latest_vote = &latest_vote;
-  }
-
   /* Destroys vote_state. */
   rc = set_vote_account_state( vote_acct_idx, vote_account, &vote_state, ctx );
 
   /* only when running live or sim (vs. offline backtest) */
   if( FD_LIKELY( rc == FD_EXECUTOR_INSTR_SUCCESS && ctx->slot_ctx->latest_votes ) ) {
     fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( ctx->slot_ctx->epoch_ctx );
-    if( FD_LIKELY( new_latest_vote ) ) {
+    fd_vote_lockout_t * vote_lockout = deq_fd_vote_lockout_t_peek_tail(vote_state_update->lockouts);
+     
+    if( FD_LIKELY( vote_lockout ) ) {
+      FD_LOG_NOTICE(("pushing vote"));
+      fd_latest_vote_t latest_vote = {
+          .node_pubkey = *vote_account->pubkey,
+          .slot_hash   = { .slot = vote_lockout->slot, .hash = vote_state_update->hash },
+          .root = vote_state_update->root
+      };
       fd_latest_vote_deque_push_tail( ctx->slot_ctx->latest_votes, latest_vote );
 
       fd_bank_hash_cmp_lock( bank_hash_cmp );
-      fd_bank_hash_cmp_insert( bank_hash_cmp, latest_landed_vote->lockout.slot, &vote_state_update->hash, 0 );
+      fd_bank_hash_cmp_insert( bank_hash_cmp, vote_lockout->slot, &vote_state_update->hash, 0 );
       fd_bank_hash_cmp_unlock( bank_hash_cmp );
     }
 
@@ -2488,16 +2486,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
       rc = process_vote_state_update( 0, me, slot_hashes, clock, vote_state_update, signers, &ctx );
-
-      if( FD_LIKELY( rc == FD_EXECUTOR_INSTR_SUCCESS && ctx.slot_ctx->latest_votes ) ) {
-        fd_vote_lockout_t * latest_vote_lockout =
-            deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts );
-        fd_latest_vote_t latest_vote = {
-            .node_pubkey = *me->pubkey,
-            .slot_hash   = { .slot = latest_vote_lockout->slot, .hash = vote_state_update->hash }
-        };
-        fd_latest_vote_deque_push_tail( ctx.slot_ctx->latest_votes, latest_vote );
-      }
 
     } else {
       // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L198-L200

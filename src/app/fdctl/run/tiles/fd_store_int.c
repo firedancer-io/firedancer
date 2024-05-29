@@ -100,6 +100,8 @@ struct fd_store_tile_ctx {
   fd_stake_ci_t * stake_ci;
 
   ulong blockstore_seed;
+
+  ulong * first_turbine;
 };
 typedef struct fd_store_tile_ctx fd_store_tile_ctx_t;
 
@@ -198,6 +200,7 @@ after_frag( void *             _ctx,
       }
 
       fd_store_shred_update_with_shred_from_turbine( ctx->store, &ctx->s34_buffer->pkts[i].shred );
+      fd_fseq_update( ctx->first_turbine, ctx->store->first_turbine_slot );
     }
   }
 
@@ -328,13 +331,23 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
       FD_LOG_DEBUG(( "block prepared - slot: %lu", slot ));
 
-      FD_LOG_NOTICE( ( "curr: %lu, head: %lu, live: %d",
-                       slot,
-                       ctx->store->curr_turbine_slot,
-                       ( ctx->store->curr_turbine_slot - slot ) < 5 ) );
-      if (slot > ctx->store->curr_turbine_slot) {
-        FD_LOG_WARNING(("slot %lu is newer than turbine %lu? did we repair it?", slot, ctx->store->curr_turbine_slot));
+      if( FD_UNLIKELY( slot > ctx->store->curr_turbine_slot ) ) {
+        FD_LOG_WARNING( ( "slot %lu is newer than turbine %lu? did we repair it?",
+                          slot,
+                          ctx->store->curr_turbine_slot ) );
+      } else {
+        long now = fd_log_wallclock();
+        if( FD_UNLIKELY( now - ctx->store->last_log > (long)5e9 ) ) {
+          FD_LOG_NOTICE( ( "\n[Live Summary]\nlast executed slot: %lu\ncurrent turbine slot: %lu\nfirst turbine slot: %lu\nbehind: %lu\nlive: %d",
+                           slot,
+                           ctx->store->curr_turbine_slot,
+                           ctx->store->first_turbine_slot,
+                           ctx->store->curr_turbine_slot - slot,
+                           ( ctx->store->curr_turbine_slot - slot ) < 5 ) );
+          ctx->store->last_log = now;
+        }
       }
+
       fd_txn_p_t * txns = fd_type_pun( out_buf );
       ulong txn_cnt = fd_runtime_block_collect_txns( &block_info, txns );
 
@@ -453,6 +466,11 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !alloc_shmem ) ) {
     FD_LOG_ERR( ( "fd_alloc too large for workspace" ) );
   }
+
+  ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "first_turbine" );
+  FD_TEST( busy_obj_id!=ULONG_MAX );
+  ctx->first_turbine = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
+  if( FD_UNLIKELY( !ctx->first_turbine ) ) FD_LOG_ERR(( "store_int tile %lu has no busy flag", tile->kind_id ));
 
   /* Set up shred tile input */
   fd_topo_link_t * shred_in_link = &topo->links[ tile->in_link_id[ SHRED_IN_IDX ] ];

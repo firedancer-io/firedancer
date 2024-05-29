@@ -119,6 +119,8 @@ struct fd_replay_tile_ctx {
 
   fd_bft_t * bft;
   fd_ghost_t * ghost;
+
+  ulong * first_turbine;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -231,6 +233,10 @@ after_frag( void *             _ctx,
       // fork is advancing
       FD_LOG_NOTICE(( "new block execution - slot: %lu, parent_slot: %lu", ctx->curr_slot, ctx->parent_slot ));
 
+      fd_latest_vote_deque_remove_all( ctx->latest_votes );
+      fork->slot_ctx.latest_votes = ctx->latest_votes;
+      FD_LOG_NOTICE(("before latest vote cnt: %lu", fd_latest_vote_deque_cnt(ctx->slot_ctx->latest_votes)));
+
       fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
       fork->slot_ctx.slot_bank.slot      = ctx->curr_slot;
       fd_funk_txn_xid_t xid;
@@ -257,9 +263,6 @@ after_frag( void *             _ctx,
     if( ctx->capture_ctx )
       fd_solcap_writer_set_slot( ctx->capture_ctx->capture, fork->slot_ctx.slot_bank.slot );
 
-    fd_latest_vote_deque_remove_all( ctx->latest_votes );
-    fork->slot_ctx.latest_votes = ctx->latest_votes;
-
     // Exeecute all txns which were succesfully prepared
     int res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx, ctx->capture_ctx,
                                                       txns, txn_cnt,
@@ -269,7 +272,6 @@ after_frag( void *             _ctx,
       *opt_filter = 1;
       return;
     }
-
     if( ctx->flags & REPLAY_FLAG_FINALIZE_BLOCK ) {
       // Copy over latest blockhash to slot_bank poh for updating the sysvars
       fd_memcpy( fork->slot_ctx.slot_bank.poh.uc, ctx->blockhash.uc, sizeof(fd_hash_t) );
@@ -334,6 +336,8 @@ after_frag( void *             _ctx,
 
       /* Consensus */
 
+      FD_LOG_NOTICE(("after latest vote cnt: %lu", fd_latest_vote_deque_cnt(ctx->slot_ctx->latest_votes)));
+
       fd_bft_fork_update( ctx->bft, fork );
       fd_bft_fork_choice( ctx->bft );
 
@@ -397,8 +401,32 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
 
   const char * snapshot = snapshotfile;
 
+  char incremental_snapshot_out[128] = { 0 };
   if ( strncmp(snapshot, "wksp:", 5) == 0 ) {
     /* Already loaded the main snapshot when we initialized funk */
+    if( strstr( incremental, "http" ) ) {
+      // while( ULONG_MAX == fd_fseq_query( ctx->first_turbine ) ) {}
+      FD_LOG_NOTICE( ( "downloading incremental snapshot..." ) );
+      FILE * fp;
+
+      /* Open the command for reading. */
+      char cmd[128];
+      snprintf( cmd, sizeof( cmd ), "./shenanigans.sh %s", incremental );
+      FD_LOG_NOTICE( ( "cmd: %s", cmd ) );
+      fp = popen( cmd, "r" );
+      if( fp == NULL ) {
+        printf( "Failed to run command\n" );
+        exit( 1 );
+      }
+
+      /* Read the output a line at a time - output it. */
+      if( !fgets( incremental_snapshot_out, sizeof( incremental_snapshot_out ) - 1, fp ) ) {
+        FD_LOG_ERR( ( "failed to parse snapshot name" ) );
+      }
+      incremental_snapshot_out[strcspn( incremental_snapshot_out, "\n" )] = '\0';
+      incremental = incremental_snapshot_out;
+      pclose( fp );
+    }
     if ( strlen(incremental) > 0 ) {
       ctx->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( ctx->epoch_ctx_mem, 2000000UL ) );
       fd_snapshot_load(incremental, ctx->slot_ctx, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL );
@@ -420,9 +448,10 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
 static void
 init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   ulong snapshot_slot = ctx->slot_ctx->slot_bank.slot;
+  FD_LOG_NOTICE( ( "snapshot slot: %lu", snapshot_slot ) );
   if( snapshot_slot != ctx->curr_slot ) {
     /* The initial snapshot_slot was wrong or unspecified. Fix everything. */
-    FD_LOG_NOTICE(( "detected snapshot slot %lu, prev_slot %lu", snapshot_slot, ctx->slot_ctx->slot_bank.prev_slot ));
+    // FD_LOG_NOTICE(( "detected snapshot slot %lu, prev_slot %lu", snapshot_slot, ctx->slot_ctx->slot_bank.prev_slot ));
     fd_fork_t * ele = fd_fork_frontier_ele_remove( ctx->replay->forks->frontier, &ctx->curr_slot, NULL, ctx->replay->forks->pool );
     ele->slot                = snapshot_slot;
     fd_fork_frontier_ele_insert( ctx->replay->forks->frontier, ele, ctx->replay->forks->pool );
@@ -505,7 +534,7 @@ after_credit( void *             _ctx,
       stake_weights_msg[1] = stake_weight_idx; /* staked_cnt */
       stake_weights_msg[2] = fd_epoch_slot0( &epoch_bank->epoch_schedule, stake_weights_msg[0] ); /* start_slot */
       stake_weights_msg[3] = epoch_bank->epoch_schedule.slots_per_epoch; /* slot_cnt */
-      FD_LOG_WARNING(("Sending stake weights %lu %lu %lu %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
+      // FD_LOG_WARNING(("Sending stake weights %lu %lu %lu %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
 
       ulong stake_weights_sz  = 4*sizeof(ulong) + (stake_weight_idx * sizeof(fd_stake_weight_t));
@@ -523,7 +552,7 @@ after_credit( void *             _ctx,
       stake_weights_msg[1] = stake_weight_idx; /* staked_cnt */
       stake_weights_msg[2] = fd_epoch_slot0( &epoch_bank->epoch_schedule, stake_weights_msg[0] ); /* start_slot */
       stake_weights_msg[3] = epoch_bank->epoch_schedule.slots_per_epoch; /* slot_cnt */
-      FD_LOG_WARNING(("Sending stake weights %lu %lu %lu %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
+      // FD_LOG_WARNING(("Sending stake weights %lu %lu %lu %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
 
       ulong stake_weights_sz = 4*sizeof(ulong) + (stake_weight_idx * sizeof(fd_stake_weight_t));
@@ -731,6 +760,11 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 1 << LG_SLOT_MAX, 1 << FD_LG_NODE_PUBKEY_MAX, 42 ) );
   ctx->bft = fd_bft_join( fd_bft_new( bft_mem ) );
   ctx->replay->bft = ctx->bft;
+
+  ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "first_turbine" );
+  FD_TEST( busy_obj_id!=ULONG_MAX );
+  ctx->first_turbine = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
+  if( FD_UNLIKELY( !ctx->first_turbine ) ) FD_LOG_ERR(( "replay tile %lu has no busy flag", tile->kind_id ));
 
   /* Set up store tile input */
   fd_topo_link_t * store_in_link = &topo->links[ tile->in_link_id[ STORE_IN_IDX ] ];

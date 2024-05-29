@@ -49,3 +49,8 @@ deps-bundle.tar.zst
 
 # TVU
 testnet.toml
+mainnet.toml
+mainnet.sh
+testnet.sh
+incremental-snapshot-*
+snapshot-*
