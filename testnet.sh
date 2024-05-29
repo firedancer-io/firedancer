@@ -46,4 +46,4 @@ echo "[gossip]
 " > testnet.toml
 
 ./build/native/gcc/bin/fddev configure fini all || true
-./build/native/gcc/bin/fddev --config testnet.toml --no-sandbox --no-clone --no-solana-labs
+sudo gdb -ex=r --args ./build/native/gcc/bin/fddev --config testnet.toml --no-sandbox --no-clone --no-solana-labs

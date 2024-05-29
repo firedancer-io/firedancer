@@ -328,15 +328,13 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
       FD_LOG_DEBUG(( "block prepared - slot: %lu", slot ));
 
-      FD_LOG_NOTICE( ( "curr turbine: %lu", ctx->store->curr_turbine_slot ) );
-      FD_LOG_NOTICE( ( "first turbine: %lu", ctx->store->first_turbine_slot ) );
-      FD_LOG_NOTICE(
-          ( "behind: %lu",
-            slot > ctx->store->curr_turbine_slot ? 0 : ctx->store->curr_turbine_slot - slot ) );
-      FD_LOG_NOTICE(
-          ( "behind first: %lu",
-            slot > ctx->store->first_turbine_slot ? 0 : ctx->store->first_turbine_slot - slot ) );
-      FD_LOG_NOTICE( ( "live? %d", slot > (ctx->store->curr_turbine_slot - 5) ) );
+      FD_LOG_NOTICE( ( "curr: %lu, head: %lu, live: %d",
+                       slot,
+                       ctx->store->curr_turbine_slot,
+                       ( ctx->store->curr_turbine_slot - slot ) < 5 ) );
+      if (slot > ctx->store->curr_turbine_slot) {
+        FD_LOG_WARNING(("slot %lu is newer than turbine %lu? did we repair it?", slot, ctx->store->curr_turbine_slot));
+      }
       fd_txn_p_t * txns = fd_type_pun( out_buf );
       ulong txn_cnt = fd_runtime_block_collect_txns( &block_info, txns );
 

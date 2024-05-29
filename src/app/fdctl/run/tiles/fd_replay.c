@@ -50,6 +50,8 @@
 #define VOTE_ACC_MAX   (2000000UL)
 #define FORKS_MAX      (fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH ))
 
+#define LG_SLOT_MAX 16UL
+
 struct fd_replay_tile_ctx {
   fd_wksp_t * wksp;
 
@@ -114,6 +116,9 @@ struct fd_replay_tile_ctx {
   fd_latest_vote_t * latest_votes;
   fd_capture_ctx_t * capture_ctx;
   FILE * capture_file;
+
+  fd_bft_t * bft;
+  fd_ghost_t * ghost;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -139,6 +144,8 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FORKS_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint() );
   l = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
+  l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( 1 << LG_SLOT_MAX, 1 << FD_LG_NODE_PUBKEY_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_bft_align(), fd_bft_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -226,7 +233,6 @@ after_frag( void *             _ctx,
 
       fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
       fork->slot_ctx.slot_bank.slot      = ctx->curr_slot;
-      fork->slot_ctx.latest_votes        = ctx->latest_votes;
       fd_funk_txn_xid_t xid;
 
       fd_memcpy(xid.uc, ctx->blockhash.uc, sizeof(fd_funk_txn_xid_t));
@@ -250,6 +256,10 @@ after_frag( void *             _ctx,
     }
     if( ctx->capture_ctx )
       fd_solcap_writer_set_slot( ctx->capture_ctx->capture, fork->slot_ctx.slot_bank.slot );
+
+    fd_latest_vote_deque_remove_all( ctx->latest_votes );
+    fork->slot_ctx.latest_votes = ctx->latest_votes;
+
     // Exeecute all txns which were succesfully prepared
     int res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx, ctx->capture_ctx,
                                                       txns, txn_cnt,
@@ -321,6 +331,11 @@ after_frag( void *             _ctx,
         FD_LOG_ERR( ( "invariant violation: child slot %lu was already in the frontier", ctx->curr_slot ) );
       }
       fd_fork_frontier_ele_insert( ctx->replay->forks->frontier, child, ctx->replay->forks->pool );
+
+      /* Consensus */
+
+      fd_bft_fork_update( ctx->bft, fork );
+      fd_bft_fork_choice( ctx->bft );
 
       /* Prepare bank for next execution. */
 
@@ -424,6 +439,22 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry( ctx->slot_ctx, ctx->slot_ctx->funk_txn );
   fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
+
+  ctx->bft->acc_mgr    = ctx->replay->acc_mgr;
+  ctx->bft->blockstore = ctx->replay->blockstore;
+  ctx->bft->commitment = NULL;
+  ctx->bft->forks      = ctx->replay->forks;
+  ctx->bft->funk       = ctx->replay->funk;
+  ctx->bft->ghost      = ctx->ghost;
+  ctx->bft->valloc     = ctx->replay->valloc;
+
+  ctx->bft->snapshot_slot = snapshot_slot;
+  ctx->bft->smr = snapshot_slot;
+  fd_bft_epoch_stake_update( ctx->bft, ctx->epoch_ctx );
+
+  fd_slot_hash_t key = { .slot = snapshot_slot,
+                         .hash = ctx->slot_ctx->slot_bank.banks_hash };
+  fd_ghost_leaf_insert( ctx->ghost, &key, NULL );
 }
 
 static void
@@ -544,6 +575,11 @@ unprivileged_init( fd_topo_t *      topo,
   void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FORKS_MAX ) );
   void * latest_votes_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint() );
   void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
+
+  /* consensus */
+
+  void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( 1 << LG_SLOT_MAX, 1 << FD_LG_NODE_PUBKEY_MAX ) );
+  void * bft_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_bft_align(), fd_bft_footprint() );
 
   fd_scratch_attach( smem, fmem, SCRATCH_MAX, SCRATCH_DEPTH );
 
@@ -691,6 +727,9 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->capture_ctx->capture_txns = 0;
     fd_solcap_writer_init( ctx->capture_ctx->capture, ctx->capture_file );
   }
+
+  ctx->ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 1 << LG_SLOT_MAX, 1 << FD_LG_NODE_PUBKEY_MAX, 42 ) );
+  ctx->bft = fd_bft_join( fd_bft_new( bft_mem ) );
 
   /* Set up store tile input */
   fd_topo_link_t * store_in_link = &topo->links[ tile->in_link_id[ STORE_IN_IDX ] ];
