@@ -50,8 +50,6 @@
 #define VOTE_ACC_MAX   (2000000UL)
 #define FORKS_MAX      (fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH ))
 
-#define LG_SLOT_MAX 16UL
-
 struct fd_replay_tile_ctx {
   fd_wksp_t * wksp;
 
@@ -119,6 +117,9 @@ struct fd_replay_tile_ctx {
 
   fd_bft_t * bft;
   fd_ghost_t * ghost;
+  fd_root_stake_t * root_stakes;
+  fd_root_vote_t * root_votes;
+
 
   ulong * first_turbine;
 };
@@ -146,8 +147,12 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FORKS_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint() );
   l = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
-  l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( 1 << LG_SLOT_MAX, 1 << FD_LG_NODE_PUBKEY_MAX ) );
+
   l = FD_LAYOUT_APPEND( l, fd_bft_align(), fd_bft_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( 1 << FD_BFT_LG_SLOT_MAX, 1 << FD_LG_NODE_PUBKEY_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_root_stake_map_align(), fd_root_stake_map_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_root_vote_map_align(), fd_root_vote_map_footprint() );
+
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -335,10 +340,8 @@ after_frag( void *             _ctx,
 
       /* Consensus */
 
-      FD_LOG_NOTICE(("after latest vote cnt: %lu", fd_latest_vote_deque_cnt(ctx->slot_ctx->latest_votes)));
-
-      fd_bft_fork_update( ctx->bft, fork );
-      fd_bft_fork_choice( ctx->bft );
+      // fd_bft_fork_update( ctx->bft, fork );
+      // fd_bft_fork_choice( ctx->bft );
 
       /* Prepare bank for next execution. */
 
@@ -468,16 +471,18 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   fd_bpf_scan_and_create_bpf_program_cache_entry( ctx->slot_ctx, ctx->slot_ctx->funk_txn );
   fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
 
-  ctx->bft->acc_mgr    = ctx->replay->acc_mgr;
-  ctx->bft->blockstore = ctx->replay->blockstore;
-  ctx->bft->commitment = NULL;
-  ctx->bft->forks      = ctx->replay->forks;
-  ctx->bft->funk       = ctx->replay->funk;
-  ctx->bft->ghost      = ctx->ghost;
-  ctx->bft->valloc     = ctx->replay->valloc;
+  ctx->bft->acc_mgr     = ctx->replay->acc_mgr;
+  ctx->bft->blockstore  = ctx->replay->blockstore;
+  ctx->bft->commitment  = NULL;
+  ctx->bft->forks       = ctx->replay->forks;
+  ctx->bft->funk        = ctx->replay->funk;
+  ctx->bft->ghost       = ctx->ghost;
+  ctx->bft->root_stakes = ctx->root_stakes;
+  ctx->bft->root_votes  = ctx->root_votes;
+  ctx->bft->valloc      = ctx->replay->valloc;
 
   ctx->bft->snapshot_slot = snapshot_slot;
-  ctx->bft->smr = snapshot_slot;
+  ctx->bft->smr           = snapshot_slot;
   fd_bft_epoch_stake_update( ctx->bft, ctx->epoch_ctx );
 
   fd_slot_hash_t key = { .slot = snapshot_slot,
@@ -606,8 +611,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* consensus */
 
-  void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( 1 << LG_SLOT_MAX, 1 << FD_LG_NODE_PUBKEY_MAX ) );
   void * bft_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_bft_align(), fd_bft_footprint() );
+  void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( 1 << FD_BFT_LG_SLOT_MAX, 1 << FD_LG_NODE_PUBKEY_MAX ) );
+  void * root_votes_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_root_vote_map_align(), fd_root_vote_map_footprint() );
+  void * root_stakes_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_root_stake_map_align(), fd_root_stake_map_footprint() );
 
   fd_scratch_attach( smem, fmem, SCRATCH_MAX, SCRATCH_DEPTH );
 
@@ -756,8 +763,10 @@ unprivileged_init( fd_topo_t *      topo,
     fd_solcap_writer_init( ctx->capture_ctx->capture, ctx->capture_file );
   }
 
-  ctx->ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 1 << LG_SLOT_MAX, 1 << FD_LG_NODE_PUBKEY_MAX, 42 ) );
   ctx->bft = fd_bft_join( fd_bft_new( bft_mem ) );
+  ctx->ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 1 << FD_BFT_LG_SLOT_MAX, 1 << FD_LG_NODE_PUBKEY_MAX, 42 ) );
+  ctx->root_votes = fd_root_vote_map_join( fd_root_vote_map_new( root_votes_mem ) );
+  ctx->root_stakes = fd_root_stake_map_join( fd_root_stake_map_new( root_stakes_mem ) );
   ctx->replay->bft = ctx->bft;
 
   ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "first_turbine" );

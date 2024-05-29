@@ -20,6 +20,8 @@
 #define FD_BFT_EQV_SAFE ( 0.52 )
 #define FD_BFT_OPT_CONF ( 2.0 / 3.0 )
 #define FD_BFT_SMR      FD_BFT_OPT_CONF
+#define FD_BFT_LG_SLOT_MAX 16UL
+
 
 // TODO move this
 
@@ -44,7 +46,24 @@ typedef struct fd_root_vote fd_root_vote_t;
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_KEY_HASH(key)     ((uint)(fd_hash(0UL,&key,sizeof(fd_pubkey_t))))
 #define MAP_MEMOIZE           1
-#define MAP_LG_SLOT_CNT       (FD_LG_NODE_PUBKEY_MAX+1) /* fill ratio < 0.5 */
+#define MAP_LG_SLOT_CNT       FD_LG_NODE_PUBKEY_MAX 
+#include "../../util/tmpl/fd_map.c"
+/* clang-format on */
+
+/* fd_root_stake_t is a map of (root->stake) that records the amount of vote stake for a rooted slot. */
+
+struct fd_root_stake {
+  ulong root;
+  uint  hash; /* Internal use by fd_map. Do not modify */
+  ulong stake;
+};
+typedef struct fd_root_stake fd_root_stake_t;
+
+/* clang-format off */
+#define MAP_NAME              fd_root_stake_map
+#define MAP_T                 fd_root_stake_t
+#define MAP_KEY               root
+#define MAP_LG_SLOT_CNT       (FD_BFT_LG_SLOT_MAX) /* fill ratio < 0.5 */
 #include "../../util/tmpl/fd_map.c"
 /* clang-format on */
 
@@ -64,6 +83,7 @@ struct fd_bft {
   fd_forks_t *           forks;
   fd_funk_t *            funk;
   fd_ghost_t *           ghost;
+  fd_root_stake_t *      root_stakes;
   fd_root_vote_t *       root_votes;
   fd_slot_commitment_t * slot_commitments;
   fd_valloc_t            valloc;

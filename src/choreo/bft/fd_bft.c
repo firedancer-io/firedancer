@@ -91,10 +91,10 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 
   fd_latest_vote_t * latest_votes = fork->slot_ctx.latest_votes;
 
-  // fd_root_vote_t *   root_votes   = bft->root_votes;
+  fd_root_vote_t *   root_votes   = bft->root_votes;
 
   ulong vote_cnt = 0;
-  // ulong smr      = bft->smr;
+  ulong smr      = bft->smr;
 
   for( fd_latest_vote_deque_iter_t iter = fd_latest_vote_deque_iter_init( latest_votes );
        !fd_latest_vote_deque_iter_done( latest_votes, iter );
@@ -201,69 +201,76 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 #endif
     }
 
-//     /* Only process vote slots higher than our SMR. */
+    /* Only process vote slots higher than our SMR. */
 
-//     if( FD_LIKELY( latest_vote->root > bft->smr ) ) {
+    if( FD_LIKELY( latest_vote->root > bft->smr ) ) {
 
-//       /* Find the previous root vote by node pubkey. */
+      /* Find the previous root vote by node pubkey. */
 
-//       fd_root_vote_t * prev_root_vote =
-//           fd_root_vote_map_query( root_votes, latest_vote->node_pubkey, NULL );
+      fd_root_vote_t * prev_root_vote =
+          fd_root_vote_map_query( root_votes, latest_vote->node_pubkey, NULL );
 
-//       if( FD_UNLIKELY( !prev_root_vote ) ) {
+      if( FD_UNLIKELY( !prev_root_vote ) ) {
 
-//         /* This node pubkey has not yet voted. */
+        /* This node pubkey has not yet voted. */
 
-//         prev_root_vote = fd_root_vote_map_insert( root_votes, latest_vote->node_pubkey );
-//       } else {
+        prev_root_vote = fd_root_vote_map_insert( root_votes, latest_vote->node_pubkey );
+      } else {
+
+        fd_root_stake_t * root_stake = fd_root_stake_map_query( bft->root_stakes, prev_root_vote->root, NULL );
+        root_stake->stake -= stake;
+
 
 //         /* Subtract the stake from the ancestry beginning from previous vote's root. */
 
 //         ulong ancestor = prev_root_vote->root;
 //         while( ancestor > bft->smr ) {
 //           // FD_LOG_NOTICE( ( "ancestor: %lu", ancestor ) );
-//           fd_slot_commitment_t * ancestor_slot_commitment =
-//               fd_slot_commitment_map_query( bft->slot_commitments, ancestor, NULL );
-//           if( FD_LIKELY( ancestor_slot_commitment ) )
-//             ancestor_slot_commitment->rooted_stake -= stake;
-//           ancestor = fd_blockstore_parent_slot_query( bft->blockstore, ancestor );
+//           // fd_slot_commitment_t * ancestor_slot_commitment =
+//           //     fd_slot_commitment_map_query( bft->slot_commitments, ancestor, NULL );
+//           // if( FD_LIKELY( ancestor_slot_commitment ) )
+//           //   ancestor_slot_commitment->rooted_stake -= stake;
+//           // ancestor = fd_blockstore_parent_slot_query( bft->blockstore, ancestor );
 
 // #if FD_BFT_USE_HANDHOLDING
 //           /* this validator has a different ancestry back to our SMR. */
 //           if( FD_UNLIKELY( ancestor == FD_SLOT_NULL ) ) __asm__( "int $3" );
 // #endif
 //         }
-//       }
+      }
 
-//       /* Update our bookkeeping of this node pubkey's root. */
+      /* Update our bookkeeping of this node pubkey's root. */
 
-//       prev_root_vote->root = latest_vote->root;
+      prev_root_vote->root = latest_vote->root;
 
-//       /* Add this node pubkey's stake to all slots in the ancestry back to the SMR. */
+      /* Add this node pubkey's stake to all slots in the ancestry back to the SMR. */
 
-//       ulong ancestor = latest_vote->root;
-//       while( ancestor > bft->smr ) {
-//         fd_slot_commitment_t * slot_commitment =
-//             fd_slot_commitment_map_query( bft->slot_commitments, ancestor, NULL );
-//         if( FD_UNLIKELY( !slot_commitment ) ) {
-//           slot_commitment = fd_slot_commitment_map_insert( bft->slot_commitments, ancestor );
-//         }
-//         slot_commitment->rooted_stake += stake;
+      fd_root_stake_t * root_stake = fd_root_stake_map_query( bft->root_stakes, latest_vote->root, NULL );
+      root_stake->stake += stake;
 
-//         double pct = (double)slot_commitment->rooted_stake / (double)bft->epoch_stake;
-//         if( FD_UNLIKELY( pct > FD_BFT_SMR && !slot_commitment->finalized ) ) {
-//           FD_LOG_NOTICE( ( "new SMR: %lu (%lf)", ancestor, pct ) );
-//           smr                        = fd_ulong_max( ancestor, smr );
-//           slot_commitment->finalized = 1;
-//         }
+      // ulong ancestor = latest_vote->root;
+      // while( ancestor > bft->smr ) {
+      //   fd_slot_commitment_t * slot_commitment =
+      //       fd_slot_commitment_map_query( bft->slot_commitments, ancestor, NULL );
+      //   if( FD_UNLIKELY( !slot_commitment ) ) {
+      //     slot_commitment = fd_slot_commitment_map_insert( bft->slot_commitments, ancestor );
+      //   }
+      //   slot_commitment->rooted_stake += stake;
 
-//         fd_blockstore_start_read( bft->blockstore );
-//         ancestor = fd_blockstore_parent_slot_query( bft->blockstore, ancestor );
-//         fd_blockstore_end_read( bft->blockstore );
-//       }
-//     }
+      //   double pct = (double)slot_commitment->rooted_stake / (double)bft->epoch_stake;
+      //   if( FD_UNLIKELY( pct > FD_BFT_SMR && !slot_commitment->finalized ) ) {
+      //     FD_LOG_NOTICE( ( "new SMR: %lu (%lf)", ancestor, pct ) );
+      //     smr                        = fd_ulong_max( ancestor, smr );
+      //     slot_commitment->finalized = 1;
+      //   }
 
-    // FD_LOG_NOTICE( ( "[3] took %.1lf us", (double)( fd_log_wallclock() - tic ) / 1e3 ) );
+      //   fd_blockstore_start_read( bft->blockstore );
+      //   ancestor = fd_blockstore_parent_slot_query( bft->blockstore, ancestor );
+      //   fd_blockstore_end_read( bft->blockstore );
+      // }
+    }
+
+    FD_LOG_NOTICE( ( "[3] took %.1lf us", (double)( fd_log_wallclock() - tic ) / 1e3 ) );
 
     vote_cnt++;
     // long total_toc = fd_log_wallclock();
@@ -275,10 +282,10 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
   // FD_LOG_NOTICE(
   //     ( "[count_replay_votes] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );
 
-  // if( FD_LIKELY( smr > bft->smr ) ) {
-  //   // fd_bft_prune( bft, smr );
-  //   fd_bft_smr_update( bft, smr );
-  // }
+  if( FD_LIKELY( smr > bft->smr ) ) {
+    // fd_bft_prune( bft, smr );
+    fd_bft_smr_update( bft, smr );
+  }
 
   // FD_LOG_NOTICE(
   //     ( "[count_replay_votes] took %.2lf ms", (double)( fd_log_wallclock() - now ) / 1e6 ) );

@@ -11,7 +11,7 @@
 #include "../sysvar/fd_sysvar_cache_old.h"
 #include "../../types/fd_types.h"
 
-#define FD_LG_NODE_PUBKEY_MAX (12)
+#define FD_LG_NODE_PUBKEY_MAX (13) /* for ~3000 validators, fill ratio < 0.5 */
 
 /* fd_latest_vote_t records the latest voted slot hash by a given node. */
 
