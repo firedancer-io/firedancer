@@ -73,7 +73,7 @@ typedef struct fd_validator_reward_calculation fd_validator_reward_calculation_t
 struct fd_partitioned_rewards_calculation {
     /* VoteRewardsAccount */
     fd_vote_reward_t_mapnode_t * vote_account_rewards;
-    fd_stake_rewards_vector_t * stake_rewards_by_partition;
+    fd_stake_rewards_vector_t stake_rewards_by_partition[1];
     ulong total_stake_rewards_lamports;
     ulong old_vote_balance_and_staked;
     ulong validator_rewards;
@@ -107,14 +107,14 @@ typedef struct fd_calculate_stake_points fd_calculate_stake_points_t;
 struct fd_calculate_rewards_and_distribute_vote_rewards_result {
   ulong total_rewards;
   ulong distributed_rewards;
-  fd_stake_rewards_vector_t * stake_rewards_by_partition;
+  fd_stake_rewards_vector_t stake_rewards_by_partition[1];
 };
 typedef struct fd_calculate_rewards_and_distribute_vote_rewards_result fd_calculate_rewards_and_distribute_vote_rewards_result_t;
 
 struct fd_epoch_reward_status {
   uint is_active;
   ulong start_block_height;
-  fd_stake_rewards_vector_t * stake_rewards_by_partition;
+  fd_stake_rewards_vector_t stake_rewards_by_partition[1];
 };
 typedef struct fd_epoch_reward_status fd_epoch_reward_status_t;
 

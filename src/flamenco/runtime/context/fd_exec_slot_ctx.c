@@ -263,7 +263,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
     fd_vote_accounts_pair_t_mapnode_t * pool = stakes1->stakes.vote_accounts.vote_accounts_pool;
     fd_vote_accounts_pair_t_mapnode_t * root = stakes1->stakes.vote_accounts.vote_accounts_root;
-    
+
     // Delete all nodes from existing
     fd_vote_accounts_pair_t_map_release_tree( epoch_bank->next_epoch_stakes.vote_accounts_pool, epoch_bank->next_epoch_stakes.vote_accounts_root );
 
@@ -315,9 +315,6 @@ fd_exec_slot_ctx_free( fd_exec_slot_ctx_t * slot_ctx ) {
 
   /* leader points to a caller-allocated leader schedule */
 
-  /* free vec in stake rewards*/
-  if( NULL != slot_ctx->epoch_reward_status.stake_rewards_by_partition )
-    fd_stake_rewards_vector_destroy( slot_ctx->epoch_reward_status.stake_rewards_by_partition );
-
+  fd_stake_rewards_vector_destroy( slot_ctx->epoch_reward_status.stake_rewards_by_partition );
   fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( slot_ctx ) );
 }
