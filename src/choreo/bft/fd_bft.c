@@ -270,7 +270,7 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
       // }
     }
 
-    FD_LOG_NOTICE( ( "[3] took %.1lf us", (double)( fd_log_wallclock() - tic ) / 1e3 ) );
+    // FD_LOG_NOTICE( ( "[3] took %.1lf us", (double)( fd_log_wallclock() - tic ) / 1e3 ) );
 
     vote_cnt++;
     // long total_toc = fd_log_wallclock();
