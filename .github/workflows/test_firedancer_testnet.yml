@@ -7,7 +7,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   firedancer-testnet:
-    runs-on: private
+    runs-on: [self-hosted, 512G]
     env:
       CC: gcc
       EXTRAS: no-solana

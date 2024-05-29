@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   firedancer-tests:
-    runs-on: private
+    runs-on: [self-hosted, 512G]
     if: github.event.pull_request.draft == false
     env:
       CC: gcc
