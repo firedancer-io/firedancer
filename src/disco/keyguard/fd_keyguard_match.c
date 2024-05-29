@@ -164,8 +164,8 @@ fd_keyguard_payload_matches_ping_msg( uchar const * data,
 }
 
 FD_FN_PURE int
-fd_keyguard_payload_matches_gossip_msg( uchar const * data,
-                                        ulong         sz ) {
+fd_keyguard_payload_matches_gossip_repair_msg( uchar const * data,
+                                               ulong         sz ) {
 
   /* Every gossip message contains a 4 byte enum variant tag (at the
      beginning of the message) and a 32 byte public key (at an arbitrary
@@ -185,8 +185,11 @@ fd_keyguard_payload_matches_gossip_msg( uchar const * data,
 
 #define MIN_PRUNE_MSG_SZ 80
   if ( sz>=MIN_PRUNE_MSG_SZ ) {
-    ulong prune_len = *(ulong *)(data + 32);
-    if ( sz==(MIN_PRUNE_MSG_SZ + prune_len * 32) ) return 1;
+    ulong prune_len = FD_LOAD( ulong, data + 32UL );
+    ulong checked_sz = fd_ulong_sat_mul( prune_len, 32UL );
+    checked_sz = fd_ulong_sat_add( checked_sz, MIN_PRUNE_MSG_SZ );
+    if( checked_sz == ULONG_MAX ) return 0;
+    if( sz==checked_sz ) return 1;
   }
 #undef MIN_PRUNE_MSG_SZ
 
@@ -270,7 +273,7 @@ fd_keyguard_payload_authorize( uchar const * data,
                                int           role ) {
   switch( role ) {
     case FD_KEYGUARD_ROLE_VOTER: return fd_keyguard_payload_matches_txn_msg( data, sz );
-    case FD_KEYGUARD_ROLE_GOSSIP: return fd_keyguard_payload_matches_gossip_msg( data, sz );
+    case FD_KEYGUARD_ROLE_GOSSIP_REPAIR: return fd_keyguard_payload_matches_gossip_repair_msg( data, sz );
     case FD_KEYGUARD_ROLE_LEADER: return fd_keyguard_payload_matches_shred( data, sz );
     case FD_KEYGUARD_ROLE_TLS: return fd_keyguard_payload_matches_tls_cv( data, sz );
     case FD_KEYGUARD_ROLE_X509_CA: return fd_keyguard_payload_matches_x509_csr( data, sz );
