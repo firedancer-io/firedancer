@@ -15,7 +15,7 @@ on:
   merge_group:
 jobs:
   ledger-replay:
-    runs-on: private
+    runs-on: [self-hosted, 512G]
     env:
       CC: gcc
       MACHINE: ${{ inputs.machine }}
@@ -61,7 +61,7 @@ jobs:
 
 
   ledger-coverage:
-    runs-on: private
+    runs-on: [self-hosted, 512G]
     needs: ledger-replay
     if: ${{ inputs.coverage }}
     steps:
