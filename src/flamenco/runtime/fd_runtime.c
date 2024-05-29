@@ -2243,11 +2243,11 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
       FD_LOG_DEBUG(("publishing %32J (slot %ld)", &txn->xid, txn->xid.ul[0]));
 
       fd_funk_start_write(funk);
-      // ulong publish_err = fd_funk_txn_publish(funk, txn, 1);
-      // if (publish_err == 0) {
-      //   FD_LOG_ERR(("publish err"));
-      //   return -1;
-      // }
+      ulong publish_err = fd_funk_txn_publish(funk, txn, 1);
+      if (publish_err == 0) {
+        FD_LOG_ERR(("publish err"));
+        return -1;
+      }
 
       if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
         fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
