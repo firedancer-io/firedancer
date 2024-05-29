@@ -340,8 +340,8 @@ after_frag( void *             _ctx,
 
       /* Consensus */
 
-      // fd_bft_fork_update( ctx->bft, fork );
-      // fd_bft_fork_choice( ctx->bft );
+      fd_bft_fork_update( ctx->bft, fork );
+      fd_bft_fork_choice( ctx->bft );
 
       /* Prepare bank for next execution. */
 
