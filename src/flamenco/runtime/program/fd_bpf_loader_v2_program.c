@@ -59,7 +59,7 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
 
   long dt = -fd_log_wallclock();
   fd_sbpf_elf_info_t elf_info;
-  if (fd_sbpf_elf_peek( &elf_info, program_data, program_data_len ) == NULL) {
+  if (fd_sbpf_elf_peek( &elf_info, program_data, program_data_len, false ) == NULL) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -83,7 +83,7 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
   fd_vm_syscall_register_all( syscalls );
   /* Load program */
 
-  if(  0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls ) ) {
+  if(  0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) {
     FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
   }
   dt += fd_log_wallclock();

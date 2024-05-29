@@ -135,7 +135,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     fd_sbpf_elf_info_t elf_info;
-    if( fd_sbpf_elf_peek( &elf_info, program_data, program_data_len ) == NULL ) {
+    if( fd_sbpf_elf_peek( &elf_info, program_data, program_data_len, false ) == NULL ) {
       FD_LOG_WARNING(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
@@ -165,7 +165,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 
     /* Load program */
 
-    if( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls ) ) {
+    if( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) {
       FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
       return -1;
     }
