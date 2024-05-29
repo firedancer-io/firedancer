@@ -353,21 +353,41 @@ fd_ghost_prune( fd_ghost_t * ghost, fd_ghost_node_t const * root ) {
     fd_ghost_node_pool_ele_release( ghost->node_pool, remove );
   }
 
-  // FD_LOG_NOTICE( ( "[fd_ghost_prune] took %.1lf us", (double)( fd_log_wallclock() - now ) / 1e3 ) );
+  // FD_LOG_NOTICE( ( "[fd_ghost_prune] took %.1lf us", (double)( fd_log_wallclock() - now ) / 1e3 )
+  // );
 }
 
 static void
-fd_ghost_print_node( fd_ghost_node_t * node, int depth ) {
-  if( !node ) return;
-  for( int i = 0; i < depth; i++ ) {
-    printf( "    " );
+fd_ghost_print_node( fd_ghost_node_t * root, int space, const char * prefix ) {
+  if( root == NULL ) return;
+
+  printf( "\n" );
+  for( int i = 0; i < space; i++ ) // Print space
+    printf( " " );
+  printf( "%s%ld", prefix, root->slot_hash.slot );
+
+  fd_ghost_node_t * curr = root->child;
+  char              newPrefix[1024]; // Large enough to hold the new prefix string
+  while( curr ) {
+    if( curr->sibling ) {
+      sprintf( newPrefix, "├── " ); // Branch indicating more siblings follow
+      fd_ghost_print_node( curr, space + 4, newPrefix );
+    } else {
+      sprintf( newPrefix, "└── " ); // End branch
+      fd_ghost_print_node( curr, space + 4, newPrefix );
+    }
+    curr = curr->sibling;
   }
-  printf( "%lu|%lu|%lu\n", node->slot_hash.slot, node->weight, node->head->slot_hash.slot );
-  fd_ghost_print_node( node->child, depth + 1 );
-  fd_ghost_print_node( node->sibling, depth );
+  // if( !node ) return;
+  // for( int i = 0; i < depth; i++ ) {
+  //   printf( "    " );
+  // }
+  // printf( "%lu|%lu|%lu\n", node->slot_hash.slot, node->weight, node->head->slot_hash.slot );
+  // fd_ghost_print_node( node->child, depth + 1 );
+  // fd_ghost_print_node( node->sibling, depth );
 }
 
 void
 fd_ghost_print( fd_ghost_t * ghost ) {
-  fd_ghost_print_node( ghost->root, 0 );
+  fd_ghost_print_node( ghost->root, 0, "" );
 }

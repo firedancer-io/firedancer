@@ -1,4 +1,5 @@
 #include "fd_ghost.h"
+#include <stdlib.h>
 
 #define INSERT( c, p )                                                           \
   slot_hashes[i] = ( fd_slot_hash_t ){ .slot = c, .hash = pubkey_null };          \
@@ -51,6 +52,20 @@ test_ghost_simple( fd_ghost_t * ghost ) {
   fd_ghost_print( ghost );
 }
 
+void
+test_ghost_print( fd_ghost_t * ghost ) {
+  fd_slot_hash_t slot_hashes[fd_ghost_node_pool_max( ghost->node_pool )];
+  fd_slot_hash_t parent_slot_hashes[fd_ghost_node_pool_max( ghost->node_pool )];
+  ulong          i = 0;
+
+  INSERT( 268538758, ULONG_MAX );
+  INSERT( 268538759, 268538758 );
+  INSERT( 268538760, 268538759 );
+  INSERT( 268538761, 268538758 );
+
+  fd_ghost_print( ghost );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -79,6 +94,7 @@ main( int argc, char ** argv ) {
   FD_TEST( ghost->vote_pool );
   FD_TEST( ghost->vote_map );
 
+  test_ghost_print(ghost);
   test_ghost_simple( ghost );
 
   fd_halt();
