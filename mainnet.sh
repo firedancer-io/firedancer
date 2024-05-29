@@ -4,14 +4,14 @@ EXTRAS=no-solana make -j fddev
 make -j
 
 
-# sudo ./build/native/gcc/bin/fd_shmem_cfg fini || true
-# sudo ./build/native/gcc/bin/fd_shmem_cfg init 0700 chali ""
+sudo ./build/native/gcc/bin/fd_shmem_cfg fini || true
+sudo ./build/native/gcc/bin/fd_shmem_cfg init 0700 chali ""
 
-# rm -f /data/chali/snapshot-*
-# wget --trust-server-names https://api.mainnet-beta.solana.com/snapshot.tar.bz2 -P /data/chali
+rm -f /data/chali/snapshot-*
+wget --trust-server-names https://api.mainnet-beta.solana.com/snapshot.tar.bz2 -P /data/chali
 
-# rm -f /data/chali/mainnet-funk
-# sudo ./build/native/gcc/bin/fd_ledger --cmd ingest --funk-page-cnt 600 --index-max 600000000 --txns-max 1024 --funk-only 1 --checkpt-funk /data/chali/mainnet-funk --snapshot /data/chali/snapshot-*
+rm -f /data/chali/mainnet-funk
+sudo ./build/native/gcc/bin/fd_ledger --cmd ingest --funk-page-cnt 600 --index-max 600000000 --txns-max 1024 --funk-only 1 --checkpt-funk /data/chali/mainnet-funk --snapshot /data/chali/snapshot-*
 
 
 rm -f /data/chali/incremental-snapshot-*
