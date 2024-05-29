@@ -850,30 +850,10 @@ main( int argc, char ** argv ) {
              fd_vote_accounts_pair_t_map_minimum_const( vote_accounts_pool, vote_accounts_root );
          n;
          n = fd_vote_accounts_pair_t_map_successor_const( vote_accounts_pool, n ) ) {
-      fd_vote_state_versioned_t versioned;
-      fd_bincode_decode_ctx_t   decode_ctx;
-      decode_ctx.data    = n->elem.value.data;
-      decode_ctx.dataend = n->elem.value.data + n->elem.value.data_len;
-      decode_ctx.valloc  = fd_scratch_virtual();
-      int rc             = fd_vote_state_versioned_decode( &versioned, &decode_ctx );
-      if( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) continue;
+
       fd_stake_weight_t * stake_weight = &stake_weights[stake_weight_idx];
       stake_weight->stake              = n->elem.stake;
-
-      switch( versioned.discriminant ) {
-      case fd_vote_state_versioned_enum_current:
-        stake_weight->key = versioned.inner.current.node_pubkey;
-        break;
-      case fd_vote_state_versioned_enum_v0_23_5:
-        stake_weight->key = versioned.inner.v0_23_5.node_pubkey;
-        break;
-      case fd_vote_state_versioned_enum_v1_14_11:
-        stake_weight->key = versioned.inner.v1_14_11.node_pubkey;
-        break;
-      default:
-        FD_LOG_DEBUG( ( "unrecognized vote_state_versioned type" ) );
-        continue;
-      }
+      stake_weight->key                = n->elem.value.node_pubkey;
 
       stake_weight_idx++;
     }

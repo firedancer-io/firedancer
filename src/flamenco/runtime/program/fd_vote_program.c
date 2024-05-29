@@ -2769,8 +2769,11 @@ upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
             }
             fd_memcpy( &new_node->elem.key, vote_account->pubkey, sizeof(fd_pubkey_t));
             new_node->elem.value.lamports = vote_account->const_meta->info.lamports;
-            new_node->elem.value.data = NULL;
-            new_node->elem.value.data_len = 0;
+
+            fd_memset(new_node->elem.value.node_pubkey.uc, 0UL, sizeof(fd_pubkey_t));
+            new_node->elem.value.last_timestamp_ts   = 0UL;
+            new_node->elem.value.last_timestamp_slot = 0UL;
+
             fd_memcpy( &new_node->elem.value.owner, vote_account->const_meta->info.owner, sizeof(fd_pubkey_t) );
             new_node->elem.value.executable = (uchar)vote_account->const_meta->info.executable;
             new_node->elem.value.rent_epoch = vote_account->const_meta->info.rent_epoch;

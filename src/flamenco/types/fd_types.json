@@ -256,7 +256,7 @@
       "fields": [
         { "name": "key", "type": "pubkey" },
         { "name": "stake", "type": "ulong" },
-        { "name": "value", "type": "solana_account" }
+        { "name": "value", "type": "solana_vote_account" }
       ]
     },
     {
