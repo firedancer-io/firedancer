@@ -286,7 +286,9 @@ fd_bn254_fp2_pow( fd_bn254_fp2_t * restrict r,
   while( !fd_uint256_bit( b, i) ) i--;
   for( ; i>=0; i--) {
     fd_bn254_fp2_sqr( r, r );
-    if( fd_uint256_bit( b, i ) ) fd_bn254_fp2_mul( r, r, a );
+    if( fd_uint256_bit( b, i ) ) {
+      fd_bn254_fp2_mul( r, r, a );
+    }
   }
   return r;
 }

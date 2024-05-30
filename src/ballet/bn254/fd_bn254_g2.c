@@ -296,7 +296,9 @@ static inline fd_bn254_g2_t *
 fd_bn254_g2_frombytes_internal( fd_bn254_g2_t * p,
                                 uchar const     in[128] ) {
   const uchar zero[128] = { 0 };
-  if( fd_memeq( in, zero, 128 ) ) return fd_bn254_g2_set_zero( p );
+  if( FD_UNLIKELY( fd_memeq( in, zero, 128 ) ) ) {
+    return fd_bn254_g2_set_zero( p );
+  }
 
   /* Check x < p */
   if( FD_UNLIKELY( !fd_bn254_fp2_frombytes_be_nm( &p->X, &in[0], NULL, NULL ) ) ) {
@@ -316,8 +318,12 @@ fd_bn254_g2_frombytes_internal( fd_bn254_g2_t * p,
 static inline fd_bn254_g2_t *
 fd_bn254_g2_frombytes_check_subgroup( fd_bn254_g2_t * p,
                                       uchar const     in[128] ) {
-  if( FD_UNLIKELY( !fd_bn254_g2_frombytes_internal( p, in ) ) ) return NULL;
-  if( FD_UNLIKELY( fd_bn254_g2_is_zero( p ) ) ) return p;
+  if( FD_UNLIKELY( !fd_bn254_g2_frombytes_internal( p, in ) ) ) {
+    return NULL;
+  }
+  if( FD_UNLIKELY( fd_bn254_g2_is_zero( p ) ) ) {
+    return p;
+  }
 
   fd_bn254_fp2_to_mont( &p->X, &p->X );
   fd_bn254_fp2_to_mont( &p->Y, &p->Y );
@@ -329,7 +335,9 @@ fd_bn254_g2_frombytes_check_subgroup( fd_bn254_g2_t * p,
   fd_bn254_fp2_sqr( x3b, &p->X );
   fd_bn254_fp2_mul( x3b, x3b, &p->X );
   fd_bn254_fp2_add( x3b, x3b, fd_bn254_const_twist_b_mont );
-  if( !fd_bn254_fp2_eq( y2, x3b ) ) return NULL;
+  if( FD_UNLIKELY( !fd_bn254_fp2_eq( y2, x3b ) ) ) {
+    return NULL;
+  }
 
   /* G2 does NOT have prime order, so we have to check group membership. */
 
@@ -366,7 +374,9 @@ fd_bn254_g2_frombytes_check_subgroup( fd_bn254_g2_t * p,
 
   fd_bn254_g2_frob( psi, psi );
   fd_bn254_g2_dbl( r, psi );
-  if( !fd_bn254_g2_eq( l, r ) ) return NULL;
+  if( FD_UNLIKELY( !fd_bn254_g2_eq( l, r ) ) ) {
+    return NULL;
+  }
 
   return p;
 }

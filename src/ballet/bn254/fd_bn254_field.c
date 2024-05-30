@@ -82,8 +82,9 @@ fd_bn254_fp_frombytes_be_nm( fd_bn254_fp_t * r,
 
   fd_memcpy( r, buf, 32 );
   fd_uint256_bswap( r, r );
-  //FIXME: add differential test, I think the mask should only apply if the flags are expected
-  if( is_inf != NULL ) r->buf[31] &= FLAG_MASK;
+  if( is_inf != NULL ) {
+    r->buf[31] &= FLAG_MASK;
+  }
 
   /* Field element */
   if( FD_UNLIKELY( fd_uint256_cmp( r, fd_bn254_const_p ) >= 0 ) ) {
@@ -198,7 +199,9 @@ fd_bn254_fp_pow( fd_bn254_fp_t * restrict r,
   while( !fd_uint256_bit( b, i) ) i--;
   for( ; i>=0; i--) {
     fd_bn254_fp_sqr( r, r );
-    if( fd_uint256_bit( b, i ) ) fd_bn254_fp_mul( r, r, a );
+    if( fd_uint256_bit( b, i ) ) {
+      fd_bn254_fp_mul( r, r, a );
+    }
   }
   return r;
 }

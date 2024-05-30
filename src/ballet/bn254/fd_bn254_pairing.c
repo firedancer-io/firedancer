@@ -1,7 +1,5 @@
 #include "./fd_bn254.h"
 
-#define FD_BN254_PAIRING_BATCH_MAX 16UL
-
 /* Pairing */
 
 static inline void
