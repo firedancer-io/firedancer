@@ -93,7 +93,7 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                 fd_topob_link( topo, "repair_net",   "net_repair",   0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL   );
   /**/                 fd_topob_link( topo, "store_replay", "store_replay", 0,        128UL,                                    8UL + 32UL + 8192UL * 2104UL,  16UL  );
   /**/                 fd_topob_link( topo, "replay_poh",   "replay_poh",   0,        128UL,                                    128UL*1024UL*1024UL,           16UL  );
-  /**/                 fd_topob_link( topo, "replay_notif", "replay_notif", 0,        1024UL,                                   FD_REPLAY_NOTIF_MTU,           1UL   );
+  /**/                 fd_topob_link( topo, "replay_notif", "replay_notif", 0,        FD_REPLAY_NOTIF_DEPTH,                    FD_REPLAY_NOTIF_MTU,           1UL   );
 
   /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    0,        128UL,                                    FD_NET_MTU,                    1UL   );
 
