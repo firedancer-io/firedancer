@@ -114,8 +114,12 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
   case MATCH_ID_OP( EDWARDS, FD_VM_SYSCALL_SOL_CURVE_ADD ): {
     fd_ed25519_point_t p0[1], p1[1], r[1];
-    if( FD_UNLIKELY( !fd_ed25519_point_frombytes( p0, inputL ) ) ) goto soft_error;
-    if( FD_UNLIKELY( !fd_ed25519_point_frombytes( p1, inputR ) ) ) goto soft_error;
+    if( FD_UNLIKELY( !fd_ed25519_point_frombytes( p0, inputL ) ) ) {
+      goto soft_error;
+    }
+    if( FD_UNLIKELY( !fd_ed25519_point_frombytes( p1, inputR ) ) ) {
+      goto soft_error;
+    }
 
     fd_ed25519_point_add( r, p0, p1 );
     fd_ed25519_point_tobytes( result, r );
@@ -125,8 +129,12 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
   case MATCH_ID_OP( EDWARDS, FD_VM_SYSCALL_SOL_CURVE_SUB ): {
     fd_ed25519_point_t p0[1], p1[1], r[1];
-    if( FD_UNLIKELY( !fd_ed25519_point_frombytes( p0, inputL ) ) ) goto soft_error;
-    if( FD_UNLIKELY( !fd_ed25519_point_frombytes( p1, inputR ) ) ) goto soft_error;
+    if( FD_UNLIKELY( !fd_ed25519_point_frombytes( p0, inputL ) ) ) {
+      goto soft_error;
+    }
+    if( FD_UNLIKELY( !fd_ed25519_point_frombytes( p1, inputR ) ) ) {
+      goto soft_error;
+    }
 
     fd_ed25519_point_sub( r, p0, p1 );
     fd_ed25519_point_tobytes( result, r );
@@ -136,8 +144,12 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
   case MATCH_ID_OP( EDWARDS, FD_VM_SYSCALL_SOL_CURVE_MUL ): {
     fd_ed25519_point_t p[1], r[1];
-    if( FD_UNLIKELY( !fd_curve25519_scalar_validate( inputL ) ) ) goto soft_error;
-    if( FD_UNLIKELY( !fd_ed25519_point_frombytes( p, inputR ) ) ) goto soft_error;
+    if( FD_UNLIKELY( !fd_curve25519_scalar_validate( inputL ) ) ) {
+      goto soft_error;
+    }
+    if( FD_UNLIKELY( !fd_ed25519_point_frombytes( p, inputR ) ) ) {
+      goto soft_error;
+    }
 
     fd_ed25519_scalar_mul( r, inputL, p );
     fd_ed25519_point_tobytes( result, r );
@@ -147,8 +159,12 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
   case MATCH_ID_OP( RISTRETTO, FD_VM_SYSCALL_SOL_CURVE_ADD ): {
     fd_ristretto255_point_t p0[1], p1[1], r[1];
-    if( FD_UNLIKELY( !fd_ristretto255_point_frombytes( p0, inputL ) ) ) goto soft_error;
-    if( FD_UNLIKELY( !fd_ristretto255_point_frombytes( p1, inputR ) ) ) goto soft_error;
+    if( FD_UNLIKELY( !fd_ristretto255_point_frombytes( p0, inputL ) ) ) {
+      goto soft_error;
+    }
+    if( FD_UNLIKELY( !fd_ristretto255_point_frombytes( p1, inputR ) ) ) {
+      goto soft_error;
+    }
 
     fd_ristretto255_point_add( r, p0, p1 );
     fd_ristretto255_point_tobytes( result, r );
@@ -158,8 +174,12 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
   case MATCH_ID_OP( RISTRETTO, FD_VM_SYSCALL_SOL_CURVE_SUB ): {
     fd_ristretto255_point_t p0[1], p1[1], r[1];
-    if( FD_UNLIKELY( !fd_ristretto255_point_frombytes( p0, inputL ) ) ) goto soft_error;
-    if( FD_UNLIKELY( !fd_ristretto255_point_frombytes( p1, inputR ) ) ) goto soft_error;
+    if( FD_UNLIKELY( !fd_ristretto255_point_frombytes( p0, inputL ) ) ) {
+      goto soft_error;
+    }
+    if( FD_UNLIKELY( !fd_ristretto255_point_frombytes( p1, inputR ) ) ) {
+      goto soft_error;
+    }
 
     fd_ristretto255_point_sub( r, p0, p1 );
     fd_ristretto255_point_tobytes( result, r );
@@ -169,8 +189,12 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
   case MATCH_ID_OP( RISTRETTO, FD_VM_SYSCALL_SOL_CURVE_MUL ): {
     fd_ristretto255_point_t p[1], r[1];
-    if( FD_UNLIKELY( !fd_curve25519_scalar_validate( inputL ) ) ) goto soft_error;
-    if( FD_UNLIKELY( !fd_ristretto255_point_frombytes( p, inputR ) ) ) goto soft_error;
+    if( FD_UNLIKELY( !fd_curve25519_scalar_validate( inputL ) ) ) {
+      goto soft_error;
+    }
+    if( FD_UNLIKELY( !fd_ristretto255_point_frombytes( p, inputR ) ) ) {
+      goto soft_error;
+    }
 
     fd_ristretto255_scalar_mul( r, inputL, p );
     fd_ristretto255_point_tobytes( result, r );
@@ -209,7 +233,9 @@ multi_scalar_mul_edwards( fd_ed25519_point_t * r,
                           ulong                cnt ) {
   /* Validate all scalars first (fast) */
   for( ulong i=0UL; i<cnt; i++ ) {
-    if( FD_UNLIKELY( !fd_curve25519_scalar_validate ( scalars + i*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ ) ) ) return NULL;
+    if( FD_UNLIKELY( !fd_curve25519_scalar_validate ( scalars + i*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ ) ) ) {
+      return NULL;
+    }
   }
 
   /* Static allocation of a batch of decompressed points */
@@ -223,7 +249,9 @@ multi_scalar_mul_edwards( fd_ed25519_point_t * r,
     /* Decompress (and validate) points */
     for( ulong j=0UL; j<batch_cnt; j++ ) {
       //TODO: use fd_ed25519_point_frombytes_2x
-      if( FD_UNLIKELY( !fd_ed25519_point_frombytes( &A[j], points + j*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ ) ) ) return NULL;
+      if( FD_UNLIKELY( !fd_ed25519_point_frombytes( &A[j], points + j*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ ) ) ) {
+        return NULL;
+      }
     }
 
     fd_ed25519_multi_scalar_mul( tmp, scalars, A, batch_cnt );
@@ -245,7 +273,9 @@ multi_scalar_mul_ristretto( fd_ristretto255_point_t * r,
                             ulong                     cnt ) {
   /* Validate all scalars first (fast) */
   for( ulong i=0UL; i<cnt; i++ ) {
-    if( FD_UNLIKELY( !fd_curve25519_scalar_validate ( scalars + i*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ ) ) ) return NULL;
+    if( FD_UNLIKELY( !fd_curve25519_scalar_validate ( scalars + i*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ ) ) ) {
+      return NULL;
+    }
   }
 
   /* Static allocation of a batch of decompressed points */
@@ -259,7 +289,9 @@ multi_scalar_mul_ristretto( fd_ristretto255_point_t * r,
     /* Decompress (and validate) points */
     for( ulong j=0UL; j<batch_cnt; j++ ) {
       //TODO: use fd_ristretto255_point_frombytes_2x
-      if( FD_UNLIKELY( !fd_ristretto255_point_frombytes( &A[j], points + j*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ ) ) ) return NULL;
+      if( FD_UNLIKELY( !fd_ristretto255_point_frombytes( &A[j], points + j*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ ) ) ) {
+        return NULL;
+      }
     }
 
     fd_ristretto255_multi_scalar_mul( tmp, scalars, A, batch_cnt );

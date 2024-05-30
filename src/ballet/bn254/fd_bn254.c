@@ -6,17 +6,16 @@
 #include "./fd_bn254_g2.c"
 #include "./fd_bn254_pairing.c"
 
-#define FD_BN254_PAIRING_BATCH_MAX 16UL
-
 /* Compress/Decompress */
 
 uchar *
 fd_bn254_g1_compress( uchar       out[32],
                       uchar const in [64] ) {
   fd_bn254_g1_t p[1] = { 0 };
-  if( FD_UNLIKELY( !fd_bn254_g1_frombytes_internal( p, in ) ) ) return NULL;
+  if( FD_UNLIKELY( !fd_bn254_g1_frombytes_internal( p, in ) ) ) {
+    return NULL;
+  }
   int is_inf = fd_bn254_g1_is_zero( p );
-  int is_neg = fd_bn254_fp_is_neg_nm( &p->Y );
 
   /* Serialize compressed point:
      https://github.com/arkworks-rs/algebra/blob/v0.4.2/ec/src/models/short_weierstrass/mod.rs#L122
@@ -26,18 +25,28 @@ fd_bn254_g1_compress( uchar       out[32],
 
   if( FD_UNLIKELY( is_inf ) ) {
     fd_memset( out, 0, 32 );
-    /* no flags */
+    /* The infinity flag in the result is set iff the infinity flag is set in the Y coordinate */
+    out[0] |= ( in[32] & FLAG_INF );
     return out;
   }
 
+  int is_neg = fd_bn254_fp_is_neg_nm( &p->Y );
   fd_memcpy( out, in, 32 );
-  if( is_neg ) out[0] |= FLAG_NEG;
+  if( is_neg ) {
+    out[0] |= FLAG_NEG;
+  }
   return out;
 }
 
 uchar *
 fd_bn254_g1_decompress( uchar       out[64],
                         uchar const in [32] ) {
+  /* Special case: all zeros in => all zeros out, no flags */
+  const uchar zero[32] = { 0 };
+  if( fd_memeq( in, zero, 32 ) ) {
+    return fd_memset( out, 0, 64UL );
+  }
+
   fd_bn254_fp_t x[1], x2[1], x3_plus_b[1], y[1];
   int is_inf, is_neg;
   if( FD_UNLIKELY( !fd_bn254_fp_frombytes_be_nm( x, in, &is_inf, &is_neg ) ) ) {
@@ -78,7 +87,9 @@ uchar *
 fd_bn254_g2_compress( uchar       out[64],
                       uchar const in[128] ) {
   fd_bn254_g2_t p[1] = { 0 };
-  if( FD_UNLIKELY( !fd_bn254_g2_frombytes_internal( p, in ) ) ) return NULL;
+  if( FD_UNLIKELY( !fd_bn254_g2_frombytes_internal( p, in ) ) ) {
+    return NULL;
+  }
   int is_inf = fd_bn254_g2_is_zero( p );
   int is_neg = fd_bn254_fp2_is_neg_nm( &p->Y );
 
@@ -93,7 +104,9 @@ fd_bn254_g2_compress( uchar       out[64],
   /* Serialize x coordinate. The flags are on the 2nd element.
      https://github.com/arkworks-rs/algebra/blob/v0.4.2/ff/src/fields/models/quadratic_extension.rs#L700-L702 */
   fd_memcpy( out, in, 64 );
-  if( is_neg ) out[0] |= FLAG_NEG;
+  if( is_neg ) {
+    out[0] |= FLAG_NEG;
+  }
   return out;
 }
 
@@ -142,14 +155,20 @@ fd_bn254_g1_add_syscall( uchar       out[64],
                          uchar const in[],
                          ulong       in_sz ) {
   /* Expected 128-byte input (2 points). Pad input with 0s. */
-  if( FD_UNLIKELY( in_sz > 128UL ) ) return -1;
+  if( FD_UNLIKELY( in_sz > 128UL ) ) {
+    return -1;
+  }
   uchar FD_ALIGNED buf[128] = { 0 };
   fd_memcpy( buf, in, in_sz );
 
   /* Validate inputs */
   fd_bn254_g1_t r[1], a[1], b[1];
-  if( FD_UNLIKELY( !fd_bn254_g1_frombytes_check_subgroup( a, &buf[ 0] ) ) ) return -1;
-  if( FD_UNLIKELY( !fd_bn254_g1_frombytes_check_subgroup( b, &buf[64] ) ) ) return -1;
+  if( FD_UNLIKELY( !fd_bn254_g1_frombytes_check_subgroup( a, &buf[ 0] ) ) ) {
+    return -1;
+  }
+  if( FD_UNLIKELY( !fd_bn254_g1_frombytes_check_subgroup( b, &buf[64] ) ) ) {
+    return -1;
+  }
 
   /* Compute point add and serialize result */
   fd_bn254_g1_affine_add( r, a, b );
@@ -164,14 +183,18 @@ fd_bn254_g1_scalar_mul_syscall( uchar       out[64],
   /* Expected 96-byte input (1 point + 1 scalar). Pad input with 0s.
      Note: Agave checks for 128 bytes instead of 96. We have to do the same check.
      https://github.com/anza-xyz/agave/blob/master/sdk/program/src/alt_bn128/mod.rs#L17 */
-  if( FD_UNLIKELY( in_sz > 128UL ) ) return -1;
+  if( FD_UNLIKELY( in_sz > 128UL ) ) {
+    return -1;
+  }
   uchar FD_ALIGNED buf[96] = { 0 };
   fd_memcpy( buf, in, fd_ulong_min( in_sz, 96UL ) );
 
   /* Validate inputs */
   fd_bn254_g1_t r[1], a[1];
   fd_bn254_scalar_t s[1];
-  if( FD_UNLIKELY( !fd_bn254_g1_frombytes_check_subgroup( a, &buf[ 0] ) ) ) return -1;
+  if( FD_UNLIKELY( !fd_bn254_g1_frombytes_check_subgroup( a, &buf[ 0] ) ) ) {
+    return -1;
+  }
 
   /* Scalar is big endian and NOT validated
      https://github.com/anza-xyz/agave/blob/v1.18.6/sdk/program/src/alt_bn128/mod.rs#L211-L214 */
@@ -188,13 +211,11 @@ int
 fd_bn254_pairing_is_one_syscall( uchar       out[32],
                                  uchar const in[],
                                  ulong       in_sz ) {
-  /* Expected a multiple of 192-byte input (n G1 + n G2)...
-     ... you'd thing:
-     https://github.com/anza-xyz/agave/blob/master/sdk/program/src/alt_bn128/mod.rs#L242
-     192usize.checked_rem(192) -> Some(0)
-     so this check is actually useless.
-
-     Not needed:
+  /* https://github.com/anza-xyz/agave/blob/master/sdk/program/src/alt_bn128/mod.rs#L242
+     Note: this check doesn't do anything because
+     192usize.checked_rem(192) = Some(0)
+     i.e., this is NOT checking that in_sz % 192 == 0.
+     i.e., this is NOT needed:
      if( FD_UNLIKELY( (in_sz%192UL)!=0 ) ) return -1; */
   ulong elements_len = in_sz / 192UL;
   fd_bn254_g1_t p[FD_BN254_PAIRING_BATCH_MAX];
@@ -207,13 +228,18 @@ fd_bn254_pairing_is_one_syscall( uchar       out[32],
   for( ulong i=0; i<elements_len; i+=FD_BN254_PAIRING_BATCH_MAX ) {
     ulong sz = fd_ulong_min( elements_len-i, FD_BN254_PAIRING_BATCH_MAX );
     for( ulong j=0; j<sz; j++ ) {
-      if( FD_UNLIKELY( !fd_bn254_g1_frombytes_check_subgroup( &p[j], &in[(i+j)*192   ] ) ) ) return -1;
-      if( FD_UNLIKELY( !fd_bn254_g2_frombytes_check_subgroup( &q[j], &in[(i+j)*192+64] ) ) ) return -1;
+      if( FD_UNLIKELY( !fd_bn254_g1_frombytes_check_subgroup( &p[j], &in[(i+j)*192   ] ) ) ) {
+        return -1;
+      }
+      if( FD_UNLIKELY( !fd_bn254_g2_frombytes_check_subgroup( &q[j], &in[(i+j)*192+64] ) ) ) {
+        return -1;
+      }
       //TODO skip pairs with point at infinity
     }
     if( i==0 ) {
       fd_bn254_miller_loop( r, p, q, sz );
     } else {
+      /* COV: this is only hit when elements_len > FD_BN254_PAIRING_BATCH_MAX */
       fd_bn254_fp12_t tmp[1];
       fd_bn254_miller_loop( tmp, p, q, sz );
       fd_bn254_fp12_mul( r, r, tmp );

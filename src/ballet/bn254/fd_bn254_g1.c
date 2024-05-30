@@ -259,8 +259,11 @@ fd_bn254_g1_scalar_mul( fd_bn254_g1_t *           r,
 static inline fd_bn254_g1_t *
 fd_bn254_g1_frombytes_internal( fd_bn254_g1_t * p,
                                 uchar const     in[64] ) {
+  /* Special case: all zeros => point at infinity */
   const uchar zero[64] = { 0 };
-  if( fd_memeq( in, zero, 64 ) ) return fd_bn254_g1_set_zero( p );
+  if( FD_UNLIKELY( fd_memeq( in, zero, 64 ) ) ) {
+    return fd_bn254_g1_set_zero( p );
+  }
 
   /* Check x < p */
   if( FD_UNLIKELY( !fd_bn254_fp_frombytes_be_nm( &p->X, &in[0], NULL, NULL ) ) ) {
@@ -268,10 +271,15 @@ fd_bn254_g1_frombytes_internal( fd_bn254_g1_t * p,
   }
 
   /* Check flags and y < p */
-  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_be_nm( &p->Y, &in[32], NULL, NULL ) ) ) {
+  int is_inf, is_neg;
+  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_be_nm( &p->Y, &in[32], &is_inf, &is_neg ) ) ) {
     return NULL;
   }
-  //FIXME: add differential test, do we need to check flags on y?
+
+  if( FD_UNLIKELY( is_inf ) ) {
+    return fd_bn254_g1_set_zero( p );
+  }
+
   fd_bn254_fp_set_one( &p->Z );
   return p;
 }
@@ -280,8 +288,12 @@ fd_bn254_g1_frombytes_internal( fd_bn254_g1_t * p,
 static inline fd_bn254_g1_t *
 fd_bn254_g1_frombytes_check_subgroup( fd_bn254_g1_t * p,
                                       uchar const     in[64] ) {
-  if( FD_UNLIKELY( !fd_bn254_g1_frombytes_internal( p, in ) ) ) return NULL;
-  if( FD_UNLIKELY( fd_bn254_g1_is_zero( p ) ) ) return p;
+  if( FD_UNLIKELY( !fd_bn254_g1_frombytes_internal( p, in ) ) ) {
+    return NULL;
+  }
+  if( FD_UNLIKELY( fd_bn254_g1_is_zero( p ) ) ) {
+    return p;
+  }
 
   fd_bn254_fp_to_mont( &p->X, &p->X );
   fd_bn254_fp_to_mont( &p->Y, &p->Y );
@@ -293,7 +305,9 @@ fd_bn254_g1_frombytes_check_subgroup( fd_bn254_g1_t * p,
   fd_bn254_fp_sqr( x3b, &p->X );
   fd_bn254_fp_mul( x3b, x3b, &p->X );
   fd_bn254_fp_add( x3b, x3b, fd_bn254_const_b_mont );
-  if( !fd_bn254_fp_eq( y2, x3b ) ) return NULL;
+  if( FD_UNLIKELY( !fd_bn254_fp_eq( y2, x3b ) ) ) {
+    return NULL;
+  }
 
   /* G1 has prime order, so we don't need to do any further checks. */
 
