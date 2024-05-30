@@ -7,6 +7,8 @@
 #include "../bigint/fd_uint256.h"
 #include "./fd_bn254_scalar.h"
 
+#define FD_BN254_PAIRING_BATCH_MAX 16UL
+
 FD_PROTOTYPES_BEGIN
 
 int
