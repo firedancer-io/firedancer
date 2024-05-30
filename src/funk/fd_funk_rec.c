@@ -82,11 +82,20 @@ fd_funk_rec_query_safe( fd_funk_t *               funk,
                         fd_funk_rec_key_t const * key,
                         fd_valloc_t               valloc,
                         ulong *                   result_len ) {
+  return fd_funk_rec_query_xid_safe( funk, key, fd_funk_root( funk ), valloc, result_len );
+}
+
+void *
+fd_funk_rec_query_xid_safe( fd_funk_t *               funk,
+                            fd_funk_rec_key_t const * key,
+                            fd_funk_txn_xid_t const * xid,
+                            fd_valloc_t               valloc,
+                            ulong *                   result_len ) {
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
-  
+
   fd_funk_xid_key_pair_t pair[1];
-  fd_funk_xid_key_pair_init( pair, fd_funk_root( funk ), key );
+  fd_funk_xid_key_pair_init( pair, xid, key );
 
   for(;;) {
     ulong lock_start;
@@ -108,7 +117,7 @@ fd_funk_rec_query_safe( fd_funk_t *               funk,
       if( lock_start == funk->write_lock ) return res;
       fd_valloc_free( valloc, res );
     }
-    
+
     /* else try again */
     FD_SPIN_PAUSE();
   }
