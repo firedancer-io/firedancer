@@ -160,15 +160,13 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
     fd_pubkey_t const * pubkey = &caller_instr->acct_pubkeys[instruction_account->index_in_caller];
 
     /* Check that the account is not read-only in the caller but writable in the callee */
-    if ( FD_UNLIKELY( instruction_account->is_writable && !fd_instr_acc_is_writable(instr_ctx->instr, pubkey) ) ) {
-      /* TODO: return InstructionError::PrivilegeEscalation */
-      return 1;
+    if( FD_UNLIKELY( instruction_account->is_writable && !fd_instr_acc_is_writable( instr_ctx->instr, pubkey ) ) ) {
+      return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
 
     /* If the account is signed in the callee, it must be signed by the caller or the program */
-    if ( FD_UNLIKELY( instruction_account->is_signer && !(fd_instr_acc_is_signer(instr_ctx->instr, pubkey) || fd_vm_syscall_cpi_is_signer(pubkey, signers, signers_cnt)) ) ) {
-      /* TODO: return InstructionError::PrivilegeEscalation */
-      return 1;
+    if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_instr_acc_is_signer( instr_ctx->instr, pubkey ) || fd_vm_syscall_cpi_is_signer( pubkey, signers, signers_cnt) ) ) ) {
+      return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
   }
 
