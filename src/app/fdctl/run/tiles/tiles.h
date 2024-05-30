@@ -69,6 +69,15 @@ struct fd_microblock_trailer {
   /* The hash of the transactions in the microblock, ready to be
      mixed into PoH. */
   uchar hash[ 32UL ];
+
+  /* Bank index to return the bank busy seq on to indicate that
+     we are done processing these accounts. */
+  ulong bank_idx;
+
+  /* Sequence number to return on the bank_busy fseq to indicate
+     that the accounts have been fully processed and can be
+     released to pack for reuse. */
+  ulong bank_busy_seq;
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 

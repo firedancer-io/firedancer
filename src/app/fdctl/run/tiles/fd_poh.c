@@ -440,6 +440,7 @@ typedef struct {
   ulong next_leader_slot;
 
   ulong bank_cnt;
+  ulong * bank_busy[ 64UL ];
 
   /* If we currently are the leader according the clock AND we have
      received the leader bank for the slot from the replay stage,
@@ -1484,6 +1485,19 @@ after_frag( void *             _ctx,
     return;
   }
 
+  /* Indicate to pack tile we are done processing the transactions so it
+     can pack new microblocks using these accounts.
+     
+     TODO: This is way too late to do this.  Ideally we would release
+     the accounts right after we execute and commit the results to the
+     accounts database.  It has to happen before because otherwise
+     there's a race where the bank releases the accounts, they get
+     reuused in another bank, and that bank sends to PoH and gets its
+     microblock pulled first -- so the bank commit and poh mixin order
+     is not the same.  Ideally we would resolve this a bit more cleverly
+     and without holding the account locks this much longer. */
+  fd_fseq_update( ctx->bank_busy[ ctx->_microblock_trailer->bank_idx ], ctx->_microblock_trailer->bank_busy_seq );
+
   if( FD_UNLIKELY( !ctx->microblocks_lower_bound ) ) {
     double tick_per_ns = fd_tempo_tick_per_ns( NULL );
     fd_histf_sample( ctx->first_microblock_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
@@ -1721,6 +1735,14 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->bank_cnt     = tile->in_cnt-2UL;
   ctx->stake_in_idx = tile->in_cnt-2UL;
   ctx->pack_in_idx  = tile->in_cnt-1UL;
+
+  FD_TEST( ctx->bank_cnt<=sizeof(ctx->bank_busy)/sizeof(ctx->bank_busy[0]) );
+  for( ulong i=0UL; i<ctx->bank_cnt; i++ ) {
+    ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", i );
+    FD_TEST( busy_obj_id!=ULONG_MAX );
+    ctx->bank_busy[ i ] = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
+    if( FD_UNLIKELY( !ctx->bank_busy[ i ] ) ) FD_LOG_ERR(( "banking tile %lu has no busy flag", i ));
+  }
 
   ulong poh_shred_obj_id = fd_pod_query_ulong( topo->props, "poh_shred", ULONG_MAX );
   FD_TEST( poh_shred_obj_id!=ULONG_MAX );

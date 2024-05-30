@@ -17,7 +17,6 @@ typedef struct {
   uchar * txn_sidecar_mem;
 
   void const * _bank;
-  ulong * bank_busy;
 
   fd_wksp_t * pack_in_mem;
   ulong       pack_in_chunk0;
@@ -231,16 +230,13 @@ after_frag( void *             _ctx,
   pre_balance_info        = NULL;
   load_and_execute_output = NULL;
 
-  /* Indicate to pack tile we are done processing the transactions so it
-     can pack new microblocks using these accounts.  DO NOT USE THE
-     SANITIZED TRANSACTIONS AFTER THIS POINT, THEY ARE NOT LONGER VALID. */
-  fd_fseq_update( ctx->bank_busy, seq );
-
   /* Now produce the merkle hash of the transactions for inclusion
      (mixin) to the PoH hash.  This is done on the bank tile because
      it shards / scales horizontally here, while PoH does not. */
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
+  trailer->bank_idx      = ctx->kind_id;
+  trailer->bank_busy_seq = seq;
 
   /* MAX_MICROBLOCK_SZ - (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)) == 64
      so there's always 64 extra bytes at the end to stash the hash. */
@@ -275,10 +271,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->kind_id = tile->kind_id;
   ctx->blake3 = NONNULL( fd_blake3_join( fd_blake3_new( blake3 ) ) );
   ctx->bmtree = NONNULL( bmtree );
-  ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", tile->kind_id );
-  FD_TEST( busy_obj_id!=ULONG_MAX );
-  ctx->bank_busy = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
-  if( FD_UNLIKELY( !ctx->bank_busy ) ) FD_LOG_ERR(( "banking tile %lu has no busy flag", tile->kind_id ));
 
   memset( &ctx->metrics, 0, sizeof( ctx->metrics ) );
 
