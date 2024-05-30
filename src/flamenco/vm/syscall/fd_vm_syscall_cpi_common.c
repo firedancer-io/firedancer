@@ -63,11 +63,11 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
       if( !memcmp( pubkey, &txn_accs[j], sizeof( fd_pubkey_t ) ) ) {
         /* TODO: error if not found, if flags are wrong */
         memcpy( out_instr->acct_pubkeys[i].uc, pubkey, sizeof( fd_pubkey_t ) );
-        out_instr->acct_txn_idxs[i] = (uchar)j;
-        out_instr->acct_flags[i] = 0;
+        out_instr->acct_txn_idxs[i]     = (uchar)j;
+        out_instr->acct_flags[i]        = 0;
         out_instr->borrowed_accounts[i] = &vm->instr_ctx->txn_ctx->borrowed_accounts[j];
+        out_instr->is_duplicate[i]      = acc_idx_seen[j];
 
-        out_instr->is_duplicate[i] = acc_idx_seen[j];
         if( FD_LIKELY( !acc_idx_seen[j] ) ) {
           /* This is the first time seeing this account */
           acc_idx_seen[j] = 1;
@@ -80,12 +80,11 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
           }
         }
 
-        /* TODO: should check the parent has writable flag set */
-        if( VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( cpi_acct_meta ) && fd_instr_acc_is_writable( vm->instr_ctx->instr, (fd_pubkey_t*)pubkey) ) {
+        /* The parent flag(s) for is writable/signer is checked in fd_vm_prepare_instruction */
+        if( VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( cpi_acct_meta ) ) {
           out_instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
         }
 
-        /* TODO: should check the parent has signer flag set */
         if( VM_SYSCALL_CPI_ACC_META_IS_SIGNER( cpi_acct_meta ) ) {
           out_instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
         } else {
@@ -466,7 +465,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
      before we can pass an instruction to the executor. */
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
-  err = fd_vm_prepare_instruction(vm->instr_ctx->instr, &instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
+  err = fd_vm_prepare_instruction( vm->instr_ctx->instr, &instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Update the callee accounts with any changes made by the caller prior to this CPI execution */
