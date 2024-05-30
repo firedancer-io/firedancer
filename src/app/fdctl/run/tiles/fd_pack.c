@@ -35,33 +35,6 @@
 FD_STATIC_ASSERT( (ulong)LONG_MIN+TIME_OFFSET==0UL,       time_offset );
 FD_STATIC_ASSERT( (ulong)LONG_MAX+TIME_OFFSET==ULONG_MAX, time_offset );
 
-/* Each block is limited to 32k parity shreds.  We don't want pack to
-   produce a block with so many transactions we can't shred it, but the
-   correspondance between transactions and parity shreds is somewhat
-   complicated, so we need to use conservative limits.
-
-   Except for the final batch in the block, the current version of the
-   shred tile shreds microblock batches of size (25431, 63671] bytes,
-   including the microblock headers, but excluding the microblock count.
-   The worst case size by bytes/parity shred is a 25871 byte microblock
-   batch, which produces 31 parity shreds.  The final microblock batch,
-   however, may be as bad as 48 bytes triggering the creation of 17
-   parity shreds.  This gives us a limit of floor((32k - 17)/31)*25871 +
-   48 = 27,319,824 bytes.
-
-   To get this right, the pack tile needs to add in the 48-byte
-   microblock headers for each microblock, and we also need to subtract
-   out the tick bytes, which aren't known until PoH initialization is
-   complete.
-
-   Note that the number of parity shreds in each FEC set is always at
-   least as many as the number of data shreds, so we don't need to
-   consider the data shreds limit. */
-#define FD_PACK_MAX_DATA_PER_BLOCK (((32UL*1024UL-17UL)/31UL)*25871UL + 48UL)
-
-/* Optionally allow up to 128k shreds per block for benchmarking. */
-#define LARGER_MAX_DATA_PER_BLOCK  (((4UL*32UL*1024UL-17UL)/31UL)*25871UL + 48UL)
-
 
 /* Optionally allow a larger limit for benchmarking */
 #define LARGER_MAX_COST_PER_BLOCK (13UL*48000000UL)
@@ -490,7 +463,7 @@ during_frag( void * _ctx,
     ctx->slot_max_microblocks = became_leader->max_microblocks_in_slot;
     /* Reserve some space in the block for ticks */
     ctx->slot_max_data        = (ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK)
-                                      - 48UL*became_leader->ticks_per_slot;
+                                      - 48UL*(became_leader->ticks_per_slot+became_leader->total_skipped_ticks);
 
 
     /* The dcache might get overrun, so set slot_end_ns to 0, so if it does

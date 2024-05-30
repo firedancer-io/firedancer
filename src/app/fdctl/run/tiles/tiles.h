@@ -57,6 +57,11 @@ struct fd_became_leader {
      tile will put in the block.  This is used to adjust some pack
      limits. */
   ulong ticks_per_slot;
+
+  /* The number of ticks that the PoH tile has skipped, but needs to
+     publish to show peers they were skipped correctly.  This is used
+     to adjust some pack limits. */
+  ulong total_skipped_ticks;
 };
 typedef struct fd_became_leader fd_became_leader_t;
 
