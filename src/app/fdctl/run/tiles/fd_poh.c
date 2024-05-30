@@ -842,7 +842,7 @@ fd_ext_poh_begin_leader( void const * bank,
      again.  Also check that the leader slot is greater than the
      highwater, which should have been ensured earlier. */
 
-  FD_TEST( ctx->highwater_leader_slot==ULONG_MAX || slot>ctx->highwater_leader_slot );
+  FD_TEST( ctx->highwater_leader_slot==ULONG_MAX || slot>=ctx->highwater_leader_slot );
   ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), slot );
 
   publish_became_leader( ctx, slot );
@@ -858,7 +858,7 @@ static inline CALLED_FROM_RUST ulong
 next_leader_slot( fd_poh_ctx_t * ctx ) {
   /* If we have published anything in a particular slot, then we
      should never become leader for that slot again. */
-  ulong min_leader_slot = fd_ulong_max( ctx->slot, 1UL+ctx->highwater_leader_slot );
+  ulong min_leader_slot = fd_ulong_max( ctx->slot, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ) );
 
   for(;;) {
     fd_epoch_leaders_t * leaders = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, min_leader_slot ); /* Safe to call from Rust */
@@ -877,6 +877,10 @@ next_leader_slot( fd_poh_ctx_t * ctx ) {
 static CALLED_FROM_RUST void
 no_longer_leader( fd_poh_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->current_leader_bank ) ) fd_ext_bank_release( ctx->current_leader_bank );
+  /* If we stop being leader in a slot, we can never become leader in
+      that slot again, and all in-flight microblocks for that slot
+      should be dropped. */
+  ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), ctx->slot );
   ctx->current_leader_bank = NULL;
   ctx->next_leader_slot = next_leader_slot( ctx );
 
@@ -899,6 +903,12 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
 
   int leader_before_reset = ctx->slot>=ctx->next_leader_slot;
+  if( FD_UNLIKELY( leader_before_reset && ctx->current_leader_bank ) ) {
+    /* If we were in the middle of a leader slot that we notified pack
+       pack to start packing for we can never publish into that slot
+       again, mark all in-flight microblocks to be dropped. */
+    ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), 1UL+ctx->slot );
+  }
 
   memcpy( ctx->hash, reset_blockhash, 32UL );
   ctx->slot         = completed_bank_slot+1UL;
