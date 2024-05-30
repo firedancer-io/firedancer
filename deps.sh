@@ -485,43 +485,27 @@ install () {
 }
 
 ACTION=0
+COMMANDS=()
 while [[ $# -gt 0 ]]; do
   case $1 in
     -h|--help|help)
       help
       ;;
     "+dev")
-      shift
       DEVMODE=1
       ;;
-    nuke)
-      shift
-      nuke
-      ACTION=1
-      ;;
-    fetch)
-      shift
-      fetch
-      ACTION=1
-      ;;
-    check)
-      shift
-      check
-      ACTION=1
-      ;;
-    install)
-      shift
-      install
-      ACTION=1
+    nuke|fetch|check|install)
+      COMMANDS+=("$1")
       ;;
     *)
       echo "Unknown command: $1" >&2
       exit 1
       ;;
   esac
+  shift
 done
 
-if [[ $ACTION == 0 ]]; then
+if [[ ${#COMMANDS[@]} -eq 0 ]]; then
   echo "[~] This will fetch, build, and install Firedancer's dependencies into $(pwd)/opt"
   echo "[~] For help, run: $0 help"
   echo
@@ -539,4 +523,12 @@ if [[ $ACTION == 0 ]]; then
       echo "[!] Stopping." >&2
       exit 1
   esac
+else
+  # ensure fetch is run before install if install is requested
+  if [[ " ${COMMANDS[@]} " =~ " install " ]] && [[ ! " ${COMMANDS[@]} " =~ " fetch " ]]; then
+    fetch
+  fi
+  for cmd in "${COMMANDS[@]}"; do
+    $cmd
+  done
 fi
