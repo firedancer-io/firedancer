@@ -478,8 +478,9 @@ privileged_init( fd_topo_t *      topo,
     ctx->quic        = quic;
     ctx->quic_rx_aio = fd_quic_get_aio_net_rx( quic );
 
-    ctx->tx_idx = 0UL;
-    ctx->stream = NULL;
+    ctx->quic_conn = NULL;
+    ctx->stream    = NULL;
+    ctx->tx_idx    = 0UL;
 
     /* call wallclock so glibc loads VDSO, which requires calling mmap while
        privileged */
