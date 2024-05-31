@@ -47,9 +47,9 @@
 #include "context/fd_exec_instr_ctx.h"
 #include <assert.h>  /* TODO remove */
 
-/* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */
+/* MAX_PERMITTED_DATA_LENGTH is the hardcoded size limit of a Solana account. */
 
-#define FD_ACC_SZ_MAX (10UL<<20) /* 10MiB */
+#define MAX_PERMITTED_DATA_LENGTH                               ( 10UL * 1024UL * 1024UL )       /* 10MiB */
 #define MAX_PERMITTED_ACCOUNTS_DATA_ALLOCATIONS_PER_TRANSACTION ( 10UL * 1024UL * 1024UL * 2UL ) /* 20MiB */
 
 FD_PROTOTYPES_BEGIN
@@ -81,32 +81,34 @@ fd_account_is_owned_by_current_program( fd_instr_info_t const *   info,
   return 0==memcmp( info->program_id_pubkey.key, acct->info.owner, sizeof(fd_pubkey_t) );
 }
 
+/* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L1096-L1119 */
 static inline int
 fd_account_can_data_be_resized( fd_exec_instr_ctx_t const * instr_ctx,
                                 fd_account_meta_t const *   acct,
                                 ulong                       new_length,
                                 int *                       err ) {
-  
 
+  /* Only the owner can change the length of the data */
   if( FD_UNLIKELY( ( acct->dlen!=new_length ) &&
                    ( !fd_account_is_owned_by_current_program( instr_ctx->instr, acct ) ) ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED;
     return 0;
   }
 
-  if( FD_UNLIKELY( new_length>FD_ACC_SZ_MAX ) ) {
+  /* The new length can not exceed the maximum permitted length */
+  if( FD_UNLIKELY( new_length>MAX_PERMITTED_DATA_LENGTH ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
     return 0;
   }
 
-  fd_exec_txn_ctx_t * txn_ctx = instr_ctx->txn_ctx;
-  ulong length_delta = fd_ulong_sat_sub( new_length, acct->dlen );
+  /* The resize can not exceed the per transaction maximum */
+  fd_exec_txn_ctx_t * txn_ctx    = instr_ctx->txn_ctx;
+  ulong length_delta             = fd_ulong_sat_sub( new_length, acct->dlen );
   txn_ctx->accounts_resize_delta = fd_ulong_sat_sub( txn_ctx->accounts_resize_delta, length_delta );
-  if (txn_ctx->accounts_resize_delta > MAX_PERMITTED_ACCOUNTS_DATA_ALLOCATIONS_PER_TRANSACTION) {
+  if ( FD_UNLIKELY( txn_ctx->accounts_resize_delta > MAX_PERMITTED_ACCOUNTS_DATA_ALLOCATIONS_PER_TRANSACTION ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_SIZE_EXCEEDED;
     return 0;
   }
- 
 
   *err = FD_EXECUTOR_INSTR_SUCCESS;
   return 1;

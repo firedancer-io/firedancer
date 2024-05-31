@@ -159,7 +159,7 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
   char key_cstr[ FD_BASE58_ENCODED_32_SZ ];
 
   /* Sanity checks */
-  if( FD_UNLIKELY( hdr->meta.data_len > FD_ACC_SZ_MAX ) ) {
+  if( FD_UNLIKELY( hdr->meta.data_len > MAX_PERMITTED_DATA_LENGTH ) ) {
     FD_LOG_WARNING(( "accounts/%lu.%lu: account %s too large: data_len=%lu",
                      restore->accv_slot, restore->accv_id, fd_acct_addr_cstr( key_cstr, key->uc ), hdr->meta.data_len ));
     FD_LOG_HEXDUMP_WARNING(( "account header", hdr, sizeof(fd_solana_account_hdr_t) ));
