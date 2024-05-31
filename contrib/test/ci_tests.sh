@@ -29,7 +29,7 @@ for MACHINE in ${MACHINES[*]}; do
   OBJDIR="$(make help | grep OBJDIR | awk '{print $4}')"
   OBJDIRS+=( "${OBJDIR}" )
   make clean --silent >/dev/null
-  contrib/make-j all integration-test
+  contrib/make-j all integration-test fdctl
   if [[ "$NOTEST" != 1 ]]; then
     make run-unit-test
     if [[ "$EXTRAS" != *"ubsan"* && "$EXTRAS" != *"asan"* ]]; then
