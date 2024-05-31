@@ -20,14 +20,11 @@ fd_account_get_data(fd_account_meta_t * m) {
   return ((char *) m) + m->hlen;
 }
 
-//    /// Returns true if the owner of this account is the current `InstructionContext`s last program (instruction wide)
+// Returns true if the owner of this account is the current `InstructionContext`s last program (instruction wide)
 static inline
-int fd_account_is_owned_by_current_program2(const FD_FN_UNUSED fd_exec_instr_ctx_t *ctx, const FD_FN_UNUSED fd_account_meta_t * acct, FD_FN_UNUSED  int *err) {
-//        self.instruction_context
-//            .get_last_program_key(self.transaction_context)
-//            .map(|key| key == self.get_owner())
-//            .unwrap_or_default()
-  return 1;
+int fd_account_is_owned_by_current_program2(const fd_exec_instr_ctx_t *ctx, const fd_account_meta_t * acct, FD_FN_UNUSED int *err) {
+ fd_pubkey_t const * last_program_key = &ctx->instr->program_id_pubkey;
+  return memcmp( last_program_key, acct->info.owner, sizeof(fd_pubkey_t) ) == 0;
 }
 
 static inline

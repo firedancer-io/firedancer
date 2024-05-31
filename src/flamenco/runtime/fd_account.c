@@ -54,24 +54,29 @@ fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
   fd_borrowed_account_t * account = NULL;
   do {
     int err = fd_instr_borrowed_account_view_idx( ctx, (uchar)instr_acc_idx, &account );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
+    }
   } while(0);
 
   fd_account_meta_t const * meta = account->const_meta;
 
-  if( !fd_account_is_owned_by_current_program( instr, meta ) )
+  if( !fd_account_is_owned_by_current_program( instr, meta ) ) {
+    FD_LOG_WARNING(("HERE"));
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-  if( !fd_instr_acc_is_writable_idx( instr, instr_acc_idx ) )
+  }
+  if( !fd_instr_acc_is_writable_idx( instr, instr_acc_idx ) ) {
+    FD_LOG_WARNING(("HERE"));
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-  if( fd_account_is_executable( meta ) )
+  }
+  if( fd_account_is_executable( meta ) ) {
+    FD_LOG_WARNING(("HERE"));
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-  if( !fd_account_is_zeroed( meta ) )
+  }
+  if( !fd_account_is_zeroed( meta ) ) {
+    FD_LOG_WARNING(("HERE"));
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-  if( 0==memcmp( meta->info.owner, owner, sizeof(fd_pubkey_t) ) )
-    return FD_EXECUTOR_INSTR_SUCCESS;
-  if( 0!=memcmp( meta->info.owner, fd_solana_system_program_id.key, sizeof(fd_pubkey_t) ) )
-    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-
+  }
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, 0UL, &account );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
@@ -89,28 +94,38 @@ fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
   fd_borrowed_account_t * account = NULL;
   do {
     int err = fd_instr_borrowed_account_view_idx( ctx, (uchar)instr_acc_idx, &account );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
+    if( FD_UNLIKELY( err ) ) { 
+      FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
+    }
   } while(0);
 
-  if( FD_UNLIKELY( ( !fd_account_is_owned_by_current_program( ctx->instr, account->const_meta ) ) &
-                   ( lamports < account->const_meta->info.lamports ) ) )
+  /* An account not owned by the program cannot have its balance decreased*/
+  if( FD_UNLIKELY( ( !fd_account_is_owned_by_current_program( ctx->instr, account->const_meta ) ) &&
+                   ( lamports<account->const_meta->info.lamports ) ) )
     return FD_EXECUTOR_INSTR_ERR_EXTERNAL_ACCOUNT_LAMPORT_SPEND;
 
+  /* The balance of read-only may not change */
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) )
     return FD_EXECUTOR_INSTR_ERR_READONLY_LAMPORT_CHANGE;
 
+  /* The balance of executable accounts may not change */
   if( FD_UNLIKELY( fd_account_is_executable( account->const_meta ) ) )
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_LAMPORT_CHANGE;
 
-  if( lamports == account->const_meta->info.lamports ) return 0;
+  /* Don't touch the account if the lamports do not change */
+  if( lamports == account->const_meta->info.lamports ) { 
+    return 0;
+  }
 
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, 0UL, &account );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
+    if( FD_UNLIKELY( err ) ) { 
+      FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
+    }
   } while(0);
 
   account->meta->info.lamports = lamports;
-  return 0;
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 int

@@ -541,7 +541,7 @@ fd_solcap_diff_missing_account( fd_solcap_differ_t *                  diff,
   if( diff->verbose >= 4 ) {
 
     /* TODO: Remove hardcoded account size check */
-    FD_TEST( meta->data_sz <= 1048576 );
+    FD_TEST( meta->data_sz <= 1048576 * 8 );
 
     FD_SCRATCH_SCOPE_BEGIN {
       void * acc_data = fd_scratch_alloc( 1UL, meta->data_sz );
