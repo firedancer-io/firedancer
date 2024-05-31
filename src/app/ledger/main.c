@@ -872,12 +872,14 @@ prune( fd_ledger_args_t * args ) {
     /* Set prune start and end slot */
     ulong prune_start_slot = args->start_slot;
     ulong prune_end_slot = args->end_slot;
+    bool abort_on_mismatch = args->abort_on_mismatch;
 
     /* Replay all slots before prune slot and checkpoint at prune_start_slot */
     args->start_slot = 0;
     args->end_slot = prune_start_slot + FD_RUNTIME_NUM_ROOT_BLOCKS;
     args->checkpt_freq = prune_start_slot;
     args->checkpt_path = args->checkpt_funk == NULL ? args->checkpt : args->checkpt_funk;
+    args->abort_on_mismatch = 0;
 
     int err = replay( args );
     if(err != 0) {
@@ -890,6 +892,7 @@ prune( fd_ledger_args_t * args ) {
     args->end_slot = prune_end_slot;
     args->restore = args->checkpt;
     args->restore_funk = args->checkpt_funk;
+    args->abort_on_mismatch = abort_on_mismatch;
   }
 
   if( args->restore || args->restore_funk ) {
