@@ -1328,7 +1328,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     }
 
     err = 0;
-    if( FD_UNLIKELY( !fd_account_set_data_length2( instr_ctx, programdata_account->meta, programdata_account->pubkey, new_len, 0, &err ) ) ) {
+    if( FD_UNLIKELY( !fd_account_set_data_length( instr_ctx, 0UL, new_len, &err ) ) ) {
       return err;
     }
 

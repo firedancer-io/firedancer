@@ -65,8 +65,10 @@
 #define FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW                ( -48 ) /* Program arithmetic overflowed */
 #define FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR                 ( -49 ) /* Unsupported sysvar */
 #define FD_EXECUTOR_INSTR_ERR_ILLEGAL_OWNER                      ( -50 ) /* Provided owner is not allowed */
-#define FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_SIZE_EXCEEDED        ( -51 ) /* Account data allocation exceeded the maximum accounts data size limit */
-#define FD_EXECUTOR_INSTR_ERR_ACTIVE_VOTE_ACC_CLOSE              ( -52 ) /* Active vote account close */
+#define FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED      ( -51 ) /* Account data allocation exceeded the maximum accounts data size limit */
+#define FD_EXECUTOR_INSTR_ERR_MAX_ACCS_EXCEEDED                  ( -52 ) /* Max accounts exceeded */
+#define FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED       ( -53 ) /* Max instruction trace length exceeded */
+#define FD_EXECUTOR_INSTR_ERR_BUILTINS_MUST_CONSUME_CUS          ( -54 ) /* Builtin programs must consume compute units */
 
 #define FD_EXECUTOR_SYSTEM_ERR_ACCOUNT_ALREADY_IN_USE            ( -1 ) /* an account with the same address already exists */
 #define FD_EXECUTOR_SYSTEM_ERR_RESULTS_WITH_NEGATIVE_LAMPORTS    ( -2 ) /* account does not have enough SOL to perform the operation */
