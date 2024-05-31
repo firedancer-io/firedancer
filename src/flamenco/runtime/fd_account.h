@@ -49,7 +49,8 @@
 
 /* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */
 
-#define FD_ACC_SZ_MAX (10UL<<20) /* 10MiB */
+#define MAX_PERMITTED_DATA_LENGTH                               (10UL<<20) /* 10MiB */
+#define MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN (10UL<<21) /* 20MiB */
 
 FD_PROTOTYPES_BEGIN
 
@@ -79,21 +80,30 @@ fd_account_is_owned_by_current_program( fd_instr_info_t const *   info,
                                         fd_account_meta_t const * acct ) {
   return 0==memcmp( info->program_id_pubkey.key, acct->info.owner, sizeof(fd_pubkey_t) );
 }
-
+/* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L1096-L1119 */
 static inline int
-fd_account_can_data_be_resized( fd_instr_info_t const *   instr,
-                                fd_account_meta_t const * acct,
-                                ulong                     new_length,
-                                int *                     err ) {
-
+fd_account_can_data_be_resized( fd_exec_instr_ctx_t const * instr_ctx,
+                                fd_account_meta_t const *   acct,
+                                ulong                       new_length,
+                                int *                       err ) {
+  /* Only the owner can change the length of the data */
   if( FD_UNLIKELY( ( acct->dlen != new_length ) &
-                   ( !fd_account_is_owned_by_current_program( instr, acct ) ) ) ) {
+                   ( !fd_account_is_owned_by_current_program( instr_ctx->instr, acct ) ) ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED;
     return 0;
   }
 
-  if( FD_UNLIKELY( new_length > FD_ACC_SZ_MAX ) ) {
+  /* The new length can not exceed the maximum permitted length */
+  if( FD_UNLIKELY( new_length>MAX_PERMITTED_DATA_LENGTH ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+    return 0;
+  }
+
+  /* The resize can not exceed the per-transaction maximum */
+  ulong length_delta = fd_ulong_sat_sub( new_length, acct->dlen );
+  instr_ctx->txn_ctx->accounts_resize_delta = fd_ulong_sat_add( instr_ctx->txn_ctx->accounts_resize_delta, length_delta );
+  if( FD_UNLIKELY( instr_ctx->txn_ctx->accounts_resize_delta>MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
+    *err = FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED;
     return 0;
   }
 
@@ -226,6 +236,16 @@ fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
                             ulong                       instr_acc_idx,
                             ulong                       new_len,
                             int *                       err );
+
+/* fd_account_update_acounts_resize_delta mirrors Anza function
+   solana_sdk::transaction_context:BorrowedAccount::update_accounts_resize_delta. 
+   https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L1128-L1138 */
+
+int
+fd_account_update_accounts_resize_delta( fd_exec_instr_ctx_t const * ctx,
+                                         ulong                       instr_acc_idx,
+                                         ulong                       new_len,
+                                         int *                       err );
 
 /* Transaction account APIs *******************************************/
 
