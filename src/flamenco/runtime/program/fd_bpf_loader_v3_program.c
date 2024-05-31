@@ -239,10 +239,8 @@ if( FD_UNLIKELY( vm->trace ) ) {
   }
 
   if( fd_bpf_loader_input_deserialize_aligned(ctx, pre_lens, input, input_sz) != 0 ) {
-    FD_LOG_NOTICE(("DESERIALIZE ERROR"));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
-  FD_LOG_NOTICE(("DESERIALIZE SUCCESS"));
 
   return 0;
 }

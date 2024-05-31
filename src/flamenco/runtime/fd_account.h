@@ -74,7 +74,7 @@ fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,
    account is owned by the program invoked in the current instruction.
    Otherwise, returns 0.  Mirrors Anza's
    solana_sdk::transaction_context::BorrowedAccount::is_owned_by_current_program */
-
+/* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L1071-L1076 */
 FD_FN_PURE static inline int
 fd_account_is_owned_by_current_program( fd_instr_info_t const *   info,
                                         fd_account_meta_t const * acct ) {
@@ -144,12 +144,10 @@ fd_account_can_data_be_changed( fd_instr_info_t const * instr,
 FD_FN_PURE static inline int
 fd_account_is_zeroed( fd_account_meta_t const * acct ) {
   // TODO optimize this...
-  FD_LOG_NOTICE(("hlen %u", (uint)acct->hlen));
   uchar const * data = (uchar *)acct + acct->hlen;
   for( ulong i=0UL; i<acct->dlen; i++ )
-    if( data[i] != 0 ) {
+    if( data[i] != 0 )
       return 0;
-    }
   return 1;
 }
 

@@ -1097,16 +1097,18 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       }
     }
 
-//#ifdef VLOG
+#ifdef VLOG
     fd_txn_t const *txn = txn_ctx->txn_descriptor;
     fd_rawtxn_b_t const *raw_txn = txn_ctx->_txn_raw;
     uchar * sig = (uchar *)raw_txn->raw + txn->signature_off;
-//#endif
+#endif
 
 
     for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
-
+#ifdef VLOG
+        if ( FD_UNLIKELY( 257037453 == txn_ctx->slot_ctx->slot_bank.slot ) )
           FD_LOG_WARNING(("Start of transaction for %d for %64J", i, sig));
+#endif
 
       if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
         ret = fd_sysvar_instructions_update_current_instr_idx( txn_ctx, i );
@@ -1122,7 +1124,6 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       }
 
       int exec_result = fd_execute_instr( txn_ctx, &instrs[i] );
-      FD_LOG_WARNING(( "fd_execute_instr result (%d:%d) for %64J", exec_result, txn_ctx->custom_err, sig ));
       if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
         if ( txn_ctx->instr_err_idx == INT_MAX )
         {
@@ -1133,6 +1134,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   #endif
           if (exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
   #ifdef VLOG
+            FD_LOG_WARNING(( "fd_execute_instr failed (%d:%d) for %64J", exec_result, txn_ctx->custom_err, sig ));
   #endif
           } else {
   #ifdef VLOG

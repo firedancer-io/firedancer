@@ -21,8 +21,7 @@ fd_account_get_data(fd_account_meta_t * m) {
 // Returns true if the owner of this account is the current `InstructionContext`s last program (instruction wide)
 static inline
 int fd_account_is_owned_by_current_program2(const fd_exec_instr_ctx_t *ctx, const fd_account_meta_t * acct, FD_FN_UNUSED int *err) {
- fd_pubkey_t const * last_program_key = &ctx->instr->program_id_pubkey;
-  return memcmp( last_program_key, acct->info.owner, sizeof(fd_pubkey_t) ) == 0;
+  return memcmp( &ctx->instr->program_id_pubkey, acct->info.owner, sizeof(fd_pubkey_t) ) == 0;
 }
 
 static inline
