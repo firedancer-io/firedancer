@@ -137,4 +137,4 @@ if [ -z "${OUTPUT_DIR}" ]; then
 fi
 mkdir -p $OUTPUT_DIR
 
-solana-test-suite run-tests --input-dir $TEST_INPUTS --solana-target ${AGAVE_REPO}/target/debug/libsolfuzz_agave.so --target ${FIREDANCER_REPO}/build/native/gcc/lib/libfd_exec_sol_compat.so --output-dir $OUTPUT_DIR
+solana-test-suite run-tests --input-dir $TEST_INPUTS --solana-target ${AGAVE_REPO}/target/debug/libsolfuzz_agave.so --target ${FIREDANCER_REPO}/build/native/gcc/lib/libfd_exec_sol_compat.so --output-dir $OUTPUT_DIR -c
