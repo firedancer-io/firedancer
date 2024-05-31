@@ -157,7 +157,7 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
       for( ulong j = 0; j < key_list.keys_len; j++ ) {
         if( i == j ) continue;
 
-        if( memcmp( &key_list.keys[i].key, &key_list.keys[j].key, sizeof(fd_pubkey_t) ) == 0 ) {
+        if( memcmp( &key_list.keys[i].key, &key_list.keys[j].key, sizeof(fd_pubkey_t) ) == 0 && key_list.keys[i].signer == key_list.keys[j].signer ) {
           return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
         }
       }
