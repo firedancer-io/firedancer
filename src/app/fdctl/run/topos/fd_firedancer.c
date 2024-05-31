@@ -1,5 +1,5 @@
 /* Firedancer topology used for testing the full validator.
-   Associated test script: test-firedancer.sh */
+   Associated test script: test_firedancer.sh */
 #include "topos.h"
 #include "../tiles/tiles.h"
 #include "../../config.h"

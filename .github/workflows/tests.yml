@@ -17,16 +17,15 @@ jobs:
       # targets from here, not add more.
       matrix:
         machine:
-          - linux_gcc_noarch64    # least capable target
-          - linux_gcc_icelake     # most capable target
+          - linux_gcc_x86_64      # least capable target
+          - linux_gcc_icelake     #  most capable target
           - linux_clang_x86_64
           - linux_clang_icelake
           - native
         # Attach additional params to machine types
         include:
-          - machine: linux_gcc_noarch64
-            notest: true
-            label: self-hosted
+          - machine: linux_gcc_x86_64
+            label: X64
           - machine: linux_gcc_icelake
             label: icelake
           - machine: linux_clang_x86_64

@@ -1,6 +1,8 @@
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
+ifdef FD_HAS_INT128
+ifdef FD_HAS_SSE
 
 include src/app/fdctl/with-version.mk
 $(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH))
@@ -128,6 +130,8 @@ $(OBJDIR)/bin/solana: solana/target/$(RUST_PROFILE)/solana
 
 solana: $(OBJDIR)/bin/solana $(OBJDIR)/bin/solana
 
+endif
+endif
 endif
 endif
 endif
