@@ -6,6 +6,9 @@
 #include "info/fd_instr_info.h"
 #include "sysvar/fd_sysvar_rent.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 int
 fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,
                            ulong                       instr_acc_idx,
@@ -59,22 +62,21 @@ fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
     }
   } while(0);
 
+  FD_LOG_NOTICE(("PUBKEY %32J %32J", account->pubkey, owner));
+
   fd_account_meta_t const * meta = account->const_meta;
 
   if( !fd_account_is_owned_by_current_program( instr, meta ) ) {
-    FD_LOG_WARNING(("HERE"));
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
   }
   if( !fd_instr_acc_is_writable_idx( instr, instr_acc_idx ) ) {
-    FD_LOG_WARNING(("HERE"));
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
   }
   if( fd_account_is_executable( meta ) ) {
-    FD_LOG_WARNING(("HERE"));
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
   }
   if( !fd_account_is_zeroed( meta ) ) {
-    FD_LOG_WARNING(("HERE"));
+    FD_LOG_WARNING(("HERE %lu", meta->dlen));
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
   }
   do {
@@ -142,7 +144,7 @@ fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
-  if( !fd_account_can_data_be_resized( ctx->instr, account->const_meta, data_sz, &err ) )
+  if( !fd_account_can_data_be_resized( ctx, account->const_meta, data_sz, &err ) )
     return err;
 
   if( !fd_account_can_data_be_changed( ctx->instr, instr_acc_idx, &err ) )
@@ -173,7 +175,7 @@ fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
-  if( !fd_account_can_data_be_resized( ctx->instr, account->const_meta, new_len, err ) )
+  if( !fd_account_can_data_be_resized( ctx, account->const_meta, new_len, err ) )
     return 0;
 
   if( !fd_account_can_data_be_changed( ctx->instr, instr_acc_idx, err ) )

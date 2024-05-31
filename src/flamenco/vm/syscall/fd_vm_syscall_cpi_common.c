@@ -166,7 +166,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
   int err1;
   int err2;
   /* FIXME: double-check these permissions, especially the callee_acc_idx */
-  if( fd_account_can_data_be_resized( vm->instr_ctx->instr, callee_acc->meta, caller_acc_data_len, &err1 ) &&
+  if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, caller_acc_data_len, &err1 ) &&
       fd_account_can_data_be_changed2( vm->instr_ctx, callee_acc->meta, callee_acc_pubkey, &err2 ) ) {
       /* We must ignore the errors here, as they are informational and do not mean the result is invalid. */
       /* TODO: not pass informational errors like this? */

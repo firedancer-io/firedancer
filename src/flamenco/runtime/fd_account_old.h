@@ -8,7 +8,7 @@
 #include "fd_runtime.h"
 #include <assert.h>
 
-#define MAX_PERMITTED_DATA_LENGTH ( 10 * 1024 * 1024 )
+#define MAX_PERMITTED_DATA_LENGTH ( 10UL * 1024UL * 1024UL )
 
 /* Represents the lamport balance associated with an account. */
 typedef ulong fd_acc_lamports_t;
@@ -79,7 +79,7 @@ fd_account_set_data_length2( fd_exec_instr_ctx_t * ctx,
                             ulong new_length,
                             int space_check,
                             int * err) {
-  if (!fd_account_can_data_be_resized(ctx->instr, acct, new_length, err))
+  if (!fd_account_can_data_be_resized(ctx, acct, new_length, err))
     return 0;
 
   if (!fd_account_can_data_be_changed2(ctx, acct, key, err))

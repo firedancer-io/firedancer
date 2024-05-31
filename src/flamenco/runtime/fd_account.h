@@ -50,6 +50,7 @@
 /* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */
 
 #define FD_ACC_SZ_MAX (10UL<<20) /* 10MiB */
+#define MAX_PERMITTED_ACCOUNTS_DATA_ALLOCATIONS_PER_TRANSACTION ( 10UL * 1024UL * 1024UL * 2UL ) /* 20MiB */
 
 FD_PROTOTYPES_BEGIN
 
@@ -81,21 +82,31 @@ fd_account_is_owned_by_current_program( fd_instr_info_t const *   info,
 }
 
 static inline int
-fd_account_can_data_be_resized( fd_instr_info_t const *   instr,
-                                fd_account_meta_t const * acct,
-                                ulong                     new_length,
-                                int *                     err ) {
+fd_account_can_data_be_resized( fd_exec_instr_ctx_t const * instr_ctx,
+                                fd_account_meta_t const *   acct,
+                                ulong                       new_length,
+                                int *                       err ) {
+  
 
-  if( FD_UNLIKELY( ( acct->dlen != new_length ) &
-                   ( !fd_account_is_owned_by_current_program( instr, acct ) ) ) ) {
+  if( FD_UNLIKELY( ( acct->dlen!=new_length ) &&
+                   ( !fd_account_is_owned_by_current_program( instr_ctx->instr, acct ) ) ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED;
     return 0;
   }
 
-  if( FD_UNLIKELY( new_length > FD_ACC_SZ_MAX ) ) {
+  if( FD_UNLIKELY( new_length>FD_ACC_SZ_MAX ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
     return 0;
   }
+
+  fd_exec_txn_ctx_t * txn_ctx = instr_ctx->txn_ctx;
+  ulong length_delta = fd_ulong_sat_sub( new_length, acct->dlen );
+  txn_ctx->accounts_resize_delta = fd_ulong_sat_sub( txn_ctx->accounts_resize_delta, length_delta );
+  if (txn_ctx->accounts_resize_delta > MAX_PERMITTED_ACCOUNTS_DATA_ALLOCATIONS_PER_TRANSACTION) {
+    *err = FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_SIZE_EXCEEDED;
+    return 0;
+  }
+ 
 
   *err = FD_EXECUTOR_INSTR_SUCCESS;
   return 1;
@@ -131,10 +142,12 @@ fd_account_can_data_be_changed( fd_instr_info_t const * instr,
 FD_FN_PURE static inline int
 fd_account_is_zeroed( fd_account_meta_t const * acct ) {
   // TODO optimize this...
-  uchar const * data = ((uchar *) acct) + acct->hlen;
-  for( ulong i=0UL; i < acct->dlen; i++ )
-    if( data[i] != 0 )
+  FD_LOG_NOTICE(("hlen %u", (uint)acct->hlen));
+  uchar const * data = (uchar *)acct + acct->hlen;
+  for( ulong i=0UL; i<acct->dlen; i++ )
+    if( data[i] != 0 ) {
       return 0;
+    }
   return 1;
 }
 

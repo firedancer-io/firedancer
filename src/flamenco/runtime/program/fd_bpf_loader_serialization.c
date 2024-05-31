@@ -210,141 +210,130 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
                                          ulong const *       pre_lens,
                                          uchar *             buffer,
                                          ulong               buffer_sz ) {
-  // TODO!! important!! somebody needs to be calling can_data_be_changed!!
-  FD_LOG_NOTICE(("DESERIALIZING %lu", ctx.instr->acct_cnt));
+  uchar * start_cursor = buffer;
 
-  ulong start = 0;
-
-  uchar acc_idx_seen[ 256UL ];
+  /* Used to track duplicate state */
+  uchar acc_idx_seen[ 256 ];
   memset( acc_idx_seen, 0, sizeof(acc_idx_seen) );
 
-  /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L507-L511 */
-  start += sizeof(ulong); /* number of accounts */
-  for( ulong i=0UL; i<ctx.instr->acct_cnt; ++i ) {
-    FD_LOG_NOTICE(("iter iter %lu", pre_lens[i]));
-    /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L512-L517 */
-    ++start; /* position */
-    if( acc_idx_seen[ i ] ) {
-      start += 7UL; /* padding to 64-bit aligned */
-    
-    /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L517-L600 */
-    } else {
-      /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L518-L524 */
-      fd_borrowed_account_t * borrowed_account_view = NULL;
-      int err = fd_instr_borrowed_account_view_idx( &ctx, i, &borrowed_account_view );
-      if( FD_UNLIKELY( err ) ) {
-        FD_LOG_NOTICE(("FAIL HERE"));
-        fd_valloc_free( ctx.valloc, buffer );
-        return err;
-      }
+  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
+  fd_pubkey_t * txn_accs       = ctx.txn_ctx->accounts;
 
-      start += sizeof(uchar      ) + /* is_signer*/
-               sizeof(uchar      ) + /* is_writable*/
-               sizeof(uchar      ) + /* executable*/
-               sizeof(uint       ) + /* original_data-len*/
-               sizeof(fd_pubkey_t);  /* key */
-            
-      /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L525-L528 */
-      if( FD_UNLIKELY( start+sizeof(fd_pubkey_t)>buffer_sz ) ) {
-        FD_LOG_NOTICE(("FAIL HERE"));
-        fd_valloc_free( ctx.valloc, buffer );
+  start_cursor += sizeof(ulong);
+  /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L508-L602 */
+  for( ulong i=0; i<ctx.instr->acct_cnt; i++ ) {
+    uchar acc_idx     = instr_acc_idxs[ i ];
+    fd_pubkey_t * acc = &txn_accs[ instr_acc_idxs[ i ] ];
+
+    start_cursor++;
+    fd_borrowed_account_t * view_acc = NULL;
+    int view_err = fd_instr_borrowed_account_view( &ctx, acc, &view_acc );
+    /* Due to differences in how borrowed accounts are handled across the
+       different clients the non-duplicate case must be handled differently.
+       If an account is not writable or a sysvar then we don't do any reading
+       as those accounts could not have changed in the program execution. */
+    /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L515-L516 */
+    if( FD_UNLIKELY( acc_idx_seen[ acc_idx ] ) ) {
+      start_cursor += 7;
+    } else if( fd_instr_acc_is_writable_idx( ctx.instr, (uchar)i ) && !fd_pubkey_is_sysvar_id( acc ) ) {
+      if( view_err ) {
+        FD_LOG_NOTICE(("VIEW ERR %d", view_err));
+      }
+      acc_idx_seen[ acc_idx ] = 1;
+      start_cursor += sizeof(uchar)        // is_signer
+                    + sizeof(uchar)        // is_writable
+                    + sizeof(uchar)        // executable
+                    + sizeof(uint)         // original_data_len
+                    + sizeof(fd_pubkey_t); // key
+
+      if( FD_UNLIKELY( start_cursor+sizeof(fd_pubkey_t)>buffer+buffer_sz ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
-      fd_pubkey_t * owner = (fd_pubkey_t *)(buffer + start);
-      start += sizeof(fd_pubkey_t); /* owner */
+      fd_pubkey_t * owner = (fd_pubkey_t *)start_cursor;
+      start_cursor += sizeof(fd_pubkey_t);
 
-      /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L529-L537 */
-      if( FD_UNLIKELY( start+sizeof(ulong)>buffer_sz ) ) {
-        FD_LOG_NOTICE(("FAIL HERE"));
-        fd_valloc_free( ctx.valloc, buffer );
+      if( FD_UNLIKELY( start_cursor+sizeof(ulong)>buffer+buffer_sz ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
-      ulong lamports = FD_LOAD( ulong, buffer+start );
-      /* Note: we update the borrowed_account lamports after we get a modifiable borrowed account */
-      start += sizeof(ulong); /* lamports */
+      ulong lamports = FD_LOAD(ulong, start_cursor);
+      start_cursor += sizeof(ulong);
+      /* The lamports are updated after a modifiable borrowed account has been created */
 
-      if( borrowed_account_view->const_meta==NULL ) {
-        FD_LOG_WARNING(("IS NULL HERE"));
-      }
-
-      /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L538-L548 */
-      if( FD_UNLIKELY( start+sizeof(ulong)>buffer_sz ) ) {
-        FD_LOG_NOTICE(("FAIL HERE"));
-        fd_valloc_free( ctx.valloc, buffer );
+      if( FD_UNLIKELY( start_cursor+sizeof(ulong)>buffer+buffer_sz ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
-      ulong post_len = FD_LOAD( ulong, buffer+start );
-      start += sizeof(ulong); /* data length */
-      FD_LOG_NOTICE(("POST PRE %lu %lu %lu", post_len, borrowed_account_view->const_meta->dlen, MAX_PERMITTED_DATA_LENGTH));
-      if( FD_UNLIKELY( fd_ulong_sat_sub( post_len, pre_lens[ i ] ) > MAX_PERMITTED_DATA_LENGTH ||
-                       post_len > MAX_PERMITTED_DATA_LENGTH ) ) {
-        FD_LOG_NOTICE(("FAILING %32J", borrowed_account_view->pubkey));
-        fd_valloc_free( ctx.valloc, buffer );
+      ulong post_len = FD_LOAD(ulong, start_cursor);
+      start_cursor += sizeof(ulong);
+
+      uchar * post_data = start_cursor;
+
+      ulong acc_sz = post_len;
+
+      if ( FD_UNLIKELY( fd_ulong_sat_sub( post_len, view_acc->const_meta->dlen ) > MAX_PERMITTED_DATA_INCREASE || 
+                        post_len > MAX_PERMITTED_DATA_LENGTH ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
       }
 
-      /* TODO: implement direct_mapping enabled case ( copy_account_data==false ) */
-      /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L549-L563 */
-      ulong alignment_offset = fd_ulong_align_up( pre_lens[ i ], BPF_ALIGN_OF_U128 ) - pre_lens[ i ];
-      /* if copy_account_data {*/
-      if( FD_UNLIKELY( start+post_len>buffer_sz ) ) {
-        FD_LOG_NOTICE(("FAIL HERE"));
-        fd_valloc_free( ctx.valloc, buffer );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      fd_borrowed_account_t * modify_acc = NULL;
+      int modify_err = fd_instr_borrowed_account_modify( &ctx, acc, acc_sz, &modify_acc );
+      if( FD_UNLIKELY( modify_err != FD_ACC_MGR_SUCCESS ) ) {
+        return modify_err;
       }
 
-      uchar * data_const = borrowed_account_view->data + borrowed_account_view->const_meta->hlen;
+      ulong pre_len = pre_lens[ i ];
 
-      if( FD_LIKELY( fd_account_can_data_be_resized( ctx.instr, borrowed_account_view->const_meta, post_len, &err ) &&
-                     fd_account_can_data_be_changed( ctx.instr, i, &err ) ) ) {
-      /* At this point we can borrow a modifiable borrowed account because we know it's size */
-      fd_borrowed_account_t * borrowed_account_modify = NULL;
-      err = fd_instr_borrowed_account_modify_idx( &ctx, i, post_len, &borrowed_account_modify );
-      if( FD_UNLIKELY( err ) ) {
-        FD_LOG_NOTICE(("FAIL HERE"));
+      start_cursor += fd_ulong_align_up( pre_len, BPF_ALIGN_OF_U128 );
+
+      uchar * acc_data = fd_account_get_data( modify_acc->meta );
+
+      int err;
+      if( fd_account_can_data_be_resized( &ctx, modify_acc->meta, post_len, &err ) &&
+          fd_account_can_data_be_changed( ctx.instr, i, &err ) ) {
+        modify_acc->meta->dlen = post_len;
+        fd_memcpy( acc_data, post_data, post_len );
+      } else if( modify_acc->meta->dlen != post_len || memcmp( acc_data, post_data, post_len ) ) {
         fd_valloc_free( ctx.valloc, buffer );
         return err;
       }
 
-      /* Handle the lamports from above */
-      if( borrowed_account_modify->const_meta->info.lamports!=lamports ) {
-        err = fd_account_set_lamports( &ctx, i, lamports );
+      // Update slot so that it gets hashed
+      modify_acc->meta->slot = ctx.slot_ctx->slot_bank.slot;
+
+      start_cursor += MAX_PERMITTED_DATA_INCREASE;
+      start_cursor += sizeof(ulong);
+
+      modify_acc->meta->info.lamports = lamports;
+      if( memcmp( modify_acc->meta->info.owner, owner, sizeof(fd_pubkey_t) ) ) {
+        int err = fd_account_set_owner( &ctx, i, owner );
         if( FD_UNLIKELY( err ) ) {
-          FD_LOG_NOTICE(("FAIL HERE"));
-          fd_valloc_free( ctx.valloc, buffer );
           return err;
         }
       }
 
-        borrowed_account_modify->meta->dlen = post_len;
-        borrowed_account_modify->meta->slot = ctx.txn_ctx->slot_ctx->slot_bank.slot;
-        uchar * data = fd_account_get_data( borrowed_account_modify->meta );
+    } else {
+      acc_idx_seen[ acc_idx ] = 1;
+      // Account is not writable, skip over
+      start_cursor += sizeof(uchar)         // is_signer
+                    + sizeof(uchar)         // is_writable
+                    + sizeof(uchar)         // executable
+                    + sizeof(uint)          // original_data_len
+                    + sizeof(fd_pubkey_t);  // key
+      start_cursor += sizeof(fd_pubkey_t);  // owner
+      start_cursor += sizeof(ulong);        // lamports
+      start_cursor += sizeof(ulong);        // data_len
 
-        fd_memcpy( data, buffer+start, post_len );
-        start += pre_lens[ i ];
-      } else if( borrowed_account_view->data &&
-                ( borrowed_account_view->const_meta->dlen != post_len || 
-                  memcmp( data_const, buffer+start, post_len ) ) ) {
-        FD_LOG_NOTICE(("FAIL HERE"));
-        fd_valloc_free( ctx.valloc, buffer );
-        return err;
+      fd_account_meta_t const * metadata = view_acc->const_meta;
+
+      if( view_err == FD_ACC_MGR_SUCCESS ) {
+        start_cursor += fd_ulong_align_up( metadata->dlen, BPF_ALIGN_OF_U128 );
       }
-      /* } copy_account_data end */
-      start += MAX_PERMITTED_DATA_INCREASE;
-      start += alignment_offset;
-      start += sizeof(ulong); /* rent_epoch */
-      if( memcmp( borrowed_account_view->const_meta->info.owner, owner, sizeof(fd_pubkey_t) ) ) {
-        err = fd_account_set_owner( &ctx, i, owner );
-        if( FD_UNLIKELY( err ) ) {
-          fd_valloc_free( ctx.valloc, buffer );
-          FD_LOG_NOTICE(("FAIL HERE owner check"));
-          return err;
-        }
-      }
+      start_cursor += MAX_PERMITTED_DATA_INCREASE;
+      start_cursor += sizeof(ulong);
     }
   }
-  /* TODO: Put these everything */
-  fd_valloc_free( ctx.valloc, buffer );
+
+  FD_TEST( start_cursor <= buffer + buffer_sz );
+
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
