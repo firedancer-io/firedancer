@@ -32,7 +32,7 @@ fd_sbpf_loader_seterr( int err,
 
 #define ERR( err ) return fd_sbpf_loader_seterr( (err), __LINE__ )
 #define FAIL()  ERR( FD_SBPF_ERR_INVALID_ELF )
-#define REQUIRE(x) if( FD_UNLIKELY( !(x) ) ) FAIL()
+#define REQUIRE(x) do { if ( FD_UNLIKELY( !(x) ) ) FAIL(); } while (0)
 
 char const *
 fd_sbpf_strerror( void ) {
