@@ -104,6 +104,10 @@ message InstrEffects {
         [(nanopb).type = FT_POINTER];
 
     uint64 cu_avail = 4;
+
+    // Instruction return data.
+    bytes return_data = 5
+        [(nanopb).type = FT_POINTER];
 }
 
 // An instruction processing test fixture.
