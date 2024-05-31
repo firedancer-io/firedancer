@@ -184,7 +184,7 @@ write_program_data( fd_borrowed_account_t * program,
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
 
-  if( FD_UNLIKELY( program_data_offset>=program->meta->dlen ) ) {
+  if( FD_UNLIKELY( program_data_offset>program->meta->dlen ) ) {
     FD_LOG_WARNING(( "Write offset out of bounds" ));
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
@@ -374,8 +374,6 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L566-L1444 */
 int
 process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
-  FD_LOG_WARNING(("Processing loader upgradeable instruction"));
-
   uchar const * data = instr_ctx->instr->data;
 
   fd_bpf_upgradeable_loader_program_instruction_t instruction = {0};
@@ -432,7 +430,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     }
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L494-L525 */
   } else if ( fd_bpf_upgradeable_loader_program_instruction_is_write( &instruction ) ) {
-    if( FD_UNLIKELY( instr_ctx->instr->acct_cnt<2 ) ) {
+    if( FD_UNLIKELY( instr_ctx->instr->acct_cnt<2U ) ) {
       FD_LOG_WARNING(( "Not enough account keys for instruction" ));
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
@@ -479,7 +477,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     }
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L526-L702 */
   } else if( fd_bpf_upgradeable_loader_program_instruction_is_deploy_with_max_data_len( &instruction ) ) {
-    FD_LOG_WARNING(("IS DEPLOY IS DEPLOY"));
     /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L527-L541 */
     if( instr_ctx->instr->acct_cnt<4U ) {
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
@@ -657,7 +654,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L644-L665 */
     /* Load and verify the program bits */
-    if( FD_UNLIKELY( buffer_data_offset>=buffer->meta->dlen ) ) {
+    if( FD_UNLIKELY( buffer_data_offset>buffer->meta->dlen ) ) {
       FD_LOG_WARNING(( "Buffer data offset is out of bounds" ));
       return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     }
@@ -694,11 +691,12 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       return err;
     }
     /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L675-L689 */
-    if( FD_UNLIKELY( PROGRAMDATA_METADATA_SIZE+buffer_data_len>=programdata->meta->dlen ) ) {
-      FD_LOG_WARNING(( "ProgramData account too small" ));
+    if( FD_UNLIKELY( PROGRAMDATA_METADATA_SIZE+buffer_data_len>programdata->meta->dlen ) ) {
+      uchar * sig = (uchar *)instr_ctx->txn_ctx->_txn_raw->raw + instr_ctx->txn_ctx->txn_descriptor->signature_off;
+      FD_LOG_WARNING(( "ProgramData account too small %32J %lu %lu", sig, buffer_data_len, programdata->meta->dlen ));
       return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     }
-    if( FD_UNLIKELY( buffer_data_offset>=buffer->meta->dlen ) ) {
+    if( FD_UNLIKELY( buffer_data_offset>buffer->meta->dlen ) ) {
       FD_LOG_WARNING(( "Buffer account too small" ));
       return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     }
@@ -731,7 +729,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       return err;
     }
   } else if( fd_bpf_upgradeable_loader_program_instruction_is_upgrade( &instruction ) ) {
-    FD_LOG_NOTICE(("init upgrade"));
     /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L704-L714 */
     if( FD_UNLIKELY( instr_ctx->instr->acct_cnt<3U ) ) {
       FD_LOG_WARNING(( "Not enough account keys for instruction" ));
@@ -885,7 +882,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L825-L845 */
     /* Load and verify the program bits */
     ulong programdata_size = fd_ulong_sat_add( SIZE_OF_PROGRAM, programdata_len );
-    if( FD_UNLIKELY( buffer_data_offset>=buffer->meta->dlen ) ) {
+    if( FD_UNLIKELY( buffer_data_offset>buffer->meta->dlen ) ) {
       FD_LOG_WARNING(( "Buffer data offset is out of bounds" ));
       return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     }
@@ -908,11 +905,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L846-L875 */
     /* We want to copy over the data and zero out the rest */
-    if( FD_UNLIKELY( programdata_data_offset+buffer_data_len >= programdata->meta->dlen ) ) { 
+    if( FD_UNLIKELY( programdata_data_offset+buffer_data_len>programdata->meta->dlen ) ) { 
       FD_LOG_WARNING(( "ProgramData account too small" ));
       return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     }
-    if( FD_UNLIKELY( buffer_data_offset>=buffer->meta->dlen ) ){
+    if( FD_UNLIKELY( buffer_data_offset>buffer->meta->dlen ) ){
       FD_LOG_WARNING(( "Buffer account too small" ));
       return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     }
