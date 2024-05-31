@@ -45,7 +45,7 @@ fd_printf_specifier_base58_arginfo( struct printf_info const * info __attribute_
   return 1;
 }
 
-# if FD_HAS_INT128
+#if FD_HAS_INT128
 
 static int
 fd_printf_specifier_uint128( FILE *                     stream,
