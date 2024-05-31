@@ -700,6 +700,17 @@ _diff_effects( fd_exec_instr_fixture_diff_t * check ) {
       _unexpected_acct_modify_locally( check, acct );
   }
 
+  /* Check return data */
+  if (expected->return_data->size != ctx->txn_ctx->return_data.len) {
+    check->has_diff = 1;
+    REPORTV( WARNING, "expected return data size %lu, got %lu",
+             (ulong) expected->return_data->size, ctx->txn_ctx->return_data.len );
+  }
+  else if (expected->return_data->size > 0 ) {
+    check->has_diff = memcmp( expected->return_data->bytes, ctx->txn_ctx->return_data.data, expected->return_data->size );
+    REPORT( WARNING, "return data mismatch" );
+  }
+
   /* TODO: Capture account side effects outside of the access list by
            looking at the funk record delta (technically a scheduling
            violation) */
