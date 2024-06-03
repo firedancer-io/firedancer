@@ -1018,9 +1018,16 @@ publish_tick( fd_poh_ctx_t *     ctx,
 
   FD_TEST( ctx->last_slot>=ctx->reset_slot );
   fd_entry_batch_meta_t * meta = (fd_entry_batch_meta_t *)dst;
-  meta->parent_offset = 1UL + ctx->last_slot - ctx->reset_slot;
-  meta->reference_tick = hashcnt/ctx->hashcnt_per_tick;
-  meta->block_complete = hashcnt==ctx->hashcnt_per_slot;
+  meta->parent_offset = 1UL+ctx->slot-ctx->reset_slot;
+  if( FD_UNLIKELY( ctx->last_slot!=ctx->slot ) ) {
+    /* We are publishing ticks for a skipped slot, the reference tick
+       and block complete flags should always be zero. */
+    meta->reference_tick = 0UL;
+    meta->block_complete = 0;
+  } else {
+    meta->reference_tick = hashcnt/ctx->hashcnt_per_tick;
+    meta->block_complete = hashcnt==ctx->hashcnt_per_slot;
+  }
 
   FD_TEST( hashcnt>ctx->last_hashcnt );
   ulong hash_delta = hashcnt-ctx->last_hashcnt;
@@ -1033,7 +1040,7 @@ publish_tick( fd_poh_ctx_t *     ctx,
 
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sz = sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t);
-  ulong sig = fd_disco_poh_sig( ctx->last_slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
+  ulong sig = fd_disco_poh_sig( ctx->slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
   fd_mux_publish( mux, sig, ctx->shred_out_chunk, sz, 0UL, 0UL, tspub );
   ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sz, ctx->shred_out_chunk0, ctx->shred_out_wmark );
 
