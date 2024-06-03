@@ -62,9 +62,8 @@ efficient pipeline for processing transactions.
 ::: warning WARNING
 
 Each tile needs a dedicated CPU core and it will be saturated at 100%
-utilization The Solana Labs process will run on the remaining cores,
-and you must leave at least a few cores unpinned so that it is not
-starved.
+utilization. The Agave process will run on the cores under the
+`solana_labs_affinity` and this should not overlap with tile cores. 
 
 :::
 
@@ -80,10 +79,10 @@ should be started.
     bank_tile_count = 4
 ```
 
-By default Firedancer has set the count of each tile so that the system
-can handle transactions from a 25GiB NIC at line rate. Except for the
-warning noted above, it is suggested to run as many tiles as possible
-so that the Solana network can run faster.
+It is suggested to run as many tiles as possible and tune the tile
+counts for maximum system throughput so that the Solana network can run
+faster.  There are some example tuned configurations in the
+`src/app/fdctl/config/` folder to work from.
 
 ## Ledger
 By default, Firedancer stores the ledger in a scratch directory, defined
