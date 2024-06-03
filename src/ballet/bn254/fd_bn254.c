@@ -91,18 +91,19 @@ fd_bn254_g2_compress( uchar       out[64],
     return NULL;
   }
   int is_inf = fd_bn254_g2_is_zero( p );
-  int is_neg = fd_bn254_fp2_is_neg_nm( &p->Y );
 
   /* Serialize compressed point */
 
   if( FD_UNLIKELY( is_inf ) ) {
     fd_memset( out, 0, 64 );
-    /* no flags */
+    /* The infinity flag in the result is set iff the infinity flag is set in the Y coordinate */
+    out[0] |= ( in[64] & FLAG_INF );
     return out;
   }
 
   /* Serialize x coordinate. The flags are on the 2nd element.
      https://github.com/arkworks-rs/algebra/blob/v0.4.2/ff/src/fields/models/quadratic_extension.rs#L700-L702 */
+  int is_neg = fd_bn254_fp2_is_neg_nm( &p->Y );
   fd_memcpy( out, in, 64 );
   if( is_neg ) {
     out[0] |= FLAG_NEG;
@@ -113,6 +114,12 @@ fd_bn254_g2_compress( uchar       out[64],
 uchar *
 fd_bn254_g2_decompress( uchar       out[128],
                         uchar const in  [64] ) {
+  /* Special case: all zeros in => all zeros out, no flags */
+  const uchar zero[64] = { 0 };
+  if( fd_memeq( in, zero, 64 ) ) {
+    return fd_memset( out, 0, 128UL );
+  }
+
   fd_bn254_fp2_t x[1], x2[1], x3_plus_b[1], y[1];
   int is_inf, is_neg;
   if( FD_UNLIKELY( !fd_bn254_fp2_frombytes_be_nm( x, in, &is_inf, &is_neg ) ) ) {

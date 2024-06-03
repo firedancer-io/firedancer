@@ -53,7 +53,7 @@ const fd_bn254_fp_t fd_bn254_const_p_minus_one_half[1] = {{{
   0x9e10460b6c3e7ea3, 0xcbc0b548b438e546, 0xdc2822db40c0ac2e, 0x183227397098d014,
 }}};
 
-/* const (p-3)/4, used to calculate sqrt() in Fp. bigint (NOT Montgomery)
+/* const (p-3)/4, used to calculate sqrt() in Fp and Fp2. bigint (NOT Montgomery)
    0x0c19139cb84c680a6e14116da060561765e05aa45a1c72a34f082305b61f3f51 */
 const fd_uint256_t fd_bn254_const_sqrt_exp[1] = {{{
   0x4f082305b61f3f51, 0x65e05aa45a1c72a3, 0x6e14116da0605617, 0x0c19139cb84c680a,
@@ -124,6 +124,9 @@ fd_bn254_fp_to_mont( fd_bn254_fp_t * r,
 static inline fd_bn254_fp_t *
 fd_bn254_fp_neg_nm( fd_bn254_fp_t * r,
                     fd_bn254_fp_t const * a ) {
+  if( FD_UNLIKELY( fd_bn254_fp_is_zero( a ) ) ) {
+    return fd_bn254_fp_set_zero( r );
+  }
   /* compute p-a */
   for( ulong i=0, cy=0; i<4; i++ ) {
     ulong p = fd_bn254_const_p->limbs[i];
