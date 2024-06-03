@@ -145,27 +145,33 @@ deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
   }
 
-  /* Verify the program */
-  fd_vm_exec_context_t vm_ctx = {
-    .entrypoint          = (long)prog->entry_pc,
-    .program_counter     = 0UL,
-    .instruction_counter = 0UL,
-    .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( prog->text ),
-    .instrs_sz           = prog->text_cnt,
-    .instrs_offset       = prog->text_off,
-    .syscall_map         = syscalls,
-    .calldests           = prog->calldests,
-    .input               = NULL,
-    .input_sz            = 0UL,
-    .read_only           = (uchar *)fd_type_pun_const( prog->rodata ),
-    .read_only_sz        = prog->rodata_sz,
-    .heap_sz             = instr_ctx->txn_ctx->heap_size,
-    /* TODO: configure heap allocator */
-    .instr_ctx           = instr_ctx,
-  };
+  /* Validate the program */
+  fd_vm_t _vm[1];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
 
-  ulong validate_result = fd_vm_context_validate( &vm_ctx );
-  if( FD_UNLIKELY( validate_result!=FD_VM_SBPF_VALIDATE_SUCCESS ) ) {
+  vm = fd_vm_init(
+    /* vm        */ vm,
+    /* instr_ctx */ instr_ctx,
+    /* heap_max  */ instr_ctx->txn_ctx->heap_size,
+    /* entry_cu  */ instr_ctx->txn_ctx->compute_meter,
+    /* rodata    */ prog->rodata,
+    /* rodata_sz */ prog->rodata_sz,
+    /* text      */ prog->text,
+    /* text_cnt  */ prog->text_cnt,
+    /* text_off  */ prog->text_off, /* FIXME: What if text_off is not multiple of 8 */
+    /* entry_pc  */ prog->entry_pc,
+    /* calldests */ prog->calldests,
+    /* syscalls  */ syscalls,
+    /* input     */ NULL,
+    /* input_sz  */ 0,
+    /* trace     */ NULL,
+    /* sha       */ NULL);
+  if ( FD_UNLIKELY( vm == NULL ) ) {
+    FD_LOG_ERR(( "NULL vm" ));
+  }
+
+  int validate_result = fd_vm_validate( vm );
+  if( FD_UNLIKELY( validate_result!=FD_VM_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -315,50 +321,70 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+
+  fd_vm_t _vm[1];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+
   /* TODO: (topointon): correctly set check_align and check_size in vm setup */
-  fd_vm_exec_context_t vm_ctx = {
-    .entrypoint          = (long)prog->entry_pc,
-    .program_counter     = 0UL,
-    .instruction_counter = 0UL,
-    .compute_meter       = instr_ctx->txn_ctx->compute_meter,
-    .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( fd_sbpf_validated_program_rodata( prog ) + ( prog->text_off ) ),
-    .instrs_sz           = prog->text_cnt,
-    .instrs_offset       = prog->text_off,
-    .syscall_map         = syscalls,
-    .calldests           = prog->calldests,
-    .input               = input,
-    .input_sz            = input_sz,
-    .read_only           = fd_sbpf_validated_program_rodata( prog ),
-    .read_only_sz        = prog->rodata_sz,
-    /* TODO: configure heap allocator */
-    .instr_ctx           = instr_ctx,
-    .heap_sz = instr_ctx->txn_ctx->heap_size,
-    .due_insn_cnt = 0,
-    .previous_instruction_meter = instr_ctx->txn_ctx->compute_meter,
-    .alloc               = { .offset = 0UL }
-  };
-
-  memset( vm_ctx.register_file, 0, sizeof(vm_ctx.register_file) );
-  vm_ctx.register_file[1] = FD_VM_MEM_MAP_INPUT_REGION_START;
-  vm_ctx.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
-
-  ulong interp_res = fd_vm_interp_instrs( &vm_ctx );
-  if( FD_UNLIKELY( interp_res!=0UL ) ) {
-    FD_LOG_ERR(( "fd_vm_interp_instrs() failed: %lu", interp_res ));
+  vm = fd_vm_init(
+    /* vm        */ vm,
+    /* instr_ctx */ instr_ctx,
+    /* heap_max  */ instr_ctx->txn_ctx->heap_size, /* TODO configure heap allocator */
+    /* entry_cu  */ instr_ctx->txn_ctx->compute_meter,
+    /* rodata    */ fd_sbpf_validated_program_rodata( prog ),
+    /* rodata_sz */ prog->rodata_sz,
+    /* text      */ (ulong *)((ulong)fd_sbpf_validated_program_rodata( prog ) + (ulong)prog->text_off), /* Note: text_off is byte offset */
+    /* text_cnt  */ prog->text_cnt,
+    /* text_off  */ prog->text_off,
+    /* entry_pc  */ prog->entry_pc,
+    /* calldests */ prog->calldests,
+    /* syscalls  */ syscalls,
+    /* input     */ input,
+    /* input_sz  */ input_sz,
+    /* trace     */ NULL,
+    /* sha       */ sha);
+  if ( FD_UNLIKELY( vm == NULL ) ) {
+    FD_LOG_ERR(( "null vm" )); 
   }
 
-  /* TODO: Add log for "Program consumed {} of {} compute units "*/
+#ifdef FD_DEBUG_SBPF_TRACES
+  uchar * signature = (uchar*)vm->instr_ctx->txn_ctx->_txn_raw->raw + vm->instr_ctx->txn_ctx->txn_descriptor->signature_off;
+  uchar sig[64];
+  /* TODO (topointon): make this run-time configurable, no need for this ifdef */
+  fd_base58_decode_64( "LKBxtETTpyVDbW1kT5fFucSpmdPoXfKW8QUxdzE8ggwCaXayByPbceQA6KwqGy2WNh89aAG3r2Qjm9VNY9FPtw9", sig );
+  if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
+    ulong event_max = 1UL<<30;
+    ulong event_data_max = 2048UL;
+    vm->trace = fd_vm_trace_join( fd_vm_trace_new( fd_valloc_malloc(
+    instr_ctx->txn_ctx->valloc, fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max ) );
+    if( FD_UNLIKELY( !vm->trace ) ) FD_LOG_ERR(( "unable to create trace" ));
+  }
+#endif
 
-  instr_ctx->txn_ctx->compute_meter = vm_ctx.compute_meter;
+  int exec_err = fd_vm_exec( vm );
 
-  /* TODO: vm should report */
-  if( vm_ctx.register_file[0]!=0 ) {
+  if( FD_UNLIKELY( vm->trace ) ) {
+    int err = fd_vm_trace_printf( vm->trace, vm->syscalls );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "fd_vm_trace_printf failed (%i-%s)", err, fd_vm_strerror( err ) ));
+    }
+    fd_valloc_free( instr_ctx->txn_ctx->valloc, fd_vm_trace_delete( fd_vm_trace_leave( vm->trace ) ) );
+  }
+
+  if( FD_UNLIKELY( exec_err!=FD_VM_SUCCESS ) ) {
     fd_valloc_free( instr_ctx->valloc, input );
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
 
+  /* TODO: Add log for "Program consumed {} of {} compute units "*/
+
+  instr_ctx->txn_ctx->compute_meter = vm->cu;
+
   /* TODO: vm should report */
-  if( vm_ctx.cond_fault ) {
+  if( FD_UNLIKELY( vm->reg[0] ) ) {
+    //TODO: vm should report this error
     fd_valloc_free( instr_ctx->valloc, input );
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;;
   }
