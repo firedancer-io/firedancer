@@ -277,9 +277,11 @@ if (memcmp(signature, sig, 64) == 0) {
   }
 
   if (FD_UNLIKELY(memcmp(metadata->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t)) == 0)) {
-    fd_bpf_loader_input_deserialize_unaligned(ctx, pre_lens, input, input_sz);
+    if(fd_bpf_loader_input_deserialize_unaligned(ctx, pre_lens, input, input_sz))
+      return -1;
   } else {
-    fd_bpf_loader_input_deserialize_aligned(ctx, pre_lens, input, input_sz);
+    if(fd_bpf_loader_input_deserialize_aligned(ctx, pre_lens, input, input_sz))
+      return -1;
   }
 
   return 0;

@@ -44,6 +44,7 @@ fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
+/* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L740-L767 */
 int
 fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
                       ulong                       instr_acc_idx,
@@ -59,18 +60,18 @@ fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
 
   fd_account_meta_t const * meta = account->const_meta;
 
-  if( !fd_account_is_owned_by_current_program( instr, meta ) )
+  if( !fd_account_is_owned_by_current_program( instr, meta ) ) {
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-  if( !fd_instr_acc_is_writable_idx( instr, instr_acc_idx ) )
+  }
+  if( !fd_instr_acc_is_writable_idx( instr, instr_acc_idx ) ) {
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-  if( fd_account_is_executable( meta ) )
+  }
+  if( fd_account_is_executable( meta ) ) {
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-  if( !fd_account_is_zeroed( meta ) )
+  }
+  if( !fd_account_is_zeroed( meta ) ) {
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-  if( 0==memcmp( meta->info.owner, owner, sizeof(fd_pubkey_t) ) )
-    return FD_EXECUTOR_INSTR_SUCCESS;
-  if( 0!=memcmp( meta->info.owner, fd_solana_system_program_id.key, sizeof(fd_pubkey_t) ) )
-    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
 
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, 0UL, &account );

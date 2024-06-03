@@ -271,19 +271,11 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
 
       ulong acc_sz = post_data_len;
 
-      // fd_borrowed_account_t * view_acc = NULL;
-      // int view_err = fd_instr_borrowed_account_view(&ctx, acc, &view_acc);
-
       if (FD_LIKELY(view_acc->const_meta != NULL)) {
         fd_account_meta_t const * metadata_check = view_acc->const_meta;
         if ( fd_ulong_sat_sub( post_data_len, metadata_check->dlen ) > MAX_PERMITTED_DATA_INCREASE || post_data_len > MAX_PERMITTED_DATA_LENGTH ) {
-          fd_valloc_free( ctx.valloc, input ); // FIXME: need to return an invalid realloc error
           return -1;
         }
-
-        char pkey[100];
-        fd_base58_encode_32((uchar *)acc , NULL, pkey );
-
 
         fd_borrowed_account_t * modify_acc = NULL;
         int modify_err = fd_instr_borrowed_account_modify(&ctx, acc, acc_sz, &modify_acc);
@@ -302,7 +294,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
         int err1;
         int err2;
         if (fd_account_can_data_be_resized(ctx.instr, metadata, post_data_len, &err1)
-          && fd_account_can_data_be_changed2(&ctx, metadata, acc, &err2)) {
+          && fd_account_can_data_be_changed(ctx.instr, i, &err2)) {
           metadata->dlen = post_data_len;
           fd_memcpy( acc_data, post_data, post_data_len );
         } else if (metadata->dlen != post_data_len || memcmp(acc_data, post_data, post_data_len) != 0) {
@@ -312,10 +304,9 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
         }
 
         metadata->info.lamports = lamports;
-        // if (memcmp(metadata->info.owner, owner, sizeof(fd_pubkey_t)) != 0) {
-        //   fd_account_set_owner(&ctx, metadata, acc, owner);
-        // }
-        fd_memcpy(metadata->info.owner, owner, sizeof(fd_pubkey_t));
+        if( memcmp( metadata->info.owner, owner, sizeof(fd_pubkey_t) ) != 0 ) {
+          fd_account_set_owner( &ctx, i, owner );
+        }
 
         // add to dirty list
         metadata->slot = ctx.slot_ctx->slot_bank.slot;
