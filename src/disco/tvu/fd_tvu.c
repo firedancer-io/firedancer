@@ -459,9 +459,6 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
   if( fd_gossip_update_tvu_addr( runtime_ctx->gossip, tvu_addr, tvu_fwd_addr ) )
     FD_LOG_ERR( ( "error setting gossip tvu" ) );
 
-  if( runtime_args->tcnt < 3 )
-    FD_LOG_ERR(( "tcnt parameter must be >= 3 in live case" ));
-
   /* FIXME: replace with real tile */
   struct fd_turbine_thread_args ttarg =
     { .tvu_fd = tvu_fd, .replay = replay };
@@ -482,18 +479,6 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
   tile = fd_tile_exec_new( 3, fd_gossip_thread, 0, fd_type_pun( &gosarg ) );
   if( tile == NULL )
     FD_LOG_ERR( ( "error creating repair thread" ) );
-
-  fd_tpool_t * tpool = NULL;
-  if( runtime_args->tcnt > 3 ) {
-    tpool = fd_tpool_init( runtime_ctx->tpool_mem, runtime_args->tcnt - 3 );
-    if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
-    for( ulong i = 4; i < runtime_args->tcnt; ++i ) {
-      if( fd_tpool_worker_push( tpool, i, NULL, fd_scratch_smem_footprint( 256UL<<20UL ) ) == NULL )
-        FD_LOG_ERR( ( "failed to launch worker" ) );
-    }
-  }
-  replay->tpool       = runtime_ctx->tpool       = tpool;
-  replay->max_workers = runtime_ctx->max_workers = runtime_args->tcnt-3;
 
   if( runtime_ctx->need_incr_snap ) {
     /* Wait for first turbine packet before grabbing the incremental snapshot */
@@ -743,6 +728,7 @@ void funk_setup( fd_wksp_t *  wksp,
   }
 }
 
+static
 fd_valloc_t allocator_setup( fd_wksp_t *  wksp, char const * allocator ) {
   FD_TEST( wksp );
 
@@ -1217,8 +1203,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   /* Thread pool                                                        */
   /**********************************************************************/
 
-  runtime_ctx->tpool       = NULL;
-  runtime_ctx->max_workers = 0;
+  // runtime_ctx->tpool       = NULL;
+  // runtime_ctx->max_workers = 0;
 
   if( runtime_ctx->live ) {
 #ifdef FD_HAS_LIBMICROHTTP
@@ -1410,7 +1396,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   fd_runtime_update_leaders( slot_ctx_setup_out.exec_slot_ctx, slot_ctx_setup_out.exec_slot_ctx->slot_bank.slot );
   fd_calculate_epoch_accounts_hash_values( slot_ctx_setup_out.exec_slot_ctx );
   fd_funk_start_write( funk_setup_out.funk );
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx_setup_out.exec_slot_ctx, slot_ctx_setup_out.exec_slot_ctx->funk_txn );
+  fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( slot_ctx_setup_out.exec_slot_ctx, slot_ctx_setup_out.exec_slot_ctx->funk_txn, runtime_ctx->tpool, runtime_ctx->max_workers );
   fd_funk_end_write( funk_setup_out.funk );
 
   if( FD_LIKELY( snapshot_setup_out.snapshot_slot != 0 ) ) {

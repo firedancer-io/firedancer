@@ -567,7 +567,7 @@ after_credit( void *             _ctx,
 
     FD_LOG_NOTICE( ( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ) );
     fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
-    fd_bpf_scan_and_create_bpf_program_cache_entry( ctx->slot_ctx, ctx->slot_ctx->funk_txn );
+    fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx, ctx->slot_ctx->funk_txn, ctx->tpool, ctx->max_workers );
     fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
     FD_LOG_NOTICE( ( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ) );
 
