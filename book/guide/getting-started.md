@@ -96,9 +96,6 @@ of `v1.17.14` is represented as `11714`.
         \ v0.101.11815
 ```
 
-The `frankendancer-latest` tag will point at the most recent Testnet
-release of Frankendancer.
-
 ## Building
 Once dependencies are installed, you can build Firedancer. Because
 Firedancer depends on the Agave validator, this will also build some
