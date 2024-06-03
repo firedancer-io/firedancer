@@ -763,14 +763,9 @@ fd_valloc_t allocator_setup( fd_wksp_t *  wksp, char const * allocator ) {
   }
 }
 
-typedef struct {
-  FILE * capture_file;
-  fd_capture_ctx_t * capture_ctx;
-} solcap_setup_t;
-
-void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args, fd_valloc_t valloc ) {
-  runtime_ctx->capture_ctx  = NULL;
-  runtime_ctx->capture_file = NULL;
+void fd_capture_ctx_setup( fd_capture_ctx_t ** capture_ctx_p, FILE ** capture_file_p, fd_runtime_args_t * args, fd_valloc_t valloc ) {
+  *capture_ctx_p  = NULL;
+  *capture_file_p = NULL;
 
   int has_solcap           = args->capture_fpath && args->capture_fpath[0] != '\0';
   int has_checkpt_dump     = args->checkpt_path && args->checkpt_path[0] != '\0';
@@ -781,38 +776,43 @@ void capture_ctx_setup( fd_runtime_ctx_t * runtime_ctx, fd_runtime_args_t * args
     return;
   }
 
+  fd_capture_ctx_t * capture_ctx = NULL;
+  FILE * capture_file = NULL;
+
   void * capture_ctx_mem = fd_valloc_malloc( valloc, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
   FD_TEST( capture_ctx_mem );
   fd_memset( capture_ctx_mem, 0, sizeof( fd_capture_ctx_t ) );
-  runtime_ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
+  capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
 
-  runtime_ctx->capture_ctx->checkpt_freq = ULONG_MAX;
+  capture_ctx->checkpt_freq = ULONG_MAX;
 
   if( has_solcap ) {
-    runtime_ctx->capture_file = fopen( args->capture_fpath, "w+" );
-    if( FD_UNLIKELY( !runtime_ctx->capture_file ) ) {
+    capture_file = fopen( args->capture_fpath, "w+" );
+    if( FD_UNLIKELY( !capture_file ) ) {
       FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", args->capture_fpath, errno, strerror( errno ) ));
     }
-    fd_solcap_writer_init( runtime_ctx->capture_ctx->capture, runtime_ctx->capture_file );
-    runtime_ctx->capture_ctx->capture_txns = args->capture_txns;
+    fd_solcap_writer_init( capture_ctx->capture, capture_file );
+    capture_ctx->capture_txns = args->capture_txns;
   } else {
-    runtime_ctx->capture_ctx->capture = NULL;
+    capture_ctx->capture = NULL;
   }
 
   if( has_checkpt_dump ) {
-    runtime_ctx->capture_ctx->checkpt_path = args->checkpt_path;
-    runtime_ctx->capture_ctx->checkpt_freq = args->checkpt_freq;
+    capture_ctx->checkpt_path = args->checkpt_path;
+    capture_ctx->checkpt_freq = args->checkpt_freq;
   }
   if( has_prune ) {
-    runtime_ctx->capture_ctx->pruned_funk = args->pruned_funk;
+    capture_ctx->pruned_funk = args->pruned_funk;
   }
   if( has_dump_to_protobuf ) {
-    runtime_ctx->capture_ctx->dump_insn_to_pb      = args->dump_insn_to_pb;
-    runtime_ctx->capture_ctx->dump_insn_sig_filter = args->dump_insn_sig_filter;
-    runtime_ctx->capture_ctx->dump_insn_output_dir = args->dump_insn_output_dir;
-    runtime_ctx->capture_ctx->dump_insn_start_slot = args->dump_insn_start_slot;
+    capture_ctx->dump_insn_to_pb      = args->dump_insn_to_pb;
+    capture_ctx->dump_insn_sig_filter = args->dump_insn_sig_filter;
+    capture_ctx->dump_insn_output_dir = args->dump_insn_output_dir;
+    capture_ctx->dump_insn_start_slot = args->dump_insn_start_slot;
   }
 
+  *capture_ctx_p = capture_ctx;
+  *capture_file_p = capture_file;
 }
 
 typedef struct {
@@ -1105,7 +1105,10 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
                    int                   live,
                    fd_wksp_t *           _wksp,
                    fd_runtime_args_t *   args,
-                   fd_tvu_gossip_deliver_arg_t * gossip_deliver_arg ) {
+                   fd_tvu_gossip_deliver_arg_t * gossip_deliver_arg,
+                   fd_capture_ctx_t *    capture_ctx,
+                   FILE *                capture_file
+ ) {
   fd_flamenco_boot( NULL, NULL );
 
   runtime_ctx->live = live;
@@ -1141,7 +1144,12 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   fd_valloc_t valloc = allocator_setup( wksp, args->allocator );
 
   /* Sets up solcap, checkpoint dumps, insn dumps,and/or pruning */
-  capture_ctx_setup( runtime_ctx, args, valloc );
+  if (NULL == capture_ctx) {
+    fd_capture_ctx_setup( &runtime_ctx->capture_ctx, &runtime_ctx->capture_file, args, valloc );
+  } else {
+    runtime_ctx->capture_ctx = capture_ctx;
+    runtime_ctx->capture_file = capture_file;
+  }
 
   blockstore_setup_t blockstore_setup_out = {0};
   blockstore_setup( wksp, funk_setup_out.hashseed, &blockstore_setup_out );

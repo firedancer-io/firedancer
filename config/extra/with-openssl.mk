@@ -6,5 +6,5 @@ CPPFLAGS+=-DFD_HAS_OPENSSL=1
 
 CPPFLAGS+=-DOPENSSL_API_COMPAT=30000 -DOPENSSL_NO_DEPRECATED
 else
-$(warning "openssl not installed, skipping")
+$(info "openssl not installed, skipping")
 endif
