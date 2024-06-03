@@ -16,6 +16,7 @@
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../disco/tvu/util.h"
 #include "../../../../flamenco/gossip/fd_gossip.h"
+#include "../../../../flamenco/runtime/fd_system_ids.h"
 #include "../../../../util/fd_util.h"
 #include "../../../../util/net/fd_eth.h"
 #include "../../../../util/net/fd_ip4.h"
@@ -215,6 +216,44 @@ gossip_send_packet( uchar const * msg,
   send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
 }
 
+static int
+is_vote_state_update_instr( uint discriminant ) {
+  return discriminant == fd_vote_instruction_enum_vote ||
+         discriminant == fd_vote_instruction_enum_vote_switch ||
+         discriminant == fd_vote_instruction_enum_update_vote_state ||
+         discriminant == fd_vote_instruction_enum_update_vote_state_switch ||
+         discriminant == fd_vote_instruction_enum_compact_update_vote_state ||
+         discriminant == fd_vote_instruction_enum_compact_update_vote_state_switch;
+}
+
+static int
+verify_vote_txn( fd_gossip_vote_t const * vote ) {
+  fd_txn_t const * parsed_txn = (fd_txn_t const *)fd_type_pun_const( vote->txn.txn );
+  ushort instr_data_sz = parsed_txn->instr[0].data_sz;
+  uchar const * instr_data = vote->txn.raw + parsed_txn->instr[0].data_off;
+
+  fd_pubkey_t const * txn_accounts = (fd_pubkey_t const *)(vote->txn.raw + parsed_txn->acct_addr_off);
+  uchar program_id = parsed_txn->instr[0].program_id;
+
+  if( memcmp( txn_accounts[program_id].uc, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
+    return -1;
+  }
+
+  fd_vote_instruction_t vote_instr = { 0 };
+  fd_bincode_decode_ctx_t decode = {
+                                    .data    = instr_data,
+                                    .dataend = instr_data + instr_data_sz,
+                                    .valloc  = fd_scratch_virtual()
+  };
+  int decode_result = fd_vote_instruction_decode( &vote_instr, &decode );
+  if( decode_result != FD_BINCODE_SUCCESS) {
+    return -1;
+  } else if ( !is_vote_state_update_instr( vote_instr.discriminant ) ) {
+    return -1;
+  }
+
+  return 0;
+}
 
 static void
 gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
@@ -222,7 +261,9 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
 
   if( fd_crds_data_is_vote( data ) ) {
     fd_gossip_vote_t const * gossip_vote = &data->inner.vote;
-    
+    if( verify_vote_txn( gossip_vote ) != 0 ) {
+      return;
+    }
     uchar * vote_txn_msg = fd_chunk_to_laddr( ctx->pack_out_mem, ctx->pack_out_chunk );
     ulong vote_txn_sz    = gossip_vote->txn.raw_sz;
     memcpy( vote_txn_msg, gossip_vote->txn.raw, vote_txn_sz );
