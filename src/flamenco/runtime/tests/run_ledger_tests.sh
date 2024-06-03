@@ -396,7 +396,7 @@ then
       --checkpt-funk $PRUNE_PATH \
       --funk-only 1 \
       --txn-max 100 \
-      $PAGES \
+      --page-cnt 10 \
       $FUNK_PAGES \
       $PRUNED_PAGES \
       $PRUNED_IMAX \
