@@ -55,7 +55,7 @@ package manager on your system, while library dependencies will be
 compiled and output placed under `./opt`.
 
 ```sh [bash]
-$ FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh check install
+$ ./deps.sh
 ```
 
 ## Building
