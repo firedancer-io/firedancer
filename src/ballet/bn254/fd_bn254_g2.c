@@ -295,6 +295,7 @@ fd_bn254_g2_scalar_mul( fd_bn254_g2_t *           r,
 static inline fd_bn254_g2_t *
 fd_bn254_g2_frombytes_internal( fd_bn254_g2_t * p,
                                 uchar const     in[128] ) {
+  /* Special case: all zeros => point at infinity */
   const uchar zero[128] = { 0 };
   if( FD_UNLIKELY( fd_memeq( in, zero, 128 ) ) ) {
     return fd_bn254_g2_set_zero( p );
@@ -306,10 +307,15 @@ fd_bn254_g2_frombytes_internal( fd_bn254_g2_t * p,
   }
 
   /* Check flags and y < p */
-  if( FD_UNLIKELY( !fd_bn254_fp2_frombytes_be_nm( &p->Y, &in[64], NULL, NULL ) ) ) {
+  int is_inf, is_neg;
+  if( FD_UNLIKELY( !fd_bn254_fp2_frombytes_be_nm( &p->Y, &in[64], &is_inf, &is_neg ) ) ) {
     return NULL;
   }
-  //FIXME: add differential test, do we need to check flags on y?
+
+  if( FD_UNLIKELY( is_inf ) ) {
+    return fd_bn254_g2_set_zero( p );
+  }
+
   fd_bn254_fp2_set_one( &p->Z );
   return p;
 }

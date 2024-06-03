@@ -317,10 +317,11 @@ fd_bn254_fp2_sqrt( fd_bn254_fp2_t * r,
 
   fd_bn254_fp2_mul( x0, a1, a );
   if( fd_bn254_fp2_is_minus_one( alpha ) ) {
-    // FD_LOG_WARNING(( "alpha == -1" ));
+    /* COV: I don't know if there's a point that hits this condition.
+       sqrt(-1) hits this, but doesn't correspond to a valid point.
+       Tried with some other possible values, nothing corresponds to a point. */
     fd_bn254_fp2_mul_by_i( r, x0 );
   } else {
-    // FD_LOG_WARNING(( "alpha != -1" ));
     fd_bn254_fp2_set_one( a1 );
     fd_bn254_fp2_add( a0, alpha, a1 );                           /* 1 + alpha */
     fd_bn254_fp2_pow( a1, a0, fd_bn254_const_p_minus_one_half ); /* b */
