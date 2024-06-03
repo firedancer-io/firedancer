@@ -142,11 +142,11 @@ fd_bn254_fp6_set_one( fd_bn254_fp6_t * r ) {
 
 /* Fp12 */
 
-static inline int
-fd_bn254_fp12_is_zero( fd_bn254_fp12_t const * a ) {
-  return fd_bn254_fp6_is_zero( &a->el[0] )
-      && fd_bn254_fp6_is_zero( &a->el[1] );
-}
+// static inline int
+// fd_bn254_fp12_is_zero( fd_bn254_fp12_t const * a ) {
+//   return fd_bn254_fp6_is_zero( &a->el[0] )
+//       && fd_bn254_fp6_is_zero( &a->el[1] );
+// }
 
 static inline int
 fd_bn254_fp12_is_one( fd_bn254_fp12_t const * a ) {
@@ -167,8 +167,6 @@ fd_bn254_fp12_set_one( fd_bn254_fp12_t * r ) {
   fd_bn254_fp6_set_zero( &r->el[1] );
   return r;
 }
-
-/* Functions to test */
 
 fd_bn254_fp12_t *
 fd_bn254_fp12_mul( fd_bn254_fp12_t * r,

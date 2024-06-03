@@ -2,6 +2,9 @@
 
 /* G2 */
 
+/* COV: unlike g1, g2 operations are not exposed to users.
+   So many edge cases and checks for zero are never triggered, e.g. by syscall tests. */
+
 static inline int
 fd_bn254_g2_is_zero( fd_bn254_g2_t const * p ) {
   return fd_bn254_fp2_is_zero( &p->Z );
@@ -278,6 +281,9 @@ fd_bn254_g2_scalar_mul( fd_bn254_g2_t *           r,
   int i = 255;
   for( ; i>=0 && !fd_uint256_bit( s, i ); i-- ) ; /* do nothing, just i-- */
   if( FD_UNLIKELY( i<0 ) ) {
+    /* COV: this only happens when the scalar is zero.
+       Unlike g1, g2_scalar_mul is not exposed to users but only used internally,
+       so scalar is never zero. */
     return fd_bn254_g2_set_zero( r );
   }
   fd_bn254_g2_set( r, p );
