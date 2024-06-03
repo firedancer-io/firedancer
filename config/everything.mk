@@ -137,7 +137,7 @@ add-asms = $(eval $(call _add-asms,$(1),$(2)))
 
 define _add-hdrs
 
-include: $(foreach hdr,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/include/%,$(OBJDIR)/$(MKPATH)$(hdr)))
+include: $(foreach hdr,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/include/firedancer/%,$(OBJDIR)/$(MKPATH)$(hdr)))
 
 endef
 
@@ -366,7 +366,7 @@ $(RM) $@ && \
 $(AR) $(ARFLAGS) $@ $^ && \
 $(RANLIB)  $@
 
-$(OBJDIR)/include/% : src/%
+$(OBJDIR)/include/firedancer/% : src/%
 	#######################################################################
 	# Copying header $^ to $@
 	#######################################################################
