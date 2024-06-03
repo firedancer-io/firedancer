@@ -45,6 +45,17 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
                                                 fd_funk_txn_t * funk_txn );
 
 int
+fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
+                                                 fd_funk_txn_t *      funk_txn, 
+                                                 fd_pubkey_t const *  pubkey );
+
+int
+fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                                                      fd_funk_txn_t *      funk_txn,
+                                                      fd_tpool_t *         tpool,
+                                                      ulong                max_workers );
+
+int
 fd_bpf_load_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
                          fd_pubkey_t const * program_pubkey,
                          fd_sbpf_validated_program_t ** valid_prog );

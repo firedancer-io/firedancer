@@ -7,6 +7,10 @@
 
 #include <assert.h>
 
+
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 fd_sbpf_validated_program_t *
 fd_sbpf_validated_program_new( void * mem ) {
   return (fd_sbpf_validated_program_t *)mem;
@@ -187,9 +191,109 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
   } FD_SCRATCH_SCOPE_END;
 }
 
+static void FD_FN_UNUSED
+fd_bpf_scan_task( void * tpool,
+                  ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
+                  void * args FD_PARAM_UNUSED,
+                  void * reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
+                  ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
+                  ulong m0, ulong m1 FD_PARAM_UNUSED,
+                  ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED  ) {
+  fd_funk_rec_t const * recs = ((fd_funk_rec_t const **)tpool)[m0];
+  fd_exec_slot_ctx_t * slot_ctx = (fd_exec_slot_ctx_t *)args;
+  uchar * is_bpf_program = (uchar *)reduce + m0;
+
+  if( !fd_funk_key_is_acc( recs->pair.key ) ) {
+    *is_bpf_program = 0;
+    return;
+  }
+
+  fd_pubkey_t const * pubkey = fd_type_pun_const( recs->pair.key[0].uc );
+  if( fd_bpf_loader_v3_is_executable( slot_ctx, pubkey ) == 0
+    || fd_bpf_loader_v2_is_executable( slot_ctx, pubkey ) == 0 ) {
+    *is_bpf_program = 1;
+  } else {
+    *is_bpf_program = 0;
+  }
+}
+
+int
+fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                                                      fd_funk_txn_t *      funk_txn,
+                                                      fd_tpool_t *         tpool,
+                                                      ulong                max_workers ) {
+  long elapsed_ns = -fd_log_wallclock();
+  fd_funk_t * funk = slot_ctx->acc_mgr->funk;
+  ulong cached_cnt = 0;
+
+  /* Use random-ish xid to avoid concurrency issues */
+  fd_funk_txn_xid_t cache_xid;
+  cache_xid.ul[0] = fd_log_cpu_id() + 1;
+  cache_xid.ul[1] = fd_log_cpu_id() + 1;
+  cache_xid.ul[2] = fd_log_app_id() + 1;
+  cache_xid.ul[3] = fd_log_thread_id() + 1;
+
+  fd_funk_txn_t * cache_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
+  if( !cache_txn ) {
+    FD_LOG_ERR(( "fd_funk_txn_prepare() failed" ));
+    return -1;
+  }
+
+  fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
+  slot_ctx->funk_txn = cache_txn;
+  
+  fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, funk_txn );
+  while( rec!=NULL ) {
+    FD_SCRATCH_SCOPE_BEGIN {
+      fd_funk_rec_t const * * recs = fd_scratch_alloc( alignof(fd_funk_rec_t const *), 65536UL * sizeof(fd_funk_rec_t const *) );
+      uchar * is_bpf_program = fd_scratch_alloc( 8UL, 65536UL * sizeof(uchar) );      
+
+      /* Make a list of rec ptrs to process */
+      ulong rec_cnt = 0;
+      for( ; NULL != rec; rec = fd_funk_txn_next_rec( funk, rec ) ) {
+        recs[ rec_cnt ] = rec;
+
+        if( rec_cnt==65536UL ) {
+          break;
+        }
+
+        rec_cnt++;
+      }
+
+      fd_tpool_exec_all_block( tpool, 0, max_workers, fd_bpf_scan_task, recs, slot_ctx, is_bpf_program, 1, 0, rec_cnt );
+
+      for( ulong i = 0; i<rec_cnt; i++ ) {
+        if( !is_bpf_program[ i ] ) {
+          continue;
+        }
+
+        fd_pubkey_t const * pubkey = fd_type_pun_const( recs[i]->pair.key[0].uc );
+        int res = fd_bpf_check_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, pubkey );
+        if( res==0 ) {
+          cached_cnt++;
+        }
+      }
+      
+    } FD_SCRATCH_SCOPE_END;
+  }
+
+  if( fd_funk_txn_publish_into_parent( funk, cache_txn, 1 ) != FD_FUNK_SUCCESS ) {
+    FD_LOG_ERR(( "fd_funk_txn_publish_into_parent() failed" ));
+    return -1;
+  }
+
+  slot_ctx->funk_txn = parent_txn;
+
+  elapsed_ns += fd_log_wallclock();
+
+  FD_LOG_NOTICE(( "loaded program cache - entries: %lu, elapsed_seconds: %ld", cached_cnt, elapsed_ns/(long)1e9 ));
+
+  return 0;
+}
+
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_funk_txn_t * funk_txn ) {
+                                                fd_funk_txn_t *      funk_txn ) {
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
   ulong cnt = 0;
 
@@ -218,25 +322,11 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_pubkey_t const * program_pubkey = fd_type_pun_const( rec->pair.key[0].uc );
 
-    FD_BORROWED_ACCOUNT_DECL(exec_rec);
-    if( fd_acc_mgr_view( slot_ctx->acc_mgr, funk_txn, program_pubkey, exec_rec ) != FD_ACC_MGR_SUCCESS ) {
-      continue;
-    }
+    int res = fd_bpf_check_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, program_pubkey );
 
-    if( exec_rec->const_meta->info.executable != 1 ) {
-      continue;
+    if( res==0 ) {
+      cnt++;
     }
-
-    if( fd_bpf_loader_v3_is_executable( slot_ctx, program_pubkey ) == 0
-      || fd_bpf_loader_v2_is_executable( slot_ctx, program_pubkey ) == 0 ) {
-      if( fd_bpf_create_bpf_program_cache_entry( slot_ctx, program_pubkey ) != 0 ) {
-        continue;
-      }
-    } else {
-      continue;
-    }
-
-    cnt++;
   }
 
   FD_LOG_DEBUG(( "loaded program cache: %lu", cnt));
@@ -251,8 +341,33 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 int
-fd_bpf_load_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_pubkey_t const * program_pubkey,
+fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
+                                                 fd_funk_txn_t *      funk_txn, 
+                                                 fd_pubkey_t const *  pubkey ) {
+  FD_BORROWED_ACCOUNT_DECL(exec_rec);
+  if( fd_acc_mgr_view( slot_ctx->acc_mgr, funk_txn, pubkey, exec_rec ) != FD_ACC_MGR_SUCCESS ) {
+    return -1;
+  }
+
+  if( exec_rec->const_meta->info.executable != 1 ) {
+    return -1;
+  }
+
+  if( fd_bpf_loader_v3_is_executable( slot_ctx, pubkey ) == 0
+    || fd_bpf_loader_v2_is_executable( slot_ctx, pubkey ) == 0 ) {
+    if( fd_bpf_create_bpf_program_cache_entry( slot_ctx, pubkey ) != 0 ) {
+      return -1;
+    }
+  } else {
+    return -1;
+  }
+
+  return 0;
+}
+
+int
+fd_bpf_load_cache_entry( fd_exec_slot_ctx_t *           slot_ctx,
+                         fd_pubkey_t const *            program_pubkey,
                          fd_sbpf_validated_program_t ** valid_prog ) {
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
   fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;

@@ -136,9 +136,28 @@ struct fd_ledger_args {
 };
 typedef struct fd_ledger_args fd_ledger_args_t;
 
-/***************************** Runtime Replay *********************************/
-int
-runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * runtime_args, fd_ledger_args_t * ledger_args ) {
+fd_valloc_t allocator_setup( fd_wksp_t *  wksp, char const * allocator ) {
+  FD_TEST( wksp );
+
+  void * alloc_shmem =
+      fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
+  if( FD_UNLIKELY( !alloc_shmem ) ) { FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); }
+  void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
+  if( FD_UNLIKELY( !alloc_shalloc ) ) { FD_LOG_ERR( ( "fd_allow_new failed" ) ); }
+  fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, 3UL );
+  if( FD_UNLIKELY( !alloc ) ) { FD_LOG_ERR( ( "fd_alloc_join failed" ) ); }
+
+  if( strcmp( allocator, "libc" ) == 0 ) {
+    return fd_libc_alloc_virtual();
+  } else if( strcmp( allocator, "wksp" ) == 0 ) {
+    return fd_alloc_virtual( alloc );
+  } else {
+    FD_LOG_ERR( ( "unknown allocator specified" ) );
+  }
+}
+
+static void *
+setup_tpool( fd_runtime_ctx_t * state, fd_runtime_args_t * runtime_args, fd_valloc_t valloc ) {
   runtime_args->tcnt = fd_tile_cnt();
   uchar * tpool_scr_mem = NULL;
   fd_tpool_t * tpool = NULL;
@@ -148,7 +167,7 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * runtime_args, fd_l
       FD_LOG_ERR(( "failed to create thread pool" ));
     }
     ulong scratch_sz = fd_scratch_smem_footprint( 256UL<<20UL );
-    tpool_scr_mem = fd_valloc_malloc( state->slot_ctx->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(runtime_args->tcnt - 1U) );
+    tpool_scr_mem = fd_valloc_malloc( valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(runtime_args->tcnt - 1U) );
     if( tpool_scr_mem == NULL ) {
       FD_LOG_ERR( ( "failed to allocate thread pool scratch space" ) );
     }
@@ -164,6 +183,11 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * runtime_args, fd_l
   state->tpool       = tpool;
   state->max_workers = runtime_args->tcnt;
 
+  return tpool_scr_mem;
+}
+
+int
+runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * runtime_args, fd_ledger_args_t * ledger_args ) {
   fd_funk_start_write( state->slot_ctx->acc_mgr->funk );
   ulong r = fd_funk_txn_cancel_all( state->slot_ctx->acc_mgr->funk, 1 );
   fd_funk_end_write( state->slot_ctx->acc_mgr->funk );
@@ -333,10 +357,6 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * runtime_args, fd_l
 
   if( state->tpool ) {
     fd_tpool_fini( state->tpool );
-  }
-
-  if( tpool_scr_mem ) {
-    fd_valloc_free( state->slot_ctx->valloc, tpool_scr_mem );
   }
 
   if( runtime_args->on_demand_block_ingest ) {
@@ -912,6 +932,10 @@ replay( fd_ledger_args_t * args ) {
   }
 
 
+  fd_valloc_t valloc = allocator_setup( args->funk_wksp, args->allocator );
+
+  void * tpool_scr_mem = setup_tpool( &state, &runtime_args, valloc );
+
   fd_replay_t * replay = NULL;
   fd_tvu_main_setup( &state, &replay, NULL, NULL, 0, wksp, &runtime_args, NULL, capture_ctx, capture_file );
 
@@ -922,6 +946,11 @@ replay( fd_ledger_args_t * args ) {
   FD_LOG_WARNING(( "tvu main setup done" ));
 
   int ret = runtime_replay( &state, &runtime_args, args );
+
+  if( tpool_scr_mem ) {
+    fd_valloc_free( valloc, tpool_scr_mem );
+  }
+
   fd_tvu_main_teardown( &state, NULL );
   return ret;
 }
@@ -1068,6 +1097,11 @@ prune( fd_ledger_args_t * args ) {
 
   fd_tvu_gossip_deliver_arg_t gossip_deliver_arg[1];
   fd_replay_t * replay = NULL;
+
+  fd_valloc_t valloc = allocator_setup( runtime_args.funk_wksp, runtime_args.allocator );
+
+  void * tpool_scr_mem = setup_tpool( &state, &runtime_args, valloc );
+
   fd_tvu_main_setup( &state, &replay, &slot_ctx_unpruned, NULL, 0, unpruned_wksp, &runtime_args, gossip_deliver_arg, NULL, NULL );
 
   if( args->on_demand_block_ingest == 0 ) { // TODO: im pretty sure you can move to this to after the tvu_setup
@@ -1093,6 +1127,11 @@ prune( fd_ledger_args_t * args ) {
   FD_TEST(( !!prune_txn ));
 
   int err = runtime_replay( &state, &runtime_args, args );
+
+  if( tpool_scr_mem ) {
+    fd_valloc_free( valloc, tpool_scr_mem );
+  }
+
   if( err != 0 ) {
     fd_tvu_main_teardown( &state, NULL );
     FD_LOG_ERR(("error in runtime replay"));
