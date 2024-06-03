@@ -905,54 +905,80 @@ stake_weighted_credits_observed( fd_stake_t const * stake,
                                  ulong              absorbed_lamports,
                                  ulong              absorbed_credits_observed,
                                  ulong *            out ) {
+  /* https://github.com/anza-xyz/agave/blob/dc74c22960b4f2adfc672f6dc3bfaa74ec1d5d48/programs/stake/src/stake_state.rs#L1194 */
+  /* if stake.credits_observed == absorbed_credits_observed { */
+  /*     Some(stake.credits_observed) */
   if( FD_LIKELY( stake->credits_observed == absorbed_credits_observed ) ) {
     *out = stake->credits_observed;
     return 1;
   } else {
-    /* total_stake = stake->delegation.stake + absorbed_lamports */
-    ulong total_stake_h = 0UL;
-    ulong total_stake_l = 0UL;
-    fd_uwide_inc( &total_stake_h, &total_stake_l, 0UL, stake->delegation.stake,
-                  absorbed_lamports );
+    /* https://github.com/anza-xyz/agave/blob/dc74c22960b4f2adfc672f6dc3bfaa74ec1d5d48/programs/stake/src/stake_state.rs#L1197 */
+    /* let total_stake = u128::from(stake.delegation.stake.checked_add(absorbed_lamports)?); */
+    ulong total_stake;
+    /* If there is an overflow on the ulong addition then exit */
+    if( FD_UNLIKELY( fd_ulong_checked_add( stake->delegation.stake, absorbed_lamports, &total_stake ) ) ) {
+      return 0;
+    }
 
-    /* stake_weighted_credits = stake->credits_observed + stake->delegation.stake */
+    /* https://github.com/anza-xyz/agave/blob/9489096dc5b7f0a61a981f3d0fd393d264896c2a/programs/stake/src/stake_state.rs#L1198 */
+    /* The multiplication of two 64 bit integers will never overflow the 128 bits */
     ulong stake_weighted_credits_h;
     ulong stake_weighted_credits_l;
+    /* let stake_weighted_credits = */
+    /*     u128::from(stake.credits_observed).checked_mul(u128::from(stake.delegation.stake))?; */
     fd_uwide_mul( &stake_weighted_credits_h, &stake_weighted_credits_l,
                   stake->credits_observed, stake->delegation.stake );
 
-    /* absorbed_weighted_credits = absorbed_credits_observed * absorbed_lamports */
+    /* https://github.com/anza-xyz/agave/blob/9489096dc5b7f0a61a981f3d0fd393d264896c2a/programs/stake/src/stake_state.rs#L1200 */
+    /* The multiplication of two 64 bit integers will never overflow the 128 bits */
     ulong absorbed_weighted_credits_h;
     ulong absorbed_weighted_credits_l;
+    /* let absorbed_weighted_credits = */
+    /*     u128::from(absorbed_credits_observed).checked_mul(u128::from(absorbed_lamports))?; */
     fd_uwide_mul( &absorbed_weighted_credits_h, &absorbed_weighted_credits_l,
                   absorbed_credits_observed, absorbed_lamports );
 
-    /* total_weighted_credits = stake_weighted_credits + total_stake + absorbed_weighted_credits - 1*/
+    /* https://github.com/anza-xyz/agave/blob/9489096dc5b7f0a61a981f3d0fd393d264896c2a/programs/stake/src/stake_state.rs#L1204 */
+    /* let total_weighted_credits = stake_weighted_credits */
+    /*     .checked_add(absorbed_weighted_credits)? */
+    /*     .checked_add(total_stake)? */
+    /*     .checked_sub(1)?; */
     ulong total_weighted_credits_partial_one_h;
     ulong total_weighted_credits_partial_one_l;
-    fd_uwide_add( &total_weighted_credits_partial_one_h, &total_weighted_credits_partial_one_l,
-                  stake_weighted_credits_h, stake_weighted_credits_l,
-                  absorbed_weighted_credits_h, absorbed_weighted_credits_l, 0UL );
+    ulong carry_out = fd_uwide_add( &total_weighted_credits_partial_one_h, &total_weighted_credits_partial_one_l,
+                                    stake_weighted_credits_h, stake_weighted_credits_l,
+                                    absorbed_weighted_credits_h, absorbed_weighted_credits_l, 0UL );
+    /* return on overflow */                 
+    if( FD_UNLIKELY( carry_out ) ) {
+      return 0;
+    }
 
     ulong total_weighted_credits_partial_two_h;
     ulong total_weighted_credits_partial_two_l;
-    fd_uwide_add( &total_weighted_credits_partial_two_h, &total_weighted_credits_partial_two_l,
-                  total_weighted_credits_partial_one_h, total_weighted_credits_partial_one_l,
-                  total_stake_h, total_stake_l, 0UL );
+    carry_out = fd_uwide_add( &total_weighted_credits_partial_two_h, &total_weighted_credits_partial_two_l,
+                              total_weighted_credits_partial_one_h, total_weighted_credits_partial_one_l,
+                              0UL, total_stake, 0UL );
+    /* return on overflow */                 
+    if( FD_UNLIKELY( carry_out ) ) {
+      return 0;
+    }
 
+    /* The only way we can underflow the subtraction of 1 is if the value of total_weighted_credits_partial_two is zero */
+    if( FD_UNLIKELY( total_weighted_credits_partial_two_h==0 && total_weighted_credits_partial_two_l==0 ) ) {
+      return 0;
+    }
     ulong total_weighted_credits_h;
     ulong total_weighted_credits_l;
     fd_uwide_dec( &total_weighted_credits_h, &total_weighted_credits_l,
                   total_weighted_credits_partial_two_h, total_weighted_credits_partial_two_l, 1UL );
 
-    /* FIXME: fd_uwide_div doesn't support denominator that is an fd_uwide */
-    /* res = totalWeighted_credits / total_stake */
+    /* https://github.com/anza-xyz/agave/blob/8a1b2dc3fa4b85e26fbce0db06a462d4853b0652/programs/stake/src/stake_state.rs#L1208 */
+    /* u64::try_from(total_weighted_credits.checked_div(total_stake)?).ok() */
     ulong res_h;
     ulong res_l;
-    FD_TEST( total_stake_h == 0UL );
-    fd_uwide_div( &res_h, &res_l, total_weighted_credits_h, total_weighted_credits_l, total_stake_l );
-    FD_TEST( res_h == 0UL );
-    //*out = total_weighted_credits / total_stake;
+    if( FD_UNLIKELY( fd_uwide_div( &res_h, &res_l, total_weighted_credits_h, total_weighted_credits_l, total_stake ) ) ) {
+      return 0;
+    }
     *out = res_l;
     return 1;
   }
