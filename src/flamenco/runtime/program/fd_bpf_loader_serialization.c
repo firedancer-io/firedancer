@@ -4,6 +4,8 @@
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
+#define BPF_ALIGN_OF_U128 (8UL)
+
 /**
  * num accounts
  * serialized accounts
@@ -208,164 +210,130 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
                                          ulong const *       pre_lens,
                                          uchar *             input,
                                          ulong               input_sz ) {
-  // TODO!! important!! somebody needs to be calling can_data_be_changed!!
+  uchar * start_cursor = input;
+  uchar * data_end     = input + input_sz;
 
-  uchar * input_cursor = input;
-
-  uchar acc_idx_seen[256];
-  memset(acc_idx_seen, 0, sizeof(acc_idx_seen));
+  uchar acc_idx_seen[ 256UL ];
+  memset( acc_idx_seen, 0, sizeof(acc_idx_seen) );
 
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
-  fd_pubkey_t * txn_accs =  ctx.txn_ctx->accounts;
+  fd_pubkey_t * txn_accs       = ctx.txn_ctx->accounts;
 
-  input_cursor += sizeof(ulong);
-  for( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-    uchar acc_idx = instr_acc_idxs[i];
-    fd_pubkey_t * acc = &txn_accs[instr_acc_idxs[i]];
+  start_cursor += sizeof(ulong);
+  /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L508-L604 */
+  for( ulong i=0UL; i<ctx.instr->acct_cnt; i++ ) {
+    uchar acc_idx     = instr_acc_idxs[ i ];
+    fd_pubkey_t * acc = &txn_accs[ instr_acc_idxs[ i ] ];
 
-    input_cursor++;
+    start_cursor++;
     fd_borrowed_account_t * view_acc = NULL;
-    int view_err = fd_instr_borrowed_account_view(&ctx, acc, &view_acc);
-    if ( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
-      input_cursor += 7;
-    } else if ( fd_instr_acc_is_writable_idx(ctx.instr, (uchar)i) && !fd_pubkey_is_sysvar_id( acc ) ) {
+    int view_err = fd_instr_borrowed_account_view( &ctx, acc, &view_acc );
+    /* Note: The firedancer client implementation handles borrowed accounts 
+       differently than the Agave client. This requires seperate case handling
+       for accounts being writable or sysvars. */
+    if( FD_UNLIKELY( acc_idx_seen[ acc_idx ] ) ) {
+      start_cursor += 7;
+    } else if( fd_instr_acc_is_writable_idx( ctx.instr, (uchar)i ) && !fd_pubkey_is_sysvar_id( acc ) ) { 
+      /* This else-if case corresponds to the else case in the agave implementation */
+      /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L518-L524 */
+      acc_idx_seen[ acc_idx ] = 1;
+      start_cursor += sizeof(uchar)        // is_signer
+                    + sizeof(uchar)        // is_writable
+                    + sizeof(uchar)        // executable
+                    + sizeof(uint)         // original_data_len
+                    + sizeof(fd_pubkey_t); // key
 
-      acc_idx_seen[acc_idx] = 1;
-      input_cursor += sizeof(uchar) // is_signer
-          + sizeof(uchar)           // is_writable
-          + sizeof(uchar)           // executable
-          + sizeof(uint)            // original_data_len
-          + sizeof(fd_pubkey_t);    // key
-
-      if ( view_acc->const_meta ) {
-        if (view_acc->const_meta->info.executable) {
-          if (memcmp( view_acc->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) != 0) {
-            input_cursor += sizeof(fd_pubkey_t);  // owner
-            input_cursor += sizeof(ulong);        // lamports
-            input_cursor += sizeof(ulong);        // data_len
-
-            fd_account_meta_t const * metadata = view_acc->const_meta;
-
-            if ( view_err == FD_ACC_MGR_SUCCESS ) {
-              input_cursor += fd_ulong_align_up(metadata->dlen, 8);
-            }
-            input_cursor += MAX_PERMITTED_DATA_INCREASE;
-
-            input_cursor += sizeof(ulong);
-            continue;
-          }
-        }
+      /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L525-L548 */
+      if( FD_UNLIKELY( start_cursor+sizeof(fd_pubkey_t)>data_end ) ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
+      fd_pubkey_t * owner = (fd_pubkey_t *)start_cursor;
+      start_cursor += sizeof(fd_pubkey_t); // owner
 
+      if( FD_UNLIKELY( start_cursor+sizeof(ulong)>data_end ) ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+      ulong lamports = FD_LOAD( ulong, start_cursor );
+      start_cursor += sizeof(ulong); // lamports
 
-      fd_pubkey_t * owner = (fd_pubkey_t *)input_cursor;
-      input_cursor += sizeof(fd_pubkey_t);
+      if( FD_UNLIKELY( start_cursor+sizeof(ulong)>data_end ) ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+      ulong post_len = FD_LOAD( ulong, start_cursor );
+      start_cursor += sizeof(ulong); // data length
+      uchar * post_data = start_cursor;
 
-      ulong lamports = FD_LOAD(ulong, input_cursor);
-      input_cursor += sizeof(ulong);
-
-      ulong post_data_len = FD_LOAD(ulong, input_cursor);
-      input_cursor += sizeof(ulong);
-
-      uchar * post_data = input_cursor;
-
-      ulong acc_sz = post_data_len;
-
-      // fd_borrowed_account_t * view_acc = NULL;
-      // int view_err = fd_instr_borrowed_account_view(&ctx, acc, &view_acc);
-
-      if (FD_LIKELY(view_acc->const_meta != NULL)) {
+      if( FD_LIKELY( view_acc->const_meta != NULL ) ) {
+        /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L544-L548 */
         fd_account_meta_t const * metadata_check = view_acc->const_meta;
-        if ( fd_ulong_sat_sub( post_data_len, metadata_check->dlen ) > MAX_PERMITTED_DATA_INCREASE || post_data_len > MAX_PERMITTED_DATA_LENGTH ) {
-          fd_valloc_free( ctx.valloc, input ); // FIXME: need to return an invalid realloc error
-          return -1;
+        if( FD_UNLIKELY( fd_ulong_sat_sub( post_len, metadata_check->dlen )>MAX_PERMITTED_DATA_INCREASE || 
+                         post_len>MAX_PERMITTED_DATA_LENGTH ) ) {
+          return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
         }
-
-        char pkey[100];
-        fd_base58_encode_32((uchar *)acc , NULL, pkey );
-
 
         fd_borrowed_account_t * modify_acc = NULL;
-        int modify_err = fd_instr_borrowed_account_modify(&ctx, acc, acc_sz, &modify_acc);
-        if ( modify_err != FD_ACC_MGR_SUCCESS ) {
-          fd_valloc_free( ctx.valloc, input );
-          return -1;
+        int modify_err = fd_instr_borrowed_account_modify( &ctx, acc, post_len, &modify_acc );
+        if( modify_err != FD_ACC_MGR_SUCCESS ) {
+          return modify_err;
         }
         fd_account_meta_t * metadata = (fd_account_meta_t *)modify_acc->meta;
 
-        ulong pre_len = pre_lens[i];
-
-        input_cursor += fd_ulong_align_up( pre_len, 8 );
-
         uchar * acc_data = fd_account_get_data( metadata );
 
-        int err1;
-        int err2;
-        if (fd_account_can_data_be_resized(ctx.instr, metadata, post_data_len, &err1)
-          && fd_account_can_data_be_changed2(&ctx, metadata, acc, &err2)) {
-          metadata->dlen = post_data_len;
-          fd_memcpy( acc_data, post_data, post_data_len );
-        } else if (metadata->dlen != post_data_len || memcmp(acc_data, post_data, post_data_len) != 0) {
-          FD_LOG_DEBUG(("Data resize failed"));
-          fd_valloc_free( ctx.valloc, input );  // FIXME: need to return an invalid realloc error
-          return -1;
+        /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L551-562 */
+        int err;
+        if( fd_account_can_data_be_resized( ctx.instr, metadata, post_len, &err ) &&
+            fd_account_can_data_be_changed( ctx.instr, i, &err ) ) {
+          metadata->dlen = post_len;
+          fd_memcpy( acc_data, post_data, post_len );
+        } else if( metadata->dlen != post_len || memcmp( acc_data, post_data, post_len ) ) {
+          return err;
         }
 
+        /* The lamport balance can only be set once the modifiable borrowed
+           account is accessed. */
+        /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L534-L537 */
         metadata->info.lamports = lamports;
-        // if (memcmp(metadata->info.owner, owner, sizeof(fd_pubkey_t)) != 0) {
-        //   fd_account_set_owner(&ctx, metadata, acc, owner);
-        // }
-        fd_memcpy(metadata->info.owner, owner, sizeof(fd_pubkey_t));
 
-        // add to dirty list
+        if( memcmp( metadata->info.owner, owner, sizeof(fd_pubkey_t) ) ) {
+          fd_account_set_owner( &ctx, i, owner );
+        }
+
+        /* Update the account to be marked for hashing */
         metadata->slot = ctx.slot_ctx->slot_bank.slot;
-        #ifdef VLOG
-        FD_LOG_WARNING(("Deserialize success %32J", acc->uc));
-        #endif
-      } else if ( view_err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-        // no-op
-        input_cursor += fd_ulong_align_up( pre_lens[i], 8 );
-        #ifdef VLOG
-        FD_LOG_WARNING(("Account %32J unknown", acc->uc));
-        #endif
-      } else {
-        input_cursor += fd_ulong_align_up( pre_lens[i], 8 );
-        #ifdef VLOG
-        FD_LOG_WARNING(("Account %32J not found in deserialize", acc->uc));
-        #endif
+
+        
       }
+      /* start += alignment_offset + pre_len */
+      start_cursor += fd_ulong_align_up( pre_lens[ i ], BPF_ALIGN_OF_U128 );
+      start_cursor += MAX_PERMITTED_DATA_INCREASE;
 
-      input_cursor += MAX_PERMITTED_DATA_INCREASE;
-
-      input_cursor += sizeof(ulong);
+      start_cursor += sizeof(ulong);
     } else {
       acc_idx_seen[acc_idx] = 1;
-      // Account is not writable, skip over
-      input_cursor += sizeof(uchar)         // is_signer
-          + sizeof(uchar)                   // is_writable
-          + sizeof(uchar)                   // executable
-          + sizeof(uint)                    // original_data_len
-          + sizeof(fd_pubkey_t);            // key
-      input_cursor += sizeof(fd_pubkey_t);  // owner
-      input_cursor += sizeof(ulong);        // lamports
-      input_cursor += sizeof(ulong);        // data_len
+      /* If the account is not writable or is a sysvar accountthen we need to 
+         update the start cursor but we don't make any change to the account */
+      start_cursor += sizeof(uchar)        // is_signer
+                    + sizeof(uchar)        // is_writable
+                    + sizeof(uchar)        // executable
+                    + sizeof(uint)         // original_data_len
+                    + sizeof(fd_pubkey_t); // key
+      start_cursor += sizeof(fd_pubkey_t); // owner
+      start_cursor += sizeof(ulong);       // lamports
+      start_cursor += sizeof(ulong);       // data len
 
-      // fd_borrowed_account_t * view_acc = NULL;
-      // int view_err = fd_instr_borrowed_account_view(&ctx, acc, &view_acc);
       fd_account_meta_t const * metadata = view_acc->const_meta;
 
       if ( view_err == FD_ACC_MGR_SUCCESS ) {
-        input_cursor += fd_ulong_align_up(metadata->dlen, 8);
+        start_cursor += fd_ulong_align_up( metadata->dlen, BPF_ALIGN_OF_U128 );
       }
-      input_cursor += MAX_PERMITTED_DATA_INCREASE;
+      start_cursor += MAX_PERMITTED_DATA_INCREASE;
 
-      input_cursor += sizeof(ulong);
+      start_cursor += sizeof(ulong); // rent epoch
     }
   }
 
-  FD_TEST( input_cursor <= input + input_sz );
-
-  fd_valloc_free( ctx.valloc, input );
+  FD_TEST( start_cursor <= input + input_sz );
 
   return 0;
 }
