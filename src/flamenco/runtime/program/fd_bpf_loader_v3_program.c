@@ -389,8 +389,10 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;;
   }
 
-  if( FD_UNLIKELY( fd_bpf_loader_input_deserialize_aligned( *instr_ctx, pre_lens, input, input_sz )!=0 ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  int err = fd_bpf_loader_input_deserialize_aligned( *instr_ctx, pre_lens, input, input_sz );
+  fd_valloc_free( instr_ctx->valloc, input );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
