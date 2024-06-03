@@ -93,6 +93,7 @@ fd_bn254_g1_affine_add( fd_bn254_g1_t *       r,
       fd_bn254_fp_mul( lambda, lambda, x );
     } else {
       /* p==-q => r=0 */
+      /* COV: this may never happen with real data */
       return fd_bn254_g1_set_zero( r );
     }
   } else {
@@ -194,6 +195,7 @@ fd_bn254_g1_add_mixed( fd_bn254_g1_t *       r,
 
   /* if p==q, call fd_bn254_g1_dbl */
   if( FD_UNLIKELY( fd_bn254_fp_eq( u2, &p->X ) && fd_bn254_fp_eq( s2, &p->Y ) ) ) {
+    /* COV: this may never happen with real data */
     return fd_bn254_g1_dbl( r, p );
   }
 
