@@ -170,10 +170,18 @@ if( FD_UNLIKELY( vm->trace ) ) {
     return -1;
   }
 
-  if (FD_UNLIKELY(memcmp(metadata->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t)) == 0)) {
-    fd_bpf_loader_input_deserialize_unaligned(ctx, pre_lens, input, input_sz);
+  if( FD_UNLIKELY( memcmp( metadata->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
+    int err = fd_bpf_loader_input_deserialize_unaligned( ctx, pre_lens, input, input_sz );
+    fd_valloc_free( ctx.valloc, input );
+    if( FD_UNLIKELY( err ) ) {
+      return err;
+    }
   } else {
-    fd_bpf_loader_input_deserialize_aligned(ctx, pre_lens, input, input_sz);
+    int err = fd_bpf_loader_input_deserialize_aligned(ctx, pre_lens, input, input_sz);
+    fd_valloc_free( ctx.valloc, input );
+    if( FD_UNLIKELY( err ) ) {
+      return err;
+    }
   }
 
   return 0;
