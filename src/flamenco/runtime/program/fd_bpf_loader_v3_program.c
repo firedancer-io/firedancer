@@ -174,27 +174,33 @@ deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
   }
 
-  /* Verify the program */
-  fd_vm_exec_context_t vm_ctx = {
-    .entrypoint          = (long)prog->entry_pc,
-    .program_counter     = 0UL,
-    .instruction_counter = 0UL,
-    .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( prog->text ),
-    .instrs_sz           = prog->text_cnt,
-    .instrs_offset       = prog->text_off,
-    .syscall_map         = syscalls,
-    .calldests           = prog->calldests,
-    .input               = NULL,
-    .input_sz            = 0UL,
-    .read_only           = (uchar *)fd_type_pun_const( prog->rodata ),
-    .read_only_sz        = prog->rodata_sz,
-    .heap_sz             = instr_ctx->txn_ctx->heap_size,
-    /* TODO: configure heap allocator */
-    .instr_ctx           = instr_ctx,
-  };
+  /* Validate the program */
+  fd_vm_t _vm[1];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
 
-  ulong validate_result = fd_vm_context_validate( &vm_ctx );
-  if( FD_UNLIKELY( validate_result!=FD_VM_SBPF_VALIDATE_SUCCESS ) ) {
+  vm = fd_vm_init(
+    /* vm        */ vm,
+    /* instr_ctx */ instr_ctx,
+    /* heap_max  */ instr_ctx->txn_ctx->heap_size,
+    /* entry_cu  */ instr_ctx->txn_ctx->compute_meter,
+    /* rodata    */ prog->rodata,
+    /* rodata_sz */ prog->rodata_sz,
+    /* text      */ prog->text,
+    /* text_cnt  */ prog->text_cnt,
+    /* text_off  */ prog->text_off, /* FIXME: What if text_off is not multiple of 8 */
+    /* entry_pc  */ prog->entry_pc,
+    /* calldests */ prog->calldests,
+    /* syscalls  */ syscalls,
+    /* input     */ NULL,
+    /* input_sz  */ 0,
+    /* trace     */ NULL,
+    /* sha       */ NULL);
+  if ( FD_UNLIKELY( vm == NULL ) ) {
+    FD_LOG_ERR(( "NULL vm" ));
+  }
+
+  int validate_result = fd_vm_validate( vm );
+  if( FD_UNLIKELY( validate_result!=FD_VM_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -344,176 +350,70 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+
+  fd_vm_t _vm[1];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+
   /* TODO: (topointon): correctly set check_align and check_size in vm setup */
-  fd_vm_exec_context_t vm_ctx = {
-    .entrypoint          = (long)prog->entry_pc,
-    .program_counter     = 0UL,
-    .instruction_counter = 0UL,
-    .compute_meter       = instr_ctx->txn_ctx->compute_meter,
-    .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( fd_sbpf_validated_program_rodata( prog ) + ( prog->text_off ) ),
-    .instrs_sz           = prog->text_cnt,
-    .instrs_offset       = prog->text_off,
-    .syscall_map         = syscalls,
-    .calldests           = prog->calldests,
-    .input               = input,
-    .input_sz            = input_sz,
-    .read_only           = fd_sbpf_validated_program_rodata( prog ),
-    .read_only_sz        = prog->rodata_sz,
-    /* TODO: configure heap allocator */
-    .instr_ctx           = instr_ctx,
-    .heap_sz = instr_ctx->txn_ctx->heap_size,
-    .due_insn_cnt = 0,
-    .previous_instruction_meter = instr_ctx->txn_ctx->compute_meter,
-    .alloc               = { .offset = 0UL }
-  };
-
-  ulong trace_sz = 4 * 1024 * 1024;
-  fd_vm_trace_entry_t * trace = NULL;
-  fd_vm_trace_context_t trace_ctx;
-  (void) trace_sz;
-  (void) trace;
-  (void) trace_ctx;
+  vm = fd_vm_init(
+    /* vm        */ vm,
+    /* instr_ctx */ instr_ctx,
+    /* heap_max  */ instr_ctx->txn_ctx->heap_size, /* TODO configure heap allocator */
+    /* entry_cu  */ instr_ctx->txn_ctx->compute_meter,
+    /* rodata    */ fd_sbpf_validated_program_rodata( prog ),
+    /* rodata_sz */ prog->rodata_sz,
+    /* text      */ (ulong *)((ulong)fd_sbpf_validated_program_rodata( prog ) + (ulong)prog->text_off), /* Note: text_off is byte offset */
+    /* text_cnt  */ prog->text_cnt,
+    /* text_off  */ prog->text_off,
+    /* entry_pc  */ prog->entry_pc,
+    /* calldests */ prog->calldests,
+    /* syscalls  */ syscalls,
+    /* input     */ input,
+    /* input_sz  */ input_sz,
+    /* trace     */ NULL,
+    /* sha       */ sha);
+  if ( FD_UNLIKELY( vm == NULL ) ) {
+    FD_LOG_ERR(( "null vm" )); 
+  }
 
 #ifdef FD_DEBUG_SBPF_TRACES
-  uchar * signature = (uchar*)vm_ctx.instr_ctx->txn_ctx->_txn_raw->raw + vm_ctx.instr_ctx->txn_ctx->txn_descriptor->signature_off;
+  uchar * signature = (uchar*)vm->instr_ctx->txn_ctx->_txn_raw->raw + vm->instr_ctx->txn_ctx->txn_descriptor->signature_off;
   uchar sig[64];
-  fd_base58_decode_64( "3jeD2eRiLaTajFxYNFjGUJmtjHJE4gSJwNjVZzwUpFZR4nQwqP1QfvJkBAcawQweuPX5BvbzG2ih9M4bDbzycRxT", sig);
-  if (memcmp(signature, sig, 64) == 0) {
-    trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( instr_ctx->txn_ctx->valloc, 8UL, trace_sz * sizeof(fd_vm_trace_entry_t));
-    // trace = (fd_vm_trace_entry_t *)malloc( trace_sz * sizeof(fd_vm_trace_entry_t));
-    trace_ctx.trace_entries_used = 0;
-    trace_ctx.trace_entries_sz = trace_sz;
-    trace_ctx.trace_entries = trace;
-    trace_ctx.valloc = instr_ctx->txn_ctx->valloc;
-    vm_ctx.trace_ctx = &trace_ctx;
+  /* TODO (topointon): make this run-time configurable, no need for this ifdef */
+  fd_base58_decode_64( "LKBxtETTpyVDbW1kT5fFucSpmdPoXfKW8QUxdzE8ggwCaXayByPbceQA6KwqGy2WNh89aAG3r2Qjm9VNY9FPtw9", sig );
+  if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
+    ulong event_max = 1UL<<30;
+    ulong event_data_max = 2048UL;
+    vm->trace = fd_vm_trace_join( fd_vm_trace_new( fd_valloc_malloc(
+    instr_ctx->txn_ctx->valloc, fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max ) );
+    if( FD_UNLIKELY( !vm->trace ) ) FD_LOG_ERR(( "unable to create trace" ));
   }
 #endif
 
-  /* https://github.com/anza-xyz/agave/blob/9b22f28104ec5fd606e4bb39442a7600b38bb671/programs/bpf_loader/src/lib.rs#L288-L298 */
-  ulong heap_size = instr_ctx->txn_ctx->heap_size;
-  ulong heap_cost = vm_compute_budget.heap_cost;
-  int round_up_heap_size = FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, round_up_heap_size );
-  int heap_err = 0;
-  ulong heap_cost_result = calculate_heap_cost( heap_size, heap_cost, round_up_heap_size, &heap_err );
-  if( FD_UNLIKELY( heap_err ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
-  }
-  if( FD_UNLIKELY( heap_cost_result>vm_ctx.compute_meter ) ) {
-    return FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED;
-  }
-  vm_ctx.compute_meter -= heap_cost_result;
+  int exec_err = fd_vm_exec( vm );
 
-  memset( vm_ctx.register_file, 0, sizeof(vm_ctx.register_file) );
-  vm_ctx.register_file[1] = FD_VM_MEM_MAP_INPUT_REGION_START;
-  vm_ctx.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
-
-  ulong interp_res = 0UL;
-  #ifdef FD_DEBUG_SBPF_TRACES
-    if( memcmp( signature, sig, 64UL ) == 0 ) {
-      interp_res = fd_vm_interp_instrs_trace( &vm_ctx );
-    } else {
-      interp_res = fd_vm_interp_instrs( &vm_ctx );
+  if( FD_UNLIKELY( vm->trace ) ) {
+    int err = fd_vm_trace_printf( vm->trace, vm->syscalls );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "fd_vm_trace_printf failed (%i-%s)", err, fd_vm_strerror( err ) ));
     }
-  #else
-    interp_res = fd_vm_interp_instrs( &vm_ctx );
-  #endif
-
-  if( FD_UNLIKELY( interp_res!=0UL ) ) {
-    FD_LOG_ERR(( "fd_vm_interp_instrs() failed: %lu", interp_res ));
+    fd_valloc_free( instr_ctx->txn_ctx->valloc, fd_vm_trace_delete( fd_vm_trace_leave( vm->trace ) ) );
   }
 
-#ifdef FD_DEBUG_SBPF_TRACES
-  if (memcmp(signature, sig, 64) == 0) {
-    ulong prev_cus = 0;
-    for( ulong i = 0; i < trace_ctx.trace_entries_used; i++ ) {
-      fd_vm_trace_entry_t trace_ent = trace[i];
-      char * trace_buf_out = trace_buf;
-      trace_buf_out += sprintf(trace_buf_out, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
-        trace_ent.ic,
-        trace_ent.register_file[0],
-        trace_ent.register_file[1],
-        trace_ent.register_file[2],
-        trace_ent.register_file[3],
-        trace_ent.register_file[4],
-        trace_ent.register_file[5],
-        trace_ent.register_file[6],
-        trace_ent.register_file[7],
-        trace_ent.register_file[8],
-        trace_ent.register_file[9],
-        trace_ent.register_file[10],
-        trace_ent.pc
-      );
-
-      ulong out_len = 0;
-      fd_vm_disassemble_instr(&vm_ctx.instrs[trace[i].pc], trace[i].pc, vm_ctx.syscall_map, trace_buf_out, &out_len);
-      trace_buf_out += out_len;
-      trace_buf_out += sprintf(trace_buf_out, " %lu %lu\n", trace[i].cus, prev_cus - trace[i].cus);
-      prev_cus = trace[i].cus;
-      fd_vm_trace_mem_entry_t * mem_ent = trace_ent.mem_entries_head;
-      ulong j = 0;
-      while( j < trace_ent.mem_entries_used ) {
-        j++;
-        if( mem_ent->type == FD_VM_TRACE_MEM_ENTRY_TYPE_READ ) {
-          ulong prev_mod = 0;
-          // for( long k = (long)i-1; k >= 0; k-- ) {
-          //   fd_vm_trace_entry_t prev_trace_ent = trace[k];
-          //   if (prev_trace_ent.mem_entries_used > 0) {
-          //     fd_vm_trace_mem_entry_t * prev_mem_ent = prev_trace_ent.mem_entries_head;
-          //     for( ulong l = 0; l < prev_trace_ent.mem_entries_used; l++ ) {
-          //       // fd_vm_trace_mem_entry_t prev_mem_ent = prev_trace_ent.mem_entries[l];
-          //       if( prev_mem_ent->type == FD_VM_TRACE_MEM_ENTRY_TYPE_WRITE ) {
-          //         if ((prev_mem_ent->addr <= mem_ent->addr && mem_ent->addr < prev_mem_ent->addr + prev_mem_ent->sz)
-          //             || (mem_ent->addr <= prev_mem_ent->addr && prev_mem_ent->addr < mem_ent->addr + mem_ent->sz)) {
-          //           prev_mod = (ulong)k;
-          //           break;
-          //         }
-          //       }
-          //       prev_mem_ent = prev_mem_ent->next;
-          //     }
-          //   }
-          //   if (prev_mod != 0) {
-          //     break;
-          //   }
-          // }
-
-          trace_buf_out += sprintf(trace_buf_out, "        R: vm_addr: 0x%016lX, sz: %8lu, prev_ic: %8lu, data: ", mem_ent->addr, mem_ent->sz, prev_mod);
-
-        if (mem_ent->sz < 10*1024) {
-          for( ulong k = 0; k < mem_ent->sz; k++ ) {
-            trace_buf_out += sprintf(trace_buf_out, "%02X ", mem_ent->data[k]);
-          }
-        }
-
-
-        fd_valloc_free( instr_ctx->txn_ctx->valloc, mem_ent->data);
-
-        trace_buf_out += sprintf(trace_buf_out, "\n");
-        mem_ent = mem_ent->next;
-      }
-
-      }
-      trace_buf_out += sprintf(trace_buf_out, "\0");
-      fputs(trace_buf, stderr);
-    // fclose(trace_fd);
-    // free(trace);
-    }
-    fd_vm_trace_context_destroy( &trace_ctx );
-    fd_valloc_free( instr_ctx->txn_ctx->valloc, trace);
-  }
-#endif
-
-  /* TODO: Add log for "Program consumed {} of {} compute units "*/
-
-  instr_ctx->txn_ctx->compute_meter = vm_ctx.compute_meter;
-
-  /* TODO: vm should report */
-  if( vm_ctx.register_file[0]!=0 ) {
+  if( FD_UNLIKELY( exec_err!=FD_VM_SUCCESS ) ) {
     fd_valloc_free( instr_ctx->valloc, input );
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
 
+  /* TODO: Add log for "Program consumed {} of {} compute units "*/
+
+  instr_ctx->txn_ctx->compute_meter = vm->cu;
+
   /* TODO: vm should report */
-  if( vm_ctx.cond_fault ) {
+  if( FD_UNLIKELY( vm->reg[0] ) ) {
+    //TODO: vm should report this error
     fd_valloc_free( instr_ctx->valloc, input );
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;;
   }
