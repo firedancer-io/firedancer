@@ -232,27 +232,31 @@ fd_bn254_pairing_is_one_syscall( uchar       out[32],
   fd_bn254_fp12_t r[1];
   fd_bn254_fp12_set_one( r );
 
-  for( ulong i=0; i<elements_len; i+=FD_BN254_PAIRING_BATCH_MAX ) {
-    ulong sz = fd_ulong_min( elements_len-i, FD_BN254_PAIRING_BATCH_MAX );
-    for( ulong j=0; j<sz; j++ ) {
-      if( FD_UNLIKELY( !fd_bn254_g1_frombytes_check_subgroup( &p[j], &in[(i+j)*192   ] ) ) ) {
-        return -1;
-      }
-      if( FD_UNLIKELY( !fd_bn254_g2_frombytes_check_subgroup( &q[j], &in[(i+j)*192+64] ) ) ) {
-        return -1;
-      }
-      //TODO skip pairs with point at infinity
+  ulong sz=0;
+  for( ulong i=0; i<elements_len; i++ ) {
+    /* G1: deserialize and check subgroup membership */
+    if( FD_UNLIKELY( !fd_bn254_g1_frombytes_check_subgroup( &p[sz], &in[i*192   ] ) ) ) {
+      return -1;
     }
-    if( i==0 ) {
-      fd_bn254_miller_loop( r, p, q, sz );
-    } else {
-      /* COV: this is only hit when elements_len > FD_BN254_PAIRING_BATCH_MAX */
+    /* G2: deserialize and check subgroup membership */
+    if( FD_UNLIKELY( !fd_bn254_g2_frombytes_check_subgroup( &q[sz], &in[i*192+64] ) ) ) {
+      return -1;
+    }
+    /* Skip any pair where either P or Q is the point at infinity */
+    if( FD_UNLIKELY( fd_bn254_g1_is_zero(&p[sz]) || fd_bn254_g2_is_zero(&q[sz]) ) ) {
+      continue;
+    }
+    ++sz;
+    /* Compute the Miller loop and aggegate into r */
+    if( sz==FD_BN254_PAIRING_BATCH_MAX || i==elements_len-1 ) {
       fd_bn254_fp12_t tmp[1];
       fd_bn254_miller_loop( tmp, p, q, sz );
       fd_bn254_fp12_mul( r, r, tmp );
+      sz = 0;
     }
   }
 
+  /* Compute the final exponentiation */
   fd_bn254_final_exp( r, r );
 
   /* Output is 0 or 1, serialized as big endian uint256. */
