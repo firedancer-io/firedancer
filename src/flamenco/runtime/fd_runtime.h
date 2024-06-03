@@ -334,14 +334,15 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                          ulong max_workers );
 
 void
-fd_runtime_collect_rent_accounts_prune( ulong slot, 
-                                        fd_exec_slot_ctx_t * slot_ctx, 
+fd_runtime_collect_rent_accounts_prune( ulong slot,
+                                        fd_exec_slot_ctx_t * slot_ctx,
                                         fd_capture_ctx_t * capture_ctx );
 
 void
 fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
                          char const * genesis_filepath,
-                         uchar is_snapshot );
+                         uchar is_snapshot,
+                         fd_capture_ctx_t   * capture_ctx );
 
 void
 fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,

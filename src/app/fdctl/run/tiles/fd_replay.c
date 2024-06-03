@@ -465,7 +465,7 @@ after_credit( void *             _ctx,
         fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( ctx->epoch_ctx );
         bank_hash_cmp->slot = ctx->replay->smr;
 
-        fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot );
+        fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot, NULL );
 
         init_after_snapshot( ctx );
       } FD_SCRATCH_SCOPE_END;

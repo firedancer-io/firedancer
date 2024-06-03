@@ -3751,13 +3751,12 @@ int fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 void
-fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
-                        char const * genesis_filepath,
-                        uchar is_snapshot ) {
+fd_runtime_read_genesis( fd_exec_slot_ctx_t* slot_ctx,
+                        char const         * genesis_filepath,
+                        uchar                is_snapshot,
+                        fd_capture_ctx_t   * capture_ctx
+ ) {
   if ( strlen( genesis_filepath ) == 0 ) return;
-
-  // TODO: Have a solcap capture?
-  fd_capture_ctx_t *    capture_ctx  = NULL;
 
   struct stat sbuf;
   if( FD_UNLIKELY( stat( genesis_filepath, &sbuf) < 0 ) ) {
