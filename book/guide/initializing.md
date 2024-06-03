@@ -26,9 +26,8 @@ where `mode` is one of:
  - `fini` Unconfigure (reverse) the stage if it is reversible.
 
 `stage` can be one or more of `hugetlbfs`, `sysctl`, `xdp`,
-`xdp-leftover`, `ethtool`, `workspace-leftover`, or `workspace` and
-these stages are described below. You can also use the stage `all`
-which will configure everything.
+`ethtool`, or `workspace` and these stages are described below. You can
+also use the stage `all` which will configure everything.
 
 Stages have different privilege requirements, which you can see by
 trying to run the stage without privileges. The `check` mode never

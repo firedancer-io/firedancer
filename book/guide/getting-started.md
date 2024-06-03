@@ -1,8 +1,15 @@
 # Getting Started
 
+## Frankendancer
+This guide details building and running the Frankendancer validator
+which is a hybrid of Firedancer and Agave code running side by side.
+Frankendancer replaces the Agave networking stack and block production
+components to perform better while leader.  It is not yet possible
+to run a full Firedancer validator, which is in heavy development.
+
 ## Hardware Requirements
 
-Because Firedancer currently depends on the Solana Labs validator, the
+Because Firedancer currently depends on the Agave validator, the
 hardware requirements are at least [what's
 recommended](https://docs.solana.com/running-validator/validator-reqs)
 for that validator. Firedancer hopes to reduce these over time.
@@ -16,7 +23,7 @@ for that validator. Firedancer hopes to reduce these over time.
 **Recommended**
 
 - 32-Core CPU @ >3GHz with AVX512 support
-- 128GB RAM with ECC Memory
+- 128GB RAM with ECC memory
 - 1TB NVMe SSD with separate disk for OS
 - 1 Gigabit/s Network Bandwidth
 
@@ -28,14 +35,15 @@ Firedancer must be built from source and requires the following,
 
  - A linux kernel version 5.7 or higher, or with support for
    `BPF_OBJ_PIN`.
- - GCC version 8.3 or higher.
+ - GCC version 8.3 or higher. Only GCC version 11, 12, and 13 are
+supported and tested by the Firedancer developers.
  - [rustup](https://rustup.rs/)
  - clang, git, and make
 
 ::: tip NOTE
 
-Firedancer currently builds the [Solana
-Labs](https://docs.solana.com/running-validator/validator-reqs)
+Firedancer currently builds the
+[Agave](https://docs.solana.com/running-validator/validator-reqs)
 validator as a dependency, which requires a full Rust toolchain. Once
 Firedancer is able to stand alone, this will no longer be required.
 
@@ -47,6 +55,7 @@ convenience script. First, clone the source code with:
 ```sh [bash]
 $ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
 $ cd firedancer
+$ git checkout frankendancer-latest # Latest Testnet release
 ```
 
 Then you can run the `deps.sh` script to install system packages and
@@ -58,10 +67,42 @@ compiled and output placed under `./opt`.
 $ ./deps.sh
 ```
 
+## Releases
+Firedancer does not produce pre-built binaries, and you must build from
+source, but Firedancer releases are made available as tags. The
+following naming convention is used,
+
+ * `main` This should not be used. The main is bleeding edge and inclues
+all Firedancer development and changes that could break Frankendancer.
+ * `v0.xxx.yyyyy` Official Frankendancer releases.
+
+The Frankendancer versoning has three components,
+
+* Major version is always `0`. The first full Firedancer release will be
+`1.x`
+* Minor version increments by 100 for each new Frankendancer release.
+The minor version will then increment by 1 for new minor versions within
+this release.
+* The patch number encodes the Agave validator version. An Agave version
+of `v1.17.14` is represented as `11714`.
+
+```
+================= main branch =================
+   \                             \
+    \ v0.100.11814                \ v0.200.11901
+     \                             \
+      \ v0.100.11815                \ v0.201.11902
+       \
+        \ v0.101.11815
+```
+
+The `frankendancer-latest` tag will point at the most recent Testnet
+release of Frankendancer.
+
 ## Building
 Once dependencies are installed, you can build Firedancer. Because
-Firedancer depends on the Solana Labs validator, this will also build
-some Solana components.
+Firedancer depends on the Agave validator, this will also build some
+Agave components.
 
 ```sh [bash]
 $ make -j fdctl solana
@@ -81,8 +122,9 @@ like `solana transfer`.
 :::
 
 Firedancer automatically detects the hardware it is being built on and
-enables architecture specific instructions if possible. This means
-binaries built on one machine may not be able to run on another.
+enables architecture specific instructions for maximum performance if
+possible. This means binaries built on one machine may not be able to
+run on another.
 
 If you wish to target a lower machine architecture you can compile for a
 specific target by setting the `MACHINE` environment variable to one of
@@ -127,19 +169,19 @@ user = "firedancer"
     ]
 ```
 
-::: warning WARNING
+::: note LEDGER
 
-The Firedancer blockstore in the ledger directory is not compatible with
-the one for the Agave validator, and you should not attempt to switch
-between validator clients while keeping the `ledger` directory in place.
+The Firedancer blockstore in the ledger directory is compatible with the
+one for the Agave validator, and it is possible to switch between
+validator clients while keeping the `ledger` directory in place.
 
 :::
 
 This configuration will cause Firedancer to run as the user `firedancer`
 on the local machine. The `identity_path` and `vote_account_path` should
-be Solana Labs style keys, which can be generated with the Solana Labs
-CLI. Currently, `testnet` is the only live cluster that Firedancer can
-be run against and trying to start against `devnet` or `mainnet-beta`
+be Agave style keys, which can be generated with the Solana Labs cli.
+Currently, `testnet` is the only live cluster that Firedancer can be run
+against and trying to start against `devnet` or `mainnet-beta`
 entrypoints will result in an error.
 
 ::: tip NOTE
