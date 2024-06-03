@@ -73,7 +73,8 @@ fd_ext_blockstore_insert_shreds( void const *  blockstore,
                                  ulong         shred_cnt,
                                  uchar const * shred_bytes,
                                  ulong         shred_sz,
-                                 ulong         stride );
+                                 ulong         stride,
+                                 int           is_trusted );
 
 static inline void
 after_frag( void *             _ctx,
@@ -87,7 +88,6 @@ after_frag( void *             _ctx,
             fd_mux_context_t * mux ) {
   (void)in_idx;
   (void)seq;
-  (void)opt_sig;
   (void)opt_chunk;
   (void)opt_tsorig;
   (void)opt_filter;
@@ -105,7 +105,7 @@ after_frag( void *             _ctx,
   }
 
   /* No error code because this cannot fail. */
-  fd_ext_blockstore_insert_shreds( fd_ext_blockstore, shred34->shred_cnt, ctx->mem+shred34->offset, shred34->shred_sz, shred34->stride );
+  fd_ext_blockstore_insert_shreds( fd_ext_blockstore, shred34->shred_cnt, ctx->mem+shred34->offset, shred34->shred_sz, shred34->stride, !!*opt_sig );
 
   FD_MCNT_INC( STORE_TILE, TRANSACTIONS_INSERTED, shred34->est_txn_cnt );
 }
