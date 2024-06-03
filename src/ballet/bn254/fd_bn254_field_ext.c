@@ -542,6 +542,7 @@ fd_bn254_fp12_conj( fd_bn254_fp12_t * r,
   return r;
 }
 
+/*
 static inline fd_bn254_fp12_t *
 fd_bn254_fp12_add( fd_bn254_fp12_t * r,
                    fd_bn254_fp12_t const * a,
@@ -559,6 +560,7 @@ fd_bn254_fp12_sub( fd_bn254_fp12_t * r,
   fd_bn254_fp6_sub( &r->el[1], &a->el[1], &b->el[1] );
   return r;
 }
+*/
 
 fd_bn254_fp12_t *
 fd_bn254_fp12_mul( fd_bn254_fp12_t * r,
