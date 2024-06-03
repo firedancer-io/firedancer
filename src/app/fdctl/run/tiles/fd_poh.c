@@ -1011,15 +1011,15 @@ mux_ctx( void * scratch ) {
 static void
 publish_tick( fd_poh_ctx_t *     ctx,
               fd_mux_context_t * mux,
-              uchar              hash[ static 32 ] ) {
+              uchar              hash[ static 32 ],
+              int                is_skipped ) {
   ulong hashcnt = ctx->hashcnt_per_tick*(1UL+(ctx->last_hashcnt/ctx->hashcnt_per_tick));
 
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
 
   FD_TEST( ctx->last_slot>=ctx->reset_slot );
   fd_entry_batch_meta_t * meta = (fd_entry_batch_meta_t *)dst;
-  meta->parent_offset = 1UL+ctx->slot-ctx->reset_slot;
-  if( FD_UNLIKELY( ctx->last_slot!=ctx->slot ) ) {
+  if( FD_UNLIKELY( is_skipped ) ) {
     /* We are publishing ticks for a skipped slot, the reference tick
        and block complete flags should always be zero. */
     meta->reference_tick = 0UL;
@@ -1028,6 +1028,9 @@ publish_tick( fd_poh_ctx_t *     ctx,
     meta->reference_tick = hashcnt/ctx->hashcnt_per_tick;
     meta->block_complete = hashcnt==ctx->hashcnt_per_slot;
   }
+
+  ulong slot = fd_ulong_if( meta->block_complete, ctx->slot-1UL, ctx->slot );
+  meta->parent_offset = 1UL+slot-ctx->reset_slot;
 
   FD_TEST( hashcnt>ctx->last_hashcnt );
   ulong hash_delta = hashcnt-ctx->last_hashcnt;
@@ -1040,7 +1043,7 @@ publish_tick( fd_poh_ctx_t *     ctx,
 
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sz = sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t);
-  ulong sig = fd_disco_poh_sig( ctx->slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
+  ulong sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
   fd_mux_publish( mux, sig, ctx->shred_out_chunk, sz, 0UL, 0UL, tspub );
   ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sz, ctx->shred_out_chunk0, ctx->shred_out_wmark );
 
@@ -1073,7 +1076,7 @@ after_credit( void *             _ctx,
     ulong tick_idx = (ctx->last_slot*ctx->ticks_per_slot+publish_hashcnt/ctx->hashcnt_per_tick)%MAX_SKIPPED_TICKS;
 
     fd_ext_poh_register_tick( ctx->current_leader_bank, ctx->skipped_tick_hashes[ tick_idx ] );
-    publish_tick( ctx, mux, ctx->skipped_tick_hashes[ tick_idx ] );
+    publish_tick( ctx, mux, ctx->skipped_tick_hashes[ tick_idx ], 1 );
     return;
   }
 
@@ -1282,7 +1285,7 @@ after_credit( void *             _ctx,
     fd_ext_poh_register_tick( ctx->current_leader_bank, ctx->hash );
 
     /* And send an empty microblock (a tick) to the shred tile. */
-    publish_tick( ctx, mux, ctx->hash );
+    publish_tick( ctx, mux, ctx->hash, 0 );
   }
 
   if( FD_UNLIKELY( is_leader && ctx->slot>ctx->next_leader_slot ) ) {
