@@ -154,6 +154,11 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
   if ( slot_cstr == NULL )
     FD_LOG_ERR(("--slot command line argument required"));
 
+  ulong smax = 8;
+  ulong depth = 1<<17;
+  char * smem = malloc(fd_scratch_smem_footprint(smax) + fd_scratch_fmem_footprint(depth));
+  fd_scratch_attach( smem, smem + fd_scratch_smem_footprint(smax), smax, depth );
+
 #define VLEN 32U
   struct mmsghdr msgs[VLEN];
   struct iovec iovecs[VLEN];
@@ -190,7 +195,7 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
         ++cstr;
       } while (1);
     }
-    
+
     fd_repair_settime(glob, now);
     fd_repair_continue(glob);
 
@@ -222,6 +227,9 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
       fd_repair_recv_clnt_packet(glob, bufs[i], msgs[i].msg_len, &from);
     }
   }
+
+  fd_scratch_detach(NULL);
+  free(smem);
 
   close(fd);
   return 0;

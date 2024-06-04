@@ -249,26 +249,26 @@ repair_serv_send_packet( uchar const * data, size_t sz, fd_repair_peer_addr_t co
 }
 
 static long
-repair_serv_get_shred( ulong slot, int shred_idx, void * buf, ulong buf_max, void * arg ) {
+repair_serv_get_shred( ulong slot, uint shred_idx, void * buf, ulong buf_max, void * arg ) {
   fd_replay_t * replay = (fd_replay_t *)arg;
   fd_blockstore_t * blockstore = replay->blockstore;
   fd_blockstore_start_read( blockstore );
 
-  if( shred_idx < 0 ) {
+  if( shred_idx == UINT_MAX ) {
     fd_slot_meta_t * meta = fd_blockstore_slot_meta_query( blockstore, slot );
     if( meta == NULL ) {
       fd_blockstore_end_read( blockstore );
       return -1L;
     }
-    shred_idx = (int)meta->last_index;
+    shred_idx = (uint)meta->last_index;
   }
-  long sz = fd_blockstore_shred_query_copy_data( blockstore, slot, (uint)shred_idx, buf, buf_max );
+  long sz = fd_blockstore_shred_query_copy_data( blockstore, slot, shred_idx, buf, buf_max );
 
   fd_blockstore_end_read( blockstore );
   return sz;
 }
 
-static long
+static ulong
 repair_serv_get_parent( ulong slot, void * arg ) {
   fd_replay_t * replay = (fd_replay_t *)arg;
   fd_blockstore_t * blockstore = replay->blockstore;
@@ -277,9 +277,9 @@ repair_serv_get_parent( ulong slot, void * arg ) {
   fd_slot_meta_t * meta = fd_blockstore_slot_meta_query( blockstore, slot );
   if( meta == NULL ) {
     fd_blockstore_end_read( blockstore );
-    return -1L;
+    return FD_SLOT_NULL;
   }
-  long res = (long)meta->parent_slot;
+  ulong res = meta->parent_slot;
 
   fd_blockstore_end_read( blockstore );
   return res;

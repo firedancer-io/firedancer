@@ -1072,7 +1072,7 @@ fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
       switch (protocol.discriminant) {
       case fd_repair_protocol_enum_window_index: {
         fd_repair_window_index_t const * wi = &protocol.inner.window_index;
-        long sz = (*glob->serv_get_shred_fun)( wi->slot, (int)wi->shred_index, buf, FD_SHRED_MAX_SZ, glob->fun_arg );
+        long sz = (*glob->serv_get_shred_fun)( wi->slot, (uint)wi->shred_index, buf, FD_SHRED_MAX_SZ, glob->fun_arg );
         if( sz < 0 ) break;
         *(uint *)(buf + sz) = wi->header.nonce;
         (*glob->serv_send_fun)( buf, (ulong)sz + sizeof(uint), from, glob->fun_arg );
@@ -1081,7 +1081,7 @@ fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
 
       case fd_repair_protocol_enum_highest_window_index: {
         fd_repair_highest_window_index_t const * wi = &protocol.inner.highest_window_index;
-        long sz = (*glob->serv_get_shred_fun)( wi->slot, -1, buf, FD_SHRED_MAX_SZ, glob->fun_arg );
+        long sz = (*glob->serv_get_shred_fun)( wi->slot, UINT_MAX, buf, FD_SHRED_MAX_SZ, glob->fun_arg );
         if( sz < 0 ) break;
         *(uint *)(buf + sz) = wi->header.nonce;
         (*glob->serv_send_fun)( buf, (ulong)sz + sizeof(uint), from, glob->fun_arg );
@@ -1092,10 +1092,9 @@ fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
         fd_repair_orphan_t const * wi = &protocol.inner.orphan;
         ulong slot = wi->slot;
         for(unsigned i = 0; i < 10; ++i) {
-          long r = (*glob->serv_get_parent_fun)( slot, glob->fun_arg );
-          if( r < 0 ) break;
-          slot = (ulong)r;
-          long sz = (*glob->serv_get_shred_fun)( slot, -1, buf, FD_SHRED_MAX_SZ, glob->fun_arg );
+          slot = (*glob->serv_get_parent_fun)( slot, glob->fun_arg );
+          if( slot == FD_SLOT_NULL ) break;
+          long sz = (*glob->serv_get_shred_fun)( slot, UINT_MAX, buf, FD_SHRED_MAX_SZ, glob->fun_arg );
           if( sz < 0 ) continue;
           *(uint *)(buf + sz) = wi->header.nonce;
           (*glob->serv_send_fun)( buf, (ulong)sz + sizeof(uint), from, glob->fun_arg );
