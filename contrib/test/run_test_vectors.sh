@@ -26,14 +26,20 @@ else
   cd ../..
 fi
 
-find dump/test-vectors/instr/fixtures -type f -name '*.fix' -exec ./$OBJDIR/unit-test/test_exec_instr {} + > $LOG_PATH/test_vectors_exec 2>&1
-failed=`grep -w FAIL $LOG_PATH/test_vectors_exec | wc -l`
+find dump/test-vectors/instr/fixtures -type f -name '*.fix' -exec ./$OBJDIR/unit-test/test_exec_instr --log-path $LOG_PATH/test_exec_instr --log-level-stderr 4 {} + 
+
+total_tests=`find dump/test-vectors/instr/fixtures -type f -name '*.fix' | wc -l`
+failed=`grep -wR FAIL $LOG_PATH | wc -l`
+passed=`grep -wR OK $LOG_PATH | wc -l`
+
+echo "Total test cases: $total_tests"
+echo "Total passed: $passed"
 echo "Total failed: $failed"
 
-if [ "$failed" != "0" ]
+if [ "$failed" != "0" ] || [ $passed -ne $total_tests ];
 then
   echo 'test vector execution failed'
-  grep -w FAIL $LOG_PATH/test_vectors_exec
+  grep -wR FAIL $LOG_PATH
   echo $LOG_PATH
   exit 1
 else

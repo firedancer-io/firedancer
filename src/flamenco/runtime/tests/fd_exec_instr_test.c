@@ -98,7 +98,7 @@ static int
 fd_double_is_normal( double dbl ) {
   ulong x = fd_dblbits( dbl );
   int is_denorm =
-    ( fd_dblbits_bexp( x ) == 0 ) |
+    ( fd_dblbits_bexp( x ) == 0 ) &
     ( fd_dblbits_mant( x ) != 0 );
   int is_inf =
     ( fd_dblbits_bexp( x ) == 2047 ) &
@@ -264,6 +264,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->instr_err_idx           = INT_MAX;
   txn_ctx->capture_ctx             = NULL;
   txn_ctx->vote_accounts_pool      = NULL;
+  txn_ctx->accounts_resize_delta   = 0;
 
   memset( txn_ctx->_txn_raw, 0, sizeof(fd_rawtxn_b_t) );
   memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
@@ -701,12 +702,13 @@ _diff_effects( fd_exec_instr_fixture_diff_t * check ) {
   }
 
   /* Check return data */
-  if (expected->return_data->size != ctx->txn_ctx->return_data.len) {
+  ulong data_sz = expected->return_data ? expected->return_data->size : 0UL; /* support expected->return_data==NULL */
+  if ( data_sz != ctx->txn_ctx->return_data.len ) {
     check->has_diff = 1;
     REPORTV( WARNING, "expected return data size %lu, got %lu",
-             (ulong) expected->return_data->size, ctx->txn_ctx->return_data.len );
+             (ulong) data_sz, ctx->txn_ctx->return_data.len );
   }
-  else if (expected->return_data->size > 0 ) {
+  else if ( data_sz > 0 ) {
     check->has_diff = memcmp( expected->return_data->bytes, ctx->txn_ctx->return_data.data, expected->return_data->size );
     REPORT( WARNING, "return data mismatch" );
   }
