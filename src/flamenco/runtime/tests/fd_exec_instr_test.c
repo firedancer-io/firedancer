@@ -740,12 +740,12 @@ _diff_effects( fd_exec_instr_fixture_diff_t * check ) {
 
   /* Check return data */
   ulong data_sz = expected->return_data ? expected->return_data->size : 0UL; /* support expected->return_data==NULL */
-  if ( data_sz != ctx->txn_ctx->return_data.len ) {
+  if (data_sz != ctx->txn_ctx->return_data.len) {
     check->has_diff = 1;
     REPORTV( WARNING, "expected return data size %lu, got %lu",
              (ulong) data_sz, ctx->txn_ctx->return_data.len );
   }
-  else if ( data_sz > 0 ) {
+  else if (data_sz > 0 ) {
     check->has_diff = memcmp( expected->return_data->bytes, ctx->txn_ctx->return_data.data, expected->return_data->size );
     REPORT( WARNING, "return data mismatch" );
   }
@@ -1156,17 +1156,25 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   effects->stack->size = (uint)FD_VM_STACK_MAX;
   fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
 
-  effects->inputdata = FD_SCRATCH_ALLOC_APPEND(
-    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( input_data_sz ) );
-  effects->inputdata->size = (uint)input_data_sz;
-  fd_memcpy( effects->inputdata->bytes, vm->input, input_data_sz );
+  if( input_data_sz ) {
+    effects->inputdata = FD_SCRATCH_ALLOC_APPEND(
+      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( input_data_sz ) );
+    effects->inputdata->size = (uint)input_data_sz;
+    fd_memcpy( effects->inputdata->bytes, vm->input, input_data_sz );
+  } else {
+    effects->inputdata = NULL;
+  }
 
   effects->frame_count = vm->frame_cnt;
 
-  effects->log = FD_SCRATCH_ALLOC_APPEND(
-    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->log_sz ) );
-  effects->log->size = (uint)vm->log_sz;
-  fd_memcpy( effects->log->bytes, vm->log, vm->log_sz );
+  if( vm->log_sz ) {
+    effects->log = FD_SCRATCH_ALLOC_APPEND(
+      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->log_sz ) );
+    effects->log->size = (uint)vm->log_sz;
+    fd_memcpy( effects->log->bytes, vm->log, vm->log_sz );
+  } else {
+    effects->log = NULL;
+  }
 
   /* Return the effects */
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );

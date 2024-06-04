@@ -236,6 +236,14 @@ typedef struct fd_exec_test_syscall_effects {
     pb_bytes_array_t *log;
 } fd_exec_test_syscall_effects_t;
 
+/* A syscall processing test fixture. */
+typedef struct fd_exec_test_syscall_fixture {
+    bool has_input;
+    fd_exec_test_syscall_context_t input;
+    bool has_output;
+    fd_exec_test_syscall_effects_t output;
+} fd_exec_test_syscall_fixture_t;
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -260,6 +268,7 @@ extern "C" {
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT {"", NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT}
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT {0, 0, 0, NULL, NULL, NULL, 0, NULL}
+#define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_FEATURE_SET_INIT_ZERO       {0, NULL}
 #define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {false, {0}, false, 0, NULL, false, 0, false, 0, false, {0}}
 #define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO     {false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
@@ -278,6 +287,7 @@ extern "C" {
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO {"", NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO}
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO   {0, 0, 0, NULL, NULL, NULL, 0, NULL}
+#define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_ZERO   {false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_FEATURE_SET_FEATURES_TAG    1
@@ -353,6 +363,8 @@ extern "C" {
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INPUTDATA_TAG 6
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_FRAME_COUNT_TAG 7
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_LOG_TAG     8
+#define FD_EXEC_TEST_SYSCALL_FIXTURE_INPUT_TAG   1
+#define FD_EXEC_TEST_SYSCALL_FIXTURE_OUTPUT_TAG  2
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_FEATURE_SET_FIELDLIST(X, a) \
@@ -519,6 +531,14 @@ X(a, POINTER,  SINGULAR, BYTES,    log,               8)
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_CALLBACK NULL
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_DEFAULT NULL
 
+#define FD_EXEC_TEST_SYSCALL_FIXTURE_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  input,             1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  output,            2)
+#define FD_EXEC_TEST_SYSCALL_FIXTURE_CALLBACK NULL
+#define FD_EXEC_TEST_SYSCALL_FIXTURE_DEFAULT NULL
+#define fd_exec_test_syscall_fixture_t_input_MSGTYPE fd_exec_test_syscall_context_t
+#define fd_exec_test_syscall_fixture_t_output_MSGTYPE fd_exec_test_syscall_effects_t
+
 extern const pb_msgdesc_t fd_exec_test_feature_set_t_msg;
 extern const pb_msgdesc_t fd_exec_test_acct_state_t_msg;
 extern const pb_msgdesc_t fd_exec_test_epoch_context_t_msg;
@@ -537,6 +557,7 @@ extern const pb_msgdesc_t fd_exec_test_vm_context_t_msg;
 extern const pb_msgdesc_t fd_exec_test_syscall_invocation_t_msg;
 extern const pb_msgdesc_t fd_exec_test_syscall_context_t_msg;
 extern const pb_msgdesc_t fd_exec_test_syscall_effects_t_msg;
+extern const pb_msgdesc_t fd_exec_test_syscall_fixture_t_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define FD_EXEC_TEST_FEATURE_SET_FIELDS &fd_exec_test_feature_set_t_msg
@@ -557,6 +578,7 @@ extern const pb_msgdesc_t fd_exec_test_syscall_effects_t_msg;
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_FIELDS &fd_exec_test_syscall_invocation_t_msg
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_FIELDS &fd_exec_test_syscall_context_t_msg
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_FIELDS &fd_exec_test_syscall_effects_t_msg
+#define FD_EXEC_TEST_SYSCALL_FIXTURE_FIELDS &fd_exec_test_syscall_fixture_t_msg
 
 /* Maximum encoded size of messages (where known) */
 /* fd_exec_test_FeatureSet_size depends on runtime parameters */
@@ -574,6 +596,7 @@ extern const pb_msgdesc_t fd_exec_test_syscall_effects_t_msg;
 /* fd_exec_test_SyscallInvocation_size depends on runtime parameters */
 /* fd_exec_test_SyscallContext_size depends on runtime parameters */
 /* fd_exec_test_SyscallEffects_size depends on runtime parameters */
+/* fd_exec_test_SyscallFixture_size depends on runtime parameters */
 #define FD_EXEC_TEST_INSTR_ACCT_SIZE             10
 #define FD_EXEC_TEST_SLOT_CONTEXT_SIZE           0
 #define FD_EXEC_TEST_TXN_CONTEXT_SIZE            0
@@ -598,6 +621,7 @@ extern const pb_msgdesc_t fd_exec_test_syscall_effects_t_msg;
 #define org_solana_sealevel_v1_SyscallInvocation fd_exec_test_SyscallInvocation
 #define org_solana_sealevel_v1_SyscallContext fd_exec_test_SyscallContext
 #define org_solana_sealevel_v1_SyscallEffects fd_exec_test_SyscallEffects
+#define org_solana_sealevel_v1_SyscallFixture fd_exec_test_SyscallFixture
 #define ORG_SOLANA_SEALEVEL_V1_FEATURE_SET_INIT_DEFAULT FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_ACCT_STATE_INIT_DEFAULT FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_EPOCH_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT
@@ -616,6 +640,7 @@ extern const pb_msgdesc_t fd_exec_test_syscall_effects_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_SYSCALL_INVOCATION_INIT_DEFAULT FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_SYSCALL_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_SYSCALL_EFFECTS_INIT_DEFAULT FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_SYSCALL_FIXTURE_INIT_DEFAULT FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_FEATURE_SET_INIT_ZERO FD_EXEC_TEST_FEATURE_SET_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_ACCT_STATE_INIT_ZERO FD_EXEC_TEST_ACCT_STATE_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_EPOCH_CONTEXT_INIT_ZERO FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO
@@ -634,6 +659,7 @@ extern const pb_msgdesc_t fd_exec_test_syscall_effects_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_SYSCALL_INVOCATION_INIT_ZERO FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_SYSCALL_CONTEXT_INIT_ZERO FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_SYSCALL_EFFECTS_INIT_ZERO FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_SYSCALL_FIXTURE_INIT_ZERO FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_ZERO
 
 #ifdef __cplusplus
 } /* extern "C" */

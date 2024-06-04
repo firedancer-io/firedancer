@@ -60,4 +60,7 @@ PB_BIND(FD_EXEC_TEST_SYSCALL_CONTEXT, fd_exec_test_syscall_context_t, 2)
 PB_BIND(FD_EXEC_TEST_SYSCALL_EFFECTS, fd_exec_test_syscall_effects_t, AUTO)
 
 
+PB_BIND(FD_EXEC_TEST_SYSCALL_FIXTURE, fd_exec_test_syscall_fixture_t, 2)
+
+
 
