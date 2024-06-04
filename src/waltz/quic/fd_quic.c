@@ -4061,6 +4061,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
               /* attributes on ack */
               ack_head->tx_pkt_number = pkt_number;
               ack_head->flags        |= FD_QUIC_ACK_FLAGS_SENT;
+              ack_head->tx_time       = now; /* ensure ack isn't sent again unnecessarily */
 
               /* attributes on pkt_meta */
               pkt_meta->flags        |= FD_QUIC_PKT_META_FLAGS_ACK;
