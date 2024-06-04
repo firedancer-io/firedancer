@@ -858,6 +858,10 @@ replay( fd_ledger_args_t * args ) {
   fd_replay_t * replay = NULL;
   fd_tvu_main_setup( &state, &replay, NULL, NULL, 0, wksp, &runtime_args, NULL );
 
+  if( !args->on_demand_block_ingest ) {
+    ingest_rocksdb( args->alloc, args->rocksdb_dir, args->start_slot, args->end_slot, args->blockstore, 0, args->trash_hash );
+  }
+
   FD_LOG_WARNING(( "tvu main setup done" ));
 
   int ret = runtime_replay( &state, &runtime_args );
