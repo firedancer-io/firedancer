@@ -34,8 +34,8 @@ typedef fd_gossip_peer_addr_t fd_repair_peer_addr_t;
 typedef void (*fd_repair_shred_deliver_fun)( fd_shred_t const * shred, ulong shred_len, fd_repair_peer_addr_t const * from, fd_pubkey_t const * id, void * arg );
 
 /* Callbacks when a repair is requested. shred_idx==-1 means the last index. */
-typedef long (*fd_repair_serv_get_shred_fun)( ulong slot, int shred_idx, void * buf, ulong buf_max, void * arg );
-typedef long (*fd_repair_serv_get_parent_fun)( ulong slot, void * arg );
+typedef long (*fd_repair_serv_get_shred_fun)( ulong slot, uint shred_idx, void * buf, ulong buf_max, void * arg );
+typedef ulong (*fd_repair_serv_get_parent_fun)( ulong slot, void * arg );
 
 /* Callback for sending a packet. addr is the address of the destination. */
 typedef void (*fd_repair_send_packet_fun)( uchar const * msg, size_t msglen, fd_repair_peer_addr_t const * addr, void * arg );
@@ -105,7 +105,7 @@ void fd_repair_add_sticky( fd_repair_t * glob, fd_pubkey_t const * id );
 
 void fd_repair_set_permanent( fd_repair_t * glob, fd_pubkey_t const * id );
 
-void fd_repair_set_stake_weights( fd_repair_t * repair, 
+void fd_repair_set_stake_weights( fd_repair_t * repair,
                                   fd_stake_weight_t const * stake_weights,
                                   ulong stake_weights_cnt );
 

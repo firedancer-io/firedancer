@@ -6,12 +6,14 @@
 
 #include "generated/repair_seccomp.h"
 #include "../../../../flamenco/repair/fd_repair.h"
+#include "../../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../../flamenco/fd_flamenco.h"
 #include "../../../../util/fd_util.h"
 #include "../../../../disco/tvu/util.h"
 #include "../../../../disco/fd_disco.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
+#include "../../../../disco/topo/fd_pod_format.h"
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -95,6 +97,9 @@ struct fd_repair_tile_ctx {
   fd_stake_ci_t * stake_ci;
 
   fd_mux_context_t * mux;
+
+  fd_wksp_t  *      blockstore_wksp;
+  fd_blockstore_t * blockstore;
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
@@ -353,6 +358,16 @@ after_frag( void *             _ctx,
 
   fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *)_ctx;
 
+  // Poll for blockstore
+  if ( FD_UNLIKELY( ctx->blockstore == NULL ) ) {
+    ulong tag = FD_BLOCKSTORE_MAGIC;
+    fd_wksp_tag_query_info_t info;
+    if ( fd_wksp_tag_query(ctx->blockstore_wksp, &tag, 1, &info, 1) > 0 ) {
+      void * shmem = fd_wksp_laddr_fast( ctx->blockstore_wksp, info.gaddr_lo );
+      ctx->blockstore = fd_blockstore_join( shmem );
+    }
+  }
+
   if( FD_UNLIKELY( in_idx==CONTACT_IN_IDX ) ) {
     handle_new_cluster_contact_info( ctx, ctx->buffer, *opt_sz );
     return;
@@ -399,18 +414,51 @@ after_credit( void *             _ctx,
 }
 
 static long
-repair_get_shred( ulong  slot FD_PARAM_UNUSED,
-                  int    shred_idx FD_PARAM_UNUSED,
-                  void * buf FD_PARAM_UNUSED,
-                  ulong  buf_max FD_PARAM_UNUSED,
-                  void * arg FD_PARAM_UNUSED ) {
-  return -1; /* Always fail for now */
+repair_get_shred( ulong  slot,
+                  uint   shred_idx,
+                  void * buf,
+                  ulong  buf_max,
+                  void * arg ) {
+  fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *)arg;
+  fd_blockstore_t * blockstore = ctx->blockstore;
+  if( FD_UNLIKELY( blockstore == NULL ) ) {
+    return -1;
+  }
+  fd_blockstore_start_read( blockstore );
+
+  if( shred_idx == UINT_MAX ) {
+    fd_slot_meta_t * meta = fd_blockstore_slot_meta_query( blockstore, slot );
+    if( meta == NULL ) {
+      fd_blockstore_end_read( blockstore );
+      return -1L;
+    }
+    shred_idx = (uint)meta->last_index;
+  }
+  long sz = fd_blockstore_shred_query_copy_data( blockstore, slot, shred_idx, buf, buf_max );
+
+  fd_blockstore_end_read( blockstore );
+  return sz;
 }
 
-static long
-repair_get_parent( ulong  slot FD_PARAM_UNUSED,
-                   void * arg FD_PARAM_UNUSED ) {
-  return -1; /* Always fail for now */
+static ulong
+repair_get_parent( ulong  slot,
+                   void * arg ) {
+  fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *)arg;
+  fd_blockstore_t * blockstore = ctx->blockstore;
+  if( FD_UNLIKELY( blockstore == NULL ) ) {
+    return FD_SLOT_NULL;
+  }
+  fd_blockstore_start_read( blockstore );
+
+  fd_slot_meta_t * meta = fd_blockstore_slot_meta_query( blockstore, slot );
+  if( meta == NULL ) {
+    fd_blockstore_end_read( blockstore );
+    return FD_SLOT_NULL;
+  }
+  ulong res = meta->parent_slot;
+
+  fd_blockstore_end_read( blockstore );
+  return res;
 }
 
 static void
@@ -487,6 +535,15 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_net_create_packet_header_template( ctx->intake_hdr, FD_REPAIR_MAX_PACKET_SIZE, ctx->repair_intake_addr.addr, ctx->src_mac_addr, ctx->repair_intake_listen_port );
   fd_net_create_packet_header_template( ctx->serve_hdr, FD_REPAIR_MAX_PACKET_SIZE, ctx->repair_serve_addr.addr, ctx->src_mac_addr, ctx->repair_serve_listen_port );
+
+  /* Blockstore setup */
+  ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
+  FD_TEST( blockstore_obj_id!=ULONG_MAX );
+  ctx->blockstore_wksp = topo->workspaces[ topo->objs[ blockstore_obj_id ].wksp_id ].wksp;
+
+  if( ctx->blockstore_wksp==NULL ) {
+    FD_LOG_ERR(( "no blocktore workspace" ));
+  }
 
   fd_topo_link_t * netmux_link = &topo->links[ tile->in_link_id[ 0 ] ];
 
