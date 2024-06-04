@@ -222,3 +222,9 @@ message SyscallEffects {
     bytes log = 8
         [(nanopb).type = FT_POINTER];
 }
+
+// A syscall processing test fixture.
+message SyscallFixture {
+    SyscallContext input = 1;
+    SyscallEffects output = 2;
+}
