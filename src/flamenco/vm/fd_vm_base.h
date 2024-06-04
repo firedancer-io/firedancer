@@ -75,6 +75,9 @@
 #define FD_VM_ERR_LDQ_NO_ADDL_IMM   (-33) /* detected a ldq without an addl imm following it */
 #define FD_VM_ERR_NO_SUCH_EXT_CALL  (-34) /* detected a call imm with no function was registered for that immediate */
 #define FD_VM_ERR_INVALID_REG       (-35) /* detected an invalid register */
+#define FD_VM_ERR_BAD_TEXT          (-36) /* detected a bad text section (overflow, outside rodata boundary, etc.,)*/
+#define FD_VM_SH_OVERFLOW           (-37) /* detected a shift overflow, equivalent to VeriferError::ShiftWithOverflow */
+#define FD_VM_TEXT_SZ_UNALIGNED     (-38) /* detected a text section that is not a multiple of 8 */
 
 FD_PROTOTYPES_BEGIN
 
