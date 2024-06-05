@@ -1,4 +1,3 @@
-src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-254462437 -s snapshot-254462620-BEn8r5dNrKtaKo92pCXx2ZGrHm6cv6UrQ3ePmByEjj34.tar.zst -p 32 -y 32 -m 20000000 -e 254462622 --zst
 src/flamenco/runtime/tests/run_ledger_tests.sh -t 2 -X 1
 src/flamenco/runtime/tests/run_ledger_tests.sh -l v118-multi
 src/flamenco/runtime/tests/run_ledger_tests.sh -l testnet-519       -s snapshot-255311992-Fju7xb3XaTY6SBxkGcsKko15EGAqnvdfkXBd1o6agPDq.tar.zst -p 32 -y 32 -m 1000000 -e 255312007
