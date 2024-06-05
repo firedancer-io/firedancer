@@ -103,7 +103,7 @@ read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *              
     return NULL;
   }
 
-  return rec->const_meta;  /* UGLY!!!!! */
+  return rec->const_meta;
 }
 
 /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L105-L171 */

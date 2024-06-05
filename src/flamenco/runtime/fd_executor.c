@@ -764,7 +764,8 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       ulong ending_lamports_h = 0UL;
       ulong ending_lamports_l = 0UL;
       err = fd_instr_info_sum_account_lamports( instr, &ending_lamports_h, &ending_lamports_l );
-      if( err ) {
+      if( FD_UNLIKELY( err ) ) {
+        txn_ctx->instr_stack_sz--;
         return err;
       }
 
