@@ -228,8 +228,24 @@ switch_user( uint uid, uint gid ) {
 
 static void
 unshare_user( uint uid, uint gid ) {
+  /* Certain Linux kernels are configured to not allow user namespaces
+     from an unprivileged process, since it's a common security exploit
+     vector.  You can still make the namespace if you have CAP_SYS_ADMIN
+     so we need to make sure to carry this through the switch_user. */
+
+  FD_TESTV( !prctl( PR_SET_KEEPCAPS, 1 ) );
   switch_user( uid, gid );
+
+  struct __user_cap_header_struct capheader;
+  capheader.version = _LINUX_CAPABILITY_VERSION_3;
+  capheader.pid = 0;
+  struct __user_cap_data_struct capdata[2] = { {0} };
+  FD_TESTV( !syscall( SYS_capget, &capheader, capdata ) );
+  capdata[ CAP_TO_INDEX( CAP_SYS_ADMIN ) ].effective |= CAP_TO_MASK( CAP_SYS_ADMIN );
+  FD_TESTV( !syscall( SYS_capset, &capheader, capdata ) );
+
   FD_TESTV( !unshare( CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS ) );
+  FD_TESTV( !prctl( PR_SET_KEEPCAPS, 0 ) );
   deny_setgroups();
   userns_map( uid, "uid_map" );
   userns_map( gid, "gid_map" );
