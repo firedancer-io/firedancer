@@ -85,6 +85,12 @@
 #define FD_QUIC_NOTIFY_RESET (101)
 #define FD_QUIC_NOTIFY_ABORT (102)
 
+/* defines the packet types */
+#define FD_QUIC_PKT_TYPE_INITIAL   0
+#define FD_QUIC_PKT_TYPE_HANDSHAKE 1
+#define FD_QUIC_PKT_TYPE_ZERO_RTT  2
+#define FD_QUIC_PKT_TYPE_ONE_RTT   3
+
 
 #endif
 
