@@ -186,12 +186,19 @@ fini( config_t * const config,
       int              pre_init ) {
   (void)pre_init;
 
-  const char * mount_path[ 2 ] = {
+  /* Not used by fdctl but might be created by other debugging tools
+     on the system. */
+
+  char normal_page_mount_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( normal_page_mount_path, PATH_MAX, NULL, "%s/.normal", config->hugetlbfs.mount_path ) );
+
+  const char * mount_path[ 3 ] = {
     config->hugetlbfs.huge_page_mount_path,
     config->hugetlbfs.gigantic_page_mount_path,
+    normal_page_mount_path,
   };
 
-  for( ulong i=0UL; i<2UL; i++ ) {
+  for( ulong i=0UL; i<3UL; i++ ) {
     FILE * fp = fopen( "/proc/self/mounts", "r" );
     if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "failed to open `/proc/self/mounts`" ));
 
@@ -222,6 +229,9 @@ fini( config_t * const config,
     if( FD_UNLIKELY( rmdir( mount_path[ i ] ) && errno!=ENOENT ) )
       FD_LOG_ERR(( "error removing hugetlbfs mount at `%s` (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
   }
+
+  if( FD_UNLIKELY( rmdir( config->hugetlbfs.mount_path ) && errno!=ENOENT ) )
+    FD_LOG_ERR(( "error removing hugetlbfs directory at `%s` (%i-%s)", config->hugetlbfs.mount_path, errno, fd_io_strerror( errno ) ));
 }
 
 static configure_result_t
@@ -256,6 +266,7 @@ check( config_t * const config ) {
   else if( FD_UNLIKELY( result1 || result2 ) )
     PARTIALLY_CONFIGURED( "only one of `%s` and `%s` exists", mount_path[ 0 ], mount_path[ 1 ] );
 
+  CHECK( check_dir( config->hugetlbfs.mount_path, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
   for( ulong i=0UL; i<2UL; i++ ) {
     CHECK( check_dir( mount_path[ i ], config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
 
