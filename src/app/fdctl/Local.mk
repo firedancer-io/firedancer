@@ -5,12 +5,18 @@ ifdef FD_HAS_DOUBLE
 include src/app/fdctl/with-version.mk
 $(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH))
 
+src/app/fdctl/version.h: src/app/fdctl/version.mk
+	echo "#define FDCTL_MAJOR_VERSION $(FIREDANCER_VERSION_MAJOR)UL" > $@
+	echo "#define FDCTL_MINOR_VERSION $(FIREDANCER_VERSION_MINOR)UL" >> $@
+	echo "#define FDCTL_PATCH_VERSION $(FIREDANCER_VERSION_PATCH)UL" >> $@
+$(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
+
 # When we don't have libsolana_validator.a in the PHONY list, make fails
 # to realize that it has been updated. Not sure why this happens.
 .PHONY: fdctl cargo-validator cargo-solana rust solana
 
 # fdctl core
-$(call add-objs,main1 config caps utility keys ready mem spy help,fd_fdctl)
+$(call add-objs,main1 config caps utility keys ready mem spy help version,fd_fdctl)
 $(call add-objs,run/run run/run1 run/run_solana run/topos/topos,fd_fdctl)
 $(call add-objs,monitor/monitor monitor/helper,fd_fdctl)
 
