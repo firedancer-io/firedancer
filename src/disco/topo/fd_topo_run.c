@@ -234,7 +234,10 @@ fd_topo_tile_stack_new( int          optimize,
     ulong sub_page_cnt[ 1 ] = { 6 };
     ulong sub_cpu_idx [ 1 ] = { cpu_idx };
     int err = fd_shmem_create_multi( name, FD_SHMEM_HUGE_PAGE_SZ, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
-    if( FD_UNLIKELY( err && errno==ENOMEM ) ) {
+    if( FD_UNLIKELY( err && errno==EEXIST ) ) {
+      FD_LOG_ERR(( "You are trying to run `fdctl run` without first rerunning `fdctl configure init`. "
+                   "Please reinitialize the application before running it again." ));
+    } else  if( FD_UNLIKELY( err && errno==ENOMEM ) ) {
       char mount_path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
       FD_TEST( fd_cstr_printf_check( mount_path, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s", fd_shmem_private_base, fd_shmem_page_sz_to_cstr( FD_SHMEM_HUGE_PAGE_SZ ) ));
       FD_LOG_ERR(( "ENOMEM-Out of memory when trying to create workspace `%s` at `%s` "
