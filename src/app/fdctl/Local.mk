@@ -122,7 +122,13 @@ cargo-solana:
 	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --bin solana
 endif
 
+# We sleep as a workaround for a bizarre problem where the build system
+# looks at the mtime of this file before `cargo build` has finished
+# writing to it and updating the mtime. It will then sometimes see that
+# the file is "older" than the fdctl binary and think it does not need
+# to rebuild.
 solana/target/$(RUST_PROFILE)/libsolana_validator.a: cargo-validator
+	@sleep 0.1
 
 solana/target/$(RUST_PROFILE)/solana: cargo-solana
 
