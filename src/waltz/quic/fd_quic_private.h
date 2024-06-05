@@ -370,6 +370,7 @@ ulong
 fd_quic_handle_v1_frame( fd_quic_t *       quic,
                          fd_quic_conn_t *  conn,
                          fd_quic_pkt_t *   pkt,
+                         uint              pkt_type,
                          uchar const *     frame_ptr,
                          ulong             frame_sz,
                          fd_quic_frame_u * frame_scratch );

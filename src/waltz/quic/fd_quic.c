@@ -8,6 +8,7 @@
 #include "templ/fd_quic_frame_handler_decl.h"
 #include "templ/fd_quic_frames_templ.h"
 #include "templ/fd_quic_undefs.h"
+#include "templ/fd_quic_frame_types_templ.h"
 
 #include "crypto/fd_quic_crypto_suites.h"
 #include "templ/fd_quic_transport_params.h"
@@ -754,6 +755,7 @@ ulong
 fd_quic_handle_v1_frame( fd_quic_t *       quic,
                          fd_quic_conn_t *  conn,
                          fd_quic_pkt_t *   pkt,
+                         uint              pkt_type,
                          uchar const *     buf,
                          ulong             buf_sz,
                          fd_quic_frame_u * frame_union ) {
@@ -773,13 +775,20 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
   uchar id_lo = 255; /* allow for fragments to work */
   uchar id_hi = 0;
 
+  /* check whether packet type, frame type combo is allowed */
+  if( FD_UNLIKELY( !fd_quic_frame_type_allowed( pkt_type, id ) ) ) {
+    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
 #include "templ/fd_quic_parse_frame.h"
 #include "templ/fd_quic_frames_templ.h"
 #include "templ/fd_quic_undefs.h"
 
+  /* unknown frame types are PROTOCOL_VIOLATION errors */
   FD_DEBUG( FD_LOG_DEBUG(( "unexpected frame type: %d  at offset: %ld", (int)*p, (long)( p - buf ) )); )
+  fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
 
-  // if we get here we didn't understand "frame type"
   return FD_QUIC_PARSE_FAIL;
 }
 
@@ -1736,7 +1745,13 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   uchar const * frame_ptr   = cur_ptr + payload_off;
   ulong         frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
   while( frame_sz != 0UL ) {
-    rc = fd_quic_handle_v1_frame( quic, conn, pkt, frame_ptr, frame_sz, &conn->frame_union );
+    rc = fd_quic_handle_v1_frame( quic,
+                                  conn,
+                                  pkt,
+                                  FD_QUIC_PKT_TYPE_INITIAL,
+                                  frame_ptr,
+                                  frame_sz,
+                                  &conn->frame_union );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
       return FD_QUIC_PARSE_FAIL;
     }
@@ -1896,7 +1911,13 @@ fd_quic_handle_v1_handshake(
   uchar const * frame_ptr   = cur_ptr + payload_off;
   ulong         frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
   while( frame_sz != 0UL ) {
-    rc = fd_quic_handle_v1_frame( quic, conn, pkt, frame_ptr, frame_sz, &conn->frame_union );
+    rc = fd_quic_handle_v1_frame( quic,
+                                  conn,
+                                  pkt,
+                                  FD_QUIC_PKT_TYPE_HANDSHAKE,
+                                  frame_ptr,
+                                  frame_sz,
+                                  &conn->frame_union );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
       return FD_QUIC_PARSE_FAIL;
     }
@@ -2221,7 +2242,13 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
   uchar const * frame_ptr   = cur_ptr + payload_off;
   ulong         frame_sz    = cur_sz - pn_offset - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
   while( frame_sz != 0UL ) {
-    rc = fd_quic_handle_v1_frame( quic, conn, pkt, frame_ptr, frame_sz, &conn->frame_union );
+    rc = fd_quic_handle_v1_frame( quic,
+                                  conn,
+                                  pkt,
+                                  FD_QUIC_PKT_TYPE_ONE_RTT,
+                                  frame_ptr,
+                                  frame_sz,
+                                  &conn->frame_union );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
       FD_DEBUG( FD_LOG_DEBUG(( "frame failed to parse" )) );
       return FD_QUIC_PARSE_FAIL;
@@ -4063,7 +4090,6 @@ fd_quic_conn_tx( fd_quic_t *      quic,
               ack_head->flags        |= FD_QUIC_ACK_FLAGS_SENT;
               ack_head->tx_time       = now; /* ensure ack isn't sent again unnecessarily */
 
-              /* attributes on pkt_meta */
               pkt_meta->flags        |= FD_QUIC_PKT_META_FLAGS_ACK;
 
               /* ack frames don't really expire, but we still want to reclaim the pkt_meta */
