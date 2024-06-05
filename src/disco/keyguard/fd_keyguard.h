@@ -23,6 +23,11 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_ROLE_X509_CA (4)  /* self-signed cert CA */
 #define FD_KEYGUARD_ROLE_REPAIR  (5)
 
+/* Sign types *********************************************************/
+
+#define FD_KEYGUARD_SIGN_TYPE_ED25519        (0)  /* ed25519_sign(input) */
+#define FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 (1)  /* ed25519_sign(sha256(data)) */
+
 /* Type confusion/ambiguity checks ************************************/
 
 /* fd_keyguard_payload_matches_{...} returns 1 if the byte array
@@ -38,12 +43,12 @@ FD_PROTOTYPES_BEGIN
      tls_cv:      TLS 1.3 certificate verify payload
      x509_csr:    X.509 certificate signing request */
 
-FD_FN_PURE int fd_keyguard_payload_matches_txn_msg   ( uchar const * data, ulong sz );
-FD_FN_PURE int fd_keyguard_payload_matches_gossip_msg( uchar const * data, ulong sz );
-FD_FN_PURE int fd_keyguard_payload_matches_shred     ( uchar const * data, ulong sz );
-FD_FN_PURE int fd_keyguard_payload_matches_tls_cv    ( uchar const * data, ulong sz );
-FD_FN_PURE int fd_keyguard_payload_matches_x509_csr  ( uchar const * data, ulong sz );
-FD_FN_PURE int fd_keyguard_payload_matches_ping_msg  ( uchar const * data, ulong sz );
+FD_FN_PURE int fd_keyguard_payload_matches_txn_msg   ( uchar const * data, ulong sz, int sign_type );
+FD_FN_PURE int fd_keyguard_payload_matches_gossip_msg( uchar const * data, ulong sz, int sign_type );
+FD_FN_PURE int fd_keyguard_payload_matches_shred     ( uchar const * data, ulong sz, int sign_type );
+FD_FN_PURE int fd_keyguard_payload_matches_tls_cv    ( uchar const * data, ulong sz, int sign_type );
+FD_FN_PURE int fd_keyguard_payload_matches_x509_csr  ( uchar const * data, ulong sz, int sign_type );
+FD_FN_PURE int fd_keyguard_payload_matches_ping_msg  ( uchar const * data, ulong sz, int sign_type );
 
 /* fd_keyguard_payload_check_ambiguous returns 1 if the given byte array
    could be susceptible to fake signing (false positives allowed).  This
@@ -55,13 +60,14 @@ FD_FN_PURE int fd_keyguard_payload_matches_ping_msg  ( uchar const * data, ulong
 
 static inline FD_FN_PURE int
 fd_keyguard_payload_check_ambiguous( uchar const * data,
-                                     ulong         sz ) {
+                                     ulong         sz,
+                                     int           sign_type ) {
   int match_cnt =
-      ( !!fd_keyguard_payload_matches_txn_msg   ( data, sz ) )
-    + ( !!fd_keyguard_payload_matches_gossip_msg( data, sz ) )
-    + ( !!fd_keyguard_payload_matches_shred     ( data, sz ) )
-    + ( !!fd_keyguard_payload_matches_tls_cv    ( data, sz ) )
-    + ( !!fd_keyguard_payload_matches_x509_csr  ( data, sz ) );
+      ( !!fd_keyguard_payload_matches_txn_msg   ( data, sz, sign_type ) )
+    + ( !!fd_keyguard_payload_matches_gossip_msg( data, sz, sign_type ) )
+    + ( !!fd_keyguard_payload_matches_shred     ( data, sz, sign_type ) )
+    + ( !!fd_keyguard_payload_matches_tls_cv    ( data, sz, sign_type ) )
+    + ( !!fd_keyguard_payload_matches_x509_csr  ( data, sz, sign_type ) );
   return match_cnt>1;
 }
 
@@ -86,7 +92,8 @@ fd_keyguard_payload_check_ambiguous( uchar const * data,
 FD_FN_PURE int
 fd_keyguard_payload_authorize( uchar const * data,
                                ulong         sz,
-                               int           role );
+                               int           role,
+                               int           sign_type );
 
 FD_PROTOTYPES_END
 

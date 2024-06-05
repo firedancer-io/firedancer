@@ -87,7 +87,10 @@
 
 FD_FN_PURE int
 fd_keyguard_payload_matches_txn_msg( uchar const * data,
-                                     ulong         sz ) {
+                                     ulong         sz,
+                                     int           sign_type ) {
+
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
 
   /* txn_msg_min_sz is the smallest valid size of a transaction msg. A
      transaction is the concatenation of (signature count, signatures,
@@ -159,21 +162,28 @@ fd_keyguard_payload_matches_txn_msg( uchar const * data,
 
 FD_FN_PURE int
 fd_keyguard_payload_matches_ping_msg( uchar const * data,
-                                      ulong sz ) {
-  return sz==48UL && (memcmp( data, "SOLANA_PING_PONG", 16UL ) == 0);
+                                      ulong         sz,
+                                      int           sign_type ) {
+  return sign_type==FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 &&
+         sz==48UL &&
+         (memcmp( data, "SOLANA_PING_PONG", 16UL ) == 0);
 }
 
 FD_FN_PURE int
 fd_keyguard_payload_matches_gossip_msg( uchar const * data,
-                                        ulong         sz ) {
+                                        ulong         sz,
+                                        int           sign_type ) {
+
+  /* Pings and pongs are prefixed with a string */
+  if( fd_keyguard_payload_matches_ping_msg( data, sz, sign_type ) ) return 1;
+
+  /* All gossip messages except pings use raw signing */
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
 
   /* Every gossip message contains a 4 byte enum variant tag (at the
      beginning of the message) and a 32 byte public key (at an arbitrary
      location). */
   if( sz<36UL ) return 0;
-
-  /* Pings and pongs are prefixed with a string */
-  if ( fd_keyguard_payload_matches_ping_msg( data, sz) ) return 1;
 
   /* There probably won't ever be more than 32 different gossip message
      types. */
@@ -183,22 +193,20 @@ fd_keyguard_payload_matches_gossip_msg( uchar const * data,
     & (data[3]==0x00) )
     return 1;
 
-#define MIN_PRUNE_MSG_SZ 80
-  if ( sz>=MIN_PRUNE_MSG_SZ ) {
-    ulong prune_len = *(ulong *)(data + 32);
-    if ( sz==(MIN_PRUNE_MSG_SZ + prune_len * 32) ) return 1;
-  }
-#undef MIN_PRUNE_MSG_SZ
-
   return 0;
 }
 
 FD_FN_PURE int
 fd_keyguard_payload_matches_shred( uchar const * data,
-                                   ulong         sz ) {
+                                   ulong         sz,
+                                   int           sign_type ) {
+
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+
   switch( sz ) {
 
   /* Merkle shreds signing payloads always 32 byte */
+  /* FIXME: Sign Merkle shreds using SIGN_TYPE_SHA256_ED25519 (!!!) */
   case   32UL:
     return 1;
 
@@ -220,7 +228,11 @@ fd_keyguard_payload_matches_shred( uchar const * data,
 
 FD_FN_PURE int
 fd_keyguard_payload_matches_tls_cv( uchar const * data,
-                                    ulong         sz ) {
+                                    ulong         sz,
+                                    int           sign_type ) {
+
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+
   /* TLS CertificateVerify signing payload one of 3 sizes
      depending on hash function chosen */
   switch( sz ) {
@@ -248,7 +260,11 @@ fd_keyguard_payload_matches_tls_cv( uchar const * data,
 
 FD_FN_PURE int
 fd_keyguard_payload_matches_x509_csr( uchar const * data,
-                                      ulong         sz ) {
+                                      ulong         sz,
+                                      int           sign_type ) {
+
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+
   if( sz<1UL        ) return 0;
   if( data[0]!=0x30 ) return 0;  /* ASN.1 SEQUENCE */
 
@@ -264,16 +280,19 @@ fd_keyguard_payload_matches_x509_csr( uchar const * data,
   return 1;
 }
 
+/* FIXME: authorize needs to be more strict than match (!!!) */
+
 FD_FN_PURE int
 fd_keyguard_payload_authorize( uchar const * data,
                                ulong         sz,
-                               int           role ) {
+                               int           role,
+                               int           sign_type ) {
   switch( role ) {
-    case FD_KEYGUARD_ROLE_VOTER: return fd_keyguard_payload_matches_txn_msg( data, sz );
-    case FD_KEYGUARD_ROLE_GOSSIP: return fd_keyguard_payload_matches_gossip_msg( data, sz );
-    case FD_KEYGUARD_ROLE_LEADER: return fd_keyguard_payload_matches_shred( data, sz );
-    case FD_KEYGUARD_ROLE_TLS: return fd_keyguard_payload_matches_tls_cv( data, sz );
-    case FD_KEYGUARD_ROLE_X509_CA: return fd_keyguard_payload_matches_x509_csr( data, sz );
+    case FD_KEYGUARD_ROLE_VOTER:   return fd_keyguard_payload_matches_txn_msg   ( data, sz, sign_type );
+    case FD_KEYGUARD_ROLE_GOSSIP:  return fd_keyguard_payload_matches_gossip_msg( data, sz, sign_type );
+    case FD_KEYGUARD_ROLE_LEADER:  return fd_keyguard_payload_matches_shred     ( data, sz, sign_type );
+    case FD_KEYGUARD_ROLE_TLS:     return fd_keyguard_payload_matches_tls_cv    ( data, sz, sign_type );
+    case FD_KEYGUARD_ROLE_X509_CA: return fd_keyguard_payload_matches_x509_csr  ( data, sz, sign_type );
     default: return 0;
   }
 }

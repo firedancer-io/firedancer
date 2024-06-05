@@ -186,12 +186,13 @@ gossip_send_packet( uchar const *                 data,
 }
 
 void
-signer_fun( void *    arg,
+signer_fun( void *        arg,
             uchar         signature[ static 64 ],
             uchar const * buffer,
-            ulong         len ) {
+            ulong         len,
+            int           sign_type ) {
   fd_keyguard_client_t * keyguard_client = (fd_keyguard_client_t *)arg;
-  fd_keyguard_client_sign( keyguard_client, signature, buffer, len );
+  fd_keyguard_client_sign( keyguard_client, signature, buffer, len, sign_type );
 }
 
 /* Convert my style of address to UNIX style */

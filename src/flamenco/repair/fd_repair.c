@@ -3,6 +3,7 @@
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../disco/keyguard/fd_keyguard.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/rng/fd_rng.h"
 #include <string.h>
@@ -403,7 +404,7 @@ fd_repair_sign_and_send( fd_repair_t * glob, fd_repair_protocol_t * protocol, fd
   fd_memcpy(buf + 64U, buf, 4U);
   fd_signature_t sig;
   if( glob->sign_fun ) {
-    (*glob->sign_fun)( glob->sign_arg, sig.uc, buf + 64U, buflen - 64U );
+    (*glob->sign_fun)( glob->sign_arg, sig.uc, buf + 64U, buflen - 64U, FD_KEYGUARD_SIGN_TYPE_ED25519 );
   } else {
     fd_sha512_t sha[1];
     fd_ed25519_sign( /* sig */ sig.uc,
@@ -571,7 +572,7 @@ fd_repair_recv_ping(fd_repair_t * glob, fd_gossip_ping_t const * ping, fd_gossip
 
   /* Sign it */
   if( glob->sign_fun ) {
-    (*glob->sign_fun)( glob->sign_arg, pong->signature.uc, pong->token.uc, 32UL );
+    (*glob->sign_fun)( glob->sign_arg, pong->signature.uc, pong->token.uc, 32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
   } else {
     fd_sha512_t sha2[1];
     fd_ed25519_sign( /* sig */ pong->signature.uc,
@@ -942,8 +943,9 @@ fd_repair_send_ping(fd_repair_t * glob, fd_gossip_peer_addr_t const * addr, fd_p
     ping->token.ul[i] = val->token.ul[i] = fd_rng_ulong(glob->rng);
 
   if( glob->sign_fun ) {
-    (*glob->sign_fun)( glob->sign_arg, ping->signature.uc, ping->token.uc, 32UL );
+    (*glob->sign_fun)( glob->sign_arg, ping->signature.uc, ping->token.uc, 32UL, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 );
   } else {
+    /* FIXME wrong signature for pings */
     fd_sha512_t sha[1];
     fd_ed25519_sign( /* sig */ ping->signature.uc,
                      /* msg */ ping->token.uc,

@@ -39,7 +39,8 @@
 uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0, 0 ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
 
 static void
-sign_fun( void * arg, uchar * sig, uchar const * buffer, ulong len ) {
+sign_fun( void * arg, uchar * sig, uchar const * buffer, ulong len, int sign_type ) {
+  (void)sign_type;  /* fixme */
   fd_gossip_config_t * config = (fd_gossip_config_t *)arg;
   fd_sha512_t          sha[1];
   fd_ed25519_sign( /* sig */ sig,

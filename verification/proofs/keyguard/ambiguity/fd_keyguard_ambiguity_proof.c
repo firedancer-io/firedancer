@@ -13,5 +13,9 @@ harness( void ) {
   uchar * buf = malloc( size );
   if( !buf ) return;
 
-  assert( fd_keyguard_payload_check_ambiguous( buf, size )==0 );
+  int sign_type;
+  __CPROVER_assume( sign_type==FD_KEYGUARD_SIGN_TYPE_ED25519 ||
+                    sign_type==FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 );
+
+  assert( fd_keyguard_payload_check_ambiguous( buf, size, sign_type )==0 );
 }
