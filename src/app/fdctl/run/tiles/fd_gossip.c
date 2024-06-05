@@ -236,12 +236,14 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
     FD_LOG_DEBUG(("contact info v1 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info->gossip.addr.inner.ip4 ), contact_info->gossip.port ));
 
     fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, &contact_info->id, NULL );
-    if( ele==NULL ) {
-      /* Insert the element */
-      ele = fd_contact_info_table_insert( ctx->contact_info_table, &contact_info->id );
+    if (FD_UNLIKELY(!ele &&
+                    !fd_contact_info_table_is_full(ctx->contact_info_table))) {
+      ele = fd_contact_info_table_insert(ctx->contact_info_table,
+                                         &contact_info->id);
     }
-
-    ele->contact_info = *contact_info;
+    if (ele) {
+      ele->contact_info = *contact_info;
+    }
   }
 }
 
