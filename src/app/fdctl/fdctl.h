@@ -113,7 +113,7 @@ fdctl_obj_loose( fd_topo_t const *     topo,
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t * tile );
 
-#define ACTIONS_CNT (10UL)
+#define ACTIONS_CNT (11UL)
 extern action_t ACTIONS[ ACTIONS_CNT ];
 
 void fdctl_boot( int *        pargc,
@@ -200,5 +200,9 @@ spy_cmd_fn( args_t *         args,
 void
 help_cmd_fn( args_t *         args,
              config_t * const config );
+
+void
+version_cmd_fn( args_t *         args,
+                config_t * const config );
 
 #endif /* HEADER_fd_src_app_fdctl_fdctl_h */
