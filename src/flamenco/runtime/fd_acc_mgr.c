@@ -120,7 +120,7 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
   // TODO/FIXME: this check causes issues with some metadata writes
 
   fd_account_meta_t const * metadata = fd_type_pun_const( raw );
-  if( metadata->magic != FD_ACCOUNT_META_MAGIC )
+  if( !metadata || metadata->magic != FD_ACCOUNT_META_MAGIC )
     return NULL;
 
   return metadata;
@@ -202,7 +202,7 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
       return NULL;
     }
     /* Irrecoverable funky internal error [[noreturn]] */
-    FD_LOG_ERR(( "fd_funk_rec_write_prepare(%32J) failed (%i-%s)", pubkey->key, funk_err, fd_funk_strerror( funk_err ) ));
+    FD_LOG_ERR(( "fd_funk_rec_write_prepare(%32J) failed (%i-%s). trying to modify frozen transaction.", pubkey->key, funk_err, fd_funk_strerror( funk_err ) ));
   }
 
   if (NULL != opt_out_rec)
@@ -415,6 +415,12 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
       ulong batch_idx = i & batch_mask;
       fd_acc_mgr_save_task_info_t * task_info = &task_infos[batch_idx];
       task_info->accounts[task_info->accounts_cnt++] = account;
+      if( FD_UNLIKELY( !account ) ) {
+        FD_LOG_WARNING( ( "NULL account" ) );
+        FD_LOG_ERR( ( "[replay] account was unexpected NULL." ) );
+        fd_funk_end_write(funk);
+        return FD_ACC_MGR_ERR_READ_FAILED;
+      }
       fd_funk_rec_key_t key = fd_acc_funk_key( account->pubkey );
       fd_funk_rec_t * rec = (fd_funk_rec_t *)fd_funk_rec_query( funk, txn, &key );
       if( rec == NULL ) {
@@ -425,6 +431,13 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
       account->rec = rec;
       if ( acc_mgr->slots_per_epoch != 0 )
         fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
+      if (FD_UNLIKELY(!account->const_meta)) {
+        FD_LOG_ERR( ( "[replay] unable to lookup account %32J.", account->pubkey ) );
+        task_info->result = FD_ACC_MGR_ERR_READ_FAILED;
+        FD_LOG_WARNING(( "NULL account->const_meta" ));
+        fd_funk_end_write(funk);
+        return FD_ACC_MGR_ERR_READ_FAILED;
+      }
       ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
       int err;
       if( fd_funk_val_truncate( account->rec, reclen, fd_funk_alloc( acc_mgr->funk, wksp ), wksp, &err ) == NULL ) {

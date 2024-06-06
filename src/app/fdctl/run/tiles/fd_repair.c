@@ -6,14 +6,12 @@
 
 #include "generated/repair_seccomp.h"
 #include "../../../../flamenco/repair/fd_repair.h"
-#include "../../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../../flamenco/fd_flamenco.h"
 #include "../../../../util/fd_util.h"
 #include "../../../../disco/tvu/util.h"
 #include "../../../../disco/fd_disco.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
-#include "../../../../disco/topo/fd_pod_format.h"
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -97,11 +95,62 @@ struct fd_repair_tile_ctx {
   fd_stake_ci_t * stake_ci;
 
   fd_mux_context_t * mux;
-
-  fd_wksp_t  *      blockstore_wksp;
-  fd_blockstore_t * blockstore;
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
+
+#define MAX_ADDR_STRLEN      128
+static fd_repair_peer_addr_t *
+resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res ) {
+  fd_memset( res, 0, sizeof( fd_repair_peer_addr_t ) );
+
+  /* Find the : and copy out the host */
+  char buf[MAX_ADDR_STRLEN];
+  uint i;
+  for( i = 0;; ++i ) {
+    if( str[i] == '\0' || i > sizeof( buf ) - 1U ) {
+      FD_LOG_ERR( ( "missing colon" ) );
+      return NULL;
+    }
+    if( str[i] == ':' ) {
+      buf[i] = '\0';
+      break;
+    }
+    buf[i] = str[i];
+  }
+  if( i == 0 || strcmp( buf, "localhost" ) == 0 ||
+      strcmp( buf, "127.0.0.1" ) == 0 ) /* :port means $HOST:port */
+    gethostname( buf, sizeof( buf ) );
+
+  struct hostent * host = gethostbyname( buf );
+  if( host == NULL ) {
+    FD_LOG_WARNING( ( "unable to resolve host %s", buf ) );
+    return NULL;
+  }
+  /* Convert result to repair address */
+  res->l    = 0;
+  res->addr = ( (struct in_addr *)host->h_addr_list[0] )->s_addr;
+  int port  = atoi( str + i + 1 );
+  if( ( port > 0 && port < 1024 ) || port > (int)USHORT_MAX ) {
+    FD_LOG_ERR( ( "invalid port number" ) );
+    return NULL;
+  }
+  res->port = htons( (ushort)port );
+
+  return res;
+}
+
+FD_FN_UNUSED static void
+add_perm( fd_repair_t * repair, const char * repair_peer_id, const char * repair_peer_addr ) {
+  fd_pubkey_t _repair_peer_id;
+  fd_base58_decode_32( repair_peer_id, _repair_peer_id.uc );
+  fd_repair_peer_addr_t _repair_peer_addr = { 0 };
+  if( FD_UNLIKELY( fd_repair_add_active_peer(
+          repair, resolve_hostport( repair_peer_addr, &_repair_peer_addr ), &_repair_peer_id ) ) ) {
+    FD_LOG_ERR( ( "error adding repair active peer" ) );
+  }
+  fd_repair_add_sticky( repair, &_repair_peer_id );
+  fd_repair_set_permanent( repair, &_repair_peer_id );
+}
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -358,16 +407,6 @@ after_frag( void *             _ctx,
 
   fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *)_ctx;
 
-  // Poll for blockstore
-  if ( FD_UNLIKELY( ctx->blockstore == NULL ) ) {
-    ulong tag = FD_BLOCKSTORE_MAGIC;
-    fd_wksp_tag_query_info_t info;
-    if ( fd_wksp_tag_query(ctx->blockstore_wksp, &tag, 1, &info, 1) > 0 ) {
-      void * shmem = fd_wksp_laddr_fast( ctx->blockstore_wksp, info.gaddr_lo );
-      ctx->blockstore = fd_blockstore_join( shmem );
-    }
-  }
-
   if( FD_UNLIKELY( in_idx==CONTACT_IN_IDX ) ) {
     handle_new_cluster_contact_info( ctx, ctx->buffer, *opt_sz );
     return;
@@ -414,51 +453,18 @@ after_credit( void *             _ctx,
 }
 
 static long
-repair_get_shred( ulong  slot,
-                  uint   shred_idx,
-                  void * buf,
-                  ulong  buf_max,
-                  void * arg ) {
-  fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *)arg;
-  fd_blockstore_t * blockstore = ctx->blockstore;
-  if( FD_UNLIKELY( blockstore == NULL ) ) {
-    return -1;
-  }
-  fd_blockstore_start_read( blockstore );
-
-  if( shred_idx == UINT_MAX ) {
-    fd_slot_meta_t * meta = fd_blockstore_slot_meta_query( blockstore, slot );
-    if( meta == NULL ) {
-      fd_blockstore_end_read( blockstore );
-      return -1L;
-    }
-    shred_idx = (uint)meta->last_index;
-  }
-  long sz = fd_blockstore_shred_query_copy_data( blockstore, slot, shred_idx, buf, buf_max );
-
-  fd_blockstore_end_read( blockstore );
-  return sz;
+repair_get_shred( ulong  slot FD_PARAM_UNUSED,
+                  int    shred_idx FD_PARAM_UNUSED,
+                  void * buf FD_PARAM_UNUSED,
+                  ulong  buf_max FD_PARAM_UNUSED,
+                  void * arg FD_PARAM_UNUSED ) {
+  return -1; /* Always fail for now */
 }
 
-static ulong
-repair_get_parent( ulong  slot,
-                   void * arg ) {
-  fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *)arg;
-  fd_blockstore_t * blockstore = ctx->blockstore;
-  if( FD_UNLIKELY( blockstore == NULL ) ) {
-    return FD_SLOT_NULL;
-  }
-  fd_blockstore_start_read( blockstore );
-
-  fd_slot_meta_t * meta = fd_blockstore_slot_meta_query( blockstore, slot );
-  if( meta == NULL ) {
-    fd_blockstore_end_read( blockstore );
-    return FD_SLOT_NULL;
-  }
-  ulong res = meta->parent_slot;
-
-  fd_blockstore_end_read( blockstore );
-  return res;
+static long
+repair_get_parent( ulong  slot FD_PARAM_UNUSED,
+                   void * arg FD_PARAM_UNUSED ) {
+  return -1; /* Always fail for now */
 }
 
 static void
@@ -535,15 +541,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_net_create_packet_header_template( ctx->intake_hdr, FD_REPAIR_MAX_PACKET_SIZE, ctx->repair_intake_addr.addr, ctx->src_mac_addr, ctx->repair_intake_listen_port );
   fd_net_create_packet_header_template( ctx->serve_hdr, FD_REPAIR_MAX_PACKET_SIZE, ctx->repair_serve_addr.addr, ctx->src_mac_addr, ctx->repair_serve_listen_port );
-
-  /* Blockstore setup */
-  ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
-  FD_TEST( blockstore_obj_id!=ULONG_MAX );
-  ctx->blockstore_wksp = topo->workspaces[ topo->objs[ blockstore_obj_id ].wksp_id ].wksp;
-
-  if( ctx->blockstore_wksp==NULL ) {
-    FD_LOG_ERR(( "no blocktore workspace" ));
-  }
 
   fd_topo_link_t * netmux_link = &topo->links[ tile->in_link_id[ 0 ] ];
 

@@ -1,13 +1,11 @@
-include src/app/fdctl/version.mk
-
 # Frankendancer versioning is always major 0, the first full Firedancer
 # release will be version 1.0
-FIREDANCER_VERSION_MAJOR := $(VERSION_MAJOR)
+FIREDANCER_VERSION_MAJOR := 0
 
 # The minor version is a Firedancer specific version number, indicating
 # which release candidate branch this is. Different Firedancer release
 # branches could point to the same Solana Labs patch.
-FIREDANCER_VERSION_MINOR := $(VERSION_MINOR)$(shell printf "%02d" $(VERSION_PATCH))
+FIREDANCER_VERSION_MINOR := 0
 
 # For Frankendancer, we stuff the entire Solana Labs version that we are
 # linking to in the patch version.  This transforms, for example, a full

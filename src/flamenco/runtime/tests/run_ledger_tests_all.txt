@@ -1,3 +1,4 @@
+src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-254462437 -s snapshot-254462620-BEn8r5dNrKtaKo92pCXx2ZGrHm6cv6UrQ3ePmByEjj34.tar.zst -p 32 -y 32 -m 20000000 -e 254462622 --zst
 src/flamenco/runtime/tests/run_ledger_tests.sh -t 2 -X 1
 src/flamenco/runtime/tests/run_ledger_tests.sh -l v118-multi
 src/flamenco/runtime/tests/run_ledger_tests.sh -l testnet-519       -s snapshot-255311992-Fju7xb3XaTY6SBxkGcsKko15EGAqnvdfkXBd1o6agPDq.tar.zst -p 32 -y 32 -m 1000000 -e 255312007
@@ -24,6 +25,3 @@ src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-257257983 -s snapshot-
 src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-267728520 -s snapshot-267728520-AnKvgiQEYQMxnSp8U4pps7tR8c7pCJ3mMCE2Zqzij2ek.tar.zst -p 16 -y 16 -m 5000000 -e 267728522
 src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-267651942 -s snapshot-267651941-7u1sT9iRtd26nJdk3CqywGmo857ufb715PSTmfrBxYiS.tar.zst -p 16 -y 16 -m 5000000 -e 267651943
 src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-267081197 -s snapshot-267081196-9qwnybW2TVKfpMKJXKwFwfeW81qX2voqJYxd4qEaHPQu.tar.zst -p 16 -y 16 -m 5000000 -e 267081198
-src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-267085604 -s snapshot-267085603-6JYpKrZVkmvsNvr83xTB63UsYDspCLUgsSAZLgJJZ3we.tar.zst -p 16 -y 16 -m 5000000 -e 267085605
-src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-265688706 -s snapshot-265688705-Hz56JjQuN4yfXGohYWMsYe2QJiTejQgGNLUaviVN16qP.tar.zst -p 16 -y 16 -m 5000000 -e 265688707
-src/flamenco/runtime/tests/run_ledger_tests.sh -l v18multi-deployclose -s snapshot-400-4u5FU6ucpVAGaNgerGXs93vKtuS3tkmH2cAGwjQA9QcR.tar.zst -p 16 -y 16 -m 5000000 -e 600

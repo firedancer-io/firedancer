@@ -30,37 +30,26 @@ This section lists some subcommands and their key options. For full options, run
     - `--repetitions multiple --mode exact`:
       - Replay the entire ledger in multiple iterations.
       - `--start-slot` and `--end-slot` define the absolute bounds to replay the ledger.
-      - If start_slot and end_slot are not specified (recommended), the check range is `[first_rooted(max(snap, rocksdb_min)), last_rooted(rocksdb_max)]` 
-      - The replay looks for a mismatch from `start_slot` toward `end_slot`, until it encounters a mismatch. 
-      - Then it would repeat the cycle, starting from the next hourly snapshot after mismatch+1. The snapshot is skipped if the first slot is not rooted.
+      - If they are not specified (recommended), the check range is `[first_rooted(max(snap, rocksdb_min)), last_rooted(rocksdb_max)]`
+      - The replay looks for a mismatch from start_slot toward end_slot, until it encounters a mismatch. Then, it would start again from mismatch+1, repeating the cycle.
+      - Depending on where these bank hash mismatches are encountered, a possible list of snapshots might look like `[range_start, Abhm, range_end], (Abhm, Bbhm, range_end], ... (Ybhm, Zbhm, range_end]` which translates into the uploads `[Abhm-1, Abhm+1], [Bbhm-1, Bbhm+1], ..., [Zbhm-1, Zbhm+1]`
+    - `--repetitions multiple --mode exact --rep-sz 100`:
+      - Breaks the ledger up into multiple repetitions of the specified size. solana-ledger-tool has some issues with minimizing larger ledgers.
+      - Passing --rep-sz is only recommended if the ledger to minimize into is too large, since this takes additional time to run.
+      - This has the same output as running without --rep-sz, but breaks the process up into multiple iterations of some rep size.
+      - For example, running this against a ledger with rocksdb bounds of size S, will break into chunks `[first_rooted(start_slot), last_rooted(start_slot + S/n - 1)], [first_rooted(start_slot + S/n), last_rooted(start_slot + 2S/n - 1)]` ...
+      - Following, each of these chunks might have their own set of bank hash mismatches `[first_rooted(start_slot), ABhm, Bbhm, Cbhm .... last_rooted(start_slot + S/n - 1)]`
 
 ### Examples
 
-To fetch the latest mainnet ledger and find all bank hash mismatches:
+To fetch the latest testnet ledger and find all bank hash mismatches:
 
 ```
-./ledger_conformance.sh all \
-        --network mainnet \
-        --repetitions multiple \
-        --ledger $PATH_TO_LEDGER \
-        --ledger-min $PATH_TO_LEDGER_MIN \
-        --solana-build-dir $PATH_TO_SOLANA_TARGET_RELEASE_DIR \
-        --firedancer-root-dir $PATH_TO_FIREDANCER_ROOT_DIR \
-        --gigantic-pages 450 \
-        --index-max 550000000 \
-        --upload $UPLOAD_URL
+./ledger_conformance.sh all --network testnet --mode exact --repetitions multiple --rep-sz 100 --ledger PATH_TO_LEDGER --ledger-min PATH_TO_LEDGER_MIN --solana-build-dir PATH_TO_SOLANA_TARGET_RELEASE_DIR --firedancer-root-dir PATH_TO_FIREDANCER_ROOT_DIR
 ```
 
-If you already have an existing ledger to start from at $PATH_TO_LEDGER, append `--no-fetch`:
+If you already have an existing ledger to start from, append `--no-fetch`
 
 ```
-./ledger_conformance.sh all \
-        --network testnet \
-        --repetitions multiple \
-        --ledger $PATH_TO_LEDGER \
-        --ledger-min $PATH_TO_LEDGER_MIN \
-        --solana-build-dir $PATH_TO_SOLANA_TARGET_RELEASE_DIR \
-        --firedancer-root-dir $PATH_TO_FIREDANCER_ROOT_DIR \                
-        --upload $UPLOAD_URL \
-        --no-fetch
+./ledger_conformance.sh all --network testnet --mode exact --repetitions multiple --rep-sz 100 --ledger PATH_TO_LEDGER --ledger-min PATH_TO_LEDGER_MIN --solana-build-dir PATH_TO_SOLANA_TARGET_RELEASE_DIR --firedancer-root-dir PATH_TO_FIREDANCER_ROOT_DIR --no-fetch
 ```

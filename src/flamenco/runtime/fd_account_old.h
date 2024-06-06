@@ -8,6 +8,8 @@
 #include "fd_runtime.h"
 #include <assert.h>
 
+#define MAX_PERMITTED_DATA_LENGTH ( 10UL * 1024UL * 1024UL )
+
 /* Represents the lamport balance associated with an account. */
 typedef ulong fd_acc_lamports_t;
 
@@ -18,11 +20,14 @@ fd_account_get_data(fd_account_meta_t * m) {
   return ((char *) m) + m->hlen;
 }
 
-// TODO: Confirm if the program id pubkey actually corresponds to the last program id
-// Returns true if the owner of this account is the current `InstructionContext`s last program (instruction wide)
+//    /// Returns true if the owner of this account is the current `InstructionContext`s last program (instruction wide)
 static inline
-int fd_account_is_owned_by_current_program2(const fd_exec_instr_ctx_t *ctx, const fd_account_meta_t * acct, FD_FN_UNUSED int *err) {
-  return memcmp( &ctx->instr->program_id_pubkey, acct->info.owner, sizeof(fd_pubkey_t) ) == 0;
+int fd_account_is_owned_by_current_program2(const FD_FN_UNUSED fd_exec_instr_ctx_t *ctx, const FD_FN_UNUSED fd_account_meta_t * acct, FD_FN_UNUSED  int *err) {
+//        self.instruction_context
+//            .get_last_program_key(self.transaction_context)
+//            .map(|key| key == self.get_owner())
+//            .unwrap_or_default()
+  return 1;
 }
 
 static inline
@@ -66,6 +71,36 @@ int fd_account_can_data_be_changed2(fd_exec_instr_ctx_t *ctx, fd_account_meta_t 
     *err = FD_EXECUTOR_INSTR_ERR_EXTERNAL_DATA_MODIFIED;
     return 0;
   }
+
+  return 1;
+}
+
+static inline int
+fd_account_set_data_length2( fd_exec_instr_ctx_t * ctx,
+                            fd_account_meta_t * acct,
+                            fd_pubkey_t const * key,
+                            ulong new_length,
+                            int space_check,
+                            int * err) {
+  if (!fd_account_can_data_be_resized(ctx->instr, acct, new_length, err))
+    return 0;
+
+  if (!fd_account_can_data_be_changed2(ctx, acct, key, err))
+    return 0;
+
+  if (acct->dlen == new_length)
+    return 1;
+
+  if (space_check && (acct->dlen < new_length)) {
+    //do magic to make sure it fits...
+  }
+
+  uchar *data = ((uchar *) acct) + acct->hlen;
+
+  if (new_length > acct->dlen)
+    memset(&data[acct->dlen], 0, new_length - acct->dlen);
+
+  acct->dlen = new_length;
 
   return 1;
 }

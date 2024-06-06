@@ -7,18 +7,12 @@ ifdef FD_HAS_SSE
 include src/app/fdctl/with-version.mk
 $(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH))
 
-src/app/fdctl/version.h: src/app/fdctl/version.mk
-	echo "#define FDCTL_MAJOR_VERSION $(FIREDANCER_VERSION_MAJOR)UL" > $@
-	echo "#define FDCTL_MINOR_VERSION $(FIREDANCER_VERSION_MINOR)UL" >> $@
-	echo "#define FDCTL_PATCH_VERSION $(FIREDANCER_VERSION_PATCH)UL" >> $@
-$(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
-
 # When we don't have libsolana_validator.a in the PHONY list, make fails
 # to realize that it has been updated. Not sure why this happens.
 .PHONY: fdctl cargo-validator cargo-solana rust solana
 
 # fdctl core
-$(call add-objs,main1 config caps utility keys ready mem spy help version,fd_fdctl)
+$(call add-objs,main1 config caps utility keys ready mem spy help,fd_fdctl)
 $(call add-objs,run/run run/run1 run/run_solana run/topos/topos,fd_fdctl)
 $(call add-objs,monitor/monitor monitor/helper,fd_fdctl)
 
@@ -122,13 +116,7 @@ cargo-solana:
 	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --bin solana
 endif
 
-# We sleep as a workaround for a bizarre problem where the build system
-# looks at the mtime of this file before `cargo build` has finished
-# writing to it and updating the mtime. It will then sometimes see that
-# the file is "older" than the fdctl binary and think it does not need
-# to rebuild.
 solana/target/$(RUST_PROFILE)/libsolana_validator.a: cargo-validator
-	@sleep 0.1
 
 solana/target/$(RUST_PROFILE)/solana: cargo-solana
 

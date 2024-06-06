@@ -155,8 +155,10 @@ fd_pending_slots_add( fd_pending_slots_t * pending_slots,
 
   } else if ( slot >= pending_slots->end ) {
     /* Grow up */
-    if( (long)(slot - pending_slots->start) > (long)FD_PENDING_MAX )
+    if( (long)(slot - pending_slots->start) > (long)FD_PENDING_MAX ) {
+      __asm__("int $3");
       FD_LOG_ERR(( "pending queue overrun: start=%lu, end=%lu, new slot=%lu", pending_slots->start, pending_slots->end, slot ));
+    }
     pending[slot & FD_PENDING_MASK] = when;
     for( ulong i = pending_slots->end; i < slot; i++ ) {
       /* Zero fill */

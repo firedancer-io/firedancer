@@ -39,7 +39,7 @@ void test_duplicate_entrypoint_entry( void ) {
   fd_valloc_t valloc = fd_scratch_virtual();
   fd_sbpf_elf_info_t info;
 
-  fd_sbpf_elf_peek( &info, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, true );
+  fd_sbpf_elf_peek( &info, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz );
 
   void* rodata = fd_valloc_malloc( valloc, 8UL, info.rodata_footprint );
   FD_TEST( rodata );
@@ -52,7 +52,7 @@ void test_duplicate_entrypoint_entry( void ) {
   for( uint const * x = _syscalls; *x; x++ )
       fd_sbpf_syscalls_insert( syscalls, *x );
   
-  int res = fd_sbpf_program_load( prog, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, syscalls, true);
+  int res = fd_sbpf_program_load( prog, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, syscalls );
   FD_TEST( res == 0 );
 
   // end of boilerplate

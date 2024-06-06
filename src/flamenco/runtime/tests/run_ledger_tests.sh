@@ -1,5 +1,7 @@
 #!/bin/bash -f
 
+set -euxo pipefail
+
 # We determine these values by
 #  1) Checkout https://github.com/firedancer-io/solana.git
 #  2) switch to the debug branch
@@ -396,7 +398,7 @@ then
       --checkpt-funk $PRUNE_PATH \
       --funk-only 1 \
       --txn-max 100 \
-      --page-cnt 10 \
+      $PAGES \
       $FUNK_PAGES \
       $PRUNED_PAGES \
       $PRUNED_IMAX \

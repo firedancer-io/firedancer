@@ -376,14 +376,14 @@ fd_set_exempt_rent_epoch_max( fd_exec_txn_ctx_t * txn_ctx,
 // 1. static and dynamic account keys that are loaded for the message
 // 2. owner program which inteprets the opaque data for each instruction
 static int
-fd_cap_transaction_accounts_data_size( fd_exec_txn_ctx_t *     txn_ctx,
-                                       fd_instr_info_t const * instrs,
-                                       ushort                  instrs_cnt ) {
+fd_cap_transaction_accounts_data_size( fd_exec_txn_ctx_t * txn_ctx,
+                                       fd_instr_info_t const *  instrs,
+                                       ushort              instrs_cnt ) {
   ulong total_accounts_data_size = 0UL;
   for( ulong idx = 0; idx < txn_ctx->accounts_cnt; idx++ ) {
     fd_borrowed_account_t *b = &txn_ctx->borrowed_accounts[idx];
     ulong program_data_len = (NULL != b->meta) ? b->meta->dlen : (NULL != b->const_meta) ? b->const_meta->dlen : 0UL;
-    total_accounts_data_size = fd_ulong_sat_add( total_accounts_data_size, program_data_len );
+    total_accounts_data_size = fd_ulong_sat_add(total_accounts_data_size, program_data_len);
   }
 
   for( ushort i = 0; i < instrs_cnt; ++i ) {
@@ -396,17 +396,17 @@ fd_cap_transaction_accounts_data_size( fd_exec_txn_ctx_t *     txn_ctx,
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
 
-    total_accounts_data_size = fd_ulong_sat_add( total_accounts_data_size, p->starting_owner_dlen );
+    total_accounts_data_size = fd_ulong_sat_add(total_accounts_data_size, p->starting_owner_dlen);
   }
 
-  if( !txn_ctx->loaded_accounts_data_size_limit ) {
+  if (0 == txn_ctx->loaded_accounts_data_size_limit) {
     txn_ctx->custom_err = 33;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  if( total_accounts_data_size > txn_ctx->loaded_accounts_data_size_limit ) {
+  if ( total_accounts_data_size > txn_ctx->loaded_accounts_data_size_limit ) {
     FD_LOG_WARNING(( "Total loaded accounts data size %lu has exceeded its set limit %lu", total_accounts_data_size, txn_ctx->loaded_accounts_data_size_limit ));
-    return FD_RUNTIME_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
+    return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_SIZE_EXCEEDED;
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -764,8 +764,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       ulong ending_lamports_h = 0UL;
       ulong ending_lamports_l = 0UL;
       err = fd_instr_info_sum_account_lamports( instr, &ending_lamports_h, &ending_lamports_l );
-      if( FD_UNLIKELY( err ) ) {
-        txn_ctx->instr_stack_sz--;
+      if( err ) {
         return err;
       }
 
@@ -999,6 +998,9 @@ fd_execute_txn_prepare_phase4( fd_exec_slot_ctx_t * slot_ctx,
     TODO this should probably not run on executable accounts
         Also iterate over LUT accounts */
   if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) {
+    if ( FD_UNLIKELY( !txn_ctx || !txn_ctx->_txn_raw->raw ) ) {
+      return 1;
+    }
     fd_pubkey_t * tx_accs   = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->acct_addr_off);
     for( fd_txn_acct_iter_t ctrl = fd_txn_acct_iter_init( txn_ctx->txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE );
          ctrl != fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
@@ -1086,7 +1088,9 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     if ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, cap_transaction_accounts_data_size ) ) {
       int ret = fd_cap_transaction_accounts_data_size( txn_ctx, instrs, txn_ctx->txn_descriptor->instr_cnt );
       if ( ret != FD_EXECUTOR_INSTR_SUCCESS ) {
+        fd_funk_start_write(txn_ctx->acc_mgr->funk);
         fd_funk_txn_cancel(txn_ctx->acc_mgr->funk, txn_ctx->funk_txn, 0);
+        fd_funk_end_write(txn_ctx->acc_mgr->funk);
         return ret;
       }
     }
@@ -1261,6 +1265,12 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
     FD_LOG_DEBUG(("Lamport sum mismatch: starting %lu ending %lu", starting_lamports, ending_lamports));
     return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
   }
+#if 0
+  // cap_accounts_data_allocations_per_transaction
+  //    TODO: I am unsure if this is the correct check...
+  if (((long)ending_dlen - (long)starting_dlen) > MAX_PERMITTED_DATA_INCREASE)
+    return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_SIZE_EXCEEDED;
+#endif
 
   /* TODO unused variables */
   (void)ending_dlen; (void)starting_dlen;
@@ -1325,10 +1335,8 @@ fd_executor_instr_strerror( int err ) {
   case FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW                : return "ARITHMETIC_OVERFLOW";
   case FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR                 : return "UNSUPPORTED_SYSVAR";
   case FD_EXECUTOR_INSTR_ERR_ILLEGAL_OWNER                      : return "ILLEGAL_OWNER";
-  case FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED      : return "FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED";
-  case FD_EXECUTOR_INSTR_ERR_MAX_ACCS_EXCEEDED                  : return "FD_EXECUTOR_INSTR_ERR_MAX_ACCS_EXCEEDED";
-  case FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED       : return "FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED";
-  case FD_EXECUTOR_INSTR_ERR_BUILTINS_MUST_CONSUME_CUS          : return "FD_EXECUTOR_INSTR_ERR_BUILTINS_MUST_CONSUME_CUS";
+  case FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_SIZE_EXCEEDED        : return "MAX_ACCS_DATA_SIZE_EXCEEDED";
+  case FD_EXECUTOR_INSTR_ERR_ACTIVE_VOTE_ACC_CLOSE              : return "ACTIVE_VOTE_ACC_CLOSE";
   default: break;
   }
 

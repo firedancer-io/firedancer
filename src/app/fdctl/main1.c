@@ -18,7 +18,6 @@ action_t ACTIONS[ ACTIONS_CNT ] = {
   { .name = "mem",        .args = NULL,               .fn = mem_cmd_fn,        .perm = NULL,                .description = "Print workspace memory and tile topology information" },
   { .name = "spy",        .args = NULL,               .fn = spy_cmd_fn,        .perm = NULL,                .description = "Spy on and print out gossip traffic" },
   { .name = "help",       .args = NULL,               .fn = help_cmd_fn,       .perm = NULL,                .description = "Print this help message" },
-  { .name = "version",    .args = NULL,               .fn = version_cmd_fn,    .perm = NULL,                .description = "Show the current software version" },
 };
 
 struct action_alias {

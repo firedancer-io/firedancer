@@ -44,7 +44,6 @@ fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L740-L767 */
 int
 fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
                       ulong                       instr_acc_idx,
@@ -60,18 +59,18 @@ fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
 
   fd_account_meta_t const * meta = account->const_meta;
 
-  if( !fd_account_is_owned_by_current_program( instr, meta ) ) {
+  if( !fd_account_is_owned_by_current_program( instr, meta ) )
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-  }
-  if( !fd_instr_acc_is_writable_idx( instr, instr_acc_idx ) ) {
+  if( !fd_instr_acc_is_writable_idx( instr, instr_acc_idx ) )
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-  }
-  if( fd_account_is_executable( meta ) ) {
+  if( fd_account_is_executable( meta ) )
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-  }
-  if( !fd_account_is_zeroed( meta ) ) {
+  if( !fd_account_is_zeroed( meta ) )
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-  }
+  if( 0==memcmp( meta->info.owner, owner, sizeof(fd_pubkey_t) ) )
+    return FD_EXECUTOR_INSTR_SUCCESS;
+  if( 0!=memcmp( meta->info.owner, fd_solana_system_program_id.key, sizeof(fd_pubkey_t) ) )
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, 0UL, &account );
@@ -128,15 +127,14 @@ fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
-  if( !fd_account_can_data_be_resized( ctx, account->const_meta, data_sz, &err ) )
+  if( !fd_account_can_data_be_resized( ctx->instr, account->const_meta, data_sz, &err ) )
     return err;
 
   if( !fd_account_can_data_be_changed( ctx->instr, instr_acc_idx, &err ) )
     return err;
 
-  if( !fd_account_update_accounts_resize_delta( ctx, instr_acc_idx, data_sz, &err ) ) {
-    return err;
-  }
+  /* TODO update_accounts_resize_delta */
+  /* TODO make_data_mut */
 
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, data_sz, &account );
@@ -160,7 +158,7 @@ fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
-  if( !fd_account_can_data_be_resized( ctx, account->const_meta, new_len, err ) )
+  if( !fd_account_can_data_be_resized( ctx->instr, account->const_meta, new_len, err ) )
     return 0;
 
   if( !fd_account_can_data_be_changed( ctx->instr, instr_acc_idx, err ) )
@@ -170,10 +168,6 @@ fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
 
   if( old_len == new_len )
     return 1;
-
-  if( !fd_account_update_accounts_resize_delta( ctx, instr_acc_idx, new_len, err ) ) {
-    return 0;
-  }
 
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, new_len, &account );
@@ -186,28 +180,5 @@ fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
 
   account->meta->dlen = new_len;
 
-  return 1;
-}
-
-/* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L1128-L1138 */
-int
-fd_account_update_accounts_resize_delta( fd_exec_instr_ctx_t const * ctx,
-                                         ulong                       instr_acc_idx,
-                                         ulong                       new_len,
-                                         int *                       err ) {
-                                          
-  fd_borrowed_account_t * account = NULL;
-  *err = fd_instr_borrowed_account_view_idx( ctx, (uchar)instr_acc_idx, &account );
-  if( FD_UNLIKELY( *err ) ) {
-    return 0;
-  }
-
-  ulong size_delta = fd_ulong_sat_sub( new_len, account->const_meta->dlen );
-
-  /* TODO: The size delta should never exceed the value of ULONG_MAX so this 
-     could be replaced with a normal addition. However to match execution with
-     the agave client, this is being left as a sat add */
-  ctx->txn_ctx->accounts_resize_delta = fd_ulong_sat_add( ctx->txn_ctx->accounts_resize_delta, size_delta );
-  *err = FD_EXECUTOR_INSTR_SUCCESS;
   return 1;
 }

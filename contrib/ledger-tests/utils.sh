@@ -1,22 +1,5 @@
 #!/bin/bash
 
-is_rooted_slot() {
-  local slot_number=$1
-  local output=$($SOLANA_LEDGER_TOOL slot $slot_number -l $LEDGER 2>&1)
-
-  if [[ "$output" == *"is_full: true"* ]]; then
-    parent_slot="${BASH_REMATCH[1]}"
-    echo "[~] found rooted slot at $slot_number with parent slot $parent_slot" >&2
-    echo $slot_number
-    return 0
-  elif [[ "$output" == *"is_full: false"* ]]; then
-    echo "[~] slot $slot_number has no parent, skipping..." >&2
-  else
-    echo "[-] no information for slot $slot_number, skipping... $output" >&2
-  fi
-  return 1  
-}
-
 # find_rooted_slot verifies that a slot_number is in the blockstore,
 # if not it iterates in the specified direction to find the next one that is
 find_rooted_slot() {
@@ -25,14 +8,19 @@ find_rooted_slot() {
 
   echo "[~] finding rooted slot for $slot_number in direction $direction" >&2
 
-  while true; do    
-    is_rooted=$(is_rooted_slot $slot_number)
-    status=$?    
-    if [ $status -eq 0 ]; then
-      # it is indeed rooted
-      echo $is_rooted
+  while true; do
+    output=$($SOLANA_LEDGER_TOOL slot $slot_number -l $LEDGER 2>&1)
+
+    if [[ "$output" == *"is_full: true"* ]]; then
+      parent_slot="${BASH_REMATCH[1]}"
+      echo "[~] found rooted slot at $slot_number with parent slot $parent_slot" >&2
+      echo $slot_number
       return 0
-    fi 
+    elif [[ "$output" == *"is_full: false"* ]]; then
+      echo "[~] slot $slot_number has no parent, skipping..." >&2
+    else
+      echo "[-] no information for slot $slot_number, skipping... $output" >&2
+    fi
 
     if [[ "$direction" == "+" ]]; then
       ((slot_number++))
@@ -84,4 +72,4 @@ set_default_slots() {
   echo "[~] Setting final default rooted START_SLOT=$START_SLOT, END_SLOT=$END_SLOT"
 }
 
-export -f set_default_slots find_rooted_slot is_rooted_slot
+export -f set_default_slots find_rooted_slot

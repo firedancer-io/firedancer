@@ -485,7 +485,14 @@ fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t
   xid.ul[0]             = slot;
   fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
   fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, txn_map );
-  if( !txn ) FD_LOG_ERR( ( "missing txn, parent slot %lu", slot ) );
+  if( !txn ) {
+    __asm__("int $3");
+    FD_LOG_ERR(
+        ("[fork selection] we were unable to rollback to slot %lu to start a "
+         "new fork, even though it should be in our executed slot history. "
+         "this is an invariant violation, and we are shutting down.",
+         slot));
+  }
   fd_funk_rec_t const * rec = fd_funk_rec_query_global( replay->funk, txn, &id );
   if( rec == NULL ) FD_LOG_ERR( ( "failed to read banks record" ) );
   void *                  val = fd_funk_val( rec, fd_funk_wksp( replay->funk ) );

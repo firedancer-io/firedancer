@@ -250,6 +250,9 @@ typedef struct {
       ulong funk_rec_max;
     } replay;
 
+    struct {
+      char blockstore[ PATH_MAX ];
+    } store_int;
   } tiles;
 } config_t;
 

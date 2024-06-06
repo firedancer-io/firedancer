@@ -62,6 +62,7 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topob_wksp( topo, "bhole"      );
   fd_topob_wksp( topo, "bstore"     );
   fd_topob_wksp( topo, "funk"       );
+  fd_topob_wksp( topo, "fturb"      );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
@@ -126,13 +127,11 @@ fd_topo_firedancer( config_t * _config ) {
 
   fd_topo_tile_t * store_tile  = &topo->tiles[ fd_topo_find_tile( topo, "store",  0UL ) ];
   fd_topo_tile_t * replay_tile = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
-  fd_topo_tile_t * repair_tile = &topo->tiles[ fd_topo_find_tile( topo, "repair", 0UL ) ];
 
   /* Create a shared blockstore to be used by store and replay. */
   fd_topo_obj_t * blockstore_obj = fd_topob_obj_concrete( topo, "blockstore", "bstore", fd_blockstore_align(), fd_blockstore_footprint(), 32UL * FD_SHMEM_GIGANTIC_PAGE_SZ );
   fd_topob_tile_uses( topo, store_tile,  blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, repair_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );
 
@@ -154,6 +153,11 @@ fd_topo_firedancer( config_t * _config ) {
                      "individual tile counts in the [layout] section of the configuration file.",
                      topo->tile_cnt, affinity_tile_cnt ));
   }
+
+  fd_topo_obj_t * busy_obj = fd_topob_obj( topo, "fseq", "fturb" );
+  fd_topob_tile_uses( topo, store_tile, busy_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, replay_tile, busy_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, busy_obj->id, "first_turbine" ) );
 
   /*                                      topo, tile_name, tile_kind_id, fseq_wksp,   link_name,      link_kind_id, reliable,            polled */
   FOR(net_tile_cnt) for( ulong j=0UL; j<shred_tile_cnt; j++ )
@@ -238,7 +242,6 @@ fd_topo_firedancer( config_t * _config ) {
       tile->net.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
       tile->net.gossip_listen_port             = config->gossip.port;
       tile->net.repair_intake_listen_port      = config->tiles.repair.repair_intake_listen_port;
-      tile->net.repair_serve_listen_port       = config->tiles.repair.repair_serve_listen_port;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "netmux" ) ) ) {
 
@@ -254,6 +257,7 @@ fd_topo_firedancer( config_t * _config ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "storei" ) ) ) {
       strncpy( tile->store_int.identity_key_path, config->consensus.identity_path, sizeof(tile->store_int.identity_key_path) );
+      strncpy( tile->store_int.blockstore, config->tiles.store_int.blockstore, sizeof(tile->store_int.blockstore) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "gossip" ) ) ) {
       tile->gossip.ip_addr = config->tiles.net.ip_addr;
       memcpy( tile->gossip.src_mac_addr, config->tiles.net.mac_addr, 6UL );

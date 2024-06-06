@@ -617,19 +617,18 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
 
   align = fd_ulong_if( !align, FD_ALLOC_MALLOC_ALIGN_DEFAULT, align );
 
-# if FD_HAS_DEEPASAN
+  #if FD_HAS_DEEPASAN
   /* The header is prepended and needs to be unpoisoned. Ensure that
      there is padding for the alloc_hdr to be properly aligned. We
      want to exit silently if the sz passed in is 0. The alignment must be
      at least 8. */
   ulong fd_alloc_hdr_footprint = fd_ulong_align_up( sizeof(fd_alloc_hdr_t), FD_ASAN_ALIGN );
-  if( FD_LIKELY(sz && sz < ULONG_MAX) ) {
+  if ( sz && sz < ULONG_MAX )
     sz = fd_ulong_align_up( sz, FD_ASAN_ALIGN );
-  }
   align = fd_ulong_if( align < FD_ASAN_ALIGN, FD_ASAN_ALIGN, align );
-# else
+  #else
   ulong fd_alloc_hdr_footprint = sizeof(fd_alloc_hdr_t);
-# endif
+  #endif
 
   ulong footprint = sz + fd_alloc_hdr_footprint + align - 1UL;
 
@@ -721,7 +720,7 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
         }
 
         superblock_gaddr = fd_ulong_align_up( wksp_gaddr + fd_alloc_hdr_footprint, FD_ALLOC_SUPERBLOCK_ALIGN );
-#       if FD_HAS_DEEPASAN
+        #if FD_HAS_DEEPASAN
         /* At this point, a new superblock is allocated from the wksp and the header
            is prepended. The alignment needs to be taken into account: the padding
            should also be unpoisoned.
@@ -736,7 +735,7 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
         void * unpoison_laddr = fd_wksp_laddr_fast( wksp, superblock_gaddr - fd_alloc_hdr_footprint );
         ulong aligned_superblock_footprint = fd_ulong_align_up( superblock_footprint, FD_ASAN_ALIGN );
         fd_asan_unpoison( unpoison_laddr, aligned_superblock_footprint + fd_alloc_hdr_footprint );
-#       endif
+        #endif
 
         superblock = (fd_alloc_superblock_t *)
           fd_alloc_hdr_store_large( fd_wksp_laddr_fast( wksp, superblock_gaddr ), 1 /* sb */ );
@@ -862,7 +861,7 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
   ulong block_laddr     = (ulong)superblock + sizeof(fd_alloc_superblock_t) + block_idx*block_footprint;
   ulong alloc_laddr     = fd_ulong_align_up( block_laddr + fd_alloc_hdr_footprint, align );
 
-# if FD_HAS_DEEPASAN
+  #if FD_HAS_DEEPASAN
   /* The block and the header must be unpoisoned to accomodate the block
      footprint. The block footprint is determined by the sizeclass which
      provides the minimum size that accomodates the footprint which is the
@@ -873,12 +872,12 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
      in the block can be safely rounded down.
   */
 
-  void* laddr = (void*)(alloc_laddr - fd_alloc_hdr_footprint);
+  void* laddr = (void*) ( alloc_laddr - fd_alloc_hdr_footprint );
 
   ulong block_hi_addr = block_laddr + block_footprint;
   ulong block_unpoison_sz = fd_ulong_align_dn( block_hi_addr - alloc_laddr, FD_ASAN_ALIGN );
   fd_asan_unpoison( laddr, block_unpoison_sz + fd_alloc_hdr_footprint );
-# endif
+  #endif
 
   *max = block_footprint - (alloc_laddr - block_laddr);
 
@@ -918,7 +917,7 @@ fd_alloc_free( fd_alloc_t * join,
   fd_alloc_block_set_t    free_blocks = fd_alloc_block_set_add( &superblock->free_blocks, block );
 
 
-# if FD_HAS_DEEPASAN
+  #if FD_HAS_DEEPASAN
   /* The portion of the block which is used for the header and the allocation
      should get poisoned. The alloc's laddr is already at least 8 byte aligned.
      The 8 bytes prior to the start of the laddr are used by the fd_alloc_hdr_t.
@@ -932,8 +931,8 @@ fd_alloc_free( fd_alloc_t * join,
   ulong fd_alloc_hdr_footprint = fd_ulong_align_up( sizeof(fd_alloc_hdr_t), FD_ASAN_ALIGN );
   ulong fd_alloc_hdr_laddr     = (ulong)laddr - fd_alloc_hdr_footprint;
   ulong sz                     = block_hi_addr - (ulong)laddr + fd_alloc_hdr_footprint;
-  fd_asan_poison( (void*)fd_alloc_hdr_laddr, sz );
-# endif
+  fd_asan_poison( (void*) fd_alloc_hdr_laddr, sz );
+  #endif
 
   /* At this point, free_blocks is the set of free blocks just before
      the free. */

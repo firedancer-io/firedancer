@@ -16,6 +16,7 @@
 struct fd_latest_vote {
    fd_pubkey_t node_pubkey;
    fd_slot_hash_t slot_hash;
+   ulong root;
 };
 typedef struct fd_latest_vote fd_latest_vote_t;
 

@@ -100,6 +100,8 @@ struct fd_store_tile_ctx {
   fd_stake_ci_t * stake_ci;
 
   ulong blockstore_seed;
+
+  ulong * first_turbine;
 };
 typedef struct fd_store_tile_ctx fd_store_tile_ctx_t;
 
@@ -198,6 +200,7 @@ after_frag( void *             _ctx,
       }
 
       fd_store_shred_update_with_shred_from_turbine( ctx->store, &ctx->s34_buffer->pkts[i].shred );
+      fd_fseq_update( ctx->first_turbine, ctx->store->first_turbine_slot );
     }
   }
 
@@ -263,7 +266,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
   switch( store_slot_prepare_mode ) {
     case FD_STORE_SLOT_PREPARE_CONTINUE: {
       if( slot > 64UL ) {
-        ctx->blockstore->smr = fd_ulong_max( ctx->blockstore->smr, slot - 64UL );
+        // ctx->blockstore->smr = fd_ulong_max( ctx->blockstore->smr, slot - 64UL );
         fd_pending_slots_set_lo_wmark( ctx->store->pending_slots, ctx->blockstore->smr );
       }
       ctx->store->now = fd_log_wallclock();
@@ -327,13 +330,27 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       fd_runtime_block_prepare( block_data, block->data_sz, fd_scratch_virtual(), &block_info );
 
       FD_LOG_DEBUG(( "block prepared - slot: %lu", slot ));
-      FD_LOG_NOTICE(( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
-                      "executed: %lu, caught up: %d",
-                      ctx->store->first_turbine_slot,
-                      ctx->store->curr_turbine_slot,
-                      ctx->store->curr_turbine_slot - slot,
-                      slot,
-                      slot > ctx->store->first_turbine_slot ) );
+      if( FD_UNLIKELY( slot > ctx->store->curr_turbine_slot ) ) {
+        FD_LOG_WARNING( ( "slot %lu is newer than turbine %lu? did we repair it?",
+                          slot,
+                          ctx->store->curr_turbine_slot ) );
+      } else {
+        long now = fd_log_wallclock();
+        if( FD_UNLIKELY( now - ctx->store->last_log > (long)5e8 ) ) {
+          FD_LOG_NOTICE( ( "\n\n[Live]\n"
+                           "current turbine slot: %lu\n"
+                           "first turbine slot:   %lu\n"
+                           "last executed slot:   %lu\n"
+                           "slots behind:         %lu\n"
+                           "live:                 %d\n",
+                           ctx->store->curr_turbine_slot,
+                           ctx->store->first_turbine_slot,
+                           slot,
+                           ctx->store->curr_turbine_slot - slot,
+                           ( ctx->store->curr_turbine_slot - slot ) < 5 ) );
+          ctx->store->last_log = now;
+        }
+      }
       fd_txn_p_t * txns = fd_type_pun( out_buf );
       ulong txn_cnt = fd_runtime_block_collect_txns( &block_info, txns );
 
@@ -372,6 +389,7 @@ after_credit( void * _ctx,
     uchar const * block = NULL;
     ulong         block_sz = 0;
     ulong repair_slot = FD_SLOT_NULL;
+
     int store_slot_prepare_mode = fd_store_slot_prepare( ctx->store, i, &repair_slot, &block, &block_sz );
 
     ulong slot = repair_slot == 0 ? i : repair_slot;
@@ -426,7 +444,6 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
 
-  fd_blockstore_t *        blockstore = NULL;
   void * shmem = fd_wksp_alloc_laddr(
       ctx->blockstore_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
   if( shmem == NULL ) FD_LOG_ERR( ( "failed to allocate a blockstore" ) );
@@ -438,20 +455,34 @@ unprivileged_init( fd_topo_t *      topo,
   ulong tmp_shred_max    = 1UL << 24;
   ulong slot_history_max = FD_BLOCKSTORE_SLOT_HISTORY_MAX;
   int   lg_txn_max       = 24;
-  blockstore             = fd_blockstore_join(
-      fd_blockstore_new( shmem, 1, ctx->blockstore_seed, tmp_shred_max, slot_history_max, lg_txn_max ) );
-  if( blockstore == NULL ) {
-    fd_wksp_free_laddr( shmem );
-    FD_LOG_ERR( ( "failed to allocate a blockstore" ) );
-  }
+  ctx->blockstore        = fd_blockstore_join( fd_blockstore_new(
+      shmem, 1, ctx->blockstore_seed, tmp_shred_max, slot_history_max, lg_txn_max ) );
 
-  ctx->blockstore = blockstore;
-  ctx->store->blockstore = blockstore;
+  // FD_LOG_NOTICE( ( "starting blockstore wksp restore..." ) );
+  // int err = fd_wksp_restore(
+  //     ctx->blockstore_wksp, tile->store_int.blockstore, (uint)FD_BLOCKSTORE_MAGIC );
+  // FD_LOG_NOTICE( ( "finished wksp restore..." ) );
+  // if( err ) { FD_LOG_ERR( ( "failed to restore %s: error %d", tile->store_int.blockstore, err ) ); }
+
+  // fd_wksp_tag_query_info_t info;
+  // ulong tag = FD_BLOCKSTORE_MAGIC;
+  // if( fd_wksp_tag_query( ctx->blockstore_wksp, &tag, 1, &info, 1 ) > 0 ) {
+  //   void * shmem    = fd_wksp_laddr_fast( ctx->blockstore_wksp, info.gaddr_lo );
+  //   ctx->blockstore = fd_blockstore_join( shmem );
+  //   FD_TEST( ctx->blockstore );
+  // }
+
+  ctx->store->blockstore = ctx->blockstore;
 
   void * alloc_shmem = fd_wksp_alloc_laddr( ctx->wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
   if( FD_UNLIKELY( !alloc_shmem ) ) {
     FD_LOG_ERR( ( "fd_alloc too large for workspace" ) );
   }
+
+  ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "first_turbine" );
+  FD_TEST( busy_obj_id!=ULONG_MAX );
+  ctx->first_turbine = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
+  if( FD_UNLIKELY( !ctx->first_turbine ) ) FD_LOG_ERR(( "store_int tile %lu has no busy flag", tile->kind_id ));
 
   /* Set up shred tile input */
   fd_topo_link_t * shred_in_link = &topo->links[ tile->in_link_id[ SHRED_IN_IDX ] ];
@@ -503,6 +534,13 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) ) {
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
   }
+
+  // ulong start = 269129117;
+  // ulong end   = 269280656;
+  // ctx->store->blockstore->smr = 269129117;
+  // for( ulong i = start; i < end; i++ ) {
+  //   fd_store_add_pending( ctx->store, i, i - start );
+  // }
 }
 
 static ulong

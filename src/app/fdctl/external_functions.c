@@ -20,8 +20,7 @@ fd_ext_blockstore_insert_shreds( void const *  blockstore FD_PARAM_UNUSED,
                                  ulong         shred_cnt FD_PARAM_UNUSED,
                                  uchar const * shred_bytes FD_PARAM_UNUSED,
                                  ulong         shred_sz FD_PARAM_UNUSED,
-                                 ulong         stride FD_PARAM_UNUSED,
-                                 int           is_trusted FD_PARAM_UNUSED ) { return 0; }
+                                 ulong         stride FD_PARAM_UNUSED ) { return 0; }
 
 extern int
 fd_ext_bank_sanitized_txn_load_addresess( void const * bank FD_PARAM_UNUSED,

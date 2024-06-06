@@ -46,10 +46,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
                    int                   live,
                    fd_wksp_t *           _wksp,
                    fd_runtime_args_t *   args,
-                   fd_tvu_gossip_deliver_arg_t * gossip_deliver_arg,
-                   fd_capture_ctx_t *    capture_ctx,
-                   FILE *                capture_file
-);
+                   fd_tvu_gossip_deliver_arg_t * gossip_deliver_arg );
 
 int
 fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
@@ -59,9 +56,6 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
 
 int
 fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv );
-
-void
-fd_capture_ctx_setup( fd_capture_ctx_t ** capture_ctx_p, FILE ** capture_file_p, fd_runtime_args_t * args, fd_valloc_t valloc );
 
 void
 fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args, fd_replay_t * replay );

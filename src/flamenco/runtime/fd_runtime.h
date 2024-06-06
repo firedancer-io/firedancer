@@ -18,12 +18,15 @@
 #include "../repair/fd_repair.h"
 #include "../../ballet/pack/fd_microblock.h"
 
+#define MAX_PERMITTED_DATA_LENGTH ( 10UL * 1024UL * 1024UL )
+
 #define DEFAULT_HASHES_PER_TICK   12500
 #define UPDATED_HASHES_PER_TICK2  17500
 #define UPDATED_HASHES_PER_TICK3  27500
 #define UPDATED_HASHES_PER_TICK4  47500
 #define UPDATED_HASHES_PER_TICK5  57500
 #define UPDATED_HASHES_PER_TICK6  62500
+
 
 #define FD_RUNTIME_TRACE_NONE   (0)
 #define FD_RUNTIME_TRACE_SAVE   (1)
@@ -334,15 +337,14 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                          ulong max_workers );
 
 void
-fd_runtime_collect_rent_accounts_prune( ulong slot,
-                                        fd_exec_slot_ctx_t * slot_ctx,
+fd_runtime_collect_rent_accounts_prune( ulong slot, 
+                                        fd_exec_slot_ctx_t * slot_ctx, 
                                         fd_capture_ctx_t * capture_ctx );
 
 void
 fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
                          char const * genesis_filepath,
-                         uchar is_snapshot,
-                         fd_capture_ctx_t   * capture_ctx );
+                         uchar is_snapshot );
 
 void
 fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,

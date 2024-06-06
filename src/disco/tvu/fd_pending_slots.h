@@ -4,7 +4,7 @@
 #include "../../util/fd_util.h"
 
 
-#define FD_PENDING_MAX      ( 1U << 14U ) /* 16 kb */
+#define FD_PENDING_MAX      ( 1U << 17U ) /* 16 kb */
 #define FD_PENDING_MASK     ( FD_PENDING_MAX - 1U )
 
 struct fd_pending_slots {
@@ -25,7 +25,8 @@ fd_pending_slots_align( void ) {
 
 FD_FN_CONST static inline ulong
 fd_pending_slots_footprint( void ) {
-  return sizeof( fd_pending_slots_t ) + (sizeof(long) * FD_PENDING_MAX);
+  return fd_ulong_align_up( sizeof( fd_pending_slots_t ) + ( sizeof( long ) * FD_PENDING_MAX ),
+                            alignof( fd_pending_slots_align() ) );
 }
 
 void *

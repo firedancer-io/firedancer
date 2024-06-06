@@ -258,6 +258,7 @@ typedef struct {
 
     struct {
       char  identity_key_path[ PATH_MAX ];
+      char  blockstore[PATH_MAX];
     } store_int;
   };
 } fd_topo_tile_t;

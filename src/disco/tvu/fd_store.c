@@ -162,8 +162,15 @@ end:
   /* Block data ptr remains valid outside of the rw lock for the lifetime of the block alloc. */
   fd_blockstore_end_read( store->blockstore );
 
-  for (uint i = 0; i < re_adds_cnt; ++i)
-    fd_pending_slots_add( store->pending_slots, re_adds[i], store->now + FD_REPAIR_BACKOFF_TIME / 3 );
+  fd_blockstore_start_read( store->blockstore );
+  ulong smr = store->blockstore->smr;
+  fd_blockstore_end_read( store->blockstore );
+
+  for (uint i = 0; i < re_adds_cnt; ++i) {
+    if (re_adds[i] > smr) {
+      fd_pending_slots_add( store->pending_slots, re_adds[i], store->now + FD_REPAIR_BACKOFF_TIME / 3 );
+    }
+  }
 
   return rc;
 }
@@ -193,6 +200,7 @@ fd_store_shred_insert( fd_store_t * store,
   if( FD_UNLIKELY( rc < FD_BLOCKSTORE_OK ) ) {
     FD_LOG_ERR( ( "failed to insert shred. reason: %d", rc ) );
   } else if ( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
+    FD_LOG_NOTICE( ( "slot %lu is complete", shred->slot ) );
     fd_pending_slots_add( store->pending_slots, shred->slot, store->now );
   } else {
     fd_pending_slots_add( store->pending_slots, shred->slot, store->now + 3 * FD_REPAIR_BACKOFF_TIME );
@@ -204,6 +212,16 @@ void
 fd_store_shred_update_with_shred_from_turbine( fd_store_t * store,
                                               fd_shred_t const * shred ) {
   if( FD_UNLIKELY( store->first_turbine_slot == FD_SLOT_NULL ) ) {
+    FD_LOG_NOTICE(("first turbine slot: %lu", shred->slot));
+    ulong slot = shred->slot;
+    while ( slot > shred->slot - 5200 ) {
+      fd_store_add_pending( store, slot, 0 );
+      slot -= 10;
+    }
+    fd_blockstore_start_write( store->blockstore );
+    /* set a temporary SMR */
+    store->blockstore->smr = shred->slot - 5200;
+    fd_blockstore_end_write( store->blockstore );
     store->first_turbine_slot = shred->slot;
     store->curr_turbine_slot = shred->slot;
   }
@@ -226,10 +244,10 @@ fd_store_slot_repair( fd_store_t * store,
   ulong repair_req_cnt = 0;
   fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( store->blockstore, slot );
 
-  if( fd_blockstore_is_slot_ancient( store->blockstore, slot ) ) {
-    FD_LOG_ERR(( "repair is hopelessly behind by %lu slots, max history is %lu",
-                 store->blockstore->max - slot, store->blockstore->slot_max ));
-  }
+  // if( fd_blockstore_is_slot_ancient( store->blockstore, slot ) ) {
+  //   FD_LOG_ERR(( "repair is hopelessly behind by %lu slots, max history is %lu",
+  //                store->blockstore->max - slot, store->blockstore->slot_max ));
+  // }
 
   if( FD_LIKELY( !slot_meta ) ) {
     /* We haven't received any shreds for this slot yet */

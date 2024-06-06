@@ -1277,7 +1277,7 @@ fd_vm_cpi_update_callee_account( fd_vm_exec_context_t * ctx,
 
   int err1;
   int err2;
-  if (fd_account_can_data_be_resized(ctx->instr_ctx, callee_acc_metadata, caller_account->serialized_data_len, &err1)
+  if (fd_account_can_data_be_resized(ctx->instr_ctx->instr, callee_acc_metadata, caller_account->serialized_data_len, &err1)
       && fd_account_can_data_be_changed2(ctx->instr_ctx, callee_acc_metadata, callee_acc_pubkey, &err2)) {
     // if ( FD_UNLIKELY( err1 || err2 ) ) {
     //   return 1;

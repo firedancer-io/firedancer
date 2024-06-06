@@ -172,30 +172,9 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
   ulong end_addr = start_addr + sz;
 
   ulong host_addr = 0UL;
-
-  /* https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L123-L133 */
-  /* https://github.com/firedancer-io/solana/blob/4546f4db6129e9c05601cf4782f5e7c404762b75/programs/bpf_loader/src/lib.rs#L350-L381 */
-  /* */
-  /* Note: vm gap shift is calculated when a memory region is created. However,
-     it is always == 63 unless the memory region is writable and gapped. This is
-     onlt the case for the stack region in memory which has a calculated value
-     of 12 for the vm_gap_shift. We know that it will always be 12 because the 
-     stack will always be the same size (4096) */
-  /* TODO: Currently the specific BPF error is not returned when there is a 
-     memory access violation. */
-  ulong vm_gap_shift = 0UL;
-  int is_in_gap = 0;
   switch( mem_region ) {
     case FD_VM_MEM_MAP_PROGRAM_REGION_START:
       /* Read-only program binary blob memory region */
-
-      /* TODO: This should be a checked shift for all gap checks */
-      vm_gap_shift = 63UL;
-      is_in_gap = ((start_addr>>vm_gap_shift)&1UL) == 1;
-      if( FD_UNLIKELY( is_in_gap ) ) {
-        return 0UL;
-      }
-
       if( FD_UNLIKELY( ( write                        )
                      | ( end_addr > ctx->read_only_sz ) ) ) {
         return 0UL;
@@ -205,13 +184,6 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
       break;
     case FD_VM_MEM_MAP_STACK_REGION_START:
       /* Stack memory region */
-
-      vm_gap_shift = 12UL;
-      is_in_gap = ((start_addr>>vm_gap_shift)&1UL) == 1;
-      if( FD_UNLIKELY( is_in_gap ) ) {
-        return 0UL;
-      }
-
       /* TODO: needs more of the runtime to actually implement */
       /* FIXME: check that we are in the current or previous stack frame! */
       if( FD_UNLIKELY( end_addr > (FD_VM_STACK_MAX_DEPTH * FD_VM_STACK_FRAME_WITH_GUARD_SZ ) ) ) {
@@ -221,13 +193,6 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
       break;
     case FD_VM_MEM_MAP_HEAP_REGION_START:
       /* Heap memory region */
-
-      vm_gap_shift = 63UL;
-      is_in_gap = ((start_addr>>vm_gap_shift)&1UL) == 1;
-      if( FD_UNLIKELY( is_in_gap ) ) {
-        return 0UL;
-      }
-
       if( FD_UNLIKELY( end_addr > ctx->heap_sz ) ) {
         return 0UL;
       }
@@ -235,13 +200,6 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
       break;
     case FD_VM_MEM_MAP_INPUT_REGION_START:
       /* Program input memory region */
-
-      vm_gap_shift = 63UL;
-      is_in_gap = ((start_addr>>vm_gap_shift)&1UL) == 1;
-      if( FD_UNLIKELY( is_in_gap ) ) {
-        return 0UL;
-      }
-
       if( FD_UNLIKELY( end_addr > ctx->input_sz ) ) {
         return 0UL;
       }

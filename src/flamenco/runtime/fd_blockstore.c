@@ -668,6 +668,9 @@ fail_deshred:
 
 int
 fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
+  if ( FD_UNLIKELY( shred->slot < blockstore->smr )) return FD_BLOCKSTORE_OK;
+  // FD_LOG_NOTICE(("inserting shred %lu", shred->slot));
+
   /* Check if we already have this shred */
   fd_blockstore_shred_t *     shred_pool = fd_blockstore_shred_pool( blockstore );
   fd_blockstore_shred_map_t * shred_map  = fd_blockstore_shred_map( blockstore );
@@ -1032,9 +1035,13 @@ void
 fd_blockstore_snapshot_insert( fd_blockstore_t * blockstore, fd_slot_bank_t const * snapshot_slot_bank ) {
   blockstore->min = blockstore->max = blockstore->smr = snapshot_slot_bank->slot;
 
-  fd_blockstore_slot_map_t * slot_entry =
-      fd_blockstore_slot_map_insert( fd_blockstore_slot_map( blockstore ), snapshot_slot_bank->slot );
-  
+  fd_blockstore_slot_map_t * slot_entry = fd_blockstore_slot_map_query(
+      fd_blockstore_slot_map( blockstore ), snapshot_slot_bank->slot, NULL );
+  if( !slot_entry ) {
+    slot_entry = fd_blockstore_slot_map_insert( fd_blockstore_slot_map( blockstore ),
+                                                snapshot_slot_bank->slot );
+  }
+
   /* fake the snapshot slot meta */
 
   fd_slot_meta_t * slot_meta = &slot_entry->slot_meta;

@@ -262,9 +262,6 @@ static inline ulong                                                 /* Assumes i
 fd_wksp_private_idle_stack_pop( fd_wksp_t *               wksp,     /* Assumes current local join */
                                 fd_wksp_private_pinfo_t * pinfo ) { /* == fd_wksp_private_pinfo( wksp ) */
   ulong i = fd_wksp_private_pinfo_idx( wksp->idle_top_cidx );
-# if FD_HAS_DEEPASAN
-  fd_asan_unpoison( &pinfo[ i ], FD_WKSP_PRIVATE_PINFO_FOOTPRINT );
-# endif
   wksp->idle_top_cidx = pinfo[ i ].parent_cidx;
   pinfo[ i ].parent_cidx = fd_wksp_private_pinfo_cidx( FD_WKSP_PRIVATE_PINFO_IDX_NULL );
   return i;
@@ -289,10 +286,6 @@ fd_wksp_private_idle_stack_push( ulong                     i,        /* Assumes 
   pinfo[ i ].same_cidx   = fd_wksp_private_pinfo_cidx( FD_WKSP_PRIVATE_PINFO_IDX_NULL );
   pinfo[ i ].parent_cidx = wksp->idle_top_cidx;
   wksp->idle_top_cidx = fd_wksp_private_pinfo_cidx( i );
-
-# if FD_HAS_DEEPASAN
-  fd_asan_poison( &pinfo[ i ], FD_WKSP_PRIVATE_PINFO_FOOTPRINT );
-# endif
 }
 
 /* pinfo used treap APIs **********************************************/

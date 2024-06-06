@@ -5,10 +5,13 @@
 
 struct fd_bank_hash_cmp_entry {
   ulong     slot;
-  int       rooted;
   uint      hash;
   fd_hash_t ours;
-  fd_hash_t theirs;
+  fd_hash_t theirs[8];
+  ulong     stakes[8];
+  ulong     cnt;
+  int       overflow;
+  int       rooted;
 };
 typedef struct fd_bank_hash_cmp_entry fd_bank_hash_cmp_entry_t;
 #define MAP_NAME fd_bank_hash_cmp_map
@@ -21,6 +24,7 @@ struct fd_bank_hash_cmp {
   volatile int               lock;
   ulong                      slot; /* slot # of last bank hash we compared */
   ulong                      mismatch_cnt;
+  ulong                      total_stake;
 };
 typedef struct fd_bank_hash_cmp fd_bank_hash_cmp_t;
 
@@ -63,7 +67,8 @@ void
 fd_bank_hash_cmp_insert( fd_bank_hash_cmp_t * bank_hash_cmp,
                          ulong                slot,
                          fd_hash_t const *    hash,
-                         int                  ours );
+                         int                  ours,
+                         ulong                stake );
 
 /* Return 1 if it was able to check rooted bank hash, otherwise 0 (still waiting). */
 int

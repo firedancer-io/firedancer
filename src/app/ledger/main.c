@@ -43,7 +43,7 @@ static void usage( char const * progname ) {
   fprintf( stderr, " --checkpt <checkpoint file>                checkpoint wksp into file after execution\n" ); /* Capture context tool for runtime checkpoints */
   fprintf( stderr, " --checkpt-freq <ulong>                     checkpoint frequency\n" );
   fprintf( stderr, " --checkpt-mismatch <int>                   checkpoint on mismatch at last rooted slot\n" );
-  fprintf( stderr, " --checkpt-path <checkpoint path>           path to checkpoint\n" );
+  fprintf( stderr, " --checkpt-path <checkpoint path>           path to checkpoint\n" ); 
   fprintf( stderr, " --copy-txn-status <int>                    copy transaction status from rocksdb into blockstore\n" );
   fprintf( stderr, " --dump-insn-output-dir <insn output dir>   dump instructions output directory\n" ); /* Capture ctx tool for insn dumping*/
   fprintf( stderr, " --dump-insn-sig-filter <insn sig filter>   dump instructions signature filter\n" );
@@ -134,8 +134,28 @@ struct fd_ledger_args {
 };
 typedef struct fd_ledger_args fd_ledger_args_t;
 
-int
-runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
+fd_valloc_t allocator_setup( fd_wksp_t *  wksp, char const * allocator ) {
+  FD_TEST( wksp );
+
+  void * alloc_shmem =
+      fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
+  if( FD_UNLIKELY( !alloc_shmem ) ) { FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); }
+  void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
+  if( FD_UNLIKELY( !alloc_shalloc ) ) { FD_LOG_ERR( ( "fd_allow_new failed" ) ); }
+  fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, 3UL );
+  if( FD_UNLIKELY( !alloc ) ) { FD_LOG_ERR( ( "fd_alloc_join failed" ) ); }
+
+  if( strcmp( allocator, "libc" ) == 0 ) {
+    return fd_libc_alloc_virtual();
+  } else if( strcmp( allocator, "wksp" ) == 0 ) {
+    return fd_alloc_virtual( alloc );
+  } else {
+    FD_LOG_ERR( ( "unknown allocator specified" ) );
+  }
+}
+
+static void *
+setup_tpool( fd_runtime_ctx_t * state, fd_runtime_args_t * args, fd_valloc_t valloc ) {
   args->tcnt = fd_tile_cnt();
   uchar * tpool_scr_mem = NULL;
   fd_tpool_t * tpool = NULL;
@@ -145,7 +165,7 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
       FD_LOG_ERR(( "failed to create thread pool" ));
     }
     ulong scratch_sz = fd_scratch_smem_footprint( 256UL<<20UL );
-    tpool_scr_mem = fd_valloc_malloc( state->slot_ctx->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(args->tcnt - 1U) );
+    tpool_scr_mem = fd_valloc_malloc( valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(args->tcnt - 1U) );
     if( tpool_scr_mem == NULL ) {
       FD_LOG_ERR( ( "failed to allocate thread pool scratch space" ) );
     }
@@ -161,6 +181,11 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
   state->tpool       = tpool;
   state->max_workers = args->tcnt;
 
+  return tpool_scr_mem;
+}
+
+int
+runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
   fd_funk_start_write( state->slot_ctx->acc_mgr->funk );
   ulong r = fd_funk_txn_cancel_all( state->slot_ctx->acc_mgr->funk, 1 );
   fd_funk_end_write( state->slot_ctx->acc_mgr->funk );
@@ -313,10 +338,6 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
 
   if( state->tpool ) {
     fd_tpool_fini( state->tpool );
-  }
-
-  if( tpool_scr_mem ) {
-    fd_valloc_free( state->slot_ctx->valloc, tpool_scr_mem );
   }
 
   if( args->on_demand_block_ingest ) {
@@ -650,7 +671,7 @@ ingest( fd_ledger_args_t * args ) {
   }
 
   if( args->genesis ) {
-    fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL );
+    fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL );
   }
 
   /* At this point the account state has been ingested into funk. Intake rocksdb */
@@ -801,34 +822,6 @@ replay( fd_ledger_args_t * args ) {
   fd_funk_t * funk = args->funk;
   fd_wksp_t * wksp = args->wksp;
 
-  fd_runtime_args_t runtime_args = {0};
-  fd_runtime_ctx_t state = {0};
-
-  /* TODO: update so that we aren't piping through every argument twice */
-  runtime_args.abort_on_mismatch       = args->abort_on_mismatch;
-  runtime_args.cmd                     = args->cmd;
-  runtime_args.end_slot                = args->end_slot;
-  runtime_args.allocator               = args->allocator;
-  runtime_args.rocksdb_dir             = args->rocksdb_dir;
-  runtime_args.capture_fpath           = args->capture_fpath;
-  runtime_args.capture_txns            = args->capture_txns;
-  runtime_args.checkpt_path            = args->checkpt_path;
-  runtime_args.checkpt_mismatch        = args->checkpt_mismatch;
-  runtime_args.checkpt_freq            = args->checkpt_freq;
-  runtime_args.copy_txn_status         = args->copy_txn_status;
-  runtime_args.on_demand_block_ingest  = args->on_demand_block_ingest;
-  runtime_args.on_demand_block_history = args->on_demand_block_history;
-  runtime_args.dump_insn_to_pb         = args->dump_insn_to_pb;
-  runtime_args.dump_insn_start_slot    = args->dump_insn_start_slot;
-  runtime_args.dump_insn_sig_filter    = args->dump_insn_sig_filter;
-  runtime_args.dump_insn_output_dir    = args->dump_insn_output_dir;
-  runtime_args.trash_hash              = args->trash_hash;
-  runtime_args.funk_wksp               = args->funk_wksp;
-
-  fd_capture_ctx_t *    capture_ctx = NULL;
-  FILE *                capture_file = NULL;
-
-
   /* Check number of records in funk. If rec_cnt == 0, then it can be assumed
      that you need to load in snapshot(s). */
   ulong rec_cnt = fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) );
@@ -854,24 +847,50 @@ replay( fd_ledger_args_t * args ) {
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
     if( args->genesis ) {
-      if (NULL != runtime_args.capture_fpath)
-        fd_capture_ctx_setup( &capture_ctx, &capture_file, &runtime_args, slot_ctx->valloc );
-      fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, capture_ctx );
+      fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL );
     }
 
   }
 
+  fd_runtime_args_t runtime_args = {0};
+  fd_runtime_ctx_t state = {0};
+
+  /* TODO: update so that we aren't piping through every argument twice */
+  runtime_args.abort_on_mismatch       = args->abort_on_mismatch;
+  runtime_args.cmd                     = args->cmd;
+  runtime_args.end_slot                = args->end_slot;
+  runtime_args.allocator               = args->allocator;
+  runtime_args.rocksdb_dir             = args->rocksdb_dir;
+  runtime_args.capture_fpath           = args->capture_fpath;
+  runtime_args.capture_txns            = args->capture_txns;
+  runtime_args.checkpt_path            = args->checkpt_path;
+  runtime_args.checkpt_mismatch        = args->checkpt_mismatch;
+  runtime_args.checkpt_freq            = args->checkpt_freq;
+  runtime_args.copy_txn_status         = args->copy_txn_status;
+  runtime_args.on_demand_block_ingest  = args->on_demand_block_ingest;
+  runtime_args.on_demand_block_history = args->on_demand_block_history;
+  runtime_args.dump_insn_to_pb         = args->dump_insn_to_pb;
+  runtime_args.dump_insn_start_slot    = args->dump_insn_start_slot;
+  runtime_args.dump_insn_sig_filter    = args->dump_insn_sig_filter;
+  runtime_args.dump_insn_output_dir    = args->dump_insn_output_dir;
+  runtime_args.trash_hash              = args->trash_hash;
+  runtime_args.funk_wksp               = args->funk_wksp;
+
+  fd_valloc_t valloc = allocator_setup( args->funk_wksp, args->allocator );
+
+  void * tpool_scr_mem = setup_tpool( &state, &runtime_args, valloc );
 
   fd_replay_t * replay = NULL;
-  fd_tvu_main_setup( &state, &replay, NULL, NULL, 0, wksp, &runtime_args, NULL, capture_ctx, capture_file );
-
-  if( !args->on_demand_block_ingest ) {
-    ingest_rocksdb( args->alloc, args->rocksdb_dir, args->start_slot, args->end_slot, args->blockstore, 0, args->trash_hash );
-  }
+  fd_tvu_main_setup( &state, &replay, NULL, NULL, 0, wksp, &runtime_args, NULL );
 
   FD_LOG_WARNING(( "tvu main setup done" ));
 
   int ret = runtime_replay( &state, &runtime_args );
+
+  if( tpool_scr_mem ) {
+    fd_valloc_free( valloc, tpool_scr_mem );
+  }
+
   fd_tvu_main_teardown( &state, NULL );
   return ret;
 }
@@ -1019,7 +1038,12 @@ prune( fd_ledger_args_t * args ) {
 
   fd_tvu_gossip_deliver_arg_t gossip_deliver_arg[1];
   fd_replay_t * replay = NULL;
-  fd_tvu_main_setup( &state, &replay, &slot_ctx_unpruned, NULL, 0, unpruned_wksp, &runtime_args, gossip_deliver_arg, NULL, NULL );
+
+  fd_valloc_t valloc = allocator_setup( runtime_args.funk_wksp, runtime_args.allocator );
+
+  void * tpool_scr_mem = setup_tpool( &state, &runtime_args, valloc );
+
+  fd_tvu_main_setup( &state, &replay, &slot_ctx_unpruned, NULL, 0, unpruned_wksp, &runtime_args, gossip_deliver_arg );
 
   if( args->on_demand_block_ingest == 0 ) { // TODO: im pretty sure you can move to this to after the tvu_setup
     if( args->start_slot == 0 ) {
@@ -1044,6 +1068,11 @@ prune( fd_ledger_args_t * args ) {
   FD_TEST(( !!prune_txn ));
 
   int err = runtime_replay( &state, &runtime_args );
+
+  if( tpool_scr_mem ) {
+    fd_valloc_free( valloc, tpool_scr_mem );
+  }
+
   if( err != 0 ) {
     fd_tvu_main_teardown( &state, NULL );
     FD_LOG_ERR(("error in runtime replay"));

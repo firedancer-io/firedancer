@@ -22,8 +22,6 @@
 #include "../flamenco/types/fd_types.h"
 
 /* clang-format off */
-#define FD_LG_NODE_MAX (16UL) /* the maximum number of nodes (unique pubkeys) consensus data structures will support */
-
 #define FD_SLOT_HASH_CMP(a,b)  (fd_int_if(((a)->slot)<((b)->slot),-1,fd_int_if(((a)->slot)>((b)->slot),1),memcmp((a),(b),sizeof(fd_slot_hash_t))))
 #define FD_SLOT_HASH_EQ(a,b)   ((((a)->slot)==((b)->slot)) & !(memcmp(((a)->hash.uc),((b)->hash.uc),sizeof(fd_hash_t))))
 /* clang-format on */

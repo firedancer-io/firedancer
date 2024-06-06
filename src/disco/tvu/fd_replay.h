@@ -32,7 +32,7 @@ typedef struct fd_rpc_ctx fd_rpc_ctx_t;
 #define FD_REPLAY_DATA_SHRED_CNT   ( 32UL )
 #define FD_REPLAY_PARITY_SHRED_CNT ( 32UL )
 
-#define FD_REPLAY_PENDING_MAX      ( 1U << 14U ) /* 16 kb */
+#define FD_REPLAY_PENDING_MAX      ( 1U << 17U ) /* 16 kb */
 #define FD_REPLAY_PENDING_MASK     ( FD_REPLAY_PENDING_MAX - 1U )
 
 /* The standard amount of time that we wait before repeating a slot */

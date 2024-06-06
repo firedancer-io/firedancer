@@ -107,66 +107,129 @@ void
 fd_bank_hash_cmp_insert( fd_bank_hash_cmp_t * bank_hash_cmp,
                          ulong                slot,
                          fd_hash_t const *    hash,
-                         int                  ours ) {
-  fd_bank_hash_cmp_entry_t * curr = fd_bank_hash_cmp_map_query( bank_hash_cmp->map, slot, NULL );
-  fd_hash_t                  null_hash = { 0 };
+                         int                  ours,
+                         ulong                stake ) {
+  if( FD_UNLIKELY( slot <= bank_hash_cmp->slot ) ) { return; }
+  fd_bank_hash_cmp_entry_t * cmp = fd_bank_hash_cmp_map_query( bank_hash_cmp->map, slot, NULL );
 
-  if( !curr ) {
+  if( !cmp ) {
 
     /* If full, make room for new bank hashes */
 
     if( FD_UNLIKELY( fd_bank_hash_cmp_map_key_cnt( bank_hash_cmp->map ) ==
                      fd_bank_hash_cmp_map_key_max( bank_hash_cmp->map ) ) ) {
       FD_LOG_WARNING( ( "Bank matches unexpectedly full. Clearing. " ) );
+      for( ulong i = 0; i < fd_bank_hash_cmp_map_key_max( bank_hash_cmp->map ); i++ ) {
+        fd_bank_hash_cmp_entry_t * entry = &bank_hash_cmp->map[i];
+        if( FD_LIKELY( !fd_bank_hash_cmp_map_key_inval( entry->slot ) &&
+                       entry->slot < bank_hash_cmp->slot ) ) {
+          fd_bank_hash_cmp_map_remove( bank_hash_cmp->map, entry );
+        }
+      }
       fd_bank_hash_cmp_map_clear( bank_hash_cmp->map );
     }
 
-    /* Save the bank hash for later, to check it matches our own bank hash */
-
-    curr = fd_bank_hash_cmp_map_insert( bank_hash_cmp->map, slot );
-    curr->rooted = 0;
-    curr->ours   = null_hash;
-    curr->theirs = null_hash;
-
-  } else if( FD_UNLIKELY( !ours &&
-                          ( 0 != memcmp( &curr->theirs, &null_hash, sizeof( fd_hash_t ) ) ) &&
-                          ( 0 != memcmp( &curr->theirs, hash, sizeof( fd_hash_t ) ) ) ) ) {
-    // TODO support equivocating hashes
-    FD_LOG_WARNING( ( "overwriting equivocating hash for slot %lu %32J vs. %32J",
-                      slot,
-                      curr->theirs.hash,
-                      hash->hash ) );
+    cmp      = fd_bank_hash_cmp_map_insert( bank_hash_cmp->map, slot );
+    cmp->cnt = 0;
   }
 
-  if( ours ) memcpy( &curr->ours, hash, sizeof( fd_hash_t ) );
-  else memcpy( &curr->theirs, hash, sizeof( fd_hash_t ) );
+  if( FD_UNLIKELY( ours ) ) {
+    cmp->ours = *hash;
+    return;
+  }
+
+  for( ulong i = 0; i < cmp->cnt; i++ ) {
+    if( FD_LIKELY( 0 == memcmp( &cmp->theirs[i], hash, sizeof( fd_hash_t ) ) ) ) {
+      cmp->stakes[i] += stake;
+      return;
+    }
+  }
+
+  ulong max = sizeof( cmp->stakes ) / sizeof( ulong );
+  if( FD_UNLIKELY( cmp->cnt == max ) ) {
+    if( !cmp->overflow ) {
+      FD_LOG_WARNING( ( "[Bank Hash Comparison] more than %lu equivocating hashes for slot %lu. "
+                        "new hash: %32J. ignoring.",
+                        max,
+                        slot,
+                        hash ) );
+      cmp->overflow = 1;
+    }
+    return;
+  }
+  cmp->cnt++;
+  cmp->theirs[cmp->cnt - 1] = *hash;
+  cmp->stakes[cmp->cnt - 1] = stake;
+  if( FD_UNLIKELY( cmp->cnt > 1 ) ) {
+    for( ulong i = 0; i < cmp->cnt; i++ ) {
+      FD_LOG_WARNING( ( "slot: %lu. equivocating hash (#%lu): %32J. stake: %lu",
+                        cmp->slot,
+                        i,
+                        cmp->theirs[i].hash,
+                        cmp->stakes[i] ) );
+    }
+  }
 }
 
 int
 fd_bank_hash_cmp_check( fd_bank_hash_cmp_t * bank_hash_cmp, ulong slot ) {
   fd_bank_hash_cmp_entry_t * cmp = fd_bank_hash_cmp_map_query( bank_hash_cmp->map, slot, NULL );
-  fd_hash_t                  null_hash = { 0 };
-  if( FD_LIKELY( cmp && cmp->rooted && 0 != memcmp( &cmp->ours, &null_hash, sizeof( fd_hash_t ) ) &&
-                 0 != memcmp( &cmp->theirs, &null_hash, sizeof( fd_hash_t ) ) ) ) {
-    if( FD_UNLIKELY( 0 != memcmp( &cmp->ours, &cmp->theirs, sizeof( fd_hash_t ) ) ) ) {
-      FD_LOG_WARNING( ( "Bank hash mismatch on rooted slot: %lu. ours: %32J, theirs: %32J",
+
+  if( FD_UNLIKELY( !cmp ) ) return 0;
+
+  // if( FD_UNLIKELY( !cmp->rooted ) ) return 0;
+
+  fd_hash_t null_hash = { 0 };
+  if( FD_LIKELY( 0 == memcmp( &cmp->ours, &null_hash, sizeof( fd_hash_t ) ) ) ) return 0;
+
+  if( FD_UNLIKELY( cmp->cnt == 0 ) ) return 0;
+
+  fd_hash_t * theirs = &cmp->theirs[0];
+  ulong       stake  = cmp->stakes[0];
+  for( ulong i = 1; i < cmp->cnt; i++ ) {
+    if( FD_UNLIKELY( cmp->stakes[i] > stake ) ) {
+      theirs = &cmp->theirs[i];
+      stake  = cmp->stakes[i];
+    }
+  }
+
+  double pct = (double)stake / (double)bank_hash_cmp->total_stake;
+  if( FD_LIKELY( pct > 0.52 ) ) {
+    if( FD_UNLIKELY( 0 != memcmp( &cmp->ours, theirs, sizeof( fd_hash_t ) ) ) ) {
+      FD_LOG_WARNING( ( "\n\n[Bank Hash Comparison]\n"
+                        "slot:   %lu\n"
+                        "ours:   %32J\n"
+                        "theirs: %32J\n"
+                        "stake:  %.0lf%%\n"
+                        "result: mismatch!\n",
                         cmp->slot,
                         cmp->ours.hash,
-                        cmp->theirs.hash ) );
-      if( ++bank_hash_cmp->mismatch_cnt >= 5U ) {
-        FD_LOG_ERR( ( "Too many mismatches, shutting down!" ) );
+                        theirs->hash,
+                        pct * 100 ) );
+      if( FD_UNLIKELY( cmp->cnt > 1 ) ) {
+        for( ulong i = 0; i < cmp->cnt; i++ ) {
+          FD_LOG_WARNING( ( "slot: %lu. hash (#%lu): %32J. stake: %lu",
+                            cmp->slot,
+                            i,
+                            cmp->theirs[i].hash,
+                            cmp->stakes[i] ) );
+        }
       }
+      FD_LOG_ERR( ( "bank hash mismatch on %lu, shutting down!", cmp->slot ) );
     } else {
-      FD_LOG_NOTICE( ( "Bank hash match on rooted slot: %lu. hash: %32J",
+      FD_LOG_NOTICE( ( "\n\n[Bank Hash Comparison]\n"
+                       "slot:   %lu\n"
+                       "ours:   %32J\n"
+                       "theirs: %32J\n"
+                       "stake:  %.0lf%%\n"
+                       "result: match!\n",
                        cmp->slot,
-                       cmp->ours.hash ) );
+                       cmp->ours.hash,
+                       theirs->hash,
+                       pct * 100 ) );
     }
-
-    /* Remove so we don't check it again. */
-
     fd_bank_hash_cmp_map_remove( bank_hash_cmp->map, cmp );
     return 1;
-  } else {
-    return 0;
   }
+  return 0;
 }
