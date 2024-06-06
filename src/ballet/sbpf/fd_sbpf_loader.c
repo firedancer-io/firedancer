@@ -418,22 +418,23 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
 
   /* Convert entrypoint offset to program counter */
 
+  info->rodata_sz        = (uint)segment_end;
+  info->rodata_footprint = (uint)elf_sz;
+
   ulong entry_off = fd_ulong_sat_sub( elf->ehdr.e_entry, shdr_text->sh_addr );
   ulong entry_pc = entry_off / 8UL;
   REQUIRE( fd_ulong_is_aligned( entry_off, 8UL ) );
+  REQUIRE( entry_pc < ( info->rodata_sz / 8UL ) );
   info->entry_pc = (uint)entry_pc;
 
   if( (info->shndx_dynstr)>=0 ) {
     fd_elf64_shdr const * shdr_dynstr = &shdr[ info->shndx_dynstr ];
     ulong sh_offset = shdr_dynstr->sh_offset;
     ulong sh_size   = shdr_dynstr->sh_size;
-    REQUIRE( (sh_offset+sh_size>=sh_offset) & (sh_offset+sh_size<=elf_sz) );
+    REQUIRE( (sh_offset+sh_size>=sh_offset) & (sh_offset+sh_size<=info->rodata_footprint) );
     info->dynstr_off = (uint)sh_offset;
     info->dynstr_sz  = (uint)sh_size;
   }
-
-  info->rodata_sz        = (uint)segment_end;
-  info->rodata_footprint = (uint)elf_sz;
 
   return 0;
 }
