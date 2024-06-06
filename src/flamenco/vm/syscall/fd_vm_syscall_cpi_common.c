@@ -147,7 +147,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
   FD_VM_CU_UPDATE( vm, caller_acc_data_len / FD_VM_CPI_BYTES_PER_UNIT );
 
   fd_borrowed_account_t * callee_acc = NULL;
-  int err = fd_instr_borrowed_account_modify(vm->instr_ctx, callee_acc_pubkey, 0, &callee_acc);
+  int err = fd_instr_borrowed_account_modify( vm->instr_ctx, callee_acc_pubkey, 0, &callee_acc );
   if( FD_UNLIKELY( err ) ) {
     /* No need to do anything if the account is missing from the borrowed accounts cache */
     return FD_VM_SUCCESS;
@@ -279,7 +279,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       found = 1;
 
       /* Update the callee account to reflect any changes the caller has made */
-      if( FD_UNLIKELY( acc_meta && VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC(vm, &account_infos[j], callee_account ) ) ) {
+      if( FD_UNLIKELY( acc_meta && VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( vm, &account_infos[j], callee_account ) ) ) {
         
         return 1001;
       }

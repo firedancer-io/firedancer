@@ -327,6 +327,8 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
   fd_vm_t _vm[1];
   fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
 
+  ulong before_instr_cus = instr_ctx->txn_ctx->compute_meter;
+
   /* TODO: (topointon): correctly set check_align and check_size in vm setup */
   vm = fd_vm_init(
     /* vm        */ vm,
@@ -353,7 +355,7 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
   uchar * signature = (uchar*)vm->instr_ctx->txn_ctx->_txn_raw->raw + vm->instr_ctx->txn_ctx->txn_descriptor->signature_off;
   uchar sig[64];
   /* TODO (topointon): make this run-time configurable, no need for this ifdef */
-  fd_base58_decode_64( "LKBxtETTpyVDbW1kT5fFucSpmdPoXfKW8QUxdzE8ggwCaXayByPbceQA6KwqGy2WNh89aAG3r2Qjm9VNY9FPtw9", sig );
+  fd_base58_decode_64( "5tm6Q3VKGRQQ5VnHpePweiSAL9pafNPNkmPiMk6b8i9NZAJScB5vj4KN1rGYhFD3Q8qZ6vFtrt7BfuEmyrTnSYx", sig );
   if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
     ulong event_max = 1UL<<30;
     ulong event_data_max = 2048UL;
@@ -378,9 +380,10 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
 
-  /* TODO: Add log for "Program consumed {} of {} compute units "*/
-
   instr_ctx->txn_ctx->compute_meter = vm->cu;
+
+  FD_LOG_NOTICE(( "Program consumed %lu of %lu compute units",
+                  before_instr_cus - instr_ctx->txn_ctx->compute_meter, before_instr_cus ));
 
   /* TODO: vm should report */
   if( FD_UNLIKELY( vm->reg[0] ) ) {

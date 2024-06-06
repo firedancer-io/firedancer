@@ -115,7 +115,9 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
                        ulong const *   text,
                        ulong           text_cnt,
                        ulong           ic_correction,
-                       ulong           frame_cnt ) {
+                       ulong           pending_cus,
+                       ulong           other_number,
+                       ulong           frame_cnt) {
 
   /* Acquire event storage */
 
@@ -136,14 +138,22 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
 
   /* Record the event */
 
-  event->info    = fd_vm_trace_event_info( FD_VM_TRACE_EVENT_TYPE_EXE, multiword );
-  event->pc      = pc;
-  event->ic      = ic;
-  event->cu      = cu;
+  // ic_correction = pc - pc0 + 1UL - ic_correction;                                                     \
+  // ic += ic_correction;                                                                                \
+  // if( FD_UNLIKELY( ic_correction>cu ) ) goto sigcost; /* Note: untaken branches don't consume BTB */  \
+  // cu -= ic_correction;              
+  // TODO: we want to support pending cu updates     
+
+  event->info          = fd_vm_trace_event_info( FD_VM_TRACE_EVENT_TYPE_EXE, multiword );
+  event->pc            = pc;
+  event->ic            = ic;
+  event->cu            = cu;
   memcpy( event->reg, reg, FD_VM_REG_CNT*sizeof(ulong) );
-  event->text[0] = text0;
+  event->text[0]       = text0;
   event->ic_correction = ic_correction;
-  event->frame_cnt = frame_cnt;
+  event->frame_cnt     = frame_cnt;
+  event->pending_cus   = pending_cus;
+  event->other_number  = other_number;
   if( FD_UNLIKELY( multiword ) ) event->text[1] = text[1];
 
   return FD_VM_SUCCESS;
@@ -243,7 +253,8 @@ fd_vm_trace_printf( fd_vm_trace_t const *      trace,
       else                     printf( "%s", out );
 
       /* Print CUs  */
-      printf( " %lu\n", event->cu );
+      printf( " %lu\n", event->cu - event->pending_cus);
+      fflush( stdout );
 
       break;
     }

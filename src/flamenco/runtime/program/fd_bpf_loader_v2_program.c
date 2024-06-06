@@ -95,6 +95,8 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
+  ulong pre_compute = ctx.txn_ctx->compute_meter;
+
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
 
@@ -123,7 +125,7 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
 #ifdef FD_DEBUG_SBPF_TRACES
 uchar * signature = (uchar*)vm->instr_ctx->txn_ctx->_txn_raw->raw + vm->instr_ctx->txn_ctx->txn_descriptor->signature_off;
 uchar   sig[64];
-fd_base58_decode_64( "mu7GV8tiEU58hnugxCcuuGh11MvM5tb2ib2qqYu9WYKHhc9Jsm187S31nEX1fg9RYM1NwWJiJkfXNNK21M6Yd8u", sig );
+fd_base58_decode_64( "5tm6Q3VKGRQQ5VnHpePweiSAL9pafNPNkmPiMk6b8i9NZAJScB5vj4KN1rGYhFD3Q8qZ6vFtrt7BfuEmyrTnSYx", sig );
 if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
   ulong event_max      = 1UL<<30;
   ulong event_data_max = 2048UL;
@@ -150,7 +152,10 @@ if( FD_UNLIKELY( vm->trace ) ) {
 }
 #endif
 
+  ulong post_compute = vm->cu;
   ctx.txn_ctx->compute_meter = vm->cu;
+
+  FD_LOG_NOTICE(( "Program consumed %lu of %lu compute units", pre_compute - post_compute, pre_compute ));
 
   fd_valloc_free( ctx.valloc, fd_sbpf_program_delete( prog ) );
   fd_valloc_free( ctx.valloc, fd_sbpf_syscalls_delete( syscalls ) );

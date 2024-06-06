@@ -107,7 +107,7 @@
   ulong ic_correction = 0UL;
 
 # define FD_VM_INTERP_BRANCH_BEGIN(opcode)                                                              \
-  interp_##opcode:                                                                                      \
+  interp_##opcode:                \
     /* Bill linear text segment and this branch instruction as per the above */                         \
     ic_correction = pc - pc0 + 1UL - ic_correction;                                                     \
     ic += ic_correction;                                                                                \
@@ -170,6 +170,7 @@
      this requires more compute units than can be supported, we don't
      even execute the first instruction. */
 
+/* TODO: Add perma link here */
 //let heap_size = compute_budget.heap_size.unwrap_or(HEAP_LENGTH);
 //let _ = invoke_context.consume_checked(
 //    ((heap_size as u64).saturating_div(32_u64.saturating_mul(1024)))
@@ -191,7 +192,7 @@ interp_exec:
      instruction execution starts here such that this is only point
      where exe tracing diagnostics are needed. */
 
-  fd_vm_trace_event_exe( vm->trace, pc, ic + ( pc - pc0 - ic_correction ), cu, reg, vm->text + pc, vm->text_cnt - pc, ic_correction, frame_cnt );
+  fd_vm_trace_event_exe( vm->trace, pc, ic + ( pc - pc0 - ic_correction ), cu, reg, vm->text + pc, vm->text_cnt - pc, ic_correction, ( pc - pc0 - ic_correction ), ic, frame_cnt );
 # endif
 
   FD_VM_INTERP_INSTR_EXEC;

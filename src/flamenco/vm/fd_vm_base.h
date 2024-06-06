@@ -446,6 +446,8 @@ struct fd_vm_trace_event_exe {
   ulong frame_cnt;            /* frame_cnt */
   ulong reg[ FD_VM_REG_CNT ]; /* registers */
   ulong text[ 2 ];            /* If the event has valid clear, this is actually text[1] */
+  ulong pending_cus;          /* pending cus to actually deduct */
+  ulong other_number;         /* other number */
   /* This point is aligned 8 */
 };
 
@@ -561,7 +563,9 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
                        ulong const *   text,       /* Indexed [0,text_cnt) */
                        ulong           text_cnt,
                        ulong           ic_correction,
-                       ulong           frame_cnt );
+                       ulong           frame_cnt,
+                       ulong           other_number,
+                       ulong           pending_cus );
 
 /* fd_vm_trace_event_mem records an attempt to access the VM address
    range [vaddr,vaddr+sz).  If write==0, it was a read attempt,
