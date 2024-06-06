@@ -349,6 +349,7 @@ typedef struct fd_stake_history_entry_off fd_stake_history_entry_off_t;
 #include "../../util/tmpl/fd_pool.c"
 static inline fd_stake_history_entry_t *
 fd_stake_history_pool_alloc( fd_valloc_t valloc, ulong num ) {
+  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
   return fd_stake_history_pool_join( fd_stake_history_pool_new(
       fd_valloc_malloc( valloc,
                         fd_stake_history_pool_align(),
@@ -363,6 +364,7 @@ fd_stake_history_pool_alloc( fd_valloc_t valloc, ulong num ) {
 #include "../../util/tmpl/fd_treap.c"
 static inline fd_stake_history_treap_t *
 fd_stake_history_treap_alloc( fd_valloc_t valloc, ulong num ) {
+  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
   return fd_stake_history_treap_join( fd_stake_history_treap_new(
       fd_valloc_malloc( valloc,
                         fd_stake_history_treap_align(),
@@ -1640,6 +1642,7 @@ typedef struct fd_vote_state_0_23_5_off fd_vote_state_0_23_5_off_t;
 #include "../../util/tmpl/fd_pool.c"
 static inline fd_vote_authorized_voter_t *
 fd_vote_authorized_voters_pool_alloc( fd_valloc_t valloc, ulong num ) {
+  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
   return fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new(
       fd_valloc_malloc( valloc,
                         fd_vote_authorized_voters_pool_align(),
@@ -1654,6 +1657,7 @@ fd_vote_authorized_voters_pool_alloc( fd_valloc_t valloc, ulong num ) {
 #include "../../util/tmpl/fd_treap.c"
 static inline fd_vote_authorized_voters_treap_t *
 fd_vote_authorized_voters_treap_alloc( fd_valloc_t valloc, ulong num ) {
+  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
   return fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new(
       fd_valloc_malloc( valloc,
                         fd_vote_authorized_voters_treap_align(),
