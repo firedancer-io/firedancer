@@ -244,7 +244,7 @@ fd_vm_trace_printf( fd_vm_trace_t const *      trace,
 
       /* Print CUs  */
       printf( " %lu\n", event->cu );
-
+      fflush( stdout );
       break;
     }
 
