@@ -1047,7 +1047,7 @@ snapshot_insert( fd_fork_t *        fork,
   /* Add snapshot slot to ghost. */
 
   fd_slot_hash_t slot_hash = { .slot = snapshot_slot, .hash = fork->slot_ctx.slot_bank.banks_hash };
-  fd_ghost_leaf_insert( replay->bft->ghost, &slot_hash, NULL );
+  fd_ghost_node_insert( replay->bft->ghost, &slot_hash, NULL );
 
   /* Add snapshot slot to bft. */
 
