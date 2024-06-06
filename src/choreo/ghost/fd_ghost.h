@@ -40,8 +40,7 @@ struct __attribute__((aligned(128UL))) fd_ghost_node {
   int               eqv;          /* flag for equivocation (multiple blocks) in this slot */
   int               eqv_safe;     /* flag for equivocation safety (ie. 52% of stake has voted for this slot hash) */
   int               opt_conf;     /* flag for optimistic confirmation (ie. 2/3 of stake has voted for this slot hash ) */
-  fd_ghost_node_t * head;         /* the head of the fork i.e. leaf of the highest-weight subtree */
-  fd_ghost_node_t * parent;       /* parent slot hash */
+  fd_ghost_node_t * parent;       /* pointer to the parent */
   fd_ghost_node_t * child;        /* pointer to the left-most child */
   fd_ghost_node_t * sibling;      /* pointer to next sibling */
 };
@@ -64,7 +63,6 @@ struct __attribute__((aligned(128UL))) fd_ghost_node {
 #define MAP_KEY_EQ(k0,k1)      FD_SLOT_HASH_EQ(k0,k1)
 #define MAP_KEY_HASH(key,seed) (key->slot^seed)
 #include "../../util/tmpl/fd_map_chain.c"
-/* clang-format on */
 
 struct fd_ghost_vote {
   fd_pubkey_t    pubkey;    /* validator's pubkey, also the map key */
@@ -78,7 +76,6 @@ typedef struct fd_ghost_vote fd_ghost_vote_t;
 #define POOL_T    fd_ghost_vote_t
 #include "../../util/tmpl/fd_pool.c"
 
-/* clang-format off */
 #define MAP_NAME               fd_ghost_vote_map
 #define MAP_ELE_T              fd_ghost_vote_t
 #define MAP_KEY                pubkey
@@ -87,12 +84,20 @@ typedef struct fd_ghost_vote fd_ghost_vote_t;
 #define MAP_KEY_HASH(key,seed) (key->ui[0]^seed)
 #include "../../util/tmpl/fd_map_chain.c"
 
+#define DEQUE_NAME fd_ghost_prune_deque
+#define DEQUE_T    fd_ghost_node_t *
+#include "../../util/tmpl/fd_deque_dynamic.c"
+
 struct __attribute__((aligned(128UL))) fd_ghost {
-  fd_slot_hash_t        root;      /* root slot */
+  fd_ghost_node_t *     root;
+  ulong                 total_stake; /* total amount of stake */
+
   fd_ghost_node_t *     node_pool; /* memory pool of ghost nodes */
   fd_ghost_node_map_t * node_map;  /* map of slot_hash->fd_ghost_node_t */
   fd_ghost_vote_t *     vote_pool; /* memory pool of ghost votes */
   fd_ghost_vote_map_t * vote_map;  /* each node's latest vote. map of pubkey->fd_ghost_vote_t */
+
+  fd_ghost_node_t **    prune_deque;     /* deque reserved for BFS */
 };
 typedef struct fd_ghost fd_ghost_t;
 /* clang-format on */
@@ -112,17 +117,22 @@ fd_ghost_footprint( ulong node_max, ulong vote_max ) {
   return FD_LAYOUT_FINI(
       FD_LAYOUT_APPEND(
           FD_LAYOUT_APPEND(
-              FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
-                                                                    alignof( fd_ghost_t ),
-                                                                    sizeof( fd_ghost_t ) ),
-                                                  fd_ghost_node_pool_align(),
-                                                  fd_ghost_node_pool_footprint( node_max ) ),
-                                fd_ghost_node_map_align(),
-                                fd_ghost_node_map_footprint( node_max ) ),
-              fd_ghost_vote_pool_align(),
-              fd_ghost_vote_pool_footprint( vote_max ) ),
-          fd_ghost_vote_map_align(),
-          fd_ghost_vote_map_footprint( vote_max ) ),
+              FD_LAYOUT_APPEND(
+                  FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
+                                                                        alignof( fd_ghost_t ),
+                                                                        sizeof( fd_ghost_t ) ),
+                                                      fd_ghost_node_pool_align(),
+                                                      fd_ghost_node_pool_footprint( node_max ) ),
+                                    fd_ghost_node_map_align(),
+                                    fd_ghost_node_map_footprint( node_max ) ),
+                  fd_ghost_vote_pool_align(),
+                  fd_ghost_vote_pool_footprint( vote_max ) ),
+              fd_ghost_vote_map_align(),
+              fd_ghost_vote_map_footprint( vote_max ) ),
+          fd_ghost_prune_deque_align(),
+          fd_ghost_prune_deque_footprint( node_max ) ),
+      //  sizeof( ulong ),
+      //  sizeof( ulong ) * node_max ),
       alignof( fd_ghost_t ) );
 }
 
@@ -168,14 +178,14 @@ fd_ghost_delete( void * ghost );
 */
 
 void
-fd_ghost_leaf_insert( fd_ghost_t *           ghost,
-                      fd_slot_hash_t const * key,
-                      fd_slot_hash_t const * parent_key_opt );
+fd_ghost_node_insert( fd_ghost_t *           ghost,
+                      fd_slot_hash_t const * slot_hash,
+                      fd_slot_hash_t const * parent_slot_hash_opt );
 
 /* fd_ghost_node_query finds the node corresponding to key. */
 
 fd_ghost_node_t *
-fd_ghost_node_query( fd_ghost_t * ghost, fd_slot_hash_t const * key );
+fd_ghost_node_query( fd_ghost_t * ghost, fd_slot_hash_t const * slot_hash );
 
 /* fd_ghost_replay_vote_upsert updates or inserts pubkey's stake in ghost.
 
@@ -191,10 +201,10 @@ fd_ghost_node_query( fd_ghost_t * ghost, fd_slot_hash_t const * key );
 */
 
 void
-fd_ghost_replay_vote_upsert( fd_ghost_t *           ghost,
-                             fd_slot_hash_t const * key,
-                             fd_pubkey_t const *    pubkey,
-                             ulong                  stake );
+fd_ghost_replay_vote( fd_ghost_t *           ghost,
+                      fd_slot_hash_t const * slot_hash,
+                      fd_pubkey_t const *    pubkey,
+                      ulong                  stake );
 
 /* fd_ghost_gossip_vote_upsert updates or inserts pubkey's stake in ghost.
 
@@ -203,15 +213,18 @@ fd_ghost_replay_vote_upsert( fd_ghost_t *           ghost,
 */
 
 void
-fd_ghost_gossip_vote_upsert( fd_ghost_t *           ghost,
-                             fd_slot_hash_t const * key,
-                             fd_pubkey_t const *    pubkey,
-                             ulong                  stake );
-
-/* fd_ghost_print formats and prints ghost to stdout. */
+fd_ghost_gossip_vote( fd_ghost_t *           ghost,
+                      fd_slot_hash_t const * slot_hash,
+                      fd_pubkey_t const *    pubkey,
+                      ulong                  stake );
 
 void
-fd_ghost_print( fd_ghost_t * ghost );
+fd_ghost_prune( fd_ghost_t * ghost, fd_ghost_node_t const * root );
+
+/* fd_ghost_print calls printf to generate a pretty-printed ghost. */
+
+void
+fd_ghost_print( fd_ghost_t const * ghost, fd_ghost_node_t const * root );
 
 FD_PROTOTYPES_END
 

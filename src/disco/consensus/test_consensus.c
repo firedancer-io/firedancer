@@ -609,7 +609,7 @@ main( int argc, char ** argv ) {
 
   fd_slot_hash_t key = { .slot = snapshot_fork->slot,
                          .hash = snapshot_fork->slot_ctx.slot_bank.banks_hash };
-  fd_ghost_leaf_insert( ghost, &key, NULL );
+  fd_ghost_node_insert( ghost, &key, NULL );
   FD_TEST( fd_ghost_node_map_ele_query( ghost->node_map, &key, NULL, ghost->node_pool ) );
 
   /**********************************************************************/
