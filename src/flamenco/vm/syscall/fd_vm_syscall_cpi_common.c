@@ -397,6 +397,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
                            ulong   signers_seeds_cnt,
                            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
+  FD_LOG_NOTICE(("VM_SYSCALL_CPI_ENTRYPOINT %lu", vm->cu));
 
   FD_VM_CU_UPDATE( vm, FD_VM_INVOKE_UNITS );
 
@@ -492,6 +493,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   vm->instr_ctx->txn_ctx->compute_meter = vm->cu;
 
   /* Execute the CPI instruction in the runtime */
+  FD_LOG_NOTICE(("CUS AS WE ARE ENTERING THE INSTR EXECTUION %lu", vm->cu));
   int err_exec = fd_execute_instr( vm->instr_ctx->txn_ctx, &instruction_to_execute );
   ulong instr_exec_res = (ulong)err_exec;
 

@@ -155,7 +155,7 @@ if( FD_UNLIKELY( vm->trace ) ) {
   ulong post_compute = vm->cu;
   ctx.txn_ctx->compute_meter = vm->cu;
 
-  FD_LOG_NOTICE(( "Program consumed %lu of %lu compute units", pre_compute - post_compute, pre_compute ));
+  FD_LOG_NOTICE(( "Program consumed %lu of %lu compute units start=%lu end=%lu", pre_compute - post_compute, pre_compute, pre_compute, post_compute ));
 
   fd_valloc_free( ctx.valloc, fd_sbpf_program_delete( prog ) );
   fd_valloc_free( ctx.valloc, fd_sbpf_syscalls_delete( syscalls ) );

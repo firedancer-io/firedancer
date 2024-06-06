@@ -117,7 +117,7 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
                        ulong           ic_correction,
                        ulong           pending_cus,
                        ulong           other_number,
-                       ulong           frame_cnt) {
+                       ulong           frame_cnt ) {
 
   /* Acquire event storage */
 
@@ -253,7 +253,7 @@ fd_vm_trace_printf( fd_vm_trace_t const *      trace,
       else                     printf( "%s", out );
 
       /* Print CUs  */
-      printf( " %lu\n", event->cu - event->pending_cus);
+      printf( " %lu %lu\n", event->cu - event->pending_cus, event->cu);
       fflush( stdout );
 
       break;

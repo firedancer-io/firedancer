@@ -27,7 +27,7 @@
 
   ulong pc        = vm->pc;
   ulong ic        = vm->ic;
-  ulong cu        = vm->cu;
+  ulong cu        = vm->cu + 1;
   ulong frame_cnt = vm->frame_cnt;
 
   /* FD_VM_INTERP_INSTR_EXEC loads the first word of the instruction at
@@ -192,7 +192,7 @@ interp_exec:
      instruction execution starts here such that this is only point
      where exe tracing diagnostics are needed. */
 
-  fd_vm_trace_event_exe( vm->trace, pc, ic + ( pc - pc0 - ic_correction ), cu, reg, vm->text + pc, vm->text_cnt - pc, ic_correction, ( pc - pc0 - ic_correction ), ic, frame_cnt );
+  fd_vm_trace_event_exe( vm->trace, pc, ic + ( pc - pc0 - ic_correction ), cu, reg, vm->text + pc, vm->text_cnt - pc, ic_correction, ( pc - pc0 + 1UL - ic_correction ), ic, frame_cnt );
 # endif
 
   FD_VM_INTERP_INSTR_EXEC;
@@ -834,7 +834,7 @@ sigsegv:     FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGSEGV;   got
 sigcost:     /* ic current */    cu = 0UL;        err = FD_VM_ERR_SIGCOST;   goto interp_halt;
 sigsyscall:  /* ic current */    /* cu current */ /* err current */          goto interp_halt;
 sigfpe:      FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGFPE;    goto interp_halt;
-sigexit:     FD_VM_INTERP_FAULT; cu++;           /* err current */           goto interp_halt;
+sigexit:     FD_VM_INTERP_FAULT; /* cu current */ /* err current */           goto interp_halt;
 
 #undef FD_VM_INTERP_FAULT
 
