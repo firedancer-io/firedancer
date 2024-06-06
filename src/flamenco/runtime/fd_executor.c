@@ -20,7 +20,7 @@
 #include "program/fd_stake_program.h"
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
-//#include "program/fd_zk_token_proof_program.h"
+#include "program/fd_zk_elgamal_proof_program.h"
 
 #include "sysvar/fd_sysvar_instructions.h"
 
@@ -69,10 +69,10 @@ fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
     return fd_bpf_loader_v1_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_compute_budget_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_compute_budget_program_execute;
-  } else if( !memcmp( pubkey, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) {
+  } else if( !memcmp( pubkey, fd_solana_address_lookup_table_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_address_lookup_table_program_execute;
-  //} else if( !memcmp( pubkey, fd_solana_zk_token_proof_program_id.key, sizeof(fd_pubkey_t) ) ) {
-  //  return fd_executor_zk_token_proof_program_execute_instruction;
+  } else if( !memcmp( pubkey, fd_solana_zk_elgamal_proof_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+    return fd_executor_zk_elgamal_proof_program_execute;
   } else {
     return NULL; /* FIXME */
   }

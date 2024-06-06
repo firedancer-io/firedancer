@@ -197,5 +197,6 @@
   {"name":"chained_merkle_conflict_duplicate_proofs","pubkey":"chaie9S2zVfuxJKNRGkyTDokLwWxx6kD2ZLsqQHaDD8"},
   {"name":"simplify_alt_bn128_syscall_error_codes","pubkey": "JDn5q3GBeqzvUa7z67BbmVHVdE3EbUAjvFep3weR3jxX","hardcoded":1180,"comment":"only impl the activated path"},
   {"name":"abort_on_invalid_curve","pubkey":"FuS3FPfJDKSNot99ECLXtp3rueq36hMNStJkPJwWodLh"},
-  {"name":"ed25519_precompile_verify_strict","pubkey":"ed9tNscbWLYBooxWA7FE2B5KHWs8A6sxfY8EzezEcoo","hardcoded":1180,"comment":"only impl the activated path"}
+  {"name":"ed25519_precompile_verify_strict","pubkey":"ed9tNscbWLYBooxWA7FE2B5KHWs8A6sxfY8EzezEcoo","hardcoded":2000,"comment":"only impl the activated path"},
+  {"name":"zk_elgamal_proof_program_enabled","pubkey":"zkhiy5oLowR7HY4zogXjCjeMXyruLqBwSWH21qcFtnv"}
 ]

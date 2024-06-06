@@ -1123,7 +1123,12 @@ fd_feature_id_t const ids[] = {
     .id     = {"\x09\xa3\x5e\x55\x96\xaf\xa7\x91\xd2\xf1\xf4\xa9\x08\x55\x4e\xfa\x4e\xe4\xa6\x46\xdb\xb3\xa1\x4a\xb0\x33\xaf\x14\xa5\x49\x1c\xfe"},
               /* ed9tNscbWLYBooxWA7FE2B5KHWs8A6sxfY8EzezEcoo */
     .name   = "ed25519_precompile_verify_strict",
-    .hardcoded = 1180 },
+    .hardcoded = 2000 },
+
+  { .index  = offsetof(fd_features_t, zk_elgamal_proof_program_enabled)>>3,
+    .id     = {"\x0e\xcb\x85\x30\xa9\x11\x14\x8e\x4e\x4b\x2d\xb5\x99\xa0\xea\x2c\x3c\x01\x91\xb9\xc8\x30\xc3\xeb\x84\x49\x40\x64\xd0\x12\x6e\x73"},
+              /* zkhiy5oLowR7HY4zogXjCjeMXyruLqBwSWH21qcFtnv */
+    .name   = "zk_elgamal_proof_program_enabled" },
 
   { .index = ULONG_MAX }
 };
@@ -1335,6 +1340,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x8ba9e9038d9fdcff: return &ids[ 196 ];
   case 0xafe148ad652172dd: return &ids[ 197 ];
   case 0x91a7af96555ea309: return &ids[ 198 ];
+  case 0x8e1411a93085cb0e: return &ids[ 199 ];
   default: break;
   }
 
@@ -1542,5 +1548,6 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, chained_merkle_conflict_duplicate_pro
 FD_STATIC_ASSERT( offsetof( fd_features_t, simplify_alt_bn128_syscall_error_codes                  )>>3==196UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, abort_on_invalid_curve                                  )>>3==197UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, ed25519_precompile_verify_strict                        )>>3==198UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, zk_elgamal_proof_program_enabled                        )>>3==199UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
