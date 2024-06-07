@@ -39,6 +39,32 @@ typedef struct fd_vote_account_cache_entry fd_vote_account_cache_entry_t;
 #define MAP_KEY_HASH(key,seed) ( ((key)->ui[0]) ^ (seed) )
 #include "../../../util/tmpl/fd_map_chain.c"
 
+/* An entry in the instruction trace */
+struct fd_exec_instr_trace_entry {
+  /* Metadata about the instruction */
+  fd_instr_info_t * instr_info;
+  /* Stack height when this instruction was pushed onto the stack (including itself)
+     https://github.com/anza-xyz/agave/blob/d87e23d8d91c32d5f2be2bb3557c730bee1e9434/sdk/src/transaction_context.rs#L475-L480 */
+  ulong stack_height;
+};
+typedef struct fd_exec_instr_trace_entry fd_exec_instr_trace_entry_t;
+
+#define FD_EXEC_INSTR_TRACE_ENTRY_ALIGN (8UL)
+#define FD_EXEC_INSTR_TRACE_ENTRY_SIZE  (16UL)
+
+struct fd_instr_info_pool_elem {
+  ulong next;
+  fd_instr_info_t info;
+};
+typedef struct fd_instr_info_pool_elem fd_instr_info_pool_elem_t;
+
+#define POOL_NAME fd_instr_info_pool
+#define POOL_T fd_instr_info_pool_elem_t
+#include "../../../util/tmpl/fd_pool.c"
+
+/* https://github.com/anza-xyz/agave/blob/0d34a1a160129c4293dac248e14231e9e773b4ce/program-runtime/src/compute_budget.rs#L139 */
+#define FD_MAX_INSTRUCTION_TRACE_LENGTH (64UL)
+
 struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong magic; /* ==FD_EXEC_TXN_CTX_MAGIC */
 
@@ -80,6 +106,11 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   uchar dirty_stake_acc : 1;  /* 1 if this transaction maybe modified a stake account */
 
   fd_capture_ctx_t * capture_ctx;
+
+  fd_instr_info_pool_elem_t * instr_info_pool;  /* Memory pool for allocating fd_instr_info_t structs used in instruction traces */
+
+  fd_exec_instr_trace_entry_t instr_trace [FD_MAX_INSTRUCTION_TRACE_LENGTH]; /* Instruction trace */
+  ulong instr_trace_length;                                                  /* Number of instructions in the trace */
 };
 
 #define FD_EXEC_TXN_CTX_ALIGN     (alignof(fd_exec_txn_ctx_t))

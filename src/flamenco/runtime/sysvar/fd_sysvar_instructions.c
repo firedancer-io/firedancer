@@ -5,15 +5,15 @@
 #include "../fd_system_ids.h"
 
 static ulong
-instructions_serialized_size( fd_instr_info_t const *  instrs,
-                              ushort              instrs_cnt ) {
+instructions_serialized_size( fd_instr_info_t const **  instrs,
+                              ushort                    instrs_cnt ) {
   ulong serialized_size = 0;
 
   serialized_size += sizeof(ushort)       // num_instructions
     + (sizeof(ushort) * instrs_cnt);      // instruction offsets
 
   for ( ushort i = 0; i < instrs_cnt; ++i ) {
-    fd_instr_info_t const * instr = &instrs[i];
+    fd_instr_info_t const * instr = instrs[i];
 
     serialized_size += sizeof(ushort); // num_accounts;
 
@@ -34,9 +34,9 @@ instructions_serialized_size( fd_instr_info_t const *  instrs,
 }
 
 int
-fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *     txn_ctx,
-                                          fd_instr_info_t const * instrs,
-                                          ushort                  instrs_cnt ) {
+fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
+                                          fd_instr_info_t const ** instrs,
+                                          ushort                   instrs_cnt ) {
   ulong serialized_sz = instructions_serialized_size( instrs, instrs_cnt );
 
   fd_borrowed_account_t * rec = NULL;
@@ -74,7 +74,7 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *     txn_ctx,
     FD_STORE( ushort, serialized_instruction_offsets, (ushort) offset );
     serialized_instruction_offsets += sizeof(ushort);
 
-    fd_instr_info_t const * instr = &instrs[i];
+    fd_instr_info_t const * instr = instrs[i];
 
     // num_accounts
     FD_STORE( ushort, serialized_instructions + offset, instr->acct_cnt );

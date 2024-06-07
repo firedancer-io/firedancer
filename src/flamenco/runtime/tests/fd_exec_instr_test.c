@@ -269,6 +269,13 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->vote_accounts_pool      = NULL;
   txn_ctx->accounts_resize_delta   = 0;
 
+  txn_ctx->instr_info_pool         = fd_instr_info_pool_join( fd_instr_info_pool_new( 
+    fd_valloc_malloc( txn_ctx->valloc, fd_instr_info_pool_align( ), fd_instr_info_pool_footprint( FD_MAX_INSTRUCTION_TRACE_LENGTH ) ),
+    FD_MAX_INSTRUCTION_TRACE_LENGTH
+  ) );
+
+  txn_ctx->instr_trace_length      = 0;
+
   memset( txn_ctx->_txn_raw, 0, sizeof(fd_rawtxn_b_t) );
   memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
   txn_ctx->return_data.len         = 0;
@@ -276,7 +283,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Set up instruction context */
 
-  fd_instr_info_t * info = fd_scratch_alloc( alignof(fd_instr_info_t), sizeof(fd_instr_info_t) );
+  fd_instr_info_t * info = fd_executor_acquire_instr_info_elem( txn_ctx );
   assert( info );
   memset( info, 0, sizeof(fd_instr_info_t) );
 
@@ -490,6 +497,8 @@ _context_destroy( fd_exec_instr_test_runner_t * runner,
   if( !slot_ctx ) return;
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
+
+  fd_valloc_free( ctx->txn_ctx->valloc, fd_instr_info_pool_delete( fd_instr_info_pool_leave( ctx->txn_ctx->instr_info_pool ) ) );
 
   fd_exec_slot_ctx_free( slot_ctx );
   fd_acc_mgr_delete( acc_mgr );

@@ -376,9 +376,9 @@ fd_set_exempt_rent_epoch_max( fd_exec_txn_ctx_t * txn_ctx,
 // 1. static and dynamic account keys that are loaded for the message
 // 2. owner program which inteprets the opaque data for each instruction
 static int
-fd_cap_transaction_accounts_data_size( fd_exec_txn_ctx_t *     txn_ctx,
-                                       fd_instr_info_t const * instrs,
-                                       ushort                  instrs_cnt ) {
+fd_cap_transaction_accounts_data_size( fd_exec_txn_ctx_t *       txn_ctx,
+                                       fd_instr_info_t  const ** instrs,
+                                       ushort                    instrs_cnt ) {
   ulong total_accounts_data_size = 0UL;
   for( ulong idx = 0; idx < txn_ctx->accounts_cnt; idx++ ) {
     fd_borrowed_account_t *b = &txn_ctx->borrowed_accounts[idx];
@@ -387,7 +387,7 @@ fd_cap_transaction_accounts_data_size( fd_exec_txn_ctx_t *     txn_ctx,
   }
 
   for( ushort i = 0; i < instrs_cnt; ++i ) {
-    fd_instr_info_t const * instr = &instrs[i];
+    fd_instr_info_t const * instr = instrs[i];
 
     fd_borrowed_account_t * p = NULL;
     int err = fd_txn_borrowed_account_view( txn_ctx, (fd_pubkey_t const *) &instr->program_id_pubkey, &p );
@@ -697,9 +697,9 @@ int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
   FD_SCRATCH_SCOPE_BEGIN {
-    ulong max_num_instructions = FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, limit_max_instruction_trace_length ) ? 64 : ULONG_MAX;
+    ulong max_num_instructions = FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, limit_max_instruction_trace_length ) ? FD_MAX_INSTRUCTION_TRACE_LENGTH : ULONG_MAX;
     if( txn_ctx->num_instructions >= max_num_instructions ) {
-      return -1;
+      return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
     }
     txn_ctx->num_instructions++;
     fd_pubkey_t const * txn_accs = txn_ctx->accounts;
@@ -730,6 +730,12 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       .index     = parent ? (parent->child_cnt++) : 0,
       .depth     = parent ? (parent->depth+1    ) : 0,
       .child_cnt = 0U,
+    };
+
+    /* Add the instruction to the trace */
+    txn_ctx->instr_trace[ txn_ctx->instr_trace_length++ ] = (fd_exec_instr_trace_entry_t) {
+      .instr_info = instr,
+      .stack_height = txn_ctx->instr_stack_sz,
     };
 
     // defense in depth
@@ -1076,15 +1082,19 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   FD_SCRATCH_SCOPE_BEGIN {
     uint use_sysvar_instructions = fd_executor_txn_uses_sysvar_instructions( txn_ctx );
 
-    fd_instr_info_t instrs[txn_ctx->txn_descriptor->instr_cnt];
+    fd_instr_info_t * instrs[txn_ctx->txn_descriptor->instr_cnt];
     for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
       fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[i];
-      fd_convert_txn_instr_to_instr( txn_ctx, txn_instr, txn_ctx->borrowed_accounts, &instrs[i] );
+      instrs[i] = fd_executor_acquire_instr_info_elem( txn_ctx );
+      if ( FD_UNLIKELY( instrs[i] == NULL ) ) {
+        return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
+      }
+      fd_convert_txn_instr_to_instr( txn_ctx, txn_instr, txn_ctx->borrowed_accounts, instrs[i] );
     }
 
     int ret = 0;
     if ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, cap_transaction_accounts_data_size ) ) {
-      int ret = fd_cap_transaction_accounts_data_size( txn_ctx, instrs, txn_ctx->txn_descriptor->instr_cnt );
+      int ret = fd_cap_transaction_accounts_data_size( txn_ctx, (fd_instr_info_t const **)instrs, txn_ctx->txn_descriptor->instr_cnt );
       if ( ret != FD_EXECUTOR_INSTR_SUCCESS ) {
         fd_funk_txn_cancel(txn_ctx->acc_mgr->funk, txn_ctx->funk_txn, 0);
         return ret;
@@ -1092,7 +1102,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     }
 
     if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
-      ret = fd_sysvar_instructions_serialize_account( txn_ctx, instrs, txn_ctx->txn_descriptor->instr_cnt );
+      ret = fd_sysvar_instructions_serialize_account( txn_ctx, (fd_instr_info_t const **)instrs, txn_ctx->txn_descriptor->instr_cnt );
       if( ret != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "sysvar instrutions failed to serialize" ));
         return ret;
@@ -1122,10 +1132,10 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
       if (txn_ctx->capture_ctx && txn_ctx->capture_ctx->dump_insn_to_pb && txn_ctx->slot_ctx->slot_bank.slot >= txn_ctx->capture_ctx->dump_insn_start_slot) {
         // Capture the input and convert it into a Protobuf message
-        dump_instr_to_protobuf(txn_ctx, &instrs[i], i);
+        dump_instr_to_protobuf(txn_ctx, instrs[i], i);
       }
 
-      int exec_result = fd_execute_instr( txn_ctx, &instrs[i] );
+      int exec_result = fd_execute_instr( txn_ctx, instrs[i] );
       if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
         if ( txn_ctx->instr_err_idx == INT_MAX )
         {
@@ -1333,4 +1343,16 @@ fd_executor_instr_strerror( int err ) {
   }
 
   return "unknown";
+}
+
+fd_instr_info_t *
+fd_executor_acquire_instr_info_elem( fd_exec_txn_ctx_t * txn_ctx ) {
+
+  if ( FD_UNLIKELY( fd_instr_info_pool_free( txn_ctx->instr_info_pool ) == 0 ) ) {
+    FD_LOG_WARNING(( "no free elements remaining in the fd_instr_info_pool" ));
+    return NULL;
+  }
+
+  return &fd_instr_info_pool_ele_acquire( txn_ctx->instr_info_pool )->info;
+
 }

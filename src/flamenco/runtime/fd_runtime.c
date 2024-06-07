@@ -1305,6 +1305,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
     for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
+      fd_valloc_free( txn_ctx->valloc, fd_instr_info_pool_delete( fd_instr_info_pool_leave( txn_ctx->instr_info_pool ) ) );
       fd_valloc_free( slot_ctx->valloc, txn_ctx );
     }
 
