@@ -1,12 +1,11 @@
 #ifndef HEADER_fd_src_app_fdctl_run_tiles_h
 #define HEADER_fd_src_app_fdctl_run_tiles_h
 
-#include "../../fdctl.h"
-
-#include "../../../../disco/mux/fd_mux.h"
-#include "../../../../disco/shred/fd_shredder.h"
-#include "../../../../ballet/shred/fd_shred.h"
-#include "../../../../ballet/pack/fd_pack.h"
+#include "mux/fd_mux.h"
+#include "shred/fd_shredder.h"
+#include "../ballet/shred/fd_shred.h"
+#include "../ballet/pack/fd_pack.h"
+#include "topo/fd_topo.h"
 
 #include <linux/filter.h>
 
@@ -94,5 +93,13 @@ struct fd_microblock_bank_trailer {
   void const * bank;
 };
 typedef struct fd_microblock_bank_trailer fd_microblock_bank_trailer_t;
+
+typedef struct __attribute__((packed)) {
+  double hashcnt_duration_ns;
+  ulong  hashcnt_per_tick;
+  ulong  ticks_per_slot;
+  ulong  tick_height;
+  uchar  last_entry_hash[32];
+} fd_poh_init_msg_t;
 
 #endif /* HEADER_fd_src_app_fdctl_run_tiles_h */
