@@ -578,7 +578,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tpu_vote_my_addr.port = fd_ushort_bswap( tile->gossip.tpu_vote_port );
 
   fd_gossip_update_tvu_addr( ctx->gossip, &ctx->tvu_my_addr, &ctx->tvu_my_fwd_addr );
-  fd_gossip_update_tpu_addr( ctx->gossip, &ctx->tpu_my_addr );
+  fd_gossip_update_tpu_addr( ctx->gossip, &ctx->tpu_my_addr, &ctx->tpu_my_addr );
   fd_gossip_update_tpu_vote_addr( ctx->gossip, &ctx->tpu_vote_my_addr );
   fd_gossip_settime( ctx->gossip, fd_log_wallclock() );
   fd_gossip_start( ctx->gossip );
