@@ -501,7 +501,6 @@ int
 fd_gossip_update_tvu_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tvu, const fd_gossip_peer_addr_t * tvu_fwd ) {
   char tmp[100];
   FD_LOG_NOTICE(("updating tvu service address %s", fd_gossip_addr_str(tmp, sizeof(tmp), tvu)));
-  // FIXME
   FD_LOG_NOTICE(("updating tvu_fwd service address %s", fd_gossip_addr_str(tmp, sizeof(tmp), tvu_fwd)));
 
   fd_gossip_lock( glob );
@@ -512,12 +511,16 @@ fd_gossip_update_tvu_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tvu
 }
 
 int
-fd_gossip_update_tpu_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tpu ) {
+fd_gossip_update_tpu_addr( fd_gossip_t * glob, 
+                           fd_gossip_peer_addr_t const * tpu,
+                           fd_gossip_peer_addr_t const * tpu_fwd ) {
   char tmp[100];
-  FD_LOG_NOTICE(("updating tpu service address %s", fd_gossip_addr_str(tmp, sizeof(tmp), tpu)));
+  FD_LOG_NOTICE(("updating tpu service address %s", fd_gossip_addr_str(tmp, sizeof(tmp), tpu) ));
+  FD_LOG_NOTICE(("updating tpu_fwd service address %s", fd_gossip_addr_str(tmp, sizeof(tmp), tpu_fwd ) ));
 
   fd_gossip_lock( glob );
   fd_gossip_to_soladdr(&glob->my_contact_info.tpu, tpu);
+  fd_gossip_to_soladdr(&glob->my_contact_info.tpu_fwd, tpu);
   fd_gossip_unlock( glob );
 
   return 0;

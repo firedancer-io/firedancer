@@ -72,7 +72,9 @@ fd_gossip_update_tvu_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tvu
 
 /* Update the tpu addr */
 int
-fd_gossip_update_tpu_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tpu );
+fd_gossip_update_tpu_addr( fd_gossip_t * glob,
+                           fd_gossip_peer_addr_t const * tpu,
+                           fd_gossip_peer_addr_t const * tpu_fwd );
 
 /* Update the tpu vote addr */
 int fd_gossip_update_tpu_vote_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tpu_vote );
