@@ -860,8 +860,9 @@ contains_slot( fd_vote_state_t * vote_state, ulong slot ) {
   return 0;
 }
 
-// TODO FD_LIKELY
-// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L178
+// TODO: FD_LIKELY
+/* TODO: Add missing asserts */
+/* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L178-L413 */
 static int
 check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
                                          fd_vote_lockout_t *         proposed_lockouts,
@@ -875,8 +876,9 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
   fd_landed_vote_t const * last_vote = NULL;
-  if( !deq_fd_landed_vote_t_empty( vote_state->votes ) )
+  if( !deq_fd_landed_vote_t_empty( vote_state->votes ) ) {
     last_vote = deq_fd_landed_vote_t_peek_tail( vote_state->votes );
+  }
   if( FD_LIKELY( last_vote ) ) {
     if( FD_UNLIKELY( deq_fd_vote_lockout_t_peek_tail_const( proposed_lockouts )->slot <=
                      last_vote->lockout.slot ) ) {
@@ -886,8 +888,7 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
   }
 
   /* must be nonempty, checked above */
-  ulong last_vote_state_update_slot =
-      deq_fd_vote_lockout_t_peek_tail_const( proposed_lockouts )->slot;
+  ulong last_vote_state_update_slot = deq_fd_vote_lockout_t_peek_tail_const( proposed_lockouts )->slot;
 
   /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L200-L202 */
 
@@ -899,18 +900,21 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
 
   /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L203 */
 
-  ulong earliest_slot_hash_in_history =
-      deq_fd_slot_hash_t_peek_tail_const( slot_hashes->hashes )->slot;
+  ulong earliest_slot_hash_in_history = deq_fd_slot_hash_t_peek_tail_const( slot_hashes->hashes )->slot;
 
   /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L205-L210 */
-
+  /* Check if the proposed vote is too old to be in the SlotHash history */
   if( FD_UNLIKELY( last_vote_state_update_slot < earliest_slot_hash_in_history ) ) {
     ctx->txn_ctx->custom_err = FD_VOTE_ERROR_VOTE_TOO_OLD;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
+  /* Check if the proposed root is too old */
   if( *proposed_has_root ) {
     ulong const proposed_root_ = *proposed_root;
+    /* If the new proposed root `R` is less than the earliest slot hash in the history
+       such that we cannot verify whether the slot was actually was on this fork, set
+       the root to the latest vote in the current vote that's less than R. */
     if( proposed_root_ < earliest_slot_hash_in_history ) {
 
       /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L220 */
@@ -924,7 +928,8 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
                deq_fd_landed_vote_t_iter_init_rev( vote_state->votes );
            !deq_fd_landed_vote_t_iter_done_rev( vote_state->votes, iter );
            iter = deq_fd_landed_vote_t_iter_prev( vote_state->votes, iter ) ) {
-
+        /* Ensure we're iterating from biggest to smallest vote in the
+           current vote state */
         fd_landed_vote_t const * vote = deq_fd_landed_vote_t_iter_ele_const( vote_state->votes, iter );
         if( vote->lockout.slot <= proposed_root_ ) {
           *proposed_has_root = 1;
@@ -938,15 +943,33 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
 
   FD_SCRATCH_SCOPE_BEGIN {
 
+
+  /* Index into the new proposed vote state's slots, starting with the root if it exists then
+     we use this mutable root to fold checking the root slot into the below loop for performance */
   int     has_root_to_check       = *proposed_has_root;
   ulong   root_to_check           = *proposed_root;
-  ulong   vote_state_update_index = 0;
+  ulong   vote_state_update_index = 0UL;
   ulong   lockouts_len = deq_fd_vote_lockout_t_cnt( proposed_lockouts );
 
+  /* Index into the slot_hashes, starting at the oldest known slot hash */
   ulong   slot_hashes_index = deq_fd_slot_hash_t_cnt( slot_hashes->hashes );
   ulong * vote_state_update_indexes_to_filter = fd_scratch_alloc( alignof(ulong), lockouts_len * sizeof(ulong) );
-  ulong   filter_index = 0;
+  ulong   filter_index = 0UL;
 
+
+  /* Note:
+  
+     1) `vote_state_update.lockouts` is sorted from oldest/smallest vote to newest/largest
+     vote, due to the way votes are applied to the vote state (newest votes
+     pushed to the back).
+   
+     2) Conversely, `slot_hashes` is sorted from newest/largest vote to
+     the oldest/smallest vote
+   
+     Unlike for vote updates, vote state updates here can't only check votes older than the last vote
+     because have to ensure that every slot is actually part of the history, not just the most
+     recent ones */
+  /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L262 */
   while( vote_state_update_index < lockouts_len && slot_hashes_index > 0 ) {
     ulong proposed_vote_slot =
         fd_ulong_if( has_root_to_check,
@@ -954,7 +977,7 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
                      deq_fd_vote_lockout_t_peek_index_const( proposed_lockouts,
                                                              vote_state_update_index )
                          ->slot );
-    if( !has_root_to_check && vote_state_update_index > 0 &&
+    if( !has_root_to_check && vote_state_update_index > 0UL &&
         proposed_vote_slot <=
             deq_fd_vote_lockout_t_peek_index_const(
                 proposed_lockouts,
@@ -971,22 +994,38 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
             slot_hashes->hashes,
             fd_ulong_checked_sub_expect(
                 slot_hashes_index,
-                1,
+                1UL,
                 "`slot_hashes_index` is positive when computing `ancestor_slot`" ) )
             ->slot;
+    /* Find if this slot in the proposed vote state exists in the SlotHashes history
+       to confirm if it was a valid ancestor on this fork */
+    /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L285 */
     if( proposed_vote_slot < ancestor_slot ) {
       if( slot_hashes_index == deq_fd_slot_hash_t_cnt( slot_hashes->hashes ) ) {
+        /* The vote slot does not exist in the SlotHashes history because it's too old,
+           i.e. older than the oldest slot in the history. */
         FD_TEST( proposed_vote_slot < earliest_slot_hash_in_history );
         if( !contains_slot( vote_state, proposed_vote_slot ) && !has_root_to_check ) {
+          /* If the vote slot is both:
+             1) Too old
+             2) Doesn't already exist in vote state
+             Then filter it out */
           vote_state_update_indexes_to_filter[filter_index++] = vote_state_update_index;
         }
         if( has_root_to_check ) {
           ulong new_proposed_root = root_to_check;
+          /* 1. Because `root_to_check.is_some()`, then we know that
+                we haven't checked the root yet in this loop, so
+                `proposed_vote_slot` == `new_proposed_root` == `vote_state_update.root` */
           FD_TEST( new_proposed_root == proposed_vote_slot );
+          /* 2. We know from the assert earlier in the function that
+                `proposed_vote_slot < earliest_slot_hash_in_history`,
+                so from 1. we know that `new_proposed_root < earliest_slot_hash_in_history` */
           FD_TEST( new_proposed_root < earliest_slot_hash_in_history );
 
           has_root_to_check = 0;
           root_to_check     = ULONG_MAX;
+        /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L309 */
         } else {
           vote_state_update_index = fd_ulong_checked_add_expect(
               vote_state_update_index,
@@ -996,6 +1035,9 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
         }
         continue;
       } else {
+        /* If the vote slot is new enough to be in the slot history,
+           but is not part of the slot history, then it must belong to another fork,
+           which means this vote state update is invalid. */
         if( has_root_to_check ) {
           ctx->txn_ctx->custom_err = FD_VOTE_ERR_ROOT_ON_DIFFERENT_FORK;
           return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -1005,13 +1047,19 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
         }
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
+    /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L320 */
     } else if( proposed_vote_slot > ancestor_slot ) {
+      /* Decrement `slot_hashes_index` to find newer slots in the SlotHashes history */
       slot_hashes_index = fd_ulong_checked_sub_expect(
           slot_hashes_index,
           1,
           "`slot_hashes_index` is positive when finding newer slots in SlotHashes history" );
       continue;
+    /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L327 */
     } else {
+      /* Once the slot in `vote_state_update.lockouts` is found, bump to the next slot
+         in `vote_state_update.lockouts` and continue. If we were checking the root,
+         start checking the vote state instead. */
       if( has_root_to_check ) {
         has_root_to_check = 0;
         root_to_check     = ULONG_MAX;
@@ -1029,32 +1077,46 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
     }
   }
 
+  /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L345 */
   if( vote_state_update_index != deq_fd_vote_lockout_t_cnt( proposed_lockouts ) ) {
+    /* The last vote slot in the update did not exist in SlotHashes */
     ctx->txn_ctx->custom_err = FD_VOTE_ERR_SLOTS_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
+  /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L377 */
   if( memcmp( &deq_fd_slot_hash_t_peek_index_const( slot_hashes->hashes, slot_hashes_index )->hash,
               proposed_hash,
               sizeof( fd_hash_t ) ) != 0 ) {
+    /* This means the newest vote in the slot has a match that
+       doesn't match the expected hash for that slot on this fork */
     ctx->txn_ctx->custom_err = FD_VOTE_ERR_SLOTS_HASH_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  vote_state_update_index = 0;
-  ulong lockout_cnt = deq_fd_vote_lockout_t_cnt(proposed_lockouts);
+  /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L377 */
+  /* Filter out the irrelevant votes */
+  vote_state_update_index = 0UL;
+  ulong lockout_cnt = deq_fd_vote_lockout_t_cnt( proposed_lockouts );
 
-  for( ulong i = 0; i < filter_index && lockout_cnt > 0; i++ ) {
-    if( vote_state_update_indexes_to_filter[i] >= lockout_cnt )
+  /* We need to iterate backwards here because vote_state_update_indexes_to_filter[ i ] is a
+     strictly increasing value. Forward iterating can lead to the proposed lockout indicies to get
+     shifted leading to popping the wrong proposed lockouts or out of bounds accessing. We need
+     to be sure of handling underflow in this case. */
+
+  for( ulong i=filter_index; i>0UL && lockout_cnt>0UL; i-- ) {
+    vote_state_update_index = i - 1UL;
+    if( FD_UNLIKELY(vote_state_update_indexes_to_filter[ vote_state_update_index ]>=lockout_cnt ) ) {
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
-    deq_fd_vote_lockout_t_pop_idx_tail( proposed_lockouts,
-                                        vote_state_update_indexes_to_filter[i] );
+    }
+
+    deq_fd_vote_lockout_t_pop_idx_tail( proposed_lockouts, vote_state_update_indexes_to_filter[ vote_state_update_index ] );
     lockout_cnt--;
   }
 
   } FD_SCRATCH_SCOPE_END;
 
-  return 0;
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L421
