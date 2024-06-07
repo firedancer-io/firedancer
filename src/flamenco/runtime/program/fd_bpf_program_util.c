@@ -94,6 +94,11 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_exec_slot_ctx_t
       return -1;
     }
 
+    if( FD_UNLIKELY( programdata_rec->const_meta->dlen < PROGRAMDATA_METADATA_SIZE ) ) {
+      FD_LOG_WARNING(( "programdata_rec->const_meta->dlen < PROGRAMDATA_METADATA_SIZE (%lu<%lu)", programdata_rec->const_meta->dlen, PROGRAMDATA_METADATA_SIZE ));
+      return -1;
+    }
+
     *program_data_len = programdata_rec->const_meta->dlen - PROGRAMDATA_METADATA_SIZE;
     *program_data = programdata_rec->const_data + PROGRAMDATA_METADATA_SIZE;
 
