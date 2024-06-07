@@ -91,7 +91,7 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 
   fd_latest_vote_t * latest_votes = fork->slot_ctx.latest_votes;
 
-  fd_root_vote_t * root_votes = bft->root_votes;
+  // fd_root_vote_t * root_votes = bft->root_votes;
 
   ulong smr = bft->smr;
 
@@ -170,38 +170,38 @@ count_replay_votes( fd_bft_t * bft, fd_fork_t * fork ) {
 
     /* Only process vote slots higher than our SMR. */
 
-    if( FD_LIKELY( latest_vote->root > bft->smr ) ) {
+    // if( FD_LIKELY( latest_vote->root > bft->smr ) ) {
 
-      /* Find the previous root vote by node pubkey. */
+    //   /* Find the previous root vote by node pubkey. */
 
-      fd_root_vote_t * prev_root_vote =
-          fd_root_vote_map_query( root_votes, latest_vote->node_pubkey, NULL );
+    //   fd_root_vote_t * prev_root_vote =
+    //       fd_root_vote_map_query( root_votes, latest_vote->node_pubkey, NULL );
 
-      if( FD_UNLIKELY( !prev_root_vote ) ) {
+    //   if( FD_UNLIKELY( !prev_root_vote ) ) {
 
-        /* This node pubkey has not yet voted. */
+    //     /* This node pubkey has not yet voted. */
 
-        prev_root_vote = fd_root_vote_map_insert( root_votes, latest_vote->node_pubkey );
-      } else {
+    //     prev_root_vote = fd_root_vote_map_insert( root_votes, latest_vote->node_pubkey );
+    //   } else {
 
-        fd_root_stake_t * root_stake =
-            fd_root_stake_map_query( bft->root_stakes, prev_root_vote->root, NULL );
-        root_stake->stake -= stake;
-      }
+    //     fd_root_stake_t * root_stake =
+    //         fd_root_stake_map_query( bft->root_stakes, prev_root_vote->root, NULL );
+    //     root_stake->stake -= stake;
+    //   }
 
-      /* Update our bookkeeping of this node pubkey's root. */
+    //   /* Update our bookkeeping of this node pubkey's root. */
 
-      prev_root_vote->root = latest_vote->root;
+    //   prev_root_vote->root = latest_vote->root;
 
-      /* Add this node pubkey's stake to all slots in the ancestry back to the SMR. */
+    //   /* Add this node pubkey's stake to all slots in the ancestry back to the SMR. */
 
-      fd_root_stake_t * root_stake =
-          fd_root_stake_map_query( bft->root_stakes, latest_vote->root, NULL );
-      if( FD_UNLIKELY( !root_stake ) ) {
-        root_stake = fd_root_stake_map_insert( bft->root_stakes, latest_vote->root );
-      }
-      root_stake->stake += stake;
-    }
+    //   fd_root_stake_t * root_stake =
+    //       fd_root_stake_map_query( bft->root_stakes, latest_vote->root, NULL );
+    //   if( FD_UNLIKELY( !root_stake ) ) {
+    //     root_stake = fd_root_stake_map_insert( bft->root_stakes, latest_vote->root );
+    //   }
+    //   root_stake->stake += stake;
+    // }
   }
 
   if( FD_LIKELY( smr > bft->smr ) ) { bft->smr = smr; }

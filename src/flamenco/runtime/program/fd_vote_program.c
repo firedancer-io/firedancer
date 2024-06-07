@@ -1829,6 +1829,15 @@ do_process_vote_state_update( fd_vote_state_t *           vote_state,
                                  ctx );
 }
 
+static ulong
+query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t const * vote_accounts ) {
+  fd_vote_accounts_pair_t_mapnode_t key         = { 0 };
+  key.elem.key                                  = *pubkey;
+  fd_vote_accounts_pair_t_mapnode_t * vote_node = fd_vote_accounts_pair_t_map_find(
+      vote_accounts->vote_accounts_pool, vote_accounts->vote_accounts_root, &key );
+  return vote_node ? vote_node->elem.stake : 0;
+}
+
 static int
 process_vote_state_update( ulong                         vote_acct_idx,
                            fd_borrowed_account_t *       vote_account,
@@ -1839,9 +1848,31 @@ process_vote_state_update( ulong                         vote_acct_idx,
                            fd_exec_instr_ctx_t const *   ctx /* feature_set */ ) {
   int rc;
 
+  fd_vote_lockout_t * lockout = deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts );
+  fd_bank_hash_cmp_t * bank_hash_cmp = ctx->slot_ctx->epoch_ctx->bank_hash_cmp;
+  if( FD_LIKELY( lockout && bank_hash_cmp ) ) {
+    fd_bank_hash_cmp_lock( bank_hash_cmp );
+    fd_bank_hash_cmp_insert(
+        bank_hash_cmp,
+        lockout->slot,
+        &vote_state_update->hash,
+        0,
+        query_pubkey_stake( vote_account->pubkey,
+                            &ctx->epoch_ctx->epoch_bank.stakes.vote_accounts ) );
+
+    if( FD_LIKELY( vote_state_update->has_root ) ) {
+      fd_bank_hash_cmp_entry_t * cmp =
+          fd_bank_hash_cmp_map_query( bank_hash_cmp->map, vote_state_update->root, NULL );
+      if( FD_LIKELY( cmp ) ) cmp->rooted = 1;
+    }
+
+    fd_bank_hash_cmp_unlock( bank_hash_cmp );
+  }
+
   fd_vote_state_t vote_state;
   rc = verify_and_get_vote_state( vote_account, clock, signers, &vote_state );
   if( FD_UNLIKELY( rc ) ) return rc;
+  
 
   rc = do_process_vote_state_update(
       &vote_state, slot_hashes, clock->epoch, clock->slot, vote_state_update, ctx );
@@ -1849,35 +1880,20 @@ process_vote_state_update( ulong                         vote_acct_idx,
     return rc;
   }
 
-  /* Save latest vote for insertion on success. */
-  fd_landed_vote_t * latest_landed_vote = deq_fd_landed_vote_t_peek_tail( vote_state.votes );
-  fd_latest_vote_t   latest_vote = {0};
-  fd_latest_vote_t * new_latest_vote = NULL;
-  if( FD_LIKELY( latest_landed_vote ) ) {
-    latest_vote.node_pubkey = *vote_account->pubkey;
-    latest_vote.slot_hash   = (fd_slot_hash_t){ .slot = latest_landed_vote->lockout.slot, .hash = vote_state_update->hash };
-    new_latest_vote = &latest_vote;
-  }
-
-  /* Destroys vote_state. */
   rc = set_vote_account_state( vote_acct_idx, vote_account, &vote_state, ctx );
 
   /* only when running live or sim (vs. offline backtest) */
   if( FD_LIKELY( rc == FD_EXECUTOR_INSTR_SUCCESS && ctx->slot_ctx->latest_votes ) ) {
-    fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( ctx->slot_ctx->epoch_ctx );
-    if( FD_LIKELY( new_latest_vote ) ) {
+    if( FD_LIKELY( lockout ) ) {
+      fd_latest_vote_t latest_vote = {
+        .node_pubkey = *vote_account->pubkey,
+        .slot_hash = {
+          .slot = lockout->slot,
+          .hash = vote_state_update->hash
+        },
+        .root = vote_state_update->root
+      };
       fd_latest_vote_deque_push_tail( ctx->slot_ctx->latest_votes, latest_vote );
-
-      fd_bank_hash_cmp_lock( bank_hash_cmp );
-      fd_bank_hash_cmp_insert( bank_hash_cmp, latest_landed_vote->lockout.slot, &vote_state_update->hash, 0 );
-      fd_bank_hash_cmp_unlock( bank_hash_cmp );
-    }
-
-    if( FD_LIKELY( vote_state_update->has_root ) ) {
-      fd_bank_hash_cmp_entry_t * entry = fd_bank_hash_cmp_map_query( bank_hash_cmp->map, vote_state_update->root, NULL );
-      if( entry ) {
-        entry->rooted = 1; 
-      }
     }
   }
 
