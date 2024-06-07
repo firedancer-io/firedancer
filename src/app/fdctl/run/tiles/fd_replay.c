@@ -6,6 +6,7 @@
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/tvu/fd_tvu.h"
 #include "../../../../flamenco/fd_flamenco.h"
+#include "../../../../disco/bank/fd_txncache.h"
 #include "../../../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
 #include "../../../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../../../flamenco/runtime/fd_borrowed_account.h"
@@ -185,6 +186,7 @@ struct fd_replay_tile_ctx {
   fd_keyguard_client_t  keyguard_client[1];
   ulong                 gossip_vote_txn_sz;
   uchar                 gossip_vote_txn [ FD_TXN_MTU ];
+  fd_txncache_t * status_cache;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -215,6 +217,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX, FD_VOTER_MAX  ) );
   l = FD_LAYOUT_APPEND( l, fd_tower_align(), fd_tower_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(), fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT) );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -567,6 +570,7 @@ after_frag( void *             _ctx,
       fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
       fork->slot_ctx.slot_bank.slot      = ctx->curr_slot;
 
+      fork->slot_ctx.status_cache        = ctx->status_cache;
       fd_funk_txn_xid_t xid;
 
       fd_memcpy(xid.uc, ctx->blockhash.uc, sizeof(fd_funk_txn_xid_t));
@@ -1061,6 +1065,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX, FD_VOTER_MAX ) );
   void * tower_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
   void * bank_hash_cmp_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
+  void * status_cache_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(), fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT) );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem != ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {
@@ -1266,6 +1271,9 @@ unprivileged_init( fd_topo_t *      topo,
   //   FD_LOG_ERR( ( "replay tile %lu has no busy flag", tile->kind_id ) );
 
   ctx->poh_init_done = 0U;
+
+  /* Set up status cache. */
+  ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT ) );
 
   /**********************************************************************/
   /* links                                                              */

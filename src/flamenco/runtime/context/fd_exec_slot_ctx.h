@@ -10,6 +10,7 @@
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../sysvar/fd_sysvar_cache_old.h"
 #include "../../types/fd_types.h"
+#include "../../../disco/bank/fd_txncache.h"
 
 struct fd_account_compute_elem {
   fd_pubkey_t key;
@@ -72,6 +73,8 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 
   fd_sysvar_cache_t *      sysvar_cache;
   fd_account_compute_elem_t * account_compute_table;
+
+  fd_txncache_t * status_cache;
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))
