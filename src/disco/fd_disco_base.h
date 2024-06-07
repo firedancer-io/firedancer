@@ -16,9 +16,14 @@
 #define POH_PKT_TYPE_MICROBLOCK    (0UL)
 #define POH_PKT_TYPE_BECAME_LEADER (1UL)
 #define POH_PKT_TYPE_DONE_PACKING  (2UL)
+#define POH_PKT_REACHED_LEADER     (3UL)
 
-#define REPLAY_FLAG_FINALIZE_BLOCK      (0x01UL)
+#define REPLAY_FLAG_FINISHED_BLOCK      (0x01UL)
 #define REPLAY_FLAG_PACKED_MICROBLOCK   (0x02UL)
+#define REPLAY_FLAG_MICROBLOCK          (0x04UL)
+#define REPLAY_FLAG_CATCHING_UP         (0x08UL)
+#define REPLAY_FLAG_INIT                (0x10UL)
+
 
 /* FD_NET_MTU is the max full packet size, with ethernet, IP, and UDP
    headers that can go in or out of the net tile.  2048 is the maximum

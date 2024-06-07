@@ -9,7 +9,9 @@
 struct fd_fork {
   ulong              slot;     /* head of the fork, frontier key */
   ulong              next;     /* reserved for use by fd_pool and fd_map_chain */
-  fd_block_t *       head;     /* the block representing the head of the fork */
+
+  int                executing; /* is the block currently executing */
+  fd_block_t *       head;      /* the block representing the head of the fork */
   fd_exec_slot_ctx_t slot_ctx; /* the bank representing the head of the fork */
 };
 typedef struct fd_fork fd_fork_t;

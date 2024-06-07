@@ -646,6 +646,7 @@ fd_replay_prepare_ctx( fd_replay_t * replay,
 
     fork       = fd_fork_pool_ele_acquire( replay->forks->pool );
     fork->slot = parent_slot;
+    fork->executing = 0;
 
     /* Format and join the slot_ctx */
 
