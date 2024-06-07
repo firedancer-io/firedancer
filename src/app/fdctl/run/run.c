@@ -391,7 +391,7 @@ run_firedancer( config_t * const config,
   fd_topo_print_log( 0, &config->topo );
 
   if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fd_log_private_logfile_fd()!=1 && close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int pipefd;
   pid_namespace = clone_firedancer( config, parent_pipefd, &pipefd );
@@ -412,7 +412,7 @@ run_firedancer( config_t * const config,
   ulong allow_fds_cnt = 0;
   allow_fds[ allow_fds_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 ) )
-    allow_fds[ allow_fds_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+    allow_fds[ allow_fds_cnt++ ] = fd_log_private_logfile_fd(); /* logfile, or maybe stdout */
   allow_fds[ allow_fds_cnt++ ] = pipefd; /* read end of main pipe */
   if( FD_UNLIKELY( parent_pipefd!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = parent_pipefd; /* write end of parent pipe */
