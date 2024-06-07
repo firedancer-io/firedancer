@@ -10,7 +10,11 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
                                                   ulong acct_metas_len,
                                                   fd_pubkey_t const * signers,
                                                   ulong signers_cnt ) {
-  fd_instr_info_t instr_info[1];
+  fd_instr_info_t * instr_info = fd_executor_acquire_instr_info_elem( ctx->txn_ctx );
+  if ( FD_UNLIKELY( instr_info == NULL ) ) {
+    return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
+  }
+
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
 

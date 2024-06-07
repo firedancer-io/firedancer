@@ -1602,10 +1602,14 @@ fd_vm_syscall_cpi_c(
 
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
-  fd_instr_info_t cpi_instr;
+  fd_instr_info_t * cpi_instr = fd_executor_acquire_instr_info_elem( ctx->instr_ctx->txn_ctx );
+  if ( FD_UNLIKELY( cpi_instr == NULL ) ) {
+    FD_LOG_WARNING(( "failed to acquire cpi_instr" ));
+    return FD_VM_SYSCALL_ERR_INSTR_ERR;
+  }
 
-  fd_vm_syscall_cpi_c_instruction_to_instr( ctx, instruction, accounts, signers, signers_seeds_cnt, data, &cpi_instr );
-  err = fd_vm_prepare_instruction(ctx->instr_ctx->instr, &cpi_instr, ctx->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
+  fd_vm_syscall_cpi_c_instruction_to_instr( ctx, instruction, accounts, signers, signers_seeds_cnt, data, cpi_instr );
+  err = fd_vm_prepare_instruction(ctx->instr_ctx->instr, cpi_instr, ctx->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
   if( err != 0 ) {
     FD_LOG_WARNING(("vm preparation failed"));
     return err;
@@ -1635,7 +1639,7 @@ fd_vm_syscall_cpi_c(
   }
 
   ctx->instr_ctx->txn_ctx->compute_meter = ctx->compute_meter;
-  err_exec = fd_execute_instr( ctx->instr_ctx->txn_ctx, &cpi_instr );
+  err_exec = fd_execute_instr( ctx->instr_ctx->txn_ctx, cpi_instr );
   ulong instr_exec_res = (ulong)err_exec;
   // uchar * sig = (uchar *)ctx->instr_ctx->txn_ctx->_txn_raw->raw + ctx->instr_ctx->txn_ctx->txn_descriptor->signature_off;
   // FD_LOG_WARNING(( "CPI CUs CONSUMED: %lu %lu %lu %64J", ctx->compute_meter, ctx->instr_ctx->txn_ctx->compute_meter, ctx->compute_meter - ctx->instr_ctx->txn_ctx->compute_meter, sig));
@@ -1772,10 +1776,14 @@ fd_vm_syscall_cpi_rust(
 
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
-  fd_instr_info_t cpi_instr;
+  fd_instr_info_t * cpi_instr = fd_executor_acquire_instr_info_elem( ctx->instr_ctx->txn_ctx );
+  if ( FD_UNLIKELY( cpi_instr == NULL ) ) {
+    FD_LOG_WARNING(( "failed to acquire cpi_instr" ));
+    return FD_VM_SYSCALL_ERR_INSTR_ERR;
+  }
 
-  fd_vm_syscall_cpi_rust_instruction_to_instr( ctx, instruction, accounts, signers, signers_seeds_cnt, data, &cpi_instr );
-  err = fd_vm_prepare_instruction(ctx->instr_ctx->instr, &cpi_instr, ctx->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
+  fd_vm_syscall_cpi_rust_instruction_to_instr( ctx, instruction, accounts, signers, signers_seeds_cnt, data, cpi_instr );
+  err = fd_vm_prepare_instruction(ctx->instr_ctx->instr, cpi_instr, ctx->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
   if( err != 0 ) {
     FD_LOG_WARNING(("vm prepare failed"));
     return err;
@@ -1805,7 +1813,7 @@ fd_vm_syscall_cpi_rust(
   }
   
   ctx->instr_ctx->txn_ctx->compute_meter = ctx->compute_meter;
-  err_exec = fd_execute_instr( ctx->instr_ctx->txn_ctx, &cpi_instr );
+  err_exec = fd_execute_instr( ctx->instr_ctx->txn_ctx, cpi_instr );
   ulong instr_exec_res = (ulong)err_exec;
   #ifdef VLOG
   uchar * sig = (uchar *)ctx->instr_ctx->txn_ctx->_txn_raw->raw + ctx->instr_ctx->txn_ctx->txn_descriptor->signature_off;
