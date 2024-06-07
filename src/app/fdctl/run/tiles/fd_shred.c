@@ -1,4 +1,4 @@
-#include "tiles.h"
+#include "../../../../disco/tiles.h"
 
 #include "generated/shred_seccomp.h"
 #include "../../../../disco/shred/fd_shredder.h"

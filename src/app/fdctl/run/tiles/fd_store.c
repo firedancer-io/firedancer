@@ -1,4 +1,4 @@
-#include "tiles.h"
+#include "../../../../disco/tiles.h"
 
 typedef struct {
   fd_wksp_t * mem;

@@ -1,9 +1,10 @@
-#include "tiles.h"
+#include "../../../../disco/tiles.h"
 
 #include "generated/metric_seccomp.h"
 
 #include "../../../../ballet/http/picohttpparser.h"
 
+#include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>

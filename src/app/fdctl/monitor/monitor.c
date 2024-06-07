@@ -3,7 +3,7 @@
 #include "generated/monitor_seccomp.h"
 #include "helper.h"
 #include "../run/run.h"
-#include "../run/tiles/tiles.h"
+#include "../../../disco/tiles.h"
 #include "../../../disco/fd_disco.h"
 
 #include <stdio.h>

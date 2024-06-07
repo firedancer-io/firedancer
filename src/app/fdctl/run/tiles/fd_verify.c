@@ -1,4 +1,4 @@
-#include "tiles.h"
+#include "../../../../disco/tiles.h"
 #include "fd_verify.h"
 
 #include "generated/verify_seccomp.h"

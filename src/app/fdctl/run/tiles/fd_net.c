@@ -1,4 +1,4 @@
-#include "tiles.h"
+#include "../../../../disco/tiles.h"
 
 #include <sys/socket.h> /* MSG_DONTWAIT needed before importing the net seccomp filter */
 #include "generated/net_seccomp.h"
