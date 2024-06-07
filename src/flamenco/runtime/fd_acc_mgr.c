@@ -140,7 +140,9 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
-  FD_TEST(FD_BORROWED_ACCOUNT_MAGIC == account->magic);
+  if( FD_BORROWED_ACCOUNT_MAGIC != account->magic ) {
+    FD_LOG_ERR(( "bad magic for borrowed account - acc: %32J, expected: %016lx, got: %016lx", pubkey->uc, FD_BORROWED_ACCOUNT_MAGIC, account->magic ));
+  }
 
   fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
 
