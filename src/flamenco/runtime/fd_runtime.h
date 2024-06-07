@@ -117,7 +117,6 @@ struct fd_runtime_args {
   ulong        dump_insn_start_slot;
   char const * dump_insn_sig_filter;
   char const * dump_insn_output_dir;
-  char const * rocksdb_dir;
   int          on_demand_block_ingest;
   ulong        on_demand_block_history;
   int          copy_txn_status;
