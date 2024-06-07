@@ -205,6 +205,37 @@ sol_compat_cmp_binary_strict( void const * effects,
 }
 
 int
+sol_compat_cmp_success_fail_only( void const * _effects,
+                                  void const * _expected ) {
+  fd_exec_test_instr_effects_t * effects  = (fd_exec_test_instr_effects_t *)_effects;
+  fd_exec_test_instr_effects_t * expected = (fd_exec_test_instr_effects_t *)_expected;
+
+  if( effects==NULL ) {
+    FD_LOG_WARNING(( "No output effects" ));
+    return 0;
+  }
+
+  if( effects->custom_err || expected->custom_err ) {
+    FD_LOG_WARNING(( "Unexpected custom error" ));
+    return 0;
+  }
+
+  int res = effects->result;
+  int exp = expected->result;
+
+  if( res==exp ) {
+    return 1;
+  }
+
+  if( res>0 && exp>0 ) {
+    FD_LOG_INFO(( "Accepted: res=%d exp=%d", res, exp ));
+    return 1;
+  }
+
+  return 0;
+}
+
+int
 sol_compat_instr_fixture( fd_exec_instr_test_runner_t * runner,
                           uchar const *                 in,
                           ulong                         in_sz ) {
@@ -222,6 +253,30 @@ sol_compat_instr_fixture( fd_exec_instr_test_runner_t * runner,
 
   // Compare effects
   int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_instr_effects_t_msg );
+
+  // Cleanup
+  pb_release( &fd_exec_test_instr_fixture_t_msg, fixture );
+  return ok;
+}
+
+int
+sol_compat_precompile_fixture( fd_exec_instr_test_runner_t * runner,
+                               uchar const *                 in,
+                               ulong                         in_sz ) {
+  // Decode fixture
+  fd_exec_test_instr_fixture_t fixture[1] = {0};
+  void * res = sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_instr_fixture_t_msg );
+  if ( res==NULL ) {
+    FD_LOG_WARNING(( "Invalid instr fixture." ));
+    return 0;
+  }
+
+  // Execute
+  void * output = NULL;
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, (exec_test_run_fn_t *)fd_exec_instr_test_run );
+
+  // Compare effects
+  int ok = sol_compat_cmp_success_fail_only( output, &fixture->output );
 
   // Cleanup
   pb_release( &fd_exec_test_instr_fixture_t_msg, fixture );
