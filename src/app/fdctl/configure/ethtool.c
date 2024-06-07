@@ -80,9 +80,18 @@ init_device( const char * device,
   channels.combined_count = combined_channel_count;
   channels.cmd = ETHTOOL_SCHANNELS;
 
-  if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) )
-    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SCHANNELS) failed (%i-%s)",
-                 errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) ) {
+    if( FD_LIKELY( errno == EBUSY ) )
+      FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SCHANNELS) failed (%i-%s). "
+                   "This is most commonly caused by an issue with the Intel ice driver on certain versions "
+                   "of Ubuntu.  If you are using the ice driver, `sudo dmesg | grep %s` contains "
+                   "messages about RDMA, and you do not need RDMA, try running `rmmod irdma` and/or "
+                   "blacklisting the irdma kernel module.",
+                   errno, fd_io_strerror( errno ), device ));
+    else
+      FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SCHANNELS) failed (%i-%s)",
+                   errno, fd_io_strerror( errno ) ));
+  }
 
   if( FD_UNLIKELY( close( sock ) ) )
     FD_LOG_ERR(( "error configuring network device, close() socket failed (%i-%s)", errno, fd_io_strerror( errno ) ));
