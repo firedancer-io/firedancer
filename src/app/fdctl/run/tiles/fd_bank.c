@@ -1,4 +1,4 @@
-#include "tiles.h"
+#include "../../../../disco/tiles.h"
 
 #include "../../../../ballet/pack/fd_pack.h"
 #include "../../../../ballet/blake3/fd_blake3.h"

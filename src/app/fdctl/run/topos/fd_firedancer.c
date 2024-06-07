@@ -1,7 +1,8 @@
 /* Firedancer topology used for testing the full validator.
    Associated test script: test_firedancer.sh */
 #include "topos.h"
-#include "../tiles/tiles.h"
+#include "../../../../disco/tiles.h"
+#include "../../fdctl.h"
 #include "../../config.h"
 #include "../../../../ballet/shred/fd_shred.h"
 #include "../../../../disco/topo/fd_topob.h"

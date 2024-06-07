@@ -1,4 +1,4 @@
-#include "tiles.h"
+#include "../../../../disco/tiles.h"
 
 #include "generated/netmux_seccomp.h"
 #include <linux/unistd.h>

@@ -4,7 +4,7 @@
 #include "../../../ballet/shred/fd_shred.h"
 #include "../../../disco/shred/fd_shredder.h"
 #include "../../../ballet/poh/fd_poh.h"
-#include "../../fdctl/run/tiles/tiles.h"
+#include "../../../disco/tiles.h"
 #include "../genesis_hash.h"
 
 #include <sys/stat.h>

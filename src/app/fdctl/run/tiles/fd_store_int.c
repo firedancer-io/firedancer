@@ -2,7 +2,7 @@
 
 #define _GNU_SOURCE
 
-#include "tiles.h"
+#include "../../../../disco/tiles.h"
 
 #include "generated/store_int_seccomp.h"
 #include "../../../../flamenco/repair/fd_repair.h"

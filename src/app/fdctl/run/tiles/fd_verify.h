@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_app_fdctl_run_tiles_verify_h
 #define HEADER_fd_src_app_fdctl_run_tiles_verify_h
 
-#include "tiles.h"
+#include "../../../../disco/tiles.h"
 
 #define VERIFY_TCACHE_DEPTH   16UL
 #define VERIFY_TCACHE_MAP_CNT 64UL

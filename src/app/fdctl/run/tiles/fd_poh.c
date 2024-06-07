@@ -1,4 +1,4 @@
-#include "tiles.h"
+#include "../../../../disco/tiles.h"
 
 /* Let's say there was a computer, the "leader" computer, that acted as
    a bank.  Users could send it messages saying they wanted to deposit

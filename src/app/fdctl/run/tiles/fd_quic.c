@@ -1,4 +1,4 @@
-#include "tiles.h"
+#include "../../../../disco/tiles.h"
 
 #include "generated/quic_seccomp.h"
 #include "../../../../disco/metrics/generated/fd_metrics_quic.h"

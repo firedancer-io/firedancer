@@ -5,7 +5,7 @@
 #include "generated/main_seccomp.h"
 #include "generated/pidns_seccomp.h"
 
-#include "tiles/tiles.h"
+#include "../../../disco/tiles.h"
 #include "../configure/configure.h"
 
 #include <sched.h>

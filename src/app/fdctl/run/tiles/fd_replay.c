@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
 
-#include "tiles.h"
+#include "../../../../disco/tiles.h"
 
 #include "generated/replay_seccomp.h"
 #include "../../../../util/fd_util.h"
@@ -22,6 +22,7 @@
 #include "../../../../flamenco/fd_flamenco.h"
 #include "fd_replay_notif.h"
 
+#include <errno.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <linux/unistd.h>
