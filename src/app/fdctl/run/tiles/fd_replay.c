@@ -2,37 +2,37 @@
 
 #include "../../../../disco/tiles.h"
 
-#include "generated/replay_seccomp.h"
-#include "../../../../util/fd_util.h"
-#include "../../../../util/tile/fd_tile_private.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/tvu/fd_replay.h"
 #include "../../../../disco/tvu/fd_tvu.h"
+#include "../../../../flamenco/fd_flamenco.h"
 #include "../../../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
 #include "../../../../flamenco/runtime/context/fd_exec_slot_ctx.h"
-#include "../../../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../../../flamenco/runtime/fd_borrowed_account.h"
 #include "../../../../flamenco/runtime/fd_executor.h"
 #include "../../../../flamenco/runtime/fd_hashes.h"
 #include "../../../../flamenco/runtime/fd_snapshot_loader.h"
+#include "../../../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../../../flamenco/runtime/program/fd_builtin_programs.h"
 #include "../../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../../../flamenco/stakes/fd_stakes.h"
-#include "../../../../flamenco/fd_flamenco.h"
+#include "../../../../util/fd_util.h"
+#include "../../../../util/tile/fd_tile_private.h"
 #include "fd_replay_notif.h"
+#include "generated/replay_seccomp.h"
 
-#include <errno.h>
-#include <unistd.h>
 #include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <linux/unistd.h>
-#include <sys/random.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <sys/random.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 /* An estimate of the max number of transactions in a block.  If there are more
    transactions, they must be split into multiple sets. */
@@ -50,6 +50,8 @@
 
 #define VOTE_ACC_MAX   (2000000UL)
 #define FORKS_MAX      (fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH ))
+
+#define BANK_HASH_CMP_LG_MAX 16
 
 struct fd_replay_tile_ctx {
   fd_wksp_t * wksp;
@@ -114,7 +116,14 @@ struct fd_replay_tile_ctx {
   ulong funk_seed;
   fd_latest_vote_t * latest_votes;
   fd_capture_ctx_t * capture_ctx;
-  FILE * capture_file;
+  FILE *             capture_file;
+
+  fd_bft_t *        bft;
+  fd_ghost_t *      ghost;
+  fd_root_stake_t * root_stakes;
+  fd_root_vote_t *  root_votes;
+
+  ulong * first_turbine;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -125,7 +134,7 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return 16UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
+  return 22UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
 }
 
 FD_FN_PURE static inline ulong
@@ -140,6 +149,17 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FORKS_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint() );
   l = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
+
+  l = FD_LAYOUT_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( BANK_HASH_CMP_LG_MAX ) );
+
+  l = FD_LAYOUT_APPEND( l, fd_bft_align(), fd_bft_footprint() );
+  l = FD_LAYOUT_APPEND(
+      l,
+      fd_ghost_align(),
+      fd_ghost_footprint( 1 << FD_BFT_LG_SLOT_MAX, 1 << FD_BFT_LG_NODE_PUBKEY_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_root_stake_map_align(), fd_root_stake_map_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_root_vote_map_align(), fd_root_vote_map_footprint() );
+
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -227,7 +247,10 @@ after_frag( void *             _ctx,
 
       fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
       fork->slot_ctx.slot_bank.slot      = ctx->curr_slot;
+
       fork->slot_ctx.latest_votes        = ctx->latest_votes;
+      fd_latest_vote_deque_remove_all( fork->slot_ctx.latest_votes );
+
       fd_funk_txn_xid_t xid;
 
       fd_memcpy(xid.uc, ctx->blockhash.uc, sizeof(fd_funk_txn_xid_t));
@@ -336,11 +359,40 @@ after_frag( void *             _ctx,
       }
       fd_fork_frontier_ele_insert( ctx->replay->forks->frontier, child, ctx->replay->forks->pool );
 
+      /* Consensus */
+
+      FD_PARAM_UNUSED long tic_ = fd_log_wallclock();
+      fd_bft_fork_update( ctx->bft, fork );
+      long        tic         = fd_log_wallclock();
+      fd_fork_t * fork_choice = fd_bft_fork_choice( ctx->replay->bft );
+      long        toc         = fd_log_wallclock();
+      ulong       vote_cnt    = fd_latest_vote_deque_cnt( ctx->latest_votes );
+      if( FD_UNLIKELY( fork_choice->slot < fork->slot - 32 ) ) {
+        FD_LOG_WARNING( ( "Fork choice slot is too far behind executed slot. Likely there is a "
+                          "bug in execution that is interfering with our ability to process recent votes." ) );
+
+        /* Don't try to proceed with fork choice and voting as our view of where the stake is probably wrong */
+
+      } else {
+
+        /* TODO add voting and select_vote_and_reset_bank logic here if we have a valid picked fork */
+
+        FD_LOG_NOTICE( ( "\n\n[Fork Selection]\n"
+                         "vote count:    %lu \n"
+                         "selected fork: %lu\n"
+                         "took:          %.2lf ms (%ld ns)\n",
+                         vote_cnt,
+                         fork_choice->slot,
+                         (double)( toc - tic ) / 1e6,
+                         toc - tic ) );
+      }
+
       /* Prepare bank for next execution. */
 
       child->slot_ctx.slot_bank.slot           = ctx->curr_slot;
       child->slot_ctx.slot_bank.collected_fees = 0;
       child->slot_ctx.slot_bank.collected_rent = 0;
+
 
       fd_hash_t const * bank_hash = &child->slot_ctx.slot_bank.banks_hash;
 
@@ -413,7 +465,9 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
     }
   }
 
+  fd_blockstore_start_write( ctx->slot_ctx->blockstore );
   fd_blockstore_snapshot_insert( ctx->slot_ctx->blockstore, &ctx->slot_ctx->slot_bank );
+  fd_blockstore_end_write( ctx->slot_ctx->blockstore );
 }
 
 static void
@@ -438,6 +492,25 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry( ctx->slot_ctx, ctx->slot_ctx->funk_txn );
   fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
+
+  ctx->bft->acc_mgr     = ctx->replay->acc_mgr;
+  ctx->bft->blockstore  = ctx->replay->blockstore;
+  ctx->bft->commitment  = NULL;
+  ctx->bft->forks       = ctx->replay->forks;
+  ctx->bft->funk        = ctx->replay->funk;
+  ctx->bft->ghost       = ctx->ghost;
+  ctx->bft->root_stakes = ctx->root_stakes;
+  ctx->bft->root_votes  = ctx->root_votes;
+  ctx->bft->valloc      = ctx->replay->valloc;
+
+  ctx->bft->snapshot_slot = snapshot_slot;
+  ctx->bft->smr           = snapshot_slot;
+  fd_bft_epoch_stake_update( ctx->bft, ctx->epoch_ctx );
+  // bank_hash_cmp->total_stake = ctx->bft->epoch_stake;
+  // FD_LOG_NOTICE( ( "total epoch stake: %lu", bank_hash_cmp->total_stake ) );
+
+  fd_slot_hash_t key = { .slot = snapshot_slot, .hash = ctx->slot_ctx->slot_bank.banks_hash };
+  fd_ghost_node_insert( ctx->ghost, &key, NULL );
 }
 
 static void
@@ -558,6 +631,12 @@ unprivileged_init( fd_topo_t *      topo,
   void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FORKS_MAX ) );
   void * latest_votes_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint() );
   void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
+
+  void * bft_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bft_align(), fd_bft_footprint() );
+  void * ghost_mem = FD_SCRATCH_ALLOC_APPEND(
+      l,
+      fd_ghost_align(),
+      fd_ghost_footprint( 1 << FD_BFT_LG_SLOT_MAX, 1 << FD_BFT_LG_NODE_PUBKEY_MAX ) );
 
   fd_scratch_attach( smem, fmem, SCRATCH_MAX, SCRATCH_DEPTH );
 
@@ -693,7 +772,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_fork_frontier_ele_insert( ctx->replay->forks->frontier, replay_slot, ctx->replay->forks->pool );
 
   ctx->latest_votes = fd_latest_vote_deque_join( fd_latest_vote_deque_new( latest_votes_mem ) );
-  ctx->slot_ctx->latest_votes = ctx->latest_votes;
 
   if( strlen(tile->replay.capture) > 0 ) {
     ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
@@ -705,6 +783,11 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->capture_ctx->capture_txns = 0;
     fd_solcap_writer_init( ctx->capture_ctx->capture, ctx->capture_file );
   }
+
+  ctx->bft   = fd_bft_join( fd_bft_new( bft_mem ) );
+  ctx->ghost = fd_ghost_join(
+      fd_ghost_new( ghost_mem, 1 << FD_BFT_LG_SLOT_MAX, 1 << FD_BFT_LG_NODE_PUBKEY_MAX, 42 ) );
+  ctx->replay->bft = ctx->bft;
 
   /* Set up store tile input */
   fd_topo_link_t * store_in_link = &topo->links[ tile->in_link_id[ STORE_IN_IDX ] ];
