@@ -33,6 +33,7 @@
 extern void fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx, uchar const pubkey[ static 32 ], char const * data, ulong sz );
 
 static void usage( char const * progname ) {
+  /* TODO: THIS IS OUT OF DATE AND MAY BE MISSING ARGS, REFER TO THE ARGUMENT PARSER */
   fprintf( stderr, "fd_ledger usage: %s\n", progname );
   fprintf( stderr, " --cmd ingest <ingest|prune|minify|replay>       \n" );
   fprintf( stderr, " --abort-on-mismatch <int>                  abort on mismatch\n" );
@@ -65,7 +66,7 @@ static void usage( char const * progname ) {
   fprintf( stderr, " --pruned-page-cnt <ulong>                  number of pages for pruned anon wksp\n" );
   fprintf( stderr, " --reset <int>                              reset workspace\n" );
   fprintf( stderr, " --restore <restore file>                   path to checkpoint to be restored\n" );
-  fprintf( stderr, " --rocksdb <rocksdb directory>              rocksdb directory\n" );
+  fprintf( stderr, " --rocksdb <rocksdb directory>              rocksdb directory, can pass in multiple via [rocksdb1,rocksdb2,...]\n" );
   fprintf( stderr, " --shred-cap <shredcap file>                path to shredcap file\n" );
   fprintf( stderr, " --shred-max <ulong>                        max shred\n" );
   fprintf( stderr, " --slot-history <ulong>                     number of slots to keep in blockstore\n" );
@@ -90,7 +91,6 @@ struct fd_ledger_args {
   ulong             start_slot;
   ulong             end_slot;
   uint              hashseed;
-  char const *      rocksdb_dir;
   char const *      checkpt;
   char const *      checkpt_funk;
   char const *      restore;
@@ -127,6 +127,8 @@ struct fd_ledger_args {
   char const *      verify_hash;
   ulong             trash_hash;
   ulong             vote_acct_max;
+  char const *      rocksdb_list[ 32UL ]; /* [ Max items ] */
+  ulong             rocksdb_list_cnt;
   #ifdef _ENABLE_LTHASH
   char const *      lthash;
   #endif
@@ -134,22 +136,23 @@ struct fd_ledger_args {
 };
 typedef struct fd_ledger_args fd_ledger_args_t;
 
+/***************************** Runtime Replay *********************************/
 int
-runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
-  args->tcnt = fd_tile_cnt();
+runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * runtime_args, fd_ledger_args_t * ledger_args ) {
+  runtime_args->tcnt = fd_tile_cnt();
   uchar * tpool_scr_mem = NULL;
   fd_tpool_t * tpool = NULL;
-  if( args->tcnt > 1 ) {
-    tpool = fd_tpool_init( state->tpool_mem, args->tcnt );
+  if( runtime_args->tcnt > 1 ) {
+    tpool = fd_tpool_init( state->tpool_mem, runtime_args->tcnt );
     if( tpool == NULL ) {
       FD_LOG_ERR(( "failed to create thread pool" ));
     }
     ulong scratch_sz = fd_scratch_smem_footprint( 256UL<<20UL );
-    tpool_scr_mem = fd_valloc_malloc( state->slot_ctx->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(args->tcnt - 1U) );
+    tpool_scr_mem = fd_valloc_malloc( state->slot_ctx->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(runtime_args->tcnt - 1U) );
     if( tpool_scr_mem == NULL ) {
       FD_LOG_ERR( ( "failed to allocate thread pool scratch space" ) );
     }
-    for( ulong i = 1; i < args->tcnt; ++i ) {
+    for( ulong i = 1; i < runtime_args->tcnt; ++i ) {
       if( fd_tpool_worker_push( tpool, i, tpool_scr_mem + scratch_sz*(i - 1U), scratch_sz ) == NULL ) {
         FD_LOG_ERR(( "failed to launch worker" ));
       }
@@ -159,7 +162,7 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
     }
   }
   state->tpool       = tpool;
-  state->max_workers = args->tcnt;
+  state->max_workers = runtime_args->tcnt;
 
   fd_funk_start_write( state->slot_ctx->acc_mgr->funk );
   ulong r = fd_funk_txn_cancel_all( state->slot_ctx->acc_mgr->funk, 1 );
@@ -168,8 +171,8 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
 
   fd_features_restore( state->slot_ctx );
 
-  if( state->slot_ctx->blockstore->max < args->end_slot && !args->on_demand_block_ingest ) {
-    args->end_slot = state->slot_ctx->blockstore->max;
+  if( state->slot_ctx->blockstore->max < runtime_args->end_slot && !runtime_args->on_demand_block_ingest ) {
+    runtime_args->end_slot = state->slot_ctx->blockstore->max;
   }
 
   fd_runtime_update_leaders( state->slot_ctx, state->slot_ctx->slot_bank.slot );
@@ -186,11 +189,12 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
   ulong start_slot = state->slot_ctx->slot_bank.slot + 1;
 
   /* On demand rocksdb ingest */
-  fd_rocksdb_t rocks_db = {0};
+  fd_rocksdb_t rocks_db       = {0};
   fd_rocksdb_root_iter_t iter = {0};
-  fd_slot_meta_t slot_meta = {0};
-  if( args->on_demand_block_ingest ) {
-    fd_rocksdb_init( &rocks_db, args->rocksdb_dir );
+  fd_slot_meta_t slot_meta    = {0};
+  ulong curr_rocksdb_idx      = 0UL;
+  if( runtime_args->on_demand_block_ingest ) {
+    fd_rocksdb_init( &rocks_db, ledger_args->rocksdb_list[ 0UL ] );
     fd_rocksdb_root_iter_new( &iter );
     if( fd_rocksdb_root_iter_seek( &iter, &rocks_db, start_slot, &slot_meta, state->slot_ctx->valloc ) ) {
       FD_LOG_ERR(( "unable to seek to first slot" ));
@@ -212,7 +216,7 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
   uchar trash_hash_buf[32];
   memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
 
-  for( ulong slot = start_slot; slot <= args->end_slot; ++slot ) {
+  for( ulong slot = start_slot; slot <= runtime_args->end_slot; ++slot ) {
     state->slot_ctx->slot_bank.prev_slot = prev_slot;
     state->slot_ctx->slot_bank.slot      = slot;
 
@@ -224,15 +228,15 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
       fd_funk_end_write( state->capture_ctx->pruned_funk );
     }
 
-    if( args->on_demand_block_ingest ) {
+    if( runtime_args->on_demand_block_ingest ) {
       if( fd_blockstore_block_query( blockstore, slot ) == NULL && slot_meta.slot == slot ) {
         int err = fd_rocksdb_import_block_blockstore( &rocks_db, &slot_meta, blockstore,
-                                                      args->copy_txn_status, slot == (args->trash_hash) ? trash_hash_buf : NULL );
+                                                      runtime_args->copy_txn_status, slot == (runtime_args->trash_hash) ? trash_hash_buf : NULL );
         if( FD_UNLIKELY( err ) ) {
           FD_LOG_ERR(( "Failed to import block %lu", start_slot ));
         }
       }
-      fd_blockstore_slot_remove( blockstore, slot - args->on_demand_block_history );
+      fd_blockstore_slot_remove( blockstore, slot - runtime_args->on_demand_block_history );
     }
 
     fd_blockstore_start_read( blockstore );
@@ -268,7 +272,7 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
                         expected->hash,
                         state->slot_ctx->slot_bank.poh.hash ));
 
-      if( args->checkpt_mismatch ) {
+      if( runtime_args->checkpt_mismatch ) {
         fd_runtime_checkpt( state->capture_ctx, state->slot_ctx, ULONG_MAX );
       }
       if( state->abort_on_mismatch ) {
@@ -288,7 +292,7 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
                         expected->hash,
                         state->slot_ctx->slot_bank.banks_hash.hash ));
 
-      if( args->checkpt_mismatch ) {
+      if( runtime_args->checkpt_mismatch ) {
         fd_runtime_checkpt( state->capture_ctx, state->slot_ctx, ULONG_MAX );
       }
       if( state->abort_on_mismatch ) {
@@ -300,12 +304,28 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
 
     prev_slot = slot;
 
-    if( args->on_demand_block_ingest && slot < args->end_slot ) {
+    if( runtime_args->on_demand_block_ingest && slot < runtime_args->end_slot ) {
       int ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, state->slot_ctx->valloc );
-      if( ret < 0 ) {
-        ret = fd_rocksdb_get_meta( &rocks_db, slot + 1, &slot_meta, state->slot_ctx->valloc );
-        if( ret < 0 ) {
-          FD_LOG_ERR(( "Failed to get meta for slot %lu", slot + 1 ));
+      if( ret<0 ) {
+        ret = fd_rocksdb_get_meta( &rocks_db, slot+1UL, &slot_meta, state->slot_ctx->valloc );
+        if( ret<0 ) {
+          /* If slot doesn't exist try to look in the next indexed rocksdb */
+          if( ++curr_rocksdb_idx>=ledger_args->rocksdb_list_cnt ) {
+            FD_LOG_ERR(( "Failed to get meta for slot %lu", slot+1UL ));
+          }
+          fd_rocksdb_root_iter_destroy( &iter );
+          fd_rocksdb_destroy( &rocks_db );
+
+          fd_memset( &rocks_db,  0, sizeof(fd_rocksdb_t)           );
+          fd_memset( &iter,      0, sizeof(fd_rocksdb_root_iter_t) );
+          fd_memset( &slot_meta, 0, sizeof(fd_slot_meta_t)         );
+
+          fd_rocksdb_init( &rocks_db, ledger_args->rocksdb_list[ curr_rocksdb_idx ] );
+          fd_rocksdb_root_iter_new( &iter );
+          ret = fd_rocksdb_root_iter_seek( &iter, &rocks_db, slot+1UL, &slot_meta, state->slot_ctx->valloc );
+          if( ret<0 ) {
+            FD_LOG_ERR(( "Failed to seek to slot %lu", slot+1UL ));
+          }
         }
       }
     }
@@ -319,7 +339,7 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
     fd_valloc_free( state->slot_ctx->valloc, tpool_scr_mem );
   }
 
-  if( args->on_demand_block_ingest ) {
+  if( runtime_args->on_demand_block_ingest ) {
     fd_rocksdb_root_iter_destroy( &iter );
     fd_rocksdb_destroy( &rocks_db );
   }
@@ -339,6 +359,7 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
   return 0;
 }
 
+/***************************** Helpers ****************************************/
 void
 ingest_rocksdb( fd_alloc_t *      alloc,
                 char const *      file,
@@ -420,6 +441,35 @@ ingest_rocksdb( fd_alloc_t *      alloc,
 
   FD_LOG_NOTICE(( "ingested %lu blocks", blk_cnt ));
 }
+
+void
+parse_rocksdb_list(  fd_ledger_args_t * FD_FN_UNUSED args, char const * rocksdb_list ) {
+  if( FD_UNLIKELY( !rocksdb_list ) ) {
+    FD_LOG_NOTICE(( "No rocksdb list passed in" ));
+    return;
+  }
+
+  ulong str_len = strlen( rocksdb_list );
+  if ( FD_UNLIKELY( str_len<3UL ) ) {
+    FD_LOG_WARNING(( "Invalid rocksdb list" ));
+    return;
+  }
+  if( FD_UNLIKELY( rocksdb_list[ 0UL ] != '[' || rocksdb_list[ str_len-2UL ] != ']' ) ) {
+    FD_LOG_WARNING(( "Badly formatted rocksdb list. Missing opening or closing bracket" ));
+  }
+
+  /* String is now just the comma seperated paths */
+  char * rocksdb_str = strdup( rocksdb_list );
+  char * token       = NULL;
+  token = strtok( rocksdb_str, ",[]" );
+  while( token ) {
+    args->rocksdb_list[ args->rocksdb_list_cnt++ ] = token;
+    token = strtok( NULL, ",[]" );
+  }
+
+  /* TODO: There is technically a leak here since we don't free the duplicated
+     string but it's not a big deal. */
+} 
 
 void
 init_scratch( fd_wksp_t * wksp ) {
@@ -547,13 +597,14 @@ restore( fd_ledger_args_t * args ) {
   }
 }
 
+/********************* Main Command Functions and Setup ***********************/
 void
 minify( fd_ledger_args_t * args ) {
     /* Example commmand:
     fd_ledger --cmd minify --rocksdb <LARGE_ROCKSDB> --minified-rocksdb <MINI_ROCKSDB>
               --start-slot <START_SLOT> --end-slot <END_SLOT> --copy-txn-status 1
   */
-  if( args->rocksdb_dir == NULL ) {
+  if( args->rocksdb_list[ 0UL ] == NULL ) {
     FD_LOG_ERR(( "rocksdb path is NULL" ));
   }
   if( args->mini_db_dir == NULL ) {
@@ -562,9 +613,9 @@ minify( fd_ledger_args_t * args ) {
 
 
   fd_rocksdb_t big_rocksdb;
-  char *err = fd_rocksdb_init( &big_rocksdb, args->rocksdb_dir );
+  char *err = fd_rocksdb_init( &big_rocksdb, args->rocksdb_list[ 0UL ] );
   if( err != NULL ) {
-    FD_LOG_ERR(( "fd_rocksdb_init at path=%s returned error=%s", args->rocksdb_dir, err ));
+    FD_LOG_ERR(( "fd_rocksdb_init at path=%s returned error=%s", args->rocksdb_list[ 0UL ], err ));
   }
 
   /* If the directory for the minified rocksdb already exists, error out */
@@ -598,7 +649,7 @@ minify( fd_ledger_args_t * args ) {
   if( args->copy_txn_status ) {
     init_blockstore( args );
     /* Ingest block range into blockstore */
-    ingest_rocksdb( args->alloc, args->rocksdb_dir, args->start_slot,
+    ingest_rocksdb( args->alloc, args->rocksdb_list[ 0UL ], args->start_slot,
                     args->end_slot, args->blockstore, 0, ULONG_MAX );
 
     fd_rocksdb_copy_over_txn_status_range( &big_rocksdb, &mini_rocksdb, args->blockstore,
@@ -664,11 +715,11 @@ ingest( fd_ledger_args_t * args ) {
   } else if( args->shredcap ) {
     FD_LOG_NOTICE(( "using shredcap" ));
     fd_shredcap_populate_blockstore( args->shredcap, blockstore, args->start_slot, args->end_slot );
-  } else if( args->rocksdb_dir ) {
+  } else if( args->rocksdb_list[ 0UL ] ) {
     if( args->end_slot >= slot_ctx->slot_bank.slot + args->slot_history_max ) {
       args->end_slot = slot_ctx->slot_bank.slot + args->slot_history_max - 1;
     }
-    ingest_rocksdb( args->alloc, args->rocksdb_dir, args->start_slot, args->end_slot,
+    ingest_rocksdb( args->alloc, args->rocksdb_list[ 0UL ], args->start_slot, args->end_slot,
                     blockstore, args->copy_txn_status, args->trash_hash );
   }
 
@@ -809,7 +860,6 @@ replay( fd_ledger_args_t * args ) {
   runtime_args.cmd                     = args->cmd;
   runtime_args.end_slot                = args->end_slot;
   runtime_args.allocator               = args->allocator;
-  runtime_args.rocksdb_dir             = args->rocksdb_dir;
   runtime_args.capture_fpath           = args->capture_fpath;
   runtime_args.capture_txns            = args->capture_txns;
   runtime_args.checkpt_path            = args->checkpt_path;
@@ -866,12 +916,12 @@ replay( fd_ledger_args_t * args ) {
   fd_tvu_main_setup( &state, &replay, NULL, NULL, 0, wksp, &runtime_args, NULL, capture_ctx, capture_file );
 
   if( !args->on_demand_block_ingest ) {
-    ingest_rocksdb( args->alloc, args->rocksdb_dir, args->start_slot, args->end_slot, args->blockstore, 0, args->trash_hash );
+    ingest_rocksdb( args->alloc, args->rocksdb_list[ 0UL ], args->start_slot, args->end_slot, args->blockstore, 0, args->trash_hash );
   }
 
   FD_LOG_WARNING(( "tvu main setup done" ));
 
-  int ret = runtime_replay( &state, &runtime_args );
+  int ret = runtime_replay( &state, &runtime_args, args );
   fd_tvu_main_teardown( &state, NULL );
   return ret;
 }
@@ -1011,7 +1061,6 @@ prune( fd_ledger_args_t * args ) {
   runtime_args.cmd = "replay";
   runtime_args.allocator = "wksp";
   runtime_args.on_demand_block_ingest = args->on_demand_block_ingest;
-  runtime_args.rocksdb_dir = args->rocksdb_dir;
   runtime_args.on_demand_block_history = args->on_demand_block_history;
   runtime_args.funk_wksp = unpruned_wksp;
 
@@ -1029,7 +1078,7 @@ prune( fd_ledger_args_t * args ) {
       args->end_slot = slot_ctx->slot_bank.slot + args->slot_history_max - 1;
     }
 
-    ingest_rocksdb( args->alloc, args->rocksdb_dir, args->start_slot, args->end_slot, unpruned_blockstore, 0, args->trash_hash );
+    ingest_rocksdb( args->alloc, args->rocksdb_list[ 0UL ], args->start_slot, args->end_slot, unpruned_blockstore, 0, args->trash_hash );
     FD_LOG_NOTICE(( "imported unpruned rocksdb" ));
   }
 
@@ -1043,7 +1092,7 @@ prune( fd_ledger_args_t * args ) {
   fd_funk_end_write( pruned_funk );
   FD_TEST(( !!prune_txn ));
 
-  int err = runtime_replay( &state, &runtime_args );
+  int err = runtime_replay( &state, &runtime_args, args );
   if( err != 0 ) {
     fd_tvu_main_teardown( &state, NULL );
     FD_LOG_ERR(("error in runtime replay"));
@@ -1225,7 +1274,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   char const * snapshot                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--snapshot",                NULL, NULL      );
   char const * incremental             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--incremental",             NULL, NULL      );
   char const * genesis                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--genesis",                 NULL, NULL      );
-  char const * rocksdb_dir             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",                 NULL, NULL      );
   int          copy_txn_status         = fd_env_strip_cmdline_int  ( &argc, &argv, "--copy-txn-status",         NULL, 0         );
   ulong        slot_history_max        = fd_env_strip_cmdline_ulong( &argc, &argv, "--slot-history",            NULL, FD_BLOCKSTORE_SLOT_HISTORY_MAX );
   ulong        shred_max               = fd_env_strip_cmdline_ulong( &argc, &argv, "--shred-max",               NULL, 1UL << 17 );
@@ -1259,6 +1307,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   char const * dump_insn_output_dir    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dump-insn-output-dir",    NULL, NULL      );
   ulong        vote_acct_max           = fd_env_strip_cmdline_ulong( &argc, &argv, "--vote_acct_max",           NULL, 2000000UL );
   int          use_funk_wksp           = fd_env_strip_cmdline_int  ( &argc, &argv, "--use-funk-wksp",           NULL, 1         );
+  char const * rocksdb_list            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",                 NULL, NULL      );
 
   #ifdef _ENABLE_LTHASH
   char const * lthash             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",           NULL, "false"   );
@@ -1325,7 +1374,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->cmd                     = cmd;
   args->start_slot              = start_slot;
   args->end_slot                = end_slot;
-  args->rocksdb_dir             = rocksdb_dir;
   args->checkpt                 = checkpt;
   args->checkpt_funk            = checkpt_funk;
   args->shred_max               = shred_max;
@@ -1362,6 +1410,12 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->dump_insn_sig_filter    = dump_insn_sig_filter;
   args->dump_insn_output_dir    = dump_insn_output_dir;
   args->vote_acct_max           = vote_acct_max;
+  args->rocksdb_list_cnt        = 0UL;
+  parse_rocksdb_list( args, rocksdb_list );
+
+  for( ulong i = 0; i < args->rocksdb_list_cnt; ++i ) {
+    FD_LOG_NOTICE(( "rocksdb_list[%lu] = %s", i, args->rocksdb_list[i] ));
+  }
 
   #ifdef _ENABLE_LTHASH
   args->lthash           = lthash;
