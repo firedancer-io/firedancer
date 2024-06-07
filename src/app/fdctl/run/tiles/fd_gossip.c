@@ -43,6 +43,8 @@
    TODO: update */
 #define SCRATCH_DEPTH (16UL)
 
+static volatile ulong * fd_shred_version;
+
 static int
 fd_pubkey_eq( fd_pubkey_t const * key1, fd_pubkey_t const * key2 ) {
   return memcmp( key1->key, key2->key, sizeof(fd_pubkey_t) ) == 0;
@@ -264,10 +266,13 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
     if( verify_vote_txn( gossip_vote ) != 0 ) {
       return;
     }
+
     uchar * vote_txn_msg = fd_chunk_to_laddr( ctx->pack_out_mem, ctx->pack_out_chunk );
     ulong vote_txn_sz    = gossip_vote->txn.raw_sz;
     memcpy( vote_txn_msg, gossip_vote->txn.raw, vote_txn_sz );
-    ulong sig = 1UL;
+    vote_txn_msg += vote_txn_sz;
+
+    ulong sig = 1UL; 
     fd_mcache_publish( ctx->pack_out_mcache, ctx->pack_out_depth, ctx->pack_out_seq, sig, ctx->pack_out_chunk,
       vote_txn_sz, 0UL, 0, 0 );
     ctx->pack_out_seq   = fd_seq_inc( ctx->pack_out_seq, 1UL );
@@ -445,7 +450,11 @@ after_credit( void * _ctx,
       ctx->repair_contact_out_chunk = fd_dcache_compact_next( ctx->repair_contact_out_chunk, repair_contact_sz, ctx->repair_contact_out_chunk0, ctx->repair_contact_out_wmark );
     }
   }
-
+  
+  ushort shred_version = fd_gossip_get_shred_version( ctx->gossip );
+  if( shred_version!=0U ) {
+    *fd_shred_version = shred_version;
+  }
   fd_gossip_settime( ctx->gossip, now );
   fd_gossip_continue( ctx->gossip );
 }
@@ -543,9 +552,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->gossip_config.my_addr       = ctx->gossip_my_addr;
   ctx->gossip_config.my_version = (fd_gossip_version_v2_t){
     .from = ctx->identity_public_key,
-    .major = 1337U,
-    .minor = 1337U,
-    .patch = 1337U,
+    .major = 42U,
+    .minor = 42U,
+    .patch = 42U,
     .commit = 0U,
     .has_commit = 0U,
     .feature_set = 0U,
@@ -628,6 +637,11 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top>( (ulong)scratch + scratch_footprint( tile ) ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
+  ulong poh_shred_obj_id = fd_pod_query_ulong( topo->props, "poh_shred", ULONG_MAX );
+  FD_TEST( poh_shred_obj_id!=ULONG_MAX );
+
+  fd_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, poh_shred_obj_id ) );
+  FD_TEST( fd_shred_version );
 }
 
 static ulong

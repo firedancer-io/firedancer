@@ -7,13 +7,15 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 FD_DIR="$SCRIPT_DIR/../.."
 
 # create temporary files in the user's home directory because it's likely to be on a large disk
-TMPDIR=$(mktemp --directory --tmpdir="$HOME" tmp-test-tvu-testnet.XXXXXX)
+# TMPDIR=$(mktemp --directory --tmpdir="$HOME" tmp-test-tvu-testnet.XXXXXX)
+TMPDIR=/home/lheeger/tmp-test-tvu-testnet
+mkdir -p $TMPDIR
 cd $TMPDIR
 
 cleanup() {
   sudo killall fddev || true
   fddev configure fini all >/dev/null 2>&1 || true
-  rm -rf "$TMPDIR"
+  # rm -rf "$TMPDIR"
 }
 
 download_snapshot() {
@@ -22,7 +24,7 @@ download_snapshot() {
   local s
   for _ in $(seq 1 $num_tries); do
     s=$(curl -s --max-redirs 0 $url)
-    if ! wget -q --trust-server-names $url; then
+    if ! wget -nc -q --trust-server-names $url; then
       sleep 1
     else
       echo "${s:1}"
@@ -66,6 +68,9 @@ if ! is_ip "$ENTRYPOINT"; then
 fi
 
 echo "
+[layout]
+    affinity = \"1-32\"
+    bank_tile_count = 1
 [gossip]
     port = 8720
 [tiles]

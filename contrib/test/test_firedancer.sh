@@ -31,7 +31,7 @@ fi
 
 # if fd_frank_ledger is not on path then use the one in the home directory
 if ! command -v fddev > /dev/null; then
-  PATH="$FD_DIR/build/native/gcc/bin":$PATH
+  PATH="$FD_DIR/build/native/$CC/bin":$PATH
 fi
 
 #fddev configure fini all >/dev/null 2>&1
@@ -94,6 +94,9 @@ done
 FULL_SNAPSHOT=$(wget -c -nc -S --trust-server-names http://$PRIMARY_IP:8899/snapshot.tar.bz2 |& grep 'location:' | cut -d/ -f2)
 
 echo "
+[layout]
+    affinity = \"1-32\"
+    bank_tile_count = 1
 [gossip]
     port = 8700
 [tiles]
@@ -106,13 +109,13 @@ echo "
         repair_serve_listen_port = 8702
     [tiles.replay]
         snapshot = \"$FULL_SNAPSHOT\"
-        tpool_thread_count = 10
+        tpool_thread_count = 8
         funk_sz_gb = 8
         funk_rec_max = 100000
         funk_txn_max = 1024
 [log]
-  path = \"fddev.log\"
-  level_stderr = \"NOTICE\"
+    path = \"fddev.log\"
+    level_stderr = \"NOTICE\"
 [development]
     topology = \"firedancer\"
 " > fddev.toml
