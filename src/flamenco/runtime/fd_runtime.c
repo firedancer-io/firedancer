@@ -859,12 +859,12 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
     /* Loop across transactions */
     for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
+      fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
 
       /* https://github.com/firedancer-io/solana/blob/4b31032e68f85848b02fcc4c9e580d57f32ec04b/runtime/src/bank.rs#L4672 */
       int err;
       int is_nonce = fd_has_nonce_account( txn_ctx, &err );
       if( ( NULL == txn_ctx->txn_descriptor ) || !is_nonce ) {
-        fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
 
         fd_hash_hash_age_pair_t_mapnode_t key;
         fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
@@ -874,6 +874,23 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
           res |= FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
           continue;
         }
+      }
+
+      fd_txncache_query_t curr_query;
+      curr_query.blockhash = blockhash->uc;
+      fd_blake3_t b3[1];
+      uchar hash[32];
+      fd_blake3_init( b3 );
+      fd_blake3_append( b3, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->message_off), txn_ctx->_txn_raw->txn_sz - txn_ctx->txn_descriptor->message_off );
+      fd_blake3_fini( b3, hash );
+      curr_query.txnhash = hash;
+
+      // TODO: figure out if it is faster to batch query properly and loop all txns again
+      fd_txncache_query_batch( slot_ctx->status_cache, &curr_query, 1UL, NULL, NULL, &err );
+      if( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
+        task_info[ txn_idx ].txn->flags = 0;
+        res |= FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED;
+        continue;
       }
 
       err = fd_executor_check_txn_accounts( txn_ctx );
@@ -1141,6 +1158,8 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
       prune_txn = fd_funk_txn_query( &prune_xid, txn_map );
     }
 
+    fd_txncache_insert_t * status_insert = fd_scratch_alloc( alignof(fd_txncache_insert_t), txn_cnt * sizeof(fd_txncache_insert_t) );
+    uchar * results = fd_scratch_alloc( alignof(uchar), txn_cnt * sizeof(uchar) );
     /* Finalize */
     for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
       /* Transaction was skipped due to preparation failure. */
@@ -1168,6 +1187,19 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
           accounts_to_save_cnt++;
         }
       }
+
+      results[txn_idx] = exec_txn_err == 0 ? 1 : 0;
+      fd_txncache_insert_t * curr_insert = &status_insert[txn_idx];
+      curr_insert->blockhash = ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
+      curr_insert->slot = slot_ctx->slot_bank.slot;
+      fd_blake3_t b3[1];
+      uchar hash[32];
+      fd_blake3_init( b3 );
+      fd_blake3_append( b3, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->message_off), txn_ctx->_txn_raw->txn_sz - txn_ctx->txn_descriptor->message_off );
+      fd_blake3_fini( b3, hash );
+      curr_insert->txnhash = hash;
+      curr_insert->result = &results[txn_idx];
+
       if( exec_txn_err != 0 ) {
         // fd_funk_txn_cancel( slot_ctx->acc_mgr->funk, txn_ctx->funk_txn, 0 );
         continue;
@@ -1230,6 +1262,10 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
           accounts_to_save_cnt++; /* Don't double count nonce accounts */
         }
       }
+    }
+
+    if( !fd_txncache_insert_batch( slot_ctx->status_cache, status_insert, txn_cnt ) ) {
+      FD_LOG_ERR(("Status cache is full, this should not be possible"));
     }
 
     fd_borrowed_account_t * * accounts_to_save = fd_scratch_alloc( 8UL, accounts_to_save_cnt * sizeof(fd_borrowed_account_t *) );
@@ -2305,6 +2341,8 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
         FD_LOG_ERR(("publish err"));
         return -1;
       }
+
+      fd_txncache_register_root_slot( slot_ctx->status_cache, txn->xid.ul[0] );
 
       if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
         fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
