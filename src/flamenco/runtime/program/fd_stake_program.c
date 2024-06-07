@@ -770,7 +770,7 @@ deactivate_stake( fd_exec_instr_ctx_t const * invoke_context, fd_stake_t * stake
         // After deactivation, need to clear `MustFullyActivateBeforeDeactivationIsPermitted` flag if any.
         // So that future activation and deactivation are not subject to that restriction.
         // https://github.com/anza-xyz/agave/blob/039c62b76d7b0eb38cb8714c77400f70ccd9cbf6/programs/stake/src/stake_state.rs#L325
-        *stake_flags = *stake_flags & ~STAKE_FLAGS_MUST_FULLY_ACTIVATE_BEFORE_DEACTIVATION_IS_PERMITTED.bits;
+        *stake_flags = (uchar) (*stake_flags & ~STAKE_FLAGS_MUST_FULLY_ACTIVATE_BEFORE_DEACTIVATION_IS_PERMITTED.bits);
         return 0;
       }
     }
