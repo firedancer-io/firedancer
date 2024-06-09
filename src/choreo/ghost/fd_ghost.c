@@ -322,7 +322,7 @@ print_node( fd_ghost_node_t const * node, int space, const char * prefix, ulong 
   if( space > 40 ) return;
   if( node == NULL ) return;
 
-  printf( "\n" );
+  if( space > 0) printf( "\n" );
   for( int i = 0; i < space; i++ ) // Print space
     printf( " " );
   double pct = ( (double)node->weight / (double)total ) * 100;
