@@ -295,6 +295,18 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
   if( store_slot_prepare_mode == FD_STORE_SLOT_PREPARE_CONTINUE ) {
 
+    FD_LOG_NOTICE( ( "\n\n[Store]\n"
+                     "slot:            %lu\n"
+                     "current turbine: %lu\n"
+                     "first turbine:   %lu\n"
+                     "slots behind:    %lu\n"
+                     "live:            %d\n",
+                     slot,
+                     ctx->store->curr_turbine_slot,
+                     ctx->store->first_turbine_slot,
+                     ctx->store->curr_turbine_slot - slot,
+                     ( ctx->store->curr_turbine_slot - slot ) < 5 ) );
+
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
     ulong replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINALIZE_BLOCK );
     uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
@@ -326,14 +338,6 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       fd_block_info_t block_info;
       fd_runtime_block_prepare( block_data, block->data_sz, fd_scratch_virtual(), &block_info );
 
-      FD_LOG_DEBUG(( "block prepared - slot: %lu", slot ));
-      FD_LOG_NOTICE(( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
-                      "executed: %lu, caught up: %d",
-                      ctx->store->first_turbine_slot,
-                      ctx->store->curr_turbine_slot,
-                      ctx->store->curr_turbine_slot - slot,
-                      slot,
-                      slot > ctx->store->first_turbine_slot ) );
       fd_txn_p_t * txns = fd_type_pun( out_buf );
       ulong txn_cnt = fd_runtime_block_collect_txns( &block_info, txns );
 
