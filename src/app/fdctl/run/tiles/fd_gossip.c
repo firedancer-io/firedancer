@@ -629,7 +629,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR( ( "error setting gossip config" ) );
   }
 
-  fd_gossip_set_entrypoints( ctx->gossip, tile->gossip.entrypoints, tile->gossip.entrypoints_cnt, tile->gossip.entrypoint_ports );
+  fd_gossip_set_entrypoints( ctx->gossip, tile->gossip.entrypoints, tile->gossip.entrypoints_cnt, tile->gossip.peer_ports );
 
   fd_gossip_update_addr( ctx->gossip, &ctx->gossip_config.my_addr );
 
