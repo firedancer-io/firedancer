@@ -5,7 +5,6 @@
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/tvu/fd_replay.h"
-#include "../../../../disco/tvu/fd_tvu.h"
 #include "../../../../flamenco/fd_flamenco.h"
 #include "../../../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
 #include "../../../../flamenco/runtime/context/fd_exec_slot_ctx.h"
@@ -562,7 +561,7 @@ after_credit( void *             _ctx,
     fd_blockstore_clear( ctx->slot_ctx->blockstore );
     fd_blockstore_end_write( ctx->slot_ctx->blockstore );
 
-    fd_runtime_recover_banks( ctx->slot_ctx, 0 );
+    fd_runtime_recover_banks( ctx->slot_ctx, 0, 1 );
     fd_runtime_update_leaders( ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot );
 
     FD_LOG_NOTICE( ( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ) );

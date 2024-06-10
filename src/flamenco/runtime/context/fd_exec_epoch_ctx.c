@@ -70,8 +70,6 @@ fd_exec_epoch_ctx_new( void * mem,
   fd_features_disable_all( &self->features );
   fd_features_enable_hardcoded( &self->features );
 
-  fd_epoch_bank_new( &self->epoch_bank );
-
   void * stake_votes_mem         = (void *)( (ulong)mem + layout->stake_votes_off         );
   void * stake_delegations_mem   = (void *)( (ulong)mem + layout->stake_delegations_off   );
   void * stake_history_treap_mem = (void *)( (ulong)mem + layout->stake_history_treap_off );

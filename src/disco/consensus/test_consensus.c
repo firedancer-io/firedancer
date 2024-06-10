@@ -557,7 +557,7 @@ main( int argc, char ** argv ) {
   snapshot_slot_ctx->blockstore = blockstore;
   snapshot_slot_ctx->valloc     = valloc;
 
-  fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
+  fd_runtime_recover_banks( snapshot_slot_ctx, 0, 1 );
 
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( snapshot_slot_ctx->epoch_ctx );
   if( incremental_snapshot ) {

@@ -2416,7 +2416,7 @@ fd_runtime_rollback_to( fd_exec_slot_ctx_t * slot_ctx, ulong slot ) {
   if( !txn) return -1;
   slot_ctx->funk_txn = txn;
   /* Recover the old bank state */
-  fd_runtime_recover_banks(slot_ctx, 1);
+  fd_runtime_recover_banks(slot_ctx, 1, 1);
   return 0;
 }
 
@@ -3615,11 +3615,11 @@ void fd_process_new_epoch(
 }
 
 void
-fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first ) {
-  fd_funk_t *           funk        = slot_ctx->acc_mgr->funk;
-  fd_funk_txn_t *       txn         = slot_ctx->funk_txn;
-  fd_exec_epoch_ctx_t * epoch_ctx   = slot_ctx->epoch_ctx;
-  fd_epoch_bank_t *     epoch_bank  = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
+fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int clear_bank ) {
+  fd_funk_t *           funk         = slot_ctx->acc_mgr->funk;
+  fd_funk_txn_t *       txn          = slot_ctx->funk_txn;
+  fd_exec_epoch_ctx_t * epoch_ctx    = slot_ctx->epoch_ctx;
+  fd_epoch_bank_t *     epoch_bank   = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
   fd_valloc_t           epoch_valloc = fd_scratch_virtual();
   {
     fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
@@ -3628,7 +3628,9 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first ) {
       FD_LOG_ERR(("failed to read banks record"));
     void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
 
-    fd_exec_epoch_ctx_bank_mem_clear( epoch_ctx );
+    if( clear_bank ) {
+      fd_exec_epoch_ctx_bank_mem_clear( epoch_ctx );
+    }
     fd_bincode_decode_ctx_t ctx;
     ctx.data = val;
     ctx.dataend = (uchar*)val + fd_funk_val_sz( rec );
@@ -3758,10 +3760,10 @@ int fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 void
-fd_runtime_read_genesis( fd_exec_slot_ctx_t* slot_ctx,
-                        char const         * genesis_filepath,
-                        uchar                is_snapshot,
-                        fd_capture_ctx_t   * capture_ctx
+fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
+                         char const         * genesis_filepath,
+                         uchar                is_snapshot,
+                         fd_capture_ctx_t   * capture_ctx
  ) {
   if ( strlen( genesis_filepath ) == 0 ) return;
 
@@ -3854,8 +3856,4 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t* slot_ctx,
 
   fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };
   fd_genesis_solana_destroy(&genesis_block, &ctx2);
-
-  // if( capture_ctx )  {
-  //   fd_solcap_writer_fini( capture_ctx->capture );
-  // }
 }

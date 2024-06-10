@@ -160,7 +160,7 @@ void *
 fd_solcap_writer_delete( fd_solcap_writer_t * writer ) {
 
   if( FD_UNLIKELY( !writer ) ) return NULL;
-
+  fclose( writer->file );
   writer->file = NULL;
   return writer;
 }

@@ -262,9 +262,9 @@ fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx, ulong slot );
 int
 fd_runtime_rollback_to( fd_exec_slot_ctx_t * slot_ctx, ulong slot );
 
-/* Recover slot_bank and epoch_bnck from funky */
+/* Recover slot_bank and epoch_bank from funky */
 void
-fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first );
+fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int clear_bank );
 
 void
 fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx );
