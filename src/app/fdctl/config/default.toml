@@ -569,10 +569,10 @@ dynamic_port_range = "8900-9000"
 # A typical layout of the mounts looks as follows,
 #
 #  /mnt/.fd                     [Mount parent directory specified below]
-#    +-- .gigantic              [Files created in this mount use 1GB
+#    +-- .gigantic              [Files created in this mount use 1GiB
 #                                pages]
 #        +-- firedancer1.wksp
-#    +-- .huge                  [Files created in this mount use 4MB
+#    +-- .huge                  [Files created in this mount use 2MiB
 #                                pages]
 #        +-- scratch1.wksp
 #        +-- scratch2.wksp

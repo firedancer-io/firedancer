@@ -80,6 +80,7 @@ init_device( const char * device,
   channels.combined_count = combined_channel_count;
   channels.cmd = ETHTOOL_SCHANNELS;
 
+  FD_LOG_NOTICE(( "RUN: `ethtool --set-channels %s combined %u`", device, combined_channel_count ));
   if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) ) {
     if( FD_LIKELY( errno == EBUSY ) )
       FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SCHANNELS) failed (%i-%s). "
