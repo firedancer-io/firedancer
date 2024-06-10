@@ -457,6 +457,22 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
     fd_snapshot_load( snapshot, ctx->slot_ctx, false, false, FD_SNAPSHOT_TYPE_FULL );
   }
 
+  fd_blockstore_start_write( ctx->slot_ctx->blockstore );
+  fd_blockstore_clear( ctx->slot_ctx->blockstore );
+  fd_blockstore_end_write( ctx->slot_ctx->blockstore );
+
+  fd_runtime_recover_banks( ctx->slot_ctx, 0 );
+  fd_runtime_update_leaders( ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot );
+
+  FD_LOG_NOTICE( ( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ) );
+  fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
+  fd_bpf_scan_and_create_bpf_program_cache_entry_tpool(
+      ctx->slot_ctx, ctx->slot_ctx->funk_txn, ctx->tpool, ctx->max_workers );
+  fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
+  FD_LOG_NOTICE( ( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ) );
+
+  ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
+
   char incremental_snapshot_out[128] = { 0 };
   if( strlen( incremental ) > 0 ) {
     if( strstr( incremental, "http" ) ) {
@@ -520,7 +536,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
     ele->slot                = snapshot_slot;
     fd_fork_frontier_ele_insert( ctx->replay->forks->frontier, ele, ctx->replay->forks->pool );
     ctx->replay->smr         = snapshot_slot;
-    bank_hash_cmp->watermark      = snapshot_slot;
+    bank_hash_cmp->watermark = snapshot_slot;
     ctx->curr_slot           = snapshot_slot;
     ctx->parent_slot         = ctx->slot_ctx->slot_bank.prev_slot;
   }
@@ -558,32 +574,20 @@ after_credit( void *             _ctx,
       void * shmem              = fd_wksp_laddr_fast( ctx->blockstore_wksp, info.gaddr_lo );
       ctx->slot_ctx->blockstore = fd_blockstore_join( shmem );
     }
-    fd_blockstore_start_write( ctx->slot_ctx->blockstore );
-    fd_blockstore_clear( ctx->slot_ctx->blockstore );
-    fd_blockstore_end_write( ctx->slot_ctx->blockstore );
 
-    fd_runtime_recover_banks( ctx->slot_ctx, 0 );
-    fd_runtime_update_leaders( ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot );
-
-    FD_LOG_NOTICE( ( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ) );
-    fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
-    fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx, ctx->slot_ctx->funk_txn, ctx->tpool, ctx->max_workers );
-    fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
-    FD_LOG_NOTICE( ( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ) );
-
-    if ( ctx->slot_ctx->blockstore != NULL ) {
+    if( ctx->slot_ctx->blockstore != NULL ) {
       FD_SCRATCH_SCOPE_BEGIN {
-        ctx->replay->blockstore = ctx->slot_ctx->blockstore;
+        ctx->replay->blockstore        = ctx->slot_ctx->blockstore;
         ctx->replay->forks->blockstore = ctx->slot_ctx->blockstore;
-        uchar is_snapshot = strlen( ctx->snapshot ) > 0;
-        if ( is_snapshot ) {
+        uchar is_snapshot              = strlen( ctx->snapshot ) > 0;
+        if( is_snapshot ) { 
           read_snapshot( ctx, ctx->snapshot, ctx->incremental );
         }
 
         fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot, NULL );
-
         init_after_snapshot( ctx );
-      } FD_SCRATCH_SCOPE_END;
+      }
+      FD_SCRATCH_SCOPE_END;
     }
   }
 
