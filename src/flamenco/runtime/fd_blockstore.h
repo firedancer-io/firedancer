@@ -23,7 +23,8 @@
 
 #define FD_BLOCKSTORE_MAGIC ( 0xf17eda2ce7b10c00UL ) /* firedancer bloc version 0 */
 
-#define FD_BLOCKSTORE_SLOT_HISTORY_MAX ( 1UL << 13UL )
+#define FD_BLOCKSTORE_LG_SLOT_HISTORY_MAX ( 13 )
+#define FD_BLOCKSTORE_SLOT_HISTORY_MAX ( 1UL << FD_BLOCKSTORE_LG_SLOT_HISTORY_MAX )
 #define FD_BLOCKSTORE_BLOCK_SZ_MAX     ( FD_SHRED_MAX_SZ * ( 1 << 15UL ) )
 
 /* TODO think more about these */
@@ -135,7 +136,7 @@ typedef struct fd_block_txn_ref fd_block_txn_ref_t;
 
 /* If the 0th bit is set, this indicates the block is prepared, and about to be executed.
    Blockstore clients should be careful not to modify or remove blocks while this flag is set.
-   
+
    The remaining flags are mainly metadata. */
 #define FD_BLOCK_FLAG_PREPARED  0 /* xxxxxxx1 */
 #define FD_BLOCK_FLAG_PROCESSED 1 /* xxxxxx1x */
@@ -171,16 +172,16 @@ struct fd_block {
   ulong shreds_cnt;
   ulong micros_gaddr; /* ptr to the list of fd_blockstore_micro_t */
   ulong micros_cnt;
-  ulong txns_gaddr; /* ptr to the list of fd_blockstore_txn_ref_t */
+  ulong txns_gaddr;   /* ptr to the list of fd_blockstore_txn_ref_t */
   ulong txns_cnt;
 };
 typedef struct fd_block fd_block_t;
 
 struct fd_blockstore_slot_map {
   ulong          slot;
-  uint           hash;
+  ulong          next;
   fd_slot_meta_t slot_meta;
-  fd_block_t     block;
+  ulong          block_gaddr;
 };
 typedef struct fd_blockstore_slot_map fd_blockstore_slot_map_t;
 
@@ -188,9 +189,7 @@ typedef struct fd_blockstore_slot_map fd_blockstore_slot_map_t;
 #define MAP_NAME         fd_blockstore_slot_map
 #define MAP_T            fd_blockstore_slot_map_t
 #define MAP_KEY          slot
-#define MAP_KEY_NULL     ULONG_MAX
-#define MAP_KEY_INVAL(k) (!(k^ULONG_MAX))
-#include "../../util/tmpl/fd_map_dynamic.c"
+#include "../../util/tmpl/fd_map_giant.c"
 /* clang-format on */
 
 struct fd_blockstore_txn_key {
@@ -200,7 +199,7 @@ typedef struct fd_blockstore_txn_key fd_blockstore_txn_key_t;
 
 struct fd_blockstore_txn_map {
   fd_blockstore_txn_key_t sig;
-  uint                    hash;
+  ulong                   next;
   ulong                   slot;
   ulong                   offset;
   ulong                   sz;
@@ -215,16 +214,11 @@ typedef struct fd_blockstore_txn_map fd_blockstore_txn_map_t;
 #define MAP_T     fd_blockstore_txn_map_t
 #define MAP_KEY   sig
 #define MAP_KEY_T fd_blockstore_txn_key_t
-#define MAP_KEY_EQUAL_IS_SLOW 1
-fd_blockstore_txn_key_t fd_blockstore_txn_key_null(void);
-#define MAP_KEY_NULL         fd_blockstore_txn_key_null()
-int fd_blockstore_txn_key_inval(fd_blockstore_txn_key_t k);
-#define MAP_KEY_INVAL(k)     fd_blockstore_txn_key_inval(k)
-int fd_blockstore_txn_key_equal(fd_blockstore_txn_key_t k0, fd_blockstore_txn_key_t k1);
-#define MAP_KEY_EQUAL(k0,k1) fd_blockstore_txn_key_equal(k0,k1)
-uint fd_blockstore_txn_key_hash(fd_blockstore_txn_key_t k);
-#define MAP_KEY_HASH(k)      fd_blockstore_txn_key_hash(k)
-#include "../../util/tmpl/fd_map_dynamic.c"
+int fd_blockstore_txn_key_equal(fd_blockstore_txn_key_t const * k0, fd_blockstore_txn_key_t const * k1);
+#define MAP_KEY_EQ(k0,k1)    fd_blockstore_txn_key_equal(k0,k1)
+ulong fd_blockstore_txn_key_hash(fd_blockstore_txn_key_t const * k, ulong seed);
+#define MAP_KEY_HASH(k,seed) fd_blockstore_txn_key_hash(k, seed)
+#include "../../util/tmpl/fd_map_giant.c"
 
 // TODO make this private
 struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
@@ -253,7 +247,6 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
   ulong shred_pool_gaddr; /* pool of temporary shreds */
   ulong shred_map_gaddr;  /* map of (slot, shred_idx)->shred */
 
-  int   lg_slot_max;
   ulong slot_max;           /* maximum block history */
   ulong slot_max_with_slop; /* maximum block history with some padding */
   ulong slot_map_gaddr;     /* map of slot->(slot_meta, block) */
@@ -476,9 +469,26 @@ fd_blockstore_block_frontier_query( fd_blockstore_t * blockstore,
                                     ulong *           parents,
                                     ulong             parents_sz );
 
+/* Query the block data and metadata in a thread-safe manner which will
+   not block writes. The data and metadata are copied out into memory
+   allocated with the given alloc. A NULL is returned on error. */
+uchar *
+fd_blockstore_block_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_valloc_t alloc, fd_block_t * blk_out, fd_slot_meta_t * slot_meta_out, ulong * data_sz_out );
+
+/* Query the block metadata in a thread-safe manner which will
+   not block writes. The metadata is copied out. */
+int
+fd_blockstore_slot_meta_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_t * blk_out, fd_slot_meta_t * slot_meta_out );
+
 /* Query the transaction data for the given signature */
 fd_blockstore_txn_map_t *
-fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[FD_ED25519_SIG_SZ] );
+fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[static FD_ED25519_SIG_SZ] );
+
+/* Query the transaction data for the given signature in a thread
+   safe manner. The transaction data is copied out. txn_data_out can
+   be NULL if you are only interested in the transaction metadata. */
+int
+fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[static FD_ED25519_SIG_SZ], fd_blockstore_txn_map_t * txn_out, long * blk_ts, uchar txn_data_out[FD_TXN_MTU] );
 
 /* Remove slot from blockstore, including all relevant internal structures. */
 int

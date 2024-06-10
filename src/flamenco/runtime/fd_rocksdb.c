@@ -439,12 +439,13 @@ fd_rocksdb_copy_over_txn_status_range( fd_rocksdb_t *    src,
 
   for ( ulong slot = start_slot; slot <= end_slot; ++slot ) {
     FD_LOG_NOTICE(("fd_rocksdb_copy_over_txn_status_range: %d", slot));
-    fd_blockstore_slot_map_t * block_entry = fd_blockstore_slot_map_query( block_map, slot, NULL );
-    if( FD_LIKELY( block_entry ) ) {
-      uchar * data = fd_wksp_laddr_fast( wksp, block_entry->block.data_gaddr );
-      fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, block_entry->block.txns_gaddr );
+    fd_blockstore_slot_map_t * block_entry = fd_blockstore_slot_map_query( block_map, &slot, NULL );
+    if( FD_LIKELY( block_entry && block_entry->block_gaddr ) ) {
+      fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_entry->block_gaddr );
+      uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
+      fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
       ulong last_txn_off = ULONG_MAX;
-      for ( ulong j = 0; j < block_entry->block.txns_cnt; ++j ) {
+      for ( ulong j = 0; j < blk->txns_cnt; ++j ) {
         fd_blockstore_txn_key_t sig;
         fd_memcpy( &sig, data + txns[j].id_off, sizeof(sig) );
         if( txns[j].txn_off != last_txn_off ) {
@@ -587,8 +588,9 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
 
   fd_wksp_t * wksp = fd_wksp_containing( blockstore );
   fd_blockstore_slot_map_t * block_map = fd_blockstore_slot_map( blockstore );
-  fd_blockstore_slot_map_t * block_entry = fd_blockstore_slot_map_query( block_map, slot, NULL );
-  if( FD_LIKELY( block_entry ) ) {
+  fd_blockstore_slot_map_t * block_entry = fd_blockstore_slot_map_query( block_map, &slot, NULL );
+  if( FD_LIKELY( block_entry && block_entry->block_gaddr ) ) {
+    fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_entry->block_gaddr );
     size_t vallen = 0;
     char * err = NULL;
     char * res = rocksdb_get_cf(
@@ -602,7 +604,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
       FD_LOG_WARNING(( "rocksdb: %s", err ));
       free( err );
     } else if(vallen == sizeof(ulong)) {
-      block_entry->block.ts = (*(long*)res)*((long)1e9); /* Convert to nanos */
+      blk->ts = (*(long*)res)*((long)1e9); /* Convert to nanos */
       free(res);
     }
 
@@ -615,19 +617,19 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
       (char const *)&slot_be, sizeof(ulong),
       &vallen,
       &err );
-    block_entry->block.height = 0;
+    blk->height = 0;
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "rocksdb: %s", err ));
       free( err );
     } else if(vallen == sizeof(ulong)) {
-      block_entry->block.height = *(ulong*)res;
+      blk->height = *(ulong*)res;
       free(res);
     }
 
     vallen = 0;
     err = NULL;
     if (NULL != hash_override)
-      fd_memcpy( block_entry->block.bank_hash.hash, hash_override, 32UL );
+      fd_memcpy( blk->bank_hash.hash, hash_override, 32UL );
     else {
       res = rocksdb_get_cf(
         db->db,
@@ -652,7 +654,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
         if( FD_UNLIKELY( decode.data!=decode.dataend    ) ) goto cleanup;
         if( FD_UNLIKELY( versioned.discriminant !=fd_frozen_hash_versioned_enum_current ) ) goto cleanup;
         /* Success */
-        fd_memcpy( block_entry->block.bank_hash.hash, versioned.inner.current.frozen_hash.hash, 32UL );
+        fd_memcpy( blk->bank_hash.hash, versioned.inner.current.frozen_hash.hash, 32UL );
       cleanup:
         free( res );
         fd_scratch_pop();
@@ -663,17 +665,18 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
   if( txnstatus ) {
     fd_alloc_t * alloc = fd_wksp_laddr_fast( wksp, blockstore->alloc_gaddr );
     fd_blockstore_txn_map_t *   txn_map   = fd_wksp_laddr_fast( wksp, blockstore->txn_map_gaddr );
-    if( FD_LIKELY( block_entry ) ) {
-      uchar * data = fd_wksp_laddr_fast( wksp, block_entry->block.data_gaddr );
-      fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, block_entry->block.txns_gaddr );
+    if( FD_LIKELY( block_entry && block_entry->block_gaddr ) ) {
+      fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_entry->block_gaddr );
+      uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
+      fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
       ulong meta_gaddr = 0;
       ulong meta_sz = 0;
       int meta_owned = 0;
       ulong last_txn_off = ULONG_MAX;
-      for ( ulong j = 0; j < block_entry->block.txns_cnt; ++j ) {
+      for ( ulong j = 0; j < blk->txns_cnt; ++j ) {
         fd_blockstore_txn_key_t sig;
         fd_memcpy( &sig, data + txns[j].id_off, sizeof( sig ) );
-        fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, sig, NULL );
+        fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, &sig, NULL );
         if( FD_UNLIKELY( !txn_map_entry ) ) {
           FD_LOG_WARNING(("missing transaction %64J", &sig));
           continue;
