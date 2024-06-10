@@ -846,15 +846,13 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     }
 
     if( FD_UNLIKELY( memcmp( meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
-      fd_bpf_upgradeable_loader_state_t program_loader_state;
+      fd_bpf_upgradeable_loader_state_t program_loader_state = {0};
       int err = 0;
       if( FD_UNLIKELY( !read_bpf_upgradeable_loader_state_for_program( txn_ctx, (uchar) i, &program_loader_state, &err ) ) ) {
         continue;
       }
-      fd_bincode_destroy_ctx_t ctx_d = { .valloc = txn_ctx->valloc };
 
       if( !fd_bpf_upgradeable_loader_state_is_program( &program_loader_state ) ) {
-        fd_bpf_upgradeable_loader_state_destroy( &program_loader_state, &ctx_d );
         continue;
       }
 
