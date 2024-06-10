@@ -50,7 +50,7 @@ fd_bpf_loader_v3_is_executable( fd_exec_slot_ctx_t * slot_ctx,
   fd_bincode_decode_ctx_t ctx = {
     .data    = (uchar *)meta     + meta->hlen,
     .dataend = (char *) ctx.data + meta->dlen,
-    .valloc  = slot_ctx->valloc,
+    .valloc  = fd_scratch_virtual(),
   };
 
   fd_bpf_upgradeable_loader_state_t loader_state = {0};
@@ -71,9 +71,6 @@ fd_bpf_loader_v3_is_executable( fd_exec_slot_ctx_t * slot_ctx,
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
-  fd_bincode_destroy_ctx_t ctx_d = { .valloc = slot_ctx->valloc };
-  fd_bpf_upgradeable_loader_state_destroy( &loader_state, &ctx_d );
-
   return 0;
 }
 
@@ -83,7 +80,6 @@ read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *              
                                                uchar                               program_id,
                                                fd_bpf_upgradeable_loader_state_t * result,
                                                int *                               opt_err ) {
-
   fd_borrowed_account_t * rec = NULL;
   int err = fd_txn_borrowed_account_view_idx( txn_ctx, program_id, &rec );
   if( FD_UNLIKELY( err ) ) {
@@ -94,7 +90,7 @@ read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *              
   fd_bincode_decode_ctx_t ctx = {
     .data    = rec->const_data,
     .dataend = rec->const_data + rec->const_meta->dlen,
-    .valloc  = txn_ctx->valloc,
+    .valloc  = fd_scratch_virtual(),
   };
 
   if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode( result, &ctx ) ) ) {

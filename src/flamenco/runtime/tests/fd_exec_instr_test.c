@@ -340,7 +340,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   /* Load in executable accounts */
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     if ( FD_UNLIKELY( 0 == memcmp(borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) ) ) {
-      fd_bpf_upgradeable_loader_state_t program_loader_state;
+      fd_bpf_upgradeable_loader_state_t program_loader_state = {0};
       int err = 0;
       if( FD_UNLIKELY( !read_bpf_upgradeable_loader_state_for_program( txn_ctx, (uchar) i, &program_loader_state, &err ) ) ) {
         continue;
