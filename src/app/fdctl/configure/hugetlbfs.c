@@ -9,7 +9,7 @@ static void
 init_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   (void)config;
-  fd_caps_check_root( caps, "hugetlbfs", "increase `/proc/sys/vm/nr_hugepages`, mount hugetblfs filesystem at `/mnt`" );
+  fd_caps_check_root( caps, "hugetlbfs", "increase `/proc/sys/vm/nr_hugepages` and mount hugetblfs filesystems" );
 }
 
 static void
@@ -76,8 +76,9 @@ init( config_t * const config ) {
         char total_page_path[ PATH_MAX ];
         FD_TEST( fd_cstr_printf_check( total_page_path, PATH_MAX, NULL, TOTAL_HUGE_PAGE_PATH[ j ], i ) );
         ulong total_pages = read_uint_file( total_page_path, ERR_MSG );
-
         ulong additional_pages_needed = required_pages[ j ]-free_pages;
+
+        FD_LOG_NOTICE(( "RUN: `echo \"%u\" > %s`", (uint)(total_pages+additional_pages_needed), total_page_path ));
         write_uint_file( total_page_path, (uint)(total_pages+additional_pages_needed) );
         if( FD_UNLIKELY( read_uint_file( total_page_path, ERR_MSG )<total_pages+additional_pages_needed ) )
           FD_LOG_ERR(( "ENOMEM-Out of memory when trying to reserve %s pages for Firedancer on NUMA node %lu. Your Firedancer "
@@ -119,9 +120,11 @@ init( config_t * const config ) {
   }
 
   for( ulong i=0UL; i<2UL; i++ ) {
+    FD_LOG_NOTICE(( "RUN: `mkdir -p %s`", mount_path[ i ] ));
     mkdir_all( mount_path[ i ], config->uid, config->gid );
     char options[ 256 ];
     FD_TEST( fd_cstr_printf_check( options, sizeof(options), NULL, "pagesize=%lu,min_size=%lu", PAGE_SIZE[ i ], min_size[ i ] ) );
+    FD_LOG_NOTICE(( "RUN: `mount -t hugetlbfs none %s -o %s`", mount_path[ i ], options ));
     if( FD_UNLIKELY( mount( "none", mount_path[ i ], "hugetlbfs", 0, options) ) )
       FD_LOG_ERR(( "mount of hugetlbfs at `%s` failed (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( chown( mount_path[ i ], config->uid, config->gid ) ) )
@@ -206,6 +209,7 @@ fini( config_t * const config,
     while( FD_LIKELY( fgets( line, 4096UL, fp ) ) ) {
       if( FD_UNLIKELY( strlen( line )==4095UL ) ) FD_LOG_ERR(( "line too long in `/proc/self/mounts`" ));
       if( FD_UNLIKELY( strstr( line, mount_path[ i ] ) ) ) {
+        FD_LOG_NOTICE(( "RUN: `umount %s`", mount_path[ i ] ));
         if( FD_UNLIKELY( umount( mount_path[ i ] ) ) ) {
           if( FD_LIKELY( errno==EBUSY ) ) {
             warn_mount_users( mount_path[ i ] );
@@ -226,10 +230,12 @@ fini( config_t * const config,
     if( FD_LIKELY( fclose( fp ) ) )
       FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+    FD_LOG_NOTICE(( "RUN: `rmdir %s`", mount_path[ i ] ));
     if( FD_UNLIKELY( rmdir( mount_path[ i ] ) && errno!=ENOENT ) )
       FD_LOG_ERR(( "error removing hugetlbfs mount at `%s` (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
   }
 
+  FD_LOG_NOTICE(( "RUN: `rmdir %s`", config->hugetlbfs.mount_path ));
   if( FD_UNLIKELY( rmdir( config->hugetlbfs.mount_path ) && errno!=ENOENT ) )
     FD_LOG_ERR(( "error removing hugetlbfs directory at `%s` (%i-%s)", config->hugetlbfs.mount_path, errno, fd_io_strerror( errno ) ));
 }
@@ -344,7 +350,7 @@ check( config_t * const config ) {
 
         char * _min_size = strtok_r( NULL, ",", &saveptr2 );
         if( FD_UNLIKELY( !_min_size ) ) FD_LOG_ERR(( "error parsing `/proc/self/mounts`, line `%s`", line ));
-        if( FD_UNLIKELY( strncmp( "min_size=", _min_size, 9 ) ) ) {
+        if( FD_UNLIKELY( strncmp( "min_size=", _min_size, 9UL ) ) ) {
           if( FD_UNLIKELY( fclose( fp ) ) )
             FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
           PARTIALLY_CONFIGURED( "mount `%s` has unrecognized min_size, expected at least `min_size=%lu`", mount_path[ i ], required_min_size[ i ] );
