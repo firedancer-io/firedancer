@@ -61,7 +61,6 @@ typedef struct {
     char  path[ PATH_MAX ];
     char  accounts_path[ PATH_MAX ];
     uint  limit_size;
-    int   bigtable_storage;
     ulong account_indexes_cnt;
     char  account_indexes[ 4 ][ 32 ];
     ulong account_index_exclude_keys_cnt;
@@ -105,6 +104,7 @@ typedef struct {
     int    only_known;
     int    pubsub_enable_block_subscription;
     int    pubsub_enable_vote_subscription;
+    int    bigtable_ledger_storage;
   } rpc;
 
   struct {

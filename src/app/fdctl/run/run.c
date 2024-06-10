@@ -103,7 +103,16 @@ execve_solana_labs( int config_memfd,
     char config_fd[ 32 ];
     FD_TEST( fd_cstr_printf_check( config_fd, sizeof( config_fd ), NULL, "%d", config_memfd ) );
     char * args[ 5 ] = { _current_executable_path, "run-solana", "--config-fd", config_fd, NULL };
-    if( FD_UNLIKELY( -1==execve( _current_executable_path, args, NULL ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    char * envp[] = { NULL, NULL };
+    char * google_creds = getenv( "GOOGLE_APPLICATION_CREDENTIALS" );
+    char provide_creds[ PATH_MAX+30UL ];
+    if( FD_UNLIKELY( google_creds ) ) {
+      FD_TEST( fd_cstr_printf_check( provide_creds, sizeof( provide_creds ), NULL, "GOOGLE_APPLICATION_CREDENTIALS=%s", google_creds ) );
+      envp[ 0 ] = provide_creds;
+    }
+
+    if( FD_UNLIKELY( -1==execve( _current_executable_path, args, envp ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
     if( FD_UNLIKELY( -1==fcntl( pipefd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     return child;

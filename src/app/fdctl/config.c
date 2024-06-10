@@ -190,7 +190,6 @@ static int parse_key_value( config_t *   config,
   ENTRY_STR   ( ., ledger,              path                                                      );
   ENTRY_STR   ( ., ledger,              accounts_path                                             );
   ENTRY_UINT  ( ., ledger,              limit_size                                                );
-  ENTRY_BOOL  ( ., ledger,              bigtable_storage                                          );
   ENTRY_VSTR  ( ., ledger,              account_indexes                                           );
   ENTRY_VSTR  ( ., ledger,              account_index_exclude_keys                                );
   ENTRY_STR   ( ., ledger,              snapshot_archive_format                                   );
@@ -223,6 +222,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_BOOL  ( ., rpc,                 only_known                                                );
   ENTRY_BOOL  ( ., rpc,                 pubsub_enable_block_subscription                          );
   ENTRY_BOOL  ( ., rpc,                 pubsub_enable_vote_subscription                           );
+  ENTRY_BOOL  ( ., rpc,                 bigtable_ledger_storage                                   );
 
   ENTRY_BOOL  ( ., snapshots,           incremental_snapshots                                     );
   ENTRY_UINT  ( ., snapshots,           full_snapshot_interval_slots                              );
@@ -980,10 +980,6 @@ config_parse( int *      pargc,
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_shred_limits_per_block] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.rocksdb_disable_wal ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.rocksdb_disable_wal] which is a development only feature" ));
-  }
-
-  if( FD_UNLIKELY( config->ledger.bigtable_storage ) ) {
-    FD_LOG_ERR(( "BigTable storage is not yet supported." ));
   }
 
   if( FD_UNLIKELY( config->tiles.quic.quic_transaction_listen_port != config->tiles.quic.regular_transaction_listen_port + 6 ) )
