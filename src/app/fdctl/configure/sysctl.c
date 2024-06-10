@@ -12,55 +12,103 @@ init_perm( fd_caps_ctx_t *  caps,
   fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN, "set kernel parameters in `/proc/sys`" );
 }
 
-static const char * params[] = {
-  "/proc/sys/net/core/rmem_max",
-  "/proc/sys/net/core/rmem_default",
-  "/proc/sys/net/core/wmem_max",
-  "/proc/sys/net/core/wmem_default",
-  "/proc/sys/vm/max_map_count",
-  "/proc/sys/net/core/bpf_jit_enable",
-  "/proc/sys/fs/file-max",
-  "/proc/sys/fs/nr_open",
-  "/proc/sys/net/ipv4/conf/lo/rp_filter",
-  "/proc/sys/net/ipv4/conf/lo/accept_local",
-};
+#define ENFORCE_MINIMUM 0
+#define WARN_MINIMUM    1
+#define WARN_EXACT      2
 
-static uint limits[] = {
-  134217728,
-  134217728,
-  134217728,
-  134217728,
-  1000000,
-  1,
-  CONFIGURE_NR_OPEN_FILES,
-  CONFIGURE_NR_OPEN_FILES,
-  2,
-  1,
+typedef struct {
+  char const * path;
+  uint         value;
+  int          mode;
+} sysctl_param_t;
+
+static const sysctl_param_t params[] = {
+  {
+    "/proc/sys/vm/max_map_count",
+    1000000,
+    ENFORCE_MINIMUM,
+  },
+  {
+    "/proc/sys/fs/file-max",
+    CONFIGURE_NR_OPEN_FILES,
+    ENFORCE_MINIMUM,
+  },
+  {
+    "/proc/sys/fs/nr_open",
+    CONFIGURE_NR_OPEN_FILES,
+    ENFORCE_MINIMUM,
+  },
+  {
+    "/proc/sys/net/ipv4/conf/lo/rp_filter",
+    2,
+    ENFORCE_MINIMUM,
+  },
+  {
+    "/proc/sys/net/ipv4/conf/lo/accept_local",
+    1,
+    ENFORCE_MINIMUM,
+  },
+  {
+    "/proc/sys/net/core/bpf_jit_enable",
+    1,
+    WARN_MINIMUM,
+  },
+  {
+    "/proc/sys/kernel/numa_balancing",
+    0,
+    WARN_EXACT,
+  }
 };
 
 static const char * ERR_MSG = "system might not support configuring sysctl,";
 
 
-/* These sysctl limits are needed for the Solana Labs client, not Firedancer.
-   We set them on their behalf to make configuration easier for users. */
+/* Some of these sysctl limits are needed for the Agave client, not
+   Firedancer.  We set them on their behalf to make configuration easier
+   for users. */
+
 static void
 init( config_t * const config ) {
   (void)config;
   for( ulong i=0; i<sizeof( params ) / sizeof( params[ 0 ] ); i++ ) {
-    uint param = read_uint_file( params[ i ], ERR_MSG );
-    if( FD_UNLIKELY( param < limits[ i ] ) )
-      write_uint_file( params[ i ], limits[ i ] );
+    uint param = read_uint_file( params[ i ].path, ERR_MSG );
+    switch( params[ i ].mode ) {
+      case ENFORCE_MINIMUM:
+        if( FD_UNLIKELY( param<params[ i ].value ) ) {
+          FD_LOG_NOTICE(( "RUN: `echo \"%u\" > %s`", params[ i ].value, params[ i ].path ) );
+          write_uint_file( params[ i ].path, params[ i ].value );
+        }
+        break;
+      default:
+        break;
+    }
   }
 }
 
 static configure_result_t
 check( config_t * const config ) {
+  static int has_warned = 0;
+
   (void)config;
   for( ulong i=0; i<sizeof( params ) / sizeof( params[ 0 ] ); i++ ) {
-    uint param = read_uint_file( params[ i ], ERR_MSG );
-    if( FD_UNLIKELY( param < limits[ i ] ) )
-      NOT_CONFIGURED( "kernel parameter `%s` is too low (%u < %u)", params[ i ], param, limits[ i ] );
+    uint param = read_uint_file( params[ i ].path, ERR_MSG );
+    switch( params[ i ].mode ) {
+      case ENFORCE_MINIMUM:
+        if( FD_UNLIKELY( param<params[ i ].value ) )
+          NOT_CONFIGURED( "kernel parameter `%s` is too low (%u < %u)", params[ i ].path, param, params[ i ].value );
+        break;
+      case WARN_MINIMUM:
+        if( FD_UNLIKELY( !has_warned && param<params[ i ].value ) )
+          FD_LOG_WARNING(( "kernel parameter `%s` is too low (%u < %u). Proceeding but performance may be reduced.", params[ i ].path, param, params[ i ].value ));
+        break;
+      case WARN_EXACT:
+        if( FD_UNLIKELY( !has_warned && param!=params[ i ].value ) )
+          FD_LOG_WARNING(( "kernel parameter `%s` is set to %u, not the expected value of %u. Proceeding but performance may be reduced.", params[ i ].path, param, params[ i ].value ));
+        break;
+    }
   }
+
+  has_warned = 1;
 
   CONFIGURE_OK();
 }
