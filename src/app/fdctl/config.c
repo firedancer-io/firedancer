@@ -303,23 +303,29 @@ static int parse_key_value( config_t *   config,
   ENTRY_BOOL  ( ., development.bench,   rocksdb_disable_wal                                       );
 
   /* Firedancer-only configuration */
-  ENTRY_STR   ( ., tiles.replay,        snapshot                                                  );
-  ENTRY_STR   ( ., tiles.replay,        incremental                                               );
-  ENTRY_STR   ( ., tiles.replay,        genesis                                                   );
-  ENTRY_STR   ( ., tiles.replay,        capture                                                   );
-  ENTRY_ULONG ( ., tiles.replay,        tpool_thread_count                                        );
-  ENTRY_ULONG ( ., tiles.replay,        funk_sz_gb                                                );
-  ENTRY_ULONG ( ., tiles.replay,        funk_txn_max                                              );
-  ENTRY_ULONG ( ., tiles.replay,        funk_rec_max                                              );
 
+  ENTRY_VSTR  ( ., tiles.gossip,        entrypoints                                               );
   ENTRY_USHORT( ., tiles.gossip,        gossip_listen_port                                        );
   ENTRY_VUINT ( ., tiles.gossip,        peer_ports                                                );
-  ENTRY_VSTR  ( ., tiles.gossip,        entrypoints                                               );
 
   ENTRY_BOOL  ( ., consensus,           vote                                                      );
 
   ENTRY_USHORT( ., tiles.repair,        repair_intake_listen_port                                 );
   ENTRY_USHORT( ., tiles.repair,        repair_serve_listen_port                                  );
+
+  ENTRY_STR   ( ., tiles.replay,        blockstore_checkpt                                        );
+  ENTRY_STR   ( ., tiles.replay,        capture                                                   );
+  ENTRY_ULONG ( ., tiles.replay,        funk_rec_max                                              );
+  ENTRY_ULONG ( ., tiles.replay,        funk_sz_gb                                                );
+  ENTRY_ULONG ( ., tiles.replay,        funk_txn_max                                              );
+  ENTRY_STR   ( ., tiles.replay,        genesis                                                   );
+  ENTRY_STR   ( ., tiles.replay,        incremental                                               );
+  ENTRY_STR   ( ., tiles.replay,        slots                                                     );
+  ENTRY_STR   ( ., tiles.replay,        snapshot                                                  );
+  ENTRY_ULONG ( ., tiles.replay,        tpool_thread_count                                        );
+
+  ENTRY_STR   ( ., tiles.store_int,     blockstore_restore                                        );
+  ENTRY_STR   ( ., tiles.store_int,     slots                                                     );
 
   /* We have encountered a token that is not recognized, return 0 to indicate failure. */
   return 0;

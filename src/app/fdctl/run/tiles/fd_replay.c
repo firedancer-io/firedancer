@@ -133,6 +133,7 @@ struct fd_replay_tile_ctx {
   fd_replay_t *         replay;
 
   fd_wksp_t  * blockstore_wksp;
+  char const * blockstore_checkpt_path;
   fd_wksp_t  * funk_wksp;
   char const * snapshot;
   char const * incremental;
@@ -151,6 +152,7 @@ struct fd_replay_tile_ctx {
   ulong funk_seed;
   fd_capture_ctx_t * capture_ctx;
   FILE *             capture_file;
+  FILE *             slots_file;
 
   fd_bank_hash_cmp_t * bank_hash_cmp;
   fd_tower_t *         tower;
@@ -634,13 +636,25 @@ after_frag( void *             _ctx,
 
       /* Prepare bank for next execution. */
 
+      ulong prev_slot = child->slot_ctx.slot_bank.slot;
       child->slot_ctx.slot_bank.slot           = ctx->curr_slot;
       child->slot_ctx.slot_bank.collected_fees = 0;
       child->slot_ctx.slot_bank.collected_rent = 0;
 
+      /* Write to debugging files. */
+
+      if( FD_UNLIKELY( ctx->slots_file ) ) {
+        FD_LOG_NOTICE( ( "writing %lu to slots file", prev_slot ) );
+        fprintf( ctx->slots_file, "%lu\n", prev_slot );
+      }
+
+      if (NULL != ctx->capture_ctx) {
+        fd_solcap_writer_flush( ctx->capture_ctx->capture );
+      }
+
+      /* Bank hash cmp */
 
       fd_hash_t const * bank_hash = &child->slot_ctx.slot_bank.banks_hash;
-
       fd_bank_hash_cmp_t * bank_hash_cmp = child->slot_ctx.epoch_ctx->bank_hash_cmp;
       fd_bank_hash_cmp_lock( bank_hash_cmp );
       fd_bank_hash_cmp_insert( bank_hash_cmp, ctx->curr_slot, bank_hash, 1, 0 );
@@ -648,15 +662,48 @@ after_frag( void *             _ctx,
       /* Try to move the bank hash comparison watermark forward */
 
       for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < ctx->curr_slot; cmp_slot++ ) {
-        if( FD_LIKELY( fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot ) ) ) {
-          bank_hash_cmp->watermark = cmp_slot;
+        int rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
+        rc = -1;
+        switch ( rc ) {
+          case -1:
+
+            /* Mismatch */
+
+            fclose( ctx->slots_file );
+            char new_filename[100];
+            snprintf( new_filename,
+                      sizeof( new_filename ),
+                      "%lu-%lu-%lu.txt",
+                      ctx->replay->snapshot_slot,
+                      prev_slot,
+                      cmp_slot );
+
+            int rc = fd_wksp_checkpt( ctx->blockstore_wksp, ctx->blockstore_checkpt_path, 0666, 0, NULL );
+            if( rc ) {
+              FD_LOG_ERR( ( "blockstore checkpt failed: error %d", rc ) );
+            }
+
+            FD_LOG_ERR( ( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ) );
+            break;
+
+          case 0:
+
+            /* Not ready */
+
+            break;
+
+          case 1:
+
+            /* Match*/
+            
+            bank_hash_cmp->watermark = cmp_slot;
+            break;
+
+          default:;
         }
       }
 
       fd_bank_hash_cmp_unlock( bank_hash_cmp );
-
-      if (NULL != ctx->capture_ctx)
-        fd_solcap_writer_flush( ctx->capture_ctx->capture );
     }
 
     /* Indicate to pack tile we are done processing the transactions so it
@@ -779,7 +826,10 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
     /* Already loaded the main snapshot when we initialized funk */
     ulong i, j;
     FD_TEST( sscanf( incremental, "incremental-snapshot-%lu-%lu", &i, &j ) == 2 );
-    FD_TEST( i == ctx->slot_ctx->slot_bank.slot );
+    if (FD_UNLIKELY(( i != ctx->slot_ctx->slot_bank.slot ))) {
+      FD_LOG_WARNING(("incremental snapshot slot %lu did not match full snapshot slot %lu", i, ctx->slot_ctx->slot_bank.slot));
+      __asm__("int $3");
+    };
     fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
     FD_TEST( epoch_bank );
     FD_TEST( fd_slot_to_epoch( &epoch_bank->epoch_schedule, i, NULL ) ==
@@ -849,7 +899,7 @@ after_credit( void *             _ctx,
       ctx->slot_ctx->blockstore = fd_blockstore_join( shmem );
     }
 
-    if( ctx->slot_ctx->blockstore != NULL ) {
+    if ( ctx->slot_ctx->blockstore != NULL ) {
       FD_SCRATCH_SCOPE_BEGIN {
         ctx->replay->blockstore        = ctx->slot_ctx->blockstore;
         ctx->replay->forks->blockstore = ctx->slot_ctx->blockstore;
@@ -922,6 +972,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( ctx->blockstore_wksp==NULL ) {
     FD_LOG_ERR(( "no blocktore workspace" ));
   }
+  ctx->blockstore_checkpt_path = tile->replay.blockstore_checkpt;
 
   /* Funk setup */
   ulong funk_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "funk" );
@@ -936,7 +987,9 @@ unprivileged_init( fd_topo_t *      topo,
   void * funk_shmem = NULL;
   ctx->snapshot = tile->replay.snapshot;
   if ( strncmp(ctx->snapshot, "wksp:", 5) == 0 ) {
+    FD_LOG_NOTICE(("starting wksp restore..."));
     int err = fd_wksp_restore( ctx->funk_wksp, ctx->snapshot+5U, (uint)ctx->funk_seed );
+    FD_LOG_NOTICE(("finished wksp restore..."));
     if (err) {
       FD_LOG_ERR(( "failed to restore %s: error %d", ctx->snapshot, err ));
     }
@@ -998,7 +1051,7 @@ unprivileged_init( fd_topo_t *      topo,
   forks->valloc = valloc;
   ctx->replay->forks = forks;
 
-  ulong snapshot_slot = tile->replay.snapshot_slot;
+  ulong snapshot_slot = FD_SLOT_NULL;
   fd_fork_t * replay_slot = fd_fork_pool_ele_acquire( ctx->replay->forks->pool );
   replay_slot->slot   = snapshot_slot;
   ctx->replay->smr    = snapshot_slot;
@@ -1142,9 +1195,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake_weights_out_wmark  = fd_dcache_compact_wmark ( ctx->stake_weights_out_mem, stake_weights_out->dcache, stake_weights_out->mtu );
   ctx->stake_weights_out_chunk  = ctx->stake_weights_out_chunk0;
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  if( FD_UNLIKELY( scratch_top>( (ulong)scratch + scratch_footprint( tile ) ) ) )
-    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+  if( FD_UNLIKELY( ctx->capture_ctx ) ) {
+    char filename[100];
+    snprintf( filename, sizeof( filename ), "%lu.txt", snapshot_slot );
+    ctx->slots_file = fopen( filename, "w" );
+    FD_TEST( ctx->slots_file );
+  }
 }
 
 static ulong

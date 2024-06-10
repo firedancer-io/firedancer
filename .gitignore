@@ -50,3 +50,6 @@ deps-bundle.tar.zst
 
 # TVU
 testnet.toml
+mainnet.toml
+testnet.sh
+mainnet.sh

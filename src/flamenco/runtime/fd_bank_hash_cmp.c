@@ -208,7 +208,7 @@ fd_bank_hash_cmp_check( fd_bank_hash_cmp_t * bank_hash_cmp, ulong slot ) {
                             cmp->stakes[i] ) );
         }
       }
-      return 2;
+      return -1;
     } else {
       FD_LOG_NOTICE( ( "\n\n[Bank Hash Comparison]\n"
                        "slot:   %lu\n"

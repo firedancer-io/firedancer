@@ -227,12 +227,13 @@ typedef struct {
     } metric;
 
     /* Firedancer-only tile configs */
+  
     struct {
+      ulong  entrypoints_cnt;
+      char   entrypoints[16][256];
       ushort gossip_listen_port;
       ulong  peer_ports_cnt;
       uint   peer_ports[16];
-      ulong  entrypoints_cnt;
-      char   entrypoints[16][256];
     } gossip;
 
     struct {
@@ -241,15 +242,22 @@ typedef struct {
     } repair;
 
     struct {
-      char  snapshot[ PATH_MAX ];
-      char  incremental[ PATH_MAX ];
-      char  genesis[ PATH_MAX ];
+      char  blockstore_checkpt[ PATH_MAX ];
       char  capture[ PATH_MAX ];
-      ulong tpool_thread_count;
+      ulong funk_rec_max;
       ulong funk_sz_gb;
       ulong funk_txn_max;
-      ulong funk_rec_max;
+      char  genesis[ PATH_MAX ];
+      char  incremental[ PATH_MAX ];
+      char  snapshot[ PATH_MAX ];
+      char  slots[PATH_MAX ];
+      ulong tpool_thread_count;
     } replay;
+
+    struct {
+      char  blockstore_restore[ PATH_MAX ];
+      char  slots[PATH_MAX];
+    } store_int;
 
   } tiles;
 } config_t;
