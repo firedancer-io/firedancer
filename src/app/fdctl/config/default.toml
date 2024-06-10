@@ -170,17 +170,6 @@ dynamic_port_range = "8900-9000"
     # `--limit-ledger-size` argument.
     limit_size = 200_000_000
 
-    # If enabled, fetch historical transaction info from a BigTable
-    # instance as a fallback to local ledger data.  The
-    # `GOOGLE_APPLICATION_CREDENTIALS` environment variable must be set
-    # to access BigTable.
-    #
-    # This option does not currently work, and it should not be enabled.
-    #
-    # This option is passed to the Solana Labs client with the
-    # `--enable-rpc-bigtable-ledger-storage` argument.
-    bigtable_storage = false
-
     # If nonempty, enable an accounts index indexed by the specified
     # field.  The account field must be one of "program-id",
     # "spl-token-owner", or "spl-token-mint".  These options are passed
@@ -279,6 +268,15 @@ dynamic_port_range = "8900-9000"
     # subscription.  This option is passed to the Solana Labs client
     # with the `--rpc-pubsub-enable-vote-subscription` argument.
     pubsub_enable_vote_subscription = false
+
+    # If enabled, fetch historical transaction info from a BigTable
+    # instance as a fallback to local ledger data when serving RPC
+    # requests.  The `GOOGLE_APPLICATION_CREDENTIALS` environment
+    # variable must be set to access BigTable.
+    #
+    # This option is passed to the Solana Labs client with the
+    # `--enable-rpc-bigtable-ledger-storage` argument.
+    bigtable_ledger_storage = false
 
 # The Solana Labs client periodically takes and stores snapshots of the
 # chain's state.  Other clients, especially as they bootstrap or catch
