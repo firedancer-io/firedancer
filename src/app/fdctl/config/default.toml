@@ -496,7 +496,7 @@ dynamic_port_range = "8900-9000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so
     # that the Solana network can run as fast as possible.
-    affinity = "1-21"
+    affinity = "1-16"
 
     # In addition to the Firedancer tiles which use a core each, the
     # current version of Firedancer hosts a Solana Labs (Agave)
@@ -513,7 +513,7 @@ dynamic_port_range = "8900-9000"
     #
     # An empty string here will not affine the process, and it will run
     # be free to run on any floating core.
-    solana_labs_affinity = "22-31"
+    solana_labs_affinity = "17-31"
 
     # How many net tiles to run.  Each networking tile will service
     # exactly one queue from a network device being listened to.  If
@@ -534,7 +534,7 @@ dynamic_port_range = "8900-9000"
     # How many verify tiles to run.  Verify tiles perform signature
     # verification on incoming transactions, an expensive operation that
     # is often the bottleneck of the validator.
-    verify_tile_count = 10
+    verify_tile_count = 5
 
     # How many bank tiles to run.  Multiple banks can run in parallel,
     # if they are not writing to the same accounts at the same time.
@@ -673,7 +673,7 @@ dynamic_port_range = "8900-9000"
         # be accepted.
         #
         # This must be >= 2 and also a power of 2.
-        max_concurrent_connections = 2048
+        max_concurrent_connections = 256
 
         # QUIC allows for multiple streams to be multiplexed over a
         # single connection.  This option sets the maximum number of
@@ -701,7 +701,7 @@ dynamic_port_range = "8900-9000"
         # every connection can be used.  This means that this value MUST
         # be at least as high as max_concurrent_connections.
         # The size of the pool is defined here:
-        stream_pool_cnt = 65536
+        stream_pool_cnt = 4096
 
         # Controls how much transactions coming in via TPU can be
         # reassembled at the same time.  Reassembly is required for user
@@ -726,7 +726,7 @@ dynamic_port_range = "8900-9000"
         # above.
         #
         # TODO: This should be removed.
-        max_concurrent_handshakes = 2048
+        max_concurrent_handshakes = 256
 
         # QUIC has a concept of a "QUIC packet", there can be multiple
         # of these inside a UDP packet.  Each QUIC packet we send to the
@@ -739,7 +739,7 @@ dynamic_port_range = "8900-9000"
         # rather than the underlying link bandwidth.  If you have a lot
         # of memory available and are constrained by this, it can make
         # sense to increase.
-        max_inflight_quic_packets = 2500
+        max_inflight_quic_packets = 1000
 
         # TODO: This should be removed.  We never transmit stream data
         # so this should be unused.
@@ -834,7 +834,7 @@ dynamic_port_range = "8900-9000"
         # To compute an appropriate value, multiply the expected Turbine
         # worst-case latency (tenths of seconds) by the expected
         # transaction rate, and divide by approx 25.
-        max_pending_shred_sets = 16384
+        max_pending_shred_sets = 512
 
         # The shred tile listens on a specific port for shreds to
         # forward.  This argument controls which port that is.  The port
