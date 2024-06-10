@@ -50,6 +50,9 @@ static FD_TL char _report_prefix[100] = {0};
 #include "../../../util/tmpl/fd_sort.c"
 #include "../../vm/fd_vm_context.h"
 
+static uchar * data_wksp_ptrs[256] = {0};
+static ulong data_wksp_ptrs_idx = 0;
+
 struct __attribute__((aligned(32UL))) fd_exec_instr_test_runner_private {
   fd_funk_t * funk;
 };
@@ -147,6 +150,8 @@ _load_account( fd_borrowed_account_t *           acc,
   assert( err==FD_ACC_MGR_SUCCESS );
   fd_memcpy( acc->data, state->data->bytes, size );
 
+  data_wksp_ptrs[data_wksp_ptrs_idx++] = acc->data;
+
   acc->starting_lamports     = state->lamports;
   acc->starting_dlen         = size;
   acc->meta->info.lamports   = state->lamports;
@@ -163,6 +168,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
                  fd_exec_instr_ctx_t *                ctx,
                  fd_exec_test_instr_context_t const * test_ctx ) {
   // TODO: Add an option to use workspace allocators
+  data_wksp_ptrs_idx = 0;
 
   memset( ctx, 0, sizeof(fd_exec_instr_ctx_t) );
 
@@ -499,6 +505,20 @@ _context_destroy( fd_exec_instr_test_runner_t * runner,
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
 
   fd_valloc_free( ctx->txn_ctx->valloc, fd_instr_info_pool_delete( fd_instr_info_pool_leave( ctx->txn_ctx->instr_info_pool ) ) );
+
+  // Free any libc-allocated borrowed account data
+  for( ulong i = 0; i < ctx->txn_ctx->accounts_cnt; ++i ) {
+    bool wksp_allocated = false;
+    for( ulong j = 0; j < data_wksp_ptrs_idx; ++j ) {
+      if( ctx->txn_ctx->borrowed_accounts[i].data == data_wksp_ptrs[j] ) {
+        wksp_allocated = true;
+        break;
+      }
+    }
+    if( !wksp_allocated ) {
+      fd_valloc_free( ctx->txn_ctx->valloc, ctx->txn_ctx->borrowed_accounts[i].data - sizeof(fd_account_meta_t) );
+    }
+  }
 
   fd_exec_slot_ctx_free( slot_ctx );
   fd_acc_mgr_delete( acc_mgr );
