@@ -94,17 +94,17 @@ static int
 create_socket( fd_gossip_peer_addr_t * addr ) {
   int fd;
   if( ( fd = socket( AF_INET, SOCK_DGRAM, 0 ) ) < 0 ) {
-    FD_LOG_ERR( ( "socket failed: %s", strerror( errno ) ) );
+    FD_LOG_ERR(( "socket failed: %s", strerror( errno ) ));
     return -1;
   }
   int optval = 1 << 20;
   if( setsockopt( fd, SOL_SOCKET, SO_RCVBUF, (char *)&optval, sizeof( int ) ) < 0 ) {
-    FD_LOG_ERR( ( "setsocketopt failed: %s", strerror( errno ) ) );
+    FD_LOG_ERR(( "setsocketopt failed: %s", strerror( errno ) ));
     return -1;
   }
 
   if( setsockopt( fd, SOL_SOCKET, SO_SNDBUF, (char *)&optval, sizeof( int ) ) < 0 ) {
-    FD_LOG_ERR( ( "setsocketopt failed: %s", strerror( errno ) ) );
+    FD_LOG_ERR(( "setsocketopt failed: %s", strerror( errno ) ));
     return -1;
   }
 
@@ -112,13 +112,13 @@ create_socket( fd_gossip_peer_addr_t * addr ) {
   int   addrlen = to_sockaddr( saddr, addr );
   if( addrlen < 0 || bind( fd, (struct sockaddr *)saddr, (uint)addrlen ) < 0 ) {
     char tmp[MAX_ADDR_STRLEN];
-    FD_LOG_ERR( ( "bind failed: %s for %s",
-                  strerror( errno ),
-                  fd_gossip_addr_str( tmp, sizeof( tmp ), addr ) ) );
+    FD_LOG_ERR(( "bind failed: %s for %s",
+                 strerror( errno ),
+                 fd_gossip_addr_str( tmp, sizeof( tmp ), addr ) ));
     return -1;
   }
   if( getsockname( fd, (struct sockaddr *)saddr, (uint *)&addrlen ) < 0 ) {
-    FD_LOG_ERR( ( "getsockname failed: %s", strerror( errno ) ) );
+    FD_LOG_ERR(( "getsockname failed: %s", strerror( errno ) ));
     return -1;
   }
   from_sockaddr( addr, saddr );
@@ -141,7 +141,7 @@ gossip_send_fun( uchar const *                 data,
               MSG_DONTWAIT,
               (const struct sockaddr *)saddr,
               (socklen_t)saddrlen ) < 0 ) {
-    FD_LOG_WARNING( ( "sendto failed: %s", strerror( errno ) ) );
+    FD_LOG_WARNING(( "sendto failed: %s", strerror( errno ) ));
   }
 }
 
@@ -152,7 +152,7 @@ void send_udp_pkt( void * pkt, ulong pkt_sz, fd_wksp_t * wksp, uint dst_ip, usho
 
   int sock_fd = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
   if( FD_UNLIKELY( sock_fd<0 ) ) {
-    FD_LOG_ERR(( "socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP) failed"));
+    FD_LOG_ERR(( "socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP) failed" ));
   }
 
   void * sock_mem = fd_wksp_alloc_laddr( wksp, fd_udpsock_align(),
@@ -195,28 +195,35 @@ void send_udp_pkt( void * pkt, ulong pkt_sz, fd_wksp_t * wksp, uint dst_ip, usho
   write_ptr += sizeof( fd_udp_hdr_t );
   fd_memcpy( write_ptr, pkt, pkt_sz );
   pkt_info->buf = buf;
-  pkt_info->buf_sz = (ushort)pkt_sz + (ushort)(write_ptr - buf);
+
+  ulong buf_sz = pkt_sz + (ulong)(write_ptr - buf);
+  if ( buf_sz <= USHORT_MAX ) {
+    pkt_info->buf_sz = (ushort) buf_sz;
+  } else {
+    FD_LOG_ERR(( "Packet size overflows ushort" ));
+  }
 
   fd_aio_t const * tx = fd_udpsock_get_tx( sock );
   int rc = tx->send_func(tx->ctx, pkt_info, 1, NULL, 1);
   if ( rc != FD_AIO_SUCCESS ) {
-    FD_LOG_ERR(("UDP send failed with %d", rc));
+    FD_LOG_ERR(( "UDP send failed with %d", rc ));
   } else {
-    uchar* data = (uchar*)pkt;
-    FD_LOG_NOTICE(("UDP send suceeds\n %lu bytes in total. first 8 bytes: %x %x %x %x %x %x %x %x | last  8 bytes: %x %x %x %x %x %x %x %x\n ", pkt_sz, data[0], data[1], data[2], data[3],
-                   data[4], data[5], data[6], data[7], data[pkt_sz - 8], data[pkt_sz - 7], data[pkt_sz - 6], data[pkt_sz -5],
-                   data[pkt_sz - 4], data[pkt_sz - 3], data[pkt_sz - 2], data[pkt_sz - 1]));
+    uchar * data = (uchar *)pkt;
+    FD_LOG_NOTICE(( "UDP send suceeds\n %lu bytes in total. first 8 bytes: %x %x %x %x %x %x %x %x | last  8 bytes: %x %x %x %x %x %x %x %x\n ", pkt_sz, data[0], data[1], data[2], data[3],
+                    data[4], data[5], data[6], data[7], data[pkt_sz - 8], data[pkt_sz - 7], data[pkt_sz - 6], data[pkt_sz -5],
+                    data[pkt_sz - 4], data[pkt_sz - 3], data[pkt_sz - 2], data[pkt_sz - 1] ));
   }
 }
 
 struct gossip_deliver_arg {
-  fd_wksp_t *        wksp;
-  fd_valloc_t        valloc;
-  fd_gossip_t        *gossip;
-  fd_gossip_config_t *gossip_config;
+  fd_wksp_t *          wksp;
+  fd_valloc_t          valloc;
+  fd_gossip_t        * gossip;
+  fd_gossip_config_t * gossip_config;
 
-  const uchar* voter_keypair;
-  const uchar* validator_keypair;
+  fd_pubkey_t        * vote_acct_addr;
+  const uchar        * node_keypair;
+  const uchar        * authorized_voter_keypair;
 };
 typedef struct gossip_deliver_arg gossip_deliver_arg_t;
 
@@ -224,8 +231,8 @@ static void
 gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
   gossip_deliver_arg_t * arg_ = (gossip_deliver_arg_t *)arg;
   if ( data->discriminant == fd_crds_data_enum_vote ) {
-    fd_gossip_vote_t *vote = &data->inner.vote;
-    fd_txn_t *parsed_txn = (fd_txn_t *)fd_type_pun( vote->txn.txn );
+    fd_gossip_vote_t * vote = &data->inner.vote;
+    fd_txn_t * parsed_txn = (fd_txn_t *)fd_type_pun( vote->txn.txn );
 
     FD_TEST( parsed_txn );
     FD_TEST( parsed_txn->instr_cnt == 1);
@@ -236,12 +243,12 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
 
     if ( !memcmp( account_addr, fd_solana_vote_program_id.key, sizeof( fd_pubkey_t ) ) ) {
       fd_vote_instruction_t vote_instr = { 0 };
-      ushort instr_data_sz = parsed_txn->instr[0].data_sz;
-      uchar* instr_data = vote->txn.raw + parsed_txn->instr[0].data_off;
-      fd_bincode_decode_ctx_t decode = {
-                                        .data    = instr_data,
-                                        .dataend = instr_data + instr_data_sz,
-                                        .valloc  = arg_->valloc
+      ushort instr_data_sz             = parsed_txn->instr[0].data_sz;
+      uchar * instr_data               = vote->txn.raw + parsed_txn->instr[0].data_off;
+      fd_bincode_decode_ctx_t decode   = {
+        .data    = instr_data,
+        .dataend = instr_data + instr_data_sz,
+        .valloc  = arg_->valloc
       };
       int decode_result = fd_vote_instruction_decode( &vote_instr, &decode );
       if( decode_result == FD_BINCODE_SUCCESS) {
@@ -251,66 +258,60 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
           ulong new_timestamp = 19950128UL;
           vote_instr.inner.compact_update_vote_state.timestamp = &new_timestamp;
 
-          /* Prepare the keys for the vote transaction */
-          fd_pubkey_t validator_pubkey, vote_acct_pubkey;
-          uchar validator_privkey[32], vote_acct_privkey[32];
-          memcpy( validator_privkey, arg_->validator_keypair, 32 );
-          memcpy( vote_acct_privkey, arg_->voter_keypair, 32 );
-          memcpy( validator_pubkey.key, arg_->validator_keypair + 32UL, 32 );
-          memcpy( vote_acct_pubkey.key, arg_->voter_keypair + 32UL, 32 );
-
-          /* Generate and send the vote transaction */
+          /* Generate the vote transaction */
+          fd_voter_t voter = {
+            .vote_acct_addr           = arg_->vote_acct_addr,
+            .node_keypair             = arg_->node_keypair,
+            .authorized_voter_keypair = arg_->authorized_voter_keypair
+          };
           fd_crds_data_t echo_data;
-          echo_data.discriminant = fd_crds_data_enum_vote;
-          echo_data.inner.vote.txn.raw_sz = fd_vote_txn_generate( &vote_instr.inner.compact_update_vote_state,
-                                                                  &validator_pubkey,
-                                                                  &vote_acct_pubkey,
-                                                                  validator_privkey,
-                                                                  vote_acct_privkey,
+          echo_data.discriminant          = fd_crds_data_enum_vote;
+          echo_data.inner.vote.txn.raw_sz = fd_vote_txn_generate( &voter,
+                                                                  &vote_instr.inner.compact_update_vote_state,
                                                                   vote->txn.raw + parsed_txn->recent_blockhash_off,
                                                                   echo_data.inner.vote.txn.txn_buf,
-                                                                  echo_data.inner.vote.txn.raw);
+                                                                  echo_data.inner.vote.txn.raw );
           /* echo through gossip  */
-          /* fd_gossip_push_value( arg_->gossip, &echo_data, NULL ); */
-          /* static ulong echo_cnt = 0; */
-          /* FD_LOG_NOTICE( ("Echo gossip vote#%lu: root=%lu, from=%32J, gossip_pubkey=%32J, txn_acct_cnt=%u(readonly_s=%u, readonly_us=%u), sign_cnt=%u, sign_off=%u | instruction#0: program=%32J", */
-          /*                 echo_cnt++, */
-          /*                 vote_instr.inner.compact_update_vote_state.root, */
-          /*                 &vote->from, */
-          /*                 arg_->gossip_config->public_key, */
-          /*                 parsed_txn->acct_addr_cnt, */
-          /*                 parsed_txn->readonly_signed_cnt, */
-          /*                 parsed_txn->readonly_unsigned_cnt, */
-          /*                 parsed_txn->signature_cnt, */
-          /*                 parsed_txn->signature_off, */
-          /*                 account_addr) ); */
+          fd_gossip_push_value( arg_->gossip, &echo_data, NULL );
+          static ulong echo_cnt = 0;
+          FD_LOG_NOTICE(( "Echo gossip vote#%lu: root=%lu, from=%32J, gossip_pubkey=%32J, txn_acct_cnt=%u(readonly_s=%u, readonly_us=%u), sign_cnt=%u, sign_off=%u | instruction#0: program=%32J",
+                          echo_cnt++,
+                          vote_instr.inner.compact_update_vote_state.root,
+                          &vote->from,
+                          arg_->gossip_config->public_key,
+                          parsed_txn->acct_addr_cnt,
+                          parsed_txn->readonly_signed_cnt,
+                          parsed_txn->readonly_unsigned_cnt,
+                          parsed_txn->signature_cnt,
+                          parsed_txn->signature_off,
+                          account_addr ));
 
           /* echo through udp  */
           fd_aio_pkt_info_t udp_pkt;
-          udp_pkt.buf    = echo_data.inner.vote.txn.raw;
-          udp_pkt.buf_sz = (ushort)echo_data.inner.vote.txn.raw_sz;
+          udp_pkt.buf     = echo_data.inner.vote.txn.raw;
+          udp_pkt.buf_sz  = (ushort)echo_data.inner.vote.txn.raw_sz;
           uint   dst_ip   = 0x0100007f; /* localhost */
           ushort dst_port = 1029;       /* vote udp port */
           send_udp_pkt( udp_pkt.buf, udp_pkt.buf_sz, arg_->wksp, dst_ip, dst_port );
-          FD_LOG_NOTICE(("Sent vote txn to 127.0.0.1:1029 w/ UDP\ntimestamp: %lu -> %lu\nOld sig1: %64J\nOld sig2: %64J\nNew sig1: %64J\nNew sig2: %64J",
+          FD_LOG_NOTICE(( "Sent vote txn to 127.0.0.1:1029 w/ UDP\ntimestamp: %lu -> %lu\nOld sig1: %64J\nOld sig2: %64J\nNew sig1: %64J\nNew sig2: %64J",
                          old_timestamp,
                          new_timestamp,
                          vote->txn.raw + parsed_txn->signature_off,
                          vote->txn.raw + parsed_txn->signature_off + FD_TXN_SIGNATURE_SZ,
                          echo_data.inner.vote.txn.raw + parsed_txn->signature_off,
-                         echo_data.inner.vote.txn.raw + parsed_txn->signature_off + FD_TXN_SIGNATURE_SZ));
-          FD_LOG_ERR(("Finish."));
+                         echo_data.inner.vote.txn.raw + parsed_txn->signature_off + FD_TXN_SIGNATURE_SZ ));
+          FD_LOG_ERR(( "Finish." ));
 
        } else {
-          FD_LOG_WARNING( ("Gossip receives vote instruction with other discriminant") );
+          FD_LOG_WARNING(( "Gossip receives vote instruction with other discriminant" ));
         }
       } else {
-        FD_LOG_ERR( ("Unable to decode the vote instruction in gossip, error=%d", decode_result) );
+        FD_LOG_ERR(( "Unable to decode the vote instruction in gossip, error=%d", decode_result ));
       }
     } else {
-      FD_LOG_ERR( ("Received gossip vote txn targets program %32J instead of %32J",
+      FD_LOG_ERR(( "Received gossip vote txn targets program %32J instead of %32J",
                    account_addr,
-                   fd_solana_vote_program_id.key) );
+                   fd_solana_vote_program_id.key ));
     }
   }
 }
@@ -326,7 +327,7 @@ resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res 
   uint i;
   for( i = 0;; ++i ) {
     if( str[i] == '\0' || i > sizeof( buf ) - 1U ) {
-      FD_LOG_ERR( ( "missing colon" ) );
+      FD_LOG_ERR(( "missing colon" ));
       return NULL;
     }
     if( str[i] == ':' ) {
@@ -341,7 +342,7 @@ resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res 
 
   struct hostent * host = gethostbyname( buf );
   if( host == NULL ) {
-    FD_LOG_WARNING( ( "unable to resolve host %s", buf ) );
+    FD_LOG_WARNING(( "unable to resolve host %s", buf ));
     return NULL;
   }
   /* Convert result to repair address */
@@ -349,7 +350,7 @@ resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res 
   res->addr = ( (struct in_addr *)host->h_addr_list[0] )->s_addr;
   int port  = atoi( str + i + 1 );
   if( ( port > 0 && port < 1024 ) || port > (int)USHORT_MAX ) {
-    FD_LOG_ERR( ( "invalid port number" ) );
+    FD_LOG_ERR(( "invalid port number" ));
     return NULL;
   }
   res->port = htons( (ushort)port );
@@ -428,15 +429,17 @@ main( int argc, char ** argv ) {
   const char * gossip_peer_addr =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, NULL );
   ushort gossip_port = fd_env_strip_cmdline_ushort( &argc, &argv, "--gossip-port", NULL, 9001 );
-  FD_TEST( gossip_peer_addr );
-  const char * voter_keypair_file =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--voter-keypair-file", NULL, NULL );
-  const char * validator_keypair_file =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--validator-keypair-file", NULL, NULL );
+  const char * node_keypair_file =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--node-keypair-file", NULL, NULL );
+  const char * vote_acct_addr_file =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--vote-acct-addr-file", NULL, NULL );
+  const char * authorized_voter_keypair_file =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--auth-voter-keypair-file", NULL, NULL );
   ushort shred_version = fd_env_strip_cmdline_ushort( &argc, &argv, "--shred-version", NULL, 0 );
-  FD_TEST( shred_version != 0 );
-  FD_TEST( voter_keypair_file );
-  FD_TEST( validator_keypair_file );
+
+  FD_TEST( gossip_peer_addr );
+  FD_TEST( node_keypair_file );
+  FD_TEST( authorized_voter_keypair_file );
 
   /**********************************************************************/
   /* wksp                                                               */
@@ -444,14 +447,14 @@ main( int argc, char ** argv ) {
 
   char * _page_sz = "gigantic";
   ulong  numa_idx = fd_shmem_numa_idx( 0 );
-  FD_LOG_NOTICE( ( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)",
+  FD_LOG_NOTICE(( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)",
                    1,
                    _page_sz,
-                   numa_idx ) );
+                   numa_idx ));
   fd_wksp_t * wksp = fd_wksp_new_anonymous(
       fd_cstr_to_shmem_page_sz( _page_sz ), 1, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
-  FD_LOG_DEBUG( ( "Finish setup wksp" ) );
+  FD_LOG_DEBUG(( "Finish setup wksp" ));
 
   /**********************************************************************/
   /* alloc                                                              */
@@ -486,6 +489,10 @@ main( int argc, char ** argv ) {
   fd_pubkey_t public_key;
   FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, sha ) );
 
+  fd_pubkey_t vote_acct_addr;
+  const uchar* vote_acct_keypair = fd_keyload_load( vote_acct_addr_file, 0 );
+  memcpy( vote_acct_addr.key, vote_acct_keypair + 32UL, 32 );
+
   /**********************************************************************/
   /* gossip                                                             */
   /**********************************************************************/
@@ -500,12 +507,15 @@ main( int argc, char ** argv ) {
   snprintf( gossip_addr, sizeof( gossip_addr ), ":%u", gossip_port );
   FD_TEST( resolve_hostport( gossip_addr, &gossip_config.my_addr ) );
   gossip_config.shred_version             = shred_version;
-  gossip_deliver_arg_t gossip_deliver_arg = { .valloc = valloc,
-                                              .gossip_config = &gossip_config,
-                                              .gossip = gossip,
-                                              .wksp = wksp,
-                                              .voter_keypair = fd_keyload_load(voter_keypair_file, 0),
-                                              .validator_keypair = fd_keyload_load(validator_keypair_file, 0)};
+  gossip_deliver_arg_t gossip_deliver_arg = {
+    .valloc                   = valloc,
+    .gossip_config            = &gossip_config,
+    .gossip                   = gossip,
+    .wksp                     = wksp,
+    .vote_acct_addr           = &vote_acct_addr,
+    .node_keypair             = fd_keyload_load( node_keypair_file, 0 ),
+    .authorized_voter_keypair = fd_keyload_load( authorized_voter_keypair_file, 0 )
+  };
   gossip_config.deliver_arg               = &gossip_deliver_arg;
   gossip_config.deliver_fun               = gossip_deliver_fun;
   gossip_config.send_fun                  = gossip_send_fun;
