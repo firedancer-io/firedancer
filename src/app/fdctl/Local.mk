@@ -15,7 +15,7 @@ $(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
 
 # When we don't have libsolana_validator.a in the PHONY list, make fails
 # to realize that it has been updated. Not sure why this happens.
-.PHONY: fdctl cargo-validator cargo-solana rust solana
+.PHONY: fdctl cargo-validator cargo-solana rust solana check-solana-hash
 
 # fdctl core
 $(call add-objs,main1 config caps utility keys ready mem spy help version,fd_fdctl)
@@ -89,10 +89,18 @@ $(OBJDIR)/obj/app/fdctl/run/tiles/fd_store_int.o: src/app/fdctl/run/tiles/genera
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_replay.o: src/app/fdctl/run/tiles/generated/replay_seccomp.h
 endif
 
+check-solana-hash:
+	@$(eval SOLANA_COMMIT_LS_TREE=$(shell git ls-tree HEAD | grep solana | awk '{print $$3}'))
+	@$(eval SOLANA_COMMIT_SUBMODULE=$(shell git --git-dir=solana/.git --work-tree=solana rev-parse HEAD))
+	@if [ "$(SOLANA_COMMIT_LS_TREE)" != "$(SOLANA_COMMIT_SUBMODULE)" ]; then \
+ 		echo "Error: solana submodule is not up to date. Please run \`git submodule update\` before building"; \
+		exit 1; \
+	fi
+
 # Phony target to always rerun cargo build ... it will detect if anything
 # changed on the library side.
-cargo-validator:
-cargo-solana:
+cargo-validator: check-solana-hash
+cargo-solana: check-solana-hash
 
 # Cargo build cannot cache the prior build if the command line changes,
 # for example if we did,
