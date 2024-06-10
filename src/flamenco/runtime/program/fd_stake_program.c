@@ -640,6 +640,7 @@ acceptable_reference_epoch_credits( fd_vote_epoch_credits_t * epoch_credits,
       ulong vote_epoch = deq_fd_vote_epoch_credits_t_peek_index( epoch_credits, i )->epoch;
       if( vote_epoch != epoch ) { return 0; }
       epoch = fd_ulong_sat_sub( epoch, 1 );
+      if( i == 0 ) break;
     }
     return 1;
   } else {
