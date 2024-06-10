@@ -29,18 +29,20 @@ run_cmd_perm( args_t *         args,
 
   ulong mlock_limit = fd_topo_mlock_max_tile( &config->topo );
 
-  fd_caps_check_resource(     caps, NAME, RLIMIT_MEMLOCK, mlock_limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`" );
+  fd_caps_check_resource(     caps, NAME, RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
   fd_caps_check_resource(     caps, NAME, RLIMIT_NICE,    40,          "call `setpriority(2)` to increase thread priorities" );
   fd_caps_check_resource(     caps, NAME, RLIMIT_NOFILE,  CONFIGURE_NR_OPEN_FILES,
-                                                                       "increase `RLIMIT_NOFILE` to allow more open files for Solana Labs" );
-  fd_caps_check_capability(   caps, NAME, CAP_NET_RAW,                 "call `bind(2)` to bind to a socket with `SOCK_RAW`" );
-  fd_caps_check_capability(   caps, NAME, CAP_SYS_ADMIN,               "initialize XDP by calling `bpf_obj_get`" );
+                                                                       "call `rlimit(2)  to increase `RLIMIT_NOFILE` to allow more open files for Agave" );
+  fd_caps_check_capability(   caps, NAME, CAP_NET_RAW,                 "call `socket(2)` to bind to a raw socket for use by XDP" );
+  fd_caps_check_capability(   caps, NAME, CAP_SYS_ADMIN,               "call `bpf(2)` with the `BPF_OBJ_GET` command to initialize XDP" );
   if( FD_LIKELY( getuid() != config->uid ) )
-    fd_caps_check_capability( caps, NAME, CAP_SETUID,                  "switch uid by calling `setuid(2)`" );
+    fd_caps_check_capability( caps, NAME, CAP_SETUID,                  "call `setresuid(2)` to switch uid" );
   if( FD_LIKELY( getgid() != config->gid ) )
-    fd_caps_check_capability( caps, NAME, CAP_SETGID,                  "switch gid by calling `setgid(2)`" );
+    fd_caps_check_capability( caps, NAME, CAP_SETGID,                  "call `setresgid(2)` to switch gid" );
   if( FD_UNLIKELY( config->development.netns.enabled ) )
-    fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,               "enter a network namespace by calling `setns(2)`" );
+    fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,               "call `setns(2)` to enter a network namespace" );
+  if( FD_UNLIKELY( config->tiles.metric.prometheus_listen_port<1024 ) )
+    fd_caps_check_capability( caps, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
 }
 
 struct pidns_clone_args {
