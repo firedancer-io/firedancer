@@ -683,7 +683,9 @@ fdctl_tile_run( fd_topo_tile_t * tile ) {
 static void
 topo_initialize( config_t * config ) {
   fd_topo_config_fn * topo_config_fn = fd_topo_kind_str_to_topo_config_fn( config->development.topology );
-  FD_LOG_NOTICE(( "initializing topology - kind: %s", config->development.topology ));
+  if( FD_UNLIKELY( strcmp( config->development.topology, "frankendancer" ) ) ) {
+    FD_LOG_NOTICE(( "initializing %s topology", config->development.topology ));
+  }
   topo_config_fn( config );
 }
 
