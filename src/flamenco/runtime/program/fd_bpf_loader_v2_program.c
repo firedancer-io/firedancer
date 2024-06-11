@@ -246,7 +246,7 @@ if (memcmp(signature, sig, 64) == 0) {
     }
 
     }
-    trace_buf_out += sprintf(trace_buf_out, "\0");
+    trace_buf_out += sprintf(trace_buf_out, " ");
     fputs(trace_buf, stderr);
   // fclose(trace_fd);
   // free(trace);
