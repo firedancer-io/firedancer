@@ -412,10 +412,6 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
 int
 process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
   uchar const * data = instr_ctx->instr->data;
-  if( FD_UNLIKELY( !instr_ctx || !instr_ctx->instr || !instr_ctx->instr->data ) ) {
-    FD_LOG_WARNING(( "instr_ctx %p instr_ctx->instr %p instr_ctx->instr->data %p", (void *)instr_ctx, (void *)instr_ctx->instr, (void *)instr_ctx->instr->data ));
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-  }
 
   fd_bpf_upgradeable_loader_program_instruction_t instruction = {0};
   fd_bincode_decode_ctx_t decode_ctx = {0};
