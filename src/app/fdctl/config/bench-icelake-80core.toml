@@ -31,3 +31,6 @@ scratch_directory = "/dev/shm/fd1"
 [rpc]
   transaction_history = false
   extended_tx_metadata_storage = false
+
+[tiles.shred]
+  max_pending_shred_sets = 16384
