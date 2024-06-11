@@ -2390,15 +2390,220 @@ fini:
   return FD_VM_SYSCALL_SUCCESS;
 }
 
+/* Used to query and convey information about the sibling instruction
+   https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/sdk/program/src/instruction.rs#L676 */
+struct fd_vm_syscall_processed_sibling_instruction {
+  /* Length of the instruction data */
+  ulong data_len;
+  /* Number of accounts */
+  ulong accounts_len;
+};
+typedef struct fd_vm_syscall_processed_sibling_instruction fd_vm_syscall_processed_sibling_instruction_t;
+
+#define FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_SIZE  (16UL)
+#define FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_ALIGN (8UL )
+
+/*
+sol_get_last_processed_sibling_instruction returns the last element from a reverse-ordered
+list of successfully processed sibling instructions: the "processed sibling instruction list".
+
+For example, given the call flow:
+A
+B -> C -> D
+B
+B -> F          (current execution point)
+
+B's processed sibling instruction list is [A]
+F's processed sibling instruction list is [E, C]
+
+This allows the current instruction to know what the last processed sibling instruction was.
+This is useful to check that critical preceeding instructions have actually executed: for example
+ensuring that an assert instruction has successfully executed.
+
+Parameters:
+- index:
+- result_meta_vaddr: virtual address of the object where metadata about the last processed sibling instruction will be stored upon successful execution (the length of the arrays in the result).
+  Has the type solana_program::instruction::ProcessedSiblingInstruction
+    https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/sdk/program/src/instruction.rs#L672-L681
+- result_program_id_vaddr: virtual address where the pubkey of the program ID of the last processed sibling instruction will be stored upon successful execution
+- result_data_vaddr: virtual address where the instruction data of the last processed sibling instruction will be stored upon successful execution. The length of the data will be stored in ProcessedSiblingInstruction.data_len
+- result_accounts_vaddr: virtual address where an array of account meta structures will be stored into upon successful execution. The length of the data will be stored in ProcessedSiblingInstruction.accounts_len
+  Each account meta has the type solana_program::instruction::AccountMeta
+    https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/sdk/program/src/instruction.rs#L525-L548
+
+Result:
+If a processed sibling instruction is found then 1 will be written into r0, and the result_* data structures
+above will be populated with the last processed sibling instruction.
+If there is no processed sibling instruction, 0 will be written into r0.
+
+Syscall entrypoint: https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1402
+*/
 ulong
 fd_vm_syscall_sol_get_processed_sibling_instruction(
-    void * _ctx FD_PARAM_UNUSED,
-    ulong arg0 FD_PARAM_UNUSED,
-    ulong arg1 FD_PARAM_UNUSED,
-    ulong arg2 FD_PARAM_UNUSED,
-    ulong arg3 FD_PARAM_UNUSED,
-    ulong arg4 FD_PARAM_UNUSED,
-    ulong * ret FD_PARAM_UNUSED
+    void * _ctx,
+    ulong index,
+    ulong result_meta_vaddr,
+    ulong result_program_id_vaddr,
+    ulong result_data_vaddr,
+    ulong result_accounts_vaddr,
+    ulong * ret
 ) {
-  return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
+
+  /* stop_sibling_instruction_search_at_parent has been activated on mainnet and testnet, so 
+     we treat it has hardcoded (always activated) here. */
+
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *)_ctx;
+
+  /* Consume base compute cost
+     https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1414 */
+  ulong err = fd_vm_consume_compute_meter( ctx, vm_compute_budget.syscall_base_cost );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
+
+  /* 
+    Get the current instruction stack height.
+
+    Top-level instructions in Agave's invocation stack have a depth of 1
+    https://github.com/anza-xyz/agave/blob/d87e23d8d91c32d5f2be2bb3557c730bee1e9434/sdk/program/src/instruction.rs#L732-L733
+    Ours have a depth of 0, so we need to add 1 to account for the difference
+   */
+  ulong stack_height = fd_ulong_sat_add( ctx->instr_ctx->depth, 1UL );
+
+  ulong instruction_trace_length = ctx->instr_ctx->txn_ctx->instr_trace_length;
+  if( FD_UNLIKELY( instruction_trace_length == 0 ) ) {
+    *ret = 0UL;
+    return FD_VM_SYSCALL_SUCCESS;
+  }
+
+  /* Reverse iterate through the instruction trace, ignoring anything except instructions on the same level.
+  https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1422 */
+  ulong reverse_index_at_stack_height = 0UL;
+  fd_exec_instr_trace_entry_t * trace_entry = NULL;
+  for( ulong index_in_trace = instruction_trace_length; index_in_trace > 0UL; index_in_trace-- ) {
+
+    fd_exec_instr_trace_entry_t * candidate_trace_entry = &ctx->instr_ctx->txn_ctx->instr_trace[ index_in_trace - 1UL ];
+    if( FD_LIKELY( candidate_trace_entry->stack_height < stack_height ) ) {
+      break;
+    }
+
+    if( FD_UNLIKELY( candidate_trace_entry->stack_height == stack_height ) ) {
+      if( FD_UNLIKELY( fd_ulong_sat_add( index, 1UL ) == reverse_index_at_stack_height ) ) {
+        trace_entry = candidate_trace_entry;
+        break;
+      }
+      reverse_index_at_stack_height = fd_ulong_sat_add( reverse_index_at_stack_height, 1UL );
+    }
+  }
+
+  /* If we have found an entry, then copy the instruction into the result addresses
+     https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1440-L1533
+   */
+  if( FD_LIKELY( trace_entry != NULL ) ) {
+    fd_instr_info_t * instr_info = trace_entry->instr_info;
+
+    fd_vm_syscall_processed_sibling_instruction_t * result_meta_haddr =
+      fd_vm_translate_vm_to_host( ctx,
+                                  result_meta_vaddr,
+                                  FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_SIZE, FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_ALIGN );
+    if( FD_UNLIKELY( !result_meta_haddr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+    /* https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1447 */
+    if( ( result_meta_haddr->data_len == trace_entry->instr_info->data_sz ) && 
+        ( result_meta_haddr->accounts_len == trace_entry->instr_info->acct_cnt ) ) {
+      
+      fd_pubkey_t * result_program_id_haddr = fd_vm_translate_vm_to_host( 
+        ctx,
+        result_program_id_vaddr,
+        FD_PUBKEY_FOOTPRINT,
+        FD_PUBKEY_ALIGN );
+      if( FD_UNLIKELY( !result_program_id_haddr ) ) {
+        return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      }
+
+      uchar * result_data_haddr = fd_vm_translate_vm_to_host(
+        ctx,
+        result_data_vaddr,
+        result_meta_haddr->data_len,
+        alignof(uchar)
+      );
+      if( FD_UNLIKELY( !result_data_haddr && result_meta_haddr->data_len ) ) {
+        return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      }
+
+      ulong accounts_meta_total_size = fd_ulong_sat_mul( result_meta_haddr->accounts_len, FD_VM_RUST_ACCOUNT_META_SIZE );
+      fd_vm_rust_account_meta_t * result_accounts_haddr = fd_vm_translate_vm_to_host(
+        ctx,
+        result_accounts_vaddr,
+        accounts_meta_total_size,
+        FD_VM_RUST_ACCOUNT_META_ALIGN
+      );
+      if( FD_UNLIKELY( !result_accounts_haddr && accounts_meta_total_size ) ) { 
+        return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      }
+
+      /* Check for memory overlaps
+         https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1469 */
+      if ( FD_UNLIKELY( !is_nonoverlapping(
+                          (ulong)result_meta_haddr,
+                          FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_SIZE,
+                          (ulong)result_program_id_haddr,
+                          FD_PUBKEY_FOOTPRINT
+                         ) || !is_nonoverlapping (
+                          (ulong)result_meta_haddr,
+                          FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_SIZE,
+                          (ulong)result_accounts_haddr,
+                          accounts_meta_total_size
+                         ) || !is_nonoverlapping(
+                           (ulong)result_meta_haddr,
+                           FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_SIZE,
+                           (ulong)result_data_haddr,
+                           result_meta_haddr->data_len
+                         ) || !is_nonoverlapping(
+                           (ulong)result_program_id_haddr,
+                           FD_PUBKEY_FOOTPRINT,
+                           (ulong)result_data_haddr,
+                           result_meta_haddr->data_len
+                         ) || !is_nonoverlapping(
+                           (ulong)result_program_id_haddr,
+                           FD_PUBKEY_FOOTPRINT,
+                           (ulong)result_accounts_haddr,
+                           accounts_meta_total_size
+                         ) || !is_nonoverlapping(
+                           (ulong)result_data_haddr,
+                           result_meta_haddr->data_len,
+                           (ulong)result_accounts_haddr,
+                           accounts_meta_total_size
+                         ) ) ) {
+        return FD_VM_SYSCALL_ERR_MEM_OVERLAP;
+      }
+
+      /* Copy the instruction into the result addresses
+         https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1506-L1528 */
+      fd_memcpy( result_program_id_haddr->key, instr_info->program_id_pubkey.key, FD_PUBKEY_FOOTPRINT );
+      fd_memcpy( result_data_haddr, instr_info->data, instr_info->data_sz );
+      for( ulong i = 0UL; i < instr_info->acct_cnt; i++ ) {
+        fd_memcpy( result_accounts_haddr[ i ].pubkey,
+                   ctx->instr_ctx->txn_ctx->accounts[ instr_info->acct_txn_idxs[ i ] ].key,
+                   FD_PUBKEY_FOOTPRINT );
+        result_accounts_haddr[ i ].is_signer   = !!(instr_info->acct_flags[ i ] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
+        result_accounts_haddr[ i ].is_writable = !!(instr_info->acct_flags[ i ] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
+      }
+    }
+
+    /* Copy the actual metadata into the result meta struct
+       https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1529-L1531 */
+    result_meta_haddr->data_len     = instr_info->data_sz;
+    result_meta_haddr->accounts_len = instr_info->acct_cnt;
+
+    /* Return true as we found a sibling instruction
+       https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1532 */
+    *ret = 1UL;
+    return FD_VM_SYSCALL_SUCCESS;
+  }
+
+  /* Return false if we didn't find a sibling instruction
+     https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1534 */
+  *ret = 0UL;
+  return FD_VM_SYSCALL_SUCCESS;
 }
