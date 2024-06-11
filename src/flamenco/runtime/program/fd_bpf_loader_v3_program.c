@@ -17,6 +17,16 @@
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 #include <stdlib.h>
+
+static char * trace_buf;
+
+static void __attribute__((constructor)) make_buf(void) {
+  trace_buf = (char*)malloc(256*1024);
+}
+
+static void __attribute__((destructor)) free_buf(void) {
+  free(trace_buf);
+}
  
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L67-L69 */
 #define DEFAULT_LOADER_COMPUTE_UNITS     (570UL )
@@ -358,6 +368,28 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
     .alloc               = { .offset = 0UL }
   };
 
+  ulong trace_sz = 4 * 1024 * 1024;
+  fd_vm_trace_entry_t * trace = NULL;
+  fd_vm_trace_context_t trace_ctx;
+  (void) trace_sz;
+  (void) trace;
+  (void) trace_ctx;
+
+#ifdef FD_DEBUG_SBPF_TRACES
+  uchar * signature = (uchar*)vm_ctx.instr_ctx->txn_ctx->_txn_raw->raw + vm_ctx.instr_ctx->txn_ctx->txn_descriptor->signature_off;
+  uchar sig[64];
+  fd_base58_decode_64( "3jeD2eRiLaTajFxYNFjGUJmtjHJE4gSJwNjVZzwUpFZR4nQwqP1QfvJkBAcawQweuPX5BvbzG2ih9M4bDbzycRxT", sig);
+  if (memcmp(signature, sig, 64) == 0) {
+    trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( instr_ctx->txn_ctx->valloc, 8UL, trace_sz * sizeof(fd_vm_trace_entry_t));
+    // trace = (fd_vm_trace_entry_t *)malloc( trace_sz * sizeof(fd_vm_trace_entry_t));
+    trace_ctx.trace_entries_used = 0;
+    trace_ctx.trace_entries_sz = trace_sz;
+    trace_ctx.trace_entries = trace;
+    trace_ctx.valloc = instr_ctx->txn_ctx->valloc;
+    vm_ctx.trace_ctx = &trace_ctx;
+  }
+#endif
+
   /* https://github.com/anza-xyz/agave/blob/9b22f28104ec5fd606e4bb39442a7600b38bb671/programs/bpf_loader/src/lib.rs#L288-L298 */
   ulong heap_size = instr_ctx->txn_ctx->heap_size;
   ulong heap_cost = vm_compute_budget.heap_cost;
@@ -376,10 +408,100 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
   vm_ctx.register_file[1] = FD_VM_MEM_MAP_INPUT_REGION_START;
   vm_ctx.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
-  ulong interp_res = fd_vm_interp_instrs( &vm_ctx );
+  ulong interp_res = 0UL;
+  #ifdef FD_DEBUG_SBPF_TRACES
+    if( memcmp( signature, sig, 64UL ) == 0 ) {
+      interp_res = fd_vm_interp_instrs_trace( &vm_ctx );
+    } else {
+      interp_res = fd_vm_interp_instrs( &vm_ctx );
+    }
+  #else
+    interp_res = fd_vm_interp_instrs( &vm_ctx );
+  #endif
+
   if( FD_UNLIKELY( interp_res!=0UL ) ) {
     FD_LOG_ERR(( "fd_vm_interp_instrs() failed: %lu", interp_res ));
   }
+
+#ifdef FD_DEBUG_SBPF_TRACES
+  if (memcmp(signature, sig, 64) == 0) {
+    ulong prev_cus = 0;
+    for( ulong i = 0; i < trace_ctx.trace_entries_used; i++ ) {
+      fd_vm_trace_entry_t trace_ent = trace[i];
+      char * trace_buf_out = trace_buf;
+      trace_buf_out += sprintf(trace_buf_out, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
+        trace_ent.ic,
+        trace_ent.register_file[0],
+        trace_ent.register_file[1],
+        trace_ent.register_file[2],
+        trace_ent.register_file[3],
+        trace_ent.register_file[4],
+        trace_ent.register_file[5],
+        trace_ent.register_file[6],
+        trace_ent.register_file[7],
+        trace_ent.register_file[8],
+        trace_ent.register_file[9],
+        trace_ent.register_file[10],
+        trace_ent.pc
+      );
+
+      ulong out_len = 0;
+      fd_vm_disassemble_instr(&vm_ctx.instrs[trace[i].pc], trace[i].pc, vm_ctx.syscall_map, trace_buf_out, &out_len);
+      trace_buf_out += out_len;
+      trace_buf_out += sprintf(trace_buf_out, " %lu %lu\n", trace[i].cus, prev_cus - trace[i].cus);
+      prev_cus = trace[i].cus;
+      fd_vm_trace_mem_entry_t * mem_ent = trace_ent.mem_entries_head;
+      ulong j = 0;
+      while( j < trace_ent.mem_entries_used ) {
+        j++;
+        if( mem_ent->type == FD_VM_TRACE_MEM_ENTRY_TYPE_READ ) {
+          ulong prev_mod = 0;
+          // for( long k = (long)i-1; k >= 0; k-- ) {
+          //   fd_vm_trace_entry_t prev_trace_ent = trace[k];
+          //   if (prev_trace_ent.mem_entries_used > 0) {
+          //     fd_vm_trace_mem_entry_t * prev_mem_ent = prev_trace_ent.mem_entries_head;
+          //     for( ulong l = 0; l < prev_trace_ent.mem_entries_used; l++ ) {
+          //       // fd_vm_trace_mem_entry_t prev_mem_ent = prev_trace_ent.mem_entries[l];
+          //       if( prev_mem_ent->type == FD_VM_TRACE_MEM_ENTRY_TYPE_WRITE ) {
+          //         if ((prev_mem_ent->addr <= mem_ent->addr && mem_ent->addr < prev_mem_ent->addr + prev_mem_ent->sz)
+          //             || (mem_ent->addr <= prev_mem_ent->addr && prev_mem_ent->addr < mem_ent->addr + mem_ent->sz)) {
+          //           prev_mod = (ulong)k;
+          //           break;
+          //         }
+          //       }
+          //       prev_mem_ent = prev_mem_ent->next;
+          //     }
+          //   }
+          //   if (prev_mod != 0) {
+          //     break;
+          //   }
+          // }
+
+          trace_buf_out += sprintf(trace_buf_out, "        R: vm_addr: 0x%016lX, sz: %8lu, prev_ic: %8lu, data: ", mem_ent->addr, mem_ent->sz, prev_mod);
+
+        if (mem_ent->sz < 10*1024) {
+          for( ulong k = 0; k < mem_ent->sz; k++ ) {
+            trace_buf_out += sprintf(trace_buf_out, "%02X ", mem_ent->data[k]);
+          }
+        }
+
+
+        fd_valloc_free( instr_ctx->txn_ctx->valloc, mem_ent->data);
+
+        trace_buf_out += sprintf(trace_buf_out, "\n");
+        mem_ent = mem_ent->next;
+      }
+
+      }
+      trace_buf_out += sprintf(trace_buf_out, "\0");
+      fputs(trace_buf, stderr);
+    // fclose(trace_fd);
+    // free(trace);
+    }
+    fd_vm_trace_context_destroy( &trace_ctx );
+    fd_valloc_free( instr_ctx->txn_ctx->valloc, trace);
+  }
+#endif
 
   /* TODO: Add log for "Program consumed {} of {} compute units "*/
 
