@@ -125,6 +125,9 @@ bench_cmd_fn( args_t *         args,
                                    config->tiles.quic.regular_transaction_listen_port,
                                    config->tiles.quic.quic_transaction_listen_port );
 
+  config->rpc.port     = fd_ushort_if( config->rpc.port, config->rpc.port, 8899 );
+  config->rpc.full_api = 1;
+
   add_bench_topo( &config->topo,
                   config->development.bench.affinity,
                   config->development.bench.benchg_tile_count,
