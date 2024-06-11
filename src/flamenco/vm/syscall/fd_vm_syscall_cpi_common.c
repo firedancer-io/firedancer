@@ -170,6 +170,10 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
       fd_account_can_data_be_changed2( vm->instr_ctx, callee_acc->meta, callee_acc_pubkey, &err2 ) ) {
       /* We must ignore the errors here, as they are informational and do not mean the result is invalid. */
       /* TODO: not pass informational errors like this? */
+    err = fd_instr_borrowed_account_modify( vm->instr_ctx, callee_acc_pubkey, caller_acc_data_len, &callee_acc );
+    if( FD_UNLIKELY( err ) ) {
+      return 1; /* FIXME: Add the right error code here */
+    }
     callee_acc->meta->dlen = caller_acc_data_len;
     fd_memcpy( callee_acc->data, caller_acc_data, caller_acc_data_len );
   }
