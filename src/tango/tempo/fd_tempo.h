@@ -33,7 +33,7 @@ fd_tempo_tickcount_model( double * opt_tau );
 /* fd_tempo_set_tick_per_ns explicitly sets the return values of
    fd_tempo_tick_per_ns below, subsequent calls to that function will
    return the values given here.
-   
+
    These should not be arbitrarily provided, and this function is here
    primarily to enable different processes to synchronize their
    tick_per_ns value. */
@@ -49,7 +49,7 @@ fd_tempo_set_tick_per_ns( double _mu,
    will take around ~0.5 s).  If opt_sigma is non-NULL, on return,
    *opt_sigma will have an estimate how much the rate was fluctuating
    when observed during the first call.
-   
+
    IMPORTANT!  Though fd_tickcount() is meant to tick at a constant rate
    relative to fd_log_wallclock(), the instantaneous rate it ticks can
    fluctuate for the usual of clock synchronization reasons (e.g.
@@ -163,7 +163,7 @@ fd_tempo_lazy_default( ulong cr_max ) {
    More precisely, consider a run loop where event_cnt out-of-band
    housekeeping events are cyclicly scheduled to be done with a IID
    uniform random interval between events in [async_min,2*async_min]
-   ticks (as is commonly the case).  A suppose we need to housekeeping
+   ticks (as is commonly the case).  And suppose we need housekeeping
    to complete an event cycle roughly every lazy ns for system
    considerations.
 
