@@ -10,8 +10,10 @@
 #define MAP_KEY_HASH(k0,seed) fd_funk_xid_key_pair_hash((k0),(seed))
 #define MAP_KEY_COPY(kd,ks)   fd_funk_xid_key_pair_copy((kd),(ks))
 #define MAP_NEXT              map_next
+#define MAP_HASH              map_hash
 #define MAP_MAGIC             (0xf173da2ce77ecdb0UL) /* Firedancer rec db version 0 */
 #define MAP_IMPL_STYLE        2
+#define MAP_MEMOIZE           1
 #include "../util/tmpl/fd_map_giant.c"
 
 FD_FN_PURE ulong

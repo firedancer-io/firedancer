@@ -34,6 +34,7 @@ struct fd_funk_txn_private {
   fd_funk_txn_xid_t xid;      /* Transaction id, at a minimum, unique among all in-prepare and the last published transaction,
                                  ideally globally unique */
   ulong             map_next; /* Internal use by map */
+  ulong             map_hash; /* Internal use by map */
 
   /* These fields are managed by the funk */
 
@@ -61,8 +62,10 @@ typedef struct fd_funk_txn_private fd_funk_txn_t;
 #define MAP_KEY_HASH(k0,seed) fd_funk_txn_xid_hash((k0),(seed))
 #define MAP_KEY_COPY(kd,ks)   fd_funk_txn_xid_copy((kd),(ks))
 #define MAP_NEXT              map_next
+#define MAP_HASH              map_hash
 #define MAP_MAGIC             (0xf173da2ce7172db0UL) /* Firedancer trn db version 0 */
 #define MAP_IMPL_STYLE        1
+#define MAP_MEMOIZE           1
 #include "../util/tmpl/fd_map_giant.c"
 
 FD_PROTOTYPES_BEGIN

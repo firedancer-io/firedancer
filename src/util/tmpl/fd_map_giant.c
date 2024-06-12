@@ -272,6 +272,24 @@
 #define MAP_IMPL_STYLE 0
 #endif
 
+/* If MAP_MEMOIZE is defined to non-zero, the MAP_T requires a
+   "hash" field that will hold the value of the MAP_KEY_HASH of the
+   MAP_T's MAP_KEY when the map slot is not empty (undefined otherwise).
+   This is useful for accelerating user operations that might need a
+   hash of the key and for accelerating remove operations.  It is also
+   potentially useful as a way to accelerate slow key comparison
+   operations (see MAP_KEY_EQUAL_IS_SLOW). */
+
+#ifndef MAP_MEMOIZE
+#define MAP_MEMOIZE 0
+#endif
+
+/* If MAP_MEMOIZE is non-zero, MAP_HASH is the element member to store the hash in. */
+
+#ifndef MAP_HASH
+#define MAP_HASH map_hash
+#endif
+
 /* Implementation *****************************************************/
 
 /* Constructors and verification logs detail on failure (rest only needs
@@ -731,9 +749,13 @@ MAP_(insert)( MAP_T *           join,
   /* ... and map the newly allocated element to key (this is also
      guaranteed to not have collisions as per contract). */
 
-  ulong * head = MAP_(private_list)( map ) + MAP_(private_list_idx)( key, map->seed, map->list_cnt );
+  ulong hash = MAP_KEY_HASH( (key), (map->seed) );
+  ulong * head = MAP_(private_list)( map ) + ( hash & (map->list_cnt-1UL) );
   MAP_(key_copy)( &ele->MAP_KEY, key );
   ele->MAP_NEXT = MAP_(private_box_next)( MAP_(private_unbox_idx)( *head ), 0 );
+#if MAP_MEMOIZE
+  ele->MAP_HASH = hash;
+#endif
   *head = MAP_(private_box_next)( ele_idx, 0 );
 
   return ele;
@@ -789,18 +811,21 @@ MAP_(remove)( MAP_T *           join,
               MAP_KEY_T const * key ) {
   MAP_(private_t) * map = MAP_(private)( join );
 
-  ulong   list_cnt = map->list_cnt;
-  ulong * list     = MAP_(private_list)( map );
 
   /* Find the key */
 
-  ulong * head = list + MAP_(private_list_idx)( key, map->seed, list_cnt );
+  ulong hash = MAP_KEY_HASH( (key), (map->seed) );
+  ulong * head = MAP_(private_list)( map ) + ( hash & (map->list_cnt-1UL) );
   ulong * cur  = head;
   for(;;) {
     ulong ele_idx = MAP_(private_unbox_idx)( *cur );
     if( FD_UNLIKELY( MAP_(private_is_null)( ele_idx ) ) ) break;
     MAP_T * ele = join + ele_idx;
-    if( FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) { /* Optimize for found (it is remove after all) */
+    if(
+#if MAP_MEMOIZE
+       hash == ele->MAP_HASH &&
+#endif
+       FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) { /* Optimize for found (it is remove after all) */
       /* Found, remove the mapping and push it to free stack. */
       *cur = ele->MAP_NEXT; /* already tagged empty */
       ele->MAP_NEXT = map->free_stack; /* already tagged free */
@@ -822,18 +847,21 @@ MAP_(query)( MAP_T *           join,
              MAP_T *           sentinel ) {
   MAP_(private_t) * map = MAP_(private)( join );
 
-  ulong   list_cnt = map->list_cnt;
-  ulong * list     = MAP_(private_list)( map );
 
   /* Find the key */
 
-  ulong * head = list + MAP_(private_list_idx)( key, map->seed, list_cnt );
+  ulong hash = MAP_KEY_HASH( (key), (map->seed) );
+  ulong * head = MAP_(private_list)( map ) + ( hash & (map->list_cnt-1UL) );
   ulong * cur  = head;
   for(;;) {
     ulong ele_idx = MAP_(private_unbox_idx)( *cur );
     if( FD_UNLIKELY( MAP_(private_is_null)( ele_idx ) ) ) break; /* optimize for found */
     MAP_T * ele = join + ele_idx;
-    if( FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) { /* optimize for found */
+    if(
+#if MAP_MEMOIZE
+       hash == ele->MAP_HASH &&
+#endif
+       FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) { /* Optimize for found (it is remove after all) */
       /* Found, move it to the front of the chain. (FIXME: BRANCH PROB? DO BRANCHLESS?) */
       if( FD_UNLIKELY( cur!=head ) ) { /* Assume already at head from previous query */
         *cur = ele->MAP_NEXT;  /* Already tagged free */
@@ -856,18 +884,23 @@ MAP_(query2)( MAP_T *           join,
              MAP_T *           sentinel ) {
   MAP_(private_t) * map = MAP_(private)( join );
 
-  ulong   list_cnt = map->list_cnt;
-  ulong * list     = MAP_(private_list)( map );
 
   /* Find the key */
 
-  ulong * head = list + MAP_(private_list_idx)( key, map->seed, list_cnt );
+  ulong hash = MAP_KEY_HASH( (key), (map->seed) );
+  ulong * head = MAP_(private_list)( map ) + ( hash & (map->list_cnt-1UL) );
   ulong * cur  = head;
   for(;;) {
     ulong ele_idx = MAP_(private_unbox_idx)( *cur );
     if( FD_UNLIKELY( MAP_(private_is_null)( ele_idx ) ) ) break; /* optimize for found */
     MAP_T * ele = join + ele_idx;
-    if( FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) return ele; /* optimize for found */
+    if(
+#if MAP_MEMOIZE
+       hash == ele->MAP_HASH &&
+#endif
+       FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) { /* Optimize for found (it is remove after all) */
+      return ele; /* optimize for found */
+    }
     cur = &ele->MAP_NEXT;
   }
 
@@ -882,18 +915,22 @@ MAP_(query_const)( MAP_T const *     join,
                    MAP_T const *     sentinel ) {
   MAP_(private_t) const * map = MAP_(private_const)( join );
 
-  ulong         list_cnt = map->list_cnt;
-  ulong const * list     = MAP_(private_list_const)( map );
-
   /* Find the key */
 
-  ulong const * head = list + MAP_(private_list_idx)( key, map->seed, list_cnt );
+  ulong hash = MAP_KEY_HASH( (key), (map->seed) );
+  ulong const * head = MAP_(private_list_const)( map ) + ( hash & (map->list_cnt-1UL) );
   ulong const * cur  = head;
   for(;;) {
     ulong ele_idx = MAP_(private_unbox_idx)( *cur );
     if( FD_UNLIKELY( MAP_(private_is_null)( ele_idx ) ) ) break; /* optimize for found */
     MAP_T const * ele = join + ele_idx;
-    if( FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) return ele; /* optimize for found */
+    if(
+#if MAP_MEMOIZE
+       hash == ele->MAP_HASH &&
+#endif
+       FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) { /* Optimize for found (it is remove after all) */
+      return ele; /* optimize for found */
+    }
     cur = &ele->MAP_NEXT;
   }
 
@@ -908,19 +945,24 @@ MAP_(query_safe)( MAP_T const *     join,
                    MAP_T const *     sentinel ) {
   MAP_(private_t) const * map = MAP_(private_const)( join );
 
-  ulong         list_cnt = map->list_cnt;
-  ulong const * list     = MAP_(private_list_const)( map );
   ulong         key_max  = map->key_max;
 
   /* Find the key */
 
-  ulong const * head = list + MAP_(private_list_idx)( key, map->seed, list_cnt );
+  ulong hash = MAP_KEY_HASH( (key), (map->seed) );
+  ulong const * head = MAP_(private_list_const)( map ) + ( hash & (map->list_cnt-1UL) );
   ulong const * cur  = head;
   for( ulong i = 0; i < key_max; ++i ) {
     ulong ele_idx = MAP_(private_unbox_idx)( *cur );
-    if( FD_UNLIKELY( MAP_(private_is_null)( ele_idx ) || ele_idx >= key_max ) ) break; /* optimize for found */    
+    if( FD_UNLIKELY( MAP_(private_is_null)( ele_idx ) || ele_idx >= key_max ) ) break; /* optimize for found */
     MAP_T const * ele = join + ele_idx;
-    if( FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) return ele; /* optimize for found */
+    if(
+#if MAP_MEMOIZE
+       hash == ele->MAP_HASH &&
+#endif
+       FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) { /* Optimize for found (it is remove after all) */
+      return ele; /* optimize for found */
+    }
     cur = &ele->MAP_NEXT;
   }
 
@@ -966,6 +1008,9 @@ MAP_(verify)( MAP_T const * join ) {
       MAP_TEST( cnt<key_cnt );
       MAP_TEST( ele_idx<key_max );
       MAP_T const * ele = join + ele_idx;
+#if MAP_MEMOIZE
+      MAP_TEST( ele->MAP_HASH == MAP_KEY_HASH( (&ele->MAP_KEY), (map->seed) ) );
+#endif
       MAP_TEST( MAP_(private_list_idx)( &ele->MAP_KEY, seed, list_cnt )==list_idx );
       cnt++;
       ele_idx  = MAP_(private_unbox_idx)( ele->MAP_NEXT );
@@ -1017,3 +1062,5 @@ MAP_(verify)( MAP_T const * join ) {
 #undef MAP_KEY_T
 #undef MAP_T
 #undef MAP_NAME
+#undef MAP_MEMOIZE
+#undef MAP_HASH
