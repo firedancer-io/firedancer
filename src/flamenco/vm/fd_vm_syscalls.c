@@ -1604,7 +1604,7 @@ fd_vm_syscall_cpi_c(
   ulong instruction_accounts_cnt;
   fd_instr_info_t * cpi_instr = fd_executor_acquire_instr_info_elem( ctx->instr_ctx->txn_ctx );
   if ( FD_UNLIKELY( cpi_instr == NULL ) ) {
-    FD_LOG_WARNING(( "failed to acquire cpi_instr" ));
+    FD_LOG_DEBUG(( "failed to acquire cpi_instr" ));
     return FD_VM_SYSCALL_ERR_INSTR_ERR;
   }
 
@@ -1778,7 +1778,7 @@ fd_vm_syscall_cpi_rust(
   ulong instruction_accounts_cnt;
   fd_instr_info_t * cpi_instr = fd_executor_acquire_instr_info_elem( ctx->instr_ctx->txn_ctx );
   if ( FD_UNLIKELY( cpi_instr == NULL ) ) {
-    FD_LOG_WARNING(( "failed to acquire cpi_instr" ));
+    FD_LOG_DEBUG(( "failed to acquire cpi_instr" ));
     return FD_VM_SYSCALL_ERR_INSTR_ERR;
   }
 
