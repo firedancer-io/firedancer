@@ -12,7 +12,7 @@
 ulong
 fd_hash( ulong        seed,
          void const * buf,
-         ulong        sz ) {
+         ulong        sz ) __attribute__((no_sanitize("unsigned-integer-overflow"))) {
   uchar const * p    = ((uchar const *)buf);
   uchar const * stop = p + sz;
 
