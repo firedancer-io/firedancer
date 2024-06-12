@@ -276,7 +276,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->accounts_resize_delta   = 0;
 
   txn_ctx->instr_info_pool         = fd_instr_info_pool_join( fd_instr_info_pool_new( 
-    fd_valloc_malloc( txn_ctx->valloc, fd_instr_info_pool_align( ), fd_instr_info_pool_footprint( FD_MAX_INSTRUCTION_TRACE_LENGTH ) ),
+    fd_valloc_malloc( fd_scratch_virtual(), fd_instr_info_pool_align( ), fd_instr_info_pool_footprint( FD_MAX_INSTRUCTION_TRACE_LENGTH ) ),
     FD_MAX_INSTRUCTION_TRACE_LENGTH
   ) );
 
@@ -503,8 +503,6 @@ _context_destroy( fd_exec_instr_test_runner_t * runner,
   if( !slot_ctx ) return;
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
-
-  fd_valloc_free( ctx->txn_ctx->valloc, fd_instr_info_pool_delete( fd_instr_info_pool_leave( ctx->txn_ctx->instr_info_pool ) ) );
 
   // Free any libc-allocated borrowed account data
   for( ulong i = 0; i < ctx->txn_ctx->accounts_cnt; ++i ) {
