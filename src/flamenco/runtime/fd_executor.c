@@ -347,24 +347,33 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   }
 }
 
+int
+fd_should_set_exempt_rent_epoch_max( fd_rent_t const *       rent,
+                                     fd_borrowed_account_t * rec ) {
+  if( fd_pubkey_is_sysvar_id( rec->pubkey ) ) {
+    return 0;
+  }
+
+  if( rec->const_meta->info.lamports < fd_rent_exempt_minimum_balance2( rent, rec->const_meta->dlen ) )
+    return 0;
+  if( rec->const_meta->info.rent_epoch == ULONG_MAX )
+    return 0;
+
+  return 1;                      
+}
+
 void
-fd_set_exempt_rent_epoch_max( fd_exec_txn_ctx_t * txn_ctx,
-                              void const *        addr ) {
+fd_txn_set_exempt_rent_epoch_max( fd_exec_txn_ctx_t * txn_ctx,
+                                  void const *        addr ) {
   fd_borrowed_account_t * rec = NULL;
   int err = fd_txn_borrowed_account_view( txn_ctx, (fd_pubkey_t const *)addr, &rec);
   if( FD_UNLIKELY( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) )
     return;
   FD_TEST( err==FD_ACC_MGR_SUCCESS );
 
-  if( fd_pubkey_is_sysvar_id( rec->pubkey ) ) {
+  if( !fd_should_set_exempt_rent_epoch_max( &txn_ctx->epoch_ctx->epoch_bank.rent, rec ) ) {
     return;
   }
-
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( txn_ctx->slot_ctx->epoch_ctx );
-  if( rec->const_meta->info.lamports < fd_rent_exempt_minimum_balance2( &epoch_bank->rent,rec->const_meta->dlen ) )
-    return;
-  if( rec->const_meta->info.rent_epoch == ULONG_MAX )
-    return;
 
   err = fd_txn_borrowed_account_modify( txn_ctx, (fd_pubkey_t const *)addr, 0, &rec);
   FD_TEST( err==FD_ACC_MGR_SUCCESS );
@@ -1011,7 +1020,7 @@ fd_execute_txn_prepare_phase4( fd_exec_slot_ctx_t * slot_ctx,
       ulong i = fd_txn_acct_iter_idx( ctrl );
       if( (i == 0) || fd_pubkey_is_sysvar_id( &tx_accs[i] ) )
         continue;
-      fd_set_exempt_rent_epoch_max( txn_ctx, &tx_accs[i] );
+      fd_txn_set_exempt_rent_epoch_max( txn_ctx, &tx_accs[i] );
     }
   }
 
@@ -1058,7 +1067,7 @@ fd_execute_txn_finalize( fd_exec_slot_ctx_t * slot_ctx,
     if( txn_ctx->unknown_accounts[i] ) {
       memset( acc_rec->meta->hash, 0xFF, sizeof(fd_hash_t) );
       if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) {
-        fd_set_exempt_rent_epoch_max( txn_ctx, &txn_ctx->accounts[i] );
+        fd_txn_set_exempt_rent_epoch_max( txn_ctx, &txn_ctx->accounts[i] );
       }
     }
 

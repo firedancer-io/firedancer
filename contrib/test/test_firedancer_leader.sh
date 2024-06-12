@@ -33,6 +33,7 @@ done
 FULL_SNAPSHOT=$(wget -c -nc -S --trust-server-names http://$PRIMARY_IP:8899/snapshot.tar.bz2 |& grep 'location:' | cut -d/ -f2)
 
 echo "
+name = \"fd1test\"
 [layout]
     affinity = \"1-32\"
     bank_tile_count = 1
@@ -48,6 +49,7 @@ echo "
         repair_intake_listen_port = 8701
         repair_serve_listen_port = 8702
     [tiles.replay]
+        capture = \"fddev.solcap\"
         snapshot = \"$FULL_SNAPSHOT\"
         tpool_thread_count = 8
         funk_sz_gb = 32
@@ -70,4 +72,4 @@ sudo $FD_DIR/build/native/$CC/bin/fddev configure init ethtool --config $(readli
 sudo $FD_DIR/build/native/$CC/bin/fddev configure init keys --config $(readlink -f fddev.toml)
 sudo $FD_DIR/build/native/$CC/bin/fddev configure init workspace --config $(readlink -f fddev.toml)
 
-sudo gdb -ex r --args $FD_DIR/build/native/$CC/bin/fddev dev --no-configure --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --no-solana --no-sandbox --no-clone
+sudo $FD_DIR/build/native/$CC/bin/fddev dev --no-configure --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --no-solana --no-sandbox --no-clone
