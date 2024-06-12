@@ -29,36 +29,20 @@ set -x
 
 rep_replay_start_time=$(date +%s)
 
-build/native/gcc/bin/fd_ledger --cmd ingest \
-                                --on-demand-block-ingest 1 \
-                                --end-slot $END_SLOT \
-                                --snapshot dump/$rep_ledger_min_basename/$rep_snapshot_basename \
-                                --page-cnt $GIGANTIC_PAGES \
-                                --index-max $INDEX_MAX \
-                                --funk-page-cnt 100 \
-                                --copy-txn-status 1 \
-                                --checkpt-path dump/$rep_ledger_min_basename \
-                                --checkpt-freq 10000                             
-status=$?
-if [ $status -ne 0 ]; then
-  echo "[-] ledger ingest failed: $status"
-  exit 1
-fi
-
-replay_output=$(build/native/gcc/bin/fd_ledger --reset 1 \
-                               --cmd replay \
-                               --rocksdb dump/$rep_ledger_min_basename/rocksdb \
-                               --index-max $INDEX_MAX \
-                               --end-slot "$END_SLOT" \
-                               --txnmax 100 \
-                               --page-cnt $GIGANTIC_PAGES \
-                               --verify-acc-hash 1 \
-                               --snapshot dump/$rep_ledger_min_basename/$rep_snapshot_basename \
-                               --slot-history 5000 \
-                               --allocator wksp \
-                               --on-demand-block-ingest 1 \
-                               --tile-cpus 5-21 \
-                               --use-funk-wksp 0 2>&1)
+replay_output=$(build/native/gcc/bin/fd_ledger --cmd replay \
+                                                --rocksdb dump/$rep_ledger_min_basename/rocksdb \
+                                                --index-max 600000000 \
+                                                --end-slot "$END_SLOT" \
+                                                --funk-only 1 \
+                                                --txn-max 100 \
+                                                --page-cnt 75 \
+                                                --funk-page-cnt 550 \
+                                                --verify-acc-hash 1 \
+                                                --snapshot dump/$rep_ledger_min_basename/$rep_snapshot_basename \
+                                                --slot-history 5000 \
+                                                --allocator wksp \
+                                                --on-demand-block-ingest 1 \
+                                                --tile-cpus 5-21 2>&1)
 
 rep_replay_end_time=$(date +%s)
 echo "replay_start_slot=$START_SLOT" > dump/$rep_ledger_min_basename/metadata
@@ -70,6 +54,7 @@ echo "$replay_output"
 rep_mismatch_slot=$(echo "$replay_output" | grep -oP "Bank hash mismatch! slot=\K\d+")
 rep_mismatch_msg=$(echo "$replay_output" | grep -o "Bank hash mismatch!.*")
 rep_mismatch_ledger_basename="$NETWORK-$rep_mismatch_slot.tar.gz"
+rep_mismatch_ledger_dir="$NETWORK-$rep_mismatch_slot"
 
 if /bin/gsutil -q stat "$UPLOAD_URL/$rep_mismatch_ledger_basename"; then
   echo "[~] Mismatched ledger $UPLOAD_URL/$rep_mismatch_ledger_basename already uploaded"
@@ -113,6 +98,7 @@ else
       END_SLOT=$rep_mismatch_end \
       SOLANA_LEDGER_TOOL=$SOLANA_LEDGER_TOOL \
       FIREDANCER=$FIREDANCER \
+      GIGANTIC_PAGES=$GIGANTIC_PAGES \
       $ROOT_DIR/minify.sh
     rep_minify_status=$?
     set +x
@@ -125,7 +111,8 @@ else
     # Bucket key activation is already handled by the run_ledger_tests script
     echo "[~] Compressing $rep_temp_ledger_upload to $FIREDANCER/$rep_mismatch_ledger_basename"
     cd $rep_temp_ledger_upload
-    tar -czvf $rep_mismatch_ledger_basename * 
+    mkdir $rep_mismatch_ledger_dir && mv * $rep_mismatch_ledger_dir
+    tar -czvf $rep_mismatch_ledger_basename $rep_mismatch_ledger_dir
     echo "[~] Uploading $rep_mismatch_ledger_basename to $UPLOAD_URL"
     /bin/gsutil cp -r "$rep_mismatch_ledger_basename" $UPLOAD_URL
     cd "$FIREDANCER" || exit

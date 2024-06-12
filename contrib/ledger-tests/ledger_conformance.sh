@@ -4,6 +4,10 @@
 # It currently manages operations like fetching, minimizing, replaying and uploading ledgers
 # Refer to the README or usage() for detailed information
 
+setup() {
+  source ./setup.sh 
+}
+
 fetch-recent() {
   ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
   source $ROOT_DIR/utils.sh
@@ -20,6 +24,10 @@ replay() {
 
 solcap() {
   source ./solcap.sh
+}
+
+mismatch-instr() {
+  source ./instr.sh
 }
 
 one_repetition() {
@@ -72,7 +80,11 @@ all() {
 }
 
 usage() {
-  if [[ $1 == "fetch-recent" ]]; then
+  if [[ $1 == "setup" ]]; then
+    echo -e "Usage: $0 setup \n\
+                --directory -d : Path to the root directory where the firedancer, solfuzz-agave and solana-conformance repositories will be cloned."
+
+  elif [[ $1 == "fetch-recent" ]]; then
     echo -e "Usage: $0 fetch-recent \n\
                 --network -n             : Solana network to download the ledger from. Choose: mainnet|testnet|internal. \n\
                 --ledger -l              : Directory to place the downloaded ledger in. \n\
@@ -91,8 +103,8 @@ usage() {
                 --mode -m                       : Method to minimize the initial ledger. Either as an offset around an epoch edge, or defined as an exact start and end slot. Default: exact. Choose: edge|exact. \n\
                 --is-verify -v [Optional]       : If passed, use solana-ledger-tool to verify created ledgers. Default: false. \n\
                 --slots-in-epoch -i [Optional]  : Slot count for an epoch in the defined network. Default: 432_000. \n\
-                --gigantic-pages -g [Optional]  : Number of gigantic pages. Default: 128 \n\
-                --index-max -x [Optional]       : Maximum index. Default: 100_000_000"
+                --gigantic-pages -g [Optional]  : Number of gigantic pages. Default: 700 \n\
+                --index-max -x [Optional]       : Maximum index. Default: 600_000_000"
     echo "Note: This will remove the existing directory at <ledger_min_dir>"
 
   elif [[ $1 == "replay" ]]; then
@@ -104,21 +116,17 @@ usage() {
                 --firedancer-root-dir -f        : Path to the firedancer root directory. \n\
                 --solana-build-dir -d           : Path to the solana build directory. E.g. /home/fd_user/solana/target/debug \n\
                 --slots-in-epoch -i [Optional]  : Slot count for an epoch in the defined network. Default: 432_000. \n\
-                --gigantic-pages -g [Optional]  : Number of gigantic pages. Default: 128 \n\
-                --index-max -x [Optional]       : Maximum index. Default: 100_000_000 \n\
+                --gigantic-pages -g [Optional]  : Number of gigantic pages. Default: 700 \n\
+                --index-max -x [Optional]       : Maximum index. Default: 600_000_000 \n\
                 --upload -u [Optional]          : Gcloud storage url for minimized ledger to be stored"
     echo "Note: This will remove the override the existing firedancer/dump directory"
 
   elif [[ $1 == "solcap" ]]; then
     echo -e "Usage: $0 solcap \n\
-                --ledger -l                         : Directory where the ledger can be used for the solcap diff \n\
-                --end-slot -e                       : End slot for the diff. \n\
-                --firedancer-root-dir -f            : Path to the firedancer root directory. \n\
-                --solana-build-dir -d               : Path to the solana build directory. E.g. /home/fd_user/solana/target/debug. \n\
-                --checkpoint -c                     : Load from a checkpoint. \n\
-                --solana-solcap -a [Optional]       : Path to the solana solcap. \n\
-                --firedancer-solcap -b [Optional]   : Path to the firedancer solcap. \n\
-                --verbosity -v [Optional]           : Verbosity level. Default: 4."
+                --directory -d                  : Path to the root directory containing firedancer, solana, solfuzz-agave and solana-conformance repos. \n\
+                --index-max -x [Optional]       : Maximum index. Default: 600_000_000 \n\
+                --pages -p [Optional]           : Number of pages. Default: 75 \n\
+                --funk-pages -f [Optional]      : Number of funk pages. Default: 550"
 
   elif [[ $1 == "all" ]]; then
     echo -e "Usage: $0 all \n\
@@ -135,13 +143,22 @@ usage() {
                 --mode -m [Optional]            : Method to minimize the initial ledger. Either as an offset around an epoch edge, or defined as an exact start and end slot. Default: exact. Choose: edge|exact. \n\
                 --is-verify -v [Optional]       : If passed, use solana-ledger-tool to verify created ledgers. Default: false. \n\
                 --slots-in-epoch -i [Optional]  : Slot count for an epoch in the defined network. Default: 432_000. \n\
-                --gigantic-pages -g [Optional]  : Number of gigantic pages. Default: 128 \n\
-                --index-max -x [Optional]       : Maximum index. Default: 100_000_000 \n\
+                --gigantic-pages -g [Optional]  : Number of gigantic pages. Default: 700 \n\
+                --index-max -x [Optional]       : Maximum index. Default: 600_000_000 \n\
                 --upload -u [Optional]          : Gcloud storage url for minimized ledger to be stored. Default: None"
+  
+  elif [[ $1 == "mismatch-instr" ]]; then
+  echo -e "Usage: $0 mismatch-instr \n\
+                --directory -d                  : Path to the root directory containing firedancer, solana, solfuzz-agave and solana-conformance repos. \n\
+                --index-max -x [Optional]       : Maximum index. Default: 600_000_000 \n\
+                --pages -p [Optional]           : Number of pages. Default: 75 \n\
+                --funk-pages -f [Optional]      : Number of funk pages. Default: 550"
+
   else
     echo "General Usage: $0 <command> [options]"
     cat <<'EOF'
             SUBCOMMANDS:
+                setup                                   : Setup all repositories if they dont exist, and updates the latest branches
                 fetch-recent                            : Initialize the ledger tests by fetching a recent ledger
                 minify                                  : Minimize a recent ledger snapshots and rocksdb
                     --mode edge                         : Minimize around an epoch edge with some offset
@@ -149,24 +166,55 @@ usage() {
                 replay                                  : Replay the minimized ledger to check for bank hash mismatches 
                                                             and upload the minimized one block ledger to the cloud storage
                 solcap                                  : Produce a diff between firedancer and solana labs solcaps                                                            
+                mismatch-instr                          : Produce the mismatching instruction
                 all                                     : Run all commands - fetch-recent, minify, replay in sequence
                                                           In the `all` subcommand, bounds are checked if rooted, if not it searches for a bound that is rooted.
                     --no-fetch                          : Run all the commands excluding fetch-recent. Just pass in the ledger directories.
                     --repetitions once --mode edge|exact: Run the full cycle of commands once
-                    --repetitions multiple --mode exact : Replay the entire ledger in multiple iterations 
-                                                        --start-slot and --end-slot define the absolute bounds to replay the ledger
-                                                        If start_slot and end_slot are not specified (recommended), the check range is [first_rooted(max(snap, rocksdb_min)), last_rooted(rocksdb_max)] 
-                                                        The replay looks for a mismatch from start_slot toward end_slot, until it encounters a mismatch. 
-                                                        Then it would repeat the cycle, starting from the next hourly snapshot after mismatch+1. The snapshot is skipped if the first slot is not rooted.
+                    --repetitions multiple --mode exact : Replay the entire ledger in multiple iterations.
+                                                          If start_slot and end_slot are not specified (recommended), the check range is `[first_rooted(max(snap, rocksdb_min)), last_rooted(rocksdb_max)]` 
+                                                          The replay looks for a mismatch from `start_slot` toward `end_slot`, until it encounters a mismatch. 
+                                                          Then it would repeat the cycle, starting from the next hourly snapshot after mismatch+1. The snapshot is skipped if the first slot is not rooted.
 EOF
   fi
   exit 1
 }
 
+parse_setup_options() {
+  TEMP=$(getopt -o d: --long directory: -- "$@")
+  if [ $? != 0 ]; then
+    echo "Incorrect options provided" >&2
+    exit 1
+  fi
+  eval set -- "$TEMP"
+
+  while true; do
+    case "$1" in
+      -d | --directory)
+        REPO_ROOT="$2"
+        shift 2
+        ;;
+      --)
+        shift
+        break
+        ;;
+      *)
+        echo "Internal error! Option processing failed: $1" >&2
+        exit 1
+        ;;
+    esac
+  done
+
+  if [ -z "$REPO_ROOT" ]; then
+    usage "setup"
+    exit 1
+  fi
+}
+
 parse_fetch_options() {
   TEMP=$(getopt -o n:l:d: --long network:,ledger:,solana-build-dir: -- "$@")
   if [ $? != 0 ]; then
-    echo "Terminating..." >&2
+    echo "Incorrect options provided" >&2
     exit 1
   fi
   eval set -- "$TEMP"
@@ -190,7 +238,7 @@ parse_fetch_options() {
         break
         ;;
       *)
-        echo "Internal error!"
+        echo "Internal error! Option processing failed: $1" >&2
         exit 1
         ;;
     esac
@@ -235,8 +283,8 @@ parse_minify_options() {
   IS_VERIFY="false"
   MODE="exact"
   SLOTS_IN_EPOCH=432000
-  GIGANTIC_PAGES=128
-  INDEX_MAX=100000000
+  GIGANTIC_PAGES=700
+  INDEX_MAX=600000000
 
   while true; do
     case "$1" in
@@ -369,8 +417,8 @@ parse_replay_options() {
 
   # Defaults
   UPLOAD_URL=""
-  GIGANTIC_PAGES=128
-  INDEX_MAX=100000000
+  GIGANTIC_PAGES=700
+  INDEX_MAX=600000000
   SLOTS_IN_EPOCH=432000
 
   while true; do
@@ -450,45 +498,36 @@ parse_replay_options() {
 }
 
 parse_solcap_options() {
-  TEMP=$(getopt -o l:e:f:d:c:a:b:v: --long ledger:,end-slot:,firedancer-root-dir:,solana-build-dir:,checkpoint:,solana-solcap:,firedancer-solcap:,verbosity: -- "$@")
+  TEMP=$(getopt -o d:x:p:f: --long directory:,index-max:,pages:,funk-pages: -- "$@")
   if [ $? != 0 ]; then
     echo "Incorrect options provided" >&2
     exit 1
   fi
+
   eval set -- "$TEMP"
+
+  # Defaults for a full ledger
+  # Typically mismatch snapshots should be minimized and require less pages
+  PAGES=75
+  FUNK_PAGES=550
+  INDEX_MAX=600000000
 
   while true; do
     case "$1" in
-      -l | --ledger)
-        LEDGER_MIN="$2"
+      -d | --directory)
+        REPO_ROOT="$2"
         shift 2
         ;;
-      -e | --end-slot)
-        END_SLOT="$2"
+      -x | --index-max)
+        INDEX_MAX="$2"
         shift 2
         ;;
-      -f | --firedancer-root-dir)
-        FIREDANCER="$2"
+      -p | --pages)
+        PAGES="$2"
         shift 2
         ;;
-      -d | --solana-build-dir)
-        SOLANA_BUILD_DIR="$2"
-        shift 2
-        ;;
-      -c | --checkpoint)
-        CHECKPOINT="$2"
-        shift 2
-        ;;
-      -a | --solana-solcap)
-        SOLANA_SOLCAP="$2"
-        shift 2
-        ;;
-      -b | --firedancer-solcap)
-        FIREDANCER_SOLCAP="$2"
-        shift 2
-        ;;
-      -v | --verbosity)
-        VERBOSITY="$2"
+      -f | --funk-pages)
+        FUNK_PAGES="$2"
         shift 2
         ;;
       --)
@@ -502,9 +541,80 @@ parse_solcap_options() {
     esac
   done
 
-  if [ -z "$LEDGER_MIN" ] || [ -z "$END_SLOT" ] || [ -z "$FIREDANCER" ] || [ -z "$SOLANA_BUILD_DIR" ] || [ -z "$CHECKPOINT" ]; then
-    echo "Missing required arguments." >&2
+  if [ -z "$REPO_ROOT" ]; then
     usage "solcap"
+    exit 1
+  fi
+
+  if [ ! -f "$REPO_ROOT/solana/target/release/solana-ledger-tool" ]; then
+    echo "error: $REPO_ROOT/solana/target/release/solana-ledger-tool does not exist.\n\
+          Manually run cargo build --package solana-ledger-tool --release in the solana repository or\n\
+          Run `./ledger_conformance.sh setup`"
+    exit 1
+  fi
+
+  SOLANA_LEDGER_TOOL="$REPO_ROOT/solana/target/release/solana-ledger-tool"
+}
+
+parse_mismatch_instr_options() {
+  TEMP=$(getopt -o d:x:p:f: --long directory:,index-max:,pages:,funk-pages: -- "$@")
+  if [ $? != 0 ]; then
+    echo "Incorrect options provided" >&2
+    exit 1
+  fi
+
+  eval set -- "$TEMP"
+
+  # Defaults for a full ledger
+  # Typically mismatch snapshots should be minimized and require less pages
+  PAGES=75
+  FUNK_PAGES=550
+  INDEX_MAX=600000000
+
+  while true; do
+    case "$1" in
+      -d | --directory)
+        REPO_ROOT="$2"
+        shift 2
+        ;;
+      -x | --index-max)
+        INDEX_MAX="$2"
+        shift 2
+        ;;
+      -p | --pages)
+        PAGES="$2"
+        shift 2
+        ;;
+      -f | --funk-pages)
+        FUNK_PAGES="$2"
+        shift 2
+        ;;
+      --)
+        shift
+        break
+        ;;
+      *)
+        echo "Internal error! Option processing failed: $1" >&2
+        exit 1
+        ;;
+    esac
+  done
+
+
+  if [ -z "$REPO_ROOT" ]; then
+    usage "mismatch-instr"
+    exit 1
+  fi
+
+  if [ ! -d "$REPO_ROOT/firedancer" ] || [ ! -d "$REPO_ROOT/solana" ] || [ ! -d "$REPO_ROOT/solfuzz-agave" ] || [ ! -d "$REPO_ROOT/solana-conformance" ]; then
+    echo "error: $REPO_ROOT/firedancer || $REPO_ROOT/solana || $REPO_ROOT/solfuzz-agave || $REPO_ROOT/solana-conformance do not exist.\n\
+          Run `./ledger_conformance.sh setup` to set up and update to the latest branch in these repositories"
+    exit 1
+  fi
+
+  if [ ! -d "$REPO_ROOT/firedancer/build/native/gcc" ] || [ ! -d "$REPO_ROOT/solana/target/release" ] || [ ! -d "$REPO_ROOT/solfuzz-agave/target/debug" ]; then
+    echo "error: $REPO_ROOT/firedancer/build/native/gcc || $REPO_ROOT/solana/target/release || $REPO_ROOT/solfuzz-agave/target/debug do not exist.\n\
+          Run `./ledger_conformance.sh setup` to set up and build these repositories"
     exit 1
   fi
 }
@@ -527,8 +637,8 @@ parse_all_options() {
   MODE="exact"
   SLOTS_IN_EPOCH=432000
   UPLOAD_URL=""
-  GIGANTIC_PAGES=128
-  INDEX_MAX=100000000
+  GIGANTIC_PAGES=700
+  INDEX_MAX=600000000
 
   while true; do
     case "$1" in
@@ -684,6 +794,11 @@ fi
 shift
 
 case $COMMAND in
+  setup)
+    parse_setup_options "$@"
+    echo "running cmd=setup with repo_root=$REPO_ROOT"
+    setup
+    ;;
   fetch-recent)
     parse_fetch_options "$@"
     echo "running cmd=fetch-recent with network=$NETWORK, ledger=$LEDGER, solana-build-dir=$SOLANA_BUILD_DIR"
@@ -725,14 +840,10 @@ case $COMMAND in
   solcap)
     parse_solcap_options "$@"
     echo -e "running cmd=solcap with\n" \
-      " ledger=$LEDGER_MIN,\n" \
-      " end-slot=$END_SLOT,\n" \
-      " firedancer-root-dir=$FIREDANCER,\n" \
-      " solana-build-dir=$SOLANA_BUILD_DIR,\n" \
-      " checkpoint=$CHECKPOINT,\n" \
-      " solana-solcap=$SOLANA_SOLCAP,\n" \
-      " firedancer-solcap=$FIREDANCER_SOLCAP,\n" \
-      " verbosity=$VERBOSITY"
+      " repo-root=$REPO_ROOT,\n" \
+      " index-max=$INDEX_MAX,\n" \
+      " pages=$PAGES,\n" \
+      " funk-pages=$FUNK_PAGES"
     solcap
     ;;
   all)
@@ -755,6 +866,15 @@ case $COMMAND in
       " gigantic-pages=$GIGANTIC_PAGES,\n" \
       " index-max=$INDEX_MAX"
     all
+    ;;
+  mismatch-instr)
+    parse_mismatch_instr_options "$@"
+    echo -e "running cmd=mismatch-instr with\n" \
+      " repo-root=$REPO_ROOT,\n" \
+      " index-max=$INDEX_MAX,\n" \
+      " gigantic-pages=$PAGES\n" \
+      " funk-pages=$FUNK_PAGES"
+    mismatch-instr
     ;;
   *)
     echo "error: invalid command '$COMMAND'"
