@@ -2427,6 +2427,9 @@ fd_quic_ack_merge( fd_quic_conn_t * conn, uint enc_level ) {
 
       /* list has changed, so reestablish pri_ack and cur_ack */
       cur_ack = pri_ack->next;
+
+      /* cur_ack could be NULL here */
+      if( FD_UNLIKELY( !cur_ack ) ) break;
     }
 
     pri_ack = cur_ack;
