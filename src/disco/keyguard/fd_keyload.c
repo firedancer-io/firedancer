@@ -77,7 +77,7 @@ fd_keyload_load( char const * key_path,
   /* Load the signing key. Since this is key material, we load it into
      its own page that's non-dumpable, readonly, and protected by guard
      pages. */
-  uchar * key_page = fd_sandbox_alloc_protected_pages( 1UL, 2UL );
+  uchar * key_page = fd_keyload_alloc_protected_pages( 1UL, 2UL );
 
   read_key( key_path, key_page );
 
@@ -103,4 +103,34 @@ fd_keyload_unload( uchar const * key,
 
   if( FD_UNLIKELY( -1==munmap( (uchar*)key_page - 2UL*4096UL, sz ) ) )
     FD_LOG_ERR(( "munmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+void * FD_FN_SENSITIVE
+fd_keyload_alloc_protected_pages( ulong page_cnt,
+                                  ulong guard_page_cnt ) {
+#define PAGE_SZ (4096UL)
+  void * pages = mmap( NULL, (2UL*guard_page_cnt+page_cnt)*PAGE_SZ, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0UL );
+  if( FD_UNLIKELY( pages==MAP_FAILED ) ) FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  uchar * middle_pages = (uchar *)( (ulong)pages + guard_page_cnt*PAGE_SZ );
+
+  /* Make the guard pages untouchable */
+  if( FD_UNLIKELY( mprotect( pages, guard_page_cnt*PAGE_SZ, PROT_NONE ) ) )
+    FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  if( FD_UNLIKELY( mprotect( middle_pages+page_cnt*PAGE_SZ, guard_page_cnt*PAGE_SZ, PROT_NONE ) ) )
+    FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* Lock the key page so that it doesn't page to disk */
+  if( FD_UNLIKELY( mlock( middle_pages, page_cnt*PAGE_SZ ) ) )
+    FD_LOG_ERR(( "mlock failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* Prevent the key page from showing up in core dumps. It shouldn't be
+     possible to fork this process typically, but we also prevent any
+     forked child from having this page. */
+  if( FD_UNLIKELY( madvise( middle_pages, page_cnt*PAGE_SZ, MADV_WIPEONFORK | MADV_DONTDUMP ) ) )
+    FD_LOG_ERR(( "madvise failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  return middle_pages;
+#undef PAGE_SZ
 }

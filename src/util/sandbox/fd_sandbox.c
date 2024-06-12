@@ -1,188 +1,148 @@
-#if !defined(__linux__)
-# error "Target operating system is unsupported by seccomp."
-#endif
-
 #define _GNU_SOURCE
-
 #include "fd_sandbox.h"
 
-#include <string.h>
+#include "../cstr/fd_cstr.h"
+#include "../log/fd_log.h"
+
 #include <fcntl.h>
-#include <stdio.h>
+#include <stdlib.h>
 #include <errno.h>
-#include <linux/audit.h>
-#include <linux/securebits.h>
-#include <linux/seccomp.h>
-#include <linux/filter.h>
-#include <linux/capability.h>
+#include <unistd.h>
+#include <sched.h>
 #include <dirent.h>
-#include <limits.h>
-#include <sched.h>        /* CLONE_*, setns, unshare */
-#include <stddef.h>
-#include <stdlib.h>       /* clearenv, mkdtemp*/
-#include <sys/mman.h>     /* For mmap, etc. */
-#include <sys/mount.h>    /* MS_*, MNT_*, mount, umount2 */
+#include <sys/stat.h>
 #include <sys/prctl.h>
-#include <sys/resource.h> /* RLIMIT_*, rlimit, setrlimit */
-#include <sys/stat.h>     /* mkdir */
-#include <sys/syscall.h>  /* SYS_* */
-#include <unistd.h>       /* set*id, sysconf, close, chdir, rmdir syscall */
+#include <sys/mount.h>
+#include <sys/random.h>
+#include <sys/syscall.h>
+#include <sys/resource.h>
+#include <linux/keyctl.h>
+#include <linux/seccomp.h>
+#include <linux/securebits.h>
+#include <linux/capability.h>
 
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
-
-#define X32_SYSCALL_BIT 0x40000000
-
-#if defined(__i386__)
-# define ARCH_NR  AUDIT_ARCH_I386
-#elif defined(__x86_64__)
-# define ARCH_NR  AUDIT_ARCH_X86_64
-#elif defined(__aarch64__)
-# define ARCH_NR AUDIT_ARCH_AARCH64
-#else
-# error "Target architecture is unsupported by seccomp."
+#if !defined(__linux__)
+#error "Target operating system is unsupported by seccomp."
 #endif
 
-#define FD_TESTV(c) \
-  do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL: %s (%i-%s)", #c, errno, fd_io_strerror( errno ) )); } while(0)
+#if !defined(__x86_64__)
+#error "Target architecture is unsupported by seccomp."
+#else
+#define SYS_landlock_create_ruleset 444
+#define SYS_landlock_restrict_self 446
+#endif
 
-static void
-secure_clear_environment( void ) {
-  char** env = environ;
-  while ( *env ) {
-    size_t len = strlen( *env );
+extern char ** environ;
+
+void FD_FN_SENSITIVE
+fd_sandbox_private_explicit_clear_environment_variables( void ) {
+  if( !environ ) return;
+
+  for( char * const * env = environ; *env; env++ ) {
+    ulong len = strlen( *env );
     explicit_bzero( *env, len );
-    env++;
   }
-  clearenv();
+
+  if( clearenv() ) FD_LOG_ERR(( "clearenv failed" ));
 }
 
-static void
-setup_mountns( void ) {
-  FD_TESTV( unshare ( CLONE_NEWNS ) == 0 );
-
-  char temp_dir [] = "/tmp/fd-sandbox-XXXXXX";
-  FD_TESTV( mkdtemp( temp_dir ) );
-  FD_TESTV( !mount( NULL, "/", NULL, MS_SLAVE | MS_REC, NULL ) );
-  FD_TESTV( !mount( temp_dir, temp_dir, NULL, MS_BIND | MS_REC, NULL ) );
-  FD_TESTV( !chdir( temp_dir ) );
-  FD_TESTV( !mkdir( "old-root", S_IRUSR | S_IWUSR ));
-  FD_TESTV( !syscall( SYS_pivot_root, ".", "old-root" ) );
-  FD_TESTV( !chdir( "/" ) );
-  FD_TESTV( !umount2( "old-root", MNT_DETACH ) );
-  FD_TESTV( !rmdir( "old-root" ) );
-}
-
-static void
-check_fds( ulong allow_fds_cnt,
-           int * allow_fds ) {
-  DIR * dir = opendir( "/proc/self/fd" );
-  FD_TESTV( dir );
-  int dirfd1 = dirfd( dir );
-  FD_TESTV( dirfd1 >= 0 );
-
-  struct dirent *dp;
-
+void
+fd_sandbox_private_check_exact_file_descriptors( ulong       allowed_file_descriptor_cnt,
+                                                 int const * allowed_file_descriptor ) {
+  if( allowed_file_descriptor_cnt>256UL ) FD_LOG_ERR(( "allowed_file_descriptors_cnt must not be more than 256" ));
   int seen_fds[ 256 ] = {0};
-  FD_TESTV( allow_fds_cnt < 256 );
 
-  while( ( dp = readdir( dir ) ) ) {
-    char *end;
-    long fd = strtol( dp->d_name, &end, 10 );
-    FD_TESTV( fd < INT_MAX && fd > INT_MIN );
-    if ( *end != '\0' ) {
-      continue;
+  for( ulong i=0UL; i<allowed_file_descriptor_cnt; i++ ) {
+    if( allowed_file_descriptor[ i ]<0 || allowed_file_descriptor[ i ]==INT_MAX )
+      FD_LOG_ERR(( "allowed_file_descriptors contains invalid file descriptor %d", allowed_file_descriptor[ i ] ));
+  }
+
+  for( ulong i=0UL; i<allowed_file_descriptor_cnt; i++ ) {
+    for( ulong j=0UL; j<allowed_file_descriptor_cnt; j++ ) {
+      if( i==j ) continue;
+      if( allowed_file_descriptor[ i ]==allowed_file_descriptor[ j ] )
+        FD_LOG_ERR(( "allowed_file_descriptor contains duplicate entry %d", allowed_file_descriptor[ i ] ));
     }
+  }
 
-    if( FD_LIKELY( fd == dirfd1 ) ) continue;
+  int dirfd = open( "/proc/self/fd", O_RDONLY | O_DIRECTORY );
+  if( dirfd<0 ) FD_LOG_ERR(( "open(/proc/self/fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    int found = 0;
-    for( ulong i=0; i<allow_fds_cnt; i++ ) {
-      if ( FD_LIKELY( fd==allow_fds[ i ] ) ) {
-        seen_fds[ i ] = 1;
-        found = 1;
-        break;
+  for(;;) {
+    /* The getdents64() syscall ABI does not require that buf is aligned,
+       since dent->d_name field is variable length, the records are not
+       always aligned and the cast below is going to be unaligned anyway
+       however...
+       
+       If we don't align it the compiler might prove somthing weird and
+       trash this code, and also ASAN would flag it as an error.  So we
+       just align it anyway. */
+    uchar buf[ 4096 ] __attribute__((aligned(alignof(struct dirent64))));
+
+    long dents_bytes = syscall( SYS_getdents64, dirfd, buf, sizeof( buf ) );
+    if( !dents_bytes ) break;
+    else if( -1L==dents_bytes ) FD_LOG_ERR(( "getdents64() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    ulong offset = 0UL;
+    while( offset<(ulong)dents_bytes ) {
+      struct dirent64 const * dent = (struct dirent64 const *)(buf + offset);
+      if( !strcmp( dent->d_name, "." ) || !strcmp( dent->d_name, ".." ) ) {
+        offset += dent->d_reclen;
+        continue;
       }
-    }
 
-    if( !found ) {
-      char path[ PATH_MAX ];
-      int len = snprintf( path, PATH_MAX, "/proc/self/fd/%ld", fd );
-      FD_TEST( len>0 && len < PATH_MAX );
-      char target[ PATH_MAX ];
-      long count = readlink( path, target, PATH_MAX );
-      if( FD_UNLIKELY( count < 0 ) ) FD_LOG_ERR(( "readlink(%s) failed (%i-%s)", target, errno, fd_io_strerror( errno ) ));
-      if( FD_UNLIKELY( count >= PATH_MAX ) ) FD_LOG_ERR(( "readlink(%s) returned truncated path", path ));
-      target[ count ] = '\0';
+      char * end;
+      long _fd = strtol( dent->d_name, &end, 10 );
+      if( *end != '\0' ) FD_LOG_ERR(( "/proc/self/pid has unrecognized entry name %s", dent->d_name ));
+      if( _fd>=INT_MAX ) FD_LOG_ERR(( "/proc/self/pid has file descriptor number %ld which is too large", _fd ));
+      int fd = (int)_fd;
 
-      FD_LOG_ERR(( "unexpected file descriptor %ld open %s", fd, target ));
+      if( fd==dirfd ) {
+        offset += dent->d_reclen;
+        continue;
+      }
+
+      int found = 0;
+      for( ulong i=0UL; i<allowed_file_descriptor_cnt; i++ ) {
+        if( fd==allowed_file_descriptor[ i ] ) {
+          if( seen_fds[ i ] ) FD_LOG_ERR(( "/proc/self/fd contained the same file descriptor (%d) twice", fd ));
+          seen_fds[ i ] = 1;
+          found = 1;
+          break;
+        }
+      }
+
+      if( !found ) {
+        char path[ PATH_MAX ];
+        FD_TEST( fd_cstr_printf_check( path, sizeof( path ), NULL, "/proc/self/fd/%d", fd ) );
+
+        char target[ PATH_MAX ];
+        long count = readlink( path, target, PATH_MAX );
+        if( count<0L        ) FD_LOG_ERR(( "readlink(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+        if( count>=PATH_MAX ) FD_LOG_ERR(( "readlink(%s) returned truncated path", path ));
+        target[ count ] = '\0';
+
+        FD_LOG_ERR(( "unexpected file descriptor %d open %s", fd, target ));
+      }
+      
+      offset += dent->d_reclen;
     }
   }
 
-  for( ulong i=0; i<allow_fds_cnt; i++ ) {
-    if( FD_UNLIKELY( !seen_fds[ i ] ) ) {
-      FD_LOG_ERR(( "allowed file descriptor %d not present", allow_fds[ i ] ));
-    }
+  for( ulong i=0UL; i<allowed_file_descriptor_cnt; i++ ) {
+    if( !seen_fds[ i ] ) FD_LOG_ERR(( "allowed file descriptor %d not present", allowed_file_descriptor[ i ] ));
   }
 
-  FD_TESTV( !closedir( dir ) );
+  if( close( dirfd ) ) FD_LOG_ERR(( "close(/proc/self/fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
-static void
-install_seccomp( ushort               seccomp_filter_cnt,
-                 struct sock_filter * seccomp_filter ) {
-  struct sock_fprog program = {
-    .len    = seccomp_filter_cnt,
-    .filter = seccomp_filter,
-  };
-  FD_TESTV( 0 == syscall( SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &program ) );
-}
-
-static void
-drop_capabilities( void ) {
-  FD_TESTV( 0 == prctl (
-    PR_SET_SECUREBITS,
-    SECBIT_KEEP_CAPS_LOCKED | SECBIT_NO_SETUID_FIXUP |
-      SECBIT_NO_SETUID_FIXUP_LOCKED | SECBIT_NOROOT |
-      SECBIT_NOROOT_LOCKED | SECBIT_NO_CAP_AMBIENT_RAISE |
-      SECBIT_NO_CAP_AMBIENT_RAISE_LOCKED ) );
-
-  struct __user_cap_header_struct hdr = { _LINUX_CAPABILITY_VERSION_3, 0 };
-  struct __user_cap_data_struct   data[2] = { { 0 } };
-  FD_TESTV( 0 == syscall( SYS_capset, &hdr, data ) );
-
-  FD_TESTV( 0 == prctl( PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0 ) );
-}
-
-static void
-userns_map( uint id, const char * map ) {
-  char path[64];
-  FD_TESTV( sprintf( path, "/proc/self/%s", map ) > 0);
-  int fd = open( path, O_WRONLY );
-  FD_TESTV( fd >= 0 );
-  char line[64];
-  FD_TESTV( sprintf( line, "0 %u 1\n", id ) > 0 );
-  FD_TESTV( write( fd, line, strlen( line ) ) > 0 );
-  FD_TESTV( !close( fd ) );
-}
-
-static void
-deny_setgroups( void ) {
-  int fd = open( "/proc/self/setgroups", O_WRONLY );
-  FD_TESTV( fd >= 0 );
-  FD_TESTV( write( fd, "deny", strlen( "deny" ) ) > 0 );
-  FD_TESTV( !close( fd ) );
-}
-
-static void
-switch_user( uint uid, uint gid ) {
-  /* We know that we are single threaded because immediately after
-     this function returns we unshare the user namespace, which will
-     fail in a multithreaded process.
-
-     This lets us do a small hack: in development environments we
-     sometimes want to run all tiles in a single process.  In that case,
-     the sandbox doesn't get created except that we still switch to the
-     desired uid and gid.
+void
+fd_sandbox_private_switch_uid_gid( uint desired_uid,
+                                   uint desired_gid ) {
+  /* We do a small hack: in development environments we sometimes want
+     to run all tiles in a single process.  In that case, the sandbox
+     doesn't get created except that we still switch to the desired uid
+     and gid.
 
      There's a problem with this: POSIX states that all threads in a
      process must have the same uid and gid, so glibc does some wacky
@@ -206,140 +166,432 @@ switch_user( uint uid, uint gid ) {
       align this behavior between production and development, we invoke
       the syscall directly and do not let glibc switch uid/gid on the
       other threads in the process. */
-  int undumpable = 0;
+  int changed = 0;
   gid_t curgid, curegid, cursgid;
-  FD_TESTV( !getresgid( &curgid, &curegid, &cursgid ) );
-  if( FD_LIKELY( gid != curgid || gid != curegid || gid != cursgid )) {
-    FD_TESTV( !syscall( __NR_setresgid, gid, gid, gid ) );
-    undumpable = 1;
+  if( -1==getresgid( &curgid, &curegid, &cursgid ) ) FD_LOG_ERR(( "getresgid failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( desired_gid!=curgid || desired_gid!=curegid || desired_gid!=cursgid ) {
+    if( -1==syscall( __NR_setresgid, desired_gid, desired_gid, desired_gid ) ) FD_LOG_ERR(( "setresgid failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    changed = 1;
   }
+
   uid_t curuid, cureuid, cursuid;
-  FD_TESTV( !getresuid( &curuid, &cureuid, &cursuid ) );
-  if( FD_LIKELY( uid != curuid || uid != cureuid || uid != cursuid )) {
-    FD_TESTV( !syscall( __NR_setresuid, uid, uid, uid ) );
-    undumpable = 1;
+  if( -1==getresuid( &curuid, &cureuid, &cursuid ) ) FD_LOG_ERR(( "getresuid failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( desired_uid!=curuid || desired_uid!=cureuid || desired_uid!=cursuid ) {
+    if( -1==syscall( __NR_setresuid, desired_uid, desired_uid, desired_uid ) ) FD_LOG_ERR(( "setresuid failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    changed = 1;
   }
 
   /* Calling setresgid/setresuid sets the dumpable bit to 0 which
      prevents debugging and stops us from setting our uid/gid maps in
-     the user namespace, so set it back for now. */
-  if( FD_LIKELY( undumpable ) ) FD_TESTV( !prctl( PR_SET_DUMPABLE, 1, 0, 0, 0 ) );
+     the user namespace so restore it if it was changed. */
+  if( changed ) {
+    if( -1==prctl( PR_SET_DUMPABLE, 1 ) ) FD_LOG_ERR(( "prctl(PR_SET_DUMPABLE, 1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 }
 
-static void
-unshare_user( uint uid, uint gid ) {
+void
+fd_sandbox_private_write_userns_uid_gid_maps( uint uid_in_parent,
+                                              uint gid_in_parent ) {
+  int setgroups_fd = open( "/proc/self/setgroups", O_WRONLY );
+  if( FD_UNLIKELY( setgroups_fd<0 ) ) FD_LOG_ERR(( "open(/proc/self/setgroups) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  long written = write( setgroups_fd, "deny", strlen( "deny" ) );
+  if( FD_UNLIKELY( -1L==written ) ) FD_LOG_ERR(( "write(/proc/self/setgroups) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  else if( FD_UNLIKELY( written!=strlen( "deny" ) ) ) FD_LOG_ERR(( "write(/proc/self/setgroups) failed to write all data" ));
+  if( FD_UNLIKELY( close( setgroups_fd ) ) ) FD_LOG_ERR(( "close(/proc/self/setgroups) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  static char const * MAP_PATHS[] = {
+    "/proc/self/uid_map",
+    "/proc/self/gid_map",
+  };
+
+  uint ids[] = {
+    uid_in_parent,
+    gid_in_parent
+  };
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    int fd = open( MAP_PATHS[ i ], O_WRONLY );
+    if( -1==fd ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", MAP_PATHS[ i ], errno, fd_io_strerror( errno ) ));
+
+    char map_line[ 64 ];
+    FD_TEST( fd_cstr_printf_check( map_line, sizeof( map_line ), NULL, "1 %u 1\n", ids[ i ] ) );
+    long written = write( fd, map_line, strlen( map_line ) );
+    if( -1L==written ) FD_LOG_ERR(( "write(%s) failed (%i-%s)", MAP_PATHS[ i ], errno, fd_io_strerror( errno ) ));
+    if( written != (long)strlen( map_line ) ) FD_LOG_ERR(( "write(%s) failed to write all data", MAP_PATHS[ i ] ));
+    if( close( fd ) ) FD_LOG_ERR(( "close(%s) failed (%i-%s)", MAP_PATHS[ i ], errno, fd_io_strerror( errno ) ));
+  }
+}
+
+void
+fd_sandbox_private_deny_namespaces( void ) {
+  static char const * SYSCTLS[] = {
+    "/proc/sys/user/max_user_namespaces",
+    "/proc/sys/user/max_mnt_namespaces",
+    "/proc/sys/user/max_cgroup_namespaces",
+    "/proc/sys/user/max_ipc_namespaces",
+    "/proc/sys/user/max_net_namespaces",
+    "/proc/sys/user/max_pid_namespaces",
+    "/proc/sys/user/max_uts_namespaces",
+  };
+
+  static char const * VALUES[] = {
+    "1", /* One user namespace is allowed, to created the nested child. */
+    "1", /* One mount namespace is allowed, to pivot the root in the user namespace */
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+  };
+
+  for( ulong i=0UL; i<sizeof(SYSCTLS)/sizeof(SYSCTLS[ 0 ]); i++) {
+    int fd = open( SYSCTLS[ i ], O_WRONLY );
+    if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", SYSCTLS[ i ], errno, fd_io_strerror( errno ) ));
+    long written = write( fd, VALUES[ i ], 1 );
+    if( FD_UNLIKELY( written==-1 ) ) FD_LOG_ERR(( "write(%s) failed (%i-%s)", SYSCTLS[ i ], errno, fd_io_strerror( errno ) ));
+    else if( FD_UNLIKELY( written!=1 ) ) FD_LOG_ERR(( "write(%s) failed to write data", SYSCTLS[ i ] ));
+    if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(%s) failed (%i-%s)", SYSCTLS[ i ], errno, fd_io_strerror( errno ) ));
+  }
+}
+
+void
+fd_sandbox_private_pivot_root( void ) {
+  /* The steps taken here to unmount the filesystem and jail us into an
+     empty location look incredibly strange, but are a somewhat standard
+     pattern copied from other sandboxes.  For a couple of examples, see
+
+        https://github.com/firecracker-microvm/firecracker/blob/main/src/jailer/src/chroot.rs
+        https://github.com/hpc/charliecloud/blob/master/bin/ch-checkns.c
+        https://github.com/opencontainers/runc/blob/HEAD/libcontainer/rootfs_linux.go#L671
+        https://github.com/lxc/lxc/blob/HEAD/src/lxc/conf.c#L1121
+        https://github.com/containers/bubblewrap/blob/main/bubblewrap.c#L3196
+
+     The core problem is that calling pivot_root(2) will fail if the
+     list of mounts in the namespace is not arranged very carefully. */
+
+  if( -1==unshare( CLONE_NEWNS ) )                                              FD_LOG_ERR(( "unshare(CLONE_NEWNS) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  ulong bytes;
+  if( 8UL!=getrandom( &bytes, sizeof( bytes ), 0 ) )                            FD_LOG_ERR(( "getrandom() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  char new_root_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( new_root_path, sizeof( new_root_path ), NULL, "/tmp/fd_sandbox_%lu", bytes ) );
+
+  if( -1==mkdir( new_root_path, S_IRUSR | S_IWUSR | S_IXUSR ) )                 FD_LOG_ERR(( "mkdir(%s, 0700) failed (%i-%s)", new_root_path, errno, fd_io_strerror( errno ) ));
+  if( -1==mount( NULL, "/", NULL, MS_SLAVE | MS_REC, NULL ) )                   FD_LOG_ERR(( "mount(NULL, /, NULL, MS_SLAVE | MS_REC, NULL) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( -1==mount( new_root_path, new_root_path, NULL, MS_BIND | MS_REC, NULL ) ) FD_LOG_ERR(( "mount(%s, %s, NULL, MS_BIND | MS_REC, NULL) failed (%i-%s)", new_root_path, new_root_path, errno, fd_io_strerror( errno ) ));
+  if( -1==chdir( new_root_path ) )                                              FD_LOG_ERR(( "chdir(%s) failed (%i-%s)", new_root_path, errno, fd_io_strerror( errno ) ));
+  if( -1==syscall( SYS_pivot_root, ".", "." ) )                                 FD_LOG_ERR(( "pivot_root(., .) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( -1==umount2( ".", MNT_DETACH ) )                                          FD_LOG_ERR(( "umount2(., MNT_DETACH) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( -1==chdir( "/" ) )                                                        FD_LOG_ERR(( "chdir(/) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+struct rlimit_setting {
+#ifdef __GLIBC__
+  __rlimit_resource_t resource;
+#else /* non-glibc */
+  int resource;
+#endif /* __GLIBC__ */
+
+  ulong limit;
+};
+
+void
+fd_sandbox_private_set_rlimits( ulong rlimit_file_cnt ) {
+  struct rlimit_setting rlimits[] = {
+    { .resource=RLIMIT_NOFILE,     .limit=rlimit_file_cnt },
+    { .resource=RLIMIT_NICE,       .limit=1UL             },
+
+    { .resource=RLIMIT_AS,         .limit=0UL             },
+    { .resource=RLIMIT_CORE,       .limit=0UL             },
+    { .resource=RLIMIT_DATA,       .limit=0UL             },
+    { .resource=RLIMIT_MEMLOCK,    .limit=0UL             },
+    { .resource=RLIMIT_MSGQUEUE,   .limit=0UL             },
+    { .resource=RLIMIT_NPROC,      .limit=0UL             },
+    { .resource=RLIMIT_RTPRIO,     .limit=0UL             },
+    { .resource=RLIMIT_RTTIME,     .limit=0UL             },
+    { .resource=RLIMIT_SIGPENDING, .limit=0UL             },
+    { .resource=RLIMIT_STACK,      .limit=0UL             },
+
+    /* Resources that can't be restricted. */
+    // { .resource=RLIMIT_CPU,        .limit=0UL             },
+    // { .resource=RLIMIT_FSIZE,      .limit=0UL             },
+
+    /* Deprecated resources, not used. */
+    // { .resource=RLIMIT_LOCKS,      .limit=0UL             },
+    // { .resource=RLIMIT_RSS,        .limit=0UL             },
+  };
+
+  for( ulong i=0UL; i<sizeof(rlimits)/sizeof(rlimits[ 0 ]); i++ ) {
+    struct rlimit limit = { .rlim_cur=rlimits[ i ].limit, .rlim_max=rlimits[ i ].limit };
+    if( -1==setrlimit( rlimits[ i ].resource, &limit ) ) FD_LOG_ERR(( "setrlimit(%d) failed (%i-%s)", rlimits[ i ].resource, errno, fd_io_strerror( errno ) ));
+  }
+}
+
+void
+fd_sandbox_private_drop_caps( ulong cap_last_cap ) {
+  if( -1==prctl( PR_SET_SECUREBITS,
+                 SECBIT_KEEP_CAPS_LOCKED | SECBIT_NO_SETUID_FIXUP |
+                    SECBIT_NO_SETUID_FIXUP_LOCKED | SECBIT_NOROOT |
+                    SECBIT_NOROOT_LOCKED | SECBIT_NO_CAP_AMBIENT_RAISE |
+                    SECBIT_NO_CAP_AMBIENT_RAISE_LOCKED ) ) FD_LOG_ERR(( "prctl(PR_SET_SECUREBITS) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  for( ulong cap=0UL; cap<=cap_last_cap; cap++ ) {
+    if( -1==prctl( PR_CAPBSET_DROP, cap, 0, 0, 0 ) ) FD_LOG_ERR(( "prctl(PR_CAPBSET_DROP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  struct __user_cap_header_struct hdr = { _LINUX_CAPABILITY_VERSION_3, 0 };
+  struct __user_cap_data_struct   data[2] = { { 0 } };
+  if( -1==syscall( SYS_capset, &hdr, data ) )                          FD_LOG_ERR(( "syscall(SYS_capset) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( -1==prctl( PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0 ) ) FD_LOG_ERR(( "prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+#define LANDLOCK_CREATE_RULESET_VERSION (1U << 0)
+
+#define LANDLOCK_ACCESS_FS_EXECUTE      (1ULL << 0)
+#define LANDLOCK_ACCESS_FS_WRITE_FILE   (1ULL << 1)
+#define LANDLOCK_ACCESS_FS_READ_FILE    (1ULL << 2)
+#define LANDLOCK_ACCESS_FS_READ_DIR     (1ULL << 3)
+#define LANDLOCK_ACCESS_FS_REMOVE_DIR   (1ULL << 4)
+#define LANDLOCK_ACCESS_FS_REMOVE_FILE  (1ULL << 5)
+#define LANDLOCK_ACCESS_FS_MAKE_CHAR    (1ULL << 6)
+#define LANDLOCK_ACCESS_FS_MAKE_DIR     (1ULL << 7)
+#define LANDLOCK_ACCESS_FS_MAKE_REG     (1ULL << 8)
+#define LANDLOCK_ACCESS_FS_MAKE_SOCK    (1ULL << 9)
+#define LANDLOCK_ACCESS_FS_MAKE_FIFO    (1ULL << 10)
+#define LANDLOCK_ACCESS_FS_MAKE_BLOCK   (1ULL << 11)
+#define LANDLOCK_ACCESS_FS_MAKE_SYM     (1ULL << 12)
+#define LANDLOCK_ACCESS_FS_REFER        (1ULL << 13)
+#define LANDLOCK_ACCESS_FS_TRUNCATE     (1ULL << 14)
+#define LANDLOCK_ACCESS_FS_IOCTL_DEV    (1ULL << 15)
+
+#define LANDLOCK_ACCESS_NET_BIND_TCP    (1ULL << 0)
+#define LANDLOCK_ACCESS_NET_CONNECT_TCP (1ULL << 1)
+
+struct landlock_ruleset_attr {
+    __u64 handled_access_fs;
+    __u64 handled_access_net;
+};
+
+void
+fd_sandbox_private_landlock_restrict_self( void ) {
+  struct landlock_ruleset_attr attr = {
+    .handled_access_fs =
+      LANDLOCK_ACCESS_FS_EXECUTE |
+      LANDLOCK_ACCESS_FS_WRITE_FILE |
+      LANDLOCK_ACCESS_FS_READ_FILE |
+      LANDLOCK_ACCESS_FS_READ_DIR |
+      LANDLOCK_ACCESS_FS_REMOVE_DIR |
+      LANDLOCK_ACCESS_FS_REMOVE_FILE |
+      LANDLOCK_ACCESS_FS_MAKE_CHAR |
+      LANDLOCK_ACCESS_FS_MAKE_DIR |
+      LANDLOCK_ACCESS_FS_MAKE_REG |
+      LANDLOCK_ACCESS_FS_MAKE_SOCK |
+      LANDLOCK_ACCESS_FS_MAKE_FIFO |
+      LANDLOCK_ACCESS_FS_MAKE_BLOCK |
+      LANDLOCK_ACCESS_FS_MAKE_SYM |
+      LANDLOCK_ACCESS_FS_REFER |
+      LANDLOCK_ACCESS_FS_TRUNCATE |
+      LANDLOCK_ACCESS_FS_IOCTL_DEV,
+    .handled_access_net =
+      LANDLOCK_ACCESS_NET_BIND_TCP |
+      LANDLOCK_ACCESS_NET_CONNECT_TCP,
+  };
+
+  long abi = syscall( SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION );
+  if( -1L==abi && (errno==ENOSYS || errno==EOPNOTSUPP ) ) return;
+  else if( -1L==abi ) FD_LOG_ERR(( "landlock_create_ruleset() failed (%i-%s).", errno, fd_io_strerror( errno ) ));
+
+  switch (abi) {
+  case 1L:
+      /* Removes LANDLOCK_ACCESS_FS_REFER for ABI < 2 */
+      attr.handled_access_fs &= ~LANDLOCK_ACCESS_FS_REFER;
+      __attribute__((fallthrough));
+  case 2L:
+      /* Removes LANDLOCK_ACCESS_FS_TRUNCATE for ABI < 3 */
+      attr.handled_access_fs &= ~LANDLOCK_ACCESS_FS_TRUNCATE;
+      __attribute__((fallthrough));
+  case 3L:
+      /* Removes network support for ABI < 4 */
+      attr.handled_access_net &=
+          ~(LANDLOCK_ACCESS_NET_BIND_TCP |
+            LANDLOCK_ACCESS_NET_CONNECT_TCP);
+      __attribute__((fallthrough));
+  case 4L:
+      /* Removes LANDLOCK_ACCESS_FS_IOCTL_DEV for ABI < 5 */
+      attr.handled_access_fs &= ~LANDLOCK_ACCESS_FS_IOCTL_DEV;
+  }
+
+  long landlock_fd = syscall( SYS_landlock_create_ruleset, &attr, 16, 0 );
+  if( -1L==landlock_fd ) FD_LOG_ERR(( "landlock_create_ruleset() failed (%i-%s).", errno, fd_io_strerror( errno ) ));
+
+  if( !syscall( SYS_landlock_restrict_self, landlock_fd, 0 ) ) FD_LOG_ERR(( "landlock_restrict_self() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+void
+fd_sandbox_private_set_seccomp_filter( ushort               seccomp_filter_cnt,
+                                       struct sock_filter * seccomp_filter ) {
+  struct sock_fprog program = {
+    .len    = seccomp_filter_cnt,
+    .filter = seccomp_filter,
+  };
+
+  if( syscall( SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &program ) ) FD_LOG_ERR(( "seccomp() failed (%i-%s)", errno, fd_io_strerror( errno ) ) );
+}
+
+ulong
+fd_sandbox_private_read_cap_last_cap( void ) {
+  int fd = open( "/proc/sys/kernel/cap_last_cap", O_RDONLY );
+  if( -1==fd ) FD_LOG_ERR(( "open(/proc/sys/kernel/cap_last_cap) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  char buf[ 16 ] = {0};
+  long count = read( fd, buf, sizeof( buf ) );
+  if( -1L==count ) FD_LOG_ERR(( "read(/proc/sys/kernel/cap_last_cap) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( (ulong)count>=sizeof( buf ) ) FD_LOG_ERR(( "read(/proc/sys/kernel/cap_last_cap) returned truncated data" ));
+  if( 0L!=read( fd, buf, sizeof( buf ) ) ) FD_LOG_ERR(( "read(/proc/sys/kernel/cap_last_cap) did not return all the data" ));
+
+  char * end;
+  ulong cap_last_cap = strtoul( buf, &end, 10 );
+  if( *end!='\n' ) FD_LOG_ERR(( "read(/proc/sys/kernel/cap_last_cap) returned malformed data" ));
+  if( close( fd ) ) FD_LOG_ERR(( "close(/proc/sys/kernel/cap_last_cap) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( !cap_last_cap || cap_last_cap>128 ) FD_LOG_ERR(( "read(/proc/sys/kernel/cap_last_cap) returned invalid data" ));
+
+  return cap_last_cap;
+}
+
+void
+fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
+                                     uint        desired_gid,
+                                     int         keep_controlling_terminal,
+                                     ulong       rlimit_file_cnt,
+                                     ulong       allowed_file_descriptor_cnt,
+                                     int const * allowed_file_descriptor ) {
+  /* Read the highest capability index on the currently running kernel
+     from /proc */
+  ulong cap_last_cap = fd_sandbox_private_read_cap_last_cap();
+  
+  /* The ordering here is quite delicate and should be preserved ...
+  
+      | Action                 | Must happen before          | Reason
+      |------------------------|-----------------------------|-------------------------------------
+      | Check file descriptors | Pivot root                  | Requires access to /proc filesystem
+      | Clear groups           | Unshare namespaces          | Cannot call setgroups(2) in user namespace
+      | Unshare namespaces     | Pivot root                  | Pivot root requires CAP_SYS_ADMIN
+      | Pivot root             | Drop caps                   | Requires CAP_SYS_ADMIN
+      | Set resource limits    | Drop caps                   | Requires CAP_SYS_RESOURCE */
+  fd_sandbox_private_explicit_clear_environment_variables();
+  fd_sandbox_private_check_exact_file_descriptors( allowed_file_descriptor_cnt, allowed_file_descriptor );
+
+  /* Dropping groups can increase privileges to resources that deny
+     certain groups so don't do that, just check that we have no
+     supplementary group IDs. */
+  int getgroups_cnt = getgroups( 0UL, NULL );
+  if( -1==getgroups_cnt )                                            FD_LOG_ERR(( "getgroups() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( getgroups_cnt>1 )                                              FD_LOG_WARNING(( "getgroups() returned multiple supplementary groups (%d), run `id` to see them. "
+                                                                                      "Continuing, but it is suggested to run Firedancer with a sandbox user that has as few permissions as possible.", getgroups_cnt ));
+
+  /* Replace the session keyring in the process with a new
+     anonymous one, in case the systemd or other launcher
+     provided us with something by mistake. */
+  if( -1==syscall( SYS_keyctl, KEYCTL_JOIN_SESSION_KEYRING, NULL ) ) FD_LOG_ERR(( "syscall(SYS_keyctl) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* Detach from the controlling terminal to prevent TIOCSTI type of
+     escapes.  See https://github.com/containers/bubblewrap/issues/142 */
+  if( !keep_controlling_terminal ) {
+    if( -1==setsid() )                                               FD_LOG_ERR(( "setsid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
   /* Certain Linux kernels are configured to not allow user namespaces
      from an unprivileged process, since it's a common security exploit
      vector.  You can still make the namespace if you have CAP_SYS_ADMIN
-     so we need to make sure to carry this through the switch_user. */
+     so we need to make sure to carry this through the switch_uid_gid. */
+  if( -1==prctl( PR_SET_KEEPCAPS, 1 ) ) FD_LOG_ERR(( "prctl(PR_SET_KEEPCAPS, 1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  fd_sandbox_private_switch_uid_gid( desired_uid, desired_gid );
 
-  FD_TESTV( !prctl( PR_SET_KEEPCAPS, 1 ) );
-  switch_user( uid, gid );
-
+  /* Now raise CAP_SYS_ADMIN again after we switched UID/GID. */
   struct __user_cap_header_struct capheader;
   capheader.version = _LINUX_CAPABILITY_VERSION_3;
   capheader.pid = 0;
   struct __user_cap_data_struct capdata[2] = { {0} };
-  FD_TESTV( !syscall( SYS_capget, &capheader, capdata ) );
+  if( -1==syscall( SYS_capget, &capheader, capdata ) ) FD_LOG_ERR(( "syscall(SYS_capget) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   capdata[ CAP_TO_INDEX( CAP_SYS_ADMIN ) ].effective |= CAP_TO_MASK( CAP_SYS_ADMIN );
-  FD_TESTV( !syscall( SYS_capset, &capheader, capdata ) );
+  if( -1==syscall( SYS_capset, &capheader, capdata ) ) FD_LOG_ERR(( "syscall(SYS_capset) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  FD_TESTV( !unshare( CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS ) );
-  FD_TESTV( !prctl( PR_SET_KEEPCAPS, 0 ) );
-  deny_setgroups();
-  userns_map( uid, "uid_map" );
-  userns_map( gid, "gid_map" );
+  /* Unshare everything except the user namespace first, so that the
+     user namespace does not have privileges over the other namespaces. */
+  if( -1==unshare( CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS ) )
+    FD_LOG_ERR(( "unshare(CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  FD_TESTV( !prctl( PR_SET_DUMPABLE, 0, 0, 0, 0 ) );
-  for ( int cap = 0; cap <= CAP_LAST_CAP; cap++ ) {
-    FD_TESTV( !prctl( PR_CAPBSET_DROP, cap, 0, 0, 0 ) );
-  }
-}
+  /* Now unshare the user namespace, disallow creating any more
+     namespaces except one child user namespace, and then create the
+     child user namespace so that the sandbox can't undo the change. */
+  if( -1==unshare( CLONE_NEWUSER ) ) FD_LOG_ERR(( "unshare(CLONE_NEWUSER) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  fd_sandbox_private_write_userns_uid_gid_maps( desired_uid, desired_gid );
+  fd_sandbox_private_deny_namespaces();
+  if( -1==unshare( CLONE_NEWUSER ) ) FD_LOG_ERR(( "unshare(CLONE_NEWUSER) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  fd_sandbox_private_write_userns_uid_gid_maps( 1, 1 );
 
-/* Sandbox the current process by dropping all privileges and entering
-   various restricted namespaces, but leave it able to make system
-   calls.  This should be done as a first step before later
-   calling`install_seccomp`.
+  if( -1==prctl( PR_SET_KEEPCAPS, 0 ) ) FD_LOG_ERR(( "prctl(PR_SET_KEEPCAPS, 0) failed (%i-%s)", errno, fd_io_strerror( errno ) )); 
+  if( -1==prctl( PR_SET_DUMPABLE, 0 ) ) FD_LOG_ERR(( "prctl(PR_SET_DUMPABLE, 0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-   You should call `unthreaded` before creating any threads in the
-   process, and then install the seccomp profile afterwards. */
-static void
-sandbox_unthreaded( ulong rlimit_file_cnt,
-                    ulong allow_fds_cnt,
-                    int * allow_fds,
-                    uint  uid,
-                    uint  gid ) {
-  check_fds( allow_fds_cnt, allow_fds );
-  unshare_user( uid, gid );
-  struct rlimit limit = { .rlim_cur = rlimit_file_cnt, .rlim_max = rlimit_file_cnt };
-  FD_TESTV( !setrlimit( RLIMIT_NOFILE, &limit ));
-  setup_mountns();
-  drop_capabilities();
-  secure_clear_environment();
+  /* Now remount the filesystem root so no files are accessible any more. */
+  fd_sandbox_private_pivot_root();
+
+  /* And trim all the resource limits down to zero. */
+  fd_sandbox_private_set_rlimits( rlimit_file_cnt );
+
+  /* And drop all the capabilities we have in the new user namespace. */
+  fd_sandbox_private_drop_caps( cap_last_cap );
+
+  if( -1==prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) ) FD_LOG_ERR(( "prctl(PR_SET_NO_NEW_PRIVS, 1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* Add an empty landlock restriction to further prevent filesystem
+     access. */
+  fd_sandbox_private_landlock_restrict_self();
 }
 
 void
-fd_sandbox( int                  full_sandbox,
-            uint                 uid,
-            uint                 gid,
-            ulong                rlimit_file_cnt,
-            ulong                allow_fds_cnt,
-            int *                allow_fds,
-            ulong                seccomp_filter_cnt,
-            struct sock_filter * seccomp_filter ) {
-  if( FD_LIKELY( full_sandbox ) ) {
-    sandbox_unthreaded( rlimit_file_cnt, allow_fds_cnt, allow_fds, uid, gid );
-    FD_TESTV( !prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );
-    FD_TEST( seccomp_filter_cnt <= USHORT_MAX );
-    FD_LOG_INFO(( "sandbox: full sandbox is being enabled" )); /* log before seccomp in-case tile doesn't use logfile */
-    install_seccomp( (ushort)seccomp_filter_cnt, seccomp_filter );
-  } else {
-    switch_user( uid, gid );
-    FD_LOG_INFO(( "sandbox: no sandbox enabled" ));
-  }
+fd_sandbox_enter( uint                 desired_uid,
+                  uint                 desired_gid,
+                  int                  keep_controlling_terminal,
+                  ulong                rlimit_file_cnt,
+                  ulong                allowed_file_descriptor_cnt,
+                  int const *          allowed_file_descriptor,
+                  ulong                seccomp_filter_cnt,
+                  struct sock_filter * seccomp_filter ) {
+  if( seccomp_filter_cnt>USHORT_MAX ) FD_LOG_ERR(( "seccomp_filter_cnt must not be more than %u", USHORT_MAX ));
+
+  fd_sandbox_private_enter_no_seccomp( desired_uid,
+                                       desired_gid,
+                                       keep_controlling_terminal,
+                                       rlimit_file_cnt,
+                                       allowed_file_descriptor_cnt,
+                                       allowed_file_descriptor );
+
+  FD_LOG_INFO(( "sandbox: full sandbox is being enabled" )); /* log before seccomp in-case logging not allowed in sandbox */
+
+  /* Now finally install the seccomp-bpf filter. */
+  fd_sandbox_private_set_seccomp_filter( (ushort)seccomp_filter_cnt, seccomp_filter );
 }
 
-void *
-fd_sandbox_alloc_protected_pages( ulong page_cnt,
-                                  ulong guard_page_cnt ) {
-#define PAGE_SZ (4096UL)
-  void * pages = mmap( NULL, (2UL*guard_page_cnt+page_cnt)*PAGE_SZ, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0UL );
-  if( FD_UNLIKELY( pages==MAP_FAILED ) ) FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  uchar * middle_pages = (uchar *)( (ulong)pages + guard_page_cnt*PAGE_SZ );
-
-  /* Make the guard pages untouchable */
-  if( FD_UNLIKELY( mprotect( pages, guard_page_cnt*PAGE_SZ, PROT_NONE ) ) )
-    FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  if( FD_UNLIKELY( mprotect( middle_pages+page_cnt*PAGE_SZ, guard_page_cnt*PAGE_SZ, PROT_NONE ) ) )
-    FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  /* Lock the key page so that it doesn't page to disk */
-  if( FD_UNLIKELY( mlock( middle_pages, page_cnt*PAGE_SZ ) ) )
-    FD_LOG_ERR(( "mlock failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  /* Prevent the key page from showing up in core dumps. It shouldn't be
-     possible to fork this process typically, but we also prevent any
-     forked child from having this page. */
-  if( FD_UNLIKELY( madvise( middle_pages, page_cnt*PAGE_SZ, MADV_WIPEONFORK | MADV_DONTDUMP ) ) )
-    FD_LOG_ERR(( "madvise failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  return middle_pages;
-#undef PAGE_SZ
+void
+fd_sandbox_switch_uid_gid( uint desired_uid,
+                           uint desired_gid ) {
+  fd_sandbox_private_switch_uid_gid( desired_uid, desired_gid );
+  FD_LOG_INFO(( "sandbox: sandbox disabled" ));
 }
 
 ulong
 fd_sandbox_getpid( void ) {
   char pid[ 11 ] = {0}; /* 10 characters for INT_MAX, and then a NUL terminator. */
   long count = readlink( "/proc/self", pid, sizeof(pid) );
-  if( FD_UNLIKELY( count<0L ) ) FD_LOG_ERR(( "readlink(/proc/self) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( (ulong)count>=sizeof(pid) ) ) FD_LOG_ERR(( "readlink(/proc/self) returned truncated pid" ));
+  if( -1L==count )                FD_LOG_ERR(( "readlink(/proc/self) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( (ulong)count>=sizeof(pid) ) FD_LOG_ERR(( "readlink(/proc/self) returned truncated pid" ));
+
   char * endptr;
   ulong result = strtoul( pid, &endptr, 10 );
   /* A pid > INT_MAX is malformed, even if we can represent it in the
      ulong we are returning. */
-  if( FD_UNLIKELY( *endptr != '\0' || result>INT_MAX  ) ) FD_LOG_ERR(( "strtoul(/proc/self) returned invalid pid" ));
+  if( *endptr!='\0' || result>INT_MAX ) FD_LOG_ERR(( "strtoul(/proc/self) returned invalid pid" ));
 
   return result;
 }
@@ -348,21 +600,21 @@ ulong
 fd_sandbox_gettid( void ) {
   char tid[ 27 ] = {0}; /* 10 characters for INT_MAX, twice, + /task/ and then a NUL terminator. */
   long count = readlink( "/proc/thread-self", tid, sizeof(tid) );
-  if( FD_UNLIKELY( count<0L ) ) FD_LOG_ERR(( "readlink(/proc/thread-self) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( (ulong)count>=sizeof(tid) ) ) FD_LOG_ERR(( "readlink(/proc/thread-self) returned truncated tid" ));
+  if( count<0L )                  FD_LOG_ERR(( "readlink(/proc/thread-self) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( (ulong)count>=sizeof(tid) ) FD_LOG_ERR(( "readlink(/proc/thread-self) returned truncated tid" ));
 
   char * taskstr = strchr( tid, '/' );
-  if( FD_UNLIKELY( !taskstr ) ) FD_LOG_ERR(( "readlink(/proc/thread-self) returned invalid tid" ));
+  if( !taskstr ) FD_LOG_ERR(( "readlink(/proc/thread-self) returned invalid tid" ));
   taskstr++;
 
   char * task = strchr( taskstr, '/' );
-  if( FD_UNLIKELY( !task ) ) FD_LOG_ERR(( "readlink(/proc/thread-self) returned invalid tid" ));
+  if( !task ) FD_LOG_ERR(( "readlink(/proc/thread-self) returned invalid tid" ));
 
   char * endptr;
   ulong result = strtoul( task+1UL, &endptr, 10 );
   /* A tid > INT_MAX is malformed, even if we can represent it in the
      ulong we are returning. */
-  if( FD_UNLIKELY( *endptr != '\0' || result>INT_MAX  ) ) FD_LOG_ERR(( "strtoul(/proc/self) returned invalid tid" ));
+  if( *endptr!='\0' || result>INT_MAX ) FD_LOG_ERR(( "strtoul(/proc/self) returned invalid tid" ));
 
   return result;
 }
