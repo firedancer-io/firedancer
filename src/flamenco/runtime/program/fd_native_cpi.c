@@ -36,12 +36,12 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
   for ( ulong j = 0; j < acct_metas_len; j++ ) {
     fd_vm_rust_account_meta_t const * acct_meta = &acct_metas[j];
 
-    for ( ulong k = 0; k < ctx->txn_ctx->accounts_cnt; k++ ) {
-      if ( memcmp( acct_meta->pubkey, ctx->txn_ctx->accounts[k].uc, sizeof(fd_pubkey_t) ) == 0 ) {
-        instr_info->acct_pubkeys[j] = ctx->txn_ctx->accounts[k];
-        instr_info->acct_txn_idxs[j] = (uchar)k;
+    for ( ulong k = 0; k < ctx->instr->acct_cnt; k++ ) {
+      if ( memcmp( acct_meta->pubkey, ctx->instr->acct_pubkeys[k].uc, sizeof(fd_pubkey_t) ) == 0 ) {
+        instr_info->acct_pubkeys[j] = ctx->instr->acct_pubkeys[k];
+        instr_info->acct_txn_idxs[j] = ctx->instr->acct_txn_idxs[k];
         instr_info->acct_flags[j] = 0;
-        instr_info->borrowed_accounts[j] = &ctx->txn_ctx->borrowed_accounts[k];
+        instr_info->borrowed_accounts[j] = ctx->instr->borrowed_accounts[k];
 
         instr_info->is_duplicate[j] = acc_idx_seen[k];
         if( FD_LIKELY( !acc_idx_seen[k] ) ) {
@@ -57,8 +57,7 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
         if( acct_meta->is_writable ) {
           instr_info->acct_flags[j] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
         }
-        // TODO: should check the parent has signer flag set
-        if( acct_meta->is_signer ) {
+        if( acct_meta->is_signer && fd_instr_acc_is_signer_idx( ctx->instr, k ) ) {
           instr_info->acct_flags[j] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
         } else {
           for( ulong k = 0; k < signers_cnt; k++ ) {
