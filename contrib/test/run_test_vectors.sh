@@ -1,6 +1,5 @@
-#!/bin/bash -f
+#!/bin/bash
 
-# this assumes fd_ledger has already been built
 
 set -x
 
@@ -27,9 +26,13 @@ else
 fi
 
 find dump/test-vectors/instr/fixtures -type f -name '*.fix' -exec ./$OBJDIR/unit-test/test_exec_instr --log-path $LOG_PATH/test_exec_instr --log-level-stderr 4 {} + 
+zstd -df dump/test-vectors/elf_loader/fixtures/*.zst
 find dump/test-vectors/elf_loader/fixtures -type f -name '*.fix' -exec ./$OBJDIR/unit-test/test_elf_loader --log-path $LOG_PATH/test_elf_loader --log-level-stderr 4 {} + 
 
-total_tests=`find dump/test-vectors/instr/fixtures -type f -name '*.fix' | wc -l`
+num_exec_instr_tests=`find dump/test-vectors/instr/fixtures -type f -name '*.fix' | wc -l`
+num_elf_tests=`find dump/test-vectors/elf_loader/fixtures -type f -name '*.fix' | wc -l`
+total_tests=$((num_exec_instr_tests + num_elf_tests))
+
 failed=`grep -wR FAIL $LOG_PATH | wc -l`
 passed=`grep -wR OK $LOG_PATH | wc -l`
 

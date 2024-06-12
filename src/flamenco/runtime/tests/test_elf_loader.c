@@ -21,7 +21,12 @@ diff_effects( fd_exec_test_elf_loader_effects_t const * expected,
   if( expected->rodata_sz != actual->rodata_sz ) {
     diff = 1;
     FD_LOG_WARNING(( "ro data size: expected %lu, actual %lu", expected->rodata_sz, actual->rodata_sz ));
-  };
+  }
+  else if( memcmp( expected->rodata, actual->rodata, expected->rodata_sz ) != 0 ){
+    diff = 1;
+    FD_LOG_WARNING(( "rodata differ" ));
+  }
+
   if( expected->text_cnt != actual->text_cnt ) {
     diff = 1;
     FD_LOG_WARNING(( "Instruction count: expected %lu, actual %lu", expected->text_cnt, actual->text_cnt ));
@@ -30,18 +35,14 @@ diff_effects( fd_exec_test_elf_loader_effects_t const * expected,
     diff = 1;
     FD_LOG_WARNING(( "Entry PC: expected %lu, actual %lu", expected->entry_pc, actual->entry_pc ));
   }
+  
   if( expected->calldests_count != actual->calldests_count ) {
     diff = 1;
     FD_LOG_WARNING(( "calldests count: expected %d, actual %d", expected->calldests_count, actual->calldests_count ));
   }
-  if( memcmp( expected->calldests, actual->calldests, expected->calldests_count*sizeof(ulong) ) != 0 ){
+  else if( memcmp( expected->calldests, actual->calldests, expected->calldests_count*sizeof(ulong) ) != 0 ){
     diff = 1;
     FD_LOG_WARNING(( "calldests differ" ));
-  }
-    
-  if( memcmp( expected->rodata, actual->rodata, expected->rodata_sz ) != 0 ){
-    diff = 1;
-    FD_LOG_WARNING(( "rodata differ" ));
   }
   
   return diff;
@@ -91,6 +92,8 @@ run_test( char const * path ) {
     if( diff ) {
       /* Need "FAIL" for run_test_vectors script to pickup failure */
       FD_LOG_WARNING(( "FAIL: Elf loader effects differ for fixture %s", path ));
+    } else {
+      FD_LOG_INFO(( "OK: Elf loader effects match for fixture %s", path ));
     }
 
   } while(0);
