@@ -1218,7 +1218,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
         if( txn_ctx->unknown_accounts[i] ) {
           memset( acc_rec->meta->hash, 0xFF, sizeof(fd_hash_t) );
           if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) {
-            fd_set_exempt_rent_epoch_max( txn_ctx, &txn_ctx->accounts[i] );
+            fd_txn_set_exempt_rent_epoch_max( txn_ctx, &txn_ctx->accounts[i] );
           }
         }
         if( !txn_ctx->nonce_accounts[i] ) {
@@ -2779,7 +2779,7 @@ fd_runtime_collect_rent_account( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 static void
-fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulong epoch) {
+fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulong epoch ) {
   fd_funk_txn_t *txn = slot_ctx->funk_txn;
   fd_acc_mgr_t *acc_mgr = slot_ctx->acc_mgr;
   fd_funk_t *funk = slot_ctx->acc_mgr->funk;
@@ -2830,6 +2830,80 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulon
   }
 }
 
+/* Yes, this is a real function that exists in Solana. Yes, I am ashamed I have had to replicate it. */
+// https://github.com/firedancer-io/solana/blob/d8292b427adf8367d87068a3a88f6fd3ed8916a5/runtime/src/bank.rs#L5618
+static ulong
+fd_runtime_slot_count_in_two_day( ulong ticks_per_slot ) {
+  return 2UL * FD_SYSVAR_CLOCK_DEFAULT_TICKS_PER_SECOND * 86400UL /* seconds per day */ / ticks_per_slot;
+}
+
+// https://github.com/firedancer-io/solana/blob/d8292b427adf8367d87068a3a88f6fd3ed8916a5/runtime/src/bank.rs#L5594
+static int
+fd_runtime_use_multi_epoch_collection( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
+
+  ulong off;
+  ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
+  ulong slots_per_normal_epoch = fd_epoch_slot_cnt( schedule, schedule->first_normal_epoch );
+
+  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( epoch_bank->ticks_per_slot );
+
+  int use_multi_epoch_collection = ( epoch >= schedule->first_normal_epoch )
+      && ( slots_per_normal_epoch < slot_count_in_two_day );
+
+  return use_multi_epoch_collection;
+}
+
+static ulong
+fd_runtime_num_rent_partitions( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
+
+  ulong off;
+  ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
+  ulong slots_per_epoch = fd_epoch_slot_cnt( schedule, epoch );
+
+  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( epoch_bank->ticks_per_slot );
+
+  int use_multi_epoch_collection = fd_runtime_use_multi_epoch_collection( slot_ctx, slot );
+
+  if( use_multi_epoch_collection ) {
+    ulong epochs_in_cycle = slot_count_in_two_day / slots_per_epoch;
+    return slots_per_epoch * epochs_in_cycle;
+  } else {
+    return slots_per_epoch;
+  }
+}
+
+// https://github.com/anza-xyz/agave/blob/2bdcc838c18d262637524274cbb2275824eb97b8/accounts-db/src/accounts_partition.rs#L30
+static ulong
+fd_runtime_get_rent_partition( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {
+  int use_multi_epoch_collection = fd_runtime_use_multi_epoch_collection( slot_ctx, slot );
+
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
+
+  ulong off;
+  ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
+  ulong slot_count_per_epoch = fd_epoch_slot_cnt( schedule, epoch );
+  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( epoch_bank->ticks_per_slot );
+
+  ulong base_epoch;
+  ulong epoch_count_in_cycle;
+  if( use_multi_epoch_collection ) {
+    base_epoch = schedule->first_normal_epoch;
+    epoch_count_in_cycle = slot_count_in_two_day / slot_count_per_epoch;
+  } else {
+    base_epoch = 0;
+    epoch_count_in_cycle = 1;
+  }
+
+  ulong epoch_offset = epoch - base_epoch;
+  ulong epoch_index_in_cycle = epoch_offset % epoch_count_in_cycle;
+  return off + ( epoch_index_in_cycle * slot_count_per_epoch );
+}
+
 static void
 fd_runtime_collect_rent( fd_exec_slot_ctx_t * slot_ctx ) {
   // Bank::collect_rent_eagerly (enter)
@@ -2854,9 +2928,12 @@ fd_runtime_collect_rent( fd_exec_slot_ctx_t * slot_ctx ) {
     ulong off;
     ulong epoch = fd_slot_to_epoch(schedule, s, &off);
 
+    /* FIXME: This will not necessarily support warmup_epochs */
+    ulong num_partitions = fd_runtime_num_rent_partitions( slot_ctx, s );
+    FD_LOG_WARNING(("num partitions: %lu %lu %lu", num_partitions, off, s % num_partitions));
     /* Reconstruct rent lists if the number of slots per epoch changes */
-    fd_acc_mgr_set_slots_per_epoch( slot_ctx, fd_epoch_slot_cnt( schedule, epoch ) );
-    fd_runtime_collect_rent_for_slot( slot_ctx, off, epoch );
+    fd_acc_mgr_set_slots_per_epoch( slot_ctx, num_partitions );
+    fd_runtime_collect_rent_for_slot( slot_ctx, fd_runtime_get_rent_partition( slot_ctx, s ), epoch );
   }
 
   // FD_LOG_DEBUG(("rent collected - lamports: %lu", slot_ctx->slot_bank.collected_rent));
