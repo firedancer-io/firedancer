@@ -570,14 +570,18 @@ monitor_cmd_fn( args_t *         args,
   if( FD_UNLIKELY( close( STDIN_FILENO ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  fd_sandbox( config->development.sandbox,
-              config->uid,
-              config->gid,
-              0,
-              allow_fds_cnt,
-              allow_fds,
-              sock_filter_policy_monitor_instr_cnt,
-              seccomp_filter );
+  if( FD_LIKELY( config->development.sandbox ) ) {
+    fd_sandbox_enter( config->uid,
+                      config->gid,
+                      1, /* Keep controlling terminal for main so it can receive Ctrl+C */
+                      0UL,
+                      allow_fds_cnt,
+                      allow_fds,
+                      sock_filter_policy_monitor_instr_cnt,
+                      seccomp_filter );
+  } else {
+    fd_sandbox_switch_uid_gid( config->uid, config->gid );
+  }
 
   fd_topo_fill( &config->topo );
 
