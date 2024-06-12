@@ -1349,7 +1349,7 @@ fd_instr_info_t *
 fd_executor_acquire_instr_info_elem( fd_exec_txn_ctx_t * txn_ctx ) {
 
   if ( FD_UNLIKELY( fd_instr_info_pool_free( txn_ctx->instr_info_pool ) == 0 ) ) {
-    FD_LOG_WARNING(( "no free elements remaining in the fd_instr_info_pool" ));
+    FD_LOG_DEBUG(( "no free elements remaining in the fd_instr_info_pool" ));
     return NULL;
   }
 
