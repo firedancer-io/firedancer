@@ -2424,6 +2424,9 @@ fd_quic_ack_merge( fd_quic_conn_t * conn, uint enc_level ) {
     if( FD_LIKELY( pri_ack->pkt_number.offset_hi == cur_ack->pkt_number.offset_lo ) ) {
       /* merge */
       fd_quic_ack_join( conn, enc_level, pri_ack, cur_ack );
+
+      /* list has changed, so reestablish pri_ack and cur_ack */
+      cur_ack = pri_ack->next;
     }
 
     pri_ack = cur_ack;
