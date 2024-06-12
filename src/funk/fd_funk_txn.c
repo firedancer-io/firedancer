@@ -10,8 +10,10 @@
 #define MAP_KEY_HASH(k0,seed) fd_funk_txn_xid_hash((k0),(seed))
 #define MAP_KEY_COPY(kd,ks)   fd_funk_txn_xid_copy((kd),(ks))
 #define MAP_NEXT              map_next
+#define MAP_HASH              map_hash
 #define MAP_MAGIC             (0xf173da2ce7172db0UL) /* Firedancer trn db version 0 */
 #define MAP_IMPL_STYLE        2
+#define MAP_MEMOIZE           1
 #include "../util/tmpl/fd_map_giant.c"
 
 /* As described in fd_funk_txn.h, like the extensive tests in verify
@@ -536,7 +538,7 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
 
     fd_funk_xid_key_pair_t dst_pair[1];
     fd_funk_xid_key_pair_init( dst_pair, dst_xid, fd_funk_rec_key( &rec_map[ rec_idx ] ) );
-    
+
     fd_funk_rec_t * dst_rec = fd_funk_rec_map_query( rec_map, dst_pair, NULL );
 
     if( FD_UNLIKELY( rec_map[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) ) { /* Erase a published key */
@@ -852,8 +854,8 @@ fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
   while( FD_UNLIKELY( !fd_funk_txn_idx_is_null( child_idx ) ) ) {
     map[ child_idx ].parent_cidx = fd_funk_txn_cidx( parent_idx );
     child_idx = fd_funk_txn_idx( map[ child_idx ].sibling_next_cidx );
-  }  
-  
+  }
+
   fd_funk_txn_map_remove( map, fd_funk_txn_xid( txn ) );
 
   return FD_FUNK_SUCCESS;
@@ -894,7 +896,7 @@ fd_funk_txn_merge_all_children( fd_funk_t *     funk,
     fd_funk_txn_update( &parent_txn->rec_head_idx, &parent_txn->rec_tail_idx, parent_idx, &parent_txn->xid,
                         child_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_get_partvec( funk, wksp ),
                         fd_funk_alloc( funk, wksp ), wksp );
-    
+
     child_idx = fd_funk_txn_idx( txn->sibling_next_cidx );
     fd_funk_txn_map_remove( map, fd_funk_txn_xid( txn ) );
   }

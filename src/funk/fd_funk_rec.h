@@ -43,6 +43,7 @@ struct fd_funk_rec {
 
   fd_funk_xid_key_pair_t pair;     /* Transaction id and record key pair */
   ulong                  map_next; /* Internal use by map */
+  ulong                  map_hash; /* Internal use by map */
 
   /* These fields are managed by funk.  TODO: Consider using record
      index compression here (much more debatable than in txn itself). */
@@ -73,6 +74,8 @@ struct fd_funk_rec {
 
 typedef struct fd_funk_rec fd_funk_rec_t;
 
+FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 3U*64U, record size is wrong );
+
 /* fd_funk_rec_map allows for indexing records by their (xid,key) pair.
    It is used to store all records of the last published transaction and
    the records being updated for a transaction that is in-preparation.
@@ -89,8 +92,10 @@ typedef struct fd_funk_rec fd_funk_rec_t;
 #define MAP_KEY_HASH(k0,seed) fd_funk_xid_key_pair_hash((k0),(seed))
 #define MAP_KEY_COPY(kd,ks)   fd_funk_xid_key_pair_copy((kd),(ks))
 #define MAP_NEXT              map_next
+#define MAP_HASH              map_hash
 #define MAP_MAGIC             (0xf173da2ce77ecdb0UL) /* Firedancer rec db version 0 */
 #define MAP_IMPL_STYLE        1
+#define MAP_MEMOIZE           1
 #include "../util/tmpl/fd_map_giant.c"
 
 FD_PROTOTYPES_BEGIN
