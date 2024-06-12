@@ -203,7 +203,7 @@ solana_labs_main( void * args ) {
                                  &fd_tile_private_stack0, &fd_tile_private_stack1 );
   FD_LOG_NOTICE(( "booting solana pid:%lu", fd_log_group_id() ));
 
-  fd_sandbox( 0, config->uid, config->gid, 0UL, 0, NULL, 0, NULL );
+  fd_sandbox_switch_uid_gid( config->uid, config->gid );
 
   solana_labs_boot( config );
   return 0;

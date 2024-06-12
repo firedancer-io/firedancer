@@ -92,14 +92,18 @@ fd_topo_run_tile( fd_topo_t *          topo,
                                                              seccomp_filter );
   }
 
-  fd_sandbox( sandbox,
-              uid,
-              gid,
-              tile_run->rlimit_file_cnt,
-              allow_fds_cnt+allow_fds_offset,
-              allow_fds,
-              seccomp_filter_cnt,
-              seccomp_filter );
+  if( FD_LIKELY( sandbox) ) {
+    fd_sandbox_enter( uid,
+                      gid,
+                      0,
+                      tile_run->rlimit_file_cnt,
+                      allow_fds_cnt+allow_fds_offset,
+                      allow_fds,
+                      seccomp_filter_cnt,
+                      seccomp_filter );
+  } else {
+    fd_sandbox_switch_uid_gid( uid, gid );
+  }
 
   /* Now we are sandboxed, join all the tango IPC objects in the workspaces */
   fd_topo_fill_tile( topo, tile );
@@ -372,7 +376,7 @@ fd_topo_run_single_process( fd_topo_t * topo,
     run_tile_thread( topo, tile, run_tile, uid, gid, done_futex, floating_cpu_set, save_priority );
   }
 
-  fd_sandbox( 0, uid, gid, 0, 0, NULL, 0, NULL );
+  fd_sandbox_switch_uid_gid( uid, gid );
 
   if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, save_priority ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, floating_cpu_set ) ) )
