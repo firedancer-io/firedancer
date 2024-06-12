@@ -131,8 +131,7 @@ struct fd_replay_tile_ctx {
   FILE *             capture_file;
 
   fd_bank_hash_cmp_t * bank_hash_cmp;
-  fd_latest_vote_t *   latest_votes;
-  fd_bft_t *           bft;
+  fd_tower_t *         tower;
   fd_ghost_t *         ghost;
 
   ulong * first_turbine;
@@ -162,19 +161,10 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_replay_align(), fd_replay_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FORKS_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint() );
   l = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
-
   l = FD_LAYOUT_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
-
-  l = FD_LAYOUT_APPEND( l, fd_bft_align(), fd_bft_footprint() );
-  l = FD_LAYOUT_APPEND(
-      l,
-      fd_ghost_align(),
-      fd_ghost_footprint( 1 << FD_BFT_LG_SLOT_MAX, 1 << FD_BFT_LG_NODE_PUBKEY_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_root_stake_map_align(), fd_root_stake_map_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_root_vote_map_align(), fd_root_vote_map_footprint() );
-
+  l = FD_LAYOUT_APPEND( l, fd_tower_align(), fd_tower_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_SLOT_MAX, FD_VOTER_MAX  ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -369,9 +359,6 @@ after_frag( void *             _ctx,
       fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
       fork->slot_ctx.slot_bank.slot      = ctx->curr_slot;
 
-      fork->slot_ctx.latest_votes        = ctx->latest_votes;
-      fd_latest_vote_deque_remove_all( fork->slot_ctx.latest_votes );
-
       fd_funk_txn_xid_t xid;
 
       fd_memcpy(xid.uc, ctx->blockhash.uc, sizeof(fd_funk_txn_xid_t));
@@ -503,12 +490,13 @@ after_frag( void *             _ctx,
       /* Consensus */
 
       FD_PARAM_UNUSED long tic_ = fd_log_wallclock();
-      fd_bft_fork_update( ctx->bft, fork );
-      long        tic         = fd_log_wallclock();
-      fd_fork_t * fork_choice = fd_bft_fork_choice( ctx->replay->bft );
-      long        toc         = fd_log_wallclock();
-      ulong       vote_cnt    = fd_latest_vote_deque_cnt( ctx->latest_votes );
-      if( FD_UNLIKELY( fork_choice->slot < fork->slot - 32 ) ) {
+
+
+      fd_tower_fork_update( ctx->tower, fork );
+      long        now         = fd_log_wallclock();
+      fd_ghost_node_t * head                = fd_ghost_head_query( ctx->tower->ghost );
+      long        duration_ns         = fd_log_wallclock() - now;
+      if( FD_UNLIKELY( head->slot_hash.slot < fork->slot - 32 ) ) {
         FD_LOG_WARNING( ( "Fork choice slot is too far behind executed slot. Likely there is a "
                           "bug in execution that is interfering with our ability to process recent votes." ) );
 
@@ -517,19 +505,22 @@ after_frag( void *             _ctx,
       } else {
 
         /* TODO add voting and select_vote_and_reset_bank logic here if we have a valid picked fork */
+        fd_vote_accounts_t const * vote_accounts = &fork->slot_ctx.epoch_ctx->epoch_bank.stakes.vote_accounts;
 
         FD_LOG_NOTICE( ( "\n\n[Fork Selection]\n"
-                         "vote count:    %lu \n"
-                         "selected fork: %lu\n"
-                         "took:          %.2lf ms (%ld ns)\n",
-                         vote_cnt,
-                         fork_choice->slot,
-                         (double)( toc - tic ) / 1e6,
-                         toc - tic ) );
-        memcpy( microblock_trailer->hash, fork_choice->slot_ctx.slot_bank.block_hash_queue.last_hash->uc, sizeof(fd_hash_t) );
+                         "# of vote accounts: %lu \n"
+                         "selected fork:      %lu\n"
+                         "took:               %.2lf ms (%ld ns)\n",
+                         fd_vote_accounts_pair_t_map_size( vote_accounts->vote_accounts_pool, vote_accounts->vote_accounts_root ),
+                         head->slot_hash.slot,
+                         (double)( duration_ns ) / 1e6,
+                         duration_ns ) );
+
+        fd_fork_t * reset_fork = fd_tower_reset_fork_select( ctx->tower );
+        memcpy( microblock_trailer->hash, reset_fork->slot_ctx.slot_bank.block_hash_queue.last_hash->uc, sizeof(fd_hash_t) );
         if( ctx->poh_init_done == 1 ) {
-          ulong parent_slot = fork_choice->slot_ctx.slot_bank.prev_slot;
-          ulong curr_slot = fork_choice->slot_ctx.slot_bank.slot;
+          ulong parent_slot = reset_fork->slot_ctx.slot_bank.prev_slot;
+          ulong curr_slot = reset_fork->slot_ctx.slot_bank.slot;
           FD_LOG_INFO(( "publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", curr_slot, parent_slot, ctx->flags ));
           ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
           ulong sig = fd_disco_replay_sig( curr_slot, ctx->flags );
@@ -543,7 +534,7 @@ after_frag( void *             _ctx,
 
       fd_slot_hash_t    curr_slot_hash = { .slot = child->slot,
                                            .hash = fork->slot_ctx.slot_bank.banks_hash };
-      fd_ghost_node_t * curr           = fd_ghost_node_query( ctx->ghost, &curr_slot_hash );
+      fd_ghost_node_t * curr           = fd_ghost_node_query( ctx->tower->ghost, &curr_slot_hash );
       fd_ghost_node_t * prev           = curr;
       for( ulong i = 0; i < 8; i++ ) {
         if( !curr ) break;
@@ -551,7 +542,7 @@ after_frag( void *             _ctx,
         curr = curr->parent;
       }
       fd_ghost_node_t * root = fd_ptr_if( !!curr, curr, prev );
-      fd_ghost_print( ctx->ghost, root );
+      fd_ghost_print( ctx->tower->ghost, root );
 
       /* Prepare bank for next execution. */
 
@@ -741,24 +732,20 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
     ctx->parent_slot         = ctx->slot_ctx->slot_bank.prev_slot;
   }
 
-  ctx->replay->bft  = ctx->bft;
-  ctx->bft->acc_mgr     = ctx->replay->acc_mgr;
-  ctx->bft->blockstore  = ctx->replay->blockstore;
-  ctx->bft->commitment  = NULL;
-  ctx->bft->forks       = ctx->replay->forks;
-  ctx->bft->funk        = ctx->replay->funk;
-  ctx->bft->ghost       = ctx->ghost;
-  ctx->bft->valloc      = ctx->replay->valloc;
+  ctx->tower->acc_mgr     = ctx->replay->acc_mgr;
+  ctx->tower->blockstore  = ctx->replay->blockstore;
+  ctx->tower->forks       = ctx->replay->forks;
+  ctx->tower->ghost       = ctx->ghost;
+  ctx->tower->valloc      = ctx->replay->valloc;
 
-  ctx->bft->snapshot_slot = snapshot_slot;
-  ctx->bft->smr           = snapshot_slot;
-  fd_bft_epoch_stake_update( ctx->bft, ctx->epoch_ctx );
-  bank_hash_cmp->total_stake = ctx->bft->epoch_stake;
-  FD_LOG_NOTICE( ( "total epoch stake: %lu", bank_hash_cmp->total_stake ) );
+  ctx->tower->root = snapshot_slot;
+  fd_tower_epoch_update( ctx->tower, ctx->epoch_ctx );
+  bank_hash_cmp->total_stake = ctx->tower->total_stake;
+  FD_LOG_NOTICE( ( "total stake: %lu", bank_hash_cmp->total_stake ) );
 
   fd_slot_hash_t key = { .slot = snapshot_slot, .hash = ctx->slot_ctx->slot_bank.banks_hash };
   fd_ghost_node_insert( ctx->ghost, &key, NULL );
-  ctx->ghost->total_stake = ctx->bft->epoch_stake;
+  ctx->ghost->total_stake = ctx->tower->total_stake;
 }
 
 static void
@@ -831,17 +818,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->epoch_ctx_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
   void * replay_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_align(), fd_replay_footprint() );
   void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FORKS_MAX ) );
-  void * latest_votes_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint() );
   void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
-
-  void * bank_hash_cmp_mem = FD_SCRATCH_ALLOC_APPEND(
-      l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
-
-  void * bft_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bft_align(), fd_bft_footprint() );
-  void * ghost_mem = FD_SCRATCH_ALLOC_APPEND(
-      l,
-      fd_ghost_align(),
-      fd_ghost_footprint( 1 << FD_BFT_LG_SLOT_MAX, 1 << FD_BFT_LG_NODE_PUBKEY_MAX ) );
+  void * bank_hash_cmp_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
+  void * tower_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
+  void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_SLOT_MAX, FD_VOTER_MAX ) );
 
   fd_scratch_attach( smem, fmem, SCRATCH_MAX, SCRATCH_DEPTH );
 
@@ -989,9 +969,8 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !ctx->bank_busy ) ) FD_LOG_ERR(( "banking tile %lu has no busy flag", tile->kind_id ));
 
   ctx->bank_hash_cmp = fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_mem ) );
-  ctx->latest_votes  = fd_latest_vote_deque_join( fd_latest_vote_deque_new( latest_votes_mem ) );
-  ctx->bft           = fd_bft_join( fd_bft_new( bft_mem ) );
-  ctx->ghost         = fd_ghost_join( fd_ghost_new( ghost_mem, 1 << FD_BFT_LG_SLOT_MAX, 1 << FD_BFT_LG_NODE_PUBKEY_MAX, 42 ) );
+  ctx->tower         = fd_tower_join( fd_tower_new( tower_mem ) );
+  ctx->ghost         = fd_ghost_join( fd_ghost_new( ghost_mem, FD_SLOT_MAX, FD_VOTER_MAX, 42 ) );
 
   // ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "first_turbine" );
   // FD_TEST( busy_obj_id != ULONG_MAX );
@@ -999,7 +978,6 @@ unprivileged_init( fd_topo_t *      topo,
   // if( FD_UNLIKELY( !ctx->first_turbine ) )
   //   FD_LOG_ERR( ( "replay tile %lu has no busy flag", tile->kind_id ) );
 
-  ctx->replay->bft = ctx->bft;
   ctx->poh_init_done = 0U;
 
   /* Set up store tile input */

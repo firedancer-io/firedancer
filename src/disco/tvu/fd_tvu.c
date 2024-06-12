@@ -402,8 +402,7 @@ static fd_exec_slot_ctx_t *
 fd_tvu_late_incr_snap( fd_runtime_ctx_t *  runtime_ctx,
                        fd_runtime_args_t * runtime_args,
                        fd_replay_t *       replay,
-                       ulong               snapshot_slot,
-                       fd_latest_vote_t *  latest_votes );
+                       ulong               snapshot_slot);
 
 int
 fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
@@ -487,7 +486,7 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
       nanosleep(&ts, NULL);
       //if( fd_tile_shutdown_flag ) goto shutdown;
     }
-    slot_ctx = fd_tvu_late_incr_snap( runtime_ctx, runtime_args, replay, slot_ctx->slot_bank.slot, slot_ctx->latest_votes );
+    slot_ctx = fd_tvu_late_incr_snap( runtime_ctx, runtime_args, replay, slot_ctx->slot_bank.slot );
     runtime_ctx->need_incr_snap = 0;
   }
 
@@ -1014,8 +1013,7 @@ void
 snapshot_insert( fd_fork_t *        fork,
                  ulong              snapshot_slot,
                  fd_blockstore_t *  blockstore,
-                 fd_replay_t *      replay,
-                 fd_latest_vote_t * latest_votes ) {
+                 fd_replay_t *      replay ) {
 
   /* Add snapshot slot to blockstore.*/
 
@@ -1028,16 +1026,12 @@ snapshot_insert( fd_fork_t *        fork,
 
   /* Set the latest_votes pointer to passed-in latest_votes mem. */
 
-  fork->slot_ctx.latest_votes = latest_votes;
-
   /* Add snapshot slot to ghost. */
 
   fd_slot_hash_t slot_hash = { .slot = snapshot_slot, .hash = fork->slot_ctx.slot_bank.banks_hash };
   fd_ghost_node_insert( replay->bft->ghost, &slot_hash, NULL );
 
   /* Add snapshot slot to bft. */
-
-  replay->bft->snapshot_slot = snapshot_slot;
 
   /* Add snapshot slot to bash hash cmp. */
   fd_bank_hash_cmp_t * bank_hash_cmp = replay->epoch_ctx->bank_hash_cmp;
@@ -1053,8 +1047,7 @@ static fd_exec_slot_ctx_t *
 fd_tvu_late_incr_snap( fd_runtime_ctx_t *  runtime_ctx,
                        fd_runtime_args_t * runtime_args,
                        fd_replay_t *       replay,
-                       ulong               snapshot_slot,
-                       fd_latest_vote_t *  latest_votes ) {
+                       ulong               snapshot_slot ) {
   (void)runtime_ctx;
 
   fd_fork_t *          fork     = fd_fork_pool_ele_acquire( replay->forks->pool );
@@ -1078,7 +1071,7 @@ fd_tvu_late_incr_snap( fd_runtime_ctx_t *  runtime_ctx,
   slot_ctx->slot_bank.collected_fees = 0;
   slot_ctx->slot_bank.collected_rent = 0;
 
-  snapshot_insert( fork, snapshot_slot, replay->blockstore, replay, latest_votes);
+  snapshot_insert( fork, snapshot_slot, replay->blockstore, replay );
 
   return slot_ctx;
 }
@@ -1247,35 +1240,14 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     /* ghost                                                               */
     /***********************************************************************/
 
-    void * ghost_mem =
-        fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( 1024UL, 1 << 16 ), 42UL );
-    fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 1024UL, 1 << 16, 42UL ) );
 
     /***********************************************************************/
     /* latest_votes                                                           */
     /***********************************************************************/
 
-    void * latest_votes_mem =
-        fd_wksp_alloc_laddr( wksp, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint(), 42UL );
-    fd_latest_vote_t * latest_votes =
-        fd_latest_vote_deque_join( fd_latest_vote_deque_new( latest_votes_mem ) );
-    FD_TEST( latest_votes );
-
     /***********************************************************************/
     /* bft                                                                 */
     /***********************************************************************/
-
-    void *     bft_mem = fd_wksp_alloc_laddr( wksp, fd_bft_align(), fd_bft_footprint(), 42UL );
-    fd_bft_t * bft     = fd_bft_join( fd_bft_new( bft_mem ) );
-
-    bft->acc_mgr    = forks->acc_mgr;
-    bft->blockstore = forks->blockstore;
-    bft->commitment = NULL;
-    bft->forks      = forks;
-    bft->ghost      = ghost;
-    bft->valloc     = valloc;
-
-    replay_setup_out.replay->bft = bft;
 
     /**********************************************************************/
     /* Store                                                              */
@@ -1298,7 +1270,6 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
 
     FD_TEST( resolve_hostport( args->my_gossip_addr, &runtime_ctx->gossip_config.my_addr ) );
 
-    gossip_deliver_arg->bft = bft;
     gossip_deliver_arg->repair = repair;
     gossip_deliver_arg->valloc = valloc;
 
@@ -1359,8 +1330,6 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
 
     /* BFT update epoch stakes */
 
-    fd_bft_epoch_stake_update(bft, slot_ctx_setup_out.exec_epoch_ctx);
-
     /* bank hash cmp */
 
     void * bank_hash_cmp_mem = replay_setup_out.replay->epoch_ctx->bank_hash_cmp;
@@ -1369,15 +1338,6 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
         fd_bank_hash_cmp_new( bank_hash_cmp_mem ) );
 
     /* bootstrap replay with the snapshot slot */
-
-    slot_ctx_setup_out.exec_slot_ctx->latest_votes = latest_votes;
-    if( !runtime_ctx->need_incr_snap ) {
-      snapshot_insert( slot_ctx_setup_out.fork,
-                       slot_ctx_setup_out.exec_slot_ctx->slot_bank.slot,
-                       blockstore_setup_out.blockstore,
-                       replay_setup_out.replay,
-                       latest_votes );
-    }
 
     /* TODO @yunzhang open files, set the replay pointers, etc. you need here*/
     if (args->shred_cap == NULL) {

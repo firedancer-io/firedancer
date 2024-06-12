@@ -356,8 +356,9 @@ fd_blockstore_seed( fd_blockstore_t * blockstore ) {
 }
 
 /* fd_blockstore_shred_pool returns a pointer in the caller's address space to the blockstore's
- * tmp shred pool. Assumes blockstore is local join. Lifetime of the returned pointer is that of the
- * local join. */
+   tmp shred pool. Assumes blockstore is local join. Lifetime of the returned pointer is that of the
+   local join. */
+
 FD_FN_PURE static inline fd_blockstore_shred_t *
 fd_blockstore_shred_pool( fd_blockstore_t * blockstore ) {
   return (fd_blockstore_shred_t *)fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ),
@@ -365,8 +366,9 @@ fd_blockstore_shred_pool( fd_blockstore_t * blockstore ) {
 }
 
 /* fd_blockstore_shred_map returns a pointer in the caller's address space to the blockstore's
- * tmp shred map. Assumes blockstore is local join. Lifetime of the returned pointer is that of the
- * local join. */
+   tmp shred map. Assumes blockstore is local join. Lifetime of the returned pointer is that of the
+   local join. */
+
 FD_FN_PURE static inline fd_blockstore_shred_map_t *
 fd_blockstore_shred_map( fd_blockstore_t * blockstore ) {
   return (fd_blockstore_shred_map_t *)fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ),
@@ -374,8 +376,8 @@ fd_blockstore_shred_map( fd_blockstore_t * blockstore ) {
 }
 
 /* fd_blockstore_slot_map returns a pointer in the caller's address space to the blockstore's
- * slot map. Assumes blockstore is local join. Lifetime of the returned pointer is that of the
- * local join. */
+   slot map. Assumes blockstore is local join. Lifetime of the returned pointer is that of the
+   local join. */
 FD_FN_PURE static inline fd_blockstore_slot_map_t *
 fd_blockstore_slot_map( fd_blockstore_t * blockstore ) {
   return (fd_blockstore_slot_map_t *)fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ),
@@ -383,8 +385,9 @@ fd_blockstore_slot_map( fd_blockstore_t * blockstore ) {
 }
 
 /* fd_blockstore_txn_map returns a pointer in the caller's address space to the blockstore's
- * block map. Assumes blockstore is local join. Lifetime of the returned pointer is that of the
- * local join. */
+   block map. Assumes blockstore is local join. Lifetime of the returned pointer is that of the
+   local join. */
+
 FD_FN_PURE static inline fd_blockstore_txn_map_t *
 fd_blockstore_txn_map( fd_blockstore_t * blockstore ) {
   return (fd_blockstore_txn_map_t *)fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ),
@@ -402,6 +405,7 @@ fd_blockstore_alloc( fd_blockstore_t * blockstore ) {
 
 /* fd_blockstore_block_data_laddr returns a local pointer to the block's data. The returned pointer
  * lifetime is until the block is removed. Check return value for error info. */
+
 FD_FN_PURE static inline uchar *
 fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->data_gaddr );

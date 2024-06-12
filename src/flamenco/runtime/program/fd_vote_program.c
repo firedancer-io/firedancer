@@ -177,7 +177,7 @@ get_state( fd_borrowed_account_t const * self,
   if( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
-  return 0;
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 /* https://github.com/solana-labs/solana/blob/v1.18.9/sdk/src/transaction_context.rs#L977-L988 */
@@ -1882,21 +1882,6 @@ process_vote_state_update( ulong                         vote_acct_idx,
 
   rc = set_vote_account_state( vote_acct_idx, vote_account, &vote_state, ctx );
 
-  /* only when running live or sim (vs. offline backtest) */
-  if( FD_LIKELY( rc == FD_EXECUTOR_INSTR_SUCCESS && ctx->slot_ctx->latest_votes ) ) {
-    if( FD_LIKELY( lockout ) ) {
-      fd_latest_vote_t latest_vote = {
-        .node_pubkey = *vote_account->pubkey,
-        .slot_hash = {
-          .slot = lockout->slot,
-          .hash = vote_state_update->hash
-        },
-        .root = vote_state_update->root
-      };
-      fd_latest_vote_deque_push_tail( ctx->slot_ctx->latest_votes, latest_vote );
-    }
-  }
-
   return rc;
 }
 
@@ -2566,16 +2551,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
       rc = process_vote_state_update( 0, me, slot_hashes, clock, vote_state_update, signers, &ctx );
-
-      if( FD_LIKELY( rc == FD_EXECUTOR_INSTR_SUCCESS && ctx.slot_ctx->latest_votes ) ) {
-        fd_vote_lockout_t * latest_vote_lockout =
-            deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts );
-        fd_latest_vote_t latest_vote = {
-            .node_pubkey = *me->pubkey,
-            .slot_hash   = { .slot = latest_vote_lockout->slot, .hash = vote_state_update->hash }
-        };
-        fd_latest_vote_deque_push_tail( ctx.slot_ctx->latest_votes, latest_vote );
-      }
 
     } else {
       // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L198-L200
