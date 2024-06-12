@@ -55,6 +55,7 @@ WITH_COVERAGE=0
 PRUNE_FAILURE=0
 PROTO_BUF_FAILURE=0
 TILE_CPUS="--tile-cpus 5-21"
+MINIFY_ROCKSDB=0
 
 POSITION_ARGS=()
 OBJDIR=${OBJDIR:-build/native/gcc}
@@ -156,6 +157,16 @@ while [[ $# -gt 0 ]]; do
         ;;
     -pf|--prune-failure)
        PRUNE_FAILURE="$2"
+       shift
+       shift
+       ;;
+    -mdb|--minify-rocksdb)
+       MINIFY_ROCKSDB="$2"
+       shift
+       shift
+       ;;
+    -dbp|--mini-rocksdb-path)
+       MINI_ROCKSDB_PATH="$2"
        shift
        shift
        ;;
@@ -362,6 +373,7 @@ fi
 fd_log_file=$(grep "Log at" $LOG)
 echo "Log for ledger $LEDGER at $fd_log_file"
 
+
 if [ $status -ne 0 ] || grep -q "Bank hash mismatch" $LOG;
 then
   if [ "$status" -eq "$EXPECTED" ]; then
@@ -372,8 +384,31 @@ then
   echo_error "ledger test failed: $*"
   echo $LOG
 
-  # create prune here
   mismatch_slot=$(grep "Bank hash mismatch!" "$LOG" | tail -n 1 | awk -F'slot=' '{print $2}' | awk '{print $1}')
+
+  if [[ $MINIFY_ROCKSDB = 1 ]]; then
+    echo_notice "Starting minify rocksdb"
+    set -x
+    "$OBJDIR"/bin/fd_ledger \
+      --reset 1 \
+      --cmd minify \
+      --rocksdb dump/$LEDGER/rocksdb \
+      --minified-rocksdb $MINI_ROCKSDB_PATH \
+      --start-slot $((mismatch_slot - 10)) \
+      --end-slot $((mismatch_slot + 10)) \
+      --page-cnt 10 \
+      --copy-txn-status 1
+
+    minify_status=$?
+  
+    if [ $minify_status -eq 0 ]; then
+      gsutil -m cp ${MINI_ROCKSDB_PATH} gs://firedancer-ci-resources/${MINI_ROCKSDB_PATH}
+    else
+      echo_error 'ledger minify failed:' $minify_status
+    fi
+  fi
+
+  # create prune here
   prune_start_slot=$((mismatch_slot - 1))
   prune_end_slot=$((mismatch_slot + 100))
 
@@ -411,7 +446,7 @@ then
     prune_status=$?
 
     if [ $prune_status -eq 0 ]; then
-      gsutil cp ${PRUNE_PATH} gs://firedancer-ci-resources${PRUNE_PATH}
+      gsutil -m cp ${PRUNE_PATH} gs://firedancer-ci-resources/${PRUNE_PATH}
     else
       echo_error 'ledger prune failed:' $prune_status
     fi
