@@ -136,7 +136,7 @@ struct fd_ledger_args {
 };
 typedef struct fd_ledger_args fd_ledger_args_t;
 
-fd_valloc_t allocator_setup( fd_wksp_t *  wksp, char const * allocator ) {
+fd_valloc_t allocator_setup( fd_wksp_t * wksp, char const * allocator ) {
   FD_TEST( wksp );
 
   void * alloc_shmem =
@@ -932,7 +932,7 @@ replay( fd_ledger_args_t * args ) {
   }
 
 
-  fd_valloc_t valloc = allocator_setup( args->funk_wksp, args->allocator );
+  fd_valloc_t valloc = allocator_setup( args->wksp, args->allocator );
 
   void * tpool_scr_mem = setup_tpool( &state, &runtime_args, valloc );
 
@@ -1098,7 +1098,7 @@ prune( fd_ledger_args_t * args ) {
   fd_tvu_gossip_deliver_arg_t gossip_deliver_arg[1];
   fd_replay_t * replay = NULL;
 
-  fd_valloc_t valloc = allocator_setup( runtime_args.funk_wksp, runtime_args.allocator );
+  fd_valloc_t valloc = allocator_setup( args->wksp, runtime_args.allocator );
 
   void * tpool_scr_mem = setup_tpool( &state, &runtime_args, valloc );
 
