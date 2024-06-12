@@ -91,12 +91,12 @@
         there might be a whole chain already waiting.
 
     That's pretty much it.  When we are leader, in addition to doing
-    busywork, we publish ticks and microblocks to the the shred tile.
-    A microblock is a non-empty group of transactions whose hashes
-    are mixed-in to the chain, while a tick is a periodic stamp of
-    the current hash, with no transactions (nothing mixed in).  We
-    need to send both to the shred tile, as ticks are important for
-    other validators to verify in parallel.
+    busywork, we publish ticks and microblocks to the shred tile. A
+    microblock is a non-empty group of transactions whose hashes are
+    mixed-in to the chain, while a tick is a periodic stamp of the
+    current hash, with no transactions (nothing mixed in).  We need
+    to send both to the shred tile, as ticks are important for other
+    validators to verify in parallel.
 
     As well, the tile should never become leader for a slot that it has
     published anything for, otherwise it may create a duplicate block.
@@ -301,7 +301,7 @@
 
         The leader schedule is computed one epoch in advance, so that
         at slot T, we always know who will be leader up until the end
-        of slot T+EPOCH_LENGTH.  Sepcifically, the leader schedule for
+        of slot T+EPOCH_LENGTH.  Specifically, the leader schedule for
         epoch N is computed during the epoch boundary crossing from
         N-2 to N-1. For mainnet-beta, the slots per epoch is fixed and
         will always be 420,000. */

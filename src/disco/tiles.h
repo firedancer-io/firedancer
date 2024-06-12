@@ -86,7 +86,7 @@ struct fd_done_packing {
 typedef struct fd_done_packing fd_done_packing_t;
 
 struct fd_microblock_bank_trailer {
-  /* An opauque pointer to the bank to use when executing and committing
+  /* An opaque pointer to the bank to use when executing and committing
      transactions.  The lifetime of the bank is owned by the PoH tile,
      which guarantees it is valid while pack or bank tiles might be
      using it. */
