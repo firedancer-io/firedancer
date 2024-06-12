@@ -1,24 +1,36 @@
 #ifndef HEADER_fd_src_choreo_ghost_fd_ghost_h
 #define HEADER_fd_src_choreo_ghost_fd_ghost_h
 
-/* fd_ghost ("greedy heaviest-observed subtree") is an implementation of the fork choice protocol.
-   It is latest message-driven (LMD) ie. only a validator's most recent vote counts toward the tree
-   weights.
+/* fd_ghost ("greedy heaviest-observed subtree") implements Solana's LMD-GHOST fork choice rule.
 
-   greedy - pick the locally optimum subtree / fork right now, which may not be optimal later.
-   heaviest - pick the fork with the most vote stake.
-   observed - this is the validator's local view, and other validator's may have different trees.
-   subtree - all descendant votes in a subtree are counted towards the ancestor.
+   Protocol details:
 
-   fd_ghost_node_t represents the n-ary tree of forks. Each node holds a pointer to the left-most
-   child, and a pointer to siblings. The node also tracks the sum of stakes (stake) for that
-   specific node as well as sum of stakes of the subtree rooted at that node (weight).
+   - GHOST is an acronym for "greedy heaviest-observed subtree":
+     - greedy: pick the locally optimal subtree / fork based on our current view, which may not be globally optimal.
+     - heaviest: pick based on the highest stake weight.
+     - observed: this is the validator's local view, and other validators may have differing views.
+     - subtree: pick a subtree, not an individual node.
 
-   fd_ghost_vote_t represents the latest message from a validator. Each message is keyed by the slot
-   hash, which is the slot hash of the validator's vote, and also contains the validator's pubkey
-   and stake.
+   - LMD is an acronym for "latest message-driven". It denotes the specific flavor of GHOST
+     implementation: in this case, only a validator's latest vote counts.
 
-   [1] GHOST paper: https://eprint.iacr.org/2013/881.pdf */
+   In-memory representation:
+
+   - fd_ghost_node_t implements a left-child right-sibling n-ary tree. Each node holds a pointer to
+     its left-most child (`child`), and a pointer to its right sibling (`sibling`).
+
+   - Each tree node is keyed by slot_hash, which is a tuple (slot, bank_hash).
+
+   - Each tree node tracks the amount of stake (`stake`) that has voted for that key, as well as the
+     recursive sum of stake for the subtree rooted at that node (`weight`).
+
+   - fd_ghost_t is the top-level structure that holds the root of the tree, as well as the memory
+     pools and maps for nodes and votes.
+
+   - fd_ghost_vote_t represents a validator's vote. This includes a slot hash and the validator's pubkey
+     and stake.
+
+   [1] Original GHOST paper: https://eprint.iacr.org/2013/881.pdf */
 
 #include "../fd_choreo_base.h"
 
@@ -112,29 +124,26 @@ fd_ghost_align( void ) {
   return alignof( fd_ghost_t );
 }
 
+/* clang-format off */
 FD_FN_CONST static inline ulong
 fd_ghost_footprint( ulong node_max, ulong vote_max ) {
   return FD_LAYOUT_FINI(
-      FD_LAYOUT_APPEND(
-          FD_LAYOUT_APPEND(
-              FD_LAYOUT_APPEND(
-                  FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
-                                                                        alignof( fd_ghost_t ),
-                                                                        sizeof( fd_ghost_t ) ),
-                                                      fd_ghost_node_pool_align(),
-                                                      fd_ghost_node_pool_footprint( node_max ) ),
-                                    fd_ghost_node_map_align(),
-                                    fd_ghost_node_map_footprint( node_max ) ),
-                  fd_ghost_vote_pool_align(),
-                  fd_ghost_vote_pool_footprint( vote_max ) ),
-              fd_ghost_vote_map_align(),
-              fd_ghost_vote_map_footprint( vote_max ) ),
-          fd_ghost_prune_deque_align(),
-          fd_ghost_prune_deque_footprint( node_max ) ),
-      //  sizeof( ulong ),
-      //  sizeof( ulong ) * node_max ),
-      alignof( fd_ghost_t ) );
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_INIT,
+      alignof( fd_ghost_t ), sizeof( fd_ghost_t ) ),
+      fd_ghost_node_pool_align(), fd_ghost_node_pool_footprint( node_max ) ),
+      fd_ghost_node_map_align(), fd_ghost_node_map_footprint( node_max ) ),
+      fd_ghost_vote_pool_align(), fd_ghost_vote_pool_footprint( vote_max ) ),
+      fd_ghost_vote_map_align(), fd_ghost_vote_map_footprint( vote_max ) ),
+      fd_ghost_prune_deque_align(), fd_ghost_prune_deque_footprint( node_max ) ),
+    alignof( fd_ghost_t ) );
 }
+/* clang-format on */
 
 /* fd_ghost_new formats an unused memory region for use as a ghost. mem is a non-NULL pointer to
    this region in the local address space with the required footprint and alignment. */
@@ -165,6 +174,22 @@ fd_ghost_leave( fd_ghost_t const * ghost );
 void *
 fd_ghost_delete( void * ghost );
 
+/* fd_ghost_head_query returns the head of the ghost. Ghost is always non-empty, ie. a root must exist. */
+
+static inline fd_ghost_node_t *
+fd_ghost_head_query( fd_ghost_t * ghost ) {
+  fd_ghost_node_t * head = ghost->root;
+  while( head->child ) {
+    fd_ghost_node_t * curr = head;
+    while( curr ) {
+      head = FD_GHOST_NODE_MAX( curr, head );
+      curr = curr->sibling;
+    }
+    head = head->child;
+  }
+  return head;
+}
+
 /* fd_ghost_leaf_insert inserts a new leaf node with key into the ghost, with parent_slot_hash
    optionally specified. The caller promises the key is not currently in the map and that the
    parent_slot_hash, if specified, is in the map.
@@ -177,7 +202,7 @@ fd_ghost_delete( void * ghost );
          highest priority.
 */
 
-void
+fd_ghost_node_t *
 fd_ghost_node_insert( fd_ghost_t *           ghost,
                       fd_slot_hash_t const * slot_hash,
                       fd_slot_hash_t const * parent_slot_hash_opt );
@@ -187,7 +212,7 @@ fd_ghost_node_insert( fd_ghost_t *           ghost,
 fd_ghost_node_t *
 fd_ghost_node_query( fd_ghost_t * ghost, fd_slot_hash_t const * slot_hash );
 
-/* fd_ghost_replay_vote_upsert updates or inserts pubkey's stake in ghost.
+/* fd_ghost_replay_vote_insert inserts a replay vote into ghost.
 
    The stake associated with pubkey is added to the ancestry chain beginning at slot hash
    ("insert"). If pubkey has previously voted, the previous vote's stake is removed from the
@@ -201,22 +226,22 @@ fd_ghost_node_query( fd_ghost_t * ghost, fd_slot_hash_t const * slot_hash );
 */
 
 void
-fd_ghost_replay_vote( fd_ghost_t *           ghost,
-                      fd_slot_hash_t const * slot_hash,
-                      fd_pubkey_t const *    pubkey,
-                      ulong                  stake );
+fd_ghost_replay_vote_insert( fd_ghost_t *           ghost,
+                             fd_slot_hash_t const * slot_hash,
+                             fd_pubkey_t const *    pubkey,
+                             ulong                  stake );
 
-/* fd_ghost_gossip_vote_upsert updates or inserts pubkey's stake in ghost.
+/* fd_ghost_gossip_vote_insert inserts a gossip vote into ghost.
 
    Unlike fd_ghost_replay_vote_upsert, the stake associated with pubkey is not propagated. It is
    only counted towards the individual slot hash voted for.
 */
 
 void
-fd_ghost_gossip_vote( fd_ghost_t *           ghost,
-                      fd_slot_hash_t const * slot_hash,
-                      fd_pubkey_t const *    pubkey,
-                      ulong                  stake );
+fd_ghost_gossip_vote_insert( fd_ghost_t *           ghost,
+                             fd_slot_hash_t const * slot_hash,
+                             fd_pubkey_t const *    pubkey,
+                             ulong                  stake );
 
 void
 fd_ghost_prune( fd_ghost_t * ghost, fd_ghost_node_t const * root );

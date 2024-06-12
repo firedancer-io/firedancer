@@ -130,10 +130,8 @@ fd_ghost_delete( void * ghost ) {
 
 /* If there is a new head, update the ancestry. */
 
-void
-fd_ghost_node_insert( fd_ghost_t *           ghost,
-                      fd_slot_hash_t const * slot_hash,
-                      fd_slot_hash_t const * parent_slot_hash_opt ) {
+fd_ghost_node_t *
+fd_ghost_node_insert( fd_ghost_t * ghost, fd_slot_hash_t const * slot_hash, fd_slot_hash_t const * parent_slot_hash_opt ) {
   FD_LOG_DEBUG( ( "[ghost] inserting: %lu hash: %32J parent: %lu parent_hash: %32J",
                   slot_hash->slot,
                   slot_hash->hash.hash,
@@ -143,8 +141,7 @@ fd_ghost_node_insert( fd_ghost_t *           ghost,
 #if FD_GHOST_USE_HANDHOLDING
   /* caller promises key is not already in ghost. this is to maintain the invariant that processing
      replay votes should not result in inserting the same key twice into the ghost nodes. */
-  if( FD_UNLIKELY(
-          fd_ghost_node_map_ele_query( ghost->node_map, slot_hash, NULL, ghost->node_pool ) ) ) {
+  if( FD_UNLIKELY( fd_ghost_node_map_ele_query( ghost->node_map, slot_hash, NULL, ghost->node_pool ) ) ) {
     FD_LOG_ERR( ( "duplicate slot_hash" ) );
   }
 #endif
@@ -173,14 +170,15 @@ fd_ghost_node_insert( fd_ghost_t *           ghost,
 
   if( FD_UNLIKELY( !parent_slot_hash_opt ) ) {
     ghost->root = node;
-    return;
+    return node;
   }
-  fd_ghost_node_t * parent =
-      fd_ghost_node_map_ele_query( ghost->node_map, parent_slot_hash_opt, NULL, ghost->node_pool );
+  fd_ghost_node_t * parent = fd_ghost_node_map_ele_query( ghost->node_map, parent_slot_hash_opt, NULL, ghost->node_pool );
 
 #if FD_GHOST_USE_HANDHOLDING
   /* caller promises non-NULL parent_slot_hash is in ghost. */
-  if( FD_UNLIKELY( !parent ) ) FD_LOG_ERR( ( "missing parent" ) );
+  if( FD_UNLIKELY( !parent ) ) {
+    FD_LOG_ERR( ( "missing parent" ) );
+  }
 #endif
 
   node->parent = parent;
@@ -194,6 +192,8 @@ fd_ghost_node_insert( fd_ghost_t *           ghost,
     }
     curr->sibling = node;
   }
+
+  return node;
 }
 
 fd_ghost_node_t *
@@ -202,45 +202,44 @@ fd_ghost_node_query( fd_ghost_t * ghost, fd_slot_hash_t const * slot_hash ) {
 }
 
 void
-fd_ghost_replay_vote( fd_ghost_t *           ghost,
-                      fd_slot_hash_t const * slot_hash,
-                      fd_pubkey_t const *    pubkey,
-                      ulong                  stake ) {
-  fd_ghost_node_t * node =
-      fd_ghost_node_map_ele_query( ghost->node_map, slot_hash, NULL, ghost->node_pool );
+fd_ghost_replay_vote_insert( fd_ghost_t * ghost, fd_slot_hash_t const * slot_hash, fd_pubkey_t const * pubkey, ulong stake ) {
+  fd_ghost_node_t * node = fd_ghost_node_map_ele_query( ghost->node_map, slot_hash, NULL, ghost->node_pool );
 
 #if FD_GHOST_USE_HANDHOLDING
   /* Caller promises node is already in ghost. */
-  if( FD_UNLIKELY( !node ) ) FD_LOG_ERR( ( "missing ghost node" ) );
+  if( FD_UNLIKELY( !node ) ) {
+    FD_LOG_ERR( ( "missing ghost node" ) );
+  }
 #endif
 
   /* Ignore votes for slots older than the current root. */
 
-  if( FD_UNLIKELY( slot_hash->slot < ghost->root->slot_hash.slot ) ) return;
+  if( FD_UNLIKELY( slot_hash->slot < ghost->root->slot_hash.slot ) ) {
+    return;
+  }
 
   /* Query pubkey's previous vote. */
 
-  fd_ghost_vote_t * vote =
-      fd_ghost_vote_map_ele_query( ghost->vote_map, pubkey, NULL, ghost->vote_pool );
+  fd_ghost_vote_t * vote = fd_ghost_vote_map_ele_query( ghost->vote_map, pubkey, NULL, ghost->vote_pool );
 
   if( FD_LIKELY( vote ) ) {
 
     /* Return early if pubkey's vote hasn't changed. */
 
-    if( FD_SLOT_HASH_EQ( slot_hash, &vote->slot_hash ) ) return;
+    if( FD_SLOT_HASH_EQ( slot_hash, &vote->slot_hash ) ) {
+      return;
+    }
 
-    fd_ghost_node_t * node =
-        fd_ghost_node_map_ele_query( ghost->node_map, &vote->slot_hash, NULL, ghost->node_pool );
+    fd_ghost_node_t * node = fd_ghost_node_map_ele_query( ghost->node_map, &vote->slot_hash, NULL, ghost->node_pool );
 
     if( FD_UNLIKELY( !node ) ) {
 
       /* Prev voted slot hash is too old and has already been pruned from ghost. */
 
-      FD_LOG_WARNING(
-          ( "prev voted slot hash (%lu, %32J) by %32J was too old and already pruned from ghost.",
-            vote->slot_hash.slot,
-            vote->slot_hash.hash,
-            &pubkey->key ) );
+      FD_LOG_WARNING( ( "prev voted slot hash (%lu, %32J) by %32J was too old and already pruned from ghost.",
+                        vote->slot_hash.slot,
+                        vote->slot_hash.hash,
+                        &pubkey->key ) );
 
     } else {
 
@@ -285,10 +284,10 @@ fd_ghost_replay_vote( fd_ghost_t *           ghost,
 }
 
 void
-fd_ghost_gossip_vote( FD_PARAM_UNUSED fd_ghost_t *           ghost,
-                      FD_PARAM_UNUSED fd_slot_hash_t const * slot_hash,
-                      FD_PARAM_UNUSED fd_pubkey_t const *    pubkey,
-                      FD_PARAM_UNUSED ulong                  stake ) {
+fd_ghost_gossip_vote_insert( FD_PARAM_UNUSED fd_ghost_t *           ghost,
+                             FD_PARAM_UNUSED fd_slot_hash_t const * slot_hash,
+                             FD_PARAM_UNUSED fd_pubkey_t const *    pubkey,
+                             FD_PARAM_UNUSED ulong                  stake ) {
   FD_LOG_ERR( ( "unimplemented" ) );
 }
 
@@ -303,14 +302,16 @@ fd_ghost_prune( fd_ghost_t * ghost, fd_ghost_node_t const * root ) {
     fd_ghost_node_t * remove = fd_ghost_prune_deque_pop_head( q );
     fd_ghost_node_t * curr   = remove;
     while( curr ) {
-      if( FD_LIKELY( curr != root ) ) fd_ghost_prune_deque_push_tail( q, curr->child );
+      if( FD_LIKELY( curr != root ) ) {
+        fd_ghost_prune_deque_push_tail( q, curr->child );
+      }
       curr = curr->sibling;
     }
     remove->child->parent = NULL;
-    remove =
-        fd_ghost_node_map_ele_remove( ghost->node_map, &remove->slot_hash, NULL, ghost->node_pool );
+    remove                = fd_ghost_node_map_ele_remove( ghost->node_map, &remove->slot_hash, NULL, ghost->node_pool );
 #if FD_GHOST_USE_HANDHOLDING
-    if( FD_UNLIKELY( !remove ) ) FD_LOG_ERR( ( "unable to remove." ) );
+    if( FD_UNLIKELY( !remove ) )
+      FD_LOG_ERR( ( "unable to remove." ) );
 #endif
     FD_LOG_NOTICE( ( "[fd_ghost_prune] removing %lu", remove->slot_hash.slot ) );
     fd_ghost_node_pool_ele_release( ghost->node_pool, remove );
@@ -318,11 +319,14 @@ fd_ghost_prune( fd_ghost_t * ghost, fd_ghost_node_t const * root ) {
 }
 
 static void
-print_node( fd_ghost_node_t const * node, int space, const char * prefix, ulong total ) {
-  if( space > 40 ) return;
-  if( node == NULL ) return;
+print( fd_ghost_node_t const * node, int space, const char * prefix, ulong total ) {
+  if( space > 40 )
+    return;
+  if( node == NULL )
+    return;
 
-  if( space > 0) printf( "\n" );
+  if( space > 0 )
+    printf( "\n" );
   for( int i = 0; i < space; i++ ) // Print space
     printf( " " );
   double pct = ( (double)node->weight / (double)total ) * 100;
@@ -337,10 +341,10 @@ print_node( fd_ghost_node_t const * node, int space, const char * prefix, ulong 
   while( curr ) {
     if( curr->sibling ) {
       sprintf( new_prefix, "├── " ); // Branch indicating more siblings follow
-      print_node( curr, space + 4, new_prefix, total );
+      print( curr, space + 4, new_prefix, total );
     } else {
       sprintf( new_prefix, "└── " ); // End branch
-      print_node( curr, space + 4, new_prefix, total );
+      print( curr, space + 4, new_prefix, total );
     }
     curr = curr->sibling;
   }
@@ -348,6 +352,6 @@ print_node( fd_ghost_node_t const * node, int space, const char * prefix, ulong 
 
 void
 fd_ghost_print( fd_ghost_t const * ghost, fd_ghost_node_t const * root ) {
-  print_node( root, 0, "", ghost->total_stake );
+  print( root, 0, "", ghost->total_stake );
   printf( "\n\n" );
 }

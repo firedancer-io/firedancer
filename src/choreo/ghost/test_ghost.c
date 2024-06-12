@@ -42,12 +42,12 @@ test_ghost_simple( fd_ghost_t * ghost ) {
 
   fd_pubkey_t    pk1 = { .key = { 1 } };
   fd_slot_hash_t sh2 = { .slot = 2, .hash = pubkey_null };
-  fd_ghost_replay_vote( ghost, &sh2, &pk1, 1 );
+  fd_ghost_replay_vote_insert( ghost, &sh2, &pk1, 1 );
 
   fd_ghost_print( ghost, ghost->root );
 
   fd_slot_hash_t sh3 = { .slot = 3, .hash = pubkey_null };
-  fd_ghost_replay_vote( ghost, &sh3, &pk1, 1 );
+  fd_ghost_replay_vote_insert( ghost, &sh3, &pk1, 1 );
 
   ghost->total_stake = 1;
   fd_ghost_print( ghost, ghost->root );

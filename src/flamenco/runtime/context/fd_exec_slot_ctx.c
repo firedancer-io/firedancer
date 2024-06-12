@@ -25,7 +25,6 @@ fd_exec_slot_ctx_new( void *      mem,
   self->valloc = valloc;
   fd_slot_bank_new(&self->slot_bank);
 
-  self->latest_votes = NULL;
   self->sysvar_cache = fd_sysvar_cache_new( fd_valloc_malloc( valloc, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() ), valloc );
   self->account_compute_table = fd_account_compute_table_join( fd_account_compute_table_new( fd_valloc_malloc( valloc, fd_account_compute_table_align(), fd_account_compute_table_footprint( 10000 ) ), 10000, 0 ) );
 

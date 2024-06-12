@@ -16,7 +16,7 @@
 
 struct fd_tvu_gossip_deliver_arg {
   fd_repair_t * repair;
-  fd_bft_t * bft;
+  fd_tower_t * bft;
   fd_valloc_t valloc;
 };
 typedef struct fd_tvu_gossip_deliver_arg fd_tvu_gossip_deliver_arg_t;

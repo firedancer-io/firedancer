@@ -5,14 +5,16 @@
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../fd_choreo_base.h"
+#include "../ghost/fd_ghost.h"
 
 struct fd_fork {
-  ulong              slot;     /* head of the fork, frontier key */
-  ulong              next;     /* reserved for use by fd_pool and fd_map_chain */
+  ulong slot; /* head of the fork, frontier key */
+  ulong next; /* reserved for use by fd_pool and fd_map_chain */
 
-  int                executing; /* is the block currently executing */
-  fd_block_t *       head;      /* the block representing the head of the fork */
-  fd_exec_slot_ctx_t slot_ctx; /* the bank representing the head of the fork */
+  fd_exec_slot_ctx_t         slot_ctx; /* the bank representing the head of the fork */
+  fd_ghost_node_t *          ghost_node;
+  fd_blockstore_slot_map_t * blockstore_slot;
+  int                        executing; // TODO remove this. this should be using block->prepare flag.
 };
 typedef struct fd_fork fd_fork_t;
 
@@ -53,12 +55,11 @@ fd_forks_align( void ) {
 FD_FN_CONST static inline ulong
 fd_forks_footprint( ulong max ) {
   return FD_LAYOUT_FINI(
-      FD_LAYOUT_APPEND(
-      FD_LAYOUT_APPEND(
-      FD_LAYOUT_APPEND(
-         FD_LAYOUT_INIT, alignof( fd_forks_t ), sizeof( fd_forks_t ) ),
-         fd_fork_pool_align(), fd_fork_pool_footprint( max ) ),
-         fd_fork_frontier_align(), fd_fork_frontier_footprint( max ) ),
+      FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT, alignof( fd_forks_t ), sizeof( fd_forks_t ) ),
+                                          fd_fork_pool_align(),
+                                          fd_fork_pool_footprint( max ) ),
+                        fd_fork_frontier_align(),
+                        fd_fork_frontier_footprint( max ) ),
       alignof( fd_forks_t ) );
 }
 

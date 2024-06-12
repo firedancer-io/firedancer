@@ -71,7 +71,7 @@ struct __attribute__((aligned(128UL))) fd_replay {
   
   /* external joins */
   fd_acc_mgr_t *        acc_mgr;
-  fd_bft_t *            bft;
+  fd_tower_t *          bft;
   fd_blockstore_t *     blockstore;
   fd_exec_epoch_ctx_t * epoch_ctx;
   fd_forks_t *          forks;

@@ -297,10 +297,6 @@ fd_replay_slot_prepare( fd_replay_t * replay, ulong slot ) {
     fd_fork_frontier_ele_insert( replay->forks->frontier, fork, replay->forks->pool );
   }
 
-  /* Prepare the replay_slot struct. */
-
-  fork->head = block;
-
   /* Mark the block as prepared, and thus unsafe to remove. */
 
   block->flags = fd_uchar_set_bit( block->flags, FD_BLOCK_FLAG_PREPARED );
@@ -340,15 +336,20 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   ulong txn_cnt                        = 0;
   fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
   fork->slot_ctx.slot_bank.slot      = slot;
-  FD_TEST(
-      fd_runtime_block_eval_tpool( &fork->slot_ctx,
-                                   capture_ctx,
-                                   fd_blockstore_block_data_laddr( replay->blockstore, fork->head ),
-                                   fork->head->data_sz,
-                                   replay->tpool,
-                                   replay->max_workers,
-                                   1,
-                                   &txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
+
+  fd_block_t * block = fd_blockstore_block_query( replay->blockstore, slot );
+  if (FD_UNLIKELY(!block)) {
+    FD_LOG_ERR(("missing block for slot %lu", slot));
+  }
+
+  FD_TEST( fd_runtime_block_eval_tpool( &fork->slot_ctx,
+                                        capture_ctx,
+                                        fd_blockstore_block_data_laddr( replay->blockstore, block ),
+                                        block->data_sz,
+                                        replay->tpool,
+                                        replay->max_workers,
+                                        1,
+                                        &txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
   (void)txn_cnt;
 
   fd_blockstore_start_write( replay->blockstore );
@@ -385,10 +386,6 @@ fd_replay_slot_execute( fd_replay_t *      replay,
                    replay->curr_turbine_slot - slot,
                    slot,
                    slot > replay->first_turbine_slot ) );
-
-  fd_hash_t const * bank_hash = &child->slot_ctx.slot_bank.banks_hash;
-  fork->head->bank_hash       = *bank_hash;
-  FD_LOG_NOTICE( ( "bank hash: %32J", bank_hash->hash ) );
 
   // fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( child->slot_ctx.epoch_ctx );
   // fd_bank_hash_cmp_lock( bank_hash_cmp );

@@ -202,8 +202,14 @@ fd_store_shred_insert( fd_store_t * store,
 
 void
 fd_store_shred_update_with_shred_from_turbine( fd_store_t * store,
-                                              fd_shred_t const * shred ) {
+                                               fd_shred_t const * shred ) {
   if( FD_UNLIKELY( store->first_turbine_slot == FD_SLOT_NULL ) ) {
+    FD_LOG_NOTICE(("first turbine slot: %lu", shred->slot));
+    // ulong slot = shred->slot;
+    // while ( slot > store->snapshot_slot ) {
+    //   fd_store_add_pending( store, slot, 0 );
+    //   slot -= 10;
+    // }
     store->first_turbine_slot = shred->slot;
     store->curr_turbine_slot = shred->slot;
   }

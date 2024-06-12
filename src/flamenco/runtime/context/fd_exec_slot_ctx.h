@@ -11,20 +11,6 @@
 #include "../sysvar/fd_sysvar_cache_old.h"
 #include "../../types/fd_types.h"
 
-/* fd_latest_vote_t records the latest voted slot hash by a given node. */
-
-struct fd_latest_vote {
-   fd_pubkey_t node_pubkey;
-   fd_slot_hash_t slot_hash;
-   ulong root;
-};
-typedef struct fd_latest_vote fd_latest_vote_t;
-
-#define DEQUE_NAME fd_latest_vote_deque
-#define DEQUE_T    fd_latest_vote_t
-#define DEQUE_MAX  (1UL << 16)
-#include "../../../util/tmpl/fd_deque.c"
-
 struct fd_account_compute_elem {
   fd_pubkey_t key;
   ulong next;
@@ -82,7 +68,6 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_hash_t                account_delta_hash;
   fd_hash_t                prev_banks_hash;
 
-  fd_latest_vote_t *       latest_votes;
   fd_sysvar_cache_t *      sysvar_cache;
   fd_account_compute_elem_t * account_compute_table;
 };
