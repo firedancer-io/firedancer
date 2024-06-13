@@ -129,9 +129,9 @@ check_fedora_pkgs () {
   fi
 
   if [[ -z "${SUDO}" ]]; then
-    PACKAGE_INSTALL_CMD=( dnf install -y ${MISSING_RPMS[*]} )
+    PACKAGE_INSTALL_CMD=( dnf install -y --skip-broken ${MISSING_RPMS[*]} )
   else
-    PACKAGE_INSTALL_CMD=( "${SUDO}" dnf install -y ${MISSING_RPMS[*]} )
+    PACKAGE_INSTALL_CMD=( "${SUDO}" dnf install -y --skip-broken ${MISSING_RPMS[*]} )
   fi
 }
 
