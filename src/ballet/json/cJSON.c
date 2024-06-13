@@ -22,6 +22,11 @@
 
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 
+/* Known bug: cJSON uses NaN/infinity but we use -ffast-math */
+#pragma GCC diagnostic ignored "-Wpragmas"
+#pragma GCC diagnostic ignored "-Wunknown-warning-option"
+#pragma GCC diagnostic ignored "-Wnan-infinity-disabled"
+
 /* cJSON */
 /* JSON parser in C. */
 
