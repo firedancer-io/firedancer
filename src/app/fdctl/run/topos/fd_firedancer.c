@@ -157,7 +157,7 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                             fd_topob_tile( topo, "pack",    "pack",    "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "pack_replay",  0UL );
   /**/                             fd_topob_tile( topo, "pohi",    "pohi",    "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "poh_shred",    0UL );
 
-  fd_topo_tile_t * store_tile  = &topo->tiles[ fd_topo_find_tile( topo, "store",  0UL ) ];
+  fd_topo_tile_t * store_tile  = &topo->tiles[ fd_topo_find_tile( topo, "storei",  0UL ) ];
   fd_topo_tile_t * replay_tile = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
   fd_topo_tile_t * repair_tile = &topo->tiles[ fd_topo_find_tile( topo, "repair", 0UL ) ];
 
@@ -171,7 +171,7 @@ fd_topo_firedancer( config_t * _config ) {
 
   /* Create a shared blockstore to be used by replay. */
   fd_topo_obj_t * funk_obj = fd_topob_obj_concrete( topo, "funk", "funk", fd_funk_align(), fd_funk_footprint(), config->tiles.replay.funk_sz_gb * FD_SHMEM_GIGANTIC_PAGE_SZ );
-  fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, replay_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, funk_obj->id, "funk" ) );
 
