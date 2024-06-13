@@ -245,9 +245,11 @@ static inline vc_t vc_expand( vc_t c, int imm_hi ) {
    an "int const *".   User promises b[i(:)] values are already either 0
    or -1.  i here is a vi_t.  */
 
+#if defined(__AVX2__)
 #define vc_gather(b,i)      _mm_xor_si128( _mm_set1_epi32( -1 ), \
                                            _mm_cmpeq_epi32( _mm_i32gather_epi32( (b), (i), 4 ), _mm_setzero_si128() ) )
 #define vc_gather_fast(b,i) _mm_i32gather_epi32( (b), (i), 4 )
+#endif
 
 /* vc_transpose_4x4 transposes the 4x4 matrix stored in vc_t r0,r1,r2,r3
    and stores the result in 4x4 matrix vc_t c0,c1,c2,c3.  All

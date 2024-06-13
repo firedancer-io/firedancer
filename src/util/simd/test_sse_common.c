@@ -35,7 +35,9 @@ int vc_test( vc_t c, int c0, int c1, int c2, int c3 ) {
   d = vc_ldu_fast( m+14 ); if( vc_any( vc_ne( c, d ) ) ) return 0;
   d = vc_ldu_fast( m+19 ); if( vc_any( vc_ne( c, d ) ) ) return 0;
 
+# if defined(__AVX2__)
   d = vc_gather_fast( m, vi(9,20,6,17) ); if( vc_any( vc_ne( c, d ) ) ) return 0;
+# endif
 
   for( int i=0; i<23; i++ ) m[i] *= (i+1);
 
@@ -45,7 +47,9 @@ int vc_test( vc_t c, int c0, int c1, int c2, int c3 ) {
   d = vc_ldu( m+14 ); if( !vc_all( vc_eq( c, d ) ) ) return 0;
   d = vc_ldu( m+19 ); if( !vc_all( vc_eq( c, d ) ) ) return 0;
 
+# if defined(__AVX2__)
   d = vc_gather( m, vi(19,5,16,12) ); if( !vc_all( vc_eq( c, d ) ) ) return 0;
+# endif
 
   d = vc_insert( vc_false(),0, c0 );
   d = vc_insert( d,         1, c1 );
@@ -87,7 +91,9 @@ int vf_test( vf_t f, float f0, float f1, float f2, float f3 ) {
   g = vf_ldu( m+14 ); if( vc_pack( vf_eq( f, g ) )!=15 ) return 0;
   g = vf_ldu( m+19 ); if( vc_pack( vf_eq( f, g ) )!=15 ) return 0;
 
+# if defined(__AVX2__)
   g = vf_gather( m, vi(14,5,21,12) ); if( !vc_all( vf_eq( f, g ) ) ) return 0;
+# endif
 
   g = vf_insert( vf_zero(),0, f0 );
   g = vf_insert( g,        1, f1 );
@@ -129,7 +135,9 @@ int vi_test( vi_t i, int i0, int i1, int i2, int i3 ) {
   j = vi_ldu( m+14 ); if( vc_pack( vi_eq( i, j ) )!=15 ) return 0;
   j = vi_ldu( m+19 ); if( vc_pack( vi_eq( i, j ) )!=15 ) return 0;
 
+# if defined(__AVX2__)
   j = vi_gather( m, vi(9,5,21,17) ); if( !vc_all( vi_eq( i, j ) ) ) return 0;
+# endif
 
   j = vi_insert( vi_zero(),0, i0 );
   j = vi_insert( j,        1, i1 );
@@ -171,7 +179,9 @@ int vu_test( vu_t u, uint u0, uint u1, uint u2, uint u3 ) {
   v = vu_ldu( m+14 ); if( vc_pack( vu_eq( u, v ) )!=15 ) return 0;
   v = vu_ldu( m+19 ); if( vc_pack( vu_eq( u, v ) )!=15 ) return 0;
 
+# if defined(__AVX2__)
   v = vu_gather( m, vu(9,5,21,17) ); if( !vc_all( vu_eq( u, v ) ) ) return 0;
+# endif
 
   v = vu_insert( vu_zero(),0, u0 );
   v = vu_insert( v,        1, u1 );
@@ -205,10 +215,12 @@ int vd_test( vd_t d, double d0, double d1 ) {
   e = vd_ldu( m+2 ); if( vc_pack( vd_eq( d, e ) )!=15 ) return 0;
   e = vd_ldu( m+5 ); if( vc_pack( vd_eq( d, e ) )!=15 ) return 0;
 
+# if defined(__AVX2__)
   e = vd_gather( m, vi( 2, 6, 5, 3 ), 0,1 ); if( !vc_all( vd_eq( d, e ) ) ) return 0;
   e = vd_gather( m, vi( 2, 6, 5, 3 ), 0,3 ); if( !vc_all( vd_eq( d, e ) ) ) return 0;
   e = vd_gather( m, vi( 2, 6, 5, 3 ), 2,1 ); if( !vc_all( vd_eq( d, e ) ) ) return 0;
   e = vd_gather( m, vi( 2, 6, 5, 3 ), 2,3 ); if( !vc_all( vd_eq( d, e ) ) ) return 0;
+# endif
 
   e = vd_insert( vd_zero(),0, d0 );
   e = vd_insert( e,        1, d1 ); if( vc_any( vd_ne( d, e ) ) ) return 0;
@@ -238,10 +250,12 @@ int vl_test( vl_t l, long l0, long l1 ) {
   k = vl_ldu( m+2  ); if( vc_pack( vl_eq( l, k ) )!=15 ) return 0;
   k = vl_ldu( m+5  ); if( vc_pack( vl_eq( l, k ) )!=15 ) return 0;
 
+# if defined(__AVX2__)
   k = vl_gather( m, vi( 2, 6, 5, 3 ), 0,1 ); if( !vc_all( vl_eq( l, k ) ) ) return 0;
   k = vl_gather( m, vi( 2, 6, 5, 3 ), 0,3 ); if( !vc_all( vl_eq( l, k ) ) ) return 0;
   k = vl_gather( m, vi( 2, 6, 5, 3 ), 2,1 ); if( !vc_all( vl_eq( l, k ) ) ) return 0;
   k = vl_gather( m, vi( 2, 6, 5, 3 ), 2,3 ); if( !vc_all( vl_eq( l, k ) ) ) return 0;
+# endif
 
   k = vl_insert( vl_zero(),0, l0 );
   k = vl_insert( k,        1, l1 ); if( vc_any( vl_ne( l, k ) ) ) return 0;
@@ -271,10 +285,12 @@ int vv_test( vv_t v, ulong v0, ulong v1 ) {
   w = vv_ldu( m+2  ); if( vc_pack( vv_eq( v, w ) )!=15 ) return 0;
   w = vv_ldu( m+5  ); if( vc_pack( vv_eq( v, w ) )!=15 ) return 0;
 
+# if defined(__AVX2__)
   w = vv_gather( m, vi( 2, 6, 5, 3 ), 0,1 ); if( !vc_all( vv_eq( v, w ) ) ) return 0;
   w = vv_gather( m, vi( 2, 6, 5, 3 ), 0,3 ); if( !vc_all( vv_eq( v, w ) ) ) return 0;
   w = vv_gather( m, vi( 2, 6, 5, 3 ), 2,1 ); if( !vc_all( vv_eq( v, w ) ) ) return 0;
   w = vv_gather( m, vi( 2, 6, 5, 3 ), 2,3 ); if( !vc_all( vv_eq( v, w ) ) ) return 0;
+# endif
 
   w = vv_insert( vv_zero(),0, v0 );
   w = vv_insert( w,        1, v1 ); if( vc_any( vv_ne( v, w ) ) ) return 0;

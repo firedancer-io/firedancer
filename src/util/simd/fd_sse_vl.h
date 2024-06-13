@@ -290,9 +290,11 @@ vl_max_all( vl_t x ) { /* Returns vl_bcast( max( x ) ) */
    workaround clang sadness with passing a compile time constant into a
    static inline. */
 
+#if defined(__AVX2__)
 static inline vl_t _vl_gather( long const * b, vi_t i ) {
   return _mm_i32gather_epi64( (long long const *)b, i, 8 );
 }
+#endif
 
 #define vl_gather(b,i,imm_i0,imm_i1) _vl_gather( (b), _mm_shuffle_epi32( (i), _MM_SHUFFLE(3,2,(imm_i1),(imm_i0)) ) )
 
