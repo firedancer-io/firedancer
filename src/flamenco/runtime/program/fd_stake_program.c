@@ -497,8 +497,9 @@ stake_and_activating( fd_delegation_t const *    self,
 
       double newly_effective_cluster_stake =
           (double)prev_cluster_stake->effective * warmup_cooldown_rate_;
+      /* https://github.com/anza-xyz/agave/blob/7b4c4f6fb4e84d00899606841aca4153397bc570/sdk/program/src/stake/state.rs#L784 */
       ulong newly_effective_stake =
-          fd_ulong_max( ( (ulong)( weight * newly_effective_cluster_stake ) ), 1 );
+          fd_ulong_max( fd_rust_cast_double_to_ulong( weight * newly_effective_cluster_stake ), 1 );
 
       current_effective_stake += newly_effective_stake;
       if( FD_LIKELY( current_effective_stake >= delegated_stake ) ) {
@@ -589,8 +590,9 @@ stake_activating_and_deactivating( fd_delegation_t const *    self,
       double newly_not_effective_cluster_stake =
           (double)prev_cluster_stake->effective * warmup_cooldown_rate_;
       ;
+      /* https://github.com/anza-xyz/agave/blob/7b4c4f6fb4e84d00899606841aca4153397bc570/sdk/program/src/stake/state.rs#L699 */
       ulong newly_not_effective_stake =
-          fd_ulong_max( (ulong)( weight * newly_not_effective_cluster_stake ), 1 );
+          fd_ulong_max( fd_rust_cast_double_to_ulong( weight * newly_not_effective_cluster_stake ), 1 );
 
       current_effective_stake =
           fd_ulong_sat_sub( current_effective_stake, newly_not_effective_stake );
