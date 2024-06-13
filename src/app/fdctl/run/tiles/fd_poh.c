@@ -91,7 +91,7 @@
         there might be a whole chain already waiting.
 
     That's pretty much it.  When we are leader, in addition to doing
-    busywork, we publish ticks and microblocks to the shred tile. A
+    busywork, we publish ticks and microblocks to the shred tile.  A
     microblock is a non-empty group of transactions whose hashes are
     mixed-in to the chain, while a tick is a periodic stamp of the
     current hash, with no transactions (nothing mixed in).  We need

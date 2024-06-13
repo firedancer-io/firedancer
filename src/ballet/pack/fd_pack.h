@@ -165,7 +165,7 @@ FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t const * pack );
    the new values.  Any future microblocks produced by this pack object
    will not cause a block to have more than max_microblocks_per_block
    non-empty microblocks or more than max_data_bytes_per_block data
-   bytes (counting microblock headers as before). Limits are inclusive,
+   bytes (counting microblock headers as before).  Limits are inclusive,
    as per usual (i.e. a block may have exactly
    max_microblocks_per_block microblocks, but not more).  pack must be
    a valid local join.
