@@ -885,9 +885,6 @@ no_longer_leader( fd_poh_ctx_t * ctx ) {
   ctx->current_leader_bank = NULL;
   ctx->next_leader_slot = next_leader_slot( ctx );
 
-  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-  fd_histf_sample( ctx->slot_done_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
-
   FD_COMPILER_MFENCE();
   fd_ext_poh_signal_leader_change( ctx->signal_leader_change );
   FD_LOG_INFO(( "no_longer_leader(next_leader_slot=%lu)", ctx->next_leader_slot ));
@@ -1294,6 +1291,9 @@ after_credit( void *             _ctx,
     FD_TEST( !max_remaining_microblocks );
     no_longer_leader( ctx );
     ctx->expect_sequential_leader_slot = ctx->slot;
+
+    double tick_per_ns = fd_tempo_tick_per_ns( NULL );
+    fd_histf_sample( ctx->slot_done_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
   }
 }
 
