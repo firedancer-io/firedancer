@@ -280,6 +280,12 @@ dynamic_port_range = "8900-9000"
     # with the `--rpc-pubsub-enable-vote-subscription` argument.
     pubsub_enable_vote_subscription = false
 
+[metrics]
+    # The Solana Labs client supports a SOLANA_METRICS_CONFIG env variable that exports metrics to an InfluxDB instance. 
+    # This exists to better track the performance of the network.
+    # This config option will set the SOLANA_METRICS_CONFIG env variable when spawning the Solana Labs client. Leave blank to disable.
+    solana_metrics_config = ""
+
 # The Solana Labs client periodically takes and stores snapshots of the
 # chain's state.  Other clients, especially as they bootstrap or catch
 # up to the head of the chain, may request a snapshot.

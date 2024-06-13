@@ -108,6 +108,10 @@ typedef struct {
   } rpc;
 
   struct {
+    char solana_metrics_config[ PATH_MAX ];
+  } metrics;
+
+  struct {
     int  incremental_snapshots;
     uint full_snapshot_interval_slots;
     uint incremental_snapshot_interval_slots;

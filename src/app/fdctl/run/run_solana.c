@@ -129,6 +129,11 @@ solana_labs_boot( config_t * config ) {
   if( config->rpc.pubsub_enable_block_subscription ) ADD1( "--rpc-pubsub-enable-block-subscription" );
   if( config->rpc.pubsub_enable_vote_subscription ) ADD1( "--rpc-pubsub-enable-vote-subscription" );
 
+ /* metrics */
+  if( strcmp( config->metrics.solana_metrics_config, "" ) )
+     if( FD_UNLIKELY( setenv( "SOLANA_METRICS_CONFIG", config->metrics.solana_metrics_config, 1 ) ) )
+      FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    
   /* snapshots */
   if( !config->snapshots.incremental_snapshots ) ADD1( "--no-incremental-snapshots" );
   ADDU( "--full-snapshot-interval-slots", config->snapshots.full_snapshot_interval_slots );
