@@ -227,7 +227,7 @@ metric introduced.
   <histogram name="FirstMicroblockDelaySeconds" min="0.00000001" max="0.01" converter="seconds">
     <summary>Delay between when we become leader in a slot and when we receive the first microblock.</summary>
   </histogram>
-  <histogram name="SlotDoneDelaySeconds" min="0.001" max="400" converter="seconds">
+  <histogram name="SlotDoneDelaySeconds" min="0.001" max="0.6" converter="seconds">
     <summary>Delay between when we become leader in a slot and when we finish the slot.</summary>
   </histogram>
 </group>
