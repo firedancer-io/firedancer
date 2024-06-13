@@ -655,23 +655,13 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
   const char * snapshot = snapshotfile;
   if( strncmp( snapshot, "wksp:", 5 ) != 0 ) {
     fd_snapshot_load( snapshot, ctx->slot_ctx, false, false, FD_SNAPSHOT_TYPE_FULL );
+  } else {
+    fd_runtime_recover_banks( ctx->slot_ctx, 0 );
   }
 
-  fd_blockstore_start_write( ctx->slot_ctx->blockstore );
-  fd_blockstore_clear( ctx->slot_ctx->blockstore );
-  fd_blockstore_end_write( ctx->slot_ctx->blockstore );
-
-  fd_runtime_recover_banks( ctx->slot_ctx, 0 );
-  fd_runtime_update_leaders( ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot );
-
-  FD_LOG_NOTICE( ( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ) );
-  fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
-  fd_bpf_scan_and_create_bpf_program_cache_entry_tpool(
-      ctx->slot_ctx, ctx->slot_ctx->funk_txn, ctx->tpool, ctx->max_workers );
-  fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
-  FD_LOG_NOTICE( ( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ) );
-
-  ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
+  // fd_blockstore_start_write( ctx->slot_ctx->blockstore );
+  // fd_blockstore_clear( ctx->slot_ctx->blockstore );
+  // fd_blockstore_end_write( ctx->slot_ctx->blockstore );
 
   char incremental_snapshot_out[128] = { 0 };
   if( strlen( incremental ) > 0 ) {
@@ -720,6 +710,16 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
     ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
     FD_LOG_NOTICE( ( "finished load incremental..." ) );
   }
+
+  fd_runtime_update_leaders( ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot );
+  FD_LOG_NOTICE( ( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ) );
+  fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
+  fd_bpf_scan_and_create_bpf_program_cache_entry_tpool(
+      ctx->slot_ctx, ctx->slot_ctx->funk_txn, ctx->tpool, ctx->max_workers );
+  fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
+  FD_LOG_NOTICE( ( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ) );
+
+  ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
 
   fd_blockstore_start_write( ctx->slot_ctx->blockstore );
   fd_blockstore_snapshot_insert( ctx->slot_ctx->blockstore, &ctx->slot_ctx->slot_bank );
