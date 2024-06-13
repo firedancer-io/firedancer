@@ -164,28 +164,37 @@ user = "firedancer"
         "eoKpUABi59aT4rR9HGS3LcMecfut9x7zJyodWWP43YQ",
         "9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv",
     ]
+
+[rpc]
+    port = 8899
+    full_api = true
+    private = true
 ```
+
+
+
+This configuration will cause Firedancer to run as the user `firedancer`
+on the local machine. The `identity_path` and `vote_account_path` should
+be Agave style keys, which can be generated with the Solana Labs cli.  
+
+This will put the ledger in `/home/firedancer/.firedancer/fd1/ledger`.
+To customize this path, refer to the [configuration
+guide](/guide/configuring.md#ledger).
+
+Additionally, this configuration enables the full RPC API at port 8899.
+Although the port will not be published to other validators in gossip,
+use a firewall to restrict access to this port for maximum security.
+
+Currently, `testnet` is the only live cluster that Firedancer can be run
+against and trying to start against `devnet` or `mainnet-beta`
+entrypoints will result in an error.
+
 
 ::: tip LEDGER
 
 The Firedancer blockstore in the ledger directory is compatible with the
 one for the Agave validator, and it is possible to switch between
 validator clients while keeping the `ledger` directory in place.
-
-:::
-
-This configuration will cause Firedancer to run as the user `firedancer`
-on the local machine. The `identity_path` and `vote_account_path` should
-be Agave style keys, which can be generated with the Solana Labs cli.
-Currently, `testnet` is the only live cluster that Firedancer can be run
-against and trying to start against `devnet` or `mainnet-beta`
-entrypoints will result in an error.
-
-::: tip NOTE
-
-This will put the ledger in `/home/firedancer/.firedancer/fd1/ledger`.
-To customize this path, refer to the [configuration
-guide](/guide/configuring.md#ledger).
 
 :::
 
