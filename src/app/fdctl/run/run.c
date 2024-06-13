@@ -406,8 +406,15 @@ run_firedancer( config_t * const config,
   fd_topo_print_log( 0, &config->topo );
 
 #if defined(__x86_64__)
+
+#ifndef SYS_landlock_create_ruleset
 #define SYS_landlock_create_ruleset 444
+#endif
+
+#ifndef LANDLOCK_CREATE_RULESET_VERSION
 #define LANDLOCK_CREATE_RULESET_VERSION (1U << 0)
+#endif
+
 #endif
   long abi = syscall( SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION );
   if( -1L==abi && (errno==ENOSYS || errno==EOPNOTSUPP ) ) {

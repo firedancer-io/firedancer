@@ -415,7 +415,9 @@ test_resource_limits( void ) {
   TEST_FORK_EXIT_CODE( test_resource_limits_inner(), 0 );
 }
 
+#ifndef SYS_landlock_create_ruleset
 #define SYS_landlock_create_ruleset 444
+#endif
 
 struct landlock_ruleset_attr {
     __u64 handled_access_fs;
