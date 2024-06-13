@@ -5,6 +5,7 @@
 #include "../ballet/base58/fd_base58.h"
 #include "../ballet/sha256/fd_sha256.h"
 #include "types/fd_types_custom.h"
+#include "types/fd_cast.h"
 
 #define FD_DEFAULT_SLOTS_PER_EPOCH   ( 432000UL )
 #define FD_DEFAULT_SHREDS_PER_EPOCH  ( ( 1 << 15UL ) * FD_DEFAULT_SLOTS_PER_EPOCH )
