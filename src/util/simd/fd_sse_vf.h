@@ -177,9 +177,11 @@ vf_insert_variable( vf_t a, int n, float v ) {
 #define vf_copysign(a,b) _mm_or_ps( _mm_andnot_ps( _mm_set1_ps( -0.f ), (a) ), _mm_and_ps( _mm_set1_ps( -0.f ), (b) ) )
 #define vf_flipsign(a,b) _mm_xor_ps( (a), _mm_and_ps( _mm_set1_ps( -0.f ), (b) ) )
 
+#if defined(__FMA__)
 #define vf_fma(a,b,c)    _mm_fmadd_ps(  (a), (b), (c) )
 #define vf_fms(a,b,c)    _mm_fmsub_ps(  (a), (b), (c) )
 #define vf_fnma(a,b,c)   _mm_fnmadd_ps( (a), (b), (c) )
+#endif
 
 /* Binary operations */
 

@@ -184,9 +184,13 @@ main( int     argc,
     FD_TEST( vf_test( vf_copysign( x, y ), copysignf(x0,y0), copysignf(x1,y1), copysignf(x2,y2), copysignf(x3,y3) ) );
     FD_TEST( vf_test( vf_flipsign( x, y ), y0<0.f?-x0:x0, y1<0.f?-x1:x1, y2<0.f?-x2:x2, y3<0.f?-x3:x3 ) );
 
+#   if defined(__FMA__)
     FD_TEST( vf_test( vf_fma(  x, y, z ),  x0*y0+z0,  x1*y1+z1,  x2*y2+z2,  x3*y3+z3 ) );
     FD_TEST( vf_test( vf_fms(  x, y, z ),  x0*y0-z0,  x1*y1-z1,  x2*y2-z2,  x3*y3-z3 ) );
     FD_TEST( vf_test( vf_fnma( x, y, z ), -x0*y0+z0, -x1*y1+z1, -x2*y2+z2, -x3*y3+z3 ) );
+#   else
+    (void)z;
+#   endif
 
     /* Logical operations */
 
