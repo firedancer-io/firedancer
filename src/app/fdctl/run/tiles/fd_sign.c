@@ -56,14 +56,14 @@ mux_ctx( void * scratch ) {
    we are reading incoming frags.  We don't actually need to copy the
    fragment here, see fd_dedup.c for why we do this.*/
 
-static inline void FD_FN_SENSITIVE
-during_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             ulong  chunk,
-             ulong  sz,
-             int *  opt_filter ) {
+static void FD_FN_SENSITIVE
+during_frag_sensitive( void * _ctx,
+                       ulong  in_idx,
+                       ulong  seq,
+                       ulong  sig,
+                       ulong  chunk,
+                       ulong  sz,
+                       int *  opt_filter ) {
   (void)seq;
   (void)sig;
   (void)chunk;
@@ -101,16 +101,28 @@ during_frag( void * _ctx,
   }
 }
 
-static inline void FD_FN_SENSITIVE
-after_frag( void *             _ctx,
-            ulong              in_idx,
-            ulong              seq,
-            ulong *            opt_sig,
-            ulong *            opt_chunk,
-            ulong *            opt_sz,
-            ulong *            opt_tsorig,
-            int *              opt_filter,
-            fd_mux_context_t * mux ) {
+
+static void
+during_frag( void * _ctx,
+             ulong  in_idx,
+             ulong  seq,
+             ulong  sig,
+             ulong  chunk,
+             ulong  sz,
+             int *  opt_filter ) {
+  during_frag_sensitive( _ctx, in_idx, seq, sig, chunk, sz, opt_filter );
+}
+
+static void FD_FN_SENSITIVE
+after_frag_sensitive( void *             _ctx,
+                      ulong              in_idx,
+                      ulong              seq,
+                      ulong *            opt_sig,
+                      ulong *            opt_chunk,
+                      ulong *            opt_sz,
+                      ulong *            opt_tsorig,
+                      int *              opt_filter,
+                      fd_mux_context_t * mux ) {
   (void)seq;
   (void)opt_sig;
   (void)opt_chunk;
@@ -169,10 +181,23 @@ after_frag( void *             _ctx,
   ctx->out[ in_idx ].seq = fd_seq_inc( ctx->out[ in_idx ].seq, 1UL );
 }
 
+static void
+after_frag( void *             _ctx,
+            ulong              in_idx,
+            ulong              seq,
+            ulong *            opt_sig,
+            ulong *            opt_chunk,
+            ulong *            opt_sz,
+            ulong *            opt_tsorig,
+            int *              opt_filter,
+            fd_mux_context_t * mux ) {
+  after_frag_sensitive( _ctx, in_idx, seq, opt_sig, opt_chunk, opt_sz, opt_tsorig, opt_filter, mux );
+}
+
 static void FD_FN_SENSITIVE
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile,
-                 void *           scratch ) {
+privileged_init_sensitive( fd_topo_t *      topo,
+                           fd_topo_tile_t * tile,
+                           void *           scratch ) {
   (void)topo;
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -182,11 +207,11 @@ privileged_init( fd_topo_t *      topo,
   ctx->private_key = identity_key;
   ctx->public_key  = identity_key + 32UL;
 
-    /* The stack can be taken over and reorganized by under AddressSanitizer, 
+    /* The stack can be taken over and reorganized by under AddressSanitizer,
      which causes this code to fail.  */
 #if FD_HAS_ASAN
   FD_LOG_WARNING(( "!!! SECURITY WARNING !!! YOU ARE RUNNING THE SIGNING TILE "
-                   "WITH ADDRESS SANITIZER ENABLED. THIS CAN LEAK SENSITIVE " 
+                   "WITH ADDRESS SANITIZER ENABLED. THIS CAN LEAK SENSITIVE "
                    "DATA INCLUDING YOUR PRIVATE KEYS INTO CORE DUMPS IF THIS "
                    "PROCESS ABORTS. IT IS HIGHLY ADVISED TO NOT TO RUN IN THIS "
                    "MODE IN PRODUCTION!" ));
@@ -207,10 +232,17 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "madvise failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
+static void
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile,
+                 void *           scratch ) {
+  privileged_init_sensitive( topo, tile, scratch );
+}
+
 static void FD_FN_SENSITIVE
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
+unprivileged_init_sensitive( fd_topo_t *      topo,
+                             fd_topo_tile_t * tile,
+                             void *           scratch ) {
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_sign_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha512 ) ) );
@@ -264,6 +296,13 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+}
+
+static void
+unprivileged_init( fd_topo_t *      topo,
+                   fd_topo_tile_t * tile,
+                   void *           scratch ) {
+  unprivileged_init_sensitive( topo, tile, scratch );
 }
 
 static ulong

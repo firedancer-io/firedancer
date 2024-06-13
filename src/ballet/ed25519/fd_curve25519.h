@@ -141,7 +141,7 @@ fd_ed25519_scalar_mul( fd_ed25519_point_t *       r,
 /* fd_ed25519_scalar_mul_base_const_time computes r = n * P, and returns r.
    n is a scalar. P is the base point.
    Note: const time implementation, safe to use with n secret. */
-fd_ed25519_point_t *
+fd_ed25519_point_t * FD_FN_SENSITIVE
 fd_ed25519_scalar_mul_base_const_time( fd_ed25519_point_t * r,
                                        uchar const          n[ 32 ] ); /* can be a secret */
 
