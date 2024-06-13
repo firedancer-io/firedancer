@@ -169,7 +169,7 @@ user = "firedancer"
     ]
 ```
 
-::: note LEDGER
+::: tip LEDGER
 
 The Firedancer blockstore in the ledger directory is compatible with the
 one for the Agave validator, and it is possible to switch between

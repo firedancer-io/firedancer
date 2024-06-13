@@ -239,13 +239,13 @@ dynamic_port_range = "8900-9000"
     # If nonzero, enable JSON RPC on this port, and use the next port
     # for the RPC websocket.  If zero, disable JSON RPC.  This option is
     # passed to the Solana Labs client with the `--rpc-port` argument.
-    port = 8899
+    port = 0
 
     # If true, all RPC operations are enabled on this validator,
     # including non-default RPC methods for querying chain state and
     # transaction history.  This option is passed to the Solana Labs
     # client with the `--full-rpc-api` argument.
-    full_api = true
+    full_api = false
 
     # If the RPC is private, the validator's open RPC port is not
     # published in the `solana gossip` command for use by others.  This
@@ -257,13 +257,13 @@ dynamic_port_range = "8900-9000"
     # `getConfirmedBlock` API.  This will cause an increase in disk
     # usage and IOPS.  This option is passed to the Solana Labs client
     # with the `--enable-rpc-transaction-history` argument.
-    transaction_history = true
+    transaction_history = false
 
     # If enabled, include CPI inner instructions, logs, and return data
     # in the historical transaction info stored.  This option is passed
     # to the Solana Labs client with the
     # `--enable-extended-tx-metadata-storage` argument.
-    extended_tx_metadata_storage = true
+    extended_tx_metadata_storage = false
 
     # If true, use the RPC service of known validators only.  This
     # option is passed to the Solana Labs client with the
@@ -575,10 +575,10 @@ dynamic_port_range = "8900-9000"
 # A typical layout of the mounts looks as follows,
 #
 #  /mnt/.fd                     [Mount parent directory specified below]
-#    +-- .gigantic              [Files created in this mount use 1GB
+#    +-- .gigantic              [Files created in this mount use 1GiB
 #                                pages]
 #        +-- firedancer1.wksp
-#    +-- .huge                  [Files created in this mount use 4MB
+#    +-- .huge                  [Files created in this mount use 2MiB
 #                                pages]
 #        +-- scratch1.wksp
 #        +-- scratch2.wksp
