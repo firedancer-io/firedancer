@@ -28,8 +28,15 @@
 #if !defined(__x86_64__)
 #error "Target architecture is unsupported by seccomp."
 #else
+
+#ifndef SYS_landlock_create_ruleset
 #define SYS_landlock_create_ruleset 444
+#endif
+
+#ifndef SYS_landlock_restrict_self
 #define SYS_landlock_restrict_self 446
+#endif
+
 #endif
 
 extern char ** environ;
