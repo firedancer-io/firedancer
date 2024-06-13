@@ -297,9 +297,11 @@ vu_max_all( vu_t x ) { /* Returns vu_bcast( max( x ) ) */
    of a define to keep strict type checking while working around yet
    another Intel intrinsic type mismatch issue. */
 
+#if defined(__AVX2__)
 static inline vu_t vu_gather( uint const * b, vi_t i ) {
   return _mm_i32gather_epi32( (int const *)b, (i), 4 );
 }
+#endif /* defined(__AVX2__) */
 
 /* vu_transpose_4x4 transposes the 4x4 matrix stored in vu_t r0,r1,r2,r3
    and stores the result in 4x4 matrix vu_t c0,c1,c2,c3.  All
