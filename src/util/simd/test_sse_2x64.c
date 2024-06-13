@@ -80,9 +80,13 @@ main( int     argc,
     FD_TEST( vd_test( vd_copysign( x, y ), copysign(x0,y0), copysign(x1,y1) ) );
     FD_TEST( vd_test( vd_flipsign( x, y ), y0<0.?-x0:x0, y1<0.?-x1:x1 ) );
 
+#   if defined(__FMA__)
     FD_TEST( vd_test( vd_fma(  x, y, z ),  x0*y0+z0,  x1*y1+z1 ) );
     FD_TEST( vd_test( vd_fms(  x, y, z ),  x0*y0-z0,  x1*y1-z1 ) );
     FD_TEST( vd_test( vd_fnma( x, y, z ), -x0*y0+z0, -x1*y1+z1 ) );
+#   else
+    (void)z;
+#   endif
 
     /* Logical operations */
 
