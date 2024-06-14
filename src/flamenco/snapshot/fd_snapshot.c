@@ -50,6 +50,12 @@ restore_manifest( void *                 ctx,
   return (!!fd_exec_slot_ctx_recover( ctx, manifest ) ? 0 : EINVAL);
 }
 
+static int
+restore_status_cache( void *                 ctx,
+                      fd_bank_slot_deltas_t * slot_deltas ) {
+  return (!!fd_exec_slot_ctx_recover_status_cache( ctx, slot_deltas ) ? 0 : EINVAL);
+}
+
 static void
 load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
                    char *               source_cstr,
