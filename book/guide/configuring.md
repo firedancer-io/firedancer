@@ -50,7 +50,14 @@ for different commands may cause them to fail.
 ## Logging
 By default Firedancer will maintain two logs. One permanent log which is
 written to a file, and an ephemeral log for fast visual inspection which
-is written to stderr. 
+is written to stderr. The Agave runtime and consensus components also
+output logs which are a part of the Firedancer's logs. You can increase
+the ephemeral log output in the configuration TOML.
+
+```toml
+[log]
+    level_stderr = "INFO"
+```
 
 ## Layout
 One way that Firedancer is fast is that it pins a dedicated thread to
@@ -73,10 +80,11 @@ should be started.
 
 ```toml
 [layout]
-    affinity = "0-14"
-    net_tile_count = 4
+    affinity = "1-18"
+    quic_tile_count = 2
     verify_tile_count = 4
     bank_tile_count = 4
+    solana_labs_affinity = "19-31"
 ```
 
 It is suggested to run as many tiles as possible and tune the tile

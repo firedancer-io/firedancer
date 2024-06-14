@@ -35,6 +35,10 @@ export default defineConfig({
             { text: 'Getting Started', link: 'getting-started' },
             { text: 'Configuring', link: 'configuring' },
             { text: 'Initializing', link: 'initializing' },
+            { text: 'Frequently Asked Questions', link: 'faq' },
+            { text: 'Monitoring', link: 'monitoring' },
+            { text: 'Troubleshooting', link: 'troubleshooting' },
+            { text: 'Tuning', link: 'tuning' },
           ]
         }
       ] },
