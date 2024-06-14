@@ -64,8 +64,8 @@ fd_sysvar_rent_init( fd_exec_slot_ctx_t * slot_ctx ) {
 ulong
 fd_rent_exempt_minimum_balance2( fd_rent_t const * rent,
                                  ulong             data_len ) {
-  /* https://github.com/solana-labs/solana/blob/792fafe0c25ac06868e3ac80a2b13f1a5b4a1ef8/sdk/program/src/rent.rs#L72 */
-  return (ulong)( (double)((data_len + ACCOUNT_STORAGE_OVERHEAD) * rent->lamports_per_uint8_year) * (double)rent->exemption_threshold );
+  /* https://github.com/anza-xyz/agave/blob/d2124a995f89e33c54f41da76bfd5b0bd5820898/sdk/program/src/rent.rs#L74 */
+  return fd_rust_cast_double_to_ulong( (double)((data_len + ACCOUNT_STORAGE_OVERHEAD) * rent->lamports_per_uint8_year) * rent->exemption_threshold );
 }
 
 ulong
