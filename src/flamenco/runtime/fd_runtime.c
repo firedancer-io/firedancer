@@ -1143,6 +1143,11 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
     /* Finalize */
     for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
+      /* Transaction was skipped due to preparation failure. */
+      if( task_info[txn_idx].txn->flags == 0) {
+        continue;
+      }
+
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
       int exec_txn_err = task_info[txn_idx].exec_res;
 
@@ -1230,6 +1235,11 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
     fd_borrowed_account_t * * accounts_to_save = fd_scratch_alloc( 8UL, accounts_to_save_cnt * sizeof(fd_borrowed_account_t *) );
     ulong accounts_to_save_idx = 0;
     for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
+      /* Transaction was skipped due to preparation failure. */
+      if( task_info[txn_idx].txn->flags == 0) {
+        continue;
+      }
+
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
       int exec_txn_err = task_info[txn_idx].exec_res;
 
@@ -1291,6 +1301,11 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
+      /* Transaction was skipped due to preparation failure. */
+      if( task_info[txn_idx].txn->flags == 0) {
+        continue;
+      }
+
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
 
       for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
