@@ -376,6 +376,10 @@ runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * runtime_args, fd_l
         tps,
         sec_per_slot ));
 
+  if ( slot_cnt == 0 ) {
+    FD_LOG_ERR(( "No slots replayed" ));
+  }
+
   return 0;
 }
 

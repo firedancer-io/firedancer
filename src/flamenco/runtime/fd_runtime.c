@@ -2930,7 +2930,6 @@ fd_runtime_collect_rent( fd_exec_slot_ctx_t * slot_ctx ) {
 
     /* FIXME: This will not necessarily support warmup_epochs */
     ulong num_partitions = fd_runtime_num_rent_partitions( slot_ctx, s );
-    FD_LOG_WARNING(("num partitions: %lu %lu %lu", num_partitions, off, s % num_partitions));
     /* Reconstruct rent lists if the number of slots per epoch changes */
     fd_acc_mgr_set_slots_per_epoch( slot_ctx, num_partitions );
     fd_runtime_collect_rent_for_slot( slot_ctx, fd_runtime_get_rent_partition( slot_ctx, s ), epoch );
