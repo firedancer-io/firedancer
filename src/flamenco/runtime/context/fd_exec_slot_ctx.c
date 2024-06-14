@@ -303,6 +303,12 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   slot_ctx,
   return res;
 }
 
+fd_exec_slot_ctx_t *
+fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *   ctx,
+                                       fd_bank_slot_deltas_t * slot_deltas FD_PARAM_UNUSED ) {
+  return ctx;
+}
+
 void
 fd_exec_slot_ctx_free( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_bincode_destroy_ctx_t ctx;
