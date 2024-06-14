@@ -2119,6 +2119,358 @@
       "variants": [
         { "name": "ping", "type": "gossip_ping" }
       ]
+    },
+    {
+      "name": "instr_error_enum",
+      "type": "enum",
+      "variants": [
+        {
+          "name": "generic_error"
+        },
+        {
+          "name": "invalid_argument"
+        },
+        {
+          "name": "invalid_instruction_data"
+        },
+        {
+          "name": "invalid_account_data"
+        },
+        {
+          "name": "account_data_too_small"
+        },
+        {
+          "name": "insufficient_funds"
+        },
+        {
+          "name": "incorrect_program_id"
+        },
+        {
+          "name": "missing_required_signature"
+        },
+        {
+          "name": "account_already_initialized"
+        },
+        {
+          "name": "uninitialized_account"
+        },
+        {
+          "name": "unbalanced_instruction"
+        },
+        {
+          "name": "modified_program_id"
+        },
+        {
+          "name": "external_account_lamport_spend"
+        },
+        {
+          "name": "external_account_data_modified"
+        },
+        {
+          "name": "readonly_lamport_change"
+        },
+        {
+          "name": "readonly_data_modified"
+        },
+        {
+          "name": "duplicate_account_index"
+        },
+        {
+          "name": "executable_modified"
+        },
+        {
+          "name": "rent_epoch_modified"
+        },
+        {
+          "name": "not_enough_account_keys"
+        },
+        {
+          "name": "account_data_size_changed"
+        },
+        {
+          "name": "account_not_executable"
+        },
+        {
+          "name": "account_borrow_failed"
+        },
+        {
+          "name": "account_borrow_outstanding"
+        },
+        {
+          "name": "duplicate_account_out_of_sync"
+        },
+        {
+          "name": "custom",
+          "type": "uint"
+        },
+        {
+          "name": "invalid_error"
+        },
+        {
+          "name": "executable_data_modified"
+        },
+        {
+          "name": "executable_lamport_change"
+        },
+        {
+          "name": "executable_account_not_rent_exempt"
+        },
+        {
+          "name": "unsupported_program_id"
+        },
+        {
+          "name": "call_depth"
+        },
+        {
+          "name": "missing_account"
+        },
+        {
+          "name": "reentrancy_not_allowed"
+        },
+        {
+          "name": "max_seed_length_exceeded"
+        },
+        {
+          "name": "invalid_seeds"
+        },
+        {
+          "name": "invalid_realloc"
+        },
+        {
+          "name": "computational_budget_exceeded"
+        },
+        {
+          "name": "privilege_escalation"
+        },
+        {
+          "name": "program_environment_setup_failure"
+        },
+        {
+          "name": "program_failed_to_complete"
+        },
+        {
+          "name": "program_failed_to_compile"
+        },
+        {
+          "name": "immutable"
+        },
+        {
+          "name": "incorrect_authority"
+        },
+        {
+          "name": "borsh_io_error",
+          "type": "char*"
+        },
+        {
+          "name": "account_not_rent_exempt"
+        },
+        {
+          "name": "invalid_account_owner"
+        },
+        {
+          "name": "arithmetic_overflow"
+        },
+        {
+          "name": "unsupported_sysvar"
+        },
+        {
+          "name": "illegal_owner"
+        },
+        {
+          "name": "max_accounts_data_allocations_exceeded"
+        },
+        {
+          "name": "max_accounts_exceeded"
+        },
+        {
+          "name": "max_instruction_trace_length_exceeded"
+        },
+        {
+          "name": "builtin_programs_must_consume_compute_units"
+        }
+      ]
+    },
+    {
+      "name": "txn_instr_error",
+      "type": "struct",
+      "fields": [
+        { "name": "instr_idx", "type": "uchar" },
+        { "name": "error", "type": "instr_error_enum" }
+      ]
+    },
+    {
+      "name": "txn_error_enum",
+      "type": "enum",
+      "variants": [
+        {
+          "name": "account_in_use"
+        },
+        {
+          "name": "account_loaded_twice"
+        },
+        {
+          "name": "account_not_found"
+        },
+        {
+          "name": "program_account_not_found"
+        },
+        {
+          "name": "insufficient_funds_for_fee"
+        },
+        {
+          "name": "invalid_account_for_fee"
+        },
+        {
+          "name": "already_processed"
+        },
+        {
+          "name": "blockhash_not_found"
+        },
+        {
+          "name": "instruction_error",
+          "type": "txn_instr_error"
+        },
+        {
+          "name": "call_chain_too_deep"
+        },
+        {
+          "name": "missing_signature_for_fee"
+        },
+        {
+          "name": "invalid_account_index"
+        },
+        {
+          "name": "signature_failure"
+        },
+        {
+          "name": "invalid_program_for_execution"
+        },
+        {
+          "name": "sanitize_failure"
+        },
+        {
+          "name": "cluster_maintenance"
+        },
+        {
+          "name": "account_borrow_outstanding"
+        },
+        {
+          "name": "would_exceed_max_block_cost_limit"
+        },
+        {
+          "name": "unsupported_version"
+        },
+        {
+          "name": "invalid_writable_account"
+        },
+        {
+          "name": "would_exceed_max_account_cost_limit"
+        },
+        {
+          "name": "would_exceed_account_data_block_limit"
+        },
+        {
+          "name": "too_many_account_locks"
+        },
+        {
+          "name": "address_lookup_table_not_found"
+        },
+        {
+          "name": "invalid_address_lookup_table_owner"
+        },
+        {
+          "name": "invalid_address_lookup_table_data"
+        },
+        {
+          "name": "invalid_address_lookup_table_index"
+        },
+        {
+          "name": "invalid_rent_paying_account"
+        },
+        {
+          "name": "would_exceed_max_vote_cost_limit"
+        },
+        {
+          "name": "would_exceed_account_data_total_limit"
+        },
+        {
+          "name": "duplicate_instruction",
+          "type": "uchar"
+        },
+        {
+          "name": "insufficient_funds_for_rent",
+          "type": "uchar"
+        },
+        {
+          "name": "max_loaded_accounts_data_size_exceeded"
+        },
+        {
+          "name": "invalid_loaded_accounts_data_size_limit"
+        },
+        {
+          "name": "resanitization_needed"
+        },
+        {
+          "name": "program_execution_temporarily_restricted",
+          "type": "uchar"
+        },
+        {
+          "name": "unbalanced_transaction"
+        }
+      ]
+    },
+    {
+      "name": "txn_result",
+      "type": "enum",
+      "variants": [
+        {
+          "name": "ok"
+        },
+        {
+          "name": "error",
+          "type": "txn_error_enum"
+        }
+      ]
+    },
+    {
+      "name": "cache_status",
+      "type": "struct",
+      "fields": [
+        { "name": "key_slice", "type": "array", "element": "uchar", "length": 20 },
+        { "name": "result", "type": "txn_result" }
+      ]
+    },
+    {
+      "name": "status_value",
+      "type": "struct",
+      "fields": [
+        { "name": "txn_idx", "type": "ulong" },
+        { "name": "statuses", "type": "vector", "element": "cache_status"}
+      ]
+    },
+    {
+      "name": "status_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "hash", "type": "hash" },
+        { "name": "value", "type": "status_value" }
+      ]
+    },
+    {
+      "name": "slot_delta",
+      "type": "struct",
+      "fields": [
+        { "name": "slot", "type": "ulong" },
+        { "name": "is_root", "type": "bool" },
+        { "name": "slot_delta_vec", "type": "vector", "element": "status_pair" }
+      ]
+    },
+    {
+      "name": "bank_slot_deltas",
+      "type": "struct",
+      "fields": [
+        { "name": "slot_deltas", "type": "vector", "element": "slot_delta" }
+      ]
     }
   ]
 }

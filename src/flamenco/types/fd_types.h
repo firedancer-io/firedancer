@@ -4383,6 +4383,154 @@ typedef struct fd_repair_response fd_repair_response_t;
 #define FD_REPAIR_RESPONSE_FOOTPRINT sizeof(fd_repair_response_t)
 #define FD_REPAIR_RESPONSE_ALIGN (8UL)
 
+union fd_instr_error_enum_inner {
+  uint custom;
+  char* borsh_io_error;
+};
+typedef union fd_instr_error_enum_inner fd_instr_error_enum_inner_t;
+
+struct fd_instr_error_enum {
+  uint discriminant;
+  fd_instr_error_enum_inner_t inner;
+};
+typedef struct fd_instr_error_enum fd_instr_error_enum_t;
+#define FD_INSTR_ERROR_ENUM_FOOTPRINT sizeof(fd_instr_error_enum_t)
+#define FD_INSTR_ERROR_ENUM_ALIGN (8UL)
+
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_txn_instr_error {
+  uchar instr_idx;
+  fd_instr_error_enum_t error;
+};
+typedef struct fd_txn_instr_error fd_txn_instr_error_t;
+#define FD_TXN_INSTR_ERROR_FOOTPRINT sizeof(fd_txn_instr_error_t)
+#define FD_TXN_INSTR_ERROR_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_txn_instr_error_off {
+  uint instr_idx_off;
+  uint error_off;
+};
+typedef struct fd_txn_instr_error_off fd_txn_instr_error_off_t;
+#define FD_TXN_INSTR_ERROR_OFF_FOOTPRINT sizeof(fd_txn_instr_error_off_t)
+#define FD_TXN_INSTR_ERROR_OFF_ALIGN (8UL)
+
+union fd_txn_error_enum_inner {
+  fd_txn_instr_error_t instruction_error;
+  uchar duplicate_instruction;
+  uchar insufficient_funds_for_rent;
+  uchar program_execution_temporarily_restricted;
+};
+typedef union fd_txn_error_enum_inner fd_txn_error_enum_inner_t;
+
+struct fd_txn_error_enum {
+  uint discriminant;
+  fd_txn_error_enum_inner_t inner;
+};
+typedef struct fd_txn_error_enum fd_txn_error_enum_t;
+#define FD_TXN_ERROR_ENUM_FOOTPRINT sizeof(fd_txn_error_enum_t)
+#define FD_TXN_ERROR_ENUM_ALIGN (8UL)
+
+union fd_txn_result_inner {
+  fd_txn_error_enum_t error;
+};
+typedef union fd_txn_result_inner fd_txn_result_inner_t;
+
+struct fd_txn_result {
+  uint discriminant;
+  fd_txn_result_inner_t inner;
+};
+typedef struct fd_txn_result fd_txn_result_t;
+#define FD_TXN_RESULT_FOOTPRINT sizeof(fd_txn_result_t)
+#define FD_TXN_RESULT_ALIGN (8UL)
+
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_cache_status {
+  uchar key_slice[20];
+  fd_txn_result_t result;
+};
+typedef struct fd_cache_status fd_cache_status_t;
+#define FD_CACHE_STATUS_FOOTPRINT sizeof(fd_cache_status_t)
+#define FD_CACHE_STATUS_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_cache_status_off {
+  uint key_slice_off;
+  uint result_off;
+};
+typedef struct fd_cache_status_off fd_cache_status_off_t;
+#define FD_CACHE_STATUS_OFF_FOOTPRINT sizeof(fd_cache_status_off_t)
+#define FD_CACHE_STATUS_OFF_ALIGN (8UL)
+
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_status_value {
+  ulong txn_idx;
+  ulong statuses_len;
+  fd_cache_status_t * statuses;
+};
+typedef struct fd_status_value fd_status_value_t;
+#define FD_STATUS_VALUE_FOOTPRINT sizeof(fd_status_value_t)
+#define FD_STATUS_VALUE_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_status_value_off {
+  uint txn_idx_off;
+  uint statuses_off;
+};
+typedef struct fd_status_value_off fd_status_value_off_t;
+#define FD_STATUS_VALUE_OFF_FOOTPRINT sizeof(fd_status_value_off_t)
+#define FD_STATUS_VALUE_OFF_ALIGN (8UL)
+
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_status_pair {
+  fd_hash_t hash;
+  fd_status_value_t value;
+};
+typedef struct fd_status_pair fd_status_pair_t;
+#define FD_STATUS_PAIR_FOOTPRINT sizeof(fd_status_pair_t)
+#define FD_STATUS_PAIR_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_status_pair_off {
+  uint hash_off;
+  uint value_off;
+};
+typedef struct fd_status_pair_off fd_status_pair_off_t;
+#define FD_STATUS_PAIR_OFF_FOOTPRINT sizeof(fd_status_pair_off_t)
+#define FD_STATUS_PAIR_OFF_ALIGN (8UL)
+
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_slot_delta {
+  ulong slot;
+  uchar is_root;
+  ulong slot_delta_vec_len;
+  fd_status_pair_t * slot_delta_vec;
+};
+typedef struct fd_slot_delta fd_slot_delta_t;
+#define FD_SLOT_DELTA_FOOTPRINT sizeof(fd_slot_delta_t)
+#define FD_SLOT_DELTA_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_slot_delta_off {
+  uint slot_off;
+  uint is_root_off;
+  uint slot_delta_vec_off;
+};
+typedef struct fd_slot_delta_off fd_slot_delta_off_t;
+#define FD_SLOT_DELTA_OFF_FOOTPRINT sizeof(fd_slot_delta_off_t)
+#define FD_SLOT_DELTA_OFF_ALIGN (8UL)
+
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_bank_slot_deltas {
+  ulong slot_deltas_len;
+  fd_slot_delta_t * slot_deltas;
+};
+typedef struct fd_bank_slot_deltas fd_bank_slot_deltas_t;
+#define FD_BANK_SLOT_DELTAS_FOOTPRINT sizeof(fd_bank_slot_deltas_t)
+#define FD_BANK_SLOT_DELTAS_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_bank_slot_deltas_off {
+  uint slot_deltas_off;
+};
+typedef struct fd_bank_slot_deltas_off fd_bank_slot_deltas_off_t;
+#define FD_BANK_SLOT_DELTAS_OFF_FOOTPRINT sizeof(fd_bank_slot_deltas_off_t)
+#define FD_BANK_SLOT_DELTAS_OFF_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -7107,6 +7255,306 @@ FD_FN_PURE uchar fd_repair_response_is_ping( fd_repair_response_t const * self )
 enum {
 fd_repair_response_enum_ping = 0,
 }; 
+void fd_instr_error_enum_new_disc( fd_instr_error_enum_t * self, uint discriminant );
+void fd_instr_error_enum_new( fd_instr_error_enum_t * self );
+int fd_instr_error_enum_decode( fd_instr_error_enum_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_instr_error_enum_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_instr_error_enum_decode_unsafe( fd_instr_error_enum_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_instr_error_enum_encode( fd_instr_error_enum_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_instr_error_enum_destroy( fd_instr_error_enum_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_instr_error_enum_walk( void * w, fd_instr_error_enum_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_instr_error_enum_size( fd_instr_error_enum_t const * self );
+ulong fd_instr_error_enum_footprint( void );
+ulong fd_instr_error_enum_align( void );
+
+FD_FN_PURE uchar fd_instr_error_enum_is_generic_error( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_invalid_argument( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_invalid_instruction_data( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_invalid_account_data( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_account_data_too_small( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_insufficient_funds( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_incorrect_program_id( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_missing_required_signature( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_account_already_initialized( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_uninitialized_account( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_unbalanced_instruction( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_modified_program_id( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_external_account_lamport_spend( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_external_account_data_modified( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_readonly_lamport_change( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_readonly_data_modified( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_duplicate_account_index( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_executable_modified( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_rent_epoch_modified( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_not_enough_account_keys( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_account_data_size_changed( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_account_not_executable( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_account_borrow_failed( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_account_borrow_outstanding( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_duplicate_account_out_of_sync( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_custom( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_invalid_error( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_executable_data_modified( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_executable_lamport_change( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_executable_account_not_rent_exempt( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_unsupported_program_id( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_call_depth( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_missing_account( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_reentrancy_not_allowed( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_max_seed_length_exceeded( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_invalid_seeds( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_invalid_realloc( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_computational_budget_exceeded( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_privilege_escalation( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_program_environment_setup_failure( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_program_failed_to_complete( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_program_failed_to_compile( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_immutable( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_incorrect_authority( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_borsh_io_error( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_account_not_rent_exempt( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_invalid_account_owner( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_arithmetic_overflow( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_unsupported_sysvar( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_illegal_owner( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_max_accounts_data_allocations_exceeded( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_max_accounts_exceeded( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_max_instruction_trace_length_exceeded( fd_instr_error_enum_t const * self );
+FD_FN_PURE uchar fd_instr_error_enum_is_builtin_programs_must_consume_compute_units( fd_instr_error_enum_t const * self );
+enum {
+fd_instr_error_enum_enum_generic_error = 0,
+fd_instr_error_enum_enum_invalid_argument = 1,
+fd_instr_error_enum_enum_invalid_instruction_data = 2,
+fd_instr_error_enum_enum_invalid_account_data = 3,
+fd_instr_error_enum_enum_account_data_too_small = 4,
+fd_instr_error_enum_enum_insufficient_funds = 5,
+fd_instr_error_enum_enum_incorrect_program_id = 6,
+fd_instr_error_enum_enum_missing_required_signature = 7,
+fd_instr_error_enum_enum_account_already_initialized = 8,
+fd_instr_error_enum_enum_uninitialized_account = 9,
+fd_instr_error_enum_enum_unbalanced_instruction = 10,
+fd_instr_error_enum_enum_modified_program_id = 11,
+fd_instr_error_enum_enum_external_account_lamport_spend = 12,
+fd_instr_error_enum_enum_external_account_data_modified = 13,
+fd_instr_error_enum_enum_readonly_lamport_change = 14,
+fd_instr_error_enum_enum_readonly_data_modified = 15,
+fd_instr_error_enum_enum_duplicate_account_index = 16,
+fd_instr_error_enum_enum_executable_modified = 17,
+fd_instr_error_enum_enum_rent_epoch_modified = 18,
+fd_instr_error_enum_enum_not_enough_account_keys = 19,
+fd_instr_error_enum_enum_account_data_size_changed = 20,
+fd_instr_error_enum_enum_account_not_executable = 21,
+fd_instr_error_enum_enum_account_borrow_failed = 22,
+fd_instr_error_enum_enum_account_borrow_outstanding = 23,
+fd_instr_error_enum_enum_duplicate_account_out_of_sync = 24,
+fd_instr_error_enum_enum_custom = 25,
+fd_instr_error_enum_enum_invalid_error = 26,
+fd_instr_error_enum_enum_executable_data_modified = 27,
+fd_instr_error_enum_enum_executable_lamport_change = 28,
+fd_instr_error_enum_enum_executable_account_not_rent_exempt = 29,
+fd_instr_error_enum_enum_unsupported_program_id = 30,
+fd_instr_error_enum_enum_call_depth = 31,
+fd_instr_error_enum_enum_missing_account = 32,
+fd_instr_error_enum_enum_reentrancy_not_allowed = 33,
+fd_instr_error_enum_enum_max_seed_length_exceeded = 34,
+fd_instr_error_enum_enum_invalid_seeds = 35,
+fd_instr_error_enum_enum_invalid_realloc = 36,
+fd_instr_error_enum_enum_computational_budget_exceeded = 37,
+fd_instr_error_enum_enum_privilege_escalation = 38,
+fd_instr_error_enum_enum_program_environment_setup_failure = 39,
+fd_instr_error_enum_enum_program_failed_to_complete = 40,
+fd_instr_error_enum_enum_program_failed_to_compile = 41,
+fd_instr_error_enum_enum_immutable = 42,
+fd_instr_error_enum_enum_incorrect_authority = 43,
+fd_instr_error_enum_enum_borsh_io_error = 44,
+fd_instr_error_enum_enum_account_not_rent_exempt = 45,
+fd_instr_error_enum_enum_invalid_account_owner = 46,
+fd_instr_error_enum_enum_arithmetic_overflow = 47,
+fd_instr_error_enum_enum_unsupported_sysvar = 48,
+fd_instr_error_enum_enum_illegal_owner = 49,
+fd_instr_error_enum_enum_max_accounts_data_allocations_exceeded = 50,
+fd_instr_error_enum_enum_max_accounts_exceeded = 51,
+fd_instr_error_enum_enum_max_instruction_trace_length_exceeded = 52,
+fd_instr_error_enum_enum_builtin_programs_must_consume_compute_units = 53,
+}; 
+void fd_txn_instr_error_new( fd_txn_instr_error_t * self );
+int fd_txn_instr_error_decode( fd_txn_instr_error_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_txn_instr_error_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_txn_instr_error_decode_unsafe( fd_txn_instr_error_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_txn_instr_error_decode_offsets( fd_txn_instr_error_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_txn_instr_error_encode( fd_txn_instr_error_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_txn_instr_error_destroy( fd_txn_instr_error_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_txn_instr_error_walk( void * w, fd_txn_instr_error_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_txn_instr_error_size( fd_txn_instr_error_t const * self );
+ulong fd_txn_instr_error_footprint( void );
+ulong fd_txn_instr_error_align( void );
+
+void fd_txn_error_enum_new_disc( fd_txn_error_enum_t * self, uint discriminant );
+void fd_txn_error_enum_new( fd_txn_error_enum_t * self );
+int fd_txn_error_enum_decode( fd_txn_error_enum_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_txn_error_enum_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_txn_error_enum_decode_unsafe( fd_txn_error_enum_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_txn_error_enum_encode( fd_txn_error_enum_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_txn_error_enum_destroy( fd_txn_error_enum_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_txn_error_enum_walk( void * w, fd_txn_error_enum_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_txn_error_enum_size( fd_txn_error_enum_t const * self );
+ulong fd_txn_error_enum_footprint( void );
+ulong fd_txn_error_enum_align( void );
+
+FD_FN_PURE uchar fd_txn_error_enum_is_account_in_use( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_account_loaded_twice( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_account_not_found( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_program_account_not_found( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_insufficient_funds_for_fee( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_account_for_fee( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_already_processed( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_blockhash_not_found( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_instruction_error( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_call_chain_too_deep( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_missing_signature_for_fee( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_account_index( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_signature_failure( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_program_for_execution( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_sanitize_failure( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_cluster_maintenance( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_account_borrow_outstanding( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_would_exceed_max_block_cost_limit( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_unsupported_version( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_writable_account( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_would_exceed_max_account_cost_limit( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_would_exceed_account_data_block_limit( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_too_many_account_locks( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_address_lookup_table_not_found( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_address_lookup_table_owner( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_address_lookup_table_data( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_address_lookup_table_index( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_rent_paying_account( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_would_exceed_max_vote_cost_limit( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_would_exceed_account_data_total_limit( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_duplicate_instruction( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_insufficient_funds_for_rent( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_max_loaded_accounts_data_size_exceeded( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_loaded_accounts_data_size_limit( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_resanitization_needed( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_program_execution_temporarily_restricted( fd_txn_error_enum_t const * self );
+FD_FN_PURE uchar fd_txn_error_enum_is_unbalanced_transaction( fd_txn_error_enum_t const * self );
+enum {
+fd_txn_error_enum_enum_account_in_use = 0,
+fd_txn_error_enum_enum_account_loaded_twice = 1,
+fd_txn_error_enum_enum_account_not_found = 2,
+fd_txn_error_enum_enum_program_account_not_found = 3,
+fd_txn_error_enum_enum_insufficient_funds_for_fee = 4,
+fd_txn_error_enum_enum_invalid_account_for_fee = 5,
+fd_txn_error_enum_enum_already_processed = 6,
+fd_txn_error_enum_enum_blockhash_not_found = 7,
+fd_txn_error_enum_enum_instruction_error = 8,
+fd_txn_error_enum_enum_call_chain_too_deep = 9,
+fd_txn_error_enum_enum_missing_signature_for_fee = 10,
+fd_txn_error_enum_enum_invalid_account_index = 11,
+fd_txn_error_enum_enum_signature_failure = 12,
+fd_txn_error_enum_enum_invalid_program_for_execution = 13,
+fd_txn_error_enum_enum_sanitize_failure = 14,
+fd_txn_error_enum_enum_cluster_maintenance = 15,
+fd_txn_error_enum_enum_account_borrow_outstanding = 16,
+fd_txn_error_enum_enum_would_exceed_max_block_cost_limit = 17,
+fd_txn_error_enum_enum_unsupported_version = 18,
+fd_txn_error_enum_enum_invalid_writable_account = 19,
+fd_txn_error_enum_enum_would_exceed_max_account_cost_limit = 20,
+fd_txn_error_enum_enum_would_exceed_account_data_block_limit = 21,
+fd_txn_error_enum_enum_too_many_account_locks = 22,
+fd_txn_error_enum_enum_address_lookup_table_not_found = 23,
+fd_txn_error_enum_enum_invalid_address_lookup_table_owner = 24,
+fd_txn_error_enum_enum_invalid_address_lookup_table_data = 25,
+fd_txn_error_enum_enum_invalid_address_lookup_table_index = 26,
+fd_txn_error_enum_enum_invalid_rent_paying_account = 27,
+fd_txn_error_enum_enum_would_exceed_max_vote_cost_limit = 28,
+fd_txn_error_enum_enum_would_exceed_account_data_total_limit = 29,
+fd_txn_error_enum_enum_duplicate_instruction = 30,
+fd_txn_error_enum_enum_insufficient_funds_for_rent = 31,
+fd_txn_error_enum_enum_max_loaded_accounts_data_size_exceeded = 32,
+fd_txn_error_enum_enum_invalid_loaded_accounts_data_size_limit = 33,
+fd_txn_error_enum_enum_resanitization_needed = 34,
+fd_txn_error_enum_enum_program_execution_temporarily_restricted = 35,
+fd_txn_error_enum_enum_unbalanced_transaction = 36,
+}; 
+void fd_txn_result_new_disc( fd_txn_result_t * self, uint discriminant );
+void fd_txn_result_new( fd_txn_result_t * self );
+int fd_txn_result_decode( fd_txn_result_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_txn_result_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_txn_result_decode_unsafe( fd_txn_result_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_txn_result_encode( fd_txn_result_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_txn_result_destroy( fd_txn_result_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_txn_result_walk( void * w, fd_txn_result_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_txn_result_size( fd_txn_result_t const * self );
+ulong fd_txn_result_footprint( void );
+ulong fd_txn_result_align( void );
+
+FD_FN_PURE uchar fd_txn_result_is_ok( fd_txn_result_t const * self );
+FD_FN_PURE uchar fd_txn_result_is_error( fd_txn_result_t const * self );
+enum {
+fd_txn_result_enum_ok = 0,
+fd_txn_result_enum_error = 1,
+}; 
+void fd_cache_status_new( fd_cache_status_t * self );
+int fd_cache_status_decode( fd_cache_status_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_cache_status_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_cache_status_decode_unsafe( fd_cache_status_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_cache_status_decode_offsets( fd_cache_status_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_cache_status_encode( fd_cache_status_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_cache_status_destroy( fd_cache_status_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_cache_status_walk( void * w, fd_cache_status_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_cache_status_size( fd_cache_status_t const * self );
+ulong fd_cache_status_footprint( void );
+ulong fd_cache_status_align( void );
+
+void fd_status_value_new( fd_status_value_t * self );
+int fd_status_value_decode( fd_status_value_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_status_value_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_status_value_decode_unsafe( fd_status_value_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_status_value_decode_offsets( fd_status_value_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_status_value_encode( fd_status_value_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_status_value_destroy( fd_status_value_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_status_value_walk( void * w, fd_status_value_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_status_value_size( fd_status_value_t const * self );
+ulong fd_status_value_footprint( void );
+ulong fd_status_value_align( void );
+
+void fd_status_pair_new( fd_status_pair_t * self );
+int fd_status_pair_decode( fd_status_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_status_pair_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_status_pair_decode_unsafe( fd_status_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_status_pair_decode_offsets( fd_status_pair_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_status_pair_encode( fd_status_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_status_pair_destroy( fd_status_pair_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_status_pair_walk( void * w, fd_status_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_status_pair_size( fd_status_pair_t const * self );
+ulong fd_status_pair_footprint( void );
+ulong fd_status_pair_align( void );
+
+void fd_slot_delta_new( fd_slot_delta_t * self );
+int fd_slot_delta_decode( fd_slot_delta_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_slot_delta_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_slot_delta_decode_unsafe( fd_slot_delta_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_slot_delta_decode_offsets( fd_slot_delta_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_slot_delta_encode( fd_slot_delta_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_slot_delta_destroy( fd_slot_delta_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_slot_delta_walk( void * w, fd_slot_delta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_slot_delta_size( fd_slot_delta_t const * self );
+ulong fd_slot_delta_footprint( void );
+ulong fd_slot_delta_align( void );
+
+void fd_bank_slot_deltas_new( fd_bank_slot_deltas_t * self );
+int fd_bank_slot_deltas_decode( fd_bank_slot_deltas_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_bank_slot_deltas_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_bank_slot_deltas_decode_unsafe( fd_bank_slot_deltas_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_bank_slot_deltas_decode_offsets( fd_bank_slot_deltas_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_bank_slot_deltas_encode( fd_bank_slot_deltas_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_bank_slot_deltas_destroy( fd_bank_slot_deltas_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_bank_slot_deltas_walk( void * w, fd_bank_slot_deltas_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_bank_slot_deltas_size( fd_bank_slot_deltas_t const * self );
+ulong fd_bank_slot_deltas_footprint( void );
+ulong fd_bank_slot_deltas_align( void );
+
 FD_PROTOTYPES_END
 
 #endif // HEADER_FD_RUNTIME_TYPES
