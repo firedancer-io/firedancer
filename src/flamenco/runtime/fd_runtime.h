@@ -215,11 +215,6 @@ fd_runtime_lamports_per_signature_for_blockhash( fd_exec_slot_ctx_t const * slot
 // fd_global_import_solana_manifest( fd_exec_slot_ctx_t * slot_ctx,
 //                                   fd_solana_manifest_t * manifest);
 
-static inline ulong
-fd_rent_exempt( fd_rent_t const * rent,
-                ulong             sz ) {
-  return (sz + 128) * ((ulong) ((double)rent->lamports_per_uint8_year * rent->exemption_threshold));
-}
 
 void
 fd_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,

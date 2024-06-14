@@ -2691,7 +2691,9 @@ fd_rent_due(fd_account_meta_t *acc,
   }
 
   ulong lamports_per_year = rent->lamports_per_uint8_year * (acc->dlen + 128UL);
-  return (long)(ulong)(years_elapsed * (double)lamports_per_year);
+  /* https://github.com/anza-xyz/agave/blob/d2124a995f89e33c54f41da76bfd5b0bd5820898/sdk/src/rent_collector.rs#L108 */
+  /* https://github.com/anza-xyz/agave/blob/d2124a995f89e33c54f41da76bfd5b0bd5820898/sdk/program/src/rent.rs#L95 */
+  return (long)fd_rust_cast_double_to_ulong(years_elapsed * (double)lamports_per_year);
 }
 
 /* fd_runtime_collect_rent_account performs rent collection duties.
