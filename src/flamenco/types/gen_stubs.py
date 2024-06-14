@@ -276,25 +276,25 @@ class PrimitiveMember:
             PrimitiveMember.emitEncodeMap[self.type](self.name, self.varint);
 
     emitSizeMap = {
-        "char" :      lambda n, varint: print(f'{indent}  size += sizeof(char);', file=body),
-        "char*" :     lambda n, varint: print(f'{indent}  size += sizeof(ulong) + strlen(self->{n});', file=body),
-        "char[32]" :  lambda n, varint: print(f'{indent}  size += sizeof(char) * 32;', file=body),
-        "double" :    lambda n, varint: print(f'{indent}  size += sizeof(double);', file=body),
-        "long" :      lambda n, varint: print(f'{indent}  size += sizeof(long);', file=body),
-        "uint" :      lambda n, varint: print(f'{indent}  size += sizeof(uint);', file=body),
-        "uint128" :   lambda n, varint: print(f'{indent}  size += sizeof(uint128);', file=body),
-        "bool" :      lambda n, varint: print(f'{indent}  size += sizeof(char);', file=body),
-        "uchar" :     lambda n, varint: print(f'{indent}  size += sizeof(char);', file=body),
-        "uchar[32]" : lambda n, varint: print(f'{indent}  size += sizeof(char) * 32;', file=body),
-        "uchar[128]" :lambda n, varint: print(f'{indent}  size += sizeof(char) * 128;', file=body),
-        "uchar[2048]":lambda n, varint: print(f'{indent}  size += sizeof(char) * 2048;', file=body),
-        "ulong" :     lambda n, varint: print(f'{indent}  size += { ("fd_bincode_varint_size( self->" + n + " );") if varint else "sizeof(ulong);" }', file=body),
-        "ushort" :    lambda n, varint: print(f'{indent}  size += { ("fd_bincode_compact_u16_size( &self->" + n + " );") if varint else "sizeof(ushort);" }', file=body),
+        "char" :      lambda n, varint, inner: print(f'{indent}  size += sizeof(char);', file=body),
+        "char*" :     lambda n, varint, inner: print(f'{indent}  size += sizeof(ulong) + strlen(self->{inner}{n});', file=body),
+        "char[32]" :  lambda n, varint, inner: print(f'{indent}  size += sizeof(char) * 32;', file=body),
+        "double" :    lambda n, varint, inner: print(f'{indent}  size += sizeof(double);', file=body),
+        "long" :      lambda n, varint, inner: print(f'{indent}  size += sizeof(long);', file=body),
+        "uint" :      lambda n, varint, inner: print(f'{indent}  size += sizeof(uint);', file=body),
+        "uint128" :   lambda n, varint, inner: print(f'{indent}  size += sizeof(uint128);', file=body),
+        "bool" :      lambda n, varint, inner: print(f'{indent}  size += sizeof(char);', file=body),
+        "uchar" :     lambda n, varint, inner: print(f'{indent}  size += sizeof(char);', file=body),
+        "uchar[32]" : lambda n, varint, inner: print(f'{indent}  size += sizeof(char) * 32;', file=body),
+        "uchar[128]" :lambda n, varint, inner: print(f'{indent}  size += sizeof(char) * 128;', file=body),
+        "uchar[2048]":lambda n, varint, inner: print(f'{indent}  size += sizeof(char) * 2048;', file=body),
+        "ulong" :     lambda n, varint, inner: print(f'{indent}  size += { ("fd_bincode_varint_size( self->" + n + " );") if varint else "sizeof(ulong);" }', file=body),
+        "ushort" :    lambda n, varint, inner: print(f'{indent}  size += { ("fd_bincode_compact_u16_size( &self->" + n + " );") if varint else "sizeof(ushort);" }', file=body),
     }
 
     def emitSize(self, inner):
         if self.encode:
-            PrimitiveMember.emitSizeMap[self.type](self.name, self.varint);
+            PrimitiveMember.emitSizeMap[self.type](self.name, self.varint, inner);
 
     emitWalkMap = {
         "char" :      lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_SCHAR, "char", level );', file=body),
@@ -1456,7 +1456,7 @@ class ArrayMember:
         length = self.length
 
         if self.element == "uchar":
-            print(f'fd_bincode_bytes_walk( w, self->{self.name}, {length}, ctx );', file=body)
+            print(f'  fun(w, self->{self.name}, "{self.name}", FD_FLAMENCO_TYPE_UCHAR, "{self.element}", level );', file=body),
             return
 
         print(f'  fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR, "{self.element}[]", level++ );', file=body)

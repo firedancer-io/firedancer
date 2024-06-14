@@ -23944,6 +23944,2031 @@ int fd_repair_response_encode( fd_repair_response_t const * self, fd_bincode_enc
   return fd_repair_response_inner_encode( &self->inner, self->discriminant, ctx );
 }
 
+FD_FN_PURE uchar fd_instr_error_enum_is_generic_error(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_invalid_argument(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 1;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_invalid_instruction_data(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 2;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_invalid_account_data(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 3;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_account_data_too_small(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 4;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_insufficient_funds(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 5;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_incorrect_program_id(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 6;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_missing_required_signature(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 7;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_account_already_initialized(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 8;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_uninitialized_account(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 9;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_unbalanced_instruction(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 10;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_modified_program_id(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 11;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_external_account_lamport_spend(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 12;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_external_account_data_modified(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 13;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_readonly_lamport_change(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 14;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_readonly_data_modified(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 15;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_duplicate_account_index(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 16;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_executable_modified(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 17;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_rent_epoch_modified(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 18;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_not_enough_account_keys(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 19;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_account_data_size_changed(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 20;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_account_not_executable(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 21;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_account_borrow_failed(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 22;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_account_borrow_outstanding(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 23;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_duplicate_account_out_of_sync(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 24;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_custom(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 25;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_invalid_error(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 26;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_executable_data_modified(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 27;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_executable_lamport_change(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 28;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_executable_account_not_rent_exempt(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 29;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_unsupported_program_id(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 30;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_call_depth(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 31;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_missing_account(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 32;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_reentrancy_not_allowed(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 33;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_max_seed_length_exceeded(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 34;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_invalid_seeds(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 35;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_invalid_realloc(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 36;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_computational_budget_exceeded(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 37;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_privilege_escalation(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 38;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_program_environment_setup_failure(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 39;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_program_failed_to_complete(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 40;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_program_failed_to_compile(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 41;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_immutable(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 42;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_incorrect_authority(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 43;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_borsh_io_error(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 44;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_account_not_rent_exempt(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 45;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_invalid_account_owner(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 46;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_arithmetic_overflow(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 47;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_unsupported_sysvar(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 48;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_illegal_owner(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 49;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_max_accounts_data_allocations_exceeded(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 50;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_max_accounts_exceeded(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 51;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_max_instruction_trace_length_exceeded(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 52;
+}
+FD_FN_PURE uchar fd_instr_error_enum_is_builtin_programs_must_consume_compute_units(fd_instr_error_enum_t const * self) {
+  return self->discriminant == 53;
+}
+void fd_instr_error_enum_inner_new( fd_instr_error_enum_inner_t * self, uint discriminant );
+int fd_instr_error_enum_inner_decode_preflight( uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 1: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 2: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 3: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 4: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 5: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 6: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 7: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 8: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 9: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 10: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 11: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 12: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 13: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 14: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 15: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 16: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 17: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 18: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 19: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 20: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 21: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 22: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 23: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 24: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 25: {
+    err = fd_bincode_uint32_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 26: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 27: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 28: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 29: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 30: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 31: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 32: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 33: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 34: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 35: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 36: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 37: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 38: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 39: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 40: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 41: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 42: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 43: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 44: {
+    ulong slen;
+    err = fd_bincode_uint64_decode( &slen, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    err = fd_bincode_bytes_decode_preflight( slen, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 45: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 46: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 47: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 48: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 49: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 50: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 51: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 52: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 53: {
+    return FD_BINCODE_SUCCESS;
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+void fd_instr_error_enum_inner_decode_unsafe( fd_instr_error_enum_inner_t * self, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    break;
+  }
+  case 3: {
+    break;
+  }
+  case 4: {
+    break;
+  }
+  case 5: {
+    break;
+  }
+  case 6: {
+    break;
+  }
+  case 7: {
+    break;
+  }
+  case 8: {
+    break;
+  }
+  case 9: {
+    break;
+  }
+  case 10: {
+    break;
+  }
+  case 11: {
+    break;
+  }
+  case 12: {
+    break;
+  }
+  case 13: {
+    break;
+  }
+  case 14: {
+    break;
+  }
+  case 15: {
+    break;
+  }
+  case 16: {
+    break;
+  }
+  case 17: {
+    break;
+  }
+  case 18: {
+    break;
+  }
+  case 19: {
+    break;
+  }
+  case 20: {
+    break;
+  }
+  case 21: {
+    break;
+  }
+  case 22: {
+    break;
+  }
+  case 23: {
+    break;
+  }
+  case 24: {
+    break;
+  }
+  case 25: {
+    fd_bincode_uint32_decode_unsafe( &self->custom, ctx );
+    break;
+  }
+  case 26: {
+    break;
+  }
+  case 27: {
+    break;
+  }
+  case 28: {
+    break;
+  }
+  case 29: {
+    break;
+  }
+  case 30: {
+    break;
+  }
+  case 31: {
+    break;
+  }
+  case 32: {
+    break;
+  }
+  case 33: {
+    break;
+  }
+  case 34: {
+    break;
+  }
+  case 35: {
+    break;
+  }
+  case 36: {
+    break;
+  }
+  case 37: {
+    break;
+  }
+  case 38: {
+    break;
+  }
+  case 39: {
+    break;
+  }
+  case 40: {
+    break;
+  }
+  case 41: {
+    break;
+  }
+  case 42: {
+    break;
+  }
+  case 43: {
+    break;
+  }
+  case 44: {
+    ulong slen;
+    fd_bincode_uint64_decode_unsafe( &slen, ctx );
+    self->borsh_io_error = fd_valloc_malloc( ctx->valloc, 1, slen + 1 );
+    fd_bincode_bytes_decode_unsafe( (uchar *)self->borsh_io_error, slen, ctx );
+    self->borsh_io_error[slen] = '\0';
+    break;
+  }
+  case 45: {
+    break;
+  }
+  case 46: {
+    break;
+  }
+  case 47: {
+    break;
+  }
+  case 48: {
+    break;
+  }
+  case 49: {
+    break;
+  }
+  case 50: {
+    break;
+  }
+  case 51: {
+    break;
+  }
+  case 52: {
+    break;
+  }
+  case 53: {
+    break;
+  }
+  }
+}
+int fd_instr_error_enum_decode( fd_instr_error_enum_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_instr_error_enum_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_instr_error_enum_new( self );
+  fd_instr_error_enum_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_instr_error_enum_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  uint discriminant = 0;
+  int err = fd_bincode_uint32_decode( &discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_instr_error_enum_inner_decode_preflight( discriminant, ctx );
+}
+void fd_instr_error_enum_decode_unsafe( fd_instr_error_enum_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
+  fd_instr_error_enum_inner_decode_unsafe( &self->inner, self->discriminant, ctx );
+}
+void fd_instr_error_enum_inner_new( fd_instr_error_enum_inner_t * self, uint discriminant ) {
+  switch( discriminant ) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    break;
+  }
+  case 3: {
+    break;
+  }
+  case 4: {
+    break;
+  }
+  case 5: {
+    break;
+  }
+  case 6: {
+    break;
+  }
+  case 7: {
+    break;
+  }
+  case 8: {
+    break;
+  }
+  case 9: {
+    break;
+  }
+  case 10: {
+    break;
+  }
+  case 11: {
+    break;
+  }
+  case 12: {
+    break;
+  }
+  case 13: {
+    break;
+  }
+  case 14: {
+    break;
+  }
+  case 15: {
+    break;
+  }
+  case 16: {
+    break;
+  }
+  case 17: {
+    break;
+  }
+  case 18: {
+    break;
+  }
+  case 19: {
+    break;
+  }
+  case 20: {
+    break;
+  }
+  case 21: {
+    break;
+  }
+  case 22: {
+    break;
+  }
+  case 23: {
+    break;
+  }
+  case 24: {
+    break;
+  }
+  case 25: {
+    break;
+  }
+  case 26: {
+    break;
+  }
+  case 27: {
+    break;
+  }
+  case 28: {
+    break;
+  }
+  case 29: {
+    break;
+  }
+  case 30: {
+    break;
+  }
+  case 31: {
+    break;
+  }
+  case 32: {
+    break;
+  }
+  case 33: {
+    break;
+  }
+  case 34: {
+    break;
+  }
+  case 35: {
+    break;
+  }
+  case 36: {
+    break;
+  }
+  case 37: {
+    break;
+  }
+  case 38: {
+    break;
+  }
+  case 39: {
+    break;
+  }
+  case 40: {
+    break;
+  }
+  case 41: {
+    break;
+  }
+  case 42: {
+    break;
+  }
+  case 43: {
+    break;
+  }
+  case 44: {
+    break;
+  }
+  case 45: {
+    break;
+  }
+  case 46: {
+    break;
+  }
+  case 47: {
+    break;
+  }
+  case 48: {
+    break;
+  }
+  case 49: {
+    break;
+  }
+  case 50: {
+    break;
+  }
+  case 51: {
+    break;
+  }
+  case 52: {
+    break;
+  }
+  case 53: {
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_instr_error_enum_new_disc( fd_instr_error_enum_t * self, uint discriminant ) {
+  self->discriminant = discriminant;
+  fd_instr_error_enum_inner_new( &self->inner, self->discriminant );
+}
+void fd_instr_error_enum_new( fd_instr_error_enum_t * self ) {
+  fd_memset( self, 0, sizeof(fd_instr_error_enum_t) );
+  fd_instr_error_enum_new_disc( self, UINT_MAX );
+}
+void fd_instr_error_enum_inner_destroy( fd_instr_error_enum_inner_t * self, uint discriminant, fd_bincode_destroy_ctx_t * ctx ) {
+  switch( discriminant ) {
+  case 25: {
+    break;
+  }
+  case 44: {
+  if( self->borsh_io_error ) {
+    fd_valloc_free( ctx->valloc, self->borsh_io_error );
+    self->borsh_io_error = NULL;
+  }
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_instr_error_enum_destroy( fd_instr_error_enum_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_instr_error_enum_inner_destroy( &self->inner, self->discriminant, ctx );
+}
+
+ulong fd_instr_error_enum_footprint( void ){ return FD_INSTR_ERROR_ENUM_FOOTPRINT; }
+ulong fd_instr_error_enum_align( void ){ return FD_INSTR_ERROR_ENUM_ALIGN; }
+
+void fd_instr_error_enum_walk( void * w, fd_instr_error_enum_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_instr_error_enum", level++);
+  switch( self->discriminant ) {
+  case 25: {
+  fun( w, &self->inner.custom, "custom", FD_FLAMENCO_TYPE_UINT, "uint", level );
+    break;
+  }
+  case 44: {
+  fun( w, self->inner.borsh_io_error, "borsh_io_error", FD_FLAMENCO_TYPE_CSTR, "char*", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_instr_error_enum", level-- );
+}
+ulong fd_instr_error_enum_size( fd_instr_error_enum_t const * self ) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 25: {
+    size += sizeof(uint);
+    break;
+  }
+  case 44: {
+    size += sizeof(ulong) + strlen(self->inner.borsh_io_error);
+    break;
+  }
+  }
+  return size;
+}
+
+int fd_instr_error_enum_inner_encode( fd_instr_error_enum_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 25: {
+    err = fd_bincode_uint32_encode( self->custom, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  case 44: {
+    ulong slen = strlen( (char *) self->borsh_io_error );
+    err = fd_bincode_uint64_encode( slen, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    err = fd_bincode_bytes_encode( (uchar *) self->borsh_io_error, slen, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_instr_error_enum_encode( fd_instr_error_enum_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err = fd_bincode_uint32_encode( self->discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_instr_error_enum_inner_encode( &self->inner, self->discriminant, ctx );
+}
+
+int fd_txn_instr_error_decode( fd_txn_instr_error_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_txn_instr_error_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_txn_instr_error_new( self );
+  fd_txn_instr_error_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_txn_instr_error_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint8_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_instr_error_enum_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_txn_instr_error_decode_unsafe( fd_txn_instr_error_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint8_decode_unsafe( &self->instr_idx, ctx );
+  fd_instr_error_enum_decode_unsafe( &self->error, ctx );
+}
+int fd_txn_instr_error_decode_offsets( fd_txn_instr_error_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->instr_idx_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint8_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->error_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_instr_error_enum_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_txn_instr_error_new(fd_txn_instr_error_t * self) {
+  fd_memset( self, 0, sizeof(fd_txn_instr_error_t) );
+  fd_instr_error_enum_new( &self->error );
+}
+void fd_txn_instr_error_destroy( fd_txn_instr_error_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_instr_error_enum_destroy( &self->error, ctx );
+}
+
+ulong fd_txn_instr_error_footprint( void ){ return FD_TXN_INSTR_ERROR_FOOTPRINT; }
+ulong fd_txn_instr_error_align( void ){ return FD_TXN_INSTR_ERROR_ALIGN; }
+
+void fd_txn_instr_error_walk( void * w, fd_txn_instr_error_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_txn_instr_error", level++ );
+  fun( w, &self->instr_idx, "instr_idx", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+  fd_instr_error_enum_walk( w, &self->error, fun, "error", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_txn_instr_error", level-- );
+}
+ulong fd_txn_instr_error_size( fd_txn_instr_error_t const * self ) {
+  ulong size = 0;
+  size += sizeof(char);
+  size += fd_instr_error_enum_size( &self->error );
+  return size;
+}
+
+int fd_txn_instr_error_encode( fd_txn_instr_error_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint8_encode( (uchar)(self->instr_idx), ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_instr_error_enum_encode( &self->error, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+FD_FN_PURE uchar fd_txn_error_enum_is_account_in_use(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_account_loaded_twice(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 1;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_account_not_found(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 2;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_program_account_not_found(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 3;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_insufficient_funds_for_fee(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 4;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_account_for_fee(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 5;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_already_processed(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 6;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_blockhash_not_found(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 7;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_instruction_error(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 8;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_call_chain_too_deep(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 9;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_missing_signature_for_fee(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 10;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_account_index(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 11;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_signature_failure(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 12;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_program_for_execution(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 13;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_sanitize_failure(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 14;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_cluster_maintenance(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 15;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_account_borrow_outstanding(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 16;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_would_exceed_max_block_cost_limit(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 17;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_unsupported_version(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 18;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_writable_account(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 19;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_would_exceed_max_account_cost_limit(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 20;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_would_exceed_account_data_block_limit(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 21;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_too_many_account_locks(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 22;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_address_lookup_table_not_found(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 23;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_address_lookup_table_owner(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 24;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_address_lookup_table_data(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 25;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_address_lookup_table_index(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 26;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_rent_paying_account(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 27;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_would_exceed_max_vote_cost_limit(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 28;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_would_exceed_account_data_total_limit(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 29;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_duplicate_instruction(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 30;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_insufficient_funds_for_rent(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 31;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_max_loaded_accounts_data_size_exceeded(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 32;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_invalid_loaded_accounts_data_size_limit(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 33;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_resanitization_needed(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 34;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_program_execution_temporarily_restricted(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 35;
+}
+FD_FN_PURE uchar fd_txn_error_enum_is_unbalanced_transaction(fd_txn_error_enum_t const * self) {
+  return self->discriminant == 36;
+}
+void fd_txn_error_enum_inner_new( fd_txn_error_enum_inner_t * self, uint discriminant );
+int fd_txn_error_enum_inner_decode_preflight( uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 1: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 2: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 3: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 4: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 5: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 6: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 7: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 8: {
+    err = fd_txn_instr_error_decode_preflight( ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 9: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 10: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 11: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 12: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 13: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 14: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 15: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 16: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 17: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 18: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 19: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 20: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 21: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 22: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 23: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 24: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 25: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 26: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 27: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 28: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 29: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 30: {
+    err = fd_bincode_uint8_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 31: {
+    err = fd_bincode_uint8_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 32: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 33: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 34: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 35: {
+    err = fd_bincode_uint8_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 36: {
+    return FD_BINCODE_SUCCESS;
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+void fd_txn_error_enum_inner_decode_unsafe( fd_txn_error_enum_inner_t * self, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    break;
+  }
+  case 3: {
+    break;
+  }
+  case 4: {
+    break;
+  }
+  case 5: {
+    break;
+  }
+  case 6: {
+    break;
+  }
+  case 7: {
+    break;
+  }
+  case 8: {
+    fd_txn_instr_error_decode_unsafe( &self->instruction_error, ctx );
+    break;
+  }
+  case 9: {
+    break;
+  }
+  case 10: {
+    break;
+  }
+  case 11: {
+    break;
+  }
+  case 12: {
+    break;
+  }
+  case 13: {
+    break;
+  }
+  case 14: {
+    break;
+  }
+  case 15: {
+    break;
+  }
+  case 16: {
+    break;
+  }
+  case 17: {
+    break;
+  }
+  case 18: {
+    break;
+  }
+  case 19: {
+    break;
+  }
+  case 20: {
+    break;
+  }
+  case 21: {
+    break;
+  }
+  case 22: {
+    break;
+  }
+  case 23: {
+    break;
+  }
+  case 24: {
+    break;
+  }
+  case 25: {
+    break;
+  }
+  case 26: {
+    break;
+  }
+  case 27: {
+    break;
+  }
+  case 28: {
+    break;
+  }
+  case 29: {
+    break;
+  }
+  case 30: {
+    fd_bincode_uint8_decode_unsafe( &self->duplicate_instruction, ctx );
+    break;
+  }
+  case 31: {
+    fd_bincode_uint8_decode_unsafe( &self->insufficient_funds_for_rent, ctx );
+    break;
+  }
+  case 32: {
+    break;
+  }
+  case 33: {
+    break;
+  }
+  case 34: {
+    break;
+  }
+  case 35: {
+    fd_bincode_uint8_decode_unsafe( &self->program_execution_temporarily_restricted, ctx );
+    break;
+  }
+  case 36: {
+    break;
+  }
+  }
+}
+int fd_txn_error_enum_decode( fd_txn_error_enum_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_txn_error_enum_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_txn_error_enum_new( self );
+  fd_txn_error_enum_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_txn_error_enum_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  uint discriminant = 0;
+  int err = fd_bincode_uint32_decode( &discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_txn_error_enum_inner_decode_preflight( discriminant, ctx );
+}
+void fd_txn_error_enum_decode_unsafe( fd_txn_error_enum_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
+  fd_txn_error_enum_inner_decode_unsafe( &self->inner, self->discriminant, ctx );
+}
+void fd_txn_error_enum_inner_new( fd_txn_error_enum_inner_t * self, uint discriminant ) {
+  switch( discriminant ) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    break;
+  }
+  case 3: {
+    break;
+  }
+  case 4: {
+    break;
+  }
+  case 5: {
+    break;
+  }
+  case 6: {
+    break;
+  }
+  case 7: {
+    break;
+  }
+  case 8: {
+    fd_txn_instr_error_new( &self->instruction_error );
+    break;
+  }
+  case 9: {
+    break;
+  }
+  case 10: {
+    break;
+  }
+  case 11: {
+    break;
+  }
+  case 12: {
+    break;
+  }
+  case 13: {
+    break;
+  }
+  case 14: {
+    break;
+  }
+  case 15: {
+    break;
+  }
+  case 16: {
+    break;
+  }
+  case 17: {
+    break;
+  }
+  case 18: {
+    break;
+  }
+  case 19: {
+    break;
+  }
+  case 20: {
+    break;
+  }
+  case 21: {
+    break;
+  }
+  case 22: {
+    break;
+  }
+  case 23: {
+    break;
+  }
+  case 24: {
+    break;
+  }
+  case 25: {
+    break;
+  }
+  case 26: {
+    break;
+  }
+  case 27: {
+    break;
+  }
+  case 28: {
+    break;
+  }
+  case 29: {
+    break;
+  }
+  case 30: {
+    break;
+  }
+  case 31: {
+    break;
+  }
+  case 32: {
+    break;
+  }
+  case 33: {
+    break;
+  }
+  case 34: {
+    break;
+  }
+  case 35: {
+    break;
+  }
+  case 36: {
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_txn_error_enum_new_disc( fd_txn_error_enum_t * self, uint discriminant ) {
+  self->discriminant = discriminant;
+  fd_txn_error_enum_inner_new( &self->inner, self->discriminant );
+}
+void fd_txn_error_enum_new( fd_txn_error_enum_t * self ) {
+  fd_memset( self, 0, sizeof(fd_txn_error_enum_t) );
+  fd_txn_error_enum_new_disc( self, UINT_MAX );
+}
+void fd_txn_error_enum_inner_destroy( fd_txn_error_enum_inner_t * self, uint discriminant, fd_bincode_destroy_ctx_t * ctx ) {
+  switch( discriminant ) {
+  case 8: {
+    fd_txn_instr_error_destroy( &self->instruction_error, ctx );
+    break;
+  }
+  case 30: {
+    break;
+  }
+  case 31: {
+    break;
+  }
+  case 35: {
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_txn_error_enum_destroy( fd_txn_error_enum_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_txn_error_enum_inner_destroy( &self->inner, self->discriminant, ctx );
+}
+
+ulong fd_txn_error_enum_footprint( void ){ return FD_TXN_ERROR_ENUM_FOOTPRINT; }
+ulong fd_txn_error_enum_align( void ){ return FD_TXN_ERROR_ENUM_ALIGN; }
+
+void fd_txn_error_enum_walk( void * w, fd_txn_error_enum_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_txn_error_enum", level++);
+  switch( self->discriminant ) {
+  case 8: {
+    fd_txn_instr_error_walk( w, &self->inner.instruction_error, fun, "instruction_error", level );
+    break;
+  }
+  case 30: {
+  fun( w, &self->inner.duplicate_instruction, "duplicate_instruction", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+    break;
+  }
+  case 31: {
+  fun( w, &self->inner.insufficient_funds_for_rent, "insufficient_funds_for_rent", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+    break;
+  }
+  case 35: {
+  fun( w, &self->inner.program_execution_temporarily_restricted, "program_execution_temporarily_restricted", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_txn_error_enum", level-- );
+}
+ulong fd_txn_error_enum_size( fd_txn_error_enum_t const * self ) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 8: {
+    size += fd_txn_instr_error_size( &self->inner.instruction_error );
+    break;
+  }
+  case 30: {
+    size += sizeof(char);
+    break;
+  }
+  case 31: {
+    size += sizeof(char);
+    break;
+  }
+  case 35: {
+    size += sizeof(char);
+    break;
+  }
+  }
+  return size;
+}
+
+int fd_txn_error_enum_inner_encode( fd_txn_error_enum_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 8: {
+    err = fd_txn_instr_error_encode( &self->instruction_error, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  case 30: {
+    err = fd_bincode_uint8_encode( (uchar)(self->duplicate_instruction), ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  case 31: {
+    err = fd_bincode_uint8_encode( (uchar)(self->insufficient_funds_for_rent), ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  case 35: {
+    err = fd_bincode_uint8_encode( (uchar)(self->program_execution_temporarily_restricted), ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_txn_error_enum_encode( fd_txn_error_enum_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err = fd_bincode_uint32_encode( self->discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_txn_error_enum_inner_encode( &self->inner, self->discriminant, ctx );
+}
+
+FD_FN_PURE uchar fd_txn_result_is_ok(fd_txn_result_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_txn_result_is_error(fd_txn_result_t const * self) {
+  return self->discriminant == 1;
+}
+void fd_txn_result_inner_new( fd_txn_result_inner_t * self, uint discriminant );
+int fd_txn_result_inner_decode_preflight( uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 1: {
+    err = fd_txn_error_enum_decode_preflight( ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+void fd_txn_result_inner_decode_unsafe( fd_txn_result_inner_t * self, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    fd_txn_error_enum_decode_unsafe( &self->error, ctx );
+    break;
+  }
+  }
+}
+int fd_txn_result_decode( fd_txn_result_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_txn_result_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_txn_result_new( self );
+  fd_txn_result_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_txn_result_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  uint discriminant = 0;
+  int err = fd_bincode_uint32_decode( &discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_txn_result_inner_decode_preflight( discriminant, ctx );
+}
+void fd_txn_result_decode_unsafe( fd_txn_result_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
+  fd_txn_result_inner_decode_unsafe( &self->inner, self->discriminant, ctx );
+}
+void fd_txn_result_inner_new( fd_txn_result_inner_t * self, uint discriminant ) {
+  switch( discriminant ) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    fd_txn_error_enum_new( &self->error );
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_txn_result_new_disc( fd_txn_result_t * self, uint discriminant ) {
+  self->discriminant = discriminant;
+  fd_txn_result_inner_new( &self->inner, self->discriminant );
+}
+void fd_txn_result_new( fd_txn_result_t * self ) {
+  fd_memset( self, 0, sizeof(fd_txn_result_t) );
+  fd_txn_result_new_disc( self, UINT_MAX );
+}
+void fd_txn_result_inner_destroy( fd_txn_result_inner_t * self, uint discriminant, fd_bincode_destroy_ctx_t * ctx ) {
+  switch( discriminant ) {
+  case 1: {
+    fd_txn_error_enum_destroy( &self->error, ctx );
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_txn_result_destroy( fd_txn_result_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_txn_result_inner_destroy( &self->inner, self->discriminant, ctx );
+}
+
+ulong fd_txn_result_footprint( void ){ return FD_TXN_RESULT_FOOTPRINT; }
+ulong fd_txn_result_align( void ){ return FD_TXN_RESULT_ALIGN; }
+
+void fd_txn_result_walk( void * w, fd_txn_result_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_txn_result", level++);
+  switch( self->discriminant ) {
+  case 1: {
+    fd_txn_error_enum_walk( w, &self->inner.error, fun, "error", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_txn_result", level-- );
+}
+ulong fd_txn_result_size( fd_txn_result_t const * self ) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 1: {
+    size += fd_txn_error_enum_size( &self->inner.error );
+    break;
+  }
+  }
+  return size;
+}
+
+int fd_txn_result_inner_encode( fd_txn_result_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 1: {
+    err = fd_txn_error_enum_encode( &self->error, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_txn_result_encode( fd_txn_result_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err = fd_bincode_uint32_encode( self->discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_txn_result_inner_encode( &self->inner, self->discriminant, ctx );
+}
+
+int fd_cache_status_decode( fd_cache_status_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_cache_status_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_cache_status_new( self );
+  fd_cache_status_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_cache_status_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_bytes_decode_preflight( 20, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_txn_result_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_cache_status_decode_unsafe( fd_cache_status_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_bytes_decode_unsafe( self->key_slice, 20, ctx );
+  fd_txn_result_decode_unsafe( &self->result, ctx );
+}
+int fd_cache_status_decode_offsets( fd_cache_status_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->key_slice_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_bytes_decode_preflight( 20, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  self->result_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_txn_result_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_cache_status_new(fd_cache_status_t * self) {
+  fd_memset( self, 0, sizeof(fd_cache_status_t) );
+  fd_txn_result_new( &self->result );
+}
+void fd_cache_status_destroy( fd_cache_status_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_txn_result_destroy( &self->result, ctx );
+}
+
+ulong fd_cache_status_footprint( void ){ return FD_CACHE_STATUS_FOOTPRINT; }
+ulong fd_cache_status_align( void ){ return FD_CACHE_STATUS_ALIGN; }
+
+void fd_cache_status_walk( void * w, fd_cache_status_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_cache_status", level++ );
+  fun(w, self->key_slice, "key_slice", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+  fd_txn_result_walk( w, &self->result, fun, "result", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_cache_status", level-- );
+}
+ulong fd_cache_status_size( fd_cache_status_t const * self ) {
+  ulong size = 0;
+  size += 20;
+  size += fd_txn_result_size( &self->result );
+  return size;
+}
+
+int fd_cache_status_encode( fd_cache_status_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_bytes_encode( self->key_slice, 20, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_txn_result_encode( &self->result, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_status_value_decode( fd_status_value_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_status_value_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_status_value_new( self );
+  fd_status_value_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_status_value_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ulong statuses_len;
+  err = fd_bincode_uint64_decode( &statuses_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( statuses_len ) {
+    for( ulong i=0; i < statuses_len; i++ ) {
+      err = fd_cache_status_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_status_value_decode_unsafe( fd_status_value_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint64_decode_unsafe( &self->txn_idx, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->statuses_len, ctx );
+  if( self->statuses_len ) {
+    self->statuses = (fd_cache_status_t *)fd_valloc_malloc( ctx->valloc, FD_CACHE_STATUS_ALIGN, FD_CACHE_STATUS_FOOTPRINT*self->statuses_len );
+    for( ulong i=0; i < self->statuses_len; i++ ) {
+      fd_cache_status_new( self->statuses + i );
+      fd_cache_status_decode_unsafe( self->statuses + i, ctx );
+    }
+  } else
+    self->statuses = NULL;
+}
+int fd_status_value_decode_offsets( fd_status_value_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->txn_idx_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  self->statuses_off = (uint)( (ulong)ctx->data - (ulong)data );
+  ulong statuses_len;
+  err = fd_bincode_uint64_decode( &statuses_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( statuses_len ) {
+    for( ulong i=0; i < statuses_len; i++ ) {
+      err = fd_cache_status_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_status_value_new(fd_status_value_t * self) {
+  fd_memset( self, 0, sizeof(fd_status_value_t) );
+}
+void fd_status_value_destroy( fd_status_value_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  if( self->statuses ) {
+    for( ulong i=0; i < self->statuses_len; i++ )
+      fd_cache_status_destroy( self->statuses + i, ctx );
+    fd_valloc_free( ctx->valloc, self->statuses );
+    self->statuses = NULL;
+  }
+}
+
+ulong fd_status_value_footprint( void ){ return FD_STATUS_VALUE_FOOTPRINT; }
+ulong fd_status_value_align( void ){ return FD_STATUS_VALUE_ALIGN; }
+
+void fd_status_value_walk( void * w, fd_status_value_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_status_value", level++ );
+  fun( w, &self->txn_idx, "txn_idx", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  if( self->statuses_len ) {
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "statuses", level++ );
+    for( ulong i=0; i < self->statuses_len; i++ )
+      fd_cache_status_walk(w, self->statuses + i, fun, "cache_status", level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "statuses", level-- );
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_status_value", level-- );
+}
+ulong fd_status_value_size( fd_status_value_t const * self ) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  do {
+    size += sizeof(ulong);
+    for( ulong i=0; i < self->statuses_len; i++ )
+      size += fd_cache_status_size( self->statuses + i );
+  } while(0);
+  return size;
+}
+
+int fd_status_value_encode( fd_status_value_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->txn_idx, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->statuses_len, ctx );
+  if( FD_UNLIKELY(err) ) return err;
+  if( self->statuses_len ) {
+    for( ulong i=0; i < self->statuses_len; i++ ) {
+      err = fd_cache_status_encode( self->statuses + i, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_status_pair_decode( fd_status_pair_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_status_pair_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_status_pair_new( self );
+  fd_status_pair_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_status_pair_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_hash_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_status_value_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_status_pair_decode_unsafe( fd_status_pair_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_hash_decode_unsafe( &self->hash, ctx );
+  fd_status_value_decode_unsafe( &self->value, ctx );
+}
+int fd_status_pair_decode_offsets( fd_status_pair_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->hash_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_hash_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->value_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_status_value_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_status_pair_new(fd_status_pair_t * self) {
+  fd_memset( self, 0, sizeof(fd_status_pair_t) );
+  fd_hash_new( &self->hash );
+  fd_status_value_new( &self->value );
+}
+void fd_status_pair_destroy( fd_status_pair_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_hash_destroy( &self->hash, ctx );
+  fd_status_value_destroy( &self->value, ctx );
+}
+
+ulong fd_status_pair_footprint( void ){ return FD_STATUS_PAIR_FOOTPRINT; }
+ulong fd_status_pair_align( void ){ return FD_STATUS_PAIR_ALIGN; }
+
+void fd_status_pair_walk( void * w, fd_status_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_status_pair", level++ );
+  fd_hash_walk( w, &self->hash, fun, "hash", level );
+  fd_status_value_walk( w, &self->value, fun, "value", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_status_pair", level-- );
+}
+ulong fd_status_pair_size( fd_status_pair_t const * self ) {
+  ulong size = 0;
+  size += fd_hash_size( &self->hash );
+  size += fd_status_value_size( &self->value );
+  return size;
+}
+
+int fd_status_pair_encode( fd_status_pair_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_hash_encode( &self->hash, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_status_value_encode( &self->value, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_slot_delta_decode( fd_slot_delta_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_slot_delta_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_slot_delta_new( self );
+  fd_slot_delta_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_slot_delta_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_bool_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  ulong slot_delta_vec_len;
+  err = fd_bincode_uint64_decode( &slot_delta_vec_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( slot_delta_vec_len ) {
+    for( ulong i=0; i < slot_delta_vec_len; i++ ) {
+      err = fd_status_pair_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_slot_delta_decode_unsafe( fd_slot_delta_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint64_decode_unsafe( &self->slot, ctx );
+  fd_bincode_bool_decode_unsafe( &self->is_root, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->slot_delta_vec_len, ctx );
+  if( self->slot_delta_vec_len ) {
+    self->slot_delta_vec = (fd_status_pair_t *)fd_valloc_malloc( ctx->valloc, FD_STATUS_PAIR_ALIGN, FD_STATUS_PAIR_FOOTPRINT*self->slot_delta_vec_len );
+    for( ulong i=0; i < self->slot_delta_vec_len; i++ ) {
+      fd_status_pair_new( self->slot_delta_vec + i );
+      fd_status_pair_decode_unsafe( self->slot_delta_vec + i, ctx );
+    }
+  } else
+    self->slot_delta_vec = NULL;
+}
+int fd_slot_delta_decode_offsets( fd_slot_delta_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->slot_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  self->is_root_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_bool_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->slot_delta_vec_off = (uint)( (ulong)ctx->data - (ulong)data );
+  ulong slot_delta_vec_len;
+  err = fd_bincode_uint64_decode( &slot_delta_vec_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( slot_delta_vec_len ) {
+    for( ulong i=0; i < slot_delta_vec_len; i++ ) {
+      err = fd_status_pair_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_slot_delta_new(fd_slot_delta_t * self) {
+  fd_memset( self, 0, sizeof(fd_slot_delta_t) );
+}
+void fd_slot_delta_destroy( fd_slot_delta_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  if( self->slot_delta_vec ) {
+    for( ulong i=0; i < self->slot_delta_vec_len; i++ )
+      fd_status_pair_destroy( self->slot_delta_vec + i, ctx );
+    fd_valloc_free( ctx->valloc, self->slot_delta_vec );
+    self->slot_delta_vec = NULL;
+  }
+}
+
+ulong fd_slot_delta_footprint( void ){ return FD_SLOT_DELTA_FOOTPRINT; }
+ulong fd_slot_delta_align( void ){ return FD_SLOT_DELTA_ALIGN; }
+
+void fd_slot_delta_walk( void * w, fd_slot_delta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_delta", level++ );
+  fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->is_root, "is_root", FD_FLAMENCO_TYPE_BOOL, "bool", level );
+  if( self->slot_delta_vec_len ) {
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "slot_delta_vec", level++ );
+    for( ulong i=0; i < self->slot_delta_vec_len; i++ )
+      fd_status_pair_walk(w, self->slot_delta_vec + i, fun, "status_pair", level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "slot_delta_vec", level-- );
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_slot_delta", level-- );
+}
+ulong fd_slot_delta_size( fd_slot_delta_t const * self ) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(char);
+  do {
+    size += sizeof(ulong);
+    for( ulong i=0; i < self->slot_delta_vec_len; i++ )
+      size += fd_status_pair_size( self->slot_delta_vec + i );
+  } while(0);
+  return size;
+}
+
+int fd_slot_delta_encode( fd_slot_delta_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->slot, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_bool_encode( (uchar)(self->is_root), ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->slot_delta_vec_len, ctx );
+  if( FD_UNLIKELY(err) ) return err;
+  if( self->slot_delta_vec_len ) {
+    for( ulong i=0; i < self->slot_delta_vec_len; i++ ) {
+      err = fd_status_pair_encode( self->slot_delta_vec + i, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_bank_slot_deltas_decode( fd_bank_slot_deltas_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_bank_slot_deltas_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_bank_slot_deltas_new( self );
+  fd_bank_slot_deltas_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_bank_slot_deltas_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  ulong slot_deltas_len;
+  err = fd_bincode_uint64_decode( &slot_deltas_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( slot_deltas_len ) {
+    for( ulong i=0; i < slot_deltas_len; i++ ) {
+      err = fd_slot_delta_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_bank_slot_deltas_decode_unsafe( fd_bank_slot_deltas_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint64_decode_unsafe( &self->slot_deltas_len, ctx );
+  if( self->slot_deltas_len ) {
+    self->slot_deltas = (fd_slot_delta_t *)fd_valloc_malloc( ctx->valloc, FD_SLOT_DELTA_ALIGN, FD_SLOT_DELTA_FOOTPRINT*self->slot_deltas_len );
+    for( ulong i=0; i < self->slot_deltas_len; i++ ) {
+      fd_slot_delta_new( self->slot_deltas + i );
+      fd_slot_delta_decode_unsafe( self->slot_deltas + i, ctx );
+    }
+  } else
+    self->slot_deltas = NULL;
+}
+int fd_bank_slot_deltas_decode_offsets( fd_bank_slot_deltas_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->slot_deltas_off = (uint)( (ulong)ctx->data - (ulong)data );
+  ulong slot_deltas_len;
+  err = fd_bincode_uint64_decode( &slot_deltas_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( slot_deltas_len ) {
+    for( ulong i=0; i < slot_deltas_len; i++ ) {
+      err = fd_slot_delta_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_bank_slot_deltas_new(fd_bank_slot_deltas_t * self) {
+  fd_memset( self, 0, sizeof(fd_bank_slot_deltas_t) );
+}
+void fd_bank_slot_deltas_destroy( fd_bank_slot_deltas_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  if( self->slot_deltas ) {
+    for( ulong i=0; i < self->slot_deltas_len; i++ )
+      fd_slot_delta_destroy( self->slot_deltas + i, ctx );
+    fd_valloc_free( ctx->valloc, self->slot_deltas );
+    self->slot_deltas = NULL;
+  }
+}
+
+ulong fd_bank_slot_deltas_footprint( void ){ return FD_BANK_SLOT_DELTAS_FOOTPRINT; }
+ulong fd_bank_slot_deltas_align( void ){ return FD_BANK_SLOT_DELTAS_ALIGN; }
+
+void fd_bank_slot_deltas_walk( void * w, fd_bank_slot_deltas_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bank_slot_deltas", level++ );
+  if( self->slot_deltas_len ) {
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "slot_deltas", level++ );
+    for( ulong i=0; i < self->slot_deltas_len; i++ )
+      fd_slot_delta_walk(w, self->slot_deltas + i, fun, "slot_delta", level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "slot_deltas", level-- );
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bank_slot_deltas", level-- );
+}
+ulong fd_bank_slot_deltas_size( fd_bank_slot_deltas_t const * self ) {
+  ulong size = 0;
+  do {
+    size += sizeof(ulong);
+    for( ulong i=0; i < self->slot_deltas_len; i++ )
+      size += fd_slot_delta_size( self->slot_deltas + i );
+  } while(0);
+  return size;
+}
+
+int fd_bank_slot_deltas_encode( fd_bank_slot_deltas_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->slot_deltas_len, ctx );
+  if( FD_UNLIKELY(err) ) return err;
+  if( self->slot_deltas_len ) {
+    for( ulong i=0; i < self->slot_deltas_len; i++ ) {
+      err = fd_slot_delta_encode( self->slot_deltas + i, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
 #define REDBLK_T fd_hash_hash_age_pair_t_mapnode_t
 #define REDBLK_NAME fd_hash_hash_age_pair_t_map
 #define REDBLK_IMPL_STYLE 2
