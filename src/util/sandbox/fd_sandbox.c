@@ -432,7 +432,7 @@ fd_sandbox_private_landlock_restrict_self( void ) {
   long landlock_fd = syscall( SYS_landlock_create_ruleset, &attr, 16, 0 );
   if( -1L==landlock_fd ) FD_LOG_ERR(( "landlock_create_ruleset() failed (%i-%s).", errno, fd_io_strerror( errno ) ));
 
-  if( !syscall( SYS_landlock_restrict_self, landlock_fd, 0 ) ) FD_LOG_ERR(( "landlock_restrict_self() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( syscall( SYS_landlock_restrict_self, landlock_fd, 0 ) ) FD_LOG_ERR(( "landlock_restrict_self() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 void
@@ -484,6 +484,8 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
       | Clear groups           | Unshare namespaces          | Cannot call setgroups(2) in user namespace
       | Unshare namespaces     | Pivot root                  | Pivot root requires CAP_SYS_ADMIN
       | Pivot root             | Drop caps                   | Requires CAP_SYS_ADMIN
+      | Pivot root             | Landlock                    | Accesses the filesystem
+      | Landlock               | Set resource limits         | Creates a file descriptor
       | Set resource limits    | Drop caps                   | Requires CAP_SYS_RESOURCE */
   fd_sandbox_private_explicit_clear_environment_variables();
   fd_sandbox_private_check_exact_file_descriptors( allowed_file_descriptor_cnt, allowed_file_descriptor );
@@ -543,6 +545,10 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
   /* Now remount the filesystem root so no files are accessible any more. */
   fd_sandbox_private_pivot_root();
 
+  /* Add an empty landlock restriction to further prevent filesystem
+     access. */
+  fd_sandbox_private_landlock_restrict_self();
+
   /* And trim all the resource limits down to zero. */
   fd_sandbox_private_set_rlimits( rlimit_file_cnt );
 
@@ -550,10 +556,6 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
   fd_sandbox_private_drop_caps( cap_last_cap );
 
   if( -1==prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) ) FD_LOG_ERR(( "prctl(PR_SET_NO_NEW_PRIVS, 1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  /* Add an empty landlock restriction to further prevent filesystem
-     access. */
-  fd_sandbox_private_landlock_restrict_self();
 }
 
 void
