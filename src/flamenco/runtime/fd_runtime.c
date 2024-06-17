@@ -1160,6 +1160,8 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_txncache_insert_t * status_insert = fd_scratch_alloc( alignof(fd_txncache_insert_t), txn_cnt * sizeof(fd_txncache_insert_t) );
     uchar * results = fd_scratch_alloc( alignof(uchar), txn_cnt * sizeof(uchar) );
+
+    ulong num_cache_txns = 0;
     /* Finalize */
     for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
       /* Transaction was skipped due to preparation failure. */
@@ -1188,8 +1190,8 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
         }
       }
 
-      results[txn_idx] = exec_txn_err == 0 ? 1 : 0;
-      fd_txncache_insert_t * curr_insert = &status_insert[txn_idx];
+      results[num_cache_txns] = exec_txn_err == 0 ? 1 : 0;
+      fd_txncache_insert_t * curr_insert = &status_insert[num_cache_txns];
       curr_insert->blockhash = ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
       curr_insert->slot = slot_ctx->slot_bank.slot;
       fd_blake3_t b3[1];
@@ -1198,7 +1200,8 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
       fd_blake3_append( b3, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->message_off), txn_ctx->_txn_raw->txn_sz - txn_ctx->txn_descriptor->message_off );
       fd_blake3_fini( b3, hash );
       curr_insert->txnhash = hash;
-      curr_insert->result = &results[txn_idx];
+      curr_insert->result = &results[num_cache_txns];
+      num_cache_txns++;
 
       if( exec_txn_err != 0 ) {
         // fd_funk_txn_cancel( slot_ctx->acc_mgr->funk, txn_ctx->funk_txn, 0 );
@@ -1264,7 +1267,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
       }
     }
 
-    if( !fd_txncache_insert_batch( slot_ctx->status_cache, status_insert, txn_cnt ) ) {
+    if( !fd_txncache_insert_batch( slot_ctx->status_cache, status_insert, num_cache_txns ) ) {
       FD_LOG_ERR(("Status cache is full, this should not be possible"));
     }
 

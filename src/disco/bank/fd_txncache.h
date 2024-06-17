@@ -172,13 +172,13 @@
    bank consumes a lof of memory to store slot state, so the
    validator would crash long before this.
 
-   For now we just pick a number: 1024, and hope for the best.  This
-   would represent the network failing to root a new slot for almost
-   five minutes.
+   Based on mainnet snapshot load, we pick 2048. This still seems
+   unreasonable but lower values don't work with all snapshots.
 
-   TODO: Hmm... need to figure out what's reasonable here. */
+   TODO: Hmm... need to figure out what's reasonable here and why
+   the block cache fills up so quickly on snapshot restore. */
 
-#define FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS (1024UL)
+#define FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS (2048UL)
 
 /* The Solana consensus protocol has an implied restriction on the number
    transactions in a slot.  A slot might have at most 48,000,000 CUs,

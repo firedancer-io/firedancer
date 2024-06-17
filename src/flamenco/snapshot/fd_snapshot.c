@@ -76,7 +76,7 @@ load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
   void * restore_mem = fd_valloc_malloc( valloc, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   void * loader_mem  = fd_valloc_malloc( valloc, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( zstd_window_sz ) );
 
-  fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, funk_txn, valloc, slot_ctx, restore_manifest );
+  fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, funk_txn, valloc, slot_ctx, restore_manifest, restore_status_cache );
   fd_snapshot_loader_t *  loader  = fd_snapshot_loader_new ( loader_mem, zstd_window_sz );
 
   if( FD_UNLIKELY( !restore || !loader ) ) {

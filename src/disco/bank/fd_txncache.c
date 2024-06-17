@@ -195,7 +195,7 @@ fd_txncache_footprint( ulong max_rooted_slots,
   if( FD_UNLIKELY( max_rooted_slots<1UL || max_live_slots<1UL ) ) return 0UL;
   if( FD_UNLIKELY( max_live_slots<max_rooted_slots ) ) return 0UL;
   if( FD_UNLIKELY( max_txn_per_slot<1UL ) ) return 0UL;
-  if( FD_UNLIKELY( !fd_ulong_is_pow2( max_live_slots || !fd_ulong_is_pow2( max_txn_per_slot ) ) ) ) return 0UL;
+  if( FD_UNLIKELY( !fd_ulong_is_pow2( max_live_slots ) || !fd_ulong_is_pow2( max_txn_per_slot ) ) ) return 0UL;
 
   /* To save memory, txnpages are referenced as ushort which is enough
      to support mainnet parameters without overflow. */

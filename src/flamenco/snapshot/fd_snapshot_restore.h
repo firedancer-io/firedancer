@@ -100,7 +100,6 @@ fd_snapshot_restore_new( void *                               mem,
                          fd_valloc_t                          valloc,
                          void *                               cb_manifest_ctx,
                          fd_snapshot_restore_cb_manifest_fn_t cb_manifest,
-                         void *                               cb_status_cache_ctx,
                          fd_snapshot_restore_cb_status_cache_fn_t cb_status_cache );
 
 /* fd_snapshot_restore_delete destroys the given restore object and
