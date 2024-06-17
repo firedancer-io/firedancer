@@ -20,7 +20,7 @@ configure_cmd_args( int *    pargc,
   (*pargv)++;
 
   for( int i=0; i<*pargc; i++ ) {
-    if( FD_UNLIKELY( !strcmp( *pargv[ i ], "all" ) ) ) {
+    if( FD_UNLIKELY( !strcmp( (*pargv)[ i ], "all" ) ) ) {
       (*pargc) -= i + 1;
       (*pargv) += i + 1;
       for( int j=0; j<CONFIGURE_STAGE_COUNT; j++) args->configure.stages[ j ] = STAGES[ j ];
@@ -34,14 +34,14 @@ configure_cmd_args( int *    pargc,
   while( *pargc ) {
     int found = 0;
     for( configure_stage_t ** stage = STAGES; *stage; stage++ ) {
-      if( FD_UNLIKELY( !strcmp( *pargv[0], (*stage)->name ) ) ) {
+      if( FD_UNLIKELY( !strcmp( (*pargv)[0], (*stage)->name ) ) ) {
         args->configure.stages[ nstage++ ] = *stage;
         found = 1;
         break;
       }
     }
 
-    if( FD_UNLIKELY( !found ) ) FD_LOG_ERR(( "unknown configure stage: %s", *pargv[0] ));
+    if( FD_UNLIKELY( !found ) ) FD_LOG_ERR(( "unknown configure stage: %s", (*pargv)[0] ));
 
     (*pargc)--;
     (*pargv)++;
