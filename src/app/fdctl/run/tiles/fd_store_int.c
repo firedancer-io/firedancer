@@ -10,6 +10,7 @@
 #include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../flamenco/fd_flamenco.h"
 #include "../../../../util/fd_util.h"
+#include "../../../../choreo/fd_choreo.h"
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -468,15 +469,7 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->blockstore_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
   if( shmem == NULL ) FD_LOG_ERR( ( "failed to allocate a blockstore" ) );
 
-  // Sensible defaults for an anon blockstore:
-  // - 1mb of shreds
-  // - 64 slots of history (~= finalized = 31 slots on top of a confirmed block)
-  // - 1mb of txns
-  ulong tmp_shred_max    = 1UL << 24;
-  ulong slot_history_max = FD_BLOCKSTORE_SLOT_HISTORY_MAX;
-  int   lg_txn_max       = 24;
-  blockstore             = fd_blockstore_join(
-      fd_blockstore_new( shmem, 1, ctx->blockstore_seed, tmp_shred_max, slot_history_max, lg_txn_max ) );
+  blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, ctx->blockstore_seed, FD_BUF_SHRED_MAP_DEFAULT_MAX, FD_SLOT_MAX, FD_TXN_MAP_DEFAULT_LG_MAX ) );
   if( blockstore == NULL ) {
     fd_wksp_free_laddr( shmem );
     FD_LOG_ERR( ( "failed to allocate a blockstore" ) );

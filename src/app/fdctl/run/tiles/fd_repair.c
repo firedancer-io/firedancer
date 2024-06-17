@@ -434,7 +434,7 @@ repair_get_shred( ulong  slot,
     }
     shred_idx = (uint)meta->last_index;
   }
-  long sz = fd_blockstore_shred_query_copy_data( blockstore, slot, shred_idx, buf, buf_max );
+  long sz = fd_buf_shred_query_copy_data( blockstore, slot, shred_idx, buf, buf_max );
 
   fd_blockstore_end_read( blockstore );
   return sz;

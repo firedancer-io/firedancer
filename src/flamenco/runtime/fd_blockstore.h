@@ -18,25 +18,26 @@
    FOOTPRINT is multiple of ALIGN.  These are provided to facilitate
    compile time declarations.  */
 
-#define FD_BLOCKSTORE_ALIGN     ( 128UL )
-#define FD_BLOCKSTORE_FOOTPRINT ( 256UL )
+/* clang-format off */
+#define FD_BLOCKSTORE_ALIGN        (128UL)
+#define FD_BLOCKSTORE_FOOTPRINT    (256UL)
+#define FD_BLOCKSTORE_MAGIC        (0xf17eda2ce7b10c00UL) /* firedancer bloc version 0 */
 
-#define FD_BLOCKSTORE_MAGIC ( 0xf17eda2ce7b10c00UL ) /* firedancer bloc version 0 */
-
-#define FD_BLOCKSTORE_LG_SLOT_HISTORY_MAX ( 13 )
-#define FD_BLOCKSTORE_SLOT_HISTORY_MAX ( 1UL << FD_BLOCKSTORE_LG_SLOT_HISTORY_MAX )
-#define FD_BLOCKSTORE_BLOCK_SZ_MAX     ( FD_SHRED_MAX_SZ * ( 1 << 15UL ) )
+/* relevant blockstore-related defaults */
+#define FD_BLOCK_SZ_MAX              (FD_SHRED_MAX_SZ * (1 << 15UL)) /* at most 32k shreds */
+#define FD_BUF_SHRED_MAP_DEFAULT_MAX (1UL << 24) /* 16 million incomplete slot shreds can be buffered */
+#define FD_TXN_MAP_DEFAULT_LG_MAX    (24)        /* 16 million txns can be stored in the txn map */
 
 /* TODO think more about these */
-#define FD_BLOCKSTORE_NEXT_SLOT_MAX ( 32UL ) /* the maximum # of children a slot can have */
-#define FD_BLOCKSTORE_EQV_MAX       ( 32UL ) /* the maximum # of equivocating blocks in a slot */
+#define FD_BLOCKSTORE_NEXT_SLOT_MAX (32UL) /* the maximum # of children a slot can have */
+#define FD_BLOCKSTORE_EQV_MAX       (32UL) /* the maximum # of equivocating blocks in a slot */
 
 // TODO centralize these
 // https://github.com/firedancer-io/solana/blob/v1.17.5/sdk/program/src/clock.rs#L34
 #define FD_MS_PER_TICK 6
 
 // https://github.com/firedancer-io/solana/blob/v1.17.5/core/src/repair/repair_service.rs#L55
-#define FD_REPAIR_TIMEOUT ( 200 / FD_MS_PER_TICK )
+#define FD_REPAIR_TIMEOUT (200 / FD_MS_PER_TICK)
 
 #define FD_BLOCKSTORE_OK                  0
 #define FD_BLOCKSTORE_OK_SLOT_COMPLETE    1
@@ -50,6 +51,8 @@
 #define FD_BLOCKSTORE_ERR_DESHRED_INVALID -8 /* deshredded block was invalid */
 #define FD_BLOCKSTORE_ERR_NO_MEM          -9 /* no mem */
 #define FD_BLOCKSTORE_ERR_UNKNOWN         -10
+
+/* clang-format on */
 
 struct fd_shred_key {
   ulong slot;
@@ -65,13 +68,14 @@ static const fd_shred_key_t     fd_shred_key_null = { 0 };
 #define FD_SHRED_KEY_HASH(key)  ((uint)(((key).slot)<<15UL) | (((key).idx))) /* current max shred idx is 32KB = 2 << 15*/
 /* clang-format on */
 
-/* fd_blockstore_shred is a thin wrapper around fd_shred_t that supports pooling and mapping data
-   shreds that have yet to be assembled into a block. Turbine and Repair can both send shreds
-   out-of-order, so these shreds need to be stored and indexed in temporary buffers in the
-   blockstore.
+/* fd_buf_shred is a thin wrapper around fd_shred_t that facilitates
+   buffering data shreds before all the shreds for a slot have been
+   received. After all shreds are received, these buffered shreds are
+   released back into memory pool and future queries for the shreds are
+   offset into the block data directly.
 
-   The blockstore only processes data shreds. Parity shreds are handled by a separate layer, the FEC
-   set resolver.
+   The blockstore is only aware of data shreds and all APIs involving
+   shreds refers to data shreds.
 
    Shreds are buffered into a map as they are received:
 
@@ -86,7 +90,7 @@ static const fd_shred_key_t     fd_shred_key_null = { 0 };
 
    | shred hdr | shred payload |
 */
-struct fd_blockstore_shred {
+struct fd_buf_shred {
   fd_shred_key_t key;
   ulong          next;
   union {
@@ -94,15 +98,15 @@ struct fd_blockstore_shred {
     uchar      raw[FD_SHRED_MAX_SZ]; /* the data shred as raw bytes, both header and payload. */
   };
 };
-typedef struct fd_blockstore_shred fd_blockstore_shred_t;
+typedef struct fd_buf_shred fd_buf_shred_t;
 
-#define POOL_NAME fd_blockstore_shred_pool
-#define POOL_T    fd_blockstore_shred_t
+#define POOL_NAME fd_buf_shred_pool
+#define POOL_T    fd_buf_shred_t
 #include "../../util/tmpl/fd_pool.c"
 
 /* clang-format off */
-#define MAP_NAME               fd_blockstore_shred_map
-#define MAP_ELE_T              fd_blockstore_shred_t
+#define MAP_NAME               fd_buf_shred_map
+#define MAP_ELE_T              fd_buf_shred_t
 #define MAP_KEY_T              fd_shred_key_t
 #define MAP_KEY_EQ(k0,k1)      FD_SHRED_KEY_EQ(*k0,*k1)
 #define MAP_KEY_HASH(key,seed) (FD_SHRED_KEY_HASH(*key) ^ seed)
@@ -168,7 +172,7 @@ struct fd_block {
 
   ulong data_gaddr;   /* ptr to the beginning of the block's allocated data region */
   ulong data_sz;      /* block size */
-  ulong shreds_gaddr; /* ptr to the list of fd_blockstore_shred_t */
+  ulong shreds_gaddr; /* ptr to the list of fd_buf_shred_t */
   ulong shreds_cnt;
   ulong micros_gaddr; /* ptr to the list of fd_blockstore_micro_t */
   ulong micros_cnt;
@@ -355,23 +359,23 @@ fd_blockstore_seed( fd_blockstore_t * blockstore ) {
   return blockstore->seed;
 }
 
-/* fd_blockstore_shred_pool returns a pointer in the caller's address space to the blockstore's
+/* fd_buf_shred_pool returns a pointer in the caller's address space to the blockstore's
    tmp shred pool. Assumes blockstore is local join. Lifetime of the returned pointer is that of the
    local join. */
 
-FD_FN_PURE static inline fd_blockstore_shred_t *
-fd_blockstore_shred_pool( fd_blockstore_t * blockstore ) {
-  return (fd_blockstore_shred_t *)fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ),
+FD_FN_PURE static inline fd_buf_shred_t *
+fd_buf_shred_pool( fd_blockstore_t * blockstore ) {
+  return (fd_buf_shred_t *)fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ),
                                                       blockstore->shred_pool_gaddr );
 }
 
-/* fd_blockstore_shred_map returns a pointer in the caller's address space to the blockstore's
+/* fd_buf_shred_map returns a pointer in the caller's address space to the blockstore's
    tmp shred map. Assumes blockstore is local join. Lifetime of the returned pointer is that of the
    local join. */
 
-FD_FN_PURE static inline fd_blockstore_shred_map_t *
-fd_blockstore_shred_map( fd_blockstore_t * blockstore ) {
-  return (fd_blockstore_shred_map_t *)fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ),
+FD_FN_PURE static inline fd_buf_shred_map_t *
+fd_buf_shred_map( fd_blockstore_t * blockstore ) {
+  return (fd_buf_shred_map_t *)fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ),
                                                           blockstore->shred_map_gaddr );
 }
 
@@ -419,7 +423,7 @@ fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_block_t * block
  * TODO eventually this will need to support "upsert" duplicate shred handling.
  */
 int
-fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred );
+fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred );
 
 /* Query blockstore for shred at slot, shred_idx. Returns a pointer to the shred or NULL if not in
  * blockstore. The returned pointer lifetime is until the shred is removed. Check return value for
@@ -429,7 +433,7 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
  * valid.
  */
 fd_shred_t *
-fd_blockstore_shred_query( fd_blockstore_t * blockstore, ulong slot, uint shred_idx );
+fd_buf_shred_query( fd_blockstore_t * blockstore, ulong slot, uint shred_idx );
 
 /* Query blockstore for shred at slot, shred_idx. Copies the shred
  * data to the given buffer and returns the data size. Returns -1 on failure.
@@ -437,7 +441,7 @@ fd_blockstore_shred_query( fd_blockstore_t * blockstore, ulong slot, uint shred_
  * Callers should hold the read lock during the entirety of this call.
  */
 long
-fd_blockstore_shred_query_copy_data( fd_blockstore_t * blockstore, ulong slot, uint shred_idx, void * buf, ulong buf_max );
+fd_buf_shred_query_copy_data( fd_blockstore_t * blockstore, ulong slot, uint shred_idx, void * buf, ulong buf_max );
 
 /* Query blockstore for block at slot. Returns a pointer to the block or NULL if not in
  * blockstore. The returned pointer lifetime is until the block is removed. Check return value for

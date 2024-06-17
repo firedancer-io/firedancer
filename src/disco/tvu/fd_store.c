@@ -200,7 +200,7 @@ fd_store_shred_insert( fd_store_t * store,
     fd_blockstore_end_write( blockstore );
     return FD_BLOCKSTORE_OK;
   }
-  int rc = fd_blockstore_shred_insert( blockstore, shred );
+  int rc = fd_buf_shred_insert( blockstore, shred );
   fd_blockstore_end_write( blockstore );
 
   /* FIXME */
@@ -296,7 +296,7 @@ fd_store_slot_repair( fd_store_t * store,
     
     /* Fill in what's missing */
     for( ulong i = slot_meta->consumed + 1; i <= last_index; i++ ) {
-      if( fd_blockstore_shred_query( store->blockstore, slot, (uint)i ) != NULL ) continue;
+      if( fd_buf_shred_query( store->blockstore, slot, (uint)i ) != NULL ) continue;
       if( repair_req_cnt >= out_repair_reqs_sz ) { 
         FD_LOG_ERR(( "too many repair requests" ));
       }
