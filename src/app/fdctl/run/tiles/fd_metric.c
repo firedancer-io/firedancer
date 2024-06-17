@@ -61,6 +61,7 @@ close_conn( fd_metric_ctx_t * ctx,
             ulong             idx ) {
   if( FD_UNLIKELY( -1==close( ctx->fds[ idx ].fd ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, strerror( errno ) ));
   ctx->fds[ idx ].fd = -1;
+  ctx->conns[ idx ].bytes_read = 0UL;
 }
 
 static void
@@ -296,7 +297,10 @@ static void
 read_conn( fd_metric_ctx_t * ctx,
            ulong             idx ) {
   fd_metric_connection_t * conn = &ctx->conns[ idx ];
-  if( FD_UNLIKELY( conn->bytes_read==ULONG_MAX ) ) return; /* Connection now in write mode, no need to read more. */
+  if( FD_UNLIKELY( conn->bytes_read==ULONG_MAX ) ) {
+    close_conn( ctx, idx ); /* Client is sending data after HTTP header parsed, terminate */
+    return;
+  }
 
   long sz = read( ctx->fds[ idx ].fd, conn->input + conn->bytes_read, sizeof( conn->input ) - conn->bytes_read );
   if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return; /* No data to read, continue. */
@@ -490,7 +494,7 @@ fd_topo_run_tile_t fd_tile_metric = {
   .name                     = "metric",
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
-  .rlimit_file_cnt          = MAX_CONNS+1,
+  .rlimit_file_cnt          = MAX_CONNS+5UL, /* pipefd, socket, stderr, logfile, and one spare for new accept() connections */
   .mux_ctx                  = mux_ctx,
   .mux_before_credit        = before_credit,
   .populate_allowed_seccomp = populate_allowed_seccomp,
