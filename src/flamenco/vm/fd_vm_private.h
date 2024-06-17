@@ -309,6 +309,18 @@ static inline void fd_vm_mem_st_8( ulong haddr, ulong  val ) { memcpy( (void *)h
 #define FD_VM_MEM_HADDR_LD_FAST( vm, vaddr ) ((void const *)fd_vm_mem_haddr_fast( (vaddr), (vm)->region_haddr ))
 #define FD_VM_MEM_HADDR_ST_FAST( vm, vaddr ) ((void       *)fd_vm_mem_haddr_fast( (vaddr), (vm)->region_haddr ))
 
+/* FD_VM_MEM_SLICE_HADDR_[LD, ST] macros return an arbitrary value if sz == 0. This is because
+   Agave's translate_slice function returns an empty array if the sz == 0.
+   
+   Users of this macro should be aware that they should never access the returned value if sz==0.
+   
+   https://github.com/solana-labs/solana/blob/767d24e5c10123c079e656cdcf9aeb8a5dae17db/programs/bpf_loader/src/syscalls/mod.rs#L560  */
+#define FD_VM_MEM_SLICE_HADDR_LD( vm, vaddr, align, sz )                                                   \
+    (void*)fd_ulong_if( sz > 0UL, (ulong)FD_VM_MEM_HADDR_LD( vm, vaddr, align, sz ), 0UL )
+
+#define FD_VM_MEM_SLICE_HADDR_ST( vm, vaddr, align, sz )                                                   \
+    (void*)fd_ulong_if( sz > 0UL, (ulong)FD_VM_MEM_HADDR_ST( vm, vaddr, align, sz ), 0UL )
+
 /* fd_vm_log API ******************************************************/
 
 /* fd_vm_log returns the location where VM log messages are appended
