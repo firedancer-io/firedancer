@@ -351,6 +351,8 @@ after_frag( void *             _ctx,
     fd_fork_t * fork = fd_fork_frontier_ele_query(
           ctx->replay->forks->frontier, &ctx->curr_slot, NULL, ctx->replay->forks->pool );
     if( fork == NULL ) {
+      long prepare_time_ns = -fd_log_wallclock();
+
       fork = fd_replay_prepare_ctx( ctx->replay, ctx->parent_slot );
       fork->executing = 1;
       // Remove slot ctx from frontier
@@ -409,14 +411,21 @@ after_frag( void *             _ctx,
       if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
         FD_LOG_ERR(( "block prep execute failed" ));
       }
+
+      prepare_time_ns += fd_log_wallclock();
+      FD_LOG_DEBUG(("TIMING: prepare_time - slot: %lu, elapsed: %6.6f ms", ctx->curr_slot, (double)prepare_time_ns * 1e-6));
     }
 
     if( ctx->capture_ctx )
       fd_solcap_writer_set_slot( ctx->capture_ctx->capture, fork->slot_ctx.slot_bank.slot );
-    // Exeecute all txns which were succesfully prepared
+    // Execute all txns which were succesfully prepared
+    long execute_time_ns = -fd_log_wallclock();
     int res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx, ctx->capture_ctx,
                                                       txns, txn_cnt,
                                                       ctx->tpool, ctx->max_workers );
+    execute_time_ns += fd_log_wallclock();
+    FD_LOG_DEBUG(("TIMING: execute_time - slot: %lu, elapsed: %6.6f ms", ctx->curr_slot, (double)execute_time_ns * 1e-6));
+
     if( res != 0 && !( ctx->flags & REPLAY_FLAG_PACKED_MICROBLOCK ) ) {
       FD_LOG_WARNING(( "block invalid - slot: %lu", ctx->curr_slot ));
       *opt_filter = 1;
@@ -429,7 +438,11 @@ after_frag( void *             _ctx,
       fd_memcpy( fork->slot_ctx.slot_bank.poh.uc, ctx->blockhash.uc, sizeof(fd_hash_t) );
       fd_block_info_t block_info[1];
       block_info->signature_cnt = fork->slot_ctx.signature_cnt;
+      long finalize_time_ns = -fd_log_wallclock();
       int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, NULL, 1UL );
+      finalize_time_ns += fd_log_wallclock();
+      FD_LOG_WARNING(("TIMING: finalize_time - slot: %lu, elapsed: %6.6f ms", ctx->curr_slot, (double)finalize_time_ns * 1e-6));
+
       if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
         FD_LOG_WARNING(("block finalize failed"));
         *opt_filter = 1;
@@ -437,6 +450,7 @@ after_frag( void *             _ctx,
       }
 
       // Notify for all the updated accounts
+      long notify_time_ns = -fd_log_wallclock();
 #define NOTIFY_START msg = fd_chunk_to_laddr( ctx->notif_out_mem, ctx->notif_out_chunk )
 #define NOTIFY_END                                                      \
       fd_mcache_publish( ctx->notif_out_mcache, ctx->notif_out_depth, ctx->notif_out_seq, \
@@ -479,6 +493,8 @@ after_frag( void *             _ctx,
 
 #undef NOTIFY_START
 #undef NOTIFY_END
+      notify_time_ns += fd_log_wallclock();
+      FD_LOG_DEBUG(("TIMING: notify_time - slot: %lu, elapsed: %6.6f ms", ctx->curr_slot, (double)notify_time_ns * 1e-6));
 
       fd_blockstore_start_write( ctx->replay->blockstore );
 
