@@ -62,7 +62,6 @@ fd_snapshot_restore_new( void *                               mem,
                          fd_valloc_t                          valloc,
                          void *                               cb_manifest_ctx,
                          fd_snapshot_restore_cb_manifest_fn_t cb_manifest,
-                         void *                               cb_status_cache_ctx,
                          fd_snapshot_restore_cb_status_cache_fn_t cb_status_cache ) {
 
   if( FD_UNLIKELY( !mem ) ) {
@@ -102,7 +101,7 @@ fd_snapshot_restore_new( void *                               mem,
   self->cb_manifest_ctx = cb_manifest_ctx;
 
   self->cb_status_cache     = cb_status_cache;
-  self->cb_status_cache_ctx = cb_status_cache_ctx;
+  self->cb_status_cache_ctx = cb_manifest_ctx;
 
   void * accv_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_accv_map_align(), fd_snapshot_accv_map_footprint() );
   self->accv_map = fd_snapshot_accv_map_join( fd_snapshot_accv_map_new( accv_map_mem ) );
