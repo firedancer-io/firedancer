@@ -15,7 +15,7 @@
 #include "../../../util/bits/fd_float.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../../ballet/elf/fd_elf.h"
-#include "../../vm/fd_vm_syscalls.h"
+#include "../../vm/fd_vm.h"
 #include <assert.h>
 #include "../sysvar/fd_sysvar_cache.h"
 
