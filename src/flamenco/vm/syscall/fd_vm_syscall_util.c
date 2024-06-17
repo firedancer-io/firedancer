@@ -184,23 +184,19 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
   /* Make sure we have enough compute budget and every address range is
      valid before we do any work to avoid DOS risk from a malicious
      syscall that has a big slice count, a bunch of valid slices to
-     trigger a lot of work but then faults on the last slice.
-
-     FIXME: in the current implementation under slice_cnt==0, this will
-     charge BASE_COST, try to map an empty address range (which is
-     always successful) and then return success as the remaining loops
-     will do no iterations.  CHECK THAT THIS BEHAVIOR MATCHES SOLANA! */
+     trigger a lot of work but then faults on the last slice. */
 
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
   if( FD_UNLIKELY( slice_cnt>(ULONG_MAX/sizeof(fd_vm_vec_t)) ) ) return FD_VM_ERR_SIGSEGV; /* FIXME: SIGOVERFLOW maybe? */
   ulong slice_sz = slice_cnt*sizeof(fd_vm_vec_t);
 
-  fd_vm_vec_t const * slice = (fd_vm_vec_t const *)FD_VM_MEM_HADDR_LD( vm, slice_vaddr, FD_VM_VEC_ALIGN, slice_sz );
+  fd_vm_vec_t const * slice = (fd_vm_vec_t const *)FD_VM_MEM_SLICE_HADDR_LD( vm, slice_vaddr, FD_VM_VEC_ALIGN, slice_sz );
 
+  /* https://github.com/firedancer-io/solana/blob/06ec63044892e5ee14b6fa15d8c55da9953d0c09/programs/bpf_loader/src/syscalls/logging.rs#L135 */
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_mul( FD_VM_SYSCALL_BASE_COST, slice_cnt ) );
   for( ulong slice_idx=0UL; slice_idx<slice_cnt; slice_idx++ ) {
     FD_VM_CU_UPDATE( vm, slice[slice_idx].len );
-    FD_VM_MEM_HADDR_LD( vm, slice[slice_idx].addr, 1UL, slice[slice_idx].len );
   }
 
   /* Call is guaranteed to succeed at this point */
@@ -208,8 +204,6 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
   fd_vm_log_append( vm, "Program data: ", 14UL );
 
   for( ulong slice_idx=0UL; slice_idx<slice_cnt; slice_idx++ ) {
-    FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
-
     if( FD_UNLIKELY( !fd_vm_log_rem( vm ) ) ) break; /* If the log is at limit, don't waste time on fully discarded messages */
 
     /* Note that buf_sz requires:
@@ -251,8 +245,12 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
 
     char * msg     = (char *)fd_vm_log_prepare( vm );
     ulong  msg_max = fd_vm_log_prepare_max( vm );
-    ulong  msg_len = fd_base64_encode( msg, FD_VM_MEM_HADDR_LD_FAST( vm, slice[ slice_idx ].addr ),
+    ulong msg_len  = 0UL;
+    if ( FD_LIKELY( slice[ slice_idx ].len > 0UL ) ) {
+      msg_len = fd_base64_encode( msg,
+                                       FD_VM_MEM_HADDR_LD_FAST( vm, slice[ slice_idx ].addr ),
                                        fd_ulong_min( slice[ slice_idx ].len, (3UL*msg_max-11UL)/4UL ) );
+    }
     msg[ msg_len ] = ' ';
     msg_len += (ulong)( slice_idx < (slice_cnt-1UL) ); /* Note that slice cnt is at least 1 here */
     fd_vm_log_publish( vm, msg_len );
