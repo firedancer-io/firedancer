@@ -33,8 +33,7 @@ fd_vm_derive_pda( fd_vm_t *           vm,
     return FD_VM_ERR_INVAL;
   }
 
-  /* When seeds_cnt==0 Solana Labs does not verify the pointer. Neither do we. */
-  fd_vm_vec_t const * seeds_haddr = FD_VM_MEM_HADDR_LD( vm, seeds_vaddr, FD_VM_VEC_ALIGN, seeds_cnt*FD_VM_VEC_SIZE );
+  fd_vm_vec_t const * seeds_haddr = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_vaddr, FD_VM_VEC_ALIGN, seeds_cnt*FD_VM_VEC_SIZE );
 
   fd_sha256_init( vm->sha );
   for ( ulong i=0UL; i<seeds_cnt; i++ ) {
@@ -46,7 +45,7 @@ fd_vm_derive_pda( fd_vm_t *           vm,
        returns an empty array in host space when given an empty array, which means this seed will have no affect on the PDA. */
     if ( FD_UNLIKELY( seed_sz==0 ) ) continue;
 
-    void const * seed_haddr = FD_VM_MEM_HADDR_LD( vm, seeds_haddr[i].addr, alignof(uchar), seed_sz );
+    void const * seed_haddr = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_haddr[i].addr, alignof(uchar), seed_sz );
     fd_sha256_append( vm->sha, seed_haddr, seed_sz );
   }
 
@@ -100,8 +99,6 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
                                           FD_PARAM_UNUSED ulong   arg4,
                                           /**/            ulong * _ret )  {
   fd_vm_t * vm = (fd_vm_t *)_vm;
-
-  if ( seeds_cnt == 0 ) return FD_VM_ERR_INVAL;
 
   ulong r0 = 0UL;
 
@@ -182,7 +179,6 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
       return err;
     }
 
-    /* TODO: can we move this to the top of the loop? */
     FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
 
   }
