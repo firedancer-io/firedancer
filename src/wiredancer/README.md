@@ -128,7 +128,7 @@ Every transaction goes through multiple steps (detailed further in this document
 Figure below shows the overall pipeline design of WD.SigVerify.  It is composed of a chain link of pipelines, with each pipeline having its own unique throughput and latency characteristics highlighted in the figure.
 ![WD-SigVerify Architecture](WD-SV.jpg)
 
-We solve the the queueing problem of concatenating pipelines of different latency and throughput by utilizing a credit-based chain link system.  All links follow the diagram below:
+We solve the queueing problem of concatenating pipelines of different latency and throughput by utilizing a credit-based chain link system.  All links follow the diagram below:
 
 <img src="WD-CHAIN.jpg" alt= “” width="50%">
 

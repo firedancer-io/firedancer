@@ -35,7 +35,7 @@ def main(lcov_files):
         print(f"the canary in {canary_canary_path} hasn't been found as uncovered - the tool is faulty", file=sys.stderr)
         os.exit(1)
 
-    # remove the canary canary from the the findings
+    # remove the canary canary from the findings
     del live_canaries[canary_canary_path]
 
     live_canaries = list(filter(lambda item: len(item[1]) != 0, live_canaries.items()))
