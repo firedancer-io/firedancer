@@ -228,7 +228,7 @@ fd_funk_delete( void * shfunk ) {
   fd_wksp_free_laddr( fd_alloc_delete       ( fd_alloc_leave       ( fd_funk_alloc  ( funk, wksp ) ) ) );
   fd_wksp_free_laddr( fd_funk_rec_map_delete( fd_funk_rec_map_leave( fd_funk_rec_map( funk, wksp ) ) ) );
   fd_wksp_free_laddr( fd_funk_txn_map_delete( fd_funk_txn_map_leave( fd_funk_txn_map( funk, wksp ) ) ) );
-  
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( funk->magic ) = 0UL;
   FD_COMPILER_MFENCE();
@@ -370,7 +370,7 @@ void
 fd_funk_log_mem_usage( fd_funk_t * funk ) {
   char tmp1[100];
   char tmp2[100];
-      
+
   FD_LOG_NOTICE(( "funk base footprint: %s",
                   fd_smart_size( fd_funk_footprint(), tmp1, sizeof(tmp1) ) ));
   fd_wksp_t * wksp = fd_funk_wksp( funk );
@@ -437,4 +437,9 @@ void
 fd_funk_check_write( fd_funk_t * funk ) {
   ulong val = funk->write_lock;
   if( FD_UNLIKELY(!(val&1UL)) ) FD_LOG_CRIT(( "missing call to fd_funk_start_write" ));
+}
+
+void
+fd_funk_speed_load_mode( fd_funk_t * funk, int flag ) {
+  funk->speed_load = flag;
 }

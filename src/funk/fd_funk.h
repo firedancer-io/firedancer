@@ -257,6 +257,11 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
 
   ulong alloc_gaddr; /* Non-zero wksp gaddr with tag wksp tag */
 
+  int speed_load; /* Is "speed load mode" active */
+  /* Address and size of remaining bump allocation space */
+  ulong speed_bump_gaddr;
+  ulong speed_bump_remain;
+
   /* Padding to FD_FUNK_ALIGN here */
 };
 
@@ -483,6 +488,14 @@ fd_funk_last_publish_descendant( fd_funk_t *     funk,
 }
 
 /* Misc */
+
+/* Enable/disable "speed load mode". When in this mode, record values
+   are bump allocated and never freed. This speeds up the case where
+   we are initializing the database with a vast number of
+   mostly read-only records. */
+
+void
+fd_funk_speed_load_mode( fd_funk_t * funk, int flag );
 
 /* fd_funk_verify verifies the integrity of funk.  Returns
    FD_FUNK_SUCCESS if funk appears to be intact and FD_FUNK_ERR_INVAL
