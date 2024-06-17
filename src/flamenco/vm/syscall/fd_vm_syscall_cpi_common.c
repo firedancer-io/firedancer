@@ -413,14 +413,13 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     FD_VM_MEM_HADDR_LD( vm, instruction_va, VM_SYSCALL_CPI_INSTR_ALIGN, VM_SYSCALL_CPI_INSTR_SIZE );
 
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
-    // FIXME: should this be FD_VM_CU_MEM_UPDATE? Changing this changes the CU behaviour from main
     FD_VM_CU_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT );
   }
 
   /* Derive PDA signers ************************************************/
   fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ] = {0};
   fd_pubkey_t * caller_program_id = &vm->instr_ctx->txn_ctx->accounts[ vm->instr_ctx->instr->program_id ];
-  fd_vm_vec_t const * signers_seeds = FD_VM_MEM_HADDR_LD( vm, signers_seeds_va, FD_VM_VEC_ALIGN, signers_seeds_cnt*FD_VM_VEC_SIZE );
+  fd_vm_vec_t const * signers_seeds = FD_VM_MEM_SLICE_HADDR_LD( vm, signers_seeds_va, FD_VM_VEC_ALIGN, signers_seeds_cnt*FD_VM_VEC_SIZE );
   for ( ulong i=0UL; i<signers_seeds_cnt; i++ ) {
     int err = fd_vm_derive_pda( vm, caller_program_id, signers_seeds[i].addr, signers_seeds[i].len, NULL, &signers[i] );
     if ( FD_UNLIKELY( err ) ) {
@@ -430,13 +429,13 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Translate CPI account metas *************************************************/
   VM_SYSCALL_CPI_ACC_META_T const * cpi_account_metas =
-    FD_VM_MEM_HADDR_LD( vm, VM_SYSCALL_CPI_INSTR_ACCS_ADDR( cpi_instruction ),
-                        VM_SYSCALL_CPI_ACC_META_ALIGN,
-                        VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction )*VM_SYSCALL_CPI_ACC_META_SIZE );
+    FD_VM_MEM_SLICE_HADDR_LD( vm, VM_SYSCALL_CPI_INSTR_ACCS_ADDR( cpi_instruction ),
+                              VM_SYSCALL_CPI_ACC_META_ALIGN,
+                              VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction )*VM_SYSCALL_CPI_ACC_META_SIZE );
 
   /* Translate instruction data *************************************************/
 
-  uchar const * data = FD_VM_MEM_HADDR_LD( 
+  uchar const * data = FD_VM_MEM_SLICE_HADDR_LD( 
     vm, VM_SYSCALL_CPI_INSTR_DATA_ADDR( cpi_instruction ),
     alignof(uchar),
     VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ));
@@ -454,10 +453,10 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Translate account infos ******************************************/
   VM_SYSCALL_CPI_ACC_INFO_T * acc_infos =
-    FD_VM_MEM_HADDR_ST( vm, 
-                        acct_infos_va,
-                        VM_SYSCALL_CPI_ACC_INFO_ALIGN,
-                        acct_info_cnt*VM_SYSCALL_CPI_ACC_INFO_SIZE );
+    FD_VM_MEM_SLICE_HADDR_ST( vm, 
+                              acct_infos_va,
+                              VM_SYSCALL_CPI_ACC_INFO_ALIGN,
+                              acct_info_cnt*VM_SYSCALL_CPI_ACC_INFO_SIZE );
 
   /* Create the instruction to execute (in the input format the FD runtime expects) from
      the translated CPI ABI inputs. */
