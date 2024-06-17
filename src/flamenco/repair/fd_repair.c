@@ -500,7 +500,7 @@ fd_repair_send_requests( fd_repair_t * glob ) {
   }
   glob->current_nonce = n;
   if( k )
-    FD_LOG_DEBUG(("checked %lu nonces, sent %lu packets", k, j));
+    FD_LOG_DEBUG(("checked %lu nonces, sent %lu packets, total %lu", k, j, fd_needed_table_key_cnt( glob->needed )));
 }
 
 static void
@@ -665,6 +665,7 @@ fd_repair_is_full( fd_repair_t * glob ) {
 static int
 is_good_peer( fd_active_elem_t * val ) {
   if( FD_UNLIKELY( NULL == val ) ) return -1;                          /* Very bad */
+  if( val->avg_reqs > 5U && val->avg_reps == 0U )  return -1;          /* Bad, no response after 3 requests */
   if( val->avg_reqs < 20U ) return 0;                                  /* Not sure yet, good enough for now */
   if( (float)val->avg_reps < 0.01f*((float)val->avg_reqs) ) return -1; /* Very bad */
   if( (float)val->avg_reps < 0.8f*((float)val->avg_reqs) ) return 0;   /* 80%, Good but not great */
@@ -675,8 +676,7 @@ is_good_peer( fd_active_elem_t * val ) {
 static void
 fd_actives_shuffle( fd_repair_t * repair ) {
   if( repair->stake_weights_cnt == 0 ) {
-    FD_LOG_WARNING(( "repair does not have stake weights yet, cannot shuffle active set" ));
-    return;
+    FD_LOG_WARNING(( "repair does not have stake weights yet, shuffling active set" ));
   }
 
   FD_SCRATCH_SCOPE_BEGIN {
@@ -685,14 +685,33 @@ fd_actives_shuffle( fd_repair_t * repair ) {
         alignof( fd_active_elem_t * ),
         sizeof( fd_active_elem_t * ) * repair->stake_weights_cnt );
     ulong leftovers_cnt = 0;
-    for( ulong i = 0; i < repair->stake_weights_cnt; i++ ) {
-      fd_stake_weight_t const * stake_weight = &repair->stake_weights[i];
-      ulong stake = stake_weight->stake;
-      if( !stake ) continue;
-      fd_pubkey_t const * key = &stake_weight->key;
-      fd_active_elem_t * peer = fd_active_table_query( repair->actives, key, NULL );
-      if( NULL == peer || peer->sticky ) continue;
-      leftovers[leftovers_cnt++] = peer;
+
+    if( repair->stake_weights_cnt==0 ) {
+      leftovers = fd_scratch_alloc(
+        alignof( fd_active_elem_t * ),
+        sizeof( fd_active_elem_t * ) * fd_active_table_key_cnt( repair->actives ) );
+      
+      for( fd_active_table_iter_t iter = fd_active_table_iter_init( repair->actives );
+         !fd_active_table_iter_done( repair->actives, iter );
+         iter = fd_active_table_iter_next( repair->actives, iter ) ) {
+        fd_active_elem_t * peer = fd_active_table_iter_ele( repair->actives, iter );
+        if( peer->sticky ) continue;
+        leftovers[leftovers_cnt++] = peer;
+      }
+    } else {
+      leftovers = fd_scratch_alloc(
+        alignof( fd_active_elem_t * ),
+        sizeof( fd_active_elem_t * ) * repair->stake_weights_cnt );
+
+      for( ulong i = 0; i < repair->stake_weights_cnt; i++ ) {
+        fd_stake_weight_t const * stake_weight = &repair->stake_weights[i];
+        ulong stake = stake_weight->stake;
+        if( !stake ) continue;
+        fd_pubkey_t const * key = &stake_weight->key;
+        fd_active_elem_t * peer = fd_active_table_query( repair->actives, key, NULL );
+        if( NULL == peer || peer->sticky ) continue;
+        leftovers[leftovers_cnt++] = peer;
+      }
     }
 
     fd_active_elem_t * best[FD_REPAIR_STICKY_MAX];
