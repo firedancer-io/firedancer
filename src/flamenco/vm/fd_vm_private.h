@@ -97,43 +97,9 @@ FD_PROTOTYPES_BEGIN
     _vm->cu = _cu - _cost;                           \
   }))
 
-
-/* FIXME: IS THIS MORE A CPI THING? */
-#define FD_VM_CU_MEM_UPDATE( vm, sz ) (__extension__({                                        \
-    fd_vm_t * _vm   = (vm);                                                                   \
-    ulong     _sz   = (sz);                                                                   \
-    ulong     _cost = fd_ulong_max( FD_VM_MEM_OP_BASE_COST, _sz / FD_VM_CPI_BYTES_PER_UNIT ); \
-    ulong     _cu   = _vm->cu;                                                                \
-    if( FD_UNLIKELY( _cost>_cu ) ) {                                                          \
-      _vm->cu = 0UL;                                                                          \
-      return FD_VM_ERR_SIGCOST;                                                               \
-    }                                                                                         \
-    _vm->cu = _cu - _cost;                                                                    \
-  }))
-
-/* FIXME: THESE APIS ARE DEPRECATED */
-
-/* fd_vm_consume_compute consumes `cost` compute units from vm.  Returns
-   FD_VM_SUCCESS (0) on success (vm->cu will be strictly positive with
-   cost deducted from its value on entry) and FD_VM_ERR_SIGCOST
-   (negative) on failure.
-
-   fd_vm_consume_mem is identical except that it consumes 'sz' bytes
-   equivalent compute units from vm. */
-
-static inline int
-fd_vm_consume_compute( fd_vm_t * vm,
-                       ulong     cost ) {
-  ulong cu_before = vm->cu;
-  vm->cu = cu_before - fd_ulong_min( cost, cu_before );
-  return fd_int_if( cost<cu_before, FD_VM_SUCCESS, FD_VM_ERR_SIGCOST ); /* cmov */
-}
-
-static inline int
-fd_vm_consume_mem( fd_vm_t * vm,
-                   ulong     sz ) {
-  return fd_vm_consume_compute( vm, fd_ulong_max( FD_VM_MEM_OP_BASE_COST, sz / FD_VM_CPI_BYTES_PER_UNIT ) );
-}
+/* https://github.com/anza-xyz/agave/blob/5263c9d61f3af060ac995956120bef11c1bbf182/programs/bpf_loader/src/syscalls/mem_ops.rs#L7 */
+#define FD_VM_CU_MEM_OP_UPDATE( vm, sz ) \
+  FD_VM_CU_UPDATE( vm, fd_ulong_max( FD_VM_MEM_OP_BASE_COST, sz / FD_VM_CPI_BYTES_PER_UNIT ) )
 
 /* fd_vm_instr APIs ***************************************************/
 

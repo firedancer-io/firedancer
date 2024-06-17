@@ -39,18 +39,16 @@ fd_vm_syscall_sol_panic( /**/            void *  _vm,
                          FD_PARAM_UNUSED ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* FIXME: this originally checked compute units and then did a hex
-     dump to at FD_LOG_WARNING level (which is very very expensive).  To
-     avoid a DOS attack from the transactions calling panic with large
+  /* To avoid a DOS attack from the transactions calling panic with large
      messages, we just append the message to the log caller (like
-     suggested in a pre-belt sanding TODO).  As before, we defer to any
+     suggested in a pre-belt sanding TODO).  We defer to any
      runtime handler of the syscall log UTF-8 validation, checking for
      proper cstr termination, etc.  While we don't strictly need to
      check the compute units here, it is a fast O(1) and can thus avoid
      a large memcpy to further keep performance reasonable. */
 
-  FD_VM_CU_UPDATE( vm, msg_sz ); /* FIXME: FD_VM_CU_MEM_UPDATE? */
-  fd_vm_log_append( vm, FD_VM_MEM_HADDR_LD( vm, msg_vaddr, 1UL, msg_sz ), msg_sz );
+  FD_VM_CU_UPDATE( vm, msg_sz );
+  fd_vm_log_append( vm, FD_VM_MEM_SLICE_HADDR_LD( vm, msg_vaddr, 1UL, msg_sz ), msg_sz );
 
   return FD_VM_ERR_PANIC;
 }
@@ -69,8 +67,8 @@ fd_vm_syscall_sol_log( /**/            void *  _vm,
      fail the transaction for syscall cases that currently otherwise
      return success? */
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_max( msg_sz, FD_VM_SYSCALL_BASE_COST ) ); /* FIXME: FD_VM_CU_MEM_UPDATE? */
-  fd_vm_log_append( vm, FD_VM_MEM_HADDR_LD( vm, msg_vaddr, 1UL, msg_sz ), msg_sz );
+  FD_VM_CU_UPDATE( vm, fd_ulong_max( msg_sz, FD_VM_SYSCALL_BASE_COST ) );
+  fd_vm_log_append( vm, FD_VM_MEM_SLICE_HADDR_LD( vm, msg_vaddr, 1UL, msg_sz ), msg_sz );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -152,11 +150,6 @@ fd_vm_syscall_sol_log_compute_units( /**/            void *  _vm,
                                      FD_PARAM_UNUSED ulong   r5,
                                      /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
-
-  /* FIXME: THIS CHECK PROBABLY SHOULD BE MOVED OUT OF THE SYSCALL AND
-     INTO THE CPI STUFF THAT INVOKES IT?  THE VM INTERPRETER WILL NEVER
-     CALL WITH A NULL VM AT LEAST. */
-  if( FD_UNLIKELY( !vm ) ) return FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED;
 
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
@@ -380,7 +373,7 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
   /* FIXME: consider what err code to use on overlap case further */
   /* FIXME: use overlap logic from runtime? */
 
-  FD_VM_CU_MEM_UPDATE( vm, sz );
+  FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
   if( FD_UNLIKELY( ((src_vaddr> dst_vaddr) & ((src_vaddr-dst_vaddr)<sz)) |
                    ((dst_vaddr>=src_vaddr) & ((dst_vaddr-src_vaddr)<sz)) ) ) return FD_VM_ERR_MEM_OVERLAP;
@@ -393,7 +386,7 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
   void *       dst = FD_VM_MEM_HADDR_ST( vm, dst_vaddr, 1UL, sz );
   void const * src = FD_VM_MEM_HADDR_LD( vm, src_vaddr, 1UL, sz );
 
-  memcpy( dst, src, sz );
+  fd_memcpy( dst, src, sz );
 
   *_ret = 0;
   return FD_VM_SUCCESS;
@@ -409,17 +402,10 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
                           /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* FIXME: check cu model (this model seems to be using CPI related
-     parameters!) */
-  /* FIXME: confirm exact handling matches Solana for the NULL and/or
-     sz==0 cases (see other mem syscalls ... they don't all fault in the
-     same way though in principle that shouldn't break consensus).  The
-     below handling matches the original implementation. */
+  FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
-  FD_VM_CU_MEM_UPDATE( vm, sz );
-
-  uchar const * m0 = (uchar const *)FD_VM_MEM_HADDR_LD( vm, m0_vaddr, 1UL, sz );
-  uchar const * m1 = (uchar const *)FD_VM_MEM_HADDR_LD( vm, m1_vaddr, 1UL, sz );
+  uchar const * m0 = (uchar const *)FD_VM_MEM_SLICE_HADDR_LD( vm, m0_vaddr, 1UL, sz );
+  uchar const * m1 = (uchar const *)FD_VM_MEM_SLICE_HADDR_LD( vm, m1_vaddr, 1UL, sz );
 
   /* Silly that this doesn't use r0 to return ... slower, more edge
      case, different from libc style memcmp, harder to callers to use,
@@ -442,7 +428,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
     }
   }
 
-  memcpy( _out, &out, 4UL ); /* Sigh ... see note above (and might be unaligned ... double sigh) */
+  fd_memcpy( _out, &out, 4UL ); /* Sigh ... see note above (and might be unaligned ... double sigh) */
 
   *_ret = 0;
   return FD_VM_SUCCESS;
@@ -458,19 +444,14 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
                           /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* FIXME: check cu model (this model seems to be using CPI related
-     parameters!) */
-  /* FIXME: confirm exact handling matches Solana for the NULL and/or
-     sz==0 cases (see other mem syscalls ... they don't all fault in the
-     same way though in principle that shouldn't break consensus).  The
-     below handling matches the original implementation. */
+  FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
-  FD_VM_CU_MEM_UPDATE( vm, sz );
-
-  void * dst = FD_VM_MEM_HADDR_ST( vm, dst_vaddr, 1UL, sz );
+  void * dst = FD_VM_MEM_SLICE_HADDR_ST( vm, dst_vaddr, 1UL, sz );
 
   int b = (int)(c & 255UL);
-  if( FD_LIKELY( sz ) ) memset( dst, b, sz ); /* Sigh ... avoid UB around sz==0 */
+  if( FD_LIKELY( sz ) ) {
+    memset( dst, b, sz );
+  }
 
   *_ret = 0;
   return FD_VM_SUCCESS;
@@ -486,17 +467,14 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
                            /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* FIXME: confirm exact handling matches Solana for the NULL and/or
-     sz==0 cases (see other mem syscalls ... they don't all fault in the
-     same way though in principle that shouldn't break consensus).  The
-     below handling matches the original implementation. */
+  FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
-  FD_VM_CU_MEM_UPDATE( vm, sz );
+  void *       dst = FD_VM_MEM_SLICE_HADDR_ST( vm, dst_vaddr, 1UL, sz );
+  void const * src = FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, 1UL, sz );
 
-  void *       dst = FD_VM_MEM_HADDR_ST( vm, dst_vaddr, 1UL, sz );
-  void const * src = FD_VM_MEM_HADDR_LD( vm, src_vaddr, 1UL, sz );
-
-  if( FD_LIKELY( sz ) ) memmove( dst, src, sz ); /* Sigh ... avoid UB around sz==0 */
+  if( FD_LIKELY( sz > 0 ) ) {
+    memmove( dst, src, sz );
+  }
 
   *_ret = 0;
   return FD_VM_SUCCESS;
