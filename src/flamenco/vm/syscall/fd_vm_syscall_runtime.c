@@ -209,40 +209,24 @@ fd_vm_syscall_sol_get_return_data( /**/            void *  _vm,
   fd_txn_return_data_t const * return_data    = &instr_ctx->txn_ctx->return_data;
   ulong                        return_data_sz = return_data->len;
 
-  /* FIXME: USE DST_MAX OR CPY_SZ HERE FOR CU UPDATE AND/OR THE
-     OVERLAPPING CHECK (SEEMS ODD TO USE CPY_SZ IN PARTICULAR FOR THE
-     OVERLAPPING CHECK). */
-
   /* FIXME: SAT ADDS PROBABLY NOT NECESSARY (SUSPECT RETURN_DATA_SZ
      ALREADY HAS A REASONABLE BOUND OF RETURN_DATA_MAX, WHICH IS
      REASONABLE). */
 
-  /* FIXME: CHECK MODEL .. THIS LOOKS VERY SIMILAR TO CU_MEM_UPDATE
-     EXCEPT FOR THE MAX VS ADD BEHAVIOR FOR THE BASE_COST */
+  /* FIXME: maybe factor these out? */
 
   ulong cpy_sz = fd_ulong_min( return_data_sz, dst_max );
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSCALL_BASE_COST,
                                          fd_ulong_sat_add( cpy_sz, sizeof(fd_pubkey_t) ) / FD_VM_CPI_BYTES_PER_UNIT ) );
 
-  /* FIXME: IN THE ORIGINAL IMPLEMENTATION, THIS WAS AFTER ADDRESS
-     TRANSLATION AND THEN IN TERMS OF HOST ADDRESS.  VERY STRANGE.  MOVE
-     HERE MIGHT CHANGE THE ERROR CODE REASON BUT NOT IF THE INSTRUCTION
-     FAULTS BUT THAT SHOULD NOT AFFECT CONSENSUS.  MOVE BACK IF AS
-     NECESSARY. */
-
-  if( FD_UNLIKELY( !is_nonoverlapping( dst_vaddr, cpy_sz, program_id_vaddr, sizeof(fd_pubkey_t) ) ) ) return FD_VM_ERR_MEM_OVERLAP;
-
-  /* FIXME: IN THE ORIGINAL IMPLEMENTATION, WHOSE BEHAVOR IS REPLICATED
-     BELOW, CPY_SZ==0 IMPLIES PROGRAM_ID WILL NOT BE COPIED ... SEEMS
-     VERY STRANGE.  SEEMS LIKE THE API SHOULD LET YOU PASS DST_MAX==0
-     (AND IF SO, MAYBE NULL FOR DST_VADDR) AND STILL GET SUCCESS AND THE
-     PROGRAM_ID.  SUSPECT THE CPY_SZ CHECK SHOULD ONLY APPLY TO THE
-     MEMCPY TO PREVENT UB BEHAVIOR THERE. */
-
   if( FD_LIKELY( cpy_sz ) ) {
     /* FIXME: CHECK alignof(fd_pubkey_t) IS CORRECT */
-    void * dst        = FD_VM_MEM_HADDR_ST( vm, dst_vaddr,        1UL,                  cpy_sz              );
+    void * dst        = FD_VM_MEM_SLICE_HADDR_ST( vm, dst_vaddr, 1UL, cpy_sz );
     void * program_id = FD_VM_MEM_HADDR_ST( vm, program_id_vaddr, alignof(fd_pubkey_t), sizeof(fd_pubkey_t) );
+
+    if( FD_UNLIKELY( !is_nonoverlapping( (ulong)dst, cpy_sz, (ulong)program_id, sizeof(fd_pubkey_t) ) ) ) {
+      return FD_VM_ERR_MEM_OVERLAP;
+    }
 
     memcpy( dst,         return_data->data,       cpy_sz              );
     memcpy( program_id, &return_data->program_id, sizeof(fd_pubkey_t) );
@@ -271,26 +255,23 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_ERR_SIGCALL;
 
-  /* FIXME: CHECK MODEL .. THIS LOOKS VERY SIMILAR TO CU_MEM_UPDATE
-     EXCEPT FOR THE MAX VS ADD BEHAVIOR FOR THE BASE_COST */
-
+  /* https://github.com/firedancer-io/solana/blob/06ec63044892e5ee14b6fa15d8c55da9953d0c09/programs/bpf_loader/src/syscalls/mod.rs#L1287 */
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSCALL_BASE_COST, src_sz / FD_VM_CPI_BYTES_PER_UNIT ) );
 
-  /* FIXME: THIS CHECK PROBABLY SHOULD BE MOVED ABOVE THE CU_UPDATE AND
-     IN THE PROCESS GET RID OF NEED FOR THE SAT_ADD AS SUSPECT
-     RETURN_DATA_MAX ALREADY HAS A REASONABLE BOUND.  COULD ALSO
-     CONSIDER FUSING ERROR_CDOE WITH THE CU MODEL.  THIS REPLICATES THE
-     ORIGINAL IMPLEMENTATION'S BEHAVIOR. */
+  /* https://github.com/firedancer-io/solana/blob/06ec63044892e5ee14b6fa15d8c55da9953d0c09/programs/bpf_loader/src/syscalls/mod.rs#L1293 */
+  if( FD_UNLIKELY( src_sz>FD_VM_RETURN_DATA_MAX ) ) {
+    return FD_VM_ERR_RETURN_DATA_TOO_LARGE;
+  }
 
-  if( FD_UNLIKELY( src_sz>FD_VM_RETURN_DATA_MAX ) ) return FD_VM_ERR_RETURN_DATA_TOO_LARGE;
-
-  void const * src = FD_VM_MEM_HADDR_LD( vm, src_vaddr, 1UL, src_sz );
+  void const * src = FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, 1UL, src_sz );
 
   fd_pubkey_t const    * program_id  = &instr_ctx->instr->program_id_pubkey;
   fd_txn_return_data_t * return_data = &instr_ctx->txn_ctx->return_data;
 
   return_data->len = src_sz;
-  if( FD_LIKELY( src_sz ) ) memcpy( return_data->data, src, src_sz );
+  if( FD_LIKELY( src_sz ) ) {
+    memcpy( return_data->data, src, src_sz );
+  }
   memcpy( &return_data->program_id, program_id, sizeof(fd_pubkey_t) );
 
   *_ret = 0;
