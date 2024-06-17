@@ -20,6 +20,7 @@
 #include "../../../../util/tile/fd_tile_private.h"
 #include "fd_replay_notif.h"
 #include "generated/replay_seccomp.h"
+#include "../../../../choreo/fd_choreo.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -53,7 +54,6 @@
 #define SCRATCH_DEPTH  (128UL) /* 128 scratch frames */
 
 #define VOTE_ACC_MAX   (2000000UL)
-#define FORKS_MAX      (fd_ulong_pow2_up( FD_DEFAULT_SLOTS_PER_EPOCH ))
 
 #define BANK_HASH_CMP_LG_MAX 16
 
@@ -160,7 +160,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   l = FD_LAYOUT_APPEND( l, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_replay_align(), fd_replay_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FORKS_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_SLOT_MAX ) );
   l = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   l = FD_LAYOUT_APPEND( l, fd_tower_align(), fd_tower_footprint() );
@@ -833,7 +833,7 @@ unprivileged_init( fd_topo_t *      topo,
     adding any setup here. */
   ctx->epoch_ctx_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
   void * replay_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_align(), fd_replay_footprint() );
-  void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FORKS_MAX ) );
+  void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_SLOT_MAX ) );
   void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
   void * bank_hash_cmp_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   void * tower_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
@@ -919,7 +919,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( ctx->acc_mgr, funk );
 
-  fd_forks_t * forks     = fd_forks_join( fd_forks_new( forks_mem, FORKS_MAX, 42UL ) );
+  fd_forks_t * forks     = fd_forks_join( fd_forks_new( forks_mem, FD_SLOT_MAX, 42UL ) );
   FD_TEST( forks );
 
   forks->acc_mgr = acc_mgr;

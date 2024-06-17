@@ -262,7 +262,7 @@ repair_serv_get_shred( ulong slot, uint shred_idx, void * buf, ulong buf_max, vo
     }
     shred_idx = (uint)meta->last_index;
   }
-  long sz = fd_blockstore_shred_query_copy_data( blockstore, slot, shred_idx, buf, buf_max );
+  long sz = fd_buf_shred_query_copy_data( blockstore, slot, shred_idx, buf, buf_max );
 
   fd_blockstore_end_read( blockstore );
   return sz;
@@ -823,7 +823,7 @@ void blockstore_setup( fd_wksp_t * wksp, ulong hashseed, blockstore_setup_t * ou
     // - 64 slots of history (~= finalized = 31 slots on top of a confirmed block)
     // - 1mb of txns
     ulong tmp_shred_max    = 1UL << 20;
-    ulong slot_history_max = FD_BLOCKSTORE_SLOT_HISTORY_MAX;
+    ulong slot_history_max = FD_SLOT_MAX;
     int   lg_txn_max       = 22;
     out->blockstore             = fd_blockstore_join(
         fd_blockstore_new( shmem, 1, hashseed, tmp_shred_max, slot_history_max, lg_txn_max ) );
