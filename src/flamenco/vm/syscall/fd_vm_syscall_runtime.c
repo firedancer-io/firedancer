@@ -27,9 +27,9 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_ERR_SIGCALL;
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sol_sysvar_clock_t) ) );
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_SOL_SYSVAR_CLOCK_FOOTPRINT ) );
 
-  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_SOL_SYSVAR_CLOCK_ALIGN, sizeof(fd_sol_sysvar_clock_t) );
+  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_SOL_SYSVAR_CLOCK_ALIGN, FD_SOL_SYSVAR_CLOCK_FOOTPRINT );
 
   /* FIXME: is it possible to do the read in-place? */
   fd_sol_sysvar_clock_t clock[1];
@@ -37,7 +37,7 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
   fd_sysvar_clock_read( clock, instr_ctx->slot_ctx );
   /* FIXME: no delete function to match new (probably should be fini for the same reason anyway) */
 
-  memcpy( out, clock, sizeof(fd_sol_sysvar_clock_t) );
+  memcpy( out, clock, FD_SOL_SYSVAR_CLOCK_FOOTPRINT );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -63,9 +63,9 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_ERR_SIGCALL;
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_epoch_schedule_t) ) );
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_EPOCH_SCHEDULE_FOOTPRINT ) );
 
-  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_EPOCH_SCHEDULE_ALIGN, sizeof(fd_epoch_schedule_t) );
+  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_EPOCH_SCHEDULE_ALIGN, FD_EPOCH_SCHEDULE_FOOTPRINT );
 
   /* FIXME: is it possible to do the read in-place? */
   fd_epoch_schedule_t schedule[1];
@@ -73,7 +73,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
   fd_sysvar_epoch_schedule_read( schedule, instr_ctx->slot_ctx );
   /* FIXME: no delete function to match new (probably should be fini for the same reason anyway) */
 
-  memcpy( out, schedule, sizeof(fd_epoch_schedule_t) );
+  memcpy( out, schedule, FD_EPOCH_SCHEDULE_FOOTPRINT );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -99,9 +99,9 @@ fd_vm_syscall_sol_get_fees_sysvar( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_ERR_SIGCALL;
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sysvar_fees_t) ) );
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_SYSVAR_FEES_FOOTPRINT ) );
 
-  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_SYSVAR_FEES_ALIGN, sizeof(fd_sysvar_fees_t) );
+  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_SYSVAR_FEES_ALIGN, FD_SYSVAR_FEES_FOOTPRINT );
 
   /* FIXME: is it possible to do the read in-place? */
   fd_sysvar_fees_t fees[1];
@@ -109,7 +109,7 @@ fd_vm_syscall_sol_get_fees_sysvar( /**/            void *  _vm,
   fd_sysvar_fees_read( fees, instr_ctx->slot_ctx );
   /* FIXME: no delete function to match new (probably should be fini for the same reason anyway) */
 
-  memcpy( out, fees, sizeof(fd_sysvar_fees_t) );
+  memcpy( out, fees, FD_SYSVAR_FEES_FOOTPRINT );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -135,9 +135,9 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_ERR_SIGCALL;
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_rent_t) ) );
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_RENT_FOOTPRINT ) );
 
-  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_RENT_ALIGN, sizeof(fd_rent_t) );
+  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_RENT_ALIGN, FD_RENT_FOOTPRINT );
 
   /* FIXME: is it possible to do the read in-place? */
   fd_rent_t rent[1];
@@ -145,7 +145,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
   fd_sysvar_rent_read( rent, instr_ctx->slot_ctx );
   /* FIXME: no delete function to match new (probably should be fini for the same reason anyway) */
 
-  memcpy( out, rent, sizeof(fd_rent_t) );
+  memcpy( out, rent, FD_RENT_FOOTPRINT );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
