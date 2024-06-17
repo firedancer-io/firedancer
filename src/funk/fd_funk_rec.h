@@ -67,6 +67,8 @@ struct fd_funk_rec {
   ulong next_part_idx;  /* Record map index of next record in partition chain */
   uint  part;           /* Partition number, FD_FUNK_PART_NULL if none */
 
+  int   val_no_free; /* If set, do not call alloc_free on the value */
+
   /* Padding to FD_FUNK_REC_ALIGN here (TODO: consider using self index
      in the structures to accelerate indexing computations if padding
      permits as this structure is currently has 8 bytes of padding) */
