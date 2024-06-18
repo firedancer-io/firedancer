@@ -75,6 +75,16 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
                         void *                               output_buf,
                         ulong                                output_bufsz );
 
+/*
+   Similar to above, but executes a txn given txn context (input)
+*/
+ulong
+fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner only contains funk instance, so we can borrow instr test runner
+                      fd_exec_test_txn_context_t const *   input,
+                      fd_exec_test_txn_result_t **         output,
+                      void *                               output_buf,
+                      ulong                                output_bufsz );
+
 /* Loads an ELF binary (in input->elf.data()). 
    output_buf points to a memory region of output_bufsz bytes where the
    result is allocated into. During execution, the contents of
