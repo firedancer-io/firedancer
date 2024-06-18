@@ -65,7 +65,7 @@ typedef union {
   } txn;
 
   struct {
-    char link_name[ 13UL ];
+    char link_name[ 64UL ];
     char pcap_path[ 256UL ];
   } dump;
 
