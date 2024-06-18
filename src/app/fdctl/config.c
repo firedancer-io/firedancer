@@ -316,6 +316,8 @@ static int parse_key_value( config_t *   config,
   ENTRY_VUINT ( ., tiles.gossip,        peer_ports                                                );
   ENTRY_VSTR  ( ., tiles.gossip,        entrypoints                                               );
 
+  ENTRY_BOOL  ( ., consensus,           vote                                                      );
+
   ENTRY_USHORT( ., tiles.repair,        repair_intake_listen_port                                 );
   ENTRY_USHORT( ., tiles.repair,        repair_serve_listen_port                                  );
 

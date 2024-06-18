@@ -52,9 +52,13 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topob_wksp( topo, "gossip_sign" );
   fd_topob_wksp( topo, "sign_gossip" );
 
+  fd_topob_wksp( topo, "replay_sign" );
+  fd_topob_wksp( topo, "sign_replay" );
+
   fd_topob_wksp( topo, "crds_shred" );
   fd_topob_wksp( topo, "gossip_repai" );
   fd_topob_wksp( topo, "gossip_pack" );
+  fd_topob_wksp( topo, "gossip_repla" );
 
   fd_topob_wksp( topo, "store_repair" );
   fd_topob_wksp( topo, "repair_store" );
@@ -64,6 +68,7 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topob_wksp( topo, "replay_notif" );
   fd_topob_wksp( topo, "bank_busy"  );
   fd_topob_wksp( topo, "pack_replay"  );
+  fd_topob_wksp( topo, "replay_gossi" );
 
   fd_topob_wksp( topo, "net"        );
   fd_topob_wksp( topo, "quic"       );
@@ -109,6 +114,8 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                 fd_topob_link( topo, "sign_gossip",  "sign_gossip",  0,        128UL,                                    64UL,                          1UL );
   /* gossip_pack could be FD_TPU_MTU for now, since txns are not parsed, but better to just share one size for all the ins of pack */
   /**/                 fd_topob_link( topo, "gossip_pack",  "gossip_pack",  0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,             1UL );
+  /**/                 fd_topob_link( topo, "gossip_repla", "gossip_repla", 0,        128UL,                                    FD_TXN_MTU,                    1UL );
+  /**/                 fd_topob_link( topo, "replay_gossi", "replay_gossi", 0,        128UL,                                    FD_TXN_MTU,                    1UL );
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "crds_shred",   "crds_shred",   0,        128UL,                                    8UL  + 40200UL * 38UL,         1UL );
   /**/                 fd_topob_link( topo, "gossip_repai", "gossip_repai", 0,        128UL,                                    40200UL * 38UL, 1UL );
@@ -120,6 +127,8 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                 fd_topob_link( topo, "store_replay", "store_replay", 0,        128UL,                                    FD_SHRED_MAX_PER_SLOT * FD_SHRED_MAX_SZ, 16UL  );
   /**/                 fd_topob_link( topo, "replay_poh",   "replay_poh",   0,        128UL,                                    128UL*1024UL*1024UL,           16UL  );
   /**/                 fd_topob_link( topo, "replay_notif", "replay_notif", 0,        FD_REPLAY_NOTIF_DEPTH,                    FD_REPLAY_NOTIF_MTU,           1UL   );
+  /**/                 fd_topob_link( topo, "replay_sign",  "replay_sign",  0,        128UL,                                    FD_TXN_MTU,                    1UL   );
+  /**/                 fd_topob_link( topo, "sign_replay",  "sign_replay",  0,        128UL,                                    64UL,                          1UL   );
 
   /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    0,        128UL,                                    FD_NET_MTU,                    1UL   );
   /**/                 fd_topob_link( topo, "pack_replay",  "pack_replay",  0,        128UL,                                    USHORT_MAX,                    1UL   );
@@ -269,6 +278,8 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_pack",  0UL                                                  );
   /**/                 fd_topob_tile_in(  topo, "sign",     0UL,          "metric_in", "gossip_sign",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_sign",  0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_repla", 0UL                                                  );
+  /**/                 fd_topob_tile_in(  topo, "gossip",   0UL,          "metric_in", "replay_gossi", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in(  topo, "gossip",   0UL,          "metric_in", "sign_gossip",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_out( topo, "sign",     0UL,                       "sign_gossip",  0UL                                                  );
 
@@ -281,7 +292,13 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "store_replay",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_poh",    0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "replay",  0UL,                      "replay_notif",   0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "replay",  0UL,                      "replay_gossi",   0UL                                                  );
   /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "pack_replay",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+  /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "gossip_repla",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+  /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_sign",   0UL                                                  );
+  /**/                 fd_topob_tile_in(  topo, "sign",    0UL,          "metric_in", "replay_sign",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+  /**/                 fd_topob_tile_out( topo, "sign",    0UL,                       "sign_replay",   0UL                                                  );
+  /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "sign_replay",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
 
   /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "gossip_pack",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "bhole",  0UL,           "metric_in", "replay_notif",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
@@ -384,6 +401,9 @@ fd_topo_firedancer( config_t * _config ) {
       strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
       strncpy( tile->replay.incremental, config->tiles.replay.incremental, sizeof(tile->replay.incremental) );
       strncpy( tile->replay.capture, config->tiles.replay.capture, sizeof(tile->replay.capture) );
+      tile->replay.vote = config->consensus.vote;
+      strncpy( tile->replay.identity_key_path, config->consensus.identity_path, sizeof(tile->replay.identity_key_path) );
+      strncpy( tile->replay.vote_account_path, config->consensus.vote_account_path, sizeof(tile->replay.vote_account_path) );
       tile->replay.snapshot_slot = ULONG_MAX; /* Determine when we load the snapshot */
       tile->replay.tpool_thread_count =  config->tiles.replay.tpool_thread_count;
 

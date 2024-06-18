@@ -221,10 +221,46 @@ struct gossip_deliver_arg {
   fd_gossip_config_t * gossip_config;
 
   fd_pubkey_t        * vote_acct_addr;
-  const uchar        * node_keypair;
-  const uchar        * authorized_voter_keypair;
+  const uchar        * vote_authority_keypair;
+  const uchar        * validator_identity_keypair;
 };
 typedef struct gossip_deliver_arg gossip_deliver_arg_t;
+
+struct vote_txn_sign_args {
+  const uchar * vote_authority_keypair;
+  const uchar * validator_identity_keypair;
+};
+typedef struct vote_txn_sign_args vote_txn_sign_args_t;
+
+void
+vote_txn_validator_identity_signer( void *        _keys,
+                                    uchar         signature[ static 64 ],
+                                    uchar const * buffer,
+                                    ulong         len ) {
+    fd_sha512_t sha;
+    vote_txn_sign_args_t * keys = (vote_txn_sign_args_t *) fd_type_pun( _keys );
+    fd_ed25519_sign( /* sig */ signature,
+                     /* msg */ buffer,
+                     /* sz  */ len,
+                     /* public_key  */ keys->validator_identity_keypair + 32UL,
+                     /* private_key */ keys->validator_identity_keypair,
+                     &sha );
+}
+
+void
+vote_txn_vote_authority_signer( void *        _keys,
+                                uchar         signature[ static 64 ],
+                                uchar const * buffer,
+                                ulong         len ) {
+    fd_sha512_t sha;
+    vote_txn_sign_args_t * keys = (vote_txn_sign_args_t *) fd_type_pun( _keys );
+    fd_ed25519_sign( /* sig */ signature,
+                     /* msg */ buffer,
+                     /* sz  */ len,
+                     /* public_key  */ keys->vote_authority_keypair + 32UL,
+                     /* private_key */ keys->vote_authority_keypair,
+                     &sha );
+}
 
 static void
 gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
@@ -258,10 +294,19 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
           vote_instr.inner.compact_update_vote_state.timestamp = &new_timestamp;
 
           /* Generate the vote transaction */
+          vote_txn_sign_args_t sign_args = {
+            .vote_authority_keypair     = arg_->vote_authority_keypair,
+            .validator_identity_keypair = arg_->validator_identity_keypair
+          };
+          fd_pubkey_t * vote_authority_pubkey     = (fd_pubkey_t *)fd_type_pun_const( arg_->vote_authority_keypair + 32UL );
+          fd_pubkey_t * validator_identity_pubkey = (fd_pubkey_t *)fd_type_pun_const( arg_->validator_identity_keypair + 32UL );
           fd_voter_t voter = {
-            .vote_acct_addr           = arg_->vote_acct_addr,
-            .node_keypair             = arg_->node_keypair,
-            .authorized_voter_keypair = arg_->authorized_voter_keypair
+            .vote_acct_addr              = arg_->vote_acct_addr,
+            .vote_authority_pubkey       = vote_authority_pubkey,
+            .validator_identity_pubkey   = validator_identity_pubkey,
+            .voter_sign_arg              = &sign_args,
+            .vote_authority_sign_fun     = vote_txn_vote_authority_signer,
+            .validator_identity_sign_fun = vote_txn_validator_identity_signer
           };
           fd_crds_data_t echo_data;
           echo_data.discriminant          = fd_crds_data_enum_vote;
@@ -428,17 +473,17 @@ main( int argc, char ** argv ) {
   const char * gossip_peer_addr =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, NULL );
   ushort gossip_port = fd_env_strip_cmdline_ushort( &argc, &argv, "--gossip-port", NULL, 9001 );
-  const char * node_keypair_file =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--node-keypair-file", NULL, NULL );
   const char * vote_acct_addr_file =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--vote-acct-addr-file", NULL, NULL );
-  const char * authorized_voter_keypair_file =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--auth-voter-keypair-file", NULL, NULL );
+  const char * vote_authority_keypair_file =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--vote-auth-keypair-file", NULL, NULL );
+  const char * validator_identity_keypair_file =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--validator-id-keypair-file", NULL, NULL );
   ushort shred_version = fd_env_strip_cmdline_ushort( &argc, &argv, "--shred-version", NULL, 0 );
 
   FD_TEST( gossip_peer_addr );
-  FD_TEST( node_keypair_file );
-  FD_TEST( authorized_voter_keypair_file );
+  FD_TEST( vote_authority_keypair_file );
+  FD_TEST( validator_identity_keypair_file );
 
   /**********************************************************************/
   /* wksp                                                               */
@@ -507,13 +552,13 @@ main( int argc, char ** argv ) {
   FD_TEST( resolve_hostport( gossip_addr, &gossip_config.my_addr ) );
   gossip_config.shred_version             = shred_version;
   gossip_deliver_arg_t gossip_deliver_arg = {
-    .valloc                   = valloc,
-    .gossip_config            = &gossip_config,
-    .gossip                   = gossip,
-    .wksp                     = wksp,
-    .vote_acct_addr           = &vote_acct_addr,
-    .node_keypair             = fd_keyload_load( node_keypair_file, 0 ),
-    .authorized_voter_keypair = fd_keyload_load( authorized_voter_keypair_file, 0 )
+    .valloc                     = valloc,
+    .gossip_config              = &gossip_config,
+    .gossip                     = gossip,
+    .wksp                       = wksp,
+    .vote_acct_addr             = &vote_acct_addr,
+    .vote_authority_keypair     = fd_keyload_load( vote_authority_keypair_file, 0 ),
+    .validator_identity_keypair = fd_keyload_load( validator_identity_keypair_file, 0 )
   };
   gossip_config.deliver_arg               = &gossip_deliver_arg;
   gossip_config.deliver_fun               = gossip_deliver_fun;

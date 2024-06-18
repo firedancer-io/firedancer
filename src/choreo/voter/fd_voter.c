@@ -11,21 +11,19 @@ fd_vote_txn_generate( fd_voter_t *                     voter,
                       uchar                            out_txn_meta_buf [static FD_TXN_MAX_SZ],
                       uchar                            out_txn_buf [static FD_TXN_MTU] ) {
   fd_pubkey_t * vote_program_addr       = (fd_pubkey_t *) fd_type_pun_const( &fd_solana_vote_program_id );
-  fd_pubkey_t * node_pubkey             = (fd_pubkey_t *) fd_type_pun_const( voter->node_keypair + 32UL );
-  fd_pubkey_t * authorized_voter_pubkey = (fd_pubkey_t *) fd_type_pun_const( voter->authorized_voter_keypair + 32UL );
 
   /* Create the transaction base */
-  uchar authorized_voter_is_node_identity = ( memcmp(voter->node_keypair + 32UL,
-                                                     voter->authorized_voter_keypair + 32UL,
-                                                     32) == 0 );
-  if ( FD_LIKELY( authorized_voter_is_node_identity ) ) {
+  uchar vote_authority_is_validator_identity = ( memcmp( voter->validator_identity_pubkey->key,
+                                                         voter->vote_authority_pubkey->key,
+                                                         sizeof( fd_pubkey_t ) ) == 0 );
+  if ( FD_LIKELY( vote_authority_is_validator_identity ) ) {
     ulong num_signatures                    = 1;
     fd_txn_accounts_t vote_txn_accounts;
     vote_txn_accounts.signature_cnt         = 1;
     vote_txn_accounts.readonly_signed_cnt   = 0;
     vote_txn_accounts.readonly_unsigned_cnt = 1;
     vote_txn_accounts.acct_cnt              = 3; /* 0: node identity & authorized voter, 1: vote account address, 2: vote program  */
-    vote_txn_accounts.signers_w             = node_pubkey;
+    vote_txn_accounts.signers_w             = voter->validator_identity_pubkey;
     vote_txn_accounts.signers_r             = NULL;
     vote_txn_accounts.non_signers_w         = voter->vote_acct_addr;
     vote_txn_accounts.non_signers_r         = vote_program_addr;
@@ -37,8 +35,8 @@ fd_vote_txn_generate( fd_voter_t *                     voter,
     vote_txn_accounts.readonly_signed_cnt   = 1;
     vote_txn_accounts.readonly_unsigned_cnt = 1;
     vote_txn_accounts.acct_cnt              = 4; /* 0: node identity, 1: authorized voter, 2: vote account address, 3: vote program  */
-    vote_txn_accounts.signers_w             = node_pubkey;
-    vote_txn_accounts.signers_r             = authorized_voter_pubkey;
+    vote_txn_accounts.signers_w             = voter->validator_identity_pubkey;
+    vote_txn_accounts.signers_r             = voter->vote_authority_pubkey;
     vote_txn_accounts.non_signers_w         = voter->vote_acct_addr;
     vote_txn_accounts.non_signers_r         = vote_program_addr;
     FD_TEST( fd_txn_base_generate( out_txn_meta_buf, out_txn_buf, num_signatures, &vote_txn_accounts, recent_blockhash ) );
@@ -55,7 +53,7 @@ fd_vote_txn_generate( fd_voter_t *                     voter,
 
   /* Generate the signatures */
   ulong txn_size;
-  if ( FD_LIKELY( authorized_voter_is_node_identity ) ) {
+  if ( FD_LIKELY( vote_authority_is_validator_identity ) ) {
     uchar instr_accounts[2];
     instr_accounts[0] = 1;  /* vote account addr */
     instr_accounts[1] = 0;  /* vote authority    */
@@ -68,14 +66,11 @@ fd_vote_txn_generate( fd_voter_t *                     voter,
                                  vote_instr_buf,
                                  vote_instr_size );
 
-    fd_sha512_t sha;
     fd_txn_t * txn_meta = (fd_txn_t *)fd_type_pun( out_txn_meta_buf );
-    fd_ed25519_sign( /* sig */ out_txn_buf + txn_meta->signature_off,
-                     /* msg */ out_txn_buf + txn_meta->message_off,
-                     /* sz  */ txn_size - txn_meta->message_off,
-                     /* public_key  */ node_pubkey->key,
-                     /* private_key */ voter->node_keypair,
-                     &sha );
+    voter->validator_identity_sign_fun( voter->voter_sign_arg,
+                                        /* sig */    out_txn_buf + txn_meta->signature_off,
+                                        /* buffer */ out_txn_buf + txn_meta->message_off,
+                                        /* len */    txn_size - txn_meta->message_off);
   } else {
     uchar instr_accounts[2];
     instr_accounts[0] = 2;  /* vote account addr */
@@ -89,20 +84,18 @@ fd_vote_txn_generate( fd_voter_t *                     voter,
                                  vote_instr_buf,
                                  vote_instr_size );
 
-    fd_sha512_t sha;
     fd_txn_t * txn_meta = (fd_txn_t *)fd_type_pun( out_txn_meta_buf );
-    fd_ed25519_sign( /* sig */ out_txn_buf + txn_meta->signature_off,
-                     /* msg */ out_txn_buf + txn_meta->message_off,
-                     /* sz  */ txn_size - txn_meta->message_off,
-                     /* public_key  */ node_pubkey->key,
-                     /* private_key */ voter->node_keypair,
-                     &sha );
-    fd_ed25519_sign( /* sig */ out_txn_buf + txn_meta->signature_off + FD_TXN_SIGNATURE_SZ,
-                     /* msg */ out_txn_buf + txn_meta->message_off,
-                     /* sz  */ txn_size - txn_meta->message_off,
-                     /* public_key  */ authorized_voter_pubkey->key,
-                     /* private_key */ voter->authorized_voter_keypair,
-                     &sha );
+    uchar * sig_start = out_txn_buf + txn_meta->signature_off;
+    uchar * buf_start = out_txn_buf + txn_meta->message_off;
+    ulong   buf_size  = txn_size - txn_meta->message_off;
+    voter->validator_identity_sign_fun( voter->voter_sign_arg,
+                                        /* sig */    sig_start,
+                                        /* buffer */ buf_start,
+                                        /* len */    buf_size);
+    voter->vote_authority_sign_fun( voter->voter_sign_arg,
+                                    /* sig */    sig_start + FD_TXN_SIGNATURE_SZ,
+                                    /* buffer */ buf_start,
+                                    /* len */    buf_size);
   }
   return txn_size;
 }
@@ -111,6 +104,7 @@ int
 fd_vote_txn_parse( uchar                            txn_buf [static FD_TXN_MTU],
                    ulong                            txn_size,
                    fd_valloc_t                      valloc,
+                   ushort *                         out_recent_blockhash_off,
                    fd_compact_vote_state_update_t * out_compact_vote_update ) {
   uchar out_buf[ FD_TXN_MAX_SZ ];
   fd_txn_t * parsed_txn = (fd_txn_t *)fd_type_pun( out_buf );
@@ -145,6 +139,7 @@ fd_vote_txn_parse( uchar                            txn_buf [static FD_TXN_MTU],
         FD_LOG_WARNING(( "fd_vote_txn_parse: not compact_update_vote_state instruction" ));
         return FD_VOTE_TXN_PARSE_ERR_BAD_INST;
       } else {
+        *out_recent_blockhash_off = parsed_txn->recent_blockhash_off;
         *out_compact_vote_update = vote_instr.inner.compact_update_vote_state;
       }
     }

@@ -11,17 +11,32 @@
 
 #define TEST_VOTE_TXN_MAGIC (0x7e58UL)
 
+void
+vote_txn_signer( void *        keypair,
+                 uchar         signature[ static 64 ],
+                 uchar const * buffer,
+                 ulong         len ) {
+    fd_sha512_t sha;
+    uchar * validator_identity_keypair = (uchar*) fd_type_pun( keypair );
+    fd_ed25519_sign( /* sig */ signature,
+                     /* msg */ buffer,
+                     /* sz  */ len,
+                     /* public_key  */ validator_identity_keypair + 32UL,
+                     /* private_key */ validator_identity_keypair,
+                     &sha );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
   /* keys */
-  uchar validator_keypair[64];
-  fd_pubkey_t vote_acct_pubkey;
-
-  FD_TEST( 64UL == getrandom( validator_keypair, 64UL, 0 ) );
-  FD_TEST( 32UL == getrandom( vote_acct_pubkey.key, 32UL, 0 ) );
+  uchar validator_identity_keypair[64];
+  fd_pubkey_t vote_acct_addr;
+  FD_TEST( 64UL == getrandom( validator_identity_keypair, 64UL, 0 ) );
+  FD_TEST( 32UL == getrandom( vote_acct_addr.key, 32UL, 0 ) );
+  fd_pubkey_t * validator_identity_pubkey = (fd_pubkey_t *) fd_type_pun_const( validator_identity_keypair + 32 );
 
   /* workspace */
   ulong page_cnt   = 1;
@@ -47,15 +62,20 @@ main( int argc, char ** argv ) {
   compact_vote_update.timestamp    = &now;
   FD_TEST( 32UL == getrandom( compact_vote_update.hash.key, 32UL, 0 ) );
 
+  uchar recent_blockhash[ FD_TXN_BLOCKHASH_SZ ];
+  FD_TEST( 32UL == getrandom( recent_blockhash, 32UL, 0 ) );
+
   /* create the vote transaction */
   uchar txn_meta_buf[ FD_TXN_MAX_SZ ];
   uchar txn_buf [ FD_TXN_MTU ];
-  uchar *recent_blockhash = NULL;
 
   fd_voter_t voter = {
-    .vote_acct_addr           = &vote_acct_pubkey,
-    .node_keypair             = validator_keypair,
-    .authorized_voter_keypair = validator_keypair
+    .vote_acct_addr              = &vote_acct_addr,
+    .vote_authority_pubkey       = validator_identity_pubkey,
+    .validator_identity_pubkey   = validator_identity_pubkey,
+    .voter_sign_arg              = validator_identity_keypair,
+    .vote_authority_sign_fun     = vote_txn_signer,
+    .validator_identity_sign_fun = vote_txn_signer
   };
   ulong txn_size = fd_vote_txn_generate( &voter,
                                          &compact_vote_update,
@@ -65,9 +85,11 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "fd_vote_txn_generate: vote txn has %lu bytes", txn_size ));
 
   /* parse the transaction back */
+  ushort parsed_recent_blockhash_off;
   fd_compact_vote_state_update_t parsed_vote_update;
-  FD_TEST( FD_VOTE_TXN_PARSE_OK == fd_vote_txn_parse(txn_buf, txn_size, valloc, &parsed_vote_update) );
-  FD_LOG_NOTICE(( ".root: %ld == %ld", compact_vote_update.root, parsed_vote_update.root ));
-  FD_LOG_NOTICE(( ".timestamp: %lu == %lu", *compact_vote_update.timestamp, *parsed_vote_update.timestamp ));
-  FD_LOG_NOTICE(( ".hash: %32J == %32J", compact_vote_update.hash.key, parsed_vote_update.hash.key ));
+  FD_TEST( FD_VOTE_TXN_PARSE_OK == fd_vote_txn_parse(txn_buf, txn_size, valloc, &parsed_recent_blockhash_off, &parsed_vote_update) );
+  FD_LOG_NOTICE(( "recent blockhash: %32J == %32J", recent_blockhash, txn_buf + parsed_recent_blockhash_off ));
+  FD_LOG_NOTICE(( "root: %ld == %ld", compact_vote_update.root, parsed_vote_update.root ));
+  FD_LOG_NOTICE(( "timestamp: %lu == %lu", *compact_vote_update.timestamp, *parsed_vote_update.timestamp ));
+  FD_LOG_NOTICE(( "hash: %32J == %32J", compact_vote_update.hash.key, parsed_vote_update.hash.key ));
 }

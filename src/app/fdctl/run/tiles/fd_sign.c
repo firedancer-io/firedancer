@@ -74,6 +74,9 @@ during_frag_sensitive( void * _ctx,
   FD_TEST( in_idx<MAX_IN );
 
   switch( ctx->in_role[ in_idx ] ) {
+    case FD_KEYGUARD_ROLE_VOTER:
+      fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], sz );
+      break;
     case FD_KEYGUARD_ROLE_LEADER:
       fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], 32UL );
       break;
@@ -136,6 +139,13 @@ after_frag_sensitive( void *             _ctx,
   FD_TEST( in_idx<MAX_IN );
 
   switch( ctx->in_role[ in_idx ] ) {
+    case FD_KEYGUARD_ROLE_VOTER: {
+       if( FD_UNLIKELY( !fd_keyguard_payload_authorize( ctx->_data, *opt_sz, FD_KEYGUARD_ROLE_VOTER ) ) ) {
+        FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed" ));
+      }
+      fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, *opt_sz, ctx->public_key, ctx->private_key, ctx->sha512 );
+      break;
+    }
     case FD_KEYGUARD_ROLE_LEADER: {
       if( FD_UNLIKELY( !fd_keyguard_payload_authorize( ctx->_data, 32UL, FD_KEYGUARD_ROLE_LEADER ) ) ) {
         FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed" ));
@@ -287,6 +297,11 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
       ctx->in_role[ i ] = FD_KEYGUARD_ROLE_REPAIR;
       FD_TEST( !strcmp( out_link->name, "repair_gossip" ) );
       FD_TEST( in_link->mtu==2048UL );
+      FD_TEST( out_link->mtu==64UL );
+    } else if ( !strcmp(in_link->name, "replay_sign" ) ) {
+      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_VOTER;
+      FD_TEST( !strcmp( out_link->name, "sign_replay"  ) );
+      FD_TEST( in_link->mtu==FD_TXN_MTU  );
       FD_TEST( out_link->mtu==64UL );
     } else {
       FD_LOG_CRIT(( "unexpected link %s", in_link->name ));
