@@ -78,6 +78,7 @@ typedef struct {
   } gossip;
 
   struct {
+    int    vote;
     char   identity_path[ PATH_MAX ];
     char   vote_account_path[ PATH_MAX ];
     int    snapshot_fetch;

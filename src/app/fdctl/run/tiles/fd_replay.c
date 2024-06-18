@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 
+#include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../disco/tiles.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/topo/fd_pod_format.h"
@@ -44,8 +45,13 @@
 
 #define STORE_IN_IDX   (0UL)
 #define PACK_IN_IDX    (1UL)
+#define GOSSIP_IN_IDX  (2UL)
+#define SIGN_IN_IDX    (3UL)
+
 #define POH_OUT_IDX    (0UL)
 #define NOTIF_OUT_IDX  (1UL)
+#define GOSSIP_OUT_IDX (2UL)
+#define SIGN_OUT_IDX   (3UL)
 
 /* Scratch space estimates.
    TODO: Update constants and add explanation
@@ -70,6 +76,11 @@ struct fd_replay_tile_ctx {
   ulong       pack_in_chunk0;
   ulong       pack_in_wmark;
 
+  // Gossip tile input
+  fd_wksp_t * gossip_in_mem;
+  ulong       gossip_in_chunk0;
+  ulong       gossip_in_wmark;
+
   // PoH tile output defs
   fd_frag_meta_t * poh_out_mcache;
   ulong *          poh_out_sync;
@@ -91,6 +102,17 @@ struct fd_replay_tile_ctx {
   ulong       notif_out_chunk0;
   ulong       notif_out_wmark;
   ulong       notif_out_chunk;
+
+  // Gossip output defs
+  fd_frag_meta_t * gossip_out_mcache;
+  ulong *          gossip_out_sync;
+  ulong            gossip_out_depth;
+  ulong            gossip_out_seq;
+
+  fd_wksp_t * gossip_out_mem;
+  ulong       gossip_out_chunk0;
+  ulong       gossip_out_wmark;
+  ulong       gossip_out_chunk;
 
   // Stake weights output link defs
   fd_frag_meta_t * stake_weights_out_mcache;
@@ -138,6 +160,13 @@ struct fd_replay_tile_ctx {
 
   ulong * bank_busy;
   uint poh_init_done;
+
+  int                   vote;
+  fd_pubkey_t *         validator_identity_pubkey;
+  fd_pubkey_t *         vote_acct_addr;
+  fd_keyguard_client_t  keyguard_client[1];
+  ulong                 gossip_vote_txn_sz;
+  uchar                 gossip_vote_txn [ FD_TXN_MTU ];
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -282,6 +311,15 @@ during_frag( void * _ctx,
     }
 
     FD_LOG_INFO(( "packed microblock - slot: %lu, parent_slot: %lu, txn_cnt: %lu", ctx->curr_slot, ctx->parent_slot, ctx->txn_cnt ));
+  } else if( in_idx == GOSSIP_IN_IDX ) {
+    if( FD_UNLIKELY( chunk<ctx->gossip_in_chunk0 || chunk>ctx->gossip_in_wmark || sz>USHORT_MAX ) ) {
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->gossip_in_chunk0, ctx->gossip_in_wmark ));
+    }
+    uchar * src = (uchar *)fd_chunk_to_laddr( ctx->gossip_in_mem, chunk );
+    /* Incoming packet from gossip tile, a raw vote transaction. */
+    ctx->gossip_vote_txn_sz = sz;
+    memcpy( ctx->gossip_vote_txn, src, sz );
+    return;
   }
 
   // if( ctx->flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
@@ -309,6 +347,15 @@ during_frag( void * _ctx,
   fd_blockstore_end_read( ctx->replay->blockstore );
 }
 
+void
+vote_txn_signer( void *        signer_ctx,
+                 uchar         signature[ static 64 ],
+                 uchar const * buffer,
+                 ulong         len ) {
+  fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)signer_ctx;
+  fd_keyguard_client_sign( ctx->keyguard_client, signature, buffer, len );
+}
+
 static void
 after_frag( void *             _ctx,
             ulong              in_idx     FD_PARAM_UNUSED,
@@ -320,6 +367,42 @@ after_frag( void *             _ctx,
             int *              opt_filter,
             fd_mux_context_t * mux ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
+
+  if ( in_idx == GOSSIP_IN_IDX ) {
+    /* handle a vote txn from gossip  */
+    ushort recent_blockhash_off;
+    fd_compact_vote_state_update_t vote;
+    FD_TEST( FD_VOTE_TXN_PARSE_OK == fd_vote_txn_parse(ctx->gossip_vote_txn, ctx->gossip_vote_txn_sz, ctx->replay->valloc, &recent_blockhash_off, &vote) );
+
+    if ( !ctx->vote ) return;
+    /* for now, if consensus.vote == true, modify the timestamp and echo the vote txn back with gossip */
+    /* later, we should send out our own vote txns through gossip  */
+    ulong MAGIC_TIMESTAMP = 12345678;
+    vote.timestamp = &MAGIC_TIMESTAMP;
+    fd_voter_t voter = {
+      .vote_acct_addr              = ctx->vote_acct_addr,
+      .vote_authority_pubkey       = ctx->validator_identity_pubkey,
+      .validator_identity_pubkey   = ctx->validator_identity_pubkey,
+      .voter_sign_arg              = ctx,
+      .vote_authority_sign_fun     = vote_txn_signer,
+      .validator_identity_sign_fun = vote_txn_signer
+    };
+
+    uchar txn_meta_buf [ FD_TXN_MAX_SZ ] ;
+    uchar * msg_to_gossip = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
+    ulong vote_txn_sz = fd_vote_txn_generate( &voter,
+                                              &vote,
+                                              ctx->gossip_vote_txn + recent_blockhash_off,
+                                              txn_meta_buf,
+                                              msg_to_gossip );
+
+    fd_mcache_publish( ctx->gossip_out_mcache, ctx->gossip_out_depth, ctx->gossip_out_seq, 1UL, ctx->gossip_out_chunk,
+      vote_txn_sz, 0UL, 0, 0 );
+    ctx->gossip_out_seq   = fd_seq_inc( ctx->gossip_out_seq, 1UL );
+    ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, vote_txn_sz,
+                                                    ctx->gossip_out_chunk0, ctx->gossip_out_wmark );
+    return;
+  }
 
   /* do a replay */
   ulong txn_cnt = ctx->txn_cnt;
@@ -995,7 +1078,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pack_in_mem    = topo->workspaces[ topo->objs[ pack_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->pack_in_chunk0 = fd_dcache_compact_chunk0( ctx->pack_in_mem, pack_in_link->dcache );
   ctx->pack_in_wmark  = fd_dcache_compact_wmark( ctx->pack_in_mem, pack_in_link->dcache, pack_in_link->mtu );
-  
+
+  /* Set up gossip tile input */
+  fd_topo_link_t * gossip_in_link = &topo->links[ tile->in_link_id[ GOSSIP_IN_IDX ] ];
+  ctx->gossip_in_mem    = topo->workspaces[ topo->objs[ gossip_in_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->gossip_in_chunk0 = fd_dcache_compact_chunk0( ctx->gossip_in_mem, gossip_in_link->dcache );
+  ctx->gossip_in_wmark  = fd_dcache_compact_wmark( ctx->gossip_in_mem, gossip_in_link->dcache, gossip_in_link->mtu );
+
   fd_topo_link_t * poh_out_link = &topo->links[ tile->out_link_id[ POH_OUT_IDX ] ];
   ctx->poh_out_mcache = poh_out_link->mcache;
   ctx->poh_out_sync   = fd_mcache_seq_laddr( ctx->poh_out_mcache );
@@ -1015,6 +1104,32 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->notif_out_chunk0 = fd_dcache_compact_chunk0( ctx->notif_out_mem, notif_out->dcache );
   ctx->notif_out_wmark  = fd_dcache_compact_wmark ( ctx->notif_out_mem, notif_out->dcache, notif_out->mtu );
   ctx->notif_out_chunk  = ctx->notif_out_chunk0;
+
+  fd_topo_link_t * gossip_out = &topo->links[ tile->out_link_id[ GOSSIP_OUT_IDX ] ];
+  ctx->gossip_out_mcache = gossip_out->mcache;
+  ctx->gossip_out_sync   = fd_mcache_seq_laddr( ctx->gossip_out_mcache );
+  ctx->gossip_out_depth  = fd_mcache_depth( ctx->gossip_out_mcache );
+  ctx->gossip_out_seq    = fd_mcache_seq_query( ctx->gossip_out_sync );
+  ctx->gossip_out_mem    = topo->workspaces[ topo->objs[ gossip_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->gossip_out_chunk0 = fd_dcache_compact_chunk0( ctx->gossip_out_mem, gossip_out->dcache );
+  ctx->gossip_out_wmark  = fd_dcache_compact_wmark ( ctx->gossip_out_mem, gossip_out->dcache, gossip_out->mtu );
+  ctx->gossip_out_chunk  = ctx->gossip_out_chunk0;
+
+  ctx->vote = tile->replay.vote;
+  const uchar* identity_pubkey    = fd_keyload_load( tile->replay.identity_key_path, 1 );
+  const uchar* vote_acct_pubkey   = fd_keyload_load( tile->replay.vote_account_path, 1 );
+  ctx->validator_identity_pubkey  = (fd_pubkey_t *) fd_type_pun_const( identity_pubkey );
+  ctx->vote_acct_addr             = (fd_pubkey_t *) fd_type_pun_const( vote_acct_pubkey );
+  fd_topo_link_t * sign_in  = &topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ];
+  fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ];
+  if ( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
+                                                            sign_out->mcache,
+                                                            sign_out->dcache,
+                                                            sign_in->mcache,
+                                                            sign_in->dcache ) )==NULL ) {
+    FD_LOG_ERR(( "Keyguard join failed" ));
+  }
+
 
   /* Set up stake weights tile output */
   fd_topo_link_t * stake_weights_out = &topo->links[ tile->out_link_id_primary ];

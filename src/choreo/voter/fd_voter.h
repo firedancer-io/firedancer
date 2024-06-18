@@ -9,10 +9,15 @@
 #define FD_VOTE_TXN_PARSE_ERR_BAD_INST   -1
 #define FD_VOTE_TXN_PARSE_ERR_WRONG_PROG -2
 
+typedef void (*fd_voter_txn_sign_fun)( void * ctx, uchar * sig, uchar const * buffer, ulong len );
+
 struct fd_voter {
   fd_pubkey_t * vote_acct_addr;
-  const uchar * node_keypair;
-  const uchar * authorized_voter_keypair;
+  fd_pubkey_t * vote_authority_pubkey;
+  fd_pubkey_t * validator_identity_pubkey;
+  void * voter_sign_arg;
+  fd_voter_txn_sign_fun vote_authority_sign_fun;
+  fd_voter_txn_sign_fun validator_identity_sign_fun;
 };
 typedef struct fd_voter fd_voter_t;
 
@@ -27,6 +32,7 @@ int
 fd_vote_txn_parse( uchar                            txn_buf [static FD_TXN_MTU],
                    ulong                            txn_size,
                    fd_valloc_t                      valloc,
+                   ushort *                         out_recent_blockhash_off,
                    fd_compact_vote_state_update_t * out_vote_update );
 
 #endif

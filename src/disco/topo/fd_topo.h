@@ -201,10 +201,13 @@ typedef struct {
     } metric;
 
     struct {
+      int   vote;
       char  genesis[ PATH_MAX ];
       char  snapshot[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
       char  capture[ PATH_MAX ];
+      char  vote_account_path[ PATH_MAX ];
+      char  identity_key_path[ PATH_MAX ];
       ulong pages;
       ulong txn_max;
       ulong index_max;
