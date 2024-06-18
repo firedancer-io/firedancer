@@ -51,9 +51,7 @@ get sent back to `AF_XDP`, which forwards directly to the driver (skipping
                       └───────────┘
 ```
 
-Additional resources:
-- [fd_xsk.h](../src/tango/xdp/fd_xsk.h)
-- [fd_xdp_ctl_help](../src/tango/xdp/fd_xdp_ctl_help)
+See also [fd_xsk.h](../src/tango/xdp/fd_xsk.h)
 
 `XDP` and `AF_XDP` require the `CAP_SYS_ADMIN` and `CAP_NET_ADMIN`
 capabilities for configuration.  `CAP_SYS_ADMIN` is also required at
@@ -87,15 +85,3 @@ bpf on /sys/fs/bpf type bpf (rw,nosuid,nodev,noexec,relatime,mode=700)
 
 As usual, kernel configuration gets reset when the machine is rebooted.
 Therefore, the following steps will have to be re-run each reboot.
-
-Initialize a subdirectory in `/sys/fs/bpf` to host Firedancer config
-and set appropriate permissions.  In this case, we initialize a `BPF` dir
-called `firedancer` with permission bits `0750` and set the user  to the
-current user.
-
-```bash
-$ sudo build/linux/gcc/x86_64/bin/fd_xdp_ctl init firedancer 0750 $USER ""
-fd_xdp_redirect_user.c(124): Activated XDP environment at /sys/fs/bpf/firedancer
-fd_xdp_ctl.c(76): 0: init firedancer 0750 firedancer : success
-fd_xdp_ctl.c(358): processed 1 commands
-```
