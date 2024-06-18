@@ -6,6 +6,7 @@
 
 #include "generated/elf.pb.h"
 #include "generated/invoke.pb.h"
+#include "generated/txn.pb.h"
 #include "generated/vm.pb.h"
 #include "../../../funk/fd_funk.h"
 #include "../../vm/fd_vm.h"
@@ -74,6 +75,16 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
                         fd_exec_test_instr_effects_t **      output,
                         void *                               output_buf,
                         ulong                                output_bufsz );
+
+/*
+   Similar to above, but executes a txn given txn context (input)
+*/
+ulong
+fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner only contains funk instance, so we can borrow instr test runner
+                      fd_exec_test_txn_context_t const *   input,
+                      fd_exec_test_txn_result_t **         output,
+                      void *                               output_buf,
+                      ulong                                output_bufsz );
 
 /* Loads an ELF binary (in input->elf.data()). 
    output_buf points to a memory region of output_bufsz bytes where the

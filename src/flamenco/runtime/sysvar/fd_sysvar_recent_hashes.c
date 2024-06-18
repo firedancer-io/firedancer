@@ -39,13 +39,19 @@ void fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t* slot_ctx ) {
   fd_sysvar_set(slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot, 0UL );
 }
 
+// https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L113
 void register_blockhash( fd_exec_slot_ctx_t* slot_ctx, fd_hash_t const * hash ) {
   fd_block_hash_queue_t * queue = &slot_ctx->slot_bank.block_hash_queue;
+  // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L114
   queue->last_hash_index++;
   if ( fd_hash_hash_age_pair_t_map_size( queue->ages_pool, queue->ages_root ) >= queue->max_age ) {
     fd_hash_hash_age_pair_t_mapnode_t * nn;
     for ( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
       nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
+      /* NOTE: Yes, this check is incorrect. It should be >= which caps the blockhash queue at max_age
+         entries, but instead max_age + 1 entries are allowed to exist in the queue at once. This mimics
+         Agave to stay conformant with their implementation.
+         https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L109 */
       if ( queue->last_hash_index - n->elem.val.hash_index > queue->max_age ) {
         fd_hash_hash_age_pair_t_map_remove( queue->ages_pool, &queue->ages_root, n );
         fd_hash_hash_age_pair_t_map_release( queue->ages_pool, n );
@@ -58,7 +64,9 @@ void register_blockhash( fd_exec_slot_ctx_t* slot_ctx, fd_hash_t const * hash ) 
     .key = *hash,
     .val = (fd_hash_age_t){ .hash_index = queue->last_hash_index, .fee_calculator = (fd_fee_calculator_t){.lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature}, .timestamp = (ulong)fd_log_wallclock() }
   };
+  // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L121-L128
   fd_hash_hash_age_pair_t_map_insert( slot_ctx->slot_bank.block_hash_queue.ages_pool, &slot_ctx->slot_bank.block_hash_queue.ages_root, node );
+  // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L130
   fd_memcpy( queue->last_hash, hash, sizeof(fd_hash_t) );
 }
 

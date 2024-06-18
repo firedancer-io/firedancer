@@ -9,13 +9,9 @@
 #include "../../ballet/poh/fd_poh.h"
 #include "../types/fd_types_yaml.h"
 #include "tests/generated/invoke.pb.h"
+#include "tests/generated/txn.pb.h"
 
 FD_PROTOTYPES_BEGIN
-
-void
-fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context,
-                                                 fd_exec_txn_ctx_t *txn_ctx,
-                                                 fd_instr_info_t *instr );
 
 /* fd_exec_instr_fn_t processes an instruction.  Returns an error code
    in FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}. */
@@ -135,6 +131,9 @@ fd_exec_consume_cus( fd_exec_txn_ctx_t * txn_ctx,
   txn_ctx->compute_meter = new_cus;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
+
+void
+dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx );
 
 FD_PROTOTYPES_END
 
