@@ -50,6 +50,7 @@
    remove operation (remove_all is fine on an empty queue). */
 
 #include "../bits/fd_bits.h"
+#include <stddef.h>
 
 #ifndef QUEUE_NAME
 #error "Define QUEUE_NAME"
@@ -80,14 +81,14 @@ FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST static inline QUEUE_(private_t) *
 QUEUE_(private_hdr_from_queue)( QUEUE_T * queue ) {
-  return (QUEUE_(private_t) *)( (ulong)queue - (ulong)&(((QUEUE_(private_t) *)NULL)->queue) );
+  return (QUEUE_(private_t) *)( (ulong)queue - offsetof(QUEUE_(private_t), queue) );
 }
 
 /* const-correct version of above */
 
 FD_FN_CONST static inline QUEUE_(private_t) const *
 QUEUE_(private_const_hdr_from_queue)( QUEUE_T const * queue ) {
-  return (QUEUE_(private_t) const *)( (ulong)queue - (ulong)&(((QUEUE_(private_t) *)NULL)->queue) );
+  return (QUEUE_(private_t) const *)( (ulong)queue - offsetof(QUEUE_(private_t), queue) );
 }
 
 /* These move i to the previous or next slot to i for given max.
