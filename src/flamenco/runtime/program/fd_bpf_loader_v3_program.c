@@ -1,5 +1,7 @@
 #include "fd_bpf_loader_v3_program.h"
 
+/* For additional context see https://solana.com/docs/programs/deploying#state-accounts */
+
 #include "../fd_pubkey_utils.h"
 #include "../../../ballet/base58/fd_base58.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
@@ -134,7 +136,18 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost, int round_up_heap_size, i
   #undef KIBIBYTE_MUL_PAGES_SUB_1
 }
 
-/* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L105-L171 */
+/* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L105-L171
+
+   Our arguments to deploy_program are different from the Agave version because we handle the caching of deployed programs differently.
+   In Firedancer we lack the concept of ProgramCacheEntryType entirely https://github.com/anza-xyz/agave/blob/114d94a25e9631f9bf6349c4b833d7900ef1fb1c/program-runtime/src/loaded_programs.rs#L158
+
+   In Agave there is a separate caching structure that is used to store the deployed programs. In Firedancer the deployed, validated program
+   is stored as metadata for the account in the funk record.
+
+   See https://github.com/firedancer-io/firedancer/blob/9c1df680b3f38bebb0597e089766ec58f3b41e85/src/flamenco/runtime/program/fd_bpf_loader_v3_program.c#L1640
+   for how we handle the concept of 'LoadedProgramType::DelayVisibility' in Firedancer.
+
+   As a concrete example, our version of deploy_program does not have the 'account_size' argument because we do not update the funk record here. */
 int
 deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                 uchar * const         programdata,
@@ -815,10 +828,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     }
 
-    uchar * programdata_data = buffer->data + buffer_data_offset;
-    ulong   programdata_size = fd_ulong_sat_add( SIZE_OF_PROGRAM, programdata_len );
-
-    err = deploy_program( instr_ctx, programdata_data, programdata_size );
+    uchar * buffer_data = buffer->data + buffer_data_offset;
+    err = deploy_program( instr_ctx, buffer_data, buffer_data_len );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "Failed to deploy program" ));
       return err;
@@ -1034,16 +1045,16 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_LOG_WARNING(( "Invalid ProgramData account" ));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
-    ulong programdata_len = programdata->meta->dlen;
 
     /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L825-L845 */
     /* Load and verify the program bits */
-    ulong programdata_size = fd_ulong_sat_add( SIZE_OF_PROGRAM, programdata_len );
     if( FD_UNLIKELY( buffer_data_offset>buffer->meta->dlen ) ) {
       FD_LOG_WARNING(( "Buffer data offset is out of bounds" ));
       return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     }
-    err = deploy_program( instr_ctx, buffer->data+buffer_data_offset, programdata_size );
+
+    uchar * buffer_data = buffer->data + buffer_data_offset;
+    err = deploy_program( instr_ctx, buffer_data, buffer_data_len );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "Failed to deploy program" ));
       return err;
@@ -1492,7 +1503,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     if( FD_UNLIKELY( PROGRAMDATA_METADATA_SIZE>programdata_account->meta->dlen ) ) {
       return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     }
-    err = deploy_program( instr_ctx, programdata_account->data + PROGRAMDATA_METADATA_SIZE, fd_ulong_sat_add( SIZE_OF_PROGRAM, new_len ) );
+
+    uchar * programdata_data = programdata_account->data + PROGRAMDATA_METADATA_SIZE;
+    ulong   programdata_size = new_len                   - PROGRAMDATA_METADATA_SIZE;
+
+    err = deploy_program( instr_ctx, programdata_data, programdata_size );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "Failed to deploy program" ));
       return err;
