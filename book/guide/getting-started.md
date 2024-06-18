@@ -53,7 +53,7 @@ Other dependencies of the Firedancer build can be installed with a
 convenience script. First, clone the source code with:
 
 ```sh [bash]
-$ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
+$ git clone --recurse-submodules git@github.com:firedancer-io/firedancer.git
 $ cd firedancer
 $ git checkout v0.1 # Latest Frankendancer Testnet release
 ```
