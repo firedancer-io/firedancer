@@ -141,8 +141,6 @@ typedef struct fd_exec_test_txn_result {
     pb_bytes_array_t *return_data;
     /* Number of executed compute units */
     uint64_t executed_units;
-    /* The change in accounts data len for this transaction */
-    int64_t accounts_data_len_delta;
     /* The collected fees in this transaction */
     bool has_fee_details;
     fd_exec_test_fee_details_t fee_details;
@@ -174,7 +172,7 @@ extern "C" {
 #define FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT {0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_RENT_DEBITS_INIT_DEFAULT    {{0}, 0}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT    {0, 0}
-#define FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT     {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT, 0, 0, 0, NULL, 0, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT}
+#define FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT     {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT}
 #define FD_EXEC_TEST_TXN_FIXTURE_INIT_DEFAULT    {false, FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT}
 #define FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO    {0, 0, 0}
 #define FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_ZERO {0, 0, NULL, NULL}
@@ -186,7 +184,7 @@ extern "C" {
 #define FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO   {0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_RENT_DEBITS_INIT_ZERO       {{0}, 0}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO       {0, 0}
-#define FD_EXEC_TEST_TXN_RESULT_INIT_ZERO        {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO, 0, 0, 0, NULL, 0, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO}
+#define FD_EXEC_TEST_TXN_RESULT_INIT_ZERO        {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO}
 #define FD_EXEC_TEST_TXN_FIXTURE_INIT_ZERO       {false, FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_TXN_RESULT_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -233,8 +231,7 @@ extern "C" {
 #define FD_EXEC_TEST_TXN_RESULT_STATUS_TAG       6
 #define FD_EXEC_TEST_TXN_RESULT_RETURN_DATA_TAG  7
 #define FD_EXEC_TEST_TXN_RESULT_EXECUTED_UNITS_TAG 8
-#define FD_EXEC_TEST_TXN_RESULT_ACCOUNTS_DATA_LEN_DELTA_TAG 9
-#define FD_EXEC_TEST_TXN_RESULT_FEE_DETAILS_TAG  10
+#define FD_EXEC_TEST_TXN_RESULT_FEE_DETAILS_TAG  9
 #define FD_EXEC_TEST_TXN_FIXTURE_INPUT_TAG       1
 #define FD_EXEC_TEST_TXN_FIXTURE_OUTPUT_TAG      2
 
@@ -334,8 +331,7 @@ X(a, STATIC,   SINGULAR, BOOL,     is_ok,             5) \
 X(a, STATIC,   SINGULAR, UINT32,   status,            6) \
 X(a, POINTER,  SINGULAR, BYTES,    return_data,       7) \
 X(a, STATIC,   SINGULAR, UINT64,   executed_units,    8) \
-X(a, STATIC,   SINGULAR, INT64,    accounts_data_len_delta,   9) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  fee_details,      10)
+X(a, STATIC,   OPTIONAL, MESSAGE,  fee_details,       9)
 #define FD_EXEC_TEST_TXN_RESULT_CALLBACK NULL
 #define FD_EXEC_TEST_TXN_RESULT_DEFAULT NULL
 #define fd_exec_test_txn_result_t_resulting_state_MSGTYPE fd_exec_test_resulting_state_t

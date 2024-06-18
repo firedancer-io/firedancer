@@ -1590,6 +1590,8 @@ fd_runtime_generate_wave( fd_execute_txn_task_info_t * task_infos,
   } FD_SCRATCH_SCOPE_END;
 }
 
+/* NOTE: Don't mess with this call without updating the transaction fuzzing harness appropriately!
+   fd_exec_instr_test.c:_txn_context_create */
 int
 fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         fd_capture_ctx_t * capture_ctx,
@@ -1600,6 +1602,8 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         fd_tpool_t * tpool,
                                         ulong max_workers ) {
   FD_SCRATCH_SCOPE_BEGIN {
+    bool dump_txn = capture_ctx && slot_ctx->slot_bank.slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_txn_to_pb;
+
     fd_execute_txn_task_info_t * task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
     fd_execute_txn_task_info_t * wave_task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
     ulong wave_task_infos_cnt = 0;
@@ -1638,6 +1642,13 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
       incomplete_txn_idxs = next_incomplete_txn_idxs;
       next_incomplete_txn_idxs = temp_incomplete_txn_idxs;
       incomplete_txn_idxs_cnt = next_incomplete_txn_idxs_cnt;
+
+      // Dump txns in waves
+      if( dump_txn ) {
+        for( ulong i = 0; i < wave_task_infos_cnt; ++i ) {
+          dump_txn_to_protobuf( wave_task_infos[i].txn_ctx );
+        }
+      }
 
       res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, query_func, query_arg, tpool, max_workers );
       if( res != 0 ) {
@@ -2855,7 +2866,7 @@ fd_rent_due(fd_account_meta_t *acc,
    needed. Returns 1 if the account was changed, and 0 if it is
    unchanged. */
 
-static int
+int
 fd_runtime_collect_rent_account( fd_exec_slot_ctx_t * slot_ctx,
                                  fd_account_meta_t * acc,
                                  fd_pubkey_t const * key,

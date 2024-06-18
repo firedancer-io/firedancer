@@ -75,10 +75,13 @@ struct fd_ledger_args {
   char const *          checkpt_path;            /* path to dump funk wksp checkpoints during execution*/
   ulong                 checkpt_freq;            /* how often funk wksp checkpoints will be dumped (defaults to never) */
   int                   checkpt_mismatch;        /* determine if a funk wksp checkpoint should be dumped on a mismatch*/
+  
   int                   dump_insn_to_pb;         /* instruction dumping: should insns be dumped */
-  ulong                 dump_insn_start_slot;    /* instruction dumping: what slot to start dumping*/
-  char const *          dump_insn_sig_filter;    /* instruction dumping: specify txn sig to dump at */
-  char const *          dump_insn_output_dir;    /* instruction dumping: output directory for insns */
+  int                   dump_txn_to_pb;          /* txn dumping: should txns be dumped */
+  ulong                 dump_proto_start_slot;   /* instruction / txn dumping: what slot to start dumping*/
+  char const *          dump_proto_sig_filter;   /* instruction / txn dumping: specify txn sig to dump at */
+  char const *          dump_proto_output_dir;   /* instruction / txn dumping: output directory for protobuf messages */
+  
   int                   verify_funk;             /* verify funk before execution starts */
   uint                  verify_acc_hash;         /* verify account hash from the snapshot */
   uint                  check_acc_hash;          /* check account hash by reconstructing with data */
@@ -366,7 +369,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   int has_checkpt_funk     = args->checkpt_funk && args->checkpt_funk[0] != '\0';
   int has_checkpt_arch     = args->checkpt_archive && args->checkpt_archive[0] != '\0';
   int has_prune            = args->pruned_funk != NULL;
-  int has_dump_to_protobuf = args->dump_insn_to_pb;
+  int has_dump_to_protobuf = args->dump_insn_to_pb || args->dump_txn_to_pb;
 
   if( has_solcap || has_checkpt || has_checkpt_funk || has_checkpt_arch || has_prune || has_dump_to_protobuf ) {
     FILE * capture_file = NULL;
@@ -398,10 +401,11 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
       args->capture_ctx->pruned_funk = args->pruned_funk;
     }
     if( has_dump_to_protobuf ) {
-      args->capture_ctx->dump_insn_to_pb      = args->dump_insn_to_pb;
-      args->capture_ctx->dump_insn_sig_filter = args->dump_insn_sig_filter;
-      args->capture_ctx->dump_insn_output_dir = args->dump_insn_output_dir;
-      args->capture_ctx->dump_insn_start_slot = args->dump_insn_start_slot;
+      args->capture_ctx->dump_insn_to_pb       = args->dump_insn_to_pb;
+      args->capture_ctx->dump_txn_to_pb        = args->dump_txn_to_pb;
+      args->capture_ctx->dump_proto_sig_filter = args->dump_proto_sig_filter;
+      args->capture_ctx->dump_proto_output_dir = args->dump_proto_output_dir;
+      args->capture_ctx->dump_proto_start_slot = args->dump_proto_start_slot;
     }
   }
 
@@ -1319,9 +1323,10 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   int          on_demand_block_ingest  = fd_env_strip_cmdline_int  ( &argc, &argv, "--on-demand-block-ingest",  NULL, 1         );
   ulong        on_demand_block_history = fd_env_strip_cmdline_ulong( &argc, &argv, "--on-demand-block-history", NULL, 100       );
   int          dump_insn_to_pb         = fd_env_strip_cmdline_int  ( &argc, &argv, "--dump-insn-to-pb",         NULL, 0         );
-  ulong        dump_insn_start_slot    = fd_env_strip_cmdline_ulong( &argc, &argv, "--dump-insn-start-slot",    NULL, 0         );
-  char const * dump_insn_sig_filter    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dump-insn-sig-filter",    NULL, NULL      );
-  char const * dump_insn_output_dir    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dump-insn-output-dir",    NULL, NULL      );
+  int          dump_txn_to_pb          = fd_env_strip_cmdline_int  ( &argc, &argv, "--dump-txn-to-pb",          NULL, 0         );
+  ulong        dump_proto_start_slot   = fd_env_strip_cmdline_ulong( &argc, &argv, "--dump-proto-start-slot",   NULL, 0         );
+  char const * dump_proto_sig_filter   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dump-proto-sig-filter",   NULL, NULL      );
+  char const * dump_proto_output_dir   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dump-proto-output-dir",   NULL, NULL      );
   ulong        vote_acct_max           = fd_env_strip_cmdline_ulong( &argc, &argv, "--vote_acct_max",           NULL, 2000000UL );
   int          use_funk_wksp           = fd_env_strip_cmdline_int  ( &argc, &argv, "--use-funk-wksp",           NULL, 1         );
   char const * rocksdb_list            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",                 NULL, NULL      );
@@ -1438,9 +1443,10 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->on_demand_block_ingest  = on_demand_block_ingest;
   args->on_demand_block_history = on_demand_block_history;
   args->dump_insn_to_pb         = dump_insn_to_pb;
-  args->dump_insn_start_slot    = dump_insn_start_slot;
-  args->dump_insn_sig_filter    = dump_insn_sig_filter;
-  args->dump_insn_output_dir    = dump_insn_output_dir;
+  args->dump_txn_to_pb          = dump_txn_to_pb;
+  args->dump_proto_start_slot   = dump_proto_start_slot;
+  args->dump_proto_sig_filter   = dump_proto_sig_filter;
+  args->dump_proto_output_dir   = dump_proto_output_dir;
   args->vote_acct_max           = vote_acct_max;
   args->rocksdb_list_cnt        = 0UL;
   args->checkpt_status_cache    = checkpt_status_cache;
