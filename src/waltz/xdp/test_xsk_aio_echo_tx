@@ -14,7 +14,7 @@ ROUND_TRIP_CNT=1000
 
 for((i=0;i<$CNC_ATTEMPT_CNT;i++)); do
   echo "Waiting for rx to start ... ($i/$CNC_ATTEMPT_CNT)"
-  if [[ "$("$BIN/fd_waltz_ctl" query-cnc $CNC 0 2>/dev/null)" == "0" ]]; then
+  if [[ "$("$BIN/fd_tango_ctl" query-cnc $CNC 0 2>/dev/null)" == "0" ]]; then
     break
   fi
   sleep 0.25
