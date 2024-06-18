@@ -21,11 +21,17 @@ dump_link( void           * out_file,
   ulong seq_init = fd_mcache_seq_query( fd_mcache_seq_laddr_const( mcache ) );
   ulong depth = fd_mcache_depth( mcache );
 
+  ulong dumped_count = 0UL;
+
   uint link_hash = (uint)((fd_hash( 17UL, link->name, strlen( link->name ) ) << 8) | link->kind_id);
-  FD_LOG_NOTICE(( "Dumping %s %lu. Link hash: 0x%x", link->name, link->kind_id, link_hash ));
+  /* For links that are published reliably, we can trust the value of
+     seq_init.  For unreliable links, we'll just publish one whole
+     depth. */
+
   /* We know at this point [seq0, seq_init) were published, but they may
      be long overwritten, and there may be more published than that. */
 
+  ulong min_seq_seen = seq_init; /* What we actually dumped is [min_seq_seen, seq_init) */
   for( ulong seq=fd_seq_dec( seq_init, 1UL ); fd_seq_ge( seq, seq0 ); seq=fd_seq_dec( seq, 1UL ) ) {
     /* It's not necessary for this to be atomic, since this is a
        post-mortem tool. */
@@ -33,12 +39,15 @@ dump_link( void           * out_file,
     ulong read_seq = fd_frag_meta_seq_query( line );
     if( FD_UNLIKELY( read_seq!=seq ) ) break;
 
+    min_seq_seen = seq;
+
     ulong chunk = line->chunk;
     ulong sz    = line->sz;
 
     void const * buffer = fd_chunk_to_laddr_const( mem, chunk );
 
     fd_pcap_fwrite_pkt( (long)seq, line, sizeof(fd_frag_meta_t), buffer, sz, link_hash, out_file );
+    dumped_count++;
   }
 
   /* Now check everything after seq_init.  This could potentially loop
@@ -48,7 +57,12 @@ dump_link( void           * out_file,
 
     fd_frag_meta_t const * line = mcache+fd_mcache_line_idx( seq, depth );
     ulong read_seq = fd_frag_meta_seq_query( line );
-    if( FD_UNLIKELY( read_seq!=seq ) ) break;
+
+    /* Skip anything we processed in the first loop, also skipping any
+       with the err control bit set.  When an mcache is initialized, all
+       the frags have err set to true, so this will skip those in
+       particular as well. */
+    if( FD_UNLIKELY( (fd_seq_le( min_seq_seen, read_seq ) & fd_seq_lt( read_seq, seq_init )) | (line->ctl & (1<<2)) ) ) continue;
 
     ulong chunk = line->chunk;
     ulong sz    = line->sz;
@@ -56,7 +70,9 @@ dump_link( void           * out_file,
     void const * buffer = fd_chunk_to_laddr_const( mem, chunk );
 
     fd_pcap_fwrite_pkt( (long)seq, line, sizeof(fd_frag_meta_t), buffer, sz, link_hash, out_file );
+    dumped_count++;
   }
+  FD_LOG_NOTICE(( "Dumped %lu frags from %s %lu. Link hash: 0x%x", dumped_count, link->name, link->kind_id, link_hash ));
 }
 
 void
@@ -69,8 +85,13 @@ dump_cmd_fn( args_t *         args,
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topo_fill( &config->topo );
 
+  char * tokens[ 16 ];
+  ulong token_count = fd_cstr_tokenize( tokens, 16UL, args->dump.link_name, ',' );
+
   for( ulong i=0UL; i<config->topo.link_cnt; i++ ) {
-    if( !strcmp( args->dump.link_name, config->topo.links[ i ].name ) || !strcmp( args->dump.link_name, "" ) ) {
+    int found = (token_count==0UL);
+    for( ulong k=0UL; k<token_count; k++ ) found |= !strcmp( tokens[ k ], config->topo.links[ i ].name );
+    if( found ) {
 
       fd_topo_link_t * link = &(config->topo.links[ i ]);
       if( (link->mcache==NULL) | (link->dcache==NULL) ) {
