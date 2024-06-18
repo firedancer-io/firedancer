@@ -507,12 +507,11 @@ after_frag( void *             _ctx,
 
       FD_PARAM_UNUSED long tic_ = fd_log_wallclock();
 
-
       fd_tower_fork_update( ctx->tower, fork );
       long        now         = fd_log_wallclock();
       fd_ghost_node_t * head                = fd_ghost_head_query( ctx->tower->ghost );
       long        duration_ns         = fd_log_wallclock() - now;
-      if( FD_UNLIKELY( head->slot_hash.slot < fork->slot - 32 ) ) {
+      if( FD_UNLIKELY( head->slot < fork->slot - 32 ) ) {
         FD_LOG_WARNING( ( "Fork choice slot is too far behind executed slot. Likely there is a "
                           "bug in execution that is interfering with our ability to process recent votes." ) );
 
@@ -528,7 +527,7 @@ after_frag( void *             _ctx,
                          "selected fork:      %lu\n"
                          "took:               %.2lf ms (%ld ns)\n",
                          fd_vote_accounts_pair_t_map_size( vote_accounts->vote_accounts_pool, vote_accounts->vote_accounts_root ),
-                         head->slot_hash.slot,
+                         head->slot,
                          (double)( duration_ns ) / 1e6,
                          duration_ns ) );
 
@@ -548,17 +547,7 @@ after_frag( void *             _ctx,
         }
       }
 
-      fd_slot_hash_t    curr_slot_hash = { .slot = child->slot,
-                                           .hash = fork->slot_ctx.slot_bank.banks_hash };
-      fd_ghost_node_t * curr           = fd_ghost_node_query( ctx->tower->ghost, &curr_slot_hash );
-      fd_ghost_node_t * prev           = curr;
-      for( ulong i = 0; i < 8; i++ ) {
-        if( !curr ) break;
-        prev = curr;
-        curr = curr->parent;
-      }
-      fd_ghost_node_t * root = fd_ptr_if( !!curr, curr, prev );
-      fd_ghost_print( ctx->tower->ghost, root );
+      fd_ghost_print( ctx->tower->ghost, child->slot, FD_GHOST_PRINT_DEPTH_DEFAULT, ctx->tower->total_stake );
 
       /* Prepare bank for next execution. */
 
@@ -757,11 +746,10 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   ctx->tower->root = snapshot_slot;
   fd_tower_epoch_update( ctx->tower, ctx->epoch_ctx );
   bank_hash_cmp->total_stake = ctx->tower->total_stake;
-  FD_LOG_NOTICE( ( "total stake: %lu", bank_hash_cmp->total_stake ) );
 
-  fd_slot_hash_t key = { .slot = snapshot_slot, .hash = ctx->slot_ctx->slot_bank.banks_hash };
-  fd_ghost_node_insert( ctx->ghost, &key, NULL );
-  ctx->ghost->total_stake = ctx->tower->total_stake;
+  FD_LOG_NOTICE(("total stake %lu", bank_hash_cmp->total_stake));
+
+  fd_ghost_init( ctx->ghost, snapshot_slot );
 }
 
 static void
