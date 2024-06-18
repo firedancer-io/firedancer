@@ -119,7 +119,7 @@ _load_account( fd_borrowed_account_t *           acc,
                                /* min_data_sz */ size,
                                acc );
   assert( err==FD_ACC_MGR_SUCCESS );
-  fd_memcpy( acc->data, state->data->bytes, size );
+  if( state->data ) fd_memcpy( acc->data, state->data->bytes, size );
 
   acc->starting_lamports     = state->lamports;
   acc->starting_dlen         = size;

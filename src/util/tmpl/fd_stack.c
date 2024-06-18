@@ -48,6 +48,7 @@
    remove operation (remove_all is fine on an empty stack). */
 
 #include "../bits/fd_bits.h"
+#include <stddef.h>
 
 #ifndef STACK_NAME
 #error "Define STACK_NAME"
@@ -83,14 +84,14 @@ FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST static inline STACK_(private_t) *
 STACK_(private_hdr_from_stack)( STACK_T * stack ) {
-  return (STACK_(private_t) *)( (ulong)stack - (ulong)&(((STACK_(private_t) *)NULL)->stack) );
+  return (STACK_(private_t) *)( (ulong)stack - offsetof(STACK_(private_t), stack) );
 }
 
 /* const-correct version of above */
 
 FD_FN_CONST static inline STACK_(private_t) const *
 STACK_(private_const_hdr_from_stack)( STACK_T const * stack ) {
-  return (STACK_(private_t) const *)( (ulong)stack - (ulong)&(((STACK_(private_t) *)NULL)->stack) );
+  return (STACK_(private_t) const *)( (ulong)stack - offsetof(STACK_(private_t), stack) );
 }
 
 FD_FN_CONST static inline ulong STACK_(align)( void ) { return alignof(STACK_(private_t)); }

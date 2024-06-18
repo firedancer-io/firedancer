@@ -162,6 +162,7 @@
    unless otherwise explicitly noted. */
 
 #include "../bits/fd_bits.h"
+#include <stddef.h>
 
 #ifndef SET_NAME
 #error "Define SET_NAME"
@@ -208,12 +209,12 @@ SET_(private_full_last_word)( ulong max ) {
 
 FD_FN_CONST static inline SET_(private_t) *
 SET_(private_hdr_from_set)( SET_(t) * set ) {
-  return (SET_(private_t) *)( (ulong)set - (ulong)&(((SET_(private_t) *)NULL)->set) );
+  return (SET_(private_t) *)( (ulong)set - offsetof(SET_(private_t), set) );
 }
 
 FD_FN_CONST static inline SET_(private_t) const *
 SET_(private_hdr_from_set_const)( SET_(t) const * set ) {
-  return (SET_(private_t) const *)( (ulong)set - (ulong)&(((SET_(private_t) *)NULL)->set) );
+  return (SET_(private_t) const *)( (ulong)set - offsetof(SET_(private_t), set) );
 }
 
 /* Public APIs ********************************************************/
