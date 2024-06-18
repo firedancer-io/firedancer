@@ -54,7 +54,6 @@ $(call add-objs,run/topos/fd_firedancer,fd_fdctl)
 $(call add-objs,configure/configure,fd_fdctl)
 $(call add-objs,configure/hugetlbfs,fd_fdctl)
 $(call add-objs,configure/sysctl,fd_fdctl)
-$(call add-objs,configure/xdp,fd_fdctl)
 $(call add-objs,configure/ethtool,fd_fdctl)
 $(call add-objs,configure/workspace,fd_fdctl)
 
