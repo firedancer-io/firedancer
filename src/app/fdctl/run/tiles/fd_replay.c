@@ -686,7 +686,7 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
 
       /* Open the command for reading. */
       char cmd[128];
-      snprintf( cmd, sizeof( cmd ), "./download_incremental.sh %s", incremental );
+      snprintf( cmd, sizeof( cmd ), "./contrib/download_incremental.sh %s", incremental );
       FD_LOG_NOTICE( ( "cmd: %s", cmd ) );
       fp = popen( cmd, "r" );
       if( fp == NULL ) {
