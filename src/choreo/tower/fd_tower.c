@@ -350,7 +350,7 @@ fd_tower_lockout_check( fd_tower_t * tower, fd_fork_t * fork ) {
     return 1;
   }
   ulong prev_vote_slot          = tower->vote_slots[tower->vote_slot_cnt - 1];
-  ulong lockout_expiration_slot = prev_vote_slot + ( 1 << tower->vote_slot_cnt );
+  ulong lockout_expiration_slot = prev_vote_slot + ( 1UL << tower->vote_slot_cnt );
   return fork->slot > lockout_expiration_slot;
 }
 
