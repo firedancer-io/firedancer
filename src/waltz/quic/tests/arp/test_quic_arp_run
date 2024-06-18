@@ -13,8 +13,5 @@ then
   mount -t bpf bpf /sys/fs/bpf
 fi
 
-$BIN/fd_xdp_ctl init "$IFACE" 0750 "$USER" ""
-$BIN/fd_xdp_ctl hook-iface "$IFACE" "$IFACE" skb
-
 bash -c "$CMD" || exit $?
 
