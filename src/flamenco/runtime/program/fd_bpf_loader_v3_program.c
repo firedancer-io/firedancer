@@ -958,7 +958,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       return err;
     }
     if( fd_bpf_upgradeable_loader_state_is_buffer( &buffer_state ) ) {
-      if( FD_UNLIKELY( memcmp( buffer_state.inner.buffer.authority_address, authority_key, sizeof(fd_pubkey_t) ) ) ) {
+      if( FD_UNLIKELY( (authority_key==NULL) != (buffer_state.inner.buffer.authority_address == NULL) ||
+          (authority_key!=NULL && memcmp( buffer_state.inner.buffer.authority_address, authority_key, sizeof(fd_pubkey_t) ) ) ) ) {
         FD_LOG_WARNING(( "Buffer and upgrade authority don't match" ));
         return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
       }
