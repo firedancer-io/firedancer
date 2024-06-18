@@ -20,7 +20,6 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &netns,
   &hugetlbfs,
   &sysctl,
-  &xdp,
   &ethtool,
   &keys,
   &workspace,

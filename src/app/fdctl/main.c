@@ -5,7 +5,6 @@
 configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &hugetlbfs,
   &sysctl,
-  &xdp,
   &ethtool,
   &workspace,
   NULL,
