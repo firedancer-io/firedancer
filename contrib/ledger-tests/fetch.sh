@@ -45,8 +45,14 @@ download_ext_rocksdb() {
   cd "$LEDGER" || exit
 
   LATEST_SNAPSHOT="$(gcloud storage ls $ledger_url | sort -n -t / -k 4 | tail -1)"
+
+  local rocksdb_in_gs=$(/bin/gsutil ls $LATEST_SNAPSHOT/rocksdb.tar.zst 2>&1)
+  if echo "$rocksdb_in_gs" | grep -q -e "No such file or directory" -e "matched no objects"; then
+    local second_latest_snapshot="$(gcloud storage ls $ledger_url | sort -n -t / -k 4 | tail -2 | head -1)"
+    LATEST_SNAPSHOT=$second_latest_snapshot
+  fi
+
   LATEST_SNAPSHOT_SLOT=$(echo "$LATEST_SNAPSHOT" | sed 's#.*/\([0-9]\+\)/#\1#')
-  echo "[~] latest_snapshot=$LATEST_SNAPSHOT, latest_snapshot_slot=$LATEST_SNAPSHOT_SLOT"
 
   /bin/gsutil cp "$ledger_url/$LATEST_SNAPSHOT_SLOT/rocksdb.tar.zst" .
   if [ ! -f rocksdb.tar.zst ]; then
@@ -67,11 +73,19 @@ download_ext_snapshot() {
 
   is_rooted_slot $((LATEST_SNAPSHOT_SLOT + 1))
   local is_rooted_status=$?
+  local full_snapshot="false"
 
   if [[ $LATEST_SNAPSHOT_SLOT -ge $MIN_SNAPSHOT_SLOT && $is_rooted_status -eq 0 ]]; then
-    echo "[~] getting the latest snapshot $fetch_snapshot"
-    fetch_snapshot=${LATEST_SNAPSHOT}snapshot-${LATEST_SNAPSHOT_SLOT}-*.tar.zst  
-  else
+    echo "[~] getting the latest full snapshot"
+    fetch_snapshot=${LATEST_SNAPSHOT}snapshot-${LATEST_SNAPSHOT_SLOT}-*.tar.zst
+    local snapshot_in_gs=$(/bin/gsutil ls $fetch_snapshot 2>&1)
+    if ! echo "$snapshot_in_gs" | grep -q -e "No such file or directory" -e "matched no objects"; then
+      full_snapshot="true"
+    fi
+  fi
+
+  if [[ $full_snapshot == "false" ]]; then
+    echo "[~] getting the latest hourly snapshot"
     local fetch_hourly_snapshots="$(gcloud storage ls $ledger_url/$LATEST_SNAPSHOT_SLOT/hourly | sort -n -t / -k 4)"
     for fetch_snap in $(echo $fetch_hourly_snapshots); do
       local fetch_hourly_slot=$(echo $fetch_snap | awk -F '/' '{print $NF}' | awk -F '-' '{print $2}')
