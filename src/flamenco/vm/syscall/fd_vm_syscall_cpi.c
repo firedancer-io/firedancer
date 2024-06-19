@@ -311,7 +311,7 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
     }
   } else {
     // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1114
-    ulong tot_sz = fd_ulong_sat_add( fd_ulong_sat_mul( FD_VM_C_ACCOUNT_META_SIZE, acct_cnt ), data_sz );
+    ulong tot_sz = fd_ulong_sat_add( fd_ulong_sat_mul( FD_VM_RUST_ACCOUNT_META_SIZE, acct_cnt ), data_sz );
     if ( FD_UNLIKELY( tot_sz > FD_VM_MAX_CPI_INSTRUCTION_SIZE ) ) {
       FD_LOG_WARNING(( "cpi: instruction too long (%#lx)", tot_sz ));
       // SyscallError::InstructionTooLarge
