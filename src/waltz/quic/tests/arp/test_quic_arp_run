@@ -7,11 +7,5 @@ IFACE="$2"
 shift 2
 CMD="$*"
 
-# ensure bpf is mounted
-if ! mount | grep -q /sys/fs/bpf
-then
-  mount -t bpf bpf /sys/fs/bpf
-fi
-
 bash -c "$CMD" || exit $?
 

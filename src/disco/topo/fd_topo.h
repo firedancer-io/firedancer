@@ -131,11 +131,11 @@ typedef struct {
      total size of Firedancer in memory. */
   union {
     struct {
-      char   app_name[ 256 ];
       char   interface[ 16 ];
       ulong  xdp_rx_queue_size;
       ulong  xdp_tx_queue_size;
       ulong  xdp_aio_depth;
+      char   xdp_mode[4];
       int    zero_copy;
       uint   src_ip_addr;
       uchar  src_mac_addr[6];

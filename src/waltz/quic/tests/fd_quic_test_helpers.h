@@ -102,9 +102,11 @@ struct fd_quic_udpsock {
   fd_wksp_t * wksp;  /* Handle to the workspace owning the objects */
   union {
     struct {
-      fd_xsk_t *     xsk;
-      fd_xsk_aio_t * xsk_aio;
-    } xsk;
+      fd_xdp_session_t      session;
+      fd_xdp_link_session_t link_session;
+      fd_xsk_t *            xsk;
+      fd_xsk_aio_t *        xsk_aio;
+    } xdp;
     struct {
       fd_udpsock_t * sock;
       int            sock_fd;

@@ -1,6 +1,8 @@
 #include "fd_quic_test_helpers.h"
 #include "../../../util/net/fd_pcapng.h"
 #include <errno.h>
+#include <linux/if_link.h>
+#include <net/if.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -328,28 +330,86 @@ fd_quic_udpsock_create( void *           _sock,
 
   fd_quic_udpsock_t * quic_sock = (fd_quic_udpsock_t *)_sock;
 
-  char const * iface        = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--iface",        NULL,      NULL );
-  uint         ifqueue      = fd_env_strip_cmdline_uint  ( pargc, pargv, "--ifqueue",      NULL,       0U  );
-  char const * _src_mac     = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--src-mac",      NULL,      NULL );
-  char const * xdp_app_name = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--bpf-dir",      NULL,      NULL );
-  ulong        mtu          = fd_env_strip_cmdline_ulong ( pargc, pargv, "--mtu",          NULL,    2048UL );
-  ulong        rx_depth     = fd_env_strip_cmdline_ulong ( pargc, pargv, "--rx-depth",     NULL,    1024UL );
-  ulong        tx_depth     = fd_env_strip_cmdline_ulong ( pargc, pargv, "--tx-depth",     NULL,    1024UL );
-  ulong        xsk_pkt_cnt  = fd_env_strip_cmdline_ulong ( pargc, pargv, "--xsk-pkt-cnt",  NULL,      32UL );
-  char const * _listen_ip   = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--listen-ip",    NULL, "0.0.0.0" );
-  ushort       listen_port  = fd_env_strip_cmdline_ushort( pargc, pargv, "--listen-port",  NULL,       0U  );
+  char const * if_name       = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--iface",        NULL,      NULL );
+  uint         if_queue      = fd_env_strip_cmdline_uint  ( pargc, pargv, "--ifqueue",      NULL,       0U  );
+  char const * _src_mac      = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--src-mac",      NULL,      NULL );
+  ulong        mtu           = fd_env_strip_cmdline_ulong ( pargc, pargv, "--mtu",          NULL,    2048UL );
+  ulong        rx_depth      = fd_env_strip_cmdline_ulong ( pargc, pargv, "--rx-depth",     NULL,    1024UL );
+  ulong        tx_depth      = fd_env_strip_cmdline_ulong ( pargc, pargv, "--tx-depth",     NULL,    1024UL );
+  ulong        xsk_pkt_cnt   = fd_env_strip_cmdline_ulong ( pargc, pargv, "--xsk-pkt-cnt",  NULL,      32UL );
+  char const * _listen_ip    = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--listen-ip",    NULL, "0.0.0.0" );
+  ushort       listen_port   = fd_env_strip_cmdline_ushort( pargc, pargv, "--listen-port",  NULL,     9090U );
+  char const * net_mode_cstr = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--net-mode",     NULL,  "socket" );
+  char const * xdp_mode_cstr = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--xdp-mode",     NULL,     "skb" );
 
   uint listen_ip = 0;
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( _listen_ip, &listen_ip ) ) ) FD_LOG_ERR(( "invalid --listen-ip" ));
 
+  if( FD_UNLIKELY( !if_name ) ) FD_LOG_ERR(( "Missing --iface" ));  /* TODO relax this for regular sockets? */
+  uint if_idx = if_nametoindex( if_name );
+  if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "invalid --iface: %s", if_name ));
+
+  static char mac_cstr[18];
+  if( FD_UNLIKELY( !_src_mac ) ) do {
+    char path[ 22 + IF_NAMESIZE ];
+    FILE * address_file;
+    
+    snprintf( path, sizeof(path), "/sys/class/net/%s/address", if_name );
+    
+    address_file = fopen( path, "r" );
+    if( FD_UNLIKELY( !address_file ) )
+      goto detect_fail;
+
+    if( FD_UNLIKELY( 17!=fread( mac_cstr, 1, 17UL, address_file ) ) )
+      goto detect_fail;
+    mac_cstr[17] = '\0';
+
+    _src_mac = mac_cstr;
+    fclose( address_file );
+    break;
+detect_fail:
+    FD_LOG_ERR(( "Missing --src-mac (auto detection failed)" ));
+  } while(0);
+
+  int sock_type = 0;
+  if( 0==strcmp( net_mode_cstr, "xdp" ) ) {
+    sock_type = FD_QUIC_UDPSOCK_TYPE_XSK;
+  } else if( 0==strcmp( net_mode_cstr, "socket" ) ) {
+    sock_type = FD_QUIC_UDPSOCK_TYPE_UDPSOCK;
+  } else {
+    FD_LOG_ERR(( "Invalid --net-mode \"%s\"", net_mode_cstr ));
+  }
+  FD_LOG_NOTICE(( "Using --net-mode %s", net_mode_cstr ));
+
   quic_sock->listen_ip   = listen_ip;
   quic_sock->listen_port = listen_port;
 
-  int is_xsk = (!!xdp_app_name);
-  FD_LOG_NOTICE(( "is_xsk %d", is_xsk ));
-  if( is_xsk ) {
+  if( sock_type == FD_QUIC_UDPSOCK_TYPE_XSK ) {
+    uint xdp_mode = 0;
+    if( 0==strcmp( xdp_mode_cstr, "skb" ) ) {
+      xdp_mode = XDP_FLAGS_SKB_MODE;
+    } else if( 0==strcmp( xdp_mode_cstr, "drv" ) ) {
+      xdp_mode = XDP_FLAGS_DRV_MODE;
+    } else {
+      FD_LOG_ERR(( "Invalid --xdp-mode %s", xdp_mode_cstr ));
+    }
+
     FD_TEST( _src_mac );
     if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _src_mac, quic_sock->self_mac ) ) ) FD_LOG_ERR(( "invalid --src-mac" ));
+
+    fd_xdp_session_t * session = fd_xdp_session_init( &quic_sock->xdp.session );
+    if( FD_UNLIKELY( !session ) ) {
+      FD_LOG_WARNING(( "fd_xdp_session_init failed" ));
+      return NULL;
+    }
+
+    FD_LOG_NOTICE(( "Adding UDP listener (" FD_IP4_ADDR_FMT ":%u)",
+                    FD_IP4_ADDR_FMT_ARGS( quic_sock->listen_ip ), quic_sock->listen_port ));
+    if( FD_UNLIKELY( 0!=fd_xdp_listen_udp_port( session, quic_sock->listen_ip, (ushort)quic_sock->listen_port, 0 ) ) ) {
+      FD_LOG_WARNING(( "fd_xdp_listen_udp_port failed" ));
+      fd_xdp_session_fini( session );
+      return NULL;
+    }
 
     ulong xsk_sz = fd_xsk_footprint( mtu, rx_depth, rx_depth, tx_depth, tx_depth );
     if( FD_UNLIKELY( !xsk_sz ) ) {
@@ -359,64 +419,59 @@ fd_quic_udpsock_create( void *           _sock,
 
     FD_LOG_NOTICE(( "Creating XSK" ));
     void * xsk_mem = fd_wksp_alloc_laddr( wksp, fd_xsk_align(), xsk_sz, 1UL );
-    if( FD_UNLIKELY( !fd_xsk_new( xsk_mem, mtu, rx_depth, rx_depth, tx_depth, tx_depth, 0 ) ) ) {
-      FD_LOG_WARNING(( "failed to create XSK" ));
-      return NULL;
-    }
-
-    FD_LOG_NOTICE(( "Binding XSK (--iface %s, --ifqueue %u)", iface, ifqueue ));
-    if( FD_UNLIKELY( !fd_xsk_bind( xsk_mem, xdp_app_name, iface, ifqueue ) ) ) {
-      FD_LOG_WARNING(( "failed to bind XSK" ));
-      fd_wksp_free_laddr( xsk_mem );
-      return NULL;
-    }
-
-    FD_LOG_NOTICE(( "Joining XSK" ));
-    fd_xsk_t * xsk = fd_xsk_join( xsk_mem );
+    fd_xsk_t * xsk = fd_xsk_join( fd_xsk_new( xsk_mem, mtu, rx_depth, rx_depth, tx_depth, tx_depth ) );
     if( FD_UNLIKELY( !xsk ) ) {
-      FD_LOG_WARNING(( "failed to join XSK" ));
+      FD_LOG_WARNING(( "fd_xsk_new failed" ));
       fd_wksp_free_laddr( xsk_mem );
+      fd_xdp_session_fini( session );
+      return NULL;
+    }
+
+    /* TODO merge this into new? */
+    FD_LOG_NOTICE(( "Binding XSK (--iface %s, --ifqueue %u)", if_name, if_queue ));
+    if( FD_UNLIKELY( !fd_xsk_init( xsk, if_idx, if_queue, 0 /* flags */ ) ) ) {
+      FD_LOG_WARNING(( "fd_xsk_init failed" ));
       return NULL;
     }
 
     FD_LOG_NOTICE(( "Creating fd_xsk_aio" ));
     void * xsk_aio_mem =
       fd_wksp_alloc_laddr( wksp, fd_xsk_aio_align(), fd_xsk_aio_footprint( tx_depth, xsk_pkt_cnt ), 1UL );
-    if( FD_UNLIKELY( !fd_xsk_aio_new( xsk_aio_mem, tx_depth, xsk_pkt_cnt ) ) ) {
+    fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( fd_xsk_aio_new( xsk_aio_mem, tx_depth, xsk_pkt_cnt ), xsk );
+    if( FD_UNLIKELY( !xsk_aio ) ) {
       FD_LOG_WARNING(( "failed to create fd_xsk_aio" ));
-      fd_xsk_leave( xsk );
-      fd_wksp_free_laddr( xsk_mem     );
-      fd_wksp_free_laddr( xsk_aio_mem );
+      fd_wksp_free_laddr( xsk_aio );
+      fd_wksp_free_laddr( fd_xsk_delete( fd_xsk_leave( xsk ) ) );
+      fd_xdp_session_fini( session );
       return NULL;
     }
 
     FD_LOG_NOTICE(( "Joining fd_xsk_aio" ));
-    fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( xsk_aio_mem, xsk );
+    
     if( FD_UNLIKELY( !xsk_aio ) ) {
       FD_LOG_WARNING(( "failed to join fd_xsk_aio" ));
-      fd_xsk_leave( xsk );
-      fd_wksp_free_laddr( xsk_mem     );
-      fd_wksp_free_laddr( xsk_aio_mem );
-      return NULL;
-    }
-
-    FD_LOG_NOTICE(( "Adding UDP listener (" FD_IP4_ADDR_FMT ":%u)",
-                    FD_IP4_ADDR_FMT_ARGS( quic_sock->listen_ip ), quic_sock->listen_port ));
-    if( FD_UNLIKELY( 0!=fd_xdp_listen_udp_ports( xdp_app_name, quic_sock->listen_ip, 1, &quic_sock->listen_port, 0 ) ) ) {
-      FD_LOG_WARNING(( "failed to add UDP listener" ));
-      fd_xsk_aio_leave( xsk_aio );
-      fd_xsk_leave( xsk );
-      fd_wksp_free_laddr( xsk_mem     );
-      fd_wksp_free_laddr( xsk_aio_mem );
+      fd_wksp_free_laddr( fd_xsk_aio_delete( fd_xsk_aio_leave( xsk_aio ) ) );
+      fd_wksp_free_laddr( fd_xsk_delete( fd_xsk_leave( xsk ) ) );
+      fd_xdp_session_fini( session );
       return NULL;
     }
 
     quic_sock->type        = FD_QUIC_UDPSOCK_TYPE_XSK;
     quic_sock->wksp        = wksp;
-    quic_sock->xsk.xsk     = xsk;
-    quic_sock->xsk.xsk_aio = xsk_aio;
-    quic_sock->aio         = fd_xsk_aio_get_tx( quic_sock->xsk.xsk_aio );
+    quic_sock->xdp.xsk     = xsk;
+    quic_sock->xdp.xsk_aio = xsk_aio;
+    quic_sock->aio         = fd_xsk_aio_get_tx( quic_sock->xdp.xsk_aio );
     fd_xsk_aio_set_rx( xsk_aio, rx_aio );
+
+    fd_xdp_link_session_t * link_session =  
+        fd_xdp_link_session_init( &quic_sock->xdp.link_session, session, if_idx, xdp_mode );
+    if( FD_UNLIKELY( !link_session ) ) {
+      FD_LOG_WARNING(( "failed to hook iface" ));
+      fd_wksp_free_laddr( fd_xsk_aio_delete( fd_xsk_aio_leave( xsk_aio ) ) );
+      fd_wksp_free_laddr( fd_xsk_delete( fd_xsk_leave( xsk ) ) );
+      fd_xdp_session_fini( session );
+      return NULL;
+    }
 
     FD_LOG_NOTICE(( "AF_XDP listening on " FD_IP4_ADDR_FMT ":%u",
                     FD_IP4_ADDR_FMT_ARGS( quic_sock->listen_ip ), quic_sock->listen_port ));
@@ -478,8 +533,10 @@ fd_quic_udpsock_destroy( fd_quic_udpsock_t * udpsock ) {
 
   switch( udpsock->type ) {
   case FD_QUIC_UDPSOCK_TYPE_XSK:
-    fd_wksp_free_laddr( fd_xsk_aio_delete( fd_xsk_aio_leave( udpsock->xsk.xsk_aio ) ) );
-    fd_wksp_free_laddr( fd_xsk_delete    ( fd_xsk_leave    ( udpsock->xsk.xsk     ) ) );
+    fd_xdp_link_session_fini( &udpsock->xdp.link_session );
+    fd_xdp_session_fini     ( &udpsock->xdp.session      );
+    fd_wksp_free_laddr( fd_xsk_aio_delete( fd_xsk_aio_leave( udpsock->xdp.xsk_aio ) ) );
+    fd_wksp_free_laddr( fd_xsk_delete    ( fd_xsk_leave    ( udpsock->xdp.xsk     ) ) );
     break;
   case FD_QUIC_UDPSOCK_TYPE_UDPSOCK:
     fd_wksp_free_laddr( fd_udpsock_delete( fd_udpsock_leave( udpsock->udpsock.sock ) ) );
@@ -494,7 +551,7 @@ void
 fd_quic_udpsock_service( fd_quic_udpsock_t const * udpsock ) {
   switch( udpsock->type ) {
   case FD_QUIC_UDPSOCK_TYPE_XSK:
-    fd_xsk_aio_service( udpsock->xsk.xsk_aio );
+    fd_xsk_aio_service( udpsock->xdp.xsk_aio );
     break;
   case FD_QUIC_UDPSOCK_TYPE_UDPSOCK:
     fd_udpsock_service( udpsock->udpsock.sock );
