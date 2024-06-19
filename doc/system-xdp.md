@@ -69,19 +69,3 @@ Confirm your kernel release version.
 $ uname -sr
 Linux 4.18.0-348.23.1.el8_5.x86_64
 ```
-
-`bpffs` is a file system mount containing the XDP configuration.
-
-Ensure `/sys/fs/bpf` is a valid `bpffs` mount. This is the case for most
-modern distributions. If the below command does not produce comparable
-output, refer to your operating system's documentation.
-
-```bash
-$ mount | grep /sys/fs/bpf
-bpf on /sys/fs/bpf type bpf (rw,nosuid,nodev,noexec,relatime,mode=700)
-```
-
-### Installation
-
-As usual, kernel configuration gets reset when the machine is rebooted.
-Therefore, the following steps will have to be re-run each reboot.
