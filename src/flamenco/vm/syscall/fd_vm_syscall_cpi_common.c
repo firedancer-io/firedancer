@@ -268,8 +268,13 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     for( ulong j=0; (j < account_infos_length) && !found; j++ ) {
 
       /* Look up the pubkey to see if it is the account we're looking for */
-      fd_pubkey_t const * acct_addr = FD_VM_MEM_HADDR_LD( 
+      fd_pubkey_t const * acct_addr = FD_VM_MEM_HADDR_LD_UNCHECKED( 
         vm, account_infos[j].pubkey_addr, alignof(uchar), sizeof(fd_pubkey_t) );
+      /* If the address does not point to a valid address, then we should skip over this account, not error out. */
+      if ( acct_addr == 0UL ) {
+        continue;
+      }
+
       if( memcmp( account_key->uc, acct_addr->uc, sizeof(fd_pubkey_t) ) != 0 ) {
         continue;
       }
