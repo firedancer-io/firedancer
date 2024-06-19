@@ -296,11 +296,21 @@ static inline void fd_vm_mem_st_8( ulong haddr, ulong  val ) { memcpy( (void *)h
    Users of this macro should be aware that they should never access the returned value if sz==0.
    
    https://github.com/solana-labs/solana/blob/767d24e5c10123c079e656cdcf9aeb8a5dae17db/programs/bpf_loader/src/syscalls/mod.rs#L560  */
-#define FD_VM_MEM_SLICE_HADDR_LD( vm, vaddr, align, sz )                                                   \
-    (void*)fd_ulong_if( sz > 0UL, (ulong)FD_VM_MEM_HADDR_LD( vm, vaddr, align, sz ), 0UL )
+#define FD_VM_MEM_SLICE_HADDR_LD( vm, vaddr, align, sz ) (__extension__({                                       \
+    void const * haddr = 0UL;                                                                                   \
+    if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \
+      haddr = FD_VM_MEM_HADDR_LD( vm, vaddr, align, sz );                                                       \
+    }                                                                                                           \
+    haddr;                                                                                                      \
+}))
 
-#define FD_VM_MEM_SLICE_HADDR_ST( vm, vaddr, align, sz )                                                   \
-    (void*)fd_ulong_if( sz > 0UL, (ulong)FD_VM_MEM_HADDR_ST( vm, vaddr, align, sz ), 0UL )
+#define FD_VM_MEM_SLICE_HADDR_ST( vm, vaddr, align, sz ) (__extension__({                                       \
+    void * haddr = 0UL;                                                                                         \
+    if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \
+      haddr = FD_VM_MEM_HADDR_ST( vm, vaddr, align, sz );                                                       \
+    }                                                                                                           \
+    haddr;                                                                                                      \
+}))
 
 /* fd_vm_log API ******************************************************/
 
