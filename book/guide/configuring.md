@@ -105,3 +105,39 @@ can specify a custom path for the ledger by setting `ledger.path`:
 [ledger]
     path = "/data/ledger"
 ```
+
+## AF_XDP
+
+Firedancer uses AF_XDP, a Linux API for high performance networking.
+For more background see the [kernel documentation](https://www.kernel.org/doc/html/next/networking/af_xdp.html).
+
+Although AF_XDP works with any Ethernet network interface, results may
+vary across drivers.  Popular well-tested drivers include
+- `ixgbe` (Intel X540)
+- `i40e` (Intel X710 series)
+- `ice` (Intel E800 series)
+
+Firedancer installs an XDP program on the network interface
+`[tiles.net.interface]` and `lo` while it is running.  This program 
+redirects traffic on ports that Firedancer is listening on via AF_XDP.
+Traffic targetting any other applications (e.g. an SSH or HTTP server
+running on the system) passes through as usual.  The XDP program is `
+always removed when Firedancer exits.
+
+AF_XDP requires `CAP_SYS_ADMIN` and `CAP_NET_RAW` privileges.  This is
+one of the reasons why Firedancer requires root permissions on Linux.
+
+::: warning
+
+Firedancer assumes exclusive XDP access over the aforementioned network
+interfaces.  Using XDP tools such as `xdp-loader` and `xdpdump` may 
+break connectivity.
+
+:::
+
+::: warning
+
+Packets received and sent via AF_XDP will not appear under standard
+network monitoring tools like `tcpdump`.
+
+:::

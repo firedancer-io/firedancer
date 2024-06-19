@@ -101,39 +101,6 @@ The `init` mode requires either `root` privileges, or to be run with
 `CAP_SYS_ADMIN`. The `fini` mode does nothing and kernel parameters
 will never be reduced as a result of running `configure`.
 
-## xdp
-Firedancer uses XDP (express data path), a Linux feature for doing high
-performance kernel bypass networking. For more background see the
-[kernel
-documentation](https://www.kernel.org/doc/html/next/networking/af_xdp.html).
-
-To configure XDP, a BPF program is loaded onto both the configured
-network interface `[tiles.net.interface]` and the loopback interface
-`lo`. This BPF program intercepts packets matching a Firedancer listen
-port before they reach the kernel. Matching packets are routed directly
-to Firedancer.
-
-::: warning
-
-Packets intercepted by the BPF program will not appear under standard
-network monitoring tools like `tcpdump`.
-
-:::
-
-The BPF program is loaded into `/sys/fs/bpf/<name>/` and will remain
-loaded until `fini` is run. If loaded, packets for the target ports will
-be intercepted even when Firedancer itself is not running. `fini` will
-fully unload the program, packets for the target ports will resume being
-routed to the kernel and regular networking stack.
-
-This stage must be run, and it is not possible to manually configure it.
-The stage not only loads the program, but sets up special configuration
-objects (BPF maps) so that it functions correctly.
-
-The stage must be rerun any time the system is rebooted, any time
-Firedancer is updated, or any time the configuration file changes. The
-`init` mode requires `root` or both `CAP_SYS_ADMIN` and `CAP_NET_RAW`.
-
 ## ethtool
 In addition to XDP, Firedancer uses receive side scaling (RSS) to
 improve network performance. This uses functionality of modern NICs to
