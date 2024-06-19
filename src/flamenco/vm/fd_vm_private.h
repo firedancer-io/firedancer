@@ -271,6 +271,13 @@ static inline void fd_vm_mem_st_8( ulong haddr, ulong  val ) { memcpy( (void *)h
     (void const *)_haddr;                                                                                 \
   }))
 
+#define FD_VM_MEM_HADDR_LD_UNCHECKED( vm, vaddr, align, sz ) (__extension__({                             \
+    fd_vm_t const * _vm     = (vm);                                                                       \
+    ulong           _vaddr  = (vaddr);                                                                    \
+    ulong           _haddr  = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL ); \
+    (void const *)_haddr;                                                                                 \
+  }))
+
 #define FD_VM_MEM_HADDR_ST( vm, vaddr, align, sz ) (__extension__({                                       \
     fd_vm_t const * _vm     = (vm);                                                                       \
     ulong           _vaddr  = (vaddr);                                                                    \
