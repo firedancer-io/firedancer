@@ -194,7 +194,7 @@ static void
 test_switch_uid_gid1( uint check_uid,
                       uint check_gid ) {
   fd_sandbox_private_switch_uid_gid( check_uid, check_gid );
-  uint uid, euid, suid; 
+  uint uid, euid, suid;
   FD_TEST( !getresuid( &uid, &euid, &suid ) );
   FD_TEST( check_uid==uid && check_uid==euid && check_uid==suid );
   uint gid, egid, sgid;
@@ -466,14 +466,14 @@ test_seccomp( void ) {
 #define TEST_FORK_SECCOMP_SIGNAL(child, code)                                                           \
   TEST_FORK_SIGNAL( do {                                                                                \
     FD_TEST( -1!=prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );                                            \
-    fd_sandbox_private_set_seccomp_filter( sock_filter_policy_test_sandbox_instr_cnt, seccomp_filter ); \
+    fd_sandbox_private_set_seccomp_filter( (ushort) sock_filter_policy_test_sandbox_instr_cnt, seccomp_filter ); \
     child;                                                                                              \
   } while(0), code )
 
 #define TEST_FORK_SECCOMP_EXIT_CODE(child, code)                                                        \
   TEST_FORK_EXIT_CODE( do {                                                                             \
     FD_TEST( -1!=prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );                                            \
-    fd_sandbox_private_set_seccomp_filter( sock_filter_policy_test_sandbox_instr_cnt, seccomp_filter ); \
+    fd_sandbox_private_set_seccomp_filter( (ushort) sock_filter_policy_test_sandbox_instr_cnt, seccomp_filter ); \
     child;                                                                                              \
   } while(0), code )
 
