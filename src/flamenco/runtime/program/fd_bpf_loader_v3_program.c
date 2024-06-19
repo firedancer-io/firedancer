@@ -408,19 +408,20 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
   }
 #endif
 
-  /* https://github.com/anza-xyz/agave/blob/9b22f28104ec5fd606e4bb39442a7600b38bb671/programs/bpf_loader/src/lib.rs#L288-L298 */
-  ulong heap_size = instr_ctx->txn_ctx->heap_size;
-  ulong heap_cost = FD_VM_HEAP_COST;
-  int round_up_heap_size = FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, round_up_heap_size );
-  int heap_err = 0;
-  ulong heap_cost_result = calculate_heap_cost( heap_size, heap_cost, round_up_heap_size, &heap_err );
-  if( FD_UNLIKELY( heap_err ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
-  }
-  if( FD_UNLIKELY( heap_cost_result>vm->cu ) ) {
-    return FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED;
-  }
-  vm->cu -= heap_cost_result;
+  /* TODO: do this in both v2 and v3 loaders. for now, we keep this logic in the vm. */
+  // /* https://github.com/anza-xyz/agave/blob/9b22f28104ec5fd606e4bb39442a7600b38bb671/programs/bpf_loader/src/lib.rs#L288-L298 */
+  // ulong heap_size = instr_ctx->txn_ctx->heap_size;
+  // ulong heap_cost = FD_VM_HEAP_COST;
+  // int round_up_heap_size = FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, round_up_heap_size );
+  // int heap_err = 0;
+  // ulong heap_cost_result = calculate_heap_cost( heap_size, heap_cost, round_up_heap_size, &heap_err );
+  // if( FD_UNLIKELY( heap_err ) ) {
+  //   return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+  // }
+  // if( FD_UNLIKELY( heap_cost_result>vm->cu ) ) {
+  //   return FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED;
+  // }
+  // vm->cu -= heap_cost_result;
 
   int exec_err = fd_vm_exec( vm );
 
