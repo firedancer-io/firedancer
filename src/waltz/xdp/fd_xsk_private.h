@@ -60,23 +60,9 @@ struct __attribute__((aligned(FD_XSK_ALIGN))) fd_xsk_private {
 
   /* Network interface config *****************************************/
 
-  /* app_name_cstr: Name of BPF FS dir of app.  Used to discover the
-     XSKMAP on join at path "/sys/fs/bpf/{bpf_app_name}/{ifname}/xsks". */
-
-  char app_name_cstr[ NAME_MAX ];
-
-  /* if_name_cstr: Name of network interface.
-     if_id:        Index of network interface (volatile).
-     if_queue_id:  Queue ID of interface that XSK binds to.
-
-     Note: fd_xsk_t lives in shm, so technically, it cannot outlive an
-     if_idx, whose lifetime is the system uptime.  We save the interface
-     name regardless, which is less likely to change on modern kernels. */
-  char if_name_cstr[ IF_NAMESIZE ];
-  uint if_idx;
-  uint if_queue_id;
-
-  /* Memory layout parameters */
+  /* Informational */
+  uint if_idx;       /* index of net device */
+  uint if_queue_id;  /* net device combined queue index */
 
   fd_xsk_params_t params;
 

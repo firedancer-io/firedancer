@@ -73,108 +73,6 @@ fd_xsk_footprint( ulong frame_sz,
        + fd_xsk_umem_footprint( frame_sz, fr_depth, rx_depth, tx_depth, cr_depth );
 }
 
-/* Bind/unbind ********************************************************/
-
-void *
-fd_xsk_bind( void *       shxsk,
-             char const * app_name,
-             char const * ifname,
-             uint         ifqueue ) {
-
-  /* Argument checks */
-
-  if( FD_UNLIKELY( !shxsk ) ) {
-    FD_LOG_WARNING(( "NULL shxsk" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shxsk, fd_xsk_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned shxsk" ));
-    return NULL;
-  }
-
-  fd_xsk_t * xsk = (fd_xsk_t *)shxsk;
-  if( FD_UNLIKELY( xsk->magic!=FD_XSK_MAGIC ) ) {
-    FD_LOG_WARNING(( "bad magic (not an fd_xsk_t?)" ));
-    return NULL;
-  }
-
-  /* Check if app_name is a valid cstr */
-
-  if( FD_UNLIKELY( !app_name ) ) {
-    FD_LOG_WARNING(( "NULL app_name" ));
-    return NULL;
-  }
-  ulong app_name_len = fd_cstr_nlen( app_name, NAME_MAX );
-  if( FD_UNLIKELY( app_name_len==0UL ) ) {
-    FD_LOG_WARNING(( "missing app_name" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( app_name_len==NAME_MAX ) ) {
-    FD_LOG_WARNING(( "app_name not a cstr or exceeds NAME_MAX" ));
-    return NULL;
-  }
-
-  /* Check if ifname is a valid cstr */
-
-  if( FD_UNLIKELY( !ifname ) ) {
-    FD_LOG_WARNING(( "NULL ifname" ));
-    return NULL;
-  }
-  ulong if_name_len = fd_cstr_nlen( ifname, IF_NAMESIZE );
-  if( FD_UNLIKELY( if_name_len==0UL ) ) {
-    FD_LOG_WARNING(( "missing ifname" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( if_name_len==IF_NAMESIZE ) ) {
-    FD_LOG_WARNING(( "ifname not a cstr or exceeds IF_NAMESIZE" ));
-    return NULL;
-  }
-
-  /* Check if interface exists */
-
-  if( FD_UNLIKELY( 0==if_nametoindex( ifname ) ) ) {
-    FD_LOG_WARNING(( "Network interface %s does not exist", ifname ));
-    return NULL;
-  }
-
-  /* Assign */
-
-  fd_memcpy( xsk->app_name_cstr, app_name, app_name_len+1UL );
-  fd_memcpy( xsk->if_name_cstr,  ifname,   if_name_len +1UL );
-  xsk->if_queue_id = ifqueue;
-
-  return shxsk;
-}
-
-void *
-fd_xsk_unbind( void * shxsk ) {
-  /* Argument checks */
-
-  if( FD_UNLIKELY( !shxsk ) ) {
-    FD_LOG_WARNING(( "NULL shxsk" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shxsk, fd_xsk_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned shxsk" ));
-    return NULL;
-  }
-
-  fd_xsk_t * xsk = (fd_xsk_t *)shxsk;
-  if( FD_UNLIKELY( xsk->magic!=FD_XSK_MAGIC ) ) {
-    FD_LOG_WARNING(( "bad magic (not an fd_xsk_t?)" ));
-    return NULL;
-  }
-
-  /* Reset */
-
-  fd_memset( xsk->if_name_cstr, 0, IF_NAMESIZE );
-  xsk->if_queue_id = UINT_MAX;
-
-  return shxsk;
-}
-
 /* New/delete *********************************************************/
 
 void *
@@ -183,8 +81,8 @@ fd_xsk_new( void *       shmem,
             ulong        fr_depth,
             ulong        rx_depth,
             ulong        tx_depth,
-            ulong        cr_depth,
-            int          zero_copy ) {
+            ulong        cr_depth ) {
+
   /* Validate arguments */
 
   if( FD_UNLIKELY( !shmem ) ) {
@@ -207,7 +105,7 @@ fd_xsk_new( void *       shmem,
 
   /* Reset fd_xsk_t state.  No need to clear UMEM area */
 
-  fd_memset( xsk, 0, footprint );
+  fd_memset( xsk, 0, sizeof(fd_xsk_t) );
 
   xsk->xsk_fd         = -1;
   xsk->xdp_map_fd     = -1;
@@ -220,7 +118,6 @@ fd_xsk_new( void *       shmem,
   xsk->params.rx_depth = rx_depth;
   xsk->params.tx_depth = tx_depth;
   xsk->params.cr_depth = cr_depth;
-  xsk->params.zerocopy = zero_copy ? XDP_ZEROCOPY : XDP_COPY;
 
   /* Derive offsets (TODO overflow check) */
 
@@ -350,8 +247,9 @@ fd_xsk_munmap_ring( fd_ring_desc_t * ring,
 /* fd_xsk_cleanup undoes a (partial) join by releasing all active kernel
    objects, such as mapped memory regions and file descriptors.  Assumes
    that no join to `xsk` is currently being used. */
-static void
-fd_xsk_cleanup( fd_xsk_t * xsk ) {
+
+fd_xsk_t *
+fd_xsk_fini( fd_xsk_t * xsk ) {
   /* Undo memory mappings */
 
   fd_xsk_munmap_ring( &xsk->ring_rx, XDP_PGOFF_RX_RING              );
@@ -380,6 +278,8 @@ fd_xsk_cleanup( fd_xsk_t * xsk ) {
     close( xsk->xsk_fd );
     xsk->xsk_fd = -1;
   }
+
+  return xsk;
 }
 
 /* fd_xsk_setup_umem: Initializes xdp_umem_reg and hooks up XSK with
@@ -437,68 +337,54 @@ fd_xsk_setup_umem( fd_xsk_t * xsk ) {
 /* fd_xsk_init: Creates and configures an XSK socket object, and
    attaches to a preinstalled XDP program.  The various steps are
    implemented in fd_xsk_setup_{...}. */
-static int
-fd_xsk_init( fd_xsk_t * xsk ) {
-  /* Validate XDP zero copy flag */
 
-  switch( xsk->params.zerocopy ) {
-  case 0:
-  case XDP_COPY:
-  case XDP_ZEROCOPY:
-    break;  /* okay */
-  default:
-    FD_LOG_WARNING(( "invalid zerocopy flag: %#x", xsk->params.zerocopy ));
-    return -1;
-  }
-
-  /* Find interface index */
-
-  if( FD_UNLIKELY( !xsk->if_name_cstr[0] ) ) {
-    FD_LOG_WARNING(( "not bound to any interface" ));
-    return -1;
-  }
-  uint if_idx = if_nametoindex( xsk->if_name_cstr );
-  if( FD_UNLIKELY( if_idx )==0 ) {
-    FD_LOG_WARNING(( "if_nametoindex(%s) failed (%i-%s)", xsk->if_name_cstr, errno, fd_io_strerror( errno ) ));
-    return -1;
-  }
-  xsk->if_idx = if_idx;
+fd_xsk_t *
+fd_xsk_init( fd_xsk_t * xsk,
+             uint       if_idx,
+             uint       if_queue,
+             uint       bind_flags ) {
+  
+  if( FD_UNLIKELY( !xsk ) ) { FD_LOG_WARNING(( "NULL xsk" )); return NULL; }
 
   /* Create XDP socket (XSK) */
 
   xsk->xsk_fd = socket( AF_XDP, SOCK_RAW, 0 );
   if( FD_UNLIKELY( xsk->xsk_fd<0 ) ) {
     FD_LOG_WARNING(( "Failed to create XSK (%i-%s)", errno, fd_io_strerror( errno ) ));
-    return -1;
+    return NULL;
   }
 
   /* Associate UMEM region of fd_xsk_t with XSK via setsockopt() */
 
-  if( FD_UNLIKELY( 0!=fd_xsk_setup_umem( xsk ) ) ) return -1;
+  if( FD_UNLIKELY( 0!=fd_xsk_setup_umem( xsk ) ) ) goto fail;
 
   /* Map XSK rings into local address space */
 
-  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_rx, xsk->xsk_fd, XDP_PGOFF_RX_RING,              sizeof(struct xdp_desc), xsk->params.rx_depth, &xsk->offsets.rx ) ) ) return 0;
-  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_tx, xsk->xsk_fd, XDP_PGOFF_TX_RING,              sizeof(struct xdp_desc), xsk->params.tx_depth, &xsk->offsets.tx ) ) ) return 0;
-  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_fr, xsk->xsk_fd, XDP_UMEM_PGOFF_FILL_RING,       sizeof(ulong),           xsk->params.fr_depth, &xsk->offsets.fr ) ) ) return 0;
-  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_cr, xsk->xsk_fd, XDP_UMEM_PGOFF_COMPLETION_RING, sizeof(ulong),           xsk->params.cr_depth, &xsk->offsets.cr ) ) ) return 0;
+  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_rx, xsk->xsk_fd, XDP_PGOFF_RX_RING,              sizeof(struct xdp_desc), xsk->params.rx_depth, &xsk->offsets.rx ) ) ) goto fail;
+  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_tx, xsk->xsk_fd, XDP_PGOFF_TX_RING,              sizeof(struct xdp_desc), xsk->params.tx_depth, &xsk->offsets.tx ) ) ) goto fail;
+  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_fr, xsk->xsk_fd, XDP_UMEM_PGOFF_FILL_RING,       sizeof(ulong),           xsk->params.fr_depth, &xsk->offsets.fr ) ) ) goto fail;
+  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_cr, xsk->xsk_fd, XDP_UMEM_PGOFF_COMPLETION_RING, sizeof(ulong),           xsk->params.cr_depth, &xsk->offsets.cr ) ) ) goto fail;
 
   /* Bind XSK to queue on network interface */
 
+  uint flags = XDP_USE_NEED_WAKEUP | bind_flags;
   struct sockaddr_xdp sa = {
     .sxdp_family   = PF_XDP,
-    .sxdp_ifindex  = xsk->if_idx,
-    .sxdp_queue_id = xsk->if_queue_id,
+    .sxdp_ifindex  = if_idx,
+    .sxdp_queue_id = if_queue,
     /* See extended commentary below for details on on
        XDP_USE_NEED_WAKEUP flag. */
-    .sxdp_flags    = XDP_USE_NEED_WAKEUP | (ushort)xsk->params.zerocopy
+    .sxdp_flags    = (ushort)flags
   };
 
   if( FD_UNLIKELY( 0!=bind( xsk->xsk_fd, (void *)&sa, sizeof(struct sockaddr_xdp) ) ) ) {
-    FD_LOG_WARNING(( "Unable to bind to interface %s queue %u (%i-%s)",
-                     xsk->if_name_cstr, xsk->if_queue_id, errno, fd_io_strerror( errno ) ));
-    return -1;
+    char if_name[ IF_NAMESIZE ] = {0};
+    FD_LOG_WARNING(( "bind( PF_XDP, ifindex=%u (%s), queue_id=%u, flags=%x ) failed (%i-%s)",
+                     if_idx, if_indextoname( if_idx, if_name ), if_queue, flags, errno, fd_io_strerror( errno ) ));
+    goto fail;
   }
+
+  FD_LOG_INFO(( "xsk bind() success" ));
 
   /* We've seen that some popular Intel NICs seem to have a bug that
      prevents them from working in SKB mode with certain kernel
@@ -521,14 +407,19 @@ fd_xsk_init( fd_xsk_t * xsk ) {
     }
   }
 
-  FD_LOG_INFO(( "xsk bind() success" ));
-
   /* XSK successfully configured.  Traffic will arrive in XSK after
      configuring an XDP program to forward packets via XDP_REDIRECT.
      This requires providing the XSK file descriptor to the program via
      XSKMAP and is done in a separate step. */
 
-  return 0;
+  xsk->if_idx      = if_idx;
+  xsk->if_queue_id = if_queue;
+
+  return xsk;
+
+fail:
+  fd_xsk_fini( xsk );
+  return NULL;
 }
 
 fd_xsk_t *
@@ -558,26 +449,6 @@ fd_xsk_join( void * shxsk ) {
     return NULL;
   }
 
-  /* Setup XSK */
-
-  if( FD_UNLIKELY( 0!=fd_xsk_init( xsk ) ) ) {
-    FD_LOG_WARNING(( "XSK setup failed" ));
-    if( xsk->xsk_fd >= 0 )
-      close( xsk->xsk_fd );
-    return NULL;
-  }
-
-  /* Attach XSK to eBPF program */
-
-  if( FD_UNLIKELY( 0!=fd_xsk_activate( xsk ) ) ) {
-    FD_LOG_WARNING(( "fd_xsk_activate(%p) failed", (void *)xsk ));
-    if( xsk->xsk_fd >= 0 )
-      close( xsk->xsk_fd );
-    return NULL;
-  }
-
-  /* XSK is ready for use */
-
   return xsk;
 }
 
@@ -589,8 +460,6 @@ fd_xsk_leave( fd_xsk_t * xsk ) {
     return NULL;
   }
 
-  fd_xsk_cleanup( xsk );
-
   return (void *)xsk;
 }
 
@@ -601,11 +470,6 @@ fd_xsk_umem_laddr( fd_xsk_t * xsk ) {
   return (void *)xsk->umem.addr;
 }
 
-FD_FN_CONST char const *
-fd_xsk_app_name( fd_xsk_t * const xsk ) {
-  return xsk->app_name_cstr;
-}
-
 FD_FN_PURE int
 fd_xsk_fd( fd_xsk_t * const xsk ) {
   return xsk->xsk_fd;
@@ -614,15 +478,6 @@ fd_xsk_fd( fd_xsk_t * const xsk ) {
 FD_FN_PURE uint
 fd_xsk_ifidx( fd_xsk_t * const xsk ) {
   return xsk->if_idx;
-}
-
-FD_FN_PURE char const *
-fd_xsk_ifname( fd_xsk_t * const xsk ) {
-  /* cstr coherence check */
-  ulong len = fd_cstr_nlen( xsk->if_name_cstr, IF_NAMESIZE );
-  if( FD_UNLIKELY( len==0UL || len==IF_NAMESIZE ) ) return NULL;
-
-  return xsk->if_name_cstr;
 }
 
 FD_FN_PURE uint

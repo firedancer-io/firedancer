@@ -145,13 +145,6 @@ struct fd_xsk_params {
   /* umem_sz: Total size of XSK ring shared memory area (contiguous).
      Aligned by FD_XSK_ALIGN. */
   ulong umem_sz;
-
-  /* zerocopy controls zero copy related flags.
-
-       0             default
-       XDP_COPY      Force "copy" mode
-       XDP_ZEROCOPY  Force "zero copy" mode (faster, but unstable on some NICs) */
-  ushort zerocopy;
 };
 typedef struct fd_xsk_params fd_xsk_params_t;
 
@@ -188,45 +181,51 @@ fd_xsk_new( void * shmem,
             ulong  fr_depth,
             ulong  rx_depth,
             ulong  tx_depth,
-            ulong  cr_depth,
-            int    zero_copy );
+            ulong  cr_depth );
 
-/* fd_xsk_bind assigns an XSK buffer to the network device with name
-   ifname and RX queue index ifqueue.  fd_xsk_unbind unassigns an XSK
-   buffer from any netdev queue.  shxsk points to the first byte of the
-   memory region backing the fd_xsk_t in the caller's address space.
-   Returns shxsk on success or NULL on failure (logs details).
-
-   The app_name is used to discover the XSKMAP on join at path
-   "/sys/fs/bpf/{bpf_app_name}/{ifname}/xsks". */
-
-void *
-fd_xsk_bind( void *       shxsk,
-             char const * app_name,
-             char const * ifname,
-             uint         ifqueue );
-
-void *
-fd_xsk_unbind( void * shxsk );
-
-/* fd_xsk_join joins the caller to the fd_xsk_t and starts packet
-   redirection.  shxsk points to the first byte of the memory region
-   backing the fd_xsk_t in the caller's address space.  Returns a
-   pointer in the local address space to the fd_xsk on success or NULL
-   on failure (logs details).  Reasons for failure include the shxsk is
-   obviously not a local pointer to a memory region holding a xsk.
-   Every successful join should have a matching leave.  The lifetime of
-   the join is until the matching leave or caller's thread group is
-   terminated.  There may only be one active join for a single fd_xsk_t
-   at any given time.
-
-   Requires prior system configuration via fd_xsk_install.  Creates an
-   XSK, attaches the UMEM rings in fd_xsk_t with the XSK, updates the
-   pre-installed XDP program's XSKMAP to start up packet redirection.
-   Detaches any existing packet redirection on this XDP program. */
+/* fd_xsk_join joins the caller to the fd_xsk_t */
 
 fd_xsk_t *
 fd_xsk_join( void * shxsk );
+
+/* fd_xsk_init creates an XSK, registers UMEM, maps rings, and binds the
+   socket to the given interface queue.  This is a potentially
+   destructive operation.  As of 2024-Jun, AF_XDP zero copy support is
+   still buggy in some device drivers.  
+   
+   Assume that all traffic sent to this interface is compromised.  On
+   some devices, the NIC is instructed to DMA all incoming packets into
+   UMEM, even ones not belonging to Firedancer.  Those are then later
+   on software-copied out to skbs again.  This further implies that
+   enabling AF_XDP can slow down the regular kernel receive path.
+   
+   Requires CAP_SYS_ADMIN. May issue the following syscalls:
+
+   - socket( AF_XDP, SOCK_RAW, 0 ) = fd
+   - setsockopt( fd, SOL_XDP, ... )
+   - getsockopt( fd, SOL_XDP, ... )
+   - mmap( ..., fd, ... )
+   - bind( fd, ... )
+   - munmap  ; on fail
+   - close   ; on fail */
+
+fd_xsk_t *
+fd_xsk_init( fd_xsk_t * xsk,
+             uint       if_idx,        /* see if_nametoindex(3) */
+             uint       if_queue,      /* queue index (type combined) */
+             uint       bind_flags );  /* e.g. XDP_ZEROCOPY */
+
+/* fd_xsk_fini unmaps XSK rings and closes the XSK file descriptor.
+   This effectively returns the interface to the state before
+   fd_xsk_init.
+
+   May issue the following syscalls:
+   
+   - munmap 
+   - close */
+
+fd_xsk_t *
+fd_xsk_fini( fd_xsk_t * xsk );
 
 /* fd_xsk_leave leaves a current local join and releases all kernel
    resources.  Returns a pointer to the underlying shared memory region
@@ -349,21 +348,6 @@ fd_xsk_tx_complete2( fd_xsk_t *            xsk,
 
 FD_FN_PURE int
 fd_xsk_fd( fd_xsk_t * const xsk );
-
-/* fd_xsk_app_name: Returns the name of the BPF FS dir that XSK will
-   register itself to.  fd_xsk_activate will register XSK at
-   "/sys/fs/bpf/{bpf_app_name}/{ifname}/xsks" on queue index ifidx. */
-
-FD_FN_CONST char const *
-fd_xsk_app_name( fd_xsk_t * const xsk );
-
-/* fd_xsk_ifname: Returns the network interface name of that the
-   XSK is currently bound to.  Return value points to memory owned by
-   `xsk` and is valid for the lifetime of the local join.  May return
-   NULL if the XSK is not bound. */
-
-FD_FN_PURE char const *
-fd_xsk_ifname( fd_xsk_t * const xsk );
 
 /* fd_xsk_ifidx: Returns the network interface index of that the
    XSK is currently bound to.  May return zero if the XSK is not bound. */
