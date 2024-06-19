@@ -3,6 +3,7 @@
    shared memory data structures.  Thus runs without special permissions
    or heap. */
 
+#include "fd_xsk.h"
 #include "fd_xsk_private.h"
 #include "fd_xsk_aio_private.h"
 #include "../../util/fd_util.h"
@@ -112,21 +113,21 @@ test_xsk( void ) {
 
   /* Invalid new params */
 
-  FD_TEST( NULL==fd_xsk_new( NULL,               2048UL, 1UL, 1UL, 1UL, 1UL, 0 ) ); /* NULL shmem     */
-  FD_TEST( NULL==fd_xsk_new( (void *)(_xsk+1UL), 2048UL, 1UL, 1UL, 1UL, 1UL, 0 ) ); /* unalign shmem  */
-  FD_TEST( NULL==fd_xsk_new( _xsk,               0UL,    1UL, 1UL, 1UL, 1UL, 0 ) ); /* zero frame_sz  */
-  FD_TEST( NULL==fd_xsk_new( _xsk,               1UL,    1UL, 1UL, 1UL, 1UL, 0 ) ); /* inval frame_sz */
-  FD_TEST( NULL==fd_xsk_new( _xsk,               8192UL, 1UL, 1UL, 1UL, 1UL, 0 ) ); /* inval frame_sz */
-  FD_TEST( NULL==fd_xsk_new( _xsk,               2048UL, 0UL, 1UL, 1UL, 1UL, 0 ) ); /* zero fr_depth  */
-  FD_TEST( NULL==fd_xsk_new( _xsk,               2048UL, 1UL, 0UL, 1UL, 1UL, 0 ) ); /* zero fr_depth  */
-  FD_TEST( NULL==fd_xsk_new( _xsk,               2048UL, 1UL, 1UL, 0UL, 1UL, 0 ) ); /* zero fr_depth  */
-  FD_TEST( NULL==fd_xsk_new( _xsk,               2048UL, 1UL, 1UL, 1UL, 0UL, 0 ) ); /* zero fr_depth  */
+  FD_TEST( NULL==fd_xsk_new( NULL,               2048UL, 1UL, 1UL, 1UL, 1UL ) ); /* NULL shmem     */
+  FD_TEST( NULL==fd_xsk_new( (void *)(_xsk+1UL), 2048UL, 1UL, 1UL, 1UL, 1UL ) ); /* unalign shmem  */
+  FD_TEST( NULL==fd_xsk_new( _xsk,               0UL,    1UL, 1UL, 1UL, 1UL ) ); /* zero frame_sz  */
+  FD_TEST( NULL==fd_xsk_new( _xsk,               1UL,    1UL, 1UL, 1UL, 1UL ) ); /* inval frame_sz */
+  FD_TEST( NULL==fd_xsk_new( _xsk,               8192UL, 1UL, 1UL, 1UL, 1UL ) ); /* inval frame_sz */
+  FD_TEST( NULL==fd_xsk_new( _xsk,               2048UL, 0UL, 1UL, 1UL, 1UL ) ); /* zero fr_depth  */
+  FD_TEST( NULL==fd_xsk_new( _xsk,               2048UL, 1UL, 0UL, 1UL, 1UL ) ); /* zero fr_depth  */
+  FD_TEST( NULL==fd_xsk_new( _xsk,               2048UL, 1UL, 1UL, 0UL, 1UL ) ); /* zero fr_depth  */
+  FD_TEST( NULL==fd_xsk_new( _xsk,               2048UL, 1UL, 1UL, 1UL, 0UL ) ); /* zero fr_depth  */
 
   /* Create new XSK */
 
   FD_TEST( fd_xsk_footprint( 2048UL, 8UL, 8UL, 8UL, 8UL )==69632UL );
 
-  void * shxsk = fd_xsk_new( _xsk, 2048UL, 8UL, 8UL, 8UL, 8UL, 0 );
+  void * shxsk = fd_xsk_new( _xsk, 2048UL, 8UL, 8UL, 8UL, 8UL );
   FD_TEST( shxsk );
 
   /* Invalid magic */
@@ -135,40 +136,30 @@ test_xsk( void ) {
   xsk->magic++;
 
   FD_TEST( NULL==fd_xsk_join  ( shxsk ) );
-  FD_TEST( NULL==fd_xsk_bind  ( shxsk, "app",  "lo", 0U ) );
   FD_TEST( NULL==fd_xsk_delete( shxsk ) );
 
   xsk->magic--;
 
+  xsk = fd_xsk_join( shxsk );
+  FD_TEST( xsk );
+
   /* Invalid bind params */
 
-  FD_TEST( NULL==fd_xsk_bind( NULL,  "app", "lo", 0U ) ); /* NULL shxsk    */
-  FD_TEST( NULL==fd_xsk_bind( shxsk, NULL,  "lo", 0U ) ); /* NULL app_name */
-  FD_TEST( NULL==fd_xsk_bind( shxsk, "app", NULL, 0U ) ); /* NULL ifname   */
-
-  FD_TEST( NULL==fd_xsk_bind( shxsk,
-    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-    "lo", 0U ) ); /* oversz app_name */
-  FD_TEST( NULL==fd_xsk_bind( shxsk, "app", "AAAAAAAAAAAAAAAA", 0U ) ); /* oversz ifname */
-
-  FD_TEST( NULL==fd_xsk_bind( (void *)((ulong)shxsk+1UL), "app", "lo", 0U ) ); /* unalign shxsk */
-
-  /* Mock join */
-
-  FD_TEST( fd_xsk_bind( shxsk, "app", "lo", 0U ) );
-
-  FD_TEST( strcmp( fd_xsk_app_name( xsk ), "app" )==0  );
-  FD_TEST( strcmp( fd_xsk_ifname  ( xsk ), "lo"  )==0  );
-  FD_TEST(         fd_xsk_ifqueue ( xsk )         ==0  );
+  FD_TEST( NULL==fd_xsk_init( NULL, 1U, 0U, 0U ) ); /* NULL xsk    */
 
   /* Ensure fields are properly null-initialized */
 
   FD_TEST( fd_xsk_umem_laddr( xsk )==NULL );
   FD_TEST( fd_xsk_fd        ( xsk )==-1   );
   FD_TEST( fd_xsk_ifidx     ( xsk )==0U   );
+  FD_TEST( fd_xsk_ifqueue   ( xsk )==0U   );
+
+  /* Mock join */
+
+  xsk->if_idx      = 0x41414143U;
+  xsk->if_queue_id = 0x42424245U;
+  FD_TEST( fd_xsk_ifidx   ( xsk )==0x41414143U );
+  FD_TEST( fd_xsk_ifqueue ( xsk )==0x42424245U );
 
   /* Get parameters */
 
@@ -495,7 +486,7 @@ test_xsk_aio( void ) {
   /* Mock XSK */
 
   FD_TEST( fd_xsk_footprint( 2048UL, 8UL, 8UL, 8UL, 8UL )<=sizeof(_xsk) );
-  void * shxsk = fd_xsk_new( _xsk, 2048UL, 8UL, 8UL, 8UL, 8UL, 1 );
+  void * shxsk = fd_xsk_new( _xsk, 2048UL, 8UL, 8UL, 8UL, 8UL );
   FD_TEST( shxsk );
 
   fd_xsk_t * xsk = (fd_xsk_t *)shxsk;
