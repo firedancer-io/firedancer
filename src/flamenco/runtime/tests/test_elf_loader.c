@@ -4,7 +4,7 @@
   in the fixture.
 */
 #include "../../../util/fd_util.h"
-#include "fd_exec_test.pb.h"
+#include "generated/elf.pb.h"
 #include "fd_exec_instr_test.h"
 #include <errno.h>
 #include <fcntl.h>

@@ -7,7 +7,7 @@
 #include "../../ballet/block/fd_microblock.h"
 #include "../../ballet/pack/fd_microblock.h"
 #include "../../ballet/poh/fd_poh.h"
-#include "tests/fd_exec_test.pb.h"
+#include "tests/generated/invoke.pb.h"
 
 FD_PROTOTYPES_BEGIN
 

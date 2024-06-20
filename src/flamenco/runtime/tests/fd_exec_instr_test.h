@@ -4,7 +4,8 @@
 /* fd_exec_instr_test.h provides APIs for running instruction processor
    tests. */
 
-#include "fd_exec_test.pb.h"
+#include "generated/elf.pb.h"
+#include "generated/invoke.pb.h"
 #include "../../../funk/fd_funk.h"
 
 /* fd_exec_instr_test_runner_t provides fake fd_exec_instr_ctx_t to
