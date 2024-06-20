@@ -957,14 +957,14 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
 
 
   /* Note:
-  
+
      1) `vote_state_update.lockouts` is sorted from oldest/smallest vote to newest/largest
      vote, due to the way votes are applied to the vote state (newest votes
      pushed to the back).
-   
+
      2) Conversely, `slot_hashes` is sorted from newest/largest vote to
      the oldest/smallest vote
-   
+
      Unlike for vote updates, vote state updates here can't only check votes older than the last vote
      because have to ensure that every slot is actually part of the history, not just the most
      recent ones */
@@ -1479,15 +1479,18 @@ update_commission( ulong                       vote_acct_idx,
   fd_valloc_t scratch_valloc = fd_scratch_virtual();
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L959-L965
   fd_vote_state_versioned_t vote_state_versioned;
-  rc = get_state( vote_account, scratch_valloc, &vote_state_versioned );
-  if( FD_UNLIKELY( rc ) ) return rc;
-  convert_to_current( &vote_state_versioned, scratch_valloc );
-  fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
+  fd_vote_state_t * vote_state = NULL;
 
   // https://github.com/anza-xyz/agave/blob/master/programs/vote/src/vote_state/mod.rs#L927
   int enforce_commission_update_rule = 1;
-  if (FD_FEATURE_ACTIVE( ctx->slot_ctx, allow_commission_decrease_at_any_time ))
+  if (FD_FEATURE_ACTIVE( ctx->slot_ctx, allow_commission_decrease_at_any_time )) {
+    rc = get_state( vote_account, scratch_valloc, &vote_state_versioned );
+    if( FD_UNLIKELY( rc ) ) return rc;
+    convert_to_current( &vote_state_versioned, scratch_valloc );
+    vote_state = &vote_state_versioned.inner.current;
+
     enforce_commission_update_rule = commission > vote_state->commission;
+  }
 
   // https://github.com/anza-xyz/agave/blob/master/programs/vote/src/vote_state/mod.rs#L940
   if( FD_LIKELY( enforce_commission_update_rule && FD_FEATURE_ACTIVE( ctx->slot_ctx,
@@ -1496,6 +1499,13 @@ update_commission( ulong                       vote_acct_idx,
       ctx->txn_ctx->custom_err = FD_VOTE_ERR_COMMISSION_UPDATE_TOO_LATE;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
+  }
+
+  if (NULL == vote_state) {
+    rc = get_state( vote_account, scratch_valloc, &vote_state_versioned );
+    if( FD_UNLIKELY( rc ) ) return rc;
+    convert_to_current( &vote_state_versioned, scratch_valloc );
+    vote_state = &vote_state_versioned.inner.current;
   }
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L832
@@ -1871,7 +1881,7 @@ process_vote_state_update( ulong                         vote_acct_idx,
   fd_vote_state_t vote_state;
   rc = verify_and_get_vote_state( vote_account, clock, signers, &vote_state );
   if( FD_UNLIKELY( rc ) ) return rc;
-  
+
 
   rc = do_process_vote_state_update(
       &vote_state, slot_hashes, clock->epoch, clock->slot, vote_state_update, ctx );
