@@ -556,7 +556,14 @@ fd_mux_tile( fd_cnc_t *              cnc,
     }
     metric_in_backp = 0UL;
 
-    if( FD_LIKELY( callbacks->after_credit ) ) callbacks->after_credit( ctx, &mux );
+    int poll_in = 1;
+    if( FD_LIKELY( callbacks->after_credit ) ) callbacks->after_credit( ctx, &mux, &poll_in );
+    if( FD_UNLIKELY( !poll_in ) ) {
+      long next = fd_tickcount();
+      fd_histf_sample( hist_fin_ticks, (ulong)(next - now) );
+      now = next;
+      continue;
+    }
 
     /* Select which in to poll next (randomized round robin) */
 

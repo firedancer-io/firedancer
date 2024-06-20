@@ -270,7 +270,10 @@ before_credit( void * _ctx,
 
 static inline void
 after_credit( void *             _ctx,
-              fd_mux_context_t * mux ) {
+              fd_mux_context_t * mux,
+              int *              opt_poll_in ) {
+  (void)opt_poll_in;
+
   fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
 
   long now = fd_tickcount();

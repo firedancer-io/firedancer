@@ -147,7 +147,10 @@ service_txn_count( fd_bencho_ctx_t * ctx ) {
 
 static inline void
 after_credit( void *             _ctx,
-              fd_mux_context_t * mux ) {
+              fd_mux_context_t * mux,
+              int *              opt_poll_in ) {
+  (void)opt_poll_in;
+
   fd_bencho_ctx_t * ctx = (fd_bencho_ctx_t *)_ctx;
 
   fd_rpc_client_service( ctx->rpc, 0 );

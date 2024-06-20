@@ -71,7 +71,10 @@ typedef struct __attribute__((packed)) {
 
 static inline void
 after_credit( void *             _ctx,
-              fd_mux_context_t * mux ) {
+              fd_mux_context_t * mux,
+              int *              opt_poll_in ) {
+  (void)opt_poll_in;
+
   fd_benchg_ctx_t * ctx = (fd_benchg_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( !ctx->has_recent_blockhash ) ) return;

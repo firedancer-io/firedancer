@@ -847,6 +847,7 @@ fd_ext_poh_begin_leader( void const * bank,
   ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), slot );
 
   publish_became_leader( ctx, slot );
+  FD_LOG_INFO(( "fd_ext_poh_begin_leader(slot=%lu, highwater_leader_slot=%lu, last_slot=%lu, last_hashcnt=%lu)", slot, ctx->highwater_leader_slot, ctx->last_slot, ctx->last_hashcnt ));
 
   fd_ext_poh_write_unlock();
 }
@@ -908,6 +909,23 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
     ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), 1UL+ctx->slot );
   }
 
+  if( FD_UNLIKELY( ctx->expect_sequential_leader_slot==(completed_bank_slot+1UL) ) ) {
+    /* If we are being reset onto a slot, it means some block was fully
+       processed, so we reset to build on top of it.  Typically we want
+       to update the reset_slot_start_ns to the current time, because
+       the network will give the next leader 400ms to publish,
+       regardless of how long the prior leader took.
+
+       But: if we were leader in the prior slot, and the block was our
+       own we can do better.  We know that the next slot should start
+       exactly 400ms after the prior one started, so we can use that as
+       the reset slot start time instead. */
+    ctx->reset_slot_start_ns = ctx->reset_slot_start_ns + (long)((double)((completed_bank_slot+1UL)-ctx->reset_slot)*ctx->slot_duration_ns);
+  } else {
+    ctx->reset_slot_start_ns = fd_log_wallclock(); /* safe to call from Rust */
+  }
+  ctx->expect_sequential_leader_slot = ULONG_MAX;
+
   memcpy( ctx->hash, reset_blockhash, 32UL );
   ctx->slot         = completed_bank_slot+1UL;
   ctx->hashcnt      = 0UL;
@@ -931,23 +949,6 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
       ctx->max_microblocks_per_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ctx->ticks_per_slot*(ctx->hashcnt_per_tick-1UL) );
     }
   }
-
-  if( FD_UNLIKELY( ctx->expect_sequential_leader_slot==ctx->reset_slot ) ) {
-    /* If we are being reset onto a slot, it means some block was fully
-       processed, so we reset to build on top of it.  Typically we want
-       to update the reset_slot_start_ns to the current time, because
-       the network will give the next leader 400ms to publish,
-       regardless of how long the prior leader took.
-
-       But: if we were leader in the prior slot, and the block was our
-       own we can do better.  We know that the next slot should start
-       exactly 400ms after the prior one started, so we can use that as
-       the reset slot start time instead. */
-    ctx->reset_slot_start_ns += (long)ctx->slot_duration_ns;
-  } else {
-    ctx->reset_slot_start_ns = fd_log_wallclock(); /* safe to call from Rust */
-  }
-  ctx->expect_sequential_leader_slot = ULONG_MAX;
 
   if( FD_UNLIKELY( leader_before_reset ) ) {
     /* No longer have a leader bank if we are reset. Replay stage will
@@ -1054,7 +1055,8 @@ publish_tick( fd_poh_ctx_t *     ctx,
 
 static inline void
 after_credit( void *             _ctx,
-              fd_mux_context_t * mux ) {
+              fd_mux_context_t * mux,
+              int *              opt_poll_in ) {
   fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_ctx;
 
   int is_leader = ctx->next_leader_slot!=ULONG_MAX && ctx->slot>=ctx->next_leader_slot;
@@ -1074,6 +1076,12 @@ after_credit( void *             _ctx,
 
     fd_ext_poh_register_tick( ctx->current_leader_bank, ctx->skipped_tick_hashes[ tick_idx ] );
     publish_tick( ctx, mux, ctx->skipped_tick_hashes[ tick_idx ], 1 );
+
+    /* If we are catching up now and publishing a bunch of skipped
+       ticks, we do not want to process any incoming microblocks until
+       all the skipped ticks have been published out; otherwise we would
+       intersperse skipped tick messages with microblocks. */
+    *opt_poll_in = 0;
     return;
   }
 
@@ -1319,41 +1327,6 @@ during_housekeeping( void * _ctx ) {
   FD_MHIST_COPY( POH_TILE, SLOT_DONE_DELAY_SECONDS,        ctx->slot_done_delay );
 }
 
-static void
-before_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             int *  opt_filter ) {
-  (void)in_idx;
-  (void)seq;
-
-  fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_ctx;
-  if( FD_UNLIKELY( in_idx!=ctx->stake_in_idx ) ) {
-    if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ||
-                   fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
-      ulong slot = fd_disco_poh_sig_slot( sig );
-
-      /* The following sequence is possible...
-      
-          1. We become leader in slot 10
-          2. While leader, we switch to a fork that is on slot 8, where
-             we are leader
-          3. We get the in-flight microblocks for slot 10
-
-        These in-flight microblocks need to be dropped, so we check
-        against the high water mark (highwater_leader_slot) rather than
-        the current hashcnt here when determining what to drop.
-
-        We know if the slot is lower than the high water mark it's from a stale
-        leader slot, because we will not become leader for the same slot twice
-        even if we are reset back in time (to prevent duplicate blocks). */
-      if( FD_UNLIKELY( slot<ctx->highwater_leader_slot ) ) *opt_filter = 1;
-      return;
-    }
-  }
-}
-
 static inline void
 during_frag( void * _ctx,
              ulong  in_idx,
@@ -1376,10 +1349,37 @@ during_frag( void * _ctx,
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->stake_in.mem, chunk );
     fd_stake_ci_stake_msg_init( ctx->stake_ci, dcache_entry );
     return;
-  } else if( FD_UNLIKELY( in_idx==ctx->pack_in_idx ) ) {
+  }
+
+  int is_frag_for_prior_leader_slot = 0;
+  if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ||
+                  fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
+    ulong slot = fd_disco_poh_sig_slot( sig );
+
+    /* The following sequence is possible...
+    
+        1. We become leader in slot 10
+        2. While leader, we switch to a fork that is on slot 8, where
+            we are leader
+        3. We get the in-flight microblocks for slot 10
+
+      These in-flight microblocks need to be dropped, so we check
+      against the high water mark (highwater_leader_slot) rather than
+      the current hashcnt here when determining what to drop.
+
+      We know if the slot is lower than the high water mark it's from a stale
+      leader slot, because we will not become leader for the same slot twice
+      even if we are reset back in time (to prevent duplicate blocks). */
+    is_frag_for_prior_leader_slot = slot<ctx->highwater_leader_slot;
+  }
+
+  if( FD_UNLIKELY( in_idx==ctx->pack_in_idx ) ) {
     /* We now know the real amount of microblocks published, so set an
        exact bound for once we receive them. */
+    *opt_filter = 1;
     if( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ) {
+      if( FD_UNLIKELY( is_frag_for_prior_leader_slot ) ) return;
+
       FD_TEST( ctx->microblocks_lower_bound<=ctx->max_microblocks_per_slot );
       fd_done_packing_t const * done_packing = fd_chunk_to_laddr( ctx->pack_in.mem, chunk );
       FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu)",
@@ -1388,7 +1388,6 @@ during_frag( void * _ctx,
                     done_packing->microblocks_in_slot ));
       ctx->microblocks_lower_bound += ctx->max_microblocks_per_slot - done_packing->microblocks_in_slot;
     }
-    *opt_filter = 1;
     return;
   } else {
     if( FD_UNLIKELY( chunk<ctx->bank_in[ in_idx ].chunk0 || chunk>ctx->bank_in[ in_idx ].wmark || sz>USHORT_MAX ) )
@@ -1398,6 +1397,23 @@ during_frag( void * _ctx,
 
     fd_memcpy( ctx->_txns, src, sz-sizeof(fd_microblock_trailer_t) );
     ctx->_microblock_trailer = (fd_microblock_trailer_t*)(src+sz-sizeof(fd_microblock_trailer_t));
+
+    /* Indicate to pack tile we are done processing the transactions so
+       it can pack new microblocks using these accounts.  This has to be
+       done before filtering the frag, otherwise we would not notify
+       pack that accounts are unlocked in certain cases.
+
+       TODO: This is way too late to do this.  Ideally we would release
+       the accounts right after we execute and commit the results to the
+       accounts database.  It has to happen before because otherwise
+       there's a race where the bank releases the accounts, they get
+       reuused in another bank, and that bank sends to PoH and gets its
+       microblock pulled first -- so the bank commit and poh mixin order
+       is not the same.  Ideally we would resolve this a bit more
+       cleverly and without holding the account locks this much longer. */
+    fd_fseq_update( ctx->bank_busy[ ctx->_microblock_trailer->bank_idx ], ctx->_microblock_trailer->bank_busy_seq );
+
+    *opt_filter = is_frag_for_prior_leader_slot;
   }
 }
 
@@ -1494,19 +1510,6 @@ after_frag( void *             _ctx,
        will just get picked up by the regular tick loop. */
     return;
   }
-
-  /* Indicate to pack tile we are done processing the transactions so it
-     can pack new microblocks using these accounts.
-     
-     TODO: This is way too late to do this.  Ideally we would release
-     the accounts right after we execute and commit the results to the
-     accounts database.  It has to happen before because otherwise
-     there's a race where the bank releases the accounts, they get
-     reuused in another bank, and that bank sends to PoH and gets its
-     microblock pulled first -- so the bank commit and poh mixin order
-     is not the same.  Ideally we would resolve this a bit more cleverly
-     and without holding the account locks this much longer. */
-  fd_fseq_update( ctx->bank_busy[ ctx->_microblock_trailer->bank_idx ], ctx->_microblock_trailer->bank_busy_seq );
 
   if( FD_UNLIKELY( !ctx->microblocks_lower_bound ) ) {
     double tick_per_ns = fd_tempo_tick_per_ns( NULL );
@@ -1841,7 +1844,6 @@ fd_topo_run_tile_t fd_tile_poh = {
   .mux_ctx                  = mux_ctx,
   .mux_after_credit         = after_credit,
   .mux_during_housekeeping  = during_housekeeping,
-  .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
   .lazy                     = lazy,
