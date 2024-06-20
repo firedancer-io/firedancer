@@ -1,4 +1,4 @@
-#include "fd_exec_test.pb.h"
+#include "generated/invoke.pb.h"
 #undef FD_SCRATCH_USE_HANDHOLDING
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #include "fd_exec_instr_test.h"
@@ -120,15 +120,6 @@ _load_account( fd_borrowed_account_t *           acc,
                fd_acc_mgr_t *                    acc_mgr,
                fd_funk_txn_t *                   funk_txn,
                fd_exec_test_acct_state_t const * state ) {
-  /* Although missing addresses / owners may be interpreted as 0-set bytes,
-     the Agave fuzz harness fails to parse these messages out and fails
-     before execution. The following check is meant to keep behavior
-     consistent between fuzz harnesses.
-   */
-  if( !state->has_address || !state->has_owner ) {
-    return 0;
-  }
-
   fd_borrowed_account_init( acc );
   ulong size = 0UL;
   if( state->data ) size = state->data->size;
@@ -694,11 +685,6 @@ _diff_effects( fd_exec_instr_fixture_diff_t * check ) {
   for( ulong i=0UL; i < expected->modified_accounts_count; i++ ) {
     fd_exec_test_acct_state_t const * want = &expected->modified_accounts[i];
 
-    if( FD_UNLIKELY( !want->has_address ) ) {
-      REPORTV( WARNING, "modified account #%lu missing an address", i );
-      check->has_diff = 1;
-      continue;
-    }
     void const * query = want->address;
     ulong idx = sort_pubkey_p_search_geq( modified_pubkeys, modified_acct_cnt, query );
     if( FD_UNLIKELY( idx >= modified_acct_cnt ) ) {
@@ -827,7 +813,6 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
   effects->cu_avail = ctx->txn_ctx->compute_meter;
 
   if( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
-    effects->has_custom_err = 1;
     effects->custom_err     = ctx->txn_ctx->custom_err;
   }
 
@@ -861,12 +846,8 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
     memset( out_acct, 0, sizeof(fd_exec_test_acct_state_t) );
     /* Copy over account content */
 
-    out_acct->has_address = 1;
     memcpy( out_acct->address, acc->pubkey, sizeof(fd_pubkey_t) );
-
-    out_acct->has_lamports = 1;
     out_acct->lamports     = acc->meta->info.lamports;
-
     out_acct->data =
       FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
                                   PB_BYTES_ARRAY_T_ALLOCSIZE( acc->const_meta->dlen ) );
@@ -877,13 +858,8 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
     out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
     fd_memcpy( out_acct->data->bytes, acc->const_data, acc->const_meta->dlen );
 
-    out_acct->has_executable = 1;
     out_acct->executable     = acc->meta->info.executable;
-
-    out_acct->has_rent_epoch = 1;
     out_acct->rent_epoch     = acc->meta->info.rent_epoch;
-
-    out_acct->has_owner = 1;
     memcpy( out_acct->owner, acc->meta->info.owner, sizeof(fd_pubkey_t) );
 
     effects->modified_accounts_count++;

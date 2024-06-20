@@ -466,11 +466,9 @@ static void
 export_account_state( fd_borrowed_account_t * borrowed_account,
                       fd_exec_test_acct_state_t * output_account ) {
     // Address
-    output_account->has_address = true;
     fd_memcpy(output_account->address, borrowed_account->pubkey, sizeof(fd_pubkey_t));
 
     // Lamports
-    output_account->has_lamports = true;
     output_account->lamports = (uint64_t) borrowed_account->const_meta->info.lamports;
 
     // Data
@@ -479,15 +477,12 @@ export_account_state( fd_borrowed_account_t * borrowed_account,
     fd_memcpy(output_account->data->bytes, borrowed_account->const_data, borrowed_account->const_meta->dlen);
 
     // Executable
-    output_account->has_executable = true;
     output_account->executable = (bool) borrowed_account->const_meta->info.executable;
 
     // Rent epoch
-    output_account->has_rent_epoch = true;
     output_account->rent_epoch = (uint64_t) borrowed_account->const_meta->info.rent_epoch;
 
     // Owner
-    output_account->has_owner = true;
     fd_memcpy(output_account->owner, borrowed_account->const_meta->info.owner, sizeof(fd_pubkey_t));
 }
 
@@ -515,13 +510,7 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
   const ulong num_sysvar_entries = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
 
   /* Program ID */
-  instr_context->has_program_id = true;
   fd_memcpy( instr_context->program_id, instr->program_id_pubkey.uc, sizeof(fd_pubkey_t) );
-
-  /* Loader ID */
-  instr_context->has_loader_id = 1;
-  // For now, the loader ID will be the owner of the program ID
-  fd_memcpy( instr_context->loader_id, txn_ctx->borrowed_accounts[instr->program_id].const_meta->info.owner, sizeof(fd_pubkey_t) );
 
   /* Accounts */
   instr_context->accounts_count = (pb_size_t) txn_ctx->accounts_cnt;
@@ -589,13 +578,8 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
     bool is_writable = account_flag & FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
     bool is_signer = account_flag & FD_INSTR_ACCT_FLAGS_IS_SIGNER;
 
-    output_instr_account->has_index = true;
     output_instr_account->index = instr->acct_txn_idxs[i];
-
-    output_instr_account->has_is_writable = true;
     output_instr_account->is_writable = is_writable;
-
-    output_instr_account->has_is_signer = true;
     output_instr_account->is_signer = is_signer;
   }
 
@@ -605,7 +589,6 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
   fd_memcpy( instr_context->data->bytes, instr->data, instr->data_sz );
 
   /* Compute Units */
-  instr_context->has_cu_avail = true;
   instr_context->cu_avail = txn_ctx->compute_meter;
 
   /* Txn Context */

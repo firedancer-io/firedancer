@@ -8,7 +8,7 @@
 #include <unistd.h>
 #include "../../nanopb/pb_firedancer.h"
 #include "../../nanopb/pb_decode.h"
-#include "fd_exec_test.pb.h"
+#include "generated/invoke.pb.h"
 
 static int
 run_test( fd_exec_instr_test_runner_t * runner,
