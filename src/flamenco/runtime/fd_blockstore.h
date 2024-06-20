@@ -113,6 +113,10 @@ typedef struct fd_buf_shred fd_buf_shred_t;
 #include "../../util/tmpl/fd_map_chain.c"
 /* clang-format on */
 
+#define DEQUE_NAME fd_blockstore_slot_prune_deque
+#define DEQUE_T    ulong
+#include "../../util/tmpl/fd_deque_dynamic.c"
+
 /* A shred that has been deshredded and is part of a block (beginning at off) */
 struct fd_block_shred {
   fd_shred_t hdr; /* ptr to the data shred header */
@@ -250,9 +254,10 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
   ulong shred_pool_gaddr; /* pool of temporary shreds */
   ulong shred_map_gaddr;  /* map of (slot, shred_idx)->shred */
 
-  ulong slot_max;           /* maximum block history */
-  ulong slot_max_with_slop; /* maximum block history with some padding */
-  ulong slot_map_gaddr;     /* map of slot->(slot_meta, block) */
+  ulong slot_max;               /* maximum block history */
+  ulong slot_max_with_slop;     /* maximum block history with some padding */
+  ulong slot_map_gaddr;         /* map of slot->(slot_meta, block) */
+  ulong slot_prune_deque_gaddr; /* deque for pruning slots */
 
   int   lg_txn_max;
   ulong txn_map_gaddr;
@@ -524,6 +529,11 @@ fd_blockstore_is_slot_ancient( fd_blockstore_t * blockstore, ulong slot ) {
 /* Set the block height. */
 void
 fd_blockstore_block_height_set( fd_blockstore_t * blockstore, ulong slot, ulong block_height );
+
+/* Publish root to the blockstore and prune the blockstore. Removes all slots
+   whose subtree is not on the path of root_slot. */
+int
+fd_blockstore_publish( fd_blockstore_t * blockstore, ulong root_slot );
 
 /* Acquire a read lock */
 static inline void

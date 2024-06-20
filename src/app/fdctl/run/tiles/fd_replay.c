@@ -632,6 +632,17 @@ after_frag( void *             _ctx,
 
       fd_ghost_print( ctx->tower->ghost, child->slot, FD_GHOST_PRINT_DEPTH_DEFAULT, ctx->tower->total_stake );
 
+      /* Publish the fork forks */
+      fd_blockstore_start_write( ctx->replay->blockstore );
+
+      /* TODO: publish the actual tower root! */
+      int err = fd_blockstore_publish( ctx->replay->blockstore, ctx->replay->blockstore->root );
+      if( err!=FD_BLOCKSTORE_OK ) {
+        FD_LOG_ERR(( "error pruning blockstore" ));
+      }
+
+      fd_blockstore_end_write( ctx->replay->blockstore );
+
       /* Prepare bank for next execution. */
 
       child->slot_ctx.slot_bank.slot           = ctx->curr_slot;
