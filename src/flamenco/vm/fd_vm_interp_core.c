@@ -166,22 +166,7 @@
   frame_cnt++;                                                                                            \
   reg[10] += FD_VM_STACK_FRAME_SZ + FD_VM_STACK_GUARD_SZ
 
-  /* Before starting execution, allocate the requested heap size.  If
-     this requires more compute units than can be supported, we don't
-     even execute the first instruction. */
-
-//let heap_size = compute_budget.heap_size.unwrap_or(HEAP_LENGTH);
-//let _ = invoke_context.consume_checked(
-//    ((heap_size as u64).saturating_div(32_u64.saturating_mul(1024)))
-//        .saturating_sub(1)
-//        .saturating_mul(compute_budget.heap_cost),
-//);
-
-  ulong heap_cu_cost = fd_ulong_sat_mul( fd_ulong_sat_sub( heap_max / (32UL*1024UL), 1UL ), FD_VM_HEAP_COST );
-  if( FD_UNLIKELY( heap_cu_cost>=cu ) ) goto sigcost; /* Note: untaken branches don't consume BTB */ /* FIXME: SIGHEAP? */
-  cu -= heap_cu_cost;
-
-  /* At this point, cu is positive */
+  /* We subtract the heap cost in the BPF loader */
 
   goto interp_exec; /* Silly but to avoid unused label warning in some configurations */
 interp_exec:
