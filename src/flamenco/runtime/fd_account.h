@@ -36,15 +36,10 @@
    See fd_acc_exists and the below helper functions for safe use in
    native programs. */
 
-#include "../../ballet/txn/fd_txn.h"
-#include "fd_executor.h"
-#include "info/fd_instr_info.h"
+#include "fd_executor_err.h"
 #include "fd_system_ids.h"
-#include "fd_runtime.h"
 #include "context/fd_exec_epoch_ctx.h"
-#include "context/fd_exec_slot_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
-#include "context/fd_exec_instr_ctx.h"
 #include <assert.h>  /* TODO remove */
 
 /* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */

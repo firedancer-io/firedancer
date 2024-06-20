@@ -2,7 +2,8 @@
 #define HEADER_fd_src_flamenco_runtime_native_program_util_h
 
 #include "../../fd_flamenco_base.h"
-#include "../fd_executor.h"
+#include "../fd_executor_err.h"
+#include "../fd_borrowed_account.h"
 
 #define FD_DEBUG_MODE 0
 

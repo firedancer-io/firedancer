@@ -2,8 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_program_fd_bpf_loader_serialization_h
 
 #include "../../fd_flamenco_base.h"
-#include "../fd_executor.h"
-#include "../fd_runtime.h"
 
 #define MAX_PERMITTED_DATA_INCREASE (10 * 1024)
 

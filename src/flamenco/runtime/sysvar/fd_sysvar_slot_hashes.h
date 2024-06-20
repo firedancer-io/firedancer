@@ -2,8 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_sysvar_fd_slot_hashes_h
 
 #include "../../fd_flamenco_base.h"
-#include "../fd_executor.h"
-#include "../context/fd_exec_slot_ctx.h"
+#include "../../types/fd_types.h"
 
 /* The slot hashes sysvar contains the most recent hashes of the slot's parent bank hashes. */
 

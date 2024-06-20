@@ -12,6 +12,7 @@
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../runtime/sysvar/fd_sysvar_fees.h"
 #include "../runtime/fd_account.h"
+#include "../runtime/fd_executor.h"
 #include "../runtime/context/fd_exec_txn_ctx.h"
 #include "../runtime/context/fd_exec_instr_ctx.h"
 #include "../../ballet/ed25519/fd_curve25519.h"

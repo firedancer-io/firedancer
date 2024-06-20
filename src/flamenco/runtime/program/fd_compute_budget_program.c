@@ -1,6 +1,7 @@
 #include "fd_compute_budget_program.h"
 
 #include "../fd_system_ids.h"
+#include "../fd_executor.h"
 #include "../context/fd_exec_instr_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"

@@ -1,5 +1,5 @@
 #include "fd_bpf_loader_v1_program.h"
-#include "../context/fd_exec_txn_ctx.h"
+#include "../fd_executor.h"
 
 int
 fd_bpf_loader_v1_program_execute( fd_exec_instr_ctx_t ctx ) {

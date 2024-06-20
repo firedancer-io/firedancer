@@ -5,6 +5,7 @@
 #include "../../../util/bits/fd_uwide.h"
 #include "../../../ballet/utf8/fd_utf8.h"
 #include "../fd_account.h"
+#include "../fd_executor.h"
 #include "../fd_pubkey_utils.h"
 #include "../fd_system_ids.h"
 

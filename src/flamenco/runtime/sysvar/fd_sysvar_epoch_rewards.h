@@ -2,8 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_sysvar_epoch_rewards_h
 
 #include "../../fd_flamenco_base.h"
-#include "../fd_executor.h"
-#include "../context/fd_exec_slot_ctx.h"
+#include "../../types/fd_types.h"
 
 FD_PROTOTYPES_BEGIN
 
