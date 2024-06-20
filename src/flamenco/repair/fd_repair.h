@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_flamenco_repair_fd_repair_h
 #define HEADER_fd_src_flamenco_repair_fd_repair_h
 
-#include "../types/fd_types.h"
 #include "../gossip/fd_gossip.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
