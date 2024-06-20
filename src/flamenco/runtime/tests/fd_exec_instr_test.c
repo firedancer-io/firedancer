@@ -1213,10 +1213,74 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
   fd_memset( txn_result, 0, sizeof(fd_exec_test_txn_result_t) );
 
   txn_result->executed = 1;
-  // txn_result->states = ...
-  // txn_result->rent = ...
+
+  /* Allocate space for captured accounts */
+
+  fd_funk_t *     funk     = runner->funk;
+  fd_funk_txn_t * funk_txn = txn_ctx->funk_txn;
+
+  ulong modified_acct_cnt = txn_ctx->accounts_cnt;
+
+  fd_exec_test_resulting_state_t * modified_accts =
+    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_resulting_state_t),
+                                sizeof (fd_exec_test_resulting_state_t) * modified_acct_cnt );
+  if( FD_UNLIKELY( _l > output_end ) ) {
+    // _txn_context_destroy( runner, txn_ctx );
+    return 0;
+  }
+  txn_result->states       = modified_accts;
+  txn_result->states_count = 0UL;
+  
+  /* Capture borrowed accounts */
+
+  for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
+    fd_borrowed_account_t * acc = &txn_ctx->borrowed_accounts[j];
+    if( !acc->meta ) continue;
+
+    ulong modified_idx = txn_result->states_count;
+    assert( modified_idx < modified_acct_cnt );
+
+    fd_exec_test_acct_state_t * out_acct = txn_result->states[ modified_idx ].state;
+    memset( out_acct, 0, sizeof(fd_exec_test_acct_state_t) );
+    /* Copy over account content */
+
+    out_acct->has_address = 1;
+    memcpy( out_acct->address, acc->pubkey, sizeof(fd_pubkey_t) );
+
+    out_acct->has_lamports = 1;
+    out_acct->lamports     = acc->meta->info.lamports;
+
+    out_acct->data =
+      FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
+                                  PB_BYTES_ARRAY_T_ALLOCSIZE( acc->const_meta->dlen ) );
+    if( FD_UNLIKELY( _l > output_end ) ) {
+      // _txn_context_destroy( runner, txn_ctx );
+      return 0UL;
+    }
+    out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
+    fd_memcpy( out_acct->data->bytes, acc->const_data, acc->const_meta->dlen );
+
+    out_acct->has_executable = 1;
+    out_acct->executable     = acc->meta->info.executable;
+
+    out_acct->has_rent_epoch = 1;
+    out_acct->rent_epoch     = acc->meta->info.rent_epoch;
+
+    out_acct->has_owner = 1;
+    memcpy( out_acct->owner, acc->meta->info.owner, sizeof(fd_pubkey_t) );
+
+    txn_result->states_count++;
+
+    /* Delete funk record */
+    fd_funk_rec_key_t rec_key = fd_acc_funk_key( acc->pubkey );
+    fd_funk_rec_t const * rec_ = fd_funk_rec_query( funk, funk_txn, &rec_key );
+    fd_funk_rec_t * rec = fd_funk_rec_modify( funk, rec_ );
+    fd_funk_rec_remove( funk, rec, 1 );
+  }
+
+  txn_result->rent = txn_ctx->slot_ctx->slot_bank.collected_rent;
   txn_result->is_ok = !!exec_res;
-  txn_result->status = exec_res;
+  txn_result->status = -exec_res;
   txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
                                   PB_BYTES_ARRAY_T_ALLOCSIZE( txn_ctx->return_data.len ) );
   if( FD_UNLIKELY( _l > output_end ) ) {
