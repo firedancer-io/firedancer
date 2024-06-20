@@ -30,7 +30,7 @@ LD:=clang++
 # there wasn't some subtle inconsistency created between them in the
 # process).
 
-CPPFLAGS+=-DFD_USING_CLANG=1
+CPPFLAGS+=-DFD_USING_CLANG=1 -Wno-address-of-packed-member -Wno-unused-command-line-argument -Wno-bitwise-instead-of-logical
 
 # Sigh ... clang doesn't understand some important command line
 # arguments (a couple of the more esoteric warnings in the brutality,
@@ -40,3 +40,7 @@ CPPFLAGS+=-DFD_USING_CLANG=1
 # itself doesn't matter ... only that the variable is defined).
 
 FD_USING_CLANG:=1
+
+# Don't attempt to transform vsprtps into vrsqrtps (not IEEE-compliant)
+
+CPPFLAGS+=-Xclang -target-feature -Xclang +fast-vector-fsqrt
