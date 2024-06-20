@@ -73,7 +73,6 @@ genesis_create( void *                       buf,
     .taper           = 0.15,
     .foundation      = 0.05,
     .foundation_term = 7.0,
-    .__unused        = 0.0,
   };
 
   /* Create epoch schedule */

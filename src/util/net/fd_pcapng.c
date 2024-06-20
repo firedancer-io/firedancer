@@ -4,9 +4,9 @@
 /* Capture related ****************************************************/
 
 #include <errno.h>
-#if defined(__linux__)
+#if defined(__linux__) || defined(__FreeBSD__)
 #include <net/if.h>
-#endif /* defined(__linux__) */
+#endif
 
 void
 fd_pcapng_shb_defaults( fd_pcapng_shb_opts_t * opt ) {
@@ -24,12 +24,14 @@ fd_pcapng_shb_defaults( fd_pcapng_shb_opts_t * opt ) {
 int
 fd_pcapng_idb_defaults( fd_pcapng_idb_opts_t * opt,
                         uint                   if_idx ) {
-# if defined(__linux__)
+# if defined(__linux__) || defined(__FreeBSD__)
   static FD_TL char _name[ IF_NAMESIZE ];
   char * name = if_indextoname( if_idx, _name );
   if( FD_UNLIKELY( !name ) ) return 0;
   FD_STATIC_ASSERT( 16>=IF_NAMESIZE, ifname_sz );
   memcpy( opt->name, _name, 16UL );
+# else
+  (void)if_idx;
 # endif
 
   opt->tsresol = FD_PCAPNG_TSRESOL_NS;
