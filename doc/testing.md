@@ -66,8 +66,10 @@ detection.
 
 Example `Local.mk` configuration:
 ```make
+ifdef FD_HAS_HOSTED
 # call make-fuzz-test,name,         object list,  dependencies
 $(call make-fuzz-test,fuzz_mymodule,fuzz_mymodule,fd_ballet fd_util)
+endif
 ```
 
 In order to find new test inputs, a fuzz engine is required.
