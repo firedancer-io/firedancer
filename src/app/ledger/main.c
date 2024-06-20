@@ -1318,7 +1318,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   char const * incremental             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--incremental",             NULL, NULL      );
   char const * genesis                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--genesis",                 NULL, NULL      );
   int          copy_txn_status         = fd_env_strip_cmdline_int  ( &argc, &argv, "--copy-txn-status",         NULL, 0         );
-  ulong        slot_history_max        = fd_env_strip_cmdline_ulong( &argc, &argv, "--slot-history",            NULL, FD_SLOT_MAX );
+  ulong        slot_history_max        = fd_env_strip_cmdline_ulong( &argc, &argv, "--slot-history",            NULL, FD_BLOCK_MAX );
   ulong        shred_max               = fd_env_strip_cmdline_ulong( &argc, &argv, "--shred-max",               NULL, 1UL << 17 );
   ulong        start_slot              = fd_env_strip_cmdline_ulong( &argc, &argv, "--start-slot",              NULL, 0UL       );
   ulong        end_slot                = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",                NULL, ULONG_MAX );
