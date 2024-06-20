@@ -101,6 +101,7 @@ fetch () {
   mkdir -pv ./opt/git
 
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.5"
+  checkout_repo lz4       https://github.com/lz4/lz4                "v1.9.4"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.5.0"
   #checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.0"
   if [[ $DEVMODE == 1 ]]; then
@@ -265,6 +266,14 @@ install_zstd () {
   echo "[+] Successfully installed zstd"
 }
 
+install_lz4 () {
+  cd ./opt/git/lz4/lib
+  
+  echo "[+] Installing lz4 to $PREFIX"
+  "${MAKE[@]}" PREFIX="$PREFIX" BUILD_SHARED=no install
+  echo "[+] Successfully installed lz4"
+}
+
 install_secp256k1 () {
   cd ./opt/git/secp256k1
 
@@ -386,7 +395,6 @@ install_rocksdb () {
   ROCKSDB_DISABLE_NUMA=1 \
   ROCKSDB_DISABLE_ZLIB=1 \
   ROCKSDB_DISABLE_BZIP=1 \
-  ROCKSDB_DISABLE_LZ4=1 \
   ROCKSDB_DISABLE_GFLAGS=1 \
   PORTABLE=haswell \
   CFLAGS="-isystem $(pwd)/../../include -g0 -DSNAPPY -DZSTD" \
@@ -458,6 +466,7 @@ install () {
   mkdir -p ./opt/{include,lib}
 
   ( install_zstd      )
+  ( install_lz4       )
   ( install_secp256k1 )
   #( install_openssl   )
   if [[ $DEVMODE == 1 ]]; then
