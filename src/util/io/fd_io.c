@@ -550,7 +550,9 @@ fd_io_strsignal( int sig ) {
   case SIGXFSZ        : return "SIGXFSZ-File size limit exceeded";
   case SIGVTALRM      : return "SIGVTALRM-Virtual timer expired";
   case SIGPROF        : return "SIGPROF-Profiling timer expired";
+#if defined(SIGWINCH)
   case SIGWINCH       : return "SIGWINCH-Window changed";
+#endif
 #if defined(SIGPOLL)
   case SIGPOLL        : return "SIGPOLL-I/O possible";
 #endif
