@@ -111,10 +111,10 @@ fd_tower_fork_update( fd_tower_t * tower, fd_fork_t * fork ) {
 
   fork->ghost_node = fd_ghost_node_insert( ghost, fork->slot, parent_slot );
 
-  fd_vote_accounts_pair_t_mapnode_t * root =
-      fork->slot_ctx.slot_bank.epoch_stakes.vote_accounts_root;
-  fd_vote_accounts_pair_t_mapnode_t * pool =
-      fork->slot_ctx.slot_bank.epoch_stakes.vote_accounts_pool;
+  fd_epoch_bank_t *                   epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx.epoch_ctx );
+  fd_vote_accounts_pair_t_mapnode_t * root       = epoch_bank->stakes.vote_accounts.vote_accounts_root;
+  fd_vote_accounts_pair_t_mapnode_t * pool       = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
+
   for( fd_vote_accounts_pair_t_mapnode_t * curr = fd_vote_accounts_pair_t_map_minimum( pool, root );
        curr;
        curr = fd_vote_accounts_pair_t_map_successor( pool, curr ) ) {
