@@ -57,7 +57,7 @@ FD_PROTOTYPES_END
 
 /* fd_io_istream_zstd_t implements fd_io_istream_vt_t. ****************/
 
-#ifdef FD_HAS_ZSTD
+#if FD_HAS_ZSTD
 
 struct fd_io_istream_zstd {
   fd_zstd_dstream_t * dstream;  /* borrowed for lifetime of self */
