@@ -114,13 +114,38 @@ fd_blockstore_new( void * shmem,
     return NULL;
   }
 
+  void * slot_prune_shmem = fd_wksp_alloc_laddr( wksp,
+                                                 fd_blockstore_slot_prune_deque_align(),
+                                                 fd_blockstore_slot_prune_deque_footprint( slot_max_with_slop ),
+                                                 wksp_tag );
+  if( FD_UNLIKELY( !slot_prune_shmem ) ) {
+    FD_LOG_WARNING( ( "slot_max too large for workspace" ) );
+    goto slot_map_delete;
+    return NULL;
+  }
+
+  void * slot_prune_shdeque = fd_blockstore_slot_prune_deque_new( slot_prune_shmem, slot_max_with_slop );
+  if( FD_UNLIKELY( !slot_prune_shdeque ) ) {
+    FD_LOG_WARNING( ( "fd_blockstore_slot_prune_deque_new failed" ) );
+    fd_wksp_free_laddr( slot_prune_shmem );
+    goto slot_map_delete;
+    return NULL;
+  }
+
+  ulong * slot_prune_deque = fd_blockstore_slot_prune_deque_join( slot_prune_shdeque );
+  if( FD_UNLIKELY( !slot_prune_deque ) ) {
+    FD_LOG_WARNING( ( "fd_blockstore_slot_prune_deque_join failed" ) );
+    goto slot_prune_deque_delete;
+    return NULL;
+  }
+
   void * txn_shmem = fd_wksp_alloc_laddr( wksp,
                                           fd_blockstore_txn_map_align(),
                                           fd_blockstore_txn_map_footprint( 1LU << lg_txn_max ),
                                           wksp_tag );
   if( FD_UNLIKELY( !txn_shmem ) ) {
     FD_LOG_WARNING( ( "lg_txn_max too large for workspace" ) );
-    goto slot_map_delete;
+    goto slot_prune_deque_delete;
     return NULL;
   }
 
@@ -128,7 +153,7 @@ fd_blockstore_new( void * shmem,
   if( FD_UNLIKELY( !txn_shmap ) ) {
     FD_LOG_WARNING( ( "fd_blockstore_txn_map_new failed" ) );
     fd_wksp_free_laddr( txn_shmem );
-    goto slot_map_delete;
+    goto slot_prune_deque_delete;
     return NULL;
   }
 
@@ -178,9 +203,10 @@ fd_blockstore_new( void * shmem,
   blockstore->shred_pool_gaddr = fd_wksp_gaddr_fast( wksp, shred_pool );
   blockstore->shred_map_gaddr  = fd_wksp_gaddr_fast( wksp, shred_map );
 
-  blockstore->slot_map_gaddr     = fd_wksp_gaddr_fast( wksp, slot_map );
-  blockstore->slot_max           = slot_max;
-  blockstore->slot_max_with_slop = slot_max_with_slop;
+  blockstore->slot_map_gaddr         = fd_wksp_gaddr_fast( wksp, slot_map );
+  blockstore->slot_prune_deque_gaddr = fd_wksp_gaddr_fast( wksp, slot_prune_deque );
+  blockstore->slot_max               = slot_max;
+  blockstore->slot_max_with_slop     = slot_max_with_slop;
 
   blockstore->lg_txn_max    = lg_txn_max;
   blockstore->txn_map_gaddr = fd_wksp_gaddr_fast( wksp, txn_map );
@@ -196,10 +222,11 @@ fd_blockstore_new( void * shmem,
 
 txn_map_delete:
   fd_wksp_free_laddr(
-      fd_blockstore_txn_map_delete( fd_wksp_laddr_fast( wksp, blockstore->txn_map_gaddr ) ) );
+      fd_blockstore_txn_map_delete( txn_map ) );
+slot_prune_deque_delete:
+  fd_wksp_free_laddr( fd_blockstore_slot_prune_deque_delete( slot_prune_deque ) );
 slot_map_delete:
-  fd_wksp_free_laddr(
-      fd_blockstore_slot_map_delete( fd_wksp_laddr_fast( wksp, blockstore->slot_map_gaddr ) ) );
+  fd_wksp_free_laddr( fd_blockstore_slot_map_delete( slot_map ) );
 buf_shred_map_delete:
   fd_wksp_free_laddr( fd_buf_shred_map_delete( shred_map ) );
 buf_shred_pool_delete:
@@ -281,6 +308,8 @@ fd_blockstore_delete( void * shblockstore ) {
       fd_blockstore_txn_map_delete( fd_wksp_laddr_fast( wksp, blockstore->txn_map_gaddr ) ) );
   fd_wksp_free_laddr(
       fd_blockstore_slot_map_delete( fd_wksp_laddr_fast( wksp, blockstore->slot_map_gaddr ) ) );
+  fd_wksp_free_laddr(
+      fd_blockstore_slot_prune_deque_delete( fd_wksp_laddr_fast( wksp, blockstore->slot_prune_deque_gaddr ) ) );
   fd_wksp_free_laddr(
       fd_buf_shred_map_delete( fd_wksp_laddr_fast( wksp, blockstore->shred_map_gaddr ) ) );
   fd_wksp_free_laddr(
@@ -503,6 +532,74 @@ fd_blockstore_slot_history_remove( fd_blockstore_t * blockstore, ulong min_slot 
 int
 fd_blockstore_clear( fd_blockstore_t * blockstore ) {
   return fd_blockstore_slot_history_remove( blockstore, ULONG_MAX );
+}
+
+/* Publish root to the blockstore and prune the blockstore. Removes all slots
+   whose subtree is not on the path of root_slot. */
+int
+fd_blockstore_publish( fd_blockstore_t * blockstore, ulong new_root_slot ) {
+  long  prune_time_ns    = -fd_log_wallclock();
+  ulong pruned_slot_cnt  = 0UL;
+  ulong scanned_slot_cnt = 0UL;
+  fd_wksp_t * wksp       = fd_blockstore_wksp( blockstore );
+  
+  /* If root is */
+  if( blockstore->root==0 ) {
+    blockstore->root = new_root_slot;
+    return FD_BLOCKSTORE_OK;
+  }
+
+  /* If the root slot is at the current root, do not delete anything. */
+  if( new_root_slot==blockstore->root ) {
+    return FD_BLOCKSTORE_OK;
+  }
+
+  /* If the new root is behind the current root, this is an invariant violation. */
+  if( blockstore->root>new_root_slot ) {
+    FD_LOG_ERR(( "new root is behind current root - new_root_slot: %lu, curr_root_slot: %lu",
+        new_root_slot, blockstore->root ));
+  }
+
+  ulong * prune_deque = fd_wksp_laddr_fast( wksp, blockstore->slot_prune_deque_gaddr );
+
+  fd_blockstore_slot_prune_deque_push_tail( prune_deque, blockstore->root );
+  
+  while( !fd_blockstore_slot_prune_deque_empty( prune_deque ) ) {
+    ulong curr = fd_blockstore_slot_prune_deque_pop_head( prune_deque );
+    scanned_slot_cnt++;
+    
+    ulong * next_slot     = NULL;
+    ulong   next_slot_len = 0UL;
+    
+    int err = fd_blockstore_next_slot_query( blockstore, curr, &next_slot, &next_slot_len );
+    if( FD_UNLIKELY( err!=FD_BLOCKSTORE_OK ) ) {
+      fd_blockstore_slot_prune_deque_remove_all( prune_deque );
+      return err;
+    }
+
+    for( ulong i = 0; i<next_slot_len; i++ ) {
+      if( FD_LIKELY( next_slot[ i ]!=new_root_slot ) ) {
+        fd_blockstore_slot_prune_deque_push_tail( prune_deque, next_slot[ i ] );
+      }
+    }
+
+    err = fd_blockstore_slot_remove( blockstore, curr );
+    pruned_slot_cnt++;
+    if( FD_UNLIKELY( err!=FD_BLOCKSTORE_OK ) ) {
+      fd_blockstore_slot_prune_deque_remove_all( prune_deque );
+      return err;
+    }
+  }
+
+  prune_time_ns += fd_log_wallclock();
+
+  FD_LOG_NOTICE(( "blockstore publish - new_root_slot: %lu, prev_root_slot: %lu, slots pruned: %lu, slots scanned: %lu, elapsed: %6.6f ms", 
+      new_root_slot, blockstore->root,
+      pruned_slot_cnt, scanned_slot_cnt, (double)prune_time_ns*1e-6));
+
+  blockstore->root = new_root_slot;
+
+  return FD_BLOCKSTORE_OK;
 }
 
 /* Deshred and construct a block once we've received all shreds for a slot. */
