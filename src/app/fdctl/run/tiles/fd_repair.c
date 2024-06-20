@@ -404,7 +404,8 @@ after_frag( void *             _ctx,
 
 static inline void
 after_credit( void *             _ctx,
-              fd_mux_context_t * mux FD_PARAM_UNUSED ) {
+              fd_mux_context_t * mux FD_PARAM_UNUSED,
+              int *              opt_poll_in FD_PARAM_UNUSED ) {
   fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *)_ctx;
 
   fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
