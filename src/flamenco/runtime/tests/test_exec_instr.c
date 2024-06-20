@@ -71,6 +71,7 @@ main( int     argc,
   for( int j=1; j<argc; j++ ) {
     FD_TEST( fd_scratch_frame_used()==0UL );
     fd_scratch_push();
+    FD_LOG_INFO(( "executing fixture %s", argv[j] ));
     fail_cnt += !run_test( runner, argv[j] );
     fd_scratch_pop();
   }
