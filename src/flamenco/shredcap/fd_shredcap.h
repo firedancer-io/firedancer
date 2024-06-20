@@ -9,9 +9,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
-#include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/fd_flamenco.h"
-#include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../util/fd_util.h"
 

@@ -36,8 +36,8 @@ int fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t * slot_ctx,
   ulong sz = fd_slot_history_size( history );
   if (sz < slot_history_min_account_size)
     sz = slot_history_min_account_size;
-  unsigned char *enc = fd_alloca( 1, sz );
-  memset( enc, 0, sz );
+  uchar enc[ sz ];
+  fd_memset( enc, 0, sz );
   fd_bincode_encode_ctx_t ctx;
   ctx.data = enc;
   ctx.dataend = enc + sz;

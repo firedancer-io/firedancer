@@ -1,5 +1,4 @@
 #include "fd_sysvar_fees.h"
-#include "../../types/fd_types.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_epoch_ctx.h"
@@ -7,9 +6,9 @@
 
 static void
 write_fees( fd_exec_slot_ctx_t* slot_ctx, fd_sysvar_fees_t* fees ) {
-  ulong          sz = fd_sysvar_fees_size( fees );
-  unsigned char *enc = fd_alloca( 1, sz );
-  memset( enc, 0, sz );
+  ulong sz = fd_sysvar_fees_size( fees );
+  uchar enc[sz];
+  fd_memset( enc, 0, sz );
   fd_bincode_encode_ctx_t ctx;
   ctx.data = enc;
   ctx.dataend = enc + sz;

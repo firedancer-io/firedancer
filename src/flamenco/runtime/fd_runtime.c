@@ -1673,7 +1673,7 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
   slot_ctx->signature_cnt = 0;
 
   if( slot_ctx->slot_bank.slot != 0 && FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
-    distribute_partitioned_epoch_rewards(slot_ctx);
+    fd_distribute_partitioned_epoch_rewards( slot_ctx );
   }
 
   int result = fd_runtime_block_update_current_leader( slot_ctx );
@@ -3541,9 +3541,9 @@ void fd_process_new_epoch(
            "update_epoch_stakes",
        ); */
   if ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
-    begin_partitioned_rewards( slot_ctx, parent_epoch );
+    fd_begin_partitioned_rewards( slot_ctx, parent_epoch );
   } else {
-    update_rewards( slot_ctx, parent_epoch );
+    fd_update_rewards( slot_ctx, parent_epoch );
   }
 
   fd_update_stake_delegations( slot_ctx );

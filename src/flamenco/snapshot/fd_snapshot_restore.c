@@ -1,6 +1,5 @@
 #include "fd_snapshot_restore_private.h"
 #include "../../util/archive/fd_tar.h"
-#include "../types/fd_types.h"
 #include "../runtime/fd_acc_mgr.h"
 #include "../runtime/fd_account.h"
 

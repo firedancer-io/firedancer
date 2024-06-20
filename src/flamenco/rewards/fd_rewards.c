@@ -6,6 +6,7 @@
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
+#include "../../ballet/siphash13/fd_siphash13.h"
 
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
@@ -1006,7 +1007,7 @@ pay_validator_rewards(
 // update rewards based on the previous epoch
 // non thread pool version below
 void
-update_rewards(
+fd_update_rewards(
     fd_exec_slot_ctx_t * slot_ctx,
     ulong prev_epoch
 ) {
@@ -1020,12 +1021,12 @@ update_rewards(
     pay_validator_rewards(slot_ctx, prev_epoch, rewards.validator_rewards);
 }
 
-// begin_partitioned_rewards
-/* Begin the process of calculating and distributing rewards. This process can take multiple slots. */
+/* fd_begin_partitioned_rewards: Begin the process of calculating and
+   distributing rewards. This process can take multiple slots. */
 
 // https://github.com/anza-xyz/agave/blob/2d722719a2c74ec4e180b255124c7204ef98ee6c/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L35
 void
-begin_partitioned_rewards(
+fd_begin_partitioned_rewards(
     fd_exec_slot_ctx_t * slot_ctx,
     ulong parent_epoch
 ) {
@@ -1052,7 +1053,7 @@ begin_partitioned_rewards(
 
 /* Process reward distribution for the block if it is inside reward interval. */
 void
-distribute_partitioned_epoch_rewards(
+fd_distribute_partitioned_epoch_rewards(
     fd_exec_slot_ctx_t * slot_ctx
 ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1654-L1687 */
@@ -1134,7 +1135,8 @@ distribute_partitioned_epoch_rewards(
 }
 
 void
-calculate_inflation_rates( fd_exec_slot_ctx_t * slot_ctx, fd_inflation_rates_t * rates ) {
+fd_calculate_inflation_rates( fd_exec_slot_ctx_t *   slot_ctx,
+                              fd_inflation_rates_t * rates ) {
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   ulong slot_idx = 0;
   rates->epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );

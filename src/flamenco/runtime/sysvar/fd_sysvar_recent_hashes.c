@@ -28,8 +28,8 @@ void fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t* slot_ctx ) {
   ulong sz = fd_recent_block_hashes_size(&slot_ctx->slot_bank.recent_block_hashes);
   if (sz < FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE)
     sz = FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE;
-  unsigned char *enc = fd_alloca(1, sz);
-  memset(enc, 0, sz);
+  uchar enc[ sz ];
+  fd_memset(enc, 0, sz);
   fd_bincode_encode_ctx_t ctx;
   ctx.data = enc;
   ctx.dataend = enc + sz;
