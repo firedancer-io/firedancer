@@ -1,7 +1,8 @@
 #include "fd_rewards.h"
 #include "fd_rewards_types.h"
-#include "math.h"
+#include <math.h>
 
+#include "../runtime/fd_executor_err.h"
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"

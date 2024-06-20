@@ -1,10 +1,5 @@
 #include "fd_account.h"
 #include "context/fd_exec_instr_ctx.h"
-#include "fd_acc_mgr.h"
-#include "fd_borrowed_account.h"
-#include "fd_executor.h"
-#include "info/fd_instr_info.h"
-#include "sysvar/fd_sysvar_rent.h"
 
 int
 fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,

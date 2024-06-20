@@ -1,4 +1,4 @@
-#include "./fd_precompiles.h"
+#include "fd_precompiles.h"
 #include "../fd_executor_err.h"
 #include "../../../ballet/keccak256/fd_keccak256.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"

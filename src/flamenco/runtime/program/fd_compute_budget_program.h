@@ -2,8 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_program_fd_compute_budget_program_h
 
 #include "../../fd_flamenco_base.h"
-#include "../fd_executor.h"
-#include "../fd_runtime.h"
+#include "../context/fd_exec_instr_ctx.h"
 
 /* FIXME: put these elsewhere */
 #define FD_MIN_HEAP_FRAME_BYTES (32 * 1024)     /* Min heap size */

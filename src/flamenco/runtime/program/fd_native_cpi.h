@@ -2,8 +2,8 @@
 #define HEADER_fd_src_flamenco_runtime_program_fd_native_program_cpi_h
 
 #include "../../fd_flamenco_base.h"
-#include "../fd_executor.h"
-#include "../fd_runtime.h"
+#include "../../types/fd_types.h"
+#include "../../vm/fd_vm_cpi.h"
 
 FD_PROTOTYPES_BEGIN
 

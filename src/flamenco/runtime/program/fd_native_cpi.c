@@ -1,4 +1,6 @@
+#include "fd_native_cpi.h"
 #include "../fd_account.h"
+#include "../fd_executor.h"
 #include "../../vm/fd_vm_syscalls.h"
 #include "../../vm/fd_vm_interp.h"
 #include "../../../util/bits/fd_uwide.h"

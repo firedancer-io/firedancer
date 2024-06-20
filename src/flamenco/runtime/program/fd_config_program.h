@@ -9,7 +9,8 @@
 
    Address: Config1111111111111111111111111111111111111 */
 
-#include "../fd_runtime.h"
+#include "../../fd_flamenco_base.h"
+#include "../context/fd_exec_instr_ctx.h"
 
 FD_PROTOTYPES_BEGIN
 

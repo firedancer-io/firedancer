@@ -2,8 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_program_fd_buildin_programs_h
 
 #include "../../fd_flamenco_base.h"
-#include "../fd_executor.h"
-#include "../fd_runtime.h"
 
 FD_PROTOTYPES_BEGIN
 

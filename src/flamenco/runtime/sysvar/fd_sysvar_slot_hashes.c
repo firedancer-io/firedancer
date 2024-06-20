@@ -1,7 +1,9 @@
 #include "fd_sysvar_slot_hashes.h"
-#include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
+#include "../fd_acc_mgr.h"
+#include "../fd_borrowed_account.h"
 #include "../fd_system_ids.h"
+#include "../context/fd_exec_slot_ctx.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L11 */
 const ulong slot_hashes_max_entries = 512;
@@ -13,8 +15,8 @@ void write_slot_hashes( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t* slot_ha
   ulong sz = fd_slot_hashes_size( slot_hashes );
   if (sz < slot_hashes_min_account_size)
     sz = slot_hashes_min_account_size;
-  unsigned char *enc = fd_alloca( 1, sz );
-  memset( enc, 0, sz );
+  uchar enc[sz];
+  fd_memset( enc, 0, sz );
   fd_bincode_encode_ctx_t ctx;
   ctx.data = enc;
   ctx.dataend = enc + sz;

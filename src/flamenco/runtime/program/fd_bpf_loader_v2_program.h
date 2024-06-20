@@ -10,8 +10,7 @@
    Address: BPFLoader2111111111111111111111111111111111 */
 
 #include "../../fd_flamenco_base.h"
-#include "../fd_executor.h"
-#include "../fd_runtime.h"
+#include "../context/fd_exec_instr_ctx.h"
 
 FD_PROTOTYPES_BEGIN
 

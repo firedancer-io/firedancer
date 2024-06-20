@@ -1,10 +1,9 @@
 #include "fd_sysvar_slot_history.h"
-#include "../../types/fd_types.h"
 #include "fd_sysvar.h"
 #include "fd_sysvar_rent.h"
+#include "../fd_executor_err.h"
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_epoch_ctx.h"
-#include "../context/fd_exec_slot_ctx.h"
 
 const ulong slot_history_min_account_size = 131097;
 

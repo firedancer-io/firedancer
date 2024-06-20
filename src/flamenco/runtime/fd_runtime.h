@@ -34,15 +34,6 @@
 
 #define FD_FEATURE_ACTIVE(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features. _feature_name)
 
-/* FD_BLOCK_BANKS_TYPE stores fd_firedancer_banks_t bincode encoded (obsolete)*/
-#define FD_BLOCK_BANKS_TYPE ((uchar)3)
-
-/* FD_BLOCK_SLOT_BANK_TYPE stores fd_slot_bank_t bincode encoded */
-#define FD_BLOCK_SLOT_BANK_TYPE ((uchar)6)
-
-/* FD_BLOCK_EPOCH_BANK_TYPE stores fd_epoch_bank_t bincode encoded */
-#define FD_BLOCK_EPOCH_BANK_TYPE ((uchar)7)
-
 #define FD_BLOCKHASH_QUEUE_MAX_ENTRIES       (300UL)
 #define FD_RECENT_BLOCKHASHES_MAX_ENTRIES    (150UL)
 

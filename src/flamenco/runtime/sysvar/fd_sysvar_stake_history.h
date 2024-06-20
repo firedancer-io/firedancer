@@ -2,7 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_sysvar_stake_history_h
 
 #include "../../fd_flamenco_base.h"
-#include "../fd_executor.h"
+#include "../../types/fd_types.h"
 
 /* FD_SYSVAR_STAKE_HISTORY_CAP is the max number of entries that the
    "stake history" sysvar will include.

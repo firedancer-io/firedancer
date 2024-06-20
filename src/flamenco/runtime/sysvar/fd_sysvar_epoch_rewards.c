@@ -1,7 +1,9 @@
 #include "fd_sysvar_epoch_rewards.h"
-#include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
+#include "../fd_acc_mgr.h"
+#include "../fd_borrowed_account.h"
 #include "../fd_system_ids.h"
+#include "../context/fd_exec_slot_ctx.h"
 
 // THIS IS ALL WRONG... the partitioned epoch rewards code paths have not been finalized with agave
 // so these changes are here to support getting the fuzz tests to pass and not actual ledger correctness.
@@ -27,9 +29,9 @@ fd_sysvar_epoch_rewards_burn_and_purge(
 
 static void
 write_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_sysvar_epoch_rewards_t * epoch_rewards, fd_acc_lamports_t acc_lamports) {
-  ulong          sz = fd_sysvar_epoch_rewards_size( epoch_rewards );
-  unsigned char *enc = fd_alloca( 1, sz );
-  memset( enc, 0, sz );
+  ulong sz = fd_sysvar_epoch_rewards_size( epoch_rewards );
+  uchar enc[sz];
+  fd_memset( enc, 0, sz );
   fd_bincode_encode_ctx_t ctx;
   ctx.data = enc;
   ctx.dataend = enc + sz;

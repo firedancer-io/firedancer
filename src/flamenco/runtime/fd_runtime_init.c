@@ -1,4 +1,8 @@
-#include "fd_runtime.h"
+#include "fd_runtime_init.h"
+#include "fd_runtime_err.h"
+#include "../types/fd_types.h"
+#include "context/fd_exec_epoch_ctx.h"
+#include "context/fd_exec_slot_ctx.h"
 
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
