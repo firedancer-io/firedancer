@@ -8,7 +8,7 @@ endef
 map-define = $(eval $(call _map-define,$(1),$(2)))
 
 define _check-define
-    $(eval $(1) := $(shell echo | $(CC) -march=native -E -dM - | grep -q $(2) && echo 1 || echo 0))
+    $(eval $(1) := $(shell echo | $(CC) -march=native -E -dM - | grep -q $(2) && echo 1))
 endef
 
 check-define = $(eval $(call _check-define,$(1),$(2)))
