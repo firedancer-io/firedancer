@@ -383,8 +383,9 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 }
 
 static void
-after_credit( void * _ctx,
-	      fd_mux_context_t * mux_ctx FD_PARAM_UNUSED ) {
+after_credit( void *             _ctx,
+	            fd_mux_context_t * mux_ctx FD_PARAM_UNUSED,
+              int *              opt_poll_in FD_PARAM_UNUSED ) {
   fd_store_tile_ctx_t * ctx = (fd_store_tile_ctx_t *)_ctx;
 
   fd_mcache_seq_update( ctx->replay_out_sync, ctx->replay_out_seq );

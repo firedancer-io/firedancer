@@ -197,7 +197,10 @@ mux_ctx( void * scratch ) {
 
 static inline void
 after_credit( void *             _ctx,
-              fd_mux_context_t * mux ) {
+              fd_mux_context_t * mux,
+              int *              opt_poll_in ) {
+  (void)opt_poll_in;
+
   fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_ctx;
 
   if( !ctx->is_initialized ) {

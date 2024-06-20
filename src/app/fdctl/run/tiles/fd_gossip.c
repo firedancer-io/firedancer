@@ -419,8 +419,11 @@ after_frag( void *             _ctx,
 }
 
 static void
-after_credit( void * _ctx,
-              fd_mux_context_t * mux_ctx ) {
+after_credit( void *             _ctx,
+              fd_mux_context_t * mux_ctx,
+              int *              opt_poll_in ) {
+  (void)opt_poll_in;
+
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
   ctx->mux = mux_ctx;
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );

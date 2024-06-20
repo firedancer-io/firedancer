@@ -155,9 +155,18 @@ typedef void (fd_mux_before_credit_fn)( void *             ctx,
    The ctx is a user-provided context object from when the mux tile was
    initialized.  The mux is the mux which is invoking this callback.
    The mux should only be used for calling fd_mux_publish to publish
-   a fragment to downstream consumers. */
+   a fragment to downstream consumers.
+   
+   The opt_poll_in argument determines if the mux should proceed with
+   checking for new fragments to consumer, or should `continue` the main
+   mux loop to do credit checking again.  This could be used if the
+   after_credit function publishes, and the flow control needs to be
+   checked again.  By default, opt_poll_in is true and the mux will poll
+   for fragments right away without rerunning the loop or checking for
+   credits. */
 typedef void (fd_mux_after_credit_fn)( void *             ctx,
-                                       fd_mux_context_t * mux );
+                                       fd_mux_context_t * mux,
+                                       int *              opt_poll_in );
 
 /* fd_mux_before_frag_fn is called immediately whenever a new fragment
    has been detected that was published by an upstream producer.  The

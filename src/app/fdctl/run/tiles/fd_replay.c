@@ -1016,7 +1016,10 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx, fd_fork_t * fork ) {
 
 static void
 after_credit( void *             _ctx,
-              fd_mux_context_t * mux_ctx ) {
+              fd_mux_context_t * mux_ctx,
+              int *              opt_poll_in ) {
+  (void)opt_poll_in;
+
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
 
   // Poll for blockstore
