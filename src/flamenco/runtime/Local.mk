@@ -25,8 +25,8 @@ $(call add-objs,fd_pubkey_utils,fd_flamenco)
 
 $(call add-hdrs,fd_rent_lists.h)
 
-$(call add-hdrs,fd_runtime.h fd_runtime_err.h)
-$(call add-objs,fd_runtime,fd_flamenco)
+$(call add-hdrs,fd_runtime.h fd_runtime_init.h fd_runtime_err.h)
+$(call add-objs,fd_runtime fd_runtime_init,fd_flamenco)
 endif
 
 $(call add-hdrs,fd_system_ids.h)
