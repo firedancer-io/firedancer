@@ -1127,7 +1127,7 @@ void fd_inflation_decode_unsafe( fd_inflation_t * self, fd_bincode_decode_ctx_t 
   fd_bincode_double_decode_unsafe( &self->taper, ctx );
   fd_bincode_double_decode_unsafe( &self->foundation, ctx );
   fd_bincode_double_decode_unsafe( &self->foundation_term, ctx );
-  fd_bincode_double_decode_unsafe( &self->__unused, ctx );
+  fd_bincode_double_decode_unsafe( &self->unused, ctx );
 }
 int fd_inflation_decode_offsets( fd_inflation_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
   uchar const * data = ctx->data;
@@ -1147,7 +1147,7 @@ int fd_inflation_decode_offsets( fd_inflation_off_t * self, fd_bincode_decode_ct
   self->foundation_term_off = (uint)( (ulong)ctx->data - (ulong)data );
   err = fd_bincode_double_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  self->__unused_off = (uint)( (ulong)ctx->data - (ulong)data );
+  self->unused_off = (uint)( (ulong)ctx->data - (ulong)data );
   err = fd_bincode_double_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
@@ -1168,7 +1168,7 @@ void fd_inflation_walk( void * w, fd_inflation_t const * self, fd_types_walk_fn_
   fun( w, &self->taper, "taper", FD_FLAMENCO_TYPE_DOUBLE, "double", level );
   fun( w, &self->foundation, "foundation", FD_FLAMENCO_TYPE_DOUBLE, "double", level );
   fun( w, &self->foundation_term, "foundation_term", FD_FLAMENCO_TYPE_DOUBLE, "double", level );
-  fun( w, &self->__unused, "__unused", FD_FLAMENCO_TYPE_DOUBLE, "double", level );
+  fun( w, &self->unused, "unused", FD_FLAMENCO_TYPE_DOUBLE, "double", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_inflation", level-- );
 }
 ulong fd_inflation_size( fd_inflation_t const * self ) {
@@ -1194,7 +1194,7 @@ int fd_inflation_encode( fd_inflation_t const * self, fd_bincode_encode_ctx_t * 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_double_encode( self->foundation_term, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_double_encode( self->__unused, ctx );
+  err = fd_bincode_double_encode( self->unused, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }

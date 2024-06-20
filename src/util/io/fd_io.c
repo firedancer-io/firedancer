@@ -551,8 +551,12 @@ fd_io_strsignal( int sig ) {
   case SIGVTALRM      : return "SIGVTALRM-Virtual timer expired";
   case SIGPROF        : return "SIGPROF-Profiling timer expired";
   case SIGWINCH       : return "SIGWINCH-Window changed";
+#if defined(SIGPOLL)
   case SIGPOLL        : return "SIGPOLL-I/O possible";
+#endif
+#if defined(SIGPWR)
   case SIGPWR         : return "SIGPWR-Power failure";
+#endif
   case SIGSYS         : return "SIGSYS-Bad system call";
   default: break;
   }

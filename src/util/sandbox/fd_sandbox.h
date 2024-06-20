@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_util_sandbox_fd_sandbox_h
 #define HEADER_fd_src_util_sandbox_fd_sandbox_h
 
+#if defined(__linux__)
+
 #include "../fd_util_base.h"
 
 #include <linux/filter.h>
@@ -183,5 +185,7 @@ ulong
 fd_sandbox_gettid( void );
 
 FD_PROTOTYPES_END
+
+#endif /* defined(__linux__) */
 
 #endif /* HEADER_fd_src_util_sandbox_fd_sandbox_h */

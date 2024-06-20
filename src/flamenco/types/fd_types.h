@@ -230,7 +230,7 @@ struct __attribute__((aligned(8UL))) fd_inflation {
   double taper;
   double foundation;
   double foundation_term;
-  double __unused;
+  double unused;
 };
 typedef struct fd_inflation fd_inflation_t;
 #define FD_INFLATION_FOOTPRINT sizeof(fd_inflation_t)
@@ -242,7 +242,7 @@ struct __attribute__((aligned(8UL))) fd_inflation_off {
   uint taper_off;
   uint foundation_off;
   uint foundation_term_off;
-  uint __unused_off;
+  uint unused_off;
 };
 typedef struct fd_inflation_off fd_inflation_off_t;
 #define FD_INFLATION_OFF_FOOTPRINT sizeof(fd_inflation_off_t)

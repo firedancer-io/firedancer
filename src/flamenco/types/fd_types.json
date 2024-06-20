@@ -136,7 +136,7 @@
         { "name": "taper", "type": "double" },
         { "name": "foundation", "type": "double" },
         { "name": "foundation_term", "type": "double" },
-        { "name": "__unused", "type": "double" }
+        { "name": "unused", "type": "double" }
       ]
     },
     {
