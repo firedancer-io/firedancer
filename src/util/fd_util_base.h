@@ -467,6 +467,8 @@ __extension__ typedef unsigned __int128 uint128;
    "pseudo-include".)  Another reminder that make clean and fast builds
    are our friend. */
 
+#if defined(__ELF__)
+
 #define FD_IMPORT( name, path, type, lg_align, footer )      \
   __asm__( ".section .rodata,\"a\",@progbits\n"              \
            ".type " #name ",@object\n"                       \
@@ -487,6 +489,26 @@ __extension__ typedef unsigned __int128 uint128;
   extern type  const name[] __attribute__((aligned(1<<(lg_align)))); \
   extern ulong const name##_sz
 
+#elif defined(__MACH__)
+
+#define FD_IMPORT( name, path, type, lg_align, footer )      \
+  __asm__( ".section __DATA,__const\n"                       \
+           ".globl _" #name "\n"                             \
+           FD_ASM_LG_ALIGN(lg_align)                         \
+           "_" #name ":\n"                                   \
+           ".incbin \"" path "\"\n"                          \
+           footer "\n"                                       \
+           "_fd_import_" #name "_sz = . - _" #name "\n"      \
+           ".globl _" #name "_sz\n"                          \
+           FD_ASM_LG_ALIGN(3)                                \
+           "_" #name "_sz:\n"                                \
+           ".quad _fd_import_" #name "_sz\n"                 \
+           ".previous\n" );                                  \
+  extern type  const name[] __attribute__((aligned(1<<(lg_align)))); \
+  extern ulong const name##_sz
+
+#endif
+
 /* FD_IMPORT_{BINARY,CSTR} are common cases for FD_IMPORT.
 
    In BINARY, the file is imported into the object file and exposed to
@@ -500,8 +522,10 @@ __extension__ typedef unsigned __int128 uint128;
    number of bytes in the file and name_sz will be strlen(name)+1.  name
    can have arbitrary alignment. */
 
+#ifdef FD_IMPORT
 #define FD_IMPORT_BINARY(name, path) FD_IMPORT( name, path, uchar, 7, ""        )
 #define FD_IMPORT_CSTR(  name, path) FD_IMPORT( name, path,  char, 1, ".byte 0" )
+#endif
 
 /* Optimizer tricks ***************************************************/
 
