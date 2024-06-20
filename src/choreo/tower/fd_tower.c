@@ -129,14 +129,18 @@ fd_tower_fork_update( fd_tower_t * tower, fd_fork_t * fork ) {
     if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(
           ( "fd_acc_mgr_view failed on vote account %32J. error: %d", vote_account_address, rc ) );
+#     if defined(__x86_64__)
       __asm__( "int $3" );
+#     endif
     }
 
     rc = fd_vote_get_state( vote_account, valloc, &vote_state_versioned );
     if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING( (
           "fd_vote_get_state failed on vote account %32J. error: %d", vote_account_address, rc ) );
+#     if defined(__x86_64__)
       __asm__( "int $3" );
+#     endif
     }
 
     fd_vote_convert_to_current( &vote_state_versioned, valloc );

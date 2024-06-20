@@ -5,8 +5,10 @@ $(call make-unit-test,test_funk_base,test_funk_base,fd_funk fd_util)
 $(call run-unit-test,test_funk_base)
 $(call make-unit-test,test_funk_txn,test_funk_txn,fd_funk fd_util)
 $(call run-unit-test,test_funk_txn)
+ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_funk_txn2,test_funk_txn2,fd_funk fd_util)
 $(call run-unit-test,test_funk_txn2)
+endif
 $(call make-unit-test,test_funk_rec,test_funk_rec test_funk_common,fd_funk fd_util)
 $(call run-unit-test,test_funk_rec)
 $(call make-unit-test,test_funk_val,test_funk_val test_funk_common,fd_funk fd_util)
@@ -15,4 +17,6 @@ $(call make-unit-test,test_funk_part,test_funk_part test_funk_common,fd_funk fd_
 $(call run-unit-test,test_funk_part)
 $(call make-unit-test,test_funk,test_funk,fd_funk fd_util)
 $(call run-unit-test,test_funk)
+ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_funk_concur,test_funk_concur,fd_funk fd_util)
+endif
