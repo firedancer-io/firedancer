@@ -4,6 +4,11 @@ ifdef FD_USING_GCC
 CPPFLAGS+=-mbranch-cost=5 -falign-jumps=32 -falign-labels=32 -falign-loops=32
 endif
 
+# Don't attempt to transform vsprtps into vrsqrtps (not IEEE-compliant)
+ifdef FD_USING_CLANG
+CPPFLAGS+=-Xclang -target-feature -Xclang +fast-vector-fsqrt
+endif
+
 # -falign-functions since Clang/LLVM 7
 # -falign-loops     since Clang/LLVM 13
 
