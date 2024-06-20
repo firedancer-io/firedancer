@@ -23,10 +23,9 @@
 #define FD_BLOCKSTORE_FOOTPRINT    (256UL)
 #define FD_BLOCKSTORE_MAGIC        (0xf17eda2ce7b10c00UL) /* firedancer bloc version 0 */
 
-/* relevant blockstore-related defaults */
-#define FD_BLOCK_SZ_MAX              (FD_SHRED_MAX_SZ * (1 << 15UL)) /* at most 32k shreds */
-#define FD_BUF_SHRED_MAP_DEFAULT_MAX (1UL << 24) /* 16 million incomplete slot shreds can be buffered */
-#define FD_TXN_MAP_DEFAULT_LG_MAX    (24)        /* 16 million txns can be stored in the txn map */
+/* blockstore config. do not modify without making sure its compatible. */
+#define FD_BUF_SHRED_MAP_MAX (1UL << 24UL) /* 16 million shreds can be buffered */
+#define FD_TXN_MAP_LG_MAX    (24)          /* 16 million txns can be stored in the txn map */
 
 /* TODO think more about these */
 #define FD_BLOCKSTORE_NEXT_SLOT_MAX (32UL) /* the maximum # of children a slot can have */

@@ -469,7 +469,7 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->blockstore_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
   if( shmem == NULL ) FD_LOG_ERR( ( "failed to allocate a blockstore" ) );
 
-  blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, ctx->blockstore_seed, FD_BUF_SHRED_MAP_DEFAULT_MAX, FD_SLOT_MAX, FD_TXN_MAP_DEFAULT_LG_MAX ) );
+  blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, ctx->blockstore_seed, FD_BUF_SHRED_MAP_MAX, FD_BLOCK_MAX, FD_TXN_MAP_LG_MAX ) );
   if( blockstore == NULL ) {
     fd_wksp_free_laddr( shmem );
     FD_LOG_ERR( ( "failed to allocate a blockstore" ) );

@@ -160,11 +160,11 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   l = FD_LAYOUT_APPEND( l, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_replay_align(), fd_replay_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_SLOT_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   l = FD_LAYOUT_APPEND( l, fd_tower_align(), fd_tower_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_SLOT_MAX, FD_VOTER_MAX  ) );
+  l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX, FD_VOTER_MAX  ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -833,11 +833,11 @@ unprivileged_init( fd_topo_t *      topo,
     adding any setup here. */
   ctx->epoch_ctx_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
   void * replay_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_align(), fd_replay_footprint() );
-  void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_SLOT_MAX ) );
+  void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
   void * bank_hash_cmp_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   void * tower_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
-  void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_SLOT_MAX, FD_VOTER_MAX ) );
+  void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX, FD_VOTER_MAX ) );
 
   fd_scratch_attach( smem, fmem, SCRATCH_MAX, SCRATCH_DEPTH );
 
@@ -919,7 +919,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( ctx->acc_mgr, funk );
 
-  fd_forks_t * forks     = fd_forks_join( fd_forks_new( forks_mem, FD_SLOT_MAX, 42UL ) );
+  fd_forks_t * forks     = fd_forks_join( fd_forks_new( forks_mem, FD_BLOCK_MAX, 42UL ) );
   FD_TEST( forks );
 
   forks->acc_mgr = acc_mgr;
@@ -986,7 +986,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->bank_hash_cmp = fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_mem ) );
   ctx->tower         = fd_tower_join( fd_tower_new( tower_mem ) );
-  ctx->ghost         = fd_ghost_join( fd_ghost_new( ghost_mem, FD_SLOT_MAX, FD_VOTER_MAX, 42 ) );
+  ctx->ghost         = fd_ghost_join( fd_ghost_new( ghost_mem, FD_BLOCK_MAX, FD_VOTER_MAX, 42 ) );
 
   // ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "first_turbine" );
   // FD_TEST( busy_obj_id != ULONG_MAX );
