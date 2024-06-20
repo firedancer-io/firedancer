@@ -11,4 +11,6 @@ src/ballet/http/fd_picohttpparser.c: src/ballet/http/picohttpparser.c src/ballet
 
 $(OBJDIR)/obj/ballet/http/fd_picohttpparser.o: src/ballet/http/fd_picohttpparser.c
 
+ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_picohttpparser,fuzz_picohttpparser,fd_ballet fd_util)
+endif
