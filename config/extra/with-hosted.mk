@@ -1,5 +1,5 @@
 CPPFLAGS+=-D_XOPEN_SOURCE=700 -DFD_HAS_HOSTED=1
-LDFLAGS+=-z noexecstack
+LDFLAGS+=-z noexecstack -lrt
 
 FD_HAS_HOSTED:=1
 

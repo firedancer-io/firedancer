@@ -8,7 +8,7 @@ CFLAGS:=-std=c17
 CXX:=g++
 CXXFLAGS:=-std=c++17
 LD:=g++
-LDFLAGS:=-lm -lrt -ldl -L./opt/lib
+LDFLAGS:=-lm -ldl -L./opt/lib
 AR:=ar
 ARFLAGS:=rv
 RANLIB:=ranlib
