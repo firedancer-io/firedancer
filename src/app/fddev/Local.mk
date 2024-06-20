@@ -1,4 +1,5 @@
 ifdef FD_HAS_HOSTED
+ifdef FD_HAS_LINUX
 ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
@@ -63,6 +64,7 @@ $(call make-integration-test,test_fddev,tests/test_fddev,fd_fdctl fd_fddev fd_di
 endif
 $(call run-integration-test,test_fddev)
 
+endif
 endif
 endif
 endif

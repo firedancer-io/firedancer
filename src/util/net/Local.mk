@@ -12,7 +12,6 @@ $(call make-unit-test,test_pcap,test_pcap,fd_util)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_pcapng,test_pcapng,fd_util)
 $(call run-unit-test,test_pcapng)
-endif
 $(call make-fuzz-test,fuzz_pcap,fuzz_pcap,fd_util)
 $(call make-fuzz-test,fuzz_pcapng,fuzz_pcapng,fd_util)
-
+endif
