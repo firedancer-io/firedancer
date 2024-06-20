@@ -17,7 +17,7 @@ $(call run-unit-test,test_quic_streams)
 $(call run-unit-test,test_quic_layout)
 
 # fd_quic_tls unit tests
-$(call make-unit-test,test_quic_tls_hs,test_quic_tls_hs,fd_aio fd_tls fd_ballet fd_quic fd_util)
+$(call make-unit-test,test_quic_tls_hs,test_quic_tls_hs,fd_quic fd_aio fd_tls fd_ballet fd_util)
 $(call run-unit-test,test_quic_tls_hs)
 
 # fd_quic_crypto unit tests
