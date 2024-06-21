@@ -98,6 +98,8 @@ checkout_repo () {
 }
 
 fetch () {
+  git submodule update --init
+
   mkdir -pv ./opt/git
 
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.5"
@@ -136,7 +138,7 @@ check_fedora_pkgs () {
 }
 
 check_debian_pkgs () {
-  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib protobuf-compiler llvm lcov libgmp-dev cmake )
+  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib protobuf-compiler llvm lcov libgmp-dev cmake libclang-dev )
 
   echo "[~] Checking for required DEB packages"
 
@@ -234,7 +236,30 @@ check () {
         echo "[+] Finished installing missing packages"
         ;;
       *)
-        echo "[-] Skipping formula install"
+        echo "[-] Skipping package install"
+        ;;
+    esac
+  fi
+
+  if [[ ! -x "$(command -v cargo)" ]]; then
+    echo "[!] cargo is not in PATH"
+    source "$HOME/.cargo/env" || true
+  fi
+  if [[ ! -x "$(command -v cargo)" ]]; then
+    if [[ "${FD_AUTO_INSTALL_PACKAGES:-}" == "1" ]]; then
+      choice=y
+    else
+      read -r -p "[?] Install rustup? (y/N) " choice
+    fi
+    case "$choice" in
+      y|Y)
+        echo "[+] Installing rustup"
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source "$HOME/.cargo/env"
+        rustup toolchain add 1.75.0
+        ;;
+      *)
+        echo "[-] Skipping rustup install"
         ;;
     esac
   fi
