@@ -92,11 +92,6 @@ fd_forks_leave( fd_forks_t const * forks );
 void *
 fd_forks_delete( void * forks );
 
-// /* fd_forks_insert inserts */
-
-// fd_fork_t *
-// fd_forks_insert( fd_forks_t * forks, fd_exec_slot_ctx_t * slot_ctx );
-
 /* fd_forks_rollback starts a new fork at slot by inserting it into the frontier. Returns a handle
  * to the new fork on success, NULL on failure. Reasons for failure include slot is not in
  * blockstore or blockhash corresponding to slot is not present in funk. */
