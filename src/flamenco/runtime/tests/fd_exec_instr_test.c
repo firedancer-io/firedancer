@@ -1074,6 +1074,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
     NULL, // TODO
     0, // TODO
     0, // TODO
+    0, // TODO, text_sz
     0, // TODO
     NULL, // TODO
     syscalls,

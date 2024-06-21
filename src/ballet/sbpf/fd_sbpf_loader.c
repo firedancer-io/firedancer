@@ -428,7 +428,10 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
            separately done in the sBPF verifier. */
 
   info->text_off = (uint)shdr_text->sh_offset;
-  info->text_cnt = (uint)shdr_get_loaded_size( shdr_text ) / 8U;
+  ulong text_size = shdr_get_loaded_size( shdr_text );
+  info->text_sz = text_size;
+  info->text_cnt = (uint) text_size / 8U;
+
 
   /* Convert entrypoint offset to program counter */
 
@@ -579,6 +582,7 @@ fd_sbpf_program_new( void *                     prog_mem,
     .text      = (ulong *)((ulong)rodata + elf_info->text_off), /* FIXME: WHAT IF MISALIGNED */
     .text_off  = elf_info->text_off,
     .text_cnt  = elf_info->text_cnt,
+    .text_sz   = elf_info->text_sz,
     .entry_pc  = elf_info->entry_pc
   };
 

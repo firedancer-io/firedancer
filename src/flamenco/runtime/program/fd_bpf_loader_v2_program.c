@@ -132,6 +132,7 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
       /* text      */ prog->text,
       /* text_cnt  */ prog->text_cnt,
       /* text_off  */ prog->text_off,
+      /* text_sz   */ prog->text_sz,
       /* entry_pc  */ prog->entry_pc,
       /* calldests */ prog->calldests,
       /* syscalls  */ syscalls,

@@ -47,6 +47,8 @@ struct fd_vm {
   ulong         text_cnt;  /* Program sBPF word count, all text words are inside the rodata */
   ulong         text_off;  /* ==(ulong)text - (ulong)rodata, relocation offset in bytes we must apply to indirect calls
                               (callx/CALL_REGs), IMPORTANT SAFETY TIP!  THIS IS IN BYTES, NOT WORDS! */
+  ulong         text_sz;   /* Program sBPF size in bytes, == text_cnt*8 */
+
   ulong         entry_pc;  /* Initial program counter, in [0,text_cnt)
                               FIXME: MAKE SURE NOT INTO MW INSTRUCTION, MAKE SURE VALID CALLDEST? */
   ulong const * calldests; /* Bit vector of local functions that can be called into, bit indexed in [0,text_cnt) */
@@ -164,7 +166,7 @@ FD_PROTOTYPES_BEGIN
    for a memory region to hold a fd_vm_t.  ALIGN is a positive
    integer power of 2.  FOOTPRINT is a multiple of align. These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     (8UL)
-#define FD_VM_FOOTPRINT (799528UL)
+#define FD_VM_FOOTPRINT (799536UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
@@ -216,6 +218,7 @@ fd_vm_init(
    ulong const * text,
    ulong text_cnt,
    ulong text_off,
+   ulong text_sz,
    ulong entry_pc,
    ulong * calldests,
    fd_sbpf_syscalls_t * syscalls,
