@@ -6216,4 +6216,3 @@ dump/test-vectors/instr/fixtures/vote/fe8df142a90fadf7ebfec8e72be3f9b35b11966e.f
 dump/test-vectors/instr/fixtures/vote/feed79286bb39c48daef4fcc4e4330d776072206.fix
 dump/test-vectors/instr/fixtures/bpf-loader-v3-programs/4c3874406b6bc014434a6b08cfd7ce957005c299.fix
 dump/test-vectors/instr/fixtures/bpf-loader-v3-programs/crash-61560dca014f17632760e7915b271cfba4fdb121.fix
-dump/test-vectors/instr/fixtures/bpf-loader-v3/84b8ae94c85eccaf6504d8d247c18d4ad9276d8e.fix
