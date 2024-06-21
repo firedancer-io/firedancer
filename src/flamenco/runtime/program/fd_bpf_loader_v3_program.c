@@ -216,7 +216,9 @@ deploy_program( fd_exec_instr_ctx_t * instr_ctx,
 
 /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L195-L218 */
 int
-write_program_data( fd_borrowed_account_t * program,
+write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
+                    ulong                   program_instr_acc_idx,
+                    fd_borrowed_account_t * program,
                     ulong                   program_data_offset,
                     uchar *                 bytes,
                     ulong                   bytes_len ) {
@@ -224,6 +226,14 @@ write_program_data( fd_borrowed_account_t * program,
   if( FD_UNLIKELY( program->meta->dlen<write_offset ) ) {
     FD_LOG_WARNING(( "Write overflow %lu < %lu", program->meta->dlen, write_offset ));
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+  }
+
+  /* The agave client does a check on get_data_mut() to retrieve the account data 
+     which calls can_data_be_changed() which checks if the account is mutable.
+     The firedancer parallel to this is fd_account_can_data_be_changed */
+  int err;
+  if( FD_UNLIKELY( !fd_account_can_data_be_changed( instr_ctx->instr, program_instr_acc_idx, &err ) ) ) {
+    return err;
   }
 
   if( FD_UNLIKELY( program_data_offset>program->meta->dlen ) ) {
@@ -642,7 +652,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       ulong program_data_offset = fd_ulong_sat_add( BUFFER_METADATA_SIZE, instruction.inner.write.offset );
-      err = write_program_data( buffer,
+      err = write_program_data( instr_ctx,
+                                0UL,
+                                buffer,
                                 program_data_offset,
                                 instruction.inner.write.bytes,
                                 instruction.inner.write.bytes_len );
@@ -875,6 +887,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         FD_LOG_WARNING(( "Buffer account too small" ));
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
+
+      /* Agave client calls get_data_mut on programdata data */
+      if( FD_UNLIKELY( !fd_account_can_data_be_changed( instr_ctx->instr, 1UL, &err ) ) ) {
+        return err;
+      }
       uchar * dst_slice       = programdata->data + PROGRAMDATA_METADATA_SIZE;
       ulong dst_slice_len     = buffer_data_len;
       const uchar * src_slice = buffer->const_data + buffer_data_offset;
@@ -1094,6 +1111,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       if( FD_UNLIKELY( buffer_data_offset>buffer->meta->dlen ) ){
         FD_LOG_WARNING(( "Buffer account too small" ));
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+      }
+
+      /* Agave client calls get_data_mut on programdata data */
+      if( FD_UNLIKELY( !fd_account_can_data_be_changed( instr_ctx->instr, 0UL, &err ) ) ) {
+        return err;
       }
       uchar * dst_slice     = programdata->data + programdata_data_offset;
       ulong   dst_slice_len = buffer_data_len;
