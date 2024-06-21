@@ -218,7 +218,10 @@ write_program_data( fd_borrowed_account_t * program,
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
 
-  fd_memcpy( program->data+program_data_offset, bytes, bytes_len );
+  if( FD_LIKELY( bytes_len ) ) {
+    fd_memcpy( program->data+program_data_offset, bytes, bytes_len );
+  }
+
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
