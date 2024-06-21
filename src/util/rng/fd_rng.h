@@ -449,6 +449,25 @@ double fd_rng_double_norm  ( fd_rng_t * rng );
    FOR SET, ATOMIC_INC OF INDEX FOR THE RETURN TYPES, CAS STATE UPDATES,
    ETC) */
 
+/* fd_rng_secure reads random bytes from a cryptographically secure
+   source provided by the platform.  Features /dev/urandom like entropy.  
+
+   On success, returns d and guarantees that [d,d+sz) is filled with 
+   unguessable random bytes.  On failure, returns NULL and prints reason
+   for failure to warning log.
+
+   (!!!) This operation may fail if no secure RNG is available or the
+         RNG failed for some reason.  Always check the return code.
+   
+   Currently available on Linux, FreeBSD, and macOS.
+   On Linux and FreeBSD uses getrandom(2).
+   On macOS uses CommonCrypto's CommonRandom. */
+
+FD_FN_SENSITIVE __attribute__((warn_unused_result))
+void *
+fd_rng_secure( void * d,
+               ulong  sz );
+
 FD_PROTOTYPES_END
 
 #if FD_HAS_X86
@@ -486,6 +505,8 @@ FD_PROTOTYPES_END
      random number generator hardware can supply them. This will lead to
      the RDRAND instruction returning no data transitorily. */
 
+FD_PROTOTYPES_BEGIN
+
 __attribute__((warn_unused_result)) static inline int
 fd_rdrand( uchar * dst,
            ulong   sz ) {
@@ -510,6 +531,8 @@ fd_rdrand( uchar * dst,
 
   return 1;
 }
+
+FD_PROTOTYPES_END
 
 #endif /* FD_HAS_X86 */
 
