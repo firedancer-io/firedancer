@@ -276,6 +276,13 @@ fd_bpf_loader_v3_program_write_state( fd_exec_instr_ctx_t *               instr_
                                       fd_bpf_upgradeable_loader_state_t * state ) {
   ulong state_size = fd_bpf_upgradeable_loader_state_size( state );
 
+  /* Architectural differences between the agave and firedancer clients mean that 
+     any account whose state is being written to must have an owner that is the
+     bpf upgradeable loader. */
+  if( FD_UNLIKELY( memcmp( borrowed_acc->meta->info.owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+  }
+
   if( FD_UNLIKELY( state_size>borrowed_acc->meta->dlen ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
