@@ -367,7 +367,7 @@ do_dump( fd_snapshot_dumper_t *    d,
 
   /* Set up the snapshot loader */
 
-  if( FD_UNLIKELY( !fd_snapshot_loader_init( d->loader, d->restore, src ) ) ) {
+  if( FD_UNLIKELY( !fd_snapshot_loader_init( d->loader, d->restore, src, 0UL ) ) ) {
     FD_LOG_WARNING(( "fd_snapshot_loader_init failed" ));
     return EXIT_FAILURE;
   }

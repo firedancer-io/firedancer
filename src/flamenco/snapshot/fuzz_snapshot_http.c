@@ -43,8 +43,9 @@ target_task( void * ctx ) {
 
   int socket = st->client_sock;
 
+  fd_snapshot_name_t name[1] = {{0}};
   fd_snapshot_http_t  _http[1];
-  fd_snapshot_http_t * http = fd_snapshot_http_new( _http, FD_IP4_ADDR( 127, 0, 0, 1 ), 80 );
+  fd_snapshot_http_t * http = fd_snapshot_http_new( _http, FD_IP4_ADDR( 127, 0, 0, 1 ), 80, name );
 
   /* Hijack the HTTP state and make it think there is a successful connection */
   assert( http->socket_fd == -1 );
