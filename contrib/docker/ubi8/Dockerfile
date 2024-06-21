@@ -16,11 +16,6 @@ RUN INSTALL_PKGS="git hostname patch bzip2" && \
     dnf install -y --setopt=tsflags=nodocs https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm && \
     dnf install -y --setopt=tsflags=nodocs $INSTALL_PKGS
 
-# Install Rust
-ARG RUST_VERSION=1.73.0
-RUN curl "https://sh.rustup.rs" -sfo /tmp/rustup.sh && \
-    sh /tmp/rustup.sh -y --default-toolchain ${RUST_VERSION}
-
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Fetch and build source dependencies
@@ -30,9 +25,9 @@ WORKDIR ${WORKDIR}
 # Default can be overridden on commandline or in docker-compose file
 ARG MACHINE=linux_gcc_x86_64
 ARG GITTAG
-RUN git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git ${WORKDIR} && \
+RUN git clone https://github.com/firedancer-io/firedancer.git ${WORKDIR} && \
 	[ -n ${GITTAG} ] && git checkout ${GITTAG} && \
-	FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh check install && \
+	FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh fetch check install && \
 	MACHINE=${MACHINE} make -j all rust --output-sync=target && \
 	cp -a $(find build -type d -name bin) build/out
 
