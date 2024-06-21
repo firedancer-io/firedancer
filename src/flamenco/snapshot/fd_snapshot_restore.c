@@ -333,8 +333,9 @@ fd_snapshot_restore_status_cache( fd_snapshot_restore_t * restore ) {
   }
 
   /* Move over objects and recover state. */
-
-  int err = restore->cb_status_cache( restore->cb_status_cache_ctx, slot_deltas );
+  /* TODO: we ignore the error from status cache restore for now since having the status cache is optional.
+           Add status cache to all cases */
+  restore->cb_status_cache( restore->cb_status_cache_ctx, slot_deltas );
 
   /* Discard superfluous fields that the callback didn't move */
 
@@ -347,7 +348,7 @@ fd_snapshot_restore_status_cache( fd_snapshot_restore_t * restore ) {
   fd_snapshot_restore_discard_buf( restore );
 
   restore->status_cache_done = 1;
-  return err;
+  return 0;
 }
 
 /* fd_snapshot_restore_accv_prepare prepares for consumption of an
@@ -623,7 +624,7 @@ fd_snapshot_read_status_cache_chunk( fd_snapshot_restore_t * restore,
   if( fd_snapshot_read_is_complete( restore ) ) {
     int err = fd_snapshot_restore_status_cache( restore );
     if( FD_UNLIKELY( err ) ) {
-      FD_LOG_WARNING(( "fd_snapshot_restore_manifest failed" ));
+      FD_LOG_WARNING(( "fd_snapshot_restore_status_cache failed" ));
       restore->failed = 1;
       return NULL;
     }

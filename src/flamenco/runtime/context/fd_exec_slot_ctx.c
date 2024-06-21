@@ -308,6 +308,7 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
                                        fd_bank_slot_deltas_t * slot_deltas ) {
   fd_txncache_t * status_cache = ctx->status_cache;
   if( !status_cache ) {
+    FD_LOG_WARNING(("No status cache in slot ctx"));
     return NULL;
   }
 
