@@ -48,11 +48,13 @@ fd_pubkey_copy( fd_pubkey_t * keyd, fd_pubkey_t const * keys ) {
 struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                    magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
-  fd_exec_epoch_ctx_t *    epoch_ctx;
-
   fd_funk_txn_t *          funk_txn;
+
+  /* External joins, pointers to be set by caller */
+
   fd_acc_mgr_t *           acc_mgr;
   fd_blockstore_t *        blockstore;
+  fd_exec_epoch_ctx_t *    epoch_ctx;
   fd_valloc_t              valloc;
 
   fd_slot_bank_t           slot_bank;
