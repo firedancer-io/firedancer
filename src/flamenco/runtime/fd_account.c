@@ -155,16 +155,19 @@ fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
-  if( !fd_account_can_data_be_resized( ctx, account->const_meta, new_len, err ) )
+  if( !fd_account_can_data_be_resized( ctx, account->const_meta, new_len, err ) ) {
     return 0;
+  }
 
-  if( !fd_account_can_data_be_changed( ctx->instr, instr_acc_idx, err ) )
+  if( !fd_account_can_data_be_changed( ctx->instr, instr_acc_idx, err ) ) {
     return 0;
+  }
 
   ulong old_len = account->const_meta->dlen;
 
-  if( old_len == new_len )
+  if( old_len == new_len ) {
     return 1;
+  }
 
   if( !fd_account_update_accounts_resize_delta( ctx, instr_acc_idx, new_len, err ) ) {
     return 0;

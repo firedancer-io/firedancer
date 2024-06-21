@@ -284,7 +284,6 @@ fd_bpf_loader_v3_program_write_state( fd_exec_instr_ctx_t *               instr_
   if( FD_UNLIKELY( !fd_account_can_data_be_changed( instr_ctx->instr, instr_acc_idx, &err ) ) ) {
     return err;
   }
-    
 
   if( FD_UNLIKELY( state_size>borrowed_acc->meta->dlen ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
@@ -582,7 +581,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
   uchar const * instr_acc_idxs   = instr_ctx->instr->acct_txn_idxs;
   fd_pubkey_t const * txn_accs   = instr_ctx->txn_ctx->accounts;
   fd_pubkey_t const * program_id = &instr_ctx->instr->program_id_pubkey;
-
+  FD_LOG_NOTICE(( "instruction.discriminant %lu", instruction.discriminant ));
   switch( instruction.discriminant ) {
     /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L476-L493 */
     case fd_bpf_upgradeable_loader_program_instruction_enum_initialize_buffer: {
@@ -887,6 +886,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         FD_LOG_WARNING(( "Bpf state write for programdata account failed" ));
         return err;
       }
+      FD_LOG_WARNING(("PERHAPS HERE BAD SIR?"));
+
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L675-L689 */
       if( FD_UNLIKELY( PROGRAMDATA_METADATA_SIZE+buffer_data_len>programdata->meta->dlen ) ) {
         uchar * sig = (uchar *)instr_ctx->txn_ctx->_txn_raw->raw + instr_ctx->txn_ctx->txn_descriptor->signature_off;
@@ -899,7 +900,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* Agave client calls get_data_mut on programdata data */
+      FD_LOG_NOTICE(("METHINKS HMMMMM"));
       if( FD_UNLIKELY( !fd_account_can_data_be_changed( instr_ctx->instr, 1UL, &err ) ) ) {
+        FD_LOG_WARNING(("ERR"));
         return err;
       }
       uchar * dst_slice       = programdata->data + PROGRAMDATA_METADATA_SIZE;
@@ -907,7 +910,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       const uchar * src_slice = buffer->const_data + buffer_data_offset;
       fd_memcpy( dst_slice, src_slice, dst_slice_len );
       /* Update buffer data length */
-      if( FD_UNLIKELY( fd_account_set_data_length( instr_ctx, 3UL, BUFFER_METADATA_SIZE, &err ) ) ) {
+      if( FD_UNLIKELY( !fd_account_set_data_length( instr_ctx, 3UL, BUFFER_METADATA_SIZE, &err ) ) ) {
+        FD_LOG_NOTICE(("*************"));
         return err;
       }
 
@@ -921,6 +925,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L692-L699 */
       /* Update the Program account */
+      FD_LOG_NOTICE(("MAKE IT HERE TYPE SCRIPTY"));
       loader_state.discriminant = fd_bpf_upgradeable_loader_state_enum_program;
       fd_memcpy( &loader_state.inner.program.programdata_address, programdata_key, sizeof(fd_pubkey_t) );
       err = fd_bpf_loader_v3_program_write_state( instr_ctx, 2UL, program, &loader_state );
