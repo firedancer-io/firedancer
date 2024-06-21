@@ -80,6 +80,8 @@ typedef struct fd_sbpf_syscalls fd_sbpf_syscalls_t;
 struct fd_sbpf_elf_info {
   uint text_off;    /* File offset of .text section (overlaps rodata segment) */
   uint text_cnt;    /* Instruction count */
+  ulong text_sz;    /* Length of text segment */
+
   uint dynstr_off;  /* File offset of .dynstr section (0=missing) */
   uint dynstr_sz;   /* Dynstr char count */
 
@@ -125,6 +127,7 @@ struct __attribute__((aligned(32UL))) fd_sbpf_program {
   ulong * text;
   ulong   text_cnt;  /* instruction count */
   ulong   text_off;  /* instruction offset for use in CALL_REG instructions */
+  ulong   text_sz;   /* size of text segment */
   ulong   entry_pc;  /* entrypoint PC (at text[ entry_pc - start_pc ]) ... FIXME: HMMMM ... CODE SEEMS TO USE TEXT[ ENTRY_PC ] */
 
   /* Bit vector of valid call destinations (bit count is rodata_sz) */

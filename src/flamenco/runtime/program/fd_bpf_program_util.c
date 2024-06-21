@@ -185,6 +185,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     validated_prog->last_updated_slot = slot_ctx->slot_bank.slot;
     validated_prog->text_off = prog->text_off;
     validated_prog->text_cnt = prog->text_cnt;
+    validated_prog->text_sz = prog->text_sz;
     validated_prog->rodata_sz = prog->rodata_sz;
 
     return 0;

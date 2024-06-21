@@ -318,6 +318,7 @@ fd_vm_init(
    ulong const * text,
    ulong text_cnt,
    ulong text_off,
+   ulong text_sz,
    ulong entry_pc,
    ulong * calldests,
    fd_sbpf_syscalls_t * syscalls,
@@ -345,6 +346,7 @@ fd_vm_init(
   vm->text = text;
   vm->text_cnt = text_cnt;
   vm->text_off = text_off;
+  vm->text_sz = text_sz;
   vm->entry_pc = entry_pc;
   vm->calldests = calldests;
   vm->syscalls = syscalls;
