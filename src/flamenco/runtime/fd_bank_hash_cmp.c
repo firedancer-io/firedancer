@@ -119,13 +119,14 @@ fd_bank_hash_cmp_insert( fd_bank_hash_cmp_t * bank_hash_cmp,
         if( FD_LIKELY( !fd_bank_hash_cmp_map_key_inval( entry->slot ) &&
                        entry->slot < bank_hash_cmp->watermark ) ) {
           fd_bank_hash_cmp_map_remove( bank_hash_cmp->map, entry );
+          bank_hash_cmp->cnt--;
         }
       }
-      fd_bank_hash_cmp_map_clear( bank_hash_cmp->map );
     }
 
     cmp      = fd_bank_hash_cmp_map_insert( bank_hash_cmp->map, slot );
     cmp->cnt = 0;
+    bank_hash_cmp->cnt++;
   }
 
   if( FD_UNLIKELY( ours ) ) {
@@ -222,6 +223,7 @@ fd_bank_hash_cmp_check( fd_bank_hash_cmp_t * bank_hash_cmp, ulong slot ) {
                        pct * 100 ) );
     }
     fd_bank_hash_cmp_map_remove( bank_hash_cmp->map, cmp );
+    bank_hash_cmp->cnt--;
     return 1;
   }
   return 0;
