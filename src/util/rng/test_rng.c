@@ -15,6 +15,31 @@ log_ref( ulong const * ref,
   FD_LOG_NOTICE(( "};" ));
 }
 
+static void
+test_rng_secure( void ) {
+  FD_LOG_NOTICE(( "Testing fd_rng_secure" ));
+
+  long sum_pop  = 0L;
+  long sum_pop2 = 0L;
+  int  min_pop  = INT_MAX;
+  int  max_pop  = INT_MIN;
+
+  uchar buf[ 4096 ];
+  FD_TEST( fd_rng_secure( buf, sizeof(buf) ) );
+  for( ulong j=0UL; j<sizeof(buf); j+=8UL ) {
+    int pop  = fd_ulong_popcnt( FD_LOAD( ulong, buf+j ) );
+    sum_pop  += (long) pop;
+    sum_pop2 += (long)(pop*pop);
+    min_pop  = pop<min_pop ? pop : min_pop;
+    max_pop  = pop>max_pop ? pop : max_pop;
+  }
+  ulong iter    = sizeof(buf)/8;
+  float avg_pop = ((float)sum_pop ) / ((float)iter);
+  float rms_pop = sqrtf( (((float)sum_pop2) / ((float)iter)) - avg_pop*avg_pop );
+  FD_LOG_NOTICE(( "fd_rng_secure popcount stats: %.3f +/- %.3f [%i,%i]", (double)avg_pop, (double)rms_pop, min_pop, max_pop ));
+  /* FIXME add an assertion testing entropy */
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -294,6 +319,10 @@ main( int     argc,
   FD_LOG_NOTICE(( "rdrand popcount stats: %.3f +/- %.3f [%i,%i]", (double)avg_pop, (double)rms_pop, min_pop, max_pop ));
 
 # endif /* FD_HAS_X86 */
+
+# if defined(__linux__) || defined(__FreeBSD__) || defined(__APPLE__)
+  test_rng_secure();
+# endif /* defined(...) */
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
