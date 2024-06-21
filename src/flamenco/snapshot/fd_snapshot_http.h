@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_snapshot_fd_snapshot_http_h
 #define HEADER_fd_src_flamenco_snapshot_fd_snapshot_http_h
 
+#include "fd_snapshot.h"
 #include "fd_snapshot_loader.h"
 #include "fd_snapshot_istream.h"
 
@@ -14,6 +15,7 @@
 #define FD_SNAPSHOT_HTTP_STATE_REQ   (1) /* sending request */
 #define FD_SNAPSHOT_HTTP_STATE_RESP  (2) /* receiving response headers */
 #define FD_SNAPSHOT_HTTP_STATE_DL    (3) /* downloading response body */
+#define FD_SNAPSHOT_HTTP_STATE_DONE  (4) /* downloading done */
 #define FD_SNAPSHOT_HTTP_STATE_FAIL (-1) /* fatal error */
 
 /* Request size limits */
@@ -21,7 +23,7 @@
 #define FD_SNAPSHOT_HTTP_REQ_HDRS_MAX   (512UL)
 #define FD_SNAPSHOT_HTTP_REQ_PATH_MAX   (508UL)
 #define FD_SNAPSHOT_HTTP_RESP_HDR_CNT    (32UL)
-#define FD_SNAPSHOT_HTTP_RESP_BUF_MAX (65536UL)
+#define FD_SNAPSHOT_HTTP_RESP_BUF_MAX (1UL<<20)
 
 /* FD_SNAPSHOT_HTTP_DEFAULT_HOPS is the number of directs to follow
    by default. */
@@ -60,6 +62,23 @@ struct fd_snapshot_http {
   uchar resp_buf[ FD_SNAPSHOT_HTTP_RESP_BUF_MAX ];
   uint  resp_tail;
   uint  resp_head;
+
+  /* Name from last redirect */
+
+  fd_snapshot_name_t * name_out;
+  fd_snapshot_name_t   name_dummy[1];
+
+  /* Slot number that incremental snapshot should be based off of */
+
+  ulong base_slot;
+
+  /* value from "content-length:" */
+
+  ulong content_len;
+
+  /* Total downloaded so far */
+
+  ulong dl_total;
 };
 
 typedef struct fd_snapshot_http fd_snapshot_http_t;
@@ -67,9 +86,10 @@ typedef struct fd_snapshot_http fd_snapshot_http_t;
 FD_PROTOTYPES_BEGIN
 
 fd_snapshot_http_t *
-fd_snapshot_http_new( void * mem,
-                      uint   dst_ipv4,
-                      ushort dst_port );
+fd_snapshot_http_new( void *               mem,
+                      uint                 dst_ipv4,
+                      ushort               dst_port,
+                      fd_snapshot_name_t * name_out );
 
 void *
 fd_snapshot_http_delete( fd_snapshot_http_t * this );
@@ -88,7 +108,8 @@ fd_snapshot_http_set_timeout( fd_snapshot_http_t * this,
 int
 fd_snapshot_http_set_path( fd_snapshot_http_t * this,
                            char const *         path,
-                           ulong                path_len );
+                           ulong                path_len,
+                           ulong                base_slot );
 
 int
 fd_io_istream_snapshot_http_read( void *  _this,

@@ -1,4 +1,5 @@
 #include "fd_snapshot_loader.h"
+#include "fd_snapshot.h"
 #include "fd_snapshot_restore.h"
 #include "fd_snapshot_http.h"
 
@@ -37,6 +38,10 @@ struct fd_snapshot_loader {
   /* Downstream restore */
 
   fd_snapshot_restore_t * restore;
+
+  /* Hash and slot numbers from filename */
+
+  fd_snapshot_name_t name;
 };
 
 typedef struct fd_snapshot_loader fd_snapshot_loader_t;
@@ -119,7 +124,8 @@ fd_snapshot_loader_delete( fd_snapshot_loader_t * loader ) {
 fd_snapshot_loader_t *
 fd_snapshot_loader_init( fd_snapshot_loader_t *    d,
                          fd_snapshot_restore_t *   restore,
-                         fd_snapshot_src_t const * src ) {
+                         fd_snapshot_src_t const * src,
+                         ulong                     base_slot ) {
 
   d->restore = restore;
 
@@ -131,6 +137,10 @@ fd_snapshot_loader_init( fd_snapshot_loader_t *    d,
       return NULL;
     }
 
+    if( FD_UNLIKELY( !fd_snapshot_name_from_cstr( &d->name, src->file.path, base_slot ) ) ) {
+      return NULL;
+    }
+
     if( FD_UNLIKELY( !fd_io_istream_file_new( d->vfile, d->snapshot_fd ) ) ) {
       FD_LOG_WARNING(( "Failed to create fd_io_istream_file_t" ));
       return NULL;
@@ -139,11 +149,11 @@ fd_snapshot_loader_init( fd_snapshot_loader_t *    d,
     d->vsrc = fd_io_istream_file_virtual( d->vfile );
     break;
   case FD_SNAPSHOT_SRC_HTTP:
-    if( FD_UNLIKELY( !fd_snapshot_http_new( d->vhttp, src->http.ip4, src->http.port ) ) ) {
+    if( FD_UNLIKELY( !fd_snapshot_http_new( d->vhttp, src->http.ip4, src->http.port, &d->name ) ) ) {
       FD_LOG_WARNING(( "Failed to create fd_snapshot_http_t" ));
       return NULL;
     }
-    fd_snapshot_http_set_path( d->vhttp, src->http.path, src->http.path_len );
+    fd_snapshot_http_set_path( d->vhttp, src->http.path, src->http.path_len, base_slot );
     d->vhttp->hops = (ushort)3;  /* TODO don't hardcode */
 
     d->vsrc = fd_io_istream_snapshot_http_virtual( d->vhttp );
@@ -285,4 +295,9 @@ fd_snapshot_src_parse( fd_snapshot_src_t * src,
   }
 
   __builtin_unreachable();
+}
+
+fd_snapshot_name_t const *  /* nullable */
+fd_snapshot_loader_get_name( fd_snapshot_loader_t const * loader ) {
+  return &loader->name;
 }

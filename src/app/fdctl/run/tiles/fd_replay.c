@@ -150,7 +150,7 @@ struct fd_replay_tile_ctx {
   ulong        max_workers;
 
   /* Depends on store_int and is polled in after_credit */
-  
+
   fd_blockstore_t *     blockstore;
 
   /* Updated during execution */
@@ -531,7 +531,7 @@ after_frag( void *             _ctx,
   ulong txn_cnt = ctx->txn_cnt;
   fd_txn_p_t * txns       = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
   fd_microblock_trailer_t * microblock_trailer = (fd_microblock_trailer_t *)(txns + txn_cnt);
-  
+
   // ctx->curr_slot = fd_disco_replay_sig_slot( *opt_sig );
   // ctx->flags = fd_disco_replay_sig_flags( *opt_sig );
 
@@ -820,7 +820,7 @@ after_frag( void *             _ctx,
           case 1:
 
             /* Match*/
-            
+
             bank_hash_cmp->watermark = cmp_slot;
             break;
 
@@ -858,7 +858,7 @@ after_frag( void *             _ctx,
     }
     /* Publish mblk to POH. */
 
-    if( ctx->poh_init_done == 1 && !( ctx->flags & REPLAY_FLAG_FINISHED_BLOCK ) 
+    if( ctx->poh_init_done == 1 && !( ctx->flags & REPLAY_FLAG_FINISHED_BLOCK )
         && ( ( ctx->flags & REPLAY_FLAG_MICROBLOCK ) || ( ctx->flags & REPLAY_FLAG_PACKED_MICROBLOCK ) ) ) {
       FD_LOG_INFO(( "publishing mblk to poh - slot: %lu, parent_slot: %lu", ctx->curr_slot, ctx->parent_slot ));
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -914,57 +914,9 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
 
   /* Load incremental */
 
-  char incremental_snapshot_out[128] = { 0 };
   if( strlen( incremental ) > 0 ) {
-    if( strstr( incremental, "http" ) ) {
-      // long last_now = fd_log_wallclock();
-      // while( ULONG_MAX == fd_fseq_query( ctx->first_turbine ) ) {
-      //   long now = fd_log_wallclock();
-      //   if( FD_UNLIKELY( now - (long)1e9 > last_now ) ) {
-      //     FD_LOG_NOTICE( ( "waiting for first turbine..." ) );
-      //     last_now = now;
-      //   }
-      // }
-      FD_LOG_NOTICE( ( "downloading incremental snapshot..." ) );
-      FILE * fp;
-
-      /* Open the command for reading. */
-      char cmd[128];
-      snprintf( cmd, sizeof( cmd ), "./contrib/download_incremental.sh %s", incremental );
-      FD_LOG_NOTICE( ( "cmd: %s", cmd ) );
-      fp = popen( cmd, "r" );
-      if( fp == NULL ) {
-        printf( "Failed to run command\n" );
-        exit( 1 );
-      }
-
-      /* Read the output a line at a time - output it. */
-      if( !fgets( incremental_snapshot_out, sizeof( incremental_snapshot_out ) - 1, fp ) ) {
-        FD_LOG_NOTICE( ( "incremental snapshot %s", incremental_snapshot_out ) );
-        FD_LOG_ERR( ( "failed to parse snapshot name" ) );
-      }
-      incremental_snapshot_out[strcspn( incremental_snapshot_out, "\n" )] = '\0';
-      incremental = incremental_snapshot_out;
-      pclose( fp );
-    }
-
-    /* Already loaded the main snapshot when we initialized funk */
-    ulong i, j;
-    char const * incremental_no_path = strrchr(incremental, '/');
-    char const * incremental_basename = incremental_no_path==NULL ? incremental : incremental_no_path + 1;
-    FD_TEST( sscanf( incremental_basename, "incremental-snapshot-%lu-%lu", &i, &j ) == 2 );
-    if (FD_UNLIKELY(( i != ctx->slot_ctx->slot_bank.slot ))) {
-      FD_LOG_WARNING(("incremental snapshot slot %lu did not match full snapshot slot %lu", i, ctx->slot_ctx->slot_bank.slot));
-      __asm__("int $3");
-    }
-    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
-    FD_TEST( epoch_bank );
-    FD_TEST( fd_slot_to_epoch( &epoch_bank->epoch_schedule, i, NULL ) ==
-             fd_slot_to_epoch( &epoch_bank->epoch_schedule, j, NULL ) );
-    FD_LOG_NOTICE( ( "starting load incremental..." ) );
     fd_snapshot_load( incremental, ctx->slot_ctx, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL );
     ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
-    FD_LOG_NOTICE( ( "finished load incremental..." ) );
   }
 
   fd_runtime_update_leaders( ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot );
@@ -1050,7 +1002,7 @@ after_credit( void *             _ctx,
 
       FD_SCRATCH_SCOPE_BEGIN {
         uchar is_snapshot              = strlen( ctx->snapshot ) > 0;
-        if( is_snapshot ) { 
+        if( is_snapshot ) {
           read_snapshot( ctx, ctx->snapshot, ctx->incremental );
         }
 
@@ -1112,9 +1064,9 @@ unprivileged_init( fd_topo_t *      topo,
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem != ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {
-    FD_LOG_ERR( ( "scratch_alloc_mem did not match scratch_footprint diff: %lu alloc: %lu footprint: %lu", 
-                  scratch_alloc_mem - (ulong)scratch - scratch_footprint( tile ), 
-                  scratch_alloc_mem, 
+    FD_LOG_ERR( ( "scratch_alloc_mem did not match scratch_footprint diff: %lu alloc: %lu footprint: %lu",
+                  scratch_alloc_mem - (ulong)scratch - scratch_footprint( tile ),
+                  scratch_alloc_mem,
                   (ulong)scratch + scratch_footprint( tile ) ) );
   }
 
@@ -1144,7 +1096,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->blockstore_checkpt = tile->replay.blockstore_checkpt;
   FD_LOG_NOTICE(("blockstore_checkpt: %s", ctx->blockstore_checkpt));
-  
+
   ctx->genesis     = tile->replay.genesis;
   ctx->incremental = tile->replay.incremental;
   ctx->snapshot    = tile->replay.snapshot;
