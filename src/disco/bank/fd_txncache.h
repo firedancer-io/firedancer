@@ -172,11 +172,11 @@
    bank consumes a lof of memory to store slot state, so the
    validator would crash long before this.
 
-   Based on mainnet snapshot load, we pick 2048. This still seems
-   unreasonable but lower values don't work with all snapshots.
+   For now we just pick a number: 2048, and hope for the best.  This
+   would represent the network failing to root a new slot for almost
+   five minutes.
 
-   TODO: Hmm... need to figure out what's reasonable here and why
-   the block cache fills up so quickly on snapshot restore. */
+   TODO: Hmm... need to figure out what's reasonable here. */
 
 #define FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS (2048UL)
 
