@@ -950,7 +950,9 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
 
     /* Already loaded the main snapshot when we initialized funk */
     ulong i, j;
-    FD_TEST( sscanf( incremental, "incremental-snapshot-%lu-%lu", &i, &j ) == 2 );
+    char const * incremental_no_path = strrchr(incremental, '/');
+    char const * incremental_basename = incremental_no_path==NULL ? incremental : incremental_no_path + 1;
+    FD_TEST( sscanf( incremental_basename, "incremental-snapshot-%lu-%lu", &i, &j ) == 2 );
     if (FD_UNLIKELY(( i != ctx->slot_ctx->slot_bank.slot ))) {
       FD_LOG_WARNING(("incremental snapshot slot %lu did not match full snapshot slot %lu", i, ctx->slot_ctx->slot_bank.slot));
       __asm__("int $3");
