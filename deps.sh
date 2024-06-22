@@ -295,7 +295,7 @@ install_lz4 () {
   cd ./opt/git/lz4/lib
   
   echo "[+] Installing lz4 to $PREFIX"
-  "${MAKE[@]}" PREFIX="$PREFIX" BUILD_SHARED=no install
+  "${MAKE[@]}" PREFIX="$PREFIX" BUILD_SHARED=no MOREFLAGS="-fPIC" install
   echo "[+] Successfully installed lz4"
 }
 

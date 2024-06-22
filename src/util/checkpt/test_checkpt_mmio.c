@@ -11,20 +11,21 @@ FD_STATIC_ASSERT( FD_CHECKPT_FRAME_STYLE_LZ4==2, unit_test );
 
 FD_STATIC_ASSERT( FD_CHECKPT_FRAME_STYLE_DEFAULT==1, unit_test );
 
-FD_STATIC_ASSERT( FD_CHECKPT_WBUF_MIN==69632UL, unit_test );
+FD_STATIC_ASSERT( FD_CHECKPT_WBUF_MIN == 69632UL, unit_test );
+FD_STATIC_ASSERT( FD_CHECKPT_ALIGN    ==     8UL, unit_test );
+FD_STATIC_ASSERT( FD_CHECKPT_FOOTPRINT==196664UL, unit_test );
 
-FD_STATIC_ASSERT( FD_CHECKPT_ALIGN    == 8UL, unit_test );
-FD_STATIC_ASSERT( FD_CHECKPT_FOOTPRINT==48UL, unit_test );
-
-FD_STATIC_ASSERT( FD_RESTORE_RBUF_MIN ==69632UL, unit_test );
-
-FD_STATIC_ASSERT( FD_RESTORE_ALIGN    == 8UL, unit_test );
-FD_STATIC_ASSERT( FD_RESTORE_FOOTPRINT==48UL, unit_test );
+FD_STATIC_ASSERT( FD_RESTORE_RBUF_MIN == 69632UL, unit_test );
+FD_STATIC_ASSERT( FD_RESTORE_ALIGN    ==     8UL, unit_test );
+FD_STATIC_ASSERT( FD_RESTORE_FOOTPRINT==196664UL, unit_test );
 
 #define BUF_MAX (1048576UL)
 static uchar in  [ BUF_MAX ];
 static uchar out [ BUF_MAX ];
 static uchar mmio[ BUF_MAX ];
+
+static fd_checkpt_t _checkpt[1];
+static fd_restore_t _restore[1];
 
 int
 main( int argc,
@@ -63,9 +64,6 @@ main( int argc,
   FD_TEST( !strcmp( fd_checkpt_strerror( FD_CHECKPT_ERR_IO    ), "io error"                   ) );
   FD_TEST( !strcmp( fd_checkpt_strerror( FD_CHECKPT_ERR_COMP  ), "compression error"          ) );
   FD_TEST( !strcmp( fd_checkpt_strerror( 1                    ), "unknown"                    ) );
-
-  fd_checkpt_t _checkpt[1];
-  fd_restore_t _restore[1];
 
   FD_LOG_NOTICE(( "Testing fd_checkpt_init_mmio" ));
 
@@ -480,4 +478,3 @@ err:
   fd_halt();
   return 0;
 }
-

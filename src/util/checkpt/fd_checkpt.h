@@ -12,17 +12,18 @@
    - Data buffers can have (up to physical limitation) arbitrary
      variable byte size.
 
-   - A frame can have a style of either RAW or LZ4.
-   
+   - A frame has a style that specifies how data buffers have been
+     encoded into it.
+
    - Buffers in a RAW frame are stored verbatim with no gaps.  As such,
      the space needed for a raw frame and the location of buffers in a
      raw frame can computed exactly up front.
 
    - Buffers in a LZ4 frame are stored via LZ4 streaming compression.  A
-     worst case upper bound for the space needed for a LZ4 can be
+     worst case upper bound for the space needed for a LZ4 frame can be
      computed up front, roughly:
 
-       (256/255) total_sz_all_buffers + 16 buffer_count.
+       (256/255) total_sz_all_buffers + 19 buffer_count.
 
      The location of buffers in LZ4 frame is not practically computable
      in advance and decompression of a buffer in a frame depends on
@@ -33,7 +34,7 @@
      calling code outside of specifying the mode when starting a
      checkpoint or a restore).  The checkpoint and restore processes
      will produce bit-level identical results regardless of mode.
-     
+
    - Frames are independent such that different frames can be generated
      in parallel.  Each frame generated will be bit-level identical
      regardless how generation is distributed over threads.
@@ -42,10 +43,10 @@
      will be bit-level identical regardles how restoration is
      distributed over threads.
 
-   - As such, arbitrary streaming / mmio serial/parallel operation is
-     fine (e.g. have a single thread write checkpoint file in streaming
+   - As such, arbitrary streaming/mmio serial/parallel operation is fine
+     (e.g. have a single thread write a checkpoint file with streaming
      I/O and then use multiple threads to restore from that checkpoint
-     file in memory mapped I/O). */
+     file with memory mapped I/O). */
 
 #include "../log/fd_log.h"
 
@@ -67,7 +68,7 @@
 #define FD_CHECKPT_FRAME_STYLE_DEFAULT FD_CHECKPT_FRAME_STYLE_RAW
 
 /* FD_CHECKPT_WBUF_MIN is the minimum write buffer size needed by a
-   fd_checkpt_t in streaming mode.  Must be at least 65810 ~
+   fd_checkpt_t in streaming mode.  Must be at least 65813 ~
      FD_CHECKPT_PRIVATE_CSZ_MAX( FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX ) */
 
 #define FD_CHECKPT_WBUF_MIN (69632UL) /* 68 KiB */
@@ -78,9 +79,9 @@
 #define FD_CHECKPT_ALIGN     alignof( fd_checkpt_t )
 #define FD_CHECKPT_FOOTPRINT sizeof(  fd_checkpt_t )
 
-/* A fd_checkpt_t a semi-opaque handle of an in-progress checkpoint (a
-   stack or global declaration of an fd_checkpt_t is sufficient to get
-   the correct alignment and footprint). */
+/* A fd_checkpt_t is a semi-opaque handle for an in-progress checkpoint
+   (a stack or global declaration of an fd_checkpt_t is sufficient to
+   get the correct alignment and footprint). */
 
 struct fd_checkpt_private;
 typedef struct fd_checkpt_private fd_checkpt_t;
@@ -97,7 +98,7 @@ typedef struct fd_checkpt_private fd_checkpt_t;
 #define FD_RESTORE_ALIGN     alignof( fd_restore_t )
 #define FD_RESTORE_FOOTPRINT sizeof(  fd_restore_t )
 
-/* A fd_restore_t a semi-opaque handle of an in-progress restore (a
+/* A fd_restore_t is a semi-opaque handle of an in-progress restore (a
    stack or global declaration of an fd_restore_t is sufficient to get
    the correct alignment and footprint). */
 
@@ -110,38 +111,60 @@ typedef struct fd_restore_private fd_restore_t;
 
 /* FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX is the maximum amount of checkpt
    data fed into the underlying compressor at a time.  Should be much
-   less than LZ4_MAX_INPUT_SIZE . */
+   less than LZ4_MAX_INPUT_SIZE (and probably much less than 2^24-1).
+   64 KiB is recommended. */
 
 #define FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX (65536UL)
 
-/* FD_CHECKPT_PRIVATE_CSZ_MAX returns an reasonably tight upper bound to
-   the number of compressed output bytes given usz uncompressed input
-   bytes.  Assumes usz <= FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX and usz is
-   safe against multiple evaluation.  (This is the same as
-   LZ4_COMPRESSBOUND but with ulong typing and usz assumption.) */
+/* FD_CHECKPT_PRIVATE_CSZ_MAX returns a reasonably tight upper bound to
+   the number of compressed output bytes generated given usz
+   uncompressed input bytes.  Assumes usz is safe against multiple
+   evaluation and usz<=FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX.  (This is the
+   same as LZ4_COMPRESSBOUND plus 3 extra bytes for checkpt related
+   metadata plus ulong typing usz and the usz limit.) */
 
-#define FD_CHECKPT_PRIVATE_CSZ_MAX(usz) ((usz) + ((usz)/255UL) + 16UL)
+#define FD_CHECKPT_PRIVATE_CSZ_MAX(usz) ((usz) + ((usz)/255UL) + 19UL)
 
-FD_STATIC_ASSERT( FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX <= (1<<30), adjust_comp_limits );
+FD_STATIC_ASSERT( FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX <= (1UL<<30), adjust_comp_limits );
 FD_STATIC_ASSERT( FD_CHECKPT_WBUF_MIN >= FD_CHECKPT_PRIVATE_CSZ_MAX( FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX ), adjust_buf_limits );
 FD_STATIC_ASSERT( FD_RESTORE_RBUF_MIN >= FD_CHECKPT_WBUF_MIN, adjust_buf_limits );
+
+/* FD_CHECKPT_PRIVATE_GBUF_THRESH is byte size at which checkpt buffer
+   is considered too large for small buffer checkpt gather
+   optimizations.  Should be at most FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX.
+   Set to 0 to disable checkpt small gather optimization. */
+
+#define FD_CHECKPT_PRIVATE_GBUF_THRESH FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX
+
+/* FD_CHECKPT_PRIVATE_GBUF_SZ is the size of the checkpt gather buffer.
+   Must be at least 2*THRESH + 65536 - 3 (the 64KiB is from LZ4). */
+
+#define FD_CHECKPT_PRIVATE_GBUF_SZ (2UL*FD_CHECKPT_PRIVATE_GBUF_THRESH + 65536UL)
+
+FD_STATIC_ASSERT( FD_CHECKPT_PRIVATE_GBUF_THRESH <= FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX,             adjust_gbuf_limits );
+FD_STATIC_ASSERT( FD_CHECKPT_PRIVATE_GBUF_SZ     >= 2UL*FD_CHECKPT_PRIVATE_GBUF_THRESH + 65533UL, adjust_gbuf_limits );
+
+/* FD_RESTORE_PRIVATE_SBUF_{THRESH,SZ} similarly give the configuration
+   for small buffer restore scatter optimizations.  These currently need
+   to match the gather configuration. */
+
+#define FD_RESTORE_PRIVATE_SBUF_THRESH FD_CHECKPT_PRIVATE_GBUF_THRESH
+#define FD_RESTORE_PRIVATE_SBUF_SZ     FD_CHECKPT_PRIVATE_GBUF_SZ
 
 /* fd_checkpt_t internals */
 
 struct fd_checkpt_private_wbuf { /* very similar to fd_io_buffered_ostream */
-  char * mem;  /* Buffer of compressed bytes not yet written to fd, byte indexed [0,wbuf_sz) */
-  ulong  sz;   /* Buffer size in bytes, >=FD_CHECKPT_WBUF_MIN */
-  ulong  used; /* Buffer bytes [0,wbuf_used) are not yet written to fd,
-                  buffer bytes [wbuf_used,wbuf_sz) are free */
+  uchar * mem;  /* Buffer of compressed bytes not yet written to fd, byte indexed [0,wbuf_sz) */
+  ulong   sz;   /* Buffer size in bytes, >=FD_CHECKPT_WBUF_MIN */
+  ulong   used; /* Buffer bytes [0,wbuf_used) are not yet written to fd,
+                   buffer bytes [wbuf_used,wbuf_sz) are free */
 };
 
 typedef struct fd_checkpt_private_wbuf fd_checkpt_private_wbuf_t;
 
-struct fd_checkpt_private_mmio { /* very similar to fd_io_buffered_ostream */
-  char * mem;  /* Buffer of compressed bytes not yet written to fd, byte indexed [0,wbuf_sz) */
-  ulong  sz;   /* Buffer size in bytes, >=FD_CHECKPT_WBUF_MIN */
-  ulong  used; /* Buffer bytes [0,wbuf_used) are not yet written to fd,
-                  buffer bytes [wbuf_used,wbuf_sz) are free */
+struct fd_checkpt_private_mmio {
+  uchar * mem; /* Checkpoint memory region */
+  ulong   sz;  /* Checkpoint memory region byte size */
 };
 
 typedef struct fd_checkpt_private_mmio fd_checkpt_private_mmio_t;
@@ -150,17 +173,19 @@ struct fd_checkpt_private {
   int    fd;          /* (stream) File descriptor for the checkpt (>=0), (mmio) -1 */
   int    frame_style; /* FD_CHECKPT_FRAME_STYLE_* (>0), 0: not in frame (valid), -1: not in frame (failed) */
   void * lz4;         /* Handle of the underlying compressor */
+  ulong  gbuf_cursor; /* Cursor for small buffer gather optimizations, in [0,FD_CHECKPT_PRIVATE_GBUF_SZ] */
   ulong  off;         /* Offset of the next byte to write (relative to the checkpoint first byte), in [0,mmio_sz) in mmio mode */
   union {
     fd_checkpt_private_wbuf_t wbuf; /* used in streaming mode */
     fd_checkpt_private_mmio_t mmio; /* used in mmio mode */
   };
+  uchar gbuf[ FD_RESTORE_PRIVATE_SBUF_SZ ]; /* gather optimization buffer */
 };
 
 /* fd_restore_t internals */
 
 struct fd_restore_private_rbuf { /* very similar to fd_io_buffered_istream */
-  char * mem;   /* Buffer of compressed bytes read from fd, byte indexed [0,rbuf_sz) */
+  uchar * mem;  /* Buffer of compressed bytes read from fd, byte indexed [0,rbuf_sz) */
   ulong  sz;    /* Buffer size in bytes, >=FD_RESTORE_RBUF_MIN */
   ulong  lo;    /* Buffer bytes [0,rbuf_lo) have been read and restored */
   ulong  ready; /* Number of compressed bytes that haven't been processed, 0<=rbuf_lo<=(rbuf_lo+rbuf_ready)<=rbuf_sz */
@@ -168,10 +193,10 @@ struct fd_restore_private_rbuf { /* very similar to fd_io_buffered_istream */
 
 typedef struct fd_restore_private_rbuf fd_restore_private_rbuf_t;
 
-struct fd_restore_private_mmio { /* very similar to fd_io_buffered_istream */
-  char const * mem; /* Checkpoint memory region */
-  ulong        sz;  /* Checkpoint memory region size in bytes */
-  ulong        off; /* Offset of next byte to process relative to mmio, in [0,mmio_sz) */
+struct fd_restore_private_mmio {
+  uchar const * mem; /* Checkpoint memory region */
+  ulong         sz;  /* Checkpoint memory region size in bytes */
+  ulong         off; /* Offset of next byte to process relative to mmio, in [0,mmio_sz) */
 };
 
 typedef struct fd_restore_private_mmio fd_restore_private_mmio_t;
@@ -180,10 +205,12 @@ struct fd_restore_private {
   int    fd;          /* (stream) File descriptor for the restore (>=0), (mmio) -1 */
   int    frame_style; /* FD_CHECKPT_FRAME_STYLE_* (>0), 0: not in frame (valid), -1: not in frame (failed) */
   void * lz4;         /* Handle of the underlying decompressor used */
+  ulong  sbuf_cursor; /* Cursor for small buffer scatter optimizations, in [0,FD_RESTORE_PRIVATE_SBUF_SZ] */
   union {
     fd_restore_private_rbuf_t rbuf; /* used in streaming mode */
     fd_restore_private_mmio_t mmio; /* used in mmio mode */
   };
+  uchar sbuf[ FD_RESTORE_PRIVATE_SBUF_SZ ]; /* scatter optimization buffer */
 };
 
 FD_PROTOTYPES_BEGIN
@@ -194,8 +221,13 @@ FD_PROTOTYPES_BEGIN
 FD_FN_PURE static inline int fd_checkpt_private_is_mmio( fd_checkpt_t const * checkpt ) { return checkpt->fd<0; }
 FD_FN_PURE static inline int fd_restore_private_is_mmio( fd_restore_t const * restore ) { return restore->fd<0; }
 
-/* fd_{checkpt,restore}_private_in_frame returns 0/1 if is not/is in a
-   frame.  Assumes {checkpt,restore} is valid. */
+/* fd_checkpt_private_{can_open,in_frame} returns 1 if {a frame can be
+   opened,the checkpt is in a frame} and 0 otherwise.  A failed checkpt
+   is not in a frame but cannot open a new frame.  Assumes checkpt is
+   valid.  Similarly for restore. */
+
+FD_FN_PURE static inline int fd_checkpt_private_can_open( fd_checkpt_t const * checkpt ) { return !checkpt->frame_style; }
+FD_FN_PURE static inline int fd_restore_private_can_open( fd_restore_t const * restore ) { return !restore->frame_style; }
 
 FD_FN_PURE static inline int fd_checkpt_private_in_frame( fd_checkpt_t const * checkpt ) { return checkpt->frame_style>0; }
 FD_FN_PURE static inline int fd_restore_private_in_frame( fd_restore_t const * restore ) { return restore->frame_style>0; }
@@ -211,7 +243,7 @@ FD_PROTOTYPES_BEGIN
 /* fd_checkpt_init_stream formats a memory region, mem, with suitable
    alignment and footprint into a fd_checkpt_t (a pointer to a stack
    declared fd_checkpt_t is fine).  fd is an open normal-ish file
-   descriptor to which the checkpoint should be streamed.  wbuf points
+   descriptor where the checkpoint should be streamed out.  wbuf points
    to the first byte in the caller's address space to an unused wbuf_sz
    byte size memory region to use for write buffering.  wbuf_sz should
    be at least FD_CHECKPT_WBUF_MIN.
@@ -230,7 +262,7 @@ fd_checkpt_init_stream( void * mem,
 
 /* fd_checkpt_init_mmio is the same as fd_checkpt_init_stream but
    checkpoints frames into a mmio_sz byte sized memory region whose
-   first byte in the caller the local address space is pointed to by
+   first byte in the caller's the local address space is pointed to by
    mmio. */
 
 fd_checkpt_t *
@@ -259,22 +291,22 @@ fd_checkpt_fini( fd_checkpt_t * checkpt );
    in a checkpoint can be restored in parallel.  frame_style is a
    FD_CHECKPT_FRAME_STYLE_* that specifies the style of frame to output
    (0 indicates to use FD_CHECKPT_FRAME_STYLE_DEFAULT).  checkpt should
-   be valid and not currently in a frame.
-   
+   be valid and openable (not currently in a frame or failed).
+
    On success, returns FD_CHECKPT_SUCCESS (0).  On return, *_off will
    contain the offset of this frame from the beginning of the
    checkpoint.  This is to allow parallel restore threads to jump to
-   frames they are assigned to restore.  Retains no interest in
-   _off.
+   frames they are assigned to restore.  Retains no interest in _off.
 
    On failure, logs details and returns a FD_CHECKPT_ERR (negative).
    *_off will be untouched.  Retains no interest in _off.  Reasons for
-   failure include INVAL (NULL checkpt, in a frame) and UNSUP
-   (unsupported frame style on this target).  The checkpt (and
-   underlying fd in streaming mode) should be considered failed (i.e.
-   the checkpt no longer has any interest in checkpointed data and the
-   user should only fini checkpt, close fd in streaming mode and discard
-   the failed checkpoint).
+   failure include INVAL (NULL checkpt, in a frame, failed), UNSUP
+   (unsupported frame style on this target), IO (an i/o error) and COMP
+   (a compressor error).  The checkpt (and underlying fd in streaming
+   mode) should be considered failed (i.e. the checkpt no longer has
+   any interest in checkpointed data and the user should only fini
+   checkpt, close fd in streaming mode and discard the failed
+   checkpoint).
 
    IMPORTANT SAFETY TIP!  The returned offset is relative to the start
    of the _checkpoint_, _not_ the start of the _file_.  These are often
@@ -284,10 +316,11 @@ fd_checkpt_fini( fd_checkpt_t * checkpt );
    checkpoint, etc).
 
    IMPORTANT SAFETY TIP!  Compression ratios for compressed frames can
-   optimized by putting similar items into the same frame.
-   
+   optimized by putting similar items into the same frame and then
+   putting more similar items near each other sequentially.
+
    fd_checkpt_frame_open is a convenience for when the frame offset
-   isn't needed. */
+   isn't needed (makes API exactly symmetric with fd_restore). */
 
 int
 fd_checkpt_frame_open_advanced( fd_checkpt_t * checkpt,
@@ -308,19 +341,19 @@ fd_checkpt_frame_open( fd_checkpt_t * checkpt,
    contain the offset of one past the last byte of the just closed
    frame.  That is, [off_open,off_close) specify the range bytes
    relative to the start of the checkpoint used by this frame and
-   off_close-off_open is the frame byte count.  This is to faciliate
+   off_close-off_open is the frame byte size.  This is to facilitate
    parallel checkpoint writing and then concatentating results from
-   different threads into compact checkpoint.  checkpt will no longer
+   different threads into a compact checkpoint.  checkpt will no longer
    have any interest in checkpointed data or in _off.
 
    On failure, logs details and returns a FD_CHECKPT_ERR (negative).  On
    return, *_off will be untouched and checkpoint will have no inteest
-   in opt_off.  Reasons for failure include INVAL (NULL checkpt, not in
-   a frame) and IO (write failed, too many bytes written).  The checkpt
-   (and underlying fd in streaming mode) should be considered failed
-   (i.e.  the checkpt no longer has any interest in checkpointed data
-   and the user should only fini checkpt, close fd in streaming mode and
-   discard the failed checkpoint).
+   in _off.  Reasons for failure include INVAL (NULL checkpt, not in a
+   frame), IO (write failed, too many bytes written) and COMP (a
+   compressor error).  The checkpt (and underlying fd in streaming mode)
+   should be considered failed (i.e. the checkpt no longer has any
+   interest in checkpointed data and the user should only fini checkpt,
+   close fd in streaming mode and discard the failed checkpoint).
 
    fd_checkpt_frame_close is a convenience for when the frame offset
    isn't needed. */
@@ -367,7 +400,7 @@ fd_checkpt_buf( fd_checkpt_t * checkpt,
    pointer to a stack declared fd_restore_t is fine).  fd is an open
    normal-ish file descriptor positioned at the start of the first
    checkpoint frame to read.  rbuf points to the first byte in the
-   caller's address space to an unused rbuf_sz byte size memory region
+   caller's address space of an unused rbuf_sz byte size memory region
    to use for read buffering.  rbuf_sz should be at least
    FD_RESTORE_RBUF_MIN (it does _not_ need to match the wbuf_sz used to
    make the checkpoint).
@@ -386,8 +419,8 @@ fd_restore_init_stream( void * mem,
 
 /* fd_restore_init_mmio is the same as fd_restore_init_stream but the
    frames to restore have been memory mapped into the mmio_sz byte
-   memory region whose first byte in the caller the local address space
-   is pointed to by mmio. */
+   memory region whose first byte in the caller's the local address
+   space is pointed to by mmio. */
 
 fd_restore_t *
 fd_restore_init_mmio( void *       mem,
@@ -400,7 +433,7 @@ fd_restore_init_mmio( void *       mem,
    On success, returns mem.  On return, restore is no longer valid and
    the caller will have ownership of mem, fd and rbuf (streaming mode)
    or mem and mmio (mmio mode).
-   
+
    On failure, returns NULL (logs details).  Reasons for failure include
    NULL restore and restore in a frame.  The restore (and underlying fd
    in streaming mode) should be considered failed (i.e. the restore no
@@ -415,16 +448,16 @@ fd_restore_fini( fd_restore_t * restore );
    FD_CHECKPT_FRAME_STYLE_* that specifies the style of frame to read
    (0 indicates to use FD_CHECKPT_FRAME_STYLE_DEFAULT).  restore should
    be valid and not currently in a frame.
-   
+
    On success, returns FD_CHECKPT_SUCCESS (0).
 
    On failure, logs details and returns a FD_CHECKPT_ERR (negative).
-   Reasons for failure include INVAL (NULL restore, in a frame), UNSUP
-   (unsupported frame style on this target) and COMP (decompressor
-   error).  The restore (and underlying fd in streaming mode) should be
-   considered failed (i.e.  the restore no longer has any interest in
-   restored data and the user should only fini restore and close fd in
-   streaming mode).
+   Reasons for failure include INVAL (NULL restore, in a frame, failed),
+   UNSUP (unsupported frame style on this target), IO (an i/o error) and
+   COMP (a decompressor error).  The restore (and underlying fd in
+   streaming mode) should be considered failed (i.e. the restore no
+   longer has any interest in restored data and the user should only
+   fini restore and close fd in streaming mode).
 
    IMPORTANT SAFETY TIP!  frame_style should match the frame_style used
    to when the checkpoint was written.
@@ -445,11 +478,11 @@ fd_restore_frame_open( fd_restore_t * restore,
    longer have any interest in restored data.
 
    On failure, logs details and returns a FD_CHECKPT_ERR (negative).
-   Reasons for failure include INVAL (NULL restore, not in a frame).
-   The restore (and underlying fd in streaming mode) should be
-   considered failed (i.e. the restore no longer has any interest in
-   restored data and the user should only fini restore and close fd in
-   streaming mode).
+   Reasons for failure include INVAL (NULL restore, not in a frame), IO
+   (an i/o error) and COMP (a decompressor error).  The restore (and
+   underlying fd in streaming mode) should be considered failed (i.e.
+   the restore no longer has any interest in restored data and the user
+   should only fini restore and close fd in streaming mode).
 
    IMPORTANT SAFETY TIP!  The sequence of restore_frame_open /
    restore_buf / restore_frame_close calls should _exactly_ match the
@@ -477,7 +510,7 @@ fd_restore_frame_close( fd_restore_t * restore );
    On failure, logs details and returns a FD_CHECKPT_ERR (negative).
    Reasons for failure include INVAL (NULL restore, not in a frame, NULL
    buf with a non-zero sz), IO (read failed, too many bytes read) and
-   COMP (decompressor error).  The restore (and underlying fd in
+   COMP (a decompressor error).  The restore (and underlying fd in
    streaming mode) should be considered failed (i.e. the restore no
    longer has any interest in restored data and the user should only
    fini restore and close fd in streaming mode).

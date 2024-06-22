@@ -1,5 +1,5 @@
 $(call add-hdrs,fd_checkpt.h)
-$(call add-objs,fd_checkpt,fd_util)
+$(call add-objs,fd_checkpt fd_restore,fd_util)
 $(call make-unit-test,test_checkpt_mmio,test_checkpt_mmio,fd_util)
 $(call make-unit-test,test_checkpt_stream,test_checkpt_stream,fd_util)
 $(call run-unit-test,test_checkpt_mmio,)
