@@ -16,6 +16,9 @@ static uchar mmio[ BUF_MAX ];
 static uchar rbuf[ BUF_MAX ];
 static uchar wbuf[ BUF_MAX ];
 
+static fd_checkpt_t _checkpt[1];
+static fd_restore_t _restore[1];
+
 int
 main( int argc,
       char ** argv ) {
@@ -90,9 +93,6 @@ main( int argc,
     if( FD_UNLIKELY( lseek( (fd), (off_t)0, SEEK_SET ) ) )                    \
       FD_LOG_ERR(( "lseek failed (%i-%s)", errno, fd_io_strerror( errno ) )); \
   } while(0)
-
-  fd_checkpt_t _checkpt[1];
-  fd_restore_t _restore[1];
 
   FD_LOG_NOTICE(( "Testing fd_checkpt_init_stream" ));
 
