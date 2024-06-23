@@ -411,6 +411,7 @@ fd_funk_log_mem_usage( fd_funk_t * funk ) {
 
 void
 fd_funk_start_write( fd_funk_t * funk ) {
+# if FD_HAS_THREADS
   register ulong oldval;
   for(;;) {
     oldval = funk->write_lock;
@@ -419,10 +420,14 @@ fd_funk_start_write( fd_funk_t * funk ) {
   }
   if( FD_UNLIKELY(oldval&1UL) ) FD_LOG_CRIT(( "attempt to lock funky when it is already locked" ));
   FD_COMPILER_MFENCE();
+# else
+  (void)funk;
+# endif
 }
 
 void
 fd_funk_end_write( fd_funk_t * funk ) {
+# if FD_HAS_THREADS
   FD_COMPILER_MFENCE();
   register ulong oldval;
   for(;;) {
@@ -431,6 +436,9 @@ fd_funk_end_write( fd_funk_t * funk ) {
     FD_SPIN_PAUSE();
   }
   if( FD_UNLIKELY(!(oldval&1UL)) ) FD_LOG_CRIT(( "attempt to unlock funky when it is already unlocked" ));
+# else
+  (void)funk;
+# endif
 }
 
 void
