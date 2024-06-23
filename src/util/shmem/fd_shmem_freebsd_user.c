@@ -95,7 +95,7 @@ fd_shmem_join( char const *               name,
 
   if( FD_UNLIKELY( shmem==MAP_FAILED ) ) {
     FD_LOG_WARNING(( "mmap(NULL,%#lx,%s,MAP_ALIGNED(%d)|MAP_SHARED,shm_fd,0) failed (%i-%s)",
-                     sz, rw ? "PROT_READ|PROT_WRITE" : "PROT_READ", page_shift, errno, fd_io_strerror( errno ) ));
+                     sz, rw ? "PROT_READ|PROT_WRITE" : "PROT_READ", page_shift, map_err, fd_io_strerror( map_err ) ));
     FD_SHMEM_UNLOCK;
     return NULL;
   }

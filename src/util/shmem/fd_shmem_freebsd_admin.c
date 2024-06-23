@@ -18,6 +18,7 @@ fd_shmem_numa_idx( ulong cpu_idx ) {
 
 ulong
 fd_shmem_cpu_idx( ulong numa_idx ) {
+  (void)numa_idx;
   FD_LOG_WARNING(( "fd_shmem_cpu_idx not supported on this platform" ));
   return 0UL;
 }
@@ -48,6 +49,7 @@ fd_shmem_numa_validate( void const * mem,
     return EINVAL;
   }
 
+  (void)cpu_idx;
   /* FIXME FreeBSD 14.1 has no proper NUMA support */
 
   return 0;
@@ -106,7 +108,7 @@ fd_shmem_create_multi( char const *  name,
 
   /* FIXME NUMA affinity not yet supported */
 
-  int shm_fd = fd_shm_create_largepage( name, O_RDWR, psind, SHM_LARGEPAGE_ALLOC_NOWAIT, mode );
+  int shm_fd = fd_shm_create_largepage( name, O_RDWR, psind, SHM_LARGEPAGE_ALLOC_NOWAIT, (mode_t)mode );
 
   if( FD_UNLIKELY( shm_fd<0 ) ) {
     FD_LOG_WARNING(( "shm_create_largepage(SHM_ANON,O_RDWR) failed (%i-%s)", errno, fd_io_strerror( errno ) ));

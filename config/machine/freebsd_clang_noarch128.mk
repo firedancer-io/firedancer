@@ -3,7 +3,7 @@ BUILDDIR:=freebsd/clang/noarch128
 include config/base.mk
 include config/extra/with-clang.mk
 include config/extra/with-debug.mk
-#include config/extra/with-brutality.mk
+include config/extra/with-brutality.mk
 include config/extra/with-optimization.mk
 include config/extra/with-hosted.mk
 
