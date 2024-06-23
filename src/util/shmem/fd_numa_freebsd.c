@@ -49,8 +49,8 @@ fd_numa_node_idx( ulong cpu_idx ) {
 }
 
 int
-fd_numa_mlock( void const * addr,
-               ulong        len ) {
+fd_numa_mlock( void const * addr FD_PARAM_UNUSED,
+               ulong        len  FD_PARAM_UNUSED ) {
   errno = ENOTSUP;
   return -1;
 }
