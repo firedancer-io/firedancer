@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <arpa/inet.h>
+#include <sys/socket.h>
 
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 
