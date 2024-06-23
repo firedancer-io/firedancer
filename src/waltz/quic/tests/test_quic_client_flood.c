@@ -5,7 +5,6 @@
 
 #include <stdlib.h>
 
-#include "../../xdp/fd_xdp.h"
 #include "../../../ballet/sha512/fd_sha512.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
 #include "../../../util/fd_util.h"
