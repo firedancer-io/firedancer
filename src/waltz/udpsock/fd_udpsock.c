@@ -257,8 +257,8 @@ void
 fd_udpsock_service( fd_udpsock_t * sock ) {
   /* Receive packets into iovecs */
 
-  int fd  = sock->fd;
-  int res = recvmmsg( fd, sock->rx_msg, (uint)sock->rx_cnt, MSG_DONTWAIT, NULL );
+  int  fd  = sock->fd;
+  long res = recvmmsg( fd, sock->rx_msg, (uint)sock->rx_cnt, MSG_DONTWAIT, NULL );
   if( FD_UNLIKELY( res<0 ) ) {
     if( FD_LIKELY( (errno==EAGAIN) | (errno==EWOULDBLOCK) ) )
       return;
@@ -288,7 +288,7 @@ fd_udpsock_service( fd_udpsock_t * sock ) {
     *ip4 = (fd_ip4_hdr_t) {
       .verihl       = FD_IP4_VERIHL(4,5),
       .tos          = 0,
-      .net_tot_len  = (ushort)( sock->rx_msg[i].msg_len
+      .net_tot_len  = (ushort)( (ulong)sock->rx_msg[i].msg_len
                       + sizeof(fd_ip4_hdr_t)
                       + sizeof(fd_udp_hdr_t) ),
       .net_id       = 0,
@@ -308,13 +308,13 @@ fd_udpsock_service( fd_udpsock_t * sock ) {
     *udp = (fd_udp_hdr_t) {
       .net_sport = (ushort)addr->sin_port,
       .net_dport = (ushort)fd_ushort_bswap( sock->udp_self_port ),
-      .net_len   = (ushort)fd_ushort_bswap( (ushort)( sock->rx_msg[i].msg_len + sizeof(fd_udp_hdr_t) ) ),
+      .net_len   = (ushort)fd_ushort_bswap( (ushort)( (ulong)sock->rx_msg[i].msg_len + sizeof(fd_udp_hdr_t) ) ),
       .check     = 0
     };
 
     sock->rx_pkt[i] = (fd_aio_pkt_info_t) {
       .buf    = frame_base,
-      .buf_sz = (ushort)( FD_UDPSOCK_HEADROOM + sock->rx_msg[i].msg_len )
+      .buf_sz = (ushort)( FD_UDPSOCK_HEADROOM + (ulong)sock->rx_msg[i].msg_len )
     };
   }
 
@@ -369,8 +369,8 @@ fd_udpsock_send( void *                    ctx,
       iov_idx++;
     }
   }
-  int fd  = sock->fd;
-  int res = sendmmsg( fd, sock->tx_msg, (uint)iov_idx, flush ? 0 : MSG_DONTWAIT );
+  int  fd  = sock->fd;
+  long res = sendmmsg( fd, sock->tx_msg, (uint)iov_idx, flush ? 0 : MSG_DONTWAIT );
   if( FD_UNLIKELY( res<0 ) ) {
     *opt_batch_idx = 0UL;
     if( FD_LIKELY( (errno==EAGAIN) | (errno==EWOULDBLOCK) ) )
