@@ -89,6 +89,8 @@ fd_snapshot_name_from_cstr( fd_snapshot_name_t * id,
   return id;
 }
 
+#if FD_HAS_ZSTD
+
 static void
 fd_hashes_load(fd_exec_slot_ctx_t * slot_ctx) {
   FD_BORROWED_ACCOUNT_DECL(block_hashes_rec);
@@ -255,3 +257,5 @@ fd_snapshot_load( const char *         snapshotfile,
   fd_funk_end_write( slot_ctx->acc_mgr->funk );
   fd_funk_speed_load_mode( slot_ctx->acc_mgr->funk, 0 );
 }
+
+#endif

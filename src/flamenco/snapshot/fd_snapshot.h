@@ -32,6 +32,12 @@ fd_snapshot_name_from_buf( fd_snapshot_name_t * id,
                            ulong                str_len,
                            ulong                base_slot );
 
+FD_PROTOTYPES_END
+
+#if FD_HAS_ZSTD
+
+FD_PROTOTYPES_BEGIN
+
 /* fd_snapshot_load does a blocking load of a snapshot.
 
    source_cstr is either a local file system path (absolute or relative)
@@ -57,5 +63,7 @@ fd_snapshot_load( const char *         source_cstr,
                   int                  snapshot_type );
 
 FD_PROTOTYPES_END
+
+#endif /* FD_HAS_ZSTD */
 
 #endif /* HEADER_fd_src_flamenco_snapshot_fd_snapshot_h */
