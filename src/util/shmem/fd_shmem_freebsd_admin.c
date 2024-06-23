@@ -7,6 +7,9 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+ulong fd_shmem_numa_cnt( void ) { return fd_numa_node_cnt(); }
+ulong fd_shmem_cpu_cnt ( void ) { return fd_numa_cpu_cnt();  }
+
 ulong
 fd_shmem_numa_idx( ulong cpu_idx ) {
   return fd_numa_node_idx( cpu_idx );
