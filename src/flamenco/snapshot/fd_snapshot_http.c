@@ -374,7 +374,7 @@ fd_snapshot_http_resp( fd_snapshot_http_t * this ) {
 
   if( FD_UNLIKELY( this->name_out->type == FD_SNAPSHOT_TYPE_UNSPECIFIED ) ) {
     /* We must not have followed a redirect. Try to parse here. */
-    ulong off = this->path_off + 4;
+    ulong off = (ulong)this->path_off + 4;
     if( FD_UNLIKELY( !fd_snapshot_name_from_buf( this->name_out, this->path + off, sizeof(this->path) - off, this->base_slot ) ) ) {
       FD_LOG_WARNING(( "Cannot download, snapshot hash is unknown" ));
       this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
