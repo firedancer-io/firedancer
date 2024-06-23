@@ -139,7 +139,7 @@ typedef struct {
   long slot_end_ns;
 
   /* last_successful_insert stores the tickcount of the last
-     succcessful transaction insert. */
+     successful transaction insert. */
   long last_successful_insert;
 
   /* transaction_lifetime_ns, microblock_duration_ns, and wait_duration
