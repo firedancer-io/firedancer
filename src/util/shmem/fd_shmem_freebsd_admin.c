@@ -55,7 +55,7 @@ fd_shmem_numa_validate( void const * mem,
 
 static int
 fd_page_sz_to_psind( ulong page_sz ) {
-# define FD_PSIND_CNT (30)
+# define FD_PSIND_CNT (64)
   static int  psind[ FD_PSIND_CNT ];
   static uint psind_cnt = 0U;
 
