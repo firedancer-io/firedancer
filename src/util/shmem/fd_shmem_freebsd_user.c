@@ -7,6 +7,23 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 
+static fd_shmem_private_key_t const fd_shmem_private_key_null; /* Will be zeros at thread group start */
+
+#define FD_SHMEM_PRIVATE_MAP_LG_SLOT_CNT (8)
+#define FD_SHMEM_PRIVATE_MAP_SLOT_CNT    (1UL<<FD_SHMEM_PRIVATE_MAP_LG_SLOT_CNT)
+FD_STATIC_ASSERT( FD_SHMEM_JOIN_MAX < FD_SHMEM_PRIVATE_MAP_SLOT_CNT, increase_lg_slot_count );
+
+#define MAP_NAME              fd_shmem_private_map
+#define MAP_T                 fd_shmem_join_info_t
+#define MAP_LG_SLOT_CNT       FD_SHMEM_PRIVATE_MAP_LG_SLOT_CNT
+#define MAP_KEY_T             fd_shmem_private_key_t
+#define MAP_KEY_NULL          fd_shmem_private_key_null
+#define MAP_KEY_INVAL(k)      (!((k).cstr[0]))
+#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).cstr, (k1).cstr, FD_SHMEM_NAME_MAX ))
+#define MAP_KEY_EQUAL_IS_SLOW (1)
+#define MAP_KEY_HASH(k)       ((uint)fd_hash( 0UL, (k).cstr, FD_SHMEM_NAME_MAX ))
+#include "../tmpl/fd_map.c"
+
 void *
 fd_shmem_join( char const *               name,
                int                        mode,
@@ -68,7 +85,7 @@ fd_shmem_join( char const *               name,
       FD_LOG_WARNING(( "munmap failed (%i-%s); attempting to continue", errno, fd_io_strerror( errno ) ));
     }
     return NULL;
-  } 
+  }
 
   join_info->join = join;
   if( opt_info ) {
