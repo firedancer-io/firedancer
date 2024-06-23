@@ -12,6 +12,8 @@
 
 FD_PROTOTYPES_BEGIN
 
+#if FD_HAS_DOUBLE
+
 /* Cast a double to unsigned long the same way as rust by suturating.
    Saturate to 0 if the value is negative or NaN.
    Saturate to ULONG_MAX if the value is greater than ULONG_MAX. */
@@ -42,6 +44,8 @@ fd_rust_cast_double_to_ulong( double f ) {
   /* Normal value, cast to unsigned long */
   return (ulong)f;
 }
+
+#endif /* FD_HAS_DOUBLE */
 
 FD_PROTOTYPES_END
 
