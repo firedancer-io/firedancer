@@ -1420,6 +1420,8 @@ fd_log_private_main_stack_sz( void ) {
   return stack_sz;
 }
 
+#if defined(__linux__)
+
 /* When pthread_setstack is not used to explicitly set the memory region
    for a new thread's stack, pthread_create will create a memory region
    (using either the requested size or a default size).  And, while
@@ -1490,7 +1492,7 @@ fd_log_private_stack_discover( ulong   stack_sz,
   char * p = filebuf;
   int found = 0;
   while( !found ) {
-    
+
     /* Scan a line */
 
     int full_line = 0;
@@ -1555,10 +1557,22 @@ fd_log_private_stack_discover( ulong   stack_sz,
     FD_LOG_WARNING(( "unable to find stack size around address 0x%lx", stack_addr ));
 
   close(filefd);
-  
+
   *_stack0 = stack0;
   *_stack1 = stack1;
 }
+
+#else
+
+void
+fd_log_private_stack_discover( ulong   stack_sz,
+                               ulong * _stack0,
+                               ulong * _stack1 ) {
+  (void)stack_sz; (void)_stack0; (void)_stack1;
+  return;
+}
+
+#endif /* defined(__linux__) */
 
 #else
 #error "Unknown FD_LOG_STYLE"
