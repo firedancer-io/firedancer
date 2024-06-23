@@ -7,12 +7,15 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <sched.h>
-#include <syscall.h>
 #include <sys/resource.h>
 #include <sys/mman.h>
 
 #include "../sanitize/fd_sanitize.h"
 #include "fd_tile_private.h"
+
+#if defined(__linux__)
+#include <syscall.h>
+#endif
 
 /* Operating system shims ********************************************/
 
