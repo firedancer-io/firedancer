@@ -22,10 +22,10 @@ $(call make-unit-test,test_snapshot_restore,test_snapshot_restore,fd_flamenco fd
 $(call run-unit-test,test_snapshot_restore)
 endif
 
+ifdef FD_HAS_ZSTD
 $(call add-hdrs,fd_snapshot.h)
 $(call add-objs,fd_snapshot,fd_flamenco)
 
-ifdef FD_HAS_ZSTD
 $(call add-hdrs,fd_snapshot_loader.h)
 $(call add-objs,fd_snapshot_loader,fd_flamenco)
 

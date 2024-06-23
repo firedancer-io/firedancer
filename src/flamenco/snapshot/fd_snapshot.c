@@ -180,5 +180,3 @@ fd_snapshot_load( const char *         snapshotfile,
   fd_funk_end_write( slot_ctx->acc_mgr->funk );
   fd_funk_speed_load_mode( slot_ctx->acc_mgr->funk, 0 );
 }
-
-#endif
