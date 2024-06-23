@@ -567,7 +567,7 @@ fd_turbine_thread( int argc, char ** argv ) {
   }
   while( FD_LIKELY( 1 /* !fd_tile_shutdown_flag */ ) ) {
     CLEAR_MSGS;
-    int tvu_rc = recvmmsg( tvu_fd, msgs, VLEN, MSG_DONTWAIT, NULL );
+    long tvu_rc = recvmmsg( tvu_fd, msgs, VLEN, MSG_DONTWAIT, NULL );
     if( tvu_rc < 0 ) {
       if( errno == EINTR || errno == EWOULDBLOCK ) continue;
       FD_LOG_ERR( ( "recvmmsg failed: %s", strerror( errno ) ) );
@@ -577,8 +577,8 @@ fd_turbine_thread( int argc, char ** argv ) {
     for( uint i = 0; i < (uint)tvu_rc; ++i ) {
       fd_gossip_peer_addr_t from;
       gossip_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
-      fd_shred_t const * shred = fd_shred_parse( bufs[i], msgs[i].msg_len );
-      fd_replay_turbine_rx( args->replay, shred, msgs[i].msg_len );
+      fd_shred_t const * shred = fd_shred_parse( bufs[i], (ulong)msgs[i].msg_len );
+      fd_replay_turbine_rx( args->replay, shred, (ulong)msgs[i].msg_len );
     }
   }
   return 0;
@@ -611,7 +611,7 @@ fd_repair_thread( int argc, char ** argv ) {
 
     /* Read more packets */
     CLEAR_MSGS;
-    int repair_rc = recvmmsg( (which_fd ? repair_clnt_fd : repair_serv_fd) , msgs, VLEN, MSG_DONTWAIT, NULL );
+    long repair_rc = recvmmsg( (which_fd ? repair_clnt_fd : repair_serv_fd) , msgs, VLEN, MSG_DONTWAIT, NULL );
     if( repair_rc < 0 ) {
       if( errno == EINTR || errno == EWOULDBLOCK ) continue;
       FD_LOG_ERR( ( "recvmmsg failed: %s", strerror( errno ) ) );
@@ -622,9 +622,9 @@ fd_repair_thread( int argc, char ** argv ) {
       fd_repair_peer_addr_t from;
       repair_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
       if( which_fd )
-        fd_repair_recv_clnt_packet( repair, bufs[i], msgs[i].msg_len, &from );
+        fd_repair_recv_clnt_packet( repair, bufs[i], (ulong)msgs[i].msg_len, &from );
       else
-        fd_repair_recv_serv_packet( repair, bufs[i], msgs[i].msg_len, &from );
+        fd_repair_recv_serv_packet( repair, bufs[i], (ulong)msgs[i].msg_len, &from );
     }
   }
   return 0;
@@ -652,7 +652,7 @@ fd_gossip_thread( int argc, char ** argv ) {
 
     /* Read more packets */
     CLEAR_MSGS;
-    int gossip_rc = recvmmsg( gossip_fd, msgs, VLEN, MSG_DONTWAIT, NULL );
+    long gossip_rc = recvmmsg( gossip_fd, msgs, VLEN, MSG_DONTWAIT, NULL );
     if( gossip_rc < 0 ) {
       if( errno == EINTR || errno == EWOULDBLOCK ) continue;
       FD_LOG_ERR( ( "recvmmsg failed: %s", strerror( errno ) ) );
@@ -662,7 +662,7 @@ fd_gossip_thread( int argc, char ** argv ) {
     for( uint i = 0; i < (uint)gossip_rc; ++i ) {
       fd_gossip_peer_addr_t from;
       gossip_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
-      fd_gossip_recv_packet( gossip, bufs[i], msgs[i].msg_len, &from );
+      fd_gossip_recv_packet( gossip, bufs[i], (ulong)msgs[i].msg_len, &from );
     }
   }
   return 0;
