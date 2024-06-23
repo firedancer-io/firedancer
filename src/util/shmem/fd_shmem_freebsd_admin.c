@@ -21,6 +21,37 @@ fd_shmem_cpu_idx( ulong numa_idx ) {
   return 0UL;
 }
 
+int
+fd_shmem_numa_validate( void const * mem,
+                        ulong        page_sz,
+                        ulong        page_cnt,
+                        ulong        cpu_idx ) {
+
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return EINVAL;
+  }
+
+  if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) {
+    FD_LOG_WARNING(( "bad page_sz (%lu)", page_sz ));
+    return EINVAL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, page_sz ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return EINVAL;
+  }
+
+  if( FD_UNLIKELY( !((1UL<=page_cnt) & (page_cnt<=(((ulong)LONG_MAX)/page_sz))) ) ) {
+    FD_LOG_WARNING(( "bad page_cnt (%lu)", page_cnt ));
+    return EINVAL;
+  }
+
+  /* FIXME FreeBSD 14.1 has no proper NUMA support */
+
+  return 0;
+}
+
 static int
 fd_page_sz_to_psind( ulong page_sz ) {
 # define FD_PSIND_CNT (30)
