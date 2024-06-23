@@ -67,12 +67,15 @@ fd_shmem_create_multi( char const *  name,
   if( FD_UNLIKELY( !_sub_page_cnt ) ) { FD_LOG_WARNING(( "NULL sub_page_cnt" )); return EINVAL; }
   if( FD_UNLIKELY( !_sub_cpu_idx  ) ) { FD_LOG_WARNING(( "NULL sub_cpu_idx"  )); return EINVAL; }
 
+  FD_SHMEM_LOCK;
+
   /* FIXME NUMA affinity not yet supported */
 
   int shm_fd = shm_create_largepage( name, O_RDWR, psind, SHM_LARGEPAGE_ALLOC_NOWAIT, mode );
 
   if( FD_UNLIKELY( shm_fd<0 ) ) {
     FD_LOG_WARNING(( "shm_create_largepage(SHM_ANON,O_RDWR) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    FD_SHMEM_UNLOCK;
     return errno;
   }
 
@@ -89,9 +92,11 @@ fd_shmem_create_multi( char const *  name,
   if( FD_UNLIKELY( grow_res!=0 ) ) {
     FD_LOG_WARNING(( "ftruncate(sz=%#lx) failed (%i-%s)", sz, grow_err, fd_io_strerror( grow_err ) ));
     shm_unlink( name );
+    FD_SHMEM_UNLOCK;
     return grow_err;
   }
 
+  FD_SHMEM_UNLOCK;
   return 0;
 }
 

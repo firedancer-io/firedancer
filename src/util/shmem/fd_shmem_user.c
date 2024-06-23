@@ -3,14 +3,7 @@
 #endif
 
 #include "fd_shmem_private.h"
-
-#if FD_HAS_HOSTED && defined(__linux__)
-
 #include <errno.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/random.h>
 
 /* fd_shmem_private_key converts the cstr pointed to by name into a
    valid key and stores it at the location pointed to by key assumed
@@ -75,13 +68,76 @@ fd_shmem_private_map_query_by_addr( fd_shmem_join_info_t * map,
   return def;
 }
 
+static fd_shmem_join_info_t fd_shmem_private_map[ FD_SHMEM_PRIVATE_MAP_SLOT_CNT ]; /* Empty on thread group start */
+static ulong                fd_shmem_private_map_cnt;                              /* 0 on thread group start */
+
+int
+fd_shmem_join_query_by_name( char const *           name,
+                             fd_shmem_join_info_t * opt_info ) {
+  fd_shmem_private_key_t key;
+  if( FD_UNLIKELY( !fd_shmem_private_key( &key, name ) ) ) return EINVAL;
+
+  FD_SHMEM_LOCK;
+
+  if( !fd_shmem_private_map_cnt ) { FD_SHMEM_UNLOCK; return ENOENT; }
+  fd_shmem_join_info_t * join_info = fd_shmem_private_map_query( fd_shmem_private_map, key, NULL );
+  if( !join_info ) { FD_SHMEM_UNLOCK; return ENOENT; }
+  if( opt_info ) *opt_info = *join_info;
+
+  FD_SHMEM_UNLOCK;
+  return 0;
+}
+
+int
+fd_shmem_join_query_by_join( void const *           join,
+                             fd_shmem_join_info_t * opt_info ) {
+  if( FD_UNLIKELY( !join ) ) return EINVAL;
+
+  FD_SHMEM_LOCK;
+
+  if( !fd_shmem_private_map_cnt ) { FD_SHMEM_UNLOCK; return ENOENT; }
+  fd_shmem_join_info_t * join_info = fd_shmem_private_map_query_by_join( fd_shmem_private_map, join, NULL );
+  if( FD_UNLIKELY( !join_info ) ) { FD_SHMEM_UNLOCK; return ENOENT; }
+  if( opt_info ) *opt_info = *join_info;
+
+  FD_SHMEM_UNLOCK;
+  return 0;
+}
+
+int
+fd_shmem_join_query_by_addr( void const *           addr,
+                             ulong                  sz,
+                             fd_shmem_join_info_t * opt_info ) {
+  if( FD_UNLIKELY( !sz ) ) return ENOENT; /* empty range */
+  ulong a0 = (ulong)addr;
+  ulong a1 = a0+sz-1UL;
+  if( FD_UNLIKELY( a1<a0 ) ) return EINVAL; /* cyclic wrap range */
+
+  FD_SHMEM_LOCK;
+
+  if( !fd_shmem_private_map_cnt ) { FD_SHMEM_UNLOCK; return ENOENT; }
+  fd_shmem_join_info_t * join_info = fd_shmem_private_map_query_by_addr( fd_shmem_private_map, a0, a1, NULL );
+  if( FD_UNLIKELY( !join_info ) ) { FD_SHMEM_UNLOCK; return ENOENT; }
+  if( opt_info ) *opt_info = *join_info;
+
+  FD_SHMEM_UNLOCK;
+  return 0;
+}
+
+#if FD_HAS_HOSTED && defined(__linux__)
+
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/random.h>
+
 /*
- * fd_shmem_private_grab_region will attempt to map a region at the passed 
- * address with the passed size. If the return value of `mmap` equals the 
+ * fd_shmem_private_grab_region will attempt to map a region at the passed
+ * address with the passed size. If the return value of `mmap` equals the
  * passed address this means the area of memory was unmapped previously and
- * we have succesfully "grabbed" the region. We can then call `mmap` with 
- * MAP_FIXED over the region and be certain no corruption occurs. If the 
- * return value of `mmap` does not return the passed address this means that 
+ * we have succesfully "grabbed" the region. We can then call `mmap` with
+ * MAP_FIXED over the region and be certain no corruption occurs. If the
+ * return value of `mmap` does not return the passed address this means that
  * the passed region is already atleast partially mapped and we cannot grab it.
  */
 static int
@@ -108,7 +164,7 @@ fd_shmem_private_grab_region( ulong addr,
 }
 
 static ulong
-fd_shmem_private_get_random_mappable_addr( ulong size, 
+fd_shmem_private_get_random_mappable_addr( ulong size,
                                            ulong page_size ) {
   ulong ret_addr = 0;
 
@@ -118,7 +174,7 @@ fd_shmem_private_get_random_mappable_addr( ulong size,
     if( FD_UNLIKELY( n!=sizeof(ret_addr) ) ) FD_LOG_ERR(( "could not generate random address, getrandom() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     /* The type of region determines the alignment we need for the region */
-    if( page_size == FD_SHMEM_GIGANTIC_PAGE_SZ ) 
+    if( page_size == FD_SHMEM_GIGANTIC_PAGE_SZ )
       ret_addr &= FD_SHMEM_PRIVATE_MMAP_GIGANTIC_MASK;
     else if( page_size == FD_SHMEM_HUGE_PAGE_SZ )
       ret_addr &= FD_SHMEM_PRIVATE_MMAP_HUGE_MASK;
@@ -129,13 +185,10 @@ fd_shmem_private_get_random_mappable_addr( ulong size,
       return ret_addr;
     }
   }
-  
+
   FD_LOG_ERR(( "unable to find random address for memory map after 1000 attempts" ));
   return (ulong)MAP_FAILED;
 }
-
-static fd_shmem_join_info_t fd_shmem_private_map[ FD_SHMEM_PRIVATE_MAP_SLOT_CNT ]; /* Empty on thread group start */
-static ulong                fd_shmem_private_map_cnt;                              /* 0 on thread group start */
 
 void *
 fd_shmem_join( char const *               name,
@@ -211,7 +264,7 @@ fd_shmem_join( char const *               name,
 
   /* Note that MAP_HUGETLB and MAP_HUGE_* are implied by the mount point */
   void * shmem = mmap( (void*)rand_addr, sz, rw ? (PROT_READ|PROT_WRITE) : PROT_READ, MAP_SHARED | MAP_FIXED, fd, (off_t)0 );
-  
+
   int mmap_errno = errno;
   if( FD_UNLIKELY( close( fd ) ) )
     FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
@@ -250,11 +303,9 @@ fd_shmem_join( char const *               name,
     FD_LOG_WARNING(( "fd_numa_mlock(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
                      path, sz>>10, errno, fd_io_strerror( errno ) ));
 
-# if defined(__linux__)
   if( FD_UNLIKELY( madvise( shmem, sz, MADV_DONTDUMP ) ) )
     FD_LOG_WARNING(( "madvise(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
                      path, sz>>10, errno, fd_io_strerror( errno ) ));
-# endif
 
   /* We have mapped the region.  Try to complete the join.  Note:
      map_query above and map_insert could be combined to improve
@@ -353,59 +404,6 @@ fd_shmem_leave( void *                    join,
   fd_shmem_private_map_cnt--;
   FD_SHMEM_UNLOCK;
   return error;
-}
-
-int
-fd_shmem_join_query_by_name( char const *           name,
-                             fd_shmem_join_info_t * opt_info ) {
-  fd_shmem_private_key_t key;
-  if( FD_UNLIKELY( !fd_shmem_private_key( &key, name ) ) ) return EINVAL;
-
-  FD_SHMEM_LOCK;
-
-  if( !fd_shmem_private_map_cnt ) { FD_SHMEM_UNLOCK; return ENOENT; }
-  fd_shmem_join_info_t * join_info = fd_shmem_private_map_query( fd_shmem_private_map, key, NULL );
-  if( !join_info ) { FD_SHMEM_UNLOCK; return ENOENT; }
-  if( opt_info ) *opt_info = *join_info;
-
-  FD_SHMEM_UNLOCK;
-  return 0;
-}
-
-int
-fd_shmem_join_query_by_join( void const *           join,
-                             fd_shmem_join_info_t * opt_info ) {
-  if( FD_UNLIKELY( !join ) ) return EINVAL;
-
-  FD_SHMEM_LOCK;
-
-  if( !fd_shmem_private_map_cnt ) { FD_SHMEM_UNLOCK; return ENOENT; }
-  fd_shmem_join_info_t * join_info = fd_shmem_private_map_query_by_join( fd_shmem_private_map, join, NULL );
-  if( FD_UNLIKELY( !join_info ) ) { FD_SHMEM_UNLOCK; return ENOENT; }
-  if( opt_info ) *opt_info = *join_info;
-
-  FD_SHMEM_UNLOCK;
-  return 0;
-}
-
-int
-fd_shmem_join_query_by_addr( void const *           addr,
-                             ulong                  sz,
-                             fd_shmem_join_info_t * opt_info ) {
-  if( FD_UNLIKELY( !sz ) ) return ENOENT; /* empty range */
-  ulong a0 = (ulong)addr;
-  ulong a1 = a0+sz-1UL;
-  if( FD_UNLIKELY( a1<a0 ) ) return EINVAL; /* cyclic wrap range */
-
-  FD_SHMEM_LOCK;
-
-  if( !fd_shmem_private_map_cnt ) { FD_SHMEM_UNLOCK; return ENOENT; }
-  fd_shmem_join_info_t * join_info = fd_shmem_private_map_query_by_addr( fd_shmem_private_map, a0, a1, NULL );
-  if( FD_UNLIKELY( !join_info ) ) { FD_SHMEM_UNLOCK; return ENOENT; }
-  if( opt_info ) *opt_info = *join_info;
-
-  FD_SHMEM_UNLOCK;
-  return 0;
 }
 
 int
