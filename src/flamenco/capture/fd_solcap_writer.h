@@ -5,8 +5,6 @@
 #include "fd_solcap.pb.h"
 #include "../types/fd_types.h"
 
-#if FD_HAS_HOSTED
-
 /* fd_solcap_writer_t is an opaque handle to a capture writer object.
    Currently, it implements writing SOLCAP_V1_BANK files.  See below
    on how to create and use this class. */
@@ -134,9 +132,5 @@ fd_solcap_write_bank_preimage2( fd_solcap_writer_t *     writer,
 int
 fd_solcap_write_transaction2( fd_solcap_writer_t *    writer,
                               fd_solcap_Transaction * txn );
-
-FD_PROTOTYPES_END
-
-#endif /* FD_HAS_HOSTED */
 
 #endif /* HEADER_fd_src_flamenco_capture_fd_solcap_writer_h */

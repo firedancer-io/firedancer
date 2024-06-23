@@ -1,3 +1,6 @@
+$(call add-hdrs,fd_snapshot_base.h)
+$(call add-objs,fd_snapshot_base,fd_flamenco)
+
 ifdef FD_HAS_INT128
 ifdef FD_HAS_HOSTED
 $(call add-hdrs,fd_snapshot_http.h)
