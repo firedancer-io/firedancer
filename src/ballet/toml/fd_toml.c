@@ -1225,18 +1225,18 @@ fd_toml_parse_frac( fd_toml_parser_t * parser,
 
 static int
 fd_toml_parse_float_normal( fd_toml_parser_t * parser,
-                            double *           pres ) {
+                            float *            pres ) {
 
   fd_toml_dec_t stem = {0};
   if( FD_UNLIKELY( !fd_toml_parse_dec_int_( parser, &stem ) ) ) return 0;
   if( FD_UNLIKELY( !fd_toml_avail( parser )                 ) ) return 0;
-  double res = (double)stem.res;
+  float res = (float)stem.res;
 
   int ok = 0;
   fd_toml_dec_t frac_dec = {0};
   if( SUB_PARSE( fd_toml_parse_frac( parser, &frac_dec ) ) ) {
-    double frac = (double)frac_dec.res;
-    while( frac_dec.len-- ) frac /= 10.0;  /* use pow? */
+    float frac = (float)frac_dec.res;
+    while( frac_dec.len-- ) frac /= 10.0f;  /* use pow? */
     res += frac;
     ok   = 1;
   }
@@ -1250,7 +1250,7 @@ fd_toml_parse_float_normal( fd_toml_parser_t * parser,
     return 0;
   }
 
-  double exp = pow( exp_dec.neg ? 0.1 : 10.0, (double)exp_dec.res );
+  float exp = powf( exp_dec.neg ? 0.1f : 10.0f, (float)exp_dec.res );
   res *= exp;
 
   *pres = res;
@@ -1263,10 +1263,10 @@ fd_toml_parse_float_normal( fd_toml_parser_t * parser,
 
 static int
 fd_float_parse_float_special( fd_toml_parser_t * parser,
-                              double *           pres ) {
+                              float *            pres ) {
   if( FD_UNLIKELY( fd_toml_avail( parser ) < 3 ) ) return 0;
-  int c       = (uchar)parser->c.data[0];
-  double base = 1.0;
+  int c      = (uchar)parser->c.data[0];
+  float base = 1.0;
 
   switch( c ) {
   case '-':
@@ -1283,13 +1283,13 @@ fd_float_parse_float_special( fd_toml_parser_t * parser,
 
   if( 0==memcmp( str, "inf", 3 ) ) {
     FD_LOG_WARNING(( "float infinity is unsupported" ));
-    *pres = base * DBL_MAX;
+    *pres = base * FLT_MAX;
     return 1;
   }
 
   if( 0==memcmp( str, "nan", 3 ) ) {
     FD_LOG_WARNING(( "float nan is unsupported" ));
-    *pres = base * 0.0;
+    *pres = base * 0.0f;
     return 1;
   }
 
@@ -1302,7 +1302,7 @@ fd_float_parse_float_special( fd_toml_parser_t * parser,
 static int
 fd_toml_parse_float( fd_toml_parser_t * parser ) {
 
-  double res;
+  float res;
   if( SUB_PARSE( fd_toml_parse_float_normal( parser, &res ) ) ) {
     goto parsed;
   }
@@ -1312,7 +1312,7 @@ fd_toml_parse_float( fd_toml_parser_t * parser ) {
   return 0;
 
 parsed:
-  if( FD_UNLIKELY( !fd_pod_insert_double( parser->pod, parser->key, res ) ) ) {
+  if( FD_UNLIKELY( !fd_pod_insert_float( parser->pod, parser->key, res ) ) ) {
     parser->error = FD_TOML_ERR_POD;
     return 0;
   }
