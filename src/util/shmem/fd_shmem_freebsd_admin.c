@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include "fd_shmem_freebsd_private.h"
 
 ulong fd_shmem_numa_cnt( void ) { return fd_numa_node_cnt(); }
 ulong fd_shmem_cpu_cnt ( void ) { return fd_numa_cpu_cnt();  }
@@ -105,7 +106,7 @@ fd_shmem_create_multi( char const *  name,
 
   /* FIXME NUMA affinity not yet supported */
 
-  int shm_fd = shm_create_largepage( name, O_RDWR, psind, SHM_LARGEPAGE_ALLOC_NOWAIT, mode );
+  int shm_fd = fd_shm_create_largepage( name, O_RDWR, psind, SHM_LARGEPAGE_ALLOC_NOWAIT, mode );
 
   if( FD_UNLIKELY( shm_fd<0 ) ) {
     FD_LOG_WARNING(( "shm_create_largepage(SHM_ANON,O_RDWR) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -157,7 +158,7 @@ fd_shmem_info( char const *      name,
 
   if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) { FD_LOG_WARNING(( "bad page_sz (%lu)", page_sz )); return EINVAL; }
 
-  int fd = shm_open( name, O_RDONLY, 0 );
+  int fd = fd_shm_open( name, O_RDONLY, 0 );
   if( FD_UNLIKELY( fd<0 ) ) {
     FD_LOG_WARNING(( "shm_open(%s,O_RDONLY) failed (%i-%s)",
                      name, errno, fd_io_strerror( errno ) ));
@@ -213,7 +214,7 @@ fd_shmem_acquire_multi( ulong         page_sz,
 
   /* FIXME NUMA affinity not yet supported */
 
-  int shm_fd = shm_create_largepage( SHM_ANON, O_RDWR, psind, SHM_LARGEPAGE_ALLOC_NOWAIT, 0 );
+  int shm_fd = fd_shm_create_largepage( SHM_ANON, O_RDWR, psind, SHM_LARGEPAGE_ALLOC_NOWAIT, 0 );
   if( FD_UNLIKELY( shm_fd<0 ) ) {
     FD_LOG_WARNING(( "shm_create_largepage(SHM_ANON,O_RDWR) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     return NULL;

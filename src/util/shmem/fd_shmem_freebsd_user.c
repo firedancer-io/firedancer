@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include "fd_shmem_freebsd_private.h"
 
 void *
 fd_shmem_join( char const *               name,
@@ -72,7 +73,7 @@ fd_shmem_join( char const *               name,
 
   /* Map the region into our address space. */
 
-  int shm_fd = shm_open( name, open_mode, 0 );
+  int shm_fd = fd_shm_open( name, open_mode, 0 );
   if( FD_UNLIKELY( shm_fd<0 ) ) {
     FD_LOG_WARNING(( "shm_open(%s,%s) failed (%i-%s)",
                      name, rw ? "O_RDWR" : "O_RDONLY", errno, fd_io_strerror( errno ) ));
