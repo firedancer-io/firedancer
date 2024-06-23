@@ -5,8 +5,9 @@ static inline char *
 fd_shm_path( char         buf[ static FD_SHMEM_PATH_MAX ],
              char const * name ) {
   if( name==SHM_ANON ) return SHM_ANON;
-  return fd_cstr_fini( fd_cstr_append_cstr( fd_cstr_append_cstr( fd_cstr_init(
+  fd_cstr_fini( fd_cstr_append_cstr( fd_cstr_append_cstr( fd_cstr_init(
       buf ), fd_shm_path_prefix ), name ) );
+  return buf;
 }
 
 static inline int
