@@ -115,6 +115,8 @@ fd_tower_fork_update( fd_tower_t * tower, fd_fork_t * fork ) {
   fd_vote_accounts_pair_t_mapnode_t * root       = epoch_bank->stakes.vote_accounts.vote_accounts_root;
   fd_vote_accounts_pair_t_mapnode_t * pool       = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
 
+  long now = fd_log_wallclock();
+  ulong cnt = 0;
   for( fd_vote_accounts_pair_t_mapnode_t * curr = fd_vote_accounts_pair_t_map_minimum( pool, root );
        curr;
        curr = fd_vote_accounts_pair_t_map_successor( pool, curr ) ) {
@@ -173,7 +175,10 @@ fd_tower_fork_update( fd_tower_t * tower, fd_fork_t * fork ) {
     /* Upsert the vote into ghost. */
 
     fd_ghost_replay_vote_upsert( ghost, vote_slot, &vote_state->node_pubkey, curr->elem.stake );
+    cnt++;
   }
+
+  FD_LOG_NOTICE(( "took %lu to iterate %lu vote accounts", fd_log_wallclock() - now, cnt ));
 }
 
 static int
