@@ -335,9 +335,9 @@ fd_quic_udpsock_create( void *           _sock,
   ulong        mtu          = fd_env_strip_cmdline_ulong ( pargc, pargv, "--mtu",          NULL,    2048UL );
   ulong        rx_depth     = fd_env_strip_cmdline_ulong ( pargc, pargv, "--rx-depth",     NULL,    1024UL );
   ulong        tx_depth     = fd_env_strip_cmdline_ulong ( pargc, pargv, "--tx-depth",     NULL,    1024UL );
-  ulong        xsk_pkt_cnt  = fd_env_strip_cmdline_ulong ( pargc, pargv, "--xsk-pkt-cnt",  NULL,      32UL );
   char const * _listen_ip   = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--listen-ip",    NULL, "0.0.0.0" );
   ushort       listen_port  = fd_env_strip_cmdline_ushort( pargc, pargv, "--listen-port",  NULL,       0U  );
+  ulong        xsk_pkt_cnt  = fd_env_strip_cmdline_ulong ( pargc, pargv, "--xsk-pkt-cnt",  NULL,      32UL );
 
   uint listen_ip = 0;
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( _listen_ip, &listen_ip ) ) ) FD_LOG_ERR(( "invalid --listen-ip" ));
@@ -348,6 +348,7 @@ fd_quic_udpsock_create( void *           _sock,
   int is_xsk = (!!xdp_app_name);
   FD_LOG_NOTICE(( "is_xsk %d", is_xsk ));
   if( is_xsk ) {
+#   if defined(__linux__)
     FD_TEST( _src_mac );
     if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _src_mac, quic_sock->self_mac ) ) ) FD_LOG_ERR(( "invalid --src-mac" ));
 
@@ -420,6 +421,9 @@ fd_quic_udpsock_create( void *           _sock,
 
     FD_LOG_NOTICE(( "AF_XDP listening on " FD_IP4_ADDR_FMT ":%u",
                     FD_IP4_ADDR_FMT_ARGS( quic_sock->listen_ip ), quic_sock->listen_port ));
+#   else
+    FD_LOG_ERR(( "AF_XDP not supported on this platform" ));
+#   endif
   } else {
     int sock_fd = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
     if( FD_UNLIKELY( sock_fd<0 ) ) {
@@ -477,10 +481,12 @@ fd_quic_udpsock_destroy( fd_quic_udpsock_t * udpsock ) {
     return NULL;
 
   switch( udpsock->type ) {
+# if defined(__linux__)
   case FD_QUIC_UDPSOCK_TYPE_XSK:
     fd_wksp_free_laddr( fd_xsk_aio_delete( fd_xsk_aio_leave( udpsock->xsk.xsk_aio ) ) );
     fd_wksp_free_laddr( fd_xsk_delete    ( fd_xsk_leave    ( udpsock->xsk.xsk     ) ) );
     break;
+# endif
   case FD_QUIC_UDPSOCK_TYPE_UDPSOCK:
     fd_wksp_free_laddr( fd_udpsock_delete( fd_udpsock_leave( udpsock->udpsock.sock ) ) );
     close( udpsock->udpsock.sock_fd );
@@ -493,9 +499,11 @@ fd_quic_udpsock_destroy( fd_quic_udpsock_t * udpsock ) {
 void
 fd_quic_udpsock_service( fd_quic_udpsock_t const * udpsock ) {
   switch( udpsock->type ) {
+# if defined(__linux__)
   case FD_QUIC_UDPSOCK_TYPE_XSK:
     fd_xsk_aio_service( udpsock->xsk.xsk_aio );
     break;
+# endif
   case FD_QUIC_UDPSOCK_TYPE_UDPSOCK:
     fd_udpsock_service( udpsock->udpsock.sock );
     break;
