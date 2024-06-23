@@ -8,7 +8,6 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/random.h>
 #include <sys/uio.h>
 
 /* fd_tls callbacks provided by fd_quic *******************************/
@@ -178,7 +177,7 @@ fd_quic_tls_init( fd_tls_t *    tls,
   };
 
   /* Generate X25519 key */
-  if( FD_UNLIKELY( 32L!=getrandom( tls->kex_private_key, 32UL, 0 ) ) )
+  if( FD_UNLIKELY( !fd_rng_secure( tls->kex_private_key, 32UL ) ) )
     FD_LOG_ERR(( "getrandom failed: %s", fd_io_strerror( errno ) ));
   fd_x25519_public( tls->kex_public_key, tls->kex_private_key );
 
@@ -595,7 +594,7 @@ fd_quic_tls_rand( void * ctx,
                   void * buf,
                   ulong  bufsz ) {
   (void)ctx;
-  FD_TEST( (long)bufsz==getrandom( buf, bufsz, 0U ) );
+  FD_TEST( fd_rng_secure( buf, bufsz ) );
   return buf;
 }
 
