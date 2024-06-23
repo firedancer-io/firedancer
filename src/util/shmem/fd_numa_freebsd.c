@@ -1,6 +1,6 @@
 /* fd_numa_freebsd.c targets FreeBSD 14.1.
    As of 2024-Jun, FreeBSD NUMA support is incomplete.
-   See https://wiki.freebsd.org/NUMA and https://man.freebsd.org/cgi/man.cgi?numa(4) */ 
+   See https://wiki.freebsd.org/NUMA and https://man.freebsd.org/cgi/man.cgi?numa(4) */
 
 #include <sys/cdefs.h>
 #include <sys/types.h>
@@ -37,12 +37,12 @@ fd_numa_node_idx( ulong cpu_idx ) {
   cpuset_t set;
   for( ulong domain=0UL; domain<domain_cnt; domain++ ) {
     CPU_ZERO( &set );
-    if( FD_UNLIKELY( 0!=cpuset_getaffinity( CPU_LEVEL_WHICH, CPU_WHICH_DOMAIN, domain, sizeof(cpuset_t), &set ) ) ) {
+    if( FD_UNLIKELY( 0!=cpuset_getaffinity( CPU_LEVEL_WHICH, CPU_WHICH_DOMAIN, (id_t)domain, sizeof(cpuset_t), &set ) ) ) {
       FD_LOG_ERR(( "cpuset_getaffinity(CPU_LEVEL_WHICH,CPU_WHICH_DOMAIN,%lu) failed (%i-%s)", domain, errno, fd_io_strerror( errno ) ));
     }
     if( CPU_ISSET( cpu_idx, &set ) ) {
       return domain;
-    } 
+    }
   }
   FD_LOG_INFO(( "cpu %lu does not belong to any NUMA domain, defaulting to 0", cpu_idx ));
   return 0UL;
@@ -56,48 +56,48 @@ fd_numa_mlock( void const * addr,
 }
 
 int
-fd_numa_munlock( void const * addr,
-                 ulong        len ) {
+fd_numa_munlock( void const * addr FD_PARAM_UNUSED,
+                 ulong        len  FD_PARAM_UNUSED ) {
   errno = ENOTSUP;
   return -1;
 }
 
 long
-fd_numa_get_mempolicy( int *   mode,
-                       ulong * nodemask,
-                       ulong   maxnode,
-                       void *  addr,
-                       uint    flags ) {
+fd_numa_get_mempolicy( int *   mode     FD_PARAM_UNUSED,
+                       ulong * nodemask FD_PARAM_UNUSED,
+                       ulong   maxnode  FD_PARAM_UNUSED,
+                       void *  addr     FD_PARAM_UNUSED,
+                       uint    flags    FD_PARAM_UNUSED ) {
   errno = ENOTSUP;
   return -1L;
 }
 
 long
-fd_numa_set_mempolicy( int           mode,
-                       ulong const * nodemask,
-                       ulong         maxnode ) {
+fd_numa_set_mempolicy( int           mode     FD_PARAM_UNUSED,
+                       ulong const * nodemask FD_PARAM_UNUSED,
+                       ulong         maxnode  FD_PARAM_UNUSED ) {
   errno = ENOTSUP;
   return -1L;
 }
 
 long
-fd_numa_mbind( void *        addr,
-               ulong         len,
-               int           mode,
-               ulong const * nodemask,
-               ulong         maxnode,
-               uint          flags ) {
+fd_numa_mbind( void *        add      FD_PARAM_UNUSED,
+               ulong         len      FD_PARAM_UNUSED,
+               int           mode     FD_PARAM_UNUSED,
+               ulong const * nodemask FD_PARAM_UNUSED,
+               ulong         maxnode  FD_PARAM_UNUSED,
+               uint          flags    FD_PARAM_UNUSED ) {
   errno = ENOTSUP;
   return -1L;
 }
 
 long
-fd_numa_move_pages( int         pid,
-                    ulong       count,
-                    void **     pages,
-                    int const * nodes,
-                    int *       status,
-                    int         flags ) {
+fd_numa_move_pages( int         pid     FD_PARAM_UNUSED,
+                    ulong       count   FD_PARAM_UNUSED,
+                    void **     pages   FD_PARAM_UNUSED,
+                    int const * nodes   FD_PARAM_UNUSED,
+                    int *       status  FD_PARAM_UNUSED,
+                    int         flags   FD_PARAM_UNUSED ) {
   errno = ENOTSUP;
   return -1L;
 }
