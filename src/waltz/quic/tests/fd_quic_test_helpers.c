@@ -422,6 +422,7 @@ fd_quic_udpsock_create( void *           _sock,
     FD_LOG_NOTICE(( "AF_XDP listening on " FD_IP4_ADDR_FMT ":%u",
                     FD_IP4_ADDR_FMT_ARGS( quic_sock->listen_ip ), quic_sock->listen_port ));
 #   else
+    (void)iface; (void)ifqueue; (void)_src_mac; (void)xsk_pkt_cnt;
     FD_LOG_ERR(( "AF_XDP not supported on this platform" ));
 #   endif
   } else {
