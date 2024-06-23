@@ -4,7 +4,7 @@
 
 #include "fd_shmem_private.h"
 
-#if FD_HAS_HOSTED
+#if FD_HAS_HOSTED && defined(__linux__)
 
 #include <errno.h>
 #include <unistd.h>
@@ -250,9 +250,11 @@ fd_shmem_join( char const *               name,
     FD_LOG_WARNING(( "fd_numa_mlock(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
                      path, sz>>10, errno, fd_io_strerror( errno ) ));
 
+# if defined(__linux__)
   if( FD_UNLIKELY( madvise( shmem, sz, MADV_DONTDUMP ) ) )
     FD_LOG_WARNING(( "madvise(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
                      path, sz>>10, errno, fd_io_strerror( errno ) ));
+# endif
 
   /* We have mapped the region.  Try to complete the join.  Note:
      map_query above and map_insert could be combined to improve
@@ -566,5 +568,9 @@ fd_shmem_leave_anonymous( void *                 join,
   FD_SHMEM_UNLOCK;
   return 0;
 }
+
+#elif FD_HAS_HOSTED && defined(__FreeBSD__)
+
+#include "fd_shmem_freebsd_user.c"
 
 #endif

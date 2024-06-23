@@ -4,7 +4,7 @@
 
 #include "fd_shmem_private.h"
 
-#if FD_HAS_HOSTED
+#if FD_HAS_HOSTED && defined(__linux__)
 
 #include <ctype.h>
 #include <errno.h>
@@ -758,6 +758,10 @@ fd_shmem_private_halt( void ) {
 
   FD_LOG_INFO(( "fd_shmem: halt success" ));
 }
+
+#elif FD_HAS_HOSTED && defined(__FreeBSD__)
+
+#include "fd_shmem_freebsd_admin.c"
 
 #else /* unhosted */
 
