@@ -3,6 +3,7 @@
 #endif
 
 #include "fd_shmem_private.h"
+#include <ctype.h>
 
 /* SHMEM PARSING APIS *************************************************/
 
@@ -79,7 +80,6 @@ fd_shmem_page_sz_to_cstr( ulong page_sz ) {
 
 #if FD_HAS_HOSTED && defined(__linux__)
 
-#include <ctype.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>

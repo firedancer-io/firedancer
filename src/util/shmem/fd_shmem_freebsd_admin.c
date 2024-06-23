@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -121,7 +122,7 @@ fd_shmem_info( char const *      name,
   if( FD_UNLIKELY( fd<0 ) ) {
     FD_LOG_WARNING(( "shm_open(%s,O_RDONLY) failed (%i-%s)",
                      name, errno, fd_io_strerror( errno ) ));
-    return NULL;
+    return errno;
   }
 
   struct stat stat[1];
