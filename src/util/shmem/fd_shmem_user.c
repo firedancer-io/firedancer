@@ -124,6 +124,167 @@ fd_shmem_join_query_by_addr( void const *           addr,
   return 0;
 }
 
+int
+fd_shmem_join_anonymous( char const * name,
+                         int          mode,
+                         void *       join,
+                         void *       mem,
+                         ulong        page_sz,
+                         ulong        page_cnt ) {
+
+  /* Check input args */
+
+  fd_shmem_private_key_t key;
+  if( FD_UNLIKELY( !fd_shmem_private_key( &key, name ) ) ) {
+    FD_LOG_WARNING(( "bad name (%s)", name ? name : "NULL" ));
+    return EINVAL;
+  }
+
+  if( FD_UNLIKELY( !( (mode==FD_SHMEM_JOIN_MODE_READ_ONLY) | (mode==FD_SHMEM_JOIN_MODE_READ_WRITE) ) ) ) {
+    FD_LOG_WARNING(( "unsupported join mode (%i) for %s", mode, name ));
+    return EINVAL;
+  }
+
+  if( FD_UNLIKELY( !join ) ) {
+    FD_LOG_WARNING(( "NULL join" ));
+    return EINVAL;
+  }
+
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return EINVAL;
+  }
+
+  if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) {
+    FD_LOG_WARNING(( "unsupported page_sz (%lu)", page_sz ));
+    return EINVAL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, page_sz ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return EINVAL;
+  }
+
+  if( FD_UNLIKELY( !page_cnt ) ) {
+    FD_LOG_WARNING(( "unsupported page_sz (%lu)", page_sz ));
+    return EINVAL;
+  }
+
+  if( FD_UNLIKELY( page_cnt > (ULONG_MAX/page_sz) ) ) {
+    FD_LOG_WARNING(( "too large page cnt (%lu)", page_cnt ));
+    return EINVAL;
+  }
+
+  ulong sz = page_cnt*page_sz;
+  ulong a0 = (ulong)mem;
+  ulong a1 = a0 + sz-1UL;
+  if( FD_UNLIKELY( a1<a0 ) ) {
+    FD_LOG_WARNING(( "bad mem range" ));
+    return EINVAL;
+  }
+
+  FD_SHMEM_LOCK;
+
+  /* Query for an existing mapping */
+
+  fd_shmem_join_info_t * join_info;
+
+  join_info = fd_shmem_private_map_query( fd_shmem_private_map, key, NULL );
+  if( FD_UNLIKELY( join_info ) ) {
+    FD_SHMEM_UNLOCK;
+    FD_LOG_WARNING(( "%s already joined", name ));
+    return EINVAL;
+  }
+
+  join_info = fd_shmem_private_map_query_by_join( fd_shmem_private_map, join, NULL );
+  if( FD_UNLIKELY( join_info ) ) {
+    FD_SHMEM_UNLOCK;
+    FD_LOG_WARNING(( "%s join handle already in use", name ));
+    return EINVAL;
+  }
+
+  join_info = fd_shmem_private_map_query_by_addr( fd_shmem_private_map, a0, a1, NULL );
+  if( FD_UNLIKELY( join_info ) ) {
+    FD_SHMEM_UNLOCK;
+    FD_LOG_WARNING(( "%s join memory already mapped", name ));
+    return EINVAL;
+  }
+
+  /* Not currently mapped.  See if we have enough room.  */
+
+  if( FD_UNLIKELY( fd_shmem_private_map_cnt>=FD_SHMEM_JOIN_MAX ) ) {
+    FD_SHMEM_UNLOCK;
+    FD_LOG_WARNING(( "too many concurrent joins for %s", name ));
+    return EINVAL;
+  }
+
+  /* We have enough room for it.  Try to "map" the memory. */
+
+  fd_shmem_info_t shmem_info[1];
+  if( FD_UNLIKELY( !fd_shmem_info( name, 0UL, shmem_info ) ) )
+    FD_LOG_WARNING(( "anonymous join to %s will shadow an existing shared memory region in this thread group; "
+                     "attempting to continue", name ));
+
+  join_info = fd_shmem_private_map_insert( fd_shmem_private_map, key );
+  if( FD_UNLIKELY( !join_info ) ) /* should be impossible */
+    FD_LOG_ERR(( "unable to insert region \"%s\" (internal error)", name ));
+  fd_shmem_private_map_cnt++;
+
+  join_info->ref_cnt  = 1L;
+  join_info->join     = join;
+  join_info->shmem    = mem;
+  join_info->page_sz  = page_sz;
+  join_info->page_cnt = page_cnt;
+  join_info->mode     = mode;
+  /* join_info->hash handled by insert */
+  /* join_info->name "                 */
+  /* join_info->key  "                 */
+
+  FD_SHMEM_UNLOCK;
+  return 0;
+}
+
+int
+fd_shmem_leave_anonymous( void *                 join,
+                          fd_shmem_join_info_t * opt_info ) {
+
+  if( FD_UNLIKELY( !join ) ) {
+    FD_LOG_WARNING(( "NULL join" ));
+    return EINVAL;
+  }
+
+  FD_SHMEM_LOCK;
+
+  if( FD_UNLIKELY( !fd_shmem_private_map_cnt ) ) {
+    FD_SHMEM_UNLOCK;
+    FD_LOG_WARNING(( "join is not a current join" ));
+    return EINVAL;
+  }
+
+  fd_shmem_join_info_t * join_info = fd_shmem_private_map_query_by_join( fd_shmem_private_map, join, NULL );
+  if( FD_UNLIKELY( !join_info ) ) {
+    FD_SHMEM_UNLOCK;
+    FD_LOG_WARNING(( "join is not a current join" ));
+    return EINVAL;
+  }
+
+  if( FD_UNLIKELY( join_info->ref_cnt!=1L ) ) {
+    FD_SHMEM_UNLOCK;
+    FD_LOG_WARNING(( "join ref_cnt is not 1" ));
+    return EINVAL;
+  }
+
+  if( opt_info ) {
+    *opt_info = *join_info;
+    opt_info->ref_cnt = 0L;
+  }
+
+  fd_shmem_private_map_remove( fd_shmem_private_map, join_info );
+  fd_shmem_private_map_cnt--;
+  FD_SHMEM_UNLOCK;
+  return 0;
+}
+
 #if FD_HAS_HOSTED && defined(__linux__)
 
 #include <unistd.h>
@@ -404,167 +565,6 @@ fd_shmem_leave( void *                    join,
   fd_shmem_private_map_cnt--;
   FD_SHMEM_UNLOCK;
   return error;
-}
-
-int
-fd_shmem_join_anonymous( char const * name,
-                         int          mode,
-                         void *       join,
-                         void *       mem,
-                         ulong        page_sz,
-                         ulong        page_cnt ) {
-
-  /* Check input args */
-
-  fd_shmem_private_key_t key;
-  if( FD_UNLIKELY( !fd_shmem_private_key( &key, name ) ) ) {
-    FD_LOG_WARNING(( "bad name (%s)", name ? name : "NULL" ));
-    return EINVAL;
-  }
-
-  if( FD_UNLIKELY( !( (mode==FD_SHMEM_JOIN_MODE_READ_ONLY) | (mode==FD_SHMEM_JOIN_MODE_READ_WRITE) ) ) ) {
-    FD_LOG_WARNING(( "unsupported join mode (%i) for %s", mode, name ));
-    return EINVAL;
-  }
-
-  if( FD_UNLIKELY( !join ) ) {
-    FD_LOG_WARNING(( "NULL join" ));
-    return EINVAL;
-  }
-
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
-    return EINVAL;
-  }
-
-  if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) {
-    FD_LOG_WARNING(( "unsupported page_sz (%lu)", page_sz ));
-    return EINVAL;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, page_sz ) ) ) {
-    FD_LOG_WARNING(( "misaligned mem" ));
-    return EINVAL;
-  }
-
-  if( FD_UNLIKELY( !page_cnt ) ) {
-    FD_LOG_WARNING(( "unsupported page_sz (%lu)", page_sz ));
-    return EINVAL;
-  }
-
-  if( FD_UNLIKELY( page_cnt > (ULONG_MAX/page_sz) ) ) {
-    FD_LOG_WARNING(( "too large page cnt (%lu)", page_cnt ));
-    return EINVAL;
-  }
-
-  ulong sz = page_cnt*page_sz;
-  ulong a0 = (ulong)mem;
-  ulong a1 = a0 + sz-1UL;
-  if( FD_UNLIKELY( a1<a0 ) ) {
-    FD_LOG_WARNING(( "bad mem range" ));
-    return EINVAL;
-  }
-
-  FD_SHMEM_LOCK;
-
-  /* Query for an existing mapping */
-
-  fd_shmem_join_info_t * join_info;
-
-  join_info = fd_shmem_private_map_query( fd_shmem_private_map, key, NULL );
-  if( FD_UNLIKELY( join_info ) ) {
-    FD_SHMEM_UNLOCK;
-    FD_LOG_WARNING(( "%s already joined", name ));
-    return EINVAL;
-  }
-
-  join_info = fd_shmem_private_map_query_by_join( fd_shmem_private_map, join, NULL );
-  if( FD_UNLIKELY( join_info ) ) {
-    FD_SHMEM_UNLOCK;
-    FD_LOG_WARNING(( "%s join handle already in use", name ));
-    return EINVAL;
-  }
-
-  join_info = fd_shmem_private_map_query_by_addr( fd_shmem_private_map, a0, a1, NULL );
-  if( FD_UNLIKELY( join_info ) ) {
-    FD_SHMEM_UNLOCK;
-    FD_LOG_WARNING(( "%s join memory already mapped", name ));
-    return EINVAL;
-  }
-
-  /* Not currently mapped.  See if we have enough room.  */
-
-  if( FD_UNLIKELY( fd_shmem_private_map_cnt>=FD_SHMEM_JOIN_MAX ) ) {
-    FD_SHMEM_UNLOCK;
-    FD_LOG_WARNING(( "too many concurrent joins for %s", name ));
-    return EINVAL;
-  }
-
-  /* We have enough room for it.  Try to "map" the memory. */
-
-  fd_shmem_info_t shmem_info[1];
-  if( FD_UNLIKELY( !fd_shmem_info( name, 0UL, shmem_info ) ) )
-    FD_LOG_WARNING(( "anonymous join to %s will shadow an existing shared memory region in this thread group; "
-                     "attempting to continue", name ));
-
-  join_info = fd_shmem_private_map_insert( fd_shmem_private_map, key );
-  if( FD_UNLIKELY( !join_info ) ) /* should be impossible */
-    FD_LOG_ERR(( "unable to insert region \"%s\" (internal error)", name ));
-  fd_shmem_private_map_cnt++;
-
-  join_info->ref_cnt  = 1L;
-  join_info->join     = join;
-  join_info->shmem    = mem;
-  join_info->page_sz  = page_sz;
-  join_info->page_cnt = page_cnt;
-  join_info->mode     = mode;
-  /* join_info->hash handled by insert */
-  /* join_info->name "                 */
-  /* join_info->key  "                 */
-
-  FD_SHMEM_UNLOCK;
-  return 0;
-}
-
-int
-fd_shmem_leave_anonymous( void *                 join,
-                          fd_shmem_join_info_t * opt_info ) {
-
-  if( FD_UNLIKELY( !join ) ) {
-    FD_LOG_WARNING(( "NULL join" ));
-    return EINVAL;
-  }
-
-  FD_SHMEM_LOCK;
-
-  if( FD_UNLIKELY( !fd_shmem_private_map_cnt ) ) {
-    FD_SHMEM_UNLOCK;
-    FD_LOG_WARNING(( "join is not a current join" ));
-    return EINVAL;
-  }
-
-  fd_shmem_join_info_t * join_info = fd_shmem_private_map_query_by_join( fd_shmem_private_map, join, NULL );
-  if( FD_UNLIKELY( !join_info ) ) {
-    FD_SHMEM_UNLOCK;
-    FD_LOG_WARNING(( "join is not a current join" ));
-    return EINVAL;
-  }
-
-  if( FD_UNLIKELY( join_info->ref_cnt!=1L ) ) {
-    FD_SHMEM_UNLOCK;
-    FD_LOG_WARNING(( "join ref_cnt is not 1" ));
-    return EINVAL;
-  }
-
-  if( opt_info ) {
-    *opt_info = *join_info;
-    opt_info->ref_cnt = 0L;
-  }
-
-  fd_shmem_private_map_remove( fd_shmem_private_map, join_info );
-  fd_shmem_private_map_cnt--;
-  FD_SHMEM_UNLOCK;
-  return 0;
 }
 
 #elif FD_HAS_HOSTED && defined(__FreeBSD__)
