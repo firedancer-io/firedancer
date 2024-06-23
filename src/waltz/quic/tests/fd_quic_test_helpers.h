@@ -106,9 +106,11 @@ struct fd_quic_udpsock {
   union {
 #   if defined(__linux__)
     struct {
-      fd_xsk_t *     xsk;
-      fd_xsk_aio_t * xsk_aio;
-    } xsk;
+      fd_xdp_session_t      session;
+      fd_xdp_link_session_t link_session;
+      fd_xsk_t *            xsk;
+      fd_xsk_aio_t *        xsk_aio;
+    } xdp;
 #   endif
     struct {
       fd_udpsock_t * sock;

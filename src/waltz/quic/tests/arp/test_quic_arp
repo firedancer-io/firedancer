@@ -159,12 +159,12 @@ function run_test() {
   ip netns exec "$SERVER_NETNS" $SCRDIR/test_quic_arp_run "$BIN" "$SERVER_IFACE" \
     $UNIT_TEST/test_quic_arp_server --iface "$SERVER_IFACE" \
     --ifqueue 0 --src-mac "$SERVER_IFACE_MAC" --listen-ip "$SERVER_IFACE_ADDR" \
-    --listen-port 4242 --bpf-dir "$SERVER_IFACE" &
+    --listen-port 4242 &
 
   # run client in namespace "$CLIENT_NETNS"
   ip netns exec "$CLIENT_NETNS" $SCRDIR/test_quic_arp_run "$BIN" "$CLIENT_IFACE" \
     $UNIT_TEST/test_quic_arp_client --iface "$CLIENT_IFACE" \
-    --listen-ip "$CLIENT_IFACE_ADDR" --listen-port 4242 --bpf-dir "$CLIENT_IFACE" \
+    --listen-ip "$CLIENT_IFACE_ADDR" --listen-port 4242 \
     --ifqueue 0 --src-mac "$CLIENT_IFACE_MAC" --server-ip "$SERVER_IFACE_ADDR" \
     --server-port 4242 || exit $?
 

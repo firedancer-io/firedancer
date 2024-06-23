@@ -280,7 +280,7 @@ int main( int     argc,
 
   fd_aio_t const * aio_tx = fd_xsk_aio_get_tx( xsk_aio );
 
-  FD_LOG_NOTICE(( "Listening on interface %s queue %d", fd_xsk_ifname( xsk ), fd_xsk_ifqueue( xsk ) ));
+  FD_LOG_NOTICE(( "Listening on interface %u queue %d", fd_xsk_ifidx( xsk ), fd_xsk_ifqueue( xsk ) ));
 
   float tick_per_ns = (float)fd_tempo_tick_per_ns( NULL );
   ulong async_min   = fd_tempo_async_min( lazy, 1UL /*event_cnt*/, tick_per_ns );

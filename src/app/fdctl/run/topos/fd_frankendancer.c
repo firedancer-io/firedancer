@@ -210,11 +210,18 @@ fd_topo_frankendancer( config_t * config ) {
   }
   FD_TEST( fd_pod_insertf_ulong( topo->props, poh_shred_obj->id, "poh_shred" ) );
 
+  /* Hacky: Reserve a ulong to allow net0 to pass its PID to its neighbors */
+  fd_topo_obj_t * net0_pid_obj = fd_topob_obj( topo, "fseq", "net" );
+  for( ulong i=0UL; i<net_tile_cnt; i++ ) {
+    fd_topo_tile_t * net_tile = &topo->tiles[ fd_topo_find_tile( topo, "net", i ) ];
+    fd_topob_tile_uses( topo, net_tile, net0_pid_obj, !i?FD_SHMEM_JOIN_MODE_READ_WRITE:FD_SHMEM_JOIN_MODE_READ_ONLY );
+  }
+  FD_TEST( fd_pod_insertf_ulong( topo->props, net0_pid_obj->id, "net0_pid" ) );
+
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
 
     if( FD_UNLIKELY( !strcmp( tile->name, "net" ) ) ) {
-      strncpy( tile->net.app_name,     config->name,                sizeof(tile->net.app_name) );
       strncpy( tile->net.interface,    config->tiles.net.interface, sizeof(tile->net.interface) );
       memcpy(  tile->net.src_mac_addr, config->tiles.net.mac_addr,  6UL );
 
@@ -223,6 +230,8 @@ fd_topo_frankendancer( config_t * config ) {
       tile->net.xdp_tx_queue_size = config->tiles.net.xdp_tx_queue_size;
       tile->net.src_ip_addr       = config->tiles.net.ip_addr;
       tile->net.zero_copy         = !!strcmp( config->tiles.net.xdp_mode, "skb" ); /* disable zc for skb */
+      fd_memset( tile->net.xdp_mode, 0, 4 );
+      fd_memcpy( tile->net.xdp_mode, config->tiles.net.xdp_mode, strnlen( config->tiles.net.xdp_mode, 3 ) );  /* GCC complains about strncpy */
 
       tile->net.shred_listen_port              = config->tiles.shred.shred_listen_port;
       tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
