@@ -723,18 +723,15 @@ new_warmup_cooldown_rate_epoch( fd_exec_instr_ctx_t const * invoke_context,
                                 /* out */ ulong *           epoch,
                                 int *                       err ) {
   *err = 0;
-  if( FD_FEATURE_ACTIVE( invoke_context->slot_ctx, reduce_stake_warmup_cooldown ) ) {
-    fd_epoch_schedule_t const * epoch_schedule = fd_sysvar_cache_epoch_schedule( invoke_context->slot_ctx->sysvar_cache );
-    if( FD_UNLIKELY( !epoch_schedule ) ) {
-      *epoch = ULONG_MAX;
-      *err   = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
-      return 1;
-    }
-    ulong slot = invoke_context->epoch_ctx->features.reduce_stake_warmup_cooldown;
-    *epoch     = fd_slot_to_epoch( epoch_schedule, slot, NULL );
+  fd_epoch_schedule_t const * epoch_schedule = fd_sysvar_cache_epoch_schedule( invoke_context->slot_ctx->sysvar_cache );
+  if( FD_UNLIKELY( !epoch_schedule ) ) {
+    *epoch = ULONG_MAX;
+    *err   = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
     return 1;
   }
-  return 0;
+  ulong slot = invoke_context->epoch_ctx->features.reduce_stake_warmup_cooldown;
+  *epoch     = fd_slot_to_epoch( epoch_schedule, slot, NULL );
+  return 1;
 }
 
 // https://github.com/anza-xyz/agave/blob/039c62b76d7b0eb38cb8714c77400f70ccd9cbf6/programs/stake/src/stake_state.rs#L297
