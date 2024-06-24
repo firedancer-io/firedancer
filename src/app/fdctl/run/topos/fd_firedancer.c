@@ -376,6 +376,7 @@ fd_topo_firedancer( config_t * _config ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "storei" ) ) ) {
       strncpy( tile->store_int.identity_key_path, config->consensus.identity_path, sizeof(tile->store_int.identity_key_path) );
+      strncpy( tile->store_int.slots_pending, config->tiles.store_int.slots_pending, sizeof( tile->store_int.slots_pending ) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "gossip" ) ) ) {
       tile->gossip.ip_addr = config->tiles.net.ip_addr;
       memcpy( tile->gossip.src_mac_addr, config->tiles.net.mac_addr, 6UL );
@@ -414,6 +415,7 @@ fd_topo_firedancer( config_t * _config ) {
       strncpy( tile->replay.genesis, config->tiles.replay.genesis, sizeof(tile->replay.genesis) );
       strncpy( tile->replay.identity_key_path, config->consensus.identity_path, sizeof(tile->replay.identity_key_path) );
       strncpy( tile->replay.incremental, config->tiles.replay.incremental, sizeof(tile->replay.incremental) );
+      strncpy( tile->replay.slots_replayed, config->tiles.replay.slots_replayed, sizeof(tile->replay.slots_replayed) );
       strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
       FD_LOG_NOTICE(("config->consensus.identity_path: %s", config->consensus.identity_path));
       FD_LOG_NOTICE(("config->consensus.vote_account_path: %s", config->consensus.vote_account_path));

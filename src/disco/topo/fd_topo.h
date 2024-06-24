@@ -208,6 +208,7 @@ typedef struct {
       char  genesis[ PATH_MAX ];
       char  identity_key_path[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
+      char  slots_replayed[ PATH_MAX ];
       char  snapshot[ PATH_MAX ];
       char  vote_account_path[ PATH_MAX ];
 
@@ -274,7 +275,7 @@ typedef struct {
 
     struct {
       char  blockstore_restore[ PATH_MAX ];
-      char  slots[PATH_MAX];
+      char  slots_pending[PATH_MAX];
 
       /* non-config */
 

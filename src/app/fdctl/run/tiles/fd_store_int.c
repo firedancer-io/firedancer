@@ -550,6 +550,19 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top != (ulong)scratch + scratch_footprint( tile ) ) ) {
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
   }
+
+  if( FD_UNLIKELY( strlen( tile->store_int.slots_pending ) > 0 ) ) {
+    FILE * file = fopen( tile->store_int.slots_pending, "r" );
+    char   buf[20]; /* max # of digits for a ulong */
+
+    ulong cnt = 0;
+    while( fgets( buf, sizeof( buf ), file ) ) {
+      char * endptr;
+      ulong  slot = strtoul( buf, &endptr, 10 );
+      fd_store_add_pending( ctx->store, slot, cnt++ );
+    }
+    fclose( file );
+  }
 }
 
 static ulong
