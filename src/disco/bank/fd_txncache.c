@@ -346,24 +346,63 @@ fd_txncache_delete( void * shtc ) {
 }
 
 static void
+fd_txncache_remove_blockcache_idx( fd_txncache_t * tc,
+                                   ulong idx ) {
+  tc->blockcache[ idx ].lowest_slot = ULONG_MAX;
+  memcpy( tc->txnpages_free+tc->txnpages_free_cnt, tc->blockcache[ idx ].pages, tc->blockcache[ idx ].pages_cnt*sizeof(ushort) );
+  /* Check if this a probed entry or not. If this is an entry inserted
+     at the intended "hash index" we still need to check if there are
+     any probed entries and shift one to this index. */
+  ulong hash_idx = FD_LOAD(ulong, tc->blockcache[ idx ].blockhash);
+  if( hash_idx%tc->live_slots_max != idx ) return;
+
+  /* We linear search for an entry which hashed to the same index and move it to
+     the blockcache index being removed from. */
+  for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
+    if( i == idx ) continue;
+    ulong j = FD_LOAD(ulong, tc->blockcache[ i ].blockhash);
+    if( j%tc->live_slots_max == idx ) {
+      memcpy( &tc->blockcache[ idx ], &tc->blockcache[ i ], sizeof(fd_txncache_private_blockcache_t) );
+      tc->blockcache[ i ].lowest_slot = ULONG_MAX;
+      break;
+    }
+  }
+}
+
+static void
+fd_txncache_remove_slotcache_idx( fd_txncache_t * tc,
+                                  ulong idx ) {
+  ulong slot = tc->slotcache[ idx ].slot;
+  tc->slotcache[ idx ].slot = ULONG_MAX;
+  /* Check if this a probed entry or not. If this is an entry inserted
+     at the intended "hash index" we still need to check if there are
+     any probed entries and shift one to this index. */
+  if( slot%tc->live_slots_max != idx ) return;
+
+  /* We linear search for an entry which hashed to the same index and move it to
+     the blockcache index being removed from. */
+  for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
+    if( i == idx ) continue;
+    ulong j = tc->slotcache[i].slot;
+    if( j%tc->live_slots_max == idx ) {
+      memcpy( &tc->slotcache[ idx ], &tc->slotcache[ i ], sizeof(fd_txncache_private_slotcache_t) );
+      tc->slotcache[ i ].slot = ULONG_MAX;
+      break;
+    }
+  }
+}
+
+static void
 fd_txncache_purge_slot( fd_txncache_t * tc,
                         ulong           slot ) {
   for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
     if( FD_LIKELY( tc->blockcache[ i ].lowest_slot==ULONG_MAX || (tc->blockcache[ i ].lowest_slot+150UL)>slot ) ) continue;
-    tc->blockcache[ i ].lowest_slot = ULONG_MAX;
-    memcpy( tc->txnpages_free+tc->txnpages_free_cnt, tc->blockcache[ i ].pages, tc->blockcache[ i ].pages_cnt*sizeof(uint) );
-    /* TODO: Hash was removed, so any map entries that could have been
-       here but were probed later in the list need to be moved to this
-       empty slot now as well. */
+    fd_txncache_remove_blockcache_idx( tc, i );
   }
 
   for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
     if( FD_LIKELY( tc->slotcache[ i ].slot==ULONG_MAX || tc->slotcache[ i ].slot>slot ) ) continue;
-    tc->slotcache[ i ].slot = ULONG_MAX;
-
-    /* TODO: Hash was removed, so any map entries that could have been
-       here but were probed later in the list need to be moved to this
-       empty slot now as well. */
+    fd_txncache_remove_slotcache_idx( tc, i );
   }
 }
 
