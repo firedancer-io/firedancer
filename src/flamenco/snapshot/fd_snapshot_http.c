@@ -366,7 +366,7 @@ fd_snapshot_http_resp( fd_snapshot_http_t * this ) {
   /* Find content-length */
 
   for( ulong i = 0; i < header_cnt; ++i ) {
-    if( strncmp( headers[i].name, "content-length:", sizeof("content-length:")-1 ) == 0 ) {
+    if( strncasecmp( headers[i].name, "content-length:", sizeof("content-length:")-1 ) == 0 ) {
       this->content_len = strtoul( headers[i].value, NULL, 10 );
       break;
     }
