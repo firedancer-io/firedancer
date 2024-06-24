@@ -5,7 +5,7 @@
 
 #include "../fd_util_base.h"
 
-#include <linux/filter.h>
+#include <linux/filter.h> /* FIXME: HMMMM */
 
 FD_PROTOTYPES_BEGIN
 

@@ -5,43 +5,46 @@
 //#include "sanitize/fd_msan.h"     /* includes fd_util_base.h */
 //#include "bits/fd_bits.h"         /* includes sanitize/fd_msan.h */
 //#include "sanitize/fd_asan.h"     /* includes fd_util_base.h" */
-//#include "sanitize/fd_sanitize.h" /* includes sanitize/fd_asan.h */
-//#include "wksp/fd_wksp.h"         /* includes sanitize/fd_asan.h */
-//#include "cstr/fd_cstr.h"         /* includes bits/fd_bits.h */
+//#include "sanitize/fd_msan.h"     /* includes fd_util_base.h" */
+//#include "sanitize/fd_sanitize.h" /* includes sanitize/fd_asan.h sanitize/fd_msan.h */
 //#include "io/fd_io.h"             /* includes bits/fd_bits.h */
 #include "spad/fd_spad.h"           /* includes bits/fd_bits.h */
+//#include "cstr/fd_cstr.h"         /* includes bits/fd_bits.h */
 //#include "pod/fd_pod.h"           /* includes cstr/fd_cstr.h */
 //#include "env/fd_env.h"           /* includes cstr/fd_cstr.h */
 //#include "log/fd_log.h"           /* includes env/fd_env.h io/fd_io.h */
+//#include "checkpt/fd_checkpt.h"   /* includes log/fd_log.h */
 //#include "shmem/fd_shmem.h"       /* includes log/fd_log.h */
-#include "checkpt/fd_checkpt.h"     /* includes log/fd_log.h */
 //#include "tile/fd_tile.h"         /* includes shmem/fd_shmem.h */
-//#include "wksp/fd_wksp.h"         /* includes shmem/fd_shmem.h pod/fd_pod.h */
-//#include "valloc/fd_valloc.h"     /* includes fd_util_base.h */
+//#include "wksp/fd_wksp.h"         /* includes pod/fd_pod.h shmem/shmem.h checkpt/fd_checkpt.h sanitize/fd_sanitize.h */
 //#include "scratch/fd_scratch.h"   /* includes tile/fd_tile.h sanitize/fd_sanitize.h valloc/fd_valloc.h */
-#include "math/fd_stat.h"           /* includes bits/fd_bits.h */
-#include "bits/fd_sat.h"
-#include "hist/fd_histf.h"
+#include "tpool/fd_tpool.h"         /* includes tile/fd_tile.h scratch/fd_scratch.h */
+#include "alloc/fd_alloc.h"         /* includes wksp/fd_wksp.h valloc/fd_valloc.h */
 #include "rng/fd_rng.h"             /* includes bits/fd_bits.h */
-#include "tpool/fd_tpool.h"         /* includes tile/fd_tile.h and scratch/fd_scratch.h */
-#include "alloc/fd_alloc.h"         /* includes wksp/fd_wksp.h */
-#include "sandbox/fd_sandbox.h"
+
+/* FIXME: Should these be optional APIs? */
+#include "sandbox/fd_sandbox.h"     /* includes fd_util_base.h */
+#include "math/fd_stat.h"           /* includes bits/fd_bits.h */
+#include "bits/fd_sat.h"            /* includes bits/fd_bits.h */
+#include "hist/fd_histf.h"          /* includes log/fd_log.h */
 
 /* Additional fd_util APIs that are not included by default */
 
-//#include "archive/fd_ar.h"  /* includes fd_util_base.h */
-//#include "net/fd_eth.h"     /* includes bits/fd_bits.h */
-//#include "net/fd_ip4.h"     /* includes bits/fd_bits.h */
-//#include "net/fd_pcap.h"    /* includes net/fd_eth.h */
-//#include "net/fd_igmp.h"    /* includes net/fd_ip4.h */
-//#include "net/fd_udp.h"     /* includes net/fd_ip4.h */
-//#include "bits/fd_float.h"  /* includes bits/fd_bits.h */
-//#include "bits/fd_uwide.h"  /* includes bits/fd_bits.h */
-//#include "math/fd_sqrt.h"   /* includes bits/fd_bits.h */
-//#include "math/fd_fxp.h"    /* includes math/fd_sqrt.h, (!FD_HAS_INT128) bits/fd_uwide.h */
-//#include "simd/fd_sse.h"    /* includes bits/fd_bits.h, requires FD_HAS_SSE */
-//#include "simd/fd_avx.h"    /* includes bits/fd_bits.h, requires FD_HAS_AVX */
-//#include "simd/fd_avx512.h" /* includes bits/fd_bits.h, requires FD_HAS_AVX512 */
+//#include "archive/fd_ar.h"        /* includes fd_util_base.h */
+//#include "net/fd_pcapng.h"        /* includes fd_util_base.h */
+//#include "net/fd_eth.h"           /* includes bits/fd_bits.h */
+//#include "net/fd_ip4.h"           /* includes bits/fd_bits.h */
+//#include "net/fd_igmp.h"          /* includes net/fd_ip4.h */
+//#include "net/fd_udp.h"           /* includes net/fd_ip4.h */
+//#include "net/fd_net_headers.h */ /* includes net/fd_udp.h net/fd_eth.h */
+//#include "net/fd_pcap.h"          /* includes net/fd_eth.h log/fd_log.h */
+//#include "bits/fd_float.h"        /* includes bits/fd_bits.h */
+//#include "bits/fd_uwide.h"        /* includes bits/fd_bits.h */
+//#include "math/fd_sqrt.h"         /* includes bits/fd_bits.h */
+//#include "math/fd_fxp.h"          /* includes math/fd_sqrt.h, (!FD_HAS_INT128) bits/fd_uwide.h */
+//#include "simd/fd_sse.h"          /* includes bits/fd_bits.h, requires FD_HAS_SSE */
+//#include "simd/fd_avx.h"          /* includes bits/fd_bits.h, requires FD_HAS_AVX */
+//#include "simd/fd_avx512.h"       /* includes bits/fd_bits.h, requires FD_HAS_AVX512 */
 
 FD_PROTOTYPES_BEGIN
 

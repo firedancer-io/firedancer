@@ -3,7 +3,8 @@
 
 #include "../pod/fd_pod.h"
 #include "../shmem/fd_shmem.h"
-#include "../sanitize/fd_asan.h"
+#include "../checkpt/fd_checkpt.h"
+#include "../sanitize/fd_sanitize.h"
 
 /* API for creating NUMA-aware and TLB-efficient workspaces used for
    complex inter-thread and inter-process shared memory communication
