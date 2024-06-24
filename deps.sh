@@ -108,8 +108,8 @@ fetch () {
   #checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.0"
   if [[ $DEVMODE == 1 ]]; then
     checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
-    checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.1.0"
-    checkout_repo snappy    https://github.com/google/snappy          "1.1.10"
+    checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.2.1"
+    checkout_repo snappy    https://github.com/google/snappy          "1.2.1"
   fi
 }
 
@@ -420,8 +420,7 @@ install_rocksdb () {
   ROCKSDB_DISABLE_ZLIB=1 \
   ROCKSDB_DISABLE_BZIP=1 \
   ROCKSDB_DISABLE_GFLAGS=1 \
-  PORTABLE=haswell \
-  CFLAGS="-isystem $(pwd)/../../include -g0 -DSNAPPY -DZSTD" \
+  CFLAGS="-isystem $(pwd)/../../include -g0 -DSNAPPY -DZSTD -Wno-uninitialized" \
   make -j $NJOBS \
     LITE=1 \
     V=1 \
