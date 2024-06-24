@@ -74,6 +74,7 @@
 #define FD_VM_ERR_INCOMPLETE_LDQ    (-32) /* detected an incomplete ldq at program end */
 #define FD_VM_ERR_LDQ_NO_ADDL_IMM   (-33) /* detected a ldq without an addl imm following it */
 #define FD_VM_ERR_NO_SUCH_EXT_CALL  (-34) /* detected a call imm with no function was registered for that immediate */
+#define FD_VM_ERR_INVALID_REG       (-35) /* detected an invalid register */
 
 FD_PROTOTYPES_BEGIN
 

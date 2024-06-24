@@ -1,4 +1,5 @@
 #include "fd_vm_syscall.h"
+#include "../test_vm_util.h"
 
 static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
@@ -173,9 +174,11 @@ main( int     argc,
   uchar rodata[ rodata_sz ];
   set_memory_region( rodata, rodata_sz );
 
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual(), false );
+
   int vm_ok = !!fd_vm_init(
       /* vm        */ vm,
-      /* instr_ctx */ NULL,
+      /* instr_ctx */ instr_ctx,
       /* heap_max  */ FD_VM_HEAP_DEFAULT,
       /* entry_cu  */ FD_VM_COMPUTE_UNIT_LIMIT,
       /* rodata    */ rodata,
@@ -460,6 +463,7 @@ main( int     argc,
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );
   fd_sha256_delete( fd_sha256_leave( sha ) );
   fd_rng_delete   ( fd_rng_leave   ( rng ) );
+  test_vm_exec_instr_ctx_delete( instr_ctx );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -4,6 +4,7 @@
 #include "fd_vm.h"
 #include "fd_vm_base.h"
 #include "fd_vm_private.h"
+#include "test_vm_util.h"
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -44,6 +45,7 @@ struct test_input {
   ushort        off;
   ulong         imm;
   ulong         reg[REG_CNT];
+  bool          reject_callx_r10;
 };
 
 typedef struct test_input test_input_t;
@@ -315,6 +317,11 @@ parse_token( test_parser_t *  p,
     ulong * out = p->state == PARSE_STATE_ASSERT ? p->effects.reg : p->input.reg;
     out[ reg ] = parse_hex_int( p );
 
+  } else if( 0==strncmp( word, "reject_callx_r10", word_len ) ) {
+
+    parse_assign_sep( p );
+    p->input.reject_callx_r10 = parse_hex_int( p );
+
   } else {
 
     FD_LOG_ERR(( "Unexpected token '%.*s' at %s(%lu)", (int)word_len, word, p->path, p->line ));
@@ -396,9 +403,11 @@ run_input( test_input_t const * input,
       fd_sbpf_syscalls_new(
       aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) ) );
 
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual(), input->reject_callx_r10 );
+
   int vm_ok = !!fd_vm_init(
       /* vm        */ vm,
-      /* instr_ctx */ NULL,
+      /* instr_ctx */ instr_ctx,
       /* heap_max  */ 0UL,
       /* entry_cu  */ 100UL,
       /* rodata    */ (uchar const *)text,
@@ -423,6 +432,8 @@ run_input( test_input_t const * input,
 
   run_input2( out, vm );
 
+  /* Clean up */
+  test_vm_exec_instr_ctx_delete( instr_ctx );
   free( fd_sbpf_syscalls_delete ( fd_sbpf_syscalls_leave ( syscalls  ) ) );
   free( fd_sbpf_calldests_delete( fd_sbpf_calldests_leave( calldests ) ) );
   free( input_copy );
