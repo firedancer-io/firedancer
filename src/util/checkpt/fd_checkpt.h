@@ -125,14 +125,14 @@ typedef struct fd_restore_private fd_restore_t;
 
 #define FD_CHECKPT_PRIVATE_CSZ_MAX(usz) ((usz) + ((usz)/255UL) + 19UL)
 
-FD_STATIC_ASSERT( FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX <= (1UL<<30), adjust_comp_limits );
+FD_STATIC_ASSERT( FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX <= (1UL<<30), adjust_buf_limits );
 FD_STATIC_ASSERT( FD_CHECKPT_WBUF_MIN >= FD_CHECKPT_PRIVATE_CSZ_MAX( FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX ), adjust_buf_limits );
 FD_STATIC_ASSERT( FD_RESTORE_RBUF_MIN >= FD_CHECKPT_WBUF_MIN, adjust_buf_limits );
 
-/* FD_CHECKPT_PRIVATE_GBUF_THRESH is byte size at which checkpt buffer
-   is considered too large for small buffer checkpt gather
-   optimizations.  Should be at most FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX.
-   Set to 0 to disable checkpt small gather optimization. */
+/* FD_CHECKPT_PRIVATE_GBUF_THRESH is the byte size at which a data
+   buffer is considered too large for checkpt gather optimizations.
+   Should be at most FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX.  Set to 0 to
+   disable checkpt small gather optimization. */
 
 #define FD_CHECKPT_PRIVATE_GBUF_THRESH FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX
 
@@ -141,12 +141,12 @@ FD_STATIC_ASSERT( FD_RESTORE_RBUF_MIN >= FD_CHECKPT_WBUF_MIN, adjust_buf_limits 
 
 #define FD_CHECKPT_PRIVATE_GBUF_SZ (2UL*FD_CHECKPT_PRIVATE_GBUF_THRESH + 65536UL)
 
-FD_STATIC_ASSERT( FD_CHECKPT_PRIVATE_GBUF_THRESH <= FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX,             adjust_gbuf_limits );
-FD_STATIC_ASSERT( FD_CHECKPT_PRIVATE_GBUF_SZ     >= 2UL*FD_CHECKPT_PRIVATE_GBUF_THRESH + 65533UL, adjust_gbuf_limits );
+FD_STATIC_ASSERT( FD_CHECKPT_PRIVATE_GBUF_THRESH <= FD_CHECKPT_PRIVATE_CHUNK_USZ_MAX,             adjust_buf_limits );
+FD_STATIC_ASSERT( FD_CHECKPT_PRIVATE_GBUF_SZ     >= 2UL*FD_CHECKPT_PRIVATE_GBUF_THRESH + 65533UL, adjust_buf_limits );
 
 /* FD_RESTORE_PRIVATE_SBUF_{THRESH,SZ} similarly give the configuration
-   for small buffer restore scatter optimizations.  These currently need
-   to match the gather configuration. */
+   for restore scatter optimizations.  These currently need to match the
+   gather configuration. */
 
 #define FD_RESTORE_PRIVATE_SBUF_THRESH FD_CHECKPT_PRIVATE_GBUF_THRESH
 #define FD_RESTORE_PRIVATE_SBUF_SZ     FD_CHECKPT_PRIVATE_GBUF_SZ
@@ -179,16 +179,16 @@ struct fd_checkpt_private {
     fd_checkpt_private_wbuf_t wbuf; /* used in streaming mode */
     fd_checkpt_private_mmio_t mmio; /* used in mmio mode */
   };
-  uchar gbuf[ FD_RESTORE_PRIVATE_SBUF_SZ ]; /* gather optimization buffer */
+  uchar gbuf[ FD_CHECKPT_PRIVATE_GBUF_SZ ]; /* gather optimization buffer */
 };
 
 /* fd_restore_t internals */
 
 struct fd_restore_private_rbuf { /* very similar to fd_io_buffered_istream */
-  uchar * mem;  /* Buffer of compressed bytes read from fd, byte indexed [0,rbuf_sz) */
-  ulong  sz;    /* Buffer size in bytes, >=FD_RESTORE_RBUF_MIN */
-  ulong  lo;    /* Buffer bytes [0,rbuf_lo) have been read and restored */
-  ulong  ready; /* Number of compressed bytes that haven't been processed, 0<=rbuf_lo<=(rbuf_lo+rbuf_ready)<=rbuf_sz */
+  uchar * mem;   /* Buffer of compressed bytes read from fd, byte indexed [0,rbuf_sz) */
+  ulong   sz;    /* Buffer size in bytes, >=FD_RESTORE_RBUF_MIN */
+  ulong   lo;    /* Buffer bytes [0,rbuf_lo) have been read and restored */
+  ulong   ready; /* Number of compressed bytes that haven't been processed, 0<=rbuf_lo<=(rbuf_lo+rbuf_ready)<=rbuf_sz */
 };
 
 typedef struct fd_restore_private_rbuf fd_restore_private_rbuf_t;
@@ -262,8 +262,7 @@ fd_checkpt_init_stream( void * mem,
 
 /* fd_checkpt_init_mmio is the same as fd_checkpt_init_stream but
    checkpoints frames into a mmio_sz byte sized memory region whose
-   first byte in the caller's the local address space is pointed to by
-   mmio. */
+   first byte in the caller's local address space is pointed to by mmio. */
 
 fd_checkpt_t *
 fd_checkpt_init_mmio( void * mem,
@@ -316,7 +315,7 @@ fd_checkpt_fini( fd_checkpt_t * checkpt );
    checkpoint, etc).
 
    IMPORTANT SAFETY TIP!  Compression ratios for compressed frames can
-   optimized by putting similar items into the same frame and then
+   be optimized by putting similar items into the same frame and then
    putting more similar items near each other sequentially.
 
    fd_checkpt_frame_open is a convenience for when the frame offset
@@ -347,7 +346,7 @@ fd_checkpt_frame_open( fd_checkpt_t * checkpt,
    have any interest in checkpointed data or in _off.
 
    On failure, logs details and returns a FD_CHECKPT_ERR (negative).  On
-   return, *_off will be untouched and checkpoint will have no inteest
+   return, *_off will be untouched and checkpoint will have no interest
    in _off.  Reasons for failure include INVAL (NULL checkpt, not in a
    frame), IO (write failed, too many bytes written) and COMP (a
    compressor error).  The checkpt (and underlying fd in streaming mode)
@@ -419,8 +418,8 @@ fd_restore_init_stream( void * mem,
 
 /* fd_restore_init_mmio is the same as fd_restore_init_stream but the
    frames to restore have been memory mapped into the mmio_sz byte
-   memory region whose first byte in the caller's the local address
-   space is pointed to by mmio. */
+   memory region whose first byte in the caller's local address space is
+   pointed to by mmio. */
 
 fd_restore_t *
 fd_restore_init_mmio( void *       mem,
@@ -460,12 +459,12 @@ fd_restore_fini( fd_restore_t * restore );
    fini restore and close fd in streaming mode).
 
    IMPORTANT SAFETY TIP!  frame_style should match the frame_style used
-   to when the checkpoint was written.
+   when the frame was written.
 
    IMPORTANT SAFETY TIP!  The sequence of restore_frame_open /
    restore_buf / restore_frame_close calls should _exactly_ match the
    sequence of checkpt_frame_open / checkpt_buf / checkpt_frame_close
-   used when the frame was written. */
+   used when the frame was created. */
 
 int
 fd_restore_frame_open( fd_restore_t * restore,
@@ -527,7 +526,7 @@ fd_restore_buf( fd_restore_t * restore,
 
 /* Misc APIs **********************************************************/
 
-/* fd_checkpt_strerror converts an FD_CHECKPT_SUCCESS / FD_CHECKPT_ERR_*
+/* fd_checkpt_strerror converts a FD_CHECKPT_SUCCESS / FD_CHECKPT_ERR_*
    code into a human readable cstr.  The lifetime of the returned
    pointer is infinite.  The returned pointer is always to a non-NULL
    cstr. */
