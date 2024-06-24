@@ -34,7 +34,8 @@ struct fd_txncache_private_txn {
   uchar txnhash[ 20 ];   /* The transaction hash, truncated to 20 bytes.  The hash is not always the first 20
                             bytes, but is 20 bytes starting at some arbitrary offset given by the key_offset value
                             of the containing by_blockhash entry. */
-  uchar result[ 40 ];    /* The result of executing the transaction. */
+  uchar result;          /* The result of executing the transaction. This is the discriminant of the transaction
+                            result type. 0 means success. */
 };
 
 typedef struct fd_txncache_private_txn fd_txncache_private_txn_t;
@@ -645,7 +646,7 @@ fd_txncache_insert_txn( fd_txncache_t *                        tc,
     ulong txnhash_offset = blockcache->txnhash_offset;
     ulong txnhash = FD_LOAD( ulong, txn->txnhash+txnhash_offset );
     memcpy( txnpage->txns[ txn_idx ]->txnhash, txn->txnhash+txnhash_offset, 20UL );
-    memcpy( txnpage->txns[ txn_idx ]->result,  txn->result,                 40UL );
+    txnpage->txns[ txn_idx ]->result = *txn->result;
     txnpage->txns[ txn_idx ]->slot = fd_ulong_max( txn->slot, txnpage->txns[ txn_idx ]->slot );
     FD_COMPILER_MFENCE();
 
