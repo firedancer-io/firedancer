@@ -909,6 +909,10 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
       return -1;
     }
 
+    for (ulong fee_payer_idx = 0; fee_payer_idx < fee_payer_accs_cnt; fee_payer_idx++) {
+      fd_collect_fee_task_info_t * collect_fee_task_info = &collect_fee_task_infos[fee_payer_idx];
+      fd_valloc_free( slot_ctx->valloc, collect_fee_task_info->fee_payer_rec.meta );
+    }
     return res;
   } FD_SCRATCH_SCOPE_END;
 }
