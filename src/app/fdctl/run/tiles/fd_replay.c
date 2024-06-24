@@ -171,7 +171,7 @@ struct fd_replay_tile_ctx {
   ulong funk_seed;
   fd_capture_ctx_t * capture_ctx;
   FILE *             capture_file;
-  FILE *             slots_file;
+  FILE *             slots_replayed_file;
 
 
   ulong * first_turbine;
@@ -775,9 +775,9 @@ after_frag( void *             _ctx,
 
       /* Write to debugging files. */
 
-      if( FD_UNLIKELY( ctx->slots_file ) ) {
+      if( FD_UNLIKELY( ctx->slots_replayed_file ) ) {
         FD_LOG_NOTICE( ( "writing %lu to slots file", prev_slot ) );
-        fprintf( ctx->slots_file, "%lu\n", prev_slot );
+        fprintf( ctx->slots_replayed_file, "%lu\n", prev_slot );
       }
 
       if (NULL != ctx->capture_ctx) {
@@ -800,7 +800,7 @@ after_frag( void *             _ctx,
 
             /* Mismatch */
 
-            if( FD_UNLIKELY( ctx->capture_file ) ) fclose( ctx->slots_file );
+            if( FD_UNLIKELY( ctx->capture_file ) ) fclose( ctx->slots_replayed_file );
             if( FD_UNLIKELY( strcmp(ctx->blockstore_checkpt, "" ) ) ) {
               int rc = fd_wksp_checkpt( ctx->blockstore_wksp, ctx->blockstore_checkpt, 0666, 0, NULL );
               if( rc ) {
@@ -1346,11 +1346,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake_weights_out_wmark  = fd_dcache_compact_wmark ( ctx->stake_weights_out_mem, stake_weights_out->dcache, stake_weights_out->mtu );
   ctx->stake_weights_out_chunk  = ctx->stake_weights_out_chunk0;
 
-  if( FD_UNLIKELY( ctx->capture_ctx ) ) {
-    char filename[100];
-    snprintf( filename, sizeof( filename ), "%lu.txt", ctx->snapshot_slot );
-    ctx->slots_file = fopen( filename, "w" );
-    FD_TEST( ctx->slots_file );
+  if( FD_UNLIKELY( tile->replay.slots_replayed ) ) {
+    ctx->slots_replayed_file = fopen( tile->replay.slots_replayed, "w" );
+    FD_TEST( ctx->slots_replayed_file );
   }
 }
 
