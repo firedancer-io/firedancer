@@ -471,7 +471,7 @@ typedef struct {
   /* These are temporarily set in during_frag so they can be used in
      after_frag once the frag has been validated as not overrun. */
   uchar _txns[ USHORT_MAX ];
-  fd_microblock_trailer_t * _microblock_trailer;
+  fd_microblock_trailer_t _microblock_trailer[ 1 ];
 
   fd_poh_in_ctx_t bank_in[ 32 ];
   fd_poh_in_ctx_t stake_in;
@@ -1396,7 +1396,9 @@ during_frag( void * _ctx,
     uchar * src = (uchar *)fd_chunk_to_laddr( ctx->bank_in[ in_idx ].mem, chunk );
 
     fd_memcpy( ctx->_txns, src, sz-sizeof(fd_microblock_trailer_t) );
-    ctx->_microblock_trailer = (fd_microblock_trailer_t*)(src+sz-sizeof(fd_microblock_trailer_t));
+    fd_memcpy( ctx->_microblock_trailer, src+sz-sizeof(fd_microblock_trailer_t), sizeof(fd_microblock_trailer_t) );
+
+    FD_TEST( ctx->_microblock_trailer->bank_idx<ctx->bank_cnt );
 
     /* Indicate to pack tile we are done processing the transactions so
        it can pack new microblocks using these accounts.  This has to be
