@@ -43,7 +43,7 @@ def parse_genesis_output(output):
 
 async def run_genesis(output_dir, solana_source_directory):
     process = await asyncio.create_subprocess_shell(
-        f"{solana_binary('solana-genesis', solana_source_directory)} --cluster-type mainnet-beta --ledger node-ledger-0 --enable-warmup-epochs --bootstrap-validator 'keys-0/id.json' 'keys-0/vote.json' 'keys-0/stake.json' --bootstrap-stake-authorized-pubkey 'keys-0/id.json' --bootstrap-validator-lamports 10000000000 --bootstrap-validator-stake-lamports 32282880 --faucet-pubkey 'faucet.json' --faucet-lamports 5000000000000000 --hashes-per-tick sleep --target-tick-duration 1000",
+        f"{solana_binary('solana-genesis', solana_source_directory)} --cluster-type mainnet-beta --ledger node-ledger-0 --bootstrap-validator 'keys-0/id.json' 'keys-0/vote.json' 'keys-0/stake.json' --bootstrap-stake-authorized-pubkey 'keys-0/id.json' --bootstrap-validator-lamports 10000000000 --bootstrap-validator-stake-lamports 32282880 --faucet-pubkey 'faucet.json' --faucet-lamports 5000000000000000 --hashes-per-tick sleep --target-tick-duration 100000 --slots-per-epoch 128",
          stdout=asyncio.subprocess.PIPE,
          stderr=asyncio.subprocess.PIPE,
          cwd=output_dir)
@@ -83,7 +83,7 @@ async def first_cluster_validator(expected_shred_version, expected_genesis_hash,
     vote_pubkey = await get_pubkey(vote_key, solana_source_directory)
 
     process = await asyncio.create_subprocess_shell(
-        f"{solana_binary('agave-validator', solana_source_directory)} --allow-private-addr --identity {identity_key}  --ledger {ledger_path} --limit-ledger-size 100000000 --dynamic-port-range 8000-8100 --no-genesis-fetch --no-snapshot-fetch --no-poh-speed-test --no-os-network-limits-test --vote-account {vote_pubkey} --expected-shred-version {expected_shred_version} --expected-genesis-hash {expected_genesis_hash} --no-wait-for-vote-to-start-leader --incremental-snapshots --full-snapshot-interval-slots 200 --rpc-port 8899 --gossip-port 8010 --full-rpc-api --tpu-enable-udp --log {ledger_path}/validator.log",
+        f"{solana_binary('agave-validator', solana_source_directory)} --allow-private-addr --identity {identity_key}  --ledger {ledger_path} --limit-ledger-size 100000000 --dynamic-port-range 8000-8100 --no-snapshot-fetch --no-poh-speed-test --no-os-network-limits-test --vote-account {vote_pubkey} --expected-shred-version {expected_shred_version} --expected-genesis-hash {expected_genesis_hash} --no-wait-for-vote-to-start-leader --incremental-snapshots --full-snapshot-interval-slots 10 --incremental-snapshot-interval-slots 5 ----maximum-full-snapshots-to-retain 20 --rpc-port 8899 --gossip-port 8010 --full-rpc-api --tpu-enable-udp --log {ledger_path}/validator.log",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
     )
@@ -171,7 +171,7 @@ async def spawn_solana_cluster(nodes, output_dir, solana_source_directory):
             await shell(f"{solana_binary('solana', solana_source_directory)} -ul create-vote-account -k {id_key} --allow-unsafe-authorized-withdrawer {vote_key} {id_key} {id_key}")
 
         # Wait for the output_directory/node_ledger_0/snapshot/200/state_complete file to exist
-        print("Waiting for the first validator to create a snapshot at slot 200", flush=True)
+        print("Waiting for the first validator to create a snapshot at slot 10", flush=True)
         while True:
             process = await asyncio.create_subprocess_shell(
                 f"{solana_binary('solana', solana_source_directory)} -ul validators",
@@ -180,7 +180,7 @@ async def spawn_solana_cluster(nodes, output_dir, solana_source_directory):
             )
             stdout, _ = await process.communicate()
 
-            if os.path.exists(os.path.join(output_dir, "node-ledger-0", "snapshot", "200", "state_complete")):
+            if os.path.exists(os.path.join(output_dir, "node-ledger-0", "snapshot", "10", "state_complete")):
                 break
             await asyncio.sleep(1)
 
@@ -215,15 +215,12 @@ async def spawn_solana_test_validator(solana_source_directory, output_dir):
         await process.wait()
 
 @asynccontextmanager
-async def solana(cluster_nodes, test_validator, output_dir, solana_source_directory):
-    await build_solana(solana_source_directory)
+async def solana(cluster_nodes, output_dir, solana_source_directory, skip_build_solana):
+    if skip_build_solana:
+        await build_solana(solana_source_directory)
     try:
-        if test_validator:
-            async with spawn_solana_test_validator(solana_source_directory, output_dir):
-                yield
-        else:
-            async with spawn_solana_cluster(cluster_nodes, output_dir, solana_source_directory):
-                yield
+        async with spawn_solana_cluster(cluster_nodes, output_dir, solana_source_directory):
+            yield
     finally:
         pass
 
@@ -235,15 +232,14 @@ def clean(output_dir):
 async def main():
     parser = argparse.ArgumentParser(description="Run Solana validators with specified configuration")
     parser.add_argument("--solana-source-directory", required=True, type=str, help="Absolute path to the Solana checkout")
-    cluster_type_args = parser.add_mutually_exclusive_group(required=True)
-    cluster_type_args.add_argument("--solana-cluster-nodes", required=False, type=int, help="Number of nodes to use for the multi-node Solana cluster")
-    cluster_type_args.add_argument("--solana-test-validator", action='store_true', help="Use a solana-test-validator instance instead of a multi-node cluster")
+    parser.add_argument("--skip-build-solana", action='store_false', help="Skip solana build")
+    parser.add_argument("--solana-cluster-nodes", required=False, type=int, help="Number of nodes to use for the multi-node Solana cluster")
     parser.add_argument("--output-dir", required=True, type=str, help="Output directory where validator keys and ledgers are written to")
     args = parser.parse_args()
 
     clean(args.output_dir)
 
-    async with solana(args.solana_cluster_nodes, args.solana_test_validator, args.output_dir, args.solana_source_directory):
+    async with solana(args.solana_cluster_nodes, args.output_dir, args.solana_source_directory, args.skip_build_solana):
         while True:
             await asyncio.sleep(1)
 
