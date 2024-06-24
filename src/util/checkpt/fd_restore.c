@@ -38,17 +38,12 @@ fd_restore_private_lz4( LZ4_streamDecode_t * lz4,
     return 0UL;
   }
 
-  if( FD_UNLIKELY( cbuf_max<4UL ) ) {
-    FD_LOG_WARNING(( "not enough room to compress" ));
-    return 0UL;
-  }
-
-  /* Restore and validate header */
-
   if( FD_UNLIKELY( cbuf_max<4UL ) ) { /* 3 bytes for header, 1 byte minimum for body */
     FD_LOG_WARNING(( "truncated header" ));
     return 0UL;
   }
+
+  /* Restore and validate header */
 
   ulong ubuf_csz = (((ulong)(uchar)cbuf[0])      )
                  | (((ulong)(uchar)cbuf[1]) <<  8)
