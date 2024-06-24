@@ -26,9 +26,11 @@ metric introduced.
 
 <enum name="PackTxnInsertReturn">
   <!-- Note: You must keep the list of return values in fd_pack.h in sync with this list -->
-  <int value="-9" name="Full" label="Pack couldn't find a transaction that the new transaction could potentially replace" />
-  <int value="-8" name="WriteSysvar" label="Transaction tries to write to a sysvar" />
-  <int value="-7" name="EstimationFail" label="Estimating compute cost and/or fee failed" />
+  <int value="-11" name="Full" label="Pack couldn't find a transaction that the new transaction could potentially replace" />
+  <int value="-10" name="WriteSysvar" label="Transaction tries to write to a sysvar" />
+  <int value="-9" name="EstimationFail" label="Estimating compute cost and/or fee failed" />
+  <int value="-8" name="DuplicateAccount" label="Transaction included an account address twice" />
+  <int value="-7" name="TooManyAccounts" label="Transaction tried to load too many accounts" />
   <int value="-6" name="TooLarge" label="Transaction requests too many CUs" />
   <int value="-5" name="Expired" label="Transaction already expired" />
   <int value="-4" name="AddrLut" label="Transaction loaded accounts from a lookup table" />
