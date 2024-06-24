@@ -208,6 +208,37 @@ sol_compat_cmp_binary_strict( void const * effects,
 }
 
 int
+sol_compat_cmp_success_fail_only( void const * _effects,
+                                  void const * _expected ) {
+  fd_exec_test_instr_effects_t * effects  = (fd_exec_test_instr_effects_t *)_effects;
+  fd_exec_test_instr_effects_t * expected = (fd_exec_test_instr_effects_t *)_expected;
+
+  if( effects==NULL ) {
+    FD_LOG_WARNING(( "No output effects" ));
+    return 0;
+  }
+
+  if( effects->custom_err || expected->custom_err ) {
+    FD_LOG_WARNING(( "Unexpected custom error" ));
+    return 0;
+  }
+
+  int res = effects->result;
+  int exp = expected->result;
+
+  if( res==exp ) {
+    return 1;
+  }
+
+  if( res>0 && exp>0 ) {
+    FD_LOG_INFO(( "Accepted: res=%d exp=%d", res, exp ));
+    return 1;
+  }
+
+  return 0;
+}
+
+int
 sol_compat_instr_fixture( fd_exec_instr_test_runner_t * runner,
                           uchar const *                 in,
                           ulong                         in_sz ) {
@@ -228,6 +259,54 @@ sol_compat_instr_fixture( fd_exec_instr_test_runner_t * runner,
 
   // Cleanup
   pb_release( &fd_exec_test_instr_fixture_t_msg, fixture );
+  return ok;
+}
+
+int
+sol_compat_precompile_fixture( fd_exec_instr_test_runner_t * runner,
+                               uchar const *                 in,
+                               ulong                         in_sz ) {
+  // Decode fixture
+  fd_exec_test_instr_fixture_t fixture[1] = {0};
+  void * res = sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_instr_fixture_t_msg );
+  if ( res==NULL ) {
+    FD_LOG_WARNING(( "Invalid instr fixture." ));
+    return 0;
+  }
+
+  // Execute
+  void * output = NULL;
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, (exec_test_run_fn_t *)fd_exec_instr_test_run );
+
+  // Compare effects
+  int ok = sol_compat_cmp_success_fail_only( output, &fixture->output );
+
+  // Cleanup
+  pb_release( &fd_exec_test_instr_fixture_t_msg, fixture );
+  return ok;
+}
+
+int
+sol_compat_elf_loader_fixture( fd_exec_instr_test_runner_t * runner,
+                               uchar const *                 in,
+                               ulong                         in_sz ) {
+  // Decode fixture
+  fd_exec_test_elf_loader_fixture_t fixture[1] = {0};
+  void * res = sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_elf_loader_fixture_t_msg );
+  if ( res==NULL ) {
+    FD_LOG_WARNING(( "Invalid elf_loader fixture." ));
+    return 0;
+  }
+
+  // Execute
+  void * output = NULL;
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, (exec_test_run_fn_t *)fd_sbpf_program_load_test_run );
+
+  // Compare effects
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_elf_loader_effects_t_msg );
+
+  // Cleanup
+  pb_release( &fd_exec_test_elf_loader_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -293,9 +372,9 @@ sol_compat_instr_execute_v1( uchar *       out,
 
 int
 sol_compat_elf_loader_v1( uchar *       out,
-                   ulong *       out_sz,
-                   uchar const * in,
-                   ulong         in_sz ) {
+                          ulong *       out_sz,
+                          uchar const * in,
+                          ulong         in_sz ) {
   ulong fmem[ 64 ];
   fd_scratch_attach( smem, fmem, smax, 64UL );
   fd_scratch_push();
@@ -314,7 +393,7 @@ sol_compat_elf_loader_v1( uchar *       out,
     void * out0 = fd_scratch_prepare( 1UL );
     assert( out_bufsz < fd_scratch_free() );
     fd_scratch_publish( (void *)( (ulong)out0 + out_bufsz ) );
-    ulong out_used = fd_sbpf_program_load_test_run( input, &output, out0, out_bufsz );
+    ulong out_used = fd_sbpf_program_load_test_run( NULL, input, &output, out0, out_bufsz );
     if( FD_UNLIKELY( !out_used ) ) {
       output = NULL;
       break;
@@ -334,7 +413,7 @@ sol_compat_elf_loader_v1( uchar *       out,
 
   pb_release( &fd_exec_test_elf_loader_ctx_t_msg, input );
   fd_scratch_pop();
-  fd_scratch_detach( NULL );  
+  fd_scratch_detach( NULL );
   return ok;
 
 }

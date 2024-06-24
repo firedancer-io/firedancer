@@ -85,10 +85,11 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
    but output is incomplete/undefined.
    */
 ulong
-fd_sbpf_program_load_test_run( fd_exec_test_elf_loader_ctx_t const * input,
-                               fd_exec_test_elf_loader_effects_t ** output,
-                               void *                               output_buf,
-                               ulong                                output_bufsz );
+fd_sbpf_program_load_test_run( fd_exec_instr_test_runner_t *         runner,
+                               fd_exec_test_elf_loader_ctx_t const * input,
+                               fd_exec_test_elf_loader_effects_t **  output,
+                               void *                                output_buf,
+                               ulong                                 output_bufsz );
 
 ulong
 fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
