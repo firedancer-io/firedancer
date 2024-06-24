@@ -1807,6 +1807,7 @@ dump/test-vectors/instr/fixtures/stake/crash-29b3c6ddeb680e5a2d47a3cc0eb4dbdd87b
 dump/test-vectors/instr/fixtures/stake/crash-2e285bc34f989e5d46b44580da2c2282ec18126f.fix
 dump/test-vectors/instr/fixtures/stake/crash-378934868aaa2d0194fe6c05f8d41d8dd7f21681.fix
 dump/test-vectors/instr/fixtures/stake/crash-380c374f66d701faeeebef6de294d3f0b4a52205.fix
+dump/test-vectors/instr/fixtures/stake/f15a464186906376.bin.fix
 dump/test-vectors/instr/fixtures/stake/crash-384adc693314e21144c6daa9eeb7f44765386e08.fix
 dump/test-vectors/instr/fixtures/stake/crash-3c1af527b91b6ab015aede1c1a84b52eb34a89e8.fix
 dump/test-vectors/instr/fixtures/stake/crash-3c6fa28d872ab69c698cd7ac2b47b6e683aa7196.fix
@@ -4134,6 +4135,7 @@ dump/test-vectors/instr/fixtures/system/15cdae5d317eb17e359b5b281a67a3d5ea1ad3b8
 dump/test-vectors/instr/fixtures/system/15d4e9a294626bd44b3856a96fa78d030b6635f0.fix
 dump/test-vectors/instr/fixtures/system/15ef23a89b93bd3a4658a2bb61e3d9894caa81cd.fix
 dump/test-vectors/instr/fixtures/system/15f3b19cf6bf6f4c502e97ed4d1b186ca4066249.fix
+dump/test-vectors/instr/fixtures/system/1ab7796b2e8087cb.bin.fix
 dump/test-vectors/instr/fixtures/system/15f99049b5a2e38066a233f057b4385c0ac301fb.fix
 dump/test-vectors/instr/fixtures/system/15fe4f2fa1b54cee7e68fc54f5af2bcb05f4d70a.fix
 dump/test-vectors/instr/fixtures/system/1620689ab4fa79518b2b35e4711bf57b788d31a9.fix
@@ -4558,6 +4560,7 @@ dump/test-vectors/instr/fixtures/system/57eab40d0bf76958d0670fe29f86b74f87b79324
 dump/test-vectors/instr/fixtures/system/58597e7e7afa3a168c9950a2651bbeafdccbd1a8.fix
 dump/test-vectors/instr/fixtures/system/586702cdd9cf3ade00f79e987888243e5c247d37.fix
 dump/test-vectors/instr/fixtures/system/58d708281351f86f11252aa0359093a86d4c2fd9.fix
+dump/test-vectors/instr/fixtures/system/63df86b681aa674a9d160d27fe7f32b628b9dcc5.fix
 dump/test-vectors/instr/fixtures/system/58e2a4c4976783fcf03b17979caac156.000459a6.honggfuzz.bin.fix
 dump/test-vectors/instr/fixtures/system/58ff8c791aa22fb510c38c1007e6494afb8346cd.fix
 dump/test-vectors/instr/fixtures/system/593ea6aba0d15cdb519286036a7c576621d7ae38.fix

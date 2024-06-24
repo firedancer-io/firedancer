@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#set -x
+set -ex
 
 DIR="$( dirname -- "${BASH_SOURCE[0]}"; )";   # Get the directory name
 DIR="$( realpath -e -- "$DIR"; )";    # Resolve its full path if need be
@@ -27,38 +27,17 @@ else
   cd ../..
 fi
 
-# FIXME: re-enable test fixtures
-# find dump/test-vectors/instr/fixtures -type f -name '*.fix' -exec ./$OBJDIR/unit-test/test_exec_instr --log-path $LOG_PATH/test_exec_instr --log-level-stderr 4 {} +
-# ./$OBJDIR/unit-test/test_exec_instr --log-path $LOG_PATH/test_exec_instr --log-level-stderr 4 `cat contrib/test/instr-fixtures.list`
+LOG=$LOG_PATH/test_exec_syscall
+cat contrib/test/syscall-fixtures.list | xargs ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+
+LOG=$LOG_PATH/test_exec_precompiles
+cat contrib/test/precompile-fixtures.list | xargs  ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
 zstd -df dump/test-vectors/elf_loader/fixtures/*.zst
-# find dump/test-vectors/elf_loader/fixtures -type f -name '*.fix' -exec ./$OBJDIR/unit-test/test_elf_loader --log-path $LOG_PATH/test_elf_loader --log-level-stderr 4 {} +
-./$OBJDIR/unit-test/test_elf_loader --log-path $LOG_PATH/test_elf_loader --log-level-stderr 4 `cat contrib/test/elf-loader-fixtures.list`
+LOG=$LOG_PATH/test_elf_loader
+cat contrib/test/elf-loader-fixtures.list | xargs ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
-num_exec_instr_tests_raw=`find dump/test-vectors/instr/fixtures -type f -name '*.fix' | wc -l`
-num_elf_tests_raw=`find dump/test-vectors/elf_loader/fixtures -type f -name '*.fix' | wc -l`
-num_exec_instr_tests="`cat contrib/test/instr-fixtures.list | wc -l`"
-num_elf_tests="`cat contrib/test/elf-loader-fixtures.list | wc -l`"
-# total_tests=$((num_exec_instr_tests + num_elf_tests))
-# FIXME
-total_tests=$num_elf_tests
-total_tests_missing=$((num_exec_instr_tests_raw + num_elf_tests_raw - total_tests))
+LOG=$LOG_PATH/test_exec_instr
+cat contrib/test/instr-fixtures.list | xargs ./$OBJDIR/unit-test/test_exec_instr --log-path $LOG --log-level-stderr 4
 
-failed=`grep -wR FAIL $LOG_PATH | wc -l`
-passed=`grep -wR OK $LOG_PATH | wc -l`
-
-echo "Total test cases: $total_tests"
-echo "Total test cases not run: $total_tests_missing"
-echo "Total passed: $passed"
-echo "Total failed: $failed"
-
-if [ "$failed" != "0" ] || [ $passed -ne $total_tests ];
-then
-  echo 'test vector execution failed'
-  grep -wR FAIL $LOG_PATH
-  echo $LOG_PATH
-  exit 1
-else
-  echo 'test vector execution passed'
-  exit 0
-fi
+echo Test vectors success

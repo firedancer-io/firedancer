@@ -157,7 +157,8 @@ _load_account( fd_borrowed_account_t *           acc,
 static int
 _context_create( fd_exec_instr_test_runner_t *        runner,
                  fd_exec_instr_ctx_t *                ctx,
-                 fd_exec_test_instr_context_t const * test_ctx ) {
+                 fd_exec_test_instr_context_t const * test_ctx,
+                 bool                                 is_syscall ) {
   // TODO: Add an option to use workspace allocators
   data_wksp_ptrs_idx = 0;
 
@@ -456,12 +457,11 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   }
   info->acct_cnt = (uchar)test_ctx->instr_accounts_count;
 
-  /* The remaining checks enforce that the program is one of the accounts and
-     owned by native loader.
-     Syscalls also call this function to setup their instruction ctx, but
-     these checks are irrelevant, so we skip them when program_id is zero. */
-  uchar zero[32] = { 0 };
-  if( !fd_memeq( test_ctx->program_id, zero, 32 ) ) {
+  /* This function is used to create context both for instructions and for syscalls,
+     however some of the remaining checks are only relevant for program instructions. */
+  if( !is_syscall ) {
+    /* The remaining checks enforce that the program is one of the accounts and
+      owned by native loader. */
     bool found_program_id = false;
     for( uint i = 0; i < test_ctx->accounts_count; i++ ) {
       if( 0 == memcmp( test_ctx->accounts[i].address, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
@@ -746,7 +746,7 @@ fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
                            fd_exec_test_instr_fixture_t const * test,
                            char const *                         log_name ) {
   fd_exec_instr_ctx_t ctx[1];
-  if( FD_UNLIKELY( !_context_create( runner, ctx, &test->input ) ) ) {
+  if( FD_UNLIKELY( !_context_create( runner, ctx, &test->input, false ) ) ) {
     _context_destroy( runner, ctx );
     return 0;
   }
@@ -787,7 +787,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
 
   /* Convert the Protobuf inputs to a fd_exec context */
   fd_exec_instr_ctx_t ctx[1];
-  if( !_context_create( runner, ctx, input ) ) {
+  if( !_context_create( runner, ctx, input, false ) ) {
     _context_destroy( runner, ctx );
     return 0UL;
   }
@@ -899,10 +899,11 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
 }
 
 ulong
-fd_sbpf_program_load_test_run( fd_exec_test_elf_loader_ctx_t const * input,
-                               fd_exec_test_elf_loader_effects_t ** output,
-                               void *                               output_buf,
-                               ulong                                output_bufsz ){
+fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * runner,
+                               fd_exec_test_elf_loader_ctx_t const * input,
+                               fd_exec_test_elf_loader_effects_t **  output,
+                               void *                                output_buf,
+                               ulong                                 output_bufsz ){
   fd_sbpf_elf_info_t info;
   fd_valloc_t valloc = fd_scratch_virtual();
 
@@ -1020,7 +1021,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   /* Create execution context */
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t ctx[1];
-  if( !_context_create( runner, ctx, input_instr_ctx ) )
+  if( !_context_create( runner, ctx, input_instr_ctx, true ) )
     return 0UL;
   fd_valloc_t valloc = fd_scratch_virtual();
 
