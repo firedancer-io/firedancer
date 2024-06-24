@@ -9,3 +9,5 @@ flags:
     carryforward: true
   ledgers:
     carryforward: true
+  nightly_ledgers:
+    carryforward: true

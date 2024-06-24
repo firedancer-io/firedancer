@@ -58,7 +58,7 @@ TILE_CPUS="--tile-cpus 5-21"
 MINIFY_ROCKSDB=0
 
 POSITION_ARGS=()
-OBJDIR=${OBJDIR:-build/native/gcc}
+OBJDIR=${OBJDIR:-build/native/clang}
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -222,7 +222,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 
-export LLVM_PROFILE_FILE=$OBJDIR/cov/raw/ledger_test_$LEDGER.profraw
+export LLVM_PROFILE_FILE=$OBJDIR/cov/raw/ledger_test_$$.profraw
 mkdir -p $OBJDIR/cov/raw
 
 if [[ ! -e dump/$CHECKPT && SKIP_INGEST -eq 1 ]]; then

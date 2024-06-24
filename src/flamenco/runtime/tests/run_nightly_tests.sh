@@ -18,6 +18,10 @@ while [[ $# -gt 0 ]]; do
        SLACK_WEBHOOK_URL="$2"
        shift 2
        ;;
+    -cc|--codecov-token)
+       CODECOV_TOKEN="$2"
+       shift 2
+       ;;
     *)
       echo "Unknown flag"
       exit 1
@@ -33,6 +37,11 @@ fi
 
 if [ -z "${SLACK_WEBHOOK_URL}" ]; then
   echo "Error: Slack webhook URL not specified"
+  exit 1
+fi
+
+if [ -z "${CODECOV_TOKEN}" ]; then
+  echo "Error: Codecov token not specified"
   exit 1
 fi
 
@@ -53,17 +62,13 @@ EOF
 curl -X POST -H 'Content-type: application/json' --data "$start_json_payload" $SLACK_WEBHOOK_URL
 
 # Set up environment
-PATH=/opt/rh/gcc-toolset-12/root/usr/bin:$PATH
-export PATH
-PKG_CONFIG_PATH=/usr/lib64/pkgconfig:$PKG_CONFIG_PATH
-
 make distclean && make clean
 ./deps.sh nuke
 echo "y" | ./deps.sh +dev
-make -j
+make -j CC=clang EXTRAS=llvm-cov
 
 # Run the test
-make run-runtime-test-nightly > ~/run_nightly_tests.txt
+make run-runtime-test-nightly -j CC=clang EXTRAS=llvm-cov > ~/run_nightly_tests.txt
 status=$?
 
 # Notify the test status
@@ -90,6 +95,7 @@ for log_info in "${log_infos[@]}"; do
     if [[ -n "$mismatched" ]]; then
         mismatch_slot=$(grep "Bank hash mismatch!" "$log_file" | tail -n 1 | awk -F'slot=' '{print $2}' | awk '{print $1}')
         end_message+=$'\n'" - Ledger \`$ledger\` Starting at Slot \`$start_slot\` Failed at Slot \`$mismatch_slot\`, Log at: \`$log_file\`"
+        ./src/flamenco/runtime/tests/run_conformance_tests.sh -i /data/insn_pb/ -fdr $REPO_DIR -fdb $BRANCH
     else
         replay_completed=$(grep "replay completed" "$log_file" | tail -n 1)
         info="${replay_completed#*replay completed - }"
@@ -97,7 +103,6 @@ for log_info in "${log_infos[@]}"; do
     fi
 done
 
-./src/flamenco/runtime/tests/run_conformance_tests.sh -i /data/insn_pb/ -fdr $REPO_DIR -fdb $BRANCH
 
 json_payload=$(cat <<EOF
 {
@@ -107,3 +112,12 @@ json_payload=$(cat <<EOF
 EOF
 )
 curl -X POST -H 'Content-type: application/json' --data "$json_payload" $SLACK_WEBHOOK_URL
+
+OBJDIR=${OBJDIR:-build/native/clang}
+find "${REPO_DIR}/${OBJDIR}/cov/raw" -name '*.profraw' -print0 | xargs -0 llvm-profdata merge --sparse -o "${REPO_DIR}/${OBJDIR}/cov/raw/codecov.profdata"
+llvm-cov export -format=lcov -instr-profile=${REPO_DIR}/${OBJDIR}/cov/raw/codecov.profdata ${REPO_DIR}/${OBJDIR}/bin/fd_ledger > ${REPO_DIR}/${OBJDIR}/cov/raw/codecov.lcov
+
+curl -Os https://uploader.codecov.io/latest/linux/codecov
+chmod +x codecov
+./codecov -f ${REPO_DIR}/${OBJDIR}/cov/raw/codecov.lcov -t $CODECOV_TOKEN -F nightly_ledgers --name dist-cov-nightly-report
+rm codecov
