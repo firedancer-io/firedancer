@@ -7,7 +7,7 @@ main( int     argc,
 
   fd_snapshot_name_t name[1] = {{0}};
   fd_snapshot_http_t _http[1];
-  fd_snapshot_http_t * http = fd_snapshot_http_new( _http, 0x01010101, 80, name );
+  fd_snapshot_http_t * http = fd_snapshot_http_new( _http, "1.1.1.1:80", 0x01010101, 80, name );
   FD_TEST( http );
   FD_TEST( 0==memcmp( http->req_buf + http->req_tail,
       "GET /snapshot.tar.bz2 HTTP/1.1\r\n"

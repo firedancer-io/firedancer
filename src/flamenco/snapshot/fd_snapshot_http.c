@@ -45,6 +45,7 @@ fd_snapshot_http_set_path( fd_snapshot_http_t * this,
 
 fd_snapshot_http_t *
 fd_snapshot_http_new( void *               mem,
+                      const char *         dst_str,
                       uint                 dst_ipv4,
                       ushort               dst_port,
                       fd_snapshot_name_t * name_out ) {
@@ -82,12 +83,13 @@ fd_snapshot_http_new( void *               mem,
     "host: ";
   p = fd_cstr_append_text( p, hdr_part1, sizeof(hdr_part1)-1 );
 
-  p = fd_cstr_append_printf( p, FD_IP4_ADDR_FMT ":%u",
-                             FD_IP4_ADDR_FMT_ARGS( dst_ipv4 ), dst_port );
+  p = fd_cstr_append_text( p, dst_str, strlen(dst_str) );
+
   static char const hdr_part2[] =
     "\r\n"
     "\r\n";
   p = fd_cstr_append_text( p, hdr_part2, sizeof(hdr_part2)-1 );
+
   this->req_head = (ushort)( p - this->req_buf );
 
   return this;
