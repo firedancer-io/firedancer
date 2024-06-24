@@ -1,7 +1,7 @@
 ## Getting Started
 
 This book is served with VitePress. You can see the VitePress getting
-started guide at https://vitepress.dev/guide/getting-started
+started guide at https://vitepress.dev/guide/getting-started.
 
 ### Developing
 
