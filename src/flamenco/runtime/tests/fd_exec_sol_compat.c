@@ -1,6 +1,9 @@
 #include "fd_exec_sol_compat.h"
 #include "../../nanopb/pb_decode.h"
 #include "../../nanopb/pb_encode.h"
+#include "generated/elf.pb.h"
+#include "generated/invoke.pb.h"
+#include "generated/vm.pb.h"
 #include <assert.h>
 #include <stdlib.h>
 #include "../../vm/fd_vm.h"

@@ -6,6 +6,7 @@
 
 #include "generated/elf.pb.h"
 #include "generated/invoke.pb.h"
+#include "generated/vm.pb.h"
 #include "../../../funk/fd_funk.h"
 #include "../../vm/fd_vm.h"
 #include "../../../ballet/murmur3/fd_murmur3.h"
