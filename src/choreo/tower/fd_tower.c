@@ -92,7 +92,6 @@ fd_tower_fork_update( fd_tower_t * tower, fd_fork_t * fork ) {
 
   fd_blockstore_t * blockstore = tower->blockstore;
   fd_ghost_t *      ghost      = tower->ghost;
-  fd_valloc_t       valloc     = tower->valloc;
 
   /* Get the parent key. Every slot except the root must have a parent. */
 
@@ -134,45 +133,47 @@ fd_tower_fork_update( fd_tower_t * tower, fd_fork_t * fork ) {
 #     endif
     }
 
-    rc = fd_vote_get_state( vote_account, valloc, &vote_state_versioned );
-    if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING( (
-          "fd_vote_get_state failed on vote account %32J. error: %d", vote_account_address, rc ) );
+    FD_SCRATCH_SCOPE_BEGIN {
+      rc = fd_vote_get_state( vote_account, fd_scratch_virtual(), &vote_state_versioned );
+      if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_WARNING( (
+            "fd_vote_get_state failed on vote account %32J. error: %d", vote_account_address, rc ) );
 #     if defined(__x86_64__)
-      __asm__( "int $3" );
+        __asm__( "int $3" );
 #     endif
-    }
+      }
 
-    fd_vote_convert_to_current( &vote_state_versioned, valloc );
-    fd_vote_state_t *  vote_state   = &vote_state_versioned.inner.current;
-    fd_landed_vote_t * landed_votes = vote_state->votes;
+      fd_vote_convert_to_current( &vote_state_versioned, fd_scratch_virtual() );
+      fd_vote_state_t *  vote_state   = &vote_state_versioned.inner.current;
+      fd_landed_vote_t * landed_votes = vote_state->votes;
 
-    if( FD_UNLIKELY( deq_fd_landed_vote_t_empty( landed_votes ) ) ) { continue; }
+      if( FD_UNLIKELY( deq_fd_landed_vote_t_empty( landed_votes ) ) ) { continue; }
 
-    ulong vote_slot = deq_fd_landed_vote_t_peek_tail_const( landed_votes )->lockout.slot;
+      ulong vote_slot = deq_fd_landed_vote_t_peek_tail_const( landed_votes )->lockout.slot;
 
-    /* Ignore votes for slots < root. */
+      /* Ignore votes for slots < root. */
 
-    if( FD_UNLIKELY( vote_slot < tower->root ) ) { continue; }
+      if( FD_UNLIKELY( vote_slot < tower->root ) ) { continue; }
 
-    /* Look up the ghost node.
+      /* Look up the ghost node.
 
-       It is invariant that our bank hash matches the voter's hash,
-       because this was checked earlier by the vote program during slot
-       execution. */
+        It is invariant that our bank hash matches the voter's hash,
+        because this was checked earlier by the vote program during slot
+        execution. */
 
-    fd_ghost_node_t * ghost_node = fd_ghost_node_query( ghost, fork->slot );
+      fd_ghost_node_t * ghost_node = fd_ghost_node_query( ghost, fork->slot );
 
 #if FD_TOWER_USE_HANDHOLDING
-    /* FIXME vote for slot # > root but got pruned off different fork before root? */
-    if( FD_UNLIKELY( !ghost_node ) ) {
-      FD_LOG_ERR( ( "ghost is missing vote slot %lu", vote_slot ) );
-    };
+      /* FIXME vote for slot # > root but got pruned off different fork before root? */
+      if( FD_UNLIKELY( !ghost_node ) ) {
+        FD_LOG_ERR( ( "ghost is missing vote slot %lu", vote_slot ) );
+      };
 #endif
 
-    /* Upsert the vote into ghost. */
+      /* Upsert the vote into ghost. */
 
-    fd_ghost_replay_vote_upsert( ghost, vote_slot, &vote_state->node_pubkey, curr->elem.stake );
+      fd_ghost_replay_vote_upsert( ghost, vote_slot, &vote_state->node_pubkey, curr->elem.stake );
+    } FD_SCRATCH_SCOPE_END;
   }
 }
 
