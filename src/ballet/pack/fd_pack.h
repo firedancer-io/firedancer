@@ -208,6 +208,10 @@ void fd_pack_set_block_limits( fd_pack_t * pack, ulong max_microblocks_per_block
       fd_pack_expire_before.
     * TOO_LARGE: the transaction requested too many CUs and would never
       be scheduled if it had been accepted.
+    * ACCOUNT_CNT: the transaction tried to load more than 64 account
+      addresses.
+    * DUPLICATE_ACCT: the transaction included an account address twice
+      in its list of account addresses to load.
     * ESTIMATION_FAIL: estimation of the transaction's compute cost and
       fee failed, typically because the transaction contained a
       malformed ComputeBudgetProgram instruction.
@@ -232,15 +236,17 @@ void fd_pack_set_block_limits( fd_pack_t * pack, ulong max_microblocks_per_block
 #define FD_PACK_INSERT_REJECT_ADDR_LUT        (-4)
 #define FD_PACK_INSERT_REJECT_EXPIRED         (-5)
 #define FD_PACK_INSERT_REJECT_TOO_LARGE       (-6)
-#define FD_PACK_INSERT_REJECT_ESTIMATION_FAIL (-7)
-#define FD_PACK_INSERT_REJECT_WRITES_SYSVAR   (-8)
-#define FD_PACK_INSERT_REJECT_FULL            (-9)
+#define FD_PACK_INSERT_REJECT_ACCOUNT_CNT     (-7)
+#define FD_PACK_INSERT_REJECT_DUPLICATE_ACCT  (-8)
+#define FD_PACK_INSERT_REJECT_ESTIMATION_FAIL (-9)
+#define FD_PACK_INSERT_REJECT_WRITES_SYSVAR   (-10)
+#define FD_PACK_INSERT_REJECT_FULL            (-11)
 
 /* The FD_PACK_INSERT_{ACCEPT, REJECT}_* values defined above are in the
    range [-FD_PACK_INSERT_RETVAL_OFF,
    -FD_PACK_INSERT_RETVAL_OFF+FD_PACK_INSERT_RETVAL_CNT ) */
-#define FD_PACK_INSERT_RETVAL_OFF  9
-#define FD_PACK_INSERT_RETVAL_CNT 13
+#define FD_PACK_INSERT_RETVAL_OFF 11
+#define FD_PACK_INSERT_RETVAL_CNT 15
 
 FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_FULL>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_VOTE_REPLACE<FD_PACK_INSERT_RETVAL_CNT-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
