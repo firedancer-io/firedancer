@@ -494,7 +494,7 @@ _instr_context_create( fd_exec_instr_test_runner_t *        runner,
 }
 
 void
-_add_to_data(uchar ** data, void * to_add, ulong size) {
+_add_to_data(uchar ** data, void const * to_add, ulong size) {
   while( size-- ) {
     **data = *(uchar *)to_add;
     (*data)++;
@@ -560,7 +560,7 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
 
   /* Restore feature flags */
 
-  fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_ctx->features;
+  fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_ctx.features;
 
   fd_features_disable_all( &epoch_ctx->features );
   for( ulong j=0UL; j < feature_set->features_count; j++ ) {
@@ -585,8 +585,6 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   /* Restore sysvar cache */
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
 
-  // TODO: Restore sysvar cache values properly from the protobuf messages
-
   /* Fill missing sysvar cache values with defaults */
   /* We create mock accounts for each of the sysvars and hardcode the data fields before loading it into the account manager */
   /* We use Agave sysvar defaults for data field values */
@@ -596,7 +594,7 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   if( !slot_ctx->sysvar_cache->has_clock ) {
     slot_ctx->sysvar_cache->has_clock = 1;
     fd_sol_sysvar_clock_t sysvar_clock = {
-                                          .slot = 10,
+                                          .slot = test_ctx->slot_ctx.slot,
                                           .epoch_start_timestamp = 0,
                                           .epoch = 0,
                                           .leader_schedule_epoch = 0,
@@ -650,6 +648,7 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
 
   /* Override most recent blockhash if given */
   fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
+
   if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
     if( last ) {
@@ -658,77 +657,86 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
     }
   }
 
+  // TODO: Set recent blockhashes properly here
+  slot_ctx->slot_bank.block_hash_queue.last_hash = &recent_block_hash->blockhash;
+
+  /* Load in the account states (note this is different from the account keys):
+      Account state = accounts to populate DB with
+      Account keys = account keys that the transaction needs
+    The account keys should be a SUBSET of the pubkeys in the account states. */
+  for( ulong i = 0; i < test_ctx->tx.message.account_shared_data_count; i++ ) {
+    // Load the accounts into the account manager
+    // Borrowed accounts get reset anyways - we just need to load the account somewhere
+    _load_account( &txn_ctx->borrowed_accounts[i], acc_mgr, funk_txn, &test_ctx->tx.message.account_shared_data[i] );
+  }
+
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   uchar * txn_raw_begin = fd_scratch_alloc( alignof(uchar), 1232 );
   uchar * txn_raw_cur_ptr = txn_raw_begin;
 
   /* Header (3 bytes) (https://solana.com/docs/core/transactions#message-header) */
-  _add_to_data( &txn_raw_cur_ptr, &test_ctx->tx->message->header.num_required_signatures, sizeof(uchar) );
-  _add_to_data( &txn_raw_cur_ptr, &test_ctx->tx->message->header.num_readonly_signed_accounts, sizeof(uchar) );
-  _add_to_data( &txn_raw_cur_ptr, &test_ctx->tx->message->header.num_readonly_unsigned_accounts, sizeof(uchar) );
+  _add_to_data( &txn_raw_cur_ptr, &test_ctx->tx.message.header.num_required_signatures, sizeof(uchar) );
+  _add_to_data( &txn_raw_cur_ptr, &test_ctx->tx.message.header.num_readonly_signed_accounts, sizeof(uchar) );
+  _add_to_data( &txn_raw_cur_ptr, &test_ctx->tx.message.header.num_readonly_unsigned_accounts, sizeof(uchar) );
 
   /* Compact array of account addresses (https://solana.com/docs/core/transactions#compact-array-format) */
   // Array length is a compact u16
-  ushort num_acct_keys = (ushort) test_ctx->tx->message->account_keys_count;
+  ushort num_acct_keys = (ushort) test_ctx->tx.message.account_keys_count;
   _add_compact_u16( &txn_raw_cur_ptr, num_acct_keys );
   for( ushort i = 0; i < num_acct_keys; ++i ) {
-    _add_to_data( &txn_raw_cur_ptr, test_ctx->tx->message->account_keys[i]->bytes, sizeof(fd_pubkey_t) );
-
-    // Load the accounts into the account manager
-    // Borrowed accounts get reset anyways - we just need to load the account somewhere
-    _load_account( &txn_ctx->borrowed_accounts[i], acc_mgr, funk_txn, &test_ctx->tx->message->account_shared_data[i] );
+    _add_to_data( &txn_raw_cur_ptr, test_ctx->tx.message.account_keys[i]->bytes, sizeof(fd_pubkey_t) );
   }
 
   /* Recent blockhash 32 bytes (https://solana.com/docs/core/transactions#recent-blockhash) */
-  _add_to_data( &txn_raw_cur_ptr, test_ctx->tx->message->recent_blockhash->bytes, sizeof(fd_hash_t) );
+  _add_to_data( &txn_raw_cur_ptr, &recent_block_hash->blockhash, sizeof(fd_hash_t) );
 
   /* Compact array of instructions (https://solana.com/docs/core/transactions#array-of-instructions) */
   // Instruction count is a compact u16
-  ushort instr_count = (ushort) test_ctx->tx->message->instructions_count;
+  ushort instr_count = (ushort) test_ctx->tx.message.instructions_count;
   _add_compact_u16( &txn_raw_cur_ptr, instr_count );
   for( ushort i = 0; i < instr_count; ++i ) {
     // Program ID index
-    uchar program_id_index = (uchar) test_ctx->tx->message->instructions[i].program_id_index;
+    uchar program_id_index = (uchar) test_ctx->tx.message.instructions[i].program_id_index;
     _add_to_data( &txn_raw_cur_ptr, &program_id_index, sizeof(uchar) );
 
     // Compact array of account addresses
-    ushort acct_count = (ushort) test_ctx->tx->message->instructions[i].accounts_count;
+    ushort acct_count = (ushort) test_ctx->tx.message.instructions[i].accounts_count;
     _add_compact_u16( &txn_raw_cur_ptr, acct_count );
     for( ushort j = 0; j < acct_count; ++j ) {
-      uchar account_index = (uchar) test_ctx->tx->message->instructions[i].accounts[j];
+      uchar account_index = (uchar) test_ctx->tx.message.instructions[i].accounts[j];
       _add_to_data( &txn_raw_cur_ptr, &account_index, sizeof(uchar) );
     }
 
     // Compact array of 8-bit data
-    ushort data_len = (ushort) test_ctx->tx->message->instructions[i].data->size;
+    ushort data_len = (ushort) test_ctx->tx.message.instructions[i].data->size;
     _add_compact_u16( &txn_raw_cur_ptr, data_len );
-    _add_to_data( &txn_raw_cur_ptr, test_ctx->tx->message->instructions[i].data->bytes, data_len );
+    _add_to_data( &txn_raw_cur_ptr, test_ctx->tx.message.instructions[i].data->bytes, data_len );
   }
 
   /* Address table lookups (N/A for legacy transactions) */
   ushort addr_table_cnt = 0;
-  if( !test_ctx->tx->message->is_legacy ) {
+  if( !test_ctx->tx.message.is_legacy ) {
     /* Compact array of address table lookups (https://solanacookbook.com/guides/versioned-transactions.html#compact-array-of-address-table-lookups) */
     // NOTE: The diagram is slightly wrong - the account key is a 32 byte pubkey, not a u8
-    addr_table_cnt = (ushort) test_ctx->tx->message->address_table_lookups_count;
+    addr_table_cnt = (ushort) test_ctx->tx.message.address_table_lookups_count;
     _add_compact_u16( &txn_raw_cur_ptr, addr_table_cnt );
     for( ushort i = 0; i < addr_table_cnt; ++i ) {
       // Account key
-      _add_to_data( &txn_raw_cur_ptr, test_ctx->tx->message->address_table_lookups[i].account_key, sizeof(fd_pubkey_t) );
+      _add_to_data( &txn_raw_cur_ptr, test_ctx->tx.message.address_table_lookups[i].account_key, sizeof(fd_pubkey_t) );
 
       // Compact array of writable indexes
-      ushort writable_count = (ushort) test_ctx->tx->message->address_table_lookups[i].writable_indexes_count;
+      ushort writable_count = (ushort) test_ctx->tx.message.address_table_lookups[i].writable_indexes_count;
       _add_compact_u16( &txn_raw_cur_ptr, writable_count );
       for( ushort j = 0; j < writable_count; ++j ) {
-        uchar writable_index = (uchar) test_ctx->tx->message->address_table_lookups[i].writable_indexes[j];
+        uchar writable_index = (uchar) test_ctx->tx.message.address_table_lookups[i].writable_indexes[j];
         _add_to_data( &txn_raw_cur_ptr, &writable_index, sizeof(uchar) );
       }
 
       // Compact array of readonly indexes
-      ushort readonly_count = (ushort) test_ctx->tx->message->address_table_lookups[i].readonly_indexes_count;
+      ushort readonly_count = (ushort) test_ctx->tx.message.address_table_lookups[i].readonly_indexes_count;
       _add_compact_u16( &txn_raw_cur_ptr, readonly_count );
       for( ushort j = 0; j < readonly_count; ++j ) {
-        uchar readonly_index = (uchar) test_ctx->tx->message->address_table_lookups[i].readonly_indexes[j];
+        uchar readonly_index = (uchar) test_ctx->tx.message.address_table_lookups[i].readonly_indexes[j];
         _add_to_data( &txn_raw_cur_ptr, &readonly_index, sizeof(uchar) );
       }
     }
@@ -1221,15 +1229,17 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
 
   ulong modified_acct_cnt = txn_ctx->accounts_cnt;
 
-  fd_exec_test_resulting_state_t * modified_accts =
-    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_resulting_state_t),
-                                sizeof (fd_exec_test_resulting_state_t) * modified_acct_cnt );
+  fd_exec_test_acct_state_t * modified_accts =
+    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t),
+                                sizeof (fd_exec_test_acct_state_t) * modified_acct_cnt );
   if( FD_UNLIKELY( _l > output_end ) ) {
     // _txn_context_destroy( runner, txn_ctx );
     return 0;
   }
-  txn_result->states       = modified_accts;
-  txn_result->states_count = 0UL;
+  txn_result->resulting_state.acct_states       = modified_accts;
+  txn_result->resulting_state.acct_states_count = 0;
+
+  // TODO: txn_result->resulting_state->rent_debits
   
   /* Capture borrowed accounts */
 
@@ -1237,18 +1247,16 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
     fd_borrowed_account_t * acc = &txn_ctx->borrowed_accounts[j];
     if( !acc->meta ) continue;
 
-    ulong modified_idx = txn_result->states_count;
+    ulong modified_idx = txn_result->resulting_state.acct_states_count;
     assert( modified_idx < modified_acct_cnt );
 
-    fd_exec_test_acct_state_t * out_acct = txn_result->states[ modified_idx ].state;
+    fd_exec_test_acct_state_t * out_acct = &txn_result->resulting_state.acct_states[ modified_idx ];
     memset( out_acct, 0, sizeof(fd_exec_test_acct_state_t) );
     /* Copy over account content */
 
-    out_acct->has_address = 1;
     memcpy( out_acct->address, acc->pubkey, sizeof(fd_pubkey_t) );
 
-    out_acct->has_lamports = 1;
-    out_acct->lamports     = acc->meta->info.lamports;
+    out_acct->lamports = acc->meta->info.lamports;
 
     out_acct->data =
       FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
@@ -1260,16 +1268,13 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
     out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
     fd_memcpy( out_acct->data->bytes, acc->const_data, acc->const_meta->dlen );
 
-    out_acct->has_executable = 1;
     out_acct->executable     = acc->meta->info.executable;
-
-    out_acct->has_rent_epoch = 1;
     out_acct->rent_epoch     = acc->meta->info.rent_epoch;
-
-    out_acct->has_owner = 1;
     memcpy( out_acct->owner, acc->meta->info.owner, sizeof(fd_pubkey_t) );
 
-    txn_result->states_count++;
+    txn_result->resulting_state.acct_states_count++;
+
+    // TODO: Figure out rent debits
 
     /* Delete funk record */
     fd_funk_rec_key_t rec_key = fd_acc_funk_key( acc->pubkey );
@@ -1280,7 +1285,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
 
   txn_result->rent = txn_ctx->slot_ctx->slot_bank.collected_rent;
   txn_result->is_ok = !!exec_res;
-  txn_result->status = -exec_res;
+  txn_result->status = (uint32_t) -exec_res;
   txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
                                   PB_BYTES_ARRAY_T_ALLOCSIZE( txn_ctx->return_data.len ) );
   if( FD_UNLIKELY( _l > output_end ) ) {
