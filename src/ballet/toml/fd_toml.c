@@ -166,7 +166,8 @@ fd_toml_avail( fd_toml_parser_t const * parser ) {
   __extension__ ({                                    \
     fd_toml_cur_t const _macro_backtrack = parser->c; \
     int ret = fn_call;                                \
-    if( FD_UNLIKELY( !ret ) ) {                       \
+    if( !ret ) {                                      \
+      if( parser->error ) return 0;                   \
       parser->c = _macro_backtrack;                   \
     }                                                 \
     ret;                                              \
@@ -978,7 +979,12 @@ fd_toml_parse_zero_prefixable_int( fd_toml_parser_t * parser,
       if( FD_UNLIKELY( !isdigit( parser->c.data[0] ) ) ) return 0;
     } else {
       int digit = (uchar)parser->c.data[0];
-      digits = digits * 10UL + (ulong)( digit - '0' );
+      if( FD_UNLIKELY(
+          __builtin_umull_overflow( digits, 10, &digits ) ||
+          __builtin_uaddl_overflow( digits, (ulong)( digit - '0' ), &digits ) ) ) {
+        parser->error = FD_TOML_ERR_RANGE;
+        return 0;
+      }
       fd_toml_advance_inline( parser, 1UL );
       if( !fd_toml_avail( parser ) ) break;
       if( !isdigit( parser->c.data[0] ) && parser->c.data[0] != '_' ) break;
@@ -1007,8 +1013,6 @@ fd_toml_parse_dec_int_( fd_toml_parser_t * parser,
     break;
   }
 
-  /* TODO OVERFLOW DETECTION */
-
   if( FD_UNLIKELY( !fd_toml_avail( parser ) ) ) return 0;
   int first_digit = (uchar)parser->c.data[0];
   if( first_digit == '0' ) {
@@ -1030,7 +1034,7 @@ fd_toml_parse_dec_int( fd_toml_parser_t * parser ) {
   if( FD_UNLIKELY( !fd_toml_parse_dec_int_( parser, &dec ) ) ) return 0;
   long val = (long)dec.res;
        val = fd_long_if( dec.neg, -val, val );
-  if( FD_UNLIKELY( !fd_pod_insert_ulong( parser->pod, parser->key, (ulong)val ) ) ) {
+  if( FD_UNLIKELY( !fd_pod_insert_long( parser->pod, parser->key, val ) ) ) {
     parser->error = FD_TOML_ERR_POD;
     return 0;
   }
@@ -1047,8 +1051,6 @@ fd_toml_parse_hex_int( fd_toml_parser_t * parser ) {
   if( FD_UNLIKELY( !isxdigit( parser->c.data[2] ) ) ) return 0;  /* at least one digit */
   fd_toml_advance_inline( parser, 2UL );
 
-  /* TODO OVERFLOW DETECTION */
-
   ulong res = 0UL;
   int allow_underscore = 0;
   for(;;) {
@@ -1060,6 +1062,10 @@ fd_toml_parse_hex_int( fd_toml_parser_t * parser ) {
       if( FD_UNLIKELY( !isxdigit( parser->c.data[0] ) ) ) return 0;
     } else {
       if( !isxdigit( digit ) ) break;
+      if( FD_UNLIKELY( res>>60 ) ) {
+        parser->error = FD_TOML_ERR_RANGE;
+        return 0;
+      }
       res <<= 4;
       res  |= fd_toml_xdigit( digit );
       fd_toml_advance_inline( parser, 1UL );
@@ -1068,7 +1074,7 @@ fd_toml_parse_hex_int( fd_toml_parser_t * parser ) {
     }
   }
 
-  if( FD_UNLIKELY( !fd_pod_insert_ulong( parser->pod, parser->key, res ) ) ) {
+  if( FD_UNLIKELY( !fd_pod_insert_long( parser->pod, parser->key, (long)res ) ) ) {
     parser->error = FD_TOML_ERR_POD;
     return 0;
   }
@@ -1091,8 +1097,6 @@ fd_toml_parse_oct_int( fd_toml_parser_t * parser ) {
   if( FD_UNLIKELY( !fd_toml_is_odigit( parser->c.data[2] ) ) ) return 0;  /* at least one digit */
   fd_toml_advance_inline( parser, 2UL );
 
-  /* TODO OVERFLOW DETECTION */
-
   ulong res = 0UL;
   int allow_underscore = 0;
   for(;;) {
@@ -1104,6 +1108,10 @@ fd_toml_parse_oct_int( fd_toml_parser_t * parser ) {
       if( FD_UNLIKELY( !fd_toml_is_odigit( parser->c.data[0] ) ) ) return 0;
     } else {
       if( !fd_toml_is_odigit( digit ) ) break;
+      if( FD_UNLIKELY( res>>61 ) ) {
+        parser->error = FD_TOML_ERR_RANGE;
+        return 0;
+      }
       res <<= 3;
       res  |= (ulong)( digit - '0' );
       fd_toml_advance_inline( parser, 1UL );
@@ -1112,7 +1120,7 @@ fd_toml_parse_oct_int( fd_toml_parser_t * parser ) {
     }
   }
 
-  if( FD_UNLIKELY( !fd_pod_insert_ulong( parser->pod, parser->key, res ) ) ) {
+  if( FD_UNLIKELY( !fd_pod_insert_long( parser->pod, parser->key, (long)res ) ) ) {
     parser->error = FD_TOML_ERR_POD;
     return 0;
   }
@@ -1148,6 +1156,10 @@ fd_toml_parse_bin_int( fd_toml_parser_t * parser ) {
       if( FD_UNLIKELY( !fd_toml_is_bdigit( parser->c.data[0] ) ) ) return 0;
     } else {
       if( !fd_toml_is_bdigit( digit ) ) break;
+      if( FD_UNLIKELY( res>>63 ) ) {
+        parser->error = FD_TOML_ERR_RANGE;
+        return 0;
+      }
       res <<= 1;
       res  |= (ulong)( digit - '0' );
       fd_toml_advance_inline( parser, 1UL );
@@ -1156,7 +1168,7 @@ fd_toml_parse_bin_int( fd_toml_parser_t * parser ) {
     }
   }
 
-  if( FD_UNLIKELY( !fd_pod_insert_ulong( parser->pod, parser->key, res ) ) ) {
+  if( FD_UNLIKELY( !fd_pod_insert_long( parser->pod, parser->key, (long)res ) ) ) {
     parser->error = FD_TOML_ERR_POD;
     return 0;
   }
@@ -1224,8 +1236,7 @@ fd_toml_parse_frac( fd_toml_parser_t * parser,
    float-int-part = dec-int */
 
 static int
-fd_toml_parse_float_normal( fd_toml_parser_t * parser,
-                            float *            pres ) {
+fd_toml_parse_float_normal( fd_toml_parser_t * parser ) {
 
   fd_toml_dec_t stem = {0};
   if( FD_UNLIKELY( !fd_toml_parse_dec_int_( parser, &stem ) ) ) return 0;
@@ -1243,17 +1254,18 @@ fd_toml_parse_float_normal( fd_toml_parser_t * parser,
 
   fd_toml_dec_t exp_dec = {0};
   if( !SUB_PARSE( fd_toml_parse_exp( parser, &exp_dec ) ) ) {
-    if( FD_LIKELY( ok ) ) {
-      *pres = res;
-      return 1;
-    }
+    if( FD_LIKELY( ok ) ) goto parsed;
     return 0;
   }
 
   float exp = powf( exp_dec.neg ? 0.1f : 10.0f, (float)exp_dec.res );
   res *= exp;
 
-  *pres = res;
+parsed:
+  if( FD_UNLIKELY( !fd_pod_insert_float( parser->pod, parser->key, res ) ) ) {
+    parser->error = FD_TOML_ERR_POD;
+    return 0;
+  }
   return 1;
 }
 
@@ -1262,17 +1274,12 @@ fd_toml_parse_float_normal( fd_toml_parser_t * parser,
    nan = %x6e.61.6e  ; nan */
 
 static int
-fd_float_parse_float_special( fd_toml_parser_t * parser,
-                              float *            pres ) {
+fd_float_parse_float_special( fd_toml_parser_t * parser ) {
   if( FD_UNLIKELY( fd_toml_avail( parser ) < 3 ) ) return 0;
-  int c      = (uchar)parser->c.data[0];
-  float base = 1.0;
+  int c = (uchar)parser->c.data[0];
 
   switch( c ) {
-  case '-':
-    base = -1.0L;
-    __attribute__((fallthrough));
-  case '+':
+  case '-': case '+':
     fd_toml_advance_inline( parser, 1UL );
     if( FD_UNLIKELY( fd_toml_avail( parser ) < 3 ) ) return 0;
     break;
@@ -1281,15 +1288,15 @@ fd_float_parse_float_special( fd_toml_parser_t * parser,
   char const * str = parser->c.data;
   fd_toml_advance_inline( parser, 3UL );
 
-  if( 0==memcmp( str, "inf", 3 ) ) {
+  if( 0==strncasecmp( str, "inf", 3 ) ) {
     FD_LOG_WARNING(( "float infinity is unsupported" ));
-    *pres = base * FLT_MAX;
-    return 1;
+    parser->error = FD_TOML_ERR_RANGE;
+    return 0;
   }
 
-  if( 0==memcmp( str, "nan", 3 ) ) {
-    FD_LOG_WARNING(( "float nan is unsupported" ));
-    *pres = base * 0.0f;
+  if( 0==strncasecmp( str, "nan", 3 ) ) {
+    FD_LOG_WARNING(( "float NaN is unsupported" ));
+    parser->error = FD_TOML_ERR_RANGE;
     return 1;
   }
 
@@ -1301,22 +1308,9 @@ fd_float_parse_float_special( fd_toml_parser_t * parser,
 
 static int
 fd_toml_parse_float( fd_toml_parser_t * parser ) {
-
-  float res;
-  if( SUB_PARSE( fd_toml_parse_float_normal( parser, &res ) ) ) {
-    goto parsed;
-  }
-  if( SUB_PARSE( fd_float_parse_float_special( parser, &res ) ) ) {
-    goto parsed;
-  }
+  if( SUB_PARSE( fd_toml_parse_float_normal  ( parser ) ) ) return 1;
+  if( SUB_PARSE( fd_float_parse_float_special( parser ) ) ) return 1;
   return 0;
-
-parsed:
-  if( FD_UNLIKELY( !fd_pod_insert_float( parser->pod, parser->key, res ) ) ) {
-    parser->error = FD_TOML_ERR_POD;
-    return 0;
-  }
-  return 1;
 }
 
 /* full-date      = date-fullyear "-" date-month "-" date-mday
