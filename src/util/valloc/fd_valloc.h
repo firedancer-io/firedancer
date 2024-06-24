@@ -25,6 +25,9 @@ typedef struct fd_valloc fd_valloc_t;
 FD_PROTOTYPES_BEGIN
 
 extern const fd_valloc_vtable_t fd_libc_vtable;
+#if FD_HAS_HOSTED
+extern const fd_valloc_vtable_t fd_backtracing_vtable;
+#endif
 
 static inline FD_FN_CONST fd_valloc_t
 fd_libc_alloc_virtual( void ) {
@@ -42,6 +45,17 @@ static inline FD_FN_CONST int
 fd_is_null_alloc_virtual( fd_valloc_t valloc ) {
   return (int)(valloc.vt == NULL);
 }
+
+#if FD_HAS_HOSTED
+/* The backtracing valloc is a debugging tool for tracking memory leaks in 
+   applications using vallocs. It can be used in combination with
+   contrib/tool/leak-detector.py to find potential memory leaks. */
+static inline FD_FN_CONST fd_valloc_t
+fd_backtracing_alloc_virtual( fd_valloc_t * inner_valloc ) {
+  fd_valloc_t valloc = { inner_valloc, &fd_backtracing_vtable };
+  return valloc;
+}
+#endif
 
 static inline void *
 fd_valloc_malloc( fd_valloc_t valloc,
