@@ -779,11 +779,10 @@ set_vote_account_state( ulong                       vote_acct_idx,
 
     /* The resize operation itself is part of the horrible conditional,
        but behind a short-circuit operator. */
-    int resize_err;
     int resize_failed = 0;
     if( resize_needed && resize_rent_exempt ) {
       resize_failed =
-        !fd_account_set_data_length( ctx, vote_acct_idx, vsz, &resize_err );
+        fd_account_set_data_length( ctx, vote_acct_idx, vsz ) != FD_EXECUTOR_INSTR_SUCCESS;
     }
 
     if( FD_UNLIKELY( resize_needed && ( !resize_rent_exempt || resize_failed ) ) ) {
