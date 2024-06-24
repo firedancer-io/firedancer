@@ -1,14 +1,18 @@
 #define _GNU_SOURCE
+#include "config.h"
+#include "config_parse.h"
 #include "fdctl.h"
 
 #include "run/run.h"
 
+#include "../../ballet/toml/fd_toml.h"
 #include "../../disco/topo/fd_topob.h"
 #include "../../disco/topo/fd_pod_format.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/tile/fd_tile_private.h"
 
+#include <fcntl.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,287 +27,7 @@
 #include <sys/utsname.h>
 #include <sys/wait.h>
 
-FD_IMPORT_CSTR( default_config, "src/app/fdctl/config/default.toml" );
-
-static char *
-default_user( void ) {
-  char * name = getenv( "SUDO_USER" );
-  if( FD_UNLIKELY( name ) ) return name;
-
-  name = getenv( "LOGNAME" );
-  if( FD_LIKELY( name ) ) return name;
-
-  name = getlogin();
-  if( FD_UNLIKELY( !name ) ) FD_LOG_ERR(( "getlogin failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  return name;
-}
-
-static int parse_key_value( config_t *   config,
-                            const char * section,
-                            const char * key,
-                            char * value ) {
-#define ENTRY_STR(edot, esection, ekey) do {                                          \
-    if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) {     \
-      ulong len = strlen( value );                                                    \
-      if( FD_UNLIKELY( len < 2 || value[ 0 ] != '"' || value[ len - 1 ] != '"' ) ) {  \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));         \
-        return 1;                                                                     \
-      }                                                                               \
-      if( FD_UNLIKELY( len >= sizeof( config->esection edot ekey ) + 2 ) )            \
-        FD_LOG_ERR(( "value for %s.%s is too long: `%s`", section, key, value ));     \
-      strncpy( config->esection edot ekey, value + 1, len - 2 );                      \
-      config->esection edot ekey[ len - 2 ] = '\0';                                   \
-      return 1;                                                                       \
-    }                                                                                 \
-  } while( 0 )
-
-#define ENTRY_VSTR(edot, esection, ekey) do {                                                        \
-    if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) {                    \
-      ulong len = strlen( value );                                                                   \
-      if( FD_UNLIKELY( len < 2 || value[ 0 ] != '"' || value[ len - 1 ] != '"' ) ) {                 \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));                        \
-        return 1;                                                                                    \
-      }                                                                                              \
-      if( FD_UNLIKELY( len >= sizeof( config->esection edot ekey[ 0 ] ) + 2 ) )                      \
-        FD_LOG_ERR(( "value for %s.%s is too long: `%s`", section, key, value ));                    \
-      if( FD_UNLIKELY( config->esection edot ekey##_cnt >= sizeof( config->esection edot ekey) ) )   \
-        FD_LOG_ERR(( "too many values for %s.%s: `%s`", section, key, value ));                      \
-      strncpy( config->esection edot ekey[ config->esection edot ekey##_cnt ], value + 1, len - 2 ); \
-      config->esection edot ekey[ config->esection edot ekey##_cnt ][ len - 2 ] = '\0';              \
-      config->esection edot ekey##_cnt++;                                                            \
-      return 1;                                                                                      \
-    }                                                                                                \
-  } while( 0 )
-
-#define ENTRY_UINT(edot, esection, ekey) do {                                     \
-    if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) { \
-      if( FD_UNLIKELY( strlen( value ) < 1 ) ) {                                  \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return 1;                                                                 \
-      }                                                                           \
-      char * src = value;                                                         \
-      char * dst = value;                                                         \
-      while( *src ) {                                                             \
-        if( *src != '_' ) *dst++ = *src;                                          \
-        src++;                                                                    \
-      }                                                                           \
-      *dst = '\0';                                                                \
-      char * endptr;                                                              \
-      ulong result = strtoul( value, &endptr, 10 );                               \
-      if( FD_UNLIKELY( *endptr != '\0' || result > UINT_MAX ) ) {                 \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return 1;                                                                 \
-      }                                                                           \
-      config->esection edot ekey = (uint)result;                                  \
-      return 1;                                                                   \
-    }                                                                             \
-  } while( 0 )
-
-#define ENTRY_ULONG(edot, esection, ekey) do {                                    \
-    if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) { \
-      if( FD_UNLIKELY( strlen( value ) < 1 ) ) {                                  \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return 1;                                                                 \
-      }                                                                           \
-      char * src = value;                                                         \
-      char * dst = value;                                                         \
-      while( *src ) {                                                             \
-        if( *src != '_' ) *dst++ = *src;                                          \
-        src++;                                                                    \
-      }                                                                           \
-      *dst = '\0';                                                                \
-      char * endptr;                                                              \
-      ulong result = strtoul( value, &endptr, 10 );                               \
-      if( FD_UNLIKELY( *endptr!='\0' ) ) {                                        \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return 1;                                                                 \
-      }                                                                           \
-      config->esection edot ekey = result;                                        \
-      return 1;                                                                   \
-    }                                                                             \
-  } while( 0 )
-
-#define ENTRY_VUINT(edot, esection, ekey) do {                                       \
-    if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) {    \
-      if( FD_UNLIKELY( strlen( value ) < 1 ) ) {                                     \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));        \
-        return 1;                                                                    \
-      }                                                                              \
-      char * src = value;                                                            \
-      char * dst = value;                                                            \
-      while( *src ) {                                                                \
-        if( *src != '_' ) *dst++ = *src;                                             \
-        src++;                                                                       \
-      }                                                                              \
-      *dst = '\0';                                                                   \
-      char * endptr;                                                                 \
-      unsigned long int result = strtoul( value, &endptr, 10 );                      \
-      if( FD_UNLIKELY( *endptr != '\0' || result > UINT_MAX ) ) {                    \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));        \
-        return 1;                                                                    \
-      }                                                                              \
-      config->esection edot ekey[ config->esection edot ekey##_cnt ] = (uint)result; \
-      config->esection edot ekey##_cnt++;                                            \
-    }                                                                                \
-  } while( 0 )
-
-#define ENTRY_USHORT(edot, esection, ekey) do {                                   \
-    if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) { \
-      if( FD_UNLIKELY( strlen( value ) < 1 ) ) {                                  \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return 1;                                                                 \
-      }                                                                           \
-      char * endptr;                                                              \
-      unsigned long int result = strtoul( value, &endptr, 10 );                   \
-      if( FD_UNLIKELY( *endptr != '\0' || result > USHORT_MAX ) ) {               \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return 1;                                                                 \
-      }                                                                           \
-      config->esection edot ekey = (ushort)result;                                \
-      return 1;                                                                   \
-    }                                                                             \
-  } while( 0 )
-
-#define ENTRY_BOOL(edot, esection, ekey) do {                                     \
-    if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) { \
-      if( FD_LIKELY( !strcmp( value, "true" ) ) )                                 \
-        config->esection edot ekey = 1;                                           \
-      else if( FD_LIKELY( !strcmp( value, "false" ) ) )                           \
-        config->esection edot ekey = 0;                                           \
-      else                                                                        \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-      return 1;                                                                   \
-    }                                                                             \
-  } while( 0 )
-
-  ENTRY_STR   ( , ,                     name                                                      );
-  ENTRY_STR   ( , ,                     user                                                      );
-  ENTRY_STR   ( , ,                     scratch_directory                                         );
-  ENTRY_STR   ( , ,                     dynamic_port_range                                        );
-
-  ENTRY_STR   ( ., log,                 path                                                      );
-  ENTRY_STR   ( ., log,                 colorize                                                  );
-  ENTRY_STR   ( ., log,                 level_logfile                                             );
-  ENTRY_STR   ( ., log,                 level_stderr                                              );
-  ENTRY_STR   ( ., log,                 level_flush                                               );
-
-  ENTRY_STR   ( ., ledger,              path                                                      );
-  ENTRY_STR   ( ., ledger,              accounts_path                                             );
-  ENTRY_UINT  ( ., ledger,              limit_size                                                );
-  ENTRY_VSTR  ( ., ledger,              account_indexes                                           );
-  ENTRY_VSTR  ( ., ledger,              account_index_exclude_keys                                );
-  ENTRY_STR   ( ., ledger,              snapshot_archive_format                                   );
-  ENTRY_BOOL  ( ., ledger,              require_tower                                             );
-
-  ENTRY_VSTR  ( ., gossip,              entrypoints                                               );
-  ENTRY_BOOL  ( ., gossip,              port_check                                                );
-  ENTRY_USHORT( ., gossip,              port                                                      );
-  ENTRY_STR   ( ., gossip,              host                                                      );
-
-  ENTRY_STR   ( ., consensus,           identity_path                                             );
-  ENTRY_STR   ( ., consensus,           vote_account_path                                         );
-  ENTRY_BOOL  ( ., consensus,           snapshot_fetch                                            );
-  ENTRY_BOOL  ( ., consensus,           genesis_fetch                                             );
-  ENTRY_BOOL  ( ., consensus,           poh_speed_test                                            );
-  ENTRY_STR   ( ., consensus,           expected_genesis_hash                                     );
-  ENTRY_UINT  ( ., consensus,           wait_for_supermajority_at_slot                            );
-  ENTRY_STR   ( ., consensus,           expected_bank_hash                                        );
-  ENTRY_USHORT( ., consensus,           expected_shred_version                                    );
-  ENTRY_BOOL  ( ., consensus,           wait_for_vote_to_start_leader                             );
-  ENTRY_VUINT ( ., consensus,           hard_fork_at_slots                                        );
-  ENTRY_VSTR  ( ., consensus,           known_validators                                          );
-  ENTRY_BOOL  ( ., consensus,           os_network_limits_test                                    );
-
-  ENTRY_USHORT( ., rpc,                 port                                                      );
-  ENTRY_BOOL  ( ., rpc,                 full_api                                                  );
-  ENTRY_BOOL  ( ., rpc,                 private                                                   );
-  ENTRY_BOOL  ( ., rpc,                 transaction_history                                       );
-  ENTRY_BOOL  ( ., rpc,                 extended_tx_metadata_storage                              );
-  ENTRY_BOOL  ( ., rpc,                 only_known                                                );
-  ENTRY_BOOL  ( ., rpc,                 pubsub_enable_block_subscription                          );
-  ENTRY_BOOL  ( ., rpc,                 pubsub_enable_vote_subscription                           );
-  ENTRY_BOOL  ( ., rpc,                 bigtable_ledger_storage                                   );
-
-  ENTRY_BOOL  ( ., snapshots,           incremental_snapshots                                     );
-  ENTRY_UINT  ( ., snapshots,           full_snapshot_interval_slots                              );
-  ENTRY_UINT  ( ., snapshots,           incremental_snapshot_interval_slots                       );
-  ENTRY_STR   ( ., snapshots,           path                                                      );
-
-  ENTRY_STR   ( ., layout,              affinity                                                  );
-  ENTRY_STR   ( ., layout,              solana_labs_affinity                                      );
-  ENTRY_UINT  ( ., layout,              net_tile_count                                            );
-  ENTRY_UINT  ( ., layout,              quic_tile_count                                           );
-  ENTRY_UINT  ( ., layout,              verify_tile_count                                         );
-  ENTRY_UINT  ( ., layout,              bank_tile_count                                           );
-  ENTRY_UINT  ( ., layout,              shred_tile_count                                          );
-
-  ENTRY_STR   ( ., hugetlbfs,           mount_path                                                );
-
-  ENTRY_STR   ( ., tiles.net,           interface                                                 );
-  ENTRY_STR   ( ., tiles.net,           xdp_mode                                                  );
-  ENTRY_UINT  ( ., tiles.net,           xdp_rx_queue_size                                         );
-  ENTRY_UINT  ( ., tiles.net,           xdp_tx_queue_size                                         );
-  ENTRY_UINT  ( ., tiles.net,           xdp_aio_depth                                             );
-  ENTRY_UINT  ( ., tiles.net,           send_buffer_size                                          );
-
-  ENTRY_USHORT( ., tiles.quic,          regular_transaction_listen_port                           );
-  ENTRY_USHORT( ., tiles.quic,          quic_transaction_listen_port                              );
-  ENTRY_UINT  ( ., tiles.quic,          txn_reassembly_count                                      );
-  ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connections                                );
-  ENTRY_UINT  ( ., tiles.quic,          max_concurrent_streams_per_connection                     );
-  ENTRY_UINT  ( ., tiles.quic,          stream_pool_cnt                                           );
-  ENTRY_UINT  ( ., tiles.quic,          max_concurrent_handshakes                                 );
-  ENTRY_UINT  ( ., tiles.quic,          max_inflight_quic_packets                                 );
-  ENTRY_UINT  ( ., tiles.quic,          tx_buf_size                                               );
-  ENTRY_UINT  ( ., tiles.quic,          idle_timeout_millis                                       );
-  ENTRY_BOOL  ( ., tiles.quic,          retry                                                     );
-
-  ENTRY_UINT  ( ., tiles.verify,        receive_buffer_size                                       );
-  ENTRY_UINT  ( ., tiles.verify,        mtu                                                       );
-
-  ENTRY_UINT  ( ., tiles.dedup,         signature_cache_size                                      );
-
-  ENTRY_UINT  ( ., tiles.pack,          max_pending_transactions                                  );
-
-  ENTRY_UINT  ( ., tiles.shred,         max_pending_shred_sets                                    );
-  ENTRY_USHORT( ., tiles.shred,         shred_listen_port                                         );
-
-  ENTRY_USHORT( ., tiles.metric,        prometheus_listen_port                                    );
-
-  ENTRY_BOOL  ( ., development,         sandbox                                                   );
-  ENTRY_BOOL  ( ., development,         no_clone                                                  );
-  ENTRY_BOOL  ( ., development,         no_solana_labs                                            );
-  ENTRY_BOOL  ( ., development,         bootstrap                                                 );
-  ENTRY_STR   ( ., development,         topology                                                  );
-
-  ENTRY_BOOL  ( ., development.netns,   enabled                                                   );
-  ENTRY_STR   ( ., development.netns,   interface0                                                );
-  ENTRY_STR   ( ., development.netns,   interface0_mac                                            );
-  ENTRY_STR   ( ., development.netns,   interface0_addr                                           );
-  ENTRY_STR   ( ., development.netns,   interface1                                                );
-  ENTRY_STR   ( ., development.netns,   interface1_mac                                            );
-  ENTRY_STR   ( ., development.netns,   interface1_addr                                           );
-
-  ENTRY_BOOL  ( ., development.gossip,  allow_private_address                                     );
-
-  ENTRY_UINT  ( ., development.genesis, hashes_per_tick                                           );
-  ENTRY_UINT  ( ., development.genesis, target_tick_duration_micros                               );
-  ENTRY_UINT  ( ., development.genesis, ticks_per_slot                                            );
-  ENTRY_UINT  ( ., development.genesis, fund_initial_accounts                                     );
-  ENTRY_ULONG ( ., development.genesis, fund_initial_amount_lamports                              );
-  ENTRY_ULONG ( ., development.genesis, vote_account_stake_lamports                               );
-  ENTRY_BOOL  ( ., development.genesis, warmup_epochs                                             );
-
-  ENTRY_UINT  ( ., development.bench,   benchg_tile_count                                         );
-  ENTRY_UINT  ( ., development.bench,   benchs_tile_count                                         );
-  ENTRY_STR   ( ., development.bench,   affinity                                                  );
-  ENTRY_BOOL  ( ., development.bench,   larger_max_cost_per_block                                 );
-  ENTRY_BOOL  ( ., development.bench,   larger_shred_limits_per_block                             );
-  ENTRY_BOOL  ( ., development.bench,   rocksdb_disable_wal                                       );
-
-  /* We have encountered a token that is not recognized, return 0 to indicate failure. */
-  return 0;
-}
+FD_IMPORT_BINARY( default_config, "src/app/fdctl/config/default.toml" );
 
 void
 replace( char *       in,
@@ -330,139 +54,54 @@ replace( char *       in,
 }
 
 static void
-config_parse_array( const char * path,
-                    config_t * config,
-                    char * section,
-                    char * key,
-                    int * in_array,
-                    char * value ) {
-  char * end = value + strlen( value ) - 1;
-  while( FD_UNLIKELY( *end == ' ' ) ) end--;
-  if( FD_LIKELY( *end == ']' ) ) {
-    *end = '\0';
-    *in_array = 0;
+fdctl_cfg_load_buf( config_t *   out,
+                    char const * buf,
+                    ulong        sz,
+                    char const * path ) {
+
+  static uchar pod_mem[ 1UL<<30 ];
+  uchar * pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+
+  uchar scratch[ 4096 ];
+  long toml_err = fd_toml_parse( buf, sz, pod, scratch, sizeof(scratch) );
+  if( FD_UNLIKELY( toml_err!=FD_TOML_SUCCESS ) ) {
+    FD_LOG_ERR(( "Invalid config (%s) at line %lu", path, toml_err ));
   }
 
-  char * saveptr;
-  char * token = strtok_r( value, ",", &saveptr );
-  while( token ) {
-    while( FD_UNLIKELY( *token == ' ' ) ) token++;
-    char * end = token + strlen( token ) - 1;
-    while( FD_UNLIKELY( *end == ' ' ) ) end--;
-    *(end+1) = '\0';
-    if( FD_LIKELY( end > token ) ) {
-      if( FD_UNLIKELY( !parse_key_value( config, section, key, token ) ) ) {
-        if( FD_UNLIKELY( path == NULL ) ) {
-          FD_LOG_ERR(( "Error while parsing the embedded configuration. The configuration had an unrecognized key [%s.%s].", section, key ));
-        } else {
-          FD_LOG_ERR(( "Error while parsing user configuration TOML file at %s. The configuration had an unrecognized key [%s.%s].", path, section, key ));
-        }
-      }
-    }
-    token = strtok_r( NULL, ",", &saveptr );
-  }
+  fdctl_pod_to_cfg( out, pod );
+
+  fd_pod_delete( fd_pod_leave( pod ) );
 }
 
 static void
-config_parse_line( const char * path,
-                   uint         lineno,
-                   char *       line,
-                   char *       section,
-                   int *        in_array,
-                   char *       key,
-                   config_t *   out ) {
-  while( FD_LIKELY( *line == ' ' ) ) line++;
-  if( FD_UNLIKELY( *line == '#' || *line == '\0' || *line == '\n' ) ) return;
+fdctl_cfg_load_file( config_t *   out,
+                     char const * path ) {
 
-  if( FD_UNLIKELY( *in_array ) ) {
-    config_parse_array( path, out, section, key, in_array, line );
-    return;
+  int fd = open( path, O_RDONLY );
+  if( FD_UNLIKELY( fd<0 ) ) {
+    FD_LOG_ERR(( "open(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   }
 
-  if( FD_UNLIKELY( *line == '[' ) ) {
-    char * end = strchr( line, ']' );
-    if( FD_UNLIKELY( !end ) ) FD_LOG_ERR(( "invalid line %u: no closing bracket `%s`", lineno, line ));
-    if( FD_UNLIKELY( *(end+1) != '\0' ) ) FD_LOG_ERR(( "invalid line %u: no newline after closing bracket `%s`", lineno, line ));
-    *end = '\0';
-    strcpy( section, line + 1 );
-    return;
+  struct stat st;
+  if( FD_UNLIKELY( fstat( fd, &st ) ) ) {
+    FD_LOG_ERR(( "fstat(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  }
+  ulong toml_sz = (ulong)st.st_size;
+
+  void * mem = mmap( NULL, toml_sz, PROT_READ, MAP_PRIVATE, fd, 0 );
+  if( FD_UNLIKELY( mem==MAP_FAILED ) ) {
+    FD_LOG_ERR(( "mmap(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   }
 
-  char * equals = strchr( line, '=' );
-  if( FD_UNLIKELY( !equals ) ) FD_LOG_ERR(( "invalid line %u: no equal character `%s`", lineno, line ));
-
-  char * value = equals + 1;
-  while( FD_LIKELY( *value == ' ' ) ) value++;
-  while ( FD_UNLIKELY( equals > line && *(equals - 1) == ' ' ) ) equals--;
-
-  *equals = '\0';
-  strcpy( key, line );
-
-  if( FD_UNLIKELY( *value == '[' ) ) {
-    *in_array = 1;
-    value++;
-    config_parse_array( path, out, section, key, in_array, value );
-  } else {
-    if( FD_UNLIKELY( !parse_key_value( out, section, key, value ) ) ) {
-      if( FD_UNLIKELY( path == NULL ) ) {
-        FD_LOG_ERR(( "Error while parsing the embedded configuration. The configuration had an unrecognized key [%s.%s].", section, key ));
-      } else {
-        FD_LOG_ERR(( "Error while parsing user configuration TOML file at %s. The configuration had an unrecognized key [%s.%s].", path, section, key ));
-      }
-    }
+  if( FD_UNLIKELY( 0!=close( fd ) ) ) {
+    FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
-}
 
-static void
-config_parse1( const char * config,
-               config_t *   out ) {
-  char section[ 4096 ] = {0};
-  char key[ 4096 ];
-  uint lineno = 0;
-  int in_array = 0;
-  const char * line = config;
-  while( line ) {
-    lineno++;
-    char * next_line = strchr( line, '\n' );
+  fdctl_cfg_load_buf( out, mem, toml_sz, path );
 
-    ulong n = next_line ? (ulong)(next_line - line) : strlen( line );
-    if( n >= 4096 ) FD_LOG_ERR(( "line %u too long `%s`", lineno, line ));
-
-    char line_copy[ 4096 ];
-    strncpy( line_copy, line, sizeof( line_copy ) - 1 ); // -1 to silence linter
-    line_copy[ n ] = '\0';
-
-    config_parse_line( NULL , lineno, line_copy, section, &in_array, key, out );
-
-    if( FD_LIKELY( next_line ) ) next_line++;
-    line = next_line;
+  if( FD_UNLIKELY( 0!=munmap( mem, toml_sz ) ) ) {
+    FD_LOG_ERR(( "munmap(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   }
-}
-
-static void
-config_parse_file( const char * path,
-                   config_t *   out ) {
-  FILE * fp = fopen( path, "r" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "could not open configuration file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-
-  uint lineno = 0;
-  char line[ 4096 ];
-  char key[ 4096 ];
-  int in_array = 0;
-  char section[ 4096 ] = {0};
-  while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
-    lineno++;
-    ulong len = strlen( line );
-    if( FD_UNLIKELY( len==4095UL ) ) FD_LOG_ERR(( "line %u too long in `%s`", lineno, path ));
-    if( FD_LIKELY( len ) ) {
-      line[ len-1UL ] = '\0'; /* chop off newline */
-      config_parse_line( path, lineno, line, section, &in_array, key, out );
-    }
-  }
-  if( FD_UNLIKELY( ferror( fp ) ) )
-    FD_LOG_ERR(( "error reading `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  if( FD_LIKELY( fclose( fp ) ) )
-    FD_LOG_ERR(( "error closing `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 }
 
 static uint
@@ -781,11 +420,24 @@ cluster_to_cstr( ulong cluster ) {
   }
 }
 
+static char *
+default_user( void ) {
+  char * name = getenv( "SUDO_USER" );
+  if( FD_UNLIKELY( name ) ) return name;
+
+  name = getenv( "LOGNAME" );
+  if( FD_LIKELY( name ) ) return name;
+
+  name = getlogin();
+  if( FD_UNLIKELY( !name ) ) FD_LOG_ERR(( "getlogin failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  return name;
+}
+
 void
-config_parse( int *      pargc,
-              char ***   pargv,
-              config_t * config ) {
-  config_parse1( default_config, config );
+fdctl_cfg_from_env( int *      pargc,
+                    char ***   pargv,
+                    config_t * config ) {
+  fdctl_cfg_load_buf( config, (char const *)default_config, default_config_sz, "default" );
 
   const char * user_config = fd_env_strip_cmdline_cstr(
       pargc,
@@ -795,7 +447,7 @@ config_parse( int *      pargc,
       NULL );
 
   if( FD_LIKELY( user_config ) ) {
-    config_parse_file( user_config, config );
+    fdctl_cfg_load_file( config, user_config );
   }
 
   int netns = fd_env_strip_cmdline_contains( pargc, pargv, "--netns" );
@@ -1004,7 +656,7 @@ config_parse( int *      pargc,
 }
 
 int
-config_write_memfd( config_t * config ) {
+fdctl_cfg_to_memfd( config_t * config ) {
   int config_memfd = memfd_create( "fd_config", 0 );
   if( FD_UNLIKELY( -1==config_memfd ) ) FD_LOG_ERR(( "memfd_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==ftruncate( config_memfd, sizeof( config_t ) ) ) ) FD_LOG_ERR(( "ftruncate() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

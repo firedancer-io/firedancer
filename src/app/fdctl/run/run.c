@@ -204,7 +204,7 @@ main_pid_namespace( void * _args ) {
   char  child_names[ FD_TOPO_MAX_TILES+1 ][ 32 ];
   struct pollfd fds[ FD_TOPO_MAX_TILES+2 ];
 
-  int config_memfd = config_write_memfd( config );
+  int config_memfd = fdctl_cfg_to_memfd( config );
 
   if( FD_UNLIKELY( config->development.debug_tile ) ) {
     fd_log_private_shared_lock[1] = 1;

@@ -236,22 +236,24 @@ typedef struct {
 ulong
 memlock_max_bytes( config_t * const config );
 
-/* config_parse() loads a full configuration object from the provided
+/* fdctl_cfg_from_env() loads a full configuration object from the provided
    arguments or the environment. First, the `default.toml` file is
    loaded as a base, and then if a FIREDANCER_CONFIG_FILE environment
    variable is provided, or a --config <path> command line argument, the
    `toml` file at that path is loaded and applied on top of the default
    configuration. This exits the program if it encounters any issue
    while loading or parsing the configuration. */
+
 void
-config_parse( int *      pargc,
-              char ***   pargv,
-              config_t * config );
+fdctl_cfg_from_env( int *      pargc,
+                    char ***   pargv,
+                    config_t * config );
 
 /* Create a memfd and write the contents of the config struct into it.
    Used when execve() a child process so that it can read back in the
    same config as we did. */
+
 int
-config_write_memfd( config_t * config );
+fdctl_cfg_to_memfd( config_t * config );
 
 #endif /* HEADER_fd_src_app_fdctl_config_h */
