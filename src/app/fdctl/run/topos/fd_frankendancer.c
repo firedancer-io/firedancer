@@ -27,6 +27,7 @@ fd_topo_frankendancer( config_t * config ) {
   fd_topob_wksp( topo, "bank_poh"     );
   fd_topob_wksp( topo, "bank_busy"    );
   fd_topob_wksp( topo, "poh_shred"    );
+  fd_topob_wksp( topo, "gossip_pack"  );
   fd_topob_wksp( topo, "shred_store"  );
   fd_topob_wksp( topo, "stake_out"    );
   fd_topob_wksp( topo, "metric_in"    );
@@ -61,7 +62,7 @@ fd_topo_frankendancer( config_t * config ) {
      otherwise cause drops. */
   /**/                 fd_topob_link( topo, "dedup_pack",   "dedup_pack",   0,        4*65536UL,                                FD_TPU_DCACHE_MTU,      1UL );
   /* gossip_pack could be FD_TPU_MTU for now, since txns are not parsed, but better to just share one size for all the ins of pack */
-  /**/                 fd_topob_link( topo, "gossip_pack",  "dedup_pack",   0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
+  /**/                 fd_topob_link( topo, "gossip_pack",  "gossip_pack",  0,        2048UL,                                   FD_TPU_DCACHE_MTU,      1UL );
   /**/                 fd_topob_link( topo, "stake_out",    "stake_out",    0,        128UL,                                    32UL + 40200UL * 40UL,  1UL );
   /* pack_bank is shared across all banks, so if one bank stalls due to complex transactions, the buffer neeeds to be large so that
      other banks can keep proceeding. */
