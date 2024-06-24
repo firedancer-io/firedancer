@@ -5,8 +5,7 @@
    bucketed exponentially up to a maximum value, with an overflow bucket
    for any other measurements. */
 
-#include <math.h>
-#include "../bits/fd_bits.h"
+#include <math.h> /* FIXME: HMMM */
 #include "../log/fd_log.h"
 #if FD_HAS_AVX
 #include "../simd/fd_avx.h"
