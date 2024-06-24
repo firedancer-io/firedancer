@@ -162,7 +162,7 @@ fdctl_boot( int *        pargc,
        can coordinate on metrics measurement. */
     fd_tempo_set_tick_per_ns( config->tick_per_ns_mu, config->tick_per_ns_sigma );
   } else {
-    config_parse( pargc, pargv, config );
+    fdctl_cfg_from_env( pargc, pargv, config );
     config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
     config->log.lock_fd = init_log_memfd();
     config->log.log_fd  = -1;
