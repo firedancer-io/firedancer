@@ -3,6 +3,7 @@
 #include "fd_pack_cost.h"
 #include "fd_compute_budget_program.h"
 #include "fd_pack_bitset.h"
+#include "fd_chkdup.h"
 #include <math.h> /* for sqrt */
 #include <stddef.h> /* for offsetof */
 #include "../../disco/metrics/fd_metrics.h"
@@ -412,6 +413,9 @@ struct fd_pack_private {
   /* acct_to_bitset: an fd_map_dynamic that maps acct addresses to the
      reference count, which bit, etc. */
   fd_pack_bitset_acct_mapping_t * acct_to_bitset;
+
+  /* chdkup: scratch memory chkdup needs for its internal processing */
+  fd_chkdup_t chkdup[ 1 ];
 };
 
 typedef struct fd_pack_private fd_pack_t;
@@ -533,6 +537,8 @@ fd_pack_new( void                   * mem,
 
   bitset_map_new( _acct_bitset, lg_acct_in_trp );
 
+  fd_chkdup_new( pack->chkdup, rng );
+
   return mem;
 }
 
@@ -649,6 +655,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   uchar * payload  = txnp->payload;
 
   fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( txn, payload );
+  ulong imm_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
 
   if( FD_UNLIKELY( !fd_pack_estimate_rewards_and_compute( txnp, ord ) ) ) REJECT( ESTIMATION_FAIL );
 
@@ -661,12 +668,17 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   }
 
   fd_ed25519_sig_t const * sig = fd_txn_get_signatures( txn, payload );
+  fd_chkdup_t * chkdup = pack->chkdup;
 
   /* Throw out transactions ... */
   /*           ... that are unfunded */
   if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards ) ) ) REJECT( UNAFFORDABLE  );
   /*           ... that are so big they'll never run */
   if( FD_UNLIKELY( ord->compute_est >= pack->lim->max_cost_per_block    ) ) REJECT( TOO_LARGE     );
+  /*           ... that load too many accounts (ignoring 9LZdXeKGeBV6hRLdxS1rHbHoEUsKqesCC2ZAPTPKJAbK) */
+  if( FD_UNLIKELY( fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALL )>64UL  ) ) REJECT( ACCOUNT_CNT   );
+  /*           ... that duplicate an account address */
+  if( FD_UNLIKELY( fd_chkdup_check( chkdup, accts, imm_cnt, NULL, 0UL ) ) ) REJECT( DUPLICATE_ACCT );
   /*           ... that try to write to a sysvar */
   if( FD_UNLIKELY( writes_to_sysvar                                     ) ) REJECT( WRITES_SYSVAR );
   /*           ... that we already know about */

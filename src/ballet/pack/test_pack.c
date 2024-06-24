@@ -182,7 +182,7 @@ make_vote_transaction( ulong i ) {
   FD_TEST( fd_txn_parse( p, sample_vote_sz, txn_scratch[i], NULL ) );
 }
 
-static void
+static int
 insert( ulong i,
         fd_pack_t * pack ) {
   fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
@@ -191,7 +191,7 @@ insert( ulong i,
   fd_memcpy( slot->payload, payload_scratch[ i ], payload_sz[ i ] );
   fd_memcpy( TXN(slot),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
-  fd_pack_insert_txn_fini( pack, slot, i );
+  return fd_pack_insert_txn_fini( pack, slot, i );
 }
 
 static void
@@ -1025,12 +1025,44 @@ test_reject_writes_to_sysvars( void ) {
   };
   for( ulong i=0UL; i<29UL; i++ ) {
     make_transaction( i, 1000001U, 11.0, "A", "B" );
+    /* Replace A with the sysvar */
     fd_base58_decode_32( sysvars[ i ], payload_scratch[ i ] + 97UL );
-    insert( i, pack );
+    payload_scratch[ i ][ 129UL ]++; /* so it no longer is the compute budget program */
+    FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_WRITES_SYSVAR );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
   }
 }
 
+static inline void
+test_reject( void ) {
+  FD_LOG_NOTICE(( "TEST REJECT" ));
+  fd_pack_t * pack = init_all( 1024UL, 1UL, 128UL, &outcome );
+  ulong i = 0UL;
+
+  make_transaction( i, 1000001U, 11.0, "A", "B" );
+  fd_txn_t * txn = (fd_txn_t*) txn_scratch[ i ];
+  fd_memset( payload_scratch[ i ]+txn->instr[ 0 ].data_off, 0xFF, 4 );
+  FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_ESTIMATION_FAIL );
+
+  i++;
+  make_transaction( i, 1000001U, 11.0, "ABC", "DEF" ); /* 6 listed + fee payer + 2 programs */
+  txn = (fd_txn_t*) txn_scratch[ i ];
+  txn->addr_table_lookup_cnt        = 1;
+  txn->addr_table_adtl_writable_cnt = 20;
+  txn->addr_table_adtl_cnt          = 56;
+  FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_ACCOUNT_CNT );
+
+  i++;
+  make_transaction( i, 1000001U, 11.0, "A", "A" );
+  FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_DUPLICATE_ACCT );
+
+  i++;
+  make_transaction( i, 1000001U, 11.0, "A", "B" );
+  FD_TEST( insert( i, pack )>=0 );
+  FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_DUPLICATE );
+
+  for( ulong j=0UL; j<=i; j++ ) fd_memset( txn_scratch[ j ], (uchar)0, FD_TXN_MAX_SZ );
+}
 
 
 int
@@ -1053,6 +1085,7 @@ main( int     argc,
   test_gap();
   test_limits();
   test_reject_writes_to_sysvars();
+  test_reject();
   performance_test( extra_benchmark );
   performance_test2();
   performance_end_block();
