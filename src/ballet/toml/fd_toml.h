@@ -14,6 +14,12 @@
 #define FD_TOML_ERR_SCRATCH (-2L)  /* ran out of scratch space */
 #define FD_TOML_ERR_KEY     (-3L)  /* oversz key */
 #define FD_TOML_ERR_DUP     (-4L)  /* duplicate key */
+#define FD_TOML_ERR_NUM     (-5L)  /* oversz num */
+
+/* FD_TOML_NUM_CSTR_SZ is the max number of bytes occupied by a numeric
+   cstr (integer, float). */
+
+#define FD_TOML_NUM_CSTR_SZ (128)
 
 FD_PROTOTYPES_BEGIN
 
@@ -43,8 +49,8 @@ FD_PROTOTYPES_BEGIN
      inline table  | x={a=1,b=2} | subpod
      inline array  | x=[1,2]     | subpod (keys %d formatted cstrs)
      bool          | true        | int
-     integer       | -3          | ulong (two's complement)
-     float         | 3e-3        | double
+     integer       | -3          | cstr
+     float         | 3e-3        | cstr
      string        | 'hello'     | cstr
      datetime      | 2022-08-16  | ulong (ns since unix epoch)
 
@@ -80,14 +86,8 @@ FD_PROTOTYPES_BEGIN
    - Missing support for dot-escapes.
      The tables ["a.b"] and [a.b] are the same in fd_toml.
 
-   - Float 'nan' and 'infinity' are unsupported as they are not
-     compatible with the fd_util_base.h programming model.
-
    - Keys with embedded NUL characters are truncated whereas they are
-     legal in TOML.
-
-   - Negative integers don't use the FD_POD_VAL_TYPE_LONG type which
-     features better space usage (zig zag encoding) */
+     legal in TOML. */
 
 long
 fd_toml_parse( void const * toml,
