@@ -41,7 +41,6 @@ then
   exit 1
 else
   echo 'test vector execution passed'
-  exit 0
 fi
 
 find dump/test-vectors/elf_loader/fixtures -type f -name '*.fix' -exec ./$OBJDIR/unit-test/test_elf_loader --log-path $LOG_PATH/test_elf_loader --log-level-stderr 4 {} + 
@@ -58,7 +57,6 @@ then
   exit 1
 else
   echo 'test vector execution passed'
-  exit 0
 fi
 
 find dump/test-vectors/syscall/fixtures -type f -name '*.fix' -exec ./$OBJDIR/unit-test/test_exec_sol_compat {} + > $LOG_PATH/test_vectors_exec 2>&1
@@ -74,5 +72,4 @@ then
   exit 1
 else
   echo 'test vector execution passed'
-  exit 0
 fi
