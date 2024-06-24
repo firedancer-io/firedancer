@@ -1346,7 +1346,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake_weights_out_wmark  = fd_dcache_compact_wmark ( ctx->stake_weights_out_mem, stake_weights_out->dcache, stake_weights_out->mtu );
   ctx->stake_weights_out_chunk  = ctx->stake_weights_out_chunk0;
 
-  if( FD_UNLIKELY( tile->replay.slots_replayed ) ) {
+  if( strnlen( tile->replay.slots_replayed, sizeof(tile->replay.slots_replayed) )>0UL ) {
     ctx->slots_replayed_file = fopen( tile->replay.slots_replayed, "w" );
     FD_TEST( ctx->slots_replayed_file );
   }
