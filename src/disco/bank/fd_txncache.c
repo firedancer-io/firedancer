@@ -647,7 +647,7 @@ fd_txncache_insert_txn( fd_txncache_t *                        tc,
     ulong txnhash = FD_LOAD( ulong, txn->txnhash+txnhash_offset );
     memcpy( txnpage->txns[ txn_idx ]->txnhash, txn->txnhash+txnhash_offset, 20UL );
     txnpage->txns[ txn_idx ]->result = *txn->result;
-    txnpage->txns[ txn_idx ]->slot = fd_ulong_max( txn->slot, txnpage->txns[ txn_idx ]->slot );
+    txnpage->txns[ txn_idx ]->slot   = txn->slot;
     FD_COMPILER_MFENCE();
 
     for(;;) {
