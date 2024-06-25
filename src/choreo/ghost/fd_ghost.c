@@ -121,14 +121,14 @@ fd_ghost_delete( void * ghost ) {
 }
 
 void
-fd_ghost_init( fd_ghost_t * ghost, ulong slot ) {
+fd_ghost_init( fd_ghost_t * ghost, ulong root ) {
 
   if( FD_UNLIKELY( !ghost ) ) {
     FD_LOG_WARNING( ( "NULL ghost" ) );
     return;
   }
 
-  if( FD_UNLIKELY( slot == FD_SLOT_NULL ) ) {
+  if( FD_UNLIKELY( root == FD_SLOT_NULL ) ) {
     FD_LOG_WARNING( ( "NULL slot" ) );
     return;
   }
@@ -139,7 +139,7 @@ fd_ghost_init( fd_ghost_t * ghost, ulong slot ) {
   }
 
   fd_ghost_node_t * node = fd_ghost_node_pool_ele_acquire( ghost->node_pool );
-  node->slot             = slot;
+  node->slot             = root;
   ghost->root            = node;
   fd_ghost_node_map_ele_insert( ghost->node_map, node, ghost->node_pool );
 

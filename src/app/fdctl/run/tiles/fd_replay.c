@@ -569,7 +569,7 @@ after_frag( void *             _ctx,
       FD_TEST( fork == child );
 
       // fork is advancing
-      FD_LOG_NOTICE(( "new block execution - slot: %lu, parent_slot: %lu", ctx->curr_slot, ctx->parent_slot ));
+      FD_LOG_DEBUG(( "new block execution - slot: %lu, parent_slot: %lu", ctx->curr_slot, ctx->parent_slot ));
 
       fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
       fork->slot_ctx.slot_bank.slot      = ctx->curr_slot;
@@ -642,12 +642,10 @@ after_frag( void *             _ctx,
       long finalize_time_ns = -fd_log_wallclock();
       int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, NULL, 1UL );
       finalize_time_ns += fd_log_wallclock();
-      FD_LOG_WARNING(("TIMING: finalize_time - slot: %lu, elapsed: %6.6f ms", ctx->curr_slot, (double)finalize_time_ns * 1e-6));
+      FD_LOG_DEBUG(("TIMING: finalize_time - slot: %lu, elapsed: %6.6f ms", ctx->curr_slot, (double)finalize_time_ns * 1e-6));
 
       if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
-        FD_LOG_WARNING(("block finalize failed"));
-        *opt_filter = 1;
-        return;
+        FD_LOG_ERR(("block finalize failed"));
       }
 
       // Notify for all the updated accounts
@@ -721,9 +719,9 @@ after_frag( void *             _ctx,
 
       FD_PARAM_UNUSED long tic_ = fd_log_wallclock();
 
-      fd_tower_fork_update( ctx->tower, fork );
+      fd_tower_fork_update( ctx->tower, fork, ctx->acc_mgr, ctx->blockstore, ctx->ghost );
       long        now         = fd_log_wallclock();
-      fd_ghost_node_t * head                = fd_ghost_head_query( ctx->tower->ghost );
+      fd_ghost_node_t * head                = fd_ghost_head_query( ctx->ghost );
       long        duration_ns         = fd_log_wallclock() - now;
       if( FD_UNLIKELY( head->slot < fork->slot - 32 ) ) {
         FD_LOG_WARNING( ( "Fork choice slot is too far behind executed slot. Likely there is a "
@@ -733,19 +731,16 @@ after_frag( void *             _ctx,
 
       } else {
 
-        /* TODO add voting and select_vote_and_reset_bank logic here if we have a valid picked fork */
-        fd_vote_accounts_t const * vote_accounts = &fork->slot_ctx.epoch_ctx->epoch_bank.stakes.vote_accounts;
-
         FD_LOG_NOTICE( ( "\n\n[Fork Selection]\n"
                          "# of vote accounts: %lu \n"
                          "selected fork:      %lu\n"
                          "took:               %.2lf ms (%ld ns)\n",
-                         fd_vote_accounts_pair_t_map_size( vote_accounts->vote_accounts_pool, vote_accounts->vote_accounts_root ),
+                         ctx->tower->vote_acc_cnt,
                          head->slot,
                          (double)( duration_ns ) / 1e6,
                          duration_ns ) );
 
-        fd_fork_t * reset_fork = fd_tower_reset_fork_select( ctx->tower );
+        fd_fork_t * reset_fork = fd_tower_reset_fork_select( ctx->tower, ctx->forks );
         memcpy( microblock_trailer->hash, reset_fork->slot_ctx.slot_bank.block_hash_queue.last_hash->uc, sizeof(fd_hash_t) );
         if( ctx->poh_init_done == 1 ) {
           ulong parent_slot = reset_fork->slot_ctx.slot_bank.prev_slot;
@@ -761,7 +756,7 @@ after_frag( void *             _ctx,
         }
       }
 
-      fd_ghost_print( ctx->tower->ghost, child->slot, FD_GHOST_PRINT_DEPTH_DEFAULT, ctx->tower->total_stake );
+      fd_ghost_print( ctx->ghost, child->slot, FD_GHOST_PRINT_DEPTH_DEFAULT, ctx->tower->total_stake );
 
       /* Publish the fork forks */
       fd_blockstore_start_write( ctx->blockstore );
@@ -784,7 +779,7 @@ after_frag( void *             _ctx,
       /* Write to debugging files. */
 
       if( FD_UNLIKELY( ctx->slots_replayed_file ) ) {
-        FD_LOG_NOTICE( ( "writing %lu to slots file", prev_slot ) );
+        FD_LOG_DEBUG(( "writing %lu to slots file", prev_slot ));
         fprintf( ctx->slots_replayed_file, "%lu\n", prev_slot );
       }
 
@@ -963,14 +958,11 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx, fd_fork_t * fork ) {
   ctx->forks->blockstore = ctx->blockstore;
 
   fd_ghost_init( ctx->ghost, snapshot_slot );
-
-  ctx->tower->blockstore  = ctx->blockstore;
-  ctx->tower->root        = snapshot_slot;
-  fd_tower_epoch_update( ctx->tower, ctx->epoch_ctx );
+  fd_tower_init( ctx->tower, ctx->epoch_ctx, snapshot_slot );
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->epoch_ctx->bank_hash_cmp;
-  bank_hash_cmp->watermark = snapshot_slot;
-  bank_hash_cmp->total_stake = ctx->tower->total_stake;
+  bank_hash_cmp->total_stake         = ctx->tower->total_stake;
+  bank_hash_cmp->watermark           = snapshot_slot;
 
   FD_LOG_NOTICE( ( "snapshot slot %lu", snapshot_slot ) );
   FD_LOG_NOTICE(("total stake %lu", bank_hash_cmp->total_stake));
@@ -1215,10 +1207,6 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
 
   ctx->tower         = fd_tower_join( fd_tower_new( tower_mem ) );
-  ctx->tower->acc_mgr     = ctx->acc_mgr;
-  ctx->tower->forks       = ctx->forks;
-  ctx->tower->ghost       = ctx->ghost;
-  ctx->tower->valloc      = ctx->valloc;
 
   /**********************************************************************/
   /* bank_hash_cmp                                                      */
