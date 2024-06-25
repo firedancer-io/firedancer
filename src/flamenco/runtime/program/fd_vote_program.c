@@ -141,27 +141,6 @@ from_vote_state_1_14_11( fd_vote_state_t *         vote_state,
 /* impl VoteAccount                                                   */
 /**********************************************************************/
 
-// https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/src/transaction_context.rs#L800
-static inline int
-checked_add_lamports( fd_account_meta_t * self, ulong lamports ) {
-  if( FD_UNLIKELY( self->info.lamports + lamports < self->info.lamports ) ) {
-    return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
-  };
-
-  self->info.lamports += lamports;
-  return 0;
-}
-
-// https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/src/transaction_context.rs#L810
-static inline int
-checked_sub_lamports( fd_account_meta_t * self, ulong lamports ) {
-  if( FD_UNLIKELY( self->info.lamports - lamports > self->info.lamports ) ) {
-    return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
-  };
-  self->info.lamports -= lamports;
-  return 0;
-}
-
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L966
 static int
 get_state( fd_borrowed_account_t const * self,
@@ -1599,30 +1578,12 @@ withdraw(
     }
   }
 
-  // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L941
-  rc = fd_instr_borrowed_account_modify_idx(
-      ctx, vote_acct_idx, 0 /* TODO min_data_sz */, &vote_account );
+  rc = fd_account_checked_sub_lamports(ctx, vote_acct_idx, lamports);
   if( FD_UNLIKELY( rc ) ) return rc;
 
-  rc = checked_sub_lamports( vote_account->meta, lamports );
+  rc = fd_account_checked_add_lamports(ctx, to_account_index, lamports);
   if( FD_UNLIKELY( rc ) ) return rc;
 
-  // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L943-L944
-  fd_borrowed_account_t * to_account = NULL;
-
-  rc = fd_instr_borrowed_account_modify_idx(
-      ctx, to_account_index, 0 /* TODO min_data_sz */, &to_account );
-  if( FD_UNLIKELY( rc ) ) return rc;
-
-  // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L945
-  rc = checked_add_lamports( to_account->meta, lamports );
-  if( FD_UNLIKELY( rc ) ) return rc;
-
-  // TODO: is there a better way to add to dirty list?
-  if( FD_UNLIKELY( lamports == 0 ) ) {
-    vote_account->meta->slot = ctx->slot_ctx->slot_bank.slot;
-    to_account->meta->slot   = ctx->slot_ctx->slot_bank.slot;
-  }
   return 0;
 }
 
