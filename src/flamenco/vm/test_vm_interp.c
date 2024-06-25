@@ -1,6 +1,7 @@
 #include "fd_vm.h"
 #include "fd_vm_base.h"
 #include "fd_vm_private.h"
+#include <stdlib.h>  /* malloc */
 
 static int
 accumulator_syscall( FD_PARAM_UNUSED void *  _vm,

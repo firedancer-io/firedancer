@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
-#include <alloca.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>

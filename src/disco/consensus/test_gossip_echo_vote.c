@@ -449,7 +449,7 @@ gossip_thread( void* arg ) {
 
     /* Read more packets */
     CLEAR_MSGS;
-    int gossip_rc = recvmmsg( gossip_fd, msgs, VLEN, MSG_DONTWAIT, NULL );
+    long gossip_rc = recvmmsg( gossip_fd, msgs, VLEN, MSG_DONTWAIT, NULL );
     if( gossip_rc < 0 ) {
       if( errno == EINTR || errno == EWOULDBLOCK ) continue;
       break;
@@ -458,7 +458,7 @@ gossip_thread( void* arg ) {
     for( uint i = 0; i < (uint)gossip_rc; ++i ) {
       fd_gossip_peer_addr_t from;
       from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
-      fd_gossip_recv_packet( gossip, bufs[i], msgs[i].msg_len, &from );
+      fd_gossip_recv_packet( gossip, bufs[i], (ulong)msgs[i].msg_len, &from );
     }
   }
   return 0;

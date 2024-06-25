@@ -81,7 +81,13 @@ fd_shmem_name_len( char const * name ) {
   return len;
 }
 
-#if FD_HAS_HOSTED && defined(__linux__)
+#if FD_HAS_HOSTED
+
+#if FD_HAS_THREADS
+pthread_mutex_t fd_shmem_private_lock[1];
+#endif
+
+#if defined(__linux__)
 
 #include <errno.h>
 #include <unistd.h>
@@ -90,10 +96,6 @@ fd_shmem_name_len( char const * name ) {
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <linux/mman.h>
-
-#if FD_HAS_THREADS
-pthread_mutex_t fd_shmem_private_lock[1];
-#endif
 
 char  fd_shmem_private_base[ FD_SHMEM_PRIVATE_BASE_MAX ]; /* ""  at thread group start, initialized at boot */
 ulong fd_shmem_private_base_len;                          /* 0UL at ",                  initialized at boot */
@@ -762,9 +764,11 @@ fd_shmem_private_halt( void ) {
   FD_LOG_INFO(( "fd_shmem: halt success" ));
 }
 
-#elif FD_HAS_HOSTED && defined(__FreeBSD__)
+#elif defined(__FreeBSD__)
 
 #include "fd_shmem_freebsd_admin.c"
+
+#endif /* defined(OS) */
 
 #else /* unhosted */
 
@@ -788,4 +792,4 @@ fd_shmem_private_halt( void ) {
   FD_LOG_INFO(( "fd_shmem: halt success" ));
 }
 
-#endif
+#endif /* FD_HAS_HOSTED */
