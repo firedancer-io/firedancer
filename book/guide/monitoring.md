@@ -1,49 +1,55 @@
 # Monitoring
 
-The Frankendancer validator can be monitored quite similar to an
-Agave validator.
+## Agave CLI
+Because Frankendancer runs the Agave validator, it can be monitored with
+the standard Agave command line tools. First make sure you have buil
+the `solana` CLI binary:
 
-## Pre-requisite
+```sh [bash]
+$ make solana
+    Finished release-with-debug [optimized + debuginfo] target(s) in 0.44s
+```
 
-Be sure to build the `solana` binary, i.e. specify `solana` as a
-target to the `make` command. The binary should be in the same
-directory as `fdctl`. If you have not added that directory to the
-`PATH` environment variable, replace `solana` with the full path
-to the binary in the following commands.
+Similar to `fdctl`, the compiled binary will be placed in
+`./build/native/gcc/bin` by default.
 
 ::: tip NOTE
 
-Note that this list is not exhaustive. Some commands may not
-work without RPC enabled on your validator. Check out the
-comments in the `rpc` section of the `default.toml` file to
-configure it according to your needs.
+Many commands require RPC to be enabled on the validator, see the
+[configuring](./configuring) guide for more information.
 
 :::
 
-## Solana Commands
-
-* Ensure the validator has joined gossip
+**gossip:** check if the validator has joined gossip
 
 ```sh [bash]
-solana -ut gossip | grep <PUBKEY>
+$ solana -ut gossip
+IP Address      | Identity                                     | Gossip | TPU   | RPC Address           | Version    | Feature Set
+----------------+----------------------------------------------+--------+-------+-----------------------+------------+----------------
+74.118.136.198  | 2CY8VXH2jummjSmwcusSj2jGMiaHE4eo7WQ9LScxykvt | 8001   | 9001  | 74.118.136.198:8899   | 0.106.11814| 4215500110
 ```
 
-* Ensure the validator is caught up
+**catchup:** check if the validator is caught up
 
 ```sh [bash]
-solana -ut catchup --our-localhost
+$ solana -ut catchup --our-localhost
+⠤ 1 slot(s) behind (us:123 them:124)
 ```
 
-* Ensure the validator is voting
+**validators:** ensure the validator is voting
 
 ```sh [bash]
-solana -ut validators | grep <PUBKEY>
+$ solana -ut validators
+   Identity                                      Vote Account                            Commission  Last Vote        Root Slot     Skip Rate  Credits  Version            Active Stake
+2CY8VXH2jummjSmwcusSj2jGMiaHE4eo7WQ9LScxykvt  uhiGpdNqcqPGzYuRfVxjiHQWKKJPwKRSaPiXXxwSy9K   100%  279227304 ( -1)  279227273 ( -1)   0.00%    54287  0.106.11814     70100.022292880 SOL (0.03%)
 ```
 
-* Ensure the validator is producing blocks
+**block-production:** ensure the validator is producing blocks
 
 ```sh [bash]
-solana -ut block-production | grep <PUBKEY>
+$ solana -ut block-production
+  Identity                                         Leader Slots  Blocks Produced    Skipped Slots        Skip Rate
+  2CY8VXH2jummjSmwcusSj2jGMiaHE4eo7WQ9LScxykvt               16               16                0            0.00%
 ```
 
 ::: tip NOTE
@@ -54,16 +60,45 @@ command with Frankendancer. For that, you need to build the
 
 :::
 
-## Frankendancer Metrics
-
-* Look at the prometheus metrics (on the same host)
+## Metrics
+Firedancer exposes a large set of prometheus compatible metrics at a
+HTTP endpoint, by default on port `7999` but this is configurable in
+the TOML file.
 
 ```sh [bash]
-curl http://localhost:7999/metrics
+$ curl http://localhost:7999/metrics
+# HELP tile_pid The process ID of the tile.
+# TYPE tile_pid gauge
+tile_pid{kind="net",kind_id="0"} 1108973
+tile_pid{kind="quic",kind_id="0"} 1108975
+tile_pid{kind="verify",kind_id="0"} 1108978
 ```
 
-* Running the Frankendancer monitor
+All of the metrics have two two lables, a `kind` which tells you what
+type of tile the metric is being reported for, and a `kind_id` which is
+the index of the tile. For example, if there are two bank tiles for
+executing transactions, they have `kind_id` of `0` and `1`, and each
+report metrics separately.
 
 ```sh [bash]
-fdctl monitor --config ~/config.toml
+# HELP bank_tile_transaction_executed_program_account_not_found When a transaction executes (makes it onto the chain), result of executing a transaction. The transaction can still fail. (Attempt to load a program that does not exist.)
+# TYPE bank_tile_transaction_executed_program_account_not_found counter
+bank_tile_transaction_executed_program_account_not_found{kind="bank",kind_id="0"} 241
+bank_tile_transaction_executed_program_account_not_found{kind="bank",kind_id="1"} 13
+```
+
+## Live monitoring
+Firedancer ships with a monitoring tool included in `fdctl`, which you
+can run on the same host as the running validator to view tile and other
+performance information.
+
+```sh [bash]
+$ fdctl monitor --config ~/config.toml
+snapshot for 2024-06-25 17:32:25.795577630 GMT+00
+    tile |     pid |      stale | heart |        sig | in backp |           backp cnt |  % hkeep |  % backp |   % wait |  % ovrnp |  % ovrnr |  % filt1 |  % filt2 | % finish
+---------+---------+------------+-------+------------+----------+---------------------+----------+----------+----------+----------+----------+----------+----------+----------
+     net | 1108973 |          - |     - |  run( run) |   -(  -) |          0(     +0) |   40.118 |    0.000 |   59.882 |    0.000 |    0.000 |    0.000 |    0.000 |    0.000
+    quic | 1108975 |          - |     - |  run( run) |   -(  -) |          0(     +0) |    0.325 |    0.000 |   99.675 |    0.000 |    0.000 |    0.000 |    0.000 |    0.000
+  verify | 1108978 |          - |     - |  run( run) |   -(  -) |          0(     +0) |    0.496 |    0.000 |   99.504 |    0.000 |    0.000 |    0.000 |    0.000 |    0.000
+[...]
 ```

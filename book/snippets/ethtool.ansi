@@ -1,6 +1,7 @@
 $ sudo fdctl configure init ethtool
-[32mNOTICE [0m ethtool ... unconfigured ... device `ens3f0` does not have right number of channels, got 2, expected 4
+[32mNOTICE [0m ethtool ... unconfigured ... device `ens3f0` does not have right number of channels (got 1 but expected 2)
 [32mNOTICE [0m ethtool ... configuring
+[32mNOTICE [0m ethtool ... RUN: `ethtool --set-channels ens3f0 combined 2`
 
 $ ethtool --show-channels ens3f0
 Channel parameters for ens3f0:
@@ -13,4 +14,4 @@ Current hardware settings:
 RX:		0
 TX:		0
 Other:		1
-Combined:	4
+Combined:	2

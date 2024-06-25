@@ -81,7 +81,7 @@ run1_cmd_fn( args_t *         args,
     cpu_idx = 0UL;
   }
 
-  void * stack = fd_topo_tile_stack_new( 1, config->name, tile->name, tile->kind_id, cpu_idx );
+  void * stack = fd_topo_tile_stack_join( config->name, tile->name, tile->kind_id );
 
   tile_main_args_t clone_args = {
     .config      = config,

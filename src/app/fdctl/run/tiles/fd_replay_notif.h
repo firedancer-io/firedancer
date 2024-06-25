@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_appdctl_run_tiles_fd_replay_notif_h
 #define HEADER_fd_src_appdctl_run_tiles_fd_replay_notif_h 1
 
+#include "../../../../funk/fd_funk.h"
+
 /* Data structure which is passed through replay_notif link */
 
 #define FD_REPLAY_NOTIF_MTU 2048U

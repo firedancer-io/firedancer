@@ -216,8 +216,7 @@ run_solana_cmd_fn( args_t *         args,
 
   fd_log_thread_set( "solana-labs" );
 
-  /* Run Solana Labs with an optimized huge page stack on numa node 0 ... */
-  void * stack = fd_topo_tile_stack_new( 0, NULL, NULL, 0UL, 0UL );
+  void * stack = create_clone_stack();
 
   /* Also clone Solana Labs into PID namespaces so it cannot signal
      other tile or the parent. */
