@@ -1255,6 +1255,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
     // _txn_context_destroy( runner, txn_ctx );
     return 0;
   }
+  txn_result->has_resulting_state               = true;
   txn_result->resulting_state.acct_states       = modified_accts;
   txn_result->resulting_state.acct_states_count = 0;
 
