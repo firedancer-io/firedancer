@@ -283,7 +283,7 @@ main1( int     argc,
       } else if( FD_LIKELY( !strcmp( action->name, "configure" ) ) ) {
         FD_LOG_ERR(( "insufficient permissions to execute command `%s`. It is recommended "
                      "to configure Firedancer as the root user. Firedancer configuration requires "
-                     "root because it does privileged operating system actions like setting up XDP. "
+                     "root because it does privileged operating system actions like mounting huge page filesystems. "
                      "Configuration is a local action that does not access the network, and the process "
                      "exits immediately once configuration completes. The user that Firedancer runs "
                      "as is specified in your configuration file, and although configuration runs as root "

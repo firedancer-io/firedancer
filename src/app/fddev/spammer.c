@@ -23,8 +23,6 @@ spammer_cmd_perm( args_t *         args,
     if( FD_LIKELY( STAGES[ i ] ) ) {
       if( FD_UNLIKELY( !strcmp( STAGES[ i ]->name, "hugetlbfs" ) ) )
         configure_args.configure.stages[ 0 ] = STAGES[ i ];
-      if( FD_UNLIKELY( !strcmp( STAGES[ i ]->name, "workspace" ) ) )
-        configure_args.configure.stages[ 1 ] = STAGES[ i ];
     }
   }
   configure_args.configure.stages[ 2 ] = NULL;
@@ -117,12 +115,12 @@ spammer_cmd_fn( args_t *         args,
     if( FD_LIKELY( STAGES[ i ] ) ) {
       if( FD_UNLIKELY( !strcmp( STAGES[ i ]->name, "hugetlbfs" ) ) )
         configure_args.configure.stages[ 0 ] = STAGES[ i ];
-      if( FD_UNLIKELY( !strcmp( STAGES[ i ]->name, "workspace" ) ) )
-        configure_args.configure.stages[ 1 ] = STAGES[ i ];
     }
   }
   configure_args.configure.stages[ 2 ] = NULL;
   configure_cmd_fn( &configure_args, config );
+
+  run_firedancer_init( config, 1 );
 
   // Do we need a sandbox?
 

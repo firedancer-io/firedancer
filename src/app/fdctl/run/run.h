@@ -2,10 +2,9 @@
 #define HEADER_fd_src_app_fdctl_run_h
 
 #include "../fdctl.h"
-#include "tiles/tiles.h"
-#include "topos/topos.h"
 
-#include "../../../waltz/xdp/fd_xsk.h"
+void *
+create_clone_stack( void );
 
 void
 solana_labs_boot( config_t * config );
@@ -19,7 +18,15 @@ clone_firedancer( config_t * const config,
                   int *            out_pipe );
 
 void
+initialize_workspaces( config_t * const config );
+
+void
+run_firedancer_init( config_t * const config,
+                     int              init_workspaces );
+
+void
 run_firedancer( config_t * const config,
-                int              parent_pipefd );
+                int              parent_pipefd,
+                int              init_workspaces );
 
 #endif /* HEADER_fd_src_app_fdctl_run_h */

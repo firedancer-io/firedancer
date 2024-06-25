@@ -3,6 +3,7 @@
 #include "config_parse.h"
 #include "fdctl.h"
 
+#include "run/topos/topos.h"
 #include "run/run.h"
 
 #include "../../ballet/toml/fd_toml.h"

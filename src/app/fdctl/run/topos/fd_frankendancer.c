@@ -1,11 +1,11 @@
+#include "../../fdctl.h"
 #include "../tiles/tiles.h"
-#include "../../config.h"
-#include "../../../../ballet/shred/fd_shred.h"
+
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../util/tile/fd_tile_private.h"
-#include <sys/sysinfo.h>
 
+#include <sys/sysinfo.h>
 
 void
 fd_topo_frankendancer( config_t * config ) { 
@@ -18,8 +18,8 @@ fd_topo_frankendancer( config_t * config ) {
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
 
   /*             topo, name */
-  fd_topob_wksp( topo, "net_quic" );
-  fd_topob_wksp( topo, "net_shred" );
+  fd_topob_wksp( topo, "net_quic"     );
+  fd_topob_wksp( topo, "net_shred"    );
   fd_topob_wksp( topo, "quic_verify"  );
   fd_topob_wksp( topo, "verify_dedup" );
   fd_topob_wksp( topo, "dedup_pack"   );
@@ -32,22 +32,22 @@ fd_topo_frankendancer( config_t * config ) {
   fd_topob_wksp( topo, "stake_out"    );
   fd_topob_wksp( topo, "metric_in"    );
 
-  fd_topob_wksp( topo, "quic_sign"  );
-  fd_topob_wksp( topo, "sign_quic"  );
-  fd_topob_wksp( topo, "shred_sign" );
-  fd_topob_wksp( topo, "sign_shred" );
+  fd_topob_wksp( topo, "quic_sign"    );
+  fd_topob_wksp( topo, "sign_quic"    );
+  fd_topob_wksp( topo, "shred_sign"   );
+  fd_topob_wksp( topo, "sign_shred"   );
 
-  fd_topob_wksp( topo, "net"    );
-  fd_topob_wksp( topo, "quic"   );
-  fd_topob_wksp( topo, "verify" );
-  fd_topob_wksp( topo, "dedup"  );
-  fd_topob_wksp( topo, "pack"   );
-  fd_topob_wksp( topo, "bank"   );
-  fd_topob_wksp( topo, "poh"    );
-  fd_topob_wksp( topo, "shred"  );
-  fd_topob_wksp( topo, "store"  );
-  fd_topob_wksp( topo, "sign"   );
-  fd_topob_wksp( topo, "metric" );
+  fd_topob_wksp( topo, "net"          );
+  fd_topob_wksp( topo, "quic"         );
+  fd_topob_wksp( topo, "verify"       );
+  fd_topob_wksp( topo, "dedup"        );
+  fd_topob_wksp( topo, "pack"         );
+  fd_topob_wksp( topo, "bank"         );
+  fd_topob_wksp( topo, "poh"          );
+  fd_topob_wksp( topo, "shred"        );
+  fd_topob_wksp( topo, "store"        );
+  fd_topob_wksp( topo, "sign"         );
+  fd_topob_wksp( topo, "metric"       );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 

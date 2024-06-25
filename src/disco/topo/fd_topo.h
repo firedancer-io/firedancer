@@ -485,25 +485,14 @@ fd_topo_wksp_apply( fd_topo_t *      topo,
 void
 fd_topo_fill( fd_topo_t * topo );
 
-/* fd_topo_tile_stack_new creates a new huge page optimized stack for
-   provided tile.  The stack is placed in a workspace in the hugetlbfs
-   mount.
-   
-   If optimize is 1, fd_topo_tile_stack_new creates a new huge page
-   optimized stack for the provided tile.  The stack will be placed
-   in a workspace in the hugetlbfs, with a name determined by the
-   provided app_name, tile_name, and tile_kind_id arguments.
-   
-   If optimize is 0, fd_topo_tile_stack_new creates a new regular
-   page backed stack, which is not placed in the hugetlbfs.  In
-   this case cpu_idx and the other arguments are ignored. */
+/* fd_topo_tile_stack_join joins a huge page optimized stack for the
+   provided tile.  The stack is assumed to already exist at a known
+   path in the hugetlbfs mount. */
 
 void *
-fd_topo_tile_stack_new( int          optimize,
-                        char const * app_name,
-                        char const * tile_name,
-                        ulong        tile_kind_id,
-                        ulong        cpu_idx );
+fd_topo_tile_stack_join( char const * app_name,
+                         char const * tile_name,
+                         ulong        tile_kind_id );
 
 /* fd_topo_run_single_process runs all the tiles in a single process
    (the calling process).  This spawns a thread for each tile, switches

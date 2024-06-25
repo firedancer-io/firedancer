@@ -165,8 +165,8 @@ check_device( const char * device,
                    "as it will limit network performance.",
                    device, expected_channel_count ));
       else
-        NOT_CONFIGURED( "device `%s` does not have right number of channels, "
-                        "got %u, expected %u",
+        NOT_CONFIGURED( "device `%s` does not have right number of channels (got %u but "
+                        "expected %u)",
                         device, current_channels, expected_channel_count );
   }
 

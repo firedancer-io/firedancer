@@ -65,9 +65,5 @@ errors. Be sure to try them out!
 
 ### General Recommendations
 
-* Always run `fdctl configure init all --config ~/config.toml` before
-running the `fdctl run --config ~/config.toml`. If using a systemd unit,
-specify both of the commands together for starting Frankendancer.
-
 * Make sure the `~/config.toml` being used is the same in the `configure`
 and `run` commands.

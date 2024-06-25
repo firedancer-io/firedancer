@@ -14,3 +14,8 @@
         "eoKpUABi59aT4rR9HGS3LcMecfut9x7zJyodWWP43YQ",
         "9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv",
     ]
+
+[rpc]
+    port = 8899
+    full_api = true
+    private = true

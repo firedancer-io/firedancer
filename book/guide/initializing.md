@@ -1,19 +1,16 @@
 # Initializing
 
 ## Overview
-The `fdctl configure` command is used to setup the host environment so
-Firedancer can run correctly. It should be run each and every time
-before the validator is started, and also should be rerun if the
-configuration file changes, even if the validator has not yet been
-started.
+The `fdctl configure` command is used to setup the host operator system
+so Firedancer can run correctly. It does three things:
 
-::: warning WARNING
+* **hugetlbfs** Reserves huge and gigantic pages for use by Firedancer.
+* **sysctl** Sets required kernel parameters.
+* **ethtool** Configures the number of channels on the network device.
 
-Configuring the system for Firedancer has many moving parts and you
-should prefer to run `fdctl configure init all` if possible. The stages
-are described here in detail for advanced use cases and operators only.
-
-:::
+The `hugetlbfs` configuration must be performed every time the system
+is rebooted, to remount the `hugetlbfs` filesystems, but `sysctl` and
+`ethtool` configuration only needs to be performed on the machine once.
 
 The configure command is run like `fdctl configure <mode> <stage>...`
 where `mode` is one of:
@@ -25,9 +22,9 @@ where `mode` is one of:
    privileges and will not make any changes to the system.
  - `fini` Unconfigure (reverse) the stage if it is reversible.
 
-`stage` can be one or more of `hugetlbfs`, `sysctl`, `xdp`,
-`ethtool`, or `workspace` and these stages are described below. You can
-also use the stage `all` which will configure everything.
+`stage` can be one or more of `hugetlbfs`, `sysctl`, or `ethtool` and
+these stages are described below. You ca also use the stage `all` which
+will configure everything.
 
 Stages have different privilege requirements, which you can see by
 trying to run the stage without privileges. The `check` mode never
@@ -65,10 +62,12 @@ without requiring privileges.
 The `fini` mode will unmount the two filesystems, and remove them from
 `/mnt/.fd/`, although it will leave the `/mnt/.fd/` directory in place.
 The `fini` mode will not succeed if memory from the mounts is mapped
-into a running process. This will return the huge and gigantic pages
-that Firedancer had reserved to the global kernel pool, although we
-will not decrease the global pool size, even if it was earlier increased
-during `init`.
+into a running process.
+
+If fini succeeds, the huge and gigantic pages that Firedancer had
+reserved will be returned to the kernel global pool so they can be used
+by other programs, but the global pool size will not be decreased, even
+if it was earlier increased during `init`.
 
 ::: tip TIP
 
@@ -99,7 +98,8 @@ correctly, but configuration will proceed and exit normally.
 
 The `init` mode requires either `root` privileges, or to be run with
 `CAP_SYS_ADMIN`. The `fini` mode does nothing and kernel parameters
-will never be reduced as a result of running `configure`.
+will never be reduced or changed back as a result of running
+`configure`.
 
 ## xdp
 Firedancer uses XDP (express data path), a Linux feature for doing high
@@ -163,35 +163,3 @@ configuration.
 
 Changing device settings with `ethtool` requires root privileges, and
 cannot be performed with capabilities.
-
-## workspace
-A Firedancer workspace is a special in-memory file with extension
-`.wksp` created in the shmem mountpoints described above. It can be
-thought of as just a chunk of memory. Almost all memory in Firedancer is
-reserved, allocated, and initialized before running the program. The
-allocations are made in this workspace, which has a special header so we
-can look up where each one is.
-
-In the future, Firedancer will support persistent workspaces that
-are kept between runs. If that were supported, you could restart the
-program very quickly from existing memory.
-
-For now though, the stage must be run every time before running
-Firedancer to get a cleanly initialized memory space.
-
-The `workspace` stage only initializes memory that was already reserved
-in a large block by the `shmem` stage, and does not require any
-privileges. It needs to be run after the `shmem` stage but does not have
-other dependencies.
-
-The `check` mode will always fail, as the workspace always needs
-to be reinitialized. The fini mode will remove existing workspaces from
-the shared memory mount points.
-
-::: tip TIP
-
-It is possible to run Firedancer without rerunning most of the stages of
-`fdctl configure`, except `workspace`, if you are sure that your
-environment has been set up correctly.
-
-:::
