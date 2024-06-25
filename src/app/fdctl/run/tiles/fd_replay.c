@@ -4,9 +4,9 @@
 #include "../../../../disco/tiles.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/topo/fd_pod_format.h"
-#include "../../../../disco/tvu/fd_tvu.h"
 #include "../../../../flamenco/fd_flamenco.h"
 #include "../../../../disco/bank/fd_txncache.h"
+#include "../../../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
 #include "../../../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../../../flamenco/runtime/fd_borrowed_account.h"
@@ -15,8 +15,10 @@
 #include "../../../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../../../flamenco/runtime/program/fd_builtin_programs.h"
 #include "../../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../../../flamenco/runtime/fd_runtime_init.h"
 #include "../../../../flamenco/snapshot/fd_snapshot.h"
 #include "../../../../flamenco/stakes/fd_stakes.h"
+#include "../../../../flamenco/runtime/fd_runtime.h"
 #include "../../../../util/fd_util.h"
 #include "../../../../util/tile/fd_tile_private.h"
 #include "fd_replay_notif.h"
@@ -912,7 +914,7 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
   if( strncmp( snapshot, "wksp:", 5 ) != 0 ) {
     fd_snapshot_load( snapshot, ctx->slot_ctx, false, false, FD_SNAPSHOT_TYPE_FULL );
   } else {
-    fd_runtime_recover_banks( ctx->slot_ctx, 0 );
+    fd_runtime_recover_banks( ctx->slot_ctx, 0, 1 );
   }
 
   /* Load incremental */

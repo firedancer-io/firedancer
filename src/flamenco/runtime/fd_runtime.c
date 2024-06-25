@@ -2477,7 +2477,7 @@ fd_runtime_rollback_to( fd_exec_slot_ctx_t * slot_ctx, ulong slot ) {
   if( !txn) return -1;
   slot_ctx->funk_txn = txn;
   /* Recover the old bank state */
-  fd_runtime_recover_banks(slot_ctx, 1);
+  fd_runtime_recover_banks(slot_ctx, 1, 1);
   return 0;
 }
 
@@ -3606,56 +3606,6 @@ void fd_process_new_epoch(
 
   fd_runtime_update_leaders(slot_ctx, slot_ctx->slot_bank.slot);
   FD_LOG_WARNING(("Updated leader %32J", slot_ctx->leader->uc));
-}
-
-ulong
-fd_runtime_ctx_align( void ) {
-  return alignof( fd_runtime_ctx_t );
-}
-
-ulong
-fd_runtime_ctx_footprint( void ) {
-  return sizeof( fd_runtime_ctx_t );
-}
-
-void *
-fd_runtime_ctx_new( void * shmem ) {
-  fd_runtime_ctx_t * replay_state = (fd_runtime_ctx_t *)shmem;
-
-  if( FD_UNLIKELY( !replay_state ) ) {
-    FD_LOG_WARNING( ( "NULL replay_state" ) );
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)replay_state, fd_runtime_ctx_align() ) ) ) {
-    FD_LOG_WARNING( ( "misaligned replay_state" ) );
-    return NULL;
-  }
-
-  return (void *)replay_state;
-}
-
-/* fd_runtime_ctx_join returns the local join to the wksp backing the funk.
-   The lifetime of the returned pointer is at least as long as the
-   lifetime of the local join.  Assumes funk is a current local join. */
-
-fd_runtime_ctx_t *
-fd_runtime_ctx_join( void * state ) {
-  return (fd_runtime_ctx_t *)state;
-}
-
-/* fd_runtime_ctx_leave leaves an existing join.  Returns the underlying
-   shfunk on success and NULL on failure.  (logs details). */
-
-void *
-fd_runtime_ctx_leave( fd_runtime_ctx_t * state ) {
-  return state;
-}
-
-/* fd_runtime_ctx_delete unformats a wksp allocation used as a replay_state */
-void *
-fd_runtime_ctx_delete( void * state ) {
-  return state;
 }
 
 /* Loads the sysvar cache. Expects acc_mgr, funk_txn, valloc to be non-NULL and valid. */
