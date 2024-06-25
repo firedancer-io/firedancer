@@ -67,6 +67,7 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topob_wksp( topo, "replay_poh" );
   fd_topob_wksp( topo, "replay_notif" );
   fd_topob_wksp( topo, "bank_busy"  );
+  fd_topob_wksp( topo, "root_slot"  );
   fd_topob_wksp( topo, "pack_replay"  );
   fd_topob_wksp( topo, "replay_gossi" );
 
@@ -196,7 +197,12 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topo_tile_t * poh_tile = &topo->tiles[ fd_topo_find_tile( topo, "gossip", 0UL ) ];
   fd_topob_tile_uses( topo, poh_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  fd_topob_tile_uses( topo, store_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  /* This fseq maintains the node's currernt root slot for the purposes of
+     syncing across tiles and shared data structures. */
+  fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );
+  fd_topob_tile_uses( topo, replay_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, store_tile,  root_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, root_slot_obj->id, "root_slot" ) );
 
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
     fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ];

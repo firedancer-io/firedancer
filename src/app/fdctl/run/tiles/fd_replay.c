@@ -181,6 +181,7 @@ struct fd_replay_tile_ctx {
   ulong * first_turbine;
 
   ulong * bank_busy;
+  ulong * root_slot_fseq;
   uint poh_init_done;
 
   int                   vote;
@@ -1098,6 +1099,15 @@ unprivileged_init( fd_topo_t *      topo,
   if( ctx->funk_wksp == NULL ) {
     FD_LOG_ERR(( "no funk wksp" ));
   }
+
+  /**********************************************************************/
+  /* root_slot fseq                                                     */
+  /**********************************************************************/
+  ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
+  FD_TEST( root_slot_obj_id!=ULONG_MAX );
+  ctx->root_slot_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
+  if( FD_UNLIKELY( !ctx->root_slot_fseq ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
+  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->root_slot_fseq ) );
 
   /**********************************************************************/
   /* TOML paths                                                         */
