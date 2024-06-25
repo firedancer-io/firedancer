@@ -46,6 +46,7 @@ insert( ulong _blockhash,
     .blockhash = blockhash,
     .txnhash   = txnhash,
     .slot      = slot,
+    .txnhash_offset = 0UL,
     .result    = result,
   };
   if( FD_UNLIKELY( !fd_txncache_insert_batch( (fd_txncache_t*)txncache_scratch, &insert, 1 ) ) )
@@ -66,6 +67,7 @@ no_insert( ulong _blockhash,
     .blockhash = blockhash,
     .txnhash   = txnhash,
     .slot      = slot,
+    .txnhash_offset = 0UL,
     .result    = result,
   };
   FD_TEST( !fd_txncache_insert_batch( (fd_txncache_t*)txncache_scratch, &insert, 1 ) );

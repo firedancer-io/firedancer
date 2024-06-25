@@ -197,6 +197,7 @@ struct fd_txncache_insert {
   uchar const * blockhash;
   uchar const * txnhash;
   ulong         slot;
+  ulong         txnhash_offset;
   uchar const * result;
 };
 
