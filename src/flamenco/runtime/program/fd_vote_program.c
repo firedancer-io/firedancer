@@ -57,7 +57,7 @@
 /* size_of                                                            */
 /**********************************************************************/
 
-// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/vote_state_versions.rs#L78
+// https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/program/src/vote/state/vote_state_versions.rs#L82
 static inline ulong
 size_of_versioned( int is_current ) {
   return fd_ulong_if( is_current, FD_VOTE_STATE_V3_SZ, FD_VOTE_STATE_V2_SZ );
@@ -67,24 +67,25 @@ size_of_versioned( int is_current ) {
 /* impl Lockout                                                       */
 /**********************************************************************/
 
-// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L83
+// https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/program/src/vote/state/mod.rs#L104
 static inline ulong
 lockout( fd_vote_lockout_t * self ) {
-  return (ulong)pow( INITIAL_LOCKOUT, self->confirmation_count ); // FIXME
+  return (ulong)pow( INITIAL_LOCKOUT, self->confirmation_count );
 }
 
-// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L90
+// https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/program/src/vote/state/mod.rs#L110
 static inline ulong
 last_locked_out_slot( fd_vote_lockout_t * self ) {
   return fd_ulong_sat_add( self->slot, lockout( self ) );
 }
 
-// https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/vote/state/mod.rs#L93
+// https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/program/src/vote/state/mod.rs#L114
 static inline ulong
 is_locked_out_at_slot( fd_vote_lockout_t * self, ulong slot ) {
   return last_locked_out_slot( self ) >= slot;
 }
 
+// https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/program/src/vote/state/mod.rs#L122
 static void
 increase_confirmation_count( fd_vote_lockout_t * self, uint by ) {
   self->confirmation_count = fd_uint_sat_add( self->confirmation_count, by );
@@ -98,9 +99,9 @@ increase_confirmation_count( fd_vote_lockout_t * self, uint by ) {
    the older "v1.14.11" version.  This destroys the "current" object in
    the process.  valloc is the heap allocator to be used, which must be
    the same as the one used for v1.14.11.
+*/
 
-   https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/vote_state_1_14_11.rs#L60 */
-
+// https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/program/src/vote/state/vote_state_1_14_11.rs#L67
 static void
 from_vote_state_1_14_11( fd_vote_state_t *         vote_state,
                          fd_vote_state_1_14_11_t * vote_state_1_14_11, /* out */
@@ -109,7 +110,7 @@ from_vote_state_1_14_11( fd_vote_state_t *         vote_state,
   vote_state_1_14_11->authorized_withdrawer = vote_state->authorized_withdrawer;  /* copy */
   vote_state_1_14_11->commission            = vote_state->commission;             /* copy */
 
-  // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/vote_state_1_14_11.rs#L65-L69
+  // https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/program/src/vote/state/vote_state_1_14_11.rs#L72
   if( vote_state->votes ) {
     vote_state_1_14_11->votes = deq_fd_vote_lockout_t_alloc( valloc, deq_fd_landed_vote_t_cnt( vote_state->votes ) );
     for( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( vote_state->votes );
@@ -140,17 +141,18 @@ from_vote_state_1_14_11( fd_vote_state_t *         vote_state,
 /* impl VoteAccount                                                   */
 /**********************************************************************/
 
-// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/src/transaction_context.rs#L841
+// https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/src/transaction_context.rs#L800
 static inline int
 checked_add_lamports( fd_account_meta_t * self, ulong lamports ) {
   if( FD_UNLIKELY( self->info.lamports + lamports < self->info.lamports ) ) {
     return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
   };
+
   self->info.lamports += lamports;
   return 0;
 }
 
-// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/src/transaction_context.rs#L851
+// https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/src/transaction_context.rs#L810
 static inline int
 checked_sub_lamports( fd_account_meta_t * self, ulong lamports ) {
   if( FD_UNLIKELY( self->info.lamports - lamports > self->info.lamports ) ) {
@@ -2130,6 +2132,7 @@ fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
 /* mod vote_processor                                                 */
 /**********************************************************************/
 
+// https://github.com/anza-xyz/agave/blob/v2.0.0/programs/vote/src/vote_processor.rs#L21
 static int
 process_authorize_with_seed_instruction(
     /* invoke_context */
@@ -2144,34 +2147,23 @@ process_authorize_with_seed_instruction(
     ulong                   current_authority_derived_key_seed_len ) {
   int rc = 0;
 
-  /* https://github.com/solana-labs/solana/blob/43daa37937907c10099e30af10a5a0b43e2dd2fe/programs/vote/src/vote_processor.rs#L101
-   */
-  if( !FD_FEATURE_ACTIVE( ctx->slot_ctx, vote_authorize_with_seed ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-  }
-
-  /* This is intentionally duplicative with the entrypoint to vote process instruction to match Labs
-   * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L34-L36
-   */
-
-  // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L31
+  // https://github.com/anza-xyz/agave/blob/v2.0.0/programs/vote/src/vote_processor.rs#L31
   fd_sol_sysvar_clock_t const * clock = fd_sysvar_from_instr_acct_clock( ctx, 1, &rc );
   if( FD_UNLIKELY( !clock ) ) return rc;
 
-  // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L32
   fd_pubkey_t * expected_authority_keys[FD_TXN_SIG_MAX] = { 0 };
   fd_pubkey_t   single_signer                        = { 0 };
 
-  /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_processor.rs#L32 */
-
   if( ctx->instr->acct_cnt < 3 )
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+
+  // https://github.com/anza-xyz/agave/blob/v2.0.0/programs/vote/src/vote_processor.rs#L33
   if( fd_instr_acc_is_signer_idx( ctx->instr, 2 ) ) {
 
-    /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_processor.rs#L33-L35 */
+    // https://github.com/anza-xyz/agave/blob/v2.0.0/programs/vote/src/vote_processor.rs#L35
     fd_pubkey_t const * base_pubkey = &ctx->instr->acct_pubkeys[2];
 
-    /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_processor.rs#L36-L40 */
+    // https://github.com/anza-xyz/agave/blob/v2.0.0/programs/vote/src/vote_processor.rs#L37
     expected_authority_keys[0] = &single_signer;
     rc = fd_pubkey_create_with_seed( ctx,
                                      base_pubkey->uc,
@@ -2182,7 +2174,7 @@ process_authorize_with_seed_instruction(
     if( FD_UNLIKELY( rc ) ) return rc;
   }
 
-  // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L43-L50
+  // https://github.com/anza-xyz/agave/blob/v2.0.0/programs/vote/src/vote_processor.rs#L43
   return authorize( vote_acct_idx,
                     vote_account,
                     new_authority,
@@ -2192,11 +2184,9 @@ process_authorize_with_seed_instruction(
                     ctx );
 }
 
-/* https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/vote_state_versions.rs#L88 */
+// https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/program/src/vote/state/vote_state_versions.rs#L90
 uint vote_state_versions_is_correct_and_initialized( fd_borrowed_account_t * vote_account ) {
-  // VoteState::is_correct_size_and_initialized
-  // https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/mod.rs#L696
-
+  // https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/program/src/vote/state/mod.rs#L885
   uint data_len_check = vote_account->const_meta->dlen == FD_VOTE_STATE_V3_SZ;
   uchar test_data[DEFAULT_PRIOR_VOTERS_OFFSET] = {0};
   uint data_check = memcmp((
@@ -2206,7 +2196,7 @@ uint vote_state_versions_is_correct_and_initialized( fd_borrowed_account_t * vot
   }
 
   // VoteState1_14_11::is_correct_size_and_initialized
-  // https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/vote_state_1_14_11.rs#L51
+  // https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/program/src/vote/state/vote_state_1_14_11.rs#L58
   data_len_check = vote_account->const_meta->dlen == FD_VOTE_STATE_V2_SZ;
   uchar test_data_1_14_11[DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11] = {0};
   data_check = memcmp(
