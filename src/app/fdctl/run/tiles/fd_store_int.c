@@ -105,6 +105,8 @@ struct fd_store_tile_ctx {
   fd_stake_ci_t * stake_ci;
 
   ulong blockstore_seed;
+
+  ulong * root_slot_fseq;
 };
 typedef struct fd_store_tile_ctx fd_store_tile_ctx_t;
 
@@ -452,6 +454,15 @@ unprivileged_init( fd_topo_t *      topo,
   if( ctx->blockstore_wksp == NULL ) {
     FD_LOG_ERR(( "blockstore_wksp must be defined in topo." ));
   }
+
+  /**********************************************************************/
+  /* root_slot fseq                                                     */
+  /**********************************************************************/
+  ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
+  FD_TEST( root_slot_obj_id!=ULONG_MAX );
+  ctx->root_slot_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
+  if( FD_UNLIKELY( !ctx->root_slot_fseq ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
+  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->root_slot_fseq ) );
 
   /* Prevent blockstore from being created until we know the shred version */
   ulong expected_shred_version = tile->shred.expected_shred_version;
