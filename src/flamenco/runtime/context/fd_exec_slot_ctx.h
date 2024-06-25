@@ -79,7 +79,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))
 #define FD_EXEC_SLOT_CTX_FOOTPRINT (sizeof (fd_exec_slot_ctx_t))
-#define FD_EXEC_SLOT_CTX_MAGIC (0xC2287BA2A5E6FC3DUL) /* random */
+#define FD_EXEC_SLOT_CTX_MAGIC     (0xC2287BA2A5E6FC3DUL) /* random */
 
 /* FD_FEATURE_ACTIVE evalutes to 1 if the given feature is active, 0
    otherwise.  First arg is the fd_exec_slot_ctx_t.  Second arg is the
