@@ -15,15 +15,24 @@ _set_accv_sz( fd_snapshot_restore_t * restore,
   FD_TEST( fd_snapshot_accv_map_query( restore->accv_map, key, NULL ) == rec );
 }
 
-static int                    _cb_retcode    = 0;
-static fd_solana_manifest_t * _cb_v_manifest = NULL;
-static void *                 _cb_v_ctx      = NULL;
+static int                     _cb_retcode    = 0;
+static fd_solana_manifest_t  * _cb_v_manifest = NULL;
+static fd_bank_slot_deltas_t * _cb_v_cache    = NULL;
+static void *                  _cb_v_ctx      = NULL;
 
 int
 cb_manifest( void *                 ctx,
              fd_solana_manifest_t * manifest ) {
   _cb_v_manifest = manifest;
   _cb_v_ctx      = ctx;
+  return _cb_retcode;
+}
+
+int
+cb_status_cache( void *                  ctx,
+                 fd_bank_slot_deltas_t * cache ) {
+  _cb_v_cache = cache;
+  _cb_v_ctx   = ctx;
   return _cb_retcode;
 }
 
@@ -83,14 +92,14 @@ main( int     argc,
      context that is waiting for a manifest. */
 
 # define NEW_RESTORE() \
-    fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, _dummy_ctx, cb_manifest )
+    fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, _dummy_ctx, cb_manifest, cb_status_cache )
 
   /* NEW_RESTORE_POST_MANIFEST is a convenience macro to create a new
      snapshot restore context that pretends that the manifest has
      already been restored. */
 
 # define NEW_RESTORE_POST_MANIFEST() __extension__({ \
-    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, _dummy_ctx, cb_manifest ); \
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, _dummy_ctx, cb_manifest, cb_status_cache ); \
     restore->manifest_done = 1; \
     restore->slot          = restore_slot; \
     restore; \
@@ -98,14 +107,14 @@ main( int     argc,
 
   /* Test invalid params */
 
-  FD_TEST( !fd_snapshot_restore_new( NULL,        acc_mgr, NULL, _valloc, NULL, cb_manifest ) );  /* NULL mem */
-  FD_TEST( !fd_snapshot_restore_new( restore_mem, NULL,    NULL, _valloc, NULL, cb_manifest ) );  /* NULL acc_mgr */
-  FD_TEST( !fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, NULL        ) );  /* NULL callback */
+  FD_TEST( !fd_snapshot_restore_new( NULL,        acc_mgr, NULL, _valloc, NULL, cb_manifest, cb_status_cache ) );  /* NULL mem */
+  FD_TEST( !fd_snapshot_restore_new( restore_mem, NULL,    NULL, _valloc, NULL, cb_manifest, cb_status_cache ) );  /* NULL acc_mgr */
+  FD_TEST( !fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, NULL, NULL        ) );  /* NULL callback */
 
   /* Reject accounts before manifest */
 
   do {
-    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, cb_manifest );
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, cb_manifest, cb_status_cache );
     FD_TEST( restore );
     FD_TEST( restore->failed        == 0 );
     FD_TEST( restore->manifest_done == 0 );
@@ -120,10 +129,22 @@ main( int     argc,
     fd_snapshot_restore_delete( restore );
   } while(0);
 
+  /* Reject invalid status cache */
+
+  do {
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, cb_manifest, cb_status_cache );
+    FD_TEST( restore );
+    fd_tar_meta_t meta = { .name = "snapshots/status_cache", .typeflag = FD_TAR_TYPE_REGULAR };
+    FD_TEST( 0==fd_snapshot_restore_file( restore, &meta, 18UL ) );
+    FD_TEST( restore->buf );
+    FD_TEST( EINVAL==fd_snapshot_restore_chunk( restore, "AAAAAAAAAAAAAAAAAA", 18UL ) );
+    fd_snapshot_restore_delete( restore );
+  } while(0);
+
   /* Reject invalid manifest */
 
   do {
-    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, cb_manifest );
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, cb_manifest, cb_status_cache );
     FD_TEST( restore );
     fd_tar_meta_t meta = { .name = "snapshots/123/123", .typeflag = FD_TAR_TYPE_REGULAR };
     FD_TEST( 0==fd_snapshot_restore_file( restore, &meta, 18UL ) );
@@ -132,10 +153,21 @@ main( int     argc,
     fd_snapshot_restore_delete( restore );
   } while(0);
 
+  /* Test status cache with size exceeding buffer size (out of memory) */
+
+  do {
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, cb_manifest, cb_status_cache );
+    FD_TEST( restore );
+    fd_tar_meta_t meta = { .name = "snapshots/status_cache", .typeflag = FD_TAR_TYPE_REGULAR };
+    FD_TEST( ENOMEM==fd_snapshot_restore_file( restore, &meta, ULONG_MAX ) );
+    FD_TEST( restore->failed == 1 );
+    fd_snapshot_restore_delete( restore );
+  } while(0);
+
   /* Test manifest with size exceeding buffer size (out of memory) */
 
   do {
-    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, cb_manifest );
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, cb_manifest, cb_status_cache );
     FD_TEST( restore );
     fd_tar_meta_t meta = { .name = "snapshots/123/123", .typeflag = FD_TAR_TYPE_REGULAR };
     FD_TEST( ENOMEM==fd_snapshot_restore_file( restore, &meta, ULONG_MAX ) );
@@ -171,6 +203,56 @@ main( int     argc,
     FD_TEST( _cb_v_manifest != NULL        );
     FD_TEST( restore->manifest_done == 1   );
     FD_TEST( restore->slot          == 3UL );
+
+    fd_snapshot_restore_delete( restore );
+    fd_scratch_pop();
+  } while(0);
+
+  /* Test basic status cache */
+
+  do {
+    fd_scratch_push();
+    /* Create basic slot delta */
+    fd_bank_slot_deltas_t cache[1];
+    cache->slot_deltas_len = 1;
+    cache->slot_deltas = fd_scratch_alloc(fd_slot_delta_align(), fd_slot_delta_footprint());
+    cache->slot_deltas->is_root = 0;
+    cache->slot_deltas->slot = 10;
+    cache->slot_deltas->slot_delta_vec_len = 1;
+    cache->slot_deltas->slot_delta_vec = fd_scratch_alloc(fd_status_pair_align(), fd_status_pair_footprint());
+
+    fd_status_pair_t * pair = cache->slot_deltas->slot_delta_vec;
+    fd_memset( pair->hash.uc, 1UL, sizeof(fd_hash_t) );
+    pair->value.txn_idx = 2;
+    pair->value.statuses_len = 1;
+    pair->value.statuses = fd_scratch_alloc( fd_cache_status_align(), fd_cache_status_footprint() );
+
+    fd_cache_status_t * status = pair->value.statuses;
+    status->result.discriminant = 0;
+    fd_memset(status->key_slice, 2, 20);
+
+    ulong sz = fd_bank_slot_deltas_size( cache );
+
+    ulong   data_sz = sz;
+    uchar * data    = fd_scratch_alloc( 1UL, data_sz );
+    fd_bincode_encode_ctx_t encode =
+      { .data    = data,
+        .dataend = data + sz + 1 };
+    FD_TEST( 0==fd_bank_slot_deltas_encode( cache, &encode ) );
+
+    fd_snapshot_restore_t * restore = NEW_RESTORE();
+    FD_TEST( restore );
+    FD_TEST( restore->status_cache_done == 0) ;
+
+    fd_tar_meta_t meta = { .name = "snapshots/status_cache", .typeflag = FD_TAR_TYPE_REGULAR };
+    _cb_v_ctx      = NULL;
+    _cb_v_cache = NULL;
+    _cb_retcode = 0;
+    FD_TEST( 0==fd_snapshot_restore_file( restore, &meta, data_sz ) );
+    FD_TEST( 0==fd_snapshot_restore_chunk( restore, data, data_sz ) );
+    FD_TEST( _cb_v_ctx      == _dummy_ctx  );
+    FD_TEST( _cb_v_cache    != NULL        );
+    FD_TEST( restore->status_cache_done == 1   );
 
     fd_snapshot_restore_delete( restore );
     fd_scratch_pop();

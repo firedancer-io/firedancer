@@ -14,83 +14,6 @@
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
-fd_snapshot_name_t *
-fd_snapshot_name_from_buf( fd_snapshot_name_t * id,
-                           char const *         str,
-                           ulong                str_len,
-                           ulong                base_slot ) {
-  char buf[ 4096 ];
-  str_len = fd_ulong_min( sizeof(buf)-1, str_len );
-  fd_memcpy( buf, str, str_len );
-
-  return fd_snapshot_name_from_cstr( id, buf, base_slot );
-}
-
-fd_snapshot_name_t *
-fd_snapshot_name_from_cstr( fd_snapshot_name_t * id,
-                            char const *         cstr,
-                            ulong                base_slot ) {
-
-  fd_memset( id, 0, sizeof(fd_snapshot_name_t) );
-
-  const char * orig_cstr = cstr;
-
-  char * last_slash = strrchr( cstr, '/' );
-  if( last_slash && last_slash[0]=='/' ) cstr = last_slash + 1;
-
-  if( 0==strncmp( cstr, "snapshot-", sizeof("snapshot-")-1 ) ) {
-    cstr += sizeof("snapshot-")-1;
-    id->type = FD_SNAPSHOT_TYPE_FULL;
-  } else if( 0==strncmp( cstr, "incremental-snapshot-", sizeof("incremental-snapshot-")-1 ) ) {
-    cstr += sizeof("incremental-snapshot-")-1;
-    id->type = FD_SNAPSHOT_TYPE_INCREMENTAL;
-  } else {
-    FD_LOG_WARNING(( "unrecognized snapshot type: \"%s\"", orig_cstr ));
-    return NULL;
-  }
-
-  char const * endptr = NULL;
-  id->slot = strtoul( cstr, fd_type_pun( &endptr ), 10 );
-  if( !endptr || endptr[0]!='-' ) {
-    FD_LOG_WARNING(( "invalid snapshot file name: \"%s\"", orig_cstr ));
-    return NULL;
-  }
-  cstr = endptr+1;
-
-  if( id->type == FD_SNAPSHOT_TYPE_INCREMENTAL ) {
-    id->incremental_slot = strtoul( cstr, fd_type_pun( &endptr ), 10 );
-    if( !endptr || endptr[0]!='-' ) {
-      FD_LOG_WARNING(( "invalid snapshot file name: \"%s\"", orig_cstr ));
-      return NULL;
-    }
-    cstr = endptr+1;
-
-    if( base_slot != id->slot ) {
-      FD_LOG_WARNING(( "failed to load snapshot: \"%s\"", orig_cstr ));
-      FD_LOG_WARNING(( "expected base slot %lu but got %lu, incremental snapshot does not match full snapshot", base_slot, id->slot ));
-      return NULL;
-    }
-  }
-
-  char const * file_ext = strchr( cstr, '.' );
-  ulong        file_ext_off = (ulong)( file_ext - cstr );
-
-  char hash_cstr[ FD_BASE58_ENCODED_32_SZ ] = {0};
-  strncpy( hash_cstr, cstr, sizeof(hash_cstr)-1 );
-  if( file_ext_off < sizeof(hash_cstr) ) {
-    hash_cstr[ file_ext_off ] = '\0';
-  }
-  strncpy( id->file_ext, file_ext, sizeof(id->file_ext)-1 );
-
-  if( FD_UNLIKELY( !fd_base58_decode_32( hash_cstr, id->fhash.hash ) ) ) {
-    FD_LOG_WARNING(( "invalid snapshot file name: \"%s\"", orig_cstr ));
-    return NULL;
-  }
-  return id;
-}
-
-#if FD_HAS_ZSTD
-
 static void
 fd_hashes_load(fd_exec_slot_ctx_t * slot_ctx) {
   FD_BORROWED_ACCOUNT_DECL(block_hashes_rec);
@@ -127,6 +50,12 @@ restore_manifest( void *                 ctx,
   return (!!fd_exec_slot_ctx_recover( ctx, manifest ) ? 0 : EINVAL);
 }
 
+static int
+restore_status_cache( void *                 ctx,
+                      fd_bank_slot_deltas_t * slot_deltas ) {
+  return (!!fd_exec_slot_ctx_recover_status_cache( ctx, slot_deltas ) ? 0 : EINVAL);
+}
+
 static void
 load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
                    char *               source_cstr,
@@ -147,7 +76,7 @@ load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
   void * restore_mem = fd_valloc_malloc( valloc, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   void * loader_mem  = fd_valloc_malloc( valloc, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( zstd_window_sz ) );
 
-  fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, funk_txn, valloc, slot_ctx, restore_manifest );
+  fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, funk_txn, valloc, slot_ctx, restore_manifest, restore_status_cache );
   fd_snapshot_loader_t *  loader  = fd_snapshot_loader_new ( loader_mem, zstd_window_sz );
 
   if( FD_UNLIKELY( !restore || !loader ) ) {
@@ -257,5 +186,3 @@ fd_snapshot_load( const char *         snapshotfile,
   fd_funk_end_write( slot_ctx->acc_mgr->funk );
   fd_funk_speed_load_mode( slot_ctx->acc_mgr->funk, 0 );
 }
-
-#endif

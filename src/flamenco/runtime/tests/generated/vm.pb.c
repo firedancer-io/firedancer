@@ -24,4 +24,7 @@ PB_BIND(FD_EXEC_TEST_SYSCALL_EFFECTS, fd_exec_test_syscall_effects_t, AUTO)
 PB_BIND(FD_EXEC_TEST_SYSCALL_FIXTURE, fd_exec_test_syscall_fixture_t, 2)
 
 
+PB_BIND(FD_EXEC_TEST_VALIDATE_VM_EFFECTS, fd_exec_test_validate_vm_effects_t, AUTO)
+
+
 

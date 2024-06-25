@@ -6,7 +6,10 @@
 
 #include "generated/elf.pb.h"
 #include "generated/invoke.pb.h"
+#include "generated/vm.pb.h"
 #include "../../../funk/fd_funk.h"
+#include "../../vm/fd_vm.h"
+#include "../../../ballet/murmur3/fd_murmur3.h"
 
 /* fd_exec_instr_test_runner_t provides fake fd_exec_instr_ctx_t to
    test processing of individual instructions. */
@@ -82,10 +85,18 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
    but output is incomplete/undefined.
    */
 ulong
-fd_sbpf_program_load_test_run( fd_exec_test_elf_loader_ctx_t const * input,
-                               fd_exec_test_elf_loader_effects_t ** output,
-                               void *                               output_buf,
-                               ulong                                output_bufsz );
+fd_sbpf_program_load_test_run( fd_exec_instr_test_runner_t *         runner,
+                               fd_exec_test_elf_loader_ctx_t const * input,
+                               fd_exec_test_elf_loader_effects_t **  output,
+                               void *                                output_buf,
+                               ulong                                 output_bufsz );
+
+ulong
+fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
+                             fd_exec_test_syscall_context_t const * input,
+                             fd_exec_test_syscall_effects_t **      output,
+                             void *                                 output_buf,
+                             ulong                                  output_bufsz );
 
 FD_PROTOTYPES_END
 

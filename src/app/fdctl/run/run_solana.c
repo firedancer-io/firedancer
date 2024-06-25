@@ -19,13 +19,13 @@ clone_labs_memory_space_tiles( config_t * const config ) {
   /* preload shared memory for all the solana tiles at once */
   for( ulong i=0; i<config->topo.wksp_cnt; i++ ) {
     fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
-    if( FD_LIKELY( !strcmp( wksp->name, "pack_bank" ) ) ) {
+    if( FD_LIKELY( !strcmp( wksp->name, "pack_bank" ) ||
+                   !strcmp( wksp->name, "shred_store" ) ) ) {
       fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_ONLY );
     } else if( FD_LIKELY( !strcmp( wksp->name, "bank_poh" ) ||
                           !strcmp( wksp->name, "bank_busy" ) ||
                           !strcmp( wksp->name, "poh_shred" ) ||
-                          !strcmp( wksp->name, "shred_store" ) ||
-                          !strcmp( wksp->name, "dedup_pack" ) ||
+                          !strcmp( wksp->name, "gossip_pack" ) ||
                           !strcmp( wksp->name, "stake_out" ) ||
                           !strcmp( wksp->name, "metric_in" ) ||
                           !strcmp( wksp->name, "bank" ) ||

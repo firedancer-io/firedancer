@@ -1,8 +1,7 @@
 #include "fd_native_cpi.h"
 #include "../fd_account.h"
 #include "../fd_executor.h"
-#include "../../vm/fd_vm_syscalls.h"
-#include "../../vm/fd_vm_interp.h"
+#include "../../vm/syscall/fd_vm_syscall.h"
 #include "../../../util/bits/fd_uwide.h"
 
 int 
@@ -89,11 +88,11 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
 
   instr_info->data = buf;
   instr_info->data_sz = sizeof(buf);
-  ulong exec_err = fd_vm_prepare_instruction( ctx->instr, instr_info, ctx, instruction_accounts,
+  int exec_err = fd_vm_prepare_instruction( ctx->instr, instr_info, ctx, instruction_accounts,
                                               &instruction_accounts_cnt, signers, signers_cnt );
   if( exec_err != FD_EXECUTOR_INSTR_SUCCESS ) {
     FD_LOG_WARNING(("Preparing instruction failed"));
-    return (int)exec_err;
+    return exec_err;
   }
 
   return fd_execute_instr( ctx->txn_ctx, instr_info );

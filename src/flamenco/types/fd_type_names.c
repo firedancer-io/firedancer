@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 200
+#define FD_TYPE_NAME_COUNT 209
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_pubkey",
@@ -201,4 +201,13 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_repair_ancestor_hashes",
  "fd_repair_protocol",
  "fd_repair_response",
+ "fd_instr_error_enum",
+ "fd_txn_instr_error",
+ "fd_txn_error_enum",
+ "fd_txn_result",
+ "fd_cache_status",
+ "fd_status_value",
+ "fd_status_pair",
+ "fd_slot_delta",
+ "fd_bank_slot_deltas",
 };

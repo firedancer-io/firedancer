@@ -10,6 +10,7 @@
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../sysvar/fd_sysvar_cache_old.h"
 #include "../../types/fd_types.h"
+#include "../../../disco/bank/fd_txncache.h"
 
 struct fd_account_compute_elem {
   fd_pubkey_t key;
@@ -72,6 +73,8 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 
   fd_sysvar_cache_t *      sysvar_cache;
   fd_account_compute_elem_t * account_compute_table;
+
+  fd_txncache_t * status_cache;
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))
@@ -112,6 +115,17 @@ fd_exec_slot_ctx_delete( void * mem );
 fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   ctx,
                           fd_solana_manifest_t * manifest );
+
+/* fd_exec_slot_ctx_recover re-initializes the current slot
+   context's status cache from the provided solana slot deltas.
+   Assumes objects in slot deltas were allocated using slot ctx valloc 
+   (U.B. otherwise).
+   On return, slot deltas is destroyed.  Returns ctx on success.
+   On failure, logs reason for error and returns NULL. */
+
+fd_exec_slot_ctx_t *
+fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *   ctx,
+                                       fd_bank_slot_deltas_t * slot_deltas );
 
 
 /* Free all allocated memory within a slot ctx */

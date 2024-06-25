@@ -320,12 +320,12 @@ static int parse_key_value( config_t *   config,
   ENTRY_ULONG ( ., tiles.replay,        funk_txn_max                                              );
   ENTRY_STR   ( ., tiles.replay,        genesis                                                   );
   ENTRY_STR   ( ., tiles.replay,        incremental                                               );
-  ENTRY_STR   ( ., tiles.replay,        slots                                                     );
+  ENTRY_STR   ( ., tiles.replay,        slots_replayed                                            );
   ENTRY_STR   ( ., tiles.replay,        snapshot                                                  );
   ENTRY_ULONG ( ., tiles.replay,        tpool_thread_count                                        );
 
   ENTRY_STR   ( ., tiles.store_int,     blockstore_restore                                        );
-  ENTRY_STR   ( ., tiles.store_int,     slots                                                     );
+  ENTRY_STR   ( ., tiles.store_int,     slots_pending                                             );
 
   /* We have encountered a token that is not recognized, return 0 to indicate failure. */
   return 0;

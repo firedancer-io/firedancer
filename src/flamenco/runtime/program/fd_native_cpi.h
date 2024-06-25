@@ -3,7 +3,7 @@
 
 #include "../../fd_flamenco_base.h"
 #include "../../types/fd_types.h"
-#include "../../vm/fd_vm_cpi.h"
+#include "../../vm/syscall/fd_vm_syscall.h"
 
 FD_PROTOTYPES_BEGIN
 

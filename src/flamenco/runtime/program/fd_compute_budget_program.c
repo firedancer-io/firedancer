@@ -6,7 +6,7 @@
 #include "../context/fd_exec_txn_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_epoch_ctx.h"
-#include "../../vm/fd_vm_context.h"
+#include "../../vm/fd_vm.h"
 
 #define DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT  (200000)
 #define DEFAULT_COMPUTE_UNITS                   (150UL)
@@ -154,7 +154,7 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
   }
 
   if ( has_loaded_accounts_data_size_limit_update ) {
-    ulong data_sz_set = fd_ulong_min(MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES, updated_loaded_accounts_data_size_limit);
+    ulong data_sz_set = fd_ulong_min( FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT, updated_loaded_accounts_data_size_limit );
     ctx->loaded_accounts_data_size_limit = data_sz_set;
   }
 

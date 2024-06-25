@@ -19,7 +19,6 @@
 #define FD_SBPF_ERR_INVALID_ELF (1)
 #define FD_SBPF_PROG_RODATA_ALIGN 8UL
 
-
 /* Program struct *****************************************************/
 
 /* fd_sbpf_calldests is a bit vector of valid call destinations.
@@ -29,29 +28,38 @@
 #define SET_NAME fd_sbpf_calldests
 #include "../../util/tmpl/fd_set_dynamic.c"
 
-/* fd_sbpf_syscall_fn_t is a callback implementing an sBPF syscall.
-   ctx is the executor context. */
+/* fd_sbpf_syscall_func_t is a callback implementing an sBPF syscall.
+   vm is a handle to the running VM.  Returns 0 on suceess or an integer
+   error code on failure.
 
-typedef ulong
-(* fd_sbpf_syscall_fn_t)( void *  ctx,
-                          ulong   r1,
-                          ulong   r2,
-                          ulong   r3,
-                          ulong   r4,
-                          ulong   r5,
-                          ulong * r0 );
+   IMPORTANT SAFETY TIP!  See notes in
+   flamenco/vm/syscall/fd_vm_syscall.h on what a syscall should expect
+   to see and expect to return. */
 
-/* fd_sbpf_syscalls_t maps syscall IDs => local function pointers. */
+/* FIXME: THIS BELONGS IN FLAMENCO/VM */
 
-struct __attribute__((aligned(16UL))) fd_sbpf_syscalls {
-  uint                 key;       /* Murmur3-32 hash of function name */
-  fd_sbpf_syscall_fn_t func_ptr;  /* Function pointer */
-  char const *         name;
+typedef int
+(*fd_sbpf_syscall_func_t)( void *  vm,
+                           ulong   arg0,
+                           ulong   arg1,
+                           ulong   arg2,
+                           ulong   arg3,
+                           ulong   arg4,
+                           ulong * _ret );
+
+/* fd_sbpf_syscalls_t maps syscall IDs => a name and a VM specific
+   context.  FIXME: THIS ALSO PROBABLY BELONGS IN FLAMENCO/VM */
+
+#define FD_SBPF_SYSCALLS_LG_SLOT_CNT (7)
+#define FD_SBPF_SYSCALLS_SLOT_CNT    (1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT)
+
+struct fd_sbpf_syscalls {
+  uint                   key;  /* Murmur3-32 hash of function name */
+  fd_sbpf_syscall_func_t func; /* Function pointer */
+  char const *           name; /* Infinite lifetime pointer to function name */
 };
 
 typedef struct fd_sbpf_syscalls fd_sbpf_syscalls_t;
-
-/* fd_sbpf_syscalls_t maps syscall IDs => local function pointers. */
 
 #define MAP_NAME              fd_sbpf_syscalls
 #define MAP_T                 fd_sbpf_syscalls_t
@@ -62,7 +70,7 @@ typedef struct fd_sbpf_syscalls fd_sbpf_syscalls_t;
 #define MAP_KEY_EQUAL_IS_SLOW 0
 #define MAP_KEY_HASH(k)       (k)
 #define MAP_MEMOIZE           0
-#define MAP_LG_SLOT_CNT       12
+#define MAP_LG_SLOT_CNT       FD_SBPF_SYSCALLS_LG_SLOT_CNT
 #include "../../util/tmpl/fd_map.c"
 
 /* fd_sbpf_elf_info_t contains basic information extracted from an ELF
@@ -117,7 +125,7 @@ struct __attribute__((aligned(32UL))) fd_sbpf_program {
   ulong * text;
   ulong   text_cnt;  /* instruction count */
   ulong   text_off;  /* instruction offset for use in CALL_REG instructions */
-  ulong   entry_pc;  /* entrypoint PC (at text[ entry_pc - start_pc ]) */
+  ulong   entry_pc;  /* entrypoint PC (at text[ entry_pc - start_pc ]) ... FIXME: HMMMM ... CODE SEEMS TO USE TEXT[ ENTRY_PC ] */
 
   /* Bit vector of valid call destinations (bit count is rodata_sz) */
   fd_sbpf_calldests_t * calldests;
