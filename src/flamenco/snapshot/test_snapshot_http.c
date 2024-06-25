@@ -13,6 +13,7 @@ main( int     argc,
       "GET /snapshot.tar.bz2 HTTP/1.1\r\n"
       "user-agent: Firedancer\r\n"
       "accept: */*\r\n"
+      "accept-encoding: identity\r\n"
       "host: 1.1.1.1:80\r\n"
       "\r\n",
       (ulong)( http->req_head - http->req_tail ) ) );
