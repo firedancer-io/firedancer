@@ -738,7 +738,7 @@ fd_runtime_prepare_txns_phase1( fd_exec_slot_ctx_t * slot_ctx,
     task_info[txn_idx].txn = txn;
     fd_txn_t const * txn_descriptor = (fd_txn_t const *) txn->_;
     fd_rawtxn_b_t raw_txn = {.raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
-    
+
     // FD_LOG_INFO(("preparing txn - slot: %lu, txn_idx: %lu, fee_payer: %32J, sig: %64J", slot_ctx->slot_bank.slot, txn_idx, (uchar*)raw_txn.raw + txn_descriptor->acct_addr_off, (uchar *)raw_txn.raw + txn_descriptor->signature_off));
 
     int res = fd_execute_txn_prepare_phase1(slot_ctx, txn_ctx, txn_descriptor, &raw_txn);
@@ -881,7 +881,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
       fd_blake3_t b3[1];
       uchar hash[32];
       fd_blake3_init( b3 );
-      fd_blake3_append( b3, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->message_off), txn_ctx->_txn_raw->txn_sz - txn_ctx->txn_descriptor->message_off );
+      fd_blake3_append( b3, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->message_off),(ulong)( txn_ctx->_txn_raw->txn_sz - txn_ctx->txn_descriptor->message_off ) );
       fd_blake3_fini( b3, hash );
       curr_query.txnhash = hash;
 
@@ -1201,7 +1201,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
       fd_blake3_t b3[1];
       uchar hash[32];
       fd_blake3_init( b3 );
-      fd_blake3_append( b3, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->message_off), txn_ctx->_txn_raw->txn_sz - txn_ctx->txn_descriptor->message_off );
+      fd_blake3_append( b3, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->message_off), (ulong)( txn_ctx->_txn_raw->txn_sz - txn_ctx->txn_descriptor->message_off ) );
       fd_blake3_fini( b3, hash );
       curr_insert->txnhash = hash;
       curr_insert->result = &results[num_cache_txns];
