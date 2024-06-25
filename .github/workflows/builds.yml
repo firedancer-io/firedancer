@@ -1,0 +1,33 @@
+# Builds for different compilers, architectures and targets
+
+name: Builds
+on:
+  workflow_call:
+  workflow_dispatch:
+  merge_group:
+concurrency:
+  group: builds_${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: X64
+    env:
+      machines: linux_gcc_x86_64
+      gcc: gcc-8.5.0
+      targets: all
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: ./.github/actions/deps
+
+      - uses: dtolnay/rust-toolchain@1.73.0
+
+      - name: Start build
+        run: |
+          contrib/build.sh     \
+          --no-deps --no-clang \
+          --targets $targets   \
+          --gcc-versions $gcc  \
+          --machines $machines
