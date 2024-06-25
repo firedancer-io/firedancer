@@ -1300,7 +1300,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
   }
 
   txn_result->rent = txn_ctx->slot_ctx->slot_bank.collected_rent;
-  txn_result->is_ok = !!exec_res;
+  txn_result->is_ok = !exec_res;
   txn_result->status = (uint32_t) -exec_res;
   txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
                                   PB_BYTES_ARRAY_T_ALLOCSIZE( txn_ctx->return_data.len ) );
