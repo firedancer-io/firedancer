@@ -7,6 +7,8 @@
 #define SORT_BEFORE(a,b) (a)<(b)
 #include "../../util/tmpl/fd_sort.c"
 
+#define TXNCACHE_LIVE_SLOTS  (1024UL)
+
 FD_STATIC_ASSERT( FD_TXNCACHE_ALIGN    ==128UL,                  unit_test );
 
 ulong txncache_scratch_sz;
@@ -36,7 +38,7 @@ insert( ulong _blockhash,
         ulong slot ) {
   uchar blockhash[ 32 ] = {0};
   uchar txnhash[ 32 ] = {0};
-  uchar result[ 40 ] = {0};
+  uchar result[ 1 ] = {0};
   FD_STORE( ulong, blockhash, _blockhash );
   FD_STORE( ulong, txnhash,   _txnhash );
 
@@ -56,7 +58,7 @@ no_insert( ulong _blockhash,
            ulong slot ) {
   uchar blockhash[ 32 ] = {0};
   uchar txnhash[ 32 ] = {0};
-  uchar result[ 40 ] = {0};
+  uchar result[ 1 ] = {0};
   FD_STORE( ulong, blockhash, _blockhash );
   FD_STORE( ulong, txnhash,   _txnhash );
 
@@ -483,7 +485,7 @@ test_many_blockhashes( void ) {
   FD_LOG_NOTICE(( "TEST MANY BLOCKHASHES" ));
 
   fd_txncache_t * tc = init_all( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                                 FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+                                 TXNCACHE_LIVE_SLOTS,
                                  FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
 
   for( ulong i=0UL; i<1024UL; i++ ) {
@@ -530,7 +532,7 @@ test_full_blockhash_concurrent( void ) {
   FD_LOG_NOTICE(( "TEST FULL BLOCKHASH CONCURRENT" ));
 
   init_all( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-            FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+            TXNCACHE_LIVE_SLOTS,
             FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
 
   pthread_t threads[ 30 ];
@@ -564,7 +566,7 @@ full_blockhash_concurrent_insert_fn2( void * arg ) {
   while( !go );
 
   ulong x = (ulong)arg;
-  for( ulong i=x; i<1024UL; i+=30UL ) insert( i, 0UL, 0UL );
+  for( ulong i=x; i<1024UL; i+=30UL ) insert( i, 0UL, i/300 );
   return NULL;
 }
 
@@ -573,7 +575,7 @@ test_many_blockhashes_concurrent( void ) {
   FD_LOG_NOTICE(( "TEST MANY BLOCKHASHES CONCURRENT" ));
 
   init_all( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-            FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+            TXNCACHE_LIVE_SLOTS,
             FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
 
   pthread_t threads[ 30 ];
@@ -589,7 +591,7 @@ test_many_blockhashes_concurrent( void ) {
 
   no_insert( 1024UL, 0UL, 0UL );
   for( ulong i=0UL; i<1024UL; i++ ) {
-    contains( i, 0UL, 0UL );
+    contains( i, 0UL, i/300 );
   }
 }
 
