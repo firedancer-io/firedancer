@@ -582,6 +582,19 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
   fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
 
+  /* Load in the account states (note this is different from the account keys):
+    Account state = accounts to populate DB with
+    Account keys = account keys that the transaction needs
+  The account keys should be a SUBSET of the pubkeys in the account states. */
+  for( ulong i = 0; i < test_ctx->tx.message.account_shared_data_count; i++ ) {
+    // Load the accounts into the account manager
+    // Borrowed accounts get reset anyways - we just need to load the account somewhere
+    _load_account( &txn_ctx->borrowed_accounts[i], acc_mgr, funk_txn, &test_ctx->tx.message.account_shared_data[i] );
+  }
+
+  /* Add accounts to bpf program cache */
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
+
   /* Restore sysvar cache */
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
 
@@ -659,16 +672,6 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
 
   // TODO: Set recent blockhashes properly here
   slot_ctx->slot_bank.block_hash_queue.last_hash = &recent_block_hash->blockhash;
-
-  /* Load in the account states (note this is different from the account keys):
-      Account state = accounts to populate DB with
-      Account keys = account keys that the transaction needs
-    The account keys should be a SUBSET of the pubkeys in the account states. */
-  for( ulong i = 0; i < test_ctx->tx.message.account_shared_data_count; i++ ) {
-    // Load the accounts into the account manager
-    // Borrowed accounts get reset anyways - we just need to load the account somewhere
-    _load_account( &txn_ctx->borrowed_accounts[i], acc_mgr, funk_txn, &test_ctx->tx.message.account_shared_data[i] );
-  }
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   uchar * txn_raw_begin = fd_scratch_alloc( alignof(uchar), 1232 );
