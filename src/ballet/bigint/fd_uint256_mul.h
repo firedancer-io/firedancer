@@ -53,7 +53,13 @@ fd_ulong_add_carry4( ulong *l, uchar *h, ulong a0, ulong a1, ulong a2, uchar a3 
 
 INLINE void
 fd_ulong_sub_borrow( ulong *r, uchar *b, ulong a0, ulong a1, uchar bi ) {
+# if FD_HAS_X86
   *b = (uchar)_subborrow_u64( bi, a0, a1, (unsigned long long *)r );
+# else
+  unsigned long long bout;
+  *r = __builtin_subcll( a0, a1, bi, &bout );
+  *b = (uchar)bout;
+# endif
 }
 
 #else
