@@ -57,7 +57,6 @@ $(call add-objs,configure/configure,fd_fdctl)
 $(call add-objs,configure/hugetlbfs,fd_fdctl)
 $(call add-objs,configure/sysctl,fd_fdctl)
 $(call add-objs,configure/ethtool,fd_fdctl)
-$(call add-objs,configure/workspace,fd_fdctl)
 
 ifdef FD_HAS_NO_SOLANA
 ifdef FD_HAS_SECP256K1

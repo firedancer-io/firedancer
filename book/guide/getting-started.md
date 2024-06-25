@@ -66,12 +66,13 @@ $ ./deps.sh
 ```
 
 ## Releases
-Firedancer does not produce pre-built binaries, and you must build from
+Firedancer does not produce pre-built binaries and you must build from
 source, but Firedancer releases are made available as tags. The
 following naming convention is used,
 
- * `main` This should not be used. The main is bleeding edge and inclues
-all Firedancer development and changes that could break Frankendancer.
+ * `main` This should not be used. The main branch is bleeding edge and
+includes all Firedancer development and changes that could break
+Frankendancer.
  * `v0.xxx.yyyyy` Official Frankendancer releases.
 
 The Frankendancer versoning has three components,
@@ -169,8 +170,6 @@ user = "firedancer"
     private = true
 ```
 
-
-
 This configuration will cause Firedancer to run as the user `firedancer`
 on the local machine. The `identity_path` and `vote_account_path` should
 be Agave style keys, which can be generated with the Solana Labs cli.  
@@ -187,7 +186,6 @@ Currently, `testnet` is the only live cluster that Firedancer can be run
 against and trying to start against `devnet` or `mainnet-beta`
 entrypoints will result in an error.
 
-
 ::: tip LEDGER
 
 The Firedancer blockstore in the ledger directory is compatible with the
@@ -195,78 +193,6 @@ one for the Agave validator, and it is possible to switch between
 validator clients while keeping the `ledger` directory in place.
 
 :::
-
-### Initialization
-
-The validator uses some Linux features that must be enabled and
-configured before it can be started correctly. It is possible for
-advanced operators to do this configuration manually, but `fdctl`
-provides a command to check and automate this step.
-
-::: warning WARNING
-
-Running any `fdctl configure` command may make permanent changes to your
-system. You should be careful before running these commands on a
-production host.
-
-:::
-
-The initialization steps are described [in detail](/guide/initializing.md)
-later. But plowing ahead at the moment:
-
-```sh [bash]
-$ sudo ./build/native/gcc/bin/fdctl configure init all --config ~/config.toml
-```
-
-You will be told what steps are performed:
-
-<<< @/snippets/configure.ansi
-
-It is strongly suggested to run the `configure` command when the system
-boots, and it needs to be run each time before the validator is restarted.
-
-::: tip NOTE
-
-The configuration file is used when performing system configuration. If
-the configuration file changes, you will need to rerun the `configure`
-command.
-
-:::
-
-### Running
-
-Finally, we can run Firedancer:
-
-```sh [bash]
-$ sudo ./build/native/gcc/bin/fdctl run --config ~/config.toml
-
-```
-
-Firedancer logs selected output to `stderr` and a more detailed log to a
-local file.  Every tile in Firedancer runs in a separate process for
-security isolation, so you will see a complete process tree get launched.
-
-```sh [bash]
-$ pstree 1741904 -a -s
-systemd --switched-root --system --deserialize 17
-  └─fdctl
-      └─fdctl
-          └─fdctl run-solana --config-fd 0
-          │   └─957*[{fdctl}]
-          ├─fdctl run1 net 1 --pipe-fd 8 --config-fd 0
-          ├─fdctl run1 net 0 --pipe-fd 7 --config-fd 0
-          ├─fdctl run1 netmux 0 --pipe-fd 11 --config-fd 0
-          ├─fdctl run1 quic 0 --pipe-fd 12 --config-fd 0
-          ├─fdctl run1 quic 1 --pipe-fd 13 --config-fd 0
-          ├─fdctl run1 verify 0 --pipe-fd 16 --config-fd 0
-          ├─fdctl run1 verify 1 --pipe-fd 17 --config-fd 0
-          ├─fdctl run1 dedup 0 --pipe-fd 20 --config-fd 0
-          ├─fdctl run1 pack 0 --pipe-fd 21 --config-fd 0
-          └─fdctl run1 shred 0 --pipe-fd 22 --config-fd 0
-```
-
-If any of the processes dies or is killed, it will bring all of the
-others down with it.
 
 ### Permissions
 
@@ -304,3 +230,69 @@ $ ./build/native/gcc/bin/fdctl run
 For additional layers of defense against local privilege escalation, it
 is not suggested to `setcap(8)` the `fdctl` binary as this can create a
 larger attack surface.
+
+### Initialization
+
+The validator uses some Linux features that must be enabled and
+configured before it can be started correctly. It is possible for
+advanced operators to do this configuration manually, but `fdctl`
+provides a command to check and automate this step.
+
+::: warning WARNING
+
+Running any `fdctl configure` command may make permanent changes to your
+system. You should be careful before running these commands on a
+production host.
+
+:::
+
+The initialization steps are described [in detail](/guide/initializing.md)
+later. But plowing ahead at the moment:
+
+```sh [bash]
+$ sudo ./build/native/gcc/bin/fdctl configure init all --config ~/config.toml
+```
+
+You will be told what steps are performed:
+
+<<< @/snippets/configure.ansi
+
+It is strongly suggested to run the `configure` command when the system
+boots, and it needs to be run each time the system is rebooted.
+
+### Running
+
+Finally, we can run Firedancer:
+
+```sh [bash]
+$ sudo ./build/native/gcc/bin/fdctl run --config ~/config.toml
+```
+
+Firedancer logs selected output to `stderr` and a more detailed log to a
+local file.  Every tile in Firedancer runs in a separate process for
+security isolation, so you will see a complete process tree get launched.
+
+```sh [bash]
+$ pstree 1741904 -as
+systemd --switched-root --system --deserialize 17
+  └─sudo ./build/native/gcc/bin/fdctl run --config ~/config.toml
+      └─fdctl run --config ~/config.toml
+          └─fdctl run --config ~/config.toml
+              ├─fdctl run-solana --config-fd 0
+              │   └─35*[{fdctl}]
+              ├─fdctl run1 net 0 --pipe-fd 7 --config-fd 0
+              ├─fdctl run1 quic 0 --pipe-fd 8 --config-fd 0
+              ├─fdctl run1 verify 0 --pipe-fd 9 --config-fd 0
+              ├─fdctl run1 verify 1 --pipe-fd 10 --config-fd 0
+              ├─fdctl run1 verify 2 --pipe-fd 11 --config-fd 0
+              ├─fdctl run1 verify 3 --pipe-fd 12 --config-fd 0
+              ├─fdctl run1 verify 4 --pipe-fd 13 --config-fd 0
+              ├─fdctl run1 pack 0 --pipe-fd 15 --config-fd 0
+              ├─fdctl run1 dedup 0 --pipe-fd 14 --config-fd 0
+              ├─fdctl run1 shred 0 --pipe-fd 16 --config-fd 0
+              ├─fdctl run1 metric 0 --pipe-fd 18 --config-fd 0
+              └─fdctl run1 sign 0 --pipe-fd 17 --config-fd 0
+```
+
+If any of the processes dies or is killed it will bring all of the
+others down with it.

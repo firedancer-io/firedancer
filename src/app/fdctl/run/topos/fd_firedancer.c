@@ -1,11 +1,9 @@
 /* Firedancer topology used for testing the full validator.
    Associated test script: test_firedancer.sh */
-#include "topos.h"
 #include "../../fdctl.h"
+
+#include "../tiles/fd_replay_notif.h"
 #include "../../../../disco/tiles.h"
-#include "../../fdctl.h"
-#include "../../config.h"
-#include "../../../../ballet/shred/fd_shred.h"
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../flamenco/runtime/fd_blockstore.h"
@@ -13,7 +11,6 @@
 #include "../../../../util/tile/fd_tile_private.h"
 #include "../../../../util/net/fd_net_headers.h"
 #include <sys/sysinfo.h>
-#include "../tiles/fd_replay_notif.h"
 
 void
 fd_topo_firedancer( config_t * _config ) {
@@ -29,11 +26,11 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
 
   /*             topo, name */
-  fd_topob_wksp( topo, "net_shred"  );
-  fd_topob_wksp( topo, "net_gossip" );
-  fd_topob_wksp( topo, "net_repair" );
-  fd_topob_wksp( topo, "net_quic"   );
-  fd_topob_wksp( topo, "net_vote" );
+  fd_topob_wksp( topo, "net_shred"    );
+  fd_topob_wksp( topo, "net_gossip"   );
+  fd_topob_wksp( topo, "net_repair"   );
+  fd_topob_wksp( topo, "net_quic"     );
+  fd_topob_wksp( topo, "net_vote"     );
 
   fd_topob_wksp( topo, "quic_verify"  );
   fd_topob_wksp( topo, "verify_dedup" );
@@ -43,23 +40,23 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topob_wksp( topo, "stake_out"    );
   fd_topob_wksp( topo, "metric_in"    );
 
-  fd_topob_wksp( topo, "poh_shred" );
+  fd_topob_wksp( topo, "poh_shred"    );
 
-  fd_topob_wksp( topo, "quic_sign" );
-  fd_topob_wksp( topo, "sign_quic" );
+  fd_topob_wksp( topo, "quic_sign"    );
+  fd_topob_wksp( topo, "sign_quic"    );
 
-  fd_topob_wksp( topo, "shred_sign" );
-  fd_topob_wksp( topo, "sign_shred" );
+  fd_topob_wksp( topo, "shred_sign"   );
+  fd_topob_wksp( topo, "sign_shred"   );
 
-  fd_topob_wksp( topo, "gossip_sign" );
-  fd_topob_wksp( topo, "sign_gossip" );
+  fd_topob_wksp( topo, "gossip_sign"  );
+  fd_topob_wksp( topo, "sign_gossip"  );
 
-  fd_topob_wksp( topo, "replay_sign" );
-  fd_topob_wksp( topo, "sign_replay" );
+  fd_topob_wksp( topo, "replay_sign"  );
+  fd_topob_wksp( topo, "sign_replay"  );
 
-  fd_topob_wksp( topo, "crds_shred" );
+  fd_topob_wksp( topo, "crds_shred"   );
   fd_topob_wksp( topo, "gossip_repai" );
-  fd_topob_wksp( topo, "gossip_pack" );
+  fd_topob_wksp( topo, "gossip_pack"  );
   fd_topob_wksp( topo, "gossip_repla" );
   fd_topob_wksp( topo, "gossip_vote" );
 
@@ -67,30 +64,30 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topob_wksp( topo, "repair_store" );
 
   fd_topob_wksp( topo, "store_replay" );
-  fd_topob_wksp( topo, "replay_poh" );
+  fd_topob_wksp( topo, "replay_poh"   );
   fd_topob_wksp( topo, "replay_notif" );
-  fd_topob_wksp( topo, "bank_busy"  );
-  fd_topob_wksp( topo, "root_slot"  );
+  fd_topob_wksp( topo, "bank_busy"    );
+  fd_topob_wksp( topo, "root_slot"    );
   fd_topob_wksp( topo, "pack_replay"  );
   fd_topob_wksp( topo, "replay_gossi" );
 
-  fd_topob_wksp( topo, "net"        );
-  fd_topob_wksp( topo, "quic"       );
-  fd_topob_wksp( topo, "verify"     );
-  fd_topob_wksp( topo, "dedup"      );
-  fd_topob_wksp( topo, "shred"      );
-  fd_topob_wksp( topo, "pack"       );
-  fd_topob_wksp( topo, "storei"     );
-  fd_topob_wksp( topo, "sign"       );
-  fd_topob_wksp( topo, "repair"     );
-  fd_topob_wksp( topo, "gossip"     );
-  fd_topob_wksp( topo, "metric"     );
-  fd_topob_wksp( topo, "replay"     );
-  fd_topob_wksp( topo, "thread"     );
-  fd_topob_wksp( topo, "bhole"      );
-  fd_topob_wksp( topo, "bstore"     );
-  fd_topob_wksp( topo, "funk"       );
-  fd_topob_wksp( topo, "pohi"       );
+  fd_topob_wksp( topo, "net"          );
+  fd_topob_wksp( topo, "quic"         );
+  fd_topob_wksp( topo, "verify"       );
+  fd_topob_wksp( topo, "dedup"        );
+  fd_topob_wksp( topo, "shred"        );
+  fd_topob_wksp( topo, "pack"         );
+  fd_topob_wksp( topo, "storei"       );
+  fd_topob_wksp( topo, "sign"         );
+  fd_topob_wksp( topo, "repair"       );
+  fd_topob_wksp( topo, "gossip"       );
+  fd_topob_wksp( topo, "metric"       );
+  fd_topob_wksp( topo, "replay"       );
+  fd_topob_wksp( topo, "thread"       );
+  fd_topob_wksp( topo, "bhole"        );
+  fd_topob_wksp( topo, "bstore"       );
+  fd_topob_wksp( topo, "funk"         );
+  fd_topob_wksp( topo, "pohi"         );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 

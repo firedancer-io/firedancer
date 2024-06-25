@@ -6,14 +6,17 @@
 #include "generated/pidns_seccomp.h"
 
 #include "../../../disco/tiles.h"
+#include "../../../disco/topo/fd_pod_format.h"
 #include "../configure/configure.h"
 
+#include <dirent.h>
 #include <sched.h>
 #include <stdio.h>
 #include <poll.h>
 #include <fcntl.h>
 #include <sys/prctl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <linux/capability.h>
 #include <linux/unistd.h>
 
@@ -39,7 +42,7 @@ run_cmd_perm( args_t *         args,
     fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,               "call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace" );
   if( FD_LIKELY( getuid() != config->uid ) )
     fd_caps_check_capability( caps, NAME, CAP_SETUID,                  "call `setresuid(2)` to switch uid" );
-  if( FD_LIKELY( getgid() != config->gid ) )
+  if( FD_LIKELY( getgid()!=config->gid ) )
     fd_caps_check_capability( caps, NAME, CAP_SETGID,                  "call `setresgid(2)` to switch gid" );
   if( FD_UNLIKELY( config->development.netns.enabled ) )
     fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,               "call `setns(2)` to enter a network namespace" );
@@ -91,6 +94,35 @@ install_parent_signals( void ) {
   if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) )
     FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
+
+void *
+create_clone_stack( void ) {
+  ulong mmap_sz = FD_TILE_PRIVATE_STACK_SZ + 2UL*FD_SHMEM_NORMAL_PAGE_SZ;
+  uchar * stack = (uchar *)mmap( NULL, mmap_sz, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, (off_t)0 );
+  if( FD_UNLIKELY( stack==MAP_FAILED ) )
+    FD_LOG_ERR(( "mmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* Make space for guard lo and guard hi */
+  if( FD_UNLIKELY( munmap( stack, FD_SHMEM_NORMAL_PAGE_SZ ) ) )
+    FD_LOG_ERR(( "munmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  stack += FD_SHMEM_NORMAL_PAGE_SZ;
+  if( FD_UNLIKELY( munmap( stack + FD_TILE_PRIVATE_STACK_SZ, FD_SHMEM_NORMAL_PAGE_SZ ) ) )
+    FD_LOG_ERR(( "munmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* Create the guard regions in the extra space */
+  void * guard_lo = (void *)(stack - FD_SHMEM_NORMAL_PAGE_SZ );
+  if( FD_UNLIKELY( mmap( guard_lo, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
+                         MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_lo ) )
+    FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  void * guard_hi = (void *)(stack + FD_TILE_PRIVATE_STACK_SZ);
+  if( FD_UNLIKELY( mmap( guard_hi, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
+                         MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_hi ) )
+    FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  return stack;
+}
+
 
 static int
 execve_solana_labs( int config_memfd,
@@ -355,7 +387,7 @@ clone_firedancer( config_t * const config,
   int flags = config->development.sandbox ? CLONE_NEWPID : 0;
   struct pidns_clone_args args = { .config = config, .closefd = close_fd, .pipefd = pipefd, };
 
-  void * stack = fd_topo_tile_stack_new( 0, NULL, NULL, 0UL, 0UL );
+  void * stack = create_clone_stack();
 
   int pid_namespace = clone( main_pid_namespace, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, flags, &args );
   if( FD_UNLIKELY( pid_namespace<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -364,6 +396,264 @@ clone_firedancer( config_t * const config,
 
   *out_pipe = pipefd[ 0 ];
   return pid_namespace;
+}
+
+static void
+workspace_path( config_t * const config,
+                fd_topo_wksp_t * wksp,
+                char             out[ PATH_MAX ] ) {
+  char * mount_path;
+  switch( wksp->page_sz ) {
+    case FD_SHMEM_HUGE_PAGE_SZ:
+      mount_path = config->hugetlbfs.huge_page_mount_path;
+      break;
+    case FD_SHMEM_GIGANTIC_PAGE_SZ:
+      mount_path = config->hugetlbfs.gigantic_page_mount_path;
+      break;
+    default:
+      FD_LOG_ERR(( "invalid page size %lu", wksp->page_sz ));
+  }
+
+  FD_TEST( fd_cstr_printf_check( out, PATH_MAX, NULL, "%s/%s_%s.wksp", mount_path, config->name, wksp->name ) );
+}
+
+static void
+warn_unknown_files( config_t * const config,
+                    ulong            mount_type ) {
+  char const * mount_path;
+  switch( mount_type ) {
+    case 0UL:
+      mount_path = config->hugetlbfs.huge_page_mount_path;
+      break;
+    case 1UL:
+      mount_path = config->hugetlbfs.gigantic_page_mount_path;
+      break;
+    default:
+      FD_LOG_ERR(( "invalid mount type %lu", mount_type ));
+  }
+
+  /* Check if there are any files in mount_path */
+  DIR * dir = opendir( mount_path );
+  if( FD_UNLIKELY( !dir ) ) {
+    if( FD_UNLIKELY( errno!=ENOENT ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", mount_path, errno, fd_io_strerror( errno ) ));
+    return;
+  }
+
+  struct dirent * entry;
+  while(( FD_LIKELY( entry = readdir( dir ) ) )) {
+    if( FD_UNLIKELY( !strcmp( entry->d_name, ".") || !strcmp( entry->d_name, ".." ) ) ) continue;
+
+    char entry_path[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( entry_path, PATH_MAX, NULL, "%s/%s", mount_path, entry->d_name ));
+
+    int known_file = 0;
+    for( ulong i=0UL; i<config->topo.wksp_cnt; i++ ) {
+      fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
+
+      char expected_path[ PATH_MAX ];
+      workspace_path( config, wksp, expected_path );
+
+      if( !strcmp( entry_path, expected_path ) ) {
+        known_file = 1;
+        break;
+      }
+    }
+
+    if( mount_type==0UL ) {
+      for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+        fd_topo_tile_t * tile = &config->topo.tiles [ i ];
+
+        char expected_path[ PATH_MAX ];
+        FD_TEST( fd_cstr_printf_check( expected_path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", config->hugetlbfs.huge_page_mount_path, config->name, tile->name, tile->kind_id ) );
+
+        if( !strcmp( entry_path, expected_path ) ) {
+          known_file = 1;
+          break;
+        }
+      }
+    }
+
+    if( FD_UNLIKELY( !known_file ) ) FD_LOG_WARNING(( "unknown file `%s` found in `%s`", entry->d_name, mount_path ));
+  }
+
+  if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "error closing `%s` (%i-%s)", mount_path, errno, fd_io_strerror( errno ) ));
+}
+
+static void
+fdctl_obj_new( fd_topo_t const *     topo,
+               fd_topo_obj_t const * obj ) {
+  #define VAL(name) (__extension__({                                                               \
+      ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
+      if( FD_UNLIKELY( __x==ULONG_MAX ) ) FD_LOG_ERR(( "obj.%lu.%s was not set", obj->id, name )); \
+      __x; }))
+
+  void * laddr = fd_topo_obj_laddr( topo, obj->id );
+
+  if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
+    /* No need to do anything, tiles don't have a new. */
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "mcache" ) ) ) {
+    fd_mcache_new( laddr, VAL("depth"), 0UL, 0UL );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "dcache" ) ) ) {
+    fd_dcache_new( laddr, fd_dcache_req_data_sz( VAL("mtu"), VAL("depth"), VAL("burst"), 1 ), 0UL );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "cnc" ) ) ) {
+    fd_cnc_new( laddr, 0UL, 0, fd_tickcount() );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "reasm" ) ) ) {
+    fd_tpu_reasm_new( laddr, VAL("depth"), VAL("burst"), 0UL );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) ) ) {
+    fd_fseq_new( laddr, ULONG_MAX );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
+    fd_metrics_new( laddr, VAL("in_cnt"), VAL("out_cnt") );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "ulong" ) ) ) {
+    *(ulong*)laddr = 0;
+  } else {
+    FD_LOG_ERR(( "unknown object `%s`", obj->name ));
+  }
+#undef VAL
+}
+
+void
+initialize_workspaces( config_t * const config ) {
+  /* Switch to non-root uid/gid for workspace creation.  Permissions
+     checks are still done as the current user. */
+  uint gid = getgid();
+  uint uid = getuid();
+  if( FD_LIKELY( gid!=config->gid && -1==setegid( config->gid ) ) )
+    FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( uid!=config->uid && -1==seteuid( config->uid ) ) )
+    FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  for( ulong i=0UL; i<config->topo.wksp_cnt; i++ ) {
+    fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
+
+    char path[ PATH_MAX ];
+    workspace_path( config, wksp, path );
+
+    struct stat st;
+    int result = stat( path, &st );
+
+    int update_existing;
+    if( FD_UNLIKELY( !result && config->is_live_cluster ) ) {
+      if( FD_UNLIKELY( -1==unlink( path ) && errno!=ENOENT ) ) FD_LOG_ERR(( "unlink() failed when trying to create workspace `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+      update_existing = 0;
+    } else if( FD_UNLIKELY( !result ) ) {
+      /* Creating all of the workspaces is very expensive because the
+         kernel has to zero out all of the pages.  There can be tens or
+         hundreds of gigabytes of zeroing to do.
+
+         What would be really nice is if the kernel let us create huge
+         pages without zeroing them, but it's not possible.  The
+         ftruncate and fallocate calls do not support this type of
+         resize with the hugetlbfs filesystem.
+
+         Instead.. to prevent repeatedly doing this zeroing every time
+         we start the validator, we have a small hack here to re-use the
+         workspace files if they exist. */
+      update_existing = 1;
+    } else if( FD_LIKELY( result && errno==ENOENT ) ) {
+      update_existing = 0;
+    } else {
+      FD_LOG_ERR(( "stat failed when trying to create workspace `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    }
+
+    if( FD_UNLIKELY( -1==fd_topo_create_workspace( &config->topo, wksp, update_existing ) ) ) {
+      FD_TEST( errno==ENOMEM );
+
+      warn_unknown_files( config, wksp->page_sz!=FD_SHMEM_HUGE_PAGE_SZ );
+
+      char path[ PATH_MAX ];
+      workspace_path( config, wksp, path );
+      FD_LOG_ERR(( "ENOMEM-Out of memory when trying to create workspace `%s` at `%s` "
+                   "with %lu %s pages. Firedancer reserves enough memory for all of its workspaces "
+                   "during the `hugetlbfs` configure step, so it is likely you have unknown files "
+                   "left over in this directory which are consuming memory, or another program on "
+                   "the system is using pages from the same mount.",
+                   wksp->name, path, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ) ));
+    }
+    fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topo_wksp_apply( &config->topo, wksp, fdctl_obj_new );
+    fd_topo_leave_workspace( &config->topo, wksp );
+  }
+
+  if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+static void
+initialize_stacks( config_t * const config ) {
+  /* Switch to non-root uid/gid for workspace creation.  Permissions
+     checks are still done as the current user. */
+  uint gid = getgid();
+  uint uid = getuid();
+  if( FD_LIKELY( gid!=config->gid && -1==setegid( config->gid ) ) )
+    FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( uid!=config->uid && -1==seteuid( config->uid ) ) )
+    FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &config->topo.tiles[ i ];
+
+    char path[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", config->hugetlbfs.huge_page_mount_path, config->name, tile->name, tile->kind_id ) );
+
+    int result = unlink( path );
+    if( -1==result && errno!=ENOENT ) FD_LOG_ERR(( "unlink() failed when trying to create stack `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+
+    /* TODO: Use a better CPU idx for the stack if tile is floating */
+    ulong stack_cpu_idx = 0UL;
+    if( FD_LIKELY( tile->cpu_idx<65535UL ) ) stack_cpu_idx = tile->cpu_idx;
+
+    char name[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_stack_%s%lu", config->name, tile->name, tile->kind_id ) );
+
+    ulong sub_page_cnt[ 1 ] = { 6 };
+    ulong sub_cpu_idx [ 1 ] = { stack_cpu_idx };
+    int err = fd_shmem_create_multi( name, FD_SHMEM_HUGE_PAGE_SZ, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
+    if( FD_UNLIKELY( err && errno==ENOMEM ) ) {
+      warn_unknown_files( config, 0UL );
+
+      char path[ PATH_MAX ];
+      FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", config->hugetlbfs.huge_page_mount_path, config->name, tile->name, tile->kind_id ) );
+      FD_LOG_ERR(( "ENOMEM-Out of memory when trying to create huge page stack for tile `%s` at `%s`. "
+                   "Firedancer reserves enough memory for all of its stacks during the `hugetlbfs` configure "
+                   "step, so it is likely you have unknown files left over in this directory which are "
+                   "consuming memory, or another program on the system is using pages from the same mount.",
+                   tile->name, path ));
+    } else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_create_multi failed" ));
+  }
+  
+  if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+extern configure_stage_t hugetlbfs;
+extern configure_stage_t ethtool;
+extern configure_stage_t sysctl;
+
+static void
+check_configure( config_t * const config ) {
+  configure_result_t check = hugetlbfs.check( config );
+  if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+    FD_LOG_ERR(( "Huge pages are not configured correctly: %s. You can run `fdctl configure init hugetlbfs` "
+                 "to create the mounts correctly. This must be done after every system restart before running "
+                 "Firedancer.", check.message ));
+
+  check = ethtool.check( config );
+  if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+    FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool` to set the number of channels on the "
+                 "network device correctly.", check.message ));
+
+  check = sysctl.check( config );
+  if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+    FD_LOG_ERR(( "Kernel parameters are not configured correctly: %s. You can run `fdctl configure init sysctl` "
+                 "to set kernel parameters correctly.", check.message ));
+}
+
+void
+run_firedancer_init( config_t * const config,
+                     int              init_workspaces ) {
+  check_configure( config );
+  if( FD_LIKELY( init_workspaces ) ) initialize_workspaces( config );
+  initialize_stacks( config );
 }
 
 /* The boot sequence is a little bit involved...
@@ -403,9 +693,12 @@ clone_firedancer( config_t * const config,
         will kill all other processes. */
 void
 run_firedancer( config_t * const config,
-                int              parent_pipefd ) {
+                int              parent_pipefd,
+                int              init_workspaces ) {
   /* dump the topology we are using to the output log */
   fd_topo_print_log( 0, &config->topo );
+
+  run_firedancer_init( config, init_workspaces );
 
 #if defined(__x86_64__)
 
@@ -464,7 +757,6 @@ run_firedancer( config_t * const config,
     fd_sandbox_switch_uid_gid( config->uid, config->gid );
   }
 
-
   /* the only clean way to exit is SIGINT or SIGTERM on this parent process,
      so if wait4() completes, it must be an error */
   int wstatus;
@@ -493,5 +785,5 @@ run_cmd_fn( args_t *         args,
                    "empty. Please remove the empty entrypoint or set it correctly. "));
   }
 
-  run_firedancer( config, -1 );
+  run_firedancer( config, -1, 1 );
 }
