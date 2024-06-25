@@ -1428,7 +1428,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   /* Create execution context */
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t ctx[1];
-  if( !_context_create( runner, ctx, input_instr_ctx, true ) )
+  if( !_instr_context_create( runner, ctx, input_instr_ctx, true ) )
     return 0UL;
   fd_valloc_t valloc = fd_scratch_virtual();
 
@@ -1439,7 +1439,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_syscall_effects_t),
                                 sizeof (fd_exec_test_syscall_effects_t) );
   if( FD_UNLIKELY( _l > output_end ) ) {
-    _context_destroy( runner, ctx );
+    _instr_context_destroy( runner, ctx );
     return 0UL;
   }
   fd_memset( effects, 0, sizeof(fd_exec_test_instr_effects_t) );
@@ -1563,7 +1563,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
 
   /* Return the effects */
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  _context_destroy( runner, ctx );
+  _instr_context_destroy( runner, ctx );
 
   *output = effects;
   return actual_end - (ulong)output_buf;

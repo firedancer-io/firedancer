@@ -422,11 +422,6 @@ sol_compat_txn_execute_v1( uchar *       out,
   return ok;
 }
 
-sol_compat_features_t const *
-sol_compat_get_features_v1( void ) {
-  return &features;
-}
-
 int
 sol_compat_elf_loader_v1( uchar *       out,
                           ulong *       out_sz,
