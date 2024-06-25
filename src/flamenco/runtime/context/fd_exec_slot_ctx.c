@@ -360,6 +360,7 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
             .blockhash = blockhash->uc,
             .slot = slot,
             .txnhash = status->key_slice,
+            .txnhash_offset = pair->value.txn_idx,
             .result = &result
           };
         }

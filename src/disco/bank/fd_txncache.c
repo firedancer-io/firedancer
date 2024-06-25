@@ -688,6 +688,8 @@ fd_txncache_insert_batch( fd_txncache_t *              tc,
     fd_txncache_private_blockcache_t * blockcache;
     if( FD_UNLIKELY( !fd_txncache_ensure_blockcache( tc, txns[ i ].blockhash, &blockcache ) ) ) goto unlock_fail;
 
+    blockcache->txnhash_offset = txns[ i ].txnhash_offset;
+
     // TODO: We should turn this on to prevent corruption
     // if( FD_UNLIKELY( txns[ i ].slot>=blockcache->lowest_slot+150UL ) ) goto unlock_fail;
 
@@ -696,6 +698,8 @@ fd_txncache_insert_batch( fd_txncache_t *              tc,
 
     fd_txncache_private_slotblockcache_t * slotblockcache;
     if( FD_UNLIKELY( !fd_txncache_ensure_slotblockcache( slotcache, txns[ i ].blockhash, &slotblockcache ) ) ) goto unlock_fail;
+
+    slotblockcache->txnhash_offset = txns[ i ].txnhash_offset;
 
     for(;;) {
       fd_txncache_private_txnpage_t * txnpage = fd_txncache_ensure_txnpage( tc, blockcache );
