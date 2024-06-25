@@ -60,8 +60,9 @@ fd_snapshot_restore_new( void *                               mem,
                          fd_acc_mgr_t *                       acc_mgr,
                          fd_funk_txn_t *                      funk_txn,
                          fd_valloc_t                          valloc,
-                         void *                               cb_ctx,
-                         fd_snapshot_restore_cb_manifest_fn_t cb ) {
+                         void *                               cb_manifest_ctx,
+                         fd_snapshot_restore_cb_manifest_fn_t cb_manifest,
+                         fd_snapshot_restore_cb_status_cache_fn_t cb_status_cache ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -79,7 +80,7 @@ fd_snapshot_restore_new( void *                               mem,
     FD_LOG_WARNING(( "NULL valloc" ));
     return NULL;
   }
-  if( FD_UNLIKELY( !cb ) ) {
+  if( FD_UNLIKELY( !cb_manifest ) ) {
     FD_LOG_WARNING(( "NULL callback" ));
     return NULL;
   }
@@ -96,8 +97,11 @@ fd_snapshot_restore_new( void *                               mem,
   self->buf_ctr     = 0UL;
   self->buf_cap     = 0UL;
 
-  self->cb_manifest     = cb;
-  self->cb_manifest_ctx = cb_ctx;
+  self->cb_manifest     = cb_manifest;
+  self->cb_manifest_ctx = cb_manifest_ctx;
+
+  self->cb_status_cache     = cb_status_cache;
+  self->cb_status_cache_ctx = cb_manifest_ctx;
 
   void * accv_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_accv_map_align(), fd_snapshot_accv_map_footprint() );
   self->accv_map = fd_snapshot_accv_map_join( fd_snapshot_accv_map_new( accv_map_mem ) );
@@ -299,6 +303,54 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
   return err;
 }
 
+/* fd_snapshot_restore_status_cache imports a status cache manifest into the
+   given slot context. Destroys the existing status cache. */
+
+static int
+fd_snapshot_restore_status_cache( fd_snapshot_restore_t * restore ) {
+
+  if( FD_UNLIKELY( !restore->cb_status_cache ) ) {
+    fd_snapshot_restore_discard_buf( restore );
+
+    restore->status_cache_done = 1;
+    return 0;
+  }
+  /* Decode the status cache slot deltas and populate txn cache
+     in slot ctx. */
+
+  fd_bank_slot_deltas_t slot_deltas[1];
+  fd_bincode_decode_ctx_t decode =
+      { .data    = restore->buf,
+        .dataend = restore->buf + restore->buf_sz,
+        .valloc  = restore->valloc };
+  int decode_err = fd_bank_slot_deltas_decode( slot_deltas, &decode );
+  if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
+    /* TODO: The types generator does not yet handle OOM correctly.
+             OOM failures won't always end up here, but could also
+             result in a NULL pointer dereference. */
+    FD_LOG_WARNING(( "fd_solana_manifest_decode failed (%d)", decode_err ));
+    return EINVAL;
+  }
+
+  /* Move over objects and recover state. */
+  /* TODO: we ignore the error from status cache restore for now since having the status cache is optional.
+           Add status cache to all cases */
+  restore->cb_status_cache( restore->cb_status_cache_ctx, slot_deltas );
+
+  /* Discard superfluous fields that the callback didn't move */
+
+  fd_bincode_destroy_ctx_t destroy = { .valloc = restore->valloc };
+  fd_bank_slot_deltas_destroy( slot_deltas, &destroy );
+
+  /* Discard buffer to reclaim heap space (which could be used by
+     fd_funk accounts instead) */
+
+  fd_snapshot_restore_discard_buf( restore );
+
+  restore->status_cache_done = 1;
+  return 0;
+}
+
 /* fd_snapshot_restore_accv_prepare prepares for consumption of an
    account vec file. */
 
@@ -383,6 +435,31 @@ fd_snapshot_restore_manifest_prepare( fd_snapshot_restore_t * restore,
   return 0;
 }
 
+/* fd_snapshot_restore_status_cache_prepare prepares for consumption of the
+   status cache file. */
+
+static int
+fd_snapshot_restore_status_cache_prepare( fd_snapshot_restore_t * restore,
+                                          ulong                   sz ) {
+  /* Only read once */
+  if( restore->status_cache_done ) {
+    restore->state = STATE_IGNORE;
+    return 0;
+  }
+
+  /* We don't support streaming manifest deserialization yet.  Thus,
+     buffer the whole manifest in one place. */
+  if( FD_UNLIKELY( !fd_snapshot_restore_prepare_buf( restore, sz ) ) ) {
+    restore->failed = 1;
+    return ENOMEM;
+  }
+
+  restore->state  = STATE_READ_STATUS_CACHE;
+  restore->buf_sz = sz;
+
+  return 0;
+}
+
 /* fd_snapshot_restore_file gets called by fd_tar before processing a
    new file.  We use this opportunity to init the state machine that
    will process the incoming file chunks, and set the buffer size if
@@ -423,6 +500,9 @@ fd_snapshot_restore_file( void *                restore_,
   if( 0==strncmp( meta->name, "snapshots/", sizeof("snapshots/")-1) &&
       0!=strcmp ( meta->name, "snapshots/status_cache" ) )
     return fd_snapshot_restore_manifest_prepare( restore, sz );
+
+  else if( 0==strcmp ( meta->name, "snapshots/status_cache" ) )
+    return fd_snapshot_restore_status_cache_prepare( restore, sz );
 
   restore->state = STATE_IGNORE;
   return 0;
@@ -534,6 +614,25 @@ fd_snapshot_read_manifest_chunk( fd_snapshot_restore_t * restore,
   return end;
 }
 
+/* fd_snapshot_read_status_cache_chunk reads partial status cache content. */
+
+static uchar const *
+fd_snapshot_read_status_cache_chunk( fd_snapshot_restore_t * restore,
+                                     uchar const *           buf,
+                                     ulong                   bufsz ) {
+  uchar const * end = fd_snapshot_read_buffered( restore, buf, bufsz );
+  if( fd_snapshot_read_is_complete( restore ) ) {
+    int err = fd_snapshot_restore_status_cache( restore );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "fd_snapshot_restore_status_cache failed" ));
+      restore->failed = 1;
+      return NULL;
+    }
+    restore->state = STATE_IGNORE;
+  }
+  return end;
+}
+
 /* fd_snapshot_restore_chunk1 consumes at least one byte from the given
    buffer (unless bufsz==0).  Returns pointer to first byte that has
    not been consumed yet. */
@@ -550,11 +649,13 @@ fd_snapshot_restore_chunk1( fd_snapshot_restore_t * restore,
     FD_LOG_WARNING(( "unexpected trailing data" ));
     return NULL;
   case STATE_READ_ACCOUNT_HDR:
-    return fd_snapshot_read_account_hdr_chunk( restore, buf, bufsz );
+    return fd_snapshot_read_account_hdr_chunk  ( restore, buf, bufsz );
   case STATE_READ_ACCOUNT_DATA:
-    return fd_snapshot_read_account_chunk    ( restore, buf, bufsz );
+    return fd_snapshot_read_account_chunk      ( restore, buf, bufsz );
   case STATE_READ_MANIFEST:
-    return fd_snapshot_read_manifest_chunk   ( restore, buf, bufsz );
+    return fd_snapshot_read_manifest_chunk     ( restore, buf, bufsz );
+  case STATE_READ_STATUS_CACHE:
+    return fd_snapshot_read_status_cache_chunk ( restore, buf, bufsz );
   default:
     __builtin_unreachable();
   }

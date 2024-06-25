@@ -15,7 +15,7 @@
 #include "../../../util/bits/fd_float.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../../ballet/elf/fd_elf.h"
-#include "../../vm/fd_vm_syscalls.h"
+#include "../../vm/fd_vm.h"
 #include <assert.h>
 #include "../sysvar/fd_sysvar_cache.h"
 
@@ -48,7 +48,7 @@ static FD_TL char _report_prefix[100] = {0};
 #define SORT_KEY_T void const *
 #define SORT_BEFORE(a,b) ( memcmp( (a), (b), sizeof(fd_pubkey_t) )<0 )
 #include "../../../util/tmpl/fd_sort.c"
-#include "../../vm/fd_vm_context.h"
+#include "../../vm/fd_vm_base.h"
 
 static uchar * data_wksp_ptrs[256] = {0};
 static ulong data_wksp_ptrs_idx = 0;
@@ -157,7 +157,8 @@ _load_account( fd_borrowed_account_t *           acc,
 static int
 _context_create( fd_exec_instr_test_runner_t *        runner,
                  fd_exec_instr_ctx_t *                ctx,
-                 fd_exec_test_instr_context_t const * test_ctx ) {
+                 fd_exec_test_instr_context_t const * test_ctx,
+                 bool                                 is_syscall ) {
   // TODO: Add an option to use workspace allocators
   data_wksp_ptrs_idx = 0;
 
@@ -199,8 +200,8 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->valloc = fd_libc_alloc_virtual();
 
   /* Initial variables */
-  txn_ctx->loaded_accounts_data_size_limit = MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES;
-  txn_ctx->heap_size = FD_VM_DEFAULT_HEAP_SZ;
+  txn_ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
+  txn_ctx->heap_size = FD_VM_HEAP_SIZE;
 
   /* Set up epoch context */
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
@@ -456,25 +457,31 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   }
   info->acct_cnt = (uchar)test_ctx->instr_accounts_count;
 
-  bool found_program_id = false;
-  for( uint i = 0; i < test_ctx->accounts_count; i++ ) {
-    if( 0 == memcmp( test_ctx->accounts[i].address, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
-      info->program_id = (uchar) i;
-      found_program_id = true;
-      break;
+  /* This function is used to create context both for instructions and for syscalls,
+     however some of the remaining checks are only relevant for program instructions. */
+  if( !is_syscall ) {
+    /* The remaining checks enforce that the program is one of the accounts and
+      owned by native loader. */
+    bool found_program_id = false;
+    for( uint i = 0; i < test_ctx->accounts_count; i++ ) {
+      if( 0 == memcmp( test_ctx->accounts[i].address, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
+        info->program_id = (uchar) i;
+        found_program_id = true;
+        break;
+      }
     }
-  }
-  if( !found_program_id ) {
-    REPORT( NOTICE, "Unable to find program_id in accounts" );
-    return 0;
-  }
+    if( !found_program_id ) {
+      REPORT( NOTICE, "Unable to find program_id in accounts" );
+      return 0;
+    }
 
-  /* For native programs, check that the owner is the native loader */
-  fd_pubkey_t * const program_id = &txn_ctx->accounts[info->program_id];
-  fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( program_id );
-  if( native_prog_fn && 0 != memcmp( test_ctx->accounts[info->program_id].owner, &fd_solana_native_loader_id, sizeof(fd_pubkey_t) ) ) {
-    REPORT( NOTICE, "Native program owner is not NativeLoader" );
-    return 0;
+    /* For native programs, check that the owner is the native loader */
+    fd_pubkey_t * const program_id = &txn_ctx->accounts[info->program_id];
+    fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( program_id );
+    if( native_prog_fn && 0 != memcmp( test_ctx->accounts[info->program_id].owner, &fd_solana_native_loader_id, sizeof(fd_pubkey_t) ) ) {
+      REPORT( NOTICE, "Native program owner is not NativeLoader" );
+      return 0;
+    }
   }
 
   ctx->epoch_ctx = epoch_ctx;
@@ -719,12 +726,12 @@ _diff_effects( fd_exec_instr_fixture_diff_t * check ) {
 
   /* Check return data */
   ulong data_sz = expected->return_data ? expected->return_data->size : 0UL; /* support expected->return_data==NULL */
-  if ( data_sz != ctx->txn_ctx->return_data.len ) {
+  if (data_sz != ctx->txn_ctx->return_data.len) {
     check->has_diff = 1;
     REPORTV( WARNING, "expected return data size %lu, got %lu",
              (ulong) data_sz, ctx->txn_ctx->return_data.len );
   }
-  else if ( data_sz > 0 ) {
+  else if (data_sz > 0 ) {
     check->has_diff = memcmp( expected->return_data->bytes, ctx->txn_ctx->return_data.data, expected->return_data->size );
     REPORT( WARNING, "return data mismatch" );
   }
@@ -739,7 +746,7 @@ fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
                            fd_exec_test_instr_fixture_t const * test,
                            char const *                         log_name ) {
   fd_exec_instr_ctx_t ctx[1];
-  if( FD_UNLIKELY( !_context_create( runner, ctx, &test->input ) ) ) {
+  if( FD_UNLIKELY( !_context_create( runner, ctx, &test->input, false ) ) ) {
     _context_destroy( runner, ctx );
     return 0;
   }
@@ -780,7 +787,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
 
   /* Convert the Protobuf inputs to a fd_exec context */
   fd_exec_instr_ctx_t ctx[1];
-  if( !_context_create( runner, ctx, input ) ) {
+  if( !_context_create( runner, ctx, input, false ) ) {
     _context_destroy( runner, ctx );
     return 0UL;
   }
@@ -891,12 +898,12 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
   return actual_end - (ulong)output_buf;
 }
 
-
 ulong
-fd_sbpf_program_load_test_run( fd_exec_test_elf_loader_ctx_t const * input,
-                               fd_exec_test_elf_loader_effects_t ** output,
-                               void *                               output_buf,
-                               ulong                                output_bufsz ){
+fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * runner,
+                               fd_exec_test_elf_loader_ctx_t const * input,
+                               fd_exec_test_elf_loader_effects_t **  output,
+                               void *                                output_buf,
+                               ulong                                 output_bufsz ){
   fd_sbpf_elf_info_t info;
   fd_valloc_t valloc = fd_scratch_virtual();
 
@@ -1002,4 +1009,154 @@ fd_sbpf_program_load_test_run( fd_exec_test_elf_loader_ctx_t const * input,
 
   *output = elf_effects;
   return actual_end - (ulong) output_buf;
+}
+
+ulong
+fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
+                             fd_exec_test_syscall_context_t const * input,
+                             fd_exec_test_syscall_effects_t **      output,
+                             void *                                 output_buf,
+                             ulong                                  output_bufsz ) {
+
+  /* Create execution context */
+  const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
+  fd_exec_instr_ctx_t ctx[1];
+  if( !_context_create( runner, ctx, input_instr_ctx, true ) )
+    return 0UL;
+  fd_valloc_t valloc = fd_scratch_virtual();
+
+  /* Capture outputs */
+  ulong output_end = (ulong)output_buf + output_bufsz;
+  FD_SCRATCH_ALLOC_INIT( l, output_buf );
+  fd_exec_test_syscall_effects_t * effects =
+    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_syscall_effects_t),
+                                sizeof (fd_exec_test_syscall_effects_t) );
+  if( FD_UNLIKELY( _l > output_end ) ) {
+    _context_destroy( runner, ctx );
+    return 0UL;
+  }
+  fd_memset( effects, 0, sizeof(fd_exec_test_instr_effects_t) );
+
+  /* Set up the VM instance */
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
+  fd_vm_syscall_register_all( syscalls );
+
+  /* Pull out the memory regions */
+  FD_TEST( input->has_vm_ctx );
+  FD_TEST( input->vm_ctx.rodata );
+  uchar * rodata = input->vm_ctx.rodata->bytes;
+  ulong rodata_sz = input->vm_ctx.rodata->size;
+
+  /* Concatenate the input data regions into the flat input memory region */
+  ulong input_data_sz = 0;
+  for ( ulong i=0; i<input->vm_ctx.input_data_regions_count; i++ ) {
+    input_data_sz += input->vm_ctx.input_data_regions[i].content->size;
+  }
+  uchar * input_data = fd_valloc_malloc( valloc, alignof(uchar), input_data_sz );
+  uchar * input_data_ptr = input_data;
+  for ( ulong i=0; i<input->vm_ctx.input_data_regions_count; i++ ) {
+    pb_bytes_array_t * array = input->vm_ctx.input_data_regions[i].content;
+    fd_memcpy( input_data_ptr, array->bytes, array->size );
+    input_data_ptr += array->size;
+  }
+  FD_TEST( input_data_ptr == (input_data + input_data_sz) );
+
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
+  FD_TEST( vm );
+  fd_vm_init(
+    vm,
+    ctx,
+    input->vm_ctx.heap_max,
+    ctx->txn_ctx->compute_meter,
+    rodata,
+    rodata_sz,
+    NULL, // TODO
+    0, // TODO
+    0, // TODO
+    0, // TODO
+    NULL, // TODO
+    syscalls,
+    input_data,
+    input_data_sz,
+    NULL, // TODO
+    sha);
+
+  // Setup the vm state for execution
+  FD_TEST( fd_vm_setup_state_for_execution( vm ) == FD_VM_SUCCESS );
+
+  // Override some execution state values from the syscall fuzzer input
+  // This is so we can test if the syscall mutates any of these erroneously
+  vm->reg[0] = input->vm_ctx.r0;
+  vm->reg[1] = input->vm_ctx.r1;
+  vm->reg[2] = input->vm_ctx.r2;
+  vm->reg[3] = input->vm_ctx.r3;
+  vm->reg[4] = input->vm_ctx.r4;
+  vm->reg[5] = input->vm_ctx.r5;
+  vm->reg[6] = input->vm_ctx.r6;
+  vm->reg[7] = input->vm_ctx.r7;
+  vm->reg[8] = input->vm_ctx.r8;
+  vm->reg[9] = input->vm_ctx.r9;
+  vm->reg[10] = input->vm_ctx.r10;
+  vm->reg[11] = input->vm_ctx.r11;
+
+  // Override initial part of the heap, if specified the syscall fuzzer input
+  if( input->syscall_invocation.heap_prefix ) {
+    fd_memcpy( vm->heap, input->syscall_invocation.heap_prefix->bytes,
+               fd_ulong_min(input->syscall_invocation.heap_prefix->size, vm->heap_max) );
+  }
+
+  // Look up the syscall to execute
+  const char * syscall_name = input->syscall_invocation.function_name;
+  fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const(
+    syscalls,
+    fd_murmur3_32( syscall_name, strlen( syscall_name ), 0U ),
+    NULL );
+  if( !syscall ) return 0;
+
+  /* Actually invoke the syscall */
+  int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
+
+  /* Capture the effects */
+  effects->error = -syscall_err;
+  effects->r0 = vm->reg[0];
+  effects->cu_avail = (ulong)vm->cu;
+
+  effects->heap = FD_SCRATCH_ALLOC_APPEND(
+    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
+  effects->heap->size = (uint)vm->heap_max;
+  fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
+
+  effects->stack = FD_SCRATCH_ALLOC_APPEND(
+    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
+  effects->stack->size = (uint)FD_VM_STACK_MAX;
+  fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
+
+  if( input_data_sz ) {
+    effects->inputdata = FD_SCRATCH_ALLOC_APPEND(
+      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( input_data_sz ) );
+    effects->inputdata->size = (uint)input_data_sz;
+    fd_memcpy( effects->inputdata->bytes, vm->input, input_data_sz );
+  } else {
+    effects->inputdata = NULL;
+  }
+
+  effects->frame_count = vm->frame_cnt;
+
+  if( vm->log_sz ) {
+    effects->log = FD_SCRATCH_ALLOC_APPEND(
+      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->log_sz ) );
+    effects->log->size = (uint)vm->log_sz;
+    fd_memcpy( effects->log->bytes, vm->log, vm->log_sz );
+  } else {
+    effects->log = NULL;
+  }
+
+  /* Return the effects */
+  ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  _context_destroy( runner, ctx );
+
+  *output = effects;
+  return actual_end - (ulong)output_buf;
 }

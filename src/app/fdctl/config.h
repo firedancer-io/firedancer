@@ -249,14 +249,14 @@ typedef struct {
       ulong funk_txn_max;
       char  genesis[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
+      char  slots_replayed[PATH_MAX ];
       char  snapshot[ PATH_MAX ];
-      char  slots[PATH_MAX ];
       ulong tpool_thread_count;
     } replay;
 
     struct {
       char  blockstore_restore[ PATH_MAX ];
-      char  slots[PATH_MAX];
+      char  slots_pending[PATH_MAX];
     } store_int;
 
   } tiles;

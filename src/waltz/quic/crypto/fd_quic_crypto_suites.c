@@ -3,7 +3,6 @@
 
 #include <assert.h>
 #include <limits.h>
-#include <sys/random.h>
 
 #include "../../../ballet/aes/fd_aes_gcm.h"
 
@@ -602,7 +601,7 @@ int
 fd_quic_crypto_rand( uchar * buf,
                      ulong   buf_sz ) {
   /* TODO buffer */
-  if( FD_UNLIKELY( (long)buf_sz!=getrandom( buf, buf_sz, 0 ) ) )
+  if( FD_UNLIKELY( fd_rng_secure( buf, buf_sz ) ) )
     return FD_QUIC_FAILED;
   return FD_QUIC_SUCCESS;
 }

@@ -1,6 +1,8 @@
 #include "fd_exec_txn_ctx.h"
-#include "../fd_executor_err.h"
-#include "../../vm/fd_vm_context.h"
+#include "fd_exec_slot_ctx.h"
+#include "../fd_acc_mgr.h"
+#include "../fd_executor.h"
+#include "../../vm/fd_vm.h"
 
 void *
 fd_exec_txn_ctx_new( void * mem ) {
@@ -197,8 +199,8 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
   txn_ctx->accounts_cnt       = 0;
   txn_ctx->executable_cnt     = 0;
   txn_ctx->paid_fees          = 0;
-  txn_ctx->heap_size          = FD_VM_DEFAULT_HEAP_SZ;
-  txn_ctx->loaded_accounts_data_size_limit = MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES;
+  txn_ctx->heap_size          = FD_VM_HEAP_DEFAULT;
+  txn_ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
   txn_ctx->accounts_resize_delta = 0;
 
   txn_ctx->txn_descriptor = txn_descriptor;

@@ -6,6 +6,7 @@
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/tvu/fd_tvu.h"
 #include "../../../../flamenco/fd_flamenco.h"
+#include "../../../../disco/bank/fd_txncache.h"
 #include "../../../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
 #include "../../../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../../../flamenco/runtime/fd_borrowed_account.h"
@@ -41,6 +42,9 @@
 /* An estimate of the max number of transactions in a block.  If there are more
    transactions, they must be split into multiple sets. */
 #define MAX_TXNS_PER_REPLAY ( ( FD_SHRED_MAX_PER_SLOT * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
+
+/* TODO: increase this to default once we have enough memory to support a 95G status cache. */
+#define MAX_CACHE_TXNS_PER_SLOT (FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 8)
 
 #define STORE_IN_IDX   (0UL)
 #define PACK_IN_IDX    (1UL)
@@ -171,7 +175,7 @@ struct fd_replay_tile_ctx {
   ulong funk_seed;
   fd_capture_ctx_t * capture_ctx;
   FILE *             capture_file;
-  FILE *             slots_file;
+  FILE *             slots_replayed_file;
 
 
   ulong * first_turbine;
@@ -185,6 +189,7 @@ struct fd_replay_tile_ctx {
   fd_keyguard_client_t  keyguard_client[1];
   ulong                 gossip_vote_txn_sz;
   uchar                 gossip_vote_txn [ FD_TXN_MTU ];
+  fd_txncache_t * status_cache;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -195,7 +200,7 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return 22UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
+  return 45UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
 }
 
 FD_FN_PURE static inline ulong
@@ -215,6 +220,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX, FD_VOTER_MAX  ) );
   l = FD_LAYOUT_APPEND( l, fd_tower_align(), fd_tower_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(), fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT) );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -567,6 +573,7 @@ after_frag( void *             _ctx,
       fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
       fork->slot_ctx.slot_bank.slot      = ctx->curr_slot;
 
+      fork->slot_ctx.status_cache        = ctx->status_cache;
       fd_funk_txn_xid_t xid;
 
       fd_memcpy(xid.uc, ctx->blockhash.uc, sizeof(fd_funk_txn_xid_t));
@@ -775,9 +782,9 @@ after_frag( void *             _ctx,
 
       /* Write to debugging files. */
 
-      if( FD_UNLIKELY( ctx->slots_file ) ) {
+      if( FD_UNLIKELY( ctx->slots_replayed_file ) ) {
         FD_LOG_NOTICE( ( "writing %lu to slots file", prev_slot ) );
-        fprintf( ctx->slots_file, "%lu\n", prev_slot );
+        fprintf( ctx->slots_replayed_file, "%lu\n", prev_slot );
       }
 
       if (NULL != ctx->capture_ctx) {
@@ -800,7 +807,7 @@ after_frag( void *             _ctx,
 
             /* Mismatch */
 
-            if( FD_UNLIKELY( ctx->capture_file ) ) fclose( ctx->slots_file );
+            if( FD_UNLIKELY( ctx->capture_file ) ) fclose( ctx->slots_replayed_file );
             if( FD_UNLIKELY( strcmp(ctx->blockstore_checkpt, "" ) ) ) {
               int rc = fd_wksp_checkpt( ctx->blockstore_wksp, ctx->blockstore_checkpt, 0666, 0, NULL );
               if( rc ) {
@@ -999,6 +1006,7 @@ after_credit( void *             _ctx,
       ctx->slot_ctx->blockstore = ctx->blockstore;
       ctx->slot_ctx->epoch_ctx  = ctx->epoch_ctx;
       ctx->slot_ctx->valloc     = ctx->valloc;
+      ctx->slot_ctx->status_cache = ctx->status_cache;
 
       FD_SCRATCH_SCOPE_BEGIN {
         uchar is_snapshot              = strlen( ctx->snapshot ) > 0;
@@ -1061,6 +1069,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX, FD_VOTER_MAX ) );
   void * tower_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
   void * bank_hash_cmp_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
+  void * status_cache_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(), fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT) );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem != ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {
@@ -1267,6 +1276,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->poh_init_done = 0U;
 
+  /* Set up status cache. */
+  ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT ) );
+
   /**********************************************************************/
   /* links                                                              */
   /**********************************************************************/
@@ -1346,11 +1358,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake_weights_out_wmark  = fd_dcache_compact_wmark ( ctx->stake_weights_out_mem, stake_weights_out->dcache, stake_weights_out->mtu );
   ctx->stake_weights_out_chunk  = ctx->stake_weights_out_chunk0;
 
-  if( FD_UNLIKELY( ctx->capture_ctx ) ) {
-    char filename[100];
-    snprintf( filename, sizeof( filename ), "%lu.txt", ctx->snapshot_slot );
-    ctx->slots_file = fopen( filename, "w" );
-    FD_TEST( ctx->slots_file );
+  if( strnlen( tile->replay.slots_replayed, sizeof(tile->replay.slots_replayed) )>0UL ) {
+    ctx->slots_replayed_file = fopen( tile->replay.slots_replayed, "w" );
+    FD_TEST( ctx->slots_replayed_file );
   }
 }
 

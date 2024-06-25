@@ -1086,7 +1086,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
                    fd_runtime_args_t *   args,
                    fd_tvu_gossip_deliver_arg_t * gossip_deliver_arg,
                    fd_capture_ctx_t *    capture_ctx,
-                   FILE *                capture_file
+                   FILE *                capture_file,
+                   fd_txncache_t *       status_cache
  ) {
   fd_flamenco_boot( NULL, NULL );
 
@@ -1170,6 +1171,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
                   runtime_ctx->_acc_mgr,
                   &slot_ctx_setup_out );
 
+  slot_ctx_setup_out.exec_slot_ctx->status_cache = status_cache;
   forks->epoch_ctx = slot_ctx_setup_out.exec_epoch_ctx;
 
   if( slot_ctx != NULL ) *slot_ctx = slot_ctx_setup_out.exec_slot_ctx;

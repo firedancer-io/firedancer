@@ -70,6 +70,7 @@ struct fd_snapshot_restore {
 
   uchar state;
   uchar manifest_done : 1;
+  uchar status_cache_done : 1;
   uchar failed        : 1;
 
   /* Buffer params.  This buffer is used to gather file content into
@@ -101,6 +102,9 @@ struct fd_snapshot_restore {
 
   fd_snapshot_restore_cb_manifest_fn_t cb_manifest;
   void *                               cb_manifest_ctx;
+
+  fd_snapshot_restore_cb_status_cache_fn_t cb_status_cache;
+  void *                                   cb_status_cache_ctx;
 };
 
 /* STATE_{...} are the state IDs that control file processing in the
@@ -110,6 +114,7 @@ struct fd_snapshot_restore {
 #define STATE_READ_MANIFEST     ((uchar)1)  /* reading manifest (buffered) */
 #define STATE_READ_ACCOUNT_HDR  ((uchar)2)  /* reading account hdr (buffered) */
 #define STATE_READ_ACCOUNT_DATA ((uchar)3)  /* reading account data (direct copy into funk) */
-#define STATE_DONE              ((uchar)4)  /* expect no more data */
+#define STATE_READ_STATUS_CACHE ((uchar)4)  /* reading status cache (buffered)*/
+#define STATE_DONE              ((uchar)5)  /* expect no more data */
 
 #endif /* HEADER_fd_src_flamenco_snapshot_fd_snapshot_restore_private_h */

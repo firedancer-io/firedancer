@@ -149,7 +149,7 @@ fd_snapshot_loader_init( fd_snapshot_loader_t *    d,
     d->vsrc = fd_io_istream_file_virtual( d->vfile );
     break;
   case FD_SNAPSHOT_SRC_HTTP:
-    if( FD_UNLIKELY( !fd_snapshot_http_new( d->vhttp, src->http.ip4, src->http.port, &d->name ) ) ) {
+    if( FD_UNLIKELY( !fd_snapshot_http_new( d->vhttp, src->http.dest, src->http.ip4, src->http.port, &d->name ) ) ) {
       FD_LOG_WARNING(( "Failed to create fd_snapshot_http_t" ));
       return NULL;
     }
@@ -255,6 +255,9 @@ fd_snapshot_src_parse( fd_snapshot_src_t * src,
     int sep = cstr[ m_hostname->rm_eo ];
     cstr[ m_hostname->rm_eo ] = '\0';
     char * hostname = cstr + m_hostname->rm_so;
+
+    strncpy( src->http.dest, hostname, sizeof(src->http.dest)-1 );
+    src->http.dest[ sizeof(src->http.dest)-1 ] = '\0';
 
     struct sockaddr_in default_addr = {
       .sin_family = AF_INET,

@@ -48,7 +48,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
                    fd_runtime_args_t *   args,
                    fd_tvu_gossip_deliver_arg_t * gossip_deliver_arg,
                    fd_capture_ctx_t *    capture_ctx,
-                   FILE *                capture_file
+                   FILE *                capture_file,
+                   fd_txncache_t *       status_cache
 );
 
 int

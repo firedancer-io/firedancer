@@ -87,6 +87,7 @@ FD_PROTOTYPES_BEGIN
 
 fd_snapshot_http_t *
 fd_snapshot_http_new( void *               mem,
+                      const char *         dst_str,
                       uint                 dst_ipv4,
                       ushort               dst_port,
                       fd_snapshot_name_t * name_out );

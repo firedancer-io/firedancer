@@ -3,26 +3,8 @@
 #endif
 
 #include "fd_shmem_private.h"
-#include <ctype.h>
 
-/* SHMEM PARSING APIS *************************************************/
-
-ulong
-fd_shmem_name_len( char const * name ) {
-  if( FD_UNLIKELY( !name ) ) return 0UL; /* NULL name */
-
-  ulong len = 0UL;
-  while( FD_LIKELY( len<FD_SHMEM_NAME_MAX ) ) {
-    char c = name[len];
-    if( FD_UNLIKELY( !c ) ) break;
-    if( FD_UNLIKELY( !( (!!isalnum( c )) | ((len>0UL) & ((c=='_') | (c=='-') | (c=='.'))) ) ) ) return 0UL; /* Bad character */
-    len++;
-  }
-
-  if( FD_UNLIKELY( !len                   ) ) return 0UL; /* Name too short (empty string) */
-  if( FD_UNLIKELY( len>=FD_SHMEM_NAME_MAX ) ) return 0UL; /* Name too long */
-  return len;
-}
+/* Portable APIs */
 
 int
 fd_cstr_to_shmem_lg_page_sz( char const * cstr ) {
@@ -76,6 +58,27 @@ fd_shmem_page_sz_to_cstr( ulong page_sz ) {
   default:                        break;
   }
   return "unknown";
+}
+
+#include <ctype.h>
+
+/* SHMEM PARSING APIS *************************************************/
+
+ulong
+fd_shmem_name_len( char const * name ) {
+  if( FD_UNLIKELY( !name ) ) return 0UL; /* NULL name */
+
+  ulong len = 0UL;
+  while( FD_LIKELY( len<FD_SHMEM_NAME_MAX ) ) {
+    char c = name[len];
+    if( FD_UNLIKELY( !c ) ) break;
+    if( FD_UNLIKELY( !( (!!isalnum( c )) | ((len>0UL) & ((c=='_') | (c=='-') | (c=='.'))) ) ) ) return 0UL; /* Bad character */
+    len++;
+  }
+
+  if( FD_UNLIKELY( !len                   ) ) return 0UL; /* Name too short (empty string) */
+  if( FD_UNLIKELY( len>=FD_SHMEM_NAME_MAX ) ) return 0UL; /* Name too long */
+  return len;
 }
 
 #if FD_HAS_HOSTED && defined(__linux__)

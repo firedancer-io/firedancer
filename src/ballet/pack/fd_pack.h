@@ -15,7 +15,7 @@
 #define FD_PACK_MAX_BANK_TILES 62UL
 
 /* NOTE: THE FOLLOWING CONSTANTS ARE CONSENSUS CRITICAL AND CANNOT BE
-   CHANGED WITHOUT COORDINATING WITH SOLANA LABS. */
+   CHANGED WITHOUT COORDINATING WITH ANZA. */
 #define FD_PACK_MAX_COST_PER_BLOCK      (48000000UL)
 #define FD_PACK_MAX_VOTE_COST_PER_BLOCK (36000000UL)
 #define FD_PACK_MAX_WRITE_COST_PER_ACCT (12000000UL)
@@ -23,7 +23,7 @@
 
 /* Each block is limited to 32k parity shreds.  We don't want pack to
    produce a block with so many transactions we can't shred it, but the
-   correspondance between transactions and parity shreds is somewhat
+   correspondence between transactions and parity shreds is somewhat
    complicated, so we need to use conservative limits.
 
    Except for the final batch in the block, the current version of the
@@ -162,13 +162,13 @@ FD_FN_PURE ulong fd_pack_avail_txn_cnt( fd_pack_t const * pack );
 FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t const * pack );
 
 /* fd_pack_set_block_limits: Updates the limits provided fd_pack_new to
-   the new values.  Future any future microblocks produced by this pack
-   object will not cause a block to have more than
-   max_microblocks_per_block non-empty microblocks or more than
-   max_data_bytes_per_block data bytes (counting microblock headers as
-   before).  Limits are inclusive, as per ususal (i.e. a block may have
-   exactly max_microblocks_per_block microblocks, but not more).  pack
-   must be a valid local join.
+   the new values.  Any future microblocks produced by this pack object
+   will not cause a block to have more than max_microblocks_per_block
+   non-empty microblocks or more than max_data_bytes_per_block data
+   bytes (counting microblock headers as before).  Limits are inclusive,
+   as per usual (i.e. a block may have exactly
+   max_microblocks_per_block microblocks, but not more).  pack must be
+   a valid local join.
 
    The typical place to call this is immediately after
    fd_pack_end_block; if this is called after some microblocks have been
@@ -186,7 +186,7 @@ void fd_pack_set_block_limits( fd_pack_t * pack, ulong max_microblocks_per_block
 
    The non-negative (success) codes are essentially a bitflag of two
    bits:
-    * whether the transaction met the critera for a simple vote or not,
+    * whether the transaction met the criteria for a simple vote or not,
     * whether this transaction replaced a previously accepted, low
       priority transaction, rather than being accepted in addition to all
       the previously accepted transactions.  Since pack maintains a heap
@@ -310,7 +310,7 @@ void fd_pack_microblock_complete( fd_pack_t * pack, ulong bank_tile );
 
 /* fd_pack_expire_before deletes all available transactions with
    expires_at values strictly less than expire_before.  pack must be a
-   local join of a pack object.  Retruns the number of transactions
+   local join of a pack object.  Returns the number of transactions
    deleted.  Subsequent calls to fd_pack_expire_before with the same or
    a smaller value are no-ops. */
 ulong fd_pack_expire_before( fd_pack_t * pack, ulong expire_before );
@@ -334,10 +334,10 @@ void fd_pack_end_block( fd_pack_t * pack );
 void fd_pack_clear_all( fd_pack_t * pack );
 
 
-/* fd_pack_leave leaves a local join of a pack object.  Returns pack.
-   fd_pack_delete unformats a memory region used to store a pack object
-   and returns ownership of the memory to the caller.  Returns mem. */
+/* fd_pack_leave leaves a local join of a pack object.  Returns pack. */
 void * fd_pack_leave(  fd_pack_t * pack );
+/* fd_pack_delete unformats a memory region used to store a pack object
+   and returns ownership of the memory to the caller.  Returns mem. */
 void * fd_pack_delete( void      * mem  );
 
 /* fd_pack_verify (for debugging use primarily) checks to ensure several
@@ -348,4 +348,4 @@ void * fd_pack_delete( void      * mem  );
 int fd_pack_verify( fd_pack_t * pack, void * scratch );
 
 FD_PROTOTYPES_END
-#endif /*HEADER_fd_src_ballet_pack_fd_pack_h*/
+#endif /* HEADER_fd_src_ballet_pack_fd_pack_h */
