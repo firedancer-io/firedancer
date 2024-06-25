@@ -673,6 +673,11 @@ is_good_peer( fd_active_elem_t * val ) {
   return 1;                                                            /* Great! */
 }
 
+#define SORT_NAME        fd_latency_sort
+#define SORT_KEY_T       long
+#define SORT_BEFORE(a,b) (a)<(b)
+#include "../../util/tmpl/fd_sort.c"
+
 static void
 fd_actives_shuffle( fd_repair_t * repair ) {
   if( repair->stake_weights_cnt == 0 ) {
@@ -719,6 +724,39 @@ fd_actives_shuffle( fd_repair_t * repair ) {
     fd_active_elem_t * good[FD_REPAIR_STICKY_MAX];
     ulong              good_cnt = 0;
 
+    long  latencies[ FD_REPAIR_STICKY_MAX ];
+    ulong latencies_cnt = 0UL;
+    
+    long first_quartile_latency = LONG_MAX;
+
+    /* fetch all latencies */
+    for( fd_active_table_iter_t iter = fd_active_table_iter_init( repair->actives );
+            !fd_active_table_iter_done( repair->actives, iter );
+            iter = fd_active_table_iter_next( repair->actives, iter ) ) {
+            fd_active_elem_t * peer = fd_active_table_iter_ele( repair->actives, iter );
+
+      if( !peer->sticky ) {
+        continue;
+      }
+
+      if( peer->avg_lat==0L || peer->avg_reps==0UL ) {
+        continue;
+      }
+
+      latencies[ latencies_cnt++ ] = peer->avg_lat/(long)peer->avg_reps;
+    }
+
+    if( latencies_cnt >= 4 ) {
+      /* we probably want a few peers before sorting and pruning them based on
+         latency. */
+      fd_latency_sort_inplace( latencies, latencies_cnt );
+      first_quartile_latency = latencies[ latencies_cnt / 4UL ];
+      FD_LOG_WARNING(( "repair peers first quartile latency - latency: %6.6f ms", (double)first_quartile_latency * 1e-6 ));
+    }
+
+    /* select an upper bound */
+    /* acceptable latency is 2 * first quartile latency  */
+    long acceptable_latency = 2L * first_quartile_latency;
     for( fd_active_table_iter_t iter = fd_active_table_iter_init( repair->actives );
          !fd_active_table_iter_done( repair->actives, iter );
          iter = fd_active_table_iter_next( repair->actives, iter ) ) {
@@ -729,6 +767,9 @@ fd_actives_shuffle( fd_repair_t * repair ) {
         best[best_cnt++] = peer;
       } else if( sticky ) {
         /* See if we still like this peer */
+        if( peer->avg_reps>0UL && ( peer->avg_lat/(long)peer->avg_reps ) >= acceptable_latency ) {
+          continue;
+        }
         int r = is_good_peer( peer );
         if( r == 1 ) best[best_cnt++] = peer;
         else if( r == 0 ) good[good_cnt++] = peer;
@@ -747,7 +788,7 @@ fd_actives_shuffle( fd_repair_t * repair ) {
     if( leftovers_cnt ) {
       /* Always try afew new ones */
       ulong seed = repair->actives_random_seed;
-      for( ulong i = 0; i < 3 && tot_cnt < FD_REPAIR_STICKY_MAX; ++i ) {
+      for( ulong i = 0; i < 8 && tot_cnt < FD_REPAIR_STICKY_MAX; ++i ) {
         seed                                  = ( seed + 774583887101UL ) * 131UL;
         fd_active_elem_t * peer               = leftovers[seed % leftovers_cnt];
         repair->actives_sticky[tot_cnt++] = peer->key;
@@ -912,6 +953,7 @@ fd_repair_print_all_stats( fd_repair_t * glob ) {
        !fd_active_table_iter_done( glob->actives, iter );
        iter = fd_active_table_iter_next( glob->actives, iter ) ) {
     fd_active_elem_t * val = fd_active_table_iter_ele( glob->actives, iter );
+    if( !val->sticky ) continue;
     print_stats( val );
   }
   FD_LOG_NOTICE( ( "peer count: %lu", fd_active_table_key_cnt( glob->actives ) ) );
