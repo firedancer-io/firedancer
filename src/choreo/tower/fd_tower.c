@@ -55,6 +55,30 @@ fd_tower_leave( fd_tower_t const * tower ) {
   return (void *)tower;
 }
 
+void
+fd_tower_init( fd_tower_t * tower, fd_exec_epoch_ctx_t const * epoch_ctx, ulong root ) {
+
+  if( FD_UNLIKELY( !tower ) ) {
+    FD_LOG_WARNING( ( "NULL tower" ) );
+    return;
+  }
+
+  if( FD_UNLIKELY( root == FD_SLOT_NULL ) ) {
+    FD_LOG_WARNING( ( "NULL slot" ) );
+    return;
+  }
+
+  if( FD_UNLIKELY( tower->root ) ) {
+    FD_LOG_WARNING( ( "tower already initialized" ) );
+    return;
+  }
+
+  fd_tower_epoch_update( tower, epoch_ctx );
+  tower->root = root;
+
+  return;
+}
+
 void *
 fd_tower_delete( void * tower ) {
 
@@ -71,114 +95,145 @@ fd_tower_delete( void * tower ) {
   return tower;
 }
 
-void
-fd_tower_epoch_update( fd_tower_t * tower, fd_exec_epoch_ctx_t * epoch_ctx ) {
-  ulong                               total_stake = 0;
-  fd_epoch_bank_t *                   epoch_bank  = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
-  fd_vote_accounts_pair_t_mapnode_t * pool = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
-  fd_vote_accounts_pair_t_mapnode_t * root = epoch_bank->stakes.vote_accounts.vote_accounts_root;
-  for( fd_vote_accounts_pair_t_mapnode_t * node = fd_vote_accounts_pair_t_map_minimum( pool, root );
-       node;
-       node = fd_vote_accounts_pair_t_map_successor( pool, node ) ) {
-    total_stake += node->elem.stake;
-  }
-  tower->total_stake = total_stake;
-  FD_LOG_NOTICE(("total stake is %lu", tower->total_stake));
-}
-
-void
-fd_tower_fork_update( fd_tower_t * tower, fd_fork_t * fork ) {
+static int
+vote_state_versioned_get( fd_acc_mgr_t *              acc_mgr,
+                          fd_funk_txn_t *             funk_txn,
+                          fd_valloc_t                 valloc,
+                          fd_pubkey_t const *         vote_acc_addr,
+                          fd_vote_state_versioned_t * vote_state_versioned_out ) {
   int rc;
 
-  fd_blockstore_t * blockstore = tower->blockstore;
-  fd_ghost_t *      ghost      = tower->ghost;
+  FD_BORROWED_ACCOUNT_DECL( vote_acc );
+  rc = fd_acc_mgr_view( acc_mgr, funk_txn, vote_acc_addr, vote_acc );
+  if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_WARNING(
+        ( "fd_acc_mgr_view failed on vote account %32J. error: %d", vote_acc_addr, rc ) );
+  }
 
-  /* Get the parent key. Every slot except the root must have a parent. */
+  rc = fd_vote_get_state( vote_acc, valloc, vote_state_versioned_out );
+  if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_WARNING(
+        ( "fd_vote_get_state failed on vote account %32J. error: %d", vote_acc_addr, rc ) );
+  }
 
-  fd_blockstore_start_read( blockstore );
-  ulong parent_slot = fd_blockstore_parent_slot_query( blockstore, fork->slot );
-#if FD_TOWER_USE_HANDHOLDING
-  /* we must have a parent slot and bank hash, given we just executed
-     its child. if not, likely a bug in blockstore pruning. */
-  if( FD_UNLIKELY( parent_slot == FD_SLOT_NULL ) ) {
-    FD_LOG_ERR( ( "missing parent slot for curr slot %lu", fork->slot ) );
-  };
-#endif
-  fd_blockstore_end_read( blockstore );
+  fd_vote_convert_to_current( vote_state_versioned_out, valloc );
 
-  /* Insert the new fork head into ghost. */
+  return rc;
+}
 
-  fork->ghost_node = fd_ghost_node_insert( ghost, fork->slot, parent_slot );
+static inline int
+lockout_check( ulong const vote_slots[static FD_TOWER_VOTE_SLOTS_MAX],
+               ulong       vote_slot_cnt,
+               ulong       slot ) {
+  ulong prev_vote_slot          = vote_slots[vote_slot_cnt - 1];
+  ulong lockout                 = 1UL << vote_slot_cnt;
+  ulong lockout_expiration_slot = prev_vote_slot + lockout;
+  return slot > lockout_expiration_slot;
+}
 
-  fd_epoch_bank_t *                   epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx.epoch_ctx );
-  fd_vote_accounts_pair_t_mapnode_t * root       = epoch_bank->stakes.vote_accounts.vote_accounts_root;
-  fd_vote_accounts_pair_t_mapnode_t * pool       = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
+static inline void
+pop_expired( ulong const vote_slots[static FD_TOWER_VOTE_SLOTS_MAX],
+             ulong *     vote_slot_cnt,
+             ulong       slot ) {
+  while( vote_slot_cnt ) {
+    if( FD_UNLIKELY( lockout_check( vote_slots, *vote_slot_cnt, slot ) ) ) break;
+    *vote_slot_cnt -= 1;
+  }
+}
 
-  for( fd_vote_accounts_pair_t_mapnode_t * curr = fd_vote_accounts_pair_t_map_minimum( pool, root );
-       curr;
-       curr = fd_vote_accounts_pair_t_map_successor( pool, curr ) ) {
-    if( FD_UNLIKELY( curr->elem.stake == 0UL ) ) continue;
+int
+fd_tower_lockout_check( fd_tower_t const * tower, fd_fork_t const * fork ) {
+  return lockout_check( tower->vote_slots, tower->vote_slot_cnt, fork->slot );
+}
 
-    fd_pubkey_t const * vote_account_address = &curr->elem.key;
-    FD_BORROWED_ACCOUNT_DECL( vote_account );
-    fd_vote_state_versioned_t vote_state_versioned = { 0 };
-
-    rc = fd_acc_mgr_view(
-        tower->acc_mgr, fork->slot_ctx.funk_txn, vote_account_address, vote_account );
-    if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(
-          ( "fd_acc_mgr_view failed on vote account %32J. error: %d", vote_account_address, rc ) );
-#     if defined(__x86_64__)
-      __asm__( "int $3" );
-#     endif
+int
+fd_tower_switch_check( fd_tower_t const * tower, fd_fork_t const * fork ) {
+  ulong             switch_stake = 0;
+  fd_ghost_node_t * ancestor     = fork->ghost_node;
+  while( FD_LIKELY( ancestor ) ) {
+    fd_ghost_node_t * curr = ancestor;
+    while( FD_LIKELY( curr ) ) {
+      if( FD_LIKELY( curr != fork->ghost_node ) ) switch_stake += curr->weight;
+      curr = curr->sibling;
     }
+  }
+  return ( (double)switch_stake / (double)tower->total_stake ) > SWITCH_PCT;
+}
 
+int
+fd_tower_threshold_check( fd_tower_t const * tower,
+                          fd_fork_t const *  fork,
+                          fd_acc_mgr_t *     acc_mgr ) {
+  if( FD_UNLIKELY( tower->vote_slot_cnt < THRESHOLD_DEPTH ) ) return 1;
+
+  /* Simulate a vote on _our_ tower for the fork head (fork->slot),
+     popping the expired votes. */
+
+  ulong simulate_vote_slot_cnt = tower->vote_slot_cnt;
+  pop_expired( tower->vote_slots, &simulate_vote_slot_cnt, fork->slot );
+
+  /* Get the vote slot from THRESHOLD_DEPTH back (+1 for the simulated
+     vote). */
+
+  ulong threshold_slot = tower->vote_slots[tower->vote_slot_cnt + 1 - THRESHOLD_DEPTH];
+
+  /* Track the amount of stake that has vote slot >= threshold_slot. */
+
+  ulong threshold_stake = 0;
+
+  /* Iterate all the vote accounts. */
+
+  for( ulong i = 0; i < tower->vote_acc_cnt; i++ ) {
     FD_SCRATCH_SCOPE_BEGIN {
-      rc = fd_vote_get_state( vote_account, fd_scratch_virtual(), &vote_state_versioned );
-      if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_WARNING( (
-            "fd_vote_get_state failed on vote account %32J. error: %d", vote_account_address, rc ) );
-#     if defined(__x86_64__)
-        __asm__( "int $3" );
-#     endif
-      }
+      fd_valloc_t               valloc               = fd_scratch_virtual();
+      fd_vote_state_versioned_t vote_state_versioned = { 0 };
 
-      fd_vote_convert_to_current( &vote_state_versioned, fd_scratch_virtual() );
+      int rc = vote_state_versioned_get( acc_mgr,
+                                         fork->slot_ctx.funk_txn,
+                                         valloc,
+                                         tower->vote_accs[i].addr,
+                                         &vote_state_versioned );
+      if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) FD_LOG_ERR( ( "fail" ) );
+
       fd_vote_state_t *  vote_state   = &vote_state_versioned.inner.current;
       fd_landed_vote_t * landed_votes = vote_state->votes;
 
-      if( FD_UNLIKELY( deq_fd_landed_vote_t_empty( landed_votes ) ) ) { continue; }
+      /* If the vote account has an empty tower, continue. */
+
+      if( FD_UNLIKELY( deq_fd_landed_vote_t_empty( landed_votes ) ) ) continue;
+
+      /* Get vote account's latest vote. */
 
       ulong vote_slot = deq_fd_landed_vote_t_peek_tail_const( landed_votes )->lockout.slot;
 
-      /* Ignore votes for slots < root. */
+      /* Convert the landed_votes into tower's vote_slots interface. */
 
-      if( FD_UNLIKELY( vote_slot < tower->root ) ) { continue; }
+      ulong vote_slots[FD_TOWER_VOTE_SLOTS_MAX] = { 0 };
+      ulong vote_slot_cnt                       = 0;
+      while( !deq_fd_landed_vote_t_empty( landed_votes ) ) {
+        vote_slots[vote_slot_cnt++] = deq_fd_landed_vote_t_pop_tail( landed_votes ).lockout.slot;
+      }
 
-      /* Look up the ghost node.
+      /* Simulate a vote on _their_ tower for the fork head, popping the
+         expired votes. */
 
-        It is invariant that our bank hash matches the voter's hash,
-        because this was checked earlier by the vote program during slot
-        execution. */
+      pop_expired( vote_slots, &vote_slot_cnt, fork->slot );
 
-      fd_ghost_node_t * ghost_node = fd_ghost_node_query( ghost, fork->slot );
+      /* Count the stake towards threshold if top of tower >= our
+         threshold slot. Here we are iterating vote accounts on the fork
+         that we are threshold checking itself, so these slots are all
+         defined to be on the same fork. */
 
-#if FD_TOWER_USE_HANDHOLDING
-      /* FIXME vote for slot # > root but got pruned off different fork before root? */
-      if( FD_UNLIKELY( !ghost_node ) ) {
-        FD_LOG_ERR( ( "ghost is missing vote slot %lu", vote_slot ) );
-      };
-#endif
-
-      /* Upsert the vote into ghost. */
-
-      fd_ghost_replay_vote_upsert( ghost, vote_slot, &vote_state->node_pubkey, curr->elem.stake );
-    } FD_SCRATCH_SCOPE_END;
+      if( FD_LIKELY( vote_slot >= threshold_slot ) ) threshold_stake += tower->vote_accs[i].stake;
+    }
+    FD_SCRATCH_SCOPE_END;
   }
+
+  return ( (double)threshold_stake / (double)tower->total_stake ) > THRESHOLD_PCT;
 }
 
 static int
-is_same_fork( fd_tower_t * tower, fd_fork_t * fork ) {
+is_same_fork( fd_tower_t const * tower, fd_fork_t const * fork ) {
   ulong prev_vote_slot = tower->vote_slots[tower->vote_slot_cnt - 1];
 
   fd_ghost_node_t * ancestor = fork->ghost_node;
@@ -190,7 +245,7 @@ is_same_fork( fd_tower_t * tower, fd_fork_t * fork ) {
      because we only root when we reach max lockout in our tower. */
 
   while( FD_LIKELY( ancestor->slot >= prev_vote_slot ) ) {
-    if( FD_LIKELY( ancestor->slot == prev_vote_slot ) ) { return 1; }
+    if( FD_LIKELY( ancestor->slot == prev_vote_slot ) ) return 1;
 
     ancestor = ancestor->parent;
   }
@@ -199,17 +254,16 @@ is_same_fork( fd_tower_t * tower, fd_fork_t * fork ) {
 }
 
 fd_fork_t *
-fd_tower_best_fork_select( fd_tower_t * tower ) {
-  fd_ghost_node_t * head = fd_ghost_head_query( tower->ghost );
+fd_tower_best_fork_select( FD_PARAM_UNUSED fd_tower_t const * tower, fd_forks_t * forks, fd_ghost_t * ghost ) {
+  fd_ghost_node_t * head = fd_ghost_head_query( ghost );
 
   /* search for the fork head in the frontier. */
 
-  fd_fork_t * best =
-      fd_fork_frontier_ele_query( tower->forks->frontier, &head->slot, NULL, tower->forks->pool );
+  fd_fork_t * best = fd_fork_frontier_ele_query( forks->frontier, &head->slot, NULL, forks->pool );
 
 #if FD_TOWER_USE_HANDHOLDING
-  /* if the ghost head is not in the frontier, so we must have pruned
-     it and we're in a bad state. */
+  /* if the ghost head is not in the frontier, so we must have pruned it
+     and we're in a bad state. */
   if( FD_UNLIKELY( !best ) ) FD_LOG_ERR( ( "missing ghost head %lu in frontier", head->slot ) );
 #endif
 
@@ -217,20 +271,20 @@ fd_tower_best_fork_select( fd_tower_t * tower ) {
 }
 
 fd_fork_t *
-fd_tower_reset_fork_select( fd_tower_t * tower ) {
+fd_tower_reset_fork_select( fd_tower_t const * tower, fd_forks_t * forks ) {
 
   /* TODO this is O(n) in # of forks (frontier ele cnt). is that a problem? */
 
   /* TODO implement equivocation rules */
 
-  fd_fork_frontier_t * frontier = tower->forks->frontier;
-  fd_fork_t *          pool     = tower->forks->pool;
+  fd_fork_frontier_t * frontier = forks->frontier;
+  fd_fork_t *          pool     = forks->pool;
 
   for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( frontier, pool );
        !fd_fork_frontier_iter_done( iter, frontier, pool );
        iter = fd_fork_frontier_iter_next( iter, frontier, pool ) ) {
     fd_fork_t * fork = fd_fork_frontier_iter_ele( iter, frontier, pool );
-    if( FD_LIKELY( is_same_fork( tower, fork ) ) ) { return fork; }
+    if( FD_LIKELY( is_same_fork( tower, fork ) ) ) return fork;
   }
 
   /* TODO This can happen if we throw away an equivocating block
@@ -241,17 +295,20 @@ fd_tower_reset_fork_select( fd_tower_t * tower ) {
 }
 
 fd_fork_t *
-fd_tower_vote_fork_select( fd_tower_t * tower ) {
+fd_tower_vote_fork_select( fd_tower_t *   tower,
+                           fd_forks_t *   forks,
+                           fd_acc_mgr_t * acc_mgr,
+                           fd_ghost_t *   ghost ) {
 
-  fd_fork_t * best = fd_tower_best_fork_select( tower );
+  fd_fork_t * best = fd_tower_best_fork_select( tower, forks, ghost );
 
   fd_fork_t * vote_fork = NULL;
   if( FD_LIKELY( is_same_fork( tower, best ) ) ) {
 
     /* The best fork is the same fork as our last vote, so we can vote
-       for the fork's head, if we pass the threshold check. */
+       for the fork's head if we pass the threshold check. */
 
-    if( FD_LIKELY( fd_tower_threshold_check( tower ) ) ) { vote_fork = best; }
+    if( FD_LIKELY( fd_tower_threshold_check( tower, best, acc_mgr ) ) ) vote_fork = best;
 
   } else {
 
@@ -262,6 +319,17 @@ fd_tower_vote_fork_select( fd_tower_t * tower ) {
                      fd_tower_switch_check( tower, best ) ) ) {
       vote_fork = best;
     }
+  }
+
+  if( FD_LIKELY( vote_fork ) ) {
+
+    /* Pop expired votes. */
+
+    pop_expired( tower->vote_slots, &tower->vote_slot_cnt, vote_fork->slot );
+
+    /* Add the new vote slot to the tower. */
+
+    tower->vote_slots[tower->vote_slot_cnt++] = vote_fork->slot;
   }
 
   return vote_fork; /* Defaults to NULL if we cannot vote. */
@@ -302,50 +370,97 @@ fd_tower_vote_fork_select( fd_tower_t * tower ) {
   // }
   // }
 
-  // if( FD_LIKELY( smr > tower->smr ) ) { tower->smr = smr; }
+  // if( FD_LIKELY( smr > tower->smr ) ) tower->smr = smr;
 }
 
-int
-fd_tower_lockout_check( fd_tower_t * tower, fd_fork_t * fork ) {
-  if( FD_UNLIKELY( !tower->vote_slot_cnt ) ) { return 1; }
-  ulong prev_vote_slot          = tower->vote_slots[tower->vote_slot_cnt - 1];
-  ulong lockout_expiration_slot = prev_vote_slot + ( 1UL << tower->vote_slot_cnt );
-  return fork->slot > lockout_expiration_slot;
-}
+void
+fd_tower_epoch_update( fd_tower_t * tower, fd_exec_epoch_ctx_t const * epoch_ctx ) {
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( epoch_ctx );
 
-int
-fd_tower_switch_check( fd_tower_t * tower, fd_fork_t * fork ) {
-  ulong             switch_stake = 0;
-  fd_ghost_node_t * ancestor     = fork->ghost_node;
-  while( FD_LIKELY( ancestor ) ) {
-    fd_ghost_node_t * curr = ancestor;
-    while( FD_LIKELY( curr ) ) {
-      if( FD_LIKELY( curr != fork->ghost_node ) ) switch_stake += curr->weight;
-      curr = curr->sibling;
-    }
-  }
-  return ( (double)switch_stake / (double)tower->total_stake ) > SWITCH_PCT;
-}
+  ulong total_stake = 0;
 
-int
-fd_tower_threshold_check( fd_tower_t * tower ) {
-  if( FD_UNLIKELY( tower->vote_slot_cnt < THRESHOLD_DEPTH ) ) { return 1; }
-
-  ulong threshold_slot = tower->vote_slots[tower->vote_slot_cnt - THRESHOLD_DEPTH];
-
-  /* FIXME needs to use more complicated voted_stakes logic vs. ghost weight */
-
-  fd_ghost_node_t const * threshold_ghost_node =
-      fd_ghost_node_query( tower->ghost, threshold_slot );
+  for( fd_vote_accounts_pair_t_mapnode_t * curr = fd_vote_accounts_pair_t_map_minimum(
+           epoch_bank->stakes.vote_accounts.vote_accounts_pool,
+           epoch_bank->stakes.vote_accounts.vote_accounts_root );
+       curr;
+       curr = fd_vote_accounts_pair_t_map_successor(
+           epoch_bank->stakes.vote_accounts.vote_accounts_pool,
+           curr ) ) {
 
 #if FD_TOWER_USE_HANDHOLDING
-  /* the threshold slot hash must be in ghost,
-     because we voted on it thus must have inserted it into ghost. */
-  if( FD_UNLIKELY( !threshold_ghost_node ) ) {
-    FD_LOG_ERR( ( "missing threshold_slot %lu in ghost", threshold_ghost_node->slot ) );
-  }
+    if( FD_UNLIKELY( tower->vote_acc_cnt == FD_VOTER_MAX ) ) FD_LOG_ERR( ( "voter overflow." ) );
 #endif
 
-  double pct = (double)threshold_ghost_node->weight / (double)tower->total_stake;
-  return pct > THRESHOLD_PCT;
+    if( FD_UNLIKELY( curr->elem.stake > 0UL ) ) {
+      tower->vote_accs[tower->vote_acc_cnt++] =
+          ( fd_tower_vote_acc_t ){ .addr = &curr->elem.key, .stake = curr->elem.stake };
+    }
+    total_stake += curr->elem.stake;
+  }
+  tower->total_stake = total_stake;
+}
+
+void
+fd_tower_fork_update( fd_tower_t *      tower,
+                      fd_fork_t *       fork,
+                      fd_acc_mgr_t *    acc_mgr,
+                      fd_blockstore_t * blockstore,
+                      fd_ghost_t *      ghost ) {
+  ulong root = tower->root; /* FIXME fseq */
+
+  /* Get the parent key. Every slot except the root must have a parent. */
+
+  fd_blockstore_start_read( blockstore );
+  ulong parent_slot = fd_blockstore_parent_slot_query( blockstore, fork->slot );
+#if FD_TOWER_USE_HANDHOLDING
+  /* we must have a parent slot and bank hash, given we just executed
+     its child. if not, likely a bug in blockstore pruning. */
+  if( FD_UNLIKELY( parent_slot == FD_SLOT_NULL ) ) {
+    FD_LOG_ERR( ( "missing parent slot for curr slot %lu", fork->slot ) );
+  };
+#endif
+  fd_blockstore_end_read( blockstore );
+
+  /* Insert the new fork head into ghost. */
+
+  fork->ghost_node = fd_ghost_node_insert( ghost, fork->slot, parent_slot );
+
+  for( ulong i = 0; i < tower->vote_acc_cnt; i++ ) {
+    fd_pubkey_t const * vote_acc_addr = tower->vote_accs[i].addr;
+    FD_SCRATCH_SCOPE_BEGIN {
+      fd_valloc_t               valloc               = fd_scratch_virtual();
+      fd_vote_state_versioned_t vote_state_versioned = { 0 };
+
+      int rc = vote_state_versioned_get( acc_mgr,
+                                         fork->slot_ctx.funk_txn,
+                                         valloc,
+                                         vote_acc_addr,
+                                         &vote_state_versioned );
+      if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) FD_LOG_ERR( ( "fail" ) );
+
+      fd_vote_state_t *  vote_state   = &vote_state_versioned.inner.current;
+      fd_landed_vote_t * landed_votes = vote_state->votes;
+
+      /* If the vote account has an empty tower, continue. */
+
+      if( FD_UNLIKELY( deq_fd_landed_vote_t_empty( landed_votes ) ) ) continue;
+
+      /* Get the vote account's latest vote. */
+
+      ulong vote_slot = deq_fd_landed_vote_t_peek_tail_const( landed_votes )->lockout.slot;
+
+      /* Ignore votes for slots < root. This guards the ghost invariant
+         that the vote slot must be present in the ghost tree. */
+
+      if( FD_UNLIKELY( vote_slot < root ) ) continue;
+
+      /* Upsert the vote into ghost. */
+
+      fd_ghost_replay_vote_upsert( ghost,
+                                   vote_slot,
+                                   &vote_state->node_pubkey,
+                                   tower->vote_accs[i].stake );
+    }
+    FD_SCRATCH_SCOPE_END;
+  }
 }
