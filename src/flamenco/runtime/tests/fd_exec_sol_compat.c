@@ -372,6 +372,7 @@ sol_compat_instr_execute_v1( uchar *       out,
   return ok;
 }
 
+// TODO modify this function to be in the same format as everything above
 int
 sol_compat_txn_execute_v1( uchar *       out,
                            ulong *       out_sz,
@@ -416,7 +417,7 @@ sol_compat_txn_execute_v1( uchar *       out,
   }
 
   fd_wksp_free_laddr( fd_exec_instr_test_runner_delete( runner ) );
-  pb_release( &fd_exec_test_instr_context_t_msg, input );
+  pb_release( &fd_exec_test_txn_context_t_msg, input );
   fd_scratch_pop();
   fd_scratch_detach( NULL );
   return ok;

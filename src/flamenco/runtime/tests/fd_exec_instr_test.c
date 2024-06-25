@@ -674,6 +674,17 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   uchar * txn_raw_begin = fd_scratch_alloc( alignof(uchar), 1232 );
   uchar * txn_raw_cur_ptr = txn_raw_begin;
 
+  /* Compact array of signatures (https://solana.com/docs/core/transactions#transaction) 
+     Note that although documentation interchangably refers to the signature cnt as a compact-u16
+     and a u8, the max signature cnt is capped at 48 (due to txn size limits), so u8 and compact-u16
+     is represented the same way anyways and can be parsed identically. */
+  uchar signature_cnt = (uchar) test_ctx->tx.signatures_count;
+  _add_to_data( &txn_raw_cur_ptr, &signature_cnt, sizeof(uchar) );
+  for( uchar i = 0; i < signature_cnt; ++i ) {
+    _add_to_data( &txn_raw_cur_ptr, test_ctx->tx.signatures[i]->bytes, FD_TXN_SIGNATURE_SZ );
+  }
+
+  /* Message */
   /* Header (3 bytes) (https://solana.com/docs/core/transactions#message-header) */
   _add_to_data( &txn_raw_cur_ptr, &test_ctx->tx.message.header.num_required_signatures, sizeof(uchar) );
   _add_to_data( &txn_raw_cur_ptr, &test_ctx->tx.message.header.num_readonly_signed_accounts, sizeof(uchar) );
@@ -708,9 +719,14 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
     }
 
     // Compact array of 8-bit data
-    ushort data_len = (ushort) test_ctx->tx.message.instructions[i].data->size;
-    _add_compact_u16( &txn_raw_cur_ptr, data_len );
-    _add_to_data( &txn_raw_cur_ptr, test_ctx->tx.message.instructions[i].data->bytes, data_len );
+    pb_bytes_array_t * data = test_ctx->tx.message.instructions[i].data;
+    if( data ) {
+      ushort data_len = (ushort) data->size;
+      _add_compact_u16( &txn_raw_cur_ptr, data_len );
+      _add_to_data( &txn_raw_cur_ptr, data->bytes, data_len );
+    } else {
+      _add_compact_u16( &txn_raw_cur_ptr, 0 );
+    }
   }
 
   /* Address table lookups (N/A for legacy transactions) */

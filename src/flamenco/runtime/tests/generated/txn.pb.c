@@ -36,4 +36,7 @@ PB_BIND(FD_EXEC_TEST_RENT_DEBITS, fd_exec_test_rent_debits_t, AUTO)
 PB_BIND(FD_EXEC_TEST_TXN_RESULT, fd_exec_test_txn_result_t, AUTO)
 
 
+PB_BIND(FD_EXEC_TEST_TXN_FIXTURE, fd_exec_test_txn_fixture_t, 2)
+
+
 

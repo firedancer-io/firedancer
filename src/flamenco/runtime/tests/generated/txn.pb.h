@@ -135,6 +135,16 @@ typedef struct fd_exec_test_txn_result {
     int64_t accounts_data_len_delta;
 } fd_exec_test_txn_result_t;
 
+/* Txn fixtures */
+typedef struct fd_exec_test_txn_fixture {
+    /* Context */
+    bool has_input;
+    fd_exec_test_txn_context_t input;
+    /* Effects */
+    bool has_output;
+    fd_exec_test_txn_result_t output;
+} fd_exec_test_txn_fixture_t;
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -151,6 +161,7 @@ extern "C" {
 #define FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT {0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_RENT_DEBITS_INIT_DEFAULT    {{0}, 0}
 #define FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT     {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT, 0, 0, 0, NULL, 0, 0}
+#define FD_EXEC_TEST_TXN_FIXTURE_INIT_DEFAULT    {false, FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT}
 #define FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO    {0, 0, 0}
 #define FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_ZERO {0, 0, NULL, NULL}
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_ZERO {{0}, 0, NULL, 0, NULL}
@@ -161,6 +172,7 @@ extern "C" {
 #define FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO   {0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_RENT_DEBITS_INIT_ZERO       {{0}, 0}
 #define FD_EXEC_TEST_TXN_RESULT_INIT_ZERO        {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO, 0, 0, 0, NULL, 0, 0}
+#define FD_EXEC_TEST_TXN_FIXTURE_INIT_ZERO       {false, FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_TXN_RESULT_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_MESSAGE_HEADER_NUM_REQUIRED_SIGNATURES_TAG 1
@@ -204,6 +216,8 @@ extern "C" {
 #define FD_EXEC_TEST_TXN_RESULT_RETURN_DATA_TAG  7
 #define FD_EXEC_TEST_TXN_RESULT_EXECUTED_UNITS_TAG 8
 #define FD_EXEC_TEST_TXN_RESULT_ACCOUNTS_DATA_LEN_DELTA_TAG 9
+#define FD_EXEC_TEST_TXN_FIXTURE_INPUT_TAG       1
+#define FD_EXEC_TEST_TXN_FIXTURE_OUTPUT_TAG      2
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_MESSAGE_HEADER_FIELDLIST(X, a) \
@@ -299,6 +313,14 @@ X(a, STATIC,   SINGULAR, INT64,    accounts_data_len_delta,   9)
 #define FD_EXEC_TEST_TXN_RESULT_DEFAULT NULL
 #define fd_exec_test_txn_result_t_resulting_state_MSGTYPE fd_exec_test_resulting_state_t
 
+#define FD_EXEC_TEST_TXN_FIXTURE_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  input,             1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  output,            2)
+#define FD_EXEC_TEST_TXN_FIXTURE_CALLBACK NULL
+#define FD_EXEC_TEST_TXN_FIXTURE_DEFAULT NULL
+#define fd_exec_test_txn_fixture_t_input_MSGTYPE fd_exec_test_txn_context_t
+#define fd_exec_test_txn_fixture_t_output_MSGTYPE fd_exec_test_txn_result_t
+
 extern const pb_msgdesc_t fd_exec_test_message_header_t_msg;
 extern const pb_msgdesc_t fd_exec_test_compiled_instruction_t_msg;
 extern const pb_msgdesc_t fd_exec_test_message_address_table_lookup_t_msg;
@@ -309,6 +331,7 @@ extern const pb_msgdesc_t fd_exec_test_txn_context_t_msg;
 extern const pb_msgdesc_t fd_exec_test_resulting_state_t_msg;
 extern const pb_msgdesc_t fd_exec_test_rent_debits_t_msg;
 extern const pb_msgdesc_t fd_exec_test_txn_result_t_msg;
+extern const pb_msgdesc_t fd_exec_test_txn_fixture_t_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define FD_EXEC_TEST_MESSAGE_HEADER_FIELDS &fd_exec_test_message_header_t_msg
@@ -321,6 +344,7 @@ extern const pb_msgdesc_t fd_exec_test_txn_result_t_msg;
 #define FD_EXEC_TEST_RESULTING_STATE_FIELDS &fd_exec_test_resulting_state_t_msg
 #define FD_EXEC_TEST_RENT_DEBITS_FIELDS &fd_exec_test_rent_debits_t_msg
 #define FD_EXEC_TEST_TXN_RESULT_FIELDS &fd_exec_test_txn_result_t_msg
+#define FD_EXEC_TEST_TXN_FIXTURE_FIELDS &fd_exec_test_txn_fixture_t_msg
 
 /* Maximum encoded size of messages (where known) */
 /* fd_exec_test_CompiledInstruction_size depends on runtime parameters */
@@ -331,6 +355,7 @@ extern const pb_msgdesc_t fd_exec_test_txn_result_t_msg;
 /* fd_exec_test_TxnContext_size depends on runtime parameters */
 /* fd_exec_test_ResultingState_size depends on runtime parameters */
 /* fd_exec_test_TxnResult_size depends on runtime parameters */
+/* fd_exec_test_TxnFixture_size depends on runtime parameters */
 #define FD_EXEC_TEST_MESSAGE_HEADER_SIZE         18
 #define FD_EXEC_TEST_RENT_DEBITS_SIZE            45
 #define ORG_SOLANA_SEALEVEL_V1_TXN_PB_H_MAX_SIZE FD_EXEC_TEST_RENT_DEBITS_SIZE
@@ -346,6 +371,7 @@ extern const pb_msgdesc_t fd_exec_test_txn_result_t_msg;
 #define org_solana_sealevel_v1_ResultingState fd_exec_test_ResultingState
 #define org_solana_sealevel_v1_RentDebits fd_exec_test_RentDebits
 #define org_solana_sealevel_v1_TxnResult fd_exec_test_TxnResult
+#define org_solana_sealevel_v1_TxnFixture fd_exec_test_TxnFixture
 #define ORG_SOLANA_SEALEVEL_V1_MESSAGE_HEADER_INIT_DEFAULT FD_EXEC_TEST_MESSAGE_HEADER_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_COMPILED_INSTRUCTION_INIT_DEFAULT FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_DEFAULT FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_DEFAULT
@@ -356,6 +382,7 @@ extern const pb_msgdesc_t fd_exec_test_txn_result_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_RESULTING_STATE_INIT_DEFAULT FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_RENT_DEBITS_INIT_DEFAULT FD_EXEC_TEST_RENT_DEBITS_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_TXN_RESULT_INIT_DEFAULT FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_TXN_FIXTURE_INIT_DEFAULT FD_EXEC_TEST_TXN_FIXTURE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_MESSAGE_HEADER_INIT_ZERO FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_COMPILED_INSTRUCTION_INIT_ZERO FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_ZERO FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_ZERO
@@ -366,6 +393,7 @@ extern const pb_msgdesc_t fd_exec_test_txn_result_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_RESULTING_STATE_INIT_ZERO FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_RENT_DEBITS_INIT_ZERO FD_EXEC_TEST_RENT_DEBITS_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_TXN_RESULT_INIT_ZERO FD_EXEC_TEST_TXN_RESULT_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_TXN_FIXTURE_INIT_ZERO FD_EXEC_TEST_TXN_FIXTURE_INIT_ZERO
 
 #ifdef __cplusplus
 } /* extern "C" */
