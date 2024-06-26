@@ -25,7 +25,7 @@ fd_pending_slots_new( void * mem, ulong lo_wmark ) {
 
   laddr += sizeof( fd_pending_slots_t );
   pending_slots->pending = (void *)laddr;
-  
+
   laddr += sizeof(long) * FD_PENDING_MAX;
 
   FD_TEST( laddr == (ulong)mem + footprint );
@@ -78,10 +78,14 @@ fd_pending_slots_delete( void * pending_slots ) {
 
 static void
 fd_pending_slots_lock( fd_pending_slots_t * pending_slots ) {
+# if FD_HAS_THREADS
   for(;;) {
     if( FD_LIKELY( !FD_ATOMIC_CAS( &pending_slots->lock, 0UL, 1UL) ) ) break;
     FD_SPIN_PAUSE();
   }
+# else
+  pending_slots->lock = 1UL;
+# endif
   FD_COMPILER_MFENCE();
 }
 
@@ -134,14 +138,14 @@ fd_pending_slots_add( fd_pending_slots_t * pending_slots,
                       ulong slot,
                       long when ) {
   fd_pending_slots_lock( pending_slots );
-  
+
   long * pending = pending_slots->pending;
   if( pending_slots->start == pending_slots->end ) {
     /* Queue is empty */
     pending_slots->start = slot;
     pending_slots->end = slot+1U;
     pending[slot & FD_PENDING_MASK] = when;
-    
+
   } else if ( slot < pending_slots->start ) {
     /* Grow down */
     if( (long)(pending_slots->end - slot) > (long)FD_PENDING_MAX )

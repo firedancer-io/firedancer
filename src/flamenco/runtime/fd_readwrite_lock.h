@@ -44,6 +44,7 @@ fd_readwrite_delete( void * shreadwrite ) {
 
 static inline void
 fd_readwrite_start_read( fd_readwrite_lock_t * lock ) {
+# if FD_HAS_THREADS
   for(;;) {
     register int l = lock->lock;
     if( FD_UNLIKELY( l < 0 || FD_ATOMIC_CAS( &lock->lock, l, l+1 ) != l ) ) {
@@ -53,10 +54,14 @@ fd_readwrite_start_read( fd_readwrite_lock_t * lock ) {
     break;
   }
   FD_COMPILER_MFENCE();
+# else
+  lock->lock++;
+# endif
 }
 
 static inline void
 fd_readwrite_end_read( fd_readwrite_lock_t * lock ) {
+# if FD_HAS_THREADS
   FD_COMPILER_MFENCE();
   for(;;) {
     register int l = lock->lock;
@@ -69,10 +74,14 @@ fd_readwrite_end_read( fd_readwrite_lock_t * lock ) {
     }
     break;
   }
+# else
+  lock->lock--;
+# endif
 }
 
 static inline void
 fd_readwrite_start_write( fd_readwrite_lock_t * lock ) {
+# if FD_HAS_THREADS
   for(;;) {
     register int l = lock->lock;
     if( FD_UNLIKELY( l != 0 || FD_ATOMIC_CAS( &lock->lock, l, -1 ) != l ) ) {
@@ -81,6 +90,9 @@ fd_readwrite_start_write( fd_readwrite_lock_t * lock ) {
     }
     break;
   }
+# else
+  lock->lock = -1;
+# endif
   FD_COMPILER_MFENCE();
   lock->seqnum++;
   FD_COMPILER_MFENCE();
@@ -91,6 +103,7 @@ fd_readwrite_end_write( fd_readwrite_lock_t * lock ) {
   FD_COMPILER_MFENCE();
   lock->seqnum++;
   FD_COMPILER_MFENCE();
+# if FD_HAS_THREADS
   for(;;) {
     register int l = lock->lock;
     if( FD_UNLIKELY( l >= 0 ) ) {
@@ -102,6 +115,9 @@ fd_readwrite_end_write( fd_readwrite_lock_t * lock ) {
     }
     break;
   }
+# else
+  lock->lock = 0;
+# endif
 }
 
 /* The pattern for concurrent reads is:

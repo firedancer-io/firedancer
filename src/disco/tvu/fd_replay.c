@@ -102,10 +102,14 @@ fd_replay_delete( void * replay ) {
 
 static void
 fd_replay_pending_lock( fd_replay_t * replay ) {
+# if FD_HAS_THREADS
   for( ;; ) {
     if( FD_LIKELY( !FD_ATOMIC_CAS( &replay->pending_lock, 0UL, 1UL ) ) ) break;
     FD_SPIN_PAUSE();
   }
+# else
+  replay->pending_lock = 1;
+# endif
   FD_COMPILER_MFENCE();
 }
 

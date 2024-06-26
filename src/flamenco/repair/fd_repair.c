@@ -294,10 +294,14 @@ fd_repair_delete ( void * shmap ) {
 
 static void
 fd_repair_lock( fd_repair_t * repair ) {
+# if FD_HAS_THREADS
   for(;;) {
     if( FD_LIKELY( !FD_ATOMIC_CAS( &repair->lock, 0UL, 1UL) ) ) break;
     FD_SPIN_PAUSE();
   }
+# else
+  repair->lock = 1;
+# endif
   FD_COMPILER_MFENCE();
 }
 
@@ -695,7 +699,7 @@ fd_actives_shuffle( fd_repair_t * repair ) {
       leftovers = fd_scratch_alloc(
         alignof( fd_active_elem_t * ),
         sizeof( fd_active_elem_t * ) * fd_active_table_key_cnt( repair->actives ) );
-      
+
       for( fd_active_table_iter_t iter = fd_active_table_iter_init( repair->actives );
          !fd_active_table_iter_done( repair->actives, iter );
          iter = fd_active_table_iter_next( repair->actives, iter ) ) {
@@ -726,7 +730,7 @@ fd_actives_shuffle( fd_repair_t * repair ) {
 
     long  latencies[ FD_REPAIR_STICKY_MAX ];
     ulong latencies_cnt = 0UL;
-    
+
     long first_quartile_latency = LONG_MAX;
 
     /* fetch all latencies */

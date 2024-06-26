@@ -1,4 +1,5 @@
 ifdef FD_HAS_HOSTED
+ifdef FD_HAS_THREADS
 ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
@@ -151,6 +152,7 @@ $(OBJDIR)/bin/solana: solana/target/$(RUST_PROFILE)/solana
 
 solana: $(OBJDIR)/bin/solana $(OBJDIR)/bin/solana
 
+endif
 endif
 endif
 endif
