@@ -49,6 +49,7 @@ $(call add-objs,configure/workspace,fd_fdctl)
 $(call make-bin-rust,fdctl,main,fd_fdctl fd_disco fd_flamenco fd_quic fd_tls fd_ip fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator)
 $(call make-unit-test,test_tiles_verify,run/tiles/test_verify,fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_tiles_verify)
+$(call make-unit-test,test_config_parse,test_config_parse,fd_fdctl fd_ballet fd_util)
 
 $(OBJDIR)/obj/app/fdctl/configure/xdp.o: src/waltz/xdp/fd_xdp_redirect_prog.o
 $(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml

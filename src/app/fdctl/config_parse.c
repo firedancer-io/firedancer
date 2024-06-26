@@ -197,7 +197,8 @@ fdctl_pod_to_cfg( config_t * config,
         FD_LOG_WARNING(( "`%s`: too many values (max %lu)", key, arr_len )); \
         return NULL;                                                   \
       }                                                                \
-      fdctl_cfg_get_##type( &config->esection edot ekey[j], sizeof(config->esection edot ekey[j]), info, key ); \
+      fd_pod_info_t sub_info = fd_pod_iter_info( iter );               \
+      fdctl_cfg_get_##type( &config->esection edot ekey[j], sizeof(config->esection edot ekey[j]), &sub_info, key ); \
       j++;                                                             \
     }                                                                  \
     config->esection edot ekey ## _cnt = j;                            \
