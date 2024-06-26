@@ -6280,17 +6280,81 @@ fd_quic_frame_handle_ecn_counts_frag(
 
 static ulong
 fd_quic_frame_handle_reset_stream_frame(
-    void * context,
+    void *                         vp_context,
     fd_quic_reset_stream_frame_t * data,
-    uchar const * p,
-    ulong p_sz) {
-  (void)context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
-  /* ack-eliciting */
-  /* TODO implement */
-  return FD_QUIC_PARSE_FAIL;
+    uchar const *                  p    FD_PARAM_UNUSED,
+    ulong                          p_sz FD_PARAM_UNUSED
+) {
+
+  /* The peer uses the RESET_STREAM frame to indicate it abandons its
+     send interest on the stream. */
+
+  fd_quic_frame_context_t * context = vp_context;
+  fd_quic_t *               quic    = context->quic;
+  fd_quic_conn_t *          conn    = context->conn;
+  fd_quic_pkt_t *           pkt     = context->pkt;
+
+  ulong stream_id        = data->stream_id;
+  ulong stream_type      = stream_id & 3UL;
+  int   bidir            = !( ( stream_id >> 1 ) & 1 );
+  int   client_initiated = !( ( stream_id      ) & 1 );
+  int   local_initiated  = quic->config.role == FD_QUIC_ROLE_CLIENT && client_initiated;
+
+  /* Early validation of stream ID */
+
+  ulong min_stream_id = conn->min_stream_id[ stream_type ];
+  ulong sup_stream_id = conn->sup_stream_id[ stream_type ];
+
+  if( local_initiated ) {
+
+    if( FD_UNLIKELY( !bidir ) ) {
+      /* This stream type can only be initiated locally and is uni-
+         directional local-to-peer.  See RFC 9000 Section 19.4:
+         > An endpoint that receives a RESET_STREAM frame for a
+         > send-only stream MUST terminate the connection with error
+         > STREAM_STATE_ERROR. */
+      fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_STREAM_STATE_ERROR, __LINE__ );
+      return FD_QUIC_PARSE_FAIL;
+    } else {
+      if( FD_UNLIKELY( stream_id < min_stream_id ) ) goto ack;
+    }
+
+  } else {  /* !local_initiated */
+
+    /* Stream already closed. Assume reordering */
+    if( FD_UNLIKELY( stream_id < min_stream_id ) ) goto ack;
+
+    /* Peer referenced stream ID that we didn't yet allow */
+    if( FD_UNLIKELY( stream_id >= sup_stream_id ) ) {
+      fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR, __LINE__ );
+      return FD_QUIC_PARSE_FAIL;
+    }
+
+  }
+
+  /* Find stream */
+  fd_quic_stream_t *     stream       = NULL;
+  fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
+  if( FD_UNLIKELY( !stream_entry ) ) {
+    goto ack;
+  } else {
+    stream = stream_entry->stream;
+  }
+
+  /* No-op if local recv already complete */
+  if( FD_UNLIKELY( stream->state & FD_QUIC_STREAM_STATE_RX_FIN ) ) goto ack;
+
+  /* Notify client that local recv interest is reset */
+  stream->state |= FD_QUIC_STREAM_STATE_RX_FIN;
+  if( stream->state & FD_QUIC_STREAM_STATE_TX_FIN || !bidir ) {
+    fd_quic_stream_free( quic, conn, stream, FD_QUIC_NOTIFY_RESET );  /* calls notify */
+  } else {
+    fd_quic_cb_stream_notify( quic, stream, stream->context, FD_QUIC_NOTIFY_RESET );
+  }
+
+ack:
+  pkt->ack_flag |= ACK_FLAG_RQD;
+  return 0UL;
 }
 
 static ulong
@@ -6395,9 +6459,7 @@ fd_quic_frame_handle_stream_frame(
     fd_quic_stream_frame_t *     data,
     uchar const *                p,
     ulong                        p_sz ) {
-  (void)data;
   (void)p;
-  (void)p_sz;
 
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
 
