@@ -1385,6 +1385,12 @@ process_new_vote_state( fd_vote_state_t *           vote_state,
   // https://github.com/anza-xyz/agave/blob/v2.0.0/programs/vote/src/vote_state/mod.rs#L750
   if( FD_LIKELY( timestamp != NULL ) ) {
     /* new_state asserted nonempty at function beginning */
+    if( deq_fd_landed_vote_t_empty( new_state ) ) {
+      FD_LOG_ERR(( "solana panic" ));
+      // TODO: solana panics ...  unclear what to return
+      ctx->txn_ctx->custom_err = 0;
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    }
     ulong last_slot = deq_fd_landed_vote_t_peek_tail( new_state )->lockout.slot;
     rc              = process_timestamp( vote_state, last_slot, *timestamp, ctx );
     if( FD_UNLIKELY( rc ) ) { return rc; }
@@ -1903,25 +1909,27 @@ process_vote_state_update( ulong                         vote_acct_idx,
                            fd_exec_instr_ctx_t const *   ctx /* feature_set */ ) {
   int rc;
 
-  fd_vote_lockout_t * lockout = deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts );
-  fd_bank_hash_cmp_t * bank_hash_cmp = ctx->slot_ctx->epoch_ctx->bank_hash_cmp;
-  if( FD_LIKELY( lockout && bank_hash_cmp ) ) {
-    fd_bank_hash_cmp_lock( bank_hash_cmp );
-    fd_bank_hash_cmp_insert(
+  if( !deq_fd_vote_lockout_t_empty( vote_state_update->lockouts ) ) {
+    fd_vote_lockout_t * lockout = deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts );
+    fd_bank_hash_cmp_t * bank_hash_cmp = ctx->slot_ctx->epoch_ctx->bank_hash_cmp;
+    if( FD_LIKELY( lockout && bank_hash_cmp ) ) {
+      fd_bank_hash_cmp_lock( bank_hash_cmp );
+      fd_bank_hash_cmp_insert(
         bank_hash_cmp,
-        lockout->slot,
-        &vote_state_update->hash,
-        0,
-        query_pubkey_stake( vote_account->pubkey,
-                            &ctx->epoch_ctx->epoch_bank.stakes.vote_accounts ) );
+          lockout->slot,
+          &vote_state_update->hash,
+          0,
+          query_pubkey_stake( vote_account->pubkey,
+            &ctx->epoch_ctx->epoch_bank.stakes.vote_accounts ) );
 
-    if( FD_LIKELY( vote_state_update->has_root ) ) {
-      fd_bank_hash_cmp_entry_t * cmp =
+      if( FD_LIKELY( vote_state_update->has_root ) ) {
+        fd_bank_hash_cmp_entry_t * cmp =
           fd_bank_hash_cmp_map_query( bank_hash_cmp->map, vote_state_update->root, NULL );
-      if( FD_LIKELY( cmp ) ) cmp->rooted = 1;
-    }
+        if( FD_LIKELY( cmp ) ) cmp->rooted = 1;
+      }
 
-    fd_bank_hash_cmp_unlock( bank_hash_cmp );
+      fd_bank_hash_cmp_unlock( bank_hash_cmp );
+    }
   }
 
   fd_vote_state_t vote_state;
