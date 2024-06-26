@@ -351,6 +351,8 @@ fd_txncache_remove_blockcache_idx( fd_txncache_t * tc,
                                    ulong idx ) {
   tc->blockcache[ idx ].lowest_slot = ULONG_MAX;
   memcpy( tc->txnpages_free+tc->txnpages_free_cnt, tc->blockcache[ idx ].pages, tc->blockcache[ idx ].pages_cnt*sizeof(ushort) );
+  tc->txnpages_free_cnt += tc->blockcache[ idx ].pages_cnt;
+
   /* Check if this a probed entry or not. If this is an entry inserted
      at the intended "hash index" we still need to check if there are
      any probed entries and shift one to this index. */
