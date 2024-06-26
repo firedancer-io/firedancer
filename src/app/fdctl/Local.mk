@@ -4,13 +4,8 @@ ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
 ifdef FD_HAS_SSE
 
-include src/app/fdctl/with-version.mk
-$(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH))
-
-src/app/fdctl/version.h: src/app/fdctl/version.mk
-	echo "#define FDCTL_MAJOR_VERSION $(FIREDANCER_VERSION_MAJOR)UL" > $@
-	echo "#define FDCTL_MINOR_VERSION $(FIREDANCER_VERSION_MINOR)UL" >> $@
-	echo "#define FDCTL_PATCH_VERSION $(FIREDANCER_VERSION_PATCH)UL" >> $@
+src/app/fdctl/version.env src/app/fdctl/version.h: src/app/fdctl/version.sh
+	./src/app/fdctl/version.sh
 $(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
 
 # When we don't have libsolana_validator.a in the PHONY list, make fails
@@ -114,21 +109,22 @@ cargo-solana: check-solana-hash
 # great for build times, so we always build all the libs and bins
 # with one cargo command, even if the dependency could be more fine
 # grained.
+
+define _cargo
+$(1): src/app/fdctl/version.env
+	source src/app/fdctl/version.env && cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo $(2)
+endef
+cargo = $(eval $(call _cargo,$(1),$(2)))
+
 ifeq ($(RUST_PROFILE),release)
-cargo-validator:
-	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --lib -p solana-validator
-cargo-solana:
-	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --bin solana
+$(call cargo,cargo-validator,build --release --lib -p solana-validator)
+$(call cargo,cargo-solana,build --release --bin solana)
 else ifeq ($(RUST_PROFILE),release-with-debug)
-cargo-validator:
-	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --profile=release-with-debug --lib -p solana-validator
-cargo-solana:
-	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --profile=release-with-debug --bin solana
+$(call cargo,cargo-validator,build --profile=release-with-debug --lib -p solana-validator)
+$(call cargo,cargo-solana,build --profile=release-with-debug --bin solana)
 else
-cargo-validator:
-	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --lib -p solana-validator
-cargo-solana:
-	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --bin solana
+$(call cargo,cargo-validator,build --lib -p solana-validator)
+$(call cargo,cargo-solana,build --bin solana)
 endif
 
 # We sleep as a workaround for a bizarre problem where the build system

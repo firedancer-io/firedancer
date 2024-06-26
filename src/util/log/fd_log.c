@@ -1022,8 +1022,7 @@ fd_log_private_open_path( int          cmdline,
     char tag[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
     fd_log_wallclock_cstr( fd_log_wallclock(), tag );
     for( ulong b=0UL; tag[b]; b++ ) if( tag[b]==' ' || tag[b]=='-' || tag[b]=='.' || tag[b]==':' ) tag[b] = '_';
-    ulong len; fd_cstr_printf( fd_log_private_path, 1024UL, &len, "/tmp/fd-%i.%i.%i_%lu_%s_%s_%s",
-                              FD_VERSION_MAJOR, FD_VERSION_MINOR, FD_VERSION_PATCH,
+    ulong len; fd_cstr_printf( fd_log_private_path, 1024UL, &len, "/tmp/fd-%lu_%s_%s_%s",
                               fd_log_group_id(), fd_log_user(), fd_log_host(), tag );
     if( len==1023UL ) { fd_log_private_fprintf_0( STDERR_FILENO, "default log path too long; unable to boot\n" ); exit(1); }
   }
@@ -1490,7 +1489,7 @@ fd_log_private_stack_discover( ulong   stack_sz,
   char * p = filebuf;
   int found = 0;
   while( !found ) {
-    
+
     /* Scan a line */
 
     int full_line = 0;
@@ -1555,7 +1554,7 @@ fd_log_private_stack_discover( ulong   stack_sz,
     FD_LOG_WARNING(( "unable to find stack size around address 0x%lx", stack_addr ));
 
   close(filefd);
-  
+
   *_stack0 = stack0;
   *_stack1 = stack1;
 }
