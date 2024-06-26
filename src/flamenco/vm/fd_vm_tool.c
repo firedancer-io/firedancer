@@ -63,7 +63,7 @@ fd_vm_tool_prog_create( fd_vm_tool_prog_t * tool_prog,
       aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
   FD_TEST( syscalls );
 
-  fd_vm_syscall_register_all( syscalls );
+  fd_vm_syscall_register_all( syscalls, 0 );
 
   /* Load program */
   if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls, false ) ) )

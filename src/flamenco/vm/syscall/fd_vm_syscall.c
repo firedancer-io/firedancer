@@ -17,7 +17,8 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
 
 int
 fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
-                             fd_exec_slot_ctx_t const * slot_ctx ) {
+                             fd_exec_slot_ctx_t const * slot_ctx,
+                             uchar is_deploy ) {
   if( FD_UNLIKELY( !syscalls ) ) return FD_VM_ERR_INVAL;
 
   int enable_secp256k1_recover_syscall     = 0;
@@ -64,7 +65,14 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
   REGISTER( "abort",                                 fd_vm_syscall_abort );
   REGISTER( "sol_panic_",                            fd_vm_syscall_sol_panic );
   REGISTER( "custom_panic",                          fd_vm_syscall_sol_panic ); /* FIXME: unsure if this is entirely correct */
-  REGISTER( "sol_alloc_free_",                       fd_vm_syscall_sol_alloc_free );
+
+  /* As of the activation of disable_deploy_of_alloc_free_syscall, which is activated on all networks,
+     programs can no longer be deployed which use the sol_alloc_free_ syscall.
+
+    https://github.com/anza-xyz/agave/blob/d6041c002bbcf1526de4e38bc18fa6e781c380e7/programs/bpf_loader/src/syscalls/mod.rs#L429 */
+  if ( FD_LIKELY( !is_deploy ) ) {
+    REGISTER( "sol_alloc_free_",                       fd_vm_syscall_sol_alloc_free );
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.18.1/sdk/program/src/syscalls/definitions.rs#L39 */
 
