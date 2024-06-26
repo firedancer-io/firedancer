@@ -9,15 +9,16 @@ concurrency:
   group: tests_${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
-  test:
+  unit-test:
     strategy:
       # We cannot possibly test everything on every commit.
       # This matrix is a tradeoff between required resources and
       # test coverage.  You should probably only remove machine
       # targets from here, not add more.
       matrix:
-        machine:
-          - linux_gcc_noarch64    # least capable target
+        test-case:
+          - linux_gcc_noarch64-gcc-12    # least capable target
+          - linux_gcc_noarch64-gcc-8
           - linux_gcc_x86_64
           - linux_gcc_icelake     #  most capable target
           - linux_clang_x86_64
@@ -25,22 +26,39 @@ jobs:
           - native
         # Attach additional params to machine types
         include:
-          - machine: linux_gcc_noarch64
+          - test-case: linux_gcc_noarch64-gcc-12 
+            machine: linux_gcc_noarch64
             label: X64
             targets: "all"
+            compiler: gcc
+            compiler_version: 12.4.0
             notest: 1
-          - machine: linux_gcc_x86_64
+          - test-case: linux_gcc_noarch64-gcc-8
+            machine: linux_gcc_x86_64
             label: X64
-          - machine: linux_gcc_icelake
+            compiler: gcc
+            compiler_version: 8.5.0
+          - test-case: linux_gcc_icelake
+            machine: linux_gcc_icelake
             label: icelake
-          - machine: linux_clang_x86_64
+            compiler: gcc
+            compiler_version: 12.4.0
+          - test-case: linux_clang_x86_64
+            machine: linux_clang_x86_64
             label: X64
-          - machine: native
-            env: CC=clang
+            compiler: clang
+            compiler-version: 15.0.6
+          - test-case: native
+            machine: native
             label: self-hosted
-          - machine: linux_clang_icelake
+            compiler: clang
+            compiler-version: 15.0.6
+          - test-case: linux_clang_icelake
+            machine: linux_clang_icelake
             label: icelake
             extras: asan ubsan
+            compiler: clang
+            compiler-version: 15.0.6
     runs-on: ${{ matrix.label }}
     steps:
       - uses: actions/checkout@v4
@@ -48,15 +66,19 @@ jobs:
           submodules: recursive
 
       - uses: ./.github/actions/deps
+        with:
+          compiler: ${{ matrix.compiler }}
+          compiler-version: ${{ matrix.compiler-version }}
       - uses: ./.github/actions/hugepages
       - uses: dtolnay/rust-toolchain@1.73.0
 
       - name: Run tests
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
+          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.version }}/activate
           MACHINES=${{ matrix.machine }} \
           EXTRAS="${{ matrix.extras || '' }}" \
           NOTEST=${{ matrix.notest || '' }} \
           TARGETS="${{ matrix.targets || '' }}" \
-          ${{ matrix.env || '' }} \
+          CC="${{ matrix.compiler }}" \
           contrib/test/ci_tests.sh
