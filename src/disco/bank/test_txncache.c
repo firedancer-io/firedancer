@@ -146,16 +146,16 @@ test_new_join_leave_delete( void ) {
   FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 2UL, 2UL ) );
   FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 2UL, 2UL ) );
   FD_TEST( fd_txncache_new( txncache_scratch, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                                              FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+                                              TXNCACHE_LIVE_SLOTS,
                                               FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT ) );
   FD_TEST( fd_txncache_new( txncache_scratch, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                               512UL,
                                               FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT ) );
   FD_TEST( fd_txncache_new( txncache_scratch, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                                              FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+                                              TXNCACHE_LIVE_SLOTS,
                                               1UL ) );
   void * obj = fd_txncache_new( txncache_scratch, 1UL,
-                                                  FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+                                                  TXNCACHE_LIVE_SLOTS,
                                                   FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
   FD_TEST( obj );
 
@@ -181,7 +181,7 @@ test_register_root_slot_simple( void ) {
   FD_LOG_NOTICE(( "TEST REGISTER ROOT SLOT SIMPLE" ));
 
   fd_txncache_t * tc = init_all( 6,
-                                 FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+                                 TXNCACHE_LIVE_SLOTS,
                                  FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
 
   ulong slots[ 6 ];
@@ -271,12 +271,12 @@ test_register_root_slot( void ) {
   FD_LOG_NOTICE(( "TEST REGISTER ROOT SLOT" ));
   
   fd_txncache_t * tc = init_all( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                                 FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+                                 TXNCACHE_LIVE_SLOTS,
                                  FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
 
   FD_TEST( fd_txncache_new( tc,
                             FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                            FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+                            TXNCACHE_LIVE_SLOTS,
                             FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT ) );
 
   ulong slots[ 300 ];
@@ -325,7 +325,7 @@ test_register_root_slot( void ) {
 
   FD_TEST( fd_txncache_new( tc,
                             FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                            FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+                            TXNCACHE_LIVE_SLOTS,
                             FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT ) );
   for( ulong i=0UL; i<300UL; i++ ) fd_txncache_register_root_slot( tc, 600UL-2UL*i );
   fd_txncache_root_slots( tc, slots );
@@ -360,7 +360,7 @@ test_register_root_slot_random( void ) {
   FD_LOG_NOTICE(( "TEST REGISTER ROOT SLOT RANDOM" ));
 
   fd_txncache_t * tc = init_all( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                                 FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+                                 TXNCACHE_LIVE_SLOTS,
                                  FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
 
   ulong slots[ 300 ];
@@ -406,7 +406,7 @@ test_full_blockhash( void ) {
   FD_LOG_NOTICE(( "TEST FULL BLOCKHASH" ));
 
   init_all( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-            FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+            TXNCACHE_LIVE_SLOTS,
             FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
 
   for( ulong i=0UL; i<150UL*524288UL; i++ ) {
@@ -442,7 +442,7 @@ test_insert_forks( void ) {
   FD_LOG_NOTICE(( "TEST INSERT FORKS" ));
 
   fd_txncache_t * tc = init_all( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                                 FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+                                 TXNCACHE_LIVE_SLOTS,
                                  FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
 
   for( ulong i=0UL; i<1024UL; i++ ) insert( i, 0UL, i );
@@ -465,7 +465,7 @@ test_purge_gap( void ) {
   FD_LOG_NOTICE(( "TEST PURGE GAP" ));
 
   fd_txncache_t * tc = init_all( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                                 FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+                                 TXNCACHE_LIVE_SLOTS,
                                  FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
 
   insert( 0, 0, 1000 );
@@ -603,7 +603,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   ulong max_footprint = fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                                               FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS,
+                                               TXNCACHE_LIVE_SLOTS,
                                                FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
   txncache_scratch = fd_shmem_acquire( 4096UL, 1UL+(max_footprint/4096UL), 0UL );
   txncache_scratch_sz = 4096UL * (1UL+(max_footprint/4096UL));
