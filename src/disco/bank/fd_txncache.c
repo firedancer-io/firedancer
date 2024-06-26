@@ -760,6 +760,10 @@ int
 fd_txncache_snapshot( fd_txncache_t * tc,
                       void *          ctx,
                       int ( * write )( uchar const * data, ulong data_sz, void * ctx ) ) {
+  if( !write ) {
+    FD_LOG_WARNING(("No write method provided to snapshotter"));
+    return 1;
+  }
   fd_rwlock_read( tc->lock );
 
   for( ulong i=0UL; i<tc->root_slots_cnt; i++ ) {
@@ -776,9 +780,18 @@ fd_txncache_snapshot( fd_txncache_t * tc,
         uint head = slotblockcache->heads[ k ];
         for( ; head!=UINT_MAX; head=tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ]->slotblockcache_next ) {
           fd_txncache_private_txn_t * txn = tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
-          (void)txn; /* TODO: Actually write the transactions out here. */
-          (void)write;
-          (void)ctx;
+
+          fd_txncache_snapshot_entry_t entry = {
+            .slot      = slot,
+            .txn_idx   = slotblockcache->txnhash_offset,
+            .result    = txn->result
+          };
+          fd_memcpy( entry.blockhash, slotblockcache->blockhash, 32 );
+          fd_memcpy( entry.txnhash, txn->txnhash, 20 );
+          int err = write( (uchar*)&entry, sizeof(fd_txncache_snapshot_entry_t), ctx );
+          if( err ) {
+            return err;
+          }
         }
       }
     }
