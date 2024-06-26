@@ -471,15 +471,21 @@ test_purge_gap( void ) {
   insert( 0, 0, 1000 );
   insert( 1, 0, 0 );
   insert( 1025, 0, 1001 );
+  insert( 2, 0, 1002 );
+  insert( 1026, 0, 1003 );
 
   contains( 0, 0, 1000 );
   contains( 1, 0, 0 );
   contains( 1025, 0, 1001 );
+  contains( 2, 0, 1002 );
+  contains( 1026, 0, 1003 );
 
   for( ulong i=0UL; i<1000UL; i++) fd_txncache_register_root_slot( tc, i );
   contains( 0, 0, 1000 );
   no_contains( 1, 0, 0 );
   contains( 1025, 0, 1001 );
+  contains( 2, 0, 1002 );
+  contains( 1026, 0, 1003 );
 }
 
 void
