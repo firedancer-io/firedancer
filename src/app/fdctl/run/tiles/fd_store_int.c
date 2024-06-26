@@ -428,7 +428,7 @@ after_credit( void *             _ctx,
   }
 }
 
-void
+static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {

@@ -22,7 +22,7 @@ cd ..
 # Genesis
 echo "Running Genesis..."
 
-GENESIS_OUTPUT=$(./agave-public/target/release/solana-genesis \
+GENESIS_OUTPUT=$(./agave/target/release/solana-genesis \
     --cluster-type mainnet-beta \
     --ledger test-ledger \
     --bootstrap-validator test-ledger/validator-keypair.json test-ledger/vote-account-keypair.json test-ledger/stake-account-keypair.json \
@@ -42,7 +42,7 @@ GENESIS_HASH=$(echo $GENESIS_OUTPUT | grep -o -P '(?<=Genesis hash:).*(?=Shred v
 SHRED_VERSION=$(echo $GENESIS_OUTPUT | grep -o -P '(?<=Shred version:).*(?=Ticks per slot:)' | xargs)
 _PRIMARY_INTERFACE=$(ip route show default | awk '/default/ {print $5}')
 
-RUST_LOG=debug ./agave-public/target/release/agave-validator \
+RUST_LOG=debug ./agave/target/release/agave-validator \
     --identity test-ledger/validator-keypair.json \
     --ledger test-ledger \
     --limit-ledger-size 100000000 \
@@ -56,6 +56,7 @@ RUST_LOG=debug ./agave-public/target/release/agave-validator \
     --no-wait-for-vote-to-start-leader \
     --no-incremental-snapshots \
     --full-snapshot-interval-slots 100 \
+    --maximum-full-snapshots-to-retain 10 \
     --rpc-port 8899 \
     --gossip-port 8001 \
     --gossip-host $PRIMARY_IP \
