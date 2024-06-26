@@ -307,7 +307,7 @@ void
 fd_sandbox_private_set_rlimits( ulong rlimit_file_cnt ) {
   struct rlimit_setting rlimits[] = {
     { .resource=RLIMIT_NOFILE,     .limit=rlimit_file_cnt },
-    { .resource=RLIMIT_NICE,       .limit=1UL             },
+    { .resource=RLIMIT_NICE,       .limit=0UL             },
 
     { .resource=RLIMIT_AS,         .limit=0UL             },
     { .resource=RLIMIT_CORE,       .limit=0UL             },
