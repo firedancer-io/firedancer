@@ -401,10 +401,14 @@ fd_gossip_delete ( void * shmap ) {
 
 static void
 fd_gossip_lock( fd_gossip_t * gossip ) {
+# if FD_HAS_THREADS
   for(;;) {
     if( FD_LIKELY( !FD_ATOMIC_CAS( &gossip->lock, 0UL, 1UL) ) ) break;
     FD_SPIN_PAUSE();
   }
+# else
+  gossip->lock = 1;
+# endif
   FD_COMPILER_MFENCE();
 }
 
@@ -511,7 +515,7 @@ fd_gossip_update_tvu_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tvu
 }
 
 int
-fd_gossip_update_tpu_addr( fd_gossip_t * glob, 
+fd_gossip_update_tpu_addr( fd_gossip_t * glob,
                            fd_gossip_peer_addr_t const * tpu,
                            fd_gossip_peer_addr_t const * tpu_fwd ) {
   char tmp[100];

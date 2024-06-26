@@ -85,10 +85,14 @@ fd_bank_hash_cmp_delete( void * bank_hash_cmp ) {
 void
 fd_bank_hash_cmp_lock( fd_bank_hash_cmp_t * bank_hash_cmp ) {
   volatile int * lock = &bank_hash_cmp->lock;
+# if FD_HAS_THREADS
   for( ;; ) {
     if( FD_LIKELY( !FD_ATOMIC_CAS( lock, 0UL, 1UL ) ) ) break;
     FD_SPIN_PAUSE();
   }
+# else
+  *lock = 1;
+# endif
   FD_COMPILER_MFENCE();
 }
 
