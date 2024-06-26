@@ -58,6 +58,6 @@ runs:
       shell: bash
       run: |
         source /opt/${{ inputs.compiler }}/${{ inputs.compiler }}-${{ inputs.compiler-version}}/activate
-        FD_AUTO_INSTALL_PACKAGES=1 '${{ inputs.deps-script-path }}' +dev fetch install
+        CC='${{ inputs.compiler }}' FD_AUTO_INSTALL_PACKAGES=1 '${{ inputs.deps-script-path }}' +dev fetch install
         '${{ inputs.deps-bundle-path }}'
       if: steps.deps-sh-cache.outputs.cache-hit != 'true'
