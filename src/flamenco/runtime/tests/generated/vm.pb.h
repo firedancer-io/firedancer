@@ -106,9 +106,8 @@ typedef struct fd_exec_test_syscall_fixture {
 typedef struct fd_exec_test_full_vm_context {
     bool has_vm_ctx;
     fd_exec_test_vm_context_t vm_ctx;
-    /* InstrContext instr_ctx = 2; */
-    bool has_features;
-    fd_exec_test_feature_set_t features;
+    bool has_instr_ctx;
+    fd_exec_test_instr_context_t instr_ctx;
 } fd_exec_test_full_vm_context_t;
 
 /* Effects of fd_vm_validate */
@@ -130,7 +129,7 @@ extern "C" {
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT}
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT {0, 0, 0, NULL, NULL, NULL, 0, NULL}
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT}
-#define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT}
+#define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT}
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_DEFAULT {0, 0}
 #define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_ZERO {0, NULL, 0}
 #define FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO        {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
@@ -138,7 +137,7 @@ extern "C" {
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO}
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO   {0, 0, 0, NULL, NULL, NULL, 0, NULL}
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_ZERO   {false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO}
-#define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
+#define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO}
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_ZERO {0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -178,7 +177,7 @@ extern "C" {
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INPUT_TAG   1
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_OUTPUT_TAG  2
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_VM_CTX_TAG  1
-#define FD_EXEC_TEST_FULL_VM_CONTEXT_FEATURES_TAG 3
+#define FD_EXEC_TEST_FULL_VM_CONTEXT_INSTR_CTX_TAG 2
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_RESULT_TAG 1
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_SUCCESS_TAG 2
 
@@ -250,11 +249,11 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  output,            2)
 
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  vm_ctx,            1) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  features,          3)
+X(a, STATIC,   OPTIONAL, MESSAGE,  instr_ctx,         2)
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_DEFAULT NULL
 #define fd_exec_test_full_vm_context_t_vm_ctx_MSGTYPE fd_exec_test_vm_context_t
-#define fd_exec_test_full_vm_context_t_features_MSGTYPE fd_exec_test_feature_set_t
+#define fd_exec_test_full_vm_context_t_instr_ctx_MSGTYPE fd_exec_test_instr_context_t
 
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, INT32,    result,            1) \
