@@ -40,7 +40,7 @@ fd_solcap_writer_flush( fd_solcap_writer_t * writer ) {
 
 void
 fd_solcap_writer_set_slot( fd_solcap_writer_t * writer FD_PARAM_UNUSED,
-                           ulong                slot   FD_PARAM_UNUSED ) {} 
+                           ulong                slot   FD_PARAM_UNUSED ) {}
 
 int
 fd_solcap_write_account( fd_solcap_writer_t *             writer  FD_PARAM_UNUSED,

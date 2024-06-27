@@ -210,7 +210,7 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
     }
 
     /* Read more packets */
-    int retval = recvmmsg(fd, msgs, VLEN, MSG_DONTWAIT, NULL);
+    long retval = recvmmsg(fd, msgs, VLEN, MSG_DONTWAIT, NULL);
     if (retval < 0) {
       if (errno == EINTR || errno == EWOULDBLOCK)
         continue;
@@ -223,8 +223,8 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
     for (uint i = 0; i < (uint)retval; ++i) {
       fd_repair_peer_addr_t from;
       repair_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
-      FD_LOG_HEXDUMP_NOTICE(("recv: ", bufs[i], msgs[i].msg_len));
-      fd_repair_recv_clnt_packet(glob, bufs[i], msgs[i].msg_len, &from);
+      FD_LOG_HEXDUMP_NOTICE(("recv: ", bufs[i], (ulong)msgs[i].msg_len));
+      fd_repair_recv_clnt_packet(glob, bufs[i], (ulong)msgs[i].msg_len, &from);
     }
   }
 

@@ -8,7 +8,10 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 #include <arpa/inet.h>
+#include <netinet/in.h>
 #include <sys/random.h>
 
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
