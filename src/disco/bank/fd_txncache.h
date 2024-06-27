@@ -197,6 +197,7 @@ struct fd_txncache_insert {
   uchar const * blockhash;
   uchar const * txnhash;
   ulong         slot;
+  ulong         txnhash_offset;
   uchar const * result;
 };
 
@@ -208,6 +209,16 @@ struct fd_txncache_query {
 };
 
 typedef struct fd_txncache_query fd_txncache_query_t;
+
+struct fd_txncache_snapshot_entry {
+   ulong slot;
+   uchar blockhash[ 32 ];
+   uchar txnhash[ 20 ];
+   ulong txn_idx;
+   uchar result;
+};
+
+typedef struct fd_txncache_snapshot_entry fd_txncache_snapshot_entry_t;
 
 /* Forward declare opaque handle */
 struct fd_txncache_private;
@@ -301,7 +312,7 @@ fd_txncache_root_slots( fd_txncache_t * tc,
                         ulong *         out_slots );
 
 /* fd_txncache_snapshot writes the current state of a txn cache into a
-   binary format suitable for serving to other nodes via. snapshot
+   binary format suitable for serving to other nodes via snapshot
    responses.  The write function is called in a streaming fashion with
    the binary data, the size of the data, and the ctx pointer provided
    to this function.  The write function should return 0 on success and

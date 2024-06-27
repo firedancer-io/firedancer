@@ -18,6 +18,7 @@ typedef struct fd_rwlock fd_rwlock_t;
 
 static inline void
 fd_rwlock_write( fd_rwlock_t * lock ) {
+# if FD_HAS_THREADS
   for(;;) {
     ushort value = lock->value;
     if( FD_LIKELY( !value ) ) {
@@ -25,6 +26,9 @@ fd_rwlock_write( fd_rwlock_t * lock ) {
     }
     FD_SPIN_PAUSE();
   }
+# else
+  lock->value = 0xFFFF;
+# endif
   FD_COMPILER_MFENCE();
 }
 
@@ -36,6 +40,7 @@ fd_rwlock_unwrite( fd_rwlock_t * lock ) {
 
 static inline void
 fd_rwlock_read( fd_rwlock_t * lock ) {
+# if FD_HAS_THREADS
   for(;;) {
     ushort value = lock->value;
     if( FD_UNLIKELY( value!=0xFFFE ) ) {
@@ -45,13 +50,20 @@ fd_rwlock_read( fd_rwlock_t * lock ) {
     }
     FD_SPIN_PAUSE();
   }
+# else
+  lock->value++;
+# endif
   FD_COMPILER_MFENCE();
 }
 
 static inline void
 fd_rwlock_unread( fd_rwlock_t * lock ) {
   FD_COMPILER_MFENCE();
+# if FD_HAS_THREADS
   FD_ATOMIC_FETCH_AND_SUB( &lock->value, 1 );
+# else
+  lock->value--;
+# endif
 }
 
 #endif /* HEADER_fd_src_disco_bank_rwlock_h */

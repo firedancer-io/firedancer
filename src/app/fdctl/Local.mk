@@ -1,4 +1,5 @@
 ifdef FD_HAS_HOSTED
+ifdef FD_HAS_THREADS
 ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
@@ -18,9 +19,10 @@ $(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
 .PHONY: fdctl cargo-validator cargo-solana rust solana check-solana-hash
 
 # fdctl core
-$(call add-objs,main1 config caps utility keys ready mem spy help version,fd_fdctl)
+$(call add-objs,main1 config config_parse caps utility keys ready mem spy help version,fd_fdctl)
 $(call add-objs,run/run run/run1 run/run_solana run/topos/topos,fd_fdctl)
 $(call add-objs,monitor/monitor monitor/helper,fd_fdctl)
+$(call make-fuzz-test,fuzz_fdctl_config,fuzz_fdctl_config,fd_fdctl fd_ballet fd_util)
 
 # fdctl tiles
 $(call add-objs,run/tiles/fd_net,fd_fdctl)
@@ -68,6 +70,7 @@ $(call make-bin-rust,fdctl,main,fd_fdctl fd_disco fd_flamenco fd_funk fd_quic fd
 endif
 $(call make-unit-test,test_tiles_verify,run/tiles/test_verify,fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_tiles_verify)
+$(call make-unit-test,test_config_parse,test_config_parse,fd_fdctl fd_ballet fd_util)
 
 $(OBJDIR)/obj/app/fdctl/configure/xdp.o: src/waltz/xdp/fd_xdp_redirect_prog.o
 $(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
@@ -150,6 +153,7 @@ $(OBJDIR)/bin/solana: solana/target/$(RUST_PROFILE)/solana
 
 solana: $(OBJDIR)/bin/solana $(OBJDIR)/bin/solana
 
+endif
 endif
 endif
 endif

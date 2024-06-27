@@ -105,6 +105,8 @@ struct fd_store_tile_ctx {
   fd_stake_ci_t * stake_ci;
 
   ulong blockstore_seed;
+
+  ulong * root_slot_fseq;
 };
 typedef struct fd_store_tile_ctx fd_store_tile_ctx_t;
 
@@ -341,13 +343,13 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       fd_runtime_block_prepare( block_data, block->data_sz, fd_scratch_virtual(), &block_info );
 
       FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %32J", slot, block_info.microblock_cnt, block_hash->uc ));
-      FD_LOG_NOTICE(( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
+      FD_LOG_DEBUG(( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
                       "executed: %lu, caught up: %d",
                       ctx->store->first_turbine_slot,
                       ctx->store->curr_turbine_slot,
                       ctx->store->curr_turbine_slot - slot,
                       slot,
-                      slot > ctx->store->first_turbine_slot ) );
+                      slot > ctx->store->first_turbine_slot ));
       fd_txn_p_t * txns = fd_type_pun( out_buf );
       ulong txn_cnt = fd_runtime_block_collect_txns( &block_info, txns );
  
@@ -452,6 +454,15 @@ unprivileged_init( fd_topo_t *      topo,
   if( ctx->blockstore_wksp == NULL ) {
     FD_LOG_ERR(( "blockstore_wksp must be defined in topo." ));
   }
+
+  /**********************************************************************/
+  /* root_slot fseq                                                     */
+  /**********************************************************************/
+  ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
+  FD_TEST( root_slot_obj_id!=ULONG_MAX );
+  ctx->root_slot_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
+  if( FD_UNLIKELY( !ctx->root_slot_fseq ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
+  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->root_slot_fseq ) );
 
   /* Prevent blockstore from being created until we know the shred version */
   ulong expected_shred_version = tile->shred.expected_shred_version;

@@ -151,6 +151,10 @@ fd_tar_io_reader_advance( fd_tar_io_reader_t * this ) {
     FD_LOG_WARNING(( "snapshot tar stream failed (%d-%s)", tar_err, fd_io_strerror( tar_err ) ));
     return tar_err;
   }
+  if( tar_err<0 ) {
+    FD_LOG_NOTICE(( "encountered end of tar stream" ));
+    return -1;
+  }
 
   return 0;
 }

@@ -90,7 +90,7 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( ctx.valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
   FD_TEST( syscalls );
 
-  fd_vm_syscall_register_all( syscalls );
+  fd_vm_syscall_register_all( syscalls, 0 );
   /* Load program */
 
   if(  0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) {
@@ -132,6 +132,7 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
       /* text      */ prog->text,
       /* text_cnt  */ prog->text_cnt,
       /* text_off  */ prog->text_off,
+      /* text_sz   */ prog->text_sz,
       /* entry_pc  */ prog->entry_pc,
       /* calldests */ prog->calldests,
       /* syscalls  */ syscalls,

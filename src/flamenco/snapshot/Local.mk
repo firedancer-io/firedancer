@@ -8,7 +8,7 @@ $(call add-objs,fd_snapshot_http,fd_flamenco)
 $(call make-unit-test,test_snapshot_http,test_snapshot_http,fd_flamenco fd_disco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_snapshot_http)
 ifdef FD_HAS_THREADS
-$(call make-fuzz-test,fuzz_snapshot_http,fuzz_snapshot_http,fd_flamenco fd_funk fd_ballet fd_util)
+$(call make-fuzz-test,fuzz_snapshot_http,fuzz_snapshot_http,fd_flamenco fd_disco fd_funk fd_ballet fd_util)
 endif
 endif
 

@@ -74,6 +74,7 @@
 #define FD_VM_ERR_INCOMPLETE_LDQ    (-32) /* detected an incomplete ldq at program end */
 #define FD_VM_ERR_LDQ_NO_ADDL_IMM   (-33) /* detected a ldq without an addl imm following it */
 #define FD_VM_ERR_NO_SUCH_EXT_CALL  (-34) /* detected a call imm with no function was registered for that immediate */
+#define FD_VM_ERR_INVALID_REG       (-35) /* detected an invalid register */
 
 FD_PROTOTYPES_BEGIN
 
@@ -633,18 +634,23 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
    will register all fd_vm syscall implementations (whether or not that
    makes sense ... may change between Firedancer versions without
    warning).  FIXME: probably better to pass the features for a slot
-   than pass the whole slot_ctx. */
+   than pass the whole slot_ctx.
+   
+   is_deploy should be 1 if the set of syscalls registered should be that
+   used to verify programs before they are deployed, and 0 if it
+   should be the set used to execute programs. */
 
 int
 fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
-                             fd_exec_slot_ctx_t const * slot_ctx );
+                             fd_exec_slot_ctx_t const * slot_ctx,
+                             uchar is_deploy );
 
 /* fd_vm_syscall_register_all is a shorthand for registering all
    syscalls (see register slot). */
 
 static inline int
-fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
-  return fd_vm_syscall_register_slot( syscalls, NULL );
+fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls, uchar is_deploy ) {
+  return fd_vm_syscall_register_slot( syscalls, NULL, is_deploy );
 }
 
 FD_PROTOTYPES_END

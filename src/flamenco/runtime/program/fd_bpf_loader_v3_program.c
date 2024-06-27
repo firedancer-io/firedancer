@@ -158,7 +158,7 @@ deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     FD_LOG_WARNING(( "Failed to register syscalls" ));
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
-  fd_vm_syscall_register_all( syscalls );
+  fd_vm_syscall_register_all( syscalls, 1 );
 
   /* Load executable */
   fd_sbpf_elf_info_t  _elf_info[ 1UL ];
@@ -201,6 +201,7 @@ deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     /* text      */ prog->text,
     /* text_cnt  */ prog->text_cnt,
     /* text_off  */ prog->text_off, /* FIXME: What if text_off is not multiple of 8 */
+    /* text_sz   */ prog->text_sz,
     /* entry_pc  */ prog->entry_pc,
     /* calldests */ prog->calldests,
     /* syscalls  */ syscalls,
@@ -356,7 +357,7 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
                                                                           fd_sbpf_syscalls_footprint() ) );
   FD_TEST( syscalls );
 
-  fd_vm_syscall_register_all( syscalls );
+  fd_vm_syscall_register_all( syscalls, 0 );
 
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1362-L1368 */
   ulong input_sz = 0;
@@ -383,6 +384,7 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
     /* text      */ (ulong *)((ulong)fd_sbpf_validated_program_rodata( prog ) + (ulong)prog->text_off), /* Note: text_off is byte offset */
     /* text_cnt  */ prog->text_cnt,
     /* text_off  */ prog->text_off,
+    /* text_sz   */ prog->text_sz,
     /* entry_pc  */ prog->entry_pc,
     /* calldests */ prog->calldests,
     /* syscalls  */ syscalls,

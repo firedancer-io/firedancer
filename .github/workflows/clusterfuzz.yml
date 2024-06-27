@@ -26,6 +26,8 @@ jobs:
       EXTRAS: fuzz asan ubsan
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: ./.github/actions/hugepages
       - uses: ./.github/actions/deps

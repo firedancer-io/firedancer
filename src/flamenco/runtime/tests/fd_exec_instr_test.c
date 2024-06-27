@@ -966,7 +966,7 @@ fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * run
     fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ));
     FD_TEST( syscalls );
 
-    fd_vm_syscall_register_all( syscalls );
+    fd_vm_syscall_register_all( syscalls, 0 );
 
     int res = fd_sbpf_program_load( prog, _bin, elf_sz, syscalls, input->deploy_checks );
     if( FD_UNLIKELY( res ) ) {
@@ -1041,7 +1041,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
-  fd_vm_syscall_register_all( syscalls );
+  fd_vm_syscall_register_all( syscalls, 0 );
 
   /* Pull out the memory regions */
   FD_TEST( input->has_vm_ctx );
@@ -1075,6 +1075,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
     NULL, // TODO
     0, // TODO
     0, // TODO
+    0, // TODO, text_sz
     0, // TODO
     NULL, // TODO
     syscalls,

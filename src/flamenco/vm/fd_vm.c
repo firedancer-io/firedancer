@@ -1,4 +1,7 @@
 #include "fd_vm_private.h"
+#include "../runtime/context/fd_exec_epoch_ctx.h"
+#include "../runtime/context/fd_exec_slot_ctx.h"
+#include "../features/fd_features.h"
 
 char const *
 fd_vm_strerror( int err ) {
@@ -50,6 +53,7 @@ fd_vm_strerror( int err ) {
   case FD_VM_ERR_INCOMPLETE_LDQ:    return "INCOMPLETE_LDQ detected an incomplete ldq at program end";
   case FD_VM_ERR_LDQ_NO_ADDL_IMM:   return "LDQ_NO_ADDL_IMM detected a ldq without an addl imm following it";
   case FD_VM_ERR_NO_SUCH_EXT_CALL:  return "NO_SUCH_EXT_CALL detected a call imm with no function was registered for that immediate";
+  case FD_VM_ERR_INVALID_REG:       return "INVALID_REG detected an invalid register number in a callx instruction";
 
   default: break;
   }
@@ -72,15 +76,16 @@ fd_vm_validate( fd_vm_t const * vm ) {
   /* A mapping of all the possible 1-byte sBPF opcodes to their
      validation criteria. */
 
-# define FD_VALID      ((uchar)0) /* Valid opcode */
-# define FD_CHECK_JMP  ((uchar)1) /* Validation should check that the instruction is a valid jump */
-# define FD_CHECK_END  ((uchar)2) /* Validation should check that the instruction is a valid endianness conversion */
-# define FD_CHECK_ST   ((uchar)3) /* Validation should check that the instruction is a valid store */
-# define FD_CHECK_LDQ  ((uchar)4) /* Validation should check that the instruction is a valid load-quad */
-# define FD_CHECK_DIV  ((uchar)5) /* Validation should check that the instruction is a valid division by immediate */
-# define FD_CHECK_SH32 ((uchar)6) /* Validation should check that the immediate is a valid 32-bit shift exponent */
-# define FD_CHECK_SH64 ((uchar)7) /* Validation should check that the immediate is a valid 64-bit shift exponent */
-# define FD_INVALID    ((uchar)8) /* The opcode is invalid */
+# define FD_VALID       ((uchar)0) /* Valid opcode */
+# define FD_CHECK_JMP   ((uchar)1) /* Validation should check that the instruction is a valid jump */
+# define FD_CHECK_END   ((uchar)2) /* Validation should check that the instruction is a valid endianness conversion */
+# define FD_CHECK_ST    ((uchar)3) /* Validation should check that the instruction is a valid store */
+# define FD_CHECK_LDQ   ((uchar)4) /* Validation should check that the instruction is a valid load-quad */
+# define FD_CHECK_DIV   ((uchar)5) /* Validation should check that the instruction is a valid division by immediate */
+# define FD_CHECK_SH32  ((uchar)6) /* Validation should check that the immediate is a valid 32-bit shift exponent */
+# define FD_CHECK_SH64  ((uchar)7) /* Validation should check that the immediate is a valid 64-bit shift exponent */
+# define FD_INVALID     ((uchar)8) /* The opcode is invalid */
+# define FD_CHECK_CALLX ((uchar)9) /* Validation should check that callx has valid register number */
 
   static uchar const validation_map[ 256 ] = {
     /* 0x00 */ FD_INVALID,    /* 0x01 */ FD_INVALID,    /* 0x02 */ FD_INVALID,    /* 0x03 */ FD_INVALID,
@@ -118,7 +123,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
     /* 0x80 */ FD_INVALID,    /* 0x81 */ FD_INVALID,    /* 0x82 */ FD_INVALID,    /* 0x83 */ FD_INVALID,
     /* 0x84 */ FD_VALID,      /* 0x85 */ FD_VALID,      /* 0x86 */ FD_INVALID,    /* 0x87 */ FD_VALID,
     /* 0x88 */ FD_INVALID,    /* 0x89 */ FD_INVALID,    /* 0x8a */ FD_INVALID,    /* 0x8b */ FD_INVALID,
-    /* 0x8c */ FD_INVALID,    /* 0x8d */ FD_VALID,      /* 0x8e */ FD_INVALID,    /* 0x8f */ FD_INVALID,
+    /* 0x8c */ FD_INVALID,    /* 0x8d */ FD_CHECK_CALLX,/* 0x8e */ FD_INVALID,    /* 0x8f */ FD_INVALID,
     /* 0x90 */ FD_INVALID,    /* 0x91 */ FD_INVALID,    /* 0x92 */ FD_INVALID,    /* 0x93 */ FD_INVALID,
     /* 0x94 */ FD_CHECK_DIV,  /* 0x95 */ FD_VALID,      /* 0x96 */ FD_INVALID,    /* 0x97 */ FD_CHECK_DIV,
     /* 0x98 */ FD_INVALID,    /* 0x99 */ FD_INVALID,    /* 0x9a */ FD_INVALID,    /* 0x9b */ FD_INVALID,
@@ -198,6 +203,15 @@ fd_vm_validate( fd_vm_t const * vm ) {
 
     case FD_CHECK_SH64: {
       if( FD_UNLIKELY( instr.imm>=64 ) ) return FD_VM_ERR_SIGILL;
+      break;
+    }
+
+    case FD_CHECK_CALLX: {
+      /* The register number to read is stored in the immediate.
+         https://github.com/solana-labs/rbpf/blob/v0.8.1/src/verifier.rs#L218 */
+      if( FD_UNLIKELY( instr.imm > ( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, reject_callx_r10 )  ? 9 : 10 ) ) ) {
+        return FD_VM_ERR_INVALID_REG;
+      }
       break;
     }
 
@@ -318,6 +332,7 @@ fd_vm_init(
    ulong const * text,
    ulong text_cnt,
    ulong text_off,
+   ulong text_sz,
    ulong entry_pc,
    ulong * calldests,
    fd_sbpf_syscalls_t * syscalls,
@@ -336,6 +351,11 @@ fd_vm_init(
     return NULL;
   }
 
+  if ( FD_UNLIKELY( instr_ctx == NULL ) ) {
+    FD_LOG_WARNING(( "NULL instr_ctx" ));
+    return NULL;
+  }
+
   // Set the vm fields
   vm->instr_ctx = instr_ctx;
   vm->heap_max = heap_max;
@@ -345,6 +365,7 @@ fd_vm_init(
   vm->text = text;
   vm->text_cnt = text_cnt;
   vm->text_off = text_off;
+  vm->text_sz = text_sz;
   vm->entry_pc = entry_pc;
   vm->calldests = calldests;
   vm->syscalls = syscalls;

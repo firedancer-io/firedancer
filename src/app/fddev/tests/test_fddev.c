@@ -145,7 +145,7 @@ fddev_test_run( int     argc,
       fd_log_thread_set( "supervisor" );
 
       static config_t config[1];
-      config_parse( &argc, &argv, config );
+      fdctl_cfg_from_env( &argc, &argv, config );
       config->log.log_fd = fd_log_private_logfile_fd();
       config->log.lock_fd = init_log_memfd();
       config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );

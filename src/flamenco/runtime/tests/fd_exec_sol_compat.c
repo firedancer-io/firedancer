@@ -350,6 +350,7 @@ sol_compat_instr_execute_v1( uchar *       out,
   fd_exec_test_instr_context_t input[1] = {0};
   void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_instr_context_t_msg );
   if ( res==NULL ) {
+    sol_compat_cleanup_scratch_and_runner( runner );
     return 0;
   }
 
@@ -436,6 +437,7 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
   fd_exec_test_syscall_context_t input[1] = {0};
   void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_syscall_context_t_msg );
   if ( res==NULL ) {
+    sol_compat_cleanup_scratch_and_runner( runner );
     return 0;
   }
 

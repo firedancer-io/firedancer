@@ -37,86 +37,6 @@
 #define FD_BLOCKHASH_QUEUE_MAX_ENTRIES       (300UL)
 #define FD_RECENT_BLOCKHASHES_MAX_ENTRIES    (150UL)
 
-struct fd_runtime_ctx {
-  /* Private variables needed to construct objects */
-  uchar               * epoch_ctx_mem;
-  fd_exec_epoch_ctx_t * epoch_ctx;
-  uchar                 slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__( ( aligned( FD_EXEC_SLOT_CTX_ALIGN ) ) );
-  fd_exec_slot_ctx_t *  slot_ctx;
-  fd_acc_mgr_t          _acc_mgr[1];
-  fd_repair_config_t    repair_config;
-  uchar                 tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
-  fd_tpool_t           *tpool;
-  fd_alloc_t           *alloc;
-  fd_gossip_config_t    gossip_config;
-  fd_gossip_peer_addr_t gossip_peer_addr;
-  uchar                 private_key[32];
-  fd_pubkey_t           public_key;
-
-  /* Public variables */
-  int                   blowup;
-  int                   live;
-  fd_gossip_t *         gossip;
-  fd_repair_t *         repair;
-  volatile int          need_incr_snap;
-
-  // random crap
-  FILE *                 capture_file;
-  fd_capture_ctx_t *     capture_ctx;
-  fd_wksp_t           * local_wksp;
-  ulong                  max_workers;
-  uchar                  abort_on_mismatch;
-};
-typedef struct fd_runtime_ctx fd_runtime_ctx_t;
-
-struct fd_runtime_args {
-  char const * blockstore_wksp_name;
-  char const * funk_wksp_name;
-  char const * gossip_peer_addr;
-  char const * incremental_snapshot;
-  char const * load;
-  char const * my_gossip_addr;
-  char const * my_repair_addr;
-  char const * repair_peer_addr;
-  char const * repair_peer_id;
-  char const * tvu_addr;
-  char const * tvu_fwd_addr;
-  char const * snapshot;
-  char const * cmd;
-  char const * reset;
-  char const * capitalization_file;
-  char const * allocator;
-  char const * validate_db;
-  char const * validate_snapshot;
-  char const * capture_fpath;
-  int          capture_txns;
-  char const * shred_cap;
-  char const * trace_fpath;
-  char const * check_hash;
-  int          retrace;
-  int          abort_on_mismatch;
-  ulong        end_slot;
-  ulong        index_max;
-  ulong        page_cnt;
-  ulong        tcnt;
-  ulong        txn_max;
-  ushort       rpc_port;
-  ulong        checkpt_freq;
-  char const * checkpt_path;
-  int          checkpt_mismatch;
-  fd_funk_t *  pruned_funk;
-  int          dump_insn_to_pb;
-  ulong        dump_insn_start_slot;
-  char const * dump_insn_sig_filter;
-  char const * dump_insn_output_dir;
-  int          on_demand_block_ingest;
-  ulong        on_demand_block_history;
-  int          copy_txn_status;
-  ulong        trash_hash;
-  fd_wksp_t *  funk_wksp;
-};
-typedef struct fd_runtime_args fd_runtime_args_t;
-
 struct fd_execute_txn_task_info {
   fd_exec_txn_ctx_t * txn_ctx;
   fd_txn_p_t * txn;
@@ -226,37 +146,6 @@ fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx, ulong slot );
 /* rollback runtime to the state where the given slot just FINISHED executing */
 int
 fd_runtime_rollback_to( fd_exec_slot_ctx_t * slot_ctx, ulong slot );
-
-/* fd_runtime_ctx_{align,footprint} return FD_REPLAY_STATE_{ALIGN,FOOTPRINT}. */
-
-FD_FN_CONST ulong
-fd_runtime_ctx_align( void );
-
-FD_FN_CONST ulong
-fd_runtime_ctx_footprint( void );
-
-void *
-fd_runtime_ctx_new( void * shmem );
-
-/* fd_runtime_ctx_join returns the local join to the wksp backing the funk.
-   The lifetime of the returned pointer is at least as long as the
-   lifetime of the local join.  Assumes funk is a current local join. */
-
-fd_runtime_ctx_t *
-fd_runtime_ctx_join( void * state );
-
-/* fd_runtime_ctx_leave leaves an existing join.  Returns the underlying
-   shfunk on success and NULL on failure.  (logs details). */
-
-void *
-fd_runtime_ctx_leave( fd_runtime_ctx_t * state );
-
-/* fd_runtime_ctx_delete unformats a wksp allocation used as a replay_state */
-void *
-fd_runtime_ctx_delete( void * state );
-
-int
-fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t *args );
 
 int
 fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx );

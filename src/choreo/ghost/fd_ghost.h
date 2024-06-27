@@ -174,18 +174,19 @@ fd_ghost_leave( fd_ghost_t const * ghost );
 void *
 fd_ghost_delete( void * ghost );
 
-/* fd_ghost_init initializes a ghost.  Assumes fd_ghost_new and 
-   fd_ghost_join and ghost is a valid local join root_slot_hash is the
-   initial root ghost will use.  This is the snapshot slot if booting
-   with a snapshot, genesis slot if not.
+/* fd_ghost_init initializes a ghost.  Assumes ghost is a valid local
+   join and no one else is joined.  root is the initial root ghost will
+   use.  This is the snapshot slot if booting from a snapshot, 0 if the
+   genesis slot.
 
-   This should generally not be called by anyone other than the owner of
-   ghost's memory (ie. same caller as fd_ghost_new.) */
+   In general, this should be called by the same process that formatted
+   tower's memory, ie. the caller of fd_tower_new. */
+
 void
-fd_ghost_init( fd_ghost_t * ghost, ulong slot );
+fd_ghost_init( fd_ghost_t * ghost, ulong root );
 
-/* fd_ghost_head_query returns the head of the ghost.  Ghost is always
-   non-empty, ie. a root must exist. */
+/* fd_ghost_head_query returns ghost's head.  Assumes caller has called
+   fd_ghost_init and that the ghost is non-empty, ie. has a root. */
 
 fd_ghost_node_t *
 fd_ghost_head_query( fd_ghost_t * ghost );

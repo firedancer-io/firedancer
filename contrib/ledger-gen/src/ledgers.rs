@@ -25,4 +25,7 @@ pub fn bpf_loader_ledger(client: &RpcClient, arc_client: &Arc<RpcClient>, payer:
 
     bpf_loader::close_invoke_same_slot(&client, &arc_client, &payer, &program_data, &account_data);
     bpf_loader::close_invoke_diff_slot(&client, &arc_client, &payer, &program_data, &account_data);
+
+    bpf_loader::close_redeploy_same_slot(&client, &arc_client, &payer, &program_data, &account_data);
+    bpf_loader::close_redeploy_diff_slot(&client, &arc_client, &payer, &program_data, &account_data);
 }

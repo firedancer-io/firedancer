@@ -170,7 +170,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_scratch_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
     FD_TEST( syscalls );
 
-    fd_vm_syscall_register_all( syscalls );
+    fd_vm_syscall_register_all( syscalls, 0 );
 
     /* Load program */
 
@@ -185,6 +185,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     validated_prog->last_updated_slot = slot_ctx->slot_bank.slot;
     validated_prog->text_off = prog->text_off;
     validated_prog->text_cnt = prog->text_cnt;
+    validated_prog->text_sz = prog->text_sz;
     validated_prog->rodata_sz = prog->rodata_sz;
 
     return 0;

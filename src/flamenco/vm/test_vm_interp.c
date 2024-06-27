@@ -1,6 +1,7 @@
 #include "fd_vm.h"
 #include "fd_vm_base.h"
 #include "fd_vm_private.h"
+#include "test_vm_util.h"
 #include <stdlib.h>  /* malloc */
 
 static int
@@ -16,11 +17,12 @@ accumulator_syscall( FD_PARAM_UNUSED void *  _vm,
 }
 
 static void
-test_program_success( char *               test_case_name,
-                      ulong                expected_result,
-                      ulong const *        text,
-                      ulong                text_cnt,
-                      fd_sbpf_syscalls_t * syscalls ) {
+test_program_success( char *                test_case_name,
+                      ulong                 expected_result,
+                      ulong const *         text,
+                      ulong                 text_cnt,
+                      fd_sbpf_syscalls_t *  syscalls,
+                      fd_exec_instr_ctx_t * instr_ctx ) {
 //FD_LOG_NOTICE(( "Test program: %s", test_case_name ));
 
   fd_sha256_t _sha[1];
@@ -32,7 +34,7 @@ test_program_success( char *               test_case_name,
 
   int vm_ok = !!fd_vm_init(
       /* vm        */ vm,
-      /* instr_ctx */ NULL,
+      /* instr_ctx */ instr_ctx,
       /* heap_max  */ FD_VM_HEAP_DEFAULT,
       /* entry_cu  */ FD_VM_COMPUTE_UNIT_LIMIT,
       /* rodata    */ (uchar *)text,
@@ -40,6 +42,7 @@ test_program_success( char *               test_case_name,
       /* text      */ text,
       /* text_cnt  */ text_cnt,
       /* text_off  */ 0UL,
+      /* text_sz   */ 8UL*text_cnt,
       /* entry_pc  */ 0UL,
       /* calldests */ NULL,
       /* syscalls  */ syscalls,
@@ -215,13 +218,14 @@ test_0cu_exit( void ) {
     fd_vm_instr( FD_SBPF_OP_EXIT,      0, 0, 0, 0 )
   };
   ulong text_cnt = 3UL;
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual(), false /* not tested here*/ );
 
   /* Ensure the VM exits with success if the CU count after the final
      exit instruction reaches zero. */
 
   int vm_ok = !!fd_vm_init(
       /* vm        */ vm,
-      /* instr_ctx */ NULL,
+      /* instr_ctx */ instr_ctx,
       /* heap_max  */ FD_VM_HEAP_DEFAULT,
       /* entry_cu  */ text_cnt,
       /* rodata    */ (uchar *)text,
@@ -229,6 +233,7 @@ test_0cu_exit( void ) {
       /* text      */ text,
       /* text_cnt  */ text_cnt,
       /* text_off  */ 0UL,
+      /* text_sz   */ 8UL*text_cnt,
       /* entry_pc  */ 0UL,
       /* calldests */ NULL,
       /* syscalls  */ NULL,
@@ -247,7 +252,7 @@ test_0cu_exit( void ) {
 
   vm_ok = !!fd_vm_init(
       /* vm        */ vm,
-      /* instr_ctx */ NULL,
+      /* instr_ctx */ instr_ctx,
       /* heap_max  */ FD_VM_HEAP_DEFAULT,
       /* entry_cu  */ text_cnt - 1UL,
       /* rodata    */ (uchar *)text,
@@ -255,6 +260,7 @@ test_0cu_exit( void ) {
       /* text      */ text,
       /* text_cnt  */ text_cnt,
       /* text_off  */ 0UL,
+      /* text_sz   */ 8UL*text_cnt,
       /* entry_pc  */ 0UL,
       /* calldests */ NULL,
       /* syscalls  */ NULL,
@@ -269,6 +275,7 @@ test_0cu_exit( void ) {
   FD_TEST( fd_vm_exec    ( vm )==FD_VM_ERR_SIGCOST );
 
   fd_vm_delete( fd_vm_leave( vm ) );
+  test_vm_exec_instr_ctx_delete( instr_ctx );
   fd_sha256_delete( fd_sha256_leave( sha ) );
 }
 
@@ -283,11 +290,13 @@ main( int     argc,
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) ); FD_TEST( syscalls );
 
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual(), false );
+
   FD_TEST( fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall )==FD_VM_SUCCESS );
 
 # define TEST_PROGRAM_SUCCESS( test_case_name, expected_result, text_cnt, ... ) do { \
     ulong _text[ text_cnt ] = { __VA_ARGS__ };                                       \
-    test_program_success( (test_case_name), (expected_result), _text, (text_cnt), syscalls ); \
+    test_program_success( (test_case_name), (expected_result), _text, (text_cnt), syscalls, instr_ctx ); \
   } while(0)
 
 # define FD_SBPF_INSTR(op, dst, src, off, val) (fd_vm_instr( op, dst, src, off, val ))
@@ -919,23 +928,24 @@ main( int     argc,
   ulong * text     = (ulong *)malloc( sizeof(ulong)*text_cnt ); /* FIXME: gross */
 
   generate_random_alu_instrs( rng, text, text_cnt );
-  test_program_success( "alu_bench", 0x0, text, text_cnt, syscalls );
+  test_program_success( "alu_bench", 0x0, text, text_cnt, syscalls, instr_ctx );
 
   generate_random_alu64_instrs( rng, text, text_cnt );
-  test_program_success( "alu64_bench", 0x0, text, text_cnt, syscalls );
+  test_program_success( "alu64_bench", 0x0, text, text_cnt, syscalls, instr_ctx );
 
   text_cnt = 1024UL;
   generate_random_alu_instrs( rng, text, text_cnt );
-  test_program_success( "alu_bench_short", 0x0, text, text_cnt, syscalls );
+  test_program_success( "alu_bench_short", 0x0, text, text_cnt, syscalls, instr_ctx );
 
   generate_random_alu64_instrs( rng, text, text_cnt );
-  test_program_success( "alu64_bench_short", 0x0, text, text_cnt, syscalls );
+  test_program_success( "alu64_bench_short", 0x0, text, text_cnt, syscalls, instr_ctx );
 
   test_0cu_exit();
 
   free( text );
 
   fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
+  test_vm_exec_instr_ctx_delete( instr_ctx );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_rng_delete( fd_rng_leave( rng ) );

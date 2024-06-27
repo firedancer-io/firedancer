@@ -34,7 +34,8 @@ struct fd_txncache_private_txn {
   uchar txnhash[ 20 ];   /* The transaction hash, truncated to 20 bytes.  The hash is not always the first 20
                             bytes, but is 20 bytes starting at some arbitrary offset given by the key_offset value
                             of the containing by_blockhash entry. */
-  uchar result[ 40 ];    /* The result of executing the transaction. */
+  uchar result;          /* The result of executing the transaction. This is the discriminant of the transaction
+                            result type. 0 means success. */
 };
 
 typedef struct fd_txncache_private_txn fd_txncache_private_txn_t;
@@ -346,24 +347,65 @@ fd_txncache_delete( void * shtc ) {
 }
 
 static void
+fd_txncache_remove_blockcache_idx( fd_txncache_t * tc,
+                                   ulong idx ) {
+  tc->blockcache[ idx ].lowest_slot = ULONG_MAX;
+  memcpy( tc->txnpages_free+tc->txnpages_free_cnt, tc->blockcache[ idx ].pages, tc->blockcache[ idx ].pages_cnt*sizeof(ushort) );
+  tc->txnpages_free_cnt += tc->blockcache[ idx ].pages_cnt;
+
+  /* Check if this a probed entry or not. If this is an entry inserted
+     at the intended "hash index" we still need to check if there are
+     any probed entries and shift one to this index. */
+  ulong hash_idx = FD_LOAD(ulong, tc->blockcache[ idx ].blockhash);
+  if( hash_idx%tc->live_slots_max != idx ) return;
+
+  /* We linear search for an entry which hashed to the same index and move it to
+     the blockcache index being removed from. */
+  for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
+    if( i == idx ) continue;
+    ulong j = FD_LOAD(ulong, tc->blockcache[ i ].blockhash);
+    if( j%tc->live_slots_max == idx ) {
+      memcpy( &tc->blockcache[ idx ], &tc->blockcache[ i ], sizeof(fd_txncache_private_blockcache_t) );
+      tc->blockcache[ i ].lowest_slot = ULONG_MAX;
+      break;
+    }
+  }
+}
+
+static void
+fd_txncache_remove_slotcache_idx( fd_txncache_t * tc,
+                                  ulong idx ) {
+  ulong slot = tc->slotcache[ idx ].slot;
+  tc->slotcache[ idx ].slot = ULONG_MAX;
+  /* Check if this a probed entry or not. If this is an entry inserted
+     at the intended "hash index" we still need to check if there are
+     any probed entries and shift one to this index. */
+  if( slot%tc->live_slots_max != idx ) return;
+
+  /* We linear search for an entry which hashed to the same index and move it to
+     the blockcache index being removed from. */
+  for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
+    if( i == idx ) continue;
+    ulong j = tc->slotcache[i].slot;
+    if( j%tc->live_slots_max == idx ) {
+      memcpy( &tc->slotcache[ idx ], &tc->slotcache[ i ], sizeof(fd_txncache_private_slotcache_t) );
+      tc->slotcache[ i ].slot = ULONG_MAX;
+      break;
+    }
+  }
+}
+
+static void
 fd_txncache_purge_slot( fd_txncache_t * tc,
                         ulong           slot ) {
   for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
     if( FD_LIKELY( tc->blockcache[ i ].lowest_slot==ULONG_MAX || (tc->blockcache[ i ].lowest_slot+150UL)>slot ) ) continue;
-    tc->blockcache[ i ].lowest_slot = ULONG_MAX;
-    memcpy( tc->txnpages_free+tc->txnpages_free_cnt, tc->blockcache[ i ].pages, tc->blockcache[ i ].pages_cnt*sizeof(uint) );
-    /* TODO: Hash was removed, so any map entries that could have been
-       here but were probed later in the list need to be moved to this
-       empty slot now as well. */
+    fd_txncache_remove_blockcache_idx( tc, i );
   }
 
   for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
     if( FD_LIKELY( tc->slotcache[ i ].slot==ULONG_MAX || tc->slotcache[ i ].slot>slot ) ) continue;
-    tc->slotcache[ i ].slot = ULONG_MAX;
-
-    /* TODO: Hash was removed, so any map entries that could have been
-       here but were probed later in the list need to be moved to this
-       empty slot now as well. */
+    fd_txncache_remove_slotcache_idx( tc, i );
   }
 }
 
@@ -606,8 +648,8 @@ fd_txncache_insert_txn( fd_txncache_t *                        tc,
     ulong txnhash_offset = blockcache->txnhash_offset;
     ulong txnhash = FD_LOAD( ulong, txn->txnhash+txnhash_offset );
     memcpy( txnpage->txns[ txn_idx ]->txnhash, txn->txnhash+txnhash_offset, 20UL );
-    memcpy( txnpage->txns[ txn_idx ]->result,  txn->result,                 40UL );
-    txnpage->txns[ txn_idx ]->slot = fd_ulong_max( txn->slot, txnpage->txns[ txn_idx ]->slot );
+    txnpage->txns[ txn_idx ]->result = *txn->result;
+    txnpage->txns[ txn_idx ]->slot   = txn->slot;
     FD_COMPILER_MFENCE();
 
     for(;;) {
@@ -648,14 +690,20 @@ fd_txncache_insert_batch( fd_txncache_t *              tc,
     fd_txncache_private_blockcache_t * blockcache;
     if( FD_UNLIKELY( !fd_txncache_ensure_blockcache( tc, txns[ i ].blockhash, &blockcache ) ) ) goto unlock_fail;
 
-    // TODO: We should turn this on to prevent corruption
-    // if( FD_UNLIKELY( txns[ i ].slot>=blockcache->lowest_slot+150UL ) ) goto unlock_fail;
+    blockcache->txnhash_offset = txns[ i ].txnhash_offset;
+
+    if( FD_UNLIKELY( blockcache->lowest_slot!=ULONG_MAX-2 && txns[ i ].slot>=blockcache->lowest_slot+150UL ) ) {
+      FD_LOG_WARNING(("Lowest slot %lu for slot %lu", blockcache->lowest_slot, txns[i].slot ));
+      goto unlock_fail;
+    }
 
     fd_txncache_private_slotcache_t * slotcache;
     if( FD_UNLIKELY( !fd_txncache_ensure_slotcache( tc, txns[ i ].slot, &slotcache ) ) ) goto unlock_fail;
 
     fd_txncache_private_slotblockcache_t * slotblockcache;
     if( FD_UNLIKELY( !fd_txncache_ensure_slotblockcache( slotcache, txns[ i ].blockhash, &slotblockcache ) ) ) goto unlock_fail;
+
+    slotblockcache->txnhash_offset = txns[ i ].txnhash_offset;
 
     for(;;) {
       fd_txncache_private_txnpage_t * txnpage = fd_txncache_ensure_txnpage( tc, blockcache );
@@ -714,6 +762,10 @@ int
 fd_txncache_snapshot( fd_txncache_t * tc,
                       void *          ctx,
                       int ( * write )( uchar const * data, ulong data_sz, void * ctx ) ) {
+  if( !write ) {
+    FD_LOG_WARNING(("No write method provided to snapshotter"));
+    return 1;
+  }
   fd_rwlock_read( tc->lock );
 
   for( ulong i=0UL; i<tc->root_slots_cnt; i++ ) {
@@ -730,9 +782,18 @@ fd_txncache_snapshot( fd_txncache_t * tc,
         uint head = slotblockcache->heads[ k ];
         for( ; head!=UINT_MAX; head=tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ]->slotblockcache_next ) {
           fd_txncache_private_txn_t * txn = tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
-          (void)txn; /* TODO: Actually write the transactions out here. */
-          (void)write;
-          (void)ctx;
+
+          fd_txncache_snapshot_entry_t entry = {
+            .slot      = slot,
+            .txn_idx   = slotblockcache->txnhash_offset,
+            .result    = txn->result
+          };
+          fd_memcpy( entry.blockhash, slotblockcache->blockhash, 32 );
+          fd_memcpy( entry.txnhash, txn->txnhash, 20 );
+          int err = write( (uchar*)&entry, sizeof(fd_txncache_snapshot_entry_t), ctx );
+          if( err ) {
+            return err;
+          }
         }
       }
     }

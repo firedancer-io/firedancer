@@ -42,7 +42,7 @@ fd_features_restore( fd_exec_slot_ctx_t * slot_ctx );
 
 /* Recover slot_bank and epoch_bnck from funky */
 void
-fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first );
+fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int clear_first );
 
 void
 fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx );

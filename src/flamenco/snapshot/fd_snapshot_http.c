@@ -81,6 +81,7 @@ fd_snapshot_http_new( void *               mem,
     " HTTP/1.1\r\n"
     "user-agent: Firedancer\r\n"
     "accept: */*\r\n"
+    "accept-encoding: identity\r\n"
     "host: ";
   p = fd_cstr_append_text( p, hdr_part1, sizeof(hdr_part1)-1 );
 
@@ -366,11 +367,17 @@ fd_snapshot_http_resp( fd_snapshot_http_t * this ) {
 
   /* Find content-length */
 
+  this->content_len = ULONG_MAX;
   for( ulong i = 0; i < header_cnt; ++i ) {
     if( strncasecmp( headers[i].name, "content-length:", sizeof("content-length:")-1 ) == 0 ) {
       this->content_len = strtoul( headers[i].value, NULL, 10 );
       break;
     }
+  }
+  if( this->content_len == ULONG_MAX ) {
+    FD_LOG_WARNING(( "Missing content-length" ));
+    this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
+    return EPROTO;
   }
 
   /* Start downloading */
@@ -398,10 +405,8 @@ fd_snapshot_http_dl( fd_snapshot_http_t * this,
                      ulong                dst_max,
                      ulong *              dst_sz ) {
 
-  /* TODO count content length and handle EOF */
-
   if( this->resp_head == this->resp_tail ) {
-    if( this->content_len && this->content_len == this->dl_total ) {
+    if( this->content_len == this->dl_total ) {
       FD_LOG_NOTICE(( "download complete at %lu MB", this->dl_total>>20 ));
       this->state = FD_SNAPSHOT_HTTP_STATE_DONE;
       close( this->socket_fd );
@@ -409,7 +414,9 @@ fd_snapshot_http_dl( fd_snapshot_http_t * this,
       return -1;
     }
     this->resp_tail = this->resp_head = 0U;
-    long recv_sz = recv( this->socket_fd, this->resp_buf, FD_SNAPSHOT_HTTP_RESP_BUF_MAX, MSG_DONTWAIT );
+    long recv_sz = recv( this->socket_fd, this->resp_buf,
+                         fd_ulong_min( this->content_len - this->dl_total, FD_SNAPSHOT_HTTP_RESP_BUF_MAX ),
+                         MSG_DONTWAIT );
     if( recv_sz<0L ) {
       if( FD_UNLIKELY( errno!=EWOULDBLOCK ) ) {
         FD_LOG_WARNING(( "recv(%d,%p,%lu) failed while downloading response body (%d-%s)",
@@ -420,6 +427,13 @@ fd_snapshot_http_dl( fd_snapshot_http_t * this,
       } else {
         return 0;
       }
+    }
+    if( !recv_sz ) { /* Connection closed */
+      FD_LOG_WARNING(( "connection closed at %lu MB", this->dl_total>>20 ));
+      this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
+      close( this->socket_fd );
+      this->socket_fd = -1;
+      return -1;
     }
     this->resp_head = (uint)recv_sz;
 #define DL_PERIOD (100UL<<20)

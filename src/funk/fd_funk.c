@@ -418,7 +418,9 @@ fd_funk_start_write( fd_funk_t * funk ) {
     if( FD_LIKELY( FD_ATOMIC_CAS( &funk->write_lock, oldval, oldval+1U) == oldval ) ) break;
     FD_SPIN_PAUSE();
   }
-  if( FD_UNLIKELY(oldval&1UL) ) FD_LOG_CRIT(( "attempt to lock funky when it is already locked" ));
+  if( FD_UNLIKELY(oldval&1UL) ) {
+     FD_LOG_CRIT(( "attempt to lock funky when it is already locked" ));
+  }
   FD_COMPILER_MFENCE();
 # else
   (void)funk;
@@ -435,7 +437,9 @@ fd_funk_end_write( fd_funk_t * funk ) {
     if( FD_LIKELY( FD_ATOMIC_CAS( &funk->write_lock, oldval, oldval+1U) == oldval ) ) break;
     FD_SPIN_PAUSE();
   }
-  if( FD_UNLIKELY(!(oldval&1UL)) ) FD_LOG_CRIT(( "attempt to unlock funky when it is already unlocked" ));
+  if( FD_UNLIKELY(!(oldval&1UL)) ) {
+    FD_LOG_CRIT(( "attempt to unlock funky when it is already unlocked" ));
+  }
 # else
   (void)funk;
 # endif
