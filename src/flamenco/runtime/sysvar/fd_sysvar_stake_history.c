@@ -66,6 +66,10 @@ fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *       slot_ctx,
     fd_stake_history_pool_ele_release( stake_history.pool, ele );
   }
 
+  if( 0 == fd_stake_history_pool_free( stake_history.pool ) ) {
+    FD_LOG_ERR(( "stake_history.pool is empty" ));
+  }
+
   ulong idx = fd_stake_history_pool_idx_acquire( stake_history.pool );
 
   stake_history.pool[ idx ].epoch = entry->epoch;

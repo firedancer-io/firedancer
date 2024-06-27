@@ -212,6 +212,9 @@ authorized_voters_new( ulong                         epoch,
                        fd_vote_authorized_voters_t * authorized_voters /* out */ ) {
   authorized_voters->pool  = fd_vote_authorized_voters_pool_alloc ( valloc, FD_VOTE_AUTHORIZED_VOTERS_MIN );
   authorized_voters->treap = fd_vote_authorized_voters_treap_alloc( valloc, FD_VOTE_AUTHORIZED_VOTERS_MIN );
+  if( 0 == fd_vote_authorized_voters_pool_free( authorized_voters->pool) ) {
+    FD_LOG_ERR(( "Authorized_voter pool is empty" ));
+  }
   fd_vote_authorized_voter_t * ele =
       fd_vote_authorized_voters_pool_ele_acquire( authorized_voters->pool );
   ele->epoch = epoch;
@@ -248,8 +251,7 @@ authorized_voters_purge_authorized_voters( fd_vote_authorized_voters_t * self,
   FD_SCRATCH_SCOPE_BEGIN {
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/authorized_voters.rs#L42-L46
-
-  ulong expired_keys[FD_VOTE_AUTHORIZED_VOTERS_MIN] = { 0 }; /* TODO use fd_set */
+  ulong *expired_keys = fd_scratch_alloc( alignof(ulong), fd_vote_authorized_voters_treap_ele_cnt(self->treap) * sizeof(ulong) );
   ulong key_cnt                                     = 0;
   for( fd_vote_authorized_voters_treap_fwd_iter_t iter =
            fd_vote_authorized_voters_treap_fwd_iter_init( self->treap, self->pool );
@@ -320,6 +322,9 @@ authorized_voters_get_and_cache_authorized_voter_for_epoch( fd_vote_authorized_v
   if( !res ) return NULL;
   if( !existed ) {
     /* insert cannot fail because !existed */
+    if( 0 == fd_vote_authorized_voters_pool_free( self->pool) ) {
+      FD_LOG_ERR(( "Authorized_voter pool is empty" ));
+    }
     fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( self->pool );
     ele->epoch                       = epoch;
     memcpy( &ele->pubkey, &res->pubkey, sizeof( fd_pubkey_t ) );
@@ -724,6 +729,10 @@ set_new_authorized_voter( fd_vote_state_t *                          self,
   }
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L581-L582
+  if( 0 == fd_vote_authorized_voters_pool_free( self->authorized_voters.pool) ) {
+    FD_LOG_ERR(( "Authorized_voter pool is empty" ));
+  }
+
   fd_vote_authorized_voter_t * ele =
       fd_vote_authorized_voters_pool_ele_acquire( self->authorized_voters.pool );
   ele->epoch = target_epoch;
@@ -1385,6 +1394,12 @@ process_new_vote_state( fd_vote_state_t *           vote_state,
   // https://github.com/anza-xyz/agave/blob/v2.0.0/programs/vote/src/vote_state/mod.rs#L750
   if( FD_LIKELY( timestamp != NULL ) ) {
     /* new_state asserted nonempty at function beginning */
+    if( deq_fd_landed_vote_t_empty( new_state ) ) {
+      FD_LOG_ERR(( "solana panic" ));
+      // TODO: solana panics ...  unclear what to return
+      ctx->txn_ctx->custom_err = 0;
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    }
     ulong last_slot = deq_fd_landed_vote_t_peek_tail( new_state )->lockout.slot;
     rc              = process_timestamp( vote_state, last_slot, *timestamp, ctx );
     if( FD_UNLIKELY( rc ) ) { return rc; }
@@ -1903,25 +1918,27 @@ process_vote_state_update( ulong                         vote_acct_idx,
                            fd_exec_instr_ctx_t const *   ctx /* feature_set */ ) {
   int rc;
 
-  fd_vote_lockout_t * lockout = deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts );
-  fd_bank_hash_cmp_t * bank_hash_cmp = ctx->slot_ctx->epoch_ctx->bank_hash_cmp;
-  if( FD_LIKELY( lockout && bank_hash_cmp ) ) {
-    fd_bank_hash_cmp_lock( bank_hash_cmp );
-    fd_bank_hash_cmp_insert(
+  if( !deq_fd_vote_lockout_t_empty( vote_state_update->lockouts ) ) {
+    fd_vote_lockout_t * lockout = deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts );
+    fd_bank_hash_cmp_t * bank_hash_cmp = ctx->slot_ctx->epoch_ctx->bank_hash_cmp;
+    if( FD_LIKELY( lockout && bank_hash_cmp ) ) {
+      fd_bank_hash_cmp_lock( bank_hash_cmp );
+      fd_bank_hash_cmp_insert(
         bank_hash_cmp,
-        lockout->slot,
-        &vote_state_update->hash,
-        0,
-        query_pubkey_stake( vote_account->pubkey,
-                            &ctx->epoch_ctx->epoch_bank.stakes.vote_accounts ) );
+          lockout->slot,
+          &vote_state_update->hash,
+          0,
+          query_pubkey_stake( vote_account->pubkey,
+            &ctx->epoch_ctx->epoch_bank.stakes.vote_accounts ) );
 
-    if( FD_LIKELY( vote_state_update->has_root ) ) {
-      fd_bank_hash_cmp_entry_t * cmp =
+      if( FD_LIKELY( vote_state_update->has_root ) ) {
+        fd_bank_hash_cmp_entry_t * cmp =
           fd_bank_hash_cmp_map_query( bank_hash_cmp->map, vote_state_update->root, NULL );
-      if( FD_LIKELY( cmp ) ) cmp->rooted = 1;
-    }
+        if( FD_LIKELY( cmp ) ) cmp->rooted = 1;
+      }
 
-    fd_bank_hash_cmp_unlock( bank_hash_cmp );
+      fd_bank_hash_cmp_unlock( bank_hash_cmp );
+    }
   }
 
   fd_vote_state_t vote_state;
