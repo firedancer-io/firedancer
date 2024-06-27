@@ -582,6 +582,11 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
   fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
 
+  /* Copy over recent blockhash */
+  if( test_ctx->tx.message.recent_blockhash ) {
+    memcpy( recent_block_hash, test_ctx->tx.message.recent_blockhash, sizeof(fd_hash_t) );
+  }
+
   /* Load in the account states (note this is different from the account keys):
     Account state = accounts to populate DB with
     Account keys = account keys that the transaction needs
@@ -670,8 +675,10 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
     }
   }
 
-  // TODO: Set recent blockhashes properly here
-  slot_ctx->slot_bank.block_hash_queue.last_hash = &recent_block_hash->blockhash;
+  // Set the last hash to the genesis hash
+  fd_hash_t * last_hash = fd_scratch_alloc( fd_hash_align(), fd_hash_footprint() );
+  slot_ctx->slot_bank.block_hash_queue.last_hash = last_hash;
+  memcpy( last_hash, test_ctx->genesis_hash, sizeof(fd_hash_t) );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   uchar * txn_raw_begin = fd_scratch_alloc( alignof(uchar), 1232 );
