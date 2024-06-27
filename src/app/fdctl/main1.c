@@ -151,6 +151,7 @@ fdctl_boot( int *        pargc,
             char const * log_path ) {
   fd_log_level_core_set( 5 ); /* Don't dump core for FD_LOG_ERR during boot */
   fd_log_colorize_set( should_colorize() ); /* Colorize during boot until we can determine from config */
+  fd_log_level_stderr_set( 2 ); /* Only NOTICE and above will be logged during boot until fd_log is initialized */
 
   int config_fd = fd_env_strip_cmdline_int( pargc, pargv, "--config-fd", NULL, -1 );
 
