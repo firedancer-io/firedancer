@@ -60,9 +60,35 @@ fd_shmem_page_sz_to_cstr( ulong page_sz ) {
   return "unknown";
 }
 
+#include <ctype.h>
+
+/* SHMEM PARSING APIS *************************************************/
+
+ulong
+fd_shmem_name_len( char const * name ) {
+  if( FD_UNLIKELY( !name ) ) return 0UL; /* NULL name */
+
+  ulong len = 0UL;
+  while( FD_LIKELY( len<FD_SHMEM_NAME_MAX ) ) {
+    char c = name[len];
+    if( FD_UNLIKELY( !c ) ) break;
+    if( FD_UNLIKELY( !( (!!isalnum( c )) | ((len>0UL) & ((c=='_') | (c=='-') | (c=='.'))) ) ) ) return 0UL; /* Bad character */
+    len++;
+  }
+
+  if( FD_UNLIKELY( !len                   ) ) return 0UL; /* Name too short (empty string) */
+  if( FD_UNLIKELY( len>=FD_SHMEM_NAME_MAX ) ) return 0UL; /* Name too long */
+  return len;
+}
+
 #if FD_HAS_HOSTED
 
-#include <ctype.h>
+#if FD_HAS_THREADS
+pthread_mutex_t fd_shmem_private_lock[1];
+#endif
+
+#if defined(__linux__)
+
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -70,10 +96,6 @@ fd_shmem_page_sz_to_cstr( ulong page_sz ) {
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <linux/mman.h>
-
-#if FD_HAS_THREADS
-pthread_mutex_t fd_shmem_private_lock[1];
-#endif
 
 char  fd_shmem_private_base[ FD_SHMEM_PRIVATE_BASE_MAX ]; /* ""  at thread group start, initialized at boot */
 ulong fd_shmem_private_base_len;                          /* 0UL at ",                  initialized at boot */
@@ -656,25 +678,6 @@ fd_shmem_release( void * mem,
   return result;
 }
 
-/* SHMEM PARSING APIS *************************************************/
-
-ulong
-fd_shmem_name_len( char const * name ) {
-  if( FD_UNLIKELY( !name ) ) return 0UL; /* NULL name */
-
-  ulong len = 0UL;
-  while( FD_LIKELY( len<FD_SHMEM_NAME_MAX ) ) {
-    char c = name[len];
-    if( FD_UNLIKELY( !c ) ) break;
-    if( FD_UNLIKELY( !( (!!isalnum( c )) | ((len>0UL) & ((c=='_') | (c=='-') | (c=='.'))) ) ) ) return 0UL; /* Bad character */
-    len++;
-  }
-
-  if( FD_UNLIKELY( !len                   ) ) return 0UL; /* Name too short (empty string) */
-  if( FD_UNLIKELY( len>=FD_SHMEM_NAME_MAX ) ) return 0UL; /* Name too long */
-  return len;
-}
-
 /* BOOT/HALT APIs *****************************************************/
 
 void
@@ -761,6 +764,12 @@ fd_shmem_private_halt( void ) {
   FD_LOG_INFO(( "fd_shmem: halt success" ));
 }
 
+#elif defined(__FreeBSD__)
+
+#include "fd_shmem_freebsd_admin.c"
+
+#endif /* defined(OS) */
+
 #else /* unhosted */
 
 void
@@ -783,4 +792,4 @@ fd_shmem_private_halt( void ) {
   FD_LOG_INFO(( "fd_shmem: halt success" ));
 }
 
-#endif
+#endif /* FD_HAS_HOSTED */

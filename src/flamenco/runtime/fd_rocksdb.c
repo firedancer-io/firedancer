@@ -1,7 +1,9 @@
 #include "fd_rocksdb.h"
 #include "fd_blockstore.h"
 #include "../shredcap/fd_shredcap.h"
+#if defined(__linux__)
 #include <malloc.h>
+#endif
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
