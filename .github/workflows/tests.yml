@@ -111,22 +111,26 @@ jobs:
         if: ${{ matrix.run-unit-tests }}
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
+          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           make run-unit-test
 
       - name: run fuzz tests
         if: ${{ matrix.run-unit-tests }}
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
+          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           make run-fuzz-test
 
       - name: run test-vector tests
         if: ${{ matrix.run-unit-tests }}
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
+          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           make run-test-vectors
 
       - name: run integration tests
         if: ${{ matrix.run-integration-tests }}
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
+          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           make run-integration-test
