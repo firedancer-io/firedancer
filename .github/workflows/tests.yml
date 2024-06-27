@@ -105,7 +105,7 @@ jobs:
         run: |
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           make clean --silent >/dev/null
-          ./contrib/make-j ${{ matrix.targets }}
+          make -j ${{ matrix.targets }} >/dev/null
       
       - name: run unit tests
         if: ${{ matrix.run-unit-tests }}
