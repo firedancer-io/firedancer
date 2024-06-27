@@ -455,10 +455,17 @@ install_snappy () {
 }
 
 install () {
-  CC="$(command -v gcc)"
+  _CC="${CC:=gcc}"
+  CC="$(command -v $_CC)"
   cc="$CC"
   export CC
   export cc
+
+  _CXX="${CXX:=g++}"
+  CXX="$(command -v $_CXX)"
+  cxx="$CXX"
+  export CXX
+  export cxx
 
   mkdir -p ./opt/{include,lib}
 
