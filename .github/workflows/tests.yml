@@ -15,6 +15,7 @@ jobs:
       # This matrix is a tradeoff between required resources and
       # test coverage.  You should probably only remove machine
       # targets from here, not add more.
+      fail-fast: false
       matrix:
         test-case:
           - linux_gcc_noarch64-gcc-12    # least capable target
@@ -30,7 +31,7 @@ jobs:
             machine: linux_gcc_noarch64
             label: X64
             targets: "all"
-            compiler: gcc0
+            compiler: gcc
             compiler-version: 12.4.0
             run-unit-tests: false
             run-integration-tests: false
