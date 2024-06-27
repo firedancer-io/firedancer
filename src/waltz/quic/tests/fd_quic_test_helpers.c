@@ -1,7 +1,6 @@
 #include "fd_quic_test_helpers.h"
 #include "../../../util/net/fd_pcapng.h"
 #include <errno.h>
-#include <linux/if_link.h>
 #include <net/if.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -11,6 +10,10 @@
 #include "../../../ballet/ed25519/fd_ed25519.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
+
+#if defined(__linux__)
+#include <linux/if_link.h>
+#endif
 
 static FILE * test_pcap;
 
@@ -385,6 +388,7 @@ detect_fail:
   quic_sock->listen_port = listen_port;
 
   if( sock_type == FD_QUIC_UDPSOCK_TYPE_XSK ) {
+#   if defined(__linux__)
     uint xdp_mode = 0;
     if( 0==strcmp( xdp_mode_cstr, "skb" ) ) {
       xdp_mode = XDP_FLAGS_SKB_MODE;
@@ -475,6 +479,10 @@ detect_fail:
 
     FD_LOG_NOTICE(( "AF_XDP listening on " FD_IP4_ADDR_FMT ":%u",
                     FD_IP4_ADDR_FMT_ARGS( quic_sock->listen_ip ), quic_sock->listen_port ));
+#   else
+    (void)if_queue; (void)_src_mac; (void)xdp_mode_cstr; (void)xsk_pkt_cnt;
+    FD_LOG_ERR(( "AF_XDP not supported on this platform" ));
+#   endif
   } else {
     int sock_fd = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
     if( FD_UNLIKELY( sock_fd<0 ) ) {
@@ -532,12 +540,14 @@ fd_quic_udpsock_destroy( fd_quic_udpsock_t * udpsock ) {
     return NULL;
 
   switch( udpsock->type ) {
+# if defined(__linux__)
   case FD_QUIC_UDPSOCK_TYPE_XSK:
     fd_xdp_link_session_fini( &udpsock->xdp.link_session );
     fd_xdp_session_fini     ( &udpsock->xdp.session      );
     fd_wksp_free_laddr( fd_xsk_aio_delete( fd_xsk_aio_leave( udpsock->xdp.xsk_aio ) ) );
     fd_wksp_free_laddr( fd_xsk_delete    ( fd_xsk_leave    ( udpsock->xdp.xsk     ) ) );
     break;
+# endif
   case FD_QUIC_UDPSOCK_TYPE_UDPSOCK:
     fd_wksp_free_laddr( fd_udpsock_delete( fd_udpsock_leave( udpsock->udpsock.sock ) ) );
     close( udpsock->udpsock.sock_fd );
@@ -550,9 +560,11 @@ fd_quic_udpsock_destroy( fd_quic_udpsock_t * udpsock ) {
 void
 fd_quic_udpsock_service( fd_quic_udpsock_t const * udpsock ) {
   switch( udpsock->type ) {
+# if defined(__linux__)
   case FD_QUIC_UDPSOCK_TYPE_XSK:
     fd_xsk_aio_service( udpsock->xdp.xsk_aio );
     break;
+# endif
   case FD_QUIC_UDPSOCK_TYPE_UDPSOCK:
     fd_udpsock_service( udpsock->udpsock.sock );
     break;

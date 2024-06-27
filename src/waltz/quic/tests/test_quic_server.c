@@ -1,11 +1,6 @@
 #include "../fd_quic.h"
 #include "fd_quic_test_helpers.h"
 #include "../../tls/test_tls_helper.h"
-
-#include "../../xdp/fd_xsk.h"
-#include "../../xdp/fd_xsk_aio.h"
-#include "../../xdp/fd_xdp_redirect_user.h"
-
 #include "../../../ballet/x509/fd_x509_mock.h"
 
 int server_complete = 0;
