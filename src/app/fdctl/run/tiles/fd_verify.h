@@ -62,7 +62,7 @@ fd_txn_verify( fd_verify_ctx_t * ctx,
      So use this to do a quick dedup of ha traffic. */
 
   /* TODO: use more than 64 bits to dedup. */
-  ulong ha_dedup_tag = *((ulong *)signatures);
+  ulong ha_dedup_tag = FD_LOAD( ulong, signatures );
   int ha_dup;
   FD_FN_UNUSED ulong tcache_map_idx = 0; /* ignored */
   FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
