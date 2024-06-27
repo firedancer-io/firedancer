@@ -197,7 +197,6 @@ struct fd_txncache_insert {
   uchar const * blockhash;
   uchar const * txnhash;
   ulong         slot;
-  ulong         txnhash_offset;
   uchar const * result;
 };
 
@@ -379,6 +378,15 @@ fd_txncache_query_batch( fd_txncache_t *             tc,
                          int ( * query_func )( ulong slot, void * ctx ),
                          int *                       out_results );
 
+/* fd_txncache_set_txnhash_offset sets the correct offset value for the
+   txn hash "key slice" in the blockcache and slotblockcache. This is used
+   primarily for snapshot restore since in firedancer we always use the
+   offset of 0. Return an error if the cache entry isn't found. */
+int
+fd_txncache_set_txnhash_offset( fd_txncache_t * tc,
+                                ulong slot,
+                                uchar blockhash[ 32 ],
+                                ulong txnhash_offset );
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_bank_txncache_h */

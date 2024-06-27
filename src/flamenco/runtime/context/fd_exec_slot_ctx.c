@@ -360,13 +360,22 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
             .blockhash = blockhash->uc,
             .slot = slot,
             .txnhash = status->key_slice,
-            .txnhash_offset = pair->value.txn_idx,
             .result = &result
           };
         }
       }
     }
     fd_txncache_insert_batch( ctx->status_cache, insert_vals, num_entries );
+
+    for( ulong i = 0; i < slot_deltas->slot_deltas_len; i++ ) {
+      fd_slot_delta_t * slot_delta = deltas[i];
+      ulong slot = slot_delta->slot;
+      for( ulong j = 0; j < slot_delta->slot_delta_vec_len; j++ ) {
+        fd_status_pair_t * pair = &slot_delta->slot_delta_vec[j];
+        fd_hash_t * blockhash = &pair->hash;
+        fd_txncache_set_txnhash_offset( ctx->status_cache, slot, blockhash->uc, pair->value.txn_idx );
+      }
+    }
   } FD_SCRATCH_SCOPE_END;
   return ctx;
 }
