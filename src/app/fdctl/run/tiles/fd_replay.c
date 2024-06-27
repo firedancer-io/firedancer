@@ -1,8 +1,10 @@
 #define _GNU_SOURCE
 
+#include "../../../../disco/fd_disco.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../disco/tiles.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
+#include "../../../../disco/shred/fd_shred_dest.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../flamenco/fd_flamenco.h"
 #include "../../../../disco/bank/fd_txncache.h"
@@ -21,6 +23,7 @@
 #include "../../../../flamenco/runtime/fd_runtime.h"
 #include "../../../../util/fd_util.h"
 #include "../../../../util/tile/fd_tile_private.h"
+#include "../../../../util/net/fd_net_headers.h"
 #include "fd_replay_notif.h"
 #include "generated/replay_seccomp.h"
 #include "../../../../choreo/fd_choreo.h"
@@ -51,12 +54,14 @@
 #define STORE_IN_IDX   (0UL)
 #define PACK_IN_IDX    (1UL)
 #define GOSSIP_IN_IDX  (2UL)
-#define SIGN_IN_IDX    (3UL)
+#define VOTE_CONTACT_IN_IDX (3UL)
+#define SIGN_IN_IDX         (4UL)
 
 #define POH_OUT_IDX    (0UL)
 #define NOTIF_OUT_IDX  (1UL)
 #define GOSSIP_OUT_IDX (2UL)
 #define SIGN_OUT_IDX   (3UL)
+#define NET_OUT_IDX    (4UL)
 
 /* Scratch space estimates.
    TODO: Update constants and add explanation
@@ -87,6 +92,11 @@ struct fd_replay_tile_ctx {
   fd_wksp_t * gossip_in_mem;
   ulong       gossip_in_chunk0;
   ulong       gossip_in_wmark;
+
+  // Gossip tile input
+  fd_wksp_t * vote_contact_in_mem;
+  ulong       vote_contact_in_chunk0;
+  ulong       vote_contact_in_wmark;
 
   // PoH tile output defs
   fd_frag_meta_t * poh_out_mcache;
@@ -120,6 +130,17 @@ struct fd_replay_tile_ctx {
   ulong       gossip_out_chunk0;
   ulong       gossip_out_wmark;
   ulong       gossip_out_chunk;
+
+  // Net out defs
+  fd_frag_meta_t * net_out_mcache;
+  ulong *          net_out_sync;
+  ulong            net_out_depth;
+  ulong            net_out_seq;
+
+  fd_wksp_t * net_out_mem;
+  ulong       net_out_chunk0;
+  ulong       net_out_wmark;
+  ulong       net_out_chunk;
 
   // Stake weights output link defs
   fd_frag_meta_t * stake_weights_out_mcache;
@@ -186,12 +207,20 @@ struct fd_replay_tile_ctx {
   ulong * root_slot_fseq;
   uint poh_init_done;
 
-  int                   vote;
-  fd_pubkey_t *         validator_identity_pubkey;
-  fd_pubkey_t *         vote_acct_addr;
-  fd_keyguard_client_t  keyguard_client[1];
-  ulong                 gossip_vote_txn_sz;
-  uchar                 gossip_vote_txn [ FD_TXN_MTU ];
+  ushort net_id;
+  uchar src_mac_addr[6];
+  fd_net_hdrs_t hdr[1];
+
+  int                        vote;
+  fd_stake_ci_t *            stake_ci;
+  fd_pubkey_t *              validator_identity_pubkey;
+  fd_pubkey_t *              vote_acct_addr;
+  fd_keyguard_client_t       keyguard_client[1];
+  ulong                      gossip_vote_txn_sz;
+  uchar                      gossip_vote_txn [FD_TXN_MTU];
+  fd_shred_dest_weighted_t * new_dest_ptr;
+  ulong                      new_dest_cnt;
+
   fd_txncache_t * status_cache;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
@@ -224,6 +253,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_tower_align(), fd_tower_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(), fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT) );
+  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -248,6 +278,9 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
     stake_weights_msg[2] = fd_epoch_slot0( &epoch_bank->epoch_schedule, stake_weights_msg[0] ); /* start_slot */
     stake_weights_msg[3] = epoch_bank->epoch_schedule.slots_per_epoch; /* slot_cnt */
     FD_LOG_INFO(("sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
+    fd_stake_ci_stake_msg_init( ctx->stake_ci, (uchar *) fd_type_pun( stake_weights_msg ) );
+    fd_stake_ci_stake_msg_fini( ctx->stake_ci );
+
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
 
     ulong stake_weights_sz  = 4*sizeof(ulong) + (stake_weight_idx * sizeof(fd_stake_weight_t));
@@ -266,6 +299,9 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
     stake_weights_msg[2] = fd_epoch_slot0( &epoch_bank->epoch_schedule, stake_weights_msg[0] ); /* start_slot */
     stake_weights_msg[3] = epoch_bank->epoch_schedule.slots_per_epoch; /* slot_cnt */
     FD_LOG_INFO(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
+    fd_stake_ci_stake_msg_init( ctx->stake_ci, (uchar *) fd_type_pun( stake_weights_msg ) );
+    fd_stake_ci_stake_msg_fini( ctx->stake_ci );
+
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
 
     ulong stake_weights_sz = 4*sizeof(ulong) + (stake_weight_idx * sizeof(fd_stake_weight_t));
@@ -350,6 +386,35 @@ during_frag( void * _ctx,
     /* Incoming packet from gossip tile, a raw vote transaction. */
     ctx->gossip_vote_txn_sz = sz;
     memcpy( ctx->gossip_vote_txn, src, sz );
+    return;
+  } else if ( in_idx == VOTE_CONTACT_IN_IDX ) {
+    if( FD_UNLIKELY( chunk<ctx->vote_contact_in_chunk0 || chunk>ctx->vote_contact_in_wmark ) ) {
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
+            ctx->vote_contact_in_chunk0, ctx->vote_contact_in_wmark ));
+    }
+    uchar const *buf = (uchar *)fd_chunk_to_laddr_const(ctx->vote_contact_in_mem, chunk);
+    ulong const *header = (ulong const *)fd_type_pun_const(buf);
+
+    ulong dest_cnt = header[0];
+    //fd_histf_sample(ctx->metrics->contact_info_cnt, dest_cnt);
+
+    if (dest_cnt >= MAX_SHRED_DESTS)
+      FD_LOG_ERR(("Cluster nodes had %lu destinations, which was more than the "
+                  "max of %lu",
+                  dest_cnt, MAX_SHRED_DESTS));
+
+    fd_shred_dest_wire_t const *in_dests = fd_type_pun_const( header + 1UL );
+    fd_shred_dest_weighted_t *dests = fd_stake_ci_dest_add_init( ctx->stake_ci );
+
+    ctx->new_dest_ptr = dests;
+    ctx->new_dest_cnt = dest_cnt;
+
+    for (ulong i = 0UL; i < dest_cnt; i++) {
+      memcpy(dests[i].pubkey.uc, in_dests[i].pubkey, 32UL);
+      dests[i].ip4 = in_dests[i].ip4_addr;
+      dests[i].port = in_dests[i].udp_port;
+    }
+    FD_LOG_WARNING(( "REPLAY: get %lu vote contact message, first one is ip=%x, port=%d", dest_cnt, dests[0].ip4, dests[0].port ));
     return;
   }
 
@@ -486,6 +551,73 @@ prepare_ctx(fd_replay_tile_ctx_t * ctx ) {
 }
 
 static void
+send_vote(fd_replay_tile_ctx_t * ctx,
+          ushort recent_blockhash_off,
+          fd_compact_vote_state_update_t * vote) {
+  /* This is a strawman implementation and we will use PoH for current slot  */
+  ulong               slot          = vote->root + 50;
+
+  /* Get the leader contact info of slot */
+  fd_stake_ci_t * stake_ci          = ctx->stake_ci;
+  fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( stake_ci, slot );
+  fd_shred_dest_t *           sdest = fd_stake_ci_get_sdest_for_slot ( stake_ci, slot );
+  if ( !lsched || !sdest ) return;
+  fd_pubkey_t const *   slot_leader = fd_epoch_leaders_get( lsched, slot );
+  fd_shred_dest_idx_t      dest_idx = fd_shred_dest_pubkey_to_idx( sdest, slot_leader );
+  fd_shred_dest_weighted_t *   dest = fd_shred_dest_idx_to_dest( sdest, dest_idx );
+
+  if (dest->ip4 != 0 && dest->port != 0) {
+    /* Define packet buffer and generate vote transaction */
+    uchar txn_meta_buf [ FD_TXN_MAX_SZ ] ;
+    uchar * packet    = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
+    fd_voter_t voter = {
+      .vote_acct_addr              = ctx->vote_acct_addr,
+      .vote_authority_pubkey       = ctx->validator_identity_pubkey,
+      .validator_identity_pubkey   = ctx->validator_identity_pubkey,
+      .voter_sign_arg              = ctx,
+      .vote_authority_sign_fun     = vote_txn_signer,
+      .validator_identity_sign_fun = vote_txn_signer
+    };
+    ulong vote_txn_sz = fd_vote_txn_generate( &voter,
+                                              vote,
+                                              ctx->gossip_vote_txn + recent_blockhash_off,
+                                              txn_meta_buf,
+                                              packet + sizeof(fd_net_hdrs_t) );
+
+    /* Generate packet headers */
+    fd_memcpy( packet, ctx->hdr, sizeof(fd_net_hdrs_t) );
+    fd_net_hdrs_t * hdr = (fd_net_hdrs_t *)packet;
+
+    memset( hdr->eth->dst, 0U, 6UL );
+    memcpy( hdr->ip4->daddr_c, &dest->ip4, 4UL );
+    hdr->ip4->net_id      = fd_ushort_bswap( ctx->net_id++ );
+    hdr->ip4->check       = 0U;
+    hdr->ip4->net_tot_len = fd_ushort_bswap( (ushort)(vote_txn_sz + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)) );
+    hdr->ip4->check       = fd_ip4_hdr_check( ( fd_ip4_hdr_t const *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4 ) );
+
+    ulong packet_sz       = sizeof(fd_net_hdrs_t) + vote_txn_sz;
+    hdr->udp->net_dport   = fd_ushort_bswap( dest->port );
+    hdr->udp->net_len     = fd_ushort_bswap( (ushort)(vote_txn_sz + sizeof(fd_udp_hdr_t)) );
+    hdr->udp->check       = fd_ip4_udp_check( *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->saddr_c ),
+                                              *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->daddr_c ),
+                                              (fd_udp_hdr_t const *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->udp ),
+                                              packet + sizeof(fd_net_hdrs_t) );
+
+    /* Send the vote transaction through net tile */
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+    ulong   sig  = fd_disco_netmux_sig( 0U, 0U, dest->ip4, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
+
+    fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk,
+                       packet_sz, 0UL, tsorig, tspub );
+    ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
+    ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
+    FD_LOG_NOTICE(( "Sending vote txn to TPU of leader@slot%lu, id=%32J, ip=%x, port=%u, size=%lu+%lu",
+                    slot, dest->pubkey.key, dest->ip4, dest->port, sizeof(fd_net_hdrs_t), vote_txn_sz ));
+  }
+}
+
+static void
 after_frag( void *             _ctx,
             ulong              in_idx     FD_PARAM_UNUSED,
             ulong              seq,
@@ -497,6 +629,11 @@ after_frag( void *             _ctx,
             fd_mux_context_t * mux ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
 
+  if ( in_idx == VOTE_CONTACT_IN_IDX ) {
+    fd_stake_ci_dest_add_fini( ctx->stake_ci, ctx->new_dest_cnt );
+    return;
+  }
+
   if ( in_idx == GOSSIP_IN_IDX ) {
     if ( !ctx->vote ) return;
 
@@ -507,32 +644,35 @@ after_frag( void *             _ctx,
       FD_LOG_WARNING(("failed to parse vote"));
     };
 
-    /* for now, if consensus.vote == true, modify the timestamp and echo the vote txn back with gossip */
-    /* later, we should send out our own vote txns through gossip  */
-    ulong MAGIC_TIMESTAMP = 12345678;
+    ulong MAGIC_TIMESTAMP = 12345678UL;
     vote.timestamp = &MAGIC_TIMESTAMP;
-    fd_voter_t voter = {
-      .vote_acct_addr              = ctx->vote_acct_addr,
-      .vote_authority_pubkey       = ctx->validator_identity_pubkey,
-      .validator_identity_pubkey   = ctx->validator_identity_pubkey,
-      .voter_sign_arg              = ctx,
-      .vote_authority_sign_fun     = vote_txn_signer,
-      .validator_identity_sign_fun = vote_txn_signer
-    };
+    /* TEMPORARY: echo vote txns from gossip to TPU; replace by our own vote txns later */
+    send_vote( ctx, recent_blockhash_off, &vote );
 
-    uchar txn_meta_buf [ FD_TXN_MAX_SZ ] ;
-    uchar * msg_to_gossip = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
-    ulong vote_txn_sz = fd_vote_txn_generate( &voter,
-                                              &vote,
-                                              ctx->gossip_vote_txn + recent_blockhash_off,
-                                              txn_meta_buf,
-                                              msg_to_gossip );
+    /* TEMPORARY: echo vote txns from gossip to gossip; replace by our own vote txns later */
+    /* fd_voter_t voter = { */
+    /*   .vote_acct_addr              = ctx->vote_acct_addr, */
+    /*   .vote_authority_pubkey       = ctx->validator_identity_pubkey, */
+    /*   .validator_identity_pubkey   = ctx->validator_identity_pubkey, */
+    /*   .voter_sign_arg              = ctx, */
+    /*   .vote_authority_sign_fun     = vote_txn_signer, */
+    /*   .validator_identity_sign_fun = vote_txn_signer */
+    /* }; */
 
-    fd_mcache_publish( ctx->gossip_out_mcache, ctx->gossip_out_depth, ctx->gossip_out_seq, 1UL, ctx->gossip_out_chunk,
-      vote_txn_sz, 0UL, 0, 0 );
-    ctx->gossip_out_seq   = fd_seq_inc( ctx->gossip_out_seq, 1UL );
-    ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, vote_txn_sz,
-                                                    ctx->gossip_out_chunk0, ctx->gossip_out_wmark );
+    /* uchar txn_meta_buf [ FD_TXN_MAX_SZ ] ; */
+    /* uchar * msg_to_gossip = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk ); */
+    /* ulong vote_txn_sz = fd_vote_txn_generate( &voter, */
+    /*                                           &vote, */
+    /*                                           ctx->gossip_vote_txn + recent_blockhash_off, */
+    /*                                           txn_meta_buf, */
+    /*                                           msg_to_gossip ); */
+
+    /* fd_mcache_publish( ctx->gossip_out_mcache, ctx->gossip_out_depth, ctx->gossip_out_seq, 1UL, ctx->gossip_out_chunk, */
+    /*   vote_txn_sz, 0UL, 0, 0 ); */
+    /* ctx->gossip_out_seq   = fd_seq_inc( ctx->gossip_out_seq, 1UL ); */
+    /* ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, vote_txn_sz, */
+    /*                                                 ctx->gossip_out_chunk0, ctx->gossip_out_wmark ); */
+
     return;
   }
 
@@ -1065,6 +1205,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * tower_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
   void * bank_hash_cmp_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   void * status_cache_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(), fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT) );
+  void * stake_ci_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem != ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {
@@ -1301,6 +1442,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->gossip_in_chunk0 = fd_dcache_compact_chunk0( ctx->gossip_in_mem, gossip_in_link->dcache );
   ctx->gossip_in_wmark  = fd_dcache_compact_wmark( ctx->gossip_in_mem, gossip_in_link->dcache, gossip_in_link->mtu );
 
+  /* Set up gossip tile input for vote contact info */
+  fd_topo_link_t *  vote_contact_in_link = &topo->links[ tile->in_link_id[ VOTE_CONTACT_IN_IDX ] ];
+  ctx->vote_contact_in_mem    = topo->workspaces[ topo->objs[ vote_contact_in_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->vote_contact_in_chunk0 = fd_dcache_compact_chunk0( ctx->vote_contact_in_mem, vote_contact_in_link->dcache );
+  ctx->vote_contact_in_wmark  = fd_dcache_compact_wmark( ctx->vote_contact_in_mem, vote_contact_in_link->dcache, vote_contact_in_link->mtu );
+
   fd_topo_link_t * poh_out_link = &topo->links[ tile->out_link_id[ POH_OUT_IDX ] ];
   ctx->poh_out_mcache = poh_out_link->mcache;
   ctx->poh_out_sync   = fd_mcache_seq_laddr( ctx->poh_out_mcache );
@@ -1331,6 +1478,19 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->gossip_out_wmark  = fd_dcache_compact_wmark ( ctx->gossip_out_mem, gossip_out->dcache, gossip_out->mtu );
   ctx->gossip_out_chunk  = ctx->gossip_out_chunk0;
 
+  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ NET_OUT_IDX ] ];
+  ctx->net_out_mcache = net_out->mcache;
+  ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );
+  ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
+  ctx->net_out_seq    = fd_mcache_seq_query( ctx->net_out_sync );
+  ctx->net_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( net_out->dcache ), net_out->dcache );
+  ctx->net_out_mem    = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->net_out_wmark  = fd_dcache_compact_wmark( ctx->net_out_mem, net_out->dcache, net_out->mtu );
+  ctx->net_out_chunk  = ctx->net_out_chunk0;
+
+  ctx->net_id = (ushort)0;
+  fd_net_create_packet_header_template( ctx->hdr, FD_NET_MTU, tile->replay.ip_addr, tile->replay.src_mac_addr, 0 );
+
   ctx->vote = tile->replay.vote;
   const uchar* identity_pubkey    = fd_keyload_load( tile->replay.identity_key_path, 1 );
   const uchar* vote_acct_pubkey   = fd_keyload_load( tile->replay.vote_account_path, 1 );
@@ -1345,6 +1505,8 @@ unprivileged_init( fd_topo_t *      topo,
                                                             sign_in->dcache ) )==NULL ) {
     FD_LOG_ERR(( "Keyguard join failed" ));
   }
+  /* Setup stake_ci for leader contact info */
+  ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( stake_ci_mem, ctx->validator_identity_pubkey ) );
 
 
   /* Set up stake weights tile output */
