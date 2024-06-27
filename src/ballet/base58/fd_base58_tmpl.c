@@ -377,7 +377,7 @@ SUFFIX(fd_base58_decode)( char const * encoded,
 
   uint * out_as_uint = (uint*)out;
   for( ulong i=0UL; i<BINARY_SZ; i++ ) {
-    out_as_uint[ i ] = fd_uint_bswap( (uint)binary[ i ] );
+    FD_STORE( uint, &out_as_uint[ i ], fd_uint_bswap( (uint)binary[ i ] ) );
   }
   /* Make sure the encoded version has the same number of leading '1's
      as the decoded version has leading 0s. The check doesn't read past
