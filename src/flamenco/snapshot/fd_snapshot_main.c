@@ -324,7 +324,7 @@ do_dump( fd_snapshot_dumper_t *    d,
   /* Create a high-quality hash seed for fd_funk */
 
   ulong funk_seed;
-  if( FD_UNLIKELY( sizeof(ulong)!=getrandom( &funk_seed, sizeof(ulong), 0 ) ) )
+  if( FD_UNLIKELY( !fd_rng_secure( &funk_seed, sizeof(ulong) ) ) )
     { FD_LOG_WARNING(( "getrandom() failed (%d-%s)", errno, fd_io_strerror( errno ) )); return EXIT_FAILURE; }
 
   /* Create a funk database */
