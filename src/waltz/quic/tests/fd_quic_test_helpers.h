@@ -3,9 +3,12 @@
 
 #include "../fd_quic.h"
 #include "../../aio/fd_aio_pcapng.h"
-#include "../../xdp/fd_xdp.h"
 #include "../../udpsock/fd_udpsock.h"
 #include "../../tls/test_tls_helper.h"
+
+#if defined(__linux__)
+#include "../../xdp/fd_xdp.h"
+#endif
 
 /* Common helpers for QUIC tests.  The tests using these gain the
    following command-line options:
@@ -101,12 +104,14 @@ struct fd_quic_udpsock {
 
   fd_wksp_t * wksp;  /* Handle to the workspace owning the objects */
   union {
+#   if defined(__linux__)
     struct {
       fd_xdp_session_t      session;
       fd_xdp_link_session_t link_session;
       fd_xsk_t *            xsk;
       fd_xsk_aio_t *        xsk_aio;
     } xdp;
+#   endif
     struct {
       fd_udpsock_t * sock;
       int            sock_fd;
