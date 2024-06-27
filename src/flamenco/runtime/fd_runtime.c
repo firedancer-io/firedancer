@@ -1206,7 +1206,6 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
       fd_blake3_fini( b3, hash );
       curr_insert->txnhash = hash;
       curr_insert->result = &results[num_cache_txns];
-      curr_insert->txnhash_offset = 0UL;
       num_cache_txns++;
 #endif
       if( exec_txn_err != 0 ) {

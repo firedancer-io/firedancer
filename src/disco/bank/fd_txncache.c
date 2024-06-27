@@ -704,8 +704,6 @@ fd_txncache_insert_batch( fd_txncache_t *              tc,
     fd_txncache_private_blockcache_t * blockcache;
     if( FD_UNLIKELY( !fd_txncache_ensure_blockcache( tc, txns[ i ].blockhash, &blockcache ) ) ) goto unlock_fail;
 
-    blockcache->txnhash_offset = txns[ i ].txnhash_offset;
-
     if( FD_UNLIKELY( blockcache->lowest_slot!=ULONG_MAX-2 && txns[ i ].slot>=blockcache->lowest_slot+150UL ) ) {
       FD_LOG_WARNING(("Lowest slot %lu for slot %lu", blockcache->lowest_slot, txns[i].slot ));
       goto unlock_fail;
@@ -716,8 +714,6 @@ fd_txncache_insert_batch( fd_txncache_t *              tc,
 
     fd_txncache_private_slotblockcache_t * slotblockcache;
     if( FD_UNLIKELY( !fd_txncache_ensure_slotblockcache( slotcache, txns[ i ].blockhash, &slotblockcache ) ) ) goto unlock_fail;
-
-    slotblockcache->txnhash_offset = txns[ i ].txnhash_offset;
 
     for(;;) {
       fd_txncache_private_txnpage_t * txnpage = fd_txncache_ensure_txnpage( tc, blockcache );
@@ -815,4 +811,29 @@ fd_txncache_snapshot( fd_txncache_t * tc,
 
   fd_rwlock_unread( tc->lock );
   return 0;
+}
+
+int
+fd_txncache_set_txnhash_offset( fd_txncache_t * tc,
+                                ulong slot,
+                                uchar blockhash[ 32 ],
+                                ulong txnhash_offset ) {
+  fd_rwlock_read( tc->lock );
+  fd_txncache_private_blockcache_t * blockcache;
+  if( FD_UNLIKELY( !fd_txncache_ensure_blockcache( tc, blockhash, &blockcache ) ) ) goto unlock_fail;
+
+  blockcache->txnhash_offset = txnhash_offset;
+  fd_txncache_private_slotcache_t * slotcache;
+  if( FD_UNLIKELY( !fd_txncache_ensure_slotcache( tc, slot, &slotcache ) ) ) goto unlock_fail;
+
+  fd_txncache_private_slotblockcache_t * slotblockcache;
+  if( FD_UNLIKELY( !fd_txncache_ensure_slotblockcache( slotcache, blockhash, &slotblockcache ) ) ) goto unlock_fail;
+  slotblockcache->txnhash_offset = txnhash_offset;
+
+  fd_rwlock_unread( tc->lock );
+  return 0;
+
+unlock_fail:
+  fd_rwlock_unread( tc->lock );
+  return 1;
 }
