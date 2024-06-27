@@ -135,7 +135,8 @@ Paramaters:
 static int
 VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
                                       VM_SYSCALL_CPI_ACC_INFO_T const * account_info,
-                                      fd_pubkey_t const * callee_acc_pubkey ) {
+                                      fd_pubkey_t const * callee_acc_pubkey,
+                                      ulong instr_acc_idx ) {
 
   /* Consume compute units for the account data access */
 
@@ -167,7 +168,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
   int err2;
   /* FIXME: double-check these permissions, especially the callee_acc_idx */
   if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, caller_acc_data_len, &err1 ) &&
-      fd_account_can_data_be_changed2( vm->instr_ctx, callee_acc->meta, callee_acc_pubkey, &err2 ) ) {
+      fd_account_can_data_be_changed( vm->instr_ctx->instr, instr_acc_idx, &err2 ) ) {
       /* We must ignore the errors here, as they are informational and do not mean the result is invalid. */
       /* TODO: not pass informational errors like this? */
     err = fd_instr_borrowed_account_modify( vm->instr_ctx, callee_acc_pubkey, caller_acc_data_len, &callee_acc );
@@ -275,7 +276,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       found = 1;
 
       /* Update the callee account to reflect any changes the caller has made */
-      if( FD_UNLIKELY( acc_meta && VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC(vm, &account_infos[j], callee_account ) ) ) {
+      if( FD_UNLIKELY( acc_meta && VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC(vm, &account_infos[j], callee_account, j ) ) ) {
         
         return 1001;
       }
