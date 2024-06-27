@@ -35,6 +35,8 @@ run_cmd_perm( args_t *         args,
                                                                        "call `rlimit(2)  to increase `RLIMIT_NOFILE` to allow more open files for Agave" );
   fd_caps_check_capability(   caps, NAME, CAP_NET_RAW,                 "call `socket(2)` to bind to a raw socket for use by XDP" );
   fd_caps_check_capability(   caps, NAME, CAP_SYS_ADMIN,               "call `bpf(2)` with the `BPF_OBJ_GET` command to initialize XDP" );
+  if( fd_sandbox_requires_cap_sys_admin() )
+    fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,               "call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace" );
   if( FD_LIKELY( getuid() != config->uid ) )
     fd_caps_check_capability( caps, NAME, CAP_SETUID,                  "call `setresuid(2)` to switch uid" );
   if( FD_LIKELY( getgid() != config->gid ) )

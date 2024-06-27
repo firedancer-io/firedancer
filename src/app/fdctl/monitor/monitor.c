@@ -37,11 +37,15 @@ monitor_cmd_perm( args_t *         args,
   (void)args;
 
   ulong mlock_limit = fd_topo_mlock( &config->topo );
-  fd_caps_check_resource( caps, "monitor", RLIMIT_MEMLOCK, mlock_limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`" );
-  if( getuid() != config->uid )
-    fd_caps_check_capability( caps, "monitor", CAP_SETUID, "switch uid by calling `setuid(2)`" );
-  if( getgid() != config->gid )
-    fd_caps_check_capability( caps, "monitor", CAP_SETGID, "switch gid by calling `setgid(2)`" );
+
+  fd_caps_check_resource(     caps, "monitor", RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
+
+  if( fd_sandbox_requires_cap_sys_admin() )
+    fd_caps_check_capability( caps, "monitor", CAP_SYS_ADMIN,               "call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace" );
+  if( FD_LIKELY( getuid() != config->uid ) )
+    fd_caps_check_capability( caps, "monitor", CAP_SETUID,                  "call `setresuid(2)` to switch uid" );
+  if( FD_LIKELY( getgid() != config->gid ) )
+    fd_caps_check_capability( caps, "monitor", CAP_SETGID,                  "call `setresgid(2)` to switch gid" );
 }
 
 typedef struct {
