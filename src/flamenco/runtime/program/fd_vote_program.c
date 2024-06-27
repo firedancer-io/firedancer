@@ -251,8 +251,7 @@ authorized_voters_purge_authorized_voters( fd_vote_authorized_voters_t * self,
   FD_SCRATCH_SCOPE_BEGIN {
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/authorized_voters.rs#L42-L46
-
-  ulong expired_keys[FD_VOTE_AUTHORIZED_VOTERS_MIN] = { 0 }; /* TODO use fd_set */
+  ulong *expired_keys = fd_scratch_alloc( alignof(ulong), fd_vote_authorized_voters_treap_ele_cnt(self->treap) * sizeof(ulong) );
   ulong key_cnt                                     = 0;
   for( fd_vote_authorized_voters_treap_fwd_iter_t iter =
            fd_vote_authorized_voters_treap_fwd_iter_init( self->treap, self->pool );
