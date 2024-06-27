@@ -178,22 +178,9 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
     fd_memcpy( callee_acc->data, caller_acc_data, caller_acc_data_len );
   }
 
-  int is_disable_cpi_setting_executable_and_rent_epoch_active = FD_FEATURE_ACTIVE(vm->instr_ctx->slot_ctx, disable_cpi_setting_executable_and_rent_epoch);
-  if( !is_disable_cpi_setting_executable_and_rent_epoch_active &&
-      fd_account_is_executable( callee_acc->meta )!=account_info->executable ) {
-    fd_pubkey_t const * program_acc = &vm->instr_ctx->instr->acct_pubkeys[vm->instr_ctx->instr->program_id];
-    fd_account_set_executable2( vm->instr_ctx, program_acc, callee_acc->meta, (char)account_info->executable);
-  }
-
   uchar const * caller_acc_owner = FD_VM_MEM_HADDR_LD( vm, account_info->owner_addr, alignof(uchar), sizeof(fd_pubkey_t) );
   if (memcmp(callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t))) {
     fd_memcpy(callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t));
-  }
-
-  if( !is_disable_cpi_setting_executable_and_rent_epoch_active         &&
-      callee_acc->meta->info.rent_epoch!=account_info->rent_epoch ) {
-    if( FD_UNLIKELY( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, enable_early_verification_of_account_modifications ) ) ) return 1;
-    else callee_acc->meta->info.rent_epoch = account_info->rent_epoch;
   }
 
   return FD_VM_SUCCESS;
