@@ -1,49 +1,58 @@
-# Builds for different compilers, architectures and targets
+# Builds for all compilers, architectures and targets
 
 name: Builds
 on:
   workflow_call:
     inputs:
-      targets:
-        type: string
-        description: Build targets
-        default: all,fdctl
-      machines:
-        type: string
-        description: Build architectures
-        default: linux_gcc_x86_64,linux_clang_x86_64
       gcc:
         type: string
-        description: GCC compiler versions
-        default: gcc-8.5.0,gcc-12.4.0
+        description: GCC versions to use
+        default: all
       clang:
         type: string
-        description: Clang compiler versions
-        default: clang-17.0.6
+        description: Clang versions to use
+        default: all
+      machine:
+        type: string
+        description: Machines to build for
+        default: all
+      verbose:
+        type: boolean
+        description: Show error outputs
+        default: false
+      exit_on_err:
+        type: boolean
+        description: Exit on the first error
+        default: false
   workflow_dispatch:
     inputs:
-      targets:
-        type: string
-        description: Build targets (comma-separated)
-        default: all,fdctl
-      machines:
-        type: string
-        description: Build architectures (comma-separated)
-        default: linux_gcc_x86_64,linux_clang_x86_64
       gcc:
         type: string
-        description: GCC compiler versions (comma-separated)
-        default: gcc-8.5.0,gcc-12.4.0
+        description: GCC versions to use (comma-separated | none | all)
+        default: all
       clang:
         type: string
-        description: Clang compiler versions (comma-separated)
-        default: clang-17.0.6
+        description: Clang versions to use (comma-separated | none | all)
+        default: all
+      machine:
+        type: string
+        description: Machines to build for (comma-separated | all)
+        default: all
+      verbose:
+        type: boolean
+        description: Show error outputs
+        default: false
+      exit_on_err:
+        type: boolean
+        description: Exit on the first error
+        default: false
 concurrency:
   group: builds_${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
-  build:
-    runs-on: 512G
+  build_gcc:
+    runs-on: X64
+    if: ${{ inputs.gcc != 'none' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,12 +60,62 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@1.73.0
 
-      - uses: ./.github/actions/deps
-
-      - name: Start build
+      - name: Build command line args
         run: |
-          contrib/build.sh --no-deps --no-rust \
-          --targets ${{ inputs.targets }}   \
-          --machines ${{ inputs.machines }} \
-          --gcc-versions ${{ inputs.gcc || 'none --no-gcc' }} \
-          --clang-versions ${{ inputs.clang || 'none --no-clang' }}
+          ARGS=""
+          # verbose
+          if [ "${{ inputs.verbose }}" == "true" ]; then
+            ARGS="$ARGS --verbose"
+          fi
+          # exit-on-err
+          if [ "${{ inputs.exit_on_err }}" == "true" ]; then
+            ARGS="$ARGS --exit-on-err"
+          fi
+          # machine
+          if [ "${{ inputs.machine }}" != "all" ]; then
+            ARGS="$ARGS --machines ${{ inputs.machine }}"
+          fi
+          # gcc
+          if [ "${{ inputs.gcc }}" != "all" ]; then
+            ARGS="$ARGS --gcc-versions ${{ inputs.gcc }}"
+          fi
+          echo "BUILD_ARGS=$ARGS" >> $GITHUB_ENV
+
+      - name: Run gcc builds
+        run: |
+          contrib/build.sh --no-rust --no-clang ${{ env.BUILD_ARGS }}
+
+  build_clang:
+    runs-on: 512G
+    if: ${{ inputs.clang != 'none' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@1.73.0
+
+      - name: Build command line args
+        run: |
+          ARGS=""
+          # verbose
+          if [ "${{ inputs.verbose }}" == "true" ]; then
+            ARGS="$ARGS --verbose"
+          fi
+          # exit-on-err
+          if [ "${{ inputs.exit_on_err }}" == "true" ]; then
+            ARGS="$ARGS --exit-on-err"
+          fi
+          # machine
+          if [ "${{ inputs.machine }}" != "all" ]; then
+            ARGS="$ARGS --machines ${{ inputs.machine }}"
+          fi
+          # clang
+          if [ "${{ inputs.clang }}" != "all" ]; then
+            ARGS="$ARGS --clang-versions ${{ inputs.clang }}"
+          fi
+          echo "ARGS=$ARGS" >> $GITHUB_ENV
+
+      - name: Run clang builds
+        run: |
+          contrib/build.sh --no-rust --no-gcc ${{ env.BUILD_ARGS }}
