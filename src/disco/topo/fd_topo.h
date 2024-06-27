@@ -202,6 +202,8 @@ typedef struct {
 
     struct {
       int   vote;
+      uint  ip_addr;
+      uchar src_mac_addr[ 6 ];
 
       char  blockstore_checkpt[ PATH_MAX ];
       char  capture[ PATH_MAX ];
