@@ -719,7 +719,7 @@ void fd_block_hash_queue_decode_unsafe( fd_block_hash_queue_t * self, fd_bincode
   }
   ulong ages_len;
   fd_bincode_uint64_decode_unsafe( &ages_len, ctx );
-  self->ages_pool = fd_hash_hash_age_pair_t_map_alloc( ctx->valloc, fd_ulong_max(ages_len, 400 ) );
+  self->ages_pool = fd_hash_hash_age_pair_t_map_alloc( ctx->valloc, fd_ulong_max(ages_len + 1, 400 ) );
   self->ages_root = NULL;
   for( ulong i=0; i < ages_len; i++ ) {
     fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( self->ages_pool );
@@ -1562,7 +1562,7 @@ int fd_stake_history_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
 void fd_stake_history_decode_unsafe( fd_stake_history_t * self, fd_bincode_decode_ctx_t * ctx ) {
   ulong fd_stake_history_treap_len;
   fd_bincode_uint64_decode_unsafe( &fd_stake_history_treap_len, ctx );
-  ulong fd_stake_history_treap_max = fd_ulong_max( fd_stake_history_treap_len, FD_STAKE_HISTORY_MIN );
+  ulong fd_stake_history_treap_max = fd_ulong_max( fd_stake_history_treap_len + 1, FD_STAKE_HISTORY_MIN );
   self->pool = fd_stake_history_pool_alloc( ctx->valloc, fd_stake_history_treap_max );
   self->treap = fd_stake_history_treap_alloc( ctx->valloc, fd_stake_history_treap_max );
   for( ulong i=0; i < fd_stake_history_treap_len; i++ ) {
@@ -1873,7 +1873,7 @@ int fd_vote_accounts_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
 void fd_vote_accounts_decode_unsafe( fd_vote_accounts_t * self, fd_bincode_decode_ctx_t * ctx ) {
   ulong vote_accounts_len;
   fd_bincode_uint64_decode_unsafe( &vote_accounts_len, ctx );
-  self->vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( ctx->valloc, fd_ulong_max(vote_accounts_len, 10000 ) );
+  self->vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( ctx->valloc, fd_ulong_max(vote_accounts_len + 1, 10000 ) );
   self->vote_accounts_root = NULL;
   for( ulong i=0; i < vote_accounts_len; i++ ) {
     fd_vote_accounts_pair_t_mapnode_t * node = fd_vote_accounts_pair_t_map_acquire( self->vote_accounts_pool );
@@ -2038,7 +2038,7 @@ int fd_stake_accounts_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
 void fd_stake_accounts_decode_unsafe( fd_stake_accounts_t * self, fd_bincode_decode_ctx_t * ctx ) {
   ulong stake_accounts_len;
   fd_bincode_uint64_decode_unsafe( &stake_accounts_len, ctx );
-  self->stake_accounts_pool = fd_stake_accounts_pair_t_map_alloc( ctx->valloc, fd_ulong_max(stake_accounts_len, 100000 ) );
+  self->stake_accounts_pool = fd_stake_accounts_pair_t_map_alloc( ctx->valloc, fd_ulong_max(stake_accounts_len + 1, 100000 ) );
   self->stake_accounts_root = NULL;
   for( ulong i=0; i < stake_accounts_len; i++ ) {
     fd_stake_accounts_pair_t_mapnode_t * node = fd_stake_accounts_pair_t_map_acquire( self->stake_accounts_pool );
@@ -7316,7 +7316,7 @@ void fd_vote_authorized_voters_decode_unsafe( fd_vote_authorized_voters_t * self
   fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = ctx->valloc };
   ulong fd_vote_authorized_voters_treap_len;
   fd_bincode_uint64_decode_unsafe( &fd_vote_authorized_voters_treap_len, ctx );
-  ulong fd_vote_authorized_voters_treap_max = fd_ulong_max( fd_vote_authorized_voters_treap_len, FD_VOTE_AUTHORIZED_VOTERS_MIN );
+  ulong fd_vote_authorized_voters_treap_max = fd_ulong_max( fd_vote_authorized_voters_treap_len + 1, FD_VOTE_AUTHORIZED_VOTERS_MIN );
   self->pool = fd_vote_authorized_voters_pool_alloc( ctx->valloc, fd_vote_authorized_voters_treap_max );
   self->treap = fd_vote_authorized_voters_treap_alloc( ctx->valloc, fd_vote_authorized_voters_treap_max );
   for( ulong i=0; i < fd_vote_authorized_voters_treap_len; i++ ) {
@@ -9906,7 +9906,7 @@ int fd_clock_timestamp_votes_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
 void fd_clock_timestamp_votes_decode_unsafe( fd_clock_timestamp_votes_t * self, fd_bincode_decode_ctx_t * ctx ) {
   ulong votes_len;
   fd_bincode_uint64_decode_unsafe( &votes_len, ctx );
-  self->votes_pool = fd_clock_timestamp_vote_t_map_alloc( ctx->valloc, fd_ulong_max(votes_len, 10000 ) );
+  self->votes_pool = fd_clock_timestamp_vote_t_map_alloc( ctx->valloc, fd_ulong_max(votes_len + 1, 10000 ) );
   self->votes_root = NULL;
   for( ulong i=0; i < votes_len; i++ ) {
     fd_clock_timestamp_vote_t_mapnode_t * node = fd_clock_timestamp_vote_t_map_acquire( self->votes_pool );
