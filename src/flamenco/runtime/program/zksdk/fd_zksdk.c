@@ -123,58 +123,32 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t ctx ) {
   uchar instr_id = instr_data[0];
   int (*fd_zksdk_instr_verify_proof)( void const *, void const * ) = NULL;
 
-  /* specific instruction function.
-     important: this switch/case also asserts that the instr_id is one of the
-     valid verify_proof instructions */
+  /* Specific instruction function */
   switch( instr_id ) {
+  case FD_ZKSDK_INSTR_VERIFY_ZERO_CIPHERTEXT:
+    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_zero_ciphertext;
+    break;
+  case FD_ZKSDK_INSTR_VERIFY_CIPHERTEXT_CIPHERTEXT_EQUALITY:
+    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_ciphertext_ciphertext_equality;
+    break;
+  case FD_ZKSDK_INSTR_VERIFY_CIPHERTEXT_COMMITMENT_EQUALITY:
+    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_ciphertext_commitment_equality;
+    break;
   case FD_ZKSDK_INSTR_VERIFY_PUBKEY_VALIDITY:
     fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_pubkey_validity;
     break;
-
-#if 0
-  case FD_zksdk_INSTR_VERIFY_ZERO_BALANCE:
-    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_zero_balance;
+  case FD_ZKSDK_INSTR_VERIFY_PERCENTAGE_WITH_CAP:
+    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_percentage_with_cap;
     break;
-  case FD_zksdk_INSTR_VERIFY_WITHDRAW:
-    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_withdraw;
-    break;
-  case FD_zksdk_INSTR_VERIFY_CIPHERTEXT_CIPHERTEXT_EQUALITY:
-    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_ciphertext_ciphertext_equality;
-    break;
-  case FD_zksdk_INSTR_VERIFY_TRANSFER:
-    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_transfer_without_fee;
-    break;
-  case FD_zksdk_INSTR_VERIFY_TRANSFER_WITH_FEE:
-    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_transfer_with_fee;
-    break;
-  case FD_zksdk_INSTR_VERIFY_PUBKEY_VALIDITY:
-    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_pubkey_validity;
-    break;
-  case FD_zksdk_INSTR_VERIFY_RANGE_PROOF_U64:
-    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_range_proof_u64;
-    break;
-  case FD_zksdk_INSTR_VERIFY_BATCHED_RANGE_PROOF_U64:
+  case FD_ZKSDK_INSTR_VERIFY_BATCHED_RANGE_PROOF_U64:
     fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_batched_range_proof_u64;
     break;
-  case FD_zksdk_INSTR_VERIFY_BATCHED_RANGE_PROOF_U128:
+  case FD_ZKSDK_INSTR_VERIFY_BATCHED_RANGE_PROOF_U128:
     fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_batched_range_proof_u128;
     break;
-  case FD_zksdk_INSTR_VERIFY_BATCHED_RANGE_PROOF_U256:
+  case FD_ZKSDK_INSTR_VERIFY_BATCHED_RANGE_PROOF_U256:
     fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_batched_range_proof_u256;
     break;
-  case FD_zksdk_INSTR_VERIFY_CIPHERTEXT_COMMITMENT_EQUALITY:
-    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_ciphertext_commitment_equality;
-    break;
-  case FD_zksdk_INSTR_VERFIY_GROUPED_CIPHERTEXT_2_HANDLES_VALIDITY:
-    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_grouped_ciphertext_validity;
-    break;
-  case FD_zksdk_INSTR_VERIFY_BATCHED_GROUPED_CIPHERTEXT_2_HANDLES_VALIDITY:
-    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_batched_grouped_ciphertext_validity;
-    break;
-  case FD_zksdk_INSTR_VERIFY_FEE_SIGMA:
-    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_fee_sigma;
-    break;
-#endif
   default:
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
@@ -191,6 +165,7 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t ctx ) {
   int zkp_res = (*fd_zksdk_instr_verify_proof)( context, proof );
 
   if( FD_UNLIKELY( zkp_res!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
+    // return zkp_res;
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 

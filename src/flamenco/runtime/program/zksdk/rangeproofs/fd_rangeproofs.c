@@ -13,12 +13,12 @@ batched_range_proof_validate_bits( ulong bit_length ) {
 
 void
 fd_rangeproofs_delta(
-  uchar delta[ static 32 ],
+  uchar       delta[ 32 ],
   ulong const nm,
-  uchar const y[ static 32 ],
-  uchar const z[ static 32 ],
-  uchar const zz[ static 32 ],
-  uchar const bit_lengths[ static 1 ],
+  uchar const y[ 32 ],
+  uchar const z[ 32 ],
+  uchar const zz[ 32 ],
+  uchar const bit_lengths[ 1 ],
   uchar const batch_len
 ) {
   uchar exp_y[ 32 ];
@@ -45,13 +45,13 @@ fd_rangeproofs_delta(
 }
 
 int
-fd_rangeproofs_range_proof_verify(
+fd_rangeproofs_verify(
   fd_rangeproofs_range_proof_t const * range_proof,
   fd_rangeproofs_ipp_proof_t const *   ipp_proof,
-  uchar const                           commitments [ static 32 ],
-  uchar const                           bit_lengths [ static 1 ],
-  uchar const                           batch_len,
-  fd_merlin_transcript_t *              transcript ) {
+  uchar const                          commitments [ 32 ],
+  uchar const                          bit_lengths [ 1 ],
+  uchar const                          batch_len,
+  fd_merlin_transcript_t *             transcript ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.15/zk-token-sdk/src/range_proof/mod.rs#L223
 
@@ -202,6 +202,8 @@ fd_rangeproofs_range_proof_verify(
 
   /* Finalize transcript and extract challenges */
   int val = FD_TRANSCRIPT_SUCCESS;
+  fd_rangeproofs_transcript_domsep_range_proof( transcript, nm );
+
   val |= fd_rangeproofs_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("A"), range_proof->a);
   val |= fd_rangeproofs_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("S"), range_proof->s);
 
@@ -234,7 +236,7 @@ fd_rangeproofs_range_proof_verify(
   fd_rangeproofs_transcript_challenge_scalar( c, transcript, FD_TRANSCRIPT_LITERAL("c") );
 
   /* Inner Product (sub)Proof */
-  fd_rangeproofs_transcript_domsep_innerproduct( transcript, nm );
+  fd_rangeproofs_transcript_domsep_inner_product( transcript, nm );
 
   uchar *u =     &batchinv_in [ 32 ]; // skip y
   uchar *u_inv = &batchinv_out[ 32 ]; // skip y_inv

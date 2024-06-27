@@ -8,10 +8,10 @@ pubkey_validity_transcript_init( fd_zksdk_transcript_t *                    tran
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/zk-sdk/src/sigma_proofs/pubkey_validity.rs#L91 */
-static int
+static inline int
 fd_zksdk_verify_proof_pubkey_validity(
   fd_zksdk_pubkey_validity_proof_t const * proof,
-  uchar const                              pubkey         [ static 32 ],
+  uchar const                              pubkey         [ 32 ],
   fd_zksdk_transcript_t *                  transcript ) {
   /*
     We need to verify the following equivalence:
@@ -61,13 +61,12 @@ fd_zksdk_verify_proof_pubkey_validity(
   return FD_ZKSDK_VERIFY_PROOF_ERROR;
 }
 
+/* https://github.com/anza-xyz/agave/blob/v2.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/pubkey_validity.rs#L73 */
 int
 fd_zksdk_instr_verify_proof_pubkey_validity( void const * _context, void const * _proof ) {
   fd_zksdk_transcript_t transcript[1];
   fd_zksdk_pubkey_validity_context_t const * context = _context;
   fd_zksdk_pubkey_validity_proof_t const *   proof   = _proof;
-
-  FD_LOG_DEBUG(( "fd_zksdk_instr_verify_proof_pubkey_validity" ));
 
   pubkey_validity_transcript_init( transcript, context );
   return fd_zksdk_verify_proof_pubkey_validity(

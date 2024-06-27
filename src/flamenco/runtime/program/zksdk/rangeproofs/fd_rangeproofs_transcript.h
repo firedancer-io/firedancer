@@ -15,13 +15,21 @@
 FD_PROTOTYPES_BEGIN
 
 /* Domain separators:
-   - innerproduct proof
+   - range proof
+   - inner product proof
  */
 
 static inline void
-fd_rangeproofs_transcript_domsep_innerproduct( fd_merlin_transcript_t * transcript,
-                                               ulong const             n ) {
-  fd_merlin_transcript_append_message( transcript, FD_MERLIN_LITERAL("dom-sep"), (uchar *)FD_MERLIN_LITERAL("ipp v1") );
+fd_rangeproofs_transcript_domsep_range_proof( fd_merlin_transcript_t * transcript,
+                                              ulong const             n ) {
+  fd_merlin_transcript_append_message( transcript, FD_MERLIN_LITERAL("dom-sep"), (uchar *)FD_MERLIN_LITERAL("range-proof") );
+  fd_merlin_transcript_append_u64( transcript, FD_MERLIN_LITERAL("n"), n );
+}
+
+static inline void
+fd_rangeproofs_transcript_domsep_inner_product( fd_merlin_transcript_t * transcript,
+                                                ulong const             n ) {
+  fd_merlin_transcript_append_message( transcript, FD_MERLIN_LITERAL("dom-sep"), (uchar *)FD_MERLIN_LITERAL("inner-product") );
   fd_merlin_transcript_append_u64( transcript, FD_MERLIN_LITERAL("n"), n );
 }
 
@@ -35,7 +43,7 @@ static inline void
 fd_rangeproofs_transcript_append_point( fd_merlin_transcript_t * transcript,
                                         char const * const       label,
                                         uint const               label_len,
-                                        uchar const              point[ static 32 ] ) {
+                                        uchar const              point[ 32 ] ) {
   fd_merlin_transcript_append_message( transcript, label, label_len, point, 32 );
 }
 
@@ -43,7 +51,7 @@ static inline int
 fd_rangeproofs_transcript_validate_and_append_point( fd_merlin_transcript_t * transcript,
                                                      char const * const       label,
                                                      uint const               label_len,
-                                                     uchar const              point[ static 32 ] ) {
+                                                     uchar const              point[ 32 ] ) {
   if ( FD_UNLIKELY( fd_memeq( point, fd_ristretto255_compressed_zero, 32 ) ) ) {
     return FD_TRANSCRIPT_ERROR;
   }
@@ -55,7 +63,7 @@ static inline void
 fd_rangeproofs_transcript_append_scalar( fd_merlin_transcript_t * transcript,
                                          char const * const       label,
                                          uint const               label_len,
-                                         uchar const              scalar[ static 32 ] ) {
+                                         uchar const              scalar[ 32 ] ) {
   fd_merlin_transcript_append_message( transcript, label, label_len, scalar, 32 );
 }
 
@@ -64,7 +72,7 @@ fd_rangeproofs_transcript_append_scalar( fd_merlin_transcript_t * transcript,
 */
 
 static inline uchar *
-fd_rangeproofs_transcript_challenge_scalar( uchar                    scalar[ static 32 ],
+fd_rangeproofs_transcript_challenge_scalar( uchar                    scalar[ 32 ],
                                             fd_merlin_transcript_t * transcript,
                                             char const * const       label,
                                             uint const               label_len ) {

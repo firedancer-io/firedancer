@@ -1,27 +1,11 @@
-// tests
-// https://github.com/solana-labs/solana/blob/v1.17.10/programs/zk-token-proof-tests/tests/process_transaction.rs
-// benches
-// https://github.com/solana-labs/solana/blob/v1.17.10/programs/zk-token-proof/benches/verify_proofs.rs
+/* Tests are run through `make run-test-vectors` and are available at:
+   https://github.com/firedancer-io/test-vectors/tree/main/instr/fixtures/zk_sdk
+ 
+   This unit test just runs an instance of pubkey_validity. */
 #include "fd_zksdk_private.h"
-#include "../fd_zk_elgamal_proof_program.h"
-#include "../../../fd_flamenco.h"
 #include "../../../../ballet/hex/fd_hex.h"
 
-#include "instructions/test_fd_zksdk_close_context_state.h"
-// #include "instructions/test_fd_zksdk_batched_grouped_ciphertext_validity.h"
-// #include "instructions/test_fd_zksdk_batched_range_proof_u128.h"
-// #include "instructions/test_fd_zksdk_batched_range_proof_u256.h"
-// #include "instructions/test_fd_zksdk_batched_range_proof_u64.h"
-// #include "instructions/test_fd_zksdk_ciphertext_ciphertext_equality.h"
-// #include "instructions/test_fd_zksdk_ciphertext_commitment_equality.h"
-// #include "instructions/test_fd_zksdk_fee_sigma.h"
-// #include "instructions/test_fd_zksdk_grouped_ciphertext_validity.h"
 #include "instructions/test_fd_zksdk_pubkey_validity.h"
-// #include "instructions/test_fd_zksdk_range_proof_u64.h"
-// #include "instructions/test_fd_zksdk_transfer_with_fee.h"
-// #include "instructions/test_fd_zksdk_transfer_without_fee.h"
-// #include "instructions/test_fd_zksdk_withdraw.h"
-// #include "instructions/test_fd_zksdk_zero_balance.h"
 
 // turn on/off benches
 #define BENCH 0
@@ -70,30 +54,6 @@ log_bench( char const * descr,
   float khz = 1e6f *(float)iter/(float)dt;
   float tau = (float)dt /(float)iter;
   FD_LOG_NOTICE(( "%-31s %11.3fK/s/core %10.3f ns/call", descr, (double)khz, (double)tau ));
-}
-
-static void
-test_close_context_state( FD_FN_UNUSED fd_rng_t * rng ) {
-  char ** hex = tx_close_context_state;
-  ulong hex_sz = sizeof(tx_close_context_state);
-  ulong offset = instr_offset_close_context_state;
-  ulong cu = FD_ZKSDK_INSTR_CLOSE_CONTEXT_STATE_COMPUTE_UNITS;
-
-  fd_exec_instr_ctx_t ctx;
-  fd_exec_txn_ctx_t txn_ctx[1];
-  fd_instr_info_t instr[1];
-  ulong tx_len = 0;
-
-  // load test data
-  uchar * tx = load_test_tx( hex, hex_sz, &tx_len );
-  create_test_ctx( &ctx, txn_ctx, instr, tx, tx_len, offset, cu );
-
-#if 0
-  // valid
-  FD_TEST( fd_zksdk_instr_verify_proof_close_context_state( context, proof )==FD_EXECUTOR_INSTR_SUCCESS );
-  FD_TEST( fd_zksdk_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_SUCCESS );
-#endif
-  free(tx);
 }
 
 FD_FN_UNUSED static void
@@ -147,152 +107,6 @@ test_pubkey_validity( FD_FN_UNUSED fd_rng_t * rng ) {
   free(tx);
 }
 
-#if 0
-FD_FN_UNUSED static void
-test_batched_range_proof_u128( FD_FN_UNUSED fd_rng_t * rng ) {
-  char ** hex = tx_batched_range_proof_u128;
-  ulong hex_sz = sizeof(tx_batched_range_proof_u128);
-  ulong offset = instr_offset_batched_range_proof_u128;
-  ulong context_sz = fd_zksdk_context_sz[FD_zksdk_INSTR_VERIFY_BATCHED_RANGE_PROOF_U128];
-
-  fd_exec_instr_ctx_t _ctx[1]; fd_exec_instr_ctx_t * ctx = _ctx;
-  fd_instr_info_t instr[1];
-  ulong tx_len = 0;
-  ulong proof_offset = offset + 1 + context_sz;
-
-  // load test data
-  uchar * tx = load_test_tx(hex, hex_sz, &tx_len);
-  create_test_ctx(ctx, instr, tx, tx_len, offset);
-
-  void const * context = tx + offset + 1;
-  void const * proof = tx + proof_offset;
-
-  // valid
-  FD_TEST( fd_zksdk_instr_verify_proof_batched_range_proof_u128( context, proof )==FD_EXECUTOR_INSTR_SUCCESS );
-  FD_TEST( fd_zksdk_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_SUCCESS );
-
-  // invalid proof
-  // tx[1 + proof_offset] ^= 0xff;
-  // FD_TEST( fd_zksdk_instr_verify_proof_batched_range_proof_u128( context, proof )==FD_zksdk_VERIFY_PROOF_ERROR );
-  // FD_TEST( fd_zksdk_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
-  // tx[1 + proof_offset] ^= 0xff;
-
-  // invalid data
-  instr->data_sz = (ushort)(instr->data_sz - 10);
-  FD_TEST( fd_zksdk_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
-  instr->data_sz = (ushort)(instr->data_sz + 10);
-
-  /* Benchmarks */
-#if BENCH
-  ulong iter = 10000UL;
-  long dt = fd_log_wallclock();
-  for( ulong rem=iter; rem; rem-- ) {
-    FD_COMPILER_FORGET( proof ); FD_COMPILER_FORGET( context );
-    fd_zksdk_instr_verify_proof_batched_range_proof_u128( context, proof );
-  }
-  dt = fd_log_wallclock() - dt;
-  log_bench( "fd_zksdk_instr_verify_proof_batched_range_proof_u128", iter, dt );
-#endif
-  free(tx);
-}
-
-FD_FN_UNUSED static void
-test_ciphertext_commitment_equality( FD_FN_UNUSED fd_rng_t * rng ) {
-  char ** hex = tx_ciphertext_commitment_equality;
-  ulong hex_sz = sizeof(tx_ciphertext_commitment_equality);
-  ulong offset = instr_offset_ciphertext_commitment_equality;
-  ulong context_sz = fd_zksdk_context_sz[FD_zksdk_INSTR_VERIFY_CIPHERTEXT_COMMITMENT_EQUALITY];
-
-  fd_exec_instr_ctx_t _ctx[1]; fd_exec_instr_ctx_t * ctx = _ctx;
-  fd_instr_info_t instr[1];
-  ulong tx_len = 0;
-  ulong proof_offset = offset + 1 + context_sz;
-
-  // load test data
-  uchar * tx = load_test_tx(hex, hex_sz, &tx_len);
-  create_test_ctx(ctx, instr, tx, tx_len, offset);
-
-  void const * context = tx + offset + 1;
-  void const * proof = tx + offset + 1 + context_sz;
-
-  // valid
-  FD_TEST( fd_zksdk_instr_verify_proof_ciphertext_commitment_equality( context, proof )==FD_EXECUTOR_INSTR_SUCCESS );
-  FD_TEST( fd_zksdk_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_SUCCESS );
-
-  // invalid proof
-  tx[1 + proof_offset] ^= 0xff;
-  FD_TEST( fd_zksdk_instr_verify_proof_ciphertext_commitment_equality( context, proof )==FD_zksdk_VERIFY_PROOF_ERROR );
-  FD_TEST( fd_zksdk_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
-  tx[1 + proof_offset] ^= 0xff;
-
-  // invalid data
-  instr->data_sz = (ushort)(instr->data_sz - 10);
-  FD_TEST( fd_zksdk_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
-  instr->data_sz = (ushort)(instr->data_sz + 10);
-
-  /* Benchmarks */
-#if BENCH
-  ulong iter = 10000UL;
-  long dt = fd_log_wallclock();
-  for( ulong rem=iter; rem; rem-- ) {
-    FD_COMPILER_FORGET( proof ); FD_COMPILER_FORGET( context );
-    fd_zksdk_instr_verify_proof_ciphertext_commitment_equality( context, proof );
-  }
-  dt = fd_log_wallclock() - dt;
-  log_bench( "fd_zksdk_instr_verify_proof_ciphertext_commitment_equality", iter, dt );
-#endif
-  free(tx);
-}
-
-FD_FN_UNUSED static void
-test_batched_grouped_ciphertext_validity( FD_FN_UNUSED fd_rng_t * rng ) {
-  char ** hex = tx_batched_grouped_ciphertext_validity;
-  ulong hex_sz = sizeof(tx_batched_grouped_ciphertext_validity);
-  ulong offset = instr_offset_batched_grouped_ciphertext_validity;
-  ulong context_sz = fd_zksdk_context_sz[FD_zksdk_INSTR_VERIFY_BATCHED_GROUPED_CIPHERTEXT_2_HANDLES_VALIDITY];
-
-  fd_exec_instr_ctx_t _ctx[1]; fd_exec_instr_ctx_t * ctx = _ctx;
-  fd_instr_info_t instr[1];
-  ulong tx_len = 0;
-  ulong proof_offset = offset + 1 + context_sz;
-
-  // load test data
-  uchar * tx = load_test_tx(hex, hex_sz, &tx_len);
-  create_test_ctx(ctx, instr, tx, tx_len, offset);
-
-  void const * context = tx + offset + 1;
-  void const * proof = tx + proof_offset;
-
-  // valid
-  FD_TEST( fd_zksdk_instr_verify_proof_batched_grouped_ciphertext_validity( context, proof )==FD_EXECUTOR_INSTR_SUCCESS );
-  FD_TEST( fd_zksdk_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_SUCCESS );
-
-  // invalid proof
-  tx[1 + proof_offset] ^= 0xff;
-  FD_TEST( fd_zksdk_instr_verify_proof_batched_grouped_ciphertext_validity( context, proof )==FD_zksdk_VERIFY_PROOF_ERROR );
-  FD_TEST( fd_zksdk_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
-  tx[1 + proof_offset] ^= 0xff;
-
-  // invalid data
-  instr->data_sz = (ushort)(instr->data_sz - 10);
-  FD_TEST( fd_zksdk_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
-  instr->data_sz = (ushort)(instr->data_sz + 10);
-
-  /* Benchmarks */
-#if BENCH
-  ulong iter = 10000UL;
-  long dt = fd_log_wallclock();
-  for( ulong rem=iter; rem; rem-- ) {
-    FD_COMPILER_FORGET( proof ); FD_COMPILER_FORGET( context );
-    fd_zksdk_instr_verify_proof_batched_grouped_ciphertext_validity( context, proof );
-  }
-  dt = fd_log_wallclock() - dt;
-  log_bench( "fd_zksdk_instr_verify_proof_batched_grouped_ciphertext_validity", iter, dt );
-#endif
-  free(tx);
-}
-#endif
-
 int
 main( int     argc,
       char ** argv ) {
@@ -301,21 +115,7 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  test_close_context_state( rng );
-
-  // test_zero_balance( rng );
-  // test_ciphertext_ciphertext_equality( rng );
-  // test_transfer_without_fee( rng );
-  // test_transfer_with_fee( rng );
   test_pubkey_validity( rng );
-  // test_range_proof_u64( rng );
-  // test_batched_range_proof_u64( rng );
-  // test_batched_range_proof_u128( rng );
-  // test_batched_range_proof_u256( rng );
-  // test_ciphertext_commitment_equality( rng );
-  // test_grouped_ciphertext_validity( rng );
-  // test_batched_grouped_ciphertext_validity( rng );
-  // test_fee_sigma( rng );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

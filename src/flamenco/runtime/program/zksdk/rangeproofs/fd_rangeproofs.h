@@ -51,11 +51,11 @@ typedef struct fd_rangeproofs_ipp_proof fd_rangeproofs_ipp_proof_t;
 FD_PROTOTYPES_BEGIN
 
 int
-fd_rangeproofs_range_proof_verify(
+fd_rangeproofs_verify(
   fd_rangeproofs_range_proof_t const * range_proof,
   fd_rangeproofs_ipp_proof_t const *   ipp_proof,
-  uchar const                          commitments [ static 32 ],
-  uchar const                          bit_lengths [ static 1 ],
+  uchar const                          commitments [ 32 ],
+  uchar const                          bit_lengths [ 1 ],
   uchar const                          batch_len,
   fd_merlin_transcript_t *             transcript );
 

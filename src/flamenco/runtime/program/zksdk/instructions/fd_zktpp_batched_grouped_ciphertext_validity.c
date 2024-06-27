@@ -14,14 +14,14 @@ batched_grouped_ciphertext_validity_transcript_init(
 int
 fd_zktpp_verify_proof_batched_grouped_ciphertext_validity(
   fd_zktpp_batched_grp_ciph_val_proof_t const * proof,
-  uchar const                                   dst_pubkey    [ static 32 ],
-  uchar const                                   aud_pubkey    [ static 32 ],
-  uchar const                                   comm          [ static 32 ],
-  uchar const                                   dst_handle    [ static 32 ],
-  uchar const                                   aud_handle    [ static 32 ],
-  uchar const                                   comm_hi       [ static 32 ],
-  uchar const                                   dst_handle_hi [ static 32 ],
-  uchar const                                   aud_handle_hi [ static 32 ],
+  uchar const                                   dst_pubkey    [ 32 ],
+  uchar const                                   aud_pubkey    [ 32 ],
+  uchar const                                   comm          [ 32 ],
+  uchar const                                   dst_handle    [ 32 ],
+  uchar const                                   aud_handle    [ 32 ],
+  uchar const                                   comm_hi       [ 32 ],
+  uchar const                                   dst_handle_hi [ 32 ],
+  uchar const                                   aud_handle_hi [ 32 ],
   bool const                                    batched,
   fd_zktpp_transcript_t *                       transcript ) {
   FD_LOG_DEBUG(( "fd_zktpp_verify_proof_batched_grouped_ciphertext_validity" ));
