@@ -145,7 +145,7 @@ main_loop( fd_gossip_t * glob, fd_gossip_config_t * config, volatile int * stopf
     }
 
     /* Read more packets */
-    int retval = recvmmsg(fd, msgs, VLEN, MSG_DONTWAIT, NULL);
+    long retval = recvmmsg(fd, msgs, VLEN, MSG_DONTWAIT, NULL);
     if (retval < 0) {
       if (errno == EINTR || errno == EWOULDBLOCK)
         continue;
@@ -158,7 +158,7 @@ main_loop( fd_gossip_t * glob, fd_gossip_config_t * config, volatile int * stopf
     for (uint i = 0; i < (uint)retval; ++i) {
       fd_gossip_peer_addr_t from;
       gossip_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
-      fd_gossip_recv_packet(glob, bufs[i], msgs[i].msg_len, &from);
+      fd_gossip_recv_packet(glob, bufs[i], (ulong)msgs[i].msg_len, &from);
     }
   }
 

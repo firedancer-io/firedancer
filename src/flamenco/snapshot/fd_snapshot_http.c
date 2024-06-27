@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <strings.h>
 #include <unistd.h>
+#include <netinet/in.h>
 #include <netinet/ip.h>
 #include <sys/socket.h>
 #include <sys/types.h>

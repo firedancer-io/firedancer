@@ -14,7 +14,9 @@
 #include <math.h>
 #include <dirent.h>
 
+#ifndef DT_REG
 #define DT_REG (8UL)
+#endif
 
 static int
 usage( void ) {
