@@ -212,6 +212,9 @@ authorized_voters_new( ulong                         epoch,
                        fd_vote_authorized_voters_t * authorized_voters /* out */ ) {
   authorized_voters->pool  = fd_vote_authorized_voters_pool_alloc ( valloc, FD_VOTE_AUTHORIZED_VOTERS_MIN );
   authorized_voters->treap = fd_vote_authorized_voters_treap_alloc( valloc, FD_VOTE_AUTHORIZED_VOTERS_MIN );
+  if( 0 == fd_vote_authorized_voters_pool_free( authorized_voters->pool) ) {
+    FD_LOG_ERR(( "Authorized_voter pool is empty" ));
+  }
   fd_vote_authorized_voter_t * ele =
       fd_vote_authorized_voters_pool_ele_acquire( authorized_voters->pool );
   ele->epoch = epoch;
@@ -320,6 +323,9 @@ authorized_voters_get_and_cache_authorized_voter_for_epoch( fd_vote_authorized_v
   if( !res ) return NULL;
   if( !existed ) {
     /* insert cannot fail because !existed */
+    if( 0 == fd_vote_authorized_voters_pool_free( self->pool) ) {
+      FD_LOG_ERR(( "Authorized_voter pool is empty" ));
+    }
     fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( self->pool );
     ele->epoch                       = epoch;
     memcpy( &ele->pubkey, &res->pubkey, sizeof( fd_pubkey_t ) );
@@ -724,6 +730,10 @@ set_new_authorized_voter( fd_vote_state_t *                          self,
   }
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L581-L582
+  if( 0 == fd_vote_authorized_voters_pool_free( self->authorized_voters.pool) ) {
+    FD_LOG_ERR(( "Authorized_voter pool is empty" ));
+  }
+
   fd_vote_authorized_voter_t * ele =
       fd_vote_authorized_voters_pool_ele_acquire( self->authorized_voters.pool );
   ele->epoch = target_epoch;
