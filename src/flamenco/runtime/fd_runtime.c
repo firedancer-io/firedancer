@@ -1519,6 +1519,8 @@ fd_runtime_generate_wave( fd_execute_txn_task_info_t * task_infos,
   } FD_SCRATCH_SCOPE_END;
 }
 
+/* NOTE: Don't mess with this call without updating the transaction fuzzing harness appropriately!
+   fd_exec_instr_test.c:_txn_context_create */
 int
 fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         fd_capture_ctx_t * capture_ctx,
