@@ -9,6 +9,19 @@
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_sandbox_requires_cap_sys_admin checks if the current environment
+   requires CAP_SYS_ADMIN to fully establish the sandbox.  Ideally this
+   is not required, but certain Linux distributions restrict
+   unprivileged user namespaces which are required.  AppArmor and
+   SELinux potentially also restrict this, but aren't yet checked for
+   here.
+
+   See https://ubuntu.com/blog/ubuntu-23-10-restricted-unprivileged-user-namespaces
+   for more information on the Ubuntu restrictions. */
+
+int
+fd_sandbox_requires_cap_sys_admin( void );
+
 /* fd_sandbox_enter takes various steps to enter the process into a
    fully sandboxed execution environment where it has very limited
    access to the system.
