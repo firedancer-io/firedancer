@@ -30,43 +30,64 @@ jobs:
             machine: linux_gcc_noarch64
             label: X64
             targets: "all"
-            compiler: gcc
+            compiler: gcc0
             compiler-version: 12.4.0
-            notest: 1
+            run-unit-tests: false
+            run-integration-tests: false
           - test-case: linux_gcc_noarch64-gcc-8
             machine: linux_gcc_noarch64
             label: X64
             targets: "all"
             compiler: gcc
             compiler-version: 8.5.0
-            notest: 1
+            run-unit-tests: false
+            run-integration-tests: false
           - test-case: linux_gcc_x86_64
             machine: linux_gcc_x86_64
             label: X64
+            targets: "all integration-test fdctl"
             compiler: gcc
             compiler-version: 12.4.0
+            run-unit-tests: true
+            run-integration-tests: true
           - test-case: linux_gcc_icelake
             machine: linux_gcc_icelake
             label: icelake
+            targets: "all integration-test fdctl"
             compiler: gcc
             compiler-version: 12.4.0
+            run-unit-tests: true
+            run-integration-tests: true
           - test-case: linux_clang_x86_64
             machine: linux_clang_x86_64
             label: X64
+            targets: "all integration-test fdctl"
             compiler: clang
             compiler-version: 15.0.6
+            run-unit-tests: true
+            run-integration-tests: true
           - test-case: linux_clang_icelake
             machine: linux_clang_icelake
             label: icelake
             extras: asan ubsan
+            targets: "all integration-test fdctl"
             compiler: clang
             compiler-version: 15.0.6
+            run-unit-tests: true
+            run-integration-tests: false
           - test-case: native
             machine: native
             label: self-hosted
+            targets: "all integration-test fdctl"
             compiler: clang
             compiler-version: 15.0.6
+            run-unit-tests: true
+            run-integration-tests: true
     runs-on: ${{ matrix.label }}
+    env:
+      MACHINE: ${{ matrix.machine }}
+      EXTRAS: ${{ matrix.extras || '' }}
+      CC: ${{ matrix.compiler }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -79,13 +100,32 @@ jobs:
       - uses: ./.github/actions/hugepages
       - uses: dtolnay/rust-toolchain@1.73.0
 
-      - name: Run tests
+      - name: build targets
+        run: |
+          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
+          make clean --silent >/dev/null
+          ./contrib/make-j ${{ matrix.targets }}
+      
+      - name: run unit tests
+        if: ${{ matrix.run-unit-tests }}
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
-          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
-          MACHINES=${{ matrix.machine }} \
-          EXTRAS="${{ matrix.extras || '' }}" \
-          NOTEST=${{ matrix.notest || '' }} \
-          TARGETS="${{ matrix.targets || '' }}" \
-          CC="${{ matrix.compiler }}" \
-          contrib/test/ci_tests.sh
+          make run-unit-test
+
+      - name: run fuzz tests
+        if: ${{ matrix.run-unit-tests }}
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          make run-fuzz-test
+
+      - name: run test-vector tests
+        if: ${{ matrix.run-unit-tests }}
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          make run-test-vectors
+
+      - name: run integration tests
+        if: ${{ matrix.run-integration-tests }}
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          make run-integration-test
