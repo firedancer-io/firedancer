@@ -192,6 +192,17 @@ void *
 fd_sha512_fini( fd_sha512_t * sha,
                 void *        hash );
 
+/* fd_sha512_clear safely clears after a sha512 calculation.
+   sha is assumed to be a current local join to a sha512 calculation
+   state.  Any preexisting state for an in-progress or recently
+   completed calculation will be discarded. */
+
+static inline void
+fd_sha512_clear( fd_sha512_t * sha ) {
+  fd_sha512_init( sha );
+  fd_memset_explicit( sha->buf, 0, FD_SHA512_PRIVATE_BUF_MAX );
+}
+
 void *
 fd_sha384_fini( fd_sha384_t * sha,
                 void *        hash );
