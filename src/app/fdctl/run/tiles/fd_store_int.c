@@ -29,6 +29,8 @@
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../flamenco/runtime/fd_runtime.h"
+#include "../../../../disco/metrics/fd_metrics.h"
+#include "../../../../disco/metrics/generated/fd_metrics_replay.h"
 
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
@@ -342,14 +344,22 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       fd_block_info_t block_info;
       fd_runtime_block_prepare( block_data, block->data_sz, fd_scratch_virtual(), &block_info );
 
+      ulong caught_up = slot > ctx->store->first_turbine_slot;
+      ulong behind = ctx->store->curr_turbine_slot - slot;
+
       FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %32J", slot, block_info.microblock_cnt, block_hash->uc ));
       FD_LOG_DEBUG(( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
                       "executed: %lu, caught up: %d",
                       ctx->store->first_turbine_slot,
                       ctx->store->curr_turbine_slot,
-                      ctx->store->curr_turbine_slot - slot,
+                      behind,
                       slot,
-                      slot > ctx->store->first_turbine_slot ));
+                      caught_up ));
+
+      FD_MGAUGE_SET( REPLAY, SLOT, ctx->store->curr_turbine_slot );
+      FD_MGAUGE_SET( REPLAY, CAUGHT_UP, caught_up );
+      FD_MGAUGE_SET( REPLAY, BEHIND, behind );
+
       fd_txn_p_t * txns = fd_type_pun( out_buf );
       ulong txn_cnt = fd_runtime_block_collect_txns( &block_info, txns );
  
