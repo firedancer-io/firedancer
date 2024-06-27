@@ -53,5 +53,6 @@ fn main() {
     let account_data = vec![0u8; 4];
 
     // ----------------------- ONLY CHANGE BELOW THIS LINE -----------------------
-    ledgers::bpf_loader_ledger(&rpc_client, &arc_client, &payer, &program_data, &account_data);
+    // ledgers::bpf_loader_ledger(&rpc_client, &arc_client, &payer, &program_data, &account_data);
+    ledgers::nonce_ledger(&rpc_client, &payer);
 }
