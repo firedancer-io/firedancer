@@ -38,14 +38,14 @@ typedef struct fd_zktpp_grp_ciph_val_context fd_zktpp_grp_ciph_val_context_t;
 int
 fd_zktpp_verify_proof_batched_grouped_ciphertext_validity(
   fd_zktpp_batched_grp_ciph_val_proof_t const * proof,
-  uchar const                                   dst_pubkey    [ static 32 ],
-  uchar const                                   aud_pubkey    [ static 32 ],
-  uchar const                                   comm_lo       [ static 32 ],
-  uchar const                                   comm_hi       [ static 32 ],
-  uchar const                                   dst_handle_lo [ static 32 ],
-  uchar const                                   dst_handle_hi [ static 32 ],
-  uchar const                                   aud_handle_lo [ static 32 ],
-  uchar const                                   aud_handle_hi [ static 32 ],
+  uchar const                                   dst_pubkey    [ 32 ],
+  uchar const                                   aud_pubkey    [ 32 ],
+  uchar const                                   comm_lo       [ 32 ],
+  uchar const                                   comm_hi       [ 32 ],
+  uchar const                                   dst_handle_lo [ 32 ],
+  uchar const                                   dst_handle_hi [ 32 ],
+  uchar const                                   aud_handle_lo [ 32 ],
+  uchar const                                   aud_handle_hi [ 32 ],
   bool const                                    batched,
   fd_zktpp_transcript_t *                       transcript );
 
