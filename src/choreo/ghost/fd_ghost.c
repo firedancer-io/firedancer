@@ -5,6 +5,7 @@
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
+/* clang-format off */
 void *
 fd_ghost_new( void * shmem, ulong node_max, ulong vote_max, ulong seed ) {
 
@@ -27,24 +28,23 @@ fd_ghost_new( void * shmem, ulong node_max, ulong vote_max, ulong seed ) {
   fd_memset( shmem, 0, footprint );
   ulong        laddr = (ulong)shmem;
   fd_ghost_t * ghost = (void *)laddr;
-  ghost->root        = NULL;
-  laddr += sizeof( fd_ghost_t );
+  laddr             += sizeof(fd_ghost_t);
 
   laddr            = fd_ulong_align_up( laddr, fd_ghost_node_pool_align() );
   ghost->node_pool = fd_ghost_node_pool_new( (void *)laddr, node_max );
-  laddr += fd_ghost_node_pool_footprint( node_max );
+  laddr           += fd_ghost_node_pool_footprint( node_max );
 
   laddr           = fd_ulong_align_up( laddr, fd_ghost_node_map_align() );
   ghost->node_map = fd_ghost_node_map_new( (void *)laddr, node_max, seed );
-  laddr += fd_ghost_node_map_footprint( node_max );
+  laddr          += fd_ghost_node_map_footprint( node_max );
 
   laddr            = fd_ulong_align_up( laddr, fd_ghost_vote_pool_align() );
   ghost->vote_pool = fd_ghost_vote_pool_new( (void *)laddr, vote_max );
-  laddr += fd_ghost_vote_pool_footprint( vote_max );
+  laddr           += fd_ghost_vote_pool_footprint( vote_max );
 
   laddr           = fd_ulong_align_up( laddr, fd_ghost_vote_map_align() );
   ghost->vote_map = fd_ghost_vote_map_new( (void *)laddr, vote_max, seed );
-  laddr += fd_ghost_vote_map_footprint( vote_max );
+  laddr          += fd_ghost_vote_map_footprint( vote_max );
 
   laddr = fd_ulong_align_up( laddr, fd_ghost_align() );
   FD_TEST( laddr == (ulong)shmem + footprint );
@@ -67,31 +67,32 @@ fd_ghost_join( void * shghost ) { /* process 1: 0xFA   process 2: 0x2F */
 
   ulong        laddr = (ulong)shghost; /* offset from a memory region */
   fd_ghost_t * ghost = (void *)shghost;
-  laddr += sizeof( fd_ghost_t );
+  laddr             += sizeof(fd_ghost_t);
 
   laddr            = fd_ulong_align_up( laddr, fd_ghost_node_pool_align() );
   ghost->node_pool = fd_ghost_node_pool_join( (void *)laddr );
   ulong node_max   = fd_ghost_node_pool_max( ghost->node_pool );
-  laddr += fd_ghost_node_pool_footprint( node_max );
+  laddr           += fd_ghost_node_pool_footprint( node_max );
 
   laddr           = fd_ulong_align_up( laddr, fd_ghost_node_map_align() );
   ghost->node_map = fd_ghost_node_map_join( (void *)laddr );
-  laddr += fd_ghost_node_map_footprint( node_max );
+  laddr          += fd_ghost_node_map_footprint( node_max );
 
   laddr            = fd_ulong_align_up( laddr, fd_ghost_vote_pool_align() );
   ghost->vote_pool = fd_ghost_vote_pool_join( (void *)laddr );
   ulong vote_max   = fd_ghost_vote_pool_max( ghost->vote_pool );
-  laddr += fd_ghost_vote_pool_footprint( vote_max );
+  laddr           += fd_ghost_vote_pool_footprint( vote_max );
 
   laddr           = fd_ulong_align_up( laddr, fd_ghost_vote_map_align() );
   ghost->vote_map = fd_ghost_vote_map_join( (void *)laddr );
-  laddr += fd_ghost_vote_map_footprint( vote_max );
+  laddr          += fd_ghost_vote_map_footprint( vote_max );
 
   laddr = fd_ulong_align_up( laddr, fd_ghost_align() );
   FD_TEST( laddr == (ulong)shghost + fd_ghost_footprint( node_max, vote_max ) );
 
   return ghost;
 }
+/* clang-format on */
 
 void *
 fd_ghost_leave( fd_ghost_t const * ghost ) {
@@ -151,16 +152,20 @@ fd_ghost_node_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot ) {
 
 #if FD_GHOST_USE_HANDHOLDING
   /* Caller promises key is not already in ghost. */
-  if( FD_UNLIKELY( fd_ghost_node_map_ele_query( ghost->node_map, &slot, NULL, ghost->node_pool ) ) ) {
+  if( FD_UNLIKELY( fd_ghost_node_map_ele_query( ghost->node_map,
+                                                &slot,
+                                                NULL,
+                                                ghost->node_pool ) ) ) {
     FD_LOG_ERR( ( "slot %lu is already in ghost.", slot ) );
   }
 #endif
 
-  FD_LOG_DEBUG( ( "[ghost] node_insert: %lu. parent: %lu.", slot, parent_slot ) );
+  FD_LOG_NOTICE( ( "[ghost] node_insert: %lu. parent: %lu.", slot, parent_slot ) );
 
 #if FD_GHOST_USE_HANDHOLDING
   /* OOM: we've exceeded the maximum number of slot hashes we can track. */
-  if( FD_UNLIKELY( !fd_ghost_node_pool_free( ghost->node_pool ) ) ) FD_LOG_ERR( ( "[ghost] node_pool full. check pruning logic." ) );
+  if( FD_UNLIKELY( !fd_ghost_node_pool_free( ghost->node_pool ) ) )
+    FD_LOG_ERR( ( "[ghost] node_pool full. check pruning logic." ) );
 #endif
 
   fd_ghost_node_t * node = fd_ghost_node_pool_ele_acquire( ghost->node_pool );
@@ -177,12 +182,19 @@ fd_ghost_node_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot ) {
   node->child   = NULL;
   node->sibling = NULL;
 
-  fd_ghost_node_t * parent = fd_ghost_node_map_ele_query( ghost->node_map, &parent_slot, NULL, ghost->node_pool );
+  fd_ghost_node_t * parent = fd_ghost_node_map_ele_query( ghost->node_map,
+                                                          &parent_slot,
+                                                          NULL,
+                                                          ghost->node_pool );
 
 #if FD_GHOST_USE_HANDHOLDING
   /* Caller promises parent_slot is already in ghost. */
-  if( FD_UNLIKELY( !fd_ghost_node_map_ele_query( ghost->node_map, &parent_slot, NULL, ghost->node_pool ) ) ) {
-    FD_LOG_ERR( ( "parent_slot %lu is missing from ghost.", parent_slot ) );
+  if( FD_UNLIKELY( !fd_ghost_node_map_ele_query( ghost->node_map,
+                                                 &parent_slot,
+                                                 NULL,
+                                                 ghost->node_pool ) ) ) {
+    FD_LOG_WARNING( ( "parent_slot %lu is missing from ghost.", parent_slot ) );
+    __asm__("int $3");
   }
 #endif
 
@@ -219,9 +231,19 @@ fd_ghost_node_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot ) {
 
 fd_ghost_node_t *
 fd_ghost_head_query( fd_ghost_t * ghost ) {
-  fd_ghost_node_t * head = ghost->root;
+  fd_ghost_node_t const * head = fd_ghost_head_query_const( ghost );
+
+  /* Return a mutable reference. */
+
+  return fd_ghost_node_query( ghost, head->slot );
+}
+
+fd_ghost_node_t const *
+fd_ghost_head_query_const( fd_ghost_t const * ghost ) {
+  fd_ghost_node_t const * head = ghost->root;
   while( head->child ) {
-    fd_ghost_node_t * curr = head;
+    head                         = head->child;
+    fd_ghost_node_t const * curr = head;
     while( curr ) {
 
       /* clang-format off */
@@ -246,7 +268,6 @@ fd_ghost_head_query( fd_ghost_t * ghost ) {
 
       curr = curr->sibling;
     }
-    head = head->child;
   }
   return head;
 }
@@ -256,22 +277,37 @@ fd_ghost_node_query( fd_ghost_t * ghost, ulong slot ) {
   return fd_ghost_node_map_ele_query( ghost->node_map, &slot, NULL, ghost->node_pool );
 }
 
+fd_ghost_node_t const *
+fd_ghost_node_query_const( fd_ghost_t const * ghost, ulong slot ) {
+  return fd_ghost_node_map_ele_query_const( ghost->node_map, &slot, NULL, ghost->node_pool );
+}
+
 void
-fd_ghost_replay_vote_upsert( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey, ulong stake ) {
-  fd_ghost_node_t * node = fd_ghost_node_map_ele_query( ghost->node_map, &slot, NULL, ghost->node_pool );
+fd_ghost_replay_vote_upsert( fd_ghost_t *        ghost,
+                             ulong               slot,
+                             fd_pubkey_t const * pubkey,
+                             ulong               stake ) {
+
+  /* Ignore votes for slots older than the current root. */
+
+  if( FD_UNLIKELY( slot < ghost->root->slot ) ) return;
+
+  fd_ghost_node_t * node = fd_ghost_node_map_ele_query( ghost->node_map,
+                                                        &slot,
+                                                        NULL,
+                                                        ghost->node_pool );
 
 #if FD_GHOST_USE_HANDHOLDING
   /* Caller promises node is already in ghost. */
   if( FD_UNLIKELY( !node ) ) FD_LOG_ERR( ( "missing ghost node" ) );
 #endif
 
-  /* Ignore votes for slots older than the current root. */
-
-  if( FD_UNLIKELY( slot < ghost->root->slot ) ) return;
-
   /* Query pubkey's latest vote. */
 
-  fd_ghost_vote_t * latest_vote = fd_ghost_vote_map_ele_query( ghost->vote_map, pubkey, NULL, ghost->vote_pool );
+  fd_ghost_vote_t * latest_vote = fd_ghost_vote_map_ele_query( ghost->vote_map,
+                                                               pubkey,
+                                                               NULL,
+                                                               ghost->vote_pool );
 
   if( FD_LIKELY( latest_vote ) ) {
 
@@ -279,17 +315,25 @@ fd_ghost_replay_vote_upsert( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const *
 
     if( FD_UNLIKELY( slot <= latest_vote->slot ) ) return;
 
-    fd_ghost_node_t * node = fd_ghost_node_map_ele_query( ghost->node_map, &latest_vote->slot, NULL, ghost->node_pool );
+    fd_ghost_node_t * node = fd_ghost_node_map_ele_query( ghost->node_map,
+                                                          &latest_vote->slot,
+                                                          NULL,
+                                                          ghost->node_pool );
 
     if( FD_UNLIKELY( !node ) ) {
 
-      FD_LOG_WARNING( ( "[ghost] %32J's latest vote slot %lu was too old and already.", pubkey, latest_vote->slot ) );
+      FD_LOG_NOTICE( ( "[ghost] %32J's latest vote slot %lu was too old and already pruned.",
+                       pubkey,
+                       latest_vote->slot ) );
 
     } else {
 
       /* Subtract pubkey's stake from the prev voted slot hash and propagate. */
 
-      FD_LOG_DEBUG(("[ghost] removing (%32J, %lu, %lu)", pubkey, latest_vote->stake, latest_vote->slot));
+      FD_LOG_DEBUG( ( "[ghost] removing (%32J, %lu, %lu)",
+                      pubkey,
+                      latest_vote->stake,
+                      latest_vote->slot ) );
 
       node->stake -= latest_vote->stake;
       fd_ghost_node_t * ancestor = node;
@@ -306,7 +350,8 @@ fd_ghost_replay_vote_upsert( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const *
 #if FD_GHOST_USE_HANDHOLDING
     /* OOM: we've exceeded the max number of voter pubkeys that were
        statically allocated. */
-    if( FD_UNLIKELY( !fd_ghost_vote_pool_free( ghost->vote_pool ) ) ) FD_LOG_ERR( ( "[ghost] vote_pool full. check # of validators." ) );
+    if( FD_UNLIKELY( !fd_ghost_vote_pool_free( ghost->vote_pool ) ) )
+      FD_LOG_ERR( ( "[ghost] vote_pool full. check # of validators." ) );
 #endif
 
     latest_vote         = fd_ghost_vote_pool_ele_acquire( ghost->vote_pool );
@@ -321,7 +366,7 @@ fd_ghost_replay_vote_upsert( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const *
   /* Propagate the vote stake up the ancestry, including updating the
      head. */
 
-  FD_LOG_DEBUG(("[ghost] adding (%32J, %lu, %lu)", pubkey, stake, latest_vote->slot));
+  FD_LOG_DEBUG( ( "[ghost] adding (%32J, %lu, %lu)", pubkey, stake, latest_vote->slot ) );
   node->stake += stake;
   fd_ghost_node_t * ancestor = node;
   while( ancestor->parent ) {
@@ -331,19 +376,31 @@ fd_ghost_replay_vote_upsert( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const *
 }
 
 void
-fd_ghost_gossip_vote_upsert( FD_PARAM_UNUSED fd_ghost_t * ghost, FD_PARAM_UNUSED ulong slot, FD_PARAM_UNUSED fd_pubkey_t const * pubkey, FD_PARAM_UNUSED ulong stake ) {
+fd_ghost_gossip_vote_upsert( FD_PARAM_UNUSED fd_ghost_t *        ghost,
+                             FD_PARAM_UNUSED ulong               slot,
+                             FD_PARAM_UNUSED fd_pubkey_t const * pubkey,
+                             FD_PARAM_UNUSED ulong               stake ) {
   FD_LOG_ERR( ( "unimplemented" ) );
 }
 
-void
-fd_ghost_publish( fd_ghost_t * ghost, fd_ghost_node_t * root ) {
+fd_ghost_node_t *
+fd_ghost_publish( fd_ghost_t * ghost, ulong slot ) {
+
+  fd_ghost_node_t * root = fd_ghost_node_query( ghost, slot );
+
+#if FD_GHOST_USE_HANDHOLDING
+  if( FD_UNLIKELY( !root ) ) FD_LOG_ERR( ( "[fd_ghost_publish] slot not found in ghost" ) );
+#endif
 
   /* First, remove the previous root, and add it to the prune list.
 
      In this context, head is the list head (not to be confused with the
      ghost head.) */
 
-  fd_ghost_node_t * head = fd_ghost_node_map_ele_remove( ghost->node_map, &ghost->root->slot, NULL, ghost->node_pool );
+  fd_ghost_node_t * head = fd_ghost_node_map_ele_remove( ghost->node_map,
+                                                         &ghost->root->slot,
+                                                         NULL,
+                                                         ghost->node_pool );
 
   /* Second, BFS down the tree, adding nodes to the prune queue except
      for the new root.
@@ -362,14 +419,22 @@ fd_ghost_publish( fd_ghost_t * ghost, fd_ghost_node_t * root ) {
 
         /* Remove the child from the map and push the child onto the list. */
 
-        tail->next = fd_ghost_node_map_idx_remove( ghost->node_map, &child->slot, ULONG_MAX, ghost->node_pool );
+        tail->next = fd_ghost_node_map_idx_remove( ghost->node_map,
+                                                   &child->slot,
+                                                   ULONG_MAX,
+                                                   ghost->node_pool );
 #if FD_GHOST_USE_HANDHOLDING
         if( FD_UNLIKELY( tail->next == ULONG_MAX ) ) {
-          FD_LOG_ERR( ( "Failed to remove child. Child must exist given the while condition. Possible memory corruption or data race." ) );
+          FD_LOG_ERR( ( "Failed to remove child. Child must exist given the while condition. "
+                        "Possible memory corruption or data race." ) );
         }
 #endif
         tail = fd_ghost_node_pool_ele( ghost->node_pool, tail->next );
       }
+
+      /* Clear tail's next pointer */
+
+      tail->next = ULONG_MAX;
 
       /* Move tail and child pointers forward. */
 
@@ -387,11 +452,40 @@ fd_ghost_publish( fd_ghost_t * ghost, fd_ghost_node_t * root ) {
 
   root->parent = NULL;
   ghost->root  = root;
+
+  return root;
+}
+
+int
+fd_ghost_is_ancestor( fd_ghost_t const * ghost, ulong ancestor_slot, ulong slot ) {
+  fd_ghost_node_t const * ancestor = fd_ghost_node_query_const( ghost, slot );
+#if FD_GHOST_USE_HANDHOLDING
+  if( FD_UNLIKELY( !ancestor ) ) {
+
+    /* slot not found in ghost. this can happen if ghost has pruned to a
+       new root but forks has not yet been pruned to that same root. */
+
+    FD_LOG_WARNING( ( "[fd_ghost_is_ancestor] unable to find slot %lu in ghost. ghost root: %lu",
+                      slot,
+                      ghost->root->slot ) );
+  }
+#endif
+
+  /* Look for ancestor_slot in the fork ancestry.
+
+     Stop looking when there is either no ancestry remaining or there is
+     no reason to look further because we've searched past the
+     ancestor_slot. */
+
+  while( FD_LIKELY( ancestor && ancestor->slot >= ancestor_slot ) ) {
+    if( FD_UNLIKELY( ancestor->slot == ancestor_slot ) ) return 1; /* optimize for not found */
+    ancestor = ancestor->parent;
+  }
+  return 0; /* not found */
 }
 
 static void
 print( fd_ghost_node_t const * node, int space, const char * prefix, ulong total ) {
-  if( space > 40 ) return;
   if( node == NULL ) return;
 
   if( space > 0 ) printf( "\n" );
@@ -403,7 +497,7 @@ print( fd_ghost_node_t const * node, int space, const char * prefix, ulong total
   } else if( FD_UNLIKELY( pct < 0.99 ) ) {
     printf( "%s%ld (%.0lf%%, %lu)", prefix, node->slot, pct, node->weight );
   } else {
-    printf( "%s%ld (%.0lf%%, %lu)", prefix, node->slot, pct, node->weight );
+    printf( "%s%ld (%.0lf%%)", prefix, node->slot, pct );
   }
 
   fd_ghost_node_t * curr = node->child;
@@ -422,7 +516,9 @@ print( fd_ghost_node_t const * node, int space, const char * prefix, ulong total
 
 void
 fd_ghost_print( fd_ghost_t * ghost, ulong start, ulong depth, ulong total_stake ) {
-  fd_ghost_node_t * root = fd_ptr_if( start == FD_SLOT_NULL, ghost->root, fd_ghost_node_query( ghost, start ) );
+  fd_ghost_node_t * root = fd_ptr_if( start == FD_SLOT_NULL,
+                                      ghost->root,
+                                      fd_ghost_node_query( ghost, start ) );
   if( FD_UNLIKELY( !root ) ) {
     FD_LOG_WARNING( ( "[ghost] Cannot print. Missing start node." ) );
     return;

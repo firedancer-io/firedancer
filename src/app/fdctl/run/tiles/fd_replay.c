@@ -46,7 +46,7 @@
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
-// #define STOP_AFTER_N_SLOTS 1000UL
+#define STOP_SLOT 280501578
 
 /* An estimate of the max number of transactions in a block.  If there are more
    transactions, they must be split into multiple sets. */
@@ -418,7 +418,6 @@ during_frag( void * _ctx,
       dests[i].ip4 = in_dests[i].ip4_addr;
       dests[i].port = in_dests[i].udp_port;
     }
-    FD_LOG_WARNING(( "REPLAY: get %lu vote contact message, first one is ip=%x, port=%d", dest_cnt, dests[0].ip4, dests[0].port ));
     return;
   }
 
@@ -454,104 +453,6 @@ vote_txn_signer( void *        signer_ctx,
                  ulong         len ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)signer_ctx;
   fd_keyguard_client_sign( ctx->keyguard_client, signature, buffer, len );
-}
-
-static void
-slot_ctx_restore( fd_replay_tile_ctx_t * ctx, ulong slot, fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_funk_txn_t *   txn_map    = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
-  fd_hash_t const * block_hash = fd_blockstore_block_hash_query( ctx->blockstore, slot );
-  FD_LOG_DEBUG(("Current slot %lu", slot));
-  if( !block_hash ) FD_LOG_ERR( ( "missing block hash of slot we're trying to restore" ) );
-  fd_funk_txn_xid_t xid;
-  fd_memcpy( xid.uc, block_hash, sizeof( fd_funk_txn_xid_t ) );
-  xid.ul[0]             = slot;
-  fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
-  fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, txn_map );
-  if( !txn ) FD_LOG_ERR( ( "missing txn, parent slot %lu", slot ) );
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global( ctx->funk, txn, &id );
-  if( rec == NULL ) FD_LOG_ERR( ( "failed to read banks record" ) );
-  void *                  val = fd_funk_val( rec, fd_funk_wksp( ctx->funk ) );
-  fd_bincode_decode_ctx_t decode_ctx;
-  decode_ctx.data    = val;
-  decode_ctx.dataend = (uchar *)val + fd_funk_val_sz( rec );
-  decode_ctx.valloc  = ctx->valloc;
-
-  FD_TEST( slot_ctx->magic == FD_EXEC_SLOT_CTX_MAGIC );
-
-  slot_ctx->funk_txn   = txn;
-
-  slot_ctx->acc_mgr    = ctx->acc_mgr;
-  slot_ctx->blockstore = ctx->blockstore;
-  slot_ctx->epoch_ctx  = ctx->epoch_ctx;
-  slot_ctx->valloc     = ctx->valloc;
-
-  fd_bincode_destroy_ctx_t destroy_ctx = {
-    .valloc = ctx->valloc,
-  };
-
-  fd_slot_bank_destroy( &slot_ctx->slot_bank, &destroy_ctx );
-  FD_TEST( fd_slot_bank_decode( &slot_ctx->slot_bank, &decode_ctx ) == FD_BINCODE_SUCCESS );
-  FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx ) );
-  slot_ctx->leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot );
-
-  // TODO how do i get this info, ignoring rewards for now
-  // slot_ctx->epoch_reward_status = ???
-
-  // signature_cnt, account_delta_hash, prev_banks_hash are used for the banks hash calculation and
-  // not needed when restoring parent
-
-  FD_LOG_NOTICE( ( "recovered slot_bank for slot=%lu banks_hash=%32J poh_hash %32J",
-                   slot_ctx->slot_bank.slot,
-                   slot_ctx->slot_bank.banks_hash.hash,
-                   slot_ctx->slot_bank.poh.hash ) );
-
-  /* Prepare bank for next slot */
-  slot_ctx->slot_bank.slot           = slot;
-  slot_ctx->slot_bank.collected_fees = 0;
-  slot_ctx->slot_bank.collected_rent = 0;
-
-  /* FIXME epoch boundary stuff when replaying */
-  // fd_features_restore( slot_ctx );
-  // fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot );
-  // fd_calculate_epoch_accounts_hash_values( slot_ctx );
-}
-
-static fd_fork_t *
-prepare_ctx(fd_replay_tile_ctx_t * ctx ) {
-  ulong parent_slot = ctx->parent_slot;
-
-  /* Query for the fork to execute the block on in the frontier */
-
-  fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &ctx->parent_slot, NULL, ctx->forks->pool );
-
-  /* If the parent block is both present and executed (see earlier conditionals), but isn't in the
-     frontier, that means this block is starting a new fork and needs to be added to the
-     frontier. This requires rolling back to that txn in funk. */
-
-  if( FD_UNLIKELY( !fork ) ) {
-
-    /* Alloc a new slot_ctx */
-
-    fork       = fd_fork_pool_ele_acquire( ctx->forks->pool );
-    fork->slot = parent_slot;
-    fork->executing = 0;
-
-    /* Format and join the slot_ctx */
-
-    fd_exec_slot_ctx_t * slot_ctx =
-        fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx, ctx->valloc ) );
-    if( FD_UNLIKELY( !slot_ctx ) ) { FD_LOG_ERR( ( "failed to new and join slot_ctx" ) ); }
-
-    /* Restore and decode w/ funk */
-
-    slot_ctx_restore( ctx, fork->slot, slot_ctx );
-
-    /* Add to frontier */
-
-    fd_fork_frontier_ele_insert( ctx->forks->frontier, fork, ctx->forks->pool );
-  }
-
-  return fork;
 }
 
 static void
@@ -689,12 +590,18 @@ after_frag( void *             _ctx,
   // ctx->flags = fd_disco_replay_sig_flags( *opt_sig );
 
   FD_SCRATCH_SCOPE_BEGIN {
-    /* If the parent fork exists && is executing, give up */
+
+    /* This is an edge case related to pack. The parent fork might
+       already be in the frontier and currently executing (ie.
+       fork->frozen = 0). */
+
     fd_fork_t * parent_fork = fd_fork_frontier_ele_query(
           ctx->forks->frontier, &ctx->parent_slot, NULL, ctx->forks->pool );
-    if( parent_fork != NULL && parent_fork->executing ) {
-      FD_LOG_WARNING(( "parent fork is still executing, cannot process block right now - slot: %lu, parent_slot: %lu", ctx->curr_slot, ctx->parent_slot ));
-      return;
+    if( FD_UNLIKELY ( parent_fork && parent_fork->frozen ) ) {
+      FD_LOG_ERR(
+          ( "parent slot is frozen in frontier. cannot execute. slot: %lu, parent_slot: %lu",
+            ctx->curr_slot,
+            ctx->parent_slot ) );
     }
 
     fd_fork_t * fork = fd_fork_frontier_ele_query(
@@ -702,8 +609,8 @@ after_frag( void *             _ctx,
     if( fork == NULL ) {
       long prepare_time_ns = -fd_log_wallclock();
 
-      fork = prepare_ctx( ctx );
-      fork->executing = 1;
+      fork = fd_forks_prepare( ctx->forks, ctx->parent_slot, ctx->acc_mgr, ctx->blockstore, ctx->epoch_ctx, ctx->funk, ctx->valloc );
+
       // Remove slot ctx from frontier
       fd_fork_t * child = fd_fork_frontier_ele_remove( ctx->forks->frontier, &fork->slot, NULL, ctx->forks->pool );
       child->slot = ctx->curr_slot;
@@ -855,7 +762,7 @@ after_frag( void *             _ctx,
 
       fd_blockstore_end_write( ctx->blockstore );
 
-      fork->executing = 0;
+      fork->frozen = 0;
       // Remove slot ctx from frontier once block is finalized
       fd_fork_t * child = fd_fork_frontier_ele_remove( ctx->forks->frontier, &fork->slot, NULL, ctx->forks->pool );
       child->slot = ctx->curr_slot;
@@ -870,27 +777,21 @@ after_frag( void *             _ctx,
       FD_PARAM_UNUSED long tic_ = fd_log_wallclock();
 
       fd_tower_fork_update( ctx->tower, fork, ctx->acc_mgr, ctx->blockstore, ctx->ghost );
-      long        now         = fd_log_wallclock();
-      fd_ghost_node_t * head                = fd_ghost_head_query( ctx->ghost );
-      long        duration_ns         = fd_log_wallclock() - now;
+      long              now         = fd_log_wallclock();
+      fd_ghost_node_t * head        = fd_ghost_head_query( ctx->ghost );
+      long              duration_ns = fd_log_wallclock() - now;
       if( FD_UNLIKELY( head->slot < fork->slot - 32 ) ) {
         FD_LOG_WARNING( ( "Fork choice slot is too far behind executed slot. Likely there is a "
                           "bug in execution that is interfering with our ability to process recent votes." ) );
+        __asm__("int $3");
 
         /* Don't try to proceed with fork choice and voting as our view of where the stake is probably wrong */
 
       } else {
 
-        FD_LOG_NOTICE( ( "\n\n[Fork Selection]\n"
-                         "# of vote accounts: %lu \n"
-                         "selected fork:      %lu\n"
-                         "took:               %.2lf ms (%ld ns)\n",
-                         ctx->tower->vote_acc_cnt,
-                         head->slot,
-                         (double)( duration_ns ) / 1e6,
-                         duration_ns ) );
+        /* Check which fork to reset to for pack. */
 
-        fd_fork_t * reset_fork = fd_tower_reset_fork_select( ctx->tower, ctx->forks );
+        fd_fork_t const * reset_fork = fd_tower_reset_fork_select( ctx->tower, ctx->forks, ctx->ghost );
         memcpy( microblock_trailer->hash, reset_fork->slot_ctx.slot_bank.block_hash_queue.last_hash->uc, sizeof(fd_hash_t) );
         if( ctx->poh_init_done == 1 ) {
           ulong parent_slot = reset_fork->slot_ctx.slot_bank.prev_slot;
@@ -906,18 +807,59 @@ after_frag( void *             _ctx,
         }
       }
 
+      /* Pick a fork to vote on. May be NULL. */
+
+      fd_fork_t const * vote_fork = fd_tower_vote_fork_select( ctx->tower, ctx->forks, ctx->acc_mgr, ctx->ghost );
+      FD_LOG_NOTICE( ( "\n\n[Fork Selection]\n"
+                       "# of vote accounts: %lu \n"
+                       "best fork:          %lu\n"
+                       "vote fork:          %lu\n"
+                       "took:               %.2lf ms (%ld ns)\n",
+                       fd_tower_vote_accs_cnt( ctx->tower->vote_accs ),
+                       head->slot,
+                       !!vote_fork ? vote_fork->slot : 0,
+                       (double)( duration_ns ) / 1e6,
+                       duration_ns ) );
       fd_ghost_print( ctx->ghost, child->slot, FD_GHOST_PRINT_DEPTH_DEFAULT, ctx->tower->total_stake );
+      fd_tower_print( ctx->tower );
 
-      /* Publish the fork forks */
-      fd_blockstore_start_write( ctx->blockstore );
+      /* Record a vote, if we have a fork to vote on. */
 
-      /* TODO: publish the actual tower root! */
-      int err = fd_blockstore_publish( ctx->blockstore, ctx->blockstore->root );
-      if( err!=FD_BLOCKSTORE_OK ) {
-        FD_LOG_ERR(( "error pruning blockstore" ));
+      if( FD_LIKELY( vote_fork ) ) {
+        fd_tower_vote( ctx->tower, vote_fork->slot );
       }
 
-      fd_blockstore_end_write( ctx->blockstore );
+      /* Check if we've reached max lockout. */
+
+      if( FD_UNLIKELY( fd_tower_is_max_lockout( ctx->tower ) ) ) {
+
+        /* Publish tower and get the new root. */
+
+        ulong root = fd_tower_publish( ctx->tower );
+
+        /* TODO migrate the publishing for blockstore and forks. They
+           should be done in the housekeeping loops of replay, store_int
+           respectively. */
+
+        /* Publish blockstore. */
+
+#if !STOP_SLOT
+        fd_blockstore_start_write( ctx->blockstore );
+        int rc = fd_blockstore_publish( ctx->blockstore, root );
+        if( rc != FD_BLOCKSTORE_OK ) {
+          FD_LOG_ERR( ( "error pruning blockstore" ) );
+        }
+        fd_blockstore_end_write( ctx->blockstore );
+#endif
+
+        /* Publish forks.*/
+
+        fd_forks_publish( ctx->forks, root, ctx->ghost );
+
+        /* Publish ghost. */
+
+        FD_TEST( fd_ghost_publish( ctx->ghost, root  ) );
+      }
 
       /* Prepare bank for next execution. */
 
@@ -937,20 +879,6 @@ after_frag( void *             _ctx,
         fd_solcap_writer_flush( ctx->capture_ctx->capture );
       }
 
-#if STOP_AFTER_N_SLOTS
-      if( FD_UNLIKELY( ctx->curr_slot > ctx->snapshot_slot + STOP_AFTER_N_SLOTS ) ) {
-
-        if( FD_UNLIKELY( ctx->slots_replayed_file ) ) fclose( ctx->slots_replayed_file );
-
-        if( FD_UNLIKELY( strcmp( ctx->blockstore_checkpt, "" ) ) ) {
-          int rc = fd_wksp_checkpt( ctx->blockstore_wksp, ctx->blockstore_checkpt, 0666, 0, NULL );
-          if( rc ) {
-            FD_LOG_ERR( ( "blockstore checkpt failed: error %d", rc ) );
-          }
-        }
-        FD_LOG_ERR( ( "got through %lu slots, shutting down.", STOP_AFTER_N_SLOTS ) );
-      }
-#endif
 
       /* Bank hash cmp */
 
@@ -1038,6 +966,21 @@ after_frag( void *             _ctx,
       FD_LOG_INFO(( "NOT publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", ctx->curr_slot, ctx->parent_slot, ctx->flags ));
     }
   } FD_SCRATCH_SCOPE_END;
+  
+  #if STOP_SLOT
+      if( FD_UNLIKELY( ctx->curr_slot == STOP_SLOT ) ) {
+
+        if( FD_UNLIKELY( ctx->capture_file ) ) fclose( ctx->slots_replayed_file );
+
+        if( FD_UNLIKELY( strcmp( ctx->blockstore_checkpt, "" ) ) ) {
+          int rc = fd_wksp_checkpt( ctx->blockstore_wksp, ctx->blockstore_checkpt, 0666, 0, NULL );
+          if( rc ) {
+            FD_LOG_ERR( ( "blockstore checkpt failed: error %d", rc ) );
+          }
+        }
+        FD_LOG_ERR( ( "stopping at %lu (#define STOP_SLOT %lu). shutting down.", STOP_SLOT, STOP_SLOT ) );
+      }
+#endif
 }
 
 void
@@ -1107,13 +1050,10 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
 }
 
 static void
-init_after_snapshot( fd_replay_tile_ctx_t * ctx, fd_fork_t * fork ) {
+init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   /* Do not modify order! */
 
   ulong snapshot_slot = ctx->slot_ctx->slot_bank.slot;
-
-  fork->slot = snapshot_slot;
-  fd_fork_frontier_ele_insert( ctx->forks->frontier, fork, ctx->forks->pool );
 
   ctx->curr_slot     = snapshot_slot;
   ctx->parent_slot   = ctx->slot_ctx->slot_bank.prev_slot;
@@ -1124,8 +1064,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx, fd_fork_t * fork ) {
 
   /* Initialize consensus structures post-snapshot */
 
-  ctx->forks->blockstore = ctx->blockstore;
-
+  fd_forks_init( ctx->forks, ctx->slot_ctx );
   fd_ghost_init( ctx->ghost, snapshot_slot );
   fd_tower_init( ctx->tower, ctx->epoch_ctx, snapshot_slot );
 
@@ -1156,18 +1095,13 @@ after_credit( void *             _ctx,
 
     if ( ctx->blockstore != NULL ) {
 
-      /* Acquire slot_ctx mem */
+      /* Init slot_ctx */
 
-      fd_fork_t * fork = fd_fork_pool_ele_acquire( ctx->forks->pool );
-      ctx->slot_ctx    = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx, ctx->valloc ) );
-      FD_TEST( ctx->slot_ctx );
-
-      /* Init slot_ctx pointers */
-
-      ctx->slot_ctx->acc_mgr    = ctx->acc_mgr;
-      ctx->slot_ctx->blockstore = ctx->blockstore;
-      ctx->slot_ctx->epoch_ctx  = ctx->epoch_ctx;
-      ctx->slot_ctx->valloc     = ctx->valloc;
+      fd_exec_slot_ctx_t slot_ctx = { 0 };
+      ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &slot_ctx, ctx->valloc ) );
+      ctx->slot_ctx->acc_mgr      = ctx->acc_mgr;
+      ctx->slot_ctx->blockstore   = ctx->blockstore;
+      ctx->slot_ctx->epoch_ctx    = ctx->epoch_ctx;
       ctx->slot_ctx->status_cache = ctx->status_cache;
 
       FD_SCRATCH_SCOPE_BEGIN {
@@ -1178,10 +1112,17 @@ after_credit( void *             _ctx,
 
         fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot, NULL );
 
-        init_after_snapshot( ctx, fork );
+        init_after_snapshot( ctx );
 
         publish_stake_weights( ctx, mux_ctx, ctx->slot_ctx );
       } FD_SCRATCH_SCOPE_END;
+
+
+      /* Redirect ctx->slot_ctx to point to the memory inside forks. */
+      
+      fd_fork_t * fork = fd_forks_query( ctx->forks, ctx->curr_slot );
+      ctx->slot_ctx = &fork->slot_ctx;
+      FD_TEST( ctx->slot_ctx );
     }
   }
 }
@@ -1340,47 +1281,15 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /**********************************************************************/
-  /* acc_mgr                                                            */
+  /* joins                                                              */
   /**********************************************************************/
 
-  ctx->acc_mgr = fd_acc_mgr_new( acc_mgr_shmem, ctx->funk );
-
-  /**********************************************************************/
-  /* epoch_ctx                                                          */
-  /**********************************************************************/
-
-  ctx->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem , VOTE_ACC_MAX ) );
-
-  /**********************************************************************/
-  /* forks                                                              */
-  /**********************************************************************/
-
-  ctx->forks     = fd_forks_join( fd_forks_new( forks_mem, FD_BLOCK_MAX, 42UL ) );
-  FD_TEST( ctx->forks );
-
-  ctx->forks->acc_mgr    = ctx->acc_mgr;
-  /* blockstore set later */
-  ctx->forks->epoch_ctx  = ctx->epoch_ctx;
-  ctx->forks->funk       = ctx->funk;
-  ctx->forks->valloc     = ctx->valloc;
-
-  /**********************************************************************/
-  /* ghost                                                              */
-  /**********************************************************************/
-
-  ctx->ghost         = fd_ghost_join( fd_ghost_new( ghost_mem, FD_BLOCK_MAX, FD_VOTER_MAX, 42 ) );
-
-  /**********************************************************************/
-  /* tower                                                              */
-  /**********************************************************************/
-
-  ctx->tower         = fd_tower_join( fd_tower_new( tower_mem ) );
-
-  /**********************************************************************/
-  /* bank_hash_cmp                                                      */
-  /**********************************************************************/
-
+  ctx->acc_mgr       = fd_acc_mgr_new( acc_mgr_shmem, ctx->funk );
   ctx->bank_hash_cmp = fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( bank_hash_cmp_mem ) );
+  ctx->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, VOTE_ACC_MAX ) );
+  ctx->forks     = fd_forks_join( fd_forks_new( forks_mem, FD_BLOCK_MAX, 42UL ) );
+  ctx->ghost     = fd_ghost_join( fd_ghost_new( ghost_mem, FD_BLOCK_MAX, FD_VOTER_MAX, 42 ) );
+  ctx->tower     = fd_tower_join( fd_tower_new( tower_mem ) );
 
   /**********************************************************************/
   /* tpool                                                              */
