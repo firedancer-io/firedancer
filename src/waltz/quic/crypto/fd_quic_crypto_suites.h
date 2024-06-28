@@ -200,18 +200,6 @@ struct fd_quic_crypto_secrets {
   uchar new_secret_sz[2];
 };
 
-/* fd_quic_crypto_rand retrieves cryptographic quality random bytes
-   into given memory region.  buf points to first byte of buffer in
-   local address space.  buf_sz is the number of bytes to fill.  Current
-   backend is getrandom(2) (>=256-bit security level on Linux).
-   Return value in FD_QUIC_{SUCCESS,FAILURE}.  Reasons for failure
-   include lack of entropy, in which case caller should wait and retry.
-   buf_sz in [1,INT_MAX] but should be reasonably small (max KiB-ish) */
-
-int
-fd_quic_crypto_rand( uchar * buf,
-                     ulong   buf_sz );
-
 /* fd_quic_crypto_ctx_init initializes the given QUIC crypto context
    using the TLS provider library.  Should be considered an expensive
    operation and thus used sparingly.  On failure, logs error and

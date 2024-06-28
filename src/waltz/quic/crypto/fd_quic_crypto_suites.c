@@ -598,15 +598,6 @@ fd_quic_crypto_lookup_suite( uchar major,
                              uchar minor );
 
 int
-fd_quic_crypto_rand( uchar * buf,
-                     ulong   buf_sz ) {
-  /* TODO buffer */
-  if( FD_UNLIKELY( fd_rng_secure( buf, buf_sz ) ) )
-    return FD_QUIC_FAILED;
-  return FD_QUIC_SUCCESS;
-}
-
-int
 fd_quic_retry_token_encrypt(
     uchar const         retry_secret[static FD_QUIC_RETRY_SECRET_SZ],
     fd_quic_conn_id_t const * orig_dst_conn_id,
@@ -623,8 +614,7 @@ fd_quic_retry_token_encrypt(
 
   /* Generate pseudorandom bytes to use as the key for the AEAD HKDF. Note these bytes form the
      beginning of the retry token. */
-  int rc = fd_quic_crypto_rand( retry_token, FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ );
-  if ( FD_UNLIKELY( rc == FD_QUIC_FAILED ) ) {
+  if( FD_UNLIKELY( !fd_rng_secure( retry_token, FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ ) ) ) {
     return FD_QUIC_FAILED;
   }
 

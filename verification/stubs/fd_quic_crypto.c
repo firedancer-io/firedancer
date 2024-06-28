@@ -8,13 +8,13 @@ mock_crypto_suite = {
   .hash_sz = 32UL,
 };
 
-int
-fd_quic_crypto_rand( uchar * buf,
-                     ulong   buf_sz ) {
+FD_FN_SENSITIVE void *
+fd_rng_secure( void * buf,
+               ulong  buf_sz ) {
   __CPROVER_havoc_slice( buf, buf_sz );
 
-  int res;
-  __CPROVER_assume( res==FD_QUIC_SUCCESS || res==FD_QUIC_FAILED );
+  void * res;
+  __CPROVER_assume( res==buf || res==NULL );
   return res;
 }
 
