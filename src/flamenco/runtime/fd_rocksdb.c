@@ -334,17 +334,16 @@ fd_rocksdb_get_txn_status_raw( fd_rocksdb_t * self,
   ulong slot_be = fd_ulong_bswap( slot );
 
   /* Construct RocksDB query key */
-  char key[ 80 ];
-  memset( key,      0,        8UL );
-  memcpy( key+ 8UL, sig,     64UL );
-  memcpy( key+72UL, &slot_be, 8UL );
+  char key[72];
+  memcpy( key,      sig,      64UL );
+  memcpy( key+64UL, &slot_be, 8UL  );
 
   /* Query record */
   char * err = NULL;
   char * res = rocksdb_get_cf(
       self->db, self->ro,
       self->cf_handles[ FD_ROCKSDB_CFIDX_TRANSACTION_STATUS ],
-      key, 80UL,
+      key, 72UL,
       psz,
       &err );
 
@@ -467,17 +466,16 @@ fd_rocksdb_copy_over_txn_status( fd_rocksdb_t * src,
 
   /* Construct RocksDB query key */
   /* TODO: Replace with constants */
-  char key[ 80 ];
-  memset( key,      0,        8UL );
-  memcpy( key+ 8UL, sig,     64UL );
-  memcpy( key+72UL, &slot_be, 8UL );
+  char key[ 72 ];
+  memcpy( key,      sig,      64UL );
+  memcpy( key+64UL, &slot_be, 8UL  );
 
   /* Query record */
   ulong sz;
   char * err = NULL;
   char * res = rocksdb_get_cf(
       src->db, src->ro, src->cf_handles[ FD_ROCKSDB_CFIDX_TRANSACTION_STATUS ],
-      key, 80UL, &sz, &err );
+      key, 72UL, &sz, &err );
 
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(("err=%s", err));
