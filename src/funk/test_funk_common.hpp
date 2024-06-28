@@ -5,16 +5,19 @@ extern "C" {
 #include <vector>
 #include <stdlib.h>
 #include <assert.h>
+#include <unistd.h>
 
 static const long ROOT_KEY = 0;
 static const ulong MAX_TXNS = 100;
 static const ulong MAX_CHILDREN = 100;
+static const uint MAX_PARTS = 8;
 
 struct fake_rec {
     ulong _key;
     std::vector<long> _data;
     bool _erased = false;
     bool _touched = false;
+    uint _part = FD_FUNK_PART_NULL;
 
     fake_rec() = delete;
     fake_rec(ulong key) : _key(key) { }
@@ -86,6 +89,7 @@ struct fake_funk {
       ulong txn_max = 128;
       ulong rec_max = 1<<16;
       _real = fd_funk_join( fd_funk_new( mem, 1, 1234U, txn_max, rec_max ) );
+      fd_funk_set_num_partitions( _real, MAX_PARTS );
 
       _txns[ROOT_KEY] = new fake_txn(ROOT_KEY);
     }
@@ -123,6 +127,7 @@ struct fake_funk {
       if (fd_funk_val_sz(rec2) > rec->size())
         rec2 = fd_funk_val_truncate(rec2, rec->size(), fd_funk_alloc(_real, _wksp), _wksp, NULL);
       memcpy(fd_funk_val(rec2, _wksp), rec->data(), rec->size());
+      rec->_part = rec2->part;
       fd_funk_end_write(_real);
     }
 
@@ -149,6 +154,28 @@ struct fake_funk {
       fd_funk_end_write(_real);
     }
 
+    void random_repart() {
+      fake_txn * txn = pick_unfrozen_txn();
+      auto& recs = txn->_recs;
+      fake_rec* list[MAX_CHILDREN];
+      uint listlen = 0;
+      for (auto i : recs)
+        if (!i.second->_erased)
+          list[listlen++] = i.second;
+      if (!listlen) return;
+      auto* rec = list[((uint)lrand48())%listlen];
+
+      fd_funk_start_write(_real);
+      fd_funk_txn_t * txn2 = get_real_txn(txn);
+      auto key = rec->real_id();
+      auto* rec2 = fd_funk_rec_query(_real, txn2, &key);
+      assert(rec2 != NULL);
+      uint part = ((uint)lrand48())%MAX_PARTS;
+      assert(!fd_funk_part_set(_real, (fd_funk_rec*)rec2, part));
+      rec->_part = part;
+      fd_funk_end_write(_real);
+    }
+
     void random_new_txn() {
       if (_txns.size() == MAX_TXNS)
         return;
@@ -159,7 +186,7 @@ struct fake_funk {
       for (auto i : _txns)
         list[listlen++] = i.second;
       auto * parent = list[((uint)lrand48())%listlen];
-      
+
       ulong key = ++_lastxid;
       auto * txn = _txns[key] = new fake_txn(key);
 
@@ -182,7 +209,7 @@ struct fake_funk {
       delete txn;
       fd_funk_end_write(_real);
     }
-    
+
     void fake_publish_to_parent(fake_txn* txn) {
       fd_funk_start_write(_real);
       // Move records into parent
@@ -218,7 +245,7 @@ struct fake_funk {
       delete txn;
       fd_funk_end_write(_real);
     }
-    
+
     void fake_publish(fake_txn* txn) {
       assert(txn->_key != ROOT_KEY);
       if (txn->_parent->_key != ROOT_KEY)
@@ -240,7 +267,7 @@ struct fake_funk {
       txn->_children.clear();
       fd_funk_end_write(_real);
     }
-    
+
     void random_publish() {
       fd_funk_start_write(_real);
       fake_txn* list[MAX_TXNS];
@@ -258,7 +285,7 @@ struct fake_funk {
       // Simulate publication
       fake_publish(txn);
     }
-    
+
     void random_publish_into_parent() {
       fd_funk_start_write(_real);
       fake_txn* list[MAX_TXNS];
@@ -276,7 +303,7 @@ struct fake_funk {
       // Simulate publication
       fake_publish_to_parent(txn);
     }
-    
+
     void random_cancel() {
       fd_funk_start_write(_real);
       fake_txn* list[MAX_TXNS];
@@ -294,7 +321,7 @@ struct fake_funk {
       // Simulate cancel
       fake_cancel_family(txn);
     }
-    
+
     void random_merge() {
       fd_funk_start_write(_real);
       // Look for transactions with children but no grandchildren
@@ -328,7 +355,23 @@ struct fake_funk {
       auto* data = fd_funk_rec_query_safe(_real, &i, fd_libc_alloc_virtual(), &datalen);
       if( data ) free(data);
     }
-    
+
+    void archive() {
+      assert(!fd_funk_archive(_real, "/tmp/tmparchive"));
+
+      fd_wksp_detach( _wksp );
+
+      ulong  numa_idx = fd_shmem_numa_idx( 0 );
+      _wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1U, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+      void * mem = fd_wksp_alloc_laddr( _wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
+      ulong txn_max = 128;
+      ulong rec_max = 1<<16;
+      _real = fd_funk_join( fd_funk_new( mem, 1, 1234U, txn_max, rec_max ) );
+
+      assert(!fd_funk_unarchive(_real, "/tmp/tmparchive"));
+      unlink("/tmp/tmparchive");
+    }
+
     void verify() {
       assert(fd_funk_verify(_real) == FD_FUNK_SUCCESS);
 
@@ -360,6 +403,7 @@ struct fake_funk {
           assert(!(rec->flags & FD_FUNK_REC_FLAG_ERASE));
           assert(fd_funk_val_sz(rec) == rec2->size());
           assert(memcmp(fd_funk_val(rec, _wksp), rec2->data(), rec2->size()) == 0);
+          assert(rec->part == rec2->_part);
         }
         assert(!rec2->_touched);
         rec2->_touched = true;
@@ -408,7 +452,7 @@ struct fake_funk {
         auto * txn2 = i->second;
         assert(!txn2->_touched);
         txn2->_touched = true;
-        
+
         auto * parent = fd_funk_txn_parent(txn, txn_map);
         if (parent == NULL)
           assert(ROOT_KEY == txn2->_parent->_key);

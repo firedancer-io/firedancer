@@ -144,6 +144,7 @@
 //#include "fd_funk_rec.h"  /* Includes fd_funk_txn.h */
 #include "fd_funk_val.h"    /* Includes fd_funk_rec.h */
 #include "fd_funk_part.h"
+#include "fd_funk_archive.h"
 
 /* FD_FUNK_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
    for a funk.  ALIGN should be a positive integer power of 2.

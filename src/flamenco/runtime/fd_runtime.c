@@ -2313,21 +2313,41 @@ fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
     return;
   }
 
-  if( !is_abort_slot ) {
-    FD_LOG_NOTICE(( "checkpointing at slot=%lu to file=%s", slot, capture_ctx->checkpt_path ));
-    fd_funk_end_write( slot_ctx->acc_mgr->funk );
-  } else {
-    FD_LOG_NOTICE(( "checkpointing after mismatch to file=%s", capture_ctx->checkpt_path ));
+  if( capture_ctx->checkpt_path != NULL ) {
+    if( !is_abort_slot ) {
+      FD_LOG_NOTICE(( "checkpointing at slot=%lu to file=%s", slot, capture_ctx->checkpt_path ));
+      fd_funk_end_write( slot_ctx->acc_mgr->funk );
+    } else {
+      FD_LOG_NOTICE(( "checkpointing after mismatch to file=%s", capture_ctx->checkpt_path ));
+    }
+
+    unlink( capture_ctx->checkpt_path );
+    int err = fd_wksp_checkpt( fd_funk_wksp( slot_ctx->acc_mgr->funk ), capture_ctx->checkpt_path, 0666, 0, NULL );
+    if ( err ) {
+      FD_LOG_ERR(( "backup failed: error %d", err ));
+    }
+
+    if( !is_abort_slot ) {
+      fd_funk_start_write( slot_ctx->acc_mgr->funk );
+    }
   }
 
-  unlink( capture_ctx->checkpt_path );
-  int err = fd_wksp_checkpt( fd_funk_wksp( slot_ctx->acc_mgr->funk ), capture_ctx->checkpt_path, 0666, 0, NULL );
-  if ( err ) {
-    FD_LOG_ERR(( "backup failed: error %d", err ));
-  }
+  if( capture_ctx->checkpt_archive != NULL ) {
+    if( !is_abort_slot ) {
+      FD_LOG_NOTICE(( "archiving at slot=%lu to file=%s", slot, capture_ctx->checkpt_archive ));
+      fd_funk_end_write( slot_ctx->acc_mgr->funk );
+    } else {
+      FD_LOG_NOTICE(( "archiving after mismatch to file=%s", capture_ctx->checkpt_archive ));
+    }
 
-  if( !is_abort_slot ) {
-    fd_funk_start_write( slot_ctx->acc_mgr->funk );
+    int err = fd_funk_archive( slot_ctx->acc_mgr->funk, capture_ctx->checkpt_archive );
+    if ( err ) {
+      FD_LOG_ERR(( "archive failed: error %d", err ));
+    }
+
+    if( !is_abort_slot ) {
+      fd_funk_start_write( slot_ctx->acc_mgr->funk );
+    }
   }
 }
 
