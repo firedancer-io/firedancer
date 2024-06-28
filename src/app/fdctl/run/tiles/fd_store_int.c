@@ -107,6 +107,8 @@ struct fd_store_tile_ctx {
   ulong blockstore_seed;
 
   ulong * root_slot_fseq;
+
+  int sim;
 };
 typedef struct fd_store_tile_ctx fd_store_tile_ctx_t;
 
@@ -238,17 +240,20 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_repair_request_t * repair_reqs = fd_chunk_to_laddr( ctx->repair_req_out_mem, ctx->repair_req_out_chunk );
   fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, slot );
-  if( FD_UNLIKELY( !lsched ) ) {
+
+  fd_pubkey_t const * slot_leader = NULL;
+  if( FD_LIKELY( !ctx->sim ) ) {
+    if( FD_UNLIKELY( !lsched ) ) {
     // FD_LOG_WARNING(("Get leader schedule for slot %lu failed", slot));
-    return;
-  }
+      return;
+    }
 
-  fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( lsched, slot );
-  if( FD_UNLIKELY( !slot_leader ) ) {
-    FD_LOG_WARNING(("Epoch leaders get fails"));
-    return;
+    slot_leader = fd_epoch_leaders_get( lsched, slot );
+    if( FD_UNLIKELY( !slot_leader ) ) {
+      FD_LOG_WARNING(( "Epoch leaders get fails" ));
+      return;
+    }
   }
-
   /* We are leader at this slot and the slot is newer than turbine! */
   // FIXME: I dont think that this `ctx->store->curr_turbine_slot >= slot`
   // check works on fork switches to lower slot numbers. Use a given fork height
@@ -358,7 +363,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       ulong replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
 
       if( ( ctx->store->curr_turbine_slot - slot )==0 
-          && memcmp( ctx->identity_key, slot_leader, sizeof(fd_pubkey_t) ) == 0 ) {
+          && slot_leader && memcmp( ctx->identity_key, slot_leader, sizeof(fd_pubkey_t) ) == 0 ) {
         /* if is caught up and is leader */
         txn_cnt = 0;
         replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
@@ -394,6 +399,11 @@ after_credit( void *             _ctx,
   fd_mcache_seq_update( ctx->repair_req_out_sync, ctx->repair_req_out_seq );
 
   ctx->store->now = fd_log_wallclock();
+
+  if( FD_UNLIKELY( ctx->sim &&
+                   ctx->store->pending_slots->start == ctx->store->pending_slots->end ) ) {
+    FD_LOG_ERR( ( "Sim is complete." ) );
+  }
 
   for( ulong i = fd_pending_slots_iter_init( ctx->store->pending_slots );
          (i = fd_pending_slots_iter_next( ctx->store->pending_slots, ctx->store->now, i )) != ULONG_MAX; ) {
@@ -563,15 +573,28 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   if( FD_UNLIKELY( strlen( tile->store_int.slots_pending ) > 0 ) ) {
+    ctx->sim = 1;
+
+    const char * split = strchr( tile->store_int.slots_pending, '-' );
+    FD_TEST( split != NULL && *( split + 1 ) != '\0' );
+    const char * snapshot_slot_str = split + 1;
+    char *       endptr;
+    ulong        snapshot_slot = strtoul( snapshot_slot_str, &endptr, 10 );
+
     FILE * file = fopen( tile->store_int.slots_pending, "r" );
     char   buf[20]; /* max # of digits for a ulong */
 
-    ulong cnt = 0;
+    ulong cnt = 1;
+    fd_blockstore_start_write( ctx->blockstore );
+    FD_TEST( fd_blockstore_slot_map_remove( fd_blockstore_slot_map (ctx->blockstore), &snapshot_slot ) );
     while( fgets( buf, sizeof( buf ), file ) ) {
-      char * endptr;
-      ulong  slot = strtoul( buf, &endptr, 10 );
+      char *       endptr;
+      ulong        slot  = strtoul( buf, &endptr, 10 );
+      fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, slot );
+      block->flags       = 0;
       fd_store_add_pending( ctx->store, slot, cnt++ );
     }
+    fd_blockstore_end_write( ctx->blockstore );
     fclose( file );
   }
 }

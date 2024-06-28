@@ -381,6 +381,7 @@ fd_topo_firedancer( config_t * _config ) {
       tile->shred.shred_listen_port      = config->tiles.shred.shred_listen_port;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "storei" ) ) ) {
+      strncpy( tile->store_int.blockstore_restore, config->tiles.store_int.blockstore_restore, sizeof(tile->store_int.blockstore_restore) );
       strncpy( tile->store_int.identity_key_path, config->consensus.identity_path, sizeof(tile->store_int.identity_key_path) );
       strncpy( tile->store_int.slots_pending, config->tiles.store_int.slots_pending, sizeof( tile->store_int.slots_pending ) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "gossip" ) ) ) {
