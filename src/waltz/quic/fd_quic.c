@@ -6253,32 +6253,6 @@ fd_quic_frame_handle_ack_frame(
 }
 
 static ulong
-fd_quic_frame_handle_ack_range_frag(
-    void * context,
-    fd_quic_ack_range_frag_t * data,
-    uchar const * p,
-    ulong p_sz) {
-  (void)context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
-  return FD_QUIC_PARSE_FAIL;
-}
-
-static ulong
-fd_quic_frame_handle_ecn_counts_frag(
-    void * context,
-    fd_quic_ecn_counts_frag_t * data,
-    uchar const * p,
-    ulong p_sz) {
-  (void)context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
-  return FD_QUIC_PARSE_FAIL;
-}
-
-static ulong
 fd_quic_frame_handle_reset_stream_frame(
     void * context,
     fd_quic_reset_stream_frame_t * data,
@@ -7009,21 +6983,6 @@ fd_quic_frame_handle_handshake_done_frame(
   conn->tls_hs = NULL;
 
   return 0;
-}
-
-static ulong
-fd_quic_frame_handle_common_frag(
-    void * context,
-    fd_quic_common_frag_t * data,
-    uchar const * p,
-    ulong p_sz) {
-  (void)context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
-  /* this callback is completely unused */
-  /* TODO tag template to not generate code for this */
-  return FD_QUIC_PARSE_FAIL;
 }
 
 /* initiate the shutdown of a connection
