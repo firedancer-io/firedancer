@@ -653,9 +653,11 @@ archive_restore( fd_ledger_args_t * args ) {
 void
 wksp_restore( fd_ledger_args_t * args ) {
   if( args->restore_funk != NULL ) {
+    FD_LOG_NOTICE(( "restoring funk wksp %s", args->restore_funk ));
     fd_wksp_restore( args->funk_wksp, args->restore_funk, args->hashseed );
   }
   if( args->restore != NULL ) {
+    FD_LOG_NOTICE(( "restoring wksp %s", args->restore ));
     fd_wksp_restore( args->wksp, args->restore, args->hashseed );
   }
 }
@@ -974,35 +976,10 @@ replay( fd_ledger_args_t * args ) {
 
 void
 prune( fd_ledger_args_t * args ) {
- if( args->start_slot != 0 ) {
-    /* Set prune start and end slot */
-    ulong prune_start_slot = args->start_slot;
-    ulong prune_end_slot = args->end_slot;
-    bool abort_on_mismatch = args->abort_on_mismatch;
-
-    /* Replay all slots before prune slot and checkpoint at prune_start_slot */
-    args->start_slot = 0;
-    args->end_slot = prune_start_slot + FD_RUNTIME_NUM_ROOT_BLOCKS;
-    args->checkpt_freq = prune_start_slot;
-    args->checkpt_path = ( args->checkpt_funk != NULL ? args->checkpt_funk : args->checkpt );
-    args->abort_on_mismatch = 0;
-
-    int err = replay( args );
-    if( err ) {
-      FD_LOG_ERR(( "Error on replay in prune" ));
-    }
-
-    /* Restore from checkpoint created in replay */
-    args->snapshot = NULL;
-    args->start_slot = prune_start_slot;
-    args->end_slot = prune_end_slot;
-    args->restore = args->checkpt;
-    args->restore_funk = args->checkpt_funk;
-    args->restore_archive = args->checkpt_archive;
-    args->abort_on_mismatch = abort_on_mismatch;
+  if( args->restore || args->restore_funk ) {
+    FD_LOG_NOTICE(("restoring workspace"));
+    fd_wksp_restore( args->funk_wksp == NULL ? args->wksp : args->funk_wksp, args->restore_funk == NULL ? args->restore : args->restore_funk, args->hashseed );
   }
-
-  wksp_restore( args );
 
   /* Setup data structures required for the unpruned workspace & replay ********/
   init_funk( args );
@@ -1116,6 +1093,10 @@ prune( fd_ledger_args_t * args ) {
   fd_wksp_reset( args->funk_wksp, args->hashseed );
 
   /* Setup funk again */
+  if( args->restore || args->restore_funk ) {
+    FD_LOG_NOTICE(("restoring workspace"));
+    fd_wksp_restore( args->funk_wksp == NULL ? args->wksp : args->funk_wksp, args->restore_funk == NULL ? args->restore : args->restore_funk, args->hashseed );
+  }
   init_funk( args );
   init_blockstore( args );
   init_scratch( args->wksp );
