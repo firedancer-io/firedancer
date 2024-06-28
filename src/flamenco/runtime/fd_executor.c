@@ -1106,8 +1106,9 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
     for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
 #ifdef VLOG
-        if ( FD_UNLIKELY( 257037453 == txn_ctx->slot_ctx->slot_bank.slot ) )
-          FD_LOG_WARNING(("Start of transaction for %d for %64J", i, sig));
+      if( txn_ctx->slot_ctx->slot_bank.slot == 273231330 ) {
+        FD_LOG_WARNING(("Start of transaction for %d for %64J", i, sig));
+      }
 #endif
 
       if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
@@ -1124,6 +1125,9 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       }
 
       int exec_result = fd_execute_instr( txn_ctx, instrs[i] );
+#ifdef VLOG
+      FD_LOG_WARNING(( "fd_execute_instr result (%d) for %64J", exec_result, sig ));
+#endif
       if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
         if ( txn_ctx->instr_err_idx == INT_MAX )
         {

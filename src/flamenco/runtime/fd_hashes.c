@@ -311,6 +311,8 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
         slot_ctx->signature_cnt );
   }
 
+  //FD_LOG_NOTICE(( "[Replay] slot: %lu bank hash: %32J parent bank hash: %32J accounts_delta: %32J signature_count: %ld last_blockhash: %32J",
+  //                slot_ctx->slot_bank.slot, hash->hash, slot_ctx->prev_banks_hash.hash, slot_ctx->account_delta_hash.hash, slot_ctx->signature_cnt, slot_ctx->slot_bank.poh.hash ));
   FD_LOG_NOTICE( ( "\n\n[Replay]\n"
                    "slot:             %lu\n"
                    "bank hash:        %32J\n"
