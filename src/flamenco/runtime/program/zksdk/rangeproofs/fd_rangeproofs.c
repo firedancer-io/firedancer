@@ -53,7 +53,7 @@ fd_rangeproofs_verify(
   uchar const                          batch_len,
   fd_merlin_transcript_t *             transcript ) {
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.15/zk-token-sdk/src/range_proof/mod.rs#L223
+  /* https://github.com/anza-xyz/agave/blob/v2.0.1/zk-sdk/src/range_proof/mod.rs#L288
 
     We need to verify a range proof, by computing a large MSM.
 
@@ -133,7 +133,7 @@ fd_rangeproofs_verify(
   const ulong logn = ipp_proof->logn;
   const ulong n = 1UL << logn;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.15/zk-token-sdk/src/range_proof/mod.rs#L234C47-L239
+  /* https://github.com/anza-xyz/agave/blob/v2.0.1/zk-sdk/src/range_proof/mod.rs#L294-L306
      total bit length (nm) should be a power of 2, and <= 256 == size of our generators table. */
   ulong nm = 0;
   for( uchar i=0; i<batch_len; i++ ) {

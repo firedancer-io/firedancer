@@ -92,7 +92,7 @@ fd_zksdk_transcript_domsep_batched_grp_ciph_val_proof( fd_zksdk_transcript_t * t
 
 static inline void
 fd_zksdk_transcript_domsep_percentage_with_cap_proof( fd_zksdk_transcript_t * transcript ) {
-  fd_merlin_transcript_append_message( transcript, FD_TRANSCRIPT_LITERAL("dom-sep"), (uchar *)FD_TRANSCRIPT_LITERAL("batched-validity-proof") );
+  fd_merlin_transcript_append_message( transcript, FD_TRANSCRIPT_LITERAL("dom-sep"), (uchar *)FD_TRANSCRIPT_LITERAL("percentage-with-cap-proof") );
 }
 
 static inline void
