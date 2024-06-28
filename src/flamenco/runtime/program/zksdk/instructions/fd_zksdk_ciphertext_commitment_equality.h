@@ -23,9 +23,9 @@ typedef struct fd_zksdk_ciph_comm_eq_context fd_zksdk_ciph_comm_eq_context_t;
 int
 fd_zksdk_verify_proof_ciphertext_commitment_equality(
   fd_zksdk_ciph_comm_eq_proof_t const * proof,
-  uchar const                           source_pubkey         [ 32 ],
-  uchar const                           source_ciphertext     [ 64 ],
-  uchar const                           destination_commitment[ 32 ],
+  uchar const                           pubkey     [ 32 ],
+  uchar const                           ciphertext [ 64 ],
+  uchar const                           commitment [ 32 ],
   fd_zksdk_transcript_t *               transcript );
 
 #endif /* HEADER_fd_zksdk_ciphertext_commitment_equality_h */

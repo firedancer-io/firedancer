@@ -12,9 +12,9 @@ ciph_comm_eq_transcript_init( fd_zksdk_transcript_t *                 transcript
 int
 fd_zksdk_verify_proof_ciphertext_commitment_equality(
   fd_zksdk_ciph_comm_eq_proof_t const * proof,
-  uchar const                           source_pubkey         [ 32 ],
-  uchar const                           source_ciphertext     [ 64 ],
-  uchar const                           destination_commitment[ 32 ],
+  uchar const                           pubkey     [ 32 ],
+  uchar const                           ciphertext [ 64 ],
+  uchar const                           commitment [ 32 ],
   fd_zksdk_transcript_t *               transcript ) {
   /*
     We need to verify the 3 following equivalences.
@@ -56,16 +56,16 @@ fd_zksdk_verify_proof_ciphertext_commitment_equality(
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( y2, proof->y2 )==NULL ) ) {
     return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
-  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[4], source_pubkey )==NULL ) ) {
+  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[4], pubkey )==NULL ) ) {
     return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
-  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[5], source_ciphertext )==NULL ) ) {
+  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[5], ciphertext )==NULL ) ) {
     return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
-  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[6], &source_ciphertext[32] )==NULL ) ) {
+  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[6], &ciphertext[32] )==NULL ) ) {
     return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
-  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[7], destination_commitment )==NULL ) ) {
+  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[7], commitment )==NULL ) ) {
     return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
 

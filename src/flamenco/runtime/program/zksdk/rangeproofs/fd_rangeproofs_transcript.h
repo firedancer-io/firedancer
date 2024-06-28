@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_program_rangeproofs_fd_transcript_h
 #define HEADER_fd_src_flamenco_runtime_program_rangeproofs_fd_transcript_h
 
-/* https://github.com/solana-labs/solana/blob/v1.17.13/zk-token-sdk/src/transcript.rs#L83 */
+/* https://github.com/anza-xyz/agave/blob/v2.0.1/zk-sdk/src/transcript.rs */
 
 #include "../../../../fd_flamenco_base.h"
 #include "../merlin/fd_merlin.h"

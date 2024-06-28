@@ -149,6 +149,18 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t ctx ) {
   case FD_ZKSDK_INSTR_VERIFY_BATCHED_RANGE_PROOF_U256:
     fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_batched_range_proof_u256;
     break;
+  case FD_ZKSDK_INSTR_VERIFY_GROUPED_CIPHERTEXT_2_HANDLES_VALIDITY:
+    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_grouped_ciphertext_2_handles_validity;
+    break;
+  case FD_ZKSDK_INSTR_VERIFY_BATCHED_GROUPED_CIPHERTEXT_2_HANDLES_VALIDITY:
+    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_batched_grouped_ciphertext_2_handles_validity;
+    break;
+  case FD_ZKSDK_INSTR_VERIFY_GROUPED_CIPHERTEXT_3_HANDLES_VALIDITY:
+    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_grouped_ciphertext_3_handles_validity;
+    break;
+  case FD_ZKSDK_INSTR_VERIFY_BATCHED_GROUPED_CIPHERTEXT_3_HANDLES_VALIDITY:
+    fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_batched_grouped_ciphertext_3_handles_validity;
+    break;
   default:
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
@@ -165,7 +177,6 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t ctx ) {
   int zkp_res = (*fd_zksdk_instr_verify_proof)( context, proof );
 
   if( FD_UNLIKELY( zkp_res!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    // return zkp_res;
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
