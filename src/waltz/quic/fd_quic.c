@@ -1,5 +1,6 @@
 #include "fd_quic.h"
 #include "fd_quic_common.h"
+#include "fd_quic_conn_id.h"
 #include "fd_quic_private.h"
 #include "fd_quic_conn.h"
 #include "fd_quic_conn_map.h"
@@ -1387,9 +1388,11 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       /* Pick a new conn ID for ourselves, which the peer will address us
          with in the future (via dest conn ID). */
 
-      fd_quic_conn_id_t new_conn_id = {8u,{0},{0}};
-
-      fd_quic_crypto_rand( new_conn_id.conn_id, 8u );
+      fd_quic_conn_id_t new_conn_id;
+      if( FD_UNLIKELY( !fd_quic_conn_id_rand( &new_conn_id ) ) ) {
+        FD_LOG_DEBUG(( "fd_quic_conn_id_rand failed" ));
+        return FD_QUIC_PARSE_FAIL;
+      }
 
       /* Save peer's conn ID, which we will use to address peer with. */
 
@@ -5007,26 +5010,6 @@ fd_quic_conn_free( fd_quic_t *      quic,
   }
 }
 
-fd_quic_conn_id_t
-fd_quic_create_conn_id( fd_quic_t * quic ) {
-  (void)quic;
-
-  /* from rfc9000:
-     Each endpoint selects connection IDs using an implementation-specific (and
-       perhaps deployment-specific) method that will allow packets with that
-       connection ID to be routed back to the endpoint and to be identified by
-       the endpoint upon receipt. */
-  /* this means we can generate a connection id with the property that it can
-     be delivered to the same endpoint by flow control */
-  /* TODO load balancing / flow steering */
-
-  fd_quic_conn_id_t conn_id = { 8u, {0}, {0} };
-
-  fd_quic_crypto_rand( conn_id.conn_id, 8u );
-
-  return conn_id;
-}
-
 fd_quic_conn_t *
 fd_quic_connect( fd_quic_t *  quic,
                  uint         dst_ip_addr,
@@ -5037,8 +5020,13 @@ fd_quic_connect( fd_quic_t *  quic,
 
   /* create conn ids for us and them
      client creates connection id for the peer, peer immediately replaces it */
-  fd_quic_conn_id_t our_conn_id  = fd_quic_create_conn_id( quic );
-  fd_quic_conn_id_t peer_conn_id = fd_quic_create_conn_id( quic );
+  fd_quic_conn_id_t our_conn_id;
+  fd_quic_conn_id_t peer_conn_id;
+  if( FD_UNLIKELY( !fd_quic_conn_id_rand( &peer_conn_id ) ||
+                   !fd_quic_conn_id_rand( &our_conn_id  ) ) ) {
+    FD_LOG_DEBUG(( "fd_rng_secure failed" ));
+    return NULL;
+  }
 
   fd_quic_conn_t * conn = fd_quic_conn_create(
       quic,

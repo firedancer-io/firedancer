@@ -2,6 +2,7 @@
 #define HEADER_fd_src_waltz_quic_fd_quic_conn_id_h
 
 #include "../../util/fd_util_base.h"
+#include "../../util/rng/fd_rng.h"
 #include <string.h>
 
 /* use a global seed initialized at runtime
@@ -43,6 +44,27 @@ fd_quic_conn_id_new( void const * conn_id,
   fd_quic_conn_id_t id = { .sz = (uchar)sz };
   fd_memcpy( id.conn_id, conn_id, sz );
   return id;
+}
+
+/* fd_quic_conn_id_rand creates a new random 8 byte conn ID.  Returns
+   conn_id on success.  In the rare case that the platform RNG fails
+   returns NULL. */
+
+__attribute__((warn_unused_result))
+static inline fd_quic_conn_id_t *
+fd_quic_conn_id_rand( fd_quic_conn_id_t * conn_id ) {
+
+  /* from rfc9000:
+     Each endpoint selects connection IDs using an implementation-specific (and
+       perhaps deployment-specific) method that will allow packets with that
+       connection ID to be routed back to the endpoint and to be identified by
+       the endpoint upon receipt. */
+  /* this means we can generate a connection id with the property that it can
+     be delivered to the same endpoint by flow control */
+  /* TODO load balancing / flow steering */
+
+  conn_id->sz = 8;
+  return fd_rng_secure( conn_id->conn_id, 8u ) ? conn_id : NULL;
 }
 
 FD_PROTOTYPES_END
