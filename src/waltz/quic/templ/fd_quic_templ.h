@@ -80,7 +80,7 @@ FD_TEMPL_DEF_STRUCT_END(version_neg)
      Packet Payload (8..),
    }
    Figure 15: Initial Packet
- 
+
    The first CRYPTO frame sent always begins at an offset of 0 */
 
 FD_TEMPL_DEF_STRUCT_BEGIN(initial)
@@ -229,7 +229,7 @@ FD_TEMPL_DEF_STRUCT_END(retry)
    }
    Figure 8: Retry Pseudo-Packet */
 FD_TEMPL_DEF_STRUCT_BEGIN(retry_pseudo)
-  FD_TEMPL_MBR_ELEM          ( odcid_len,           uchar                  ) 
+  FD_TEMPL_MBR_ELEM          ( odcid_len,           uchar                  )
   FD_TEMPL_MBR_ELEM_VAR      ( odcid,               0,160, odcid_len       )
 
   FD_TEMPL_MBR_ELEM_BITS     ( hdr_form,            uchar, 1               )
@@ -300,3 +300,56 @@ FD_TEMPL_DEF_STRUCT_BEGIN(transport_param_entry)
   FD_TEMPL_MBR_ELEM_VARINT ( param_len, ulong             )
   FD_TEMPL_MBR_ELEM_VAR_RAW( param_val, 0,8192, param_len )
 FD_TEMPL_DEF_STRUCT_END(transport_param_entry)
+
+
+/* 19. Frame common header
+
+   COMMON Frag {
+     Type (i)
+   } */
+FD_TEMPL_DEF_STRUCT_BEGIN(common_frag)
+  FD_TEMPL_MBR_ELEM_VARINT( type, ulong )
+FD_TEMPL_DEF_STRUCT_END(common_frag)
+
+
+/* 19.3.1. ACK Ranges (part of ACK frame)
+
+   ACK Range {
+     Gap (i),
+     ACK Range Length (i),
+   }
+   Figure 26: ACK Ranges */
+
+FD_TEMPL_DEF_STRUCT_BEGIN(ack_range_frag)
+  FD_TEMPL_MBR_ELEM_VARINT( gap,    ulong )
+  FD_TEMPL_MBR_ELEM_VARINT( length, ulong )
+FD_TEMPL_DEF_STRUCT_END(ack_range_frag)
+
+
+/* 19.3.2. ECN Counts (part of ACK frame)
+
+   ECN Counts {
+     ECT0 Count (i),
+     ECT1 Count (i),
+     ECN-CE Count (i),
+   }
+   Figure 27: ECN Count Format
+   The ECN count fields are:
+
+   ECT0 Count:
+   A variable-length integer representing the total number of packets received with the
+     ECT(0) codepoint in the packet number space of the ACK frame.
+
+   ECT1 Count:
+   A variable-length integer representing the total number of packets received with the
+     ECT(1) codepoint in the packet number space of the ACK frame.
+
+   ECN-CE Count:
+   A variable-length integer representing the total number of packets received with the
+     ECN-CE codepoint in the packet number space of the ACK frame. */
+
+FD_TEMPL_DEF_STRUCT_BEGIN(ecn_counts_frag)
+  FD_TEMPL_MBR_ELEM_VARINT( ect0_count,   ulong )
+  FD_TEMPL_MBR_ELEM_VARINT( ect1_count,   ulong )
+  FD_TEMPL_MBR_ELEM_VARINT( ecn_ce_count, ulong )
+FD_TEMPL_DEF_STRUCT_END(ecn_counts_frag)

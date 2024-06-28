@@ -1,13 +1,3 @@
-/* frame common header
-
-   COMMON Frag {
-     Type (i)
-   } */
-FD_TEMPL_DEF_STRUCT_BEGIN(common_frag)
-  FD_TEMPL_MBR_ELEM_VARINT( type, ulong )
-FD_TEMPL_DEF_STRUCT_END(common_frag)
-
-
 /* Padding Frame
 
    PADDING Frame {
@@ -56,49 +46,6 @@ FD_TEMPL_DEF_STRUCT_BEGIN(ack_frame)
   /* N   ack_range_frag    (ack_range_count) */
   /* opt ecn_counts_frag   if type == 0x03 */
 FD_TEMPL_DEF_STRUCT_END(ack_frame)
-
-
-/* Acknowledgement Range Fragment
-
-   ACK Range {
-     Gap (i),
-     ACK Range Length (i),
-   }
-   Figure 26: ACK Ranges */
-
-FD_TEMPL_DEF_STRUCT_BEGIN(ack_range_frag)
-  FD_TEMPL_MBR_ELEM_VARINT( gap,    ulong )
-  FD_TEMPL_MBR_ELEM_VARINT( length, ulong )
-FD_TEMPL_DEF_STRUCT_END(ack_range_frag)
-
-
-/* ECN Counts Fragment
-
-   ECN Counts {
-     ECT0 Count (i),
-     ECT1 Count (i),
-     ECN-CE Count (i),
-   }
-   Figure 27: ECN Count Format
-   The ECN count fields are:
-
-   ECT0 Count:
-   A variable-length integer representing the total number of packets received with the
-     ECT(0) codepoint in the packet number space of the ACK frame.
-
-   ECT1 Count:
-   A variable-length integer representing the total number of packets received with the
-     ECT(1) codepoint in the packet number space of the ACK frame.
-
-   ECN-CE Count:
-   A variable-length integer representing the total number of packets received with the
-     ECN-CE codepoint in the packet number space of the ACK frame. */
-
-FD_TEMPL_DEF_STRUCT_BEGIN(ecn_counts_frag)
-  FD_TEMPL_MBR_ELEM_VARINT( ect0_count,   ulong )
-  FD_TEMPL_MBR_ELEM_VARINT( ect1_count,   ulong )
-  FD_TEMPL_MBR_ELEM_VARINT( ecn_ce_count, ulong )
-FD_TEMPL_DEF_STRUCT_END(ecn_counts_frag)
 
 
 /* Reset Stream Frame
