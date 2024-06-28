@@ -1233,6 +1233,7 @@ fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore ) {
 
 void
 fd_blockstore_snapshot_insert( fd_blockstore_t * blockstore, fd_slot_bank_t const * snapshot_slot_bank ) {
+  FD_LOG_NOTICE(("blockstore inserting snapshot slot %lu", snapshot_slot_bank->slot));
   blockstore->min = blockstore->max = blockstore->smr = snapshot_slot_bank->slot;
 
   fd_blockstore_slot_map_t * slot_entry =

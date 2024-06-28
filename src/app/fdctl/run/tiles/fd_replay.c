@@ -43,6 +43,8 @@
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
+#define STOP_AFTER_N_SLOTS 1000UL
+
 /* An estimate of the max number of transactions in a block.  If there are more
    transactions, they must be split into multiple sets. */
 #define MAX_TXNS_PER_REPLAY ( ( FD_SHRED_MAX_PER_SLOT * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
@@ -791,6 +793,21 @@ after_frag( void *             _ctx,
         fd_solcap_writer_flush( ctx->capture_ctx->capture );
       }
 
+#if STOP_AFTER_N_SLOTS
+      if( FD_UNLIKELY( ctx->curr_slot > ctx->snapshot_slot + STOP_AFTER_N_SLOTS ) ) {
+
+        if( FD_UNLIKELY( ctx->capture_file ) ) fclose( ctx->slots_replayed_file );
+
+        if( FD_UNLIKELY( strcmp( ctx->blockstore_checkpt, "" ) ) ) {
+          int rc = fd_wksp_checkpt( ctx->blockstore_wksp, ctx->blockstore_checkpt, 0666, 0, NULL );
+          if( rc ) {
+            FD_LOG_ERR( ( "blockstore checkpt failed: error %d", rc ) );
+          }
+        }
+        FD_LOG_ERR( ( "got through %lu slots, shutting down.", STOP_AFTER_N_SLOTS ) );
+      }
+#endif
+
       /* Bank hash cmp */
 
       fd_hash_t const * bank_hash = &child->slot_ctx.slot_bank.banks_hash;
@@ -807,7 +824,7 @@ after_frag( void *             _ctx,
 
             /* Mismatch */
 
-            if( FD_UNLIKELY( ctx->capture_file ) ) fclose( ctx->slots_replayed_file );
+            if( FD_UNLIKELY( ctx->slots_replayed_file ) ) fclose( ctx->slots_replayed_file );
             if( FD_UNLIKELY( strcmp(ctx->blockstore_checkpt, "" ) ) ) {
               int rc = fd_wksp_checkpt( ctx->blockstore_wksp, ctx->blockstore_checkpt, 0666, 0, NULL );
               if( rc ) {
@@ -1114,8 +1131,6 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
 
   ctx->blockstore_checkpt = tile->replay.blockstore_checkpt;
-  FD_LOG_NOTICE(("blockstore_checkpt: %s", ctx->blockstore_checkpt));
-
   ctx->genesis     = tile->replay.genesis;
   ctx->incremental = tile->replay.incremental;
   ctx->snapshot    = tile->replay.snapshot;
