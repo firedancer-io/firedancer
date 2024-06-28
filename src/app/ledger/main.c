@@ -353,12 +353,13 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
 
   /* Setup capture context */
   int has_solcap           = args->capture_fpath && args->capture_fpath[0] != '\0';
-  int has_checkpt_dump     = args->checkpt_path && args->checkpt_path[0] != '\0';
+  int has_checkpt          = args->checkpt_path && args->checkpt_path[0] != '\0';
+  int has_checkpt_funk     = args->checkpt_funk && args->checkpt_funk[0] != '\0';
   int has_checkpt_arch     = args->checkpt_archive && args->checkpt_archive[0] != '\0';
   int has_prune            = args->pruned_funk != NULL;
   int has_dump_to_protobuf = args->dump_insn_to_pb;
 
-  if( has_solcap || has_checkpt_dump || has_checkpt_arch || has_prune || has_dump_to_protobuf ) {
+  if( has_solcap || has_checkpt || has_checkpt_funk || has_checkpt_arch || has_prune || has_dump_to_protobuf ) {
     FILE * capture_file = NULL;
 
     void * capture_ctx_mem = fd_valloc_malloc( valloc, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
@@ -379,8 +380,8 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
       args->capture_ctx->capture = NULL;
     }
 
-    if( has_checkpt_dump || has_checkpt_arch ) {
-      args->capture_ctx->checkpt_path = args->checkpt_path;
+    if( has_checkpt || has_checkpt_funk || has_checkpt_arch ) {
+      args->capture_ctx->checkpt_path = ( has_checkpt ? args->checkpt_path : args->checkpt_funk );
       args->capture_ctx->checkpt_archive = args->checkpt_archive;
       args->capture_ctx->checkpt_freq = args->checkpt_freq;
     }
