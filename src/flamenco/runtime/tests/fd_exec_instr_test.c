@@ -7,6 +7,7 @@
 #include "../fd_executor.h"
 #include "../program/fd_bpf_loader_v3_program.h"
 #include "../program/fd_bpf_program_util.h"
+#include "../program/fd_builtin_programs.h"
 #include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
@@ -579,13 +580,13 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   fd_slot_bank_new( &slot_ctx->slot_bank );
   fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
   slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
-  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
-  fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
-
+  
   /* Copy over recent blockhash */
-  if( test_ctx->tx.message.recent_blockhash ) {
-    memcpy( recent_block_hash, test_ctx->tx.message.recent_blockhash, sizeof(fd_hash_t) );
-  }
+  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
+  memcpy( recent_block_hash, test_ctx->tx.message.recent_blockhash, sizeof(fd_hash_t) );
+
+  /* Initialize builtin accounts */
+  fd_builtin_programs_init( slot_ctx );
 
   /* Load in the account states (note this is different from the account keys):
     Account state = accounts to populate DB with
@@ -777,7 +778,7 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   fd_rawtxn_b_t raw_txn[1] = {{.raw = txn_raw_begin, .txn_sz = txn_raw_sz}};
 
   /* Run txn preparation phases */
-  int res = fd_execute_txn_prepare_phase1(slot_ctx, txn_ctx, txn_descriptor, raw_txn);
+  int res = fd_execute_txn_prepare_phase1( slot_ctx, txn_ctx, txn_descriptor, raw_txn );
   if (res != 0) {
     FD_LOG_ERR(("could not prepare txn (phase 1 failed)"));
     return 0;
@@ -1272,7 +1273,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
 
   for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
     fd_borrowed_account_t * acc = &txn_ctx->borrowed_accounts[j];
-    if( !acc->meta ) continue;
+    if( !acc->const_meta ) continue;
 
     ulong modified_idx = txn_result->resulting_state.acct_states_count;
     assert( modified_idx < modified_acct_cnt );
@@ -1283,7 +1284,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
 
     memcpy( out_acct->address, acc->pubkey, sizeof(fd_pubkey_t) );
 
-    out_acct->lamports = acc->meta->info.lamports;
+    out_acct->lamports = acc->const_meta->info.lamports;
 
     out_acct->data =
       FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
@@ -1295,9 +1296,9 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
     out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
     fd_memcpy( out_acct->data->bytes, acc->const_data, acc->const_meta->dlen );
 
-    out_acct->executable     = acc->meta->info.executable;
-    out_acct->rent_epoch     = acc->meta->info.rent_epoch;
-    memcpy( out_acct->owner, acc->meta->info.owner, sizeof(fd_pubkey_t) );
+    out_acct->executable     = acc->const_meta->info.executable;
+    out_acct->rent_epoch     = acc->const_meta->info.rent_epoch;
+    memcpy( out_acct->owner, acc->const_meta->info.owner, sizeof(fd_pubkey_t) );
 
     txn_result->resulting_state.acct_states_count++;
 
