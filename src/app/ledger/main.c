@@ -577,7 +577,8 @@ init_funk( fd_ledger_args_t * args ) {
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
   }
-  FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
+  FD_LOG_NOTICE(( "funky at global address 0x%016lx with %lu records", fd_wksp_gaddr_fast( wksp, shmem ), 
+                                                                       fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   args->funk = funk;
 }
 
@@ -646,6 +647,7 @@ checkpt( fd_ledger_args_t * args ) {
 void
 archive_restore( fd_ledger_args_t * args ) {
   if( args->restore_archive != NULL ) {
+    FD_LOG_NOTICE(( "restoring archive %s", args->restore_archive ));
     fd_funk_unarchive( args->funk, args->restore_archive );
   }
 }
@@ -734,10 +736,12 @@ minify( fd_ledger_args_t * args ) {
 void
 ingest( fd_ledger_args_t * args ) {
   /* Setup funk, blockstore, epoch_ctx, and slot_ctx */
+  wksp_restore( args );
   init_funk( args );
   if( !args->funk_only ) {
     init_blockstore( args );
   }
+
   fd_wksp_t * wksp = args->wksp;
   fd_funk_t * funk = args->funk;
 

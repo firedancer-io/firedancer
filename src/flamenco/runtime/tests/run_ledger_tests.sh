@@ -56,6 +56,7 @@ PRUNE_FAILURE=0
 PROTO_BUF_FAILURE=0
 TILE_CPUS="--tile-cpus 5-21"
 MINIFY_ROCKSDB=0
+RESTORE_ARCHIVE=""
 
 POSITION_ARGS=()
 OBJDIR=${OBJDIR:-build/native/gcc}
@@ -69,6 +70,11 @@ while [[ $# -gt 0 ]]; do
        ;;
     -c|--with_coverage)
        WITH_COVERAGE="$2"
+       shift
+       shift
+       ;;
+    -a|--restore-archive)
+       RESTORE_ARCHIVE="--restore-archive dump/$LEDGER/$2"
        shift
        shift
        ;;
@@ -267,7 +273,7 @@ if [[ ! -e dump/$LEDGER && SKIP_INGEST -eq 0 ]]; then
   # curl -o - -L -q https://github.com/firedancer-io/firedancer-testbins/raw/main/$LEDGER.tar.gz | tar zxf - -C ./dump
 fi
 
-if [ "" == "$SNAPSHOT" ]; then
+if [[ "" == "$SNAPSHOT" && "" == "$RESTORE_ARCHIVE" ]]; then
   SNAPSHOT="--genesis dump/$LEDGER/genesis.bin"
 fi
 
@@ -279,6 +285,7 @@ if [[ $ON_DEMAND = 1 ]]; then
     --reset 1 \
     --cmd replay \
     --rocksdb dump/$LEDGER/rocksdb \
+    $RESTORE_ARCHIVE \
     $TRASHHASH \
     $IMAX \
     $END_SLOT \

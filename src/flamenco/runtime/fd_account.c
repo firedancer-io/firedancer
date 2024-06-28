@@ -39,6 +39,8 @@ fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
   if( !memcmp( account->const_meta->info.owner, owner, sizeof( fd_pubkey_t ) ) ) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
+  /* self.touch()? */
+  account->meta->slot = ctx->slot_ctx->slot_bank.slot;
 
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, 0UL, &account );
@@ -47,6 +49,7 @@ fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
     }
   } while(0);
 
+  account->meta->slot = ctx->slot_ctx->slot_bank.slot;
   memcpy( account->meta->info.owner, owner, sizeof(fd_pubkey_t) );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -91,6 +94,9 @@ fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
     }
   } while(0);
 
+  /* self.touch()? */
+  account->meta->slot = ctx->slot_ctx->slot_bank.slot;
+
   account->meta->info.lamports = lamports;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -114,7 +120,7 @@ fd_account_get_data_mut( fd_exec_instr_ctx_t const * ctx,
     }
   } while(0);
 
-  /* Equivalent of touch() */
+  /* self.touch() */
   account->meta->slot = ctx->slot_ctx->slot_bank.slot;
 
   *data_out = account->data;
@@ -158,6 +164,7 @@ fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,
     }
   } while(0);
 
+  /* self.touch() */
   account->meta->slot = ctx->slot_ctx->slot_bank.slot;
 
   assert( account->meta->dlen >= data_sz );
@@ -193,6 +200,9 @@ fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
   if( old_len==new_len ) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
+
+  /* self.touch() */
+  account->meta->slot = ctx->slot_ctx->slot_bank.slot;
 
   if( !fd_account_update_accounts_resize_delta( ctx, instr_acc_idx, new_len, &err ) ) {
     return err;
@@ -264,7 +274,11 @@ fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,
     }
   } while(0);
 
+  /* self.touch()? */
+  account->meta->slot = ctx->slot_ctx->slot_bank.slot;
+
   account->meta->info.executable = !!is_executable;
+
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
