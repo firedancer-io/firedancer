@@ -287,7 +287,7 @@ fd_funk_val_speed_load( fd_funk_t *     funk,
   ulong new_max_sz = fd_ulong_align_up( new_val_sz, 8U );
   if( funk->speed_bump_remain < new_max_sz ) {
     funk->speed_bump_remain = fd_ulong_max( 64LU<<20LU, new_max_sz );
-    funk->speed_bump_gaddr = fd_wksp_alloc( wksp, 8U, funk->speed_bump_remain, ~FD_FUNK_MAGIC );
+    funk->speed_bump_gaddr = fd_wksp_alloc( wksp, 8U, funk->speed_bump_remain, funk->wksp_tag );
     if( funk->speed_bump_gaddr == 0UL ) {
       funk->speed_bump_remain = 0;
       fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_MEM );

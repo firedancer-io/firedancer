@@ -45,9 +45,11 @@ struct fd_ledger_args {
   ulong                 end_slot;                /* end slot for offline replay */
   uint                  hashseed;                /* hashseed */
   char const *          checkpt;                 /* wksp checkpoint */
-  char const *          checkpt_funk;            /* wksp checkpoint for a funk wksp*/
+  char const *          checkpt_funk;            /* wksp checkpoint for a funk wksp */
+  char const *          checkpt_archive;         /* funk archive format */
   char const *          restore;                 /* wksp restore */
-  char const *          restore_funk;            /* wksp restore for a funk wksp*/
+  char const *          restore_funk;            /* wksp restore for a funk wksp */
+  char const *          restore_archive;         /* restore from a funk archive */
   char const *          allocator;               /* allocator used during replay (libc/wksp) */
   ulong                 shred_max;               /* maximum number of shreds*/
   ulong                 slot_history_max;        /* number of slots stored by blockstore*/
@@ -352,10 +354,11 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   /* Setup capture context */
   int has_solcap           = args->capture_fpath && args->capture_fpath[0] != '\0';
   int has_checkpt_dump     = args->checkpt_path && args->checkpt_path[0] != '\0';
+  int has_checkpt_arch     = args->checkpt_archive && args->checkpt_archive[0] != '\0';
   int has_prune            = args->pruned_funk != NULL;
   int has_dump_to_protobuf = args->dump_insn_to_pb;
 
-  if( has_solcap || has_checkpt_dump || has_prune || has_dump_to_protobuf ) {
+  if( has_solcap || has_checkpt_dump || has_checkpt_arch || has_prune || has_dump_to_protobuf ) {
     FILE * capture_file = NULL;
 
     void * capture_ctx_mem = fd_valloc_malloc( valloc, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
@@ -376,8 +379,9 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
       args->capture_ctx->capture = NULL;
     }
 
-    if( has_checkpt_dump ) {
+    if( has_checkpt_dump || has_checkpt_arch ) {
       args->capture_ctx->checkpt_path = args->checkpt_path;
+      args->capture_ctx->checkpt_archive = args->checkpt_archive;
       args->capture_ctx->checkpt_freq = args->checkpt_freq;
     }
     if( has_prune ) {
@@ -606,10 +610,17 @@ init_blockstore( fd_ledger_args_t * args ) {
 
 void
 checkpt( fd_ledger_args_t * args ) {
-  if( !args->checkpt && !args->checkpt_funk ) {
+  if( !args->checkpt && !args->checkpt_funk && !args->checkpt_archive ) {
     FD_LOG_WARNING(( "No checkpt argument specified" ));
   }
 
+  if( args->checkpt_archive ) {
+    FD_LOG_NOTICE(( "writing funk archive %s", args->checkpt_archive ));
+    int err = fd_funk_archive( args->funk, args->checkpt_archive );
+    if( err ) {
+      FD_LOG_ERR(( "funk archive failed: error %d", err ));
+    }
+  }
   if( args->checkpt_funk ) {
     if( args->funk_wksp == NULL ) {
       FD_LOG_ERR(( "funk_wksp is NULL" ));
@@ -632,7 +643,14 @@ checkpt( fd_ledger_args_t * args ) {
 }
 
 void
-restore( fd_ledger_args_t * args ) {
+archive_restore( fd_ledger_args_t * args ) {
+  if( args->restore_archive != NULL ) {
+    fd_funk_unarchive( args->funk, args->restore_archive );
+  }
+}
+
+void
+wksp_restore( fd_ledger_args_t * args ) {
   if( args->restore_funk != NULL ) {
     fd_wksp_restore( args->funk_wksp, args->restore_funk, args->hashseed );
   }
@@ -890,10 +908,12 @@ replay( fd_ledger_args_t * args ) {
               --slot-history 5000 --allocator wksp --tile-cpus 5-21 --funk-page-cnt 16
   */
 
-  restore( args ); /* Restores checkpointed workspace(s) */
+  wksp_restore( args ); /* Restores checkpointed workspace(s) */
 
   init_funk( args ); /* Joins or creates funk based on if one exists in the workspace */
   init_blockstore( args ); /* Does the same for the blockstore */
+
+  archive_restore( args ); /* Restores checkpointed workspace(s) */
 
   fd_funk_t * funk = args->funk;
   fd_wksp_t * wksp = args->wksp;
@@ -963,7 +983,7 @@ prune( fd_ledger_args_t * args ) {
     args->start_slot = 0;
     args->end_slot = prune_start_slot + FD_RUNTIME_NUM_ROOT_BLOCKS;
     args->checkpt_freq = prune_start_slot;
-    args->checkpt_path = args->checkpt_funk == NULL ? args->checkpt : args->checkpt_funk;
+    args->checkpt_path = ( args->checkpt_funk != NULL ? args->checkpt_funk : args->checkpt );
     args->abort_on_mismatch = 0;
 
     int err = replay( args );
@@ -977,16 +997,17 @@ prune( fd_ledger_args_t * args ) {
     args->end_slot = prune_end_slot;
     args->restore = args->checkpt;
     args->restore_funk = args->checkpt_funk;
+    args->restore_archive = args->checkpt_archive;
     args->abort_on_mismatch = abort_on_mismatch;
   }
 
-  if( args->restore || args->restore_funk ) {
-    fd_wksp_restore( args->funk_wksp == NULL ? args->wksp : args->funk_wksp, args->restore_funk == NULL ? args->restore : args->restore_funk, args->hashseed );
-  }
+  wksp_restore( args );
 
   /* Setup data structures required for the unpruned workspace & replay ********/
   init_funk( args );
   init_blockstore( args );
+
+  archive_restore( args );
 
   fd_funk_t * funk = args->funk;
 
@@ -1268,6 +1289,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   uint         check_acc_hash          = fd_env_strip_cmdline_uint ( &argc, &argv, "--check-acc-hash",          NULL, 0         );
   char const * restore                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--restore",                 NULL, NULL      );
   char const * restore_funk            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--funk-restore",            NULL, NULL      );
+  char const * restore_archive         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--restore-archive",         NULL, NULL      );
   char const * shredcap                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--shred-cap",               NULL, NULL      );
   ulong        trash_hash              = fd_env_strip_cmdline_ulong( &argc, &argv, "--trash-hash",              NULL, ULONG_MAX );
   char const * mini_db_dir             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--minified-rocksdb",        NULL, NULL      );
@@ -1276,6 +1298,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   int          funk_only               = fd_env_strip_cmdline_int  ( &argc, &argv, "--funk-only",               NULL, 0         );
   char const * checkpt                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt",                 NULL, NULL      );
   char const * checkpt_funk            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-funk",            NULL, NULL      );
+  char const * checkpt_archive         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-archive",         NULL, NULL      );
   char const * capture_fpath           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture-solcap",          NULL, NULL      );
   int          capture_txns            = fd_env_strip_cmdline_int  ( &argc, &argv, "--capture-txns",            NULL, 1         );
   char const * checkpt_path            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-path",            NULL, NULL      );
@@ -1360,12 +1383,14 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->end_slot                = end_slot;
   args->checkpt                 = checkpt;
   args->checkpt_funk            = checkpt_funk;
+  args->checkpt_archive         = checkpt_archive;
   args->shred_max               = shred_max;
   args->slot_history_max        = slot_history_max;
   args->txns_max                = txns_max;
   args->index_max               = index_max;
   args->restore                 = restore;
   args->restore_funk            = restore_funk;
+  args->restore_archive         = restore_archive;
   args->mini_db_dir             = mini_db_dir;
   args->funk_only               = funk_only;
   args->copy_txn_status         = copy_txn_status;
