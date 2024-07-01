@@ -48,6 +48,12 @@ fddev_wksp( config_t * config,
 
   fd_log_thread_set( "wksp" );
   args_t args = {0};
+  fd_caps_ctx_t caps[1] = {0};
+  wksp_cmd_perm( &args, caps, config );
+  if( FD_UNLIKELY( caps->err_cnt ) ) {
+    for( ulong i=0; i<caps->err_cnt; i++ ) FD_LOG_WARNING(( "%s", caps->err[ i ] ));
+    FD_LOG_ERR(( "insufficient permissions to create workspaces" ));
+  }
   wksp_cmd_fn( &args, config );
   return 0;
 }
