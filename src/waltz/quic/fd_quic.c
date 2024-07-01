@@ -6257,17 +6257,14 @@ fd_quic_frame_handle_reset_stream_frame(
 
 static ulong
 fd_quic_frame_handle_stop_sending_frame(
-    void * context,
+    void *                         vp_context,
     fd_quic_stop_sending_frame_t * data,
-    uchar const * p,
-    ulong p_sz) {
-  (void)context;
-  (void)data;
-  (void)p;
-  (void)p_sz;
-  /* ack-eliciting */
-  /* TODO implement */
-  return FD_QUIC_PARSE_FAIL;
+    uchar const *                  p,
+    ulong                          p_sz ) {
+  (void)data; (void)p; (void)p_sz;
+  fd_quic_frame_context_t * context = vp_context;
+  context->pkt->ack_flag |= ACK_FLAG_RQD;  /* ack-eliciting */
+  return 0UL;
 }
 
 static ulong
