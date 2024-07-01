@@ -506,7 +506,7 @@ fdctl_obj_new( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "ulong" ) ) ) {
     *(ulong*)laddr = 0;
   } else {
-    FD_LOG_ERR(( "unknown object `%s`", obj->name ));
+    FD_LOG_WARNING(( "unknown object `%s`", obj->name ));
   }
 #undef VAL
 }
@@ -620,7 +620,7 @@ initialize_stacks( config_t * const config ) {
                    tile->name, path ));
     } else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_create_multi failed" ));
   }
-  
+
   if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
