@@ -48,7 +48,7 @@ fd_shred_cap_replay( const char *      shred_cap_fpath,
   for( ;; ) {
     fd_shred_cap_hdr_t header;
     ulong nshredcap_hdr = fread( &header, sizeof( fd_shred_cap_hdr_t ), 1, shred_cap );
-    FD_TEST( nshredcap_hdr = 1 );
+    FD_TEST( nshredcap_hdr == 1 );
     ulong n          = header.size;
 
     uchar buffer[FD_SHRED_MAX_SZ];
