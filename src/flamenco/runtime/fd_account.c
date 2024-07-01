@@ -196,7 +196,7 @@ fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 
-  /* touch*/
+  /* touch() */
   account->meta->slot = ctx->slot_ctx->slot_bank.slot;
 
   if( !fd_account_update_accounts_resize_delta( ctx, instr_acc_idx, new_len, &err ) ) {

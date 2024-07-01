@@ -207,62 +207,72 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
                                          ulong               input_sz ) {
   uchar * input_cursor = input;
 
-  uchar acc_idx_seen[256];
-  memset(acc_idx_seen, 0, sizeof(acc_idx_seen));
+  uchar acc_idx_seen[256] = {0};
 
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
   fd_pubkey_t * txn_accs =  ctx.txn_ctx->accounts;
 
   input_cursor += sizeof(ulong); // number of accounts
-  for( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+  for( ulong i = 0UL; i < ctx.instr->acct_cnt; i++ ) {
     uchar acc_idx = instr_acc_idxs[i];
     fd_pubkey_t * acc = &txn_accs[instr_acc_idxs[i]];
 
     input_cursor++; // position
     fd_borrowed_account_t * view_acc = NULL;
-    int view_err = fd_instr_borrowed_account_view(&ctx, acc, &view_acc);
+    /* Intentionally ignore the borrowed account error because it is not used */
+    fd_instr_borrowed_account_view( &ctx, acc, &view_acc );
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
       input_cursor += 7;
     } else {
       acc_idx_seen[acc_idx] = 1;
-      input_cursor += sizeof(uchar) // is_signer
-          + sizeof(uchar)           // is_writable
-          + sizeof(uchar)           // executable
-          + sizeof(uint)            // original_data_len
-          + sizeof(fd_pubkey_t);    // key
+      input_cursor += sizeof(uchar)        // is_signer
+                    + sizeof(uchar)        // is_writable
+                    + sizeof(uchar)        // executable
+                    + sizeof(uint)         // original_data_len
+                    + sizeof(fd_pubkey_t); // key
 
+      if( FD_UNLIKELY( input_cursor+sizeof(fd_pubkey_t)>input+input_sz) ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
       fd_pubkey_t * owner = (fd_pubkey_t *)input_cursor;
       input_cursor += sizeof(fd_pubkey_t); // owner
 
-      ulong lamports = FD_LOAD(ulong, input_cursor);
+      if( FD_UNLIKELY( input_cursor+sizeof(ulong)>input+input_sz) ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+      ulong lamports = FD_LOAD( ulong, input_cursor );
       if( lamports != view_acc->const_meta->info.lamports ) {
         int err = fd_account_set_lamports( &ctx, i, lamports );
         if( FD_UNLIKELY( err ) ) {
           return err;
         }
       }
-      input_cursor += sizeof(ulong);
+      input_cursor += sizeof(ulong); // lamports
 
-      ulong post_len = FD_LOAD(ulong, input_cursor);
-      input_cursor += sizeof(ulong);
-
-      uchar * post_data = input_cursor;
-
-      ulong acc_sz = post_len;
+      if( FD_UNLIKELY( input_cursor+sizeof(ulong)>input+input_sz) ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+      ulong post_len = FD_LOAD( ulong, input_cursor );
+      input_cursor += sizeof(ulong); // data length
 
       if( FD_LIKELY( view_acc->const_meta != NULL ) ) {
+        if( FD_UNLIKELY( input_cursor+post_len>input+input_sz ) ) {
+          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        }
+        uchar * post_data = input_cursor;
+
         fd_account_meta_t const * metadata_check = view_acc->const_meta;
-        if ( fd_ulong_sat_sub( post_len, metadata_check->dlen ) > MAX_PERMITTED_DATA_INCREASE || post_len > MAX_PERMITTED_DATA_LENGTH ) {
-          return -1;
+        if ( FD_UNLIKELY( fd_ulong_sat_sub( post_len, metadata_check->dlen ) > MAX_PERMITTED_DATA_INCREASE || 
+                          post_len > MAX_PERMITTED_DATA_LENGTH ) ) {
+          return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
         }
 
         fd_borrowed_account_t * modify_acc = NULL;
-        int modify_err = fd_instr_borrowed_account_modify(&ctx, acc, acc_sz, &modify_acc);
-        if ( modify_err != FD_ACC_MGR_SUCCESS ) {
+        int modify_err = fd_instr_borrowed_account_modify( &ctx, acc, post_len, &modify_acc );
+        if( FD_UNLIKELY( modify_err != FD_ACC_MGR_SUCCESS ) ) {
           fd_valloc_free( ctx.valloc, input );
-          return -1;
+          return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
         }
-        fd_account_meta_t * metadata = (fd_account_meta_t *)modify_acc->meta;
 
         ulong pre_len = pre_lens[i];
 
@@ -272,98 +282,47 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
         if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, post_len, &err ) && 
             fd_account_can_data_be_changed( ctx.instr, i, &err ) ) {
 
-          uchar * acc_data = NULL;
-          ulong   acc_dlen = 0UL;
-          int err = fd_account_get_data_mut( &ctx, i, &acc_data, &acc_dlen );
+          int err = fd_account_set_data_length( &ctx, i, post_len );
           if( FD_UNLIKELY( err ) ) {
-            FD_LOG_NOTICE(("ERR HERE"));
             return err;
           }
-          /* THIS IS ILLEGAL */
-          metadata->dlen = post_len;
+
+          uchar * acc_data = NULL;
+          ulong   acc_dlen = 0UL;
+          err = fd_account_get_data_mut( &ctx, i, &acc_data, &acc_dlen );
+          if( FD_UNLIKELY( err ) ) {
+            return err;
+          }
           fd_memcpy( acc_data, post_data, post_len );
-          metadata->slot = ctx.slot_ctx->slot_bank.slot;
-        } else if (view_acc->const_meta->dlen != post_len || memcmp(view_acc->const_data, post_data, post_len) != 0) {
+        } else if( view_acc->const_meta->dlen != post_len || 
+                   memcmp( view_acc->const_data, post_data, post_len ) ) {
           FD_LOG_DEBUG(("Data resize failed"));
           return err;
         }
 
-        // if( lamports != view_acc->const_meta->info.lamports ) {
-        //   err = fd_account_set_lamports( &ctx, i, lamports );
-        //   if( FD_UNLIKELY( err ) ) {
-        //     return err;
-        //   }
-        //   metadata->slot = ctx.slot_ctx->slot_bank.slot;
-        // }
-
-        if( memcmp( view_acc->const_meta->info.owner, owner, sizeof(fd_pubkey_t) ) != 0 ) {
+        if( memcmp( view_acc->const_meta->info.owner, owner, sizeof(fd_pubkey_t) ) ) {
           err = fd_account_set_owner( &ctx, i, owner );
           if( FD_UNLIKELY( err ) ) {
             return err;
           }
-          metadata->slot = ctx.slot_ctx->slot_bank.slot;
         }
 
-        // add to dirty list
-        #ifdef VLOG
-        FD_LOG_WARNING(("Deserialize success %32J", acc->uc));
-        #endif
-      } else if ( view_err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-        // no-op
-        input_cursor += fd_ulong_align_up( pre_lens[i], 8 );
-        #ifdef VLOG
-        FD_LOG_WARNING(("Account %32J unknown", acc->uc));
-        #endif
       } else {
-        input_cursor += fd_ulong_align_up( pre_lens[i], 8 );
-        #ifdef VLOG
-        FD_LOG_WARNING(("Account %32J not found in deserialize", acc->uc));
-        #endif
+        input_cursor += fd_ulong_align_up( pre_lens[i], FD_BPF_ALIGN_OF_U128 );
       }
 
       input_cursor += MAX_PERMITTED_DATA_INCREASE;
-
-      input_cursor += sizeof(ulong);
+      input_cursor += sizeof(ulong); // rent epoch
     }
-    // } else {
-    //   acc_idx_seen[acc_idx] = 1;
-    //   // Account is not writable, skip over
-    //   input_cursor += sizeof(uchar)         // is_signer
-    //       + sizeof(uchar)                   // is_writable
-    //       + sizeof(uchar)                   // executable
-    //       + sizeof(uint)                    // original_data_len
-    //       + sizeof(fd_pubkey_t);            // key
-    //   input_cursor += sizeof(fd_pubkey_t);  // owner
-    //   input_cursor += sizeof(ulong);        // lamports
-    //   ulong post_len = FD_LOAD(ulong, input_cursor);
-    //   input_cursor += sizeof(ulong);        // data_len
-    //   uchar * post_data = input_cursor;
-    //   //FD_LOG_NOTICE(("post_len %lu", post_len, pre_lens[i]));
-    //   if( post_len != pre_lens[i] )
-    //     FD_LOG_ERR(("post_len %lu %lu", post_len, pre_lens[i]));
-
-    //   // fd_borrowed_account_t * view_acc = NULL;
-    //   // int view_err = fd_instr_borrowed_account_view(&ctx, acc, &view_acc);
-    //   fd_account_meta_t const * metadata = view_acc->const_meta;
-
-    //   if( view_acc->data && memcmp( view_acc->data, post_data, post_len ) != 0 ) {
-    //     FD_LOG_ERR(("Data mismatch"));
-    //   }
-
-    //   if ( view_err == FD_ACC_MGR_SUCCESS ) {
-    //     input_cursor += fd_ulong_align_up(metadata->dlen, 8);
-    //   }
-    //   input_cursor += MAX_PERMITTED_DATA_INCREASE;
-
-    //   input_cursor += sizeof(ulong);
-    // }
   }
 
-  FD_TEST( input_cursor <= input + input_sz );
+  if( FD_UNLIKELY( input_cursor>input+input_sz ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  }
 
   fd_valloc_free( ctx.valloc, input );
 
-  return 0;
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 uchar *
