@@ -30,6 +30,23 @@
    The implementations WITHOUT uint128 are just for completeness, we
    should avoid using them (and, e.g., rely on fiat-crypto mul instead). */
 
+INLINE void
+fd_ulong_sub_borrow(
+    ulong * r,   /* out (r=a-b) */
+    int *   b,   /* out borrow flag */
+    ulong   a0,
+    ulong   a1,
+    int     bi   /* in borrow flag */
+) {
+# if FD_HAS_X86
+  *b = (uchar)_subborrow_u64( (uchar)bi, a0, a1, (unsigned long long *)r );
+# else
+  a1 += !!bi;
+  *r = a0 - a1;
+  *b = a0 < a1;
+# endif
+}
+
 #if FD_HAS_INT128
 
 INLINE void
@@ -49,17 +66,6 @@ fd_ulong_add_carry4( ulong *l, uchar *h, ulong a0, ulong a1, ulong a2, uchar a3 
   uint128 r = ((uint128)a0) + ((uint128)a1) + ((uint128)a2) + ((uint128)a3);
   *l = (ulong)r;
   *h = (uchar)(r >> 64);
-}
-
-INLINE void
-fd_ulong_sub_borrow( ulong *r, uchar *b, ulong a0, ulong a1, uchar bi ) {
-# if FD_HAS_X86
-  *b = (uchar)_subborrow_u64( bi, a0, a1, (unsigned long long *)r );
-# else
-  unsigned long long bout;
-  *r = __builtin_subcll( a0, a1, bi, &bout );
-  *b = (uchar)bout;
-# endif
 }
 
 #else
@@ -98,13 +104,6 @@ fd_ulong_add_carry4( ulong *l, uchar *h, ulong a0, ulong a1, ulong a2, uchar a3 
 
   *l = r0 + r1;
   *h = (uchar)((*l < r0) + c0 + c1);
-}
-
-INLINE void
-fd_ulong_sub_borrow( ulong *r, uchar *b, ulong a0, ulong a1, uchar bi ) {
-  a1 += bi;
-  *r = a0 - a1;
-  *b = a0 < a1;
 }
 
 #endif
@@ -177,7 +176,7 @@ fd_uint256_mul_mod_p( fd_uint256_t *       r,
   r->limbs[3] = t[3];
 
   if( fd_uint256_cmp( r, p ) >= 0 ) {
-    uchar b = 0;
+    int b = 0;
     fd_ulong_sub_borrow( &r->limbs[0], &b, r->limbs[0], p->limbs[0], b );
     fd_ulong_sub_borrow( &r->limbs[1], &b, r->limbs[1], p->limbs[1], b );
     fd_ulong_sub_borrow( &r->limbs[2], &b, r->limbs[2], p->limbs[2], b );
