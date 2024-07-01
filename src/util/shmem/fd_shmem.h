@@ -47,7 +47,7 @@
 
 /* FD_SHMEM_NAME_MAX gives the maximum number of bytes needed to hold
    the cstr with the name fd_shmem region.  That is, a valid fd_shmem
-   region name will have a strlen in [1,FD_SHMEM_NAME_MAX).  (Harmonized
+   region name will have a strlen in [1,FD_SHMEM_NAME_MAX].  (Harmonized
    with FD_LOG_NAME_MAX but this is not strictly required.) */
 
 #define FD_SHMEM_NAME_MAX FD_LOG_NAME_MAX
@@ -349,10 +349,10 @@ fd_shmem_create_multi( char const *  name,         /* Should point to cstr with 
 /* fd_shmem_update_multi updates a shared memory region created by
    fd_shmem_create_multi in place, to be as-if it was created with
    the provided parameters instead.
-   
+
    This can be preferable to deleting and recreating the shmem region
    because it prevents needing to zero all of the underlying memory.
-   
+
    WARNING: The memory returned will not be zeroed and the user will
    be able to read any contents that were in the previous workspace. */
 
@@ -449,7 +449,7 @@ fd_shmem_acquire( ulong page_sz,
    by fd_shmem_acquire.  This always succeeds from the caller's POV but
    logs details if there is any wonkiness under the hood.  It is fine to
    release subregions of individual previous acquisitions.
-   
+
    Returns 0 if successful, -1 for any errors. */
 
 int
