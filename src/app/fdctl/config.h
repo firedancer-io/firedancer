@@ -262,6 +262,8 @@ typedef struct {
   } tiles;
 } config_t;
 
+FD_PROTOTYPES_BEGIN
+
 /* memlock_max_bytes() returns, for the entire Firedancer application,
    what the maximum total amount of `mlock()`ed memory will be in any
    one process, aka. what the RLIMIT_MLOCK must be set to so that all
@@ -290,5 +292,7 @@ fdctl_cfg_from_env( int *      pargc,
 
 int
 fdctl_cfg_to_memfd( config_t * config );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_app_fdctl_config_h */
