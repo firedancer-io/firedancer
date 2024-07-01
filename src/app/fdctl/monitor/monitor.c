@@ -43,9 +43,9 @@ monitor_cmd_perm( args_t *         args,
   if( fd_sandbox_requires_cap_sys_admin() )
     fd_caps_check_capability( caps, "monitor", CAP_SYS_ADMIN,               "call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace" );
   if( FD_LIKELY( getuid() != config->uid ) )
-    fd_caps_check_capability( caps, "monitor", CAP_SETUID,                  "call `setresuid(2)` to switch uid" );
+    fd_caps_check_capability( caps, "monitor", CAP_SETUID,                  "call `setresuid(2)` to switch uid to the sanbox user" );
   if( FD_LIKELY( getgid() != config->gid ) )
-    fd_caps_check_capability( caps, "monitor", CAP_SETGID,                  "call `setresgid(2)` to switch gid" );
+    fd_caps_check_capability( caps, "monitor", CAP_SETGID,                  "call `setresgid(2)` to switch gid to the sandbox user" );
 }
 
 typedef struct {

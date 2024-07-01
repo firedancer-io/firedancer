@@ -141,8 +141,9 @@ Firedancer has many configuration options which are [discussed
 later](/guide/configuring.md). For now, we override only the essential
 options needed to start the validator on Testnet.
 
-```toml [bash]
-# /home/firedancer/config.toml
+::: code-group
+
+```toml [config.toml]
 user = "firedancer"
 
 [gossip]
@@ -169,6 +170,8 @@ user = "firedancer"
     full_api = true
     private = true
 ```
+
+:::
 
 This configuration will cause Firedancer to run as the user `firedancer`
 on the local machine. The `identity_path` and `vote_account_path` should
@@ -220,10 +223,6 @@ until they complete. Most commands can be started with capabilities
 rather than as the `root` user, although this isn't recommended. If you
 are an advanced operator, you can see which capabilities are required for
 a command by running it unprivileged:
-
-```sh [bash]
-$ ./build/native/gcc/bin/fdctl run
-```
 
 <<< @/snippets/capabilities.ansi
 

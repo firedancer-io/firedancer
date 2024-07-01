@@ -1,0 +1,17 @@
+$ fdctl run --config config.toml
+Log at "/tmp/fd-0.0.0_755725_fd_fd_2024_07_01_03_24_27_470038344_GMT+00"
+[32mNOTICE [0m 07-01 03:24:27.471949 755725 f0   main src/disco/topo/fd_topo.c(445): 
+SUMMARY
+              Total Tiles: 16
+      Total Memory Locked: 28145897472 bytes (26 GiB + 218 MiB + 20 KiB)
+  Required Gigantic Pages: 26
+      Required Huge Pages: 109
+    Required Normal Pages: 36
+  Required Gigantic Pages (NUMA node 0): 26
+      Required Huge Pages (NUMA node 0): 109
+
+[...]
+[32mNOTICE [0m 07-01 03:24:28.772209 755745 16   metric:0 src/disco/topo/fd_topo_run.c(30): booting tile metric:0 pid:755742 tid:755745
+[32mNOTICE [0m 07-01 03:24:28.773617 755747 13   shred:0 src/disco/topo/fd_topo_run.c(30): booting tile shred:0 pid:755740 tid:755747
+[32mNOTICE [0m 07-01 03:24:28.773798 755748 9    pack:0 src/disco/topo/fd_topo_run.c(30): booting tile pack:0 pid:755739 tid:755748
+[...]
