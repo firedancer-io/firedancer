@@ -76,6 +76,10 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
   ulong complete_depth;
   ulong done_depth;
 
+  /* expected_shred_version: discard all shreds with a shred version
+     other than the specified value */
+  ushort expected_shred_version;
+
   /* curr_map: A map (using fd_map_dynamic) from tags of signatures to
      the context object with its relevant data.  This map contains at
      most `depth` elements at any time, but to improve query performance,
@@ -169,7 +173,8 @@ fd_fec_resolver_new( void         * shmem,
                      ulong          partial_depth,
                      ulong          complete_depth,
                      ulong          done_depth,
-                     fd_fec_set_t * sets ) {
+                     fd_fec_set_t * sets,
+                     ushort         expected_shred_version ) {
   if( FD_UNLIKELY( (depth==0UL) | (partial_depth==0UL) | (complete_depth==0UL) | (done_depth==0UL) ) ) return NULL;
   if( FD_UNLIKELY( (depth>=(1UL<<62)-1UL) | (done_depth>=(1UL<<62)-1UL ) ) ) return NULL;
 
@@ -190,12 +195,12 @@ fd_fec_resolver_new( void         * shmem,
 
   fd_fec_resolver_t * resolver = (fd_fec_resolver_t *)self;
 
-  if( FD_UNLIKELY( !ctx_map_new  ( curr,   lg_curr_map_cnt          )) ) { FD_LOG_WARNING(("curr map_new failed" )); return NULL; }
-  if( FD_UNLIKELY( !ctx_map_new  ( done,   lg_done_map_cnt          )) ) { FD_LOG_WARNING(("done map_new failed" )); return NULL; }
-  if( FD_UNLIKELY( !freelist_new ( free,   depth+partial_depth+1UL  )) ) { FD_LOG_WARNING(("freelist_new failed" )); return NULL; }
-  if( FD_UNLIKELY( !freelist_new ( cmplst, complete_depth+1UL       )) ) { FD_LOG_WARNING(("freelist_new failed" )); return NULL; }
-  if( FD_UNLIKELY( !bmtrlist_new ( bmfree, depth                    )) ) { FD_LOG_WARNING(("bmtrlist_new failed" )); return NULL; }
-  if( FD_UNLIKELY( !fd_sha512_new( (void *)resolver->sha512         )) ) { FD_LOG_WARNING(("sha512_new failed"   )); return NULL; }
+  if( FD_UNLIKELY( !ctx_map_new  ( curr,   lg_curr_map_cnt         )) ) { FD_LOG_WARNING(( "curr map_new failed" )); return NULL; }
+  if( FD_UNLIKELY( !ctx_map_new  ( done,   lg_done_map_cnt         )) ) { FD_LOG_WARNING(( "done map_new failed" )); return NULL; }
+  if( FD_UNLIKELY( !freelist_new ( free,   depth+partial_depth+1UL )) ) { FD_LOG_WARNING(( "freelist_new failed" )); return NULL; }
+  if( FD_UNLIKELY( !freelist_new ( cmplst, complete_depth+1UL      )) ) { FD_LOG_WARNING(( "freelist_new failed" )); return NULL; }
+  if( FD_UNLIKELY( !bmtrlist_new ( bmfree, depth                   )) ) { FD_LOG_WARNING(( "bmtrlist_new failed" )); return NULL; }
+  if( FD_UNLIKELY( !fd_sha512_new( (void *)resolver->sha512        )) ) { FD_LOG_WARNING(( "sha512_new failed"   )); return NULL; }
 
   /* Initialize all the lists */
   fd_fec_set_t * * free_list     = freelist_join( free   );
@@ -209,16 +214,18 @@ fd_fec_resolver_new( void         * shmem,
   for( ulong i=0UL; i<depth; i++ ) { bmtrlist_push_tail( bmtree_list, (uchar *)bmfootprint + i*footprint_per_bmtree ); }
   bmtrlist_leave( bmtree_list );
 
+  if( FD_UNLIKELY( expected_shred_version==(ushort)0 ) ) { FD_LOG_WARNING(( "expected shred version cannot be 0" )); return NULL; }
 
   resolver->curr_ll_sentinel->prev = resolver->curr_ll_sentinel;
   resolver->curr_ll_sentinel->next = resolver->curr_ll_sentinel;
   resolver->done_ll_sentinel->prev = resolver->done_ll_sentinel;
   resolver->done_ll_sentinel->next = resolver->done_ll_sentinel;
 
-  resolver->depth          = depth;
-  resolver->partial_depth  = partial_depth;
-  resolver->complete_depth = complete_depth;
-  resolver->done_depth     = done_depth;
+  resolver->depth                  = depth;
+  resolver->partial_depth          = partial_depth;
+  resolver->complete_depth         = complete_depth;
+  resolver->done_depth             = done_depth;
+  resolver->expected_shred_version = expected_shred_version;
   return shmem;
 }
 
@@ -323,6 +330,14 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   fd_bmtree_node_t leaf[1];
   uchar variant    = shred->variant;
   uchar shred_type = fd_shred_type( variant );
+
+  if( FD_UNLIKELY( (shred_type!=FD_SHRED_TYPE_MERKLE_DATA) & (shred_type!=FD_SHRED_TYPE_MERKLE_CODE) ) ) {
+    /* Reject any legacy shreds.  Also reject chained and resigned
+       shreds for the moment. */
+    return FD_FEC_RESOLVER_SHRED_REJECTED;
+  }
+
+  if( FD_UNLIKELY( shred->version!=resolver->expected_shred_version ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
 
   int is_data_shred = shred_type==FD_SHRED_TYPE_MERKLE_DATA;
 
