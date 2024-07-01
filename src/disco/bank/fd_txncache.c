@@ -837,3 +837,17 @@ unlock_fail:
   fd_rwlock_unread( tc->lock );
   return 1;
 }
+
+int
+fd_txncache_is_rooted_slot( fd_txncache_t * tc,
+                            ulong slot ) {
+  fd_rwlock_read( tc->lock );
+
+  for( ulong idx=0UL; idx<tc->root_slots_cnt; idx++ ) {
+    if( FD_UNLIKELY( tc->root_slots[ idx ]==slot ) ) return 1;
+    if( FD_UNLIKELY( tc->root_slots[ idx ]>slot ) ) return 0;
+  }
+
+  fd_rwlock_unread( tc->lock );
+  return 0;
+}

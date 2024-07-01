@@ -387,6 +387,12 @@ fd_txncache_set_txnhash_offset( fd_txncache_t * tc,
                                 ulong slot,
                                 uchar blockhash[ 32 ],
                                 ulong txnhash_offset );
+
+/* fd_txncache_is_rooted_slot returns 1 is `slot` is rooted, 0 otherwise. */
+int
+fd_txncache_is_rooted_slot( fd_txncache_t * tc,
+                            ulong slot );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_bank_txncache_h */
