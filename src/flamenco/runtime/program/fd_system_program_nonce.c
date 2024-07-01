@@ -147,7 +147,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L25-L32 */
 
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) ) {
-    /* TODO Log: "Authorize nonce account: Account {} must be writable" */
+    FD_LOG_WARNING(( "Advance nonce account: Account %32J must be writeable", &account->pubkey ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -183,7 +183,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L37-L44 */
 
     if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, &data->authority ) ) ) {
-      /* TODO Log: "Advance nonce account: Account {} must be a signer" */
+      FD_LOG_WARNING(( "Advance nonce account: Account %32J must be a signer", &data->authority ));
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
 
@@ -201,7 +201,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L46-L52 */
 
     if( FD_UNLIKELY( 0==memcmp( data->durable_nonce.hash, next_durable_nonce.hash, sizeof(fd_hash_t) ) ) ) {
-      /* TODO Log: "Advance nonce account: nonce can only advance once per slot" */
+      FD_LOG_WARNING(( "Advance nonce account: nonce can only advance once per slot" ));
       ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_BLOCKHASH_NOT_EXPIRED;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
@@ -238,7 +238,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
   }
 
   case fd_nonce_state_enum_uninitialized: {
-    /* TODO Log: "Advance nonce account: Account {} state is invalid" */
+    FD_LOG_WARNING(( "Advance nonce account: Account %32J state is invalid", &account->pubkey ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -284,7 +284,7 @@ fd_system_program_exec_advance_nonce_account( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L433-L439 */
 
   if( FD_UNLIKELY( deq_fd_block_block_hash_entry_t_empty( hashes ) ) ) {
-    /* TODO Log: "Advance nonce account: recent blockhash list is empty" */
+    FD_LOG_WARNING(( "Advance nonce account: recent blockhash list is empty" ));
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -322,8 +322,8 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L84-L91 */
 
-  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, 0 ) ) ) {
-    /* TODO Log: "Withdraw nonce account: Account {} must be writeable" */
+  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, from_acct_idx ) ) ) {
+    FD_LOG_WARNING(( "Withdraw nonce account: Account %32J must be writeable", &from->pubkey ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -358,7 +358,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L95-L106 */
 
     if( FD_UNLIKELY( requested_lamports > from->const_meta->info.lamports ) ) {
-      /* TODO Log: "Withdraw nonce account: insufficient lamports {}, need {}" */
+      FD_LOG_WARNING(( "Withdraw nonce account: insufficient lamports %lu, need %lu", from->const_meta->info.lamports, requested_lamports ));
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
 
@@ -390,7 +390,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
       /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L110-L116 */
 
       if( FD_UNLIKELY( 0==memcmp( data->durable_nonce.hash, next_durable_nonce.hash, sizeof(fd_hash_t) ) ) ) {
-        /* TODO Log: "Advance nonce account: nonce can only advance once per slot" */
+        FD_LOG_WARNING(( "Withdraw nonce account: nonce can only advance once per slot" ));
         ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_BLOCKHASH_NOT_EXPIRED;
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
@@ -423,7 +423,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
       /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L121-L129 */
 
       if( FD_UNLIKELY( amount > from->const_meta->info.lamports ) ) {
-        /* TODO Log: "Withdraw nonce account: insufficient lamports {}, need {}" */
+        FD_LOG_WARNING(( "Withdraw nonce account: insufficient lamports %lu, need %lu", from->const_meta->info.lamports, amount ));
         return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
       }
 
@@ -441,14 +441,18 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L135-L142 */
 
   if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, signer ) ) ) {
-    /* TODO Log: "Withdraw nonce account: Account {} must sign" */
+    FD_LOG_WARNING(( "Withdraw nonce account: Account %32J must sign", &signer ));
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L144 */
 
   do {
-    /* TODO verify that account is writable before calling this API */
+    if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, to_acct_idx ) ) ) {
+      FD_LOG_WARNING(( "Withdraw nonce account: Account %32J must be writeable", &ctx->instr->acct_pubkeys[to_acct_idx]));
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+  
     int err = fd_account_checked_sub_lamports( ctx, from_acct_idx, requested_lamports );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
@@ -529,7 +533,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L159-L166 */
 
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) ) {
-    /* TODO Log: "Initialize nonce account: Account {} must be writeable" */
+    FD_LOG_WARNING(( "Initialize nonce account: Account %32J must be writeable", &account->pubkey ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -567,7 +571,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L171-L179 */
 
     if( FD_UNLIKELY( account->const_meta->info.lamports < min_balance ) ) {
-      /* TODO Log: "Initialize nonce account: insufficient lamports {}, need {}" */
+      FD_LOG_WARNING(( "Initialize nonce account: insufficient lamports %lu, need %lu", account->const_meta->info.lamports, min_balance ));
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
 
@@ -610,8 +614,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   case fd_nonce_state_enum_initialized: {
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L189-L196 */
-
-    /* TODO Log: "Initialize nonce account: Account {} state is invalid" */
+    FD_LOG_WARNING(( "Initialize nonce account: Account %32J state is invalid", &account->pubkey ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -658,7 +661,7 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L472-L478 */
 
   if( FD_UNLIKELY( deq_fd_block_block_hash_entry_t_empty( hashes ) ) ) {
-    /* TODO Log: "Initialize nonce account: recent blockhash list is empty" */
+    FD_LOG_WARNING(( "Initialize nonce account: recent blockhash list is empty" ));
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -694,7 +697,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L206-L213 */
 
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) ) {
-    /* TODO Log: "Authorize nonce account: Account {} must be writable" */
+    FD_LOG_WARNING(( "Authorize nonce account: Account %32J must be writeable", &account->pubkey ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -729,8 +732,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   if( FD_UNLIKELY( state->discriminant != fd_nonce_state_enum_initialized ) ) {
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L219-L226 */
-
-    /* TODO Log: "Authorize nonce account: Account {} state is invalid" */
+    FD_LOG_WARNING(( "Authorize nonce account: Account %32J state is invalid", &account->pubkey ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -740,8 +742,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, &data->authority ) ) ) {
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L227-L234 */
-
-    /* TODO Log: "Authorize nonce account: Account {} must sign" */
+    FD_LOG_WARNING(( "Authorize nonce account: Account %32J must sign", &data->authority ));
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
