@@ -112,15 +112,19 @@ ulong fd_fec_resolver_align    ( void );
    these FEC sets and the shreds they point to until the resolver is
    deleted.  These FEC sets and the memory for the shreds they point to
    are the only values that will be returned in the output parameters of
-   _add_shred.  Returns shmem on success and NULL on failure (logs
-   details). */
+   _add_shred.  The FEC resolver will reject any shreds with a shred
+   version that does not match the value provided for
+   expected_shred_version.  Shred versions are always non-zero, so
+   expected_shred_version must be non-zero.  Returns shmem on success
+   and NULL on failure (logs details). */
 void *
 fd_fec_resolver_new( void         * shmem,
                      ulong          depth,
                      ulong          partial_depth,
                      ulong          complete_depth,
                      ulong          done_depth,
-                     fd_fec_set_t * sets );
+                     fd_fec_set_t * sets,
+                     ushort         expected_shred_version );
 
 fd_fec_resolver_t * fd_fec_resolver_join( void * shmem );
 
