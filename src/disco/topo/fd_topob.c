@@ -241,11 +241,11 @@ fd_topob_tile_in( fd_topo_t *  topo,
     ulong producer_idx = fd_topo_find_link_producer( topo, link );
     if( FD_UNLIKELY( producer_idx!=ULONG_MAX ) ) {
       fd_topo_tile_t * producer = &topo->tiles[ producer_idx ];
-      if( FD_UNLIKELY( producer->out_link_id_primary!=link_id ) ) FD_LOG_ERR(( "reliable link is not produced by a primary out: %s:%lu %lu", link_name, link_kind_id, producer->out_link_id_primary ));
-
-      ulong out_cnt = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.out_cnt", producer->metrics_obj_id );
-      FD_TEST( out_cnt!=ULONG_MAX );
-      FD_TEST( !fd_pod_replacef_ulong( topo->props, out_cnt+1UL, "obj.%lu.out_cnt", producer->metrics_obj_id ) );
+      if( FD_UNLIKELY( producer->out_link_id_primary==link_id ) ) { // FD_LOG_ERR(( "reliable link is not produced by a primary out: %s:%lu %lu", link_name, link_kind_id, producer->out_link_id_primary ));
+        ulong out_cnt = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.out_cnt", producer->metrics_obj_id );
+        FD_TEST( out_cnt!=ULONG_MAX );
+        FD_TEST( !fd_pod_replacef_ulong( topo->props, out_cnt+1UL, "obj.%lu.out_cnt", producer->metrics_obj_id ) );
+      }
     }
   }
 }
@@ -319,7 +319,9 @@ validate( fd_topo_t const * topo ) {
     if( topo->tiles[i].out_link_id_primary != ULONG_MAX ) {
       for( ulong j=0UL; j<topo->tiles[ i ].out_cnt; j++ ) {
         if( FD_UNLIKELY( topo->tiles[ i ].out_link_id[ j ] == topo->tiles[ i ].out_link_id_primary ) )
-          FD_LOG_ERR(( "tile %lu has out link %lu same as primary out", i, topo->tiles[ i ].out_link_id[ j ] ));
+          FD_LOG_ERR(( "tile %lu (%s:%lu) has out link %lu (%s:%lu) same as primary out",
+            i, topo->tiles[ i ].name, topo->tiles[ i ].kind_id,
+            topo->tiles[ i ].out_link_id[ j ], topo->links[ topo->tiles[ i ].out_link_id[ j ] ].name, topo->links[ topo->tiles[ i ].out_link_id[ j ] ].kind_id ));
       }
     }
   }

@@ -228,13 +228,13 @@ dynamic_port_range = "8900-9000"
     # If nonzero, enable JSON RPC on this port, and use the next port
     # for the RPC websocket.  If zero, disable JSON RPC.  This option is
     # passed to the Solana Labs client with the `--rpc-port` argument.
-    port = 0
+    port = 8899
 
     # If true, all RPC operations are enabled on this validator,
     # including non-default RPC methods for querying chain state and
     # transaction history.  This option is passed to the Solana Labs
     # client with the `--full-rpc-api` argument.
-    full_api = false
+    full_api = true
 
     # If the RPC is private, the validator's open RPC port is not
     # published in the `solana gossip` command for use by others.  This
@@ -506,13 +506,13 @@ dynamic_port_range = "8900-9000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so
     # that the Solana network can run as fast as possible.
-    affinity = "1-16"
+    affinity = "1-17"
 
     # In addition to the Firedancer tiles which use a core each, the
     # current version of Firedancer hosts a Solana Labs (Agave)
     # validator as a subprocess.
     #
-    # This affinity congtrols which logical CPU cores the Solana Labs
+    # This affinity controls which logical CPU cores the Solana Labs
     # subprocess and all of its threads are allowed to run on.  This is
     # specified in the same format as the above Firedancer affinity.
     #
@@ -523,7 +523,7 @@ dynamic_port_range = "8900-9000"
     #
     # An empty string here will not affine the process, and it will run
     # be free to run on any floating core.
-    solana_labs_affinity = "17-31"
+    solana_labs_affinity = "18-31"
 
     # How many net tiles to run.  Each networking tile will service
     # exactly one queue from a network device being listened to.  If
@@ -852,12 +852,15 @@ dynamic_port_range = "8900-9000"
         # this one.
         shred_listen_port = 8003
 
-    # The metric tile receives metrics updates published from the rest
-    # of the tiles and serves them via. a Prometheus compatible HTTP
-    # endpoint.
-    [tiles.metric]
-        # The port to listen on for HTTP request for Prometheus metrics.
-        # Firedancer serves metrics at a URI like 127.0.0.1:7999/metrics
+    # The http tile serves HTTP responses to clients for various
+    # endpoints.
+    [tiles.http]
+        # The port to listen on for HTTP requests to the Firedancer GUI.
+        gui_listen_port = 80
+
+        # The port to listen on for HTTP requests for Prometheus
+        # metrics. Firedancer serves metrics at a URI like
+        # 127.0.0.1:7999/metrics
         prometheus_listen_port = 7999
 
 # These options can be useful for development, but should not be used

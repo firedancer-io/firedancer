@@ -1,0 +1,31 @@
+<!--
+This file describes all events in the system that could be sent to the
+plugin tile.  Plugins can subscribe to different events to receive
+notifications.
+
+These events must be backwards compatible and you should not change
+existing event semantics.
+-->
+
+<events>
+    <enum name="ConfirmationLevel" type="u8">
+        <variant name="Rooted" value="0" description="Slot has been rooted" />
+        <variant name="OptimisticallyConfirmed" value="1" description="Slot has been optimistically confirmed" />
+        <variant name="Processed" value="2" description="Slot has been processed" />
+    </enum>
+
+    <event name="SlotRooted">
+        <field name="timestamp" type="u64" description="Timestamp of the event" />
+        <field name="slot" type="u64" description="Slot number that was rooted" />
+    </event>
+
+    <event name="SlotOptimisticallyConfirmed">
+        <field name="timestamp" type="u64" description="Timestamp of the event" />
+        <field name="slot" type="u64" description="Slot number that was optimistically confirmed" />
+    </event>
+
+    <event name="SlotProcessed">
+        <field name="timestamp" type="u64" description="Timestamp of the event" />
+        <field name="slot" type="u64" description="Slot number that was processed" />
+    </event>
+<events>

@@ -1,5 +1,5 @@
-$(call add-hdrs,picohttpparser.h)
-$(call add-objs,fd_picohttpparser,fd_ballet)
+$(call add-hdrs,picohttpparser.h fd_sha1.h)
+$(call add-objs,fd_http_server fd_picohttpparser fd_sha1,fd_ballet)
 
 # Apply local patch to picohttpparser then compile to get the object
 src/ballet/http/fd_picohttpparser.c: src/ballet/http/picohttpparser.c src/ballet/http/fd_picohttpparser.patch
@@ -10,6 +10,9 @@ src/ballet/http/fd_picohttpparser.c: src/ballet/http/picohttpparser.c src/ballet
 	$(RM) src/ballet/http/picohttpparsertemp.c
 
 $(OBJDIR)/obj/ballet/http/fd_picohttpparser.o: src/ballet/http/fd_picohttpparser.c
+
+$(call make-unit-test,test_sha1,test_sha1,fd_ballet fd_util)
+$(call run-unit-test,test_sha1)
 
 ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_picohttpparser,fuzz_picohttpparser,fd_ballet fd_util)

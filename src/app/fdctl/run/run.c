@@ -37,16 +37,16 @@ run_cmd_perm( args_t *         args,
   fd_caps_check_resource(     caps, NAME, RLIMIT_NOFILE,  CONFIGURE_NR_OPEN_FILES,
                                                                        "call `rlimit(2)  to increase `RLIMIT_NOFILE` to allow more open files for Agave" );
   fd_caps_check_capability(   caps, NAME, CAP_NET_RAW,                 "call `socket(2)` to bind to a raw socket for use by XDP" );
-  fd_caps_check_capability(   caps, NAME, CAP_SYS_ADMIN,               "call `bpf(2)` with the `BPF_OBJ_GET` command to initialize XDP" );
+  fd_caps_check_capability(   caps, NAME, CAP_SYS_ADMIN,               "call `bpf(2)` with `BPF_MAP_CREATE` and `BPF_PROG_LOAD` to initialize XDP" );
   if( fd_sandbox_requires_cap_sys_admin() )
     fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,               "call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace" );
-  if( FD_LIKELY( getuid() != config->uid ) )
+  if( FD_LIKELY( getuid()!=config->uid ) )
     fd_caps_check_capability( caps, NAME, CAP_SETUID,                  "call `setresuid(2)` to switch uid to the sandbox user" );
   if( FD_LIKELY( getgid()!=config->gid ) )
     fd_caps_check_capability( caps, NAME, CAP_SETGID,                  "call `setresgid(2)` to switch gid to the sandbox user" );
   if( FD_UNLIKELY( config->development.netns.enabled ) )
     fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,               "call `setns(2)` to enter a network namespace" );
-  if( FD_UNLIKELY( config->tiles.metric.prometheus_listen_port<1024 ) )
+  if( FD_UNLIKELY( config->tiles.http.gui_listen_port<1024 || config->tiles.http.prometheus_listen_port<1024 ) )
     fd_caps_check_capability( caps, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
 }
 

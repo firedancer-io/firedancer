@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+    <head>
+        <title>Firedancer</title>
+        <link rel="icon" href="favicon.svg">
+        <script>
+            document.addEventListener('DOMContentLoaded', (event) => {
+                const ws = new WebSocket('ws://127.0.0.1:8080/guiws');
+
+                ws.onopen = function() {
+                    setInterval(() => {
+                        ws.send('ping');
+                    }, 5000);
+                };
+
+                ws.onmessage = function(event) {
+                    console.log('Message from server:', event.data);
+                };
+
+                ws.onerror = function(error) {
+                    console.error('WebSocket error:', error);
+                };
+            });
+        </script>
+    </head>
+</html>
