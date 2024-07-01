@@ -755,7 +755,7 @@ ingest( fd_ledger_args_t * args ) {
                                 id = fd_feature_iter_next( id ) ) {
     ulong activated_at = fd_features_get( &slot_ctx->epoch_ctx->features, id );
     if( activated_at ) {
-      FD_LOG_DEBUG(( "feature %32J activated at slot %lu", id->id.key, activated_at ));
+      FD_LOG_NOTICE(( "feature %32J activated at slot %lu", id->id.key, activated_at ));
     }
   }
 

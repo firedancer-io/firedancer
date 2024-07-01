@@ -2770,6 +2770,7 @@ fd_runtime_collect_rent_account( fd_exec_slot_ctx_t * slot_ctx,
   if (0 == memcmp(key, &incinerator, sizeof(fd_pubkey_t)))
     return 0;
 
+  FD_LOG_WARNING(("rent: %32J", key->uc));
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   long due = fd_rent_due(acc, epoch + 1,
                          &epoch_bank->rent,

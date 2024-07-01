@@ -281,6 +281,10 @@ typedef struct {
 
       char  identity_key_path[ PATH_MAX ];
     } store_int;
+
+    struct {
+      char  identity_key_path[ PATH_MAX ];
+    } voter;
   };
 } fd_topo_tile_t;
 
@@ -405,6 +409,30 @@ fd_topo_find_link( fd_topo_t const * topo,
                    ulong             kind_id ) {
   for( ulong i=0; i<topo->link_cnt; i++ ) {
     if( FD_UNLIKELY( !strcmp( topo->links[ i ].name, name ) ) && topo->links[ i ].kind_id == kind_id ) return i;
+  }
+  return ULONG_MAX;
+}
+
+FD_FN_PURE static inline ulong
+fd_topo_find_tile_in_link( fd_topo_t const *      topo,
+                           fd_topo_tile_t const * tile,
+                           char const *           name,
+                           ulong                  kind_id ) {
+  for( ulong i=0; i<tile->in_cnt; i++ ) {
+    if( FD_UNLIKELY( !strcmp( topo->links[ tile->in_link_id[ i ] ].name, name ) )
+        && topo->links[ tile->in_link_id[ i ] ].kind_id == kind_id ) return i;
+  }
+  return ULONG_MAX;
+}
+
+FD_FN_PURE static inline ulong
+fd_topo_find_tile_out_link( fd_topo_t const *      topo,
+                           fd_topo_tile_t const * tile,
+                           char const *           name,
+                           ulong                  kind_id ) {
+  for( ulong i=0; i<tile->out_cnt; i++ ) {
+    if( FD_UNLIKELY( !strcmp( topo->links[ tile->out_link_id[ i ] ].name, name ) )
+        && topo->links[ tile->out_link_id[ i ] ].kind_id == kind_id ) return i;
   }
   return ULONG_MAX;
 }

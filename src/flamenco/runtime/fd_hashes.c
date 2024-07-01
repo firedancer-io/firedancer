@@ -885,10 +885,11 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
                          uchar const                pubkey[ static 32 ],
                          uchar const              * data,
                          fd_exec_slot_ctx_t const * slot_ctx ) {
-  if( FD_FEATURE_ACTIVE( slot_ctx, account_hash_ignore_slot ) )
+  if( FD_FEATURE_ACTIVE( slot_ctx, account_hash_ignore_slot ) ) {
     return fd_hash_account_v1( hash, account, pubkey, data );
-  else
+  } else {
     return fd_hash_account_v0( hash, account, pubkey, data, slot_ctx->slot_bank.slot );
+  }
 }
 
 struct accounts_hash {

@@ -54,6 +54,8 @@ typedef struct {
   int is_initialized;
   int recently_reset;
 
+  ulong * current_slot;
+
   fd_poh_tile_in_ctx_t bank_in[ 32 ];
   fd_poh_tile_in_ctx_t stake_in;
   fd_poh_tile_in_ctx_t pack_in;
@@ -159,7 +161,7 @@ no_longer_leader( fd_poh_ctx_t * ctx ) {
    the active fork has finished a block and we need to reset our PoH to
    be ticking on top of the block it produced. */
 
- void
+void
 fd_poh_reset( fd_poh_ctx_t * ctx,
               ulong         completed_bank_slot, /* The slot that successfully produced a block */
               uchar const * reset_blockhash      /* Thsh of the e halast tick in the produced block */ ) {
@@ -246,6 +248,9 @@ after_credit( void *             _ctx,
   if( FD_UNLIKELY( fd_poh_tile_is_no_longer_leader( ctx->poh_tile_ctx, is_leader ) ) ) {
     no_longer_leader( ctx );
   }
+
+  FD_LOG_WARNING(("%lu",fd_poh_tile_get_slot( ctx->poh_tile_ctx )));
+  fd_fseq_update( ctx->current_slot, fd_poh_tile_get_slot( ctx->poh_tile_ctx ) );
 }
 
 static inline void
@@ -484,7 +489,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   // TODO: scratch alloc needs fixing!
   fd_poh_tile_unprivileged_init( topo, tile, ctx->poh_tile_ctx );
- 
+
+  ulong current_slot_obj_id = fd_pod_query_ulong( topo->props, "current_slot", ULONG_MAX );
+  FD_TEST( current_slot_obj_id!=ULONG_MAX );
+  ctx->current_slot = fd_fseq_join( fd_topo_obj_laddr( topo, current_slot_obj_id ) );
+
   ctx->is_initialized = 0;
   ctx->recently_reset = 0;
   ctx->bank_cnt = tile->in_cnt-2UL;

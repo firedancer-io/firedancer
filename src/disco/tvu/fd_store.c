@@ -209,7 +209,7 @@ fd_store_shred_insert( fd_store_t * store,
   } else if ( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
     fd_pending_slots_add( store->pending_slots, shred->slot, store->now );
   } else {
-    fd_pending_slots_add( store->pending_slots, shred->slot, store->now + 3 * FD_REPAIR_BACKOFF_TIME );
+    fd_pending_slots_add( store->pending_slots, shred->slot, store->now + FD_REPAIR_BACKOFF_TIME );
   }
   return rc;
 }

@@ -186,7 +186,6 @@ struct fd_replay_tile_ctx {
   int                   vote;
   fd_pubkey_t *         validator_identity_pubkey;
   fd_pubkey_t *         vote_acct_addr;
-  fd_keyguard_client_t  keyguard_client[1];
   ulong                 gossip_vote_txn_sz;
   uchar                 gossip_vote_txn [ FD_TXN_MTU ];
   fd_txncache_t * status_cache;
@@ -375,15 +374,6 @@ during_frag( void * _ctx,
   fd_blockstore_end_read( ctx->blockstore );
 }
 
-void
-vote_txn_signer( void *        signer_ctx,
-                 uchar         signature[ static 64 ],
-                 uchar const * buffer,
-                 ulong         len ) {
-  fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)signer_ctx;
-  fd_keyguard_client_sign( ctx->keyguard_client, signature, buffer, len );
-}
-
 static void
 slot_ctx_restore( fd_replay_tile_ctx_t * ctx, ulong slot, fd_exec_slot_ctx_t * slot_ctx ) {
   fd_funk_txn_t *   txn_map    = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
@@ -497,39 +487,39 @@ after_frag( void *             _ctx,
   if ( in_idx == GOSSIP_IN_IDX ) {
     if ( !ctx->vote ) return;
 
-    /* handle a vote txn from gossip  */
-    ushort recent_blockhash_off;
-    fd_compact_vote_state_update_t vote;
-    if ( FD_VOTE_TXN_PARSE_OK != fd_vote_txn_parse(ctx->gossip_vote_txn, ctx->gossip_vote_txn_sz, ctx->valloc, &recent_blockhash_off, &vote) ) {
-      FD_LOG_WARNING(("failed to parse vote"));
-    };
+    // /* handle a vote txn from gossip  */
+    // ushort recent_blockhash_off;
+    // fd_compact_vote_state_update_t vote;
+    // if ( FD_VOTE_TXN_PARSE_OK != fd_vote_txn_parse(ctx->gossip_vote_txn, ctx->gossip_vote_txn_sz, ctx->valloc, &recent_blockhash_off, &vote) ) {
+    //   FD_LOG_WARNING(("failed to parse vote"));
+    // };
 
-    /* for now, if consensus.vote == true, modify the timestamp and echo the vote txn back with gossip */
-    /* later, we should send out our own vote txns through gossip  */
-    ulong MAGIC_TIMESTAMP = 12345678;
-    vote.timestamp = &MAGIC_TIMESTAMP;
-    fd_voter_t voter = {
-      .vote_acct_addr              = ctx->vote_acct_addr,
-      .vote_authority_pubkey       = ctx->validator_identity_pubkey,
-      .validator_identity_pubkey   = ctx->validator_identity_pubkey,
-      .voter_sign_arg              = ctx,
-      .vote_authority_sign_fun     = vote_txn_signer,
-      .validator_identity_sign_fun = vote_txn_signer
-    };
+    // /* for now, if consensus.vote == true, modify the timestamp and echo the vote txn back with gossip */
+    // /* later, we should send out our own vote txns through gossip  */
+    // ulong MAGIC_TIMESTAMP = 12345678;
+    // vote.timestamp = &MAGIC_TIMESTAMP;
+    // fd_voter_t voter = {
+    //   .vote_acct_addr              = ctx->vote_acct_addr,
+    //   .vote_authority_pubkey       = ctx->validator_identity_pubkey,
+    //   .validator_identity_pubkey   = ctx->validator_identity_pubkey,
+    //   .voter_sign_arg              = ctx,
+    //   .vote_authority_sign_fun     = vote_txn_signer,
+    //   .validator_identity_sign_fun = vote_txn_signer
+    // };
 
-    uchar txn_meta_buf [ FD_TXN_MAX_SZ ] ;
-    uchar * msg_to_gossip = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
-    ulong vote_txn_sz = fd_vote_txn_generate( &voter,
-                                              &vote,
-                                              ctx->gossip_vote_txn + recent_blockhash_off,
-                                              txn_meta_buf,
-                                              msg_to_gossip );
+    // uchar txn_meta_buf [ FD_TXN_MAX_SZ ] ;
+    // uchar * msg_to_gossip = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
+    // ulong vote_txn_sz = fd_vote_txn_generate( &voter,
+    //                                           &vote,
+    //                                           ctx->gossip_vote_txn + recent_blockhash_off,
+    //                                           txn_meta_buf,
+    //                                           msg_to_gossip );
 
-    fd_mcache_publish( ctx->gossip_out_mcache, ctx->gossip_out_depth, ctx->gossip_out_seq, 1UL, ctx->gossip_out_chunk,
-      vote_txn_sz, 0UL, 0, 0 );
-    ctx->gossip_out_seq   = fd_seq_inc( ctx->gossip_out_seq, 1UL );
-    ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, vote_txn_sz,
-                                                    ctx->gossip_out_chunk0, ctx->gossip_out_wmark );
+    // fd_mcache_publish( ctx->gossip_out_mcache, ctx->gossip_out_depth, ctx->gossip_out_seq, 1UL, ctx->gossip_out_chunk,
+    //   vote_txn_sz, 0UL, 0, 0 );
+    // ctx->gossip_out_seq   = fd_seq_inc( ctx->gossip_out_seq, 1UL );
+    // ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, vote_txn_sz,
+    //                                                 ctx->gossip_out_chunk0, ctx->gossip_out_wmark );
     return;
   }
 
@@ -807,7 +797,7 @@ after_frag( void *             _ctx,
 
             /* Mismatch */
 
-            if( FD_UNLIKELY( ctx->capture_file ) ) fclose( ctx->slots_replayed_file );
+            if( FD_UNLIKELY( ctx->slots_replayed_file ) ) fclose( ctx->slots_replayed_file );
             if( FD_UNLIKELY( strcmp(ctx->blockstore_checkpt, "" ) ) ) {
               int rc = fd_wksp_checkpt( ctx->blockstore_wksp, ctx->blockstore_checkpt, 0666, 0, NULL );
               if( rc ) {
@@ -1336,16 +1326,6 @@ unprivileged_init( fd_topo_t *      topo,
   const uchar* vote_acct_pubkey   = fd_keyload_load( tile->replay.vote_account_path, 1 );
   ctx->validator_identity_pubkey  = (fd_pubkey_t *) fd_type_pun_const( identity_pubkey );
   ctx->vote_acct_addr             = (fd_pubkey_t *) fd_type_pun_const( vote_acct_pubkey );
-  fd_topo_link_t * sign_in  = &topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ];
-  fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ];
-  if ( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
-                                                            sign_out->mcache,
-                                                            sign_out->dcache,
-                                                            sign_in->mcache,
-                                                            sign_in->dcache ) )==NULL ) {
-    FD_LOG_ERR(( "Keyguard join failed" ));
-  }
-
 
   /* Set up stake weights tile output */
   fd_topo_link_t * stake_weights_out = &topo->links[ tile->out_link_id_primary ];

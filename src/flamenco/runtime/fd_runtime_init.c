@@ -180,8 +180,10 @@ fd_feature_restore( fd_exec_slot_ctx_t * slot_ctx,
 
   FD_BORROWED_ACCOUNT_DECL(acct_rec);
   int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *)acct, acct_rec);
-  if (FD_UNLIKELY(err != FD_ACC_MGR_SUCCESS))
+  if (FD_UNLIKELY(err != FD_ACC_MGR_SUCCESS)) {
+    FD_LOG_WARNING(( "poop %32J", acct ));
     return;
+  }
 
   fd_feature_t feature[1];
 
