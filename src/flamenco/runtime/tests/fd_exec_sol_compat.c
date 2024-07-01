@@ -335,6 +335,32 @@ sol_compat_syscall_fixture( fd_exec_instr_test_runner_t * runner,
   return ok;
 }
 
+int 
+sol_compat_validate_vm_fixture( fd_exec_instr_test_runner_t * runner,
+                                uchar const *                 in,
+                                ulong                         in_sz ) {
+  // Decode fixture
+  fd_exec_test_validate_vm_fixture_t fixture[1] = {0};
+  if ( !sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_validate_vm_fixture_t_msg ) ) {
+    FD_LOG_WARNING(( "Invalid validate_vm fixture." ));
+    return 0;
+  }
+
+  // Execute
+  void * output = NULL;
+  sol_compat_execute_wrapper( runner,
+                              &fixture->input,
+                              &output, 
+                              (exec_test_run_fn_t *)fd_exec_vm_validate_test_run );
+  // Compare effects
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_validate_vm_effects_t_msg );
+
+  // Cleanup
+  pb_release( &fd_exec_test_validate_vm_fixture_t_msg, fixture );
+  return ok;
+
+}
+
 /*
  * execute_v1
  */
