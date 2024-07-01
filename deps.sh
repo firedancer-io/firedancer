@@ -420,7 +420,7 @@ install_rocksdb () {
   ROCKSDB_DISABLE_ZLIB=1 \
   ROCKSDB_DISABLE_BZIP=1 \
   ROCKSDB_DISABLE_GFLAGS=1 \
-  CFLAGS="-isystem $(pwd)/../../include -g0 -DSNAPPY -DZSTD -Wno-uninitialized" \
+  CFLAGS="-isystem $(pwd)/../../include -g0 -DSNAPPY -DZSTD -Wno-uninitialized -Wno-array-bounds -Wno-stringop-overread" \
   make -j $NJOBS \
     LITE=1 \
     V=1 \

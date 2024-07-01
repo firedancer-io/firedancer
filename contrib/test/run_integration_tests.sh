@@ -96,6 +96,7 @@ runner () {
     time                       \
     LLVM_PROFILE_FILE="$LLVM_PROFILE_FILE" \
     "sudo"                     \
+      "env LD_LIBRARY_PATH=$LD_LIBRARY_PATH PATH=$PATH" \
       "$prog"                  \
       "$@"                     \
       --log-path "$logfull"    \
