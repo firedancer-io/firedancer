@@ -936,7 +936,7 @@ after_frag( void *             _ctx,
 #if STOP_AFTER_N_SLOTS
       if( FD_UNLIKELY( ctx->curr_slot > ctx->snapshot_slot + STOP_AFTER_N_SLOTS ) ) {
 
-        if( FD_UNLIKELY( ctx->capture_file ) ) fclose( ctx->slots_replayed_file );
+        if( FD_UNLIKELY( ctx->slots_replayed_file ) ) fclose( ctx->slots_replayed_file );
 
         if( FD_UNLIKELY( strcmp( ctx->blockstore_checkpt, "" ) ) ) {
           int rc = fd_wksp_checkpt( ctx->blockstore_wksp, ctx->blockstore_checkpt, 0666, 0, NULL );
