@@ -1,0 +1,2 @@
+$ fdctl keys new vote --config config.toml
+[32mNOTICE [0m successfully created keypair in `/home/fd/.fd/keys/identity.json`

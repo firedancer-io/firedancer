@@ -315,6 +315,11 @@ dynamic_port_range = "8900-9000"
     # the validator.  When connecting to dev, test, or mainnet it is
     # required to provide an identity file.
     #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    #
     # When running a local cluster, Firedancer will generate a keypair
     # if one is not provided (or has not already been generated) and
     # place it in the scratch directory, under path `identity.json`.
@@ -326,7 +331,14 @@ dynamic_port_range = "8900-9000"
     # Absolute path to a `keypair.json` containing the identity of the
     # voting account of the validator.  If no voting account is
     # provided, voting will be disabled and the validator will cast no
-    # votes.  This option is passed to the Solana Labs client with the
+    # votes.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    #
+    # This option is passed to the Solana Labs client with the
     # `--vote-account` argument.
     vote_account_path = ""
 

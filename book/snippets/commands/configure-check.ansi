@@ -1,0 +1,5 @@
+$ fdctl configure check all
+[93mWARNING[0m hugetlbfs ... not configured ... mounts `/mnt/.fd/.huge` and `/mnt/.fd/.gigantic` do not exist
+[93mWARNING[0m sysctl ... not configured ... kernel parameter `/proc/sys/vm/max_map_count` is too low (got 65536 but expected at least 1000000)
+[93mWARNING[0m ethtool ... not configured ... device `ens3f0` does not have right number of channels (got 1 but expected 2)
+[31mERR    [0m failed to configure some stages

@@ -1,0 +1,10 @@
+$ fdctl configure fini all
+[32mNOTICE [0m ethtool ... finishing
+[32mNOTICE [0m sysctl ... finishing
+[32mNOTICE [0m hugetlbfs ... finishing
+[32mNOTICE [0m RUN: `umount /mnt/.fd/.huge`
+[32mNOTICE [0m RUN: `rmdir /mnt/.fd/.huge`
+[32mNOTICE [0m RUN: `umount /mnt/.fd/.gigantic`
+[32mNOTICE [0m RUN: `rmdir /mnt/.fd/.gigantic`
+[32mNOTICE [0m RUN: `rmdir /mnt/.fd/.normal`
+[32mNOTICE [0m RUN: `rmdir /mnt/.fd`

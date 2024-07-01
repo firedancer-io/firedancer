@@ -22,7 +22,7 @@ export default defineConfig({
 
     nav: [
       { text: 'Guide', link: '/guide/firedancer' },
-      { text: 'Commands', link: '/commands' }
+      { text: 'API', link: '/api/cli' }
     ],
 
     sidebar: {
@@ -35,10 +35,25 @@ export default defineConfig({
             { text: 'Getting Started', link: 'getting-started' },
             { text: 'Configuring', link: 'configuring' },
             { text: 'Initializing', link: 'initializing' },
-            { text: 'Frequently Asked Questions', link: 'faq' },
+          ]
+        },
+        {
+          text: 'Operating',
+          collapsed: false,
+          items: [
             { text: 'Monitoring', link: 'monitoring' },
             { text: 'Troubleshooting', link: 'troubleshooting' },
             { text: 'Tuning', link: 'tuning' },
+            { text: 'Frequently Asked Questions', link: 'faq' },
+          ]
+        }
+      ] },
+
+      '/api': { base: '/api/', items: [
+        {
+          text: 'API',
+          items: [
+            { text: 'Commands Line Interface', link: 'cli' },
           ]
         }
       ] },
