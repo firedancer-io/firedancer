@@ -63,6 +63,7 @@ compiled and output placed under `./opt`.
 
 ```sh [bash]
 $ ./deps.sh
+$ source ~/.cargo/env
 ```
 
 ## Releases

@@ -22,7 +22,7 @@ FROM ${BUILDER_BASE_IMAGE} AS builder
 RUN apk add bash git libstdc++
 WORKDIR /firedancer
 COPY deps.sh ./
-RUN FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh check install
+RUN FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh fetch check install
 
 # Build source tree
 
