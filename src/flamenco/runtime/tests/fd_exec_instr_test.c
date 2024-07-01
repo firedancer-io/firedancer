@@ -5,6 +5,7 @@
 #include "../fd_acc_mgr.h"
 #include "../fd_account.h"
 #include "../fd_executor.h"
+#include "../fd_runtime.h"
 #include "../program/fd_bpf_loader_v3_program.h"
 #include "../program/fd_bpf_program_util.h"
 #include "../program/fd_builtin_programs.h"
@@ -19,6 +20,7 @@
 #include "../../vm/fd_vm.h"
 #include <assert.h>
 #include "../sysvar/fd_sysvar_cache.h"
+#include "../sysvar/fd_sysvar_epoch_schedule.h"
 
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
@@ -114,6 +116,37 @@ fd_double_is_normal( double dbl ) {
     ( fd_dblbits_bexp( x ) == 2047 ) &
     ( fd_dblbits_mant( x ) !=    0 );
   return !( is_denorm | is_inf | is_nan );
+}
+
+static void
+_txn_collect_rent( fd_exec_txn_ctx_t * txn_ctx ) {
+  /* Copied from fd_runtime_collect_rent. Requires some modifications since we don't insert records into funk */
+  fd_exec_slot_ctx_t * slot_ctx = txn_ctx->slot_ctx;
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
+
+  ulong slot = slot_ctx->slot_bank.slot;
+  ulong epoch = fd_slot_to_epoch(schedule, slot, NULL);
+  
+  /* FIXME: This will not necessarily support warmup_epochs */
+  ulong num_partitions = fd_runtime_num_rent_partitions( slot_ctx, slot );
+  /* Reconstruct rent lists if the number of slots per epoch changes */
+  fd_acc_mgr_set_slots_per_epoch( slot_ctx, num_partitions );
+
+  for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
+    FD_BORROWED_ACCOUNT_DECL(acc);
+
+    // Obtain writable handle to account
+    if( fd_acc_mgr_modify( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[i], 0, 0UL, acc ) ) {
+      continue;
+    }
+
+    /* Filter accounts that we've already visited */
+    if (acc->const_meta->info.rent_epoch <= epoch || FD_FEATURE_ACTIVE(slot_ctx, set_exempt_rent_epoch_max)) {
+      /* Actually invoke rent collection */
+      fd_runtime_collect_rent_account(slot_ctx, acc->meta, acc->pubkey, epoch);
+    }
+  }
 }
 
 static int
@@ -584,6 +617,7 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   /* Copy over recent blockhash */
   fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
   memcpy( recent_block_hash, test_ctx->tx.message.recent_blockhash, sizeof(fd_hash_t) );
+  recent_block_hash->fee_calculator.lamports_per_signature = 5000;
 
   /* Initialize builtin accounts */
   fd_builtin_programs_init( slot_ctx );
@@ -595,7 +629,8 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   for( ulong i = 0; i < test_ctx->tx.message.account_shared_data_count; i++ ) {
     // Load the accounts into the account manager
     // Borrowed accounts get reset anyways - we just need to load the account somewhere
-    _load_account( &txn_ctx->borrowed_accounts[i], acc_mgr, funk_txn, &test_ctx->tx.message.account_shared_data[i] );
+    FD_BORROWED_ACCOUNT_DECL(acc);
+    _load_account( acc, acc_mgr, funk_txn, &test_ctx->tx.message.account_shared_data[i] );
   }
 
   /* Add accounts to bpf program cache */
@@ -648,8 +683,18 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
     memcpy( slot_ctx->sysvar_cache->val_rent, &sysvar_rent, sizeof(fd_rent_t) );
   }
 
-  /* Set slot bank variables */
+  /* Set slot bank variables (defaults obtained from GenesisConfig::default() in Agave) */
   slot_ctx->slot_bank.slot = fd_sysvar_cache_clock( slot_ctx->sysvar_cache )->slot;
+  slot_ctx->slot_bank.prev_slot = slot_ctx->slot_bank.slot - 1; // Can underflow, but its fine since it will correctly be ULONG_MAX
+  slot_ctx->slot_bank.fee_rate_governor.burn_percent = 50;
+  slot_ctx->slot_bank.fee_rate_governor.min_lamports_per_signature = 0;
+  slot_ctx->slot_bank.fee_rate_governor.max_lamports_per_signature = 0;
+  slot_ctx->slot_bank.fee_rate_governor.target_lamports_per_signature = 10000;
+  slot_ctx->slot_bank.fee_rate_governor.target_signatures_per_slot = 20000;
+
+  /* Set epoch bank variables (defaults obtained from GenesisConfig::default() in Agave) */
+  epoch_bank->epoch_schedule = *fd_sysvar_cache_epoch_schedule( slot_ctx->sysvar_cache );
+  epoch_bank->ticks_per_slot = 64;
 
   /* A NaN rent exemption threshold is U.B. in Solana Labs */
   fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
@@ -679,6 +724,7 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   // Set the last hash to the genesis hash
   fd_hash_t * last_hash = fd_scratch_alloc( fd_hash_align(), fd_hash_footprint() );
   slot_ctx->slot_bank.block_hash_queue.last_hash = last_hash;
+  epoch_bank->genesis_hash = *last_hash;
   memcpy( last_hash, test_ctx->genesis_hash, sizeof(fd_hash_t) );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
@@ -1232,6 +1278,9 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
 
   /* Execute txn */
   int exec_res = fd_execute_txn(txn_ctx);
+
+  /* Collect rent */
+  _txn_collect_rent( txn_ctx );
 
   /* Allocate space to capture outputs */
 

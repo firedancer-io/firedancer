@@ -175,6 +175,15 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_tpool_t * tpool,
                                          ulong max_workers );
 
+ulong
+fd_runtime_num_rent_partitions( fd_exec_slot_ctx_t const * slot_ctx, ulong slot );
+
+int
+fd_runtime_collect_rent_account( fd_exec_slot_ctx_t * slot_ctx,
+                                 fd_account_meta_t * acc,
+                                 fd_pubkey_t const * key,
+                                 ulong epoch );
+
 void
 fd_runtime_collect_rent_accounts_prune( ulong slot,
                                         fd_exec_slot_ctx_t * slot_ctx,

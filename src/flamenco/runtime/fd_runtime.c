@@ -2771,7 +2771,7 @@ fd_rent_due(fd_account_meta_t *acc,
    needed. Returns 1 if the account was changed, and 0 if it is
    unchanged. */
 
-static int
+int
 fd_runtime_collect_rent_account( fd_exec_slot_ctx_t * slot_ctx,
                                  fd_account_meta_t * acc,
                                  fd_pubkey_t const * key,
@@ -2940,7 +2940,7 @@ fd_runtime_use_multi_epoch_collection( fd_exec_slot_ctx_t const * slot_ctx, ulon
   return use_multi_epoch_collection;
 }
 
-static ulong
+ulong
 fd_runtime_num_rent_partitions( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
