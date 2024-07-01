@@ -203,63 +203,63 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
 int
 fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
                                          ulong const *       pre_lens,
-                                         uchar *             input,
-                                         ulong               input_sz ) {
-  uchar * input_cursor = input;
+                                         uchar *             buffer,
+                                         ulong               buffer_sz ) {
+  ulong start = 0UL;
 
   uchar acc_idx_seen[256] = {0};
 
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
   fd_pubkey_t * txn_accs =  ctx.txn_ctx->accounts;
 
-  input_cursor += sizeof(ulong); // number of accounts
-  for( ulong i = 0UL; i < ctx.instr->acct_cnt; i++ ) {
+  start += sizeof(ulong); // number of accounts
+  for( ulong i=0UL; i<ctx.instr->acct_cnt; i++ ) {
     uchar acc_idx = instr_acc_idxs[i];
     fd_pubkey_t * acc = &txn_accs[instr_acc_idxs[i]];
 
-    input_cursor++; // position
+    start++; // position
     fd_borrowed_account_t * view_acc = NULL;
     /* Intentionally ignore the borrowed account error because it is not used */
     fd_instr_borrowed_account_view( &ctx, acc, &view_acc );
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
-      input_cursor += 7;
+      start += 7UL;
     } else {
       acc_idx_seen[acc_idx] = 1;
-      input_cursor += sizeof(uchar)        // is_signer
-                    + sizeof(uchar)        // is_writable
-                    + sizeof(uchar)        // executable
-                    + sizeof(uint)         // original_data_len
-                    + sizeof(fd_pubkey_t); // key
+      start += sizeof(uchar)        // is_signer
+             + sizeof(uchar)        // is_writable
+             + sizeof(uchar)        // executable
+             + sizeof(uint)         // original_data_len
+             + sizeof(fd_pubkey_t); // key
 
-      if( FD_UNLIKELY( input_cursor+sizeof(fd_pubkey_t)>input+input_sz) ) {
+      if( FD_UNLIKELY( start+sizeof(fd_pubkey_t)>buffer_sz ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
-      fd_pubkey_t * owner = (fd_pubkey_t *)input_cursor;
-      input_cursor += sizeof(fd_pubkey_t); // owner
+      fd_pubkey_t * owner = (fd_pubkey_t *)(buffer+start);
+      start += sizeof(fd_pubkey_t); // owner
 
-      if( FD_UNLIKELY( input_cursor+sizeof(ulong)>input+input_sz) ) {
+      if( FD_UNLIKELY( start+sizeof(ulong)>buffer_sz ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
-      ulong lamports = FD_LOAD( ulong, input_cursor );
+      ulong lamports = FD_LOAD( ulong, buffer+start );
       if( lamports != view_acc->const_meta->info.lamports ) {
         int err = fd_account_set_lamports( &ctx, i, lamports );
         if( FD_UNLIKELY( err ) ) {
           return err;
         }
       }
-      input_cursor += sizeof(ulong); // lamports
+      start += sizeof(ulong); // lamports
 
-      if( FD_UNLIKELY( input_cursor+sizeof(ulong)>input+input_sz) ) {
+      if( FD_UNLIKELY( start+sizeof(ulong)>buffer_sz ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
-      ulong post_len = FD_LOAD( ulong, input_cursor );
-      input_cursor += sizeof(ulong); // data length
+      ulong post_len = FD_LOAD( ulong, buffer+start );
+      start += sizeof(ulong); // data length
 
       if( FD_LIKELY( view_acc->const_meta != NULL ) ) {
-        if( FD_UNLIKELY( input_cursor+post_len>input+input_sz ) ) {
+        if( FD_UNLIKELY( start+post_len>buffer_sz ) ) {
           return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
         }
-        uchar * post_data = input_cursor;
+        uchar * post_data = buffer+start;
 
         fd_account_meta_t const * metadata_check = view_acc->const_meta;
         if ( FD_UNLIKELY( fd_ulong_sat_sub( post_len, metadata_check->dlen ) > MAX_PERMITTED_DATA_INCREASE || 
@@ -270,13 +270,13 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
         fd_borrowed_account_t * modify_acc = NULL;
         int modify_err = fd_instr_borrowed_account_modify( &ctx, acc, post_len, &modify_acc );
         if( FD_UNLIKELY( modify_err != FD_ACC_MGR_SUCCESS ) ) {
-          fd_valloc_free( ctx.valloc, input );
+          fd_valloc_free( ctx.valloc, buffer );
           return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
         }
 
         ulong pre_len = pre_lens[i];
 
-        input_cursor += fd_ulong_align_up( pre_len, 8 );
+        start += fd_ulong_align_up( pre_len, FD_BPF_ALIGN_OF_U128 );
 
         int err;
         if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, post_len, &err ) && 
@@ -308,19 +308,15 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
         }
 
       } else {
-        input_cursor += fd_ulong_align_up( pre_lens[i], FD_BPF_ALIGN_OF_U128 );
+        start += fd_ulong_align_up( pre_lens[i], FD_BPF_ALIGN_OF_U128 );
       }
 
-      input_cursor += MAX_PERMITTED_DATA_INCREASE;
-      input_cursor += sizeof(ulong); // rent epoch
+      start += MAX_PERMITTED_DATA_INCREASE;
+      start += sizeof(ulong); // rent epoch
     }
   }
 
-  if( FD_UNLIKELY( input_cursor>input+input_sz ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-  }
-
-  fd_valloc_free( ctx.valloc, input );
+  fd_valloc_free( ctx.valloc, buffer );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -485,6 +481,8 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t ctx,
   return serialized_params_start;
 }
 
+/* FIXME: This function needs to have updated checks and can line up with
+   fd_bpf_loader_input_deserialize_aligned */
 int
 fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx, ulong const * pre_lens, uchar * input, ulong input_sz ) {
   uchar * input_cursor = input;
