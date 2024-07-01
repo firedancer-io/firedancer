@@ -23,7 +23,10 @@ struct __attribute__((aligned(64UL))) fd_replay_notif_msg {
       ulong parent;
       ulong root;
       ulong slot;
+      ulong height;
       fd_hash_t bank_hash;
+      fd_hash_t block_hash;
+      fd_pubkey_t identity;
     } slot_exec;
   };
   uint type;
