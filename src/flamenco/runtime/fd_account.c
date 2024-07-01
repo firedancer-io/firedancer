@@ -47,6 +47,7 @@ fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
     }
   } while(0);
 
+  account->meta->slot = ctx->slot_ctx->slot_bank.slot;
   memcpy( account->meta->info.owner, owner, sizeof(fd_pubkey_t) );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -91,6 +92,7 @@ fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
     }
   } while(0);
 
+  account->meta->slot = ctx->slot_ctx->slot_bank.slot;
   account->meta->info.lamports = lamports;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
