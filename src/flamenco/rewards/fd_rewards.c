@@ -11,20 +11,21 @@
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
+/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L85 */
 static double
 total( fd_inflation_t const * inflation, double year ) {
-    /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/sdk/src/inflation.rs#L84-L93 */
     FD_TEST( year >= 0.0 );
     double tapered = inflation->initial * pow((1.0 - inflation->taper), year);
     return (tapered > inflation->terminal) ? tapered : inflation->terminal;
 }
 
+/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L102 */
 static double
 foundation( fd_inflation_t const * inflation, double year ) {
-    /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/sdk/src/inflation.rs#L100-L108 */
     return (year < inflation->foundation_term) ? inflation->foundation * total(inflation, year) : 0.0;
 }
 
+/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L97 */
 static double
 validator( fd_inflation_t const * inflation, double year) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/sdk/src/inflation.rs#L96-L99 */
@@ -32,11 +33,18 @@ validator( fd_inflation_t const * inflation, double year) {
     return total( inflation, year ) - foundation( inflation, year );
 }
 
+/* Calculates the starting slot for inflation from the activation slot. The activation slot is the earliest
+    activation slot of the following features:
+    - devnet_and_testnet 
+    - full_inflation_enable, if full_inflation_vote has been activated
+
+    https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank.rs#L2095 */
 static FD_FN_CONST ulong
 get_inflation_start_slot( fd_exec_slot_ctx_t * slot_ctx ) {
     ulong devnet_and_testnet = FD_FEATURE_ACTIVE(slot_ctx, devnet_and_testnet) ? slot_ctx->epoch_ctx->features.devnet_and_testnet : ULONG_MAX;
+
     ulong enable = ULONG_MAX;
-    if (FD_FEATURE_ACTIVE( slot_ctx, full_inflation_vote ) && FD_FEATURE_ACTIVE(slot_ctx, full_inflation_enable)) {
+    if ( FD_FEATURE_ACTIVE( slot_ctx, full_inflation_vote ) && FD_FEATURE_ACTIVE(slot_ctx, full_inflation_enable ) ) {
         enable = slot_ctx->epoch_ctx->features.full_inflation_enable;
     }
 
@@ -51,11 +59,11 @@ get_inflation_start_slot( fd_exec_slot_ctx_t * slot_ctx ) {
     return min_slot;
 }
 
+/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank.rs#L2110 */
 static ulong
 get_inflation_num_slots( fd_exec_slot_ctx_t * slot_ctx,
                          fd_epoch_schedule_t const * epoch_schedule,
                          ulong slot ) {
-    /* https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/runtime/src/bank.rs#L2333-L2342 */
     ulong inflation_activation_slot = get_inflation_start_slot( slot_ctx );
     ulong inflation_start_slot = fd_epoch_slot0(
         epoch_schedule,
@@ -69,6 +77,13 @@ get_inflation_num_slots( fd_exec_slot_ctx_t * slot_ctx,
     return fd_epoch_slot0(epoch_schedule, epoch) - inflation_start_slot;
 }
 
+/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank.rs#L2121 */
+static double
+slot_in_year_for_inflation( fd_exec_slot_ctx_t * slot_ctx ) {
+    fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+    ulong num_slots = get_inflation_num_slots( slot_ctx, &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot );
+    return (double)num_slots / (double)epoch_bank->slots_per_year;
+}
 
 // for a given stake and vote_state, calculate how many
 //   points were earned (credits * stake) and new value
@@ -268,25 +283,19 @@ epoch_duration_in_years(
     return (double)slots_in_epoch / (double) epoch_bank->slots_per_year;
 }
 
+/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank.rs#L2128 */
 static void
 calculate_previous_epoch_inflation_rewards(
     fd_exec_slot_ctx_t * slot_ctx,
-    fd_epoch_bank_t const * epoch_bank,
-    ulong slot,
     ulong prev_epoch_capitalization,
     ulong prev_epoch,
     fd_prev_epoch_inflation_rewards_t * rewards
 ) {
-    /* https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/runtime/src/bank.rs#L2351-L2376 */
+    double slot_in_year = slot_in_year_for_inflation( slot_ctx );
 
-
-    /* slot_in_year_for_inflation
-    https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/runtime/src/bank.rs#L2344-L2349
-    */
-    ulong num_slots = get_inflation_num_slots( slot_ctx, &epoch_bank->epoch_schedule, slot );
-    double slot_in_year = (double)num_slots / (double)epoch_bank->slots_per_year;
+    fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
     rewards->validator_rate = validator( &epoch_bank->inflation, slot_in_year );
-    rewards->foundation_rate = foundation(&epoch_bank->inflation, slot_in_year);
+    rewards->foundation_rate = foundation( &epoch_bank->inflation, slot_in_year );
     rewards->prev_epoch_duration_in_years = epoch_duration_in_years(epoch_bank, prev_epoch);
     rewards->validator_rewards = (ulong)(rewards->validator_rate * (double)prev_epoch_capitalization * rewards->prev_epoch_duration_in_years);
     FD_LOG_DEBUG(("Rewards %lu, Rate %.16f, Duration %.18f Capitalization %lu Slot in year %.16f", rewards->validator_rewards, rewards->validator_rate, rewards->prev_epoch_duration_in_years, prev_epoch_capitalization, slot_in_year));
@@ -782,18 +791,21 @@ hash_rewards_into_partitions(
     }
 }
 
-// Calculate rewards from previous epoch to prepare for partitioned distribution.
+/* Calculate rewards from previous epoch to prepare for partitioned distribution.
+
+   https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L214 */
 static void
 calculate_rewards_for_partitioning(
     fd_exec_slot_ctx_t * slot_ctx,
     ulong prev_epoch,
     fd_partitioned_rewards_calculation_t * result
 ) {
-    /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2356-L2403 */
+    /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L227 */
     fd_prev_epoch_inflation_rewards_t rewards;
+    calculate_previous_epoch_inflation_rewards( slot_ctx, slot_ctx->slot_bank.capitalization, prev_epoch, &rewards );
+
     fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
     fd_slot_bank_t const * slot_bank = &slot_ctx->slot_bank;
-    calculate_previous_epoch_inflation_rewards( slot_ctx, epoch_bank, slot_bank->slot, slot_bank->capitalization, prev_epoch, &rewards );
 
     ulong old_vote_balance_and_staked = vote_balance_and_staked(slot_ctx, &epoch_bank->stakes);
 
@@ -829,7 +841,9 @@ calculate_rewards_for_partitioning(
 //     return;
 // }
 
-// Calculate rewards from previous epoch and distribute vote rewards
+/* Calculate rewards from previous epoch and distribute vote rewards 
+   
+   https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L97 */
 static void
 calculate_rewards_and_distribute_vote_rewards(
     fd_exec_slot_ctx_t * slot_ctx,
@@ -838,7 +852,7 @@ calculate_rewards_and_distribute_vote_rewards(
 ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2406-L2492 */
     fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
-    calculate_rewards_for_partitioning(slot_ctx, prev_epoch, rewards_calc_result);
+    calculate_rewards_for_partitioning( slot_ctx, prev_epoch, rewards_calc_result );
     fd_vote_reward_t_mapnode_t * ref = rewards_calc_result->vote_account_rewards;
     for (ulong i = 0; i < fd_vote_reward_t_map_slot_cnt( rewards_calc_result->vote_account_rewards); ++i) {
         if (fd_vote_reward_t_map_key_equal( ref[i].vote_pubkey, fd_vote_reward_t_map_key_null() ) ) {
@@ -1022,15 +1036,16 @@ fd_update_rewards(
 }
 
 /* fd_begin_partitioned_rewards: Begin the process of calculating and
-   distributing rewards. This process can take multiple slots. */
+   distributing rewards. This process can take multiple slots.
 
-// https://github.com/anza-xyz/agave/blob/2d722719a2c74ec4e180b255124c7204ef98ee6c/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L35
+   https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L41
+*/
 void
 fd_begin_partitioned_rewards(
     fd_exec_slot_ctx_t * slot_ctx,
     ulong parent_epoch
 ) {
-    /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1613-L1651 */
+    /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L55 */
     fd_calculate_rewards_and_distribute_vote_rewards_result_t rewards_result[1] = {0};
     calculate_rewards_and_distribute_vote_rewards(
         slot_ctx,

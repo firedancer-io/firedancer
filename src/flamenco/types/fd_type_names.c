@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 209
+#define FD_TYPE_NAME_COUNT 218
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_pubkey",
@@ -47,11 +47,6 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_snapshot_acc_vec",
  "fd_snapshot_slot_acc_vecs",
  "fd_reward_type",
- "fd_reward_info",
- "fd_stake_reward",
- "fd_serializable_stake_rewards",
- "fd_start_block_height_and_rewards",
- "fd_serializable_epoch_reward_status",
  "fd_solana_accounts_db_fields",
  "fd_solana_manifest",
  "fd_rust_duration",
@@ -210,4 +205,18 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_status_pair",
  "fd_slot_delta",
  "fd_bank_slot_deltas",
+ "fd_reward_info",
+ "fd_partitioned_stake_reward",
+ "fd_partitioned_stake_rewards",
+ "fd_start_block_height_and_rewards",
+ "fd_epoch_reward_status",
+ "fd_pubkey_rewardinfo_pair",
+ "fd_optional_account",
+ "fd_vote_rewards_accounts",
+ "fd_stake_reward_calculation",
+ "fd_calculate_validator_rewards_result",
+ "fd_stake_reward_calculation_partitioned",
+ "fd_partitioned_rewards_calculation",
+ "fd_calculate_rewards_and_distribute_vote_rewards_result",
+ "fd_keyed_rewards_and_num_partitions",
 };
