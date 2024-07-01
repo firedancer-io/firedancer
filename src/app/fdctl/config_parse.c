@@ -1,5 +1,7 @@
 #include "config_parse.h"
 
+FD_IMPORT_BINARY( fdctl_default_config, "src/app/fdctl/config/default.toml" );
+
 /* Pod query utils ****************************************************/
 
 static int
@@ -141,7 +143,7 @@ fdctl_pod_find_leftover( uchar * pod ) {
 
   static char const * stack[ FDCTL_CFG_MAX_DEPTH ];
   ulong depth = fdctl_pod_find_leftover_recurse( pod, stack, 0UL );
-  if( FD_LIKELY( !depth ) ) return 0;
+  if( FD_LIKELY( !depth ) ) return 1;
 
   static char path[ 64*FDCTL_CFG_MAX_DEPTH + 4 ];
   char * c   = fd_cstr_init( path );
@@ -160,7 +162,7 @@ fdctl_pod_find_leftover( uchar * pod ) {
   fd_cstr_fini( c );
 
   FD_LOG_WARNING(( "Unrecognized key `%s`", path ));
-  return 1;
+  return 0;
 }
 
 /* Converter **********************************************************/
@@ -360,4 +362,101 @@ fdctl_pod_to_cfg( config_t * config,
 
   if( FD_UNLIKELY( !fdctl_pod_find_leftover( pod ) ) ) return NULL;
   return config;
+}
+
+void
+fdctl_cfg_validate( config_t * cfg ) {
+
+# define CFG_HAS_NON_EMPTY( key ) do {             \
+    if( !strnlen( cfg->key, sizeof(cfg->key) ) ) { \
+      FD_LOG_ERR(( "missing `%s`", #key ));        \
+    }                                              \
+  } while(0)
+
+# define CFG_HAS_NON_ZERO( key ) do {                         \
+    if( !cfg->key ) { FD_LOG_ERR(( "missing `%s`", #key )); } \
+  } while(0)
+
+# define CFG_HAS_POW2( key ) do {                        \
+    ulong value = (ulong)( cfg -> key );                 \
+    if( !value || !fd_ulong_is_pow2( value ) ) {         \
+      FD_LOG_ERR(( "`%s` must be a power of 2", #key )); \
+    }                                                    \
+  } while(0)
+
+  CFG_HAS_NON_EMPTY( name );
+  CFG_HAS_NON_EMPTY( scratch_directory );
+  CFG_HAS_NON_EMPTY( dynamic_port_range );
+
+  CFG_HAS_NON_EMPTY( log.colorize );
+  CFG_HAS_NON_EMPTY( log.level_logfile );
+  CFG_HAS_NON_EMPTY( log.level_stderr );
+  CFG_HAS_NON_EMPTY( log.level_flush );
+
+  CFG_HAS_NON_EMPTY( ledger.snapshot_archive_format );
+
+  CFG_HAS_NON_ZERO( gossip.port );
+
+  CFG_HAS_NON_ZERO( snapshots.full_snapshot_interval_slots );
+  CFG_HAS_NON_ZERO( snapshots.incremental_snapshot_interval_slots );
+
+  CFG_HAS_NON_EMPTY( layout.affinity );
+  CFG_HAS_NON_EMPTY( layout.solana_labs_affinity );
+  CFG_HAS_NON_ZERO ( layout.net_tile_count );
+  CFG_HAS_NON_ZERO ( layout.quic_tile_count );
+  CFG_HAS_NON_ZERO ( layout.verify_tile_count );
+  CFG_HAS_NON_ZERO ( layout.bank_tile_count );
+  CFG_HAS_NON_ZERO ( layout.shred_tile_count );
+
+  CFG_HAS_NON_EMPTY( hugetlbfs.mount_path );
+
+  CFG_HAS_NON_EMPTY( tiles.net.xdp_mode );
+  CFG_HAS_POW2     ( tiles.net.xdp_rx_queue_size );
+  CFG_HAS_POW2     ( tiles.net.xdp_tx_queue_size );
+  CFG_HAS_NON_ZERO ( tiles.net.xdp_aio_depth );
+  CFG_HAS_NON_ZERO ( tiles.net.send_buffer_size );
+
+  CFG_HAS_NON_ZERO( tiles.quic.regular_transaction_listen_port );
+  CFG_HAS_NON_ZERO( tiles.quic.quic_transaction_listen_port );
+  CFG_HAS_NON_ZERO( tiles.quic.max_concurrent_connections );
+  CFG_HAS_NON_ZERO( tiles.quic.max_concurrent_streams_per_connection );
+  CFG_HAS_NON_ZERO( tiles.quic.stream_pool_cnt );
+  CFG_HAS_NON_ZERO( tiles.quic.txn_reassembly_count );
+  CFG_HAS_NON_ZERO( tiles.quic.max_concurrent_handshakes );
+  CFG_HAS_NON_ZERO( tiles.quic.max_inflight_quic_packets );
+  CFG_HAS_NON_ZERO( tiles.quic.tx_buf_size );
+  CFG_HAS_NON_ZERO( tiles.quic.idle_timeout_millis );
+
+  CFG_HAS_NON_ZERO( tiles.verify.receive_buffer_size );
+
+  CFG_HAS_NON_ZERO( tiles.dedup.signature_cache_size );
+
+  CFG_HAS_NON_ZERO( tiles.pack.max_pending_transactions );
+
+  CFG_HAS_NON_ZERO( tiles.shred.max_pending_shred_sets );
+  CFG_HAS_NON_ZERO( tiles.shred.shred_listen_port );
+
+  CFG_HAS_NON_ZERO( tiles.metric.prometheus_listen_port );
+
+  CFG_HAS_NON_EMPTY( development.topology );
+
+  CFG_HAS_NON_EMPTY( development.netns.interface0 );
+  CFG_HAS_NON_EMPTY( development.netns.interface0_mac );
+  CFG_HAS_NON_EMPTY( development.netns.interface0_addr );
+  CFG_HAS_NON_EMPTY( development.netns.interface1 );
+  CFG_HAS_NON_EMPTY( development.netns.interface1_mac );
+  CFG_HAS_NON_EMPTY( development.netns.interface1_addr );
+
+  CFG_HAS_NON_ZERO( development.genesis.target_tick_duration_micros );
+  CFG_HAS_NON_ZERO( development.genesis.ticks_per_slot );
+  CFG_HAS_NON_ZERO( development.genesis.fund_initial_accounts );
+  CFG_HAS_NON_ZERO( development.genesis.fund_initial_amount_lamports );
+
+  CFG_HAS_NON_ZERO ( development.bench.benchg_tile_count );
+  CFG_HAS_NON_ZERO ( development.bench.benchs_tile_count );
+  CFG_HAS_NON_EMPTY( development.bench.affinity );
+
+# undef CFG_HAS_NON_EMPTY
+# undef CFG_HAS_NON_ZERO
+# undef CFG_HAS_POW2
 }
