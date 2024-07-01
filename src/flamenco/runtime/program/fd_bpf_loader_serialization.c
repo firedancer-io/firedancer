@@ -200,11 +200,13 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
   return serialized_params_start;
 }
 
+/* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L500-L603 */
 int
 fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
                                          ulong const *       pre_lens,
                                          uchar *             buffer,
                                          ulong               buffer_sz ) {
+  /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L507 */
   ulong start = 0UL;
 
   uchar acc_idx_seen[256] = {0};
@@ -213,6 +215,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
   fd_pubkey_t * txn_accs =  ctx.txn_ctx->accounts;
 
   start += sizeof(ulong); // number of accounts
+  /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L508-L600 */
   for( ulong i=0UL; i<ctx.instr->acct_cnt; i++ ) {
     uchar acc_idx = instr_acc_idxs[i];
     fd_pubkey_t * acc = &txn_accs[instr_acc_idxs[i]];
@@ -222,14 +225,18 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
     /* Intentionally ignore the borrowed account error because it is not used */
     fd_instr_borrowed_account_view( &ctx, acc, &view_acc );
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
+      /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L515-517 */
       start += 7UL;
     } else {
+      /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L518-524 */
       acc_idx_seen[acc_idx] = 1;
       start += sizeof(uchar)        // is_signer
              + sizeof(uchar)        // is_writable
              + sizeof(uchar)        // executable
              + sizeof(uint)         // original_data_len
              + sizeof(fd_pubkey_t); // key
+
+      /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L525-548 */
 
       if( FD_UNLIKELY( start+sizeof(fd_pubkey_t)>buffer_sz ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
@@ -267,6 +274,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
           return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
         }
 
+        /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L564-587 */
         fd_borrowed_account_t * modify_acc = NULL;
         int modify_err = fd_instr_borrowed_account_modify( &ctx, acc, post_len, &modify_acc );
         if( FD_UNLIKELY( modify_err != FD_ACC_MGR_SUCCESS ) ) {
@@ -300,19 +308,19 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
           return err;
         }
 
-        if( memcmp( view_acc->const_meta->info.owner, owner, sizeof(fd_pubkey_t) ) ) {
-          err = fd_account_set_owner( &ctx, i, owner );
-          if( FD_UNLIKELY( err ) ) {
-            return err;
-          }
-        }
-
       } else {
         start += fd_ulong_align_up( pre_lens[i], FD_BPF_ALIGN_OF_U128 );
       }
 
+      /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L593-598 */
       start += MAX_PERMITTED_DATA_INCREASE;
-      start += sizeof(ulong); // rent epoch
+      start += sizeof(ulong); // rent epoch        
+      if( memcmp( view_acc->const_meta->info.owner, owner, sizeof(fd_pubkey_t) ) ) {
+        int err = fd_account_set_owner( &ctx, i, owner );
+        if( FD_UNLIKELY( err ) ) {
+          return err;
+        }
+      }
     }
   }
 
