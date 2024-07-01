@@ -11,8 +11,6 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "keywords.h"
 
-#define API_VERSION "1.17.6"
-
 #define CRLF "\r\n"
 #define MATCH_STRING(_text_,_text_sz_,_str_) (_text_sz_ == sizeof(_str_)-1 && memcmp(_text_, _str_, sizeof(_str_)-1) == 0)
 
@@ -43,6 +41,7 @@ struct fd_rpc_global_ctx {
   ulong last_subsc_id;
   fd_epoch_bank_t * epoch_bank;
   ulong epoch_bank_epoch;
+  fd_replay_notif_msg_t last_slot_notify;
 };
 typedef struct fd_rpc_global_ctx fd_rpc_global_ctx_t;
 
@@ -191,7 +190,7 @@ method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values
     void * val = read_account(ctx, &acct, fd_scratch_virtual(), &val_sz);
     fd_blockstore_t * blockstore = ctx->global->blockstore;
     if (val == NULL) {
-      fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%lu}" CRLF,
+      fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%lu}" CRLF,
                             blockstore->smr, ctx->call_id);
       fd_web_replier_done(replier);
       return 0;
@@ -240,7 +239,7 @@ method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values
     long off = (off_ptr ? *(long *)off_ptr : FD_LONG_UNSET);
     long len = (len_ptr ? *(long *)len_ptr : FD_LONG_UNSET);
 
-    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":",
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":",
                           blockstore->smr);
     const char * err = fd_account_to_json( ts, acct, enc, val, val_sz, off, len );
     if( err ) {
@@ -285,7 +284,7 @@ method_getBalance(struct fd_web_replier* replier, struct json_values* values, fd
     fd_account_meta_t * metadata = (fd_account_meta_t *)val;
     fd_textstream_t * ts = fd_web_replier_textstream(replier);
     fd_blockstore_t * blockstore = ctx->global->blockstore;
-    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%lu}" CRLF,
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%lu}" CRLF,
                           blockstore->smr, metadata->info.lamports, ctx->call_id);
     fd_web_replier_done(replier);
   } FD_METHOD_SCRATCH_END;
@@ -417,14 +416,13 @@ method_getBlockCommitment(struct fd_web_replier* replier, struct json_values* va
 static int
 method_getBlockHeight(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
+  fd_rpc_global_ctx_t * glob = ctx->global;
+  fd_readwrite_start_read( &glob->lock );
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  fd_block_t blk[1];
-  fd_slot_meta_t slot_meta[1];
-  fd_blockstore_t * blockstore = ctx->global->blockstore;
-  int ret = fd_blockstore_slot_meta_query_volatile(blockstore, blockstore->smr, blk, slot_meta);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
-                        (!ret ? blk->height : 0UL), ctx->call_id);
+                        glob->last_slot_notify.slot_exec.height, ctx->call_id);
   fd_web_replier_done(replier);
+  fd_readwrite_end_read( &glob->lock );
   return 0;
 }
 
@@ -747,18 +745,16 @@ method_getHighestSnapshotSlot(struct fd_web_replier* replier, struct json_values
 
 static int
 method_getIdentity(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void) values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getIdentity is not implemented");
+  (void)values;
+  fd_rpc_global_ctx_t * glob = ctx->global;
+  fd_readwrite_start_read( &glob->lock );
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"identity\":\"");
+  fd_textstream_encode_base58(ts, &glob->last_slot_notify.slot_exec.identity, sizeof(fd_pubkey_t));
+  fd_textstream_sprintf(ts, "\"},\"id\":%lu}" CRLF, ctx->call_id);
+  fd_web_replier_done(replier);
+  fd_readwrite_end_read( &glob->lock );
   return 0;
-  /* FIXME!
-    fd_textstream_t * ts = fd_web_replier_textstream(replier);
-    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"identity\":\"");
-    fd_textstream_encode_base58(ts, ctx->identity->uc, sizeof(fd_pubkey_t));
-    fd_textstream_sprintf(ts, "\"},\"id\":%lu}" CRLF, ctx->call_id);
-    fd_web_replier_done(replier);
-    return 0;
-  */
 }
 // Implementation of the "getInflationGovernor" methods
 static int
@@ -816,17 +812,17 @@ method_getLargestAccounts(struct fd_web_replier* replier, struct json_values* va
 
 static int
 method_getLatestBlockhash(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  FD_METHOD_SCRATCH_BEGIN( 1UL<<26 ) {
-    fd_textstream_t * ts = fd_web_replier_textstream(replier);
-    fd_slot_bank_t * slot_bank = read_slot_bank(ctx, fd_scratch_virtual());
-    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":{\"blockhash\":\"",
-                          slot_bank->slot);
-    fd_textstream_encode_base58(ts, slot_bank->poh.uc, sizeof(fd_pubkey_t));
-    fd_textstream_sprintf(ts, "\",\"lastValidBlockHeight\":%lu}},\"id\":%lu}" CRLF,
-                          slot_bank->block_height, ctx->call_id);
-    fd_web_replier_done(replier);
-  } FD_METHOD_SCRATCH_END;
+  (void) values;
+  fd_rpc_global_ctx_t * glob = ctx->global;
+  fd_readwrite_start_read( &glob->lock );
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":{\"blockhash\":\"",
+                        glob->last_slot_notify.slot_exec.slot);
+  fd_textstream_encode_base58(ts, &glob->last_slot_notify.slot_exec.block_hash, sizeof(fd_hash_t));
+  fd_textstream_sprintf(ts, "\",\"lastValidBlockHeight\":%lu}},\"id\":%lu}" CRLF,
+                        glob->last_slot_notify.slot_exec.height, ctx->call_id);
+  fd_web_replier_done(replier);
+  fd_readwrite_end_read( &glob->lock );
   return 0;
 }
 
@@ -915,7 +911,7 @@ method_getMultipleAccounts(struct fd_web_replier* replier, struct json_values* v
 
     fd_blockstore_t * blockstore = ctx->global->blockstore;
     fd_textstream_t * ts = fd_web_replier_textstream(replier);
-    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":[",
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":[",
                           blockstore->smr);
 
     // Iterate through account ids
@@ -945,46 +941,11 @@ method_getMultipleAccounts(struct fd_web_replier* replier, struct json_values* v
         continue;
       }
 
-      fd_textstream_sprintf(ts, "{\"data\":[\"");
-
-      fd_account_meta_t * metadata = (fd_account_meta_t *)val;
-      if (val_sz < metadata->hlen) {
-        fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
+      const char * err = fd_account_to_json( ts, acct, enc, val, val_sz, FD_LONG_UNSET, FD_LONG_UNSET );
+      if( err ) {
+        fd_web_replier_error(replier, "%s", err);
         return 0;
       }
-      val = (char*)val + metadata->hlen;
-      val_sz = val_sz - metadata->hlen;
-      if (val_sz > metadata->dlen)
-        val_sz = metadata->dlen;
-
-      if (val_sz) {
-        switch (enc) {
-        case FD_ENC_BASE58:
-          if (fd_textstream_encode_base58(ts, val, val_sz)) {
-            fd_web_replier_error(replier, "failed to encode data in base58");
-            return 0;
-          }
-          break;
-        case FD_ENC_BASE64:
-          if (fd_textstream_encode_base64(ts, val, val_sz)) {
-            fd_web_replier_error(replier, "failed to encode data in base64");
-            return 0;
-          }
-          break;
-        default:
-          break;
-        }
-      }
-
-      char owner[50];
-      fd_base58_encode_32((uchar*)metadata->info.owner, 0, owner);
-      fd_textstream_sprintf(ts, "\",\"%s\"],\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"rentEpoch\":%lu,\"space\":%lu}",
-                            (const char*)enc_str,
-                            (metadata->info.executable ? "true" : "false"),
-                            metadata->info.lamports,
-                            owner,
-                            metadata->info.rent_epoch,
-                            val_sz);
 
       fd_scratch_pop();
     }
@@ -1047,7 +1008,7 @@ static int
 method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":[",
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":[",
                         blockstore->smr);
 
   // Iterate through account ids
@@ -1094,11 +1055,13 @@ method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* 
 static int
 method_getSlot(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
+  fd_rpc_global_ctx_t * glob = ctx->global;
+  fd_readwrite_start_read( &glob->lock );
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  fd_blockstore_t * blockstore = ctx->global->blockstore;
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
-                        blockstore->smr, ctx->call_id);
+                        glob->last_slot_notify.slot_exec.slot, ctx->call_id);
   fd_web_replier_done(replier);
+  fd_readwrite_end_read( &glob->lock );
   return 0;
 }
 
@@ -1275,7 +1238,7 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
   if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
     FD_LOG_ERR(("failed to parse transaction"));
 
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"blockTime\":%ld,\"slot\":%lu,",
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"blockTime\":%ld,\"slot\":%lu,",
                         blockstore->smr, blk_ts/(long)1e9, elem.slot);
   fd_txn_to_json( ts, (fd_txn_t *)txn_out, txn_data_raw, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
   fd_textstream_sprintf(ts, "},\"id\":%lu}" CRLF, ctx->call_id);
@@ -1301,7 +1264,7 @@ method_getVersion(struct fd_web_replier* replier, struct json_values* values, fd
   (void) values;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   /* TODO Where does feature-set come from? */
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"feature-set\":666,\"solana-core\":\"" API_VERSION "\"},\"id\":%lu}" CRLF,
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"feature-set\":666,\"solana-core\":\"" FIREDANCER_VERSION "\"},\"id\":%lu}" CRLF,
                         ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
@@ -1823,12 +1786,12 @@ ws_method_accountSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * ms
     ulong val_sz;
     void * val = read_account_with_xid(ctx, &sub->acct_subscribe.acct, &msg->acct_saved.funk_xid, fd_scratch_virtual(), &val_sz);
     if (val == NULL) {
-      fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":null},\"subscription\":%lu}" CRLF,
+      fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"subscription\":%lu}" CRLF,
                             msg->acct_saved.funk_xid.ul[0], sub->subsc_id);
       return 1;
     }
 
-    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"method\":\"accountNotification\",\"params\":{\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":",
+    fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"method\":\"accountNotification\",\"params\":{\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":",
                           msg->acct_saved.funk_xid.ul[0]);
     const char * err = fd_account_to_json( ts, sub->acct_subscribe.acct, sub->acct_subscribe.enc, val, val_sz, sub->acct_subscribe.off, sub->acct_subscribe.len );
     if( err ) {
@@ -1993,6 +1956,13 @@ fd_webserver_ws_closed(fd_websocket_ctx_t * wsctx, void * cb_arg) {
 void
 fd_rpc_replay_notify(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
   fd_rpc_global_ctx_t * subs = ctx->global;
+
+  if( msg->type == FD_REPLAY_SLOT_TYPE ) {
+    fd_readwrite_start_write( &subs->lock );
+    fd_memcpy( &ctx->global->last_slot_notify, msg, sizeof(fd_replay_notif_msg_t) );
+    fd_readwrite_end_write( &subs->lock );
+  }
+
   fd_readwrite_start_read( &subs->lock );
 
   if( subs->sub_cnt == 0 ) {

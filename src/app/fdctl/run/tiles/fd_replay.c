@@ -46,7 +46,7 @@
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
-#define STOP_AFTER_N_SLOTS 1000UL
+// #define STOP_AFTER_N_SLOTS 1000UL
 
 /* An estimate of the max number of transactions in a block.  If there are more
    transactions, they must be split into multiple sets. */
@@ -794,6 +794,8 @@ after_frag( void *             _ctx,
         FD_LOG_ERR(("block finalize failed"));
       }
 
+      fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, ctx->curr_slot );
+
       // Notify for all the updated accounts
       long notify_time_ns = -fd_log_wallclock();
 #define NOTIFY_START msg = fd_chunk_to_laddr( ctx->notif_out_mem, ctx->notif_out_chunk )
@@ -829,10 +831,13 @@ after_frag( void *             _ctx,
       {
         NOTIFY_START;
         msg->type = FD_REPLAY_SLOT_TYPE;
-        msg->slot_exec.slot = fork->slot_ctx.slot_bank.slot;
-        msg->slot_exec.parent = fork->slot_ctx.slot_bank.prev_slot;
+        msg->slot_exec.slot = ctx->curr_slot;
+        msg->slot_exec.parent = ctx->parent_slot;
         msg->slot_exec.root = ctx->blockstore->smr;
+        msg->slot_exec.height = ( block_ ? block_->height : 0UL );
         memcpy( &msg->slot_exec.bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
+        memcpy( &msg->slot_exec.block_hash, &ctx->blockhash, sizeof( fd_hash_t ) );
+        memcpy( &msg->slot_exec.identity, ctx->validator_identity_pubkey, sizeof( fd_pubkey_t ) );
         NOTIFY_END;
       }
 
@@ -843,7 +848,6 @@ after_frag( void *             _ctx,
 
       fd_blockstore_start_write( ctx->blockstore );
 
-      fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, ctx->curr_slot );
       if( FD_LIKELY( block_ ) ) {
         block_->flags = fd_uchar_set_bit( block_->flags, FD_BLOCK_FLAG_PROCESSED );
         memcpy( &block_->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
