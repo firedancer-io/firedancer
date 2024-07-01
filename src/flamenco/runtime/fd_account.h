@@ -383,6 +383,21 @@ fd_account_is_zeroed( fd_account_meta_t const * acct ) {
   return 1;
 }
 
+/* fd_account_find_idx_of_insn_account returns the idx of the instruction account
+    or -1 if the account is not found
+    https://github.com/anza-xyz/agave/blob/d5a84daebd2a7225684aa3f722b330e9d5381e76/sdk/src/transaction_context.rs#L527
+ */
+static inline int
+fd_account_find_idx_of_insn_account( fd_exec_instr_ctx_t const * ctx,
+                                     fd_pubkey_t *               pubkey ) {
+  for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
+    if( 0==memcmp( pubkey, &ctx->instr->acct_pubkeys[i], sizeof(fd_pubkey_t) ) ) {
+      return (int)i;
+    }
+  }
+  return -1;
+}
+
 /* Transaction account APIs *******************************************/
 
 static inline int

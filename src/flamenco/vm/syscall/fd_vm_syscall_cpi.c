@@ -170,7 +170,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
     }
   }
 
-  /* Copy the accounts with their normalised permissions over to the final instruction_accounts array,
+  /* Copy the accounts with their normalized permissions over to the final instruction_accounts array,
      and set the callee_instr acct_flags. */
   for (ulong i = 0; i < duplicate_indicies_cnt; i++) {
     ulong duplicate_index = duplicate_indices[i];
@@ -191,7 +191,8 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
     }
   }
 
-  /* Check that the program account is executable
+  /* Check that the program account is executable. We need to ensure that the
+     program account is a valid instruction account.
      https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L635-L648 */
   fd_borrowed_account_t * program_rec = NULL;
   int err = fd_txn_borrowed_account_view( instr_ctx->txn_ctx, &instr_ctx->instr->program_id_pubkey, &program_rec );
@@ -200,12 +201,16 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
     return 1;
   }
 
+  if( FD_UNLIKELY( fd_account_find_idx_of_insn_account( instr_ctx, &callee_instr->program_id_pubkey )==-1 ) ) {
+    FD_LOG_WARNING(( "Unknown program %32J", &callee_instr->program_id_pubkey ));
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+  }
+
   fd_account_meta_t const * program_meta = program_rec->const_meta;
 
   if( FD_UNLIKELY( !fd_account_is_executable( program_meta ) ) ) {
-    /* TODO: log "Account {} is not executable" */
-    /* TODO: return InstructionError::AccountNotExecutable */
-    return 1;
+    FD_LOG_WARNING(( "Account %32J is not executable", &callee_instr->program_id_pubkey ));
+    return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
   }
 
   *instruction_accounts_cnt = duplicate_indicies_cnt;
