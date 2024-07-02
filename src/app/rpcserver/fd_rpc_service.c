@@ -1109,6 +1109,18 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
     (JSON_TOKEN_LBRACKET<<16) | 1,
     (JSON_TOKEN_STRING<<16)
   };
+  static const uint PATH_ENCODING2[4] = {
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+    (JSON_TOKEN_LBRACKET<<16) | 1,
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_ENCODING,
+    (JSON_TOKEN_STRING<<16)
+  };
+  static const uint PATH_COMMITMENT[4] = {
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+    (JSON_TOKEN_LBRACKET<<16) | 1,
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_COMMITMENT,
+    (JSON_TOKEN_STRING<<16)
+  };
 
   ulong sig_sz = 0;
   const void* sig = json_get_value(values, PATH_SIG, 3, &sig_sz);
@@ -1119,6 +1131,7 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
 
   ulong enc_str_sz = 0;
   const void* enc_str = json_get_value(values, PATH_ENCODING, 3, &enc_str_sz);
+  if (enc_str == NULL) enc_str = json_get_value(values, PATH_ENCODING2, 4, &enc_str_sz);
   fd_rpc_encoding_t enc;
   if (enc_str == NULL || MATCH_STRING(enc_str, enc_str_sz, "json"))
     enc = FD_ENC_JSON;
@@ -1130,6 +1143,20 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
     enc = FD_ENC_JSON_PARSED;
   else {
     fd_web_replier_error(replier, "invalid data encoding %s", (const char*)enc_str);
+    return 0;
+  }
+
+  ulong commit_str_sz = 0;
+  const void* commit_str = json_get_value(values, PATH_COMMITMENT, 4, &commit_str_sz);
+  uchar need_blk_flags;
+  if (commit_str == NULL || MATCH_STRING(commit_str, commit_str_sz, "processed"))
+    need_blk_flags = FD_BLOCK_FLAG_PROCESSED;
+  else if (MATCH_STRING(commit_str, commit_str_sz, "confirmed"))
+    need_blk_flags = FD_BLOCK_FLAG_CONFIRMED;
+  else if (MATCH_STRING(commit_str, commit_str_sz, "finalized"))
+    need_blk_flags = FD_BLOCK_FLAG_FINALIZED;
+  else {
+    fd_web_replier_error(replier, "invalid commitment %s", (const char*)commit_str);
     return 0;
   }
 
@@ -1146,7 +1173,8 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
   uchar blk_flags;
   uchar txn_data_raw[FD_TXN_MTU];
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  if( fd_blockstore_txn_query_volatile( blockstore, key, &elem, &blk_ts, &blk_flags, txn_data_raw ) ) {
+  if( fd_blockstore_txn_query_volatile( blockstore, key, &elem, &blk_ts, &blk_flags, txn_data_raw ) ||
+      ( blk_flags & need_blk_flags ) == (uchar)0 ) {
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%lu}" CRLF, ctx->call_id);
     fd_web_replier_done(replier);
     return 0;
