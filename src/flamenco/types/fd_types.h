@@ -1506,7 +1506,7 @@ typedef struct fd_vote_epoch_credits_off fd_vote_epoch_credits_off_t;
 /* Encoded Size: Fixed (16 bytes) */
 struct __attribute__((aligned(8UL))) fd_vote_block_timestamp {
   ulong slot;
-  ulong timestamp;
+  long timestamp;
 };
 typedef struct fd_vote_block_timestamp fd_vote_block_timestamp_t;
 #define FD_VOTE_BLOCK_TIMESTAMP_FOOTPRINT sizeof(fd_vote_block_timestamp_t)
@@ -1798,7 +1798,7 @@ struct __attribute__((aligned(8UL))) fd_vote_state_update {
   ulong root;
   uchar has_root;
   fd_hash_t hash;
-  ulong* timestamp;
+  long* timestamp;
 };
 typedef struct fd_vote_state_update fd_vote_state_update_t;
 #define FD_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_vote_state_update_t)
@@ -1820,7 +1820,7 @@ struct __attribute__((aligned(8UL))) fd_compact_vote_state_update {
   ushort lockouts_len;
   fd_lockout_offset_t * lockouts;
   fd_hash_t hash;
-  ulong* timestamp;
+  long* timestamp;
 };
 typedef struct fd_compact_vote_state_update fd_compact_vote_state_update_t;
 #define FD_COMPACT_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_compact_vote_state_update_t)
@@ -1872,7 +1872,7 @@ struct __attribute__((aligned(8UL))) fd_compact_tower_sync {
   ulong root;
   fd_lockout_offset_t * lockout_offsets; /* fd_deque_dynamic (min cnt 32) */
   fd_hash_t hash;
-  ulong timestamp;
+  long timestamp;
   uchar has_timestamp;
   fd_hash_t block_id;
 };
@@ -1899,7 +1899,7 @@ struct __attribute__((aligned(8UL))) fd_tower_sync {
   ulong root;
   uchar has_root;
   fd_hash_t hash;
-  ulong timestamp;
+  long timestamp;
   uchar has_timestamp;
   fd_hash_t block_id;
 };
@@ -2083,7 +2083,7 @@ struct __attribute__((aligned(8UL))) fd_slot_meta {
   ulong slot;
   ulong consumed;
   ulong received;
-  ulong first_shred_timestamp;
+  long first_shred_timestamp;
   ulong last_index;
   ulong parent_slot;
   ulong next_slot_len;
@@ -2456,7 +2456,7 @@ deq_ulong_alloc( fd_valloc_t valloc, ulong max ) {
 struct __attribute__((aligned(8UL))) fd_vote {
   ulong * slots; /* fd_deque_dynamic */
   fd_hash_t hash;
-  ulong* timestamp;
+  long* timestamp;
 };
 typedef struct fd_vote fd_vote_t;
 #define FD_VOTE_FOOTPRINT sizeof(fd_vote_t)
@@ -2936,7 +2936,7 @@ typedef struct fd_authorize_checked_with_seed_args_off fd_authorize_checked_with
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L235 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_lockup_checked_args {
-  ulong* unix_timestamp;
+  long* unix_timestamp;
   ulong* epoch;
 };
 typedef struct fd_lockup_checked_args fd_lockup_checked_args_t;
@@ -2954,7 +2954,7 @@ typedef struct fd_lockup_checked_args_off fd_lockup_checked_args_off_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L228 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_lockup_args {
-  ulong* unix_timestamp;
+  long* unix_timestamp;
   ulong* epoch;
   fd_pubkey_t * custodian;
 };
@@ -3919,7 +3919,7 @@ typedef struct fd_gossip_version_v3_off fd_gossip_version_v3_off_t;
 struct __attribute__((aligned(8UL))) fd_gossip_node_instance {
   fd_pubkey_t from;
   ulong wallclock;
-  ulong timestamp;
+  long timestamp;
   ulong token;
 };
 typedef struct fd_gossip_node_instance fd_gossip_node_instance_t;
@@ -4263,7 +4263,7 @@ struct __attribute__((aligned(8UL))) fd_repair_request_header {
   fd_signature_t signature;
   fd_pubkey_t sender;
   fd_pubkey_t recipient;
-  ulong timestamp;
+  long timestamp;
   uint nonce;
 };
 typedef struct fd_repair_request_header fd_repair_request_header_t;

@@ -87,7 +87,7 @@ typedef union fd_gossip_ip6_addr fd_gossip_ip6_addr_t;
 struct __attribute__((aligned(8UL))) fd_solana_vote_account {
   ulong lamports;
   fd_pubkey_t node_pubkey;
-  ulong last_timestamp_ts;
+  long last_timestamp_ts;
   ulong last_timestamp_slot;
   fd_pubkey_t owner;
   uchar executable;

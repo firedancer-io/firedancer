@@ -42,4 +42,7 @@ fd_flamenco_yaml_walk( void *       self,
                        char const * type_name,
                        uint         level );
 
+fd_flamenco_yaml_t *
+fd_get_types_yaml(void);
+
 FD_PROTOTYPES_END

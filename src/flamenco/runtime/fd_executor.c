@@ -357,7 +357,7 @@ fd_should_set_exempt_rent_epoch_max( fd_rent_t const *       rent,
   if( rec->const_meta->info.rent_epoch == ULONG_MAX )
     return 0;
 
-  return 1;                      
+  return 1;
 }
 
 void
@@ -484,14 +484,14 @@ export_account_state( fd_borrowed_account_t * borrowed_account,
     fd_memcpy(output_account->owner, borrowed_account->const_meta->info.owner, sizeof(fd_pubkey_t));
 }
 
-void 
-fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context, 
-                                                    fd_exec_txn_ctx_t *txn_ctx, 
+void
+fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context,
+                                                    fd_exec_txn_ctx_t *txn_ctx,
                                                     fd_instr_info_t *instr ) {
   /*
   NOTE: Calling this function requires the caller to have a scratch frame ready (see dump_instr_to_protobuf)
   */
-  
+
   /* Prepare sysvar cache accounts */
   fd_pubkey_t const fd_relevant_sysvar_ids[] = {
     fd_sysvar_clock_id,
@@ -620,14 +620,14 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
       --dump-insn-to-pb <0/1>
         * If enabled, instructions will be dumped to the specified output directory
       --dump-insn-sig-filter <base_58_enc_sig>
-        * If enabled, only instructions with the specified signature will be dumped 
+        * If enabled, only instructions with the specified signature will be dumped
         * Provided signature must be base58-encoded
         * Default behavior if signature filter is not provided is to dump EVERY instruction
       --dump-insn-output-dir <output_dir>
         * Each file represents a single instruction as a serialized InstrContext Protobuf message
         * File name format is "instr-<base58_enc_sig>-<instruction_idx>.bin", where instruction_idx is 1-indexed
 
-    solana-conformance (https://github.com/firedancer-io/solana-conformance) 
+    solana-conformance (https://github.com/firedancer-io/solana-conformance)
       * Allows decoding / debugging of instructions in an isolated environment
       * Allows execution result(s) comparison with Solana / Agave
       * See solana-conformance/README.md for functionality and use cases
@@ -921,7 +921,7 @@ fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
 
     ulong fee = fd_runtime_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw );
     if( fd_executor_collect_fee( slot_ctx, rec, fee ) ) {
-      
+
       return -1;
     }
     slot_ctx->slot_bank.collected_fees += fee;
@@ -1347,4 +1347,11 @@ fd_executor_acquire_instr_info_elem( fd_exec_txn_ctx_t * txn_ctx ) {
 
   return &fd_instr_info_pool_ele_acquire( txn_ctx->instr_info_pool )->info;
 
+}
+
+// This is purely linker magic to force the inclusion of the yaml type walker so that it is
+// available for debuggers
+void
+fd_debug_symbology(void) {
+  (void)fd_get_types_yaml();
 }

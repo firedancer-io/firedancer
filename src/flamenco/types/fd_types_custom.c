@@ -120,7 +120,7 @@ void fd_tower_sync_decode_unsafe( fd_tower_sync_t * self, fd_bincode_decode_ctx_
     fd_bincode_bool_decode_unsafe( &o, ctx );
     self->has_timestamp = !!o;
     if( o ) {
-      fd_bincode_uint64_decode_unsafe( &self->timestamp, ctx );
+      fd_bincode_int64_decode_unsafe( &self->timestamp, ctx );
     }
   }
   fd_hash_decode_unsafe( &self->block_id, ctx );

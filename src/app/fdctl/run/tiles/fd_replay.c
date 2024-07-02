@@ -648,7 +648,7 @@ after_frag( void *             _ctx,
       FD_LOG_WARNING(("failed to parse vote"));
     };
 
-    ulong MAGIC_TIMESTAMP = 12345678UL;
+    long MAGIC_TIMESTAMP = 12345678L;
     vote.timestamp = &MAGIC_TIMESTAMP;
     /* TEMPORARY: echo vote txns from gossip to TPU; replace by our own vote txns later */
     send_vote( ctx, recent_blockhash_off, &vote );

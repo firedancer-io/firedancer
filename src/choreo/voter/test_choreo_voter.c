@@ -58,7 +58,7 @@ main( int argc, char ** argv ) {
   memset( &compact_vote_update, 0, sizeof(fd_compact_vote_state_update_t) );
   compact_vote_update.root         = 100;
   compact_vote_update.lockouts_len = 0;
-  static ulong now                 = 1715701506716580798UL;
+  static long now                 = 1715701506716580798L;
   compact_vote_update.timestamp    = &now;
   FD_TEST( 32UL == getrandom( compact_vote_update.hash.key, 32UL, 0 ) );
 
