@@ -204,15 +204,34 @@ int fd_txn_meta_to_json( fd_textstream_t * ts,
   return 0;
 }
 
-int fd_txn_to_json_full( fd_textstream_t * ts,
-                         fd_txn_t* txn,
-                         const uchar* raw,
-                         fd_rpc_encoding_t encoding,
-                         long maxvers,
-                         int rewards ) {
-  (void)encoding;
+const char*
+fd_txn_to_json_full( fd_textstream_t * ts,
+                     fd_txn_t* txn,
+                     const uchar* raw,
+                     ulong raw_sz,
+                     fd_rpc_encoding_t encoding,
+                     long maxvers,
+                     int rewards ) {
   (void)maxvers;
   (void)rewards;
+
+  if( encoding == FD_ENC_BASE64 ) {
+    EMIT_SIMPLE("\"transaction\":[\"");
+    if (fd_textstream_encode_base64(ts, raw, raw_sz)) {
+      return "failed to encode data in base64";
+    }
+    EMIT_SIMPLE("\",\"base64\"]");
+    return NULL;
+  }
+
+  if( encoding == FD_ENC_BASE58 ) {
+    EMIT_SIMPLE("\"transaction\":[\"");
+    if (fd_textstream_encode_base58(ts, raw, raw_sz)) {
+      return "failed to encode data in base58";
+    }
+    EMIT_SIMPLE("\",\"base58\"]");
+    return NULL;
+  }
 
   EMIT_SIMPLE("\"transaction\":{\"message\":{\"accountKeys\":[");
 
@@ -261,14 +280,15 @@ int fd_txn_to_json_full( fd_textstream_t * ts,
   }
   fd_textstream_sprintf(ts, "]},\"version\":%s", vers);
 
-  return 0;
+  return NULL;
 }
-int fd_txn_to_json_accts( fd_textstream_t * ts,
-                          fd_txn_t* txn,
-                          const uchar* raw,
-                          fd_rpc_encoding_t encoding,
-                          long maxvers,
-                          int rewards ) {
+const char*
+fd_txn_to_json_accts( fd_textstream_t * ts,
+                      fd_txn_t* txn,
+                      const uchar* raw,
+                      fd_rpc_encoding_t encoding,
+                      long maxvers,
+                      int rewards ) {
   (void)encoding;
   (void)maxvers;
   (void)rewards;
@@ -296,40 +316,43 @@ int fd_txn_to_json_accts( fd_textstream_t * ts,
   }
   EMIT_SIMPLE("]}");
 
-  return 0;
+  return NULL;
 }
 
-int fd_txn_to_json( fd_textstream_t * ts,
-                    fd_txn_t* txn,
-                    const uchar* raw,
-                    fd_rpc_encoding_t encoding,
-                    long maxvers,
-                    enum fd_block_detail detail,
-                    int rewards ) {
+const char *
+fd_txn_to_json( fd_textstream_t * ts,
+                fd_txn_t* txn,
+                const uchar* raw,
+                ulong raw_sz,
+                fd_rpc_encoding_t encoding,
+                long maxvers,
+                enum fd_block_detail detail,
+                int rewards ) {
   if( detail == FD_BLOCK_DETAIL_FULL )
-    return fd_txn_to_json_full( ts, txn, raw, encoding, maxvers, rewards );
+    return fd_txn_to_json_full( ts, txn, raw, raw_sz, encoding, maxvers, rewards );
   else if( detail == FD_BLOCK_DETAIL_ACCTS )
     return fd_txn_to_json_accts( ts, txn, raw, encoding, maxvers, rewards );
-  FD_LOG_ERR(("unsupported detail parameter"));
-  return -1;
+  return "unsupported detail parameter";
 }
 
-int fd_block_to_json( fd_textstream_t * ts,
-                      long call_id,
-                      fd_block_t * blk,
-                      const uchar * blk_data,
-                      ulong blk_sz,
-                      fd_slot_meta_t * meta,
-                      fd_rpc_encoding_t encoding,
-                      long maxvers,
-                      enum fd_block_detail detail,
-                      int rewards) {
+const char*
+fd_block_to_json( fd_textstream_t * ts,
+                  long call_id,
+                  fd_block_t * blk,
+                  const uchar * blk_data,
+                  ulong blk_sz,
+                  fd_hash_t * blk_hash,
+                  ulong parent,
+                  fd_rpc_encoding_t encoding,
+                  long maxvers,
+                  enum fd_block_detail detail,
+                  int rewards) {
   EMIT_SIMPLE("{\"jsonrpc\":\"2.0\",\"result\":{");
 
-  if ( meta ) {
-    fd_textstream_sprintf(ts, "\"blockHeight\":%lu,\"blockTime\":%ld,\"parentSlot\":%lu",
-                          blk->height, blk->ts/(long)1e9, meta->parent_slot);
-  }
+  char hash[50];
+  fd_base58_encode_32(blk_hash->uc, 0, hash);
+  fd_textstream_sprintf(ts, "\"blockHeight\":%lu,\"blockTime\":%ld,\"parentSlot\":%lu,\"blockhash\":\"%s\"",
+                        blk->height, blk->ts/(long)1e9, parent, hash);
 
   if( detail == FD_BLOCK_DETAIL_NONE ) {
     fd_textstream_sprintf(ts, "},\"id\":%lu}", call_id);
@@ -362,10 +385,12 @@ int fd_block_to_json( fd_textstream_t * ts,
           ulong pay_sz = 0;
           const uchar* raw = (const uchar *)blk_data + blockoff;
           ulong txn_sz = fd_txn_parse_core(raw, fd_ulong_min(blk_sz - blockoff, FD_TXN_MTU), txn_out, NULL, &pay_sz, 0);
-          if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
-            FD_LOG_ERR( ( "failed to parse transaction %lu in microblock %lu",
-                          txn_idx,
-                          mblk ) );
+          if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ ) {
+            FD_LOG_WARNING( ( "failed to parse transaction %lu in microblock %lu",
+                              txn_idx,
+                              mblk ) );
+            return "failed to parse transaction";
+          }
           fd_txn_t * txn = (fd_txn_t *)txn_out;
 
           /* Loop across signatures */
@@ -385,7 +410,7 @@ int fd_block_to_json( fd_textstream_t * ts,
       FD_LOG_ERR(("garbage at end of block"));
 
     fd_textstream_sprintf(ts, "]},\"id\":%lu}", call_id);
-    return 0;
+    return NULL;
   }
 
   EMIT_SIMPLE("\"transactions\":[");
@@ -411,21 +436,20 @@ int fd_block_to_json( fd_textstream_t * ts,
         ulong pay_sz = 0;
         const uchar* raw = (const uchar *)blk_data + blockoff;
         ulong txn_sz = fd_txn_parse_core(raw, fd_ulong_min(blk_sz - blockoff, FD_TXN_MTU), txn_out, NULL, &pay_sz, 0);
-        if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
-          FD_LOG_ERR( ( "failed to parse transaction %lu in microblock %lu",
-                        txn_idx,
-                        mblk ) );
-
+        if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ ) {
+          FD_LOG_WARNING( ( "failed to parse transaction %lu in microblock %lu",
+                            txn_idx,
+                            mblk ) );
+          return "failed to parse transaction";
+        }
         if (first_txn) {
           first_txn = 0;
           EMIT_SIMPLE("{");
         } else
           EMIT_SIMPLE(",{");
 
-        int r = fd_txn_to_json( ts, (fd_txn_t *)txn_out, raw, encoding, maxvers, detail, rewards );
-        if ( r ) {
-          return r;
-        }
+        const char * err = fd_txn_to_json( ts, (fd_txn_t *)txn_out, raw, pay_sz, encoding, maxvers, detail, rewards );
+        if ( err ) return err;
 
         EMIT_SIMPLE("}");
 
@@ -438,7 +462,7 @@ int fd_block_to_json( fd_textstream_t * ts,
 
   fd_textstream_sprintf(ts, "]},\"id\":%lu}", call_id);
 
-  return 0;
+  return NULL;
 }
 
 const char*

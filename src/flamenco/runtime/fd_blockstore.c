@@ -542,7 +542,7 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong new_root_slot ) {
   ulong pruned_slot_cnt  = 0UL;
   ulong scanned_slot_cnt = 0UL;
   fd_wksp_t * wksp       = fd_blockstore_wksp( blockstore );
-  
+
   /* If root is 0, then it was the genesis slot. */
   if( FD_UNLIKELY ( blockstore->root == 0 ) ) {
     blockstore->root = new_root_slot;
@@ -1000,7 +1000,7 @@ fd_blockstore_next_slot_query( fd_blockstore_t * blockstore, ulong slot , ulong 
 }
 
 uchar *
-fd_blockstore_block_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_valloc_t alloc, fd_block_t * blk_out, fd_slot_meta_t * slot_meta_out, ulong * data_sz_out ) {
+fd_blockstore_block_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_valloc_t alloc, fd_block_t * blk_out, ulong * parent_out, fd_hash_t * blk_hash_out, ulong * data_sz_out ) {
   /* WARNING: this code is extremely delicate. Do NOT modify without
      understanding all the invariants. In particular, we must never
      dereference through a corrupt pointer. It's OK for the
@@ -1015,7 +1015,7 @@ fd_blockstore_block_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd
 
     fd_blockstore_slot_map_t const * query = fd_blockstore_slot_map_query_safe( slot_map, &slot, NULL );
     if( FD_UNLIKELY( !query ) ) return NULL;
-    fd_memcpy( slot_meta_out, &query->slot_meta, sizeof( fd_slot_meta_t ) );
+    if( parent_out ) *parent_out = query->slot_meta.parent_slot;
     ulong blk_gaddr = query->block_gaddr;
     if( FD_UNLIKELY( !blk_gaddr ) ) return NULL;
 
@@ -1030,9 +1030,18 @@ fd_blockstore_block_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd
 
     if( FD_UNLIKELY( fd_readwrite_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
 
+    uchar * data = fd_wksp_laddr_fast( wksp, ptr );
+
+    if( blk_hash_out ) {
+      fd_block_micro_t * micros = fd_wksp_laddr_fast( wksp, blk->micros_gaddr );
+      fd_microblock_hdr_t * last_micro =
+        (fd_microblock_hdr_t *)( data + micros[blk->micros_cnt - 1].off );
+      *blk_hash_out = *(fd_hash_t *)fd_type_pun( last_micro->hash );
+    }
+
     uchar * data_out = fd_valloc_malloc( alloc, 128UL, sz );
     if( FD_UNLIKELY( data_out == NULL ) ) return NULL;
-    fd_memcpy( data_out, fd_wksp_laddr_fast( wksp, ptr ), sz );
+    fd_memcpy( data_out, data, sz );
 
     if( FD_UNLIKELY( fd_readwrite_check_concur_read( &blockstore->lock, seqnum ) ) ) {
       fd_valloc_free( alloc, data_out );
@@ -1044,7 +1053,7 @@ fd_blockstore_block_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd
 }
 
 int
-fd_blockstore_slot_meta_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_t * blk_out, fd_slot_meta_t * slot_meta_out ) {
+fd_blockstore_slot_meta_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_t * blk_out, ulong * parent_out ) {
   /* WARNING: this code is extremely delicate. Do NOT modify without
      understanding all the invariants. In particular, we must never
      dereference through a corrupt pointer. It's OK for the
@@ -1059,7 +1068,7 @@ fd_blockstore_slot_meta_query_volatile( fd_blockstore_t * blockstore, ulong slot
 
     fd_blockstore_slot_map_t const * query = fd_blockstore_slot_map_query_safe( slot_map, &slot, NULL );
     if( FD_UNLIKELY( !query ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
-    fd_memcpy( slot_meta_out, &query->slot_meta, sizeof( fd_slot_meta_t ) );
+    if( parent_out ) *parent_out = query->slot_meta.parent_slot;
     ulong blk_gaddr = query->block_gaddr;
     if( FD_UNLIKELY( !blk_gaddr ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
 
@@ -1085,7 +1094,7 @@ fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[FD_ED2551
 }
 
 int
-fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[FD_ED25519_SIG_SZ], fd_blockstore_txn_map_t * txn_out, long * blk_ts, uchar txn_data_out[FD_TXN_MTU] ) {
+fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[FD_ED25519_SIG_SZ], fd_blockstore_txn_map_t * txn_out, long * blk_ts, uchar * blk_flags, uchar txn_data_out[FD_TXN_MTU] ) {
   /* WARNING: this code is extremely delicate. Do NOT modify without
      understanding all the invariants. In particular, we must never
      dereference through a corrupt pointer. It's OK for the
@@ -1106,7 +1115,6 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[
     fd_memcpy( txn_out, txn_map_entry, sizeof(fd_blockstore_txn_map_t) );
 
     if( FD_UNLIKELY( fd_readwrite_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
-    if( txn_data_out == NULL ) return FD_BLOCKSTORE_OK;
 
     fd_blockstore_slot_map_t const * query = fd_blockstore_slot_map_query_safe( slot_map, &txn_out->slot, NULL );
     if( FD_UNLIKELY( !query ) ) return FD_BLOCKSTORE_ERR_TXN_MISSING;
@@ -1117,12 +1125,14 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[
 
     fd_block_t * blk = fd_wksp_laddr_fast( wksp, blk_gaddr );
     if( blk_ts ) *blk_ts = blk->ts;
+    if( blk_flags ) *blk_flags = blk->flags;
     ulong ptr = blk->data_gaddr;
     ulong sz = blk->data_sz;
     if( txn_out->offset + txn_out->sz > sz || txn_out->sz > FD_TXN_MTU ) continue;
 
     if( FD_UNLIKELY( fd_readwrite_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
 
+    if( txn_data_out == NULL ) return FD_BLOCKSTORE_OK;
     uchar const * data = fd_wksp_laddr_fast( wksp, ptr );
     fd_memcpy( txn_data_out, data + txn_out->offset, txn_out->sz );
 
