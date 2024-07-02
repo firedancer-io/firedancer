@@ -1072,7 +1072,7 @@ fd_shredcap_populate_blockstore( const char *      capture_dir,
       }
 
       fd_shredcap_bank_hash_entry_t * entry = (fd_shredcap_bank_hash_entry_t*)bank_hash_buf;
-      fd_block_t * block = fd_blockstore_block_query( blockstore, cur_slot );
+      fd_block_map_t * block = fd_blockstore_block_map_query( blockstore, cur_slot );
       if ( FD_LIKELY( block ) ) {
         fd_memcpy( block->bank_hash.hash, &entry->bank_hash.hash, 32UL );
       }

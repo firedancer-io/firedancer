@@ -436,9 +436,9 @@ during_frag( void * _ctx,
   // }
 
   fd_blockstore_start_read( ctx->blockstore );
-  fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, ctx->curr_slot );
-  if( FD_LIKELY( block_ ) ) {
-    if( fd_uchar_extract_bit( block_->flags, FD_BLOCK_FLAG_PROCESSED ) ) {
+  fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
+  if( FD_LIKELY( block_map_entry ) ) {
+    if( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) {
       FD_LOG_WARNING(( "block already processed - slot: %lu", ctx->curr_slot ));
       *opt_filter = 1;
     }
@@ -701,6 +701,7 @@ after_frag( void *             _ctx,
         FD_LOG_ERR(("block finalize failed"));
       }
 
+      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
       fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, ctx->curr_slot );
 
       // Notify for all the updated accounts
@@ -741,7 +742,7 @@ after_frag( void *             _ctx,
         msg->slot_exec.slot = ctx->curr_slot;
         msg->slot_exec.parent = ctx->parent_slot;
         msg->slot_exec.root = ctx->blockstore->smr;
-        msg->slot_exec.height = ( block_ ? block_->height : 0UL );
+        msg->slot_exec.height = ( block_map_entry ? block_map_entry->height : 0UL );
         memcpy( &msg->slot_exec.bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
         memcpy( &msg->slot_exec.block_hash, &ctx->blockhash, sizeof( fd_hash_t ) );
         memcpy( &msg->slot_exec.identity, ctx->validator_identity_pubkey, sizeof( fd_pubkey_t ) );
@@ -756,8 +757,8 @@ after_frag( void *             _ctx,
       fd_blockstore_start_write( ctx->blockstore );
 
       if( FD_LIKELY( block_ ) ) {
-        block_->flags = fd_uchar_set_bit( block_->flags, FD_BLOCK_FLAG_PROCESSED );
-        memcpy( &block_->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
+        block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
+        memcpy( &block_map_entry->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
       }
 
       fd_blockstore_end_write( ctx->blockstore );
@@ -820,8 +821,8 @@ after_frag( void *             _ctx,
                        !!vote_fork ? vote_fork->slot : 0,
                        (double)( duration_ns ) / 1e6,
                        duration_ns ) );
-      fd_ghost_print( ctx->ghost, child->slot, FD_GHOST_PRINT_DEPTH_DEFAULT, ctx->tower->total_stake );
-      fd_tower_print( ctx->tower );
+      // fd_ghost_print( ctx->ghost, child->slot, FD_GHOST_PRINT_DEPTH_DEFAULT, ctx->tower->total_stake );
+      // fd_tower_print( ctx->tower );
 
       /* Record a vote, if we have a fork to vote on. */
 
@@ -1046,7 +1047,7 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
   ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
 
   fd_blockstore_start_write( ctx->slot_ctx->blockstore );
-  fd_blockstore_snapshot_insert( ctx->slot_ctx->blockstore, &ctx->slot_ctx->slot_bank );
+  fd_blockstore_init( ctx->slot_ctx->blockstore, &ctx->slot_ctx->slot_bank );
   fd_blockstore_end_write( ctx->slot_ctx->blockstore );
 }
 

@@ -95,7 +95,7 @@ int fd_runtime_save_slot_bank(fd_exec_slot_ctx_t *slot_ctx)
 
   // Update blockstore
   if ( slot_ctx->blockstore != NULL ) {
-    fd_blockstore_block_height_set(
+    fd_blockstore_block_height_update(
         slot_ctx->blockstore, slot_ctx->slot_bank.slot, slot_ctx->slot_bank.block_height );
   } else {
     FD_LOG_WARNING(( "NULL blockstore in slot_ctx" ));
