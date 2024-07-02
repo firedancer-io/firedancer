@@ -365,9 +365,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
               fd_memcpy( acc_data+pre_len, post_data, allocated_bytes );
             }
           }
-
-
-
+        }
       } else {
         start += fd_ulong_align_up( pre_lens[i], FD_BPF_ALIGN_OF_U128 );
       }
