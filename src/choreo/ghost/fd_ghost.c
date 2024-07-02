@@ -160,7 +160,7 @@ fd_ghost_node_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot ) {
   }
 #endif
 
-  FD_LOG_NOTICE( ( "[ghost] node_insert: %lu. parent: %lu.", slot, parent_slot ) );
+  FD_LOG_DEBUG( ( "[ghost] node_insert: %lu. parent: %lu.", slot, parent_slot ) );
 
 #if FD_GHOST_USE_HANDHOLDING
   /* OOM: we've exceeded the maximum number of slot hashes we can track. */

@@ -327,8 +327,8 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       FD_LOG_ERR(( "could not find block" ));
     }
 
-    fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( ctx->blockstore, slot );
-    if( slot_meta == NULL ) {
+    fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
+    if( block_map_entry == NULL ) {
       FD_LOG_ERR(( "could not find slot meta" ));
     }
 
@@ -337,7 +337,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       FD_LOG_ERR(( "could not find slot meta" ));
     }
 
-    FD_STORE( ulong, out_buf, slot_meta->parent_slot );
+    FD_STORE( ulong, out_buf, block_map_entry->parent_slot );
     out_buf += sizeof(ulong);
 
     memcpy( out_buf, block_hash->uc, sizeof(fd_hash_t) );
@@ -596,12 +596,12 @@ unprivileged_init( fd_topo_t *      topo,
 
     ulong cnt = 1;
     fd_blockstore_start_write( ctx->blockstore );
-    FD_TEST( fd_blockstore_slot_map_remove( fd_blockstore_slot_map (ctx->blockstore), &snapshot_slot ) );
+    FD_TEST( fd_block_map_remove( fd_blockstore_block_map (ctx->blockstore), &snapshot_slot ) );
     while( fgets( buf, sizeof( buf ), file ) ) {
       char *       endptr;
       ulong        slot  = strtoul( buf, &endptr, 10 );
-      fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, slot );
-      block->flags       = 0;
+      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
+      block_map_entry->flags       = 0;
       fd_store_add_pending( ctx->store, slot, cnt++ );
     }
     fd_blockstore_end_write( ctx->blockstore );

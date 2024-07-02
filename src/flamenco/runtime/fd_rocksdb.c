@@ -433,12 +433,12 @@ fd_rocksdb_copy_over_txn_status_range( fd_rocksdb_t *    src,
                                        ulong             start_slot,
                                        ulong             end_slot ) {
   /* Look up the blocks data and iterate through its transactions */
-  fd_blockstore_slot_map_t * block_map = fd_blockstore_slot_map( blockstore );
+  fd_block_map_t * block_map = fd_blockstore_block_map( blockstore );
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
 
   for ( ulong slot = start_slot; slot <= end_slot; ++slot ) {
     FD_LOG_NOTICE(("fd_rocksdb_copy_over_txn_status_range: %d", slot));
-    fd_blockstore_slot_map_t * block_entry = fd_blockstore_slot_map_query( block_map, &slot, NULL );
+    fd_block_map_t * block_entry = fd_block_map_query( block_map, &slot, NULL );
     if( FD_LIKELY( block_entry && block_entry->block_gaddr ) ) {
       fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_entry->block_gaddr );
       uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
@@ -585,10 +585,8 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
   rocksdb_iter_destroy(iter);
 
   fd_wksp_t * wksp = fd_wksp_containing( blockstore );
-  fd_blockstore_slot_map_t * block_map = fd_blockstore_slot_map( blockstore );
-  fd_blockstore_slot_map_t * block_entry = fd_blockstore_slot_map_query( block_map, &slot, NULL );
-  if( FD_LIKELY( block_entry && block_entry->block_gaddr ) ) {
-    fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_entry->block_gaddr );
+  fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, slot );
+  if( FD_LIKELY( block_map_entry && block_map_entry->block_gaddr ) ) {
     size_t vallen = 0;
     char * err = NULL;
     char * res = rocksdb_get_cf(
@@ -602,7 +600,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
       FD_LOG_WARNING(( "rocksdb: %s", err ));
       free( err );
     } else if(vallen == sizeof(ulong)) {
-      blk->ts = (*(long*)res)*((long)1e9); /* Convert to nanos */
+      block_map_entry->ts = (*(long*)res)*((long)1e9); /* Convert to nanos */
       free(res);
     }
 
@@ -615,19 +613,19 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
       (char const *)&slot_be, sizeof(ulong),
       &vallen,
       &err );
-    blk->height = 0;
+    block_map_entry->height = 0;
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "rocksdb: %s", err ));
       free( err );
     } else if(vallen == sizeof(ulong)) {
-      blk->height = *(ulong*)res;
+      block_map_entry->height = *(ulong*)res;
       free(res);
     }
 
     vallen = 0;
     err = NULL;
     if (NULL != hash_override)
-      fd_memcpy( blk->bank_hash.hash, hash_override, 32UL );
+      fd_memcpy( block_map_entry->bank_hash.hash, hash_override, 32UL );
     else {
       res = rocksdb_get_cf(
         db->db,
@@ -652,7 +650,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
         if( FD_UNLIKELY( decode.data!=decode.dataend    ) ) goto cleanup;
         if( FD_UNLIKELY( versioned.discriminant !=fd_frozen_hash_versioned_enum_current ) ) goto cleanup;
         /* Success */
-        fd_memcpy( blk->bank_hash.hash, versioned.inner.current.frozen_hash.hash, 32UL );
+        fd_memcpy( block_map_entry->bank_hash.hash, versioned.inner.current.frozen_hash.hash, 32UL );
       cleanup:
         free( res );
         fd_scratch_pop();
@@ -663,8 +661,8 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
   if( txnstatus ) {
     fd_alloc_t * alloc = fd_wksp_laddr_fast( wksp, blockstore->alloc_gaddr );
     fd_blockstore_txn_map_t *   txn_map   = fd_wksp_laddr_fast( wksp, blockstore->txn_map_gaddr );
-    if( FD_LIKELY( block_entry && block_entry->block_gaddr ) ) {
-      fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_entry->block_gaddr );
+    if( FD_LIKELY( block_map_entry && block_map_entry->block_gaddr ) ) {
+      fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_map_entry->block_gaddr );
       uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
       fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
       ulong meta_gaddr = 0;

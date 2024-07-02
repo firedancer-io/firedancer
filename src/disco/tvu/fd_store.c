@@ -92,21 +92,21 @@ fd_store_slot_prepare( fd_store_t *   store,
   int rc = FD_STORE_SLOT_PREPARE_CONTINUE;
 
   fd_block_t * block = fd_blockstore_block_query( store->blockstore, slot );
+  fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( store->blockstore, slot );
+
 
   /* We already executed this block */
-  if( FD_UNLIKELY( block && fd_uchar_extract_bit( block->flags, FD_BLOCK_FLAG_PREPARED ) ) ) {
+  if( FD_UNLIKELY( block && fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_PREPARING ) ) ) {
     rc = FD_STORE_SLOT_PREPARE_ALREADY_EXECUTED;
     goto end;
   }
 
-  if( FD_UNLIKELY( block && fd_uchar_extract_bit( block->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
+  if( FD_UNLIKELY( block && fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
     rc = FD_STORE_SLOT_PREPARE_ALREADY_EXECUTED;
     goto end;
   }
 
-  fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( store->blockstore, slot );
-
-  if( FD_UNLIKELY( !slot_meta ) ) {
+  if( FD_UNLIKELY( !block_map_entry ) ) {
     /* I know nothing about this block yet */
     rc = FD_STORE_SLOT_PREPARE_NEED_REPAIR;
     *repair_slot_out = slot;
@@ -115,13 +115,12 @@ fd_store_slot_prepare( fd_store_t *   store,
     goto end;
   }
 
-  ulong            parent_slot  = slot_meta->parent_slot;
-  fd_slot_meta_t * parent_slot_meta =
-    fd_blockstore_slot_meta_query( store->blockstore, parent_slot );
+  ulong            parent_slot  = block_map_entry->parent_slot;
+  fd_block_map_t * parent_block_map_entry = fd_blockstore_block_map_query( store->blockstore, parent_slot );
 
   /* If the parent slot meta is missing, this block is an orphan and the ancestry needs to be
    * repaired before we can replay it. */
-  if( FD_UNLIKELY( !parent_slot_meta ) ) {
+  if( FD_UNLIKELY( !parent_block_map_entry ) ) {
     rc = FD_STORE_SLOT_PREPARE_NEED_ORPHAN;
     *repair_slot_out = slot;
     re_adds[re_adds_cnt++] = slot;
@@ -145,9 +144,9 @@ fd_store_slot_prepare( fd_store_t *   store,
   }
 
   /* See if the parent is executed yet */
-  if( FD_UNLIKELY( !fd_uchar_extract_bit( parent_block->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
+  if( FD_UNLIKELY( !fd_uchar_extract_bit( parent_block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
     rc = FD_STORE_SLOT_PREPARE_NEED_PARENT_EXEC;
-    if( FD_UNLIKELY( !fd_uchar_extract_bit( parent_block->flags, FD_BLOCK_FLAG_PREPARED ) ) ) {
+    if( FD_UNLIKELY( !fd_uchar_extract_bit( parent_block_map_entry->flags, FD_BLOCK_FLAG_PREPARING ) ) ) {
       /* ... but it is not prepared */
       re_adds[re_adds_cnt++] = slot;
     }
@@ -170,7 +169,7 @@ fd_store_slot_prepare( fd_store_t *   store,
   *block_sz_out = block->data_sz;
 
   /* Mark the block as prepared, and thus unsafe to remove. */
-  block->flags = fd_uchar_set_bit( block->flags, FD_BLOCK_FLAG_PREPARED );
+  block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PREPARING );
 
 end:
   /* Block data ptr remains valid outside of the rw lock for the lifetime of the block alloc. */
@@ -244,18 +243,19 @@ fd_store_slot_repair( fd_store_t * store,
                       fd_repair_request_t * out_repair_reqs,
                       ulong out_repair_reqs_sz ) {
   ulong repair_req_cnt = 0;
-  fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( store->blockstore, slot );
+  fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( store->blockstore, slot );
 
   if( fd_blockstore_is_slot_ancient( store->blockstore, slot ) ) {
     FD_LOG_ERR(( "repair is hopelessly behind by %lu slots, max history is %lu",
                  store->blockstore->max - slot, store->blockstore->slot_max ));
   }
 
-  if( FD_LIKELY( !slot_meta ) ) {
+  if( FD_LIKELY( !block_map_entry ) ) {
     /* We haven't received any shreds for this slot yet */
 
     if( repair_req_cnt >= out_repair_reqs_sz ) { 
-      FD_LOG_ERR(( "too many repair requests" ));
+      FD_LOG_WARNING(( "too many repair requests" ));
+      __asm__("int $3");
     } 
     fd_repair_request_t * repair_req = &out_repair_reqs[repair_req_cnt++];
     repair_req->shred_index = 0;
@@ -264,16 +264,16 @@ fd_store_slot_repair( fd_store_t * store,
   } else {
     /* We've received at least one shred, so fill in what's missing */
 
-    ulong last_index = slot_meta->last_index;
+    uint complete_idx = block_map_entry->complete_idx;
 
     /* We don't know the last index yet */
-    if( FD_UNLIKELY( last_index == ULONG_MAX ) ) {
-      last_index = slot_meta->received - 1;
+    if( FD_UNLIKELY( complete_idx == UINT_MAX ) ) {
+      complete_idx = block_map_entry->received_idx - 1;
       if( repair_req_cnt >= out_repair_reqs_sz ) { 
         FD_LOG_ERR(( "too many repair requests" ));
       }
       fd_repair_request_t * repair_req = &out_repair_reqs[repair_req_cnt++];
-      repair_req->shred_index = (uint)last_index;
+      repair_req->shred_index = complete_idx;
       repair_req->slot = slot;
       repair_req->type = FD_REPAIR_REQ_TYPE_NEED_HIGHEST_WINDOW_INDEX;
     }
@@ -284,7 +284,8 @@ fd_store_slot_repair( fd_store_t * store,
     for( uint i = 0; i < 10; ++i ) {
       anc_slot  = fd_blockstore_parent_slot_query( store->blockstore, anc_slot );
       fd_block_t * anc_block = fd_blockstore_block_query( store->blockstore, anc_slot );
-      if( anc_block && fd_uchar_extract_bit( anc_block->flags, FD_BLOCK_FLAG_PROCESSED ) ) {
+      fd_block_map_t * anc_block_map_entry = fd_blockstore_block_map_query( store->blockstore, anc_slot );
+      if( anc_block && fd_uchar_extract_bit( anc_block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) {
         good = 1;
         break;
       }
@@ -295,18 +296,18 @@ fd_store_slot_repair( fd_store_t * store,
     }
     
     /* Fill in what's missing */
-    for( ulong i = slot_meta->consumed + 1; i <= last_index; i++ ) {
-      if( fd_buf_shred_query( store->blockstore, slot, (uint)i ) != NULL ) continue;
+    for( uint i = block_map_entry->consumed_idx + 1; i <= complete_idx; i++ ) {
+      if( fd_buf_shred_query( store->blockstore, slot, i ) != NULL ) continue;
       if( repair_req_cnt >= out_repair_reqs_sz ) { 
         FD_LOG_ERR(( "too many repair requests" ));
       }
       fd_repair_request_t * repair_req = &out_repair_reqs[repair_req_cnt++];
-      repair_req->shred_index = (uint)i;
+      repair_req->shred_index = i;
       repair_req->slot = slot;
       repair_req->type = FD_REPAIR_REQ_TYPE_NEED_WINDOW_INDEX;
     }
     if( repair_req_cnt ) {
-      FD_LOG_DEBUG( ( "[repair] need %lu [%lu, %lu], sent %lu requests", slot, slot_meta->consumed + 1, last_index, repair_req_cnt ) );
+      FD_LOG_DEBUG( ( "[repair] need %lu [%lu, %lu], sent %lu requests", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt ) );
     }
   }
     

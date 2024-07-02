@@ -163,7 +163,8 @@ fd_forks_query_const( fd_forks_t const * forks, ulong slot ) {
 //   FD_TEST( fork == child );
 
 //   // fork is advancing
-//   FD_LOG_DEBUG( ( "new block execution - slot: %lu, parent_slot: %lu", curr_slot, parent_slot ) );
+//   FD_LOG_DEBUG( ( "new block execution - slot: %lu, parent_slot: %lu", curr_slot, parent_slot )
+//   );
 
 //   fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
 //   fork->slot_ctx.slot_bank.slot      = curr_slot;
@@ -241,10 +242,10 @@ slot_ctx_restore( ulong                 slot,
                    slot_ctx_out->slot_bank.poh.hash ) );
 
   /* Prepare bank for next slot */
-  slot_ctx_out->slot_bank.slot           = slot;
+  slot_ctx_out->slot_bank.slot                     = slot;
   slot_ctx_out->slot_bank.collected_execution_fees = 0;
-  slot_ctx_out->slot_bank.collected_priority_fees = 0;
-  slot_ctx_out->slot_bank.collected_rent = 0;
+  slot_ctx_out->slot_bank.collected_priority_fees  = 0;
+  slot_ctx_out->slot_bank.collected_rent           = 0;
 
   /* FIXME epoch boundary stuff when replaying */
   // fd_features_restore( slot_ctx );
@@ -307,8 +308,8 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
 void
 fd_forks_publish( fd_forks_t * forks, ulong root, fd_ghost_t const * ghost ) {
-  fd_fork_t * tail  = NULL;
-  fd_fork_t * prune = NULL;
+  fd_fork_t * tail = NULL;
+  fd_fork_t * curr = NULL;
 
   for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( forks->frontier, forks->pool );
        !fd_fork_frontier_iter_done( iter, forks->frontier, forks->pool );
@@ -322,23 +323,24 @@ fd_forks_publish( fd_forks_t * forks, ulong root, fd_ghost_t const * ghost ) {
 
     int stale = fork->slot < root || !fd_ghost_is_ancestor( ghost, root, fork->slot );
     if( FD_UNLIKELY( !fork->frozen && stale ) ) {
-      if( FD_LIKELY( !prune ) ) {
-        tail  = fork;
-        prune = fork;
+      if( FD_LIKELY( !curr ) ) {
+        tail = fork;
+        curr = fork;
       } else {
-        prune->prev = fd_fork_pool_idx( forks->pool, fork );
+        curr->prev = fd_fork_pool_idx( forks->pool, fork );
       }
     }
   }
 
   while( FD_UNLIKELY( tail ) ) {
     ulong remove = fd_fork_frontier_idx_remove( forks->frontier,
-                                                &prune->slot,
+                                                &tail->slot,
                                                 ULONG_MAX,
                                                 forks->pool );
 #if FD_FORKS_USE_HANDHOLDING
     if( FD_UNLIKELY( remove == ULONG_MAX ) ) {
-      FD_LOG_ERR( ( "failed to remove fork we added to prune." ) );
+      FD_LOG_WARNING( ( "failed to remove fork we added to prune." ) );
+      __asm__( "int $3" );
     }
 #endif
 
