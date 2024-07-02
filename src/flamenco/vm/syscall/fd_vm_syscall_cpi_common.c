@@ -35,8 +35,6 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
                             VM_SYSCALL_CPI_INSTR_T const * cpi_instr,
                             VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_metas,
                             fd_pubkey_t const * program_id,
-                            fd_pubkey_t const * signers,
-                            ulong const signers_cnt,
                             uchar const * cpi_instr_data,
                             fd_instr_info_t * out_instr ) {
 
@@ -80,21 +78,15 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
           }
         }
 
-        /* The parent flag(s) for is writable/signer is checked in fd_vm_prepare_instruction */
+        /* The parent flag(s) for is writable/signer is checked in
+           fd_vm_prepare_instruction. Signer privlege is allowed iff the account 
+           is a signer in the caller or if it is a derived signer. */
         if( VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( cpi_acct_meta ) ) {
           out_instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
         }
 
         if( VM_SYSCALL_CPI_ACC_META_IS_SIGNER( cpi_acct_meta ) ) {
           out_instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-        } else {
-          /* If this account is a signer in the transaction list, then mark as signer */
-          for( ulong k = 0; k < signers_cnt; k++ ) {
-            if( !memcmp( &signers[k], pubkey, sizeof( fd_pubkey_t ) ) ) {
-              out_instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-              break;
-            }
-          }
         }
 
         break;
@@ -425,9 +417,9 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ] = {0};
   fd_pubkey_t * caller_program_id = &vm->instr_ctx->txn_ctx->accounts[ vm->instr_ctx->instr->program_id ];
   fd_vm_vec_t const * signers_seeds = FD_VM_MEM_SLICE_HADDR_LD( vm, signers_seeds_va, FD_VM_VEC_ALIGN, signers_seeds_cnt*FD_VM_VEC_SIZE );
-  for ( ulong i=0UL; i<signers_seeds_cnt; i++ ) {
+  for( ulong i=0UL; i<signers_seeds_cnt; i++ ) {
     int err = fd_vm_derive_pda( vm, caller_program_id, signers_seeds[i].addr, signers_seeds[i].len, NULL, &signers[i] );
-    if ( FD_UNLIKELY( err ) ) {
+    if( FD_UNLIKELY( err ) ) {
       return err;
     }
   }
@@ -448,8 +440,9 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Authorized program check *************************************************/
 
   fd_pubkey_t const * program_id = (fd_pubkey_t *)VM_SYSCALL_CPI_INSTR_PROGRAM_ID( vm, cpi_instruction );
-  if( FD_UNLIKELY( fd_vm_syscall_cpi_check_authorized_program( program_id, vm->instr_ctx->slot_ctx, data, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) ) ) )
+  if( FD_UNLIKELY( fd_vm_syscall_cpi_check_authorized_program( program_id, vm->instr_ctx->slot_ctx, data, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) ) ) ) {
     return FD_VM_ERR_PERM;
+  }
 
   /* Instruction checks ***********************************************/
 
@@ -466,7 +459,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Create the instruction to execute (in the input format the FD runtime expects) from
      the translated CPI ABI inputs. */
   fd_instr_info_t instruction_to_execute;
-  err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, signers, signers_seeds_cnt, data, &instruction_to_execute );
+  err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, &instruction_to_execute );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Prepare the instruction for execution in the runtime. This is required by the runtime
@@ -480,7 +473,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   ulong callee_account_keys[256];
   ulong caller_accounts_to_update[256];
   ulong caller_accounts_to_update_len = 0;
-  err = VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(vm, instruction_accounts, instruction_accounts_cnt, acc_infos, acct_info_cnt, callee_account_keys, caller_accounts_to_update, &caller_accounts_to_update_len);
+  err = VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC( vm, instruction_accounts, instruction_accounts_cnt, acc_infos, acct_info_cnt, callee_account_keys, caller_accounts_to_update, &caller_accounts_to_update_len );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Check that the caller lamports haven't changed */
@@ -511,7 +504,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   if( FD_UNLIKELY( instr_exec_res ) ) return FD_VM_ERR_INSTR_ERR;
 
   /* Update the caller accounts with any changes made by the callee during CPI execution */
-  for( ulong i = 0; i < caller_accounts_to_update_len; i++ ) {
+  for( ulong i=0UL; i < caller_accounts_to_update_len; i++ ) {
     fd_pubkey_t const * callee = &vm->instr_ctx->instr->acct_pubkeys[callee_account_keys[i]];
     err = VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC(vm, &acc_infos[caller_accounts_to_update[i]], callee);
     if( FD_UNLIKELY( err ) ) return err;

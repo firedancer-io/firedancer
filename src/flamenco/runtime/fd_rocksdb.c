@@ -483,7 +483,7 @@ fd_rocksdb_copy_over_txn_status( fd_rocksdb_t * src,
     return;
   }
 
-  fd_rocksdb_insert_entry( dst, FD_ROCKSDB_CFIDX_TRANSACTION_STATUS, key, 80UL, res, sz );
+  fd_rocksdb_insert_entry( dst, FD_ROCKSDB_CFIDX_TRANSACTION_STATUS, key, 72UL, res, sz );
 }
 
 int

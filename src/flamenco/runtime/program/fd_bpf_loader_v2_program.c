@@ -122,6 +122,8 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
   fd_vm_t _vm[1];
   fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
 
+  ulong pre_insn_cus = ctx.txn_ctx->compute_meter;
+
   fd_vm_init(
       /* vm        */ vm,
       /* instr_ctx */ &ctx,
@@ -186,6 +188,8 @@ if( FD_UNLIKELY( vm->trace ) ) {
   fd_valloc_free( ctx.txn_ctx->valloc, fd_vm_trace_delete( fd_vm_trace_leave( vm->trace ) ) );
 }
 #endif
+
+  FD_LOG_DEBUG(("Program consumed %lu of %lu compute units", pre_insn_cus-vm->cu, pre_insn_cus ));
 
   ctx.txn_ctx->compute_meter = vm->cu;
 

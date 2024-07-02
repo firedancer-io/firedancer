@@ -383,6 +383,8 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
   fd_vm_t _vm[1];
   fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
 
+  ulong pre_insn_cus = instr_ctx->txn_ctx->compute_meter;
+
   /* TODO: (topointon): correctly set check_align and check_size in vm setup */
   vm = fd_vm_init(
     /* vm        */ vm,
@@ -449,7 +451,7 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
 
-  /* TODO: Add log for "Program consumed {} of {} compute units "*/
+  FD_LOG_DEBUG(("Program consumed %lu of %lu compute units", pre_insn_cus-vm->cu, pre_insn_cus ));
 
   instr_ctx->txn_ctx->compute_meter = vm->cu;
 
