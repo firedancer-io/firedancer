@@ -14,13 +14,8 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t *         runner,
   if( FD_UNLIKELY( !input->has_vm_ctx ) ) {
     return 0UL;
   }
-  
-  fd_exec_test_vm_context_t const * vm_ctx = &input->vm_ctx;
-  if( FD_UNLIKELY( !vm_ctx->rodata ) ) {
-    return 0UL;
-  }
 
-  int rej_callx_r10 = false;
+  int rej_callx_r10 = 0;
   if( input->has_features ) {
     for( ulong i=0UL; i < input->features.features_count; i++ ) {
       if( input->features.features[i] == TEST_VM_REJECT_CALLX_R10_FEATURE_PREFIX ) {
@@ -43,8 +38,15 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t *         runner,
 
   fd_valloc_t valloc = fd_scratch_virtual();
   do{
-    uchar * rodata = vm_ctx->rodata->bytes;
-    ulong rodata_sz = vm_ctx->rodata->size;
+    fd_exec_test_vm_context_t const * vm_ctx = &input->vm_ctx;
+
+    /* Follows prost/solfuzz-agave behavior for empty bytes field */
+    uchar * rodata = NULL;
+    ulong rodata_sz = 0UL;
+    if( FD_LIKELY( vm_ctx->rodata ) ) {
+      rodata = vm_ctx->rodata->bytes;
+      rodata_sz = vm_ctx->rodata->size;
+    }
 
     ulong * text = (ulong *) (rodata + vm_ctx->rodata_text_section_offset);    
     ulong text_cnt = vm_ctx->rodata_text_section_length / 8UL;
