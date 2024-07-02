@@ -145,6 +145,14 @@ read_slot_bank( fd_rpc_ctx_t * ctx, fd_valloc_t valloc ) {
   return slot_bank;
 }
 
+static const char *
+block_flags_to_confirmation_status( uchar flags ) {
+  if( flags & FD_BLOCK_FLAG_FINALIZED ) return "\"finalized\"";
+  if( flags & FD_BLOCK_FLAG_CONFIRMED ) return "\"confirmed\"";
+  if( flags & FD_BLOCK_FLAG_PROCESSED ) return "\"processed\"";
+  return "null";
+}
+
 static void fd_method_cleanup( uchar ** smem ) {
   fd_scratch_detach( NULL );
   free( *smem );
@@ -953,14 +961,15 @@ method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* 
       continue;
     }
     fd_blockstore_txn_map_t elem;
-    if( fd_blockstore_txn_query_volatile( blockstore, key, &elem, NULL, NULL ) ) {
+    uchar flags;
+    if( fd_blockstore_txn_query_volatile( blockstore, key, &elem, NULL, &flags, NULL ) ) {
       fd_textstream_sprintf(ts, "null");
       continue;
     }
 
     // TODO other fields
-    fd_textstream_sprintf(ts, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"confirmationStatus\":\"finalized\"}",
-                          elem.slot);
+    fd_textstream_sprintf(ts, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"confirmationStatus\":%s}",
+                          elem.slot, block_flags_to_confirmation_status(flags));
   }
 
   fd_textstream_sprintf(ts, "]},\"id\":%lu}" CRLF, ctx->call_id);
@@ -1134,9 +1143,10 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
   }
   fd_blockstore_txn_map_t elem;
   long blk_ts;
+  uchar blk_flags;
   uchar txn_data_raw[FD_TXN_MTU];
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  if( fd_blockstore_txn_query_volatile( blockstore, key, &elem, &blk_ts, txn_data_raw ) ) {
+  if( fd_blockstore_txn_query_volatile( blockstore, key, &elem, &blk_ts, &blk_flags, txn_data_raw ) ) {
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%lu}" CRLF, ctx->call_id);
     fd_web_replier_done(replier);
     return 0;

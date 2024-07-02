@@ -542,7 +542,7 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong new_root_slot ) {
   ulong pruned_slot_cnt  = 0UL;
   ulong scanned_slot_cnt = 0UL;
   fd_wksp_t * wksp       = fd_blockstore_wksp( blockstore );
-  
+
   /* If root is */
   if( blockstore->root==0 ) {
     blockstore->root = new_root_slot;
@@ -563,14 +563,14 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong new_root_slot ) {
   ulong * prune_deque = fd_wksp_laddr_fast( wksp, blockstore->slot_prune_deque_gaddr );
 
   fd_blockstore_slot_prune_deque_push_tail( prune_deque, blockstore->root );
-  
+
   while( !fd_blockstore_slot_prune_deque_empty( prune_deque ) ) {
     ulong curr = fd_blockstore_slot_prune_deque_pop_head( prune_deque );
     scanned_slot_cnt++;
-    
+
     ulong * next_slot     = NULL;
     ulong   next_slot_len = 0UL;
-    
+
     int err = fd_blockstore_next_slot_query( blockstore, curr, &next_slot, &next_slot_len );
     if( FD_UNLIKELY( err!=FD_BLOCKSTORE_OK ) ) {
       fd_blockstore_slot_prune_deque_remove_all( prune_deque );
@@ -593,7 +593,7 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong new_root_slot ) {
 
   prune_time_ns += fd_log_wallclock();
 
-  FD_LOG_NOTICE(( "blockstore publish - new_root_slot: %lu, prev_root_slot: %lu, slots pruned: %lu, slots scanned: %lu, elapsed: %6.6f ms", 
+  FD_LOG_NOTICE(( "blockstore publish - new_root_slot: %lu, prev_root_slot: %lu, slots pruned: %lu, slots scanned: %lu, elapsed: %6.6f ms",
       new_root_slot, blockstore->root,
       pruned_slot_cnt, scanned_slot_cnt, (double)prune_time_ns*1e-6));
 
@@ -1085,7 +1085,7 @@ fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[FD_ED2551
 }
 
 int
-fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[FD_ED25519_SIG_SZ], fd_blockstore_txn_map_t * txn_out, long * blk_ts, uchar txn_data_out[FD_TXN_MTU] ) {
+fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[FD_ED25519_SIG_SZ], fd_blockstore_txn_map_t * txn_out, long * blk_ts, uchar * blk_flags, uchar txn_data_out[FD_TXN_MTU] ) {
   /* WARNING: this code is extremely delicate. Do NOT modify without
      understanding all the invariants. In particular, we must never
      dereference through a corrupt pointer. It's OK for the
@@ -1117,6 +1117,7 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[
 
     fd_block_t * blk = fd_wksp_laddr_fast( wksp, blk_gaddr );
     if( blk_ts ) *blk_ts = blk->ts;
+    if( blk_flags ) *blk_flags = blk->flags;
     ulong ptr = blk->data_gaddr;
     ulong sz = blk->data_sz;
     if( txn_out->offset + txn_out->sz > sz || txn_out->sz > FD_TXN_MTU ) continue;

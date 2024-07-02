@@ -500,7 +500,7 @@ fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[static FD
    safe manner. The transaction data is copied out. txn_data_out can
    be NULL if you are only interested in the transaction metadata. */
 int
-fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[static FD_ED25519_SIG_SZ], fd_blockstore_txn_map_t * txn_out, long * blk_ts, uchar txn_data_out[FD_TXN_MTU] );
+fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[static FD_ED25519_SIG_SZ], fd_blockstore_txn_map_t * txn_out, long * blk_ts, uchar * blk_flags, uchar txn_data_out[FD_TXN_MTU] );
 
 /* Remove slot from blockstore, including all relevant internal structures. */
 int
