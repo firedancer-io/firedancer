@@ -63,7 +63,8 @@ fd_quic_conn_id_rand( fd_quic_conn_id_t * conn_id ) {
      be delivered to the same endpoint by flow control */
   /* TODO load balancing / flow steering */
 
-  conn_id->sz = 8;
+  /* padding must be set to zero also */
+  *conn_id = (fd_quic_conn_id_t){ .sz = 8u, .conn_id = {0u}, .pad = {0u} };
   return fd_rng_secure( conn_id->conn_id, 8u ) ? conn_id : NULL;
 }
 
