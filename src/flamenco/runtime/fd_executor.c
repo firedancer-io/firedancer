@@ -902,7 +902,6 @@ fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
 int
 fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
                                fd_exec_txn_ctx_t * txn_ctx ) {
-
   fd_pubkey_t * tx_accs = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->acct_addr_off);
 
   fd_pubkey_t const * fee_payer_acc = &tx_accs[0];
@@ -926,7 +925,7 @@ fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
     }
     slot_ctx->slot_bank.collected_fees += fee;
 
-    err = fd_acc_mgr_save( slot_ctx->acc_mgr, rec );
+    err = fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, txn_ctx->funk_txn, rec );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "fd_acc_mgr_save(%32J) failed (%d-%s)", fee_payer_acc->uc, err, fd_acc_mgr_strerror( err ) ));
       // TODO: The fee payer does not seem to exist?!  what now?

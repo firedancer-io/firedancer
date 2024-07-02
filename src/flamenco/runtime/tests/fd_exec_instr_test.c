@@ -830,6 +830,8 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
     return 0;
   }
 
+  txn_ctx->funk_txn = funk_txn;
+
   res = fd_execute_txn_prepare_phase2( slot_ctx, txn_ctx );
   if (res != 0) {
     FD_LOG_ERR(("could not prepare txn (phase 2 failed)"));
