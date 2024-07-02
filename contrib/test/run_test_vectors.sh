@@ -41,6 +41,6 @@ LOG=$LOG_PATH/test_exec_instr
 cat contrib/test/instr-fixtures.list | xargs ./$OBJDIR/unit-test/test_exec_instr --log-path $LOG --log-level-stderr 4
 
 LOG=$LOG_PATH/test_vm_validate
-cat contrib/test/vm_validate-fixtures.list | xargs ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --log-level-stderr 4
+xargs -a contrib/test/vm_validate-fixtures.list ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG --log-level-stderr 4
 
 echo Test vectors success

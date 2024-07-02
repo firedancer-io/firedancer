@@ -341,7 +341,7 @@ sol_compat_validate_vm_fixture( fd_exec_instr_test_runner_t * runner,
                                 ulong                         in_sz ) {
   // Decode fixture
   fd_exec_test_validate_vm_fixture_t fixture[1] = {0};
-  if ( !sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_validate_vm_fixture_t_msg ) ) {
+  if( !sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_validate_vm_fixture_t_msg ) ) {
     FD_LOG_WARNING(( "Invalid validate_vm fixture." ));
     return 0;
   }
