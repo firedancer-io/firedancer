@@ -189,7 +189,7 @@ deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   /* Load program */
   int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, deploy_mode );
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "fd_sbpf_program_new() failed: %s", fd_sbpf_strerror() ));
+    FD_LOG_WARNING(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
