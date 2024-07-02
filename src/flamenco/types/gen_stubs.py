@@ -874,7 +874,7 @@ class MapMember:
             print(f'  fd_bincode_uint64_decode_unsafe( &{self.name}_len, ctx );', file=body)
 
         if self.minalloc > 0:
-            print(f'  self->{self.name}_pool = {mapname}_alloc( ctx->valloc, fd_ulong_max({self.name}_len, {self.minalloc} ) );', file=body)
+            print(f'  self->{self.name}_pool = {mapname}_alloc( ctx->valloc, fd_ulong_max({self.name}_len + 1, {self.minalloc} ) );', file=body)
         else:
             print(f'  self->{self.name}_pool = {mapname}_alloc( ctx->valloc, {self.name}_len );', file=body)
         print(f'  self->{self.name}_root = NULL;', file=body)
@@ -1075,7 +1075,7 @@ class TreapMember:
             print(f'  ulong {treap_name}_len;', file=body)
             print(f'  fd_bincode_uint64_decode_unsafe( &{treap_name}_len, ctx );', file=body)
 
-        print(f'  ulong {treap_name}_max = fd_ulong_max( {treap_name}_len, {self.min_name} );', file=body)
+        print(f'  ulong {treap_name}_max = fd_ulong_max( {treap_name}_len + 1, {self.min_name} );', file=body)
         print(f'  self->pool = {pool_name}_alloc( ctx->valloc, {treap_name}_max );', file=body)
         print(f'  self->treap = {treap_name}_alloc( ctx->valloc, {treap_name}_max );', file=body)
         print(f'  for( ulong i=0; i < {treap_name}_len; i++ ) {{', file=body)
