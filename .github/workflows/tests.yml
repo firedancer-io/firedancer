@@ -40,7 +40,7 @@ jobs:
             label: self-hosted
           - machine: linux_clang_icelake
             label: icelake
-            extras: asan ubsan
+            extras: asan ubsan rpath
     runs-on: ${{ matrix.label }}
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +55,7 @@ jobs:
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
           MACHINES=${{ matrix.machine }} \
-          EXTRAS="${{ matrix.extras || '' }}" \
+          EXTRAS="${{ matrix.extras || 'rpath' }}" \
           NOTEST=${{ matrix.notest || '' }} \
           TARGETS="${{ matrix.targets || '' }}" \
           ${{ matrix.env || '' }} \
