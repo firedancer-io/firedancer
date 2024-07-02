@@ -11,6 +11,7 @@ use {
         signature::{Keypair, Signer},
         hash::Hash,
         message::Message,
+        commitment_config::CommitmentConfig,
     },
     solana_bpf_loader_program::{
         syscalls::create_program_runtime_environment_v1,
@@ -63,6 +64,13 @@ pub fn create_message_and_sign(instructions: &Vec<Instruction>, payer: &Keypair,
     transaction
 }
 
+pub fn nonce_create_message_and_sign(instructions: Vec<Instruction>, payer: &Keypair, signers: Vec<&Keypair>, nonce_account: &Keypair, nonce_blockhash: Hash) -> Transaction {
+    let message = Message::new_with_nonce(instructions, Some(&payer.pubkey()), &nonce_account.pubkey(), &payer.pubkey());
+    let mut transaction = Transaction::new_unsigned(message);
+    let _ = transaction.try_sign(&signers, nonce_blockhash).unwrap();
+    transaction
+}
+
 pub fn wait_atleast_n_slots(client: &RpcClient, n: u64) {
     let current_slot = client.get_slot().unwrap();
     let target_slot = current_slot + n;
@@ -77,6 +85,7 @@ pub fn wait_atleast_n_slots(client: &RpcClient, n: u64) {
 lazy_static! {
     pub static ref SKIP_PREFLIGHT_CONFIG: RpcSendTransactionConfig = RpcSendTransactionConfig {
         skip_preflight: true,
-        ..Default::default()
+        preflight_commitment: Some(CommitmentConfig::processed().commitment),
+        ..RpcSendTransactionConfig::default()
     };
 }
