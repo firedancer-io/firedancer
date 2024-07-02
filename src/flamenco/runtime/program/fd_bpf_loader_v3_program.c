@@ -137,16 +137,20 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost, int round_up_heap_size, i
 
 /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L105-L171
 
-   Our arguments to deploy_program are different from the Agave version because we handle the caching of deployed programs differently.
-   In Firedancer we lack the concept of ProgramCacheEntryType entirely https://github.com/anza-xyz/agave/blob/114d94a25e9631f9bf6349c4b833d7900ef1fb1c/program-runtime/src/loaded_programs.rs#L158
+   Our arguments to deploy_program are different from the Agave version because
+   we handle the caching of deployed programs differently. In Firedancer we 
+   lack the concept of ProgramCacheEntryType entirely.
+   https://github.com/anza-xyz/agave/blob/114d94a25e9631f9bf6349c4b833d7900ef1fb1c/program-runtime/src/loaded_programs.rs#L158
 
-   In Agave there is a separate caching structure that is used to store the deployed programs. In Firedancer the deployed, validated program
-   is stored as metadata for the account in the funk record.
+   In Agave there is a separate caching structure that is used to store the 
+   deployed programs. In Firedancer the deployed, validated program is stored as
+  metadata for the account in the funk record.
 
    See https://github.com/firedancer-io/firedancer/blob/9c1df680b3f38bebb0597e089766ec58f3b41e85/src/flamenco/runtime/program/fd_bpf_loader_v3_program.c#L1640
    for how we handle the concept of 'LoadedProgramType::DelayVisibility' in Firedancer.
 
-   As a concrete example, our version of deploy_program does not have the 'account_size' argument because we do not update the funk record here. */
+   As a concrete example, our version of deploy_program does not have the 
+   'account_size' argument because we do not update the funk record here. */
 int
 deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                 uchar * const         programdata,
@@ -183,8 +187,10 @@ deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   /* Load program */
-  if( FD_UNLIKELY( fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, deploy_mode ) ) ) {
-    FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
+  int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, deploy_mode );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "fd_sbpf_program_new() failed: %s", fd_sbpf_strerror() ));
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
   /* Validate the program */
