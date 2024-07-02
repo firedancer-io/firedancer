@@ -100,13 +100,14 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
   (void)dt;
   // FD_LOG_WARNING(( "sbpf load: %32J - time: %6.6f ms", ctx.instr->program_id_pubkey.key, (double)dt*1e-6 ));
 
-  ulong input_sz = 0;
-  ulong pre_lens[256];
+  ulong   input_sz = 0UL;
+  ulong   pre_lens[256] = {0};
   uchar * input;
+  int     direct_mapping = FD_FEATURE_ACTIVE( ctx.slot_ctx, bpf_account_data_direct_mapping );
   if (FD_UNLIKELY(memcmp(metadata->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t)) == 0)) {
-    input = fd_bpf_loader_input_serialize_unaligned(ctx, &input_sz, pre_lens);
+    input = fd_bpf_loader_input_serialize_unaligned( ctx, &input_sz, pre_lens );
   } else {
-    input = fd_bpf_loader_input_serialize_aligned(ctx, &input_sz, pre_lens);
+    input = fd_bpf_loader_input_serialize_aligned( ctx, &input_sz, pre_lens, !direct_mapping );
   }
 
   if( input==NULL ) {
@@ -211,11 +212,11 @@ if( FD_UNLIKELY( vm->trace ) ) {
     return -1;
   }
 
-  if (FD_UNLIKELY(memcmp(metadata->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t)) == 0)) {
-    if(fd_bpf_loader_input_deserialize_unaligned(ctx, pre_lens, input, input_sz))
+  if( FD_UNLIKELY( memcmp( metadata->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
+    if( fd_bpf_loader_input_deserialize_unaligned( ctx, pre_lens, input, input_sz ) )
       return -1;
   } else {
-    if(fd_bpf_loader_input_deserialize_aligned(ctx, pre_lens, input, input_sz))
+    if( fd_bpf_loader_input_deserialize_aligned( ctx, pre_lens, input, input_sz, !direct_mapping ) )
       return -1;
   }
 

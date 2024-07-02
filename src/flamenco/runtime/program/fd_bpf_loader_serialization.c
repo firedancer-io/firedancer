@@ -15,7 +15,8 @@
 uchar *
 fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
                                        ulong *             sz,
-                                       ulong *             pre_lens ) {
+                                       ulong *             pre_lens,
+                                       int                 FD_FN_UNUSED copy_account_data ) {
   ulong serialized_size = 0;
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
   fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
@@ -26,7 +27,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
   memset(dup_acc_idx, 0, sizeof(dup_acc_idx));
 
   serialized_size += sizeof(ulong);
-  for( ushort i = 0; i < ctx.instr->acct_cnt; i++ ) {
+  for( ushort i=0; i<ctx.instr->acct_cnt; i++ ) {
     uchar acc_idx = instr_acc_idxs[i];
 
     serialized_size++; // dup byte
@@ -40,7 +41,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
       int read_result = fd_instr_borrowed_account_view( &ctx, acc, &view_acc );
       fd_account_meta_t const * metadata = view_acc->const_meta;
 
-      ulong acc_data_len = 0;
+      ulong acc_data_len = 0UL;
       if ( FD_LIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
         acc_data_len = metadata->dlen;
       } else if ( FD_UNLIKELY( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
@@ -49,8 +50,12 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
         return NULL;
       }
 
-      ulong aligned_acc_data_len = fd_ulong_align_up(acc_data_len, 8);
-
+      ulong aligned_acc_data_len = fd_ulong_align_up( acc_data_len, FD_BPF_ALIGN_OF_U128 );
+      /* The data length doesn't need to be accounted for here. TODO: Remove
+         FD_UNLIKELY tag when direct mapping starts getting used. */
+      if( FD_UNLIKELY( !copy_account_data ) ) {
+        aligned_acc_data_len = FD_BPF_ALIGN_OF_U128;
+      }
       serialized_size += sizeof(uchar)  // is_signer
           + sizeof(uchar)               // is_writable
           + sizeof(uchar)               // is_executable
@@ -59,37 +64,36 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
           + sizeof(fd_pubkey_t)         // owner
           + sizeof(ulong)               // lamports
           + sizeof(ulong)               // data_len
-          + aligned_acc_data_len
           + MAX_PERMITTED_DATA_INCREASE
-          + sizeof(ulong);              // rent_epoch
+          + sizeof(ulong)               // rent_epoch
+          + aligned_acc_data_len;
     }
   }
 
-  serialized_size += sizeof(ulong)
-      + ctx.instr->data_sz
-      + sizeof(fd_pubkey_t);
+  serialized_size += sizeof(ulong) + ctx.instr->data_sz + sizeof(fd_pubkey_t);
   uchar * serialized_params = fd_valloc_malloc( ctx.valloc, 8UL, serialized_size );
   uchar * serialized_params_start = serialized_params;
 
   FD_STORE( ulong, serialized_params, ctx.instr->acct_cnt );
   serialized_params += sizeof(ulong);
 
-  for( ushort i = 0; i < ctx.instr->acct_cnt; i++ ) {
-    uchar acc_idx = instr_acc_idxs[i];
-    fd_pubkey_t * acc = &txn_accs[acc_idx];
+  for( ushort i=0; i<ctx.instr->acct_cnt; i++ ) {
+    uchar         acc_idx = instr_acc_idxs[i];
+    fd_pubkey_t * acc     = &txn_accs[acc_idx];
 
-    if( FD_UNLIKELY( acc_idx_seen[acc_idx] && dup_acc_idx[acc_idx] != i ) ) {
-      // Duplicate
-      FD_STORE( ulong, serialized_params, 0 );
+    if( FD_UNLIKELY( acc_idx_seen[acc_idx] && dup_acc_idx[acc_idx] != i ) ) { /* TODO:FIXME: clean this up please */
+      /* Duplicate case */ 
       FD_STORE( uchar, serialized_params, (uchar)dup_acc_idx[acc_idx] );
+      serialized_params += sizeof(uchar);
+      FD_STORE( ulong, serialized_params, 0UL ); /* s.write_all(&[0u8, 0, 0, 0, 0, 0, 0]) */
       serialized_params += sizeof(ulong);
     } else {
-      FD_STORE( uchar, serialized_params, 0xFF );
+      FD_STORE( uchar, serialized_params, FD_NON_DUP_MARKER );
       serialized_params += sizeof(uchar);
 
       fd_borrowed_account_t * view_acc = NULL;
       int read_result = fd_instr_borrowed_account_view( &ctx, acc, &view_acc );
-      if (FD_UNLIKELY(read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT)) {
+      if( FD_UNLIKELY( read_result==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) { /* TODO:FIXME: handle these clearner*/
         uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx.instr, (uchar)i );
         FD_STORE( uchar, serialized_params, is_signer );
         serialized_params += sizeof(uchar);
@@ -205,7 +209,8 @@ int
 fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
                                          ulong const *       pre_lens,
                                          uchar *             buffer,
-                                         ulong               buffer_sz ) {
+                                         ulong               buffer_sz,
+                                         int                 FD_FN_UNUSED copy_account_data ) {
   /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L507 */
   ulong start = 0UL;
 

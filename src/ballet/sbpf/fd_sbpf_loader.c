@@ -1248,11 +1248,11 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
   fd_memcpy( prog->rodata, elf->bin, prog->info.rodata_footprint );
 
   /* Convert calls with PC relative immediate to hashes */
-  if( FD_UNLIKELY( (err=fd_sbpf_hash_calls  ( &loader, prog, elf ))!=0 ) )
+  if( FD_UNLIKELY( (err=fd_sbpf_hash_calls( &loader, prog, elf ))!=0 ) )
     return err;
 
   /* Apply relocations */
-  if( FD_UNLIKELY( (err=fd_sbpf_relocate    ( &loader, elf, elf_sz, prog->rodata, &prog->info ))!=0 ) )
+  if( FD_UNLIKELY( (err=fd_sbpf_relocate( &loader, elf, elf_sz, prog->rodata, &prog->info ))!=0 ) )
     return err;
 
   /* Create read-only segment */
