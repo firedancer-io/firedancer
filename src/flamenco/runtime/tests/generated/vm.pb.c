@@ -30,4 +30,7 @@ PB_BIND(FD_EXEC_TEST_FULL_VM_CONTEXT, fd_exec_test_full_vm_context_t, AUTO)
 PB_BIND(FD_EXEC_TEST_VALIDATE_VM_EFFECTS, fd_exec_test_validate_vm_effects_t, AUTO)
 
 
+PB_BIND(FD_EXEC_TEST_VALIDATE_VM_FIXTURE, fd_exec_test_validate_vm_fixture_t, AUTO)
+
+
 

@@ -118,6 +118,14 @@ typedef struct fd_exec_test_validate_vm_effects {
     bool success;
 } fd_exec_test_validate_vm_effects_t;
 
+/* Fixture for fd_vm_validate fuzz harness */
+typedef struct fd_exec_test_validate_vm_fixture {
+    bool has_input;
+    fd_exec_test_full_vm_context_t input;
+    bool has_output;
+    fd_exec_test_validate_vm_effects_t output;
+} fd_exec_test_validate_vm_fixture_t;
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -132,6 +140,7 @@ extern "C" {
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT}
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_DEFAULT {0, 0}
+#define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_ZERO {0, NULL, 0}
 #define FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO        {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO {"", NULL}
@@ -140,6 +149,7 @@ extern "C" {
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_ZERO   {false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO}
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_ZERO {0, 0}
+#define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_INIT_ZERO {false, FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_INPUT_DATA_REGION_OFFSET_TAG 1
@@ -181,6 +191,8 @@ extern "C" {
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_FEATURES_TAG 3
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_RESULT_TAG 1
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_SUCCESS_TAG 2
+#define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_INPUT_TAG 1
+#define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_OUTPUT_TAG 2
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_INPUT_DATA_REGION_FIELDLIST(X, a) \
@@ -262,6 +274,14 @@ X(a, STATIC,   SINGULAR, BOOL,     success,           2)
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_CALLBACK NULL
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_DEFAULT NULL
 
+#define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  input,             1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  output,            2)
+#define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_CALLBACK NULL
+#define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_DEFAULT NULL
+#define fd_exec_test_validate_vm_fixture_t_input_MSGTYPE fd_exec_test_full_vm_context_t
+#define fd_exec_test_validate_vm_fixture_t_output_MSGTYPE fd_exec_test_validate_vm_effects_t
+
 extern const pb_msgdesc_t fd_exec_test_input_data_region_t_msg;
 extern const pb_msgdesc_t fd_exec_test_vm_context_t_msg;
 extern const pb_msgdesc_t fd_exec_test_syscall_invocation_t_msg;
@@ -270,6 +290,7 @@ extern const pb_msgdesc_t fd_exec_test_syscall_effects_t_msg;
 extern const pb_msgdesc_t fd_exec_test_syscall_fixture_t_msg;
 extern const pb_msgdesc_t fd_exec_test_full_vm_context_t_msg;
 extern const pb_msgdesc_t fd_exec_test_validate_vm_effects_t_msg;
+extern const pb_msgdesc_t fd_exec_test_validate_vm_fixture_t_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define FD_EXEC_TEST_INPUT_DATA_REGION_FIELDS &fd_exec_test_input_data_region_t_msg
@@ -280,6 +301,7 @@ extern const pb_msgdesc_t fd_exec_test_validate_vm_effects_t_msg;
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_FIELDS &fd_exec_test_syscall_fixture_t_msg
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_FIELDS &fd_exec_test_full_vm_context_t_msg
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_FIELDS &fd_exec_test_validate_vm_effects_t_msg
+#define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_FIELDS &fd_exec_test_validate_vm_fixture_t_msg
 
 /* Maximum encoded size of messages (where known) */
 /* fd_exec_test_InputDataRegion_size depends on runtime parameters */
@@ -289,6 +311,7 @@ extern const pb_msgdesc_t fd_exec_test_validate_vm_effects_t_msg;
 /* fd_exec_test_SyscallEffects_size depends on runtime parameters */
 /* fd_exec_test_SyscallFixture_size depends on runtime parameters */
 /* fd_exec_test_FullVmContext_size depends on runtime parameters */
+/* fd_exec_test_ValidateVmFixture_size depends on runtime parameters */
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_SIZE    13
 #define ORG_SOLANA_SEALEVEL_V1_VM_PB_H_MAX_SIZE  FD_EXEC_TEST_VALIDATE_VM_EFFECTS_SIZE
 
@@ -301,6 +324,7 @@ extern const pb_msgdesc_t fd_exec_test_validate_vm_effects_t_msg;
 #define org_solana_sealevel_v1_SyscallFixture fd_exec_test_SyscallFixture
 #define org_solana_sealevel_v1_FullVmContext fd_exec_test_FullVmContext
 #define org_solana_sealevel_v1_ValidateVmEffects fd_exec_test_ValidateVmEffects
+#define org_solana_sealevel_v1_ValidateVmFixture fd_exec_test_ValidateVmFixture
 #define ORG_SOLANA_SEALEVEL_V1_INPUT_DATA_REGION_INIT_DEFAULT FD_EXEC_TEST_INPUT_DATA_REGION_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_VM_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_SYSCALL_INVOCATION_INIT_DEFAULT FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT
@@ -309,6 +333,7 @@ extern const pb_msgdesc_t fd_exec_test_validate_vm_effects_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_SYSCALL_FIXTURE_INIT_DEFAULT FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_FULL_VM_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_VALIDATE_VM_EFFECTS_INIT_DEFAULT FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_VALIDATE_VM_FIXTURE_INIT_DEFAULT FD_EXEC_TEST_VALIDATE_VM_FIXTURE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_INPUT_DATA_REGION_INIT_ZERO FD_EXEC_TEST_INPUT_DATA_REGION_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_VM_CONTEXT_INIT_ZERO FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_SYSCALL_INVOCATION_INIT_ZERO FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO
@@ -317,6 +342,7 @@ extern const pb_msgdesc_t fd_exec_test_validate_vm_effects_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_SYSCALL_FIXTURE_INIT_ZERO FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_FULL_VM_CONTEXT_INIT_ZERO FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_VALIDATE_VM_EFFECTS_INIT_ZERO FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_VALIDATE_VM_FIXTURE_INIT_ZERO FD_EXEC_TEST_VALIDATE_VM_FIXTURE_INIT_ZERO
 
 #ifdef __cplusplus
 } /* extern "C" */
