@@ -557,51 +557,6 @@ method_getClusterNodes(struct fd_web_replier* replier, struct json_values* value
   return 0;
 }
 
-// Implementation of the "getConfirmedBlock" methods
-static int
-method_getConfirmedBlock(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getConfirmedBlock is not implemented");
-  return 0;
-}
-
-// Implementation of the "getConfirmedBlocks" methods
-static int
-method_getConfirmedBlocks(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getConfirmedBlocks is not implemented");
-  return 0;
-}
-
-// Implementation of the "getConfirmedBlocksWithLimit" methods
-static int
-method_getConfirmedBlocksWithLimit(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getConfirmedBlocksWithLimit is not implemented");
-  return 0;
-}
-
-// Implementation of the "getConfirmedSignaturesForAddress2" methods
-static int
-method_getConfirmedSignaturesForAddress2(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getConfirmedSignaturesForAddress2 is not implemented");
-  return 0;
-}
-
-// Implementation of the "getConfirmedTransaction" methods
-static int
-method_getConfirmedTransaction(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getConfirmedTransaction is not implemented");
-  return 0;
-}
-
 // Implementation of the "getEpochInfo" methods
 // curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc":"2.0","id":1, "method":"getEpochInfo"} '
 
@@ -657,39 +612,12 @@ method_getEpochSchedule(struct fd_web_replier* replier, struct json_values* valu
   return 0;
 }
 
-// Implementation of the "getFeeCalculatorForBlockhash" methods
-static int
-method_getFeeCalculatorForBlockhash(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getFeeCalculatorForBlockhash is not implemented");
-  return 0;
-}
-
 // Implementation of the "getFeeForMessage" methods
 static int
 method_getFeeForMessage(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
   fd_web_replier_error(replier, "getFeeForMessage is not implemented");
-  return 0;
-}
-
-// Implementation of the "getFeeRateGovernor" methods
-static int
-method_getFeeRateGovernor(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getFeeRateGovernor is not implemented");
-  return 0;
-}
-
-// Implementation of the "getFees" methods
-static int
-method_getFees(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getFees is not implemented");
   return 0;
 }
 
@@ -965,15 +893,6 @@ method_getProgramAccounts(struct fd_web_replier* replier, struct json_values* va
   return 0;
 }
 
-// Implementation of the "getRecentBlockhash" methods
-static int
-method_getRecentBlockhash(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getRecentBlockhash is not implemented");
-  return 0;
-}
-
 // Implementation of the "getRecentPerformanceSamples" methods
 static int
 method_getRecentPerformanceSamples(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
@@ -1090,15 +1009,6 @@ method_getSlotLeaders(struct fd_web_replier* replier, struct json_values* values
   (void)values;
   (void)ctx;
   fd_web_replier_error(replier, "getSlotLeaders is not implemented");
-  return 0;
-}
-
-// Implementation of the "getSnapshotSlot" methods
-static int
-method_getSnapshotSlot(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getSnapshotSlot is not implemented");
   return 0;
 }
 
@@ -1456,26 +1366,6 @@ fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* 
     if (!method_getClusterNodes(replier, values, &ctx))
       return;
     break;
-  case KEYW_RPCMETHOD_GETCONFIRMEDBLOCK:
-    if (!method_getConfirmedBlock(replier, values, &ctx))
-      return;
-    break;
-  case KEYW_RPCMETHOD_GETCONFIRMEDBLOCKS:
-    if (!method_getConfirmedBlocks(replier, values, &ctx))
-      return;
-    break;
-  case KEYW_RPCMETHOD_GETCONFIRMEDBLOCKSWITHLIMIT:
-    if (!method_getConfirmedBlocksWithLimit(replier, values, &ctx))
-      return;
-    break;
-  case KEYW_RPCMETHOD_GETCONFIRMEDSIGNATURESFORADDRESS2:
-    if (!method_getConfirmedSignaturesForAddress2(replier, values, &ctx))
-      return;
-    break;
-  case KEYW_RPCMETHOD_GETCONFIRMEDTRANSACTION:
-    if (!method_getConfirmedTransaction(replier, values, &ctx))
-      return;
-    break;
   case KEYW_RPCMETHOD_GETEPOCHINFO:
     if (!method_getEpochInfo(replier, values, &ctx))
       return;
@@ -1484,20 +1374,8 @@ fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* 
     if (!method_getEpochSchedule(replier, values, &ctx))
       return;
     break;
-  case KEYW_RPCMETHOD_GETFEECALCULATORFORBLOCKHASH:
-    if (!method_getFeeCalculatorForBlockhash(replier, values, &ctx))
-      return;
-    break;
   case KEYW_RPCMETHOD_GETFEEFORMESSAGE:
     if (!method_getFeeForMessage(replier, values, &ctx))
-      return;
-    break;
-  case KEYW_RPCMETHOD_GETFEERATEGOVERNOR:
-    if (!method_getFeeRateGovernor(replier, values, &ctx))
-      return;
-    break;
-  case KEYW_RPCMETHOD_GETFEES:
-    if (!method_getFees(replier, values, &ctx))
       return;
     break;
   case KEYW_RPCMETHOD_GETFIRSTAVAILABLEBLOCK:
@@ -1564,10 +1442,6 @@ fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* 
     if (!method_getProgramAccounts(replier, values, &ctx))
       return;
     break;
-  case KEYW_RPCMETHOD_GETRECENTBLOCKHASH:
-    if (!method_getRecentBlockhash(replier, values, &ctx))
-      return;
-    break;
   case KEYW_RPCMETHOD_GETRECENTPERFORMANCESAMPLES:
     if (!method_getRecentPerformanceSamples(replier, values, &ctx))
       return;
@@ -1594,10 +1468,6 @@ fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* 
     break;
   case KEYW_RPCMETHOD_GETSLOTLEADERS:
     if (!method_getSlotLeaders(replier, values, &ctx))
-      return;
-    break;
-  case KEYW_RPCMETHOD_GETSNAPSHOTSLOT:
-    if (!method_getSnapshotSlot(replier, values, &ctx))
       return;
     break;
   case KEYW_RPCMETHOD_GETSTAKEACTIVATION:
