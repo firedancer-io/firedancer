@@ -391,18 +391,19 @@ method_getBlock(struct fd_web_replier* replier, struct json_values* values, fd_r
   }
 
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  if (fd_block_to_json(ts,
-                       ctx->call_id,
-                       blk,
-                       blk_data,
-                       blk_sz,
-                       slot_meta,
-                       enc,
-                       (maxvers == NULL ? 0 : *(const long*)maxvers),
-                       det,
-                       (rewards == NULL ? 1 : *(const int*)rewards))) {
+  const char * err = fd_block_to_json(ts,
+                                      ctx->call_id,
+                                      blk,
+                                      blk_data,
+                                      blk_sz,
+                                      slot_meta,
+                                      enc,
+                                      (maxvers == NULL ? 0 : *(const long*)maxvers),
+                                      det,
+                                      (rewards == NULL ? 1 : *(const int*)rewards));
+  if( err ) {
     free( blk_data );
-    fd_web_replier_error(replier, "failed to display block for slot %lu", slotn);
+    fd_web_replier_error(replier, "%s", err);
     return 0;
   }
   free( blk_data );
@@ -1188,7 +1189,11 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
 
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"blockTime\":%ld,\"slot\":%lu,",
                         blockstore->smr, blk_ts/(long)1e9, elem.slot);
-  fd_txn_to_json( ts, (fd_txn_t *)txn_out, txn_data_raw, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
+  const char * err = fd_txn_to_json( ts, (fd_txn_t *)txn_out, txn_data_raw, pay_sz, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
+  if( err ) {
+    fd_web_replier_error(replier, "%s", err);
+    return 0;
+  }
   fd_textstream_sprintf(ts, "},\"id\":%lu}" CRLF, ctx->call_id);
 
   fd_web_replier_done(replier);
