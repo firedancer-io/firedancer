@@ -8,24 +8,26 @@ int fd_txn_meta_to_json( fd_textstream_t * ts,
                          const void * meta_raw,
                          ulong meta_raw_sz );
 
-int fd_txn_to_json( fd_textstream_t * ts,
-                    fd_txn_t* txn,
-                    const uchar* raw,
-                    fd_rpc_encoding_t encoding,
-                    long maxvers,
-                    enum fd_block_detail detail,
-                    int rewards );
+const char* fd_txn_to_json( fd_textstream_t * ts,
+                            fd_txn_t* txn,
+                            const uchar* raw,
+                            ulong raw_sz,
+                            fd_rpc_encoding_t encoding,
+                            long maxvers,
+                            enum fd_block_detail detail,
+                            int rewards );
 
-int fd_block_to_json( fd_textstream_t * ts,
-                      long call_id,
-                      fd_block_t * blk,
-                      const uchar * blk_data,
-                      ulong blk_sz,
-                      fd_slot_meta_t * meta,
-                      fd_rpc_encoding_t encoding,
-                      long maxvers,
-                      enum fd_block_detail detail,
-                      int rewards);
+const char* fd_block_to_json( fd_textstream_t * ts,
+                              long call_id,
+                              fd_block_t * blk,
+                              const uchar * blk_data,
+                              ulong blk_sz,
+                              fd_hash_t * blk_hash,
+                              ulong parent,
+                              fd_rpc_encoding_t encoding,
+                              long maxvers,
+                              enum fd_block_detail detail,
+                              int rewards);
 
 #define FD_LONG_UNSET (1L << 63L)
 

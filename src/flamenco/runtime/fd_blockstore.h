@@ -485,12 +485,12 @@ fd_blockstore_block_frontier_query( fd_blockstore_t * blockstore,
    not block writes. The data and metadata are copied out into memory
    allocated with the given alloc. A NULL is returned on error. */
 uchar *
-fd_blockstore_block_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_valloc_t alloc, fd_block_t * blk_out, fd_slot_meta_t * slot_meta_out, ulong * data_sz_out );
+fd_blockstore_block_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_valloc_t alloc, fd_block_t * blk_out, ulong * parent_out, fd_hash_t * blk_hash_out, ulong * data_sz_out );
 
 /* Query the block metadata in a thread-safe manner which will
    not block writes. The metadata is copied out. */
 int
-fd_blockstore_slot_meta_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_t * blk_out, fd_slot_meta_t * slot_meta_out );
+fd_blockstore_slot_meta_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_t * blk_out, ulong * parent_out );
 
 /* Query the transaction data for the given signature */
 fd_blockstore_txn_map_t *
@@ -500,7 +500,7 @@ fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[static FD
    safe manner. The transaction data is copied out. txn_data_out can
    be NULL if you are only interested in the transaction metadata. */
 int
-fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[static FD_ED25519_SIG_SZ], fd_blockstore_txn_map_t * txn_out, long * blk_ts, uchar txn_data_out[FD_TXN_MTU] );
+fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[static FD_ED25519_SIG_SZ], fd_blockstore_txn_map_t * txn_out, long * blk_ts, uchar * blk_flags, uchar txn_data_out[FD_TXN_MTU] );
 
 /* Remove slot from blockstore, including all relevant internal structures. */
 int

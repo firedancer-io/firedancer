@@ -145,6 +145,14 @@ read_slot_bank( fd_rpc_ctx_t * ctx, fd_valloc_t valloc ) {
   return slot_bank;
 }
 
+static const char *
+block_flags_to_confirmation_status( uchar flags ) {
+  if( flags & (1U << FD_BLOCK_FLAG_FINALIZED) ) return "\"finalized\"";
+  if( flags & (1U << FD_BLOCK_FLAG_CONFIRMED) ) return "\"confirmed\"";
+  if( flags & (1U << FD_BLOCK_FLAG_PROCESSED) ) return "\"processed\"";
+  return "null";
+}
+
 static void fd_method_cleanup( uchar ** smem ) {
   fd_scratch_detach( NULL );
   free( *smem );
@@ -373,28 +381,31 @@ method_getBlock(struct fd_web_replier* replier, struct json_values* values, fd_r
   const void* rewards = json_get_value(values, PATH_REWARDS, 4, &rewards_sz);
 
   fd_block_t blk[1];
-  fd_slot_meta_t slot_meta[1];
+  ulong parent;
   ulong blk_sz;
+  fd_hash_t blk_hash;
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  uchar * blk_data = fd_blockstore_block_query_volatile( blockstore, slotn, fd_libc_alloc_virtual(), blk, slot_meta, &blk_sz );
+  uchar * blk_data = fd_blockstore_block_query_volatile( blockstore, slotn, fd_libc_alloc_virtual(), blk, &parent, &blk_hash, &blk_sz );
   if( blk_data == NULL ) {
     fd_web_replier_error(replier, "failed to display block for slot %lu", slotn);
     return 0;
   }
 
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  if (fd_block_to_json(ts,
-                       ctx->call_id,
-                       blk,
-                       blk_data,
-                       blk_sz,
-                       slot_meta,
-                       enc,
-                       (maxvers == NULL ? 0 : *(const long*)maxvers),
-                       det,
-                       (rewards == NULL ? 1 : *(const int*)rewards))) {
+  const char * err = fd_block_to_json(ts,
+                                      ctx->call_id,
+                                      blk,
+                                      blk_data,
+                                      blk_sz,
+                                      &blk_hash,
+                                      parent,
+                                      enc,
+                                      (maxvers == NULL ? 0 : *(const long*)maxvers),
+                                      det,
+                                      (rewards == NULL ? 1 : *(const int*)rewards));
+  if( err ) {
     free( blk_data );
-    fd_web_replier_error(replier, "failed to display block for slot %lu", slotn);
+    fd_web_replier_error(replier, "%s", err);
     return 0;
   }
   free( blk_data );
@@ -472,8 +483,8 @@ method_getBlocks(struct fd_web_replier* replier, struct json_values* values, fd_
   uint cnt = 0;
   for ( ulong i = startslotn; i <= endslotn && cnt < 500000U; ++i ) {
     fd_block_t blk[1];
-    fd_slot_meta_t slot_meta[1];
-    int ret = fd_blockstore_slot_meta_query_volatile(blockstore, i, blk, slot_meta);
+    ulong parent;
+    int ret = fd_blockstore_slot_meta_query_volatile(blockstore, i, blk, &parent);
     if (!ret) {
       fd_textstream_sprintf(ts, "%s%lu", (cnt==0 ? "" : ","), i);
       ++cnt;
@@ -526,8 +537,8 @@ method_getBlocksWithLimit(struct fd_web_replier* replier, struct json_values* va
   uint cnt = 0;
   for ( ulong i = startslotn; i <= blockstore->max && cnt < limitn; ++i ) {
     fd_block_t blk[1];
-    fd_slot_meta_t slot_meta[1];
-    int ret = fd_blockstore_slot_meta_query_volatile(blockstore, i, blk, slot_meta);
+    ulong parent;
+    int ret = fd_blockstore_slot_meta_query_volatile(blockstore, i, blk, &parent);
     if (!ret) {
       fd_textstream_sprintf(ts, "%s%lu", (cnt==0 ? "" : ","), i);
       ++cnt;
@@ -557,51 +568,6 @@ method_getClusterNodes(struct fd_web_replier* replier, struct json_values* value
   return 0;
 }
 
-// Implementation of the "getConfirmedBlock" methods
-static int
-method_getConfirmedBlock(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getConfirmedBlock is not implemented");
-  return 0;
-}
-
-// Implementation of the "getConfirmedBlocks" methods
-static int
-method_getConfirmedBlocks(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getConfirmedBlocks is not implemented");
-  return 0;
-}
-
-// Implementation of the "getConfirmedBlocksWithLimit" methods
-static int
-method_getConfirmedBlocksWithLimit(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getConfirmedBlocksWithLimit is not implemented");
-  return 0;
-}
-
-// Implementation of the "getConfirmedSignaturesForAddress2" methods
-static int
-method_getConfirmedSignaturesForAddress2(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getConfirmedSignaturesForAddress2 is not implemented");
-  return 0;
-}
-
-// Implementation of the "getConfirmedTransaction" methods
-static int
-method_getConfirmedTransaction(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getConfirmedTransaction is not implemented");
-  return 0;
-}
-
 // Implementation of the "getEpochInfo" methods
 // curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc":"2.0","id":1, "method":"getEpochInfo"} '
 
@@ -618,8 +584,8 @@ method_getEpochInfo(struct fd_web_replier* replier, struct json_values* values, 
     ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, smr, &slot_idx );
     ulong slots_per_epoch = fd_epoch_slot_cnt( &epoch_bank->epoch_schedule, epoch );
     fd_block_t blk[1];
-    fd_slot_meta_t slot_meta[1];
-    int ret = fd_blockstore_slot_meta_query_volatile(blockstore, smr, blk, slot_meta);
+    ulong parent;
+    int ret = fd_blockstore_slot_meta_query_volatile(blockstore, smr, blk, &parent);
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%lu}" CRLF,
                           smr,
                           (!ret ? blk->height : 0UL),
@@ -657,39 +623,12 @@ method_getEpochSchedule(struct fd_web_replier* replier, struct json_values* valu
   return 0;
 }
 
-// Implementation of the "getFeeCalculatorForBlockhash" methods
-static int
-method_getFeeCalculatorForBlockhash(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getFeeCalculatorForBlockhash is not implemented");
-  return 0;
-}
-
 // Implementation of the "getFeeForMessage" methods
 static int
 method_getFeeForMessage(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
   fd_web_replier_error(replier, "getFeeForMessage is not implemented");
-  return 0;
-}
-
-// Implementation of the "getFeeRateGovernor" methods
-static int
-method_getFeeRateGovernor(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getFeeRateGovernor is not implemented");
-  return 0;
-}
-
-// Implementation of the "getFees" methods
-static int
-method_getFees(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getFees is not implemented");
   return 0;
 }
 
@@ -965,15 +904,6 @@ method_getProgramAccounts(struct fd_web_replier* replier, struct json_values* va
   return 0;
 }
 
-// Implementation of the "getRecentBlockhash" methods
-static int
-method_getRecentBlockhash(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getRecentBlockhash is not implemented");
-  return 0;
-}
-
 // Implementation of the "getRecentPerformanceSamples" methods
 static int
 method_getRecentPerformanceSamples(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
@@ -1034,14 +964,15 @@ method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* 
       continue;
     }
     fd_blockstore_txn_map_t elem;
-    if( fd_blockstore_txn_query_volatile( blockstore, key, &elem, NULL, NULL ) ) {
+    uchar flags;
+    if( fd_blockstore_txn_query_volatile( blockstore, key, &elem, NULL, &flags, NULL ) ) {
       fd_textstream_sprintf(ts, "null");
       continue;
     }
 
     // TODO other fields
-    fd_textstream_sprintf(ts, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"confirmationStatus\":\"finalized\"}",
-                          elem.slot);
+    fd_textstream_sprintf(ts, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"confirmationStatus\":%s}",
+                          elem.slot, block_flags_to_confirmation_status(flags));
   }
 
   fd_textstream_sprintf(ts, "]},\"id\":%lu}" CRLF, ctx->call_id);
@@ -1090,15 +1021,6 @@ method_getSlotLeaders(struct fd_web_replier* replier, struct json_values* values
   (void)values;
   (void)ctx;
   fd_web_replier_error(replier, "getSlotLeaders is not implemented");
-  return 0;
-}
-
-// Implementation of the "getSnapshotSlot" methods
-static int
-method_getSnapshotSlot(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getSnapshotSlot is not implemented");
   return 0;
 }
 
@@ -1190,6 +1112,18 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
     (JSON_TOKEN_LBRACKET<<16) | 1,
     (JSON_TOKEN_STRING<<16)
   };
+  static const uint PATH_ENCODING2[4] = {
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+    (JSON_TOKEN_LBRACKET<<16) | 1,
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_ENCODING,
+    (JSON_TOKEN_STRING<<16)
+  };
+  static const uint PATH_COMMITMENT[4] = {
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+    (JSON_TOKEN_LBRACKET<<16) | 1,
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_COMMITMENT,
+    (JSON_TOKEN_STRING<<16)
+  };
 
   ulong sig_sz = 0;
   const void* sig = json_get_value(values, PATH_SIG, 3, &sig_sz);
@@ -1200,6 +1134,7 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
 
   ulong enc_str_sz = 0;
   const void* enc_str = json_get_value(values, PATH_ENCODING, 3, &enc_str_sz);
+  if (enc_str == NULL) enc_str = json_get_value(values, PATH_ENCODING2, 4, &enc_str_sz);
   fd_rpc_encoding_t enc;
   if (enc_str == NULL || MATCH_STRING(enc_str, enc_str_sz, "json"))
     enc = FD_ENC_JSON;
@@ -1214,6 +1149,20 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
     return 0;
   }
 
+  ulong commit_str_sz = 0;
+  const void* commit_str = json_get_value(values, PATH_COMMITMENT, 4, &commit_str_sz);
+  uchar need_blk_flags;
+  if (commit_str == NULL || MATCH_STRING(commit_str, commit_str_sz, "processed"))
+    need_blk_flags = (uchar)(1U << FD_BLOCK_FLAG_PROCESSED);
+  else if (MATCH_STRING(commit_str, commit_str_sz, "confirmed"))
+    need_blk_flags = (uchar)(1U << FD_BLOCK_FLAG_CONFIRMED);
+  else if (MATCH_STRING(commit_str, commit_str_sz, "finalized"))
+    need_blk_flags = (uchar)(1U << FD_BLOCK_FLAG_FINALIZED);
+  else {
+    fd_web_replier_error(replier, "invalid commitment %s", (const char*)commit_str);
+    return 0;
+  }
+
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
 
   uchar key[FD_ED25519_SIG_SZ];
@@ -1224,9 +1173,11 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
   }
   fd_blockstore_txn_map_t elem;
   long blk_ts;
+  uchar blk_flags;
   uchar txn_data_raw[FD_TXN_MTU];
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  if( fd_blockstore_txn_query_volatile( blockstore, key, &elem, &blk_ts, txn_data_raw ) ) {
+  if( fd_blockstore_txn_query_volatile( blockstore, key, &elem, &blk_ts, &blk_flags, txn_data_raw ) ||
+      ( blk_flags & need_blk_flags ) == (uchar)0 ) {
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%lu}" CRLF, ctx->call_id);
     fd_web_replier_done(replier);
     return 0;
@@ -1240,7 +1191,11 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
 
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"blockTime\":%ld,\"slot\":%lu,",
                         blockstore->smr, blk_ts/(long)1e9, elem.slot);
-  fd_txn_to_json( ts, (fd_txn_t *)txn_out, txn_data_raw, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
+  const char * err = fd_txn_to_json( ts, (fd_txn_t *)txn_out, txn_data_raw, pay_sz, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
+  if( err ) {
+    fd_web_replier_error(replier, "%s", err);
+    return 0;
+  }
   fd_textstream_sprintf(ts, "},\"id\":%lu}" CRLF, ctx->call_id);
 
   fd_web_replier_done(replier);
@@ -1456,26 +1411,6 @@ fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* 
     if (!method_getClusterNodes(replier, values, &ctx))
       return;
     break;
-  case KEYW_RPCMETHOD_GETCONFIRMEDBLOCK:
-    if (!method_getConfirmedBlock(replier, values, &ctx))
-      return;
-    break;
-  case KEYW_RPCMETHOD_GETCONFIRMEDBLOCKS:
-    if (!method_getConfirmedBlocks(replier, values, &ctx))
-      return;
-    break;
-  case KEYW_RPCMETHOD_GETCONFIRMEDBLOCKSWITHLIMIT:
-    if (!method_getConfirmedBlocksWithLimit(replier, values, &ctx))
-      return;
-    break;
-  case KEYW_RPCMETHOD_GETCONFIRMEDSIGNATURESFORADDRESS2:
-    if (!method_getConfirmedSignaturesForAddress2(replier, values, &ctx))
-      return;
-    break;
-  case KEYW_RPCMETHOD_GETCONFIRMEDTRANSACTION:
-    if (!method_getConfirmedTransaction(replier, values, &ctx))
-      return;
-    break;
   case KEYW_RPCMETHOD_GETEPOCHINFO:
     if (!method_getEpochInfo(replier, values, &ctx))
       return;
@@ -1484,20 +1419,8 @@ fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* 
     if (!method_getEpochSchedule(replier, values, &ctx))
       return;
     break;
-  case KEYW_RPCMETHOD_GETFEECALCULATORFORBLOCKHASH:
-    if (!method_getFeeCalculatorForBlockhash(replier, values, &ctx))
-      return;
-    break;
   case KEYW_RPCMETHOD_GETFEEFORMESSAGE:
     if (!method_getFeeForMessage(replier, values, &ctx))
-      return;
-    break;
-  case KEYW_RPCMETHOD_GETFEERATEGOVERNOR:
-    if (!method_getFeeRateGovernor(replier, values, &ctx))
-      return;
-    break;
-  case KEYW_RPCMETHOD_GETFEES:
-    if (!method_getFees(replier, values, &ctx))
       return;
     break;
   case KEYW_RPCMETHOD_GETFIRSTAVAILABLEBLOCK:
@@ -1564,10 +1487,6 @@ fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* 
     if (!method_getProgramAccounts(replier, values, &ctx))
       return;
     break;
-  case KEYW_RPCMETHOD_GETRECENTBLOCKHASH:
-    if (!method_getRecentBlockhash(replier, values, &ctx))
-      return;
-    break;
   case KEYW_RPCMETHOD_GETRECENTPERFORMANCESAMPLES:
     if (!method_getRecentPerformanceSamples(replier, values, &ctx))
       return;
@@ -1594,10 +1513,6 @@ fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* 
     break;
   case KEYW_RPCMETHOD_GETSLOTLEADERS:
     if (!method_getSlotLeaders(replier, values, &ctx))
-      return;
-    break;
-  case KEYW_RPCMETHOD_GETSNAPSHOTSLOT:
-    if (!method_getSnapshotSlot(replier, values, &ctx))
       return;
     break;
   case KEYW_RPCMETHOD_GETSTAKEACTIVATION:
