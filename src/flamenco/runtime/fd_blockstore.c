@@ -1106,7 +1106,6 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[
     fd_memcpy( txn_out, txn_map_entry, sizeof(fd_blockstore_txn_map_t) );
 
     if( FD_UNLIKELY( fd_readwrite_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
-    if( txn_data_out == NULL ) return FD_BLOCKSTORE_OK;
 
     fd_blockstore_slot_map_t const * query = fd_blockstore_slot_map_query_safe( slot_map, &txn_out->slot, NULL );
     if( FD_UNLIKELY( !query ) ) return FD_BLOCKSTORE_ERR_TXN_MISSING;
@@ -1124,6 +1123,7 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[
 
     if( FD_UNLIKELY( fd_readwrite_check_concur_read( &blockstore->lock, seqnum ) ) ) continue;
 
+    if( txn_data_out == NULL ) return FD_BLOCKSTORE_OK;
     uchar const * data = fd_wksp_laddr_fast( wksp, ptr );
     fd_memcpy( txn_data_out, data + txn_out->offset, txn_out->sz );
 

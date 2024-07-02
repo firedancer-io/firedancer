@@ -147,9 +147,9 @@ read_slot_bank( fd_rpc_ctx_t * ctx, fd_valloc_t valloc ) {
 
 static const char *
 block_flags_to_confirmation_status( uchar flags ) {
-  if( flags & FD_BLOCK_FLAG_FINALIZED ) return "\"finalized\"";
-  if( flags & FD_BLOCK_FLAG_CONFIRMED ) return "\"confirmed\"";
-  if( flags & FD_BLOCK_FLAG_PROCESSED ) return "\"processed\"";
+  if( flags & (1U << FD_BLOCK_FLAG_FINALIZED) ) return "\"finalized\"";
+  if( flags & (1U << FD_BLOCK_FLAG_CONFIRMED) ) return "\"confirmed\"";
+  if( flags & (1U << FD_BLOCK_FLAG_PROCESSED) ) return "\"processed\"";
   return "null";
 }
 
@@ -1151,11 +1151,11 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
   const void* commit_str = json_get_value(values, PATH_COMMITMENT, 4, &commit_str_sz);
   uchar need_blk_flags;
   if (commit_str == NULL || MATCH_STRING(commit_str, commit_str_sz, "processed"))
-    need_blk_flags = FD_BLOCK_FLAG_PROCESSED;
+    need_blk_flags = (uchar)(1U << FD_BLOCK_FLAG_PROCESSED);
   else if (MATCH_STRING(commit_str, commit_str_sz, "confirmed"))
-    need_blk_flags = FD_BLOCK_FLAG_CONFIRMED;
+    need_blk_flags = (uchar)(1U << FD_BLOCK_FLAG_CONFIRMED);
   else if (MATCH_STRING(commit_str, commit_str_sz, "finalized"))
-    need_blk_flags = FD_BLOCK_FLAG_FINALIZED;
+    need_blk_flags = (uchar)(1U << FD_BLOCK_FLAG_FINALIZED);
   else {
     fd_web_replier_error(replier, "invalid commitment %s", (const char*)commit_str);
     return 0;
