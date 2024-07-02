@@ -6230,3 +6230,4 @@ dump/test-vectors/instr/fixtures/bpf-loader-v3-programs/4c3874406b6bc014434a6b08
 dump/test-vectors/instr/fixtures/bpf-loader-v3-programs/crash-61560dca014f17632760e7915b271cfba4fdb121.fix
 dump/test-vectors/instr/fixtures/address-lookup-table/crash-1f3cff85b351a070fa572e17f61439fff44d4eda.fix
 dump/test-vectors/instr/fixtures/bpf-loader-v3/84b8ae94c85eccaf6504d8d247c18d4ad9276d8e.fix
+dump/test-vectors/instr/fixtures/vote/crash-32e0fed2ff9b8daedc7bccf99a3fda5ec24b566c.fix
