@@ -82,10 +82,10 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
     fd_pubkey_t * acc     = &txn_accs[acc_idx];
 
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] && dup_acc_idx[acc_idx] != i ) ) { /* TODO:FIXME: clean this up please */
-      /* Duplicate case */ 
+      /* Duplicate case. We want this to be 8 byte aligned where the first byte
+         is the position of the account */
+      FD_STORE( ulong, serialized_params, 0UL );
       FD_STORE( uchar, serialized_params, (uchar)dup_acc_idx[acc_idx] );
-      serialized_params += sizeof(uchar);
-      FD_STORE( ulong, serialized_params, 0UL ); /* s.write_all(&[0u8, 0, 0, 0, 0, 0, 0]) */
       serialized_params += sizeof(ulong);
     } else {
       FD_STORE( uchar, serialized_params, FD_NON_DUP_MARKER );
@@ -93,7 +93,9 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
 
       fd_borrowed_account_t * view_acc = NULL;
       int read_result = fd_instr_borrowed_account_view( &ctx, acc, &view_acc );
-      if( FD_UNLIKELY( read_result==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) { /* TODO:FIXME: handle these clearner*/
+      /* TODO:FIXME: not sure if this should be a FD_UNLIKELY. It happens around
+         a third of the time from a small sample size of observations */
+      if( FD_UNLIKELY( read_result==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) { /* TODO:FIXME: handle these cleaner */
         uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx.instr, (uchar)i );
         FD_STORE( uchar, serialized_params, is_signer );
         serialized_params += sizeof(uchar);
@@ -102,13 +104,15 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
         FD_STORE( uchar, serialized_params, is_writable );
         serialized_params += sizeof(uchar);
 
+        /* The uint is equivalent to s.write_all(&[0u8, 0, 0, 0]) and is used
+           for padding to maintain 8 byte alignment. */
         fd_memset( serialized_params, 0, sizeof(uchar) + // is_executable
-                                         sizeof(uint) ); // original_data_len
+                                         sizeof(uint) ); // padding
 
         serialized_params += sizeof(uchar) + // is_executable
-                             sizeof(uint);   // original_data_len
+                             sizeof(uint);   // padding
 
-        fd_pubkey_t key = *acc;
+        fd_pubkey_t key = *acc; // vm_key_addr
         FD_STORE( fd_pubkey_t, serialized_params, key );
         serialized_params += sizeof(fd_pubkey_t);
 
@@ -118,16 +122,16 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
                                          0 +                           // data
                                          MAX_PERMITTED_DATA_INCREASE +
                                          sizeof(ulong));               // rent_epoch
-        serialized_params += sizeof(fd_pubkey_t)  // owner
-          + sizeof(ulong)                         // lamports
-          + sizeof(ulong)                         // data_len
-          + 0                                     // data
-          + MAX_PERMITTED_DATA_INCREASE;
-        if (FD_FEATURE_ACTIVE( ctx.slot_ctx, set_exempt_rent_epoch_max)) {
+        serialized_params += sizeof(fd_pubkey_t)                   // owner
+                           + sizeof(ulong)                         // lamports
+                           + sizeof(ulong)                         // data_len
+                           + 0                                     // data
+                           + MAX_PERMITTED_DATA_INCREASE;
+        if( FD_FEATURE_ACTIVE( ctx.slot_ctx, set_exempt_rent_epoch_max ) ) {
           FD_STORE( ulong, serialized_params, ULONG_MAX );
         }
         serialized_params += sizeof(ulong); // rent_epoch
-        pre_lens[i] = 0;
+        pre_lens[i] = 0UL;
         continue;
       } else if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
         return NULL;
@@ -140,6 +144,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
       FD_STORE( uchar, serialized_params, is_signer );
       serialized_params += sizeof(uchar);
 
+      /* TODO:FIXME: maybe we should use a parent function here instead. */
       uchar is_writable = (uchar)(fd_instr_acc_is_writable_idx( ctx.instr, (uchar)i ) && !fd_pubkey_is_sysvar_id( acc ) && !fd_pubkey_is_builtin_program( acc ));
       FD_STORE( uchar, serialized_params, is_writable );
       serialized_params += sizeof(uchar);
@@ -148,7 +153,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
       FD_STORE( uchar, serialized_params, is_executable );
       serialized_params += sizeof(uchar);
 
-      uint padding_0 = 0;
+      uint padding_0 = 0U;
       FD_STORE( uint, serialized_params, padding_0 );
       serialized_params += sizeof(uint);
 
@@ -163,16 +168,44 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
       ulong lamports = metadata->info.lamports;
       FD_STORE( ulong, serialized_params, lamports );
       serialized_params += sizeof(ulong);
-      FD_LOG_DEBUG(("Serialize lamports %lu for %32J", lamports, acc->uc));
 
       ulong acc_data_len = metadata->dlen;
       pre_lens[i] = acc_data_len;
-      ulong aligned_acc_data_len = fd_ulong_align_up(acc_data_len, 8);
+      ulong aligned_acc_data_len = fd_ulong_align_up( acc_data_len, FD_BPF_ALIGN_OF_U128 );
       ulong alignment_padding_len = aligned_acc_data_len - acc_data_len;
 
       ulong data_len = acc_data_len;
       FD_STORE( ulong, serialized_params, data_len );
       serialized_params += sizeof(ulong);
+
+      /*
+        1. write account data and it's length. Afterward write max permitted 
+           data increase and alignment padding. We don't actually create new
+           regions like they do or anything like that. The realloc region being
+           writable is something I'm not sure about but it's not something we handle.
+        
+        In the case of direct mapping, we instead want to push_account_data_region
+        which creates region of memory based on the MemoryState which is predicated
+        on can the account data be changed or if it is shared (can_data_be_changed). 
+        Basically just push the account data buffer onto the thing. I think we just
+        need to do the checks but the rest should be the same.
+           
+
+        s.write::<u64>((borrowed_account.get_data().len() as u64).to_le());
+        let vm_data_addr = s.write_account(&mut borrowed_account)?;
+        s.write::<u64>((borrowed_account.get_rent_epoch()).to_le());
+        accounts_metadata.push(SerializedAccountMetadata {
+            original_data_len: borrowed_account.get_data().len(),
+            vm_key_addr,
+            vm_owner_addr,
+            vm_lamports_addr,
+            vm_data_addr,
+        });
+      */
+
+      if( !copy_account_data ) {
+        /* Conditional copy here?? TODO:FIXME: make sure do all of your checks here  */
+      }
 
       fd_memcpy( serialized_params, acc_data, acc_data_len);
       serialized_params += acc_data_len;
@@ -289,29 +322,51 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
 
         ulong pre_len = pre_lens[i];
 
+        ulong alignment_offset = fd_ulong_align_up( pre_len, FD_BPF_ALIGN_OF_U128 ) - pre_len;
         start += fd_ulong_align_up( pre_len, FD_BPF_ALIGN_OF_U128 );
 
-        int err;
-        if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, post_len, &err ) && 
-            fd_account_can_data_be_changed( ctx.instr, i, &err ) ) {
+        if( copy_account_data ) {
+          int err;
+          if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, post_len, &err ) && 
+              fd_account_can_data_be_changed( ctx.instr, i, &err ) ) {
 
-          int err = fd_account_set_data_length( &ctx, i, post_len );
-          if( FD_UNLIKELY( err ) ) {
+            // /* TODO:FIXME: THIS IS NOT RIGHT ACTUALLY */
+            // err = fd_account_set_data_length( &ctx, i, post_len );
+            // if( FD_UNLIKELY( err ) ) {
+              // return err;
+            // }
+
+            uchar * acc_data = NULL;
+            ulong   acc_dlen = 0UL;
+            err = fd_account_get_data_mut( &ctx, i, &acc_data, &acc_dlen );
+            if( FD_UNLIKELY( err ) ) {
+              return err;
+            }
+            fd_memcpy( acc_data, post_data, post_len );
+          } else if( view_acc->const_meta->dlen != post_len || 
+                    memcmp( view_acc->const_data, post_data, post_len ) ) {
+            FD_LOG_DEBUG(("Data resize failed"));
             return err;
           }
-
-          uchar * acc_data = NULL;
-          ulong   acc_dlen = 0UL;
-          err = fd_account_get_data_mut( &ctx, i, &acc_data, &acc_dlen );
-          if( FD_UNLIKELY( err ) ) {
-            return err;
+        } else {
+          start += FD_BPF_ALIGN_OF_U128 - alignment_offset;
+          int err;
+          if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, post_len, &err ) && 
+              fd_account_can_data_be_changed( ctx.instr, i, &err ) ) {
+            err = fd_account_set_data_length( &ctx, i, post_len );
+            ulong allocated_bytes = fd_ulong_sat_sub( post_len, pre_len );
+            if( allocated_bytes>0 ) {
+              uchar * acc_data = NULL;
+              ulong   acc_dlen = 0UL;
+              err = fd_account_get_data_mut( &ctx, i, &acc_data, &acc_dlen );
+              if( FD_UNLIKELY( err ) ) {
+                return err;
+              }
+              fd_memcpy( acc_data+pre_len, post_data, allocated_bytes );
+            }
           }
-          fd_memcpy( acc_data, post_data, post_len );
-        } else if( view_acc->const_meta->dlen != post_len || 
-                   memcmp( view_acc->const_data, post_data, post_len ) ) {
-          FD_LOG_DEBUG(("Data resize failed"));
-          return err;
-        }
+
+
 
       } else {
         start += fd_ulong_align_up( pre_lens[i], FD_BPF_ALIGN_OF_U128 );
