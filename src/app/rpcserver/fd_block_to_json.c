@@ -224,6 +224,15 @@ fd_txn_to_json_full( fd_textstream_t * ts,
     return NULL;
   }
 
+  if( encoding == FD_ENC_BASE58 ) {
+    EMIT_SIMPLE("\"transaction\":[\"");
+    if (fd_textstream_encode_base58(ts, raw, raw_sz)) {
+      return "failed to encode data in base58";
+    }
+    EMIT_SIMPLE("\",\"base58\"]");
+    return NULL;
+  }
+
   EMIT_SIMPLE("\"transaction\":{\"message\":{\"accountKeys\":[");
 
   ushort acct_cnt = txn->acct_addr_cnt;
