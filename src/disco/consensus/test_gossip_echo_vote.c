@@ -289,8 +289,8 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
       if( decode_result == FD_BINCODE_SUCCESS) {
         if  ( vote_instr.discriminant == fd_vote_instruction_enum_compact_update_vote_state ) {
           /* Replace the timestamp in compact_update_vote_state */
-          ulong old_timestamp = *vote_instr.inner.compact_update_vote_state.timestamp;
-          ulong new_timestamp = 19950128UL;
+          long old_timestamp = *vote_instr.inner.compact_update_vote_state.timestamp;
+          long new_timestamp = 19950128L;
           vote_instr.inner.compact_update_vote_state.timestamp = &new_timestamp;
 
           /* Generate the vote transaction */

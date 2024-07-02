@@ -697,7 +697,7 @@
       "type": "struct",
       "fields": [
         { "name": "slot", "type": "ulong" },
-        { "name": "timestamp", "type": "ulong" }
+        { "name": "timestamp", "type": "long" }
       ]
     },
     {
@@ -803,7 +803,7 @@
         { "name": "lockouts", "type": "deque", "element": "vote_lockout", "min": 32 },
         { "name": "root", "type": "option", "element": "ulong", "flat": true },
         { "name": "hash", "type": "hash" },
-        { "name": "timestamp", "type": "option", "element": "ulong" }
+        { "name": "timestamp", "type": "option", "element": "long" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185"
     },
@@ -814,7 +814,7 @@
           { "name": "root", "type": "ulong" },
           { "name": "lockouts", "type": "vector", "element": "lockout_offset", "modifier": "compact" },
           { "name": "hash", "type": "hash" },
-          { "name": "timestamp", "type": "option", "element": "ulong" }
+          { "name": "timestamp", "type": "option", "element": "long" }
       ]
     },
     {
@@ -833,7 +833,7 @@
         { "name": "root", "type": "ulong" },
         { "name": "lockout_offsets", "type": "deque", "element": "lockout_offset", "modifier": "compact" , "min": 32, "max": 100, "comment": "100 is the max packet length / sizeof(vote_lockout)" },
         { "name": "hash", "type": "hash" },
-        { "name": "timestamp", "type": "option", "element": "ulong", "flat": true },
+        { "name": "timestamp", "type": "option", "element": "long", "flat": true },
         { "name": "block_id", "type": "hash" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/20ee70cd1829cd414d09040460defecf9792a370/sdk/program/src/vote/state/mod.rs#L990"
@@ -847,7 +847,7 @@
         { "name": "lockouts_cnt", "type": "ulong" },
         { "name": "root", "type": "option", "element": "ulong", "flat": true },
         { "name": "hash", "type": "hash" },
-        { "name": "timestamp", "type": "option", "element": "ulong", "flat": true },
+        { "name": "timestamp", "type": "option", "element": "long", "flat": true },
         { "name": "block_id", "type": "hash" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185"
@@ -924,7 +924,7 @@
           { "name": "slot", "type": "ulong" },
           { "name": "consumed", "type": "ulong" },
           { "name": "received", "type": "ulong" },
-          { "name": "first_shred_timestamp", "type": "ulong" },
+          { "name": "first_shred_timestamp", "type": "long" },
           { "name": "last_index", "type": "ulong" },
           { "name": "parent_slot", "type": "ulong" },
           { "name": "next_slot", "type": "vector", "element": "ulong"},
@@ -1092,7 +1092,7 @@
       "fields": [
         { "name": "slots", "type": "deque", "element": "ulong" },
         { "name": "hash", "type": "hash" },
-        { "name": "timestamp", "type": "option", "element": "ulong" }
+        { "name": "timestamp", "type": "option", "element": "long" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L133"
     },
@@ -1357,7 +1357,7 @@
       "name": "lockup_checked_args",
       "type": "struct",
       "fields": [
-        { "name": "unix_timestamp", "type": "option", "element": "ulong" },
+        { "name": "unix_timestamp", "type": "option", "element": "long" },
         { "name": "epoch", "type": "option", "element": "ulong" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L235"
@@ -1366,7 +1366,7 @@
       "name": "lockup_args",
       "type": "struct",
       "fields": [
-        { "name": "unix_timestamp", "type": "option", "element": "ulong" },
+        { "name": "unix_timestamp", "type": "option", "element": "long" },
         { "name": "epoch", "type": "option", "element": "ulong" },
         { "name": "custodian", "type": "option", "element": "pubkey" }
       ],
@@ -1882,7 +1882,7 @@
       "fields": [
         { "name": "from", "type": "pubkey" },
         { "name": "wallclock", "type": "ulong" },
-        { "name": "timestamp", "type": "ulong" },
+        { "name": "timestamp", "type": "long" },
         { "name": "token", "type": "ulong" }
       ]
     },
@@ -2057,7 +2057,7 @@
         { "name": "signature", "type": "signature" },
         { "name": "sender", "type": "pubkey" },
         { "name": "recipient", "type": "pubkey" },
-        { "name": "timestamp", "type": "ulong" },
+        { "name": "timestamp", "type": "long" },
         { "name": "nonce", "type": "uint" }
       ]
     },

@@ -52,7 +52,7 @@
 #define ACCOUNTS_MAX 4 /* Vote instructions take in at most 4 accounts */
 
 #define DEFAULT_COMPUTE_UNITS 2100UL
-
+extern fd_flamenco_yaml_t * fd_get_types_yaml(void);
 /**********************************************************************/
 /* size_of                                                            */
 /**********************************************************************/
@@ -744,11 +744,11 @@ set_new_authorized_voter( fd_vote_state_t *                          self,
   return 0;
 }
 
-// https://github.com/firedancer-io/solana/blob/debug-master/sdk/program/src/vote/state/mod.rs#L628
+// https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/program/src/vote/state/mod.rs#L869
 static int
 process_timestamp( fd_vote_state_t *           self,
                    ulong                       slot,
-                   ulong                       timestamp,
+                   long                        timestamp,
                    fd_exec_instr_ctx_t const * ctx ) {
   if( FD_UNLIKELY(
           ( slot < self->last_timestamp.slot || timestamp < self->last_timestamp.timestamp ) ||
@@ -1178,7 +1178,7 @@ process_new_vote_state( fd_vote_state_t *           vote_state,
                         fd_landed_vote_t *          new_state,
                         int                         has_new_root,
                         ulong                       new_root,
-                        ulong *                     timestamp,
+                        long *                      timestamp,
                         ulong                       epoch,
                         ulong                       current_slot,
                         fd_exec_instr_ctx_t const * ctx /* feature_set */ ) {
@@ -2066,7 +2066,7 @@ fd_vote_decode_compact_update( fd_compact_vote_state_update_t * compact_update,
 void
 fd_vote_record_timestamp_vote( fd_exec_slot_ctx_t * slot_ctx,
                                fd_pubkey_t const *  vote_acc,
-                               ulong                timestamp ) {
+                               long                 timestamp ) {
   fd_vote_record_timestamp_vote_with_slot(
       slot_ctx, vote_acc, timestamp, slot_ctx->slot_bank.slot );
 }
@@ -2074,7 +2074,7 @@ fd_vote_record_timestamp_vote( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_vote_record_timestamp_vote_with_slot( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_pubkey_t const *  vote_acc,
-                                         ulong                timestamp,
+                                         long                 timestamp,
                                          ulong                slot ) {
   fd_clock_timestamp_vote_t_mapnode_t * root = slot_ctx->slot_bank.timestamp_votes.votes_root;
   fd_clock_timestamp_vote_t_mapnode_t * pool = slot_ctx->slot_bank.timestamp_votes.votes_pool;
@@ -2538,7 +2538,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
    * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/instruction.rs#L73-L80
    *
    * Processor:
-   * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L164-L180
+   * https://github.com/anza-xyz/agave/blob/v2.0.0/programs/vote/src/vote_processor.rs#L154
    */
   case fd_vote_instruction_enum_vote_switch: {
     fd_vote_t * vote;
@@ -2550,12 +2550,12 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
       __builtin_unreachable();
     }
 
-    // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L165-L169
+    // https://github.com/anza-xyz/agave/blob/v2.0.0/programs/vote/src/vote_processor.rs#L155
     int err;
     fd_slot_hashes_t const * slot_hashes = fd_sysvar_from_instr_acct_slot_hashes( &ctx, 1, &err );
     if( FD_UNLIKELY( !slot_hashes ) ) return err;
 
-    // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L170-L171
+    // https://github.com/anza-xyz/agave/blob/v2.0.0/programs/vote/src/vote_processor.rs#L157
     fd_sol_sysvar_clock_t const * clock = fd_sysvar_from_instr_acct_clock( &ctx, 2, &err );
     if( FD_UNLIKELY( !clock ) ) return err;
 

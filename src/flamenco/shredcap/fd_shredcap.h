@@ -18,7 +18,7 @@
    for testing and replay. fd_shredcap allows for replay for a given range of
    blocks.
 
-   Each ingest command will generate a directory of file(s) that each contain a 
+   Each ingest command will generate a directory of file(s) that each contain a
    block range as described above. In addition to this, an manifest file will be
    generated which will allow for fast lookup for file ranges. The format for
    the manifest and for each shredcap capture file is as follows:
@@ -50,7 +50,7 @@
    | Slot Related Metadata           |
    | Padding                         |
    |---------------------------------|
-   |////// Start of Slot Payload ////| 
+   |////// Start of Slot Payload ////|
    |---------------------------------|
    |**** Shred Header ***************|
    | Shred Size                      |
@@ -60,7 +60,7 @@
    |---------------------------------|
    |////// All Shreds In Slot ///////|
    |---------------------------------|
-   |////// End of Slot Payload //////| 
+   |////// End of Slot Payload //////|
    |---------------------------------|
    |**** Slot Footer ****************|
    | Magic + Payload Size            |
@@ -148,13 +148,13 @@ typedef struct fd_shredcap_file_cap_V1 fd_shredcap_file_ftr_t;
 #define FD_SHREDCAP_SLOT_HDR_PAYLOAD_SZ_OFFSET_V1 (12UL)
 #define FD_SHREDCAP_SLOT_HDR_PAYLOAD_SZ_OFFSET    (FD_SHREDCAP_SLOT_HDR_PAYLOAD_SZ_OFFSET_V1)
 struct __attribute__((packed,aligned(FD_SHREDCAP_ALIGN))) fd_shredcap_slot_hdr_V1 {
-  ulong magic; 
+  ulong magic;
   uint  version;
   ulong payload_sz;
   ulong slot;
   ulong consumed;
   ulong received;
-  ulong first_shred_timestamp;
+  long  first_shred_timestamp;
   ulong last_index;
   ulong parent_slot;
 };
@@ -171,7 +171,7 @@ struct __attribute((packed,aligned(FD_SHREDCAP_ALIGN))) fd_shredcap_slot_ftr_V1 
 typedef struct fd_shredcap_slot_ftr_V1 fd_shredcap_slot_ftr_t;
 
 /***************************** Shreds *****************************************/
-/* 1228 is the max shred sz and the footprint for the shred header is 8. For the 
+/* 1228 is the max shred sz and the footprint for the shred header is 8. For the
    total shred to have an alignment of FD_SHREDCAP_ALIGN the max footprint must
    be align_up( 1228 + 8, 16 ) == 1248 */
 #define FD_SHREDCAP_SHRED_MAX (1248U)
@@ -212,12 +212,12 @@ struct __attribute__((packed,aligned(FD_SHREDCAP_ALIGN))) fd_shredcap_bank_hash_
   ulong     slot;
   fd_hash_t bank_hash;
 };
-typedef struct fd_shredcap_bank_hash_entry_V1 fd_shredcap_bank_hash_entry_t; 
+typedef struct fd_shredcap_bank_hash_entry_V1 fd_shredcap_bank_hash_entry_t;
 
 /******************************************************************************/
 
-/* To account for the max possible size it could take to write a block, the case 
-   where there there are the max number of shreds per block in addition to each 
+/* To account for the max possible size it could take to write a block, the case
+   where there there are the max number of shreds per block in addition to each
    shred being as large as possible. The block header and footer also need to be
    added to this footprint. */
 #define FD_SHREDCAP_MAX_BLOCK_STORAGE_FOOTPRINT (((1 << 15UL) * FD_SHREDCAP_SHRED_MAX) + \
@@ -225,7 +225,7 @@ typedef struct fd_shredcap_bank_hash_entry_V1 fd_shredcap_bank_hash_entry_t;
                                                    FD_SHREDCAP_SLOT_FTR_FOOTPRINT)
 
 /* Take in rocksdb path and output shredcap capture to specified capture_dir.
-   The resulting directory will include a manifest, bank_hash file, and the 
+   The resulting directory will include a manifest, bank_hash file, and the
    set of capture files  */
 void fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
                                               const char * capture_dir,
@@ -243,7 +243,7 @@ void fd_shredcap_manifest_seek_range( const char * capture_dir,
                                       ulong * end_file_idx,
                                       int * manifest_fd );
 
-/* Iterate through the bank hash file return the first/last slot as well as 
+/* Iterate through the bank hash file return the first/last slot as well as
    their indicies based on the slot range [start_slot, end_slot]*/
 void fd_shredcap_bank_hash_seek_first( const char * capture_dir,
                                        char * bank_hash_buf,
@@ -253,15 +253,15 @@ void fd_shredcap_bank_hash_seek_first( const char * capture_dir,
                                        int * bank_hash_fd );
 
 /* Verify manifest, capture files, bank hash file. This is an in depth check
-   that can be done standalone or on top of any other shredcap operation. It 
+   that can be done standalone or on top of any other shredcap operation. It
    checks that the file format specification is followed in addition to checking
    for validity of slots. */
 void fd_shredcap_verify( const char * capture_dir, fd_blockstore_t * blockstore );
 
 /* Populate a blockstore will blocks from a given range from a shredcap capture. */
-void fd_shredcap_populate_blockstore( const char * capture_dir, 
-                                        fd_blockstore_t * blockstore, 
-                                        ulong start_slot, 
+void fd_shredcap_populate_blockstore( const char * capture_dir,
+                                        fd_blockstore_t * blockstore,
+                                        ulong start_slot,
                                         ulong end_slot );
 
 #endif // HEADER_fd_src_app_fdshredcap_fdshredcap_h
