@@ -169,6 +169,14 @@ fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                ulong max_workers );
 
 int
+fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                                fd_capture_ctx_t * capture_ctx,
+                                fd_execute_txn_task_info_t * task_info,
+                                ulong txn_cnt,
+                                fd_tpool_t * tpool,
+                                ulong max_workers );
+
+int
 fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_capture_ctx_t * capture_ctx,
                                          fd_block_info_t const * block_info,

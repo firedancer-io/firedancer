@@ -120,7 +120,7 @@ fd_double_is_normal( double dbl ) {
 
 static void
 _txn_collect_rent( fd_exec_txn_ctx_t * txn_ctx ) {
-  /* Copied from fd_runtime_collect_rent. Requires some modifications since we don't insert records into funk */
+  /* Copied from fd_runtime_collect_rent. Requires some modifications from fd_runtime_collect_rent */
   fd_exec_slot_ctx_t * slot_ctx = txn_ctx->slot_ctx;
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
@@ -147,6 +147,26 @@ _txn_collect_rent( fd_exec_txn_ctx_t * txn_ctx ) {
       fd_runtime_collect_rent_account(slot_ctx, acc->meta, acc->pubkey, epoch);
     }
   }
+}
+
+static void
+_txn_finalize( fd_exec_txn_ctx_t * txn_ctx, int exec_res ) {
+  // Release write lock to allow finalize to write into funk
+  fd_funk_end_write( txn_ctx->acc_mgr->funk );
+
+  fd_execute_txn_task_info_t task_info[1]; memset( task_info, 0, sizeof(fd_execute_txn_task_info_t) );
+  task_info->exec_res = exec_res;
+  task_info->txn_ctx = txn_ctx;
+
+  fd_txn_p_t txn[1];
+  task_info->txn = txn;
+  txn->flags = 1;
+
+  fd_tpool_t tpool[1];
+  tpool->worker_cnt = 1;
+  tpool->worker_max = 1;
+  
+  fd_runtime_finalize_txns_tpool( txn_ctx->slot_ctx, NULL, task_info, 1, tpool, 1 );
 }
 
 static int
@@ -1271,26 +1291,29 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
                       fd_exec_test_txn_result_t **         output,
                       void *                               output_buf,
                       ulong                                output_bufsz ) {
-  fd_exec_txn_ctx_t txn_ctx[1];
+  fd_exec_txn_ctx_t * txn_ctx = fd_valloc_malloc( fd_libc_alloc_virtual(), FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   if( !_txn_context_create( runner, txn_ctx, input ) ) {
     // TODO: Implement this
     // _txn_context_destroy( runner, txn_ctx );
     return 0UL;
   }
 
+  /* Save pointers before txn_ctx gets deallocated */
+  fd_funk_txn_t * funk_txn = txn_ctx->funk_txn;
+  fd_acc_mgr_t * acc_mgr = txn_ctx->slot_ctx->acc_mgr;
+
   /* Execute txn */
-  int exec_res = fd_execute_txn(txn_ctx);
+  int exec_res = fd_execute_txn( txn_ctx );
 
   /* Collect rent */
   _txn_collect_rent( txn_ctx );
 
-  /* Allocate space to capture outputs */
-
-  ulong output_end = (ulong)output_buf + output_bufsz;
+  /* Start saving txn exec results */
   FD_SCRATCH_ALLOC_INIT( l, output_buf );
+  ulong output_end = (ulong)output_buf + output_bufsz;
 
   fd_exec_test_txn_result_t * txn_result =
-    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_txn_result_t),
+  FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_txn_result_t),
                                 sizeof (fd_exec_test_txn_result_t) );
   if( FD_UNLIKELY( _l > output_end ) ) {
     // _txn_context_destroy( runner, txn_ctx );
@@ -1299,13 +1322,28 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
   fd_memset( txn_result, 0, sizeof(fd_exec_test_txn_result_t) );
 
   txn_result->executed = 1;
+  txn_result->rent = txn_ctx->slot_ctx->slot_bank.collected_rent;
+  txn_result->is_ok = !exec_res;
+  txn_result->status = (uint32_t) -exec_res;
+  txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
+                                  PB_BYTES_ARRAY_T_ALLOCSIZE( txn_ctx->return_data.len ) );
+  if( FD_UNLIKELY( _l > output_end ) ) {
+    // _txn_context_destroy( runner, txn_ctx );
+    return 0UL;
+  }
+
+  txn_result->return_data->size = (pb_size_t)txn_ctx->return_data.len;
+  fd_memcpy( txn_result->return_data->bytes, txn_ctx->return_data.data, txn_ctx->return_data.len );
+
+  /* Finalize transaction
+     This function commits any necessary changes into funk. 
+     It also frees the txn ctx */
+  _txn_finalize( txn_ctx, exec_res );
 
   /* Allocate space for captured accounts */
 
   fd_funk_t *     funk     = runner->funk;
-  fd_funk_txn_t * funk_txn = txn_ctx->funk_txn;
-
-  ulong modified_acct_cnt = txn_ctx->accounts_cnt;
+  ulong modified_acct_cnt  = input->tx.message.account_keys_count;
 
   fd_exec_test_acct_state_t * modified_accts =
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t),
@@ -1321,10 +1359,13 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
   // TODO: txn_result->resulting_state->rent_debits
   
   /* Capture borrowed accounts */
+  fd_funk_start_write( funk );
 
-  for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
-    fd_borrowed_account_t * acc = &txn_ctx->borrowed_accounts[j];
-    if( !acc->const_meta ) continue;
+  for( ulong j=0UL; j < modified_acct_cnt; j++ ) {
+    fd_pubkey_t acc_key[1]; memcpy( acc_key, input->tx.message.account_keys[j]->bytes, sizeof(fd_pubkey_t) );
+    FD_BORROWED_ACCOUNT_DECL( acc );
+    int err = fd_acc_mgr_view( acc_mgr, funk_txn, acc_key, acc );
+    if( err ) continue;
 
     ulong modified_idx = txn_result->resulting_state.acct_states_count;
     assert( modified_idx < modified_acct_cnt );
@@ -1361,18 +1402,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
     fd_funk_rec_t * rec = fd_funk_rec_modify( funk, rec_ );
     fd_funk_rec_remove( funk, rec, 1 );
   }
-
-  txn_result->rent = txn_ctx->slot_ctx->slot_bank.collected_rent;
-  txn_result->is_ok = !exec_res;
-  txn_result->status = (uint32_t) -exec_res;
-  txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                  PB_BYTES_ARRAY_T_ALLOCSIZE( txn_ctx->return_data.len ) );
-  if( FD_UNLIKELY( _l > output_end ) ) {
-    // _txn_context_destroy( runner, txn_ctx );
-    return 0UL;
-  }
-  txn_result->return_data->size = (pb_size_t)txn_ctx->return_data.len;
-  fd_memcpy( txn_result->return_data->bytes, txn_ctx->return_data.data, txn_ctx->return_data.len );
+  fd_funk_end_write( funk );
 
   txn_result->executed_units = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
   // txn_result->accounts_data_len_delta = ...
