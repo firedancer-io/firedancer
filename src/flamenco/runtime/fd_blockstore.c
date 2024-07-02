@@ -535,27 +535,27 @@ fd_blockstore_clear( fd_blockstore_t * blockstore ) {
 }
 
 /* Publish root to the blockstore and prune the blockstore. Removes all slots
-   whose subtree is not on the path of root_slot. */
+   whose subtree is not in the ancestry beginning from new_root_slot. */
 int
 fd_blockstore_publish( fd_blockstore_t * blockstore, ulong new_root_slot ) {
   long  prune_time_ns    = -fd_log_wallclock();
   ulong pruned_slot_cnt  = 0UL;
   ulong scanned_slot_cnt = 0UL;
   fd_wksp_t * wksp       = fd_blockstore_wksp( blockstore );
-
-  /* If root is */
-  if( blockstore->root==0 ) {
+  
+  /* If root is 0, then it was the genesis slot. */
+  if( FD_UNLIKELY ( blockstore->root == 0 ) ) {
     blockstore->root = new_root_slot;
     return FD_BLOCKSTORE_OK;
   }
 
   /* If the root slot is at the current root, do not delete anything. */
-  if( new_root_slot==blockstore->root ) {
+  if( FD_UNLIKELY ( new_root_slot == blockstore->root ) ) {
     return FD_BLOCKSTORE_OK;
   }
 
   /* If the new root is behind the current root, this is an invariant violation. */
-  if( blockstore->root>new_root_slot ) {
+  if( blockstore->root > new_root_slot ) {
     FD_LOG_ERR(( "new root is behind current root - new_root_slot: %lu, curr_root_slot: %lu",
         new_root_slot, blockstore->root ));
   }

@@ -756,7 +756,7 @@ fd_actives_shuffle( fd_repair_t * repair ) {
          latency. */
       fd_latency_sort_inplace( latencies, latencies_cnt );
       first_quartile_latency = latencies[ latencies_cnt / 4UL ];
-      FD_LOG_WARNING(( "repair peers first quartile latency - latency: %6.6f ms", (double)first_quartile_latency * 1e-6 ));
+      FD_LOG_NOTICE(( "repair peers first quartile latency - latency: %6.6f ms", (double)first_quartile_latency * 1e-6 ));
     }
 
     /* select an upper bound */

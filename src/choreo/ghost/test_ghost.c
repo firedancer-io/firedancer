@@ -106,7 +106,7 @@ test_ghost_publish_left( fd_wksp_t * wksp ) {
   FD_TEST( node2 );
 
   fd_ghost_print( ghost, FD_SLOT_NULL, 0, 0 );
-  fd_ghost_publish( ghost, node2 );
+  fd_ghost_publish( ghost, key2 );
   FD_TEST( ghost->root->slot == 2 );
   FD_TEST( ghost->root->child->slot == 4 );
   FD_TEST( fd_ghost_node_pool_free( ghost->node_pool ) == node_max - 2 );
@@ -165,7 +165,7 @@ test_ghost_publish_right( fd_wksp_t * wksp ) {
   FD_TEST( node3 );
 
   fd_ghost_print( ghost, FD_SLOT_NULL, 0, 0 );
-  fd_ghost_publish( ghost, node3 );
+  fd_ghost_publish( ghost, key3 );
   FD_TEST( ghost->root->slot == 3 );
   FD_TEST( ghost->root->child->slot == 5 );
   FD_TEST( ghost->root->child->child->slot == 6 );

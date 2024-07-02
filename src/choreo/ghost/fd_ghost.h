@@ -131,12 +131,12 @@ fd_ghost_footprint( ulong node_max, ulong vote_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof( fd_ghost_t ),      sizeof( fd_ghost_t ) ),
+      alignof(fd_ghost_t),        sizeof(fd_ghost_t) ),
       fd_ghost_node_pool_align(), fd_ghost_node_pool_footprint( node_max ) ),
       fd_ghost_node_map_align(),  fd_ghost_node_map_footprint( node_max ) ),
       fd_ghost_vote_pool_align(), fd_ghost_vote_pool_footprint( vote_max ) ),
       fd_ghost_vote_map_align(),  fd_ghost_vote_map_footprint( vote_max ) ),
-    alignof( fd_ghost_t ) );
+    alignof(fd_ghost_t) );
 }
 /* clang-format on */
 
@@ -180,7 +180,7 @@ fd_ghost_delete( void * ghost );
    genesis slot.
 
    In general, this should be called by the same process that formatted
-   tower's memory, ie. the caller of fd_tower_new. */
+   ghost's memory, ie. the caller of fd_ghost_new. */
 
 void
 fd_ghost_init( fd_ghost_t * ghost, ulong root );
@@ -190,6 +190,11 @@ fd_ghost_init( fd_ghost_t * ghost, ulong root );
 
 fd_ghost_node_t *
 fd_ghost_head_query( fd_ghost_t * ghost );
+
+/* fd_ghost_head_query_const is the const version of the above. */
+
+fd_ghost_node_t const *
+fd_ghost_head_query_const( fd_ghost_t const * ghost );
 
 /* fd_ghost_leaf_insert inserts a new leaf node with key into the ghost,
    with parent_slot_hash optionally specified.  The caller promises
@@ -204,6 +209,12 @@ fd_ghost_node_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot );
 fd_ghost_node_t *
 fd_ghost_node_query( fd_ghost_t * ghost, ulong slot );
 
+/* fd_ghost_node_query_const is the const version of
+   fd_ghost_node_query. */
+
+fd_ghost_node_t const *
+fd_ghost_node_query_const( fd_ghost_t const * ghost, ulong slot );
+
 /* fd_ghost_replay_vote_upsert inserts a replay vote into ghost.
 
    The stake associated with pubkey is added to the ancestry chain
@@ -216,7 +227,10 @@ fd_ghost_node_query( fd_ghost_t * ghost, ulong slot );
    bounded to O(h), where h is the height of ghost. */
 
 void
-fd_ghost_replay_vote_upsert( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey, ulong stake );
+fd_ghost_replay_vote_upsert( fd_ghost_t *        ghost,
+                             ulong               slot,
+                             fd_pubkey_t const * pubkey,
+                             ulong               stake );
 
 /* fd_ghost_gossip_vote_upsert inserts a gossip vote into ghost.
 
@@ -225,12 +239,26 @@ fd_ghost_replay_vote_upsert( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const *
    towards slot_hash itself. */
 
 void
-fd_ghost_gossip_vote_upsert( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey, ulong stake );
+fd_ghost_gossip_vote_upsert( fd_ghost_t *        ghost,
+                             ulong               slot,
+                             fd_pubkey_t const * pubkey,
+                             ulong               stake );
 
-/* fd_ghost_publish publishes the subtree at root as the new ghost tree,
-   pruning all nodes prior to root. */
-void
-fd_ghost_publish( fd_ghost_t * ghost, fd_ghost_node_t * root );
+/* fd_ghost_publish publishes slot as the new ghost root, promoting the
+   subtree beginning from root to the new ghost tree.  Prunes all nodes
+   not in slot's ancestry.  Assumes slot is present in ghost.  Returns
+   the new root. */
+
+fd_ghost_node_t *
+fd_ghost_publish( fd_ghost_t * ghost, ulong slot );
+
+/* fd_ghost_is_ancestor checks if ancestor_slot is in fact an ancestor
+   of slot.  Returns 1 if true, 0 otherwise.  Assumes slot is present in
+   ghost (does not assume the same for ancestor_slot but warns when
+   handholding is enabled). */
+
+int
+fd_ghost_is_ancestor( fd_ghost_t const * ghost, ulong ancestor_slot, ulong slot );
 
 /* fd_ghost_print pretty-prints a formatted ghost tree.  start controls
    which node to begin printing from.  depth controls how many
@@ -242,7 +270,7 @@ fd_ghost_publish( fd_ghost_t * ghost, fd_ghost_node_t * root );
    In that case, ghost would begin printing from the root without
    percentages (not recommended because the output will be difficult
    to read).
-   
+
    Typical usage is to pass in the most recently executed slot hash for
    start, so that start is always in a leaf position, and pick an
    appropriate depth for visualization (FD_GHOST_PRINT_DEPTH_DEFAULT

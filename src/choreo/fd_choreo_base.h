@@ -1,22 +1,42 @@
 #ifndef HEADER_fd_src_choreo_fd_choreo_base_h
 #define HEADER_fd_src_choreo_fd_choreo_base_h
 
-/* Choreo is the consensus library.
+/* Choreo consensus library:
 
-  - bft: wires it all together.
-  - eqv: equivocation (also called "duplicate block") handling.
-  - forks: data structures and associated functions to manage "forks", ie. competing views in the
-  canonical state of the blockchain.
-  - ghost: fork choice rule, ie. which fork is the best one that I should pick.
-  - tower: TowerBFT rules for reaching consensus by "finalizing" blocks, ie. you
-    can no longer rollback a block or switch to a different fork.
+  - eqvoc: Equivocation (aka. "duplicate block") handling.
 
-    Includes threshold check and switch proof.
+  - forks: Maintains the frontier of forks (banks) that the validator
+           can vote for and build blocks from.
 
-    Note this is the TowerBFT implementation on the local ("self") side. The Vote Program is the
-    TowerBFT implementation for the cluster ("others") side. In other words, the local validator
-    runs through these rules before submitting the vote. The other validators in the cluster then
-    process the submitted vote using the Vote Program. */
+  - ghost: Fork choice rule, ie. which fork is the best one. Necessary
+           but insufficient for consensus.
+
+  - tower: Additional consensus rules layered on top of fork choice
+           determining where and when you can vote ("where" being wrt.
+           to the different forks and "when" being wrt. to the current
+           slot time ie. PoH). TowerBFT is the name of the algorithm for
+           making these decisions.
+
+           What's the difference between this and the Vote Program?
+
+           The Tower module is on the sending side. It implements the
+           full set of TowerBFT rules. Tower has a view of all forks,
+           and the validator makes a voting decision based on all forks.
+
+           The Vote Program is on the receiving side. It checks that
+           invariants about TowerBFT are maintained on votes received
+           from the cluster. These checks are comparatively superficial
+           to all the rules in Tower. Furthermore, given it is a native
+           program, the Vote Program only has access to the limited
+           state programs are subject to. Specifically, it only has a
+           view of the current fork it is executing on. It can't
+           determine things like how much stake is allocated to other
+           forks.
+
+  - voter: Tooling for actually sending out vote transactions to the
+           cluster.
+
+  */
 
 #include "../flamenco/fd_flamenco_base.h"
 #include "../flamenco/types/fd_types.h"
