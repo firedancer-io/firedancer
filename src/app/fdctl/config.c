@@ -64,11 +64,11 @@ fdctl_cfg_load_buf( config_t *   out,
   uchar scratch[ 4096 ];
   long toml_err = fd_toml_parse( buf, sz, pod, scratch, sizeof(scratch) );
   if( FD_UNLIKELY( toml_err!=FD_TOML_SUCCESS ) ) {
-    FD_LOG_ERR(( "Invalid config (%s) at line %lu", path, toml_err ));
+    FD_LOG_ERR(( "Invalid config (%s)", path ));
   }
 
   if( FD_UNLIKELY( !fdctl_pod_to_cfg( out, pod ) ) ) {
-    FD_LOG_ERR(( "Invalid config" ));
+    FD_LOG_ERR(( "Invalid config (%s)", path ));
   }
 
   fd_pod_delete( fd_pod_leave( pod ) );
