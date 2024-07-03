@@ -359,10 +359,12 @@ fd_vm_init(
    ulong entry_pc,
    ulong * calldests,
    fd_sbpf_syscalls_t * syscalls,
-   uchar * input,
-   ulong input_sz,
    fd_vm_trace_t * trace,
-   fd_sha256_t * sha ) {
+   fd_sha256_t * sha,
+   fd_vm_input_region_t * mem_regions,
+   uint mem_regions_cnt,
+   fd_vm_acc_region_meta_t * acc_region_metas,
+   uchar is_deprecated ) {
 
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_WARNING(( "NULL vm" ));
@@ -397,10 +399,12 @@ fd_vm_init(
   vm->entry_pc = entry_pc;
   vm->calldests = calldests;
   vm->syscalls = syscalls;
-  vm->input = input;
-  vm->input_sz = input_sz;
   vm->trace = trace;
   vm->sha = sha;
+  vm->input_mem_regions = mem_regions;
+  vm->input_mem_regions_cnt = mem_regions_cnt;
+  vm->acc_region_metas = acc_region_metas;
+  vm->is_deprecated = is_deprecated;
 
   /* Unpack the configuration */
   int err = fd_vm_setup_state_for_execution( vm );

@@ -85,23 +85,25 @@ main( int     argc,
   FD_TEST( vm );
 
   int vm_ok = !!fd_vm_init(
-      /* vm        */ vm,
-      /* instr_ctx */ &instr_ctx,  /* required for FD_FEATURE_ACTIVE */
-      /* heap_max  */ FD_VM_HEAP_DEFAULT,
-      /* entry_cu  */ FD_VM_COMPUTE_UNIT_LIMIT,
-      /* rodata    */ rodata,
-      /* rodata_sz */ rodata_sz,
-      /* text      */ NULL,
-      /* text_cnt  */ 0UL,
-      /* text_off  */ 0UL,
-      /* text_sz   */ 0UL,
-      /* entry_pc  */ 0UL,
-      /* calldests */ NULL,
-      /* syscalls  */ NULL,
-      /* input     */ NULL,
-      /* input_sz  */ 0UL,
-      /* trace     */ NULL,
-      /* sha       */ sha
+      /* vm               */ vm,
+      /* instr_ctx        */ &instr_ctx,  /* required for FD_FEATURE_ACTIVE */
+      /* heap_max         */ FD_VM_HEAP_DEFAULT,
+      /* entry_cu         */ FD_VM_COMPUTE_UNIT_LIMIT,
+      /* rodata           */ rodata,
+      /* rodata_sz        */ rodata_sz,
+      /* text             */ NULL,
+      /* text_cnt         */ 0UL,
+      /* text_off         */ 0UL,
+      /* text_sz          */ 0UL,
+      /* entry_pc         */ 0UL,
+      /* calldests        */ NULL,
+      /* syscalls         */ NULL,
+      /* trace            */ NULL,
+      /* sha              */ sha,
+      /* mem_regions      */ NULL,
+      /* mem_regions_cnt  */ 0UL,
+      /* mem_regions_accs */ NULL,
+      /* is_deprecated    */ 0
   );
   FD_TEST( vm_ok );
 

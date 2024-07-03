@@ -198,23 +198,25 @@ deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
 
   vm = fd_vm_init(
-    /* vm        */ vm,
-    /* instr_ctx */ instr_ctx,
-    /* heap_max  */ instr_ctx->txn_ctx->heap_size,
-    /* entry_cu  */ instr_ctx->txn_ctx->compute_meter,
-    /* rodata    */ prog->rodata,
-    /* rodata_sz */ prog->rodata_sz,
-    /* text      */ prog->text,
-    /* text_cnt  */ prog->text_cnt,
-    /* text_off  */ prog->text_off, /* FIXME: What if text_off is not multiple of 8 */
-    /* text_sz   */ prog->text_sz,
-    /* entry_pc  */ prog->entry_pc,
-    /* calldests */ prog->calldests,
-    /* syscalls  */ syscalls,
-    /* input     */ NULL,
-    /* input_sz  */ 0,
-    /* trace     */ NULL,
-    /* sha       */ NULL);
+    /* vm              */ vm,
+    /* instr_ctx       */ instr_ctx,
+    /* heap_max        */ instr_ctx->txn_ctx->heap_size,
+    /* entry_cu        */ instr_ctx->txn_ctx->compute_meter,
+    /* rodata          */ prog->rodata,
+    /* rodata_sz       */ prog->rodata_sz,
+    /* text            */ prog->text,
+    /* text_cnt        */ prog->text_cnt,
+    /* text_off        */ prog->text_off, /* FIXME: What if text_off is not multiple of 8 */
+    /* text_sz         */ prog->text_sz,
+    /* entry_pc        */ prog->entry_pc,
+    /* calldests       */ prog->calldests,
+    /* syscalls        */ syscalls,
+    /* trace           */ NULL,
+    /* sha             */ NULL,
+    /* mem_regions     */ NULL,
+    /* mem_regions_cnt */ 0,
+    /* mem_region_accs */ NULL,
+    /* is_deprecated   */ 0 );
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_ERR(( "NULL vm" ));
   }
@@ -376,9 +378,15 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
   fd_vm_syscall_register_all( syscalls, 0 );
 
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1362-L1368 */
-  ulong input_sz = 0;
-  ulong pre_lens[ 256UL ];
-  uchar * input = fd_bpf_loader_input_serialize_aligned( *instr_ctx, &input_sz, pre_lens );
+  ulong                   input_sz                = 0UL;
+  ulong                   pre_lens[256]           = {0};
+  fd_vm_input_region_t    input_mem_regions[1000] = {0}; /* We can have a max of (3 * num accounts + 1) regions */
+  fd_vm_acc_region_meta_t acc_region_metas[256]   = {0}; /* instr acc idx to idx */
+  uint                    input_mem_regions_cnt   = 0U;
+  int                     direct_mapping          = FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping );
+  uchar * input = fd_bpf_loader_input_serialize_aligned( *instr_ctx, &input_sz, pre_lens, 
+                                                         input_mem_regions, &input_mem_regions_cnt, 
+                                                         acc_region_metas, !direct_mapping );
   if( FD_UNLIKELY( input==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
@@ -393,23 +401,25 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
 
   /* TODO: (topointon): correctly set check_align and check_size in vm setup */
   vm = fd_vm_init(
-    /* vm        */ vm,
-    /* instr_ctx */ instr_ctx,
-    /* heap_max  */ instr_ctx->txn_ctx->heap_size, /* TODO configure heap allocator */
-    /* entry_cu  */ instr_ctx->txn_ctx->compute_meter,
-    /* rodata    */ fd_sbpf_validated_program_rodata( prog ),
-    /* rodata_sz */ prog->rodata_sz,
-    /* text      */ (ulong *)((ulong)fd_sbpf_validated_program_rodata( prog ) + (ulong)prog->text_off), /* Note: text_off is byte offset */
-    /* text_cnt  */ prog->text_cnt,
-    /* text_off  */ prog->text_off,
-    /* text_sz   */ prog->text_sz,
-    /* entry_pc  */ prog->entry_pc,
-    /* calldests */ prog->calldests,
-    /* syscalls  */ syscalls,
-    /* input     */ input,
-    /* input_sz  */ input_sz,
-    /* trace     */ NULL,
-    /* sha       */ sha);
+    /* vm                    */ vm,
+    /* instr_ctx             */ instr_ctx,
+    /* heap_max              */ instr_ctx->txn_ctx->heap_size, /* TODO configure heap allocator */
+    /* entry_cu              */ instr_ctx->txn_ctx->compute_meter,
+    /* rodata                */ fd_sbpf_validated_program_rodata( prog ),
+    /* rodata_sz             */ prog->rodata_sz,
+    /* text                  */ (ulong *)((ulong)fd_sbpf_validated_program_rodata( prog ) + (ulong)prog->text_off), /* Note: text_off is byte offset */
+    /* text_cnt              */ prog->text_cnt,
+    /* text_off              */ prog->text_off,
+    /* text_sz               */ prog->text_sz,
+    /* entry_pc              */ prog->entry_pc,
+    /* calldests             */ prog->calldests,
+    /* syscalls              */ syscalls,
+    /* trace                 */ NULL,
+    /* sha                   */ sha, 
+    /* input_mem_regions     */ input_mem_regions,
+    /* input_mem_regions_cnt */ input_mem_regions_cnt,
+    /* acc_region_metas      */ acc_region_metas,
+    /* is_deprecated         */ (uchar)false );
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_ERR(( "null vm" ));
   }
@@ -418,7 +428,7 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
   uchar * signature = (uchar*)vm->instr_ctx->txn_ctx->_txn_raw->raw + vm->instr_ctx->txn_ctx->txn_descriptor->signature_off;
   uchar sig[64];
   /* TODO (topointon): make this run-time configurable, no need for this ifdef */
-  fd_base58_decode_64( "LKBxtETTpyVDbW1kT5fFucSpmdPoXfKW8QUxdzE8ggwCaXayByPbceQA6KwqGy2WNh89aAG3r2Qjm9VNY9FPtw9", sig );
+  fd_base58_decode_64( "tkacc4VCh2z9cLsQowCnKqX14DmUUxpRyES755FhUzrFxSFvo8kVk444kNTL7kJxYnnANYwRWAdHCgBJupftZrz", sig );
   if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
     ulong event_max = 1UL<<30;
     ulong event_data_max = 2048UL;
@@ -468,7 +478,8 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;;
   }
 
-  if( FD_UNLIKELY( fd_bpf_loader_input_deserialize_aligned( *instr_ctx, pre_lens, input, input_sz )!=0 ) ) {
+  if( FD_UNLIKELY( fd_bpf_loader_input_deserialize_aligned( *instr_ctx, pre_lens, input, input_sz, !direct_mapping )!=0 ) ) {
+    fd_valloc_free( instr_ctx->valloc, input );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 

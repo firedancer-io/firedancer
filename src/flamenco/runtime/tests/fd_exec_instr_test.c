@@ -1671,6 +1671,15 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
     goto error;
   }
 
+  /* Turn input into a single memory region */
+  fd_vm_input_region_t input_region = {
+    .vaddr_offset = 0UL,
+    .haddr        = (ulong)input_data,
+    .region_sz    = (uint)input_data_sz,
+    .is_writable  = 1U,
+    .pubkey       = NULL
+  };
+
   fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
   if ( !vm ) {
     goto error;
@@ -1689,10 +1698,12 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
     0, // TODO
     NULL, // TODO
     syscalls,
-    input_data,
-    input_data_sz,
     NULL, // TODO
-    sha);
+    sha,
+    &input_region,
+    1U,
+    NULL,
+    (uchar)false );
 
   // Setup the vm state for execution
   if( fd_vm_setup_state_for_execution( vm ) != FD_VM_SUCCESS ) {
@@ -1754,14 +1765,15 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   effects->stack->size = (uint)FD_VM_STACK_MAX;
   fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
 
-  if( input_data_sz ) {
-    effects->inputdata = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( input_data_sz ) );
-    effects->inputdata->size = (uint)input_data_sz;
-    fd_memcpy( effects->inputdata->bytes, vm->input, input_data_sz );
-  } else {
-    effects->inputdata = NULL;
-  }
+  // if( input_data_sz ) {
+  //   effects->inputdata = FD_SCRATCH_ALLOC_APPEND(
+  //     l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( input_data_sz ) );
+  //   effects->inputdata->size = (uint)input_data_sz;
+  //   fd_memcpy( effects->inputdata->bytes, vm->input, input_data_sz );
+  // } else {
+  //   effects->inputdata = NULL;
+  // }
+  effects->inputdata = NULL;
 
   effects->frame_count = vm->frame_cnt;
 

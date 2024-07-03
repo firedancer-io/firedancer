@@ -33,23 +33,25 @@ test_program_success( char *                test_case_name,
   FD_TEST( vm );
 
   int vm_ok = !!fd_vm_init(
-      /* vm        */ vm,
-      /* instr_ctx */ instr_ctx,
-      /* heap_max  */ FD_VM_HEAP_DEFAULT,
-      /* entry_cu  */ FD_VM_COMPUTE_UNIT_LIMIT,
-      /* rodata    */ (uchar *)text,
-      /* rodata_sz */ 8UL*text_cnt,
-      /* text      */ text,
-      /* text_cnt  */ text_cnt,
-      /* text_off  */ 0UL,
-      /* text_sz   */ 8UL*text_cnt,
-      /* entry_pc  */ 0UL,
-      /* calldests */ NULL,
-      /* syscalls  */ syscalls,
-      /* input     */ NULL,
-      /* input_sz  */ 0UL,
-      /* trace     */ NULL,
-      /* sha       */ sha
+      /* vm               */ vm,
+      /* instr_ctx        */ instr_ctx,
+      /* heap_max         */ FD_VM_HEAP_DEFAULT,
+      /* entry_cu         */ FD_VM_COMPUTE_UNIT_LIMIT,
+      /* rodata           */ (uchar *)text,
+      /* rodata_sz        */ 8UL*text_cnt,
+      /* text             */ text,
+      /* text_cnt         */ text_cnt,
+      /* text_off         */ 0UL,
+      /* text_sz          */ 8UL*text_cnt,
+      /* entry_pc         */ 0UL,
+      /* calldests        */ NULL,
+      /* syscalls         */ syscalls,
+      /* trace            */ NULL,
+      /* sha              */ sha,
+      /* mem_regions      */ NULL,
+      /* mem_regions_cnt  */ 0UL,
+      /* mem_regions_accs */ NULL,
+      /* is_deprecated    */ 0
   );
   FD_TEST( vm_ok );
 
@@ -224,23 +226,25 @@ test_0cu_exit( void ) {
      exit instruction reaches zero. */
 
   int vm_ok = !!fd_vm_init(
-      /* vm        */ vm,
-      /* instr_ctx */ instr_ctx,
-      /* heap_max  */ FD_VM_HEAP_DEFAULT,
-      /* entry_cu  */ text_cnt,
-      /* rodata    */ (uchar *)text,
-      /* rodata_sz */ 8UL*text_cnt,
-      /* text      */ text,
-      /* text_cnt  */ text_cnt,
-      /* text_off  */ 0UL,
-      /* text_sz   */ 8UL*text_cnt,
-      /* entry_pc  */ 0UL,
-      /* calldests */ NULL,
-      /* syscalls  */ NULL,
-      /* input     */ NULL,
-      /* input_sz  */ 0UL,
-      /* trace     */ NULL,
-      /* sha       */ sha
+      /* vm               */ vm,
+      /* instr_ctx        */ instr_ctx,
+      /* heap_max         */ FD_VM_HEAP_DEFAULT,
+      /* entry_cu         */ text_cnt,
+      /* rodata           */ (uchar *)text,
+      /* rodata_sz        */ 8UL*text_cnt,
+      /* text             */ text,
+      /* text_cnt         */ text_cnt,
+      /* text_off         */ 0UL,
+      /* text_sz          */ 8UL*text_cnt,
+      /* entry_pc         */ 0UL,
+      /* calldests        */ NULL,
+      /* syscalls         */ NULL,
+      /* trace            */ NULL,
+      /* sha              */ sha,
+      /* mem_regions      */ NULL,
+      /* mem_regions_cnt  */ 0UL,
+      /* mem_regions_accs */ NULL,
+      /* is_deprecated    */ 0
   );
   FD_TEST( vm_ok );
 
@@ -251,23 +255,25 @@ test_0cu_exit( void ) {
   /* Ensure the VM exits with failure if CUs are exhausted. */
 
   vm_ok = !!fd_vm_init(
-      /* vm        */ vm,
-      /* instr_ctx */ instr_ctx,
-      /* heap_max  */ FD_VM_HEAP_DEFAULT,
-      /* entry_cu  */ text_cnt - 1UL,
-      /* rodata    */ (uchar *)text,
-      /* rodata_sz */ 8UL*text_cnt,
-      /* text      */ text,
-      /* text_cnt  */ text_cnt,
-      /* text_off  */ 0UL,
-      /* text_sz   */ 8UL*text_cnt,
-      /* entry_pc  */ 0UL,
-      /* calldests */ NULL,
-      /* syscalls  */ NULL,
-      /* input     */ NULL,
-      /* input_sz  */ 0UL,
-      /* trace     */ NULL,
-      /* sha       */ sha
+      /* vm               */ vm,
+      /* instr_ctx        */ instr_ctx,
+      /* heap_max         */ FD_VM_HEAP_DEFAULT,
+      /* entry_cu         */ text_cnt - 1UL,
+      /* rodata           */ (uchar *)text,
+      /* rodata_sz        */ 8UL*text_cnt,
+      /* text             */ text,
+      /* text_cnt         */ text_cnt,
+      /* text_off         */ 0UL,
+      /* text_sz          */ 8UL*text_cnt,
+      /* entry_pc         */ 0UL,
+      /* calldests        */ NULL,
+      /* syscalls         */ NULL,
+      /* trace            */ NULL,
+      /* sha              */ sha,
+      /* mem_regions      */ NULL,
+      /* mem_regions_cnt  */ 0UL,
+      /* mem_regions_accs */ NULL,
+      /* is_deprecated    */ 0
   );
   FD_TEST( vm_ok );
 

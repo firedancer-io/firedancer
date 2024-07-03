@@ -40,7 +40,7 @@ struct fd_ledger_args {
   fd_wksp_t *           status_cache_wksp;       /* wksp for status cache. */
   fd_blockstore_t *     blockstore;              /* blockstore for replay */
   fd_funk_t *           funk;                    /* handle to funk */
-  fd_alloc_t *          alloc;                   /* handle to alloc*/
+  fd_alloc_t *          alloc;                   /* handle to alloc */
   char const *          cmd;                     /* user passed command to fd_ledger */
   ulong                 start_slot;              /* start slot for offline replay */
   ulong                 end_slot;                /* end slot for offline replay */
@@ -963,7 +963,7 @@ replay( fd_ledger_args_t * args ) {
 
   args->epoch_ctx->epoch_bank.cluster_version = args->cluster_version;
   fd_features_enable_cleaned_up( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
-  fd_features_enable_one_offs( &args->epoch_ctx->features, args->one_off_features, args->one_off_features_cnt );
+  fd_features_enable_one_offs( &args->epoch_ctx->features, args->one_off_features, args->one_off_features_cnt, 0UL );
 
   args->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, valloc ) );
   args->slot_ctx->epoch_ctx = args->epoch_ctx;

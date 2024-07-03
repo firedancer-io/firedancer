@@ -98,20 +98,26 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
   }
   dt += fd_log_wallclock();
   (void)dt;
-  // FD_LOG_WARNING(( "sbpf load: %32J - time: %6.6f ms", ctx.instr->program_id_pubkey.key, (double)dt*1e-6 ));
 
-  ulong input_sz = 0;
-  ulong pre_lens[256];
-  uchar * input;
-  if (FD_UNLIKELY(memcmp(metadata->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t)) == 0)) {
-    input = fd_bpf_loader_input_serialize_unaligned(ctx, &input_sz, pre_lens);
+  ulong                   input_sz                = 0UL;
+  ulong                   pre_lens[256]           = {0};
+  fd_vm_input_region_t    input_mem_regions[1000] = {0}; /* We can have a max of (3 * num accounts + 1) regions */
+  uint                    input_mem_regions_cnt   = 0UL;
+  fd_vm_acc_region_meta_t acc_region_metas[256]   = {0};
+  uchar *                 input                   = NULL; /* This is becomes a buffer for all account metadata */
+  int                     direct_mapping          = FD_FEATURE_ACTIVE( ctx.slot_ctx, bpf_account_data_direct_mapping ); 
+  uchar                   is_deprecated           = !memcmp( metadata->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) );
+  if( FD_UNLIKELY( is_deprecated ) ) {
+    input = fd_bpf_loader_input_serialize_unaligned( ctx, &input_sz, pre_lens, input_mem_regions, 
+                                                     &input_mem_regions_cnt, acc_region_metas, !direct_mapping );
   } else {
-    input = fd_bpf_loader_input_serialize_aligned(ctx, &input_sz, pre_lens);
+    input = fd_bpf_loader_input_serialize_aligned( ctx, &input_sz, pre_lens, input_mem_regions, 
+                                                   &input_mem_regions_cnt, acc_region_metas, !direct_mapping );
   }
 
   if( input==NULL ) {
-    fd_valloc_free( ctx.valloc,  fd_sbpf_program_delete( prog ) );
-    fd_valloc_free( ctx.valloc,  fd_sbpf_syscalls_delete( syscalls ) );
+    fd_valloc_free( ctx.valloc, fd_sbpf_program_delete( prog ) );
+    fd_valloc_free( ctx.valloc, fd_sbpf_syscalls_delete( syscalls ) );
     fd_valloc_free( ctx.valloc, rodata);
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
@@ -125,29 +131,30 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
   ulong pre_insn_cus = ctx.txn_ctx->compute_meter;
 
   fd_vm_init(
-      /* vm        */ vm,
-      /* instr_ctx */ &ctx,
-      /* heap_max  */ FD_VM_HEAP_DEFAULT, /* TODO configure heap allocator */
-      /* entry_cu  */ ctx.txn_ctx->compute_meter,
-      /* rodata    */ prog->rodata,
-      /* rodata_sz */ prog->rodata_sz,
-      /* text      */ prog->text,
-      /* text_cnt  */ prog->text_cnt,
-      /* text_off  */ prog->text_off,
-      /* text_sz   */ prog->text_sz,
-      /* entry_pc  */ prog->entry_pc,
-      /* calldests */ prog->calldests,
-      /* syscalls  */ syscalls,
-      /* input     */ input,
-      /* input_sz  */ input_sz,
-      /* trace     */ NULL,
-      /* sha       */ sha
-  );
+      /* vm                    */ vm,
+      /* instr_ctx             */ &ctx,
+      /* heap_max              */ FD_VM_HEAP_DEFAULT, /* TODO configure heap allocator */
+      /* entry_cu              */ ctx.txn_ctx->compute_meter,
+      /* rodata                */ prog->rodata,
+      /* rodata_sz             */ prog->rodata_sz,
+      /* text                  */ prog->text,
+      /* text_cnt              */ prog->text_cnt,
+      /* text_off              */ prog->text_off,
+      /* text_sz               */ prog->text_sz,
+      /* entry_pc              */ prog->entry_pc,
+      /* calldests             */ prog->calldests,
+      /* syscalls              */ syscalls,
+      /* trace                 */ NULL,
+      /* sha                   */ sha,
+      /* input_mem_regions     */ input_mem_regions,
+      /* input_mem_regions_cnt */ input_mem_regions_cnt,
+      /* acc_region_metas      */ acc_region_metas,
+      /* is_deprecated         */ is_deprecated );
 
 #ifdef FD_DEBUG_SBPF_TRACES
 uchar * signature = (uchar*)vm->instr_ctx->txn_ctx->_txn_raw->raw + vm->instr_ctx->txn_ctx->txn_descriptor->signature_off;
 uchar   sig[64];
-fd_base58_decode_64( "mu7GV8tiEU58hnugxCcuuGh11MvM5tb2ib2qqYu9WYKHhc9Jsm187S31nEX1fg9RYM1NwWJiJkfXNNK21M6Yd8u", sig );
+fd_base58_decode_64( "tkacc4VCh2z9cLsQowCnKqX14DmUUxpRyES755FhUzrFxSFvo8kVk444kNTL7kJxYnnANYwRWAdHCgBJupftZrz", sig );
 if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
   ulong event_max      = 1UL<<30;
   ulong event_data_max = 2048UL;
@@ -211,12 +218,14 @@ if( FD_UNLIKELY( vm->trace ) ) {
     return -1;
   }
 
-  if (FD_UNLIKELY(memcmp(metadata->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t)) == 0)) {
-    if(fd_bpf_loader_input_deserialize_unaligned(ctx, pre_lens, input, input_sz))
+  if( FD_UNLIKELY( memcmp( metadata->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t))==0 ) ) {
+    if( fd_bpf_loader_input_deserialize_unaligned( ctx, pre_lens, input, input_sz, !direct_mapping ) ) {
       return -1;
+    }
   } else {
-    if(fd_bpf_loader_input_deserialize_aligned(ctx, pre_lens, input, input_sz))
+    if( fd_bpf_loader_input_deserialize_aligned( ctx, pre_lens, input, input_sz, !direct_mapping ) ) {
       return -1;
+    }
   }
 
   return 0;
