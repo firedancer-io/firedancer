@@ -47,7 +47,8 @@
         (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION*sizeof(uint)          \
         )                                                                                ),          \
       FD_EPOCH_LEADERS_ALIGN                                                             )  +        \
-      FD_ULONG_ALIGN_UP( FD_ULONG_MAX( 32UL*pub_cnt, FD_WSAMPLE_FOOTPRINT( pub_cnt, 0 ) ), 64UL ) )
+      FD_ULONG_ALIGN_UP( FD_ULONG_MAX( 32UL*((pub_cnt)+1UL),                                         \
+                                       FD_WSAMPLE_FOOTPRINT( pub_cnt, 0 ) ), 64UL ) )
 
 #define FD_EPOCH_SLOTS_PER_ROTATION (4UL)
 
@@ -95,6 +96,13 @@ fd_epoch_leaders_footprint( ulong pub_cnt,
    pub_cnt is the number of unique public keys in this schedule.
    `stakes` points to the first entry of pub_cnt entries of stake
    weights sorted by tuple (stake, pubkey) in descending order.
+
+   If `stakes` does not include all staked nodes, e.g. in the case of an
+   attack that swamps the network with fake validators, `stakes` should
+   contain the first `pub_cnt` of them in the normal sort order, and the
+   sum of the remaining stake must be provided in excluded_stake,
+   measured in lamports.
+
    Does NOT retain a read interest in stakes upon return.
    The caller is not joined to the object on return. */
 void *
@@ -103,7 +111,8 @@ fd_epoch_leaders_new( void                    * shmem,
                       ulong                     slot0,
                       ulong                     slot_cnt,
                       ulong                     pub_cnt,
-                      fd_stake_weight_t const * stakes ); /* indexed [0, pub_cnt) */
+                      fd_stake_weight_t const * stakes, /* indexed [0, pub_cnt) */
+                      ulong                     excluded_stake );
 
 /* fd_epoch_leaders_join joins the caller to the leader schedule object.
    fd_epoch_leaders_leave undoes an existing join. */
@@ -120,10 +129,21 @@ fd_epoch_leaders_leave( fd_epoch_leaders_t * leaders );
 void *
 fd_epoch_leaders_delete( void * shleaders );
 
+/* FD_INDETERMINATE_LEADER has base58 encoding
+   1111111111indeterminateLeader9QSxFYNqsXA.  In hex, this pubkey ends
+   with 0x0badf00d0badf00d. */
+#define FD_INDETERMINATE_LEADER 0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x99U,0xf6U,0x0fU,0x96U,0x2cU,0xddU,\
+                                0x38U,0x21U,0xf3U,0x0cU,0x16U,0x1dU,0xe3U,0x0aU,0x0bU,0xadU,0xf0U,0x0dU,0x0bU,0xadU,0xf0U,0x0dU
 
 /* fd_epoch_leaders_get returns a pointer to the selected public key
    given a slot.  Returns NULL if slot is not in [slot0, slot0+slot_cnt)
-   given the values supplied in fd_epoch_leaders_new. */
+   given the values supplied in fd_epoch_leaders_new.
+
+   If a non-zero value was provided for excluded_stake in
+   fd_epoch_leaders_new and a validator included in the excluded_stake
+   is the leader for the requested slot, instead of returning the
+   correct value (which is not known), fd_epoch_leaders_get will return
+   a pointer to a pubkey with value FD_INDETERMINATE_LEADER. */
 
 FD_FN_PURE static inline fd_pubkey_t const *
 fd_epoch_leaders_get( fd_epoch_leaders_t const * leaders,
