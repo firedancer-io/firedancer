@@ -30,7 +30,7 @@ main( int     argc,
   fd_pubkey_t       const * leaders_pubkeys = (fd_pubkey_t       const *)e454_leaders_pubkeys;
   uint              const * leaders_idx     = (uint              const *)e454_leaders_idx;
 
-  FD_TEST( leaders_buf == fd_epoch_leaders_new( leaders_buf, 454UL, slot0, 432000UL, pub_cnt, stakes ) );
+  FD_TEST( leaders_buf == fd_epoch_leaders_new( leaders_buf, 454UL, slot0, 432000UL, pub_cnt, stakes, 0UL ) );
   fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( leaders_buf );
   FD_TEST( leaders );
 
@@ -45,6 +45,22 @@ main( int     argc,
   FD_TEST( fd_epoch_leaders_get( leaders, slot0+432000UL ) == NULL );
 
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( leaders ) );
+
+  /* Test with last half of validators in excluded_stake */
+  ulong shortlist_cnt = pub_cnt/2UL;
+  ulong excluded_stake = 0UL;
+  for( ulong i=shortlist_cnt; i<pub_cnt; i++ ) excluded_stake += stakes[ i ].stake;
+  FD_TEST( leaders_buf == fd_epoch_leaders_new( leaders_buf, 454UL, slot0, 432000UL, shortlist_cnt, stakes, excluded_stake ) );
+  leaders = fd_epoch_leaders_join( leaders_buf );
+  FD_TEST( leaders );
+
+  static const uchar indeterminate[32] = { FD_INDETERMINATE_LEADER };
+  for( ulong i=0UL; i<432000UL; i++ ) {
+    uchar const * expected = fd_ptr_if( leaders_idx[i]>=shortlist_cnt, &indeterminate[0], &stakes[leaders_idx[i]].key );
+    FD_TEST( !memcmp( fd_epoch_leaders_get( leaders, slot0+i ), expected, 32UL ) );
+  }
+  fd_epoch_leaders_delete( fd_epoch_leaders_leave( leaders ) );
+
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

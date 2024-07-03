@@ -71,7 +71,7 @@ test_probability_dist_replacement( void ) {
   for( ulong sz=1UL; sz<1024UL; sz+=113UL ) {
     void * partial = fd_wsample_new_init( _shmem, rng, sz, 0, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE );
     for( ulong i=0UL; i<sz; i++ ) partial = fd_wsample_new_add( partial, weights[i] );
-    fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial ) );
+    fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial, 0UL ) );
 
     ulong weight_sum = 0UL;
     for( ulong i=0UL; i<sz; i++ ) weight_sum += weights[i];
@@ -106,7 +106,7 @@ test_probability_dist_noreplacement( void ) {
   for( ulong sz=1UL; sz<1024UL; sz+=113UL ) {
     void * partial = fd_wsample_new_init( _shmem, rng, sz, 1, FD_WSAMPLE_HINT_POWERLAW_REMOVE );
     for( ulong i=0UL; i<sz; i++ ) partial = fd_wsample_new_add( partial, 2000000UL / (i+1UL) );
-    fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial ) );
+    fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial, 0UL ) );
 
     memset( counts, 0, MAX*sizeof(ulong) );
     for( ulong j=0UL; j<sz; j++ ) {
@@ -136,7 +136,7 @@ test_probability_dist_noreplacement( void ) {
      distribution of returned 4-tuples matches what we manually compute. */
   void * partial = fd_wsample_new_init( _shmem, rng, 4UL, 1, FD_WSAMPLE_HINT_FLAT );
   partial = fd_wsample_new_add( fd_wsample_new_add( fd_wsample_new_add( fd_wsample_new_add( partial, 40UL ), 30UL ), 20UL ), 10UL );
-  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial ) );
+  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial, 0UL ) );
   memset( counts, 0, MAX*sizeof(ulong) );
 
   for( ulong sample=0UL; sample<302400UL; sample++ ) {
@@ -190,7 +190,7 @@ test_matches_solana( void ) {
   uchar zero_seed[32] = {0};
 
   void * partial = fd_wsample_new_init( _shmem, rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
-  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( partial, 2UL ), 1UL ) ) );
+  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( partial, 2UL ), 1UL ), 0UL ) );
   fd_wsample_seed_rng( fd_wsample_get_rng( tree ), zero_seed );
 
   FD_TEST( fd_wsample_sample( tree ) == 0UL );
@@ -218,7 +218,7 @@ test_matches_solana( void ) {
 
   partial = fd_wsample_new_init( _shmem, rng, 18UL, 0, FD_WSAMPLE_HINT_FLAT );
   for( ulong i=0UL; i<18UL; i++ ) partial = fd_wsample_new_add( partial, weights2[i] );
-  tree = fd_wsample_join( fd_wsample_new_fini( partial ) );
+  tree = fd_wsample_join( fd_wsample_new_fini( partial, 0UL ) );
   fd_wsample_seed_rng( fd_wsample_get_rng( tree ), zero_seed );
 
 
@@ -256,22 +256,22 @@ test_sharing( void ) {
 
     void * pl1 = fd_wsample_new_init( _shmem , rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
     void * pl2 = fd_wsample_new_init( _shmem2, rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
-    fd_wsample_t * sample1 = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( pl1, 2UL ), 1UL ) ) );
-    fd_wsample_t * sample2 = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( pl2, 2UL ), 1UL ) ) );
+    fd_wsample_t * ws1 = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( pl1, 2UL ), 1UL ), 0UL ) );
+    fd_wsample_t * ws2 = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( pl2, 2UL ), 1UL ), 0UL ) );
 
     /* Since they're using the same weights, they are interchangeable. */
 
-    FD_TEST( fd_wsample_sample( i&0x01UL ? sample1 : sample2 ) == 0UL );
-    FD_TEST( fd_wsample_sample( i&0x02UL ? sample1 : sample2 ) == 0UL );
-    FD_TEST( fd_wsample_sample( i&0x04UL ? sample1 : sample2 ) == 0UL );
-    FD_TEST( fd_wsample_sample( i&0x08UL ? sample1 : sample2 ) == 1UL );
-    FD_TEST( fd_wsample_sample( i&0x10UL ? sample1 : sample2 ) == 0UL );
-    FD_TEST( fd_wsample_sample( i&0x20UL ? sample1 : sample2 ) == 0UL );
-    FD_TEST( fd_wsample_sample( i&0x40UL ? sample1 : sample2 ) == 0UL );
-    FD_TEST( fd_wsample_sample( i&0x80UL ? sample1 : sample2 ) == 0UL );
+    FD_TEST( fd_wsample_sample( i&0x01UL ? ws1 : ws2 ) == 0UL );
+    FD_TEST( fd_wsample_sample( i&0x02UL ? ws1 : ws2 ) == 0UL );
+    FD_TEST( fd_wsample_sample( i&0x04UL ? ws1 : ws2 ) == 0UL );
+    FD_TEST( fd_wsample_sample( i&0x08UL ? ws1 : ws2 ) == 1UL );
+    FD_TEST( fd_wsample_sample( i&0x10UL ? ws1 : ws2 ) == 0UL );
+    FD_TEST( fd_wsample_sample( i&0x20UL ? ws1 : ws2 ) == 0UL );
+    FD_TEST( fd_wsample_sample( i&0x40UL ? ws1 : ws2 ) == 0UL );
+    FD_TEST( fd_wsample_sample( i&0x80UL ? ws1 : ws2 ) == 0UL );
 
-    fd_wsample_delete( fd_wsample_leave( sample1 ) );
-    fd_wsample_delete( fd_wsample_leave( sample2 ) );
+    fd_wsample_delete( fd_wsample_leave( ws1 ) );
+    fd_wsample_delete( fd_wsample_leave( ws2 ) );
 
     fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) );
   }
@@ -287,25 +287,25 @@ test_restore_disabled( void ) {
 
   void * partial1 = fd_wsample_new_init( _shmem,  rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
   void * partial2 = fd_wsample_new_init( _shmem2, rng, 2UL, 1, FD_WSAMPLE_HINT_FLAT );
-  fd_wsample_t * sample1 = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( partial1, 2UL ), 1UL ) ) );
-  fd_wsample_t * sample2 = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( partial2, 2UL ), 1UL ) ) );
+  fd_wsample_t * ws1 = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( partial1, 2UL ), 1UL ), 0UL ) );
+  fd_wsample_t * ws2 = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( partial2, 2UL ), 1UL ), 0UL ) );
 
-  FD_TEST( fd_wsample_sample_and_remove( sample1 ) != FD_WSAMPLE_EMPTY );
-  FD_TEST( fd_wsample_sample_and_remove( sample1 ) != FD_WSAMPLE_EMPTY );
-  FD_TEST( fd_wsample_sample_and_remove( sample2 ) != FD_WSAMPLE_EMPTY );
-  FD_TEST( fd_wsample_sample_and_remove( sample2 ) != FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( ws1 ) != FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( ws1 ) != FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( ws2 ) != FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( ws2 ) != FD_WSAMPLE_EMPTY );
 
-  FD_TEST( fd_wsample_sample_and_remove( sample1 ) == FD_WSAMPLE_EMPTY );
-  FD_TEST( fd_wsample_sample_and_remove( sample2 ) == FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( ws1 ) == FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( ws2 ) == FD_WSAMPLE_EMPTY );
 
-  FD_TEST( fd_wsample_restore_all( sample1 ) == NULL    );
-  FD_TEST( fd_wsample_restore_all( sample2 ) == sample2 );
+  FD_TEST( fd_wsample_restore_all( ws1 ) == NULL    );
+  FD_TEST( fd_wsample_restore_all( ws2 ) == ws2 );
 
-  FD_TEST( fd_wsample_sample_and_remove( sample1 ) == FD_WSAMPLE_EMPTY );
-  FD_TEST( fd_wsample_sample_and_remove( sample2 ) != FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( ws1 ) == FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( ws2 ) != FD_WSAMPLE_EMPTY );
 
-  fd_wsample_delete( fd_wsample_leave( sample1 ) );
-  fd_wsample_delete( fd_wsample_leave( sample2 ) );
+  fd_wsample_delete( fd_wsample_leave( ws1 ) );
+  fd_wsample_delete( fd_wsample_leave( ws2 ) );
 
   fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) );
 }
@@ -319,7 +319,7 @@ test_remove_idx( void ) {
   fd_chacha20rng_init( rng, zero_seed );
 
   void * partial = fd_wsample_new_init( _shmem, rng, 2UL, 1, FD_WSAMPLE_HINT_FLAT );
-  fd_wsample_t * sample = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( partial, 2UL ), 1UL ) ) );
+  fd_wsample_t * sample = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( partial, 2UL ), 1UL ), 0UL ) );
   FD_TEST( sample );
 
   fd_wsample_remove_idx( sample, 1UL );
@@ -356,7 +356,7 @@ test_map( void ) {
   ulong sz=1018UL;
   void * partial = fd_wsample_new_init( _shmem, rng, sz, 0, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE );
   for( ulong i=0UL; i<sz; i++ ) partial = fd_wsample_new_add( partial, 2000000UL / (i+1UL) );
-  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial ) );
+  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial, 0UL ) );
 
   ulong x = 0UL;
   for( ulong i=0UL; i<sz; i++ ) for( ulong j=0UL; j<weights[i]; j++ ) FD_TEST( fd_wsample_map_sample( tree, x++ )==i );
@@ -371,12 +371,21 @@ test_empty( void ) {
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_SHIFT ) );
 
   void * partial = fd_wsample_new_init( _shmem, rng, 0UL, 0, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE );
-  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial ) );
+  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial, 0UL ) );
   FD_TEST( tree );
 
   FD_TEST( fd_wsample_sample           ( tree ) == FD_WSAMPLE_EMPTY );
   FD_TEST( fd_wsample_sample_and_remove( tree ) == FD_WSAMPLE_EMPTY );
   fd_wsample_delete( fd_wsample_leave( tree ) );
+
+  partial = fd_wsample_new_init( _shmem, rng, 0UL, 0, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE );
+  tree = fd_wsample_join( fd_wsample_new_fini( partial, 1UL ) );
+  FD_TEST( tree );
+  /* Even with poisoned, returns empty when empty */
+  FD_TEST( fd_wsample_sample           ( tree ) == FD_WSAMPLE_EMPTY );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) == FD_WSAMPLE_EMPTY );
+  fd_wsample_delete( fd_wsample_leave( tree ) );
+
   fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) );
 }
 
@@ -406,6 +415,54 @@ test_footprint( void ) {
   }
 }
 
+static void
+test_poison( void ) {
+  fd_chacha20rng_t _rng[1];
+  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_SHIFT ) );
+  fd_chacha20rng_init( rng, seed );
+
+  void * partial = fd_wsample_new_init( _shmem, rng, 23UL, 1, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE );
+
+  ulong weights[24];
+  for( ulong i=0UL; i<24UL; i++ ) weights[i] = 2000000UL / (i+1UL);
+  for( ulong i=0UL; i<23UL; i++ ) partial = fd_wsample_new_add( partial, weights[i] );
+  fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial, weights[23] ) );
+
+  ulong weight_sum = 0UL;
+  for( ulong i=0UL; i<24UL; i++ ) weight_sum += weights[i];
+
+  /* Test that the probability of getting an indeterminate is right */
+  ulong counts[24] = { 0UL };
+  for( ulong j=0UL; j<weight_sum; j++ ) {
+    ulong sample = fd_wsample_sample( tree );
+    FD_TEST( sample<23UL || sample==FD_WSAMPLE_INDETERMINATE );
+    counts[sample!=FD_WSAMPLE_INDETERMINATE ? sample : 23]++;
+  }
+  chi_squared_test( counts, weights, 24UL );
+
+  /* Check that once we get indeterminate, it stays */
+  ulong total_indeterminate = 0UL;
+  for( ulong j=0UL; j<100UL; j++ ) {
+    int seen_indeterminate = 0;
+    for( ulong i=0UL; i<24UL; i++ ) {
+      ulong sample = fd_wsample_sample_and_remove( tree );
+      if( seen_indeterminate ) FD_TEST( sample==FD_WSAMPLE_INDETERMINATE );
+      seen_indeterminate = sample==FD_WSAMPLE_INDETERMINATE;
+      total_indeterminate += (ulong)seen_indeterminate;
+    }
+    fd_wsample_restore_all( tree );
+  }
+  /* It's hard to compute the expected value of the number of
+     indeterminates we should get, but if they were evenly weighted it
+     would be about half.  As it is, the poison weight is less than
+     evenly weighted, so it should be less than half. */
+  FD_TEST( total_indeterminate<1200UL );
+
+  fd_wsample_delete( fd_wsample_leave( tree ) );
+
+  fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -421,6 +478,7 @@ main( int     argc,
   test_remove_idx();
   test_empty();
   test_footprint();
+  test_poison();
 
   test_probability_dist_replacement();
   test_probability_dist_noreplacement();

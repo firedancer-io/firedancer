@@ -108,7 +108,7 @@ fd_topo_firedancer( config_t * _config ) {
   FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup", "verify_dedup", 0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,             1UL );
   /**/                 fd_topob_link( topo, "dedup_pack",   "dedup_pack",   0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,             1UL );
 
-  /**/                 fd_topob_link( topo, "stake_out",    "stake_out",    0,        128UL,                                    32UL + 40200UL * 40UL,         1UL );
+  /**/                 fd_topob_link( topo, "stake_out",    "stake_out",    0,        128UL,                                    40UL + 40200UL * 40UL,         1UL );
   /* See long comment in fd_shred.c for an explanation about the size of this dcache. */
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_storei", "shred_storei", 0,        65536UL,                                  4UL*FD_SHRED_STORE_MTU,        4UL+config->tiles.shred.max_pending_shred_sets );
 
