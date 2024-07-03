@@ -186,7 +186,9 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     slot_bank->epoch_account_hash = *manifest->epoch_account_hash;
 
   slot_bank->collected_rent = oldbank->collected_rent;
-  slot_bank->collected_fees = oldbank->collector_fees;
+  // did they not change the bank?!
+  slot_bank->collected_execution_fees = oldbank->collector_fees;
+  slot_bank->collected_priority_fees = 0;
   slot_bank->capitalization = oldbank->capitalization;
   slot_bank->block_height = oldbank->block_height;
   slot_bank->transaction_count = oldbank->transaction_count;

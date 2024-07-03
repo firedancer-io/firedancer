@@ -799,7 +799,8 @@ fd_runtime_prepare_txns_phase2( fd_exec_slot_ctx_t * slot_ctx,
 struct fd_collect_fee_task_info {
   fd_exec_txn_ctx_t * txn_ctx;
   fd_borrowed_account_t fee_payer_rec;
-  ulong fee;
+  ulong execution_fee;
+  ulong priority_fee;
   int result;
 };
 typedef struct fd_collect_fee_task_info fd_collect_fee_task_info_t;
@@ -834,13 +835,18 @@ fd_collect_fee_task( void *tpool,
   void * fee_payer_rec_data = fd_valloc_malloc( slot_ctx->valloc, 8UL, fd_borrowed_account_raw_size( &task_info->fee_payer_rec ) );
   fd_borrowed_account_make_modifiable( &task_info->fee_payer_rec, fee_payer_rec_data );
 
-  ulong fee = fd_runtime_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw );
-  if( fd_executor_collect_fee( slot_ctx, &task_info->fee_payer_rec, fee ) ) {
+  ulong execution_fee = 0;
+  ulong priority_fee = 0;
+
+  fd_runtime_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw, &execution_fee, &priority_fee );
+
+  if( fd_executor_collect_fee( slot_ctx, &task_info->fee_payer_rec, fd_ulong_sat_add( execution_fee, priority_fee ) ) ) {
     task_info->result = -1;
     return;
   }
 
-  task_info->fee = fee;
+  task_info->execution_fee = execution_fee;
+  task_info->priority_fee = priority_fee;
 }
 
 int
@@ -917,7 +923,8 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
         res |= -1;
         continue;
       }
-      slot_ctx->slot_bank.collected_fees += collect_fee_task_info->fee;
+      slot_ctx->slot_bank.collected_execution_fees += collect_fee_task_info->execution_fee;
+      slot_ctx->slot_bank.collected_priority_fees += collect_fee_task_info->priority_fee;
     }
 
     int err = fd_acc_mgr_save_many_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, fee_payer_accs, fee_payer_accs_cnt, tpool, max_workers );
@@ -1712,7 +1719,8 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
     }
   }
 
-  slot_ctx->slot_bank.collected_fees = 0;
+  slot_ctx->slot_bank.collected_execution_fees = 0;
+  slot_ctx->slot_bank.collected_priority_fees = 0;
   slot_ctx->slot_bank.collected_rent = 0;
   slot_ctx->signature_cnt = 0;
 
@@ -2603,7 +2611,12 @@ void compute_priority_fee(fd_exec_txn_ctx_t const *txn_ctx, ulong *fee, ulong *p
 
 #define ACCOUNT_DATA_COST_PAGE_SIZE ((double)32 * 1024)
 
-ulong fd_runtime_calculate_fee(fd_exec_txn_ctx_t *txn_ctx, fd_txn_t const *txn_descriptor, fd_rawtxn_b_t const *txn_raw)
+void
+fd_runtime_calculate_fee(fd_exec_txn_ctx_t *txn_ctx,
+                         fd_txn_t const *txn_descriptor,
+                         fd_rawtxn_b_t const *txn_raw,
+                         ulong *ret_execution_fee,
+                         ulong *ret_priority_fee)
 {
   // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L4443
   // TODO: implement fee distribution to the collector ... and then charge us the correct amount
@@ -2690,14 +2703,20 @@ ulong fd_runtime_calculate_fee(fd_exec_txn_ctx_t *txn_ctx, fd_txn_t const *txn_d
   (void)total_compute_units;
   double compute_fee = 0;
 
-  double fee = (prioritization_fee + signature_fee + write_lock_fee + compute_fee) * congestion_multiplier;
+  double execution_fee = (signature_fee + write_lock_fee + compute_fee) * congestion_multiplier;
+  double adjusted_priority_fee = (prioritization_fee) * congestion_multiplier;
 
   // FD_LOG_DEBUG(("fd_runtime_calculate_fee_compare: slot=%ld fee(%lf) = (prioritization_fee(%f) + signature_fee(%f) + write_lock_fee(%f) + compute_fee(%f)) * congestion_multiplier(%f)", txn_ctx->slot_ctx->slot_bank.slot, fee, prioritization_fee, signature_fee, write_lock_fee, compute_fee, congestion_multiplier));
 
-  if (fee >= (double)ULONG_MAX)
-    return ULONG_MAX;
+  if (execution_fee >= (double)ULONG_MAX)
+    *ret_execution_fee = ULONG_MAX;
   else
-    return (ulong)fee;
+    *ret_execution_fee = (ulong)execution_fee;
+
+  if (adjusted_priority_fee >= (double)ULONG_MAX)
+    *ret_priority_fee = ULONG_MAX;
+  else
+    *ret_priority_fee = (ulong)adjusted_priority_fee;
 }
 
 /* sadness */
@@ -3247,7 +3266,8 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
   if( !FD_FEATURE_ACTIVE(slot_ctx, disable_fees_sysvar) )
     fd_sysvar_fees_update(slot_ctx);
 
-  if( slot_ctx->slot_bank.collected_fees > 0 ) {
+  ulong fees = fd_ulong_sat_add (slot_ctx->slot_bank.collected_execution_fees, slot_ctx->slot_bank.collected_priority_fees );
+  if( FD_LIKELY ((fees > 0))) {
     // Look at collect_fees... I think this was where I saw the fee payout..
     FD_BORROWED_ACCOUNT_DECL(rec);
 
@@ -3260,21 +3280,33 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
     do {
       if ( FD_FEATURE_ACTIVE( slot_ctx, validate_fee_collector_account ) ) {
         if (memcmp(rec->meta->info.owner, fd_solana_system_program_id.key, sizeof(rec->meta->info.owner)) != 0) {
-          FD_LOG_WARNING(("fd_runtime_freeze: burn %lu due to invalid owner", slot_ctx->slot_bank.collected_fees ));
-          slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(slot_ctx->slot_bank.capitalization, slot_ctx->slot_bank.collected_fees);
+          FD_LOG_WARNING(("fd_runtime_freeze: burn %lu due to invalid owner", fees ));
+          slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(slot_ctx->slot_bank.capitalization, fees);
           break;
         }
 
         uchar not_exempt = fd_rent_exempt_minimum_balance2( slot_ctx->sysvar_cache_old.rent, rec->meta->dlen) > rec->meta->info.lamports;
         if (not_exempt) {
-          FD_LOG_WARNING(("fd_runtime_freeze: burn %lu due to non-rent-exempt account", slot_ctx->slot_bank.collected_fees ));
-          slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(slot_ctx->slot_bank.capitalization, slot_ctx->slot_bank.collected_fees);
+          FD_LOG_WARNING(("fd_runtime_freeze: burn %lu due to non-rent-exempt account", fees ));
+          slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(slot_ctx->slot_bank.capitalization, fees);
           break;
         }
       }
 
-      ulong fees = (slot_ctx->slot_bank.collected_fees - (slot_ctx->slot_bank.collected_fees / 2) );
-      ulong burn = slot_ctx->slot_bank.collected_fees / 2;
+      ulong fees = 0;
+      ulong burn = 0;
+
+      if ( FD_FEATURE_ACTIVE( slot_ctx, reward_full_priority_fee ) ) {
+        ulong half_fee = slot_ctx->slot_bank.collected_execution_fees / 2;
+        fees = fd_ulong_sat_add(slot_ctx->slot_bank.collected_priority_fees, slot_ctx->slot_bank.collected_execution_fees - half_fee);
+        burn = half_fee;
+      } else {
+        ulong total_fees = fd_ulong_sat_add(slot_ctx->slot_bank.collected_execution_fees, slot_ctx->slot_bank.collected_priority_fees);
+        ulong half_fee = total_fees / 2;
+        fees = total_fees - half_fee;
+        burn = half_fee;
+      }
+
       rec->meta->info.lamports += fees;
       rec->meta->slot = slot_ctx->slot_bank.slot;
       // FD_LOG_DEBUG(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld, sending %ld to leader (%32J) (resulting %ld), burning %ld", slot_ctx->slot_bank.slot, slot_ctx->slot_bank.collected_fees, fees, slot_ctx->leader, rec->meta->info.lamports, fees ));
@@ -3284,7 +3316,8 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
       FD_LOG_DEBUG(( "fd_runtime_freeze: burn %lu, capitalization %ld->%ld ", burn, old, slot_ctx->slot_bank.capitalization));
     } while (false);
 
-    slot_ctx->slot_bank.collected_fees = 0;
+    slot_ctx->slot_bank.collected_execution_fees = 0;
+    slot_ctx->slot_bank.collected_priority_fees = 0;
   }
 
   // self.distribute_rent();

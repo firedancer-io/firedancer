@@ -120,10 +120,12 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         fd_tpool_t * tpool,
                                         ulong max_workers );
 
-ulong
+void
 fd_runtime_calculate_fee ( fd_exec_txn_ctx_t * txn_ctx,
                            fd_txn_t const * txn_descriptor,
-                           fd_rawtxn_b_t const * txn_raw );
+                           fd_rawtxn_b_t const * txn_raw,
+                           ulong *execution_fee,
+                           ulong *priority_fee );
 void
 fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx );
 

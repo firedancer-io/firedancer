@@ -380,7 +380,8 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   /* Prepare bank for next execution. */
 
   child->slot_ctx.slot_bank.slot           = slot;
-  child->slot_ctx.slot_bank.collected_fees = 0;
+  child->slot_ctx.slot_bank.collected_execution_fees = 0;
+  child->slot_ctx.slot_bank.collected_priority_fees = 0;
   child->slot_ctx.slot_bank.collected_rent = 0;
 
   FD_LOG_NOTICE( ( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
@@ -526,7 +527,8 @@ fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t
 
   /* Prepare bank for next slot */
   slot_ctx->slot_bank.slot           = slot;
-  slot_ctx->slot_bank.collected_fees = 0;
+  slot_ctx->slot_bank.collected_execution_fees = 0;
+  slot_ctx->slot_bank.collected_priority_fees = 0;
   slot_ctx->slot_bank.collected_rent = 0;
 
   /* FIXME epoch boundary stuff when replaying */

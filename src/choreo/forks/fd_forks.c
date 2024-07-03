@@ -242,7 +242,8 @@ slot_ctx_restore( ulong                 slot,
 
   /* Prepare bank for next slot */
   slot_ctx_out->slot_bank.slot           = slot;
-  slot_ctx_out->slot_bank.collected_fees = 0;
+  slot_ctx_out->slot_bank.collected_execution_fees = 0;
+  slot_ctx_out->slot_bank.collected_priority_fees = 0;
   slot_ctx_out->slot_bank.collected_rent = 0;
 
   /* FIXME epoch boundary stuff when replaying */

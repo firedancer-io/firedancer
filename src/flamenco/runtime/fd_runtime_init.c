@@ -153,7 +153,8 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
                     slot_ctx->slot_bank.poh.hash,
                     slot_ctx->slot_bank.lthash ));
 
-    slot_ctx->slot_bank.collected_fees = 0;
+    slot_ctx->slot_bank.collected_execution_fees = 0;
+    slot_ctx->slot_bank.collected_priority_fees = 0;
     slot_ctx->slot_bank.collected_rent = 0;
   }
 
