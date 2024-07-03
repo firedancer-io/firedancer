@@ -211,6 +211,7 @@ struct fd_replay_tile_ctx {
   ulong                 gossip_vote_txn_sz;
   uchar                 gossip_vote_txn [ FD_TXN_MTU ];
   fd_txncache_t * status_cache;
+  void * bmtree;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -242,6 +243,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_tower_align(), fd_tower_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(), fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT) );
+  l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -397,6 +399,27 @@ during_frag( void * _ctx,
 }
 
 static void
+hash_transactions( void *       mem,
+                   fd_txn_p_t * txns,
+                   ulong        txn_cnt,
+                   uchar *      mixin ) {
+  fd_bmtree_commit_t * bmtree = fd_bmtree_commit_init( mem, 32UL, 1UL, 0UL );
+  for( ulong i=0; i<txn_cnt; i++ ) {
+    fd_txn_p_t * _txn = txns + i;
+    if( FD_UNLIKELY( !(_txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) continue;
+
+    fd_txn_t * txn = TXN(_txn);
+    for( ulong j=0; j<txn->signature_cnt; j++ ) {
+      fd_bmtree_node_t node[1];
+      fd_bmtree_hash_leaf( node, _txn->payload+txn->signature_off+64UL*j, 64UL, 1UL );
+      fd_bmtree_commit_append( bmtree, node, 1UL );
+    }
+  }
+  uchar * root = fd_bmtree_commit_fini( bmtree );
+  fd_memcpy( mixin, root, 32UL );
+}
+
+static void
 after_frag( void *             _ctx,
             ulong              in_idx     FD_PARAM_UNUSED,
             ulong              seq,
@@ -450,6 +473,8 @@ after_frag( void *             _ctx,
   ulong txn_cnt = ctx->txn_cnt;
   fd_txn_p_t * txns       = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
   fd_microblock_trailer_t * microblock_trailer = (fd_microblock_trailer_t *)(txns + txn_cnt);
+  microblock_trailer->bank_idx = 0;
+  microblock_trailer->bank_busy_seq = seq;
 
   // ctx->curr_slot = fd_disco_replay_sig_slot( *opt_sig );
   // ctx->flags = fd_disco_replay_sig_flags( *opt_sig );
@@ -550,6 +575,8 @@ after_frag( void *             _ctx,
       *opt_filter = 1;
       return;
     }
+
+    hash_transactions( ctx->bmtree, txns, txn_cnt, microblock_trailer->hash );
 
     if( ctx->flags & REPLAY_FLAG_FINISHED_BLOCK ) {
       FD_LOG_INFO(( "finalizing block - slot: %lu, parent_slot: %lu, blockhash: %32J", ctx->curr_slot, ctx->parent_slot, ctx->blockhash.uc ));
@@ -1040,6 +1067,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * tower_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
   void * bank_hash_cmp_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   void * status_cache_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(), fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT) );
+  ctx->bmtree                = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,           FD_BMTREE_COMMIT_FOOTPRINT(0)      );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem != ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {

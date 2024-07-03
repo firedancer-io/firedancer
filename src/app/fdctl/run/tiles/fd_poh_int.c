@@ -41,6 +41,7 @@ typedef struct {
   fd_poh_tile_ctx_t * poh_tile_ctx;
 
   ulong bank_cnt;
+  ulong * bank_busy[ 64UL ];
 
   ulong stake_in_idx;
 
@@ -49,7 +50,7 @@ typedef struct {
   /* These are temporarily set in during_frag so they can be used in
      after_frag once the frag has been validated as not overrun. */
   uchar _txns[ 1024* USHORT_MAX ];
-  fd_microblock_trailer_t * _microblock_trailer;
+  fd_microblock_trailer_t _microblock_trailer[1];
 
   int is_initialized;
   int recently_reset;
@@ -259,60 +260,6 @@ during_housekeeping( void * _ctx ) {
   fd_poh_tile_during_housekeeping( ctx->poh_tile_ctx );
 }
 
-static void
-before_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             int *  opt_filter ) {
-  (void)seq;
-
-  fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_ctx;
-  if( FD_UNLIKELY( in_idx==ctx->pack_in_idx ) ) {
-    if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ||
-                  fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
-      ulong slot = fd_disco_poh_sig_slot( sig );
-
-      /* The following sequence is possible...
-      
-          1. We become leader in slot 10
-          2. While leader, we switch to a fork that is on slot 8, where we are leader
-          3. We get the in-flight microblocks for slot 10
-
-        These in-flight microblocks need to be dropped, so we check
-        against the hashcnt high water mark (last_hashcnt) rather than the current
-        hashcnt here when determining what to drop.
-
-        We know if the slot is lower than the high water mark it's from a stale
-        leader slot, because we will not become leader for the same slot twice
-        even if we are reset back in time (to prevent duplicate blocks). */
-      if( FD_UNLIKELY( slot<fd_poh_tile_get_highwater_leader_slot( ctx->poh_tile_ctx ) ) ) *opt_filter = 1;
-      return;
-    }
-  } else if( FD_UNLIKELY( in_idx!=ctx->stake_in_idx ) ) {
-    /* if this is a bank_in */
-    if( FD_LIKELY( fd_disco_replay_sig_flags( sig ) & REPLAY_FLAG_PACKED_MICROBLOCK ) ) {
-      ulong slot = fd_disco_poh_sig_slot( sig );
-
-      /* The following sequence is possible...
-      
-          1. We become leader in slot 10
-          2. While leader, we switch to a fork that is on slot 8, where we are leader
-          3. We get the in-flight microblocks for slot 10
-
-        These in-flight microblocks need to be dropped, so we check
-        against the hashcnt high water mark (last_hashcnt) rather than the current
-        hashcnt here when determining what to drop.
-
-        We know if the slot is lower than the high water mark it's from a stale
-        leader slot, because we will not become leader for the same slot twice
-        even if we are reset back in time (to prevent duplicate blocks). */
-      if( FD_UNLIKELY( slot<fd_poh_tile_get_highwater_leader_slot( ctx->poh_tile_ctx ) ) ) *opt_filter = 1;
-      return;
-    }
-  }
-}
-
 static inline void
 during_frag( void * _ctx,
              ulong  in_idx,
@@ -335,10 +282,37 @@ during_frag( void * _ctx,
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->stake_in.mem, chunk );
     fd_stake_ci_stake_msg_init( ctx->poh_tile_ctx->stake_ci, dcache_entry );
     return;
-  } else if( FD_UNLIKELY( in_idx==ctx->pack_in_idx ) ) {
+  }
+  
+  int is_frag_for_prior_leader_slot = 0;
+  if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ||
+                  fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
+    ulong slot = fd_disco_poh_sig_slot( sig );
+
+    /* The following sequence is possible...
+    
+        1. We become leader in slot 10
+        2. While leader, we switch to a fork that is on slot 8, where
+            we are leader
+        3. We get the in-flight microblocks for slot 10
+
+      These in-flight microblocks need to be dropped, so we check
+      against the high water mark (highwater_leader_slot) rather than
+      the current hashcnt here when determining what to drop.
+
+      We know if the slot is lower than the high water mark it's from a stale
+      leader slot, because we will not become leader for the same slot twice
+      even if we are reset back in time (to prevent duplicate blocks). */
+    is_frag_for_prior_leader_slot = slot<fd_poh_tile_get_highwater_leader_slot( ctx->poh_tile_ctx );
+  }
+  
+  if( FD_UNLIKELY( in_idx==ctx->pack_in_idx ) ) {
     /* We now know the real amount of microblocks published, so set an
        exact bound for once we receive them. */
+    *opt_filter = 1;
     if( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ) {
+      if( FD_UNLIKELY( is_frag_for_prior_leader_slot ) ) return;
+
       FD_TEST( ctx->poh_tile_ctx->microblocks_lower_bound<=ctx->poh_tile_ctx->max_microblocks_per_slot );
       fd_done_packing_t const * done_packing = fd_chunk_to_laddr( ctx->pack_in.mem, chunk );
       FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu)",
@@ -347,7 +321,6 @@ during_frag( void * _ctx,
                     done_packing->microblocks_in_slot ));
       ctx->poh_tile_ctx->microblocks_lower_bound += ctx->poh_tile_ctx->max_microblocks_per_slot - done_packing->microblocks_in_slot;
     }
-    *opt_filter = 1;
     return;
   } else {
     if( FD_UNLIKELY( chunk<ctx->bank_in[ in_idx ].chunk0 || chunk>ctx->bank_in[ in_idx ].wmark || sz>USHORT_MAX ) )
@@ -365,7 +338,25 @@ during_frag( void * _ctx,
     ulong raw_sz = (sz * sizeof(fd_txn_p_t))+sizeof(fd_microblock_trailer_t);
     FD_TEST( raw_sz<=1024*USHORT_MAX );
     fd_memcpy( ctx->_txns, src, raw_sz-sizeof(fd_microblock_trailer_t) );
-    ctx->_microblock_trailer = (fd_microblock_trailer_t*)(src+raw_sz-sizeof(fd_microblock_trailer_t));
+    fd_memcpy( ctx->_microblock_trailer, src+(sz * sizeof(fd_txn_p_t)), sizeof(fd_microblock_trailer_t) );
+    FD_TEST( ctx->_microblock_trailer->bank_idx<ctx->bank_cnt );
+
+    /* Indicate to pack tile we are done processing the transactions so
+       it can pack new microblocks using these accounts.  This has to be
+       done before filtering the frag, otherwise we would not notify
+       pack that accounts are unlocked in certain cases.
+
+       TODO: This is way too late to do this.  Ideally we would release
+       the accounts right after we execute and commit the results to the
+       accounts database.  It has to happen before because otherwise
+       there's a race where the bank releases the accounts, they get
+       reuused in another bank, and that bank sends to PoH and gets its
+       microblock pulled first -- so the bank commit and poh mixin order
+       is not the same.  Ideally we would resolve this a bit more
+       cleverly and without holding the account locks this much longer. */
+    fd_fseq_update( ctx->bank_busy[ ctx->_microblock_trailer->bank_idx ], ctx->_microblock_trailer->bank_busy_seq );
+
+    *opt_filter = is_frag_for_prior_leader_slot;
   }
 }
 
@@ -423,14 +414,18 @@ after_frag( void *             _ctx,
     ulong txn_cnt = *opt_sz;
     fd_txn_p_t * txns = (fd_txn_p_t *)(ctx->_txns);
     ulong executed_txn_cnt = 0UL;
-    FD_LOG_INFO(( "rx packed mblk - target_slot: %lu, txn_cnt: %lu", target_slot, txn_cnt ));
-    for( ulong i=0; i<txn_cnt; i++ ) { executed_txn_cnt += !!(txns[ i ].flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS); }
+
+    for( ulong i=0; i<txn_cnt; i++ ) {
+      executed_txn_cnt += !!(txns[ i ].flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS); 
+    }
 
     /* We don't publish transactions that fail to execute.  If all the
       transctions failed to execute, the microblock would be empty, causing
       solana labs to think it's a tick and complain.  Instead we just skip
       the microblock and don't hash or update the hashcnt. */
     if( FD_UNLIKELY( !executed_txn_cnt ) ) return;
+
+    FD_LOG_INFO(( "rx packed mblk - target_slot: %lu, txn_cnt: %lu", target_slot, executed_txn_cnt ));
 
     ulong hashcnt_delta = fd_poh_tile_mixin( ctx->poh_tile_ctx, ctx->_microblock_trailer->hash );
 
@@ -448,8 +443,8 @@ after_frag( void *             _ctx,
         no_longer_leader( ctx );
       }
     }
-
-    fd_poh_tile_publish_microblock( ctx->poh_tile_ctx, mux, *opt_sig, target_slot, hashcnt_delta, (fd_txn_p_t *)ctx->_txns, txn_cnt );
+    ulong sig = fd_disco_poh_sig( target_slot, POH_PKT_TYPE_MICROBLOCK, in_idx );
+    fd_poh_tile_publish_microblock( ctx->poh_tile_ctx, mux, sig, target_slot, hashcnt_delta, (fd_txn_p_t *)ctx->_txns, txn_cnt );
   } else {
      if( is_finalized_block && !is_catching_up && ctx->is_initialized ) {
       fd_poh_reset( ctx, target_slot, ctx->_microblock_trailer->hash );
@@ -498,6 +493,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->bank_cnt = tile->in_cnt-2UL;
   ctx->stake_in_idx = tile->in_cnt-2UL;
   ctx->pack_in_idx = tile->in_cnt-1UL;
+
+  FD_TEST( ctx->bank_cnt<=sizeof(ctx->bank_busy)/sizeof(ctx->bank_busy[0]) );
+  for( ulong i=0UL; i<ctx->bank_cnt; i++ ) {
+    ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", i );
+    FD_TEST( busy_obj_id!=ULONG_MAX );
+    ctx->bank_busy[ i ] = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
+    if( FD_UNLIKELY( !ctx->bank_busy[ i ] ) ) FD_LOG_ERR(( "banking tile %lu has no busy flag", i ));
+  }
+
   for( ulong i=0UL; i<tile->in_cnt-2UL; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
@@ -537,7 +541,6 @@ fd_topo_run_tile_t fd_tile_poh_int = {
   .mux_ctx                  = mux_ctx,
   .mux_after_credit         = after_credit,
   .mux_during_housekeeping  = during_housekeeping,
-  .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
   .lazy                     = lazy,
