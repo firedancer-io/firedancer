@@ -193,7 +193,7 @@ fd_ghost_node_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot ) {
                                                  &parent_slot,
                                                  NULL,
                                                  ghost->node_pool ) ) ) {
-    FD_LOG_WARNING( ( "parent_slot %lu is missing from ghost.", parent_slot ) );
+    FD_LOG_WARNING( ( "[fd_ghost_node_insert] parent_slot %lu is missing from ghost.", parent_slot ) );
     __asm__("int $3");
   }
 #endif
@@ -385,11 +385,16 @@ fd_ghost_gossip_vote_upsert( FD_PARAM_UNUSED fd_ghost_t *        ghost,
 
 fd_ghost_node_t *
 fd_ghost_publish( fd_ghost_t * ghost, ulong slot ) {
+  FD_LOG_NOTICE( ( "publishing %lu to ghost", slot ) );
 
   fd_ghost_node_t * root = fd_ghost_node_query( ghost, slot );
 
 #if FD_GHOST_USE_HANDHOLDING
-  if( FD_UNLIKELY( !root ) ) FD_LOG_ERR( ( "[fd_ghost_publish] slot not found in ghost" ) );
+  if( FD_UNLIKELY( !root ) ) FD_LOG_ERR( ( "[fd_ghost_publish] slot %lu not found in ghost", slot ) );
+#endif
+
+# if FD_GHOST_USE_HANDHOLDING
+  if( FD_UNLIKELY( root == ghost->root ) ) __asm__("int $3");
 #endif
 
   /* First, remove the previous root, and add it to the prune list.
@@ -444,6 +449,7 @@ fd_ghost_publish( fd_ghost_t * ghost, ulong slot ) {
     /* Free the head, and move the head pointer forward. */
 
     fd_ghost_node_t * next = fd_ghost_node_pool_ele( ghost->node_pool, head->next );
+    FD_LOG_NOTICE(("removing %lu from ghost", head->slot));
     fd_ghost_node_pool_ele_release( ghost->node_pool, head );
     head = next;
   }

@@ -118,6 +118,7 @@ fd_forks_init( fd_forks_t * forks, fd_exec_slot_ctx_t const * slot_ctx ) {
 
   fd_fork_t * fork = fd_fork_pool_ele_acquire( forks->pool );
   fork->slot       = slot_ctx->slot_bank.slot;
+  fork->prev   = fd_fork_pool_idx_null( forks->pool );
   fork->slot_ctx   = *slot_ctx; /* this shallow copy is only safe if
                                    the lifetimes of slot_ctx's pointers
                                    are as long as fork */
@@ -283,6 +284,7 @@ fd_forks_prepare( fd_forks_t const *    forks,
     /* Alloc a new slot_ctx */
 
     fork         = fd_fork_pool_ele_acquire( forks->pool );
+    fork->prev   = fd_fork_pool_idx_null( forks->pool );
     fork->slot   = parent_slot;
     fork->frozen = 1;
 
@@ -323,11 +325,13 @@ fd_forks_publish( fd_forks_t * forks, ulong root, fd_ghost_t const * ghost ) {
 
     int stale = fork->slot < root || !fd_ghost_is_ancestor( ghost, root, fork->slot );
     if( FD_UNLIKELY( !fork->frozen && stale ) ) {
+      FD_LOG_NOTICE( ( "adding %lu to prune. root %lu", fork->slot, root ) );
       if( FD_LIKELY( !curr ) ) {
         tail = fork;
         curr = fork;
       } else {
         curr->prev = fd_fork_pool_idx( forks->pool, fork );
+        curr       = fd_fork_pool_ele( forks->pool, curr->prev );
       }
     }
   }
@@ -339,8 +343,7 @@ fd_forks_publish( fd_forks_t * forks, ulong root, fd_ghost_t const * ghost ) {
                                                 forks->pool );
 #if FD_FORKS_USE_HANDHOLDING
     if( FD_UNLIKELY( remove == ULONG_MAX ) ) {
-      FD_LOG_WARNING( ( "failed to remove fork we added to prune." ) );
-      __asm__( "int $3" );
+      FD_LOG_ERR( ( "failed to remove fork we added to prune." ) );
     }
 #endif
 
@@ -348,6 +351,8 @@ fd_forks_publish( fd_forks_t * forks, ulong root, fd_ghost_t const * ghost ) {
       frontier directly above. */
 
     fd_fork_pool_idx_release( forks->pool, remove );
-    tail = fd_fork_pool_ele( forks->pool, tail->prev );
+    tail = fd_ptr_if( tail->prev != fd_fork_pool_idx_null( forks->pool ),
+                      fd_fork_pool_ele( forks->pool, tail->prev ),
+                      NULL );
   }
 }
