@@ -295,8 +295,8 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
 
 static int
 fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
-                                     ulong                        acct_cnt,
-                                     ulong                        data_sz ) {
+                                     ulong           acct_cnt,
+                                     ulong           data_sz ) {
   /* https://github.com/solana-labs/solana/blob/eb35a5ac1e7b6abe81947e22417f34508f89f091/programs/bpf_loader/src/syscalls/cpi.rs#L958-L959 */
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
     if( FD_UNLIKELY( data_sz > FD_CPI_MAX_INSTRUCTION_DATA_LEN ) ) {
@@ -417,6 +417,10 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
   ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = acc_info->data_addr; \
   ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
 
+#define VM_SYSCALL_CPI_ACC_INFO_METADATA( vm, acc_info, decl ) \
+  ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = acc_info->data_addr; \
+  ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
+
 #define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, acc_info, decl, len ) \
   acc_info->data_sz = len;
 
@@ -442,6 +446,7 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #undef VM_SYSCALL_CPI_ACC_META_PUBKEY
 #undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA
+#undef VM_SYSCALL_CPI_ACC_INFO_METADATA
 #undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN
 
 /**********************************************************************
@@ -475,7 +480,7 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 /* The lamports and the account data are stored behind RefCells,
    so we have an additional layer of indirection to unwrap. */
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl )                                                         \
-    /* Translate the pointer to the RefCell */                                                                         \
+    /* Translate the pointer to the RefCell */                                                                          \
     fd_vm_rc_refcell_t * FD_EXPAND_THEN_CONCAT2(decl, _box) =                                                          \
       FD_VM_MEM_HADDR_ST( vm, acc_info->lamports_box_addr, FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_rc_refcell_t) );       \
     /* Translate the pointer to the underlying data */                                                                 \
@@ -491,6 +496,15 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
     /* Translate the pointer to the underlying data */                                                           \
     uchar * decl = FD_VM_MEM_HADDR_ST(                                                                           \
       vm, FD_EXPAND_THEN_CONCAT2(decl, _box)->addr, alignof(uchar), FD_EXPAND_THEN_CONCAT2(decl, _box)->len );   \
+    /* Declare the size of the underlying data */                                                                \
+    ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _box)->len;
+
+#define VM_SYSCALL_CPI_ACC_INFO_METADATA( vm, acc_info, decl )                                                   \
+    /* Translate the pointer to the RefCell */                                                                   \
+    fd_vm_rc_refcell_vec_t * FD_EXPAND_THEN_CONCAT2(decl, _box) =                                                \
+      FD_VM_MEM_HADDR_ST( vm, acc_info->data_box_addr, FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_rc_refcell_vec_t) ); \
+    /* Declare the vm addr of the underlying data, as we sometimes need it later */                              \
+    ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = FD_EXPAND_THEN_CONCAT2(decl, _box)->addr;                     \
     /* Declare the size of the underlying data */                                                                \
     ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _box)->len;
 
@@ -519,4 +533,5 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #undef VM_SYSCALL_CPI_ACC_META_PUBKEY
 #undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA
+#undef VM_SYSCALL_CPI_ACC_INFO_METADATA
 #undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN

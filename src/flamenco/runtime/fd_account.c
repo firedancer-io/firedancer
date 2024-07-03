@@ -71,16 +71,19 @@ fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
 
   /* An account not owned by the program cannot have its blanace decrease */
   if( FD_UNLIKELY( ( !fd_account_is_owned_by_current_program( ctx->instr, account->const_meta ) ) &&
-                   ( lamports < account->const_meta->info.lamports ) ) )
+                   ( lamports < account->const_meta->info.lamports ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_EXTERNAL_ACCOUNT_LAMPORT_SPEND;
+  }
 
   /* The balance of read-only may not change */
-  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) )
+  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_READONLY_LAMPORT_CHANGE;
+  }
 
   /* The balance of executable accounts may not change */
-  if( FD_UNLIKELY( fd_account_is_executable( account->const_meta ) ) )
+  if( FD_UNLIKELY( fd_account_is_executable( account->const_meta ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_LAMPORT_CHANGE;
+  }
 
   /* Don't touch the account if the lamports do not change */
   if( lamports==account->const_meta->info.lamports ) {
@@ -137,8 +140,6 @@ fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,
                                 uchar const *               data,
                                 ulong                       data_sz ) {
 
-  int err = FD_EXECUTOR_INSTR_SUCCESS;
-
   fd_borrowed_account_t * account = NULL;
   do {
     int err = fd_instr_borrowed_account_view_idx( ctx, (uchar)instr_acc_idx, &account );
@@ -147,15 +148,19 @@ fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,
     }
   } while(0);
 
-  if( !fd_account_can_data_be_resized( ctx, account->const_meta, data_sz, &err ) ) {
+  int err;
+  if( FD_UNLIKELY( !fd_account_can_data_be_resized( ctx, account->const_meta, data_sz, &err ) ) ) {
     return err;
   }
 
-  if( !fd_account_can_data_be_changed( ctx->instr, instr_acc_idx, &err ) ) {
+  if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx->instr, instr_acc_idx, &err ) ) ) {
     return err;
   }
 
-  if( !fd_account_update_accounts_resize_delta( ctx, instr_acc_idx, data_sz, &err ) ) {
+  /* touch() */
+  account->meta->slot = ctx->slot_ctx->slot_bank.slot;
+
+  if( FD_UNLIKELY( !fd_account_update_accounts_resize_delta( ctx, instr_acc_idx, data_sz, &err ) ) ) {
     return err;
   }
 
@@ -166,11 +171,10 @@ fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,
     }
   } while(0);
 
-  /* self.touch() */
-  account->meta->slot = ctx->slot_ctx->slot_bank.slot;
-
-  assert( account->meta->dlen >= data_sz );
+  /* AccountSharedData::set_data_from_slice() */
+  account->meta->dlen = data_sz;
   fd_memcpy( account->data, data, data_sz );
+
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 

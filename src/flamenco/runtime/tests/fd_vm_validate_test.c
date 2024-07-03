@@ -68,10 +68,12 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t *         runner,
       0, /* entry_pc, not used in validate at the moment */
       NULL, /* calldests */
       NULL, /* syscalls */
-      NULL, /* input */
-      0, /* input_sz */
       NULL, /* trace */
-      NULL /* sha */
+      NULL, /* sha */
+      NULL, /* mem regions */
+      0,    /* mem regions count */
+      NULL, /* mem regions accs */
+      0     /* is deprecated */
     );
     effects->result = fd_vm_validate( vm );
 

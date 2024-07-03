@@ -415,6 +415,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
 
     for( ulong i = 0; i < accounts_cnt; i++ ) {
       fd_borrowed_account_t * account = accounts[i];
+
       ulong batch_idx = i & batch_mask;
       fd_acc_mgr_save_task_info_t * task_info = &task_infos[batch_idx];
       task_info->accounts[task_info->accounts_cnt++] = account;
@@ -428,6 +429,15 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
       account->rec = rec;
       if ( acc_mgr->slots_per_epoch != 0 )
         fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
+
+      /* This check is to prevent a seg fault in the case where an account with
+         null data tries to get saved. This notably happens if firedancer is 
+         attemping to execute a bad block. This should NEVER happen in the case
+         of a proper replay. */
+      if( FD_UNLIKELY( !account->const_meta ) ) {
+        FD_LOG_ERR(( "An account likely does not exist. This block could be invalid." ));
+      }
+
       ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
       int err;
       if( fd_funk_val_truncate( account->rec, reclen, fd_funk_alloc( acc_mgr->funk, wksp ), wksp, &err ) == NULL ) {

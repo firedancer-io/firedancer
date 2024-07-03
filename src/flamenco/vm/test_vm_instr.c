@@ -46,6 +46,8 @@ struct test_input {
   ulong         imm;
   ulong         reg[REG_CNT];
   bool          reject_callx_r10;
+  uint          region_boundary[16]; /* This can be changed */
+  uint          region_boundary_cnt;
 };
 
 typedef struct test_input test_input_t;
@@ -262,6 +264,13 @@ parse_token( test_parser_t *  p,
     parse_assign_sep( p );
     free( (void *)p->input.input );
     p->input.input = parse_hex_buf( p, &p->input.input_sz );
+    p->input.region_boundary_cnt = 0U;
+
+  } else if( 0==strncmp( word, "region_boundary", word_len ) ) {
+
+    parse_assign_sep( p );
+    p->input.region_boundary[ p->input.region_boundary_cnt ] = (uint)parse_hex_int( p );
+    p->input.region_boundary_cnt++;
 
   } else if( 0==strncmp( word, "op", word_len ) ) {
 
@@ -390,7 +399,34 @@ run_input( test_input_t const * input,
 
   uchar * input_copy = malloc( input->input_sz );
   assert( input_copy );
-  fd_memcpy( input_copy, input->input, input->input_sz );
+  memcpy( input_copy, input->input, input->input_sz );
+
+  /* Turn input into a single memory region */
+  fd_vm_input_region_t input_region[32];
+  
+  if( !input->region_boundary_cnt ) {
+    input_region[0] = (fd_vm_input_region_t){
+      .vaddr_offset = 0UL,
+      .haddr        = (ulong)input_copy,
+      .region_sz    = (uint)input->input_sz,
+      .is_writable  = 1U,
+      .pubkey       = NULL
+    };
+  } else {
+    for( uint i=0; i<input->region_boundary_cnt; ++i ) {
+      ulong prev_offset = i ? input_region[ i-1 ].vaddr_offset : 0;
+      ulong prev_sz     = i ? input_region[ i-1 ].region_sz    : 0;
+      ulong cur_offset  = prev_offset + prev_sz;
+
+      input_region[i] = (fd_vm_input_region_t){
+        .vaddr_offset = cur_offset,
+        .haddr        = (ulong)input_copy + cur_offset,
+        .region_sz    = input->region_boundary[i] - (uint)cur_offset,
+        .is_writable  = 1U,
+        .pubkey       = NULL
+      };
+    }
+  }
 
   fd_sbpf_calldests_t * calldests =
       fd_sbpf_calldests_join(
@@ -406,23 +442,25 @@ run_input( test_input_t const * input,
   fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual(), input->reject_callx_r10 );
 
   int vm_ok = !!fd_vm_init(
-      /* vm        */ vm,
-      /* instr_ctx */ instr_ctx,
-      /* heap_max  */ 0UL,
-      /* entry_cu  */ 100UL,
-      /* rodata    */ (uchar const *)text,
-      /* rodata_sz */ text_cnt * sizeof(ulong),
-      /* text      */ text,
-      /* text_cnt  */ text_cnt,
-      /* text_off  */ 0UL,
-      /* text_sz   */ text_cnt * sizeof(ulong),
-      /* entry_pc  */ 0UL,
-      /* calldests */ calldests,
-      /* syscalls  */ syscalls,
-      /* input     */ input_copy,
-      /* input_sz  */ input->input_sz,
-      /* trace     */ NULL,
-      /* sha       */ NULL
+      /* vm               */ vm,
+      /* instr_ctx        */ instr_ctx,
+      /* heap_max         */ 0UL,
+      /* entry_cu         */ 100UL,
+      /* rodata           */ (uchar const *)text,
+      /* rodata_sz        */ text_cnt * sizeof(ulong),
+      /* text             */ text,
+      /* text_cnt         */ text_cnt,
+      /* text_off         */ 0UL,
+      /* text_sz          */ text_cnt * sizeof(ulong),
+      /* entry_pc         */ 0UL,
+      /* calldests        */ calldests,
+      /* syscalls         */ syscalls,
+      /* trace            */ NULL,
+      /* sha              */ NULL,
+      /* mem_regions      */ input_region,
+      /* mem_regions_cnt  */ input->region_boundary_cnt ? input->region_boundary_cnt : 1,
+      /* mem_regions_accs */ NULL,
+      /* is_deprecated    */ 0
   );
   assert( vm_ok );
 

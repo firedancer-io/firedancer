@@ -202,7 +202,7 @@ fd_account_get_data_mut( fd_exec_instr_ctx_t const * ctx,
    solana_sdk::transaction_context::BorrowedAccount::set_data.
    Assumes that destination account already has enough space to fit
    data.  Acquires a writable handle.
-   https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L860-882 */
+   https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L867-882 */
 
 int
 fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,

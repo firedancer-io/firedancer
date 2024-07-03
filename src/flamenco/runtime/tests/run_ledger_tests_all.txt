@@ -50,3 +50,4 @@ src/flamenco/runtime/tests/run_ledger_test.sh -l v203-bpf-loader -s snapshot-40-
 src/flamenco/runtime/tests/run_ledger_test.sh -l v203-move-stake -s snapshot-4467-5yzwTpG83nRbokX2iKNYPCPod6fJu3aE8pBEE4SyqLCb.tar.zst        -p 30 -y 16 -m 5000000 -e 4470 -o 7bTK6Jis8Xpfrs8ZoUfiMDPazTcdPcTWheZFJTA5Z6X4
 src/flamenco/runtime/tests/run_ledger_test.sh -l v203-move-lamports -s snapshot-650-Q8pVZ4jfmzpAGwAytPs4PJXmb4iaBXwVhvVjc8AaAXh.tar.zst       -p 30 -y 16 -m 5000000 -e 655 -o 7bTK6Jis8Xpfrs8ZoUfiMDPazTcdPcTWheZFJTA5Z6X4
 src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-283927487 -s snapshot-283927486-7gCbg5g4BnD9SkQUjpHvhepWsQTpo2WaZaA5bhcNBMhG.tar.zst -p 30 -y 16 -m 5000000 -e 283927497 -c 2000
+src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-254462437-dm -s snapshot-254462437-9HqBi19BJJRZfHeBS3ZpkeP9B5SAxBxz6Kwug29yLHac.tar.zst -p 45 -y 32 -m 20000000 -e 254462836 -c 1190 -o EenyoWx9UMXYKpR8mW5Jmfmy2fRjzUtM7NduYMY8bx33
