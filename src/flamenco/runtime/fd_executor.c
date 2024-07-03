@@ -224,9 +224,12 @@ validate_fee_payer( fd_borrowed_account_t * account, fd_rent_t const * rent, ulo
 
 int
 fd_executor_check_txn_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
-  ulong fee = fd_runtime_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw );
+  ulong execution_fee = 0;
+  ulong priority_fee = 0;
+  fd_runtime_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw, &execution_fee, &priority_fee );
+  ulong fee = fd_ulong_sat_add (execution_fee, priority_fee);
 
-  if ( txn_ctx->txn_descriptor->signature_cnt == 0 && fee != 0 ) {
+  if ( txn_ctx->txn_descriptor->signature_cnt == 0 && execution_fee != 0 ) {
     return FD_RUNTIME_TXN_ERR_MISSING_SIGNATURE_FOR_FEE;
   }
 
@@ -919,12 +922,16 @@ fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
     void * rec_data = fd_valloc_malloc( fd_scratch_virtual(), 8UL, fd_borrowed_account_raw_size( rec ) );
     fd_borrowed_account_make_modifiable( rec, rec_data );
 
-    ulong fee = fd_runtime_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw );
-    if( fd_executor_collect_fee( slot_ctx, rec, fee ) ) {
+    ulong execution_fee = 0;
+    ulong priority_fee = 0;
 
+    fd_runtime_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw, &execution_fee, &priority_fee );
+
+    if( fd_executor_collect_fee( slot_ctx, rec, fd_ulong_sat_add( execution_fee, priority_fee ) ) ) {
       return -1;
     }
-    slot_ctx->slot_bank.collected_fees += fee;
+    slot_ctx->slot_bank.collected_execution_fees = fd_ulong_sat_add (execution_fee, slot_ctx->slot_bank.collected_execution_fees);
+    slot_ctx->slot_bank.collected_priority_fees = fd_ulong_sat_add (priority_fee, slot_ctx->slot_bank.collected_priority_fees);
 
     err = fd_acc_mgr_save( slot_ctx->acc_mgr, rec );
     if( FD_UNLIKELY( err ) ) {

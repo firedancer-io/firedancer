@@ -865,7 +865,8 @@ after_frag( void *             _ctx,
 
       ulong prev_slot = child->slot_ctx.slot_bank.slot;
       child->slot_ctx.slot_bank.slot           = ctx->curr_slot;
-      child->slot_ctx.slot_bank.collected_fees = 0;
+      child->slot_ctx.slot_bank.collected_execution_fees = 0;
+      child->slot_ctx.slot_bank.collected_priority_fees = 0;
       child->slot_ctx.slot_bank.collected_rent = 0;
 
       /* Write to debugging files. */
@@ -966,7 +967,7 @@ after_frag( void *             _ctx,
       FD_LOG_INFO(( "NOT publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", ctx->curr_slot, ctx->parent_slot, ctx->flags ));
     }
   } FD_SCRATCH_SCOPE_END;
-  
+
   #if STOP_SLOT
       if( FD_UNLIKELY( ctx->curr_slot == STOP_SLOT ) ) {
 
@@ -1119,7 +1120,7 @@ after_credit( void *             _ctx,
 
 
       /* Redirect ctx->slot_ctx to point to the memory inside forks. */
-      
+
       fd_fork_t * fork = fd_forks_query( ctx->forks, ctx->curr_slot );
       ctx->slot_ctx = &fork->slot_ctx;
       FD_TEST( ctx->slot_ctx );

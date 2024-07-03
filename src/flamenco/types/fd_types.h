@@ -2376,7 +2376,8 @@ struct __attribute__((aligned(16UL))) fd_slot_bank {
   ulong capitalization;
   ulong block_height;
   ulong max_tick_height;
-  ulong collected_fees;
+  ulong collected_execution_fees;
+  ulong collected_priority_fees;
   ulong collected_rent;
   fd_vote_accounts_t epoch_stakes;
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
@@ -2403,7 +2404,8 @@ struct __attribute__((aligned(16UL))) fd_slot_bank_off {
   uint capitalization_off;
   uint block_height_off;
   uint max_tick_height_off;
-  uint collected_fees_off;
+  uint collected_execution_fees_off;
+  uint collected_priority_fees_off;
   uint collected_rent_off;
   uint epoch_stakes_off;
   uint last_restart_slot_off;
