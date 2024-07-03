@@ -24,7 +24,7 @@
    settings. */
 #define MAX_SHRED_DEST_FOOTPRINT (8708224UL + sizeof(fd_shred_dest_t))
 
-#define FD_STAKE_CI_STAKE_MSG_SZ (32UL + MAX_SHRED_DESTS * 40UL)
+#define FD_STAKE_CI_STAKE_MSG_SZ (40UL + MAX_SHRED_DESTS * 40UL)
 
 struct fd_per_epoch_info_private {
   /* Epoch, and [start_slot, start_slot+slot_cnt) refer to the time
@@ -35,6 +35,7 @@ struct fd_per_epoch_info_private {
   ulong epoch;
   ulong start_slot;
   ulong slot_cnt;
+  ulong excluded_stake;
 
   /* Invariant: These are always joined and use the memory below for
      their footprint. */
@@ -57,6 +58,7 @@ struct fd_stake_ci {
     ulong start_slot;
     ulong slot_cnt;
     ulong staked_cnt;
+    ulong excluded_stake;
   } scratch[1];
 
   fd_stake_weight_t        stake_weight   [ MAX_SHRED_DESTS ];

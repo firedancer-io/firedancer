@@ -3471,10 +3471,8 @@ void fd_runtime_update_leaders(fd_exec_slot_ctx_t *slot_ctx, ulong slot)
       FD_TEST( stake_weight_cnt <= MAX_PUB_CNT );
       FD_TEST( slot_cnt <= MAX_SLOTS_CNT );
       void *epoch_leaders_mem = fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx );
-      fd_epoch_leaders_t * leaders = fd_epoch_leaders_join(fd_epoch_leaders_new(epoch_leaders_mem, epoch, slot0, slot_cnt, stake_weight_cnt, epoch_weights));
+      fd_epoch_leaders_t * leaders = fd_epoch_leaders_join(fd_epoch_leaders_new(epoch_leaders_mem, epoch, slot0, slot_cnt, stake_weight_cnt, epoch_weights, 0UL));
       FD_TEST(leaders);
-      /* Derive */
-      fd_epoch_leaders_derive(leaders, epoch_weights, epoch);
     }
   }
   FD_SCRATCH_SCOPE_END;

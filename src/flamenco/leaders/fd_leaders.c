@@ -10,9 +10,9 @@ fd_epoch_leaders_align( void ) {
 FD_FN_CONST ulong
 fd_epoch_leaders_footprint( ulong pub_cnt,
                             ulong slot_cnt ) {
-  if( FD_UNLIKELY( ( pub_cnt  ==     0UL )
-                 | ( pub_cnt   >UINT_MAX )
-                 | ( slot_cnt==     0UL ) ) )
+  if( FD_UNLIKELY( ( pub_cnt  ==     0UL     )
+                 | ( pub_cnt   >UINT_MAX-3UL )
+                 | ( slot_cnt==     0UL  ) ) )
     return 0UL;
   return FD_EPOCH_LEADERS_FOOTPRINT( pub_cnt, slot_cnt );
 }
@@ -23,7 +23,8 @@ fd_epoch_leaders_new( void                    * shmem,
                       ulong                     slot0,
                       ulong                     slot_cnt,
                       ulong                     pub_cnt,
-                      fd_stake_weight_t const * stakes ) {
+                      fd_stake_weight_t const * stakes,
+                      ulong                     excluded_stake ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -36,10 +37,11 @@ fd_epoch_leaders_new( void                    * shmem,
   }
 
   /* The eventual layout that we want is:
-     struct           (align=8, footprint=56)
-     list of indices  (align=4, footprint=4*ceil(slot_cnt/4))
+     struct                   (align=8, footprint=56)
+     list of indices          (align=4, footprint=4*ceil(slot_cnt/4))
      (up to 56 bytes of padding to align to 64)
-     list of pubkeys  (align=32, footprint=32*pub_cnt)
+     list of pubkeys          (align=32, footprint=32*pub_cnt)
+     the indeterminate pubkey (align=32, footprint=32)
      (possibly 32 bytes of padding to align to 64)
 
      but in order to generate the list of indices, we want to use
@@ -77,10 +79,11 @@ fd_epoch_leaders_new( void                    * shmem,
 
   void * _wsample = fd_wsample_new_init( wsample_mem, rng, pub_cnt, 0, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE );
   for( ulong i=0UL; i<pub_cnt; i++ ) _wsample = fd_wsample_new_add( _wsample, stakes[i].stake );
-  fd_wsample_t * wsample = fd_wsample_join( fd_wsample_new_fini( _wsample ) );
+  fd_wsample_t * wsample = fd_wsample_join( fd_wsample_new_fini( _wsample, excluded_stake ) );
 
-  /* Generate samples.  We need uints, so we can't use sample_many. */
-  for( ulong i=0UL; i<sched_cnt; i++ ) sched[ i ] = (uint)fd_wsample_sample( wsample );
+  /* Generate samples.  We need uints, so we can't use sample_many.  Map
+     any FD_WSAMPLE_INDETERMINATE values to pub_cnt. */
+  for( ulong i=0UL; i<sched_cnt; i++ ) sched[ i ] = (uint)fd_ulong_min( fd_wsample_sample( wsample ), pub_cnt );
 
   /* Clean up the wsample object */
   fd_wsample_delete( fd_wsample_leave( wsample ) );
@@ -88,6 +91,10 @@ fd_epoch_leaders_new( void                    * shmem,
 
   /* Now we can use the space for the pubkeys */
   for( ulong i=0UL; i<pub_cnt; i++ ) memcpy( pubkeys+i, &stakes[ i ].key, 32UL );
+
+  /* copy indeterminate leader to the last spot */
+  static const uchar fd_indeterminate_leader[32] = { FD_INDETERMINATE_LEADER };
+  memcpy( pubkeys+pub_cnt, fd_indeterminate_leader, 32UL );
 
   /* Construct the final struct */
   leaders->epoch     = epoch;
@@ -114,70 +121,4 @@ fd_epoch_leaders_leave( fd_epoch_leaders_t * leaders ) {
 void *
 fd_epoch_leaders_delete( void * shleaders ) {
   return shleaders;
-}
-
-/* fd_epoch_leaders_weighted_index performs binary search to resolve a
-   sample uniformly distributed in [0,accum_stake) to a public key
-   while preserving stake weight probability distribution. */
-
-static ulong
-fd_epoch_leaders_weighted_index( ulong const * scratch,
-                                 ulong         stakes_cnt,
-                                 ulong         roll ) {
-  ulong lo = 0UL;
-  ulong hi = stakes_cnt;
-  while( lo<=hi ) {
-    ulong idx = lo+(hi-lo)/2UL;
-    if( scratch[idx]<=roll && roll<scratch[idx+1] )
-      return idx;
-    if( roll<scratch[idx] )
-      hi = idx-1UL;
-    else
-      lo = idx+1UL;
-  }
-  __builtin_unreachable();
-}
-
-void
-fd_epoch_leaders_derive( fd_epoch_leaders_t *      leaders,
-                         fd_stake_weight_t const * stakes,
-                         ulong                     epoch ) {
-
-  fd_scratch_push();
-
-  ulong pub_cnt   = leaders->pub_cnt;
-  ulong sched_cnt = leaders->sched_cnt;
-
-  /* Copy public keys */
-  for( ulong i=0UL; i<pub_cnt; i++ )
-    memcpy( &leaders->pub[ i ], &stakes[ i ].key, 32UL );
-
-  /* Create map of cumulative stake index */
-  ulong * scratch = fd_scratch_alloc( alignof(ulong), (pub_cnt+1UL)*sizeof(ulong) );
-  ulong accum_stake = 0UL;
-  for( ulong i=0UL; i<pub_cnt; i++ ) {
-    scratch[ i ] = accum_stake;
-    accum_stake += stakes[ i ].stake;
-  }
-  scratch[ pub_cnt ] = accum_stake;
-
-  FD_LOG_DEBUG(( "accum_stake=%016lx", accum_stake ));
-
-  /* Create and seed ChaCha20Rng */
-  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( fd_alloca(alignof(fd_chacha20rng_t), sizeof(fd_chacha20rng_t)), FD_CHACHA20RNG_MODE_MOD ) );
-  uchar key[ 32 ] = {0};
-  memcpy( key, &epoch, sizeof(ulong) );
-  fd_chacha20rng_init( rng, key );
-
-  /* Sample leader schedule */
-  for( ulong i=0UL; i<sched_cnt; i++ ) {
-    ulong roll = fd_chacha20rng_ulong_roll( rng, accum_stake );
-    ulong idx  = fd_epoch_leaders_weighted_index( scratch, pub_cnt, roll );
-    leaders->sched[ i ] = (uint)idx;
-  }
-
-  /* Clean up */
-  fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) );
-
-  fd_scratch_pop();
 }

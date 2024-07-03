@@ -69,6 +69,8 @@ struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
   ulong staked_cnt;
   ulong unstaked_cnt;
 
+  ulong excluded_stake;
+
   pubkey_to_idx_t * pubkey_to_idx_map; /* maps pubkey -> [0, staked_cnt+unstaked_cnt) */
 
   ulong source_validator_orig_idx; /* in [0, staked_cnt+unstaked_cnt) */
@@ -96,29 +98,36 @@ static inline ulong fd_shred_dest_align    ( void      ) { return FD_SHRED_DEST_
    first of cnt destinations that the fd_shred_dest_t will be aware of.
    info must be sorted in the typical Solana stake weighted way: largest
    stake to smallest stake, with ties broken by pubkey (again, largest
-   to smallest lexicographically).  src must contain all staked
-   validators, even if some do not have contact info (set ip to 0 if
-   so).  src can also contain unstaked validators, but they must be at
-   the end of the list.  Each fd_shred_dest_t object is tied to a
-   specific epoch, and so the stake weights are constant within the
-   epoch.  The information in info will be copied, and no read interest
-   in info will be retained.  lsched points to a local join of an
-   fd_epoch_leaders_t object with the leader information for the slots
-   when the shreds for which this shred dest object computes
-   destinations were produced.  This function retains a read interest in
-   lsched that persists until the memory is unformatted.  `source`
-   points to the public key of the identity key of the current
-   validator, i.e. the one who sends out the shreds computed by this
-   object.  info must contain contact info for `source,` although it
-   will never be returned as a destination.
+   to smallest lexicographically).  info must not omit staked validators
+   just because they do not have contact info; rather, those should be
+   represented with ip set to 0.  info may include unstaked validators,
+   which, given the sort order, will be at the end of the list.  If the
+   number of staked validators exceeds the caller's maximum list
+   capacity, the list can be truncated, with excluded_stake set to the
+   sum of the excluded staked validators.  In that case, info should not
+   contain any unstaked validators.
 
-   Returns mem on success and NULL on errors.  Logs a warning if so. */
+   Each fd_shred_dest_t object is tied to a specific epoch, and so the
+   stake weights are constant within the epoch.  The information in info
+   will be copied, and no read interest in info will be retained.
+   lsched points to a local join of an fd_epoch_leaders_t object with
+   the leader information for the slots when the shreds for which this
+   shred dest object computes destinations were produced.  This function
+   retains a read interest in lsched that persists until the memory is
+   unformatted.  `source` points to the public key of the identity key
+   of the current validator, i.e. the one who sends out the shreds
+   computed by this object.  info must contain contact info for
+   `source,` although it will never be returned as a destination.
+
+   Returns mem on success and NULL on errors.  Logs a warning with
+   details on errors. */
 void *
 fd_shred_dest_new( void                           * mem,
                    fd_shred_dest_weighted_t const * info, /* Accessed [0, cnt) */
                    ulong                            cnt,
                    fd_epoch_leaders_t       const * lsched,
-                   fd_pubkey_t              const * source );
+                   fd_pubkey_t              const * source,
+                   ulong                            excluded_stake );
 
 /* fd_shred_dest_join joins the caller to a region of memory formatted
    as an fd_shred_dest_t. fd_shred_dest_leave does the opposite.

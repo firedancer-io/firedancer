@@ -32,9 +32,9 @@ test_compute_first_matches_solana( void ) {
   FD_TEST( fd_shred_dest_footprint   ( staked, staked-cnt ) <= TEST_MAX_FOOTPRINT );
   FD_TEST( fd_epoch_leaders_footprint( cnt, 10000UL       ) <= TEST_MAX_FOOTPRINT );
 
-  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, staked, stakes ) );
+  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, staked, stakes, 0UL ) );
 
-  fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, info, cnt, lsched, src_key ) );
+  fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, info, cnt, lsched, src_key, 0UL ) );
 
   fd_shred_dest_idx_t result[1];
   fd_shred_t shred[1];
@@ -82,9 +82,9 @@ test_compute_children_matches_solana( void ) {
   FD_TEST( fd_shred_dest_footprint   ( staked, cnt-staked ) <= TEST_MAX_FOOTPRINT );
   FD_TEST( fd_epoch_leaders_footprint( cnt,        2000UL ) <= TEST_MAX_FOOTPRINT );
 
-  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 4000UL, staked, stakes ) );
+  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 4000UL, staked, stakes, 0UL ) );
 
-  fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, info, cnt, lsched, src_key ) );
+  fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, info, cnt, lsched, src_key, 0UL ) );
 
   ulong const * ans_ul = (ulong const *)t1_retransmit_peers;
 
@@ -139,7 +139,7 @@ test_distribution_is_tree( fd_shred_dest_weighted_t const * info, ulong cnt, fd_
   fd_pubkey_t const * leader = fd_epoch_leaders_get( lsched, slot );
 
   for( ulong src_idx=0UL; src_idx<cnt; src_idx++ ) {
-    fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, info, cnt, lsched, &(info[src_idx].pubkey) ) );
+    fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, info, cnt, lsched, &(info[src_idx].pubkey), 0UL ) );
 
     ulong dest_cnt = 0UL;
     if( !memcmp( &(info[src_idx].pubkey), leader, 32UL ) ) {
@@ -185,8 +185,8 @@ test_batching( void ) {
       info[i].ip4 = (uint)i;
     }
     fd_pubkey_t * src_key = &(info[0].pubkey);
-    fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 100UL, cnt, stakes ) );
-    fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, info, cnt, lsched, src_key ) );
+    fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 100UL, cnt, stakes, 0UL ) );
+    fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, info, cnt, lsched, src_key, 0UL ) );
 
 #define BATCH_CNT 5
     fd_shred_dest_idx_t result1[BATCH_CNT*BATCH_CNT];
@@ -257,7 +257,7 @@ test_vary_stake( void ) {
     stakes[31].key.uc[0] = 0;
     stakes[30].stake = stakes[31].stake = prev-1UL;
 
-    fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 100UL, cnt, stakes ) );
+    fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 100UL, cnt, stakes, 0UL ) );
     test_distribution_is_tree( info, 32UL, lsched, 6+fd_rng_ulong_roll(r, 25UL ), fd_rng_ulong_roll( r, 100UL ), fd_rng_int_roll( r, 2 ), fd_rng_ulong_roll( r, 100UL ) );
     fd_epoch_leaders_delete( fd_epoch_leaders_leave( lsched ) );
   }
@@ -277,7 +277,7 @@ test_t1_vary_radix( void ) {
     staked += (info[i].stake_lamports>0UL);
   }
 
-  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 4000UL, staked, stakes ) );
+  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 4000UL, staked, stakes, 0UL ) );
   for( ulong fanout=35UL; fanout<650UL; fanout+=11UL ) {
     FD_LOG_NOTICE(( "Fanout: %lu", fanout ));
     test_distribution_is_tree( info, cnt, lsched, fanout, fd_rng_ulong_roll( r, 4000UL ), fd_rng_int_roll( r, 2 ), fd_rng_ulong_roll( r, 100UL ) );
@@ -299,9 +299,9 @@ test_change_contact( void ) {
     staked += (info[i].stake_lamports>0UL);
   }
 
-  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, staked, stakes ) );
+  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, staked, stakes, 0UL ) );
 
-  fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, info, cnt, lsched, src_key ) );
+  fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, info, cnt, lsched, src_key, 0UL ) );
   fd_shred_dest_idx_to_dest( sdest, (ushort)0 )->ip4 = 12U;
   FD_TEST( fd_shred_dest_idx_to_dest( sdest, (ushort)0 )->ip4 == 12U );
   fd_shred_dest_idx_to_dest( sdest, (ushort)0 )->ip4 = 14U;
@@ -313,17 +313,118 @@ test_change_contact( void ) {
 
 static void
 test_errors( void ) {
-  FD_TEST( NULL==fd_shred_dest_new( NULL,      NULL, 0, NULL, NULL ) );
-  FD_TEST( NULL==fd_shred_dest_new( (void *)1, NULL, 0, NULL, NULL ) );
+  FD_TEST( NULL==fd_shred_dest_new( NULL,      NULL, 0, NULL, NULL, 0UL ) );
+  FD_TEST( NULL==fd_shred_dest_new( (void *)1, NULL, 0, NULL, NULL, 0UL ) );
 
   memset( &(stakes[0].key), 1, 32UL );
   stakes[0].stake = 100UL;
   fd_pubkey_t const * src_key = (fd_pubkey_t const *)t1_pubkey;
-  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, 1UL, stakes ) );
+  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, 1UL, stakes, 0UL ) );
 
-  fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, NULL, 0UL, lsched, src_key ) );
+  fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, NULL, 0UL, lsched, src_key, 0UL ) );
   FD_TEST( sdest==NULL );
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( lsched ) );
+}
+
+static void
+test_indeterminate( void ) {
+  fd_rng_t _rng[1]; fd_rng_t * r = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
+  ulong staked_cnt = 0UL;
+
+  fd_shred_dest_weighted_t const * info = (fd_shred_dest_weighted_t const *)t1_dest_info;
+  ulong cnt = t1_dest_info_sz / sizeof(fd_shred_dest_weighted_t);
+  for( ulong i=0UL; i<cnt; i++ ) {
+    stakes[i].key = info[i].pubkey;
+    stakes[i].stake = info[i].stake_lamports;
+    staked_cnt += (info[i].stake_lamports>0UL);
+  }
+
+  ulong truncated_cnt  = 995UL*staked_cnt/1000UL;
+  ulong excluded_stake = 0UL;
+  for( ulong i=truncated_cnt; i<staked_cnt; i++ ) excluded_stake += stakes[i].stake;
+
+  uchar * lf_full  = _l_footprint;
+  uchar * lf_trunc = _l_footprint + fd_epoch_leaders_footprint( staked_cnt, 4000UL );
+  FD_TEST( lf_trunc + fd_epoch_leaders_footprint( truncated_cnt, 4000UL ) < _l_footprint + TEST_MAX_FOOTPRINT );
+
+  fd_epoch_leaders_t * lsched_full  = fd_epoch_leaders_join( fd_epoch_leaders_new( lf_full,  0UL, 0UL, 4000UL, staked_cnt,
+                                                                                   stakes, 0UL            ) );
+  fd_epoch_leaders_t * lsched_trunc = fd_epoch_leaders_join( fd_epoch_leaders_new( lf_trunc, 0UL, 0UL, 4000UL, truncated_cnt,
+                                                                                   stakes, excluded_stake ) );
+
+  uchar * sf_full  = _sd_footprint;
+  uchar * sf_trunc = _sd_footprint + fd_shred_dest_footprint( staked_cnt, 0UL );
+  FD_TEST( sf_trunc + fd_shred_dest_footprint( truncated_cnt, 0UL ) < _sd_footprint + TEST_MAX_FOOTPRINT );
+
+  ulong match_cnt   = 0UL;
+  ulong no_dest_cnt = 0UL;
+  for( ulong iter=0UL; iter<5000UL; iter++ ) {
+    fd_pubkey_t const * src = &(info[ fd_rng_ulong_roll( r, truncated_cnt + (staked_cnt-truncated_cnt)/4UL ) ].pubkey);
+    fd_shred_dest_t * sdest_full  = fd_shred_dest_join( fd_shred_dest_new( sf_full,  info, staked_cnt,    lsched_full,  src, 0UL            ) );
+    fd_shred_dest_t * sdest_trunc = fd_shred_dest_join( fd_shred_dest_new( sf_trunc, info, truncated_cnt, lsched_trunc, src, excluded_stake ) );
+
+    ulong slot = fd_rng_ulong_roll( r, 4000UL );
+    ulong fanout = fd_rng_ulong_roll( r, 200UL ) + 65UL;
+
+    if( FD_UNLIKELY( sdest_trunc==NULL ) ) {
+      no_dest_cnt += fanout;
+      continue;
+    }
+
+    fd_pubkey_t const * leader = fd_epoch_leaders_get( lsched_full, slot );
+
+    fd_shred_t shred[1];
+    fd_shred_t const * shred_ptr[ 1 ] = { shred };
+    shred->slot = slot;
+    shred->variant = fd_shred_variant( fd_rng_int_roll( r, 2 ) ? FD_SHRED_TYPE_MERKLE_DATA : FD_SHRED_TYPE_MERKLE_CODE, 2 );
+    shred->idx = fd_rng_uint_roll( r, 100UL );
+
+    fd_shred_dest_idx_t out_full [1024];
+    fd_shred_dest_idx_t out_trunc[1024];
+    ulong dest_cnt = 0UL;
+    if( !memcmp( src, leader, 32UL ) ) {
+      FD_TEST( out_full==             fd_shred_dest_compute_first( sdest_full,  shred_ptr, 1UL, out_full  ) );
+      fd_shred_dest_idx_t * o_trunc = fd_shred_dest_compute_first( sdest_trunc, shred_ptr, 1UL, out_trunc );
+      if( FD_UNLIKELY( o_trunc==NULL ) ) {
+        no_dest_cnt++;
+      } else {
+        FD_TEST( o_trunc==out_trunc );
+        dest_cnt = 1UL;
+      }
+    } else {
+      ulong dcnt_f = 0UL;
+      ulong dcnt_t = 0UL;
+      FD_TEST( out_full==             fd_shred_dest_compute_children( sdest_full,  shred_ptr, 1UL, out_full,  1UL, fanout, fanout, &dcnt_f ) );
+      fd_shred_dest_idx_t * o_trunc = fd_shred_dest_compute_children( sdest_trunc, shred_ptr, 1UL, out_trunc, 1UL, fanout, fanout, &dcnt_t );
+      FD_TEST( dcnt_f>=dcnt_t ); /* == in the good case */
+
+      if( FD_UNLIKELY( o_trunc==NULL ) ) {
+        no_dest_cnt+=fanout;
+      } else {
+        FD_TEST( o_trunc==out_trunc );
+        dest_cnt     = dcnt_t;
+        no_dest_cnt += dcnt_f - dcnt_t;
+      }
+    }
+
+    for( ulong i=0UL; i<dest_cnt; i++ ) {
+      if( FD_LIKELY( out_full[ i ]==out_trunc[ i ] ) ) match_cnt++;
+      else {
+        FD_TEST( out_trunc[ i ]==FD_SHRED_DEST_NO_DEST );
+        no_dest_cnt++;
+      }
+    }
+
+    fd_shred_dest_delete( fd_shred_dest_leave( sdest_trunc ) );
+    fd_shred_dest_delete( fd_shred_dest_leave( sdest_full  ) );
+  }
+
+  FD_LOG_NOTICE(( "Matched on %lu destination.  %lu destinations were not known because of truncation", match_cnt, no_dest_cnt ));
+
+  fd_epoch_leaders_delete( fd_epoch_leaders_leave( lsched_trunc ) );
+  fd_epoch_leaders_delete( fd_epoch_leaders_leave( lsched_full  ) );
+  fd_rng_delete( fd_rng_leave( r ) );
 }
 
 static void
@@ -345,8 +446,8 @@ test_performance( void ) {
   FD_TEST( fd_epoch_leaders_footprint( cnt,       10000UL ) <= TEST_MAX_FOOTPRINT  );
 
   long dt = -fd_log_wallclock();
-  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, staked, stakes ) );
-  fd_shred_dest_t    * sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( _sd_footprint, info, cnt, lsched, src_key ) );
+  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, staked, stakes, 0UL ) );
+  fd_shred_dest_t    * sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( _sd_footprint, info, cnt, lsched, src_key, 0UL ) );
   dt += fd_log_wallclock();
 
   ulong max_dest_cnt[ 16 ] = { 0UL };
@@ -400,6 +501,8 @@ main( int     argc,
   test_batching();
   FD_LOG_NOTICE(( "Testing contact change" ));
   test_change_contact();
+  FD_LOG_NOTICE(( "Testing indeterminate" ));
+  test_indeterminate();
   FD_LOG_NOTICE(( "Testing performance" ));
   test_performance();
 

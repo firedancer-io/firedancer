@@ -116,12 +116,19 @@ struct __attribute__((aligned(64UL))) fd_wsample_private {
      only implicit.
 
      All the math seems to disallow leaf_cnt==0, but for conveniece, we
-     do allow it. height==internal_node_cnt==0 in that case. */
-  ulong              internal_node_cnt;
-  ulong              height;
-  int                restore_enabled;
+     do allow it. height==internal_node_cnt==0 in that case.
 
-  /* 4 bytes of padding here */
+     height actually fits in a uchar.  Storing as ulong is more natural,
+     but we don't want to spill over into another cache line.
+
+     If poisoned_mode==1, then all sample calls will return poisoned.*/
+  ulong              internal_node_cnt;
+  ulong              poisoned_weight;
+  uint               height;
+  char               restore_enabled;
+  char               poisoned_mode;
+  /* Two bytes of padding here */
+
   fd_chacha20rng_t * rng;
 
   /* tree: Here's where the actual tree is stored, at indices [0,
@@ -159,7 +166,7 @@ compute_height( ulong   leaf_cnt,
      and leaf_cnt < 5^25 approx 2^58.  A tree that large would take an
      astronomical amount of memory, so we just retain this max for the
      moment. */
-  if( FD_UNLIKELY( leaf_cnt >= UINT_MAX ) ) return -1;
+  if( FD_UNLIKELY( leaf_cnt >= UINT_MAX-2UL ) ) return -1;
 
   ulong height   = 0;
   ulong internal = 0UL;
@@ -291,8 +298,10 @@ fd_wsample_new_init( void             * shmem,
   sampler->unremoved_cnt     = 0UL;
   sampler->unremoved_weight  = 0UL;
   sampler->internal_node_cnt = internal_cnt;
-  sampler->height            = height;
-  sampler->restore_enabled   = restore_enabled;
+  sampler->poisoned_weight   = 0UL;
+  sampler->height            = (uint)height;
+  sampler->restore_enabled   = (char)!!restore_enabled;
+  sampler->poisoned_mode     = 0;
   sampler->rng               = rng;
 
   fd_memset( sampler->tree, (char)0, internal_cnt*sizeof(tree_ele_t) );
@@ -336,9 +345,17 @@ fd_wsample_new_add( void * shmem,
 }
 
 void *
-fd_wsample_new_fini( void * shmem ) {
+fd_wsample_new_fini( void * shmem,
+                     ulong  poisoned_weight ) {
   fd_wsample_t *  sampler = (fd_wsample_t *)shmem;
   if( FD_UNLIKELY( !sampler ) ) return NULL;
+
+  if( FD_UNLIKELY( sampler->total_weight+poisoned_weight<sampler->total_weight ) ) {
+    FD_LOG_WARNING(( "poisoned_weight caused overflow" ));
+    return NULL;
+  }
+
+  sampler->poisoned_weight = poisoned_weight;
 
   if( sampler->restore_enabled ) {
     /* Copy the sampler to make restore fast. */
@@ -391,6 +408,7 @@ fd_wsample_restore_all( fd_wsample_t * sampler ) {
 
   sampler->unremoved_weight = sampler->total_weight;
   sampler->unremoved_cnt    = sampler->total_cnt;
+  sampler->poisoned_mode    = 0;
 
   fd_memcpy( sampler->tree, sampler->tree+sampler->internal_node_cnt+1UL, sampler->internal_node_cnt*sizeof(tree_ele_t) );
   return sampler;
@@ -563,8 +581,14 @@ fd_wsample_sample_and_remove_many( fd_wsample_t * sampler,
      percent because it triggers worse behavior in the CPUs front end.
      To address this, we manually inline it here. */
   for( ulong i=0UL; i<cnt; i++ ) {
-    if( FD_UNLIKELY( !sampler->unremoved_weight ) ) { idxs[ i ] = FD_WSAMPLE_EMPTY; continue; }
-    ulong unif = fd_chacha20rng_ulong_roll( sampler->rng, sampler->unremoved_weight );
+    if( FD_UNLIKELY( !sampler->unremoved_weight ) ) { idxs[ i ] = FD_WSAMPLE_EMPTY;         continue; }
+    if( FD_UNLIKELY(  sampler->poisoned_mode    ) ) { idxs[ i ] = FD_WSAMPLE_INDETERMINATE; continue; }
+    ulong unif = fd_chacha20rng_ulong_roll( sampler->rng, sampler->unremoved_weight+sampler->poisoned_weight );
+    if( FD_UNLIKELY( unif>=sampler->unremoved_weight ) ) {
+      idxs[ i ] = FD_WSAMPLE_INDETERMINATE;
+      sampler->poisoned_mode = 1;
+      continue;
+    }
     idxw_pair_t p = fd_wsample_map_sample_i( sampler, unif );
     fd_wsample_remove( sampler, p );
     idxs[ i ] = p.idx;
@@ -576,14 +600,21 @@ fd_wsample_sample_and_remove_many( fd_wsample_t * sampler,
 ulong
 fd_wsample_sample( fd_wsample_t * sampler ) {
   if( FD_UNLIKELY( !sampler->unremoved_weight ) ) return FD_WSAMPLE_EMPTY;
-  ulong unif = fd_chacha20rng_ulong_roll( sampler->rng, sampler->unremoved_weight );
+  if( FD_UNLIKELY(  sampler->poisoned_mode    ) ) return FD_WSAMPLE_INDETERMINATE;
+  ulong unif = fd_chacha20rng_ulong_roll( sampler->rng, sampler->unremoved_weight+sampler->poisoned_weight );
+  if( FD_UNLIKELY( unif>=sampler->unremoved_weight ) ) return FD_WSAMPLE_INDETERMINATE;
   return (ulong)fd_wsample_map_sample( sampler, unif );
 }
 
 ulong
 fd_wsample_sample_and_remove( fd_wsample_t * sampler ) {
   if( FD_UNLIKELY( !sampler->unremoved_weight ) ) return FD_WSAMPLE_EMPTY;
-  ulong unif = fd_chacha20rng_ulong_roll( sampler->rng, sampler->unremoved_weight );
+  if( FD_UNLIKELY(  sampler->poisoned_mode    ) ) return FD_WSAMPLE_INDETERMINATE;
+  ulong unif = fd_chacha20rng_ulong_roll( sampler->rng, sampler->unremoved_weight+sampler->poisoned_weight );
+  if( FD_UNLIKELY( unif>=sampler->unremoved_weight ) ) {
+    sampler->poisoned_mode = 1;
+    return FD_WSAMPLE_INDETERMINATE;
+  }
   idxw_pair_t p = fd_wsample_map_sample_i( sampler, unif );
   fd_wsample_remove( sampler, p );
   return p.idx;

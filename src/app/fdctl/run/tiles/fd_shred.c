@@ -564,12 +564,17 @@ after_frag( void *             _ctx,
       /* Relay this shred */
       ulong fanout = 200UL;
       ulong max_dest_cnt[1];
-      fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, shred->slot );
-      if( FD_UNLIKELY( !sdest ) ) return;
-      fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, _dests, 1UL, fanout, fanout, max_dest_cnt );
-      if( FD_UNLIKELY( !dests ) ) return;
+      do {
+        /* If we've validated the shred and it COMPLETES but we can't
+           compute the destination for whatever reason, don't forward
+           the shred, but still send it to the blockstore. */
+        fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, shred->slot );
+        if( FD_UNLIKELY( !sdest ) ) break;
+        fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, _dests, 1UL, fanout, fanout, max_dest_cnt );
+        if( FD_UNLIKELY( !dests ) ) break;
 
-      for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, sdest, dests[ j ], ctx->tsorig );
+        for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, sdest, dests[ j ], ctx->tsorig );
+      } while( 0 );
     }
     if( FD_LIKELY( rv!=FD_FEC_RESOLVER_SHRED_COMPLETES ) ) return;
 
@@ -636,7 +641,7 @@ after_frag( void *             _ctx,
     *max_dest_cnt = 1UL;
     dests = fd_shred_dest_compute_first   ( sdest, new_shreds, k, _dests );
   }
-  FD_TEST( dests );
+  if( FD_UNLIKELY( !dests ) ) return;
 
   /* Send only the ones we didn't receive. */
   for( ulong i=0UL; i<k; i++ ) for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, new_shreds[ i ], sdest, dests[ j*out_stride+i ], ctx->tsorig );
