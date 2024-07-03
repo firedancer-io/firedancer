@@ -2898,7 +2898,15 @@ fd_quic_process_packet( fd_quic_t * quic,
 
     /* multiple QUIC packets in a UDP packet */
     /* shortest valid quic payload? */
-    while( FD_LIKELY( cur_sz >= FD_QUIC_SHORTEST_PKT ) ) {
+    while(1) {
+      /* Are we done? Omit short packet handling that follows */
+      if( FD_UNLIKELY( cur_sz < FD_QUIC_SHORTEST_PKT ) ) return;
+
+      /* short packet requires different handling */
+      int short_pkt = !( (uint)cur_ptr[0] & 0x80u );
+
+      if( FD_UNLIKELY( short_pkt ) ) break;
+
       /* check version */
       uint cur_version = DECODE_UINT32( cur_ptr + 1 );
 
@@ -2939,28 +2947,31 @@ fd_quic_process_packet( fd_quic_t * quic,
       cur_sz  -= rc;
       cur_ptr += rc;
     }
-  } else {
-    /* short header packet
-       only one_rtt packets currently have short headers */
+  }
 
-    /* extract destination connection id to look up connection */
-    fd_quic_conn_id_t dst_conn_id = { 8u, {0}, {0} }; /* our connection ids are 8 bytes */
-    fd_memcpy( &dst_conn_id.conn_id, cur_ptr+1, FD_QUIC_CONN_ID_SZ );
+  /* above can drop out of loop if a short packet is detected */
+  if( FD_UNLIKELY( cur_sz < FD_QUIC_SHORTEST_PKT ) ) return;
 
-    /* find connection id */
-    fd_quic_conn_entry_t * entry = fd_quic_conn_map_query( state->conn_map, &dst_conn_id );
-    if( !entry ) {
-      /* silently ignore */
-      return;
-    }
+  /* short header packet
+     only one_rtt packets currently have short headers */
+
+  /* extract destination connection id to look up connection */
+  fd_quic_conn_id_t dst_conn_id = { 8u, {0}, {0} }; /* our connection ids are 8 bytes */
+  fd_memcpy( &dst_conn_id.conn_id, cur_ptr+1, FD_QUIC_CONN_ID_SZ );
+
+  /* find connection id */
+  fd_quic_conn_entry_t * entry = fd_quic_conn_map_query( state->conn_map, &dst_conn_id );
+  if( !entry ) {
+    /* silently ignore */
+    return;
+  }
 
 #if 0
-    fd_quic_conn_t * conn  = entry->conn;
-    (void)fd_quic_handle_v1_one_rtt( quic, conn, &pkt, cur_ptr, cur_sz );
+  fd_quic_conn_t * conn  = entry->conn;
+  (void)fd_quic_handle_v1_one_rtt( quic, conn, &pkt, cur_ptr, cur_sz );
 #else
-    (void)fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
+  (void)fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
 #endif
-  }
 
 # undef DECODE_UINT32
 }
