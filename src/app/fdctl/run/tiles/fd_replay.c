@@ -821,7 +821,7 @@ after_frag( void *             _ctx,
                        !!vote_fork ? vote_fork->slot : 0,
                        (double)( duration_ns ) / 1e6,
                        duration_ns ) );
-      // fd_ghost_print( ctx->ghost, child->slot, FD_GHOST_PRINT_DEPTH_DEFAULT, ctx->tower->total_stake );
+      fd_ghost_print( ctx->ghost, child->slot, FD_GHOST_PRINT_DEPTH_DEFAULT, ctx->tower->total_stake );
       // fd_tower_print( ctx->tower );
 
       /* Record a vote, if we have a fork to vote on. */
