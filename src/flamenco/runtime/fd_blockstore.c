@@ -548,10 +548,9 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong new_root_slot ) {
       return FD_BLOCKSTORE_ERR_UNKNOWN;
     }
 
-    ulong i = 0;
-    while ( child_slots[i] != FD_SLOT_NULL ) {
-      if( FD_LIKELY( child_slots[ i ]!=new_root_slot ) ) {
-        fd_blockstore_slot_prune_deque_push_tail( prune_deque, child_slots[ i ] );
+    for( ulong i = 0; i < FD_BLOCKSTORE_CHILD_SLOT_MAX; i++ ) {
+      if( FD_LIKELY( child_slots[i] != FD_SLOT_NULL && child_slots[i] != new_root_slot ) ) {
+        fd_blockstore_slot_prune_deque_push_tail( prune_deque, child_slots[i] );
       }
     }
 
