@@ -720,7 +720,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, payer  ) {
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 3UL, buffer ) {
 
-      err = fd_account_checked_add_lamports( instr_ctx, 0UL, buffer->meta->info.lamports );
+      err = fd_account_checked_add_lamports( instr_ctx, 0UL, buffer->const_meta->info.lamports );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -769,14 +769,14 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L644-L665 */
       /* Load and verify the program bits */
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 3UL, buffer ) {
-      if( FD_UNLIKELY( buffer_data_offset>buffer->meta->dlen ) ) {
+      if( FD_UNLIKELY( buffer_data_offset>buffer->const_meta->dlen ) ) {
         FD_LOG_WARNING(( "Buffer data offset is out of bounds" ));
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
 
-      uchar * buffer_data = buffer->data + buffer_data_offset;
+      const uchar * buffer_data = buffer->const_data + buffer_data_offset;
 
-      err = deploy_program( instr_ctx, buffer_data, buffer_data_len );
+      err = deploy_program( instr_ctx, (uchar*)buffer_data, buffer_data_len );
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_WARNING(( "Failed to deploy program" ));
         return err;
@@ -808,7 +808,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         FD_LOG_WARNING(( "ProgramData account too small %32J %lu %lu", sig, buffer_data_len, programdata->meta->dlen ));
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
-      if( FD_UNLIKELY( buffer_data_offset>buffer->meta->dlen ) ) {
+      if( FD_UNLIKELY( buffer_data_offset>buffer->const_meta->dlen ) ) {
         FD_LOG_WARNING(( "Buffer account too small" ));
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
@@ -825,7 +825,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 3UL, buffer ) {
 
-      if( FD_UNLIKELY( buffer_data_offset>buffer->meta->dlen ) ) {
+      if( FD_UNLIKELY( buffer_data_offset>buffer->const_meta->dlen ) ) {
         FD_LOG_WARNING(( "Buffer account too small" ));
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
@@ -955,10 +955,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         FD_LOG_WARNING(( "Invalid Buffer account" ));
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
-      buffer_lamports    = buffer->meta->info.lamports;
+      buffer_lamports    = buffer->const_meta->info.lamports;
       buffer_data_offset = BUFFER_METADATA_SIZE;
-      buffer_data_len    = fd_ulong_sat_sub( buffer->meta->dlen, buffer_data_offset );
-      if( FD_UNLIKELY( buffer->meta->dlen<BUFFER_METADATA_SIZE || buffer->meta->dlen==0UL ) ) {
+      buffer_data_len    = fd_ulong_sat_sub( buffer->const_meta->dlen, buffer_data_offset );
+      if( FD_UNLIKELY( buffer->const_meta->dlen<BUFFER_METADATA_SIZE || buffer->const_meta->dlen==0UL ) ) {
         FD_LOG_WARNING(( "Buffer account too small" ));
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
@@ -1024,13 +1024,13 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 2UL, buffer ) {
 
-      if( FD_UNLIKELY( buffer_data_offset>buffer->meta->dlen ) ) {
+      if( FD_UNLIKELY( buffer_data_offset>buffer->const_meta->dlen ) ) {
         FD_LOG_WARNING(( "Buffer data offset is out of bounds" ));
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
 
-      uchar * buffer_data = buffer->data + buffer_data_offset;
-      err = deploy_program( instr_ctx, buffer_data, buffer_data_len );
+      const uchar * buffer_data = buffer->const_data + buffer_data_offset;
+      err = deploy_program( instr_ctx, (uchar*)buffer_data, buffer_data_len );
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_WARNING(( "Failed to deploy program" ));
         return err;
@@ -1070,12 +1070,12 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 2UL, buffer ) {
 
-      if( FD_UNLIKELY( buffer_data_offset>buffer->meta->dlen ) ){
+      if( FD_UNLIKELY( buffer_data_offset>buffer->const_meta->dlen ) ){
         FD_LOG_WARNING(( "Buffer account too small" ));
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
 
-      uchar * src_slice     = buffer->data + buffer_data_offset;
+      const uchar * src_slice = buffer->const_data + buffer_data_offset;
       fd_memcpy( dst_slice, src_slice, dst_slice_len );
       fd_memset( dst_slice + dst_slice_len, 0, programdata->meta->dlen - programdata_data_offset - dst_slice_len );
 
