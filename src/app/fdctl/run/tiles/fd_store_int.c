@@ -25,7 +25,7 @@
 #include "../../../../util/net/fd_udp.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/topo/fd_pod_format.h"
-#include "../../../../disco/tvu/fd_store.h"
+#include "../../../../disco/store/fd_store.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../flamenco/runtime/fd_runtime.h"

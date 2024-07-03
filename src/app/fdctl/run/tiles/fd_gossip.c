@@ -14,7 +14,7 @@
 
 #include "../../../../disco/fd_disco.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
-#include "../../../../disco/tvu/util.h"
+#include "../../../../disco/store/util.h"
 #include "../../../../flamenco/gossip/fd_gossip.h"
 #include "../../../../flamenco/runtime/fd_system_ids.h"
 #include "../../../../util/fd_util.h"
