@@ -95,7 +95,7 @@
    Operators can track down an errant process stalled in the middle of
    workspace operations and blocking other processes).  Likewise
    detailed usage and metadata integrity checking and repair can be done
-   via something like ffd_wksp_ctl check / verify / rebuild / etc.
+   via something like fd_wksp_ctl check / verify / rebuild / etc.
    Practically speaking, none of this really matters if usage occurs
    predominantly during application startup / shutdown.
 
@@ -129,7 +129,7 @@
 /* FD_WKSP_ALIGN_DEFAULT gives the default alignments of a wksp
    allocation.  This is a positive integer power of two of at least 16
    (for malloc compatibility).  Additional details described in
-   FD_WKSP_ALLOC. */
+   fd_wksp_alloc. */
 
 #define FD_WKSP_ALIGN_DEFAULT (4096UL)
 
