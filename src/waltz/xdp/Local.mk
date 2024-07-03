@@ -10,6 +10,8 @@ $(call run-unit-test,test_xsk)
 
 $(call make-unit-test,test_xdp_ebpf,test_xdp_ebpf,fd_waltz fd_util)
 $(call run-unit-test,test_xdp_ebpf)
+
+$(call make-unit-test,test_xsk_rxdrop,test_xsk_rxdrop,fd_waltz fd_tango fd_util)
 endif # FD_HAS_LINUX
 endif # FD_HAS_HOSTED
 
