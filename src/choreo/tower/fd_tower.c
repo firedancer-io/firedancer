@@ -678,8 +678,7 @@ fd_tower_vote( fd_tower_t const * tower, ulong slot ) {
   /* Pop everything that got expired. */
 
   while( fd_tower_votes_cnt( tower->votes ) > cnt ) {
-    FD_LOG_NOTICE( ( "popping %lu", fd_tower_votes_pop_tail( tower->votes ).slot ) );
-    // fd_tower_votes_pop_tail( tower->votes );
+    fd_tower_votes_pop_tail( tower->votes );
   }
 
   /* Increase confirmations (double lockouts) in consecutive votes. */

@@ -3179,7 +3179,9 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
 
         int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, &pubkey, 0, 0UL, rec );
         if( FD_UNLIKELY(err) ) {
-          FD_LOG_WARNING(("fd_acc_mgr_modify_raw failed (%d)", err));
+          FD_LOG_WARNING(( "cannot modify pubkey %32J. fd_acc_mgr_modify failed (%d)", &pubkey, err ));
+          leftover_lamports += rent_to_be_paid;
+          continue;
         }
 
         if (validate_fee_collector_account) {
