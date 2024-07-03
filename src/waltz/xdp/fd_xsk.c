@@ -343,7 +343,7 @@ fd_xsk_init( fd_xsk_t * xsk,
              uint       if_idx,
              uint       if_queue,
              uint       bind_flags ) {
-  
+
   if( FD_UNLIKELY( !xsk ) ) { FD_LOG_WARNING(( "NULL xsk" )); return NULL; }
 
   /* Create XDP socket (XSK) */
@@ -377,14 +377,13 @@ fd_xsk_init( fd_xsk_t * xsk,
     .sxdp_flags    = (ushort)flags
   };
 
+  char if_name[ IF_NAMESIZE ] = {0};
+
   if( FD_UNLIKELY( 0!=bind( xsk->xsk_fd, (void *)&sa, sizeof(struct sockaddr_xdp) ) ) ) {
-    char if_name[ IF_NAMESIZE ] = {0};
     FD_LOG_WARNING(( "bind( PF_XDP, ifindex=%u (%s), queue_id=%u, flags=%x ) failed (%i-%s)",
                      if_idx, if_indextoname( if_idx, if_name ), if_queue, flags, errno, fd_io_strerror( errno ) ));
     goto fail;
   }
-
-  FD_LOG_INFO(( "xsk bind() success" ));
 
   /* We've seen that some popular Intel NICs seem to have a bug that
      prevents them from working in SKB mode with certain kernel
@@ -414,6 +413,9 @@ fd_xsk_init( fd_xsk_t * xsk,
 
   xsk->if_idx      = if_idx;
   xsk->if_queue_id = if_queue;
+
+  FD_LOG_INFO(( "AF_XDP socket initialized: bind( PF_XDP, ifindex=%u (%s), queue_id=%u, flags=%x ) success",
+                if_idx, if_indextoname( if_idx, if_name ), if_queue, flags ));
 
   return xsk;
 

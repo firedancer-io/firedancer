@@ -169,7 +169,7 @@ fd_xdp_link_session_init( fd_xdp_link_session_t *  link_session,
     close( xsk_map_fd );
     return NULL;
   }
-  
+
   /* Install program to device */
 
   struct bpf_link_create link_create = {
@@ -241,7 +241,7 @@ fd_xdp_listen_udp_port( fd_xdp_session_t * session,
 
   return 0;
 }
-   
+
 int
 fd_xdp_release_udp_port( fd_xdp_session_t * sesssion,
                          uint               ip4_dst_addr,
@@ -312,8 +312,8 @@ fd_xsk_activate( fd_xsk_t * xsk,
     return NULL;
   }
 
-  FD_LOG_NOTICE(( "Attached to XDP on interface %u queue %u",
-                  fd_xsk_ifidx( xsk ), fd_xsk_ifqueue( xsk ) ));
+  FD_LOG_INFO(( "Attached to XDP on interface %u queue %u",
+                fd_xsk_ifidx( xsk ), fd_xsk_ifqueue( xsk ) ));
   return xsk;
 }
 
@@ -327,7 +327,7 @@ fd_xsk_deactivate( fd_xsk_t * xsk,
     return NULL;
   }
 
-  FD_LOG_NOTICE(( "Detached from XDP on interface %u queue %u",
-                  fd_xsk_ifidx( xsk ), fd_xsk_ifqueue( xsk ) ));
+  FD_LOG_INFO(( "Detached from XDP on interface %u queue %u",
+                fd_xsk_ifidx( xsk ), fd_xsk_ifqueue( xsk ) ));
   return xsk;
 }
