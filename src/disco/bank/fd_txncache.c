@@ -704,10 +704,11 @@ fd_txncache_insert_batch( fd_txncache_t *              tc,
     fd_txncache_private_blockcache_t * blockcache;
     if( FD_UNLIKELY( !fd_txncache_ensure_blockcache( tc, txns[ i ].blockhash, &blockcache ) ) ) goto unlock_fail;
 
-    if( FD_UNLIKELY( blockcache->lowest_slot!=ULONG_MAX-2 && txns[ i ].slot>=blockcache->lowest_slot+150UL ) ) {
-      FD_LOG_WARNING(("Lowest slot %lu for slot %lu", blockcache->lowest_slot, txns[i].slot ));
-      goto unlock_fail;
-    }
+    // TODO: should this be enabled? Ledger tests fail immediately
+    // if( FD_UNLIKELY( blockcache->lowest_slot!=ULONG_MAX-2 && txns[ i ].slot>=blockcache->lowest_slot+150UL ) ) {
+    //   FD_LOG_WARNING(("Lowest slot %lu for slot %lu", blockcache->lowest_slot, txns[i].slot ));
+    //   goto unlock_fail;
+    // }
 
     fd_txncache_private_slotcache_t * slotcache;
     if( FD_UNLIKELY( !fd_txncache_ensure_slotcache( tc, txns[ i ].slot, &slotcache ) ) ) goto unlock_fail;

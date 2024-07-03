@@ -312,11 +312,6 @@ fd_poh_tile_reset( fd_poh_tile_ctx_t * ctx,
      ctx->last_hashcnt = reset_hashcnt;
    }
 
-  memcpy( ctx->hash, reset_blockhash, 32UL );
-  ctx->slot                = completed_bank_slot+1UL;
-  ctx->hashcnt             = reset_hashcnt;
-  ctx->reset_slot_hashcnt  = ctx->hashcnt;
-
   if( FD_UNLIKELY( ctx->expect_sequential_leader_slot==ctx->reset_slot_hashcnt/ctx->hashcnt_per_slot ) ) {
     /* If we are being reset onto a slot, it means some block was fully
       processed, so we reset to build on top of it.  Typically we want
@@ -333,6 +328,11 @@ fd_poh_tile_reset( fd_poh_tile_ctx_t * ctx,
     ctx->reset_slot_start_ns = fd_log_wallclock(); /* safe to call from Rust */
   }
   ctx->expect_sequential_leader_slot = ULONG_MAX;
+
+  memcpy( ctx->hash, reset_blockhash, 32UL );
+  ctx->slot                = completed_bank_slot+1UL;
+  ctx->hashcnt             = reset_hashcnt;
+  ctx->reset_slot_hashcnt  = ctx->hashcnt;
 
   ctx->next_leader_slot_hashcnt = fd_poh_tile_next_leader_slot_hashcnt( ctx );
   FD_LOG_INFO(( "fd_poh_tile_reset(slot=%lu,next_leader_slot=%lu)", ctx->reset_slot_hashcnt/ctx->hashcnt_per_slot, ctx->next_leader_slot_hashcnt/ctx->hashcnt_per_slot ));

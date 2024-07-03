@@ -671,7 +671,7 @@ fd_runtime_execute_txn_task(void *tpool,
 
   fd_execute_txn_task_info_t * task_info = (fd_execute_txn_task_info_t *)tpool + m0;
 
-  if( task_info->txn->flags==0 ) {
+  if( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
     task_info->exec_res = -1;
     return;
   }
@@ -680,6 +680,7 @@ fd_runtime_execute_txn_task(void *tpool,
   if( res != 0 ) {
     FD_LOG_ERR(("could not prepare txn"));
   }
+  task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
   fd_txn_t const *txn = task_info->txn_ctx->txn_descriptor;
   fd_rawtxn_b_t const *raw_txn = task_info->txn_ctx->_txn_raw;
 #ifdef VLOG
@@ -925,7 +926,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
       fee_payer_idxs[fee_payer_accs_cnt] = txn_idx;
       fee_payer_accs[fee_payer_accs_cnt] = fd_borrowed_account_init( &collect_fee_task_infos[fee_payer_accs_cnt].fee_payer_rec );
       collect_fee_task_infos[fee_payer_accs_cnt].txn_ctx = txn_ctx;
-      collect_fee_task_infos[fee_payer_accs_cnt].result = (task_info[txn_idx].txn->flags==0) ? -1 : 0;
+      collect_fee_task_infos[fee_payer_accs_cnt].result = !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ? -1 : 0;
       fee_payer_accs_cnt++;
     }
 
@@ -966,7 +967,7 @@ fd_runtime_prepare_txns_phase3( fd_exec_slot_ctx_t * slot_ctx,
   for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
     fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
 
-    if( task_info[txn_idx].txn->flags==0 ) {
+    if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
       continue;
     }
 
@@ -1196,7 +1197,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
     /* Finalize */
     for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
       /* Transaction was skipped due to preparation failure. */
-      if( task_info[txn_idx].txn->flags == 0) {
+      if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
         continue;
       }
 
@@ -1308,7 +1309,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
     ulong accounts_to_save_idx = 0;
     for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
       /* Transaction was skipped due to preparation failure. */
-      if( task_info[txn_idx].txn->flags == 0) {
+      if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
         continue;
       }
 
@@ -1374,7 +1375,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
     for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
       /* Transaction was skipped due to preparation failure. */
-      if( task_info[txn_idx].txn->flags == 0) {
+      if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
         continue;
       }
 
@@ -1425,12 +1426,9 @@ fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
     if( res != 0 ) {
       FD_LOG_ERR(("could not prepare txn phase 4")); // this can never happen
     }
-
+    txns[i].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+    slot_ctx->signature_cnt += (ulong)(TXN(&txns[i])->signature_cnt);
     task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
-    if ( task_info->exec_res == 0 ) {
-      txns[i].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-      slot_ctx->signature_cnt += (ulong)(TXN(&txns[i])->signature_cnt);
-    }
   }
 
   int res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, task_infos, txn_cnt, tpool, max_workers );
@@ -1559,6 +1557,10 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
     fd_execute_txn_task_info_t * wave_task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
     ulong wave_task_infos_cnt = 0;
 
+    for( ulong i = 0; i < txn_cnt; i++ ) {
+      txns[i].flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+    }
+
     int res = fd_runtime_prepare_txns_phase1( slot_ctx, task_infos, txns, txn_cnt );
     if( res != 0 ) {
       FD_LOG_WARNING(("Fail prep 1"));
@@ -1573,8 +1575,6 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
       incomplete_txn_idxs[i] = i;
       incomplete_accounts_cnt += task_infos[i].txn_ctx->accounts_cnt;
       task_infos[i].txn_ctx->capture_ctx = capture_ctx;
-
-      txns[i].flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     }
 
     ulong * next_incomplete_txn_idxs = fd_scratch_alloc( 8UL, txn_cnt * sizeof(ulong) );
@@ -1609,6 +1609,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
       }
 
       for( ulong j = 0UL; j < wave_task_infos_cnt; j++ ) {
+        if( !(wave_task_infos[j].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) continue;
         slot_ctx->signature_cnt += wave_task_infos[j].txn_ctx->txn_descriptor->signature_cnt;
       }
       wave_time += fd_log_wallclock();
