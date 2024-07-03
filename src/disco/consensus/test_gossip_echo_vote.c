@@ -16,8 +16,7 @@
 #include "../keyguard/fd_keyguard_client.h"
 #include "../metrics/fd_metrics.h"
 #include "../shred/fd_shred_cap.h"
-#include "../tvu/fd_replay.h"
-#include "../tvu/fd_store.h"
+#include "../store/fd_store.h"
 
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_udp.h"

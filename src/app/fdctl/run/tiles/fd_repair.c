@@ -9,7 +9,7 @@
 #include "../../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../../flamenco/fd_flamenco.h"
 #include "../../../../util/fd_util.h"
-#include "../../../../disco/tvu/util.h"
+#include "../../../../disco/store/util.h"
 #include "../../../../disco/fd_disco.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
