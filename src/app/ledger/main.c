@@ -83,9 +83,11 @@ struct fd_ledger_args {
   char const *          verify_hash;             /* verify the snapshot hash*/
   ulong                 trash_hash;              /* trash hash to be used for negative cases*/
   ulong                 vote_acct_max;           /* max number of vote accounts */
-  char const *          rocksdb_list[ 32UL ];    /* max number of rocksdb dirs that can be passed in */
-  ulong                 rocksdb_list_cnt;        /* number of rocksdb dirs passe din */
-  /* These values are setup before replay  */
+  char const *          rocksdb_list[32];        /* max number of rocksdb dirs that can be passed in */
+  ulong                 rocksdb_list_slot[32];   /* start slot for each rocksdb dir that's passed in assuming there are mulitple */
+  ulong                 rocksdb_list_cnt;        /* number of rocksdb dirs passed in */
+
+  /* These values are setup before replay */
   fd_capture_ctx_t *    capture_ctx;             /* capture_ctx is used in runtime_replay for various debugging tasks */
   fd_acc_mgr_t          acc_mgr[ 1UL ];          /* funk wrapper*/
   fd_exec_slot_ctx_t *  slot_ctx;                /* slot_ctx */
@@ -152,10 +154,10 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
   ulong start_slot = ledger_args->slot_ctx->slot_bank.slot + 1;
 
   /* On demand rocksdb ingest */
-  fd_rocksdb_t rocks_db       = {0};
-  fd_rocksdb_root_iter_t iter = {0};
-  fd_slot_meta_t slot_meta    = {0};
-  ulong curr_rocksdb_idx      = 0UL;
+  fd_rocksdb_t           rocks_db         = {0};
+  fd_rocksdb_root_iter_t iter             = {0};
+  fd_slot_meta_t         slot_meta        = {0};
+  ulong                  curr_rocksdb_idx = 0UL;
   if( ledger_args->on_demand_block_ingest ) {
     fd_rocksdb_init( &rocks_db, ledger_args->rocksdb_list[ 0UL ] );
     fd_rocksdb_root_iter_new( &iter );
@@ -267,27 +269,35 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
     prev_slot = slot;
 
-    if( ledger_args->on_demand_block_ingest && slot < ledger_args->end_slot ) {
-      int ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, ledger_args->slot_ctx->valloc );
-      if( ret<0 ) {
-        ret = fd_rocksdb_get_meta( &rocks_db, slot+1UL, &slot_meta, ledger_args->slot_ctx->valloc );
+    if( ledger_args->on_demand_block_ingest && slot<ledger_args->end_slot ) {
+      /* TODO: This currently doesn't support switching over on slots that occur 
+         on a fork */
+      /* If need to go to next rocksdb, switch over */
+      FD_LOG_NOTICE(("%lu %lu", slot+1UL, ledger_args->rocksdb_list_slot[curr_rocksdb_idx]));
+      if( FD_UNLIKELY( ledger_args->rocksdb_list_cnt>1UL && 
+                       slot+1UL==ledger_args->rocksdb_list_slot[curr_rocksdb_idx] ) ) {
+        curr_rocksdb_idx++;
+        FD_LOG_WARNING(( "Switching to next rocksdb=%s", ledger_args->rocksdb_list[curr_rocksdb_idx] ));
+        fd_rocksdb_root_iter_destroy( &iter );
+        fd_rocksdb_destroy( &rocks_db );
+
+        fd_memset( &rocks_db,  0, sizeof(fd_rocksdb_t)           );
+        fd_memset( &iter,      0, sizeof(fd_rocksdb_root_iter_t) );
+        fd_memset( &slot_meta, 0, sizeof(fd_slot_meta_t)         );
+
+        fd_rocksdb_init( &rocks_db, ledger_args->rocksdb_list[curr_rocksdb_idx] );
+        fd_rocksdb_root_iter_new( &iter );
+        int ret = fd_rocksdb_root_iter_seek( &iter, &rocks_db, slot+1UL, &slot_meta, ledger_args->slot_ctx->valloc );
         if( ret<0 ) {
-          /* If slot doesn't exist try to look in the next indexed rocksdb */
-          if( ++curr_rocksdb_idx>=ledger_args->rocksdb_list_cnt ) {
-            FD_LOG_ERR(( "Failed to get meta for slot %lu", slot+1UL ));
-          }
-          fd_rocksdb_root_iter_destroy( &iter );
-          fd_rocksdb_destroy( &rocks_db );
-
-          fd_memset( &rocks_db,  0, sizeof(fd_rocksdb_t)           );
-          fd_memset( &iter,      0, sizeof(fd_rocksdb_root_iter_t) );
-          fd_memset( &slot_meta, 0, sizeof(fd_slot_meta_t)         );
-
-          fd_rocksdb_init( &rocks_db, ledger_args->rocksdb_list[ curr_rocksdb_idx ] );
-          fd_rocksdb_root_iter_new( &iter );
-          ret = fd_rocksdb_root_iter_seek( &iter, &rocks_db, slot+1UL, &slot_meta, ledger_args->slot_ctx->valloc );
+          FD_LOG_ERR(( "Failed to seek to slot %lu", slot+1UL ));
+        }
+      } else {
+        /* Otherwise look for next slot in current rocksdb */
+        int ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, ledger_args->slot_ctx->valloc );
+        if( ret<0 ) {
+          ret = fd_rocksdb_get_meta( &rocks_db, slot+1UL, &slot_meta, ledger_args->slot_ctx->valloc );
           if( ret<0 ) {
-            FD_LOG_ERR(( "Failed to seek to slot %lu", slot+1UL ));
+            FD_LOG_ERR(( "Failed to get meta for slot %lu", slot+1UL ));
           }
         }
       }
@@ -501,26 +511,42 @@ ingest_rocksdb( fd_alloc_t *      alloc,
 }
 
 void
-parse_rocksdb_list(  fd_ledger_args_t * FD_FN_UNUSED args, char const * rocksdb_list ) {
+parse_rocksdb_list( fd_ledger_args_t * args, 
+                    char const *       rocksdb_list,
+                    char const *       rocksdb_start_slots ) {
+  /* First parse the paths to the different rocksdb */
   if( FD_UNLIKELY( !rocksdb_list ) ) {
     FD_LOG_NOTICE(( "No rocksdb list passed in" ));
     return;
   }
 
-  ulong str_len = strlen( rocksdb_list );
-  if ( FD_UNLIKELY( str_len<3UL ) ) {
-    FD_LOG_WARNING(( "Invalid rocksdb list" ));
-    return;
-  }
-
-  /* String is now just the comma seperated paths */
   char * rocksdb_str = strdup( rocksdb_list );
   char * token       = NULL;
-  token = strtok( rocksdb_str, ",[]" );
+  token = strtok( rocksdb_str, "," );
   while( token ) {
     args->rocksdb_list[ args->rocksdb_list_cnt++ ] = token;
-    token = strtok( NULL, ",[]" );
+    token = strtok( NULL, "," );
   }
+
+  /* Now repeat for the start slots assuming there are multiple */
+  if( rocksdb_start_slots == NULL && args->rocksdb_list_cnt > 1 ) {
+    FD_LOG_ERR(( "Multiple rocksdb dirs passed in but no start slots" ));
+  }
+  ulong index = 0UL;
+  if( rocksdb_start_slots ) {
+    char * rocksdb_start_slot_str = strdup( rocksdb_start_slots );
+    token = NULL;
+    token = strtok( rocksdb_start_slot_str, "," );
+    while( token ) {
+      args->rocksdb_list_slot[ index++ ] = strtoul( token, NULL, 10 );
+      token = strtok( NULL, "," );
+    }
+  }
+
+  if( index != args->rocksdb_list_cnt - 1UL ) {
+    FD_LOG_ERR(( "Number of rocksdb dirs passed in doesn't match number of start slots" ));
+  }
+
 
   /* TODO: There is technically a leak here since we don't free the duplicated
      string but it's not a big deal. */
@@ -1292,7 +1318,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   int          checkpt_mismatch        = fd_env_strip_cmdline_int  ( &argc, &argv, "--checkpt-mismatch",        NULL, 0         );
   char const * allocator               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--allocator",               NULL, "wksp"    );
   int          abort_on_mismatch       = fd_env_strip_cmdline_int  ( &argc, &argv, "--abort-on-mismatch",       NULL, 1         );
-  int          on_demand_block_ingest  = fd_env_strip_cmdline_int  ( &argc, &argv, "--on-demand-block-ingest",  NULL, 0         );
+  int          on_demand_block_ingest  = fd_env_strip_cmdline_int  ( &argc, &argv, "--on-demand-block-ingest",  NULL, 1         );
   ulong        on_demand_block_history = fd_env_strip_cmdline_ulong( &argc, &argv, "--on-demand-block-history", NULL, 100       );
   int          dump_insn_to_pb         = fd_env_strip_cmdline_int  ( &argc, &argv, "--dump-insn-to-pb",         NULL, 0         );
   ulong        dump_insn_start_slot    = fd_env_strip_cmdline_ulong( &argc, &argv, "--dump-insn-start-slot",    NULL, 0         );
@@ -1301,6 +1327,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   ulong        vote_acct_max           = fd_env_strip_cmdline_ulong( &argc, &argv, "--vote_acct_max",           NULL, 2000000UL );
   int          use_funk_wksp           = fd_env_strip_cmdline_int  ( &argc, &argv, "--use-funk-wksp",           NULL, 1         );
   char const * rocksdb_list            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",                 NULL, NULL      );
+  char const * rocksdb_list_starts     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb-starts",          NULL, NULL      );
 
   #ifdef _ENABLE_LTHASH
   char const * lthash             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",           NULL, "false"   );
@@ -1406,10 +1433,14 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->dump_insn_output_dir    = dump_insn_output_dir;
   args->vote_acct_max           = vote_acct_max;
   args->rocksdb_list_cnt        = 0UL;
-  parse_rocksdb_list( args, rocksdb_list );
+  parse_rocksdb_list( args, rocksdb_list, rocksdb_list_starts );
 
-  for( ulong i = 0; i < args->rocksdb_list_cnt; ++i ) {
-    FD_LOG_NOTICE(( "rocksdb_list[%lu] = %s", i, args->rocksdb_list[i] ));
+  if( args->rocksdb_list_cnt==1UL ) {
+    FD_LOG_NOTICE(( "rocksdb=%s", args->rocksdb_list[0] ));
+  } else {
+    for( ulong i=0UL; i<args->rocksdb_list_cnt; ++i ) {
+      FD_LOG_NOTICE(( "rocksdb_list[ %lu ]=%s slot=%lu", i, args->rocksdb_list[i], args->rocksdb_list_slot[i-1] ));
+    }
   }
 
   #ifdef _ENABLE_LTHASH
