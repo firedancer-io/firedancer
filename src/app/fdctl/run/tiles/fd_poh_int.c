@@ -249,7 +249,6 @@ after_credit( void *             _ctx,
     no_longer_leader( ctx );
   }
 
-  FD_LOG_WARNING(("%lu",fd_poh_tile_get_slot( ctx->poh_tile_ctx )));
   fd_fseq_update( ctx->current_slot, fd_poh_tile_get_slot( ctx->poh_tile_ctx ) );
 }
 
