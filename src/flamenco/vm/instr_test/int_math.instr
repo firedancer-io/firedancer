@@ -286,3 +286,23 @@ $ op=9f dst=8 src=1 off=3434 r8=3f4184478221fe89 r1 =77ba5bdf2c071b7a : ok  r8=3
 $ op=9f dst=9 src=b                                                   : vfy # invalid src
 $ op=9f dst=a src=1                                                   : vfy # invalid dst
 $ op=9f dst=b src=1                                                   : vfy # invalid dst
+
+# be{16,32,64} reg
+$ op=dc dst=0 src=a off=9595 imm=10 r0=fffefdfcfbfaf9f8 : ok  r0=            f8f9
+$ op=dc dst=1 src=9 off=9595 imm=20 r1=fffefdfcfbfaf9f0 : ok  r1=        f0f9fafb
+$ op=dc dst=2 src=8 off=9595 imm=40 r2=fffefdfcfbfaf9f1 : ok  r2=f1f9fafbfcfdfeff
+$ op=dc dst=0 src=a off=9595 imm= 0 r0=fffefdfcfbfaf9f8 : vfy # invalid imm
+$ op=dc dst=0 src=a off=9595 imm=80 r0=fffefdfcfbfaf9f8 : vfy # invalid imm
+$ op=dc dst=0 src=b off=9595 imm=10 r0=fffefdfcfbfaf9f8 : vfy # invalid src
+$ op=dc dst=a src=a off=9595 imm=10 r0=fffefdfcfbfaf9f8 : vfy # invalid dst
+$ op=dc dst=0 src=b off=9595 imm=10 r0=fffefdfcfbfaf9f8 : vfy # invalid dst
+
+# le{16,32,64} reg
+$ op=d4 dst=0 src=a off=9595 imm=10 r0=fffefdfcfbfaf9f8 : ok  r0=            f9f8
+$ op=d4 dst=1 src=9 off=9595 imm=20 r1=fffefdfcfbfaf9f0 : ok  r1=        fbfaf9f0
+$ op=d4 dst=2 src=8 off=9595 imm=40 r2=fffefdfcfbfaf9f1 : ok  r2=fffefdfcfbfaf9f1
+$ op=d4 dst=0 src=a off=9595 imm= 0 r0=fffefdfcfbfaf9f8 : vfy # invalid imm
+$ op=d4 dst=0 src=a off=9595 imm=80 r0=fffefdfcfbfaf9f8 : vfy # invalid imm
+$ op=dc dst=0 src=b off=9595 imm=10 r0=fffefdfcfbfaf9f8 : vfy # invalid src
+$ op=d4 dst=a src=a off=9595 imm=10 r0=fffefdfcfbfaf9f8 : vfy # invalid dst
+$ op=d4 dst=0 src=b off=9595 imm=10 r0=fffefdfcfbfaf9f8 : vfy # invalid dst
