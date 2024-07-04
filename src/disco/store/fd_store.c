@@ -245,11 +245,6 @@ fd_store_slot_repair( fd_store_t * store,
   ulong repair_req_cnt = 0;
   fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( store->blockstore, slot );
 
-  if( fd_blockstore_is_slot_ancient( store->blockstore, slot ) ) {
-    FD_LOG_ERR(( "repair is hopelessly behind by %lu slots, max history is %lu",
-                 store->blockstore->max - slot, store->blockstore->slot_max ));
-  }
-
   if( FD_LIKELY( !block_map_entry ) ) {
     /* We haven't received any shreds for this slot yet */
 

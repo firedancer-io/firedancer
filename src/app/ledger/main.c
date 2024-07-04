@@ -137,10 +137,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   fd_features_restore( ledger_args->slot_ctx );
 
-  if( ledger_args->slot_ctx->blockstore->max < ledger_args->end_slot && !ledger_args->on_demand_block_ingest ) {
-    ledger_args->end_slot = ledger_args->slot_ctx->blockstore->max;
-  }
-
   fd_runtime_update_leaders( ledger_args->slot_ctx, ledger_args->slot_ctx->slot_bank.slot );
 
   fd_calculate_epoch_accounts_hash_values( ledger_args->slot_ctx );

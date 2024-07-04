@@ -45,7 +45,7 @@
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
-// #define STOP_SLOT 280501578
+// #define STOP_SLOT 280859632
 
 /* An estimate of the max number of transactions in a block.  If there are more
    transactions, they must be split into multiple sets. */
@@ -606,7 +606,7 @@ after_frag( void *             _ctx,
         msg->type = FD_REPLAY_SLOT_TYPE;
         msg->slot_exec.slot = ctx->curr_slot;
         msg->slot_exec.parent = ctx->parent_slot;
-        msg->slot_exec.root = ctx->blockstore->smr;
+        msg->slot_exec.root = ctx->blockstore->root;
         msg->slot_exec.height = ( block_map_entry ? block_map_entry->height : 0UL );
         memcpy( &msg->slot_exec.bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
         memcpy( &msg->slot_exec.block_hash, &ctx->blockhash, sizeof( fd_hash_t ) );
@@ -623,6 +623,8 @@ after_frag( void *             _ctx,
 
       if( FD_LIKELY( block_ ) ) {
         block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
+        FD_COMPILER_MFENCE();
+        block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_PREPARING );
         memcpy( &block_map_entry->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
       }
 
@@ -673,6 +675,9 @@ after_frag( void *             _ctx,
         }
       }
 
+      fd_ghost_print( ctx->ghost );
+      fd_tower_print( ctx->tower );
+
       /* Pick a fork to vote on. May be NULL. */
 
       fd_fork_t const * vote_fork = fd_tower_vote_fork_select( ctx->tower, ctx->forks, ctx->acc_mgr, ctx->ghost );
@@ -686,8 +691,6 @@ after_frag( void *             _ctx,
                        !!vote_fork ? vote_fork->slot : 0,
                        (double)( duration_ns ) / 1e6,
                        duration_ns ) );
-      fd_ghost_print( ctx->ghost, child->slot, FD_GHOST_PRINT_DEPTH_DEFAULT, ctx->tower->total_stake );
-      // fd_tower_print( ctx->tower );
 
       /* Record a vote, if we have a fork to vote on. */
 
@@ -713,7 +716,7 @@ after_frag( void *             _ctx,
         fd_blockstore_start_write( ctx->blockstore );
         int rc = fd_blockstore_publish( ctx->blockstore, root );
         if( rc != FD_BLOCKSTORE_OK ) {
-          FD_LOG_ERR( ( "error pruning blockstore" ) );
+          FD_LOG_WARNING( ( "err %d when publishing blockstore", rc ) );
         }
         fd_blockstore_end_write( ctx->blockstore );
 #endif
@@ -931,9 +934,9 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
   /* Initialize consensus structures post-snapshot */
 
-  fd_forks_init( ctx->forks, ctx->slot_ctx );
-  fd_ghost_init( ctx->ghost, snapshot_slot );
   fd_tower_init( ctx->tower, ctx->epoch_ctx, snapshot_slot );
+  fd_forks_init( ctx->forks, ctx->slot_ctx );
+  fd_ghost_init( ctx->ghost, snapshot_slot, ctx->tower->total_stake );
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->epoch_ctx->bank_hash_cmp;
   bank_hash_cmp->total_stake         = ctx->tower->total_stake;
@@ -943,6 +946,17 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   FD_LOG_NOTICE(("total stake %lu", bank_hash_cmp->total_stake));
 }
 
+/* after_credit runs on every iteration of the replay tile loop except
+   when backpressured.
+
+   This callback spin-loops for whether the blockstore is ready to join.
+   We need to join a blockstore and load a snapshot before we can begin
+   replaying.
+
+   store_int is responsible for initializing the blockstore (either by
+   calling new or restoring an existing one). Once the blockstore is
+   available in the wksp (discovered via tag_query), we join the
+   blockstore and load the snapshot. */
 static void
 after_credit( void *             _ctx,
               fd_mux_context_t * mux_ctx,
@@ -972,7 +986,7 @@ after_credit( void *             _ctx,
       ctx->slot_ctx->status_cache = ctx->status_cache;
 
       FD_SCRATCH_SCOPE_BEGIN {
-        uchar is_snapshot              = strlen( ctx->snapshot ) > 0;
+        uchar is_snapshot = strlen( ctx->snapshot ) > 0;
         if( is_snapshot ) {
           read_snapshot( ctx, ctx->snapshot, ctx->incremental );
         }

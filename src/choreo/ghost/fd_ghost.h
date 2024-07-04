@@ -50,8 +50,6 @@
 #define FD_GHOST_USE_HANDHOLDING 1
 #endif
 
-#define FD_GHOST_PRINT_DEPTH_DEFAULT 8
-
 /* clang-format off */
 typedef struct fd_ghost_node fd_ghost_node_t;
 struct __attribute__((aligned(128UL))) fd_ghost_node {
@@ -101,6 +99,8 @@ typedef struct fd_ghost_vote fd_ghost_vote_t;
 
 struct __attribute__((aligned(128UL))) fd_ghost {
   fd_ghost_node_t *     root;
+  ulong                 total_stake;
+
   fd_ghost_node_t *     node_pool; /* memory pool of ghost nodes */
   fd_ghost_node_map_t * node_map;  /* map of slot_hash->fd_ghost_node_t */
   fd_ghost_vote_t *     vote_pool; /* memory pool of ghost votes */
@@ -183,7 +183,7 @@ fd_ghost_delete( void * ghost );
    ghost's memory, ie. the caller of fd_ghost_new. */
 
 void
-fd_ghost_init( fd_ghost_t * ghost, ulong root );
+fd_ghost_init( fd_ghost_t * ghost, ulong root, ulong total_stake );
 
 /* fd_ghost_head_query returns ghost's head.  Assumes caller has called
    fd_ghost_init and that the ghost is non-empty, ie. has a root. */
@@ -260,24 +260,28 @@ fd_ghost_publish( fd_ghost_t * ghost, ulong slot );
 int
 fd_ghost_is_ancestor( fd_ghost_t const * ghost, ulong ancestor_slot, ulong slot );
 
-/* fd_ghost_print pretty-prints a formatted ghost tree.  start controls
-   which node to begin printing from.  depth controls how many
-   additional ancestors to walk back from start to begin printing from.
-   total_stake controls how much total stake is active to enable
-   percentage calculations.
+/* fd_ghost_print_node pretty-prints a formatted ghost tree.  node
+   controls which node to begin printing from.  depth controls how many
+   additional ancestors to walk back from node to begin printing from.
 
-   FD_SLOT_NULL, 0 and 0 are valid defaults for the above, respectively.
-   In that case, ghost would begin printing from the root without
-   percentages (not recommended because the output will be difficult
-   to read).
+   NULL and 0 are valid defaults for the above, respectively. In that
+   case, ghost would begin printing from the root. See fd_ghost_print.
 
-   Typical usage is to pass in the most recently executed slot hash for
-   start, so that start is always in a leaf position, and pick an
-   appropriate depth for visualization (FD_GHOST_PRINT_DEPTH_DEFAULT
-   is the recommended default). */
+   Typical usage is to pass in the most recently executed slot for node,
+   so that node is always in a leaf position, and pick an appropriate
+   depth for visualization (FD_GHOST_PRINT_DEPTH_DEFAULT is the
+   recommended default). */
 
 void
-fd_ghost_print( fd_ghost_t * ghost, ulong start, ulong depth, ulong total_stake );
+fd_ghost_print_node( fd_ghost_t * ghost, fd_ghost_node_t * node, ulong depth );
+
+/* fd_ghost_print pretty-prints a formatted ghost tree starting from the
+   root using fd_ghost_print_node. */
+
+static inline void
+fd_ghost_print( fd_ghost_t * ghost ) {
+  fd_ghost_print_node( ghost, ghost->root, 0 );
+}
 
 FD_PROTOTYPES_END
 
