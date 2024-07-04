@@ -122,7 +122,7 @@ fd_ghost_delete( void * ghost ) {
 }
 
 void
-fd_ghost_init( fd_ghost_t * ghost, ulong root ) {
+fd_ghost_init( fd_ghost_t * ghost, ulong root, ulong total_stake ) {
 
   if( FD_UNLIKELY( !ghost ) ) {
     FD_LOG_WARNING( ( "NULL ghost" ) );
@@ -141,8 +141,9 @@ fd_ghost_init( fd_ghost_t * ghost, ulong root ) {
 
   fd_ghost_node_t * node = fd_ghost_node_pool_ele_acquire( ghost->node_pool );
   node->slot             = root;
-  ghost->root            = node;
   fd_ghost_node_map_ele_insert( ghost->node_map, node, ghost->node_pool );
+  ghost->root            = node;
+  ghost->total_stake     = total_stake;
 
   return;
 }
@@ -385,7 +386,6 @@ fd_ghost_gossip_vote_upsert( FD_PARAM_UNUSED fd_ghost_t *        ghost,
 
 fd_ghost_node_t *
 fd_ghost_publish( fd_ghost_t * ghost, ulong slot ) {
-  FD_LOG_NOTICE( ( "publishing %lu to ghost", slot ) );
 
   fd_ghost_node_t * root = fd_ghost_node_query( ghost, slot );
 
@@ -449,7 +449,6 @@ fd_ghost_publish( fd_ghost_t * ghost, ulong slot ) {
     /* Free the head, and move the head pointer forward. */
 
     fd_ghost_node_t * next = fd_ghost_node_pool_ele( ghost->node_pool, head->next );
-    FD_LOG_NOTICE(("removing %lu from ghost", head->slot));
     fd_ghost_node_pool_ele_release( ghost->node_pool, head );
     head = next;
   }
@@ -521,19 +520,16 @@ print( fd_ghost_node_t const * node, int space, const char * prefix, ulong total
 }
 
 void
-fd_ghost_print( fd_ghost_t * ghost, ulong start, ulong depth, ulong total_stake ) {
-  fd_ghost_node_t * root = fd_ptr_if( start == FD_SLOT_NULL,
-                                      ghost->root,
-                                      fd_ghost_node_query( ghost, start ) );
-  if( FD_UNLIKELY( !root ) ) {
-    FD_LOG_WARNING( ( "[ghost] Cannot print. Missing start node." ) );
+fd_ghost_print_node( fd_ghost_t * ghost, fd_ghost_node_t * node, ulong depth ) {
+  if( FD_UNLIKELY( !node ) ) {
+    FD_LOG_WARNING( ( "[fd_ghost_print_node] NULL node." ) );
     return;
   }
-  fd_ghost_node_t * ancestor = root;
+  fd_ghost_node_t * ancestor = node;
   for( ulong i = 0; i < depth; i++ ) {
     if( !ancestor->parent ) break;
     ancestor = ancestor->parent;
   }
-  print( ancestor, 0, "", total_stake );
+  print( ancestor, 0, "", ghost->total_stake );
   printf( "\n\n" );
 }

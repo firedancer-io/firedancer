@@ -354,7 +354,7 @@ fd_tower_publish( fd_tower_t * tower ) {
   FD_TEST( fd_tower_is_max_lockout( tower ) );
 #endif
 
-  ulong root = fd_tower_votes_pop_head( tower->votes ).slot;
+  ulong root  = fd_tower_votes_pop_head( tower->votes ).slot;
   tower->root = root;
 
   return root;

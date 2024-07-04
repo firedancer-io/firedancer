@@ -23,7 +23,7 @@
 #define FD_BLOCKSTORE_FOOTPRINT    (256UL)
 #define FD_BLOCKSTORE_MAGIC        (0xf17eda2ce7b10c00UL) /* firedancer bloc version 0 */
 
-/* blockstore config. do not modify without making sure its compatible. */
+/* DO NOT MODIFY. */
 #define FD_BUF_SHRED_MAP_MAX (1UL << 24UL) /* 16 million shreds can be buffered */
 #define FD_TXN_MAP_LG_MAX    (24)          /* 16 million txns can be stored in the txn map */
 
@@ -49,7 +49,7 @@
 #define FD_BLOCKSTORE_ERR_SHRED_INVALID   -7 /* shred was invalid */
 #define FD_BLOCKSTORE_ERR_DESHRED_INVALID -8 /* deshredded block was invalid */
 #define FD_BLOCKSTORE_ERR_NO_MEM          -9 /* no mem */
-#define FD_BLOCKSTORE_ERR_UNKNOWN         -10
+#define FD_BLOCKSTORE_ERR_UNKNOWN         -99
 
 /* clang-format on */
 
@@ -113,7 +113,7 @@ typedef struct fd_buf_shred fd_buf_shred_t;
 #include "../../util/tmpl/fd_map_chain.c"
 /* clang-format on */
 
-#define DEQUE_NAME fd_blockstore_slot_prune_deque
+#define DEQUE_NAME fd_blockstore_slot_deque
 #define DEQUE_T    ulong
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
@@ -189,22 +189,25 @@ struct fd_block_map {
   ulong slot; /* map key */
   ulong next; /* reserved for use by fd_map_giant.c */
 
+  /* Ancestry */
+
+  ulong parent_slot;
+  ulong child_slots[FD_BLOCKSTORE_CHILD_SLOT_MAX];
+
   /* Metadata */
 
-  ulong             parent_slot;
-  ulong             child_slots[FD_BLOCKSTORE_CHILD_SLOT_MAX];
-  ulong             height;
-  fd_hash_t         block_hash;
-  fd_hash_t         bank_hash;
-  uchar             flags;
-  uchar             reference_tick; /* the tick when the leader prepared the block. */
-  long              ts;             /* the wallclock time when we finished receiving the block. */
+  ulong     height;
+  fd_hash_t block_hash;
+  fd_hash_t bank_hash;
+  uchar     flags;
+  uchar     reference_tick; /* the tick when the leader prepared the block. */
+  long      ts;             /* the wallclock time when we finished receiving the block. */
 
   /* Windowing */
 
-  uint  consumed_idx;   /* the highest shred idx of the contiguous window from idx 0. */
-  uint  received_idx;   /* the highest shred idx we've received. */
-  uint  complete_idx;   /* the shred idx with the FD_SHRED_DATA_FLAG_SLOT_COMPLETE flag set. */
+  uint consumed_idx; /* the highest shred idx of the contiguous window from idx 0. */
+  uint received_idx; /* the highest shred idx we've received. */
+  uint complete_idx; /* the shred idx with the FD_SHRED_DATA_FLAG_SLOT_COMPLETE flag set. */
 
   /* Block */
 
@@ -264,9 +267,6 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
   /* Slot metadata */
 
   ulong root; /* the current root slot */
-  ulong min;  /* the min slot still in the blockstore */
-  ulong max;  /* the max slot in the blockstore */
-  ulong smr; /* the super-majority root */
 
   /* Internal data structures */
 
@@ -274,10 +274,9 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
   ulong shred_pool_gaddr; /* pool of temporary shreds */
   ulong shred_map_gaddr;  /* map of (slot, shred_idx)->shred */
 
-  ulong slot_max;               /* maximum block history */
-  ulong slot_max_with_slop;     /* maximum block history with some padding */
-  ulong slot_map_gaddr;         /* map of slot->(slot_meta, block) */
-  ulong slot_prune_deque_gaddr; /* deque for pruning slots */
+  ulong slot_max;           /* maximum # of blocks. */
+  ulong slot_map_gaddr;     /* map of slot->(slot_meta, block) */
+  ulong slot_deque_gaddr;   /* deque of slots (ulongs). used to traverse blockstore ancestry. */
 
   int   lg_txn_max;
   ulong txn_map_gaddr;
@@ -502,8 +501,8 @@ fd_blockstore_block_frontier_query( fd_blockstore_t * blockstore,
    pointer.  Caller provides the allocator via alloc for the copied
    block data (an allocator is needed because the block data sz is not
    known apriori).  Returns FD_BLOCKSTORE_SLOT_MISSING if slot is
-   missing: callers must ignore out pointers in this case. Otherwise
-   this call cannot fail and returns FD_BLOCKSTORE_OK. */
+   missing: caller MUST ignore out pointers in this case. Otherwise this
+   call cannot fail and returns FD_BLOCKSTORE_OK. */
 
 int
 fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slot, fd_block_map_t * block_map_entry_out, fd_valloc_t alloc, uchar ** block_data_out, ulong * block_data_out_sz );
@@ -534,18 +533,14 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot );
 int
 fd_blockstore_buffered_shreds_remove( fd_blockstore_t * blockstore, ulong slot );
 
-/* Determine if a slot is ancient and we should ignore shreds. */
-static inline int
-fd_blockstore_is_slot_ancient( fd_blockstore_t * blockstore, ulong slot ) {
-  return ( slot + blockstore->slot_max <= blockstore->max );
-}
-
 /* Set the block height. */
 void
 fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulong block_height );
 
-/* Publish root to the blockstore and prune the blockstore. Removes all slots
-   whose subtree is not on the path of root_slot. */
+/* fd_blockstore_publish publishes root to the blockstore, pruning any
+   paths that are not in root's subtree.  Removes all blocks in the
+   pruned paths.  Returns FD_BLOCKSTORE_OK on success,
+   FD_BLOCKSTORE_ERR_X otherwise.  Caller MUST hold the write lock. */
 int
 fd_blockstore_publish( fd_blockstore_t * blockstore, ulong root_slot );
 
@@ -576,6 +571,8 @@ fd_blockstore_end_write( fd_blockstore_t * blockstore ) {
 void
 fd_blockstore_log_block_status( fd_blockstore_t * blockstore, ulong around_slot );
 
+/* fd_blockstore_log_mem_usage logs the memory usage of blockstore in a
+human-readable format.  Caller MUST hold the read lock. */
 void
 fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore );
 

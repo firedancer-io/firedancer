@@ -7,7 +7,7 @@
 #define SHALLOW_THRESHOLD_PCT   ( 0.38 )
 #define SWITCH_PCT              ( 0.38 )
 void
-print( fd_tower_vote_t * tower_votes ) {
+print( fd_tower_vote_t * tower_votes, ulong root ) {
   ulong max_slot = 0;
 
   /* Determine spacing. */
@@ -53,8 +53,10 @@ print( fd_tower_vote_t * tower_votes ) {
     printf( "%*lu | %lu\n", radix, vote->slot, vote->conf );
     max_slot = fd_ulong_max( max_slot, fd_tower_votes_iter_ele_const( tower_votes, iter )->slot );
   }
+  printf( "%*lu | root\n", radix, root );
   printf( "\n" );
 }
+
 /* clang-format off */
 void *
 fd_tower_new( void * shmem ) {
@@ -261,7 +263,7 @@ fd_tower_lockout_check( fd_tower_t const * tower,
     /* Optimize for same fork. */
 
     if( FD_UNLIKELY( !is_same_fork( vote, fork, ghost ) ) ) {
-      FD_LOG_NOTICE( ( "[fd_tower_lockout_check] can't vote for %lu. locked out by prev vote (slot: "
+      FD_LOG_NOTICE( ( "[fd_tower_lockout_check] lockout for %lu by prev vote (slot: "
                        "%lu, conf: %lu)",
                        fork->slot,
                        vote->slot,
@@ -271,6 +273,8 @@ fd_tower_lockout_check( fd_tower_t const * tower,
 
     if( FD_UNLIKELY( cnt == 0 ) ) break;
   }
+
+  FD_LOG_NOTICE( ( "[fd_tower_lockout_check] no lockout for %lu", fork->slot ) );
 
   /* All remaining votes in the tower are on the same fork, so we are
      not locked out and OK to vote. */
@@ -311,9 +315,11 @@ fd_tower_switch_check( fd_tower_t const * tower,
   }
 
   double switch_pct = (double)switch_stake / (double)tower->total_stake;
-  FD_LOG_NOTICE( ( "[fd_tower_switch_check] switch slot: %lu. stake: %.0lf%%",
-                   fork->slot,
-                   switch_pct * 100.0 ) );
+  FD_LOG_NOTICE(
+      ( "[fd_tower_switch_check] latest vote slot: %lu. switch slot: %lu. stake: %.0lf%%",
+        fd_tower_votes_peek_tail_const( tower->votes )->slot,
+        fork->slot,
+        switch_pct * 100.0 ) );
   return switch_pct > SWITCH_PCT;
 }
 
@@ -407,9 +413,11 @@ fd_tower_threshold_check( fd_tower_t const * tower,
   }
 
   double threshold_pct = (double)threshold_stake / (double)tower->total_stake;
-  FD_LOG_NOTICE( ( "[fd_tower_threshold_check] threshold slot: %lu. stake: %.0lf%%",
-                   our_threshold_vote->slot,
-                   threshold_pct * 100.0 ) );
+  FD_LOG_NOTICE(
+      ( "[fd_tower_threshold_check] latest vote slot %lu. threshold slot: %lu. stake: %.0lf%%",
+        fd_tower_votes_peek_tail_const( tower->votes )->slot,
+        our_threshold_vote->slot,
+        threshold_pct * 100.0 ) );
   return threshold_pct > THRESHOLD_PCT;
 }
 
@@ -508,7 +516,7 @@ fd_tower_vote_fork_select( fd_tower_t *       tower,
     }
   }
 
-  return vote_fork; /* Defaults to NULL if we cannot vote. */
+  return vote_fork; /* NULL if we cannot vote. */
 
   /* Only process vote slots higher than our SMR. */
 
@@ -602,12 +610,6 @@ fd_tower_fork_update( fd_tower_t const * tower,
 
   /* Insert the new fork head into ghost. */
 
-  // if( fork->slot == 279803918 ) {
-  //   FD_LOG_NOTICE(("parent_slot: %lu", parent_slot));
-  //   FD_PARAM_UNUSED fd_ghost_node_t * ps1 = fd_ghost_node_query( ghost, parent_slot );
-  //   FD_PARAM_UNUSED fd_ghost_node_t * ps2 = fd_ghost_node_query( ghost, 279803917 );
-  //   __asm__("int $3");
-  // }
   fd_ghost_node_t * ghost_node = fd_ghost_node_insert( ghost, fork->slot, parent_slot );
 
 #if FD_TOWER_USE_HANDHOLDING
@@ -662,6 +664,38 @@ fd_tower_fork_update( fd_tower_t const * tower,
 
 void
 fd_tower_vote( fd_tower_t const * tower, ulong slot ) {
+  FD_LOG_NOTICE( ( "[fd_tower_vote] voting for slot %lu", slot ) );
+
+  /* Check we're not voting for the exact same slot as our latest tower
+     vote. This can happen when there are forks. */
+
+  fd_tower_vote_t * latest_vote = fd_tower_votes_peek_tail( tower->votes );
+  if( FD_UNLIKELY( latest_vote && latest_vote->slot == slot ) ) {
+    FD_LOG_NOTICE( ( "[fd_tower_vote] already voted for slot %lu", slot ) );
+    return;
+  }
+
+#if FD_TOWER_USE_HANDHOLDING
+
+  /* Check we aren't voting for the same slot before the latest tower
+     vote. This should not happen and indicates a bug, because on the
+     same vote fork the slot should be monotonically non-decreasing. */
+
+  for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init_rev( tower->votes );
+       !fd_tower_votes_iter_done_rev( tower->votes, iter );
+       iter = fd_tower_votes_iter_prev( tower->votes, iter ) ) {
+    fd_tower_vote_t const * vote = fd_tower_votes_iter_ele_const( tower->votes, iter );
+    if( FD_UNLIKELY( slot == vote->slot ) ) {
+      FD_LOG_WARNING( ( "[fd_tower_vote] double-voting for old slot %lu (new vote: %lu)",
+                        slot,
+                        vote->slot ) );
+      fd_tower_print( tower );
+      __asm__( "int $3" );
+    }
+  }
+
+#endif
+
   /* First, simulate a vote for slot. We do this purely for
      implementation convenience and code reuse.
 
@@ -701,5 +735,5 @@ fd_tower_vote( fd_tower_t const * tower, ulong slot ) {
 
 void
 fd_tower_print( fd_tower_t const * tower ) {
-  print( tower->votes );
+  print( tower->votes, tower->root );
 }
