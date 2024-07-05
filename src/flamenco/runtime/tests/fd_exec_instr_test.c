@@ -511,6 +511,11 @@ _context_destroy( fd_exec_instr_test_runner_t * runner,
         break;
       }
     }
+
+    if( ctx->txn_ctx->borrowed_accounts[i].data == NULL ) {
+      continue;
+    }
+
     if( !wksp_allocated ) {
       fd_valloc_free( ctx->txn_ctx->valloc, ctx->txn_ctx->borrowed_accounts[i].data - sizeof(fd_account_meta_t) );
     }
