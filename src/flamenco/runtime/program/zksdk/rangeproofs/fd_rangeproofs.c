@@ -151,6 +151,23 @@ fd_rangeproofs_verify(
   fd_ristretto255_point_t points[ MAX ];
   fd_ristretto255_point_t a_res[ 1 ];
   fd_ristretto255_point_t res[ 1 ];
+
+  if( FD_UNLIKELY( fd_curve25519_scalar_validate( range_proof->tx )==NULL ) ) {
+    return FD_RANGEPROOFS_ERROR;
+  }
+  if( FD_UNLIKELY( fd_curve25519_scalar_validate( range_proof->tx_blinding )==NULL ) ) {
+    return FD_RANGEPROOFS_ERROR;
+  }
+  if( FD_UNLIKELY( fd_curve25519_scalar_validate( range_proof->e_blinding )==NULL ) ) {
+    return FD_RANGEPROOFS_ERROR;
+  }
+  if( FD_UNLIKELY( fd_curve25519_scalar_validate( ipp_proof->a )==NULL ) ) {
+    return FD_RANGEPROOFS_ERROR;
+  }
+  if( FD_UNLIKELY( fd_curve25519_scalar_validate( ipp_proof->b )==NULL ) ) {
+    return FD_RANGEPROOFS_ERROR;
+  }
+
   fd_ristretto255_point_set( &points[0], fd_rangeproofs_basepoint_G );
   fd_ristretto255_point_set( &points[1], fd_rangeproofs_basepoint_H );
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( a_res, range_proof->a )==NULL ) ) {
@@ -184,22 +201,6 @@ fd_rangeproofs_verify(
   fd_memcpy( &points[ idx ],   fd_rangeproofs_generators_H, n*sizeof(fd_ristretto255_point_t) );
   fd_memcpy( &points[ idx+n ], fd_rangeproofs_generators_G, n*sizeof(fd_ristretto255_point_t) );
 
-  if( FD_UNLIKELY( fd_curve25519_scalar_validate( range_proof->tx )==NULL ) ) {
-    return FD_RANGEPROOFS_ERROR;
-  }
-  if( FD_UNLIKELY( fd_curve25519_scalar_validate( range_proof->tx_blinding )==NULL ) ) {
-    return FD_RANGEPROOFS_ERROR;
-  }
-  if( FD_UNLIKELY( fd_curve25519_scalar_validate( range_proof->e_blinding )==NULL ) ) {
-    return FD_RANGEPROOFS_ERROR;
-  }
-  if( FD_UNLIKELY( fd_curve25519_scalar_validate( ipp_proof->a )==NULL ) ) {
-    return FD_RANGEPROOFS_ERROR;
-  }
-  if( FD_UNLIKELY( fd_curve25519_scalar_validate( ipp_proof->b )==NULL ) ) {
-    return FD_RANGEPROOFS_ERROR;
-  }
-
   /* Finalize transcript and extract challenges */
   int val = FD_TRANSCRIPT_SUCCESS;
   fd_rangeproofs_transcript_domsep_range_proof( transcript, nm );
@@ -215,7 +216,6 @@ fd_rangeproofs_verify(
   uchar z[ 32 ];
   fd_rangeproofs_transcript_challenge_scalar( y, transcript, FD_TRANSCRIPT_LITERAL("y") );
   fd_rangeproofs_transcript_challenge_scalar( z, transcript, FD_TRANSCRIPT_LITERAL("z") );
-  // printf("y = "); for(ulong i=0; i<32; i++) { printf("%02x", y[i]); } printf("\n");
 
   val |= fd_rangeproofs_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("T_1"), range_proof->t1);
   val |= fd_rangeproofs_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("T_2"), range_proof->t2);
@@ -261,7 +261,7 @@ fd_rangeproofs_verify(
   // S:   x
   // T_1: c x
   // T_2: c x^2
-  fd_memcpy(            &scalars[ 2*32 ], x, 32 );
+  fd_curve25519_scalar_set(    &scalars[ 2*32 ], x );
   fd_curve25519_scalar_mul(    &scalars[ 3*32 ], c, x );
   fd_curve25519_scalar_mul(    &scalars[ 4*32 ], &scalars[ 3*32 ], x );
 
