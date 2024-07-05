@@ -28,8 +28,11 @@
 // https://github.com/firedancer-io/solana/blob/v1.17.5/sdk/program/src/vote/state/mod.rs#L39
 #define VOTE_CREDITS_GRACE_SLOTS 2
 
-// https://github.com/firedancer-io/solana/blob/v1.17.5/sdk/program/src/vote/state/mod.rs#L42
-#define VOTE_CREDITS_MAXIMUM_PER_SLOT 8
+// https://github.com/anza-xyz/agave/blob/v1.18.15/sdk/program/src/vote/state/mod.rs#L42
+#define VOTE_CREDITS_MAXIMUM_PER_SLOT 16
+
+// https://github.com/anza-xyz/agave/blob/v1.18.15/sdk/program/src/vote/state/mod.rs#L45
+#define VOTE_CREDITS_MAXIMUM_PER_SLOT_OLD 8
 
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/clock.rs#L114
 #define SLOT_DEFAULT 0UL
@@ -562,6 +565,8 @@ credits_for_vote_at_index( fd_vote_state_t * self, ulong index, int timely_vote_
   // https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/program/src/vote/state/mod.rs#L679
   fd_landed_vote_t * landed_vote = deq_fd_landed_vote_t_peek_index( self->votes, index );
   ulong              latency     = landed_vote == NULL ? 0 : landed_vote->latency;
+  ulong              max_credits = deprecate_unused_legacy_vote_plumbing ?
+                                   VOTE_CREDITS_MAXIMUM_PER_SLOT : VOTE_CREDITS_MAXIMUM_PER_SLOT_OLD;
 
   // If latency is 0, this means that the Lockout was created and stored from a software version
   // that did not store vote latencies; in this case, 1 credit is awarded
@@ -573,11 +578,11 @@ credits_for_vote_at_index( fd_vote_state_t * self, ulong index, int timely_vote_
   ulong diff = 0;
   int   cf   = fd_ulong_checked_sub( latency, VOTE_CREDITS_GRACE_SLOTS, &diff );
   if( cf != 0 || diff == 0 ) {
-    return VOTE_CREDITS_MAXIMUM_PER_SLOT;
+    return max_credits;
   }
 
   ulong credits = 0;
-  cf = fd_ulong_checked_sub( VOTE_CREDITS_MAXIMUM_PER_SLOT, diff, &credits );
+  cf = fd_ulong_checked_sub( max_credits, diff, &credits );
   if( cf != 0 || credits == 0 ) {
     return 1;
   }
