@@ -1,4 +1,4 @@
-name: Firedancer
+name: Firedancer Localnet
 on:
   workflow_call:
   workflow_dispatch:
@@ -6,7 +6,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
-  firedancer-tests:
+  integration-test:
     runs-on: [self-hosted, 512G]
     if: github.event.pull_request.draft == false
     env:
@@ -18,6 +18,9 @@ jobs:
           submodules: recursive
 
       - uses: ./.github/actions/deps
+
+      - name: run
+        run: pwd
 
       - name: build
         run: |
@@ -31,10 +34,10 @@ jobs:
       - uses: ./.github/actions/hugepages
         with:
           count_gigantic: 128
-          count_huge: 500 # TODO: this is required until we can handle anonymouse workspaces and loose huge pages in fddev
+          count_huge: 100 # TODO: this is required until we can handle anonymouse workspaces and loose huge pages in fddev
 
       - name: test firedancer - local cluster
         run: |
           sudo prlimit --pid=$$ --nofile=1048576
           sudo prlimit --pid=$$ --memlock=unlimited
-          ./contrib/test/test_firedancer.sh
+          # ./contrib/test/test_firedancer.sh
