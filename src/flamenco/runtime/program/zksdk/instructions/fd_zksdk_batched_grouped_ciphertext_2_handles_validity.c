@@ -2,7 +2,7 @@
 
 static inline void
 batched_grouped_ciphertext_validity_transcript_init(
-  fd_zksdk_transcript_t *                           transcript,
+  fd_zksdk_transcript_t *                            transcript,
   fd_zksdk_batched_grp_ciph_2h_val_context_t const * context ) {
   fd_zksdk_transcript_init( transcript, FD_TRANSCRIPT_LITERAL("batched-grouped-ciphertext-validity-2-handles-instruction") );
   fd_zksdk_transcript_append_pubkey ( transcript, FD_TRANSCRIPT_LITERAL("first-pubkey"),  context->pubkey1 );
@@ -80,6 +80,14 @@ fd_zksdk_verify_proof_batched_grouped_ciphertext_2_handles_validity(
   fd_ristretto255_point_t points[12];
   fd_ristretto255_point_t y0[1];
   fd_ristretto255_point_t res[1];
+
+  if( FD_UNLIKELY( fd_curve25519_scalar_validate( proof->zr )==NULL ) ) {
+    return FD_ZKSDK_VERIFY_PROOF_ERROR;
+  }
+  if( FD_UNLIKELY( fd_curve25519_scalar_validate( proof->zx )==NULL ) ) {
+    return FD_ZKSDK_VERIFY_PROOF_ERROR;
+  }
+
   fd_ristretto255_point_set( &points[0], fd_zksdk_basepoint_G );
   fd_ristretto255_point_set( &points[1], fd_zksdk_basepoint_H );
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( y0, proof->y0 )==NULL ) ) {
@@ -102,26 +110,16 @@ fd_zksdk_verify_proof_batched_grouped_ciphertext_2_handles_validity(
   }
 
   ulong idx = 7;
-  if (batched) {
+  if( batched ) {
     if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[idx++], comm_hi )==NULL ) ) {
       return FD_ZKSDK_VERIFY_PROOF_ERROR;
     }
     if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[idx++], handle1_hi )==NULL ) ) {
       return FD_ZKSDK_VERIFY_PROOF_ERROR;
     }
-  } else {
-    if( FD_UNLIKELY( comm_hi!=NULL ) ) {
-      return FD_ZKSDK_VERIFY_PROOF_ERROR;
-    }
-    if( FD_UNLIKELY( handle1_hi!=NULL ) ) {
-      return FD_ZKSDK_VERIFY_PROOF_ERROR;
-    }
-    if( FD_UNLIKELY( handle2_hi!=NULL ) ) {
-      return FD_ZKSDK_VERIFY_PROOF_ERROR;
-    }
   }
 
-  if (pubkey2_not_zero) {
+  if( pubkey2_not_zero ) {
     if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[idx++], pubkey2 )==NULL ) ) {
       return FD_ZKSDK_VERIFY_PROOF_ERROR;
     }
@@ -130,7 +128,7 @@ fd_zksdk_verify_proof_batched_grouped_ciphertext_2_handles_validity(
     }
   }
 
-  if (batched && pubkey2_not_zero) {
+  if( batched && pubkey2_not_zero ) {
     if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[idx++], handle2_hi )==NULL ) ) {
       return FD_ZKSDK_VERIFY_PROOF_ERROR;
     }
@@ -138,7 +136,7 @@ fd_zksdk_verify_proof_batched_grouped_ciphertext_2_handles_validity(
 
   /* Finalize transcript and extract challenges */
   uchar t[ 32 ];
-  if (batched) {
+  if( batched ) {
     fd_zksdk_transcript_domsep_batched_grp_ciph_val_proof( transcript, 2 );
     fd_zksdk_transcript_challenge_scalar( t, transcript, FD_TRANSCRIPT_LITERAL("t") );
   }
@@ -159,24 +157,24 @@ fd_zksdk_verify_proof_batched_grouped_ciphertext_2_handles_validity(
   fd_zksdk_transcript_challenge_scalar( w, transcript, FD_TRANSCRIPT_LITERAL("w") );
 
   /* Compute scalars */
-  fd_memcpy( &scalars[ 0*32 ], proof->zx, 32 );                          // z_x
-  fd_memcpy( &scalars[ 1*32 ], proof->zr, 32 );                          // z_r
-  fd_curve25519_scalar_neg( &scalars[ 2*32 ], w );                              // -w
-  fd_curve25519_scalar_mul( &scalars[ 3*32 ], &scalars[ 2*32 ], w );            // -w^2
-  fd_curve25519_scalar_mul( &scalars[ 4*32 ], proof->zr, w );                   // z_r w
-  fd_curve25519_scalar_neg( &scalars[ 5*32 ], c );                              // -c
-  fd_curve25519_scalar_mul( &scalars[ 6*32 ], &scalars[ 5*32 ], w );            // -c w
+  fd_curve25519_scalar_set( &scalars[ 0*32 ], proof->zx );           //  z_x
+  fd_curve25519_scalar_set( &scalars[ 1*32 ], proof->zr );           //  z_r
+  fd_curve25519_scalar_neg( &scalars[ 2*32 ], w );                   // -w
+  fd_curve25519_scalar_mul( &scalars[ 3*32 ], &scalars[ 2*32 ], w ); // -w^2
+  fd_curve25519_scalar_mul( &scalars[ 4*32 ], proof->zr, w );        //  z_r w
+  fd_curve25519_scalar_neg( &scalars[ 5*32 ], c );                   // -c
+  fd_curve25519_scalar_mul( &scalars[ 6*32 ], &scalars[ 5*32 ], w ); // -c w
   idx = 7;
-  if (batched) {
-    fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 5*32 ], t );    // -c t
-    fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 6*32 ], t );    // -c w t
+  if( batched ) {
+    fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 5*32 ], t ); // -c t
+    fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 6*32 ], t ); // -c w t
   }
-  if (pubkey2_not_zero) {
-    fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 4*32 ], w );    // z_r w^2
-    fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 6*32 ], w );    // -c w^2
+  if( pubkey2_not_zero ) {
+    fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 4*32 ], w ); // z_r w^2
+    fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 6*32 ], w ); // -c w^2
   }
-  if (batched && pubkey2_not_zero) {
-    fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 8*32 ], w );    // -c w^2 t
+  if( batched && pubkey2_not_zero ) {
+    fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 8*32 ], w ); // -c w^2 t
   }
 
   /* Compute the final MSM */

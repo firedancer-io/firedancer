@@ -122,6 +122,20 @@ fd_curve25519_scalar_neg   ( uchar *       s,
 }
 
 static inline uchar *
+fd_curve25519_scalar_set   ( uchar *       s,
+                             uchar const * a ) {
+  return fd_memcpy( s, a, 32 );
+}
+
+static inline uchar *
+fd_curve25519_scalar_from_u64( uchar *     s,
+                               ulong const x ) {
+  fd_memset( s, 0, 32 );
+  *((ulong *)s) = x;
+  return s;
+}
+
+static inline uchar *
 fd_curve25519_scalar_inv( uchar *       s,
                           uchar const * a ) {
   uchar t[ 32 ];

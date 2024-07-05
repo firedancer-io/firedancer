@@ -16,7 +16,6 @@ struct __attribute__((packed)) percentage_equality_proof {
   uchar z_x      [ 32 ]; // scalar
   uchar z_delta  [ 32 ]; // scalar
   uchar z_claimed[ 32 ]; // scalar
-
 };
 typedef struct percentage_equality_proof percentage_equality_proof_t;
 

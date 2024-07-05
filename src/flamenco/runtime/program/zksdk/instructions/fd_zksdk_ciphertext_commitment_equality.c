@@ -45,6 +45,17 @@ fd_zksdk_verify_proof_ciphertext_commitment_equality(
   fd_ristretto255_point_t points[8];
   fd_ristretto255_point_t y2[1];
   fd_ristretto255_point_t res[1];
+
+  if( FD_UNLIKELY( fd_curve25519_scalar_validate( proof->zs )==NULL ) ) {
+    return FD_ZKSDK_VERIFY_PROOF_ERROR;
+  }
+  if( FD_UNLIKELY( fd_curve25519_scalar_validate( proof->zx )==NULL ) ) {
+    return FD_ZKSDK_VERIFY_PROOF_ERROR;
+  }
+  if( FD_UNLIKELY( fd_curve25519_scalar_validate( proof->zr )==NULL ) ) {
+    return FD_ZKSDK_VERIFY_PROOF_ERROR;
+  }
+
   fd_ristretto255_point_set( &points[0], fd_zksdk_basepoint_G );
   fd_ristretto255_point_set( &points[1], fd_zksdk_basepoint_H );
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[2], proof->y0 )==NULL ) ) {
@@ -66,16 +77,6 @@ fd_zksdk_verify_proof_ciphertext_commitment_equality(
     return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[7], commitment )==NULL ) ) {
-    return FD_ZKSDK_VERIFY_PROOF_ERROR;
-  }
-
-  if( FD_UNLIKELY( fd_curve25519_scalar_validate( proof->zs )==NULL ) ) {
-    return FD_ZKSDK_VERIFY_PROOF_ERROR;
-  }
-  if( FD_UNLIKELY( fd_curve25519_scalar_validate( proof->zx )==NULL ) ) {
-    return FD_ZKSDK_VERIFY_PROOF_ERROR;
-  }
-  if( FD_UNLIKELY( fd_curve25519_scalar_validate( proof->zr )==NULL ) ) {
     return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
 

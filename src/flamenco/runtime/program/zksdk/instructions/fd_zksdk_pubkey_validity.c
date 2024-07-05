@@ -11,7 +11,7 @@ pubkey_validity_transcript_init( fd_zksdk_transcript_t *                    tran
 static inline int
 fd_zksdk_verify_proof_pubkey_validity(
   fd_zksdk_pubkey_validity_proof_t const * proof,
-  uchar const                              pubkey         [ 32 ],
+  uchar const                              pubkey[ 32 ],
   fd_zksdk_transcript_t *                  transcript ) {
   /*
     We need to verify the following equivalence:
@@ -21,19 +21,20 @@ fd_zksdk_verify_proof_pubkey_validity(
   */
 
   /* Validate all inputs */
+  uchar scalars[ 2 * 32 ];
   fd_ristretto255_point_t points[2];
   fd_ristretto255_point_t y[1];
   fd_ristretto255_point_t res[1];
+
+  if( FD_UNLIKELY( fd_curve25519_scalar_validate( proof->z )==NULL ) ) {
+    return FD_ZKSDK_VERIFY_PROOF_ERROR;
+  }
+
   fd_ristretto255_point_set( &points[0], fd_zksdk_basepoint_H );
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[1], pubkey )==NULL ) ) {
     return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( y, proof->y )==NULL ) ) {
-    return FD_ZKSDK_VERIFY_PROOF_ERROR;
-  }
-
-  uchar scalars[ 2 * 32 ];
-  if( FD_UNLIKELY( fd_curve25519_scalar_validate( proof->z )==NULL ) ) {
     return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
 
@@ -49,8 +50,8 @@ fd_zksdk_verify_proof_pubkey_validity(
   fd_zksdk_transcript_challenge_scalar( c, transcript, FD_TRANSCRIPT_LITERAL("c") );
 
   /* Compute scalars */
-  fd_memcpy( &scalars[ 0*32 ], proof->z, 32 );     // z
-  fd_curve25519_scalar_neg( &scalars[ 1*32 ], c ); // -c
+  fd_curve25519_scalar_set( &scalars[ 0*32 ], proof->z ); //  z
+  fd_curve25519_scalar_neg( &scalars[ 1*32 ], c );        // -c
 
   /* Compute the final MSM */
   fd_ristretto255_multi_scalar_mul( res, scalars, points, 2 );
