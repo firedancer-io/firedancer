@@ -185,6 +185,13 @@
 
 #include "../bits/fd_bits.h"
 
+/* FD_IO_SEEK_TYPE_{SET,CUR,END} give supported seek types.  They have
+   the same meaning as the corresponding lseek SEEK_{SET,CUR_END}. */
+
+#define FD_IO_SEEK_TYPE_SET (0)
+#define FD_IO_SEEK_TYPE_CUR (1)
+#define FD_IO_SEEK_TYPE_END (2)
+
 /* fd_io_buffered_{istream,ostream}_t is an opaque handle of an
    {input,output} stream with buffered {reads,writes}.  The internals
    are visible here to facilitate inlining various operations.  This is
@@ -338,6 +345,55 @@ fd_io_write( int          fd,
              ulong        src_min,
              ulong        src_max,
              ulong *      _src_sz );
+
+/* fd_io_sz returns the current byte size of the file underlying the
+   given file descriptor.  Note that writing to a file descriptor may
+   increase the file size.  On success, returns 0 and *_sz will contain
+   the current size (in [0,LONG_MAX], not ULONG_MAX for fd_io_seek
+   friendliness).  On failure, returns a strerror compatible error code
+   and *_sz will be 0.  Reasons for failure include the usual fstat
+   reasons. */
+
+int
+fd_io_sz( int     fd,
+          ulong * _sz );
+
+/* fd_io_seek seeks the byte index of the given file descriptor
+   according to rel_off and type.  Seeking to indices outside [0,sz]
+   (i.e. before the SOF / first byte of the file and strictly after EOF
+   / one past the last byte of the file) is not supported (POSIX has
+   defined behaviors but portable code should not assume them).
+
+     type==FD_IO_SEEK_TYPE_SET: the index will be seeked rel_off bytes
+     from SOF / the first byte of the file.  Supported rel_off are in
+     [0,sz].
+
+     type==FD_IO_SEEK_TYPE_CUR: the index will be seeked rel_off bytes
+     from the current byte index.  Supported rel_off are in
+     [-idx,sz-idx].
+
+     type==FD_IO_SEEK_TYPE_END: the index will be seeked rel_off bytes
+     from EOF / one past the last byte of the file.  Supported rel_off
+     are in [-sz,0].
+
+  On success, returns 0 and *_idx will contain the new byte index (will
+  be in [0,sz] for supported rel_off and in [0,LONG_MAX] generally).  On
+  failure, returns a strerror compatible error code and *_idx will be 0.
+  Reasons for failure include unsupported type, rel_off is not lseek
+  compatible, and the usual lseek reasons (e.g. fd is not seekable ...
+  a pipe / socket / etc).
+
+  Note that, if the file descriptor supports it:
+
+    fd_io_seek( fd, 0L, FD_IO_SEEK_TYPE_CUR, &idx );
+
+  will return fd's current byte index (in [0,sz]) in idx. */
+
+int
+fd_io_seek( int     fd,
+            long    rel_off,
+            int     type,
+            ulong * _idx );
 
 /* fd_io_buffered_read is like fd_io_read but can consolidate many
    tiny reads into a larger fd_io_read via the given buffer.  Unlike
