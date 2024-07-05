@@ -4,8 +4,6 @@ ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
 
-include src/app/fdctl/with-version.mk
-
 .PHONY: fddev run monitor
 
 # fddev core
