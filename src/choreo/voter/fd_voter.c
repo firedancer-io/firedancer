@@ -66,8 +66,6 @@ fd_vote_txn_generate( fd_voter_t *                     voter,
   fd_vote_instruction_encode( &vote_instr, &encode );
   ushort vote_instr_size = (ushort)fd_vote_instruction_size( &vote_instr );
 
-  /* Generate the signatures */
-
   ulong txn_size;
   if( FD_LIKELY( vote_authority_is_validator_identity ) ) {
     uchar instr_accounts[2];
@@ -81,12 +79,6 @@ fd_vote_txn_generate( fd_voter_t *                     voter,
                                  2, /* 2 accounts in instr_accounts */
                                  vote_instr_buf,
                                  vote_instr_size );
-
-    fd_txn_t * txn_meta = (fd_txn_t *)fd_type_pun( txn_meta_out );
-    voter->validator_identity_sign_fun( voter->voter_sign_arg,
-                                        /* sig */ txn_out + txn_meta->signature_off,
-                                        /* buffer */ txn_out + txn_meta->message_off,
-                                        /* len */ txn_size - txn_meta->message_off );
   } else {
     uchar instr_accounts[2];
     instr_accounts[0] = 2; /* vote account address */
@@ -100,6 +92,27 @@ fd_vote_txn_generate( fd_voter_t *                     voter,
                                  vote_instr_buf,
                                  vote_instr_size );
 
+  }
+  return txn_size;
+}
+
+void
+fd_voter_txn_sign( fd_voter_t *                     voter,
+                   ulong                            txn_size,
+                   uchar                            txn_meta_out[static FD_TXN_MAX_SZ],
+                   uchar                            txn_out[static FD_TXN_MTU] )  {
+  /* Generate the signatures */
+  /* Create the transaction base */
+  uchar vote_authority_is_validator_identity = ( memcmp( voter->validator_identity_pubkey->key,
+                                                         voter->vote_authority_pubkey->key,
+                                                         sizeof( fd_pubkey_t ) ) == 0 );
+  if( FD_LIKELY( vote_authority_is_validator_identity ) ) {
+    fd_txn_t * txn_meta = (fd_txn_t *)fd_type_pun( txn_meta_out );
+    voter->validator_identity_sign_fun( voter->voter_sign_arg,
+                                        /* sig */ txn_out + txn_meta->signature_off,
+                                        /* buffer */ txn_out + txn_meta->message_off,
+                                        /* len */ txn_size - txn_meta->message_off );
+  } else {
     fd_txn_t * txn_meta  = (fd_txn_t *)fd_type_pun( txn_meta_out );
     uchar *    sig_start = txn_out + txn_meta->signature_off;
     uchar *    buf_start = txn_out + txn_meta->message_off;
@@ -113,7 +126,6 @@ fd_vote_txn_generate( fd_voter_t *                     voter,
                                     /* buf */ buf_start,
                                     /* len */ buf_size );
   }
-  return txn_size;
 }
 
 int

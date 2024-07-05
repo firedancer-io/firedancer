@@ -28,6 +28,12 @@ fd_vote_txn_generate( fd_voter_t *                     voter,
                       uchar                            out_txn_meta_buf [static FD_TXN_MAX_SZ],
                       uchar                            out_txn_buf [static FD_TXN_MTU] );
 
+void
+fd_voter_txn_sign( fd_voter_t *                     voter,
+                   ulong                            txn_size,
+                   uchar                            txn_meta_out[static FD_TXN_MAX_SZ],
+                   uchar                            txn_out[static FD_TXN_MTU] );
+
 int
 fd_vote_txn_parse( uchar                            txn_buf [static FD_TXN_MTU],
                    ulong                            txn_size,

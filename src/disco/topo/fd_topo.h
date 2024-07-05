@@ -209,6 +209,7 @@ typedef struct {
       char  capture[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
       char  identity_key_path[ PATH_MAX ];
+      char  vote_account_path[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
       char  slots_replayed[ PATH_MAX ];
       char  snapshot[ PATH_MAX ];
@@ -284,15 +285,14 @@ typedef struct {
     } store_int;
 
     struct {
-      ushort  tpu_vote_listen_port;
+      ushort  tpu_listen_port;
 
       /* non-config */
       
       uint    ip_addr;
       uchar   src_mac_addr[ 6 ];
       char  identity_key_path[ PATH_MAX ];
-      char  vote_account_path[ PATH_MAX ];
-    } voter;
+    } sender;
   };
 } fd_topo_tile_t;
 

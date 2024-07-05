@@ -175,7 +175,7 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                             fd_topob_tile( topo, "metric",  "metric",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
   /**/                             fd_topob_tile( topo, "pack",    "pack",    "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "pack_replay",  0UL );
   /**/                             fd_topob_tile( topo, "pohi",    "pohi",    "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "poh_shred",    0UL );
-  /**/                             fd_topob_tile( topo, "voter",   "voter",   "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
+  /**/                             fd_topob_tile( topo, "sender",  "voter",   "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
 
   fd_topo_tile_t * store_tile  = &topo->tiles[ fd_topo_find_tile( topo, "storei",  0UL ) ];
   fd_topo_tile_t * replay_tile = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
@@ -221,7 +221,7 @@ fd_topo_firedancer( config_t * _config ) {
   }
   FD_TEST( fd_pod_insertf_ulong( topo->props, poh_shred_obj->id, "poh_shred" ) );
 
-  fd_topo_tile_t * voter_tile = &topo->tiles[ fd_topo_find_tile( topo, "voter", 0UL ) ];
+  fd_topo_tile_t * voter_tile = &topo->tiles[ fd_topo_find_tile( topo, "sender", 0UL ) ];
   fd_topo_obj_t * current_slot_obj = fd_topob_obj( topo, "fseq", "current_slot" );
   fd_topob_tile_uses( topo, poh_tile, current_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, voter_tile, current_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
@@ -318,17 +318,17 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "gossip_repla",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_voter",  0UL                                                  );
 
-  /**/                 fd_topob_tile_in(  topo, "voter",   0UL,          "metric_in",  "stake_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  /**/                 fd_topob_tile_in(  topo, "voter",   0UL,          "metric_in",  "gossip_voter", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  /**/                 fd_topob_tile_in(  topo, "voter",   0UL,          "metric_in",  "replay_voter", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                 fd_topob_tile_in(  topo, "sender",  0UL,          "metric_in",  "stake_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                 fd_topob_tile_in(  topo, "sender",  0UL,          "metric_in",  "gossip_voter", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                 fd_topob_tile_in(  topo, "sender",  0UL,          "metric_in",  "replay_voter", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "net",     i,            "metric_in",  "voter_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  /**/                 fd_topob_tile_out( topo, "voter",   0UL,                        "voter_net",    0UL                                                  );
-  /**/                 fd_topob_tile_out( topo, "voter",   0UL,                        "voter_gossip", 0UL                                                  );
-  /**/                 fd_topob_tile_out( topo, "voter",   0UL,                        "voter_pack",   0UL                                                  );
-  /**/                 fd_topob_tile_out( topo, "voter",   0UL,                        "voter_sign",   0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "sender",  0UL,                        "voter_net",    0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "sender",  0UL,                        "voter_gossip", 0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "sender",  0UL,                        "voter_pack",   0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "sender",  0UL,                        "voter_sign",   0UL                                                  );
   /**/                 fd_topob_tile_in(  topo, "sign",    0UL,          "metric_in",  "voter_sign",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "sign",    0UL,                        "sign_voter",   0UL                                                  );
-  /**/                 fd_topob_tile_in(  topo, "voter",   0UL,          "metric_in",  "sign_voter",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+  /**/                 fd_topob_tile_in(  topo, "sender",  0UL,          "metric_in",  "sign_voter",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
 
   /**/                 fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in",  "voter_pack",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in",  "gossip_pack",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
@@ -448,6 +448,7 @@ fd_topo_firedancer( config_t * _config ) {
       strncpy( tile->replay.capture, config->tiles.replay.capture, sizeof(tile->replay.capture) );
       strncpy( tile->replay.genesis, config->tiles.replay.genesis, sizeof(tile->replay.genesis) );
       strncpy( tile->replay.identity_key_path, config->consensus.identity_path, sizeof(tile->replay.identity_key_path) );
+      strncpy( tile->replay.vote_account_path, config->consensus.vote_account_path, sizeof(tile->replay.vote_account_path) );
       strncpy( tile->replay.incremental, config->tiles.replay.incremental, sizeof(tile->replay.incremental) );
       strncpy( tile->replay.slots_replayed, config->tiles.replay.slots_replayed, sizeof(tile->replay.slots_replayed) );
       strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
@@ -485,14 +486,12 @@ fd_topo_firedancer( config_t * _config ) {
       strncpy( tile->poh.identity_key_path, config->consensus.identity_path, sizeof(tile->poh.identity_key_path) );
 
       tile->poh.bank_cnt = config->layout.bank_tile_count;
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "voter" ) ) ) {
-      tile->voter.tpu_vote_listen_port = config->tiles.quic.regular_transaction_listen_port;;
-      tile->voter.ip_addr = config->tiles.net.ip_addr;
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "sender" ) ) ) {
+      tile->sender.tpu_listen_port = config->tiles.quic.regular_transaction_listen_port;
+      tile->sender.ip_addr = config->tiles.net.ip_addr;
 
-      memcpy( tile->voter.src_mac_addr, config->tiles.net.mac_addr, 6UL );
-      strncpy( tile->voter.identity_key_path, config->consensus.identity_path, sizeof(tile->voter.identity_key_path) );
-      strncpy( tile->voter.vote_account_path, config->consensus.vote_account_path, sizeof(tile->voter.vote_account_path) );
-
+      memcpy( tile->sender.src_mac_addr, config->tiles.net.mac_addr, 6UL );
+      strncpy( tile->sender.identity_key_path, config->consensus.identity_path, sizeof(tile->sender.identity_key_path) );
     } else {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }

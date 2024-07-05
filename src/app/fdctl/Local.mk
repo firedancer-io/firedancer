@@ -46,7 +46,7 @@ $(call add-objs,run/tiles/fd_store_int,fd_fdctl)
 $(call add-objs,run/tiles/fd_replay,fd_fdctl)
 $(call add-objs,run/tiles/fd_replay_thread,fd_fdctl)
 $(call add-objs,run/tiles/fd_poh_int,fd_fdctl)
-$(call add-objs,run/tiles/fd_voter,fd_fdctl)
+$(call add-objs,run/tiles/fd_sender,fd_fdctl)
 endif
 
 # fdctl topologies
@@ -90,7 +90,7 @@ $(OBJDIR)/obj/app/fdctl/run/tiles/fd_repair.o: src/app/fdctl/run/tiles/generated
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_gossip.o: src/app/fdctl/run/tiles/generated/gossip_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_store_int.o: src/app/fdctl/run/tiles/generated/store_int_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_replay.o: src/app/fdctl/run/tiles/generated/replay_seccomp.h
-$(OBJDIR)/obj/app/fdctl/run/tiles/fd_voter.o: src/app/fdctl/run/tiles/generated/voter_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_sender.o: src/app/fdctl/run/tiles/generated/sender_seccomp.h
 endif
 
 check-solana-hash:
