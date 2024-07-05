@@ -458,7 +458,7 @@ after_frag( void *             _ctx,
     txn->payload_sz = fd_vote_txn_generate( &voter,
                                             &vote,
                                             ctx->gossip_vote_txn + recent_blockhash_off,
-                                            TXN(txn),
+                                            txn->_,
                                             txn->payload );
 
     ulong msg_sz = sizeof(fd_txn_p_t);
