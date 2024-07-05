@@ -219,7 +219,7 @@ struct gossip_deliver_arg {
   fd_gossip_t        * gossip;
   fd_gossip_config_t * gossip_config;
 
-  fd_pubkey_t        * vote_acct_addr;
+  fd_pubkey_t const  * vote_acct_addr;
   const uchar        * vote_authority_keypair;
   const uchar        * validator_identity_keypair;
 };
@@ -297,8 +297,8 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
             .vote_authority_keypair     = arg_->vote_authority_keypair,
             .validator_identity_keypair = arg_->validator_identity_keypair
           };
-          fd_pubkey_t * vote_authority_pubkey     = (fd_pubkey_t *)fd_type_pun_const( arg_->vote_authority_keypair + 32UL );
-          fd_pubkey_t * validator_identity_pubkey = (fd_pubkey_t *)fd_type_pun_const( arg_->validator_identity_keypair + 32UL );
+          fd_pubkey_t const * vote_authority_pubkey     = (fd_pubkey_t const *)fd_type_pun_const( arg_->vote_authority_keypair + 32UL );
+          fd_pubkey_t const * validator_identity_pubkey = (fd_pubkey_t const *)fd_type_pun_const( arg_->validator_identity_keypair + 32UL );
           fd_voter_t voter = {
             .vote_acct_addr              = arg_->vote_acct_addr,
             .vote_authority_pubkey       = vote_authority_pubkey,
@@ -532,10 +532,6 @@ main( int argc, char ** argv ) {
   fd_pubkey_t public_key;
   FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, sha ) );
 
-  fd_pubkey_t vote_acct_addr;
-  const uchar* vote_acct_keypair = fd_keyload_load( vote_acct_addr_file, 0 );
-  memcpy( vote_acct_addr.key, vote_acct_keypair + 32UL, 32 );
-
   /**********************************************************************/
   /* gossip                                                             */
   /**********************************************************************/
@@ -555,7 +551,7 @@ main( int argc, char ** argv ) {
     .gossip_config              = &gossip_config,
     .gossip                     = gossip,
     .wksp                       = wksp,
-    .vote_acct_addr             = &vote_acct_addr,
+    .vote_acct_addr             = (fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( vote_acct_addr_file, 1 ) ),
     .vote_authority_keypair     = fd_keyload_load( vote_authority_keypair_file, 0 ),
     .validator_identity_keypair = fd_keyload_load( validator_identity_keypair_file, 0 )
   };

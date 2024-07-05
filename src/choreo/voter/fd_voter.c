@@ -10,7 +10,7 @@ fd_vote_txn_generate( fd_voter_t *                     voter,
                       uchar *                          recent_blockhash,
                       uchar                            txn_meta_out[static FD_TXN_MAX_SZ],
                       uchar                            txn_out[static FD_TXN_MTU] ) {
-  fd_pubkey_t * vote_program_addr = (fd_pubkey_t *)fd_type_pun_const( &fd_solana_vote_program_id );
+  fd_pubkey_t const * vote_program_addr = &fd_solana_vote_program_id;
 
   /* Create the transaction base */
   uchar vote_authority_is_validator_identity = ( memcmp( voter->validator_identity_pubkey->key,
