@@ -21,8 +21,19 @@ jobs:
 
       - uses: ./.github/actions/deps
 
-      - name: run
-        run: pwd
+      - name: clone agave
+        run: |
+          git clone --depth 1 --branch v1.18.15 https://github.com/anza-xyz/agave.git
+
+      - name: build agave
+        run: |
+          cd agave
+          ./cargo build --release \
+            --package solana-genesis \
+            --package agave-validator \
+            --package solana-cli \
+            --package solana-keygen
+          cd ..
 
       - name: build
         run: |
