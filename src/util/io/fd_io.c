@@ -16,6 +16,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 int
 fd_io_read( int     fd,
@@ -142,6 +143,46 @@ fd_io_write( int          fd,
   } while( src_sz<src_min );
 
   *_src_sz = src_sz;
+  return 0;
+}
+
+int
+fd_io_sz( int     fd,
+          ulong * _sz ) {
+  struct stat stat[1];
+
+  int   ret = fstat( fd, stat );
+  off_t sz  = stat->st_size;
+  if( FD_UNLIKELY( !((ret==0) & (((off_t)0)<=sz) & (((ulong)sz)<=((ulong)LONG_MAX))) ) ) {
+    int err = errno;
+    if( !err ) err = EPROTO;
+    *_sz = 0UL;
+    return err;
+  }
+
+  *_sz = (ulong)sz;
+  return 0;
+}
+
+int
+fd_io_seek( int     fd,
+            long    rel_off,
+            int     type,
+            ulong * _idx ) {
+  static int const whence[3] = { SEEK_SET, SEEK_CUR, SEEK_END };
+
+  if( FD_UNLIKELY( !((0<=type) & (type<=3) & (rel_off==(long)(off_t)rel_off)) ) ) return EINVAL;
+
+  off_t idx = lseek( fd, (off_t)rel_off, whence[ type ] );
+
+  if( FD_UNLIKELY( !((((off_t)0)<=idx) & (((ulong)idx)<=((ulong)LONG_MAX))) ) ) {
+    int err = errno;
+    if( !err ) err = EPROTO;
+    *_idx = 0UL;
+    return err;
+  }
+
+  *_idx = (ulong)idx;
   return 0;
 }
 

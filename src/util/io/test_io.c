@@ -43,7 +43,7 @@ main( int     argc,
   /* If keep is not set, we unlink the created file so it gets
      automagically cleaned up at program termination (normal or not).
      That is, as per usual UNIX semantics, the underlying file will
-     still exist it has any open file descriptors. */
+     still exist if it has any open file descriptors. */
 
   if( FD_UNLIKELY( !keep && unlink( path ) ) )
     FD_LOG_ERR(( "unlink( \"%s\" ) failed (%i-%s)", path,  errno, fd_io_strerror( errno ) ));
@@ -55,14 +55,53 @@ main( int     argc,
 
   ulong wsz;
 
+  /* Test seek and sz on empty */
+
+  FD_TEST( !fd_io_seek( fd, 0L, FD_IO_SEEK_TYPE_CUR, &wsz ) && wsz==0UL );
+  FD_TEST( !fd_io_seek( fd, 0L, FD_IO_SEEK_TYPE_END, &wsz ) && wsz==0UL );
+  FD_TEST( !fd_io_seek( fd, 0L, FD_IO_SEEK_TYPE_SET, &wsz ) && wsz==0UL );
+  FD_TEST( !fd_io_sz  ( fd,                          &wsz ) && wsz==0UL );
+
   /* Test simple write */
 
-  FD_TEST( !fd_io_write( fd, src, src_len, src_len, &wsz ) && wsz==src_len     );
+  FD_TEST( !fd_io_write( fd, src, src_len, src_len, &wsz ) && wsz==src_len );
+
+  /* Test seek and sz on non-empty */
+
+  FD_TEST( !fd_io_seek( fd, 0L, FD_IO_SEEK_TYPE_CUR, &wsz ) && wsz==src_len );
+  FD_TEST( !fd_io_sz  ( fd,                          &wsz ) && wsz==src_len );
+
+  ulong cur_off = src_len;
+  for( ulong iter=0L; iter<1000000UL; iter++ ) {
+    ulong nxt_off = fd_rng_ulong_roll( rng, src_len+1UL );
+    int   type    = fd_rng_int_roll  ( rng, 3 );
+    long  rel_off = (long)(nxt_off - ( (type==FD_IO_SEEK_TYPE_SET) ?     0UL :
+                                       (type==FD_IO_SEEK_TYPE_CUR) ? cur_off :
+                                      /*type==FD_IO_SEEK_TYPE_END)*/ src_len ));
+    FD_TEST( !fd_io_seek( fd, rel_off, type, &wsz ) && wsz==nxt_off );
+    FD_TEST( !fd_io_sz  ( fd,                &wsz ) && wsz==src_len );
+    cur_off = nxt_off;
+  }
+
+  FD_TEST( !fd_io_seek( fd, 0L, FD_IO_SEEK_TYPE_END, &wsz ) && wsz==src_len );
 
   /* Test compound write */
 
   FD_TEST( !fd_io_write( fd, src,     3UL,         3UL,         &wsz ) && wsz==3UL         );
   FD_TEST( !fd_io_write( fd, src+3UL, src_len-3UL, src_len-3UL, &wsz ) && wsz==src_len-3UL );
+
+  FD_TEST( !fd_io_seek( fd, 0L, FD_IO_SEEK_TYPE_CUR, &wsz ) && wsz==2UL*src_len );
+  FD_TEST( !fd_io_sz  ( fd,                          &wsz ) && wsz==2UL*src_len );
+
+  /* Test partial overwrite */
+
+  FD_TEST( !fd_io_seek( fd, (long)src_len, FD_IO_SEEK_TYPE_SET, &wsz ) && wsz==src_len );
+
+  FD_TEST( !fd_io_write( fd, src,     5UL,         5UL,         &wsz ) && wsz==5UL         );
+  FD_TEST( !fd_io_write( fd, src+5UL, src_len-5UL, src_len-5UL, &wsz ) && wsz==src_len-5UL );
+
+  FD_TEST( !fd_io_seek( fd, 0L, FD_IO_SEEK_TYPE_CUR, &wsz ) && wsz==2UL*src_len );
+  FD_TEST( !fd_io_sz  ( fd,                          &wsz ) && wsz==2UL*src_len );
 
   /* Test buffered write constructor and accessors (deliberately uses a
      massively undersized buffer to get good edge case coverage) */
@@ -133,13 +172,14 @@ main( int     argc,
   /* At this point, we've written src to the file 64 times.  Test
      reading it back in various ways. */
 
+  FD_TEST( !fd_io_sz( fd, &wsz ) && wsz==64UL*src_len );
+
   char  dst[ 64UL ];
   ulong dst_max = 64UL; FD_TEST( dst_max >= src_len );
   ulong rsz;
   ulong off;
 
-# define REWIND \
-  if( FD_UNLIKELY( lseek( fd, (off_t)0, SEEK_SET )==-1 ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, fd_io_strerror( errno ) ))
+# define REWIND FD_TEST( !fd_io_seek( fd, 0L, FD_IO_SEEK_TYPE_SET, &rsz ) && rsz==0UL )
 
   /* Test simple read */
 
@@ -147,6 +187,8 @@ main( int     argc,
   for( ulong iter=0UL; iter<64UL; iter++ )
     FD_TEST( !fd_io_read( fd, dst, src_len, src_len, &rsz ) && rsz==src_len && !memcmp( src, dst, src_len ) );
   FD_TEST( fd_io_read( fd, dst, 1UL, dst_max, &rsz )<0 && rsz==0UL ); /* Test EOF */
+
+  FD_TEST( !fd_io_seek( fd, 0L, FD_IO_SEEK_TYPE_CUR, &rsz ) && rsz==64UL*src_len );
 
   /* Test static compound read */
 
@@ -278,32 +320,40 @@ main( int     argc,
 
 # undef REWIND
 
+  /* Test bad seek type */
+
+  FD_TEST( fd_io_seek( fd, 0L, -1, &wsz )==EINVAL );
+
   if( FD_UNLIKELY( close( fd ) ) )
     FD_LOG_WARNING(( "close failed (%i-%s); attempting to continue", errno, fd_io_strerror( errno ) ));
 
-  FD_TEST( fd_io_write( -1, src, src_len, src_len, &wsz )==EBADF );
-  FD_TEST( fd_io_write( fd, src, src_len, src_len, &wsz )==EBADF );
+  /* Test use-after-close */
 
-  FD_TEST( fd_io_read ( -1, dst, src_len, src_len, &rsz )==EBADF );
-  FD_TEST( fd_io_read ( fd, dst, src_len, src_len, &rsz )==EBADF );
+  wsz = 42UL; FD_TEST( fd_io_write( fd, src, src_len, src_len,   &wsz )==EBADF && !wsz );
+  wsz = 42UL; FD_TEST( fd_io_read ( fd, dst, src_len, src_len,   &wsz )==EBADF && !wsz );
+  wsz = 42UL; FD_TEST( fd_io_seek ( fd, 0L, FD_IO_SEEK_TYPE_SET, &wsz )==EBADF && !wsz );
+  wsz = 42UL; FD_TEST( fd_io_sz   ( fd,                          &wsz )==EBADF && !wsz );
 
-  FD_LOG_NOTICE(( "fd_io_strerror(    -1 ) \"%s\"", fd_io_strerror(    -1 ) ));
-  FD_LOG_NOTICE(( "fd_io_strerror(     0 ) \"%s\"", fd_io_strerror(     0 ) ));
-  FD_LOG_NOTICE(( "fd_io_strerror( EBADF ) \"%s\"", fd_io_strerror( EBADF ) ));
+  /* Test bad fd */
 
-  wsz = 42UL;
-  FD_TEST( fd_io_write( -1, NULL, 0UL, 0UL, &wsz )==0 );
-  FD_TEST( wsz==0UL );
-  wsz = 42UL;
-  FD_TEST( fd_io_write( fd, NULL, 0UL, 0UL, &wsz )==0 );
-  FD_TEST( wsz==0UL );
+  wsz = 42UL; FD_TEST( fd_io_write( -1, src, src_len, src_len,   &wsz )==EBADF && !wsz );
+  wsz = 42UL; FD_TEST( fd_io_read ( -1, dst, src_len, src_len,   &wsz )==EBADF && !wsz );
+  wsz = 42UL; FD_TEST( fd_io_seek ( -1, 0L, FD_IO_SEEK_TYPE_SET, &wsz )==EBADF && !wsz );
+  wsz = 42UL; FD_TEST( fd_io_sz   ( -1,                          &wsz )==EBADF && !wsz );
 
-  rsz = 42UL;
-  FD_TEST( fd_io_read( -1, NULL, 0UL, 0UL, &rsz )==0 );
-  FD_TEST( wsz==0UL );
-  rsz = 42UL;
-  FD_TEST( fd_io_read( fd, NULL, 0UL, 0UL, &rsz )==0 );
-  FD_TEST( wsz==0UL );
+  /* Test empty read/write on closed / bad fd */
+
+  wsz = 42UL; FD_TEST( !fd_io_write( -1, NULL, 0UL, 0UL, &wsz ) && !wsz );
+  wsz = 42UL; FD_TEST( !fd_io_write( fd, NULL, 0UL, 0UL, &wsz ) && !wsz );
+  wsz = 42UL; FD_TEST( !fd_io_read ( -1, NULL, 0UL, 0UL, &wsz ) && !wsz );
+  wsz = 42UL; FD_TEST( !fd_io_read ( fd, NULL, 0UL, 0UL, &wsz ) && !wsz );
+
+  /* Test fd_io_strerror */
+
+  FD_LOG_NOTICE(( "fd_io_strerror(    -1  ) \"%s\"", fd_io_strerror(     -1 ) ));
+  FD_LOG_NOTICE(( "fd_io_strerror(     0  ) \"%s\"", fd_io_strerror(      0 ) ));
+  FD_LOG_NOTICE(( "fd_io_strerror( EINVAL ) \"%s\"", fd_io_strerror( EINVAL ) ));
+  FD_LOG_NOTICE(( "fd_io_strerror( EBADF  ) \"%s\"", fd_io_strerror( EBADF  ) ));
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
