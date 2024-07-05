@@ -61,7 +61,7 @@
 
 #define POH_OUT_IDX    (0UL)
 #define NOTIF_OUT_IDX  (1UL)
-#define VOTER_OUT_IDX (2UL)
+#define SENDER_OUT_IDX (2UL)
 #define SIGN_OUT_IDX   (3UL)
 #define NET_OUT_IDX    (4UL)
 
@@ -117,16 +117,16 @@ struct fd_replay_tile_ctx {
   ulong       notif_out_wmark;
   ulong       notif_out_chunk;
 
-  // Voter output defs
-  fd_frag_meta_t * voter_out_mcache;
-  ulong *          voter_out_sync;
-  ulong            voter_out_depth;
-  ulong            voter_out_seq;
+  // Sender output defs
+  fd_frag_meta_t * sender_out_mcache;
+  ulong *          sender_out_sync;
+  ulong            sender_out_depth;
+  ulong            sender_out_seq;
 
-  fd_wksp_t * voter_out_mem;
-  ulong       voter_out_chunk0;
-  ulong       voter_out_wmark;
-  ulong       voter_out_chunk;
+  fd_wksp_t * sender_out_mem;
+  ulong       sender_out_chunk0;
+  ulong       sender_out_wmark;
+  ulong       sender_out_chunk;
 
   // Net out defs
   fd_frag_meta_t * net_out_mcache;
@@ -199,17 +199,18 @@ struct fd_replay_tile_ctx {
   FILE *             capture_file;
   FILE *             slots_replayed_file;
 
-
   ulong * first_turbine;
 
   ulong * bank_busy;
   ulong * root_slot_fseq;
   uint poh_init_done;
 
-  int                   vote;
-  fd_pubkey_t *         validator_identity_pubkey;
-  ulong                 gossip_vote_txn_sz;
-  uchar                 gossip_vote_txn [ FD_TXN_MTU ];
+  int         vote;
+  fd_pubkey_t validator_identity_pubkey[ 1 ];
+  fd_pubkey_t vote_acct_addr[ 1 ];
+
+  ulong           gossip_vote_txn_sz;
+  uchar           gossip_vote_txn [ FD_TXN_MTU ];
   fd_txncache_t * status_cache;
   void * bmtree;
 };
@@ -441,31 +442,31 @@ after_frag( void *             _ctx,
       FD_LOG_WARNING(("failed to parse vote"));
     };
 
+    fd_voter_t voter = {
+        .vote_acct_addr              = ctx->vote_acct_addr,
+        .vote_authority_pubkey       = ctx->validator_identity_pubkey,
+        .validator_identity_pubkey   = ctx->validator_identity_pubkey,
+    };
+
+    fd_txn_p_t * txn = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->sender_out_mem, ctx->sender_out_chunk );
+    
     /* for now, if consensus.vote == true, modify the timestamp and echo the vote txn back with gossip */
     /* later, we should send out our own vote txns through gossip  */
     long MAGIC_TIMESTAMP = 12345678;
     vote.timestamp = &MAGIC_TIMESTAMP;
-
-    uchar * msg_to_voter = fd_chunk_to_laddr( ctx->voter_out_mem, ctx->voter_out_chunk );
-    memcpy( msg_to_voter, ctx->gossip_vote_txn + recent_blockhash_off, sizeof(fd_hash_t) );
-    msg_to_voter += sizeof(fd_hash_t);
-  
-    ulong vote_sz = fd_compact_vote_state_update_size( &vote );
-    fd_bincode_encode_ctx_t encode_ctx = {
-      .data = msg_to_voter,
-      .dataend = msg_to_voter + vote_sz,
-    };
-
-    if( FD_UNLIKELY ( fd_compact_vote_state_update_encode( &vote, &encode_ctx ) !=FD_BINCODE_SUCCESS ) ) {
-      FD_LOG_ERR(( "failed to encode vote update" ));
-    }
     
-    ulong msg_sz = sizeof(fd_hash_t) + vote_sz;
-    fd_mcache_publish( ctx->voter_out_mcache, ctx->voter_out_depth, ctx->voter_out_seq, 1UL, ctx->voter_out_chunk,
+    txn->payload_sz = fd_vote_txn_generate( &voter,
+                                            &vote,
+                                            ctx->gossip_vote_txn + recent_blockhash_off,
+                                            TXN(txn),
+                                            txn->payload );
+
+    ulong msg_sz = sizeof(fd_txn_p_t);
+    fd_mcache_publish( ctx->sender_out_mcache, ctx->sender_out_depth, ctx->sender_out_seq, 1UL, ctx->sender_out_chunk,
       msg_sz, 0UL, 0, 0 );
-    ctx->voter_out_seq   = fd_seq_inc( ctx->voter_out_seq, 1UL );
-    ctx->voter_out_chunk = fd_dcache_compact_next( ctx->voter_out_chunk, msg_sz,
-                                                    ctx->voter_out_chunk0, ctx->voter_out_wmark );
+    ctx->sender_out_seq   = fd_seq_inc( ctx->sender_out_seq, 1UL );
+    ctx->sender_out_chunk = fd_dcache_compact_next( ctx->sender_out_chunk, msg_sz,
+                                                    ctx->sender_out_chunk0, ctx->sender_out_wmark );
     return;
   }
 
@@ -1248,75 +1249,76 @@ unprivileged_init( fd_topo_t *      topo,
   /* Set up status cache. */
   ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT ) );
 
+  /* set up vote related items */
+  ctx->vote                           = tile->replay.vote;
+  ctx->validator_identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, 1 ) );
+  ctx->vote_acct_addr[ 0 ]            = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.vote_account_path, 1 ) );
+
   /**********************************************************************/
   /* links                                                              */
   /**********************************************************************/
 
   /* Set up store tile input */
   fd_topo_link_t * store_in_link = &topo->links[ tile->in_link_id[ STORE_IN_IDX ] ];
-  ctx->store_in_mem    = topo->workspaces[ topo->objs[ store_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->store_in_chunk0 = fd_dcache_compact_chunk0( ctx->store_in_mem, store_in_link->dcache );
-  ctx->store_in_wmark  = fd_dcache_compact_wmark( ctx->store_in_mem, store_in_link->dcache, store_in_link->mtu );
+  ctx->store_in_mem              = topo->workspaces[ topo->objs[ store_in_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->store_in_chunk0           = fd_dcache_compact_chunk0( ctx->store_in_mem, store_in_link->dcache );
+  ctx->store_in_wmark            = fd_dcache_compact_wmark( ctx->store_in_mem, store_in_link->dcache, store_in_link->mtu );
 
   /* Set up pack tile input */
   fd_topo_link_t * pack_in_link = &topo->links[ tile->in_link_id[ PACK_IN_IDX ] ];
-  ctx->pack_in_mem    = topo->workspaces[ topo->objs[ pack_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->pack_in_chunk0 = fd_dcache_compact_chunk0( ctx->pack_in_mem, pack_in_link->dcache );
-  ctx->pack_in_wmark  = fd_dcache_compact_wmark( ctx->pack_in_mem, pack_in_link->dcache, pack_in_link->mtu );
+  ctx->pack_in_mem              = topo->workspaces[ topo->objs[ pack_in_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->pack_in_chunk0           = fd_dcache_compact_chunk0( ctx->pack_in_mem, pack_in_link->dcache );
+  ctx->pack_in_wmark            = fd_dcache_compact_wmark( ctx->pack_in_mem, pack_in_link->dcache, pack_in_link->mtu );
 
   /* Set up gossip tile input */
   fd_topo_link_t * gossip_in_link = &topo->links[ tile->in_link_id[ GOSSIP_IN_IDX ] ];
-  ctx->gossip_in_mem    = topo->workspaces[ topo->objs[ gossip_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->gossip_in_chunk0 = fd_dcache_compact_chunk0( ctx->gossip_in_mem, gossip_in_link->dcache );
-  ctx->gossip_in_wmark  = fd_dcache_compact_wmark( ctx->gossip_in_mem, gossip_in_link->dcache, gossip_in_link->mtu );
+  ctx->gossip_in_mem              = topo->workspaces[ topo->objs[ gossip_in_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->gossip_in_chunk0           = fd_dcache_compact_chunk0( ctx->gossip_in_mem, gossip_in_link->dcache );
+  ctx->gossip_in_wmark            = fd_dcache_compact_wmark( ctx->gossip_in_mem, gossip_in_link->dcache, gossip_in_link->mtu );
 
   fd_topo_link_t * poh_out_link = &topo->links[ tile->out_link_id[ POH_OUT_IDX ] ];
-  ctx->poh_out_mcache = poh_out_link->mcache;
-  ctx->poh_out_sync   = fd_mcache_seq_laddr( ctx->poh_out_mcache );
-  ctx->poh_out_depth  = fd_mcache_depth( ctx->poh_out_mcache );
-  ctx->poh_out_seq    = fd_mcache_seq_query( ctx->poh_out_sync );
-  ctx->poh_out_mem    = topo->workspaces[ topo->objs[ poh_out_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->poh_out_chunk0 = fd_dcache_compact_chunk0( ctx->poh_out_mem, poh_out_link->dcache );
-  ctx->poh_out_wmark  = fd_dcache_compact_wmark( ctx->poh_out_mem, poh_out_link->dcache, poh_out_link->mtu );
-  ctx->poh_out_chunk  = ctx->poh_out_chunk0;
+  ctx->poh_out_mcache           = poh_out_link->mcache;
+  ctx->poh_out_sync             = fd_mcache_seq_laddr( ctx->poh_out_mcache );
+  ctx->poh_out_depth            = fd_mcache_depth( ctx->poh_out_mcache );
+  ctx->poh_out_seq              = fd_mcache_seq_query( ctx->poh_out_sync );
+  ctx->poh_out_mem              = topo->workspaces[ topo->objs[ poh_out_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->poh_out_chunk0           = fd_dcache_compact_chunk0( ctx->poh_out_mem, poh_out_link->dcache );
+  ctx->poh_out_wmark            = fd_dcache_compact_wmark( ctx->poh_out_mem, poh_out_link->dcache, poh_out_link->mtu );
+  ctx->poh_out_chunk            = ctx->poh_out_chunk0;
 
   fd_topo_link_t * notif_out = &topo->links[ tile->out_link_id[ NOTIF_OUT_IDX ] ];
-  ctx->notif_out_mcache = notif_out->mcache;
-  ctx->notif_out_sync   = fd_mcache_seq_laddr( ctx->notif_out_mcache );
-  ctx->notif_out_depth  = fd_mcache_depth( ctx->notif_out_mcache );
-  ctx->notif_out_seq    = fd_mcache_seq_query( ctx->notif_out_sync );
-  ctx->notif_out_mem    = topo->workspaces[ topo->objs[ notif_out->dcache_obj_id ].wksp_id ].wksp;
-  ctx->notif_out_chunk0 = fd_dcache_compact_chunk0( ctx->notif_out_mem, notif_out->dcache );
-  ctx->notif_out_wmark  = fd_dcache_compact_wmark ( ctx->notif_out_mem, notif_out->dcache, notif_out->mtu );
-  ctx->notif_out_chunk  = ctx->notif_out_chunk0;
+  ctx->notif_out_mcache      = notif_out->mcache;
+  ctx->notif_out_sync        = fd_mcache_seq_laddr( ctx->notif_out_mcache );
+  ctx->notif_out_depth       = fd_mcache_depth( ctx->notif_out_mcache );
+  ctx->notif_out_seq         = fd_mcache_seq_query( ctx->notif_out_sync );
+  ctx->notif_out_mem         = topo->workspaces[ topo->objs[ notif_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->notif_out_chunk0      = fd_dcache_compact_chunk0( ctx->notif_out_mem, notif_out->dcache );
+  ctx->notif_out_wmark       = fd_dcache_compact_wmark ( ctx->notif_out_mem, notif_out->dcache, notif_out->mtu );
+  ctx->notif_out_chunk       = ctx->notif_out_chunk0;
 
-  fd_topo_link_t * voter_out = &topo->links[ tile->out_link_id[ VOTER_OUT_IDX ] ];
-  ctx->voter_out_mcache = voter_out->mcache;
-  ctx->voter_out_sync   = fd_mcache_seq_laddr( ctx->voter_out_mcache );
-  ctx->voter_out_depth  = fd_mcache_depth( ctx->voter_out_mcache );
-  ctx->voter_out_seq    = fd_mcache_seq_query( ctx->voter_out_sync );
-  ctx->voter_out_mem    = topo->workspaces[ topo->objs[ voter_out->dcache_obj_id ].wksp_id ].wksp;
-  ctx->voter_out_chunk0 = fd_dcache_compact_chunk0( ctx->voter_out_mem, voter_out->dcache );
-  ctx->voter_out_wmark  = fd_dcache_compact_wmark ( ctx->voter_out_mem, voter_out->dcache, voter_out->mtu );
-  ctx->voter_out_chunk  = ctx->voter_out_chunk0;
+  fd_topo_link_t * sender_out = &topo->links[ tile->out_link_id[ SENDER_OUT_IDX ] ];
+  ctx->sender_out_mcache      = sender_out->mcache;
+  ctx->sender_out_sync        = fd_mcache_seq_laddr( ctx->sender_out_mcache );
+  ctx->sender_out_depth       = fd_mcache_depth( ctx->sender_out_mcache );
+  ctx->sender_out_seq         = fd_mcache_seq_query( ctx->sender_out_sync );
+  ctx->sender_out_mem         = topo->workspaces[ topo->objs[ sender_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->sender_out_chunk0      = fd_dcache_compact_chunk0( ctx->sender_out_mem, sender_out->dcache );
+  ctx->sender_out_wmark       = fd_dcache_compact_wmark ( ctx->sender_out_mem, sender_out->dcache, sender_out->mtu );
+  ctx->sender_out_chunk       = ctx->sender_out_chunk0;
 
   fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ NET_OUT_IDX ] ];
-  ctx->net_out_mcache = net_out->mcache;
-  ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );
-  ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
-  ctx->net_out_seq    = fd_mcache_seq_query( ctx->net_out_sync );
-  ctx->net_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( net_out->dcache ), net_out->dcache );
-  ctx->net_out_mem    = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
-  ctx->net_out_wmark  = fd_dcache_compact_wmark( ctx->net_out_mem, net_out->dcache, net_out->mtu );
-  ctx->net_out_chunk  = ctx->net_out_chunk0;
-
-  ctx->vote = tile->replay.vote;
-  const uchar* identity_pubkey    = fd_keyload_load( tile->replay.identity_key_path, 1 );
-  ctx->validator_identity_pubkey  = (fd_pubkey_t *) fd_type_pun_const( identity_pubkey );
+  ctx->net_out_mcache      = net_out->mcache;
+  ctx->net_out_sync        = fd_mcache_seq_laddr( ctx->net_out_mcache );
+  ctx->net_out_depth       = fd_mcache_depth( ctx->net_out_mcache );
+  ctx->net_out_seq         = fd_mcache_seq_query( ctx->net_out_sync );
+  ctx->net_out_chunk0      = fd_dcache_compact_chunk0( fd_wksp_containing( net_out->dcache ), net_out->dcache );
+  ctx->net_out_mem         = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->net_out_wmark       = fd_dcache_compact_wmark( ctx->net_out_mem, net_out->dcache, net_out->mtu );
+  ctx->net_out_chunk       = ctx->net_out_chunk0;
 
   /* Set up stake weights tile output */
   fd_topo_link_t * stake_weights_out = &topo->links[ tile->out_link_id_primary ];
-  ctx->stake_weights_out_mcache = stake_weights_out->mcache;
+  ctx->stake_weights_out_mcache      = stake_weights_out->mcache;
   ctx->stake_weights_out_sync   = fd_mcache_seq_laddr( ctx->stake_weights_out_mcache );
   ctx->stake_weights_out_depth  = fd_mcache_depth( ctx->stake_weights_out_mcache );
   ctx->stake_weights_out_seq    = fd_mcache_seq_query( ctx->stake_weights_out_sync );

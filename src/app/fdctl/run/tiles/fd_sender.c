@@ -1,10 +1,11 @@
-/* Store tile manages a blockstore and serves requests to repair and replay. */
+/* Sender tile signs and sends transactions to the current leader. Currently 
+   only supports transactions which require one signature. */
 
 #define _GNU_SOURCE
 
 #include "../../../../disco/tiles.h"
 
-#include "generated/voter_seccomp.h"
+#include "generated/sender_seccomp.h"
 #include "../../../../flamenco/repair/fd_repair.h"
 #include "../../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
@@ -39,7 +40,7 @@
 #define SCRATCH_MAX    (4UL /*KiB*/ << 10)
 #define SCRATCH_DEPTH  (4UL) /* 4 scratch frames */
 
-struct fd_voter_tile_ctx {
+struct fd_sender_tile_ctx {
   fd_pubkey_t identity_key[ 1 ];
   fd_pubkey_t vote_acct_addr[ 1 ];
 
@@ -48,10 +49,9 @@ struct fd_voter_tile_ctx {
   fd_shred_dest_weighted_t * new_dest_ptr;
   ulong                      new_dest_cnt;
 
-  uchar vote_update_buf[ FD_TXN_MTU ];
-  ulong vote_update_sz;
+  uchar txn_buf[ sizeof(fd_txn_p_t) ] __attribute__((aligned(alignof(fd_txn_p_t))));
 
-  fd_gossip_peer_addr_t tpu_vote_serve_addr;
+  fd_gossip_peer_addr_t tpu_serve_addr;
   fd_net_hdrs_t         packet_hdr[ 1 ];
   uchar                 src_mac_addr[6];
   ushort                net_id;
@@ -110,10 +110,11 @@ struct fd_voter_tile_ctx {
   ulong       net_out_chunk;
 
   ulong                sign_in_idx;
-  ulong                sign_out_idx; 
+  ulong                sign_out_idx;
   fd_keyguard_client_t keyguard_client[ 1 ];
+  
 };
-typedef struct fd_voter_tile_ctx fd_voter_tile_ctx_t;
+typedef struct fd_sender_tile_ctx fd_sender_tile_ctx_t;
 
 
 FD_FN_CONST static inline ulong
@@ -129,7 +130,7 @@ loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_voter_tile_ctx_t), sizeof(fd_voter_tile_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_sender_tile_ctx_t), sizeof(fd_sender_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
@@ -138,11 +139,11 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
 
 FD_FN_CONST static inline void *
 mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof(fd_voter_tile_ctx_t) );
+  return (void*)fd_ulong_align_up( (ulong)scratch, alignof(fd_sender_tile_ctx_t) );
 }
 
 static void
-send_packet( fd_voter_tile_ctx_t * ctx,
+send_packet( fd_sender_tile_ctx_t * ctx,
              uint                   dst_ip_addr,
              ushort                 dst_port,
              uchar const *          payload,
@@ -178,7 +179,7 @@ send_packet( fd_voter_tile_ctx_t * ctx,
 }
 
 static int
-get_current_leader_tpu_vote_contact( fd_voter_tile_ctx_t *       ctx,
+get_current_leader_tpu_vote_contact( fd_sender_tile_ctx_t *      ctx,
                                      fd_shred_dest_weighted_t ** out_dest ) {
   ulong current_slot = fd_fseq_query( ctx->current_slot );
   if( current_slot==ULONG_MAX ) { return -1; }
@@ -201,7 +202,7 @@ get_current_leader_tpu_vote_contact( fd_voter_tile_ctx_t *       ctx,
 }
 
 static inline void
-handle_new_cluster_contact_info( fd_voter_tile_ctx_t * ctx,
+handle_new_cluster_contact_info( fd_sender_tile_ctx_t * ctx,
                                  uchar const *         buf,
                                  ulong                 buf_sz ) {
   ulong const * header = (ulong const *)fd_type_pun_const( buf );
@@ -225,7 +226,7 @@ handle_new_cluster_contact_info( fd_voter_tile_ctx_t * ctx,
 }
 
 static inline void
-finalize_new_cluster_contact_info( fd_voter_tile_ctx_t * ctx ) {
+finalize_new_cluster_contact_info( fd_sender_tile_ctx_t * ctx ) {
   fd_stake_ci_dest_add_fini( ctx->stake_ci, ctx->new_dest_cnt );
 }
 
@@ -233,7 +234,7 @@ static void
 after_credit( void *             _ctx,
 	            fd_mux_context_t * mux_ctx FD_PARAM_UNUSED,
               int *              opt_poll_in FD_PARAM_UNUSED ) {
-  fd_voter_tile_ctx_t * ctx = (fd_voter_tile_ctx_t *)_ctx;
+  fd_sender_tile_ctx_t * ctx = (fd_sender_tile_ctx_t *)_ctx;
   (void)ctx;
 
   /* TODO: compute some metrics here */
@@ -247,7 +248,7 @@ during_frag( void * _ctx,
              ulong  chunk,
              ulong  sz,
              int *  opt_filter FD_PARAM_UNUSED ) {
-  fd_voter_tile_ctx_t * ctx = (fd_voter_tile_ctx_t *)_ctx;
+  fd_sender_tile_ctx_t * ctx = (fd_sender_tile_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( in_idx==ctx->sign_in_idx ) ) {
     FD_LOG_CRIT(( "signing tile send out of band fragment" ));
@@ -271,25 +272,14 @@ during_frag( void * _ctx,
   }
 
   if( FD_UNLIKELY( in_idx==ctx->replay_in_idx ) ) {
-    if( FD_UNLIKELY( chunk<ctx->replay_in_chunk0 || chunk>ctx->replay_in_wmark || sz > FD_TXN_MTU ) ) {
+    if( FD_UNLIKELY( chunk<ctx->replay_in_chunk0 || chunk>ctx->replay_in_wmark || sz!=sizeof(fd_txn_p_t) ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->replay_in_chunk0, ctx->replay_in_wmark ));
     }
 
-    ctx->vote_update_sz = sz;
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->replay_in_mem, chunk );
-    memcpy( ctx->vote_update_buf, dcache_entry, sz );
+    memcpy( ctx->txn_buf, dcache_entry, sz );
   }
 }
-
-void
-vote_txn_signer( void *        signer_ctx,
-                 uchar         signature[ static 64 ],
-                 uchar const * buffer,
-                 ulong         len ) {
-  fd_voter_tile_ctx_t * ctx = (fd_voter_tile_ctx_t *)signer_ctx;
-  fd_keyguard_client_sign( ctx->keyguard_client, signature, buffer, len );
-}
-
 
 static void
 after_frag( void *             _ctx,
@@ -301,7 +291,7 @@ after_frag( void *             _ctx,
             ulong *            opt_tsorig   FD_PARAM_UNUSED,
             int *              opt_filter   FD_PARAM_UNUSED,
             fd_mux_context_t * mux          FD_PARAM_UNUSED ) {
-  fd_voter_tile_ctx_t * ctx = (fd_voter_tile_ctx_t *)_ctx;
+  fd_sender_tile_ctx_t * ctx = (fd_sender_tile_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( in_idx==ctx->contact_in_idx ) ) {
     finalize_new_cluster_contact_info( ctx );
@@ -314,63 +304,39 @@ after_frag( void *             _ctx,
   }
 
   if( FD_UNLIKELY( in_idx==ctx->replay_in_idx ) ) {
-    uchar * vote_update_buf = ctx->vote_update_buf;
-    uchar * vote_update_buf_end = vote_update_buf + ctx->vote_update_sz;
-    fd_hash_t recent_blockhash;
-    memcpy( recent_blockhash.uc, vote_update_buf, sizeof(fd_hash_t) );
-    vote_update_buf += sizeof(fd_hash_t);
+    fd_txn_p_t * txn = (fd_txn_p_t *)fd_type_pun(ctx->txn_buf);
+    
+    /* sign the txn */
+    uchar * signature = txn->payload + TXN(txn)->signature_off;
+    uchar * message   = txn->payload + TXN(txn)->message_off;
+    ulong message_sz  = txn->payload_sz - TXN(txn)->message_off;
+    fd_keyguard_client_sign( ctx->keyguard_client, signature, message, message_sz );
 
-    FD_SCRATCH_SCOPE_BEGIN {
-      fd_bincode_decode_ctx_t decode_ctx = {
-        .data    = vote_update_buf,
-        .dataend = vote_update_buf_end,
-        .valloc  = fd_scratch_virtual(),
-      };
+    uchar * msg_to_gossip = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
+    memcpy( msg_to_gossip, txn->payload, txn->payload_sz );
 
-      fd_compact_vote_state_update_t compate_vote_state_update;
-      int decode_result = fd_compact_vote_state_update_decode( &compate_vote_state_update, &decode_ctx );
-      if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_ERR(( "vote state update decode failed" ));
-      }
+    /* send to leader */
+    fd_shred_dest_weighted_t * leader_dest = NULL;
+    int res = get_current_leader_tpu_vote_contact( ctx, &leader_dest );
+    /* TODO: add metrics for successful votes sent and failed votes */
+    if( res==0 ) {
+      send_packet( ctx, leader_dest->ip4, leader_dest->port, msg_to_gossip, txn->payload_sz, 0UL );
+    }
 
-      fd_voter_t voter = {
-        .vote_acct_addr              = ctx->vote_acct_addr,
-        .vote_authority_pubkey       = ctx->identity_key,
-        .validator_identity_pubkey   = ctx->identity_key,
-        .voter_sign_arg              = ctx,
-        .vote_authority_sign_fun     = vote_txn_signer,
-        .validator_identity_sign_fun = vote_txn_signer
-      };
-
-      uchar txn_meta_buf[ FD_TXN_MAX_SZ ];
-      uchar * msg_to_gossip = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
-      ulong vote_txn_sz = fd_vote_txn_generate( &voter,
-                                                &compate_vote_state_update,
-                                                recent_blockhash.uc,
-                                                txn_meta_buf,
-                                                msg_to_gossip );
-      /* send to leader */
-      fd_shred_dest_weighted_t * leader_dest = NULL;
-      int res = get_current_leader_tpu_vote_contact( ctx, &leader_dest );
-      if( res==0 ) {
-        send_packet( ctx, leader_dest->ip4, leader_dest->port, msg_to_gossip, vote_txn_sz, 0UL );
-      }
-
-      /* send to gossip */
-      fd_mcache_publish( ctx->gossip_out_mcache, ctx->gossip_out_depth, ctx->gossip_out_seq, 1UL, ctx->gossip_out_chunk,
-        vote_txn_sz, 0UL, 0, 0 );
-      ctx->gossip_out_seq   = fd_seq_inc( ctx->gossip_out_seq, 1UL );
-      ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, vote_txn_sz,
-                                                      ctx->gossip_out_chunk0, ctx->gossip_out_wmark );
-      /* send to pack */
-      uchar * msg_to_pack = fd_chunk_to_laddr( ctx->pack_out_mem, ctx->pack_out_chunk );
-      memcpy( msg_to_pack, msg_to_gossip, vote_txn_sz );
-      fd_mcache_publish( ctx->pack_out_mcache, ctx->pack_out_depth, ctx->pack_out_seq, 1UL, ctx->pack_out_chunk,
-        vote_txn_sz, 0UL, 0, 0 );
-      ctx->pack_out_seq    = fd_seq_inc( ctx->pack_out_seq, 1UL );
-      ctx->pack_out_chunk = fd_dcache_compact_next( ctx->pack_out_chunk, vote_txn_sz, ctx->pack_out_chunk0,
-          ctx->pack_out_wmark );
-    } FD_SCRATCH_SCOPE_END;
+    /* send to gossip */
+    fd_mcache_publish( ctx->gossip_out_mcache, ctx->gossip_out_depth, ctx->gossip_out_seq, 1UL, ctx->gossip_out_chunk,
+      txn->payload_sz, 0UL, 0, 0 );
+    ctx->gossip_out_seq   = fd_seq_inc( ctx->gossip_out_seq, 1UL );
+    ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, txn->payload_sz,
+                                                    ctx->gossip_out_chunk0, ctx->gossip_out_wmark );
+    /* send to pack */
+    uchar * msg_to_pack = fd_chunk_to_laddr( ctx->pack_out_mem, ctx->pack_out_chunk );
+    memcpy( msg_to_pack, msg_to_gossip, txn->payload_sz );
+    fd_mcache_publish( ctx->pack_out_mcache, ctx->pack_out_depth, ctx->pack_out_seq, 1UL, ctx->pack_out_chunk,
+      txn->payload_sz, 0UL, 0, 0 );
+    ctx->pack_out_seq    = fd_seq_inc( ctx->pack_out_seq, 1UL );
+    ctx->pack_out_chunk = fd_dcache_compact_next( ctx->pack_out_chunk, txn->payload_sz, ctx->pack_out_chunk0,
+        ctx->pack_out_wmark );
   }
 }
 
@@ -380,13 +346,12 @@ privileged_init( fd_topo_t *      topo  FD_PARAM_UNUSED,
                  void *           scratch ) {
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_voter_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_voter_tile_ctx_t), sizeof(fd_voter_tile_ctx_t) );
+  fd_sender_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sender_tile_ctx_t), sizeof(fd_sender_tile_ctx_t) );
 
-  if( FD_UNLIKELY( !strcmp( tile->voter.identity_key_path, "" ) ) )
+  if( FD_UNLIKELY( !strcmp( tile->sender.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->identity_key[ 0 ]   = *(fd_pubkey_t *)fd_keyload_load( tile->voter.identity_key_path, /* pubkey only: */ 1 );
-  ctx->vote_acct_addr[ 0 ] = *(fd_pubkey_t *)fd_keyload_load( tile->voter.vote_account_path, /* pubkey only: */ 1 );
+  ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->sender.identity_key_path, /* pubkey only: */ 1 ) );
 }
 
 static void
@@ -396,12 +361,12 @@ unprivileged_init( fd_topo_t *      topo,
   fd_flamenco_boot( NULL, NULL );
 
   if( FD_UNLIKELY( tile->out_link_id_primary != ULONG_MAX ) )
-    FD_LOG_ERR(( "voter has a primary output link" ));
+    FD_LOG_ERR(( "sender has a primary output link" ));
 
   /* Scratch mem setup */
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_voter_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_voter_tile_ctx_t), sizeof(fd_voter_tile_ctx_t) );
+  fd_sender_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sender_tile_ctx_t), sizeof(fd_sender_tile_ctx_t) );
   // TODO: set the lo_mark_slot to the actual snapshot slot!
   ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() ), ctx->identity_key ) );
   void * scratch_smem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
@@ -411,12 +376,12 @@ unprivileged_init( fd_topo_t *      topo,
   fd_scratch_attach( scratch_smem, scratch_fmem, SCRATCH_MAX, SCRATCH_DEPTH );
 
   ctx->net_id = (ushort)0;
-  fd_memcpy( ctx->src_mac_addr, tile->voter.src_mac_addr, 6 );
+  fd_memcpy( ctx->src_mac_addr, tile->sender.src_mac_addr, 6 );
 
-  ctx->tpu_vote_serve_addr.addr = tile->voter.ip_addr;
-  ctx->tpu_vote_serve_addr.port = fd_ushort_bswap( tile->voter.tpu_vote_listen_port );
-  fd_net_create_packet_header_template( ctx->packet_hdr, FD_TXN_MTU, ctx->tpu_vote_serve_addr.addr, ctx->src_mac_addr, 
-      ctx->tpu_vote_serve_addr.port );
+  ctx->tpu_serve_addr.addr = tile->sender.ip_addr;
+  ctx->tpu_serve_addr.port = fd_ushort_bswap( tile->sender.tpu_listen_port );
+  fd_net_create_packet_header_template( ctx->packet_hdr, FD_TXN_MTU, ctx->tpu_serve_addr.addr, ctx->src_mac_addr, 
+      ctx->tpu_serve_addr.port );
 
   ulong current_slot_obj_id = fd_pod_query_ulong( topo->props, "current_slot", ULONG_MAX );
   FD_TEST( current_slot_obj_id!=ULONG_MAX );
@@ -486,7 +451,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_chunk  = ctx->net_out_chunk0;
   
 
-  /* Set up keyguard */
+  /* Set up keyguard(s) */
   ctx->sign_in_idx  = fd_topo_find_tile_in_link( topo, tile, "sign_voter", 0 );
   ctx->sign_out_idx = fd_topo_find_tile_out_link( topo, tile, "voter_sign", 0 );
   FD_TEST( ctx->sign_in_idx==( tile->in_cnt-1 ) );
@@ -512,8 +477,8 @@ static ulong
 populate_allowed_seccomp( void *               scratch FD_PARAM_UNUSED,
                           ulong                out_cnt,
                           struct sock_filter * out ) {
-  populate_sock_filter_policy_voter( out_cnt, out, (uint)fd_log_private_logfile_fd() );
-  return sock_filter_policy_voter_instr_cnt;
+  populate_sock_filter_policy_sender( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_sender_instr_cnt;
 }
 
 static ulong
@@ -529,8 +494,8 @@ populate_allowed_fds( void * scratch     FD_PARAM_UNUSED,
   return out_cnt;
 }
 
-fd_topo_run_tile_t fd_tile_voter = {
-  .name                     = "voter",
+fd_topo_run_tile_t fd_tile_sender = {
+  .name                     = "sender",
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .loose_footprint          = loose_footprint,
