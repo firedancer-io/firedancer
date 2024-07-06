@@ -1,0 +1,15 @@
+HARNESS_ENTRY = harness
+HARNESS_FILE = fd_x509_mock_harness
+PROOF_UID = fd_x509_mock
+
+INCLUDES += -I$(SRCDIR)
+
+PROOF_SOURCES += $(PROOFDIR)/$(HARNESS_FILE).c
+PROJECT_SOURCES = $(SRCDIR)/ballet/x509/fd_x509_mock.c
+
+CBMC_OBJECT_BITS = 16
+UNWINDSET += memcmp.0:1024
+
+CBMC_FLAG_UNSIGNED_OVERFLOW_CHECK =
+
+include ../Makefile.common
