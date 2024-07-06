@@ -139,7 +139,7 @@ fd_x509_mock_pubkey_v1( uchar const * cert,
   uchar const * match = memmem( cert, cert_sz, fd_x509_mock_v1_prefix, sizeof(fd_x509_mock_v1_prefix) );
   if( !match ) return NULL;
   uchar const * pubkey = match + sizeof(fd_x509_mock_v1_prefix);
-  if( FD_UNLIKELY( pubkey + 32 > end ) ) return NULL;
+  if( FD_UNLIKELY( (ulong)pubkey+32UL > (ulong)end ) ) return NULL;
   return pubkey;
 }
 
