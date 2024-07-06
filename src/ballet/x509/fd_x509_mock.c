@@ -1,4 +1,6 @@
+#define _GNU_SOURCE  /* memmem */
 #include "fd_x509_mock.h"
+#include <string.h>  /* memmem */
 
 static uchar const
 fd_x509_mock_tpl[ FD_X509_MOCK_CERT_SZ ] = {
@@ -102,6 +104,27 @@ fd_x509_mock_tpl[ FD_X509_MOCK_CERT_SZ ] = {
       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
 };
 
+/* Solana Labs v1.18 uses a different template.  It is less
+   determistic due to a variable length serial number, so we match the
+   prefix before the public key. */
+
+static uchar const
+fd_x509_mock_v1_prefix[] = {
+  0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x30,
+  0x16, 0x31, 0x14, 0x30, 0x12, 0x06, 0x03, 0x55,
+  0x04, 0x03, 0x0c, 0x0b, 0x53, 0x6f, 0x6c, 0x61,
+  0x6e, 0x61, 0x20, 0x6e, 0x6f, 0x64, 0x65, 0x30,
+  0x20, 0x17, 0x0d, 0x37, 0x35, 0x30, 0x31, 0x30,
+  0x31, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x5a,
+  0x18, 0x0f, 0x34, 0x30, 0x39, 0x36, 0x30, 0x31,
+  0x30, 0x31, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30,
+  0x5a, 0x30, 0x16, 0x31, 0x14, 0x30, 0x12, 0x06,
+  0x03, 0x55, 0x04, 0x03, 0x0c, 0x0b, 0x53, 0x6f,
+  0x6c, 0x61, 0x6e, 0x61, 0x20, 0x6e, 0x6f, 0x64,
+  0x65, 0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b,
+  0x65, 0x70, 0x03, 0x21, 0x00
+};
+
 void
 fd_x509_mock_cert( uchar buf[ static FD_X509_MOCK_CERT_SZ ],
                    uchar public_key[ static 32 ] ) {
@@ -109,10 +132,20 @@ fd_x509_mock_cert( uchar buf[ static FD_X509_MOCK_CERT_SZ ],
   fd_memcpy( buf+FD_X509_MOCK_PUBKEY_OFF, public_key, 32UL );
 }
 
-uchar const *
-fd_x509_mock_pubkey( uchar const * cert,
-                     ulong         cert_sz ) {
+static uchar const *
+fd_x509_mock_pubkey_v1( uchar const * cert,
+                        ulong         cert_sz ) {
+  uchar const * end   = cert + cert_sz;
+  uchar const * match = memmem( cert, cert_sz, fd_x509_mock_v1_prefix, sizeof(fd_x509_mock_v1_prefix) );
+  if( !match ) return NULL;
+  uchar const * pubkey = match + sizeof(fd_x509_mock_v1_prefix);
+  if( FD_UNLIKELY( pubkey + 32 > end ) ) return NULL;
+  return pubkey;
+}
 
+static uchar const *
+fd_x509_mock_pubkey_v2( uchar const * cert,
+                        ulong         cert_sz ) {
   if( cert_sz != FD_X509_MOCK_CERT_SZ ) return NULL;
 
   ulong off = 0UL;
@@ -124,4 +157,15 @@ fd_x509_mock_pubkey( uchar const * cert,
   if( (!match0) | (!match1) ) return NULL;
 
   return cert + FD_X509_MOCK_PUBKEY_OFF;
+}
+
+uchar const *
+fd_x509_mock_pubkey( uchar const * cert,
+                     ulong         cert_sz ) {
+  uchar const * match;
+  match = fd_x509_mock_pubkey_v1( cert, cert_sz );
+  if( match ) return match;
+  match = fd_x509_mock_pubkey_v2( cert, cert_sz );
+  if( match ) return match;
+  return NULL;
 }
