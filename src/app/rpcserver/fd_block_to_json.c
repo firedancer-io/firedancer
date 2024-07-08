@@ -338,11 +338,9 @@ fd_txn_to_json( fd_textstream_t * ts,
 const char*
 fd_block_to_json( fd_textstream_t * ts,
                   long call_id,
-                  fd_block_t * blk,
                   const uchar * blk_data,
                   ulong blk_sz,
-                  fd_hash_t * blk_hash,
-                  ulong parent,
+                  fd_block_map_t * meta,
                   fd_rpc_encoding_t encoding,
                   long maxvers,
                   enum fd_block_detail detail,
@@ -350,9 +348,9 @@ fd_block_to_json( fd_textstream_t * ts,
   EMIT_SIMPLE("{\"jsonrpc\":\"2.0\",\"result\":{");
 
   char hash[50];
-  fd_base58_encode_32(blk_hash->uc, 0, hash);
+  fd_base58_encode_32(meta->block_hash.uc, 0, hash);
   fd_textstream_sprintf(ts, "\"blockHeight\":%lu,\"blockTime\":%ld,\"parentSlot\":%lu,\"blockhash\":\"%s\"",
-                        blk->height, blk->ts/(long)1e9, parent, hash);
+                        meta->height, meta->ts/(long)1e9, meta->parent_slot, hash);
 
   if( detail == FD_BLOCK_DETAIL_NONE ) {
     fd_textstream_sprintf(ts, "},\"id\":%lu}", call_id);
