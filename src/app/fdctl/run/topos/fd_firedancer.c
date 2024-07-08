@@ -91,7 +91,7 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topob_wksp( topo, "funk"       );
   fd_topob_wksp( topo, "pohi"       );
   fd_topob_wksp( topo, "voter"      );
-  fd_topob_wksp( topo, "current_slot"      );
+  fd_topob_wksp( topo, "current_slot" );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
@@ -331,14 +331,14 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                 fd_topob_tile_in(  topo, "sender",  0UL,          "metric_in",  "sign_voter",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
 
   /**/                 fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in",  "voter_pack",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+  /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in",  "dedup_pack",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in",  "poh_pack",      0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in",  "gossip_pack",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "bhole",  0UL,           "metric_in",  "replay_notif", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "pohi",  0UL,            "metric_in",  "replay_poh",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "pohi",  0UL,            "metric_in",  "stake_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 
-  /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "dedup_pack",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "pohi",  0UL,            "metric_in", "pack_replay",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "poh_pack",      0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
                        fd_topob_tile_out( topo, "pohi",   0UL,                        "poh_pack",      0UL                                                );
 
   /* Hacky: Reserve a ulong to allow net0 to pass its PID to its neighbors */

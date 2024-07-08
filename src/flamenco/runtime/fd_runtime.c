@@ -1187,11 +1187,13 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     fd_txncache_insert_t * status_insert = NULL;
+    fd_hash_t * txn_hashes = NULL;
     uchar * results = NULL;
     ulong num_cache_txns = 0;
 
     if( slot_ctx->status_cache ) {
       status_insert = fd_scratch_alloc( alignof(fd_txncache_insert_t), txn_cnt * sizeof(fd_txncache_insert_t) );
+      txn_hashes = fd_scratch_alloc( alignof(fd_hash_t), txn_cnt * sizeof(fd_hash_t) );
       results = fd_scratch_alloc( alignof(uchar), txn_cnt * sizeof(uchar) );
     }
     /* Finalize */
@@ -1227,11 +1229,12 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
         curr_insert->blockhash = ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
         curr_insert->slot = slot_ctx->slot_bank.slot;
         fd_blake3_t b3[1];
-        uchar hash[32];
+        fd_hash_t * hash = &txn_hashes[ num_cache_txns ];
         fd_blake3_init( b3 );
         fd_blake3_append( b3, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->message_off), (ulong)( txn_ctx->_txn_raw->txn_sz - txn_ctx->txn_descriptor->message_off ) );
-        fd_blake3_fini( b3, hash );
-        curr_insert->txnhash = hash;
+        fd_blake3_fini( b3, hash->uc );
+
+        curr_insert->txnhash = hash->uc;
         curr_insert->result = &results[num_cache_txns];
         num_cache_txns++;
       }

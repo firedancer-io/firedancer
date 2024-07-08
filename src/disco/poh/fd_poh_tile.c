@@ -69,7 +69,7 @@ fd_poh_tile_publish_microblock( fd_poh_tile_ctx_t * ctx,
   ulong payload_sz = 0UL;
   ulong included_txn_cnt = 0UL;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_txn_p_t * txn = (fd_txn_p_t *)(txns + i*sizeof(fd_txn_p_t));
+    fd_txn_p_t * txn = &txns[ i ];
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) continue;
 
     fd_memcpy( dst, txn->payload, txn->payload_sz );
@@ -103,7 +103,6 @@ fd_poh_tile_initialize( fd_poh_tile_ctx_t * ctx,
   ctx->reset_slot_start_ns = fd_log_wallclock(); /* safe to call from Rust */
 
   memcpy( ctx->hash, last_entry_hash, 32UL );
-
 
   /* Store configuration about the clock. */
   ctx->hashcnt_duration_ns = hashcnt_duration_ns;
