@@ -380,13 +380,11 @@ method_getBlock(struct fd_web_replier* replier, struct json_values* values, fd_r
   ulong rewards_sz = 0;
   const void* rewards = json_get_value(values, PATH_REWARDS, 4, &rewards_sz);
 
-  fd_block_t blk[1];
-  ulong parent;
   ulong blk_sz;
-  fd_hash_t blk_hash;
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  uchar * blk_data = fd_blockstore_block_query_volatile( blockstore, slotn, fd_libc_alloc_virtual(), blk, &parent, &blk_hash, &blk_sz );
-  if( blk_data == NULL ) {
+  fd_block_map_t meta[1];
+  uchar * blk_data;
+  if( fd_blockstore_block_data_query_volatile( blockstore, slotn, meta, fd_libc_alloc_virtual(), &blk_data, &blk_sz ) ) {
     fd_web_replier_error(replier, "failed to display block for slot %lu", slotn);
     return 0;
   }
@@ -394,11 +392,9 @@ method_getBlock(struct fd_web_replier* replier, struct json_values* values, fd_r
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   const char * err = fd_block_to_json(ts,
                                       ctx->call_id,
-                                      blk,
                                       blk_data,
                                       blk_sz,
-                                      &blk_hash,
-                                      parent,
+                                      meta,
                                       enc,
                                       (maxvers == NULL ? 0 : *(const long*)maxvers),
                                       det,
@@ -482,9 +478,8 @@ method_getBlocks(struct fd_web_replier* replier, struct json_values* values, fd_
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
   for ( ulong i = startslotn; i <= endslotn && cnt < 500000U; ++i ) {
-    fd_block_t blk[1];
-    ulong parent;
-    int ret = fd_blockstore_slot_meta_query_volatile(blockstore, i, blk, &parent);
+    fd_block_map_t meta[1];
+    int ret = fd_blockstore_block_map_query_volatile(blockstore, i, meta);
     if (!ret) {
       fd_textstream_sprintf(ts, "%s%lu", (cnt==0 ? "" : ","), i);
       ++cnt;
@@ -536,9 +531,8 @@ method_getBlocksWithLimit(struct fd_web_replier* replier, struct json_values* va
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
   for ( ulong i = startslotn; i <= blockstore->max && cnt < limitn; ++i ) {
-    fd_block_t blk[1];
-    ulong parent;
-    int ret = fd_blockstore_slot_meta_query_volatile(blockstore, i, blk, &parent);
+    fd_block_map_t meta[1];
+    int ret = fd_blockstore_block_map_query_volatile(blockstore, i, meta);
     if (!ret) {
       fd_textstream_sprintf(ts, "%s%lu", (cnt==0 ? "" : ","), i);
       ++cnt;
@@ -551,11 +545,36 @@ method_getBlocksWithLimit(struct fd_web_replier* replier, struct json_values* va
 }
 
 // Implementation of the "getBlockTime" methods
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getBlockTime","params":[280687015]}'
+
 static int
 method_getBlockTime(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getBlockTime is not implemented");
+  static const uint PATH_SLOT[3] = {
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+    (JSON_TOKEN_LBRACKET<<16) | 0,
+    (JSON_TOKEN_INTEGER<<16)
+  };
+  ulong slot_sz = 0;
+  const void* slot = json_get_value(values, PATH_SLOT, 3, &slot_sz);
+  if (slot == NULL) {
+    fd_web_replier_error(replier, "getBlockTime requires a slot number as first parameter");
+    return 0;
+  }
+  ulong slotn = (ulong)(*(long*)slot);
+
+  fd_blockstore_t * blockstore = ctx->global->blockstore;
+  fd_block_map_t meta[1];
+  int ret = fd_blockstore_block_map_query_volatile(blockstore, slotn, meta);
+  if (ret) {
+    fd_web_replier_error(replier, "invalid slot: %lu", slotn);
+    return 0;
+  }
+
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%ld,\"id\":%lu}" CRLF,
+                        meta->ts/(long)1e9,
+                        ctx->call_id);
+  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -583,12 +602,11 @@ method_getEpochInfo(struct fd_web_replier* replier, struct json_values* values, 
     ulong slot_idx = 0;
     ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, smr, &slot_idx );
     ulong slots_per_epoch = fd_epoch_slot_cnt( &epoch_bank->epoch_schedule, epoch );
-    fd_block_t blk[1];
-    ulong parent;
-    int ret = fd_blockstore_slot_meta_query_volatile(blockstore, smr, blk, &parent);
+    fd_block_map_t meta[1];
+    int ret = fd_blockstore_block_map_query_volatile(blockstore, smr, meta);
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%lu}" CRLF,
                           smr,
-                          (!ret ? blk->height : 0UL),
+                          (!ret ? meta->height : 0UL),
                           epoch,
                           slot_idx,
                           slots_per_epoch,
@@ -633,11 +651,16 @@ method_getFeeForMessage(struct fd_web_replier* replier, struct json_values* valu
 }
 
 // Implementation of the "getFirstAvailableBlock" methods
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getFirstAvailableBlock"}'
+
 static int
 method_getFirstAvailableBlock(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getFirstAvailableBlock is not implemented");
+  (void) values;
+  fd_blockstore_t * blockstore = ctx->global->blockstore;
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
+                        blockstore->min, ctx->call_id);
+  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -785,11 +808,16 @@ method_getMaxRetransmitSlot(struct fd_web_replier* replier, struct json_values* 
 }
 
 // Implementation of the "getMaxShredInsertSlot" methods
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc":"2.0","id":1, "method":"getMaxShredInsertSlot"} '
+
 static int
 method_getMaxShredInsertSlot(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getMaxShredInsertSlot is not implemented");
+  (void) values;
+  fd_blockstore_t * blockstore = ctx->global->blockstore;
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
+                        blockstore->max, ctx->call_id);
+  fd_web_replier_done(replier);
   return 0;
 }
 
