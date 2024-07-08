@@ -223,7 +223,6 @@ main( int     argc,
   FD_TEST( fd_io_read( fd, dst, 1UL, dst_max, &rsz )<0 && rsz==0UL ); /* Test EOF */
 
   /* Test non-blocking dynamic incremental read */
-  /* TODO: Set nonblocking IO on fd here */
 
   REWIND;
   for( ulong iter=0UL; iter<64UL; iter++ ) {
@@ -319,6 +318,83 @@ main( int     argc,
   FD_TEST( fd_io_buffered_istream_read( in, dst, dst_max )<0 ); /* Test EOF */
 
 # undef REWIND
+
+  /* Test truncate and mmio */
+  /* TODO: Add tests for mixed streaming / mmio */
+
+  FD_TEST( fd_io_truncate( -1, 1UL )                ==EBADF  ); /* bad fd */
+  FD_TEST( fd_io_truncate( fd, 1UL+(ulong)LONG_MAX )==EINVAL ); /* bad sz */
+
+  uchar * mmio;
+  ulong   mmio_sz;
+
+  mmio    = (uchar *)1UL;
+  mmio_sz = 42UL;
+  FD_TEST( fd_io_mmio_init( -1, FD_IO_MMIO_MODE_READ_ONLY, &mmio, &mmio_sz )==EBADF  && !mmio && !mmio_sz ); /* bad fd */
+
+  mmio    = (uchar *)1UL;
+  mmio_sz = 42UL;
+  FD_TEST( fd_io_mmio_init( fd, -1, &mmio, &mmio_sz )==EINVAL && !mmio && !mmio_sz ); /* bad mode */
+
+  fd_io_mmio_fini( NULL, 1UL ); /* bad mmio    */
+  fd_io_mmio_fini( mmio, 0UL ); /* bad mmio_sz */
+
+  for( ulong sz=0UL; sz<1024UL; sz++ ) {
+    uchar seed;
+
+#   define TEST_MMIO_WR(seed) do { /* Write a random pattern to it via mmio */                       \
+      ulong tmp;                                                                                     \
+      FD_TEST( !fd_io_seek( fd, FD_IO_SEEK_TYPE_SET, 0UL, &tmp ) && tmp==0UL );                      \
+      FD_TEST( !fd_io_truncate( fd, sz ) );                                                          \
+      FD_TEST( !fd_io_sz( fd, &tmp ) && tmp==sz );                                                   \
+      FD_TEST( !fd_io_mmio_init( fd, FD_IO_MMIO_MODE_READ_WRITE, &mmio, &mmio_sz ) && mmio_sz==sz ); \
+      if( !sz ) FD_TEST(  !mmio );                                                                   \
+      else      FD_TEST( !!mmio );                                                                   \
+      uchar b = (seed);                                                                              \
+      for( ulong off=0UL; off<mmio_sz; off++ ) mmio[ off ] = b++;                                    \
+      fd_io_mmio_fini( mmio, mmio_sz );                                                              \
+    } while(0)
+
+#   define TEST_STRM_WR(seed) do { /* Write a random pattern to it via mmio */                       \
+      uchar buf[1024];                                                                               \
+      uchar b = (seed);                                                                              \
+      for( ulong off=0UL; off<sz; off++ ) buf[ off ] = b++;                                          \
+      ulong tmp;                                                                                     \
+      FD_TEST( !fd_io_seek( fd, FD_IO_SEEK_TYPE_SET, 0UL, &tmp ) && tmp==0UL );                      \
+      FD_TEST( !fd_io_truncate( fd, 0UL) );                                                          \
+      FD_TEST( !fd_io_sz( fd, &tmp ) && tmp==0UL );                                                  \
+      FD_TEST( !fd_io_write( fd, buf, sz, sz, &tmp ) && tmp==sz );                                   \
+      FD_TEST( !fd_io_sz( fd, &tmp ) && tmp==sz );                                                   \
+    } while(0)
+
+#   define TEST_MMIO_RD(seed) do { /* Read back the random pattern via mmio */                       \
+      FD_TEST( !fd_io_mmio_init( fd, FD_IO_MMIO_MODE_READ_ONLY, &mmio, &mmio_sz ) && mmio_sz==sz );  \
+      if( !sz ) FD_TEST(  !mmio );                                                                   \
+      else      FD_TEST( !!mmio );                                                                   \
+      uchar b = (seed);                                                                              \
+      for( ulong off=0UL; off<mmio_sz; off++ ) FD_TEST( mmio[ off ]==(b++) );                        \
+      fd_io_mmio_fini( mmio, mmio_sz );                                                              \
+    } while(0)
+
+#   define TEST_STRM_RD(seed) do { /* Write a random pattern to it via mmio */                       \
+      uchar buf[1024]; memset( buf, 0, 1024UL );                                                     \
+      ulong tmp;                                                                                     \
+      FD_TEST( !fd_io_seek( fd, FD_IO_SEEK_TYPE_SET, 0UL, &tmp ) && tmp==0UL );                      \
+      FD_TEST( !fd_io_read( fd, buf, sz, sz, &tmp ) && tmp==sz );                                    \
+      uchar b = (seed);                                                                              \
+      for( ulong off=0UL; off<sz; off++ ) FD_TEST( buf[ off ]==(b++) );                              \
+    } while(0)
+
+    seed = fd_rng_uchar( rng ); TEST_MMIO_WR( seed ); TEST_MMIO_RD( seed );
+    seed = fd_rng_uchar( rng ); TEST_STRM_WR( seed ); TEST_MMIO_RD( seed );
+    seed = fd_rng_uchar( rng ); TEST_MMIO_WR( seed ); TEST_STRM_RD( seed );
+    seed = fd_rng_uchar( rng ); TEST_STRM_WR( seed ); TEST_STRM_RD( seed );
+
+#   undef TEST_STRM_RD
+#   undef TEST_MMIO_RD
+#   undef TEST_STRM_WR
+#   undef TEST_MMIO_WR
+  }
 
   /* Test bad seek type */
 
