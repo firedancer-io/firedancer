@@ -195,8 +195,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
      program account is a valid instruction account.
      https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L635-L648 */
   fd_borrowed_account_t * program_rec = NULL;
-  int err = fd_txn_borrowed_account_view( instr_ctx->txn_ctx, &instr_ctx->instr->program_id_pubkey, &program_rec );
-
+  int err = fd_txn_borrowed_account_view( instr_ctx->txn_ctx, &callee_instr->program_id_pubkey, &program_rec );
   if( FD_UNLIKELY( err ) ) {
     return 1;
   }
