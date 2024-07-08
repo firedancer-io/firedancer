@@ -269,7 +269,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       /* TODO: This currently doesn't support switching over on slots that occur 
          on a fork */
       /* If need to go to next rocksdb, switch over */
-      FD_LOG_NOTICE(("%lu %lu", slot+1UL, ledger_args->rocksdb_list_slot[curr_rocksdb_idx]));
       if( FD_UNLIKELY( ledger_args->rocksdb_list_cnt>1UL && 
                        slot+1UL==ledger_args->rocksdb_list_slot[curr_rocksdb_idx] ) ) {
         curr_rocksdb_idx++;
