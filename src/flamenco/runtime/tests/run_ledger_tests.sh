@@ -383,7 +383,8 @@ echo "Log for ledger $LEDGER at $fd_log_file"
 
 if [ $status -ne 0 ] || grep -q "Bank hash mismatch" $LOG;
 then
-  if [ "$status" -eq "$EXPECTED" ]; then
+  if [ "$status" -eq "$EXPECTED" ] && grep -q "Bank hash mismatch" $LOG;
+  then
     echo "inverted test passed"
     exit 0
   fi
