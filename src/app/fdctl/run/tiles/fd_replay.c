@@ -421,6 +421,17 @@ hash_transactions( void *       mem,
 }
 
 static void
+blockstore_checkpt( fd_replay_tile_ctx_t * ctx ) {
+  if( FD_UNLIKELY( ctx->slots_replayed_file ) ) fclose( ctx->slots_replayed_file );
+  if( FD_UNLIKELY( strcmp( ctx->blockstore_checkpt, "" ) ) ) {
+    int rc = fd_wksp_checkpt( ctx->blockstore_wksp, ctx->blockstore_checkpt, 0666, 0, NULL );
+    if( rc ) {
+      FD_LOG_ERR( ( "blockstore checkpt failed: error %d", rc ) );
+    }
+  }
+}
+
+static void
 after_frag( void *             _ctx,
             ulong              in_idx     FD_PARAM_UNUSED,
             ulong              seq,
@@ -745,6 +756,7 @@ after_frag( void *             _ctx,
         int rc = fd_blockstore_publish( ctx->blockstore, root );
         if( rc != FD_BLOCKSTORE_OK ) {
           FD_LOG_WARNING( ( "err %d when publishing blockstore", rc ) );
+          blockstore_checkpt( ctx );
         }
         fd_blockstore_end_write( ctx->blockstore );
 #endif
@@ -794,14 +806,7 @@ after_frag( void *             _ctx,
 
             /* Mismatch */
 
-            if( FD_UNLIKELY( ctx->slots_replayed_file ) ) fclose( ctx->slots_replayed_file );
-            if( FD_UNLIKELY( strcmp(ctx->blockstore_checkpt, "" ) ) ) {
-              int rc = fd_wksp_checkpt( ctx->blockstore_wksp, ctx->blockstore_checkpt, 0666, 0, NULL );
-              if( rc ) {
-                FD_LOG_ERR( ( "blockstore checkpt failed: error %d", rc ) );
-              }
-            }
-
+            blockstore_checkpt( ctx );
             FD_LOG_ERR( ( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ) );
             break;
 

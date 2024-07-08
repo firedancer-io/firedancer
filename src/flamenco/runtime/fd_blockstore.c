@@ -304,9 +304,11 @@ fd_blockstore_delete( void * shblockstore ) {
   fd_blockstore_slot_deque_push_tail( q, blockstore->root );
   while( !fd_blockstore_slot_deque_empty( q ) ) {
     ulong curr = fd_blockstore_slot_deque_pop_head( q );
-    
-    ulong * child_slots = fd_blockstore_child_slots_query( blockstore, curr );
-    if( FD_UNLIKELY( !child_slots ) ) {
+
+    ulong * child_slots    = NULL;
+    ulong   child_slot_cnt = 0;
+    int rc = fd_blockstore_child_slots_query( blockstore, curr, &child_slots, &child_slot_cnt );
+    if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) {
       FD_LOG_ERR( ( "[fd_blockstore_delete] failed to query children in slot %lu", curr ) );
     }
 
@@ -316,7 +318,7 @@ fd_blockstore_delete( void * shblockstore ) {
       }
     }
 
-    int rc = fd_blockstore_slot_remove( blockstore, curr );
+    rc = fd_blockstore_slot_remove( blockstore, curr );
     if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) {
       FD_LOG_ERR( ( "[fd_blockstore_remove] failed to remove slot %lu", curr ) );
     }
@@ -532,8 +534,7 @@ fd_blockstore_buffered_shreds_remove( fd_blockstore_t * blockstore, ulong slot )
 int
 fd_blockstore_publish( fd_blockstore_t * blockstore, ulong root ) {
   long  prune_time_ns    = -fd_log_wallclock();
-  ulong pruned_slot_cnt  = 0UL;
-  ulong scanned_slot_cnt = 0UL;
+  ulong prune_cnt  = 0UL;
 
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
   ulong *     q    = fd_wksp_laddr_fast( wksp, blockstore->slot_deque_gaddr );
@@ -541,7 +542,6 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong root ) {
   /* If root is missing, return an error. */
 
   if( FD_UNLIKELY( !fd_blockstore_block_map_query( blockstore, root ) ) ) {
-    __asm__("int $3");
     return FD_BLOCKSTORE_ERR_SLOT_MISSING;
   }
 
@@ -559,36 +559,60 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong root ) {
     return FD_BLOCKSTORE_ERR_UNKNOWN;
   }
 
-  fd_blockstore_slot_deque_remove_all( q );
-  fd_blockstore_slot_deque_push_tail( q, blockstore->root );
-  while( !fd_blockstore_slot_deque_empty( q ) ) {
-    ulong curr = fd_blockstore_slot_deque_pop_head( q );
-    scanned_slot_cnt++;
-    
-    ulong * child_slots = fd_blockstore_child_slots_query( blockstore, curr );
-    if( FD_UNLIKELY( !child_slots ) ) {
-      __asm__("int $3");
-      return FD_BLOCKSTORE_ERR_SLOT_MISSING;
-    }
+  /* Clear the deque, preparing it to be reused. */
 
-    for( ulong i = 0; i < FD_BLOCKSTORE_CHILD_SLOT_MAX; i++ ) {
-      if( FD_LIKELY( child_slots[i] != FD_SLOT_NULL && child_slots[i] != root ) ) {
+  fd_blockstore_slot_deque_remove_all( q );
+
+  /* Push the root onto the queue. */
+
+  fd_blockstore_slot_deque_push_tail( q, blockstore->root );
+
+  /* Conduct a BFS, stopping the search at the new root. */
+
+  while( !fd_blockstore_slot_deque_empty( q ) ) {
+    ulong slot = fd_blockstore_slot_deque_pop_head( q );
+
+    /* Add slot's children to the queue. */
+
+    ulong * child_slots    = NULL;
+    ulong   child_slot_cnt = 0;
+
+    int rc = fd_blockstore_child_slots_query( blockstore, slot, &child_slots, &child_slot_cnt );
+    if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) return rc;
+
+    for( ulong i = 0; i < child_slot_cnt; i++ ) {
+      if( FD_LIKELY( child_slots[i] != root ) ) {
         fd_blockstore_slot_deque_push_tail( q, child_slots[i] );
       }
     }
 
-    int rc = fd_blockstore_slot_remove( blockstore, curr );
+    /* Unlink slot from its parent. */
+
+    fd_block_map_t * parent = fd_blockstore_parent_block_map_query( blockstore, slot );
+    if( FD_LIKELY( parent ) ) {
+      for( ulong i = 0; i < parent->child_slot_cnt; i++ ) {
+        if( FD_LIKELY( parent->child_slots[i] == slot ) ) {
+          parent->child_slots[i] = parent->child_slots[--parent->child_slot_cnt];
+        }
+      }
+    }
+
+    /* Remove the slot. */
+
+    rc = fd_blockstore_slot_remove( blockstore, slot );
     if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) {
       return rc;
     }
-    pruned_slot_cnt++;
+    prune_cnt++;
   }
 
   prune_time_ns += fd_log_wallclock();
 
-  FD_LOG_NOTICE(( "[fd_blockstore_publish] new: %lu, old: %lu, pruned: %lu, scanned: %lu, took: %6.6f ms",
-      root, blockstore->root,
-      pruned_slot_cnt, scanned_slot_cnt, (double)prune_time_ns*1e-6));
+  FD_LOG_NOTICE( ( "[fd_blockstore_publish] new root: %lu, old root: %lu, prune cnt: %lu, took: %6.6f ms",
+                   root,
+                   blockstore->root,
+                   prune_cnt,
+                   (double)prune_time_ns * 1e-6 ) );
 
   blockstore->root = root;
 
@@ -792,6 +816,7 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
     memset( block_map_entry->child_slots,
             UCHAR_MAX,
             FD_BLOCKSTORE_CHILD_SLOT_MAX * sizeof( ulong ) );
+    block_map_entry->child_slot_cnt = 0;
 
     /* Metadata */
 
@@ -834,28 +859,22 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
   fd_block_map_t * parent_block_map_entry =
       fd_blockstore_block_map_query( blockstore, block_map_entry->parent_slot );
 
-  /* Add this slot to its parent's child slots if needed. */
+  /* Add this slot to its parent's child slots if not already there. */
 
   if( FD_LIKELY( parent_block_map_entry ) ) {
-    int   found = 0;
-    ulong cnt   = 0;
-
-    for( ulong i = 0; i < FD_BLOCKSTORE_CHILD_SLOT_MAX; i++ ) {
+    int found = 0;
+    for( ulong i = 0; i < parent_block_map_entry->child_slot_cnt; i++ ) {
       if( FD_LIKELY( parent_block_map_entry->child_slots[i] == slot ) ) {
         found = 1;
       }
-      if( parent_block_map_entry->child_slots[i] == FD_SLOT_NULL ) {
-        cnt = i;
-        break;
-      }
     }
     if( FD_UNLIKELY( !found ) ) {
-      if( cnt == FD_BLOCKSTORE_CHILD_SLOT_MAX ) {
+      if( parent_block_map_entry->child_slot_cnt == FD_BLOCKSTORE_CHILD_SLOT_MAX ) {
         FD_LOG_ERR( ( "failed to add slot %lu to parent %lu's children. exceeding child slot max",
                       slot,
                       parent_block_map_entry->slot ) );
       }
-      parent_block_map_entry->child_slots[cnt] = slot;
+      parent_block_map_entry->child_slots[parent_block_map_entry->child_slot_cnt++] = slot;
     }
   }
 
@@ -969,11 +988,19 @@ fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot ) {
   return query->parent_slot;
 }
 
-ulong *
-fd_blockstore_child_slots_query( fd_blockstore_t * blockstore, ulong slot ) {
+fd_block_map_t *
+fd_blockstore_parent_block_map_query( fd_blockstore_t * blockstore, ulong slot ) {
+  ulong parent_slot = fd_blockstore_parent_slot_query( blockstore, slot );
+  return fd_blockstore_block_map_query( blockstore, parent_slot );
+}
+
+int
+fd_blockstore_child_slots_query( fd_blockstore_t * blockstore, ulong slot, ulong ** slots_out, ulong * slot_cnt_out ) {
   fd_block_map_t * query = fd_blockstore_block_map_query( blockstore, slot );
-  if( FD_UNLIKELY( !query ) ) __asm__("int $3");
-  return query->child_slots;
+  if( FD_UNLIKELY( !query ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+  *slots_out    = query->child_slots;
+  *slot_cnt_out = query->child_slot_cnt;
+  return FD_BLOCKSTORE_OK;
 }
 
 int
@@ -1000,7 +1027,7 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t * blockstore, ulong slo
 
     fd_block_t * blk = fd_wksp_laddr_fast( wksp, blk_gaddr );
     ulong blk_data_gaddr = blk->data_gaddr;
-    if( FD_UNLIKELY( !blk_data_gaddr || blk_data_gaddr == ULONG_MAX ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+    if( FD_UNLIKELY( !blk_data_gaddr ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
     ulong sz = *block_data_out_sz = blk->data_sz;
     if( sz >= FD_SHRED_MAX_PER_SLOT * FD_SHRED_MAX_SZ ) continue;
 
@@ -1192,25 +1219,24 @@ fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore ) {
     fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, curr );
     if( FD_UNLIKELY( !block_map_entry || !block_map_entry->block_gaddr ) ) continue;
     fd_block_t * block = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block_map_entry->block_gaddr );
-    if( block->data_gaddr && block->data_gaddr != ULONG_MAX ) {
+    if( block->data_gaddr ) {
       block_cnt++;
       data_tot += block->data_sz;
       data_max = fd_ulong_max( data_max, block->data_sz );
       txn_tot += block->txns_cnt;
       txn_max = fd_ulong_max( txn_max, block->txns_cnt );
     }
-    
-    ulong * child_slots = fd_blockstore_child_slots_query( blockstore, curr );
-    if( FD_UNLIKELY( !child_slots ) ) {
+
+    ulong * child_slots    = NULL;
+    ulong   child_slot_cnt = 0;
+    int     rc = fd_blockstore_child_slots_query( blockstore, curr, &child_slots, &child_slot_cnt );
+    if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) {
       continue;
     }
 
-    for( ulong i = 0; i < FD_BLOCKSTORE_CHILD_SLOT_MAX; i++ ) {
-      if( FD_LIKELY( child_slots[i] != FD_SLOT_NULL ) ) {
-        fd_blockstore_slot_deque_push_tail( q, child_slots[i] );
-      }
+    for( ulong i = 0; i < child_slot_cnt; i++ ) {
+      fd_blockstore_slot_deque_push_tail( q, child_slots[i] );
     }
-
   }
 
   if( block_cnt )
@@ -1232,7 +1258,7 @@ fd_blockstore_init( fd_blockstore_t * blockstore, fd_slot_bank_t const * slot_ba
 
   /* Ancestry */
 
-  block_map_entry->parent_slot           = slot_bank->prev_slot;
+  block_map_entry->parent_slot = slot_bank->prev_slot;
   memset( block_map_entry->child_slots, UCHAR_MAX, FD_BLOCKSTORE_CHILD_SLOT_MAX * sizeof( ulong ) );
 
   /* Metadata */
