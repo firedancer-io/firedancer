@@ -1,5 +1,6 @@
 #include "fd_txncache.h"
 
+
 #define SORT_NAME        sort_slot_ascend
 #define SORT_KEY_T       ulong
 #define SORT_BEFORE(a,b) (a)<(b)
@@ -349,33 +350,9 @@ fd_txncache_delete( void * shtc ) {
 static void
 fd_txncache_remove_blockcache_idx( fd_txncache_t * tc,
                                    ulong idx ) {
-  tc->blockcache[ idx ].lowest_slot = ULONG_MAX;
+  tc->blockcache[ idx ].lowest_slot = ULONG_MAX - 1UL;
   memcpy( tc->txnpages_free+tc->txnpages_free_cnt, tc->blockcache[ idx ].pages, tc->blockcache[ idx ].pages_cnt*sizeof(ushort) );
   tc->txnpages_free_cnt += tc->blockcache[ idx ].pages_cnt;
-
-  ulong remove_idx = idx;
-  /* We linear search for an entry which was probed and move it to
-    the blockcache index being removed from and continue that chain. */
-  for( ulong i=(idx+1)%tc->live_slots_max;;) {
-    if( tc->blockcache[ i ].lowest_slot == ULONG_MAX ) {
-      if( i == ((idx + tc->live_slots_max - 1) % tc->live_slots_max)  ) {
-        break;
-      }
-      i = (i+1)%tc->live_slots_max;
-      continue;
-    }
-
-    ulong j = FD_LOAD(ulong, tc->blockcache[ i ].blockhash)%tc->live_slots_max ;
-    if( j != i && ( j <= remove_idx || ( remove_idx < idx && j >= idx ) ) ) {
-      memcpy( &tc->blockcache[ remove_idx ], &tc->blockcache[ i ], sizeof(fd_txncache_private_blockcache_t) );
-      tc->blockcache[ i ].lowest_slot = ULONG_MAX;
-      remove_idx = i;
-    }
-    if( i == ((idx + tc->live_slots_max - 1) % tc->live_slots_max)  ) {
-      break;
-    }
-    i = (i+1)%tc->live_slots_max;
-  }
 }
 
 static void
@@ -413,7 +390,7 @@ static void
 fd_txncache_purge_slot( fd_txncache_t * tc,
                         ulong           slot ) {
   for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
-    if( FD_LIKELY( tc->blockcache[ i ].lowest_slot==ULONG_MAX || (tc->blockcache[ i ].lowest_slot+150UL)>slot ) ) continue;
+    if( FD_LIKELY( tc->blockcache[ i ].lowest_slot==ULONG_MAX || tc->blockcache[ i ].lowest_slot==ULONG_MAX-1UL || (tc->blockcache[ i ].lowest_slot+150UL)>slot ) ) continue;
     fd_txncache_remove_blockcache_idx( tc, i );
   }
 
@@ -477,8 +454,10 @@ fd_txncache_find_blockhash( fd_txncache_t const *               tc,
     if( FD_UNLIKELY( blockcache->lowest_slot==ULONG_MAX ) ) {
       *out_blockcache = blockcache;
       return FD_TXNCACHE_FIND_FOUNDEMPTY;
+    } else if ( blockcache->lowest_slot==ULONG_MAX-1UL) {
+      continue;
     }
-    while( FD_UNLIKELY( blockcache->lowest_slot==ULONG_MAX-1UL ) ) {
+    while( FD_UNLIKELY( blockcache->lowest_slot==ULONG_MAX-2UL ) ) {
       FD_SPIN_PAUSE();
     }
     FD_COMPILER_MFENCE(); /* Prevent reordering of the blockhash read to before the atomic lock
@@ -549,14 +528,15 @@ fd_txncache_ensure_blockcache( fd_txncache_t *                     tc,
     if( FD_LIKELY( blockcache_find==FD_TXNCACHE_FIND_FOUND ) ) return 1;
     else if( FD_UNLIKELY( blockcache_find==FD_TXNCACHE_FIND_FULL ) ) return 0;
 
-    if( FD_LIKELY( FD_ATOMIC_CAS( &(*out_blockcache)->lowest_slot, ULONG_MAX, ULONG_MAX-1UL ) ) ) {
+    if( FD_LIKELY( FD_ATOMIC_CAS( &(*out_blockcache)->lowest_slot, ULONG_MAX, ULONG_MAX-2UL ) ||
+    FD_ATOMIC_CAS( &(*out_blockcache)->lowest_slot, ULONG_MAX-1UL, ULONG_MAX-2UL ) ) ) {
       memcpy( (*out_blockcache)->blockhash, blockhash, 32UL );
       memset( (*out_blockcache)->heads, 0xFF, FD_TXNCACHE_BLOCKCACHE_MAP_CNT*sizeof(uint) );
       (*out_blockcache)->pages_cnt      = 0;
       (*out_blockcache)->txnhash_offset = 0UL;
       memset( (*out_blockcache)->pages, 0xFF, tc->txnpages_per_blockhash_max*sizeof(uint) );
       FD_COMPILER_MFENCE();
-      (*out_blockcache)->lowest_slot    = ULONG_MAX-2UL;
+      (*out_blockcache)->lowest_slot    = ULONG_MAX-3UL;
       return 1;
     }
     FD_SPIN_PAUSE();

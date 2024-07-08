@@ -508,6 +508,7 @@ after_frag( void *             _ctx,
 
     fd_fork_t * fork = fd_fork_frontier_ele_query(
           ctx->forks->frontier, &ctx->curr_slot, NULL, ctx->forks->pool );
+
     if( fork == NULL ) {
       long prepare_time_ns = -fd_log_wallclock();
 
@@ -525,6 +526,24 @@ after_frag( void *             _ctx,
 
       // fork is advancing
       FD_LOG_DEBUG(( "new block execution - slot: %lu, parent_slot: %lu", ctx->curr_slot, ctx->parent_slot ));
+
+      /* if it is an epoch boundary, push out stake weights */
+      int is_new_epoch = 0;
+      if( fork->slot_ctx.slot_bank.slot != 0 ) {
+        ulong slot_idx;
+        fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx.epoch_ctx );
+        ulong prev_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, fork->slot_ctx.slot_bank.prev_slot, &slot_idx );
+        ulong new_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, fork->slot_ctx.slot_bank.slot, &slot_idx );
+
+        if( prev_epoch < new_epoch || slot_idx == 0 ) {
+          FD_LOG_DEBUG(("Epoch boundary"));
+          is_new_epoch = 1;
+        }
+      }
+
+      if( is_new_epoch ) {
+        publish_stake_weights( ctx, mux, &fork->slot_ctx );
+      }
 
       fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
       fork->slot_ctx.slot_bank.slot      = ctx->curr_slot;
@@ -545,25 +564,7 @@ after_frag( void *             _ctx,
         FD_LOG_ERR(( "txn publishing failed" ));
       }
 
-      /* if it is an epoch boundary, push out stake weights */
-      int is_new_epoch = 0;
-      if( fork->slot_ctx.slot_bank.slot != 0 ) {
-        ulong slot_idx;
-        fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx.epoch_ctx );
-        ulong prev_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, fork->slot_ctx.slot_bank.prev_slot, &slot_idx );
-        ulong new_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, fork->slot_ctx.slot_bank.slot, &slot_idx );
-
-        if( prev_epoch < new_epoch || slot_idx == 0 ) {
-          FD_LOG_DEBUG(("Epoch boundary"));
-          is_new_epoch = 1;
-        }
-      }
-
       res = fd_runtime_block_execute_prepare( &fork->slot_ctx );
-
-      if( is_new_epoch ) {
-        publish_stake_weights( ctx, mux, &fork->slot_ctx );
-      }
 
       if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
         FD_LOG_ERR(( "block prep execute failed" ));
