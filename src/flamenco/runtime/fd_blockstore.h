@@ -193,6 +193,7 @@ struct fd_block_map {
 
   ulong parent_slot;
   ulong child_slots[FD_BLOCKSTORE_CHILD_SLOT_MAX];
+  ulong child_slot_cnt;
 
   /* Metadata */
 
@@ -476,15 +477,18 @@ fd_blockstore_block_map_query( fd_blockstore_t * blockstore, ulong slot );
 ulong
 fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot );
 
-/* fd_blockstore_child_slots_query returns a pointer in the caller's
-   address space to the slot's array of child slots.  NULL if slot is
-   not in the blockstore.  The returned slot array is always of the
-   fixed size FD_BLOCKSTORE_CHILD_SLOT_MAX and contiguous, so callers
-   should use the first occurrence FD_SLOT_NULL to determine the end of
-   the array. */
+fd_block_map_t *
+fd_blockstore_parent_block_map_query( fd_blockstore_t * blockstore, ulong slot );
 
-ulong *
-fd_blockstore_child_slots_query( fd_blockstore_t * blockstore, ulong slot );
+/* fd_blockstore_child_slots_query queries slot's child slots.  Return
+   values are saved in slots_out and slot_cnt.  Returns FD_BLOCKSTORE_OK
+   on success, FD_BLOCKSTORE_ERR_SLOT_MISSING if slot is not in the
+   blockstore.  The returned slot array is always <= the max size
+   FD_BLOCKSTORE_CHILD_SLOT_MAX and contiguous.  Empty slots in the
+   array are set to FD_SLOT_NULL. */
+
+int
+fd_blockstore_child_slots_query( fd_blockstore_t * blockstore, ulong slot, ulong ** slots_out, ulong * slot_cnt );
 
 /* Query the frontier ie. all the blocks that need to be replayed that haven't been. These are the
    slot children of the current frontier that are shred complete. */
