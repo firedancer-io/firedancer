@@ -54,7 +54,7 @@ download_ext_rocksdb() {
 
   LATEST_SNAPSHOT_SLOT=$(echo "$LATEST_SNAPSHOT" | sed 's#.*/\([0-9]\+\)/#\1#')
 
-  /bin/gsutil cp "$ledger_url/$LATEST_SNAPSHOT_SLOT/rocksdb.tar.zst" .
+  /bin/gcloud storage cp "$ledger_url/$LATEST_SNAPSHOT_SLOT/rocksdb.tar.zst" .
   if [ ! -f rocksdb.tar.zst ]; then
     echo "[-] error rocksdb.tar.zst not found. $ledger_url/$LATEST_SNAPSHOT_SLOT/rocksdb.tar.zst might not be present"
     exit 1
@@ -109,7 +109,7 @@ download_ext_snapshot() {
     exit 1
   fi
 
-  /bin/gsutil cp "$fetch_snapshot" .
+  /bin/gcloud storage cp "$fetch_snapshot" .
   set -x
 }
 
