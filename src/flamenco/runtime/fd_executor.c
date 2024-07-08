@@ -786,9 +786,9 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 #ifdef VLOG
   if ( 257035230 == ctx->slot_ctx->slot_bank.slot ) {
     if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
+      FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, instr->program_id_pubkey.uc ));
     } else {
-      FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
+      FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, instr->program_id_pubkey.uc ));
     }
   }
 #endif
