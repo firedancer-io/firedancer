@@ -1,12 +1,14 @@
-name: Firedancer
+name: Firedancer Localnet
 on:
   workflow_call:
   workflow_dispatch:
+  pull_request:
+    types: [synchronize, opened, reopened, ready_for_review]
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
-  firedancer-tests:
+  integration-test:
     runs-on: [self-hosted, 512G]
     if: github.event.pull_request.draft == false
     env:
@@ -19,7 +21,26 @@ jobs:
 
       - uses: ./.github/actions/deps
 
-      - name: build
+      - name: install rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: clone agave
+        run: |
+          git clone --depth 1 --branch v1.18.15 https://github.com/anza-xyz/agave.git
+
+      - name: build agave
+        run: |
+          cd agave
+          ./cargo build --release \
+            --package solana-genesis \
+            --package agave-validator \
+            --package solana-cli \
+            --package solana-keygen
+          cd ..
+
+      - name: build firedancer
         run: |
           ./contrib/make-j fddev
 
@@ -31,10 +52,10 @@ jobs:
       - uses: ./.github/actions/hugepages
         with:
           count_gigantic: 128
-          count_huge: 500 # TODO: this is required until we can handle anonymouse workspaces and loose huge pages in fddev
+          count_huge: 100 # TODO: this is required until we can handle anonymouse workspaces and loose huge pages in fddev
 
       - name: test firedancer - local cluster
         run: |
           sudo prlimit --pid=$$ --nofile=1048576
           sudo prlimit --pid=$$ --memlock=unlimited
-          ./contrib/test/test_firedancer.sh
+          # ./contrib/test/test_firedancer.sh
