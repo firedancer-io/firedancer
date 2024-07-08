@@ -9,8 +9,7 @@ on:
 jobs:
   coverage-report:
     name: Coverage Report
-    runs-on:
-      group: rhel85-icelake
+    runs-on: icelake
     environment:
       name: coverage-report
       url: ${{ vars.COVERAGE_URL }}
