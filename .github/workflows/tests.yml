@@ -41,6 +41,9 @@ jobs:
           - machine: linux_clang_icelake
             label: icelake
             extras: asan ubsan
+          - machine: linux_gcc_icelake
+            label: icelake
+            extras: no-solana
     runs-on: ${{ matrix.label }}
     steps:
       - uses: actions/checkout@v4
