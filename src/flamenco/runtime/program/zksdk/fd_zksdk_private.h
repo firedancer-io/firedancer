@@ -60,6 +60,14 @@ static const ulong fd_zksdk_proof_sz[] = {
   sizeof(fd_zksdk_batched_grp_ciph_3h_val_proof_t),   // FD_ZKSDK_INSTR_VERIFY_BATCHED_GROUPED_CIPHERTEXT_3_HANDLES_VALIDITY
 };
 
+/* ProofContextStateMeta
+   https://github.com/anza-xyz/agave/blob/v2.0.1/zk-sdk/src/zk_elgamal_proof_program/state.rs#L58 */
+struct __attribute__((packed)) fd_zksdk_proof_ctx_state_meta {
+  fd_pubkey_t ctx_state_authority;
+  uchar       proof_type;
+};
+typedef struct fd_zksdk_proof_ctx_state_meta fd_zksdk_proof_ctx_state_meta_t;
+
 /* Define all the fd_zksdk_instr_verify_proof_* functions with a macro
    so it's easy to keep the interface. */
 #define DEFINE_VERIFY_PROOF(name)                                \

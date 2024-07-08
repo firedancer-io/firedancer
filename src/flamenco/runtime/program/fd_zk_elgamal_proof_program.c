@@ -13,7 +13,7 @@ fd_executor_zk_elgamal_proof_program_execute( fd_exec_instr_ctx_t ctx ) {
   ulong         instr_data_sz = ctx.instr->data_sz;
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L172-L176 */
-  if( FD_UNLIKELY( instr_data_sz<1UL ) ) {
+  if( FD_UNLIKELY( instr_data_sz==0UL ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
