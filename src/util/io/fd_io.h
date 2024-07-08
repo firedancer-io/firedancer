@@ -219,6 +219,11 @@ struct fd_io_buffered_ostream_private {
 
 typedef struct fd_io_buffered_ostream_private fd_io_buffered_ostream_t;
 
+/* FD_IO_MMIO_MODE_* give supported modes for memory mapped I/O */
+
+#define FD_IO_MMIO_MODE_READ_ONLY  (0)
+#define FD_IO_MMIO_MODE_READ_WRITE (1)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_io_read streams at least dst_min bytes from the given file
@@ -357,6 +362,21 @@ fd_io_write( int          fd,
 int
 fd_io_sz( int     fd,
           ulong * _sz );
+
+/* fd_io_truncate truncates the file underlying the given file descriptor
+   to be sz bytes long.  If sz is larger than the current size, the file
+   will be zero padded to sz.  If smaller, the trailing size bytes will
+   be discarded.  On success, returns 0.  On failure, returns a strerror
+   compatible error code.  Reasons for failure include sz is too large /
+   incompatible with ftruncate and the usual ftruncate reasons.
+   Truncating a file to a size that is smaller than the file offset of
+   any open file descriptor (file system wide) on that file has
+   undefined behavior.  (POSIX has some conventions here but portable
+   code should not rely on them.) */
+
+int
+fd_io_truncate( int   fd,
+                ulong sz );
 
 /* fd_io_seek seeks the byte index of the given file descriptor
    according to rel_off and type.  Seeking to indices outside [0,sz]
@@ -797,6 +817,62 @@ fd_io_buffered_ostream_flush( fd_io_buffered_ostream_t * out ) {
   ulong wsz;
   return fd_io_write( out->fd, out->wbuf, wbuf_used, wbuf_used, &wsz );
 }
+
+/* Memory mapped I/O APIs */
+
+/* fd_io_mmio_init starts memory mapped I/O on the file underlying
+   the given file descriptor.  Specifically, it maps the file into the
+   caller's address space according to the given FD_IO_MMIO_MODE.
+
+   On success, returns 0.  On return, *(caller_mmio_t *)_mmio will point
+   to the first byte in the caller's address space where the file was
+   mapped (will be aligned at least 4096 currently) and *_mmio_sz will
+   contain the region's byte size (which is the same as the file's
+   size).  The mapping's lifetime will be until the corresponding fini
+   or the process/thread group terminates (normally or not).  If the
+   file has zero size, the region will be NULL and non-NULL otherwise.
+   The usual POSIX semantics for fd and the underlying file apply.  In
+   particular, fd can be closed and/or the file deleted during memory
+   mapped I/O without issue.  Retains no interest in mmio or mmio_sz.
+
+   On failure, returns a non-zero strerror compatible error code.  On
+   return, the region will be an NULL with zero length.  Reasons for
+   failure include all usual the fd_io_sz reasons and mmap reasons (e.g.
+   fd is a file descriptor of a memory mappable file).  Retains no
+   interest in mmio or mmio_sz.
+
+   IMPORTANT SAFETY TIP!  Changes to the file via the region are not
+   guaranteed visible to others until the corresponding fini.
+   Conversely, changes by others to the file during memory mapped I/O
+   may not become visible during memory mapped I/O.  Lastly, concurrent
+   memory mapped I/O to the same file (whether via the same file
+   descriptor or not and/or within the same thread group or not) is
+   supported currently.  E.g. a slow but portable init/fini
+   implementation under the hood could, on init, allocate a suitably
+   aligned memory region, read the entire file into that region and
+   return that region and, on fini, write the entire region back to the
+   file (if applicable) and free it while an optimized implementation
+   could use target specific virtual memory APIs to eliminate excess
+   alloc/free/read/write operations. */
+
+int
+fd_io_mmio_init( int     fd,
+                 int     mode,
+                 void *  _mmio,      /* Psychologically, a "caller_mmio_t **" */
+                 ulong * _mmio_sz );
+
+/* fd_io_mmio_fini finishes memory mapped I/O on a file.  mmio and
+   mmio_sz should be region where the memory mapped I/O is in progress.
+   Memory mapped I/O will not be in progress on return.  Guaranteed not
+   to fail from the caller's point of view.  See fd_shmem_mmio_init for
+   more details. */
+
+void
+fd_io_mmio_fini( void const * mmio,
+                 ulong        mmio_sz );
+
+/* TODO: consider a fd_io_mmio_sync API to allow changes to an
+   in-progress mmio to be made visible? */
 
 /* Misc APIs */
 

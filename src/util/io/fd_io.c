@@ -17,6 +17,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 
 int
 fd_io_read( int     fd,
@@ -165,13 +166,28 @@ fd_io_sz( int     fd,
 }
 
 int
+fd_io_truncate( int   fd,
+                ulong sz ) {
+  if( FD_UNLIKELY( (sz>(ulong)LONG_MAX) | (sz!=(ulong)(off_t)sz) ) ) return EINVAL;
+  if( FD_UNLIKELY( ftruncate( fd, (off_t)sz ) ) ) {
+    int err = errno;
+    if( !err ) err = EPROTO;
+    return err;
+  }
+  return 0;
+}
+
+int
 fd_io_seek( int     fd,
             long    rel_off,
             int     type,
             ulong * _idx ) {
   static int const whence[3] = { SEEK_SET, SEEK_CUR, SEEK_END };
 
-  if( FD_UNLIKELY( !((0<=type) & (type<=3) & (rel_off==(long)(off_t)rel_off)) ) ) return EINVAL;
+  if( FD_UNLIKELY( !((0<=type) & (type<=3) & (rel_off==(long)(off_t)rel_off)) ) ) {
+    *_idx = 0UL;
+    return EINVAL;
+  }
 
   off_t idx = lseek( fd, (off_t)rel_off, whence[ type ] );
 
@@ -460,6 +476,83 @@ fd_io_buffered_write( int          fd,
   fd_memcpy( wbuf, src, src_sz );
   *_wbuf_used = src_sz;
   return 0;
+}
+
+int
+fd_io_mmio_init( int     fd,
+                 int     mode,
+                 void *  _mmio,
+                 ulong * _mmio_sz ) {
+
+  /* Check input args */
+
+  if( FD_UNLIKELY( (mode!=FD_IO_MMIO_MODE_READ_ONLY) & (mode!=FD_IO_MMIO_MODE_READ_WRITE) ) ) {
+    *(void **)_mmio = NULL;
+    *_mmio_sz       = 0UL;
+    return EINVAL;
+  }
+
+  int rw = (mode==FD_IO_MMIO_MODE_READ_WRITE);
+
+  /* Determine the file size.  If this is a zero length file, just give
+     the caller a mapping to nothing. */
+
+  ulong mmio_sz;
+  int   err = fd_io_sz( fd, &mmio_sz );
+  if( FD_UNLIKELY( (!!err) | (!mmio_sz) ) ) {
+    *(void **)_mmio = NULL;
+    *_mmio_sz       = 0UL;
+    return err;
+  }
+
+  /* mmap the file into the caller's address space.  Note: memory mapped
+     I/O TLB and NUMA optimization options in Linux / POSIX are
+     extremely limited.  (No support or limited support or buggy support
+     or conflicting standards or different handling across different
+     OS/kernels/file systems or ... for requesting huge page backing,
+     gigantic page backing, NUMA affinities, etc.   Page sizes other
+     than normal and/or NUMA multicore systems were just not a thing
+     when VM APIs and implementations ossified.)  We currently don't
+     even try here for portability and simplicity.
+
+     FIXME: consider widening to expose features like MAP_POPULATE
+     and/or MAP_FIXED.  Also consider widening to allow callers to
+     specify their TLB and NUMA needs in hopes that, in a glorious
+     future, virtual memory APIs and subsystems will come around to the
+     fact that, as virtual memory is really a distributed file system
+     under the hood these days where TLB and NUMA optimizations are
+     critical, TLB and NUMA optimizations are equally critical for file
+     system files mapped into virtual memory ... this would allow
+     callers would get the benefits for free once support is available
+     Probably would need to move these APIs to shmem. */
+
+  void * mmio = mmap( NULL, mmio_sz, rw ? (PROT_READ|PROT_WRITE) : PROT_READ, MAP_SHARED, fd, (off_t)0 );
+  if( FD_UNLIKELY( (mmio==MAP_FAILED) | (!mmio) ) ) {
+    int err = errno;
+    if( !err ) err = EPROTO; /* cmov */
+    *(void **)_mmio = NULL;
+    *_mmio_sz       = 0UL;
+    return err;
+  }
+
+  /* At this point, we've mapped the file */
+
+  *(void **)_mmio = mmio;
+  *_mmio_sz       = mmio_sz;
+  return 0;
+}
+
+void
+fd_io_mmio_fini( void const * mmio,
+                 ulong        mmio_sz ) {
+
+  /* Check input args and handle zero length files */
+
+  if( FD_UNLIKELY( (!mmio) | (!mmio_sz) ) ) return;
+
+  /* Handle non-zero length files */
+
+  munmap( (void *)mmio, mmio_sz ); /* note: fd_log not available here so we don't error trap as it makes no difference */
 }
 
 char const *
