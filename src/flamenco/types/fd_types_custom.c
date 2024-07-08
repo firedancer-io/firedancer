@@ -104,14 +104,16 @@ void fd_tower_sync_decode_unsafe( fd_tower_sync_t * self, fd_bincode_decode_ctx_
   ulong lockout_offsets_max = fd_ulong_max( lockout_offsets_len, 32 );
   self->lockouts = deq_fd_vote_lockout_t_alloc( ctx->valloc, lockout_offsets_max );
 
+  ulong last_slot = ((self->root == ULONG_MAX) ? 0 : self->root);
   for( ulong i=0; i < lockout_offsets_len; i++ ) {
     fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy( self->lockouts );
 
     fd_lockout_offset_t o;
     fd_lockout_offset_decode_unsafe( &o, ctx );
 
-    elem->slot = ((self->root == ULONG_MAX) ? 0 : self->root)  + o.offset;
+    elem->slot = last_slot + o.offset;
     elem->confirmation_count = o.confirmation_count;
+    last_slot = elem->slot;
   }
 
   fd_hash_decode_unsafe( &self->hash, ctx );
