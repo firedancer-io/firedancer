@@ -445,6 +445,7 @@ after_frag( void *             _ctx,
 
   if ( in_idx == GOSSIP_IN_IDX ) {
     if ( !ctx->vote ) return;
+    if ( !ctx->poh_init_done ) return;
 
     /* handle a vote txn from gossip  */
     ushort recent_blockhash_off;
@@ -452,7 +453,6 @@ after_frag( void *             _ctx,
     if ( FD_VOTE_TXN_PARSE_OK != fd_vote_txn_parse(ctx->gossip_vote_txn, ctx->gossip_vote_txn_sz, ctx->valloc, &recent_blockhash_off, &vote) ) {
       FD_LOG_WARNING(("failed to parse vote"));
     };
-
     fd_voter_t voter = {
         .vote_acct_addr              = ctx->vote_acct_addr,
         .vote_authority_pubkey       = ctx->validator_identity_pubkey,
@@ -599,7 +599,7 @@ after_frag( void *             _ctx,
       fd_block_info_t block_info[1];
       block_info->signature_cnt = fork->slot_ctx.signature_cnt;
       long finalize_time_ns = -fd_log_wallclock();
-      int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, NULL, 1UL );
+      int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, ctx->tpool, ctx->max_workers );
       finalize_time_ns += fd_log_wallclock();
       FD_LOG_DEBUG(("TIMING: finalize_time - slot: %lu, elapsed: %6.6f ms", ctx->curr_slot, (double)finalize_time_ns * 1e-6));
 
