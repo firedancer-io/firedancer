@@ -284,12 +284,16 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
 
   ulong min_sh_offset = 0UL;  /* lowest permitted section offset */
 
+  /* Keep track of the physical (file address) end of all relevant
+     sections to determine rodata_sz */
+  ulong psegment_end          = 0UL;     /* Upper bound of physical (file) addressing  */
+
   /* While validating section header table, also figure out size
      of the rodata segment.  This is the minimal virtual address range
-     that spans all sections.  The offset of each section in virtual
-     addressing and file addressing is guaranteed to be the same. */
-  ulong segment_start = FD_SBPF_MM_PROGRAM_ADDR;  /* Lower bound of segment virtual address */
-  ulong segment_end    = 0UL;  /* Upper bound of segment virtual address */
+     that spans all sections. */
+  ulong vsegment_start  = FD_SBPF_MM_PROGRAM_ADDR;  /* Lower bound of segment virtual address */
+  ulong vsegment_end    = 0UL;  /* Upper bound of segment virtual address */
+
   ulong tot_section_sz = 0UL;  /* Size of all sections */
 
   for( ulong i=0UL; i<sht_cnt; i++ ) {
@@ -396,9 +400,10 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
       REQUIRE( paddr_end >= sh_offset );
       REQUIRE( paddr_end <= elf_sz    );
 
-      segment_start = fd_ulong_min( segment_start, sh_addr );
+      vsegment_start = fd_ulong_min( vsegment_start, sh_addr );
       /* Expand range to fit section */
-      segment_end = fd_ulong_max( segment_end, sh_virtual_end );
+      psegment_end = fd_ulong_max( psegment_end, paddr_end );
+      vsegment_end = fd_ulong_max( vsegment_end, sh_virtual_end );
 
       /* Coherence check sum of section sizes */
       REQUIRE( tot_section_sz + sh_actual_size >= tot_section_sz ); /* overflow check */
@@ -406,14 +411,14 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
     }
   }
 
-  /* More coherence checks to conform with agave */
-  REQUIRE( segment_end   <=elf_sz ); // https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L782
+  /* More coherence checks */
+  REQUIRE( psegment_end <= elf_sz ); // https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L782
 
 
   /* Check that the rodata segment is within bounds
      https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L725 */
   if ( FD_UNLIKELY( elf_deploy_checks ) ){
-    REQUIRE( fd_ulong_sat_add( segment_start, tot_section_sz) <= segment_end );
+    REQUIRE( fd_ulong_sat_add( vsegment_start, tot_section_sz) <= vsegment_end );
   }
 
   /* Require .text section */
@@ -435,7 +440,7 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
 
   /* Convert entrypoint offset to program counter */
 
-  info->rodata_sz        = (uint)segment_end;
+  info->rodata_sz        = (uint)psegment_end;
   info->rodata_footprint = (uint)elf_sz;
 
   ulong entry_off = fd_ulong_sat_sub( elf->ehdr.e_entry, shdr_text->sh_addr );
