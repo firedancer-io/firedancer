@@ -601,6 +601,29 @@ test_many_blockhashes_concurrent( void ) {
   }
 }
 
+void
+test_cache_full( void ) {
+  FD_LOG_NOTICE(( "TEST CACHE FULL" ));
+
+  fd_txncache_t * tc = init_all( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
+            TXNCACHE_LIVE_SLOTS,
+            FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
+
+  for( ulong i=0UL; i<TXNCACHE_LIVE_SLOTS; i++ ) {
+    insert( i, 0, i);
+  }
+
+  no_insert( 1024, 0, 0 );
+
+  for( ulong i=0UL; i<500; i++ ) {
+    fd_txncache_register_root_slot( tc, i );
+  }
+
+  for( ulong i=0UL; i<10; i++ ) {
+    insert( i, 0, i );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -626,6 +649,7 @@ main( int     argc,
   test_many_blockhashes();
   test_full_blockhash_concurrent();
   test_many_blockhashes_concurrent();
+  test_cache_full();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
