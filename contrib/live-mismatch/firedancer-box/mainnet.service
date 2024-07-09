@@ -1,0 +1,17 @@
+[Unit]
+Description=Firedancer Mainnet Service
+After=network.target
+
+[Service]
+Type=simple
+User=svc_firedancer
+ExecStart=/bin/bash /data/svc_firedancer/firedancer/mainnet.sh
+Restart=always
+# Restart service after 10 seconds if the service crashes:
+RestartSec=10
+Environment=PATH=/data/svc_firedancer/venv/bin:/data/svc_firedancer/solana/target/release:/data/svc_firedancer/.cargo/bin:/opt/rh/gcc-toolset-12/root/usr/bin:/usr/share/Modules/bin:/bin:/usr/bin:/usr/local/bin:/sbin:/data/svc_firedancer/bin:/usr/local/sbin:/usr/sbin:/data/svc_firedancer/bin
+# Environment=ENTRYPOINT=alternate-entrypoint-ip-here
+# Environment=ENTRYPOINT_PORT=alternate-entrypoint-port-here
+
+[Install]
+WantedBy=multi-user.target

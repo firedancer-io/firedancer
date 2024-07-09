@@ -1,0 +1,17 @@
+[Unit]
+Description=upload service
+
+[Service]
+ExecStart=/data/svc_firedancer/venv/bin/python3 -u /data/svc_firedancer/ci-upload.py --watch-directory=/data/svc_firedancer/upload-to-gcs --slack-url=UNUSED
+WorkingDirectory=/data/svc_firedancer
+User=svc_firedancer
+Group=svc_firedancer
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Environment="GOOGLE_APPLICATION_CREDENTIALS=/etc/firedancer-scratch-bucket-key.json"
+
+[Install]
+WantedBy=multi-user.target
+
