@@ -131,7 +131,8 @@ fd_snapshot_load( const char *         snapshotfile,
     break;
   }
 
-  fd_funk_speed_load_mode( slot_ctx->acc_mgr->funk, 1 );
+  /* TODO: re-enable speed load after leak is resolved */
+  fd_funk_speed_load_mode( slot_ctx->acc_mgr->funk, 0 );
   fd_funk_start_write( slot_ctx->acc_mgr->funk );
 
   fd_funk_txn_t * child_txn = slot_ctx->funk_txn;
