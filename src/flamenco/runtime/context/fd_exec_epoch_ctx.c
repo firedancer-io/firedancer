@@ -70,6 +70,8 @@ fd_exec_epoch_ctx_new( void * mem,
   fd_features_disable_all( &self->features );
   fd_features_enable_hardcoded( &self->features );
 
+  self->cluster_type = fd_ClusterType_v2_MainnetBeta;
+
   fd_epoch_bank_new( &self->epoch_bank );
 
   void * stake_votes_mem         = (void *)( (ulong)mem + layout->stake_votes_off         );
@@ -120,7 +122,7 @@ epoch_ctx_bank_mem_leave( fd_exec_epoch_ctx_t * epoch_ctx ) {
   void * stake_delegations_mem   = (void *)( (ulong)mem + layout->stake_delegations_off   );
   void * stake_history_treap_mem = (void *)( (ulong)mem + layout->stake_history_treap_off );
   void * stake_history_pool_mem  = (void *)( (ulong)mem + layout->stake_history_pool_off  );
-  
+
   fd_vote_accounts_pair_t_map_leave  ( stake_votes_mem         );
   fd_delegation_pair_t_map_leave     ( stake_delegations_mem   );
   fd_stake_history_treap_leave       ( stake_history_treap_mem );
@@ -178,7 +180,7 @@ fd_exec_epoch_ctx_delete( void * mem ) {
   return mem;
 }
 
-static void 
+static void
 epoch_ctx_bank_mem_delete( fd_exec_epoch_ctx_t * epoch_ctx ) {
   void * mem = epoch_ctx;
   fd_exec_epoch_ctx_layout_t const * layout = &epoch_ctx->layout;
@@ -187,7 +189,7 @@ epoch_ctx_bank_mem_delete( fd_exec_epoch_ctx_t * epoch_ctx ) {
   void * stake_delegations_mem   = (void *)( (ulong)mem + layout->stake_delegations_off   );
   void * stake_history_treap_mem = (void *)( (ulong)mem + layout->stake_history_treap_off );
   void * stake_history_pool_mem  = (void *)( (ulong)mem + layout->stake_history_pool_off  );
-  
+
   fd_vote_accounts_pair_t_map_delete( stake_votes_mem         );
   fd_delegation_pair_t_map_delete   ( stake_delegations_mem   );
   fd_stake_history_treap_delete     ( stake_history_treap_mem );

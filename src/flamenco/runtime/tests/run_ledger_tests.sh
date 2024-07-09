@@ -55,6 +55,8 @@ WITH_COVERAGE=0
 PRUNE_FAILURE=0
 PROTO_BUF_FAILURE=0
 TILE_CPUS="--tile-cpus 5-21"
+CLUSTER_TYPE="--cluster-type MainnetBeta"
+CLUSTER_VERSION="--cluster-version 2"
 MINIFY_ROCKSDB=0
 RESTORE_ARCHIVE=""
 
@@ -70,6 +72,16 @@ while [[ $# -gt 0 ]]; do
        ;;
     -c|--with_coverage)
        WITH_COVERAGE="$2"
+       shift
+       shift
+       ;;
+    --cluster_type)
+       CLUSTER_TYPE="$2"
+       shift
+       shift
+       ;;
+    --cluster_version)
+       CLUSTER_VERSION="$2"
        shift
        shift
        ;;
@@ -408,7 +420,7 @@ then
       --copy-txn-status 1
 
     minify_status=$?
-  
+
     if [ $minify_status -eq 0 ]; then
       gsutil -m cp ${MINI_ROCKSDB_PATH} gs://firedancer-ci-resources/${MINI_ROCKSDB_PATH}
     else

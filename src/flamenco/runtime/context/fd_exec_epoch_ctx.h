@@ -23,6 +23,17 @@ struct fd_exec_epoch_ctx_layout {
 
 typedef struct fd_exec_epoch_ctx_layout fd_exec_epoch_ctx_layout_t;
 
+typedef enum {
+    fd_ClusterType_v1_Testnet     = 0x10,
+    fd_ClusterType_v1_MainnetBeta = 0x11,
+    fd_ClusterType_v1_Devnet      = 0x12,
+    fd_ClusterType_v1_Development = 0x13,
+    fd_ClusterType_v2_Testnet     = 0x20,
+    fd_ClusterType_v2_MainnetBeta = 0x21,
+    fd_ClusterType_v2_Devnet      = 0x22,
+    fd_ClusterType_v2_Development = 0x23
+} fd_ClusterType_t;
+
 struct __attribute__((aligned(64UL))) fd_exec_epoch_ctx {
   ulong magic; /* ==FD_EXEC_EPOCH_CTX_MAGIC */
 
@@ -32,6 +43,8 @@ struct __attribute__((aligned(64UL))) fd_exec_epoch_ctx {
   fd_epoch_bank_t epoch_bank;
 
   fd_bank_hash_cmp_t * bank_hash_cmp;
+
+  fd_ClusterType_t cluster_type;
 };
 
 #define FD_EXEC_EPOCH_CTX_ALIGN (4096UL)
@@ -64,7 +77,7 @@ fd_exec_epoch_ctx_footprint( ulong vote_acc_max );
 /* fd_exec_epoch_ctx_bank_mem_clear empties out the existing bank
    data structures (votes, delegations, stake history, next_epoch_stakes).
    This method should be used before decoding a bank from funk so as
-   to not step on the work done while decoding. 
+   to not step on the work done while decoding.
 */
 void
 fd_exec_epoch_ctx_bank_mem_clear( fd_exec_epoch_ctx_t * epoch_ctx );

@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <strings.h>
 #include "../../choreo/fd_choreo.h"
 #include "../../disco/fd_disco.h"
 #include "../../util/fd_util.h"
@@ -86,6 +87,8 @@ struct fd_ledger_args {
   char const *          rocksdb_list[32];        /* max number of rocksdb dirs that can be passed in */
   ulong                 rocksdb_list_slot[32];   /* start slot for each rocksdb dir that's passed in assuming there are mulitple */
   ulong                 rocksdb_list_cnt;        /* number of rocksdb dirs passed in */
+  char const *          cluster_type;            /* What type of cluster is the genesis block? */
+  int                   cluster_version;         /* What version of solana is the genesis block? */
 
   /* These values are setup before replay */
   fd_capture_ctx_t *    capture_ctx;             /* capture_ctx is used in runtime_replay for various debugging tasks */
@@ -266,10 +269,10 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     prev_slot = slot;
 
     if( ledger_args->on_demand_block_ingest && slot<ledger_args->end_slot ) {
-      /* TODO: This currently doesn't support switching over on slots that occur 
+      /* TODO: This currently doesn't support switching over on slots that occur
          on a fork */
       /* If need to go to next rocksdb, switch over */
-      if( FD_UNLIKELY( ledger_args->rocksdb_list_cnt>1UL && 
+      if( FD_UNLIKELY( ledger_args->rocksdb_list_cnt>1UL &&
                        slot+1UL==ledger_args->rocksdb_list_slot[curr_rocksdb_idx] ) ) {
         curr_rocksdb_idx++;
         FD_LOG_WARNING(( "Switching to next rocksdb=%s", ledger_args->rocksdb_list[curr_rocksdb_idx] ));
@@ -506,7 +509,7 @@ ingest_rocksdb( fd_alloc_t *      alloc,
 }
 
 void
-parse_rocksdb_list( fd_ledger_args_t * args, 
+parse_rocksdb_list( fd_ledger_args_t * args,
                     char const *       rocksdb_list,
                     char const *       rocksdb_start_slots ) {
   /* First parse the paths to the different rocksdb */
@@ -598,7 +601,7 @@ init_funk( fd_ledger_args_t * args ) {
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
   }
-  FD_LOG_NOTICE(( "funky at global address 0x%016lx with %lu records", fd_wksp_gaddr_fast( wksp, shmem ), 
+  FD_LOG_NOTICE(( "funky at global address 0x%016lx with %lu records", fd_wksp_gaddr_fast( wksp, shmem ),
                                                                        fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   args->funk = funk;
 }
@@ -953,6 +956,29 @@ replay( fd_ledger_args_t * args ) {
   fd_memset( epoch_ctx_mem, 0, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   void * slot_ctx_mem = fd_wksp_alloc_laddr( args->wksp, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT, FD_EXEC_SLOT_CTX_MAGIC );
   args->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
+
+  if (strcasecmp(args->cluster_type, "Testnet") == 0) {
+    if (args->cluster_version == 1)
+      args->epoch_ctx->cluster_type = fd_ClusterType_v1_Testnet;
+    else
+      args->epoch_ctx->cluster_type = fd_ClusterType_v2_Testnet;
+  } else if (strcasecmp(args->cluster_type, "MainnetBeta") == 0) {
+    if (args->cluster_version == 1)
+      args->epoch_ctx->cluster_type = fd_ClusterType_v1_MainnetBeta;
+    else
+      args->epoch_ctx->cluster_type = fd_ClusterType_v2_MainnetBeta;
+  } else if (strcasecmp(args->cluster_type, "Devnet") == 0) {
+    if (args->cluster_version == 1)
+      args->epoch_ctx->cluster_type = fd_ClusterType_v1_Devnet;
+    else
+      args->epoch_ctx->cluster_type = fd_ClusterType_v2_Devnet;
+  } else if (strcasecmp(args->cluster_type, "Development") == 0) {
+    if (args->cluster_version == 1)
+      args->epoch_ctx->cluster_type = fd_ClusterType_v1_Development;
+    else
+      args->epoch_ctx->cluster_type = fd_ClusterType_v2_Development;
+  }
+
   args->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, valloc ) );
   args->slot_ctx->epoch_ctx = args->epoch_ctx;
   args->slot_ctx->valloc = valloc;
@@ -1319,6 +1345,9 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   int          use_funk_wksp           = fd_env_strip_cmdline_int  ( &argc, &argv, "--use-funk-wksp",           NULL, 1         );
   char const * rocksdb_list            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",                 NULL, NULL      );
   char const * rocksdb_list_starts     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb-starts",          NULL, NULL      );
+  char const * cluster_type            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cluster_type",            NULL, "MainnetBeta" );
+  int          cluster_version         = fd_env_strip_cmdline_int  ( &argc, &argv, "--cluster_version",         NULL, 2         );
+
 
   #ifdef _ENABLE_LTHASH
   char const * lthash             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",           NULL, "false"   );
@@ -1414,6 +1443,8 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->checkpt_path            = checkpt_path;
   args->checkpt_freq            = checkpt_freq;
   args->checkpt_mismatch        = checkpt_mismatch;
+  args->cluster_type            = cluster_type;
+  args->cluster_version         = cluster_version;
   args->allocator               = allocator;
   args->abort_on_mismatch       = abort_on_mismatch;
   args->on_demand_block_ingest  = on_demand_block_ingest;
