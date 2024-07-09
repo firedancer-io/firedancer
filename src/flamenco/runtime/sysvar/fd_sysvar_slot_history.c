@@ -117,3 +117,43 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
 
   return 0;
 }
+
+int
+fd_sysvar_slot_history_read( fd_exec_slot_ctx_t * slot_ctx,
+                            fd_valloc_t valloc, 
+                            fd_slot_history_t * out_history) {
+  /* Set current_slot, and update next_slot */
+
+  fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
+
+  FD_BORROWED_ACCOUNT_DECL(rec);
+  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, key, rec);
+  if (err)
+    FD_LOG_CRIT(( "fd_acc_mgr_view(slot_history) failed: %d", err ));
+
+  fd_bincode_decode_ctx_t ctx;
+  ctx.data    = rec->const_data;
+  ctx.dataend = rec->const_data + rec->const_meta->dlen;
+  ctx.valloc  = valloc;
+  if( fd_slot_history_decode( out_history, &ctx ) )
+    FD_LOG_ERR(("fd_slot_history_decode failed"));
+  
+  return 0;
+}
+
+int
+fd_sysvar_slot_history_find_slot( fd_slot_history_t const * history,
+                                  ulong slot ) {
+  if( slot > history->next_slot - 1) {
+    return FD_SLOT_HISTORY_SLOT_FUTURE;
+  } else if ( slot < fd_ulong_sat_sub( history->next_slot, slot_history_max_entries ) ) {
+    return FD_SLOT_HISTORY_SLOT_TOO_OLD;
+  } else {
+    ulong block_idx = (slot / bits_per_block) % (history->bits.bits->blocks_len);
+    if( history->bits.bits->blocks[ block_idx ] & ( 1UL << ( slot % bits_per_block ) ) ) {
+      return FD_SLOT_HISTORY_SLOT_FOUND;
+    } else {
+      return FD_SLOT_HISTORY_SLOT_NOTFOUND;
+    }
+  }
+}

@@ -16,6 +16,7 @@
 #include "../../../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../../../flamenco/runtime/program/fd_builtin_programs.h"
 #include "../../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../../../flamenco/runtime/fd_runtime_init.h"
 #include "../../../../flamenco/snapshot/fd_snapshot.h"
 #include "../../../../flamenco/stakes/fd_stakes.h"
@@ -364,7 +365,7 @@ during_frag( void * _ctx,
 
     FD_LOG_INFO(( "packed microblock - slot: %lu, parent_slot: %lu, txn_cnt: %lu", ctx->curr_slot, ctx->parent_slot, ctx->txn_cnt ));
   } else if( in_idx == GOSSIP_IN_IDX ) {
-    if( FD_UNLIKELY( chunk<ctx->gossip_in_chunk0 || chunk>ctx->gossip_in_wmark || sz>USHORT_MAX ) ) {
+    if( FD_UNLIKELY( chunk<ctx->gossip_in_chunk0 || chunk>ctx->gossip_in_wmark || sz>USHORT_MAX ) ) { 
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->gossip_in_chunk0, ctx->gossip_in_wmark ));
     }
     uchar * src = (uchar *)fd_chunk_to_laddr( ctx->gossip_in_mem, chunk );
@@ -429,6 +430,26 @@ blockstore_checkpt( fd_replay_tile_ctx_t * ctx ) {
       FD_LOG_ERR( ( "blockstore checkpt failed: error %d", rc ) );
     }
   }
+}
+
+struct fd_status_check_ctx {
+  fd_slot_history_t * slot_history;
+  fd_txncache_t * txncache;
+};
+typedef struct fd_status_check_ctx fd_status_check_ctx_t;
+
+static int
+status_check_tower(ulong slot, void * _ctx ) {
+  fd_status_check_ctx_t * ctx = (fd_status_check_ctx_t *)_ctx;
+  if( fd_txncache_is_rooted_slot( ctx->txncache, slot ) ) {
+    return 1;  
+  }
+
+  if( fd_sysvar_slot_history_find_slot( ctx->slot_history, slot ) == FD_SLOT_HISTORY_SLOT_FOUND ) {
+    return 1;
+  }
+
+  return 0;
 }
 
 static void
@@ -561,7 +582,7 @@ after_frag( void *             _ctx,
       FD_TEST( fork == child );
 
       // fork is advancing
-      FD_LOG_DEBUG(( "new block execution - slot: %lu, parent_slot: %lu", ctx->curr_slot, ctx->parent_slot ));
+      FD_LOG_NOTICE(( "new block execution - slot: %lu, parent_slot: %lu", ctx->curr_slot, ctx->parent_slot ));
 
       /* if it is an epoch boundary, push out stake weights */
       int is_new_epoch = 0;
@@ -609,9 +630,19 @@ after_frag( void *             _ctx,
       fd_solcap_writer_set_slot( ctx->capture_ctx->capture, fork->slot_ctx.slot_bank.slot );
     // Execute all txns which were succesfully prepared
     long execute_time_ns = -fd_log_wallclock();
+    
+    fd_slot_history_t slot_history[1];
+    fd_sysvar_slot_history_read(  &fork->slot_ctx, fd_scratch_virtual(), slot_history );
+    fd_status_check_ctx_t status_check_ctx = {
+      .txncache = fork->slot_ctx.status_cache,
+      .slot_history = slot_history,
+    };
     int res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx, ctx->capture_ctx,
                                                       txns, txn_cnt,
+                                                      status_check_tower,
+                                                      &status_check_ctx, 
                                                       ctx->tpool, ctx->max_workers );
+
     execute_time_ns += fd_log_wallclock();
     FD_LOG_DEBUG(("TIMING: execute_time - slot: %lu, elapsed: %6.6f ms", ctx->curr_slot, (double)execute_time_ns * 1e-6));
 

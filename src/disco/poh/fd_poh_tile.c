@@ -334,7 +334,7 @@ fd_poh_tile_reset( fd_poh_tile_ctx_t * ctx,
   ctx->reset_slot_hashcnt  = ctx->hashcnt;
 
   ctx->next_leader_slot_hashcnt = fd_poh_tile_next_leader_slot_hashcnt( ctx );
-  FD_LOG_INFO(( "fd_poh_tile_reset(slot=%lu,next_leader_slot=%lu)", ctx->reset_slot_hashcnt/ctx->hashcnt_per_slot, ctx->next_leader_slot_hashcnt/ctx->hashcnt_per_slot ));
+  FD_LOG_INFO(( "fd_poh_tile_reset(slot=%lu,next_leader_slot=%lu) slots_until_leader=%lu", ctx->reset_slot_hashcnt/ctx->hashcnt_per_slot, ctx->next_leader_slot_hashcnt/ctx->hashcnt_per_slot, (ctx->next_leader_slot_hashcnt-ctx->reset_slot_hashcnt)/ctx->hashcnt_per_slot ));
 
   return leader_before_reset;
 }
