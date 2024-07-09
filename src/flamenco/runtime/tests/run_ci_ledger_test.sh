@@ -30,7 +30,7 @@ while [[ $# -gt 0 ]]; do
        shift
        ;;
     -s|--snapshot)
-       SNAPSHOT=" --verify-acc-hash 0 --snapshot dump/$LEDGER/$2"
+       SNAPSHOT="--snapshot dump/$LEDGER/$2"
        shift
        shift
        ;;
