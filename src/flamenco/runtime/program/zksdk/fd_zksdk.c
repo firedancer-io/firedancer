@@ -93,10 +93,23 @@ int
 fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t ctx ) {
   uchar const * instr_data = ctx.instr->data;
   ulong instr_acc_cnt      = ctx.instr->acct_cnt;
-  uchar instr_id = instr_data[0];
-  int (*fd_zksdk_instr_verify_proof)( void const *, void const * ) = NULL;
+  uchar instr_id = instr_data[0]; /* instr_data_sz already checked by the caller */
+
+  /* ProofContextState "header" size, ie. 1 authority pubkey + 1 proof_type byte */
+#define CTX_HEAD_SZ 33UL
+
+  /* Aux memory buffer.
+     When proof data is taken from ix data we can access it directly,
+     but when it's taken from account data we need to copy it to release
+     the borrow. The largest ZKP is for range_proof_u256.
+     Moreover, when storing context to an account, we need to serialize
+     the ProofContextState struct that has 33 bytes of header -- we include
+     them here so we can do a single memcpy. */
+#define MAX_SZ (sizeof(fd_zksdk_range_proof_u256_proof_t)+sizeof(fd_zksdk_batched_range_proof_context_t))
+  uchar buffer[ CTX_HEAD_SZ+MAX_SZ ];
 
   /* Specific instruction function */
+  int (*fd_zksdk_instr_verify_proof)( void const *, void const * ) = NULL;
   switch( instr_id ) {
   case FD_ZKSDK_INSTR_VERIFY_ZERO_CIPHERTEXT:
     fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_zero_ciphertext;
@@ -138,77 +151,100 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t ctx ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  /* parse context and proof data
-     important: instr_id is guaranteed to be valid, to access values in the arrays */
-  if (ctx.instr->data_sz != 1 + fd_zksdk_context_sz[instr_id] + fd_zksdk_proof_sz[instr_id]) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L42 */
+  uint accessed_accounts = 0U;
+  uchar const * context = NULL;
+  /* Note: instr_id is guaranteed to be valid, to access values in the arrays. */
+  ulong context_sz = fd_zksdk_context_sz[instr_id];
+  ulong proof_data_sz = context_sz + fd_zksdk_proof_sz[instr_id];
+
+  if( ctx.instr->data_sz == 5UL ) {
+    /* Case 1. Proof data from account data. */
+
+    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L46-L47 */
+    FD_BORROWED_ACCOUNT_DECL( proof_data_acc );
+    FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( &ctx, 0UL, proof_data_acc ) {
+
+      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L48 */
+      accessed_accounts = 1U;
+
+      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L50-L61
+         Note: it doesn't look like the ref code can throw any error. */
+      uint proof_data_offset = *((uint *)(&instr_data[1]));
+
+      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L62-L65 */
+      if( proof_data_offset+proof_data_sz > proof_data_acc->meta->dlen ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      }
+      context = fd_memcpy( buffer+CTX_HEAD_SZ, &proof_data_acc->data[proof_data_offset], proof_data_sz );
+
+    } FD_BORROWED_ACCOUNT_DROP( proof_data_acc );
+  } else {
+    /* Case 2. Proof data from ix data. */
+
+    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L78-L82
+       Note: instr_id is guaranteed to be valid, to access values in the arrays. */
+    if (ctx.instr->data_sz != 1 + proof_data_sz) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
+    context = instr_data + 1;    
   }
-  void const * context = instr_data + 1;
-  void const * proof   = instr_data + 1 + fd_zksdk_context_sz[instr_id];
 
-  /* verify individual ZKP */
-  int zkp_res = (*fd_zksdk_instr_verify_proof)( context, proof );
-
-  if( FD_UNLIKELY( zkp_res!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
+  /* Verify individual ZKP
+     https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L83-L86 */
+  void const * proof = context + fd_zksdk_context_sz[instr_id];
+  int err = (*fd_zksdk_instr_verify_proof)( context, proof );
+  if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  /* create context state if accounts are provided with the instruction
+  /* Create context state if accounts are provided with the instruction
      https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L92 */
+  if( instr_acc_cnt > accessed_accounts ) {
 
-  if( instr_acc_cnt == 0 ) {
-    return FD_EXECUTOR_INSTR_SUCCESS;
+    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L93-L98 */
+    fd_pubkey_t context_state_authority[1];
+    FD_BORROWED_ACCOUNT_DECL( _acc );
+    FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( &ctx, accessed_accounts+1, _acc ) {
+      fd_memcpy( context_state_authority, _acc->pubkey, sizeof(fd_pubkey_t) );
+    } FD_BORROWED_ACCOUNT_DROP( _acc );
+
+    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L100-L101 */
+    FD_BORROWED_ACCOUNT_DECL( proof_context_acc );
+    FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( &ctx, accessed_accounts, proof_context_acc ) {
+
+      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L103-L105 */
+      if( FD_UNLIKELY( !fd_memeq( proof_context_acc->meta->info.owner, &fd_solana_zk_elgamal_proof_program_id, sizeof(fd_pubkey_t) ) ) ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+      }
+
+      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L107-L112 */
+      if( FD_UNLIKELY( proof_context_acc->meta->dlen >= CTX_HEAD_SZ && proof_context_acc->data[32] != 0 ) ) {
+        return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
+      }
+
+      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L114-L115 
+         Note: nothing to do. */
+
+      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L117-L119 */
+      ulong context_data_sx = CTX_HEAD_SZ + context_sz;
+      if( FD_UNLIKELY( proof_context_acc->meta->dlen != context_data_sx ) ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      }
+
+      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L121 */
+      fd_memcpy( buffer, context_state_authority, sizeof(fd_pubkey_t) ); // buffer[0..31]
+      buffer[ 32 ] = instr_id;                                           // buffer[32]
+      if( ctx.instr->data_sz != 5UL ) {                                  // buffer[33..]
+        fd_memcpy( buffer+CTX_HEAD_SZ, context, context_sz );
+      }
+      err = fd_account_set_data_from_slice( &ctx, accessed_accounts, buffer, context_data_sx );
+      if( FD_UNLIKELY( err ) ) {
+        return err;
+      }
+
+    } FD_BORROWED_ACCOUNT_DROP( proof_context_acc );
   }
 
-  FD_LOG_DEBUG(( "create zk proof context account" ));
-#if 0
-  int rc = 0;
-  uchar auth_idx  = 1;
-  uchar proof_idx = 0;
-  ulong data_sz = 32UL + 1UL + fd_zksdk_context_sz[instr_id];
-
-  fd_borrowed_account_t * auth_acc = NULL;
-  rc = fd_try_borrow_instruction_account( &ctx, auth_idx, &auth_acc );
-  if( FD_UNLIKELY( rc != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    return rc;
-  }
-
-  fd_borrowed_account_t * proof_acc = NULL;
-  rc = fd_try_borrow_instruction_account( &ctx, proof_idx, &proof_acc );
-  if( FD_UNLIKELY( rc != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    return rc;
-  }
-
-  /* https://github.com/solana-labs/solana/blob/v1.17.13/programs/zk-token-proof/src/lib.rs#L62 */
-  if( FD_UNLIKELY( !fd_memeq( proof_acc->const_meta->info.owner, fd_solana_zk_elgamal_proof_program_id.uc, sizeof(fd_pubkey_t) ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
-  }
-
-  /* proof_acc->data contains:
-     - 32-byte context state authority
-     - 1-byte proof type (0 == uninitialized)
-     - the actual proof context state data
-
-     Rust parses the data structure:
-     - Parsing invalid context state authority + proof type returns "invalid account data"
-     - Parsing a valid context state authority + proof type that's not unintialized returs "account already initialized"
-     - Parsing an (empty? garbage?) authority and uninitialized proof type should work. */
-  /* https://github.com/solana-labs/solana/blob/v1.17.13/programs/zk-token-proof/src/lib.rs#L69 */
-  if( FD_UNLIKELY( proof_acc->const_meta->dlen < 33UL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
-  if( FD_UNLIKELY( proof_acc->const_meta->dlen >= 33UL && proof_acc->const_data[32] != 0 ) ) {
-    return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
-  }
-
-  rc = fd_try_borrow_instruction_account_modify( &ctx, proof_idx, data_sz, &proof_acc );
-  if( FD_UNLIKELY( rc != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    return rc;
-  }
-
-  fd_memcpy( &proof_acc->data[  0 ], auth_acc->pubkey->uc, sizeof(fd_pubkey_t) );
-  /* instr_data first byte is instr_id == proof type, followed by the context */
-  fd_memcpy( &proof_acc->data[ 32 ], instr_data, 1UL + fd_zksdk_context_sz[instr_id] );
-#endif
   return FD_EXECUTOR_INSTR_SUCCESS;
 }

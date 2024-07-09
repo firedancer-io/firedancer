@@ -90,7 +90,7 @@ test_pubkey_validity( FD_FN_UNUSED fd_rng_t * rng ) {
 
   // invalid data
   instr->data_sz = (ushort)(instr->data_sz - 10);
-  FD_TEST( fd_zksdk_process_verify_proof( ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+  FD_TEST( fd_zksdk_process_verify_proof( ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   instr->data_sz = (ushort)(instr->data_sz + 10);
 
   /* Benchmarks */
