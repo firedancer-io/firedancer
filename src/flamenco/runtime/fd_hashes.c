@@ -955,8 +955,8 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_fu
         continue;
     } else {
       fd_hash_t *h = (fd_hash_t *) metadata->hash;
-      // Is this optimal?
       if ((h->ul[0] | h->ul[1] | h->ul[2] | h->ul[3]) == 0) {
+        // By the time we fall into this case, we can assume the ignore_slot feature is enabled...
         fd_hash_account_current( (uchar *) metadata->hash, metadata, rec->pair.key->uc, fd_account_get_data(metadata), slot_ctx );
       } else if( do_hash_verify ) {
         uchar hash[32];
