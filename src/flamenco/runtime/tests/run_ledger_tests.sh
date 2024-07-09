@@ -148,11 +148,6 @@ while [[ $# -gt 0 ]]; do
        shift
        shift
        ;;
-    -l|--log)
-       LOG="$2"
-       shift
-       shift
-       ;;
     --noreplay)
         NOREPLAY=1
         shift
