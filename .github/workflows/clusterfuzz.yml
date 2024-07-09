@@ -59,6 +59,7 @@ jobs:
       group: github-v1
     env:
       MACHINE: linux_clang_haswell
+      OBJ_DIR: build/linux/clang/haswell
       EXTRAS: fuzz asan
     steps:
       - uses: actions/checkout@v4
@@ -77,12 +78,12 @@ jobs:
 
       - name: List Artifacts
         run: |
-          ls ${{ env.MACHINE }}/fuzz-test
-          ls ${{ env.MACHINE }}/lib
+          ls ${{ env.OBJ_DIR }}/fuzz-test
+          ls ${{ env.OBJ_DIR }}/lib
 
       - name: upload lib artifact
         uses: actions/upload-artifact@v4
         with:
-          path: ${{ env.MACHINE }}/lib/libfd_exec_sol_compat.so
+          path: ${{ env.OBJ_DIR }}/lib/libfd_exec_sol_compat.so
           name: libfd_exec_sol_compat
           retention-days: 14
