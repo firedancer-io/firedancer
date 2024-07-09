@@ -266,10 +266,10 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     prev_slot = slot;
 
     if( ledger_args->on_demand_block_ingest && slot<ledger_args->end_slot ) {
-      /* TODO: This currently doesn't support switching over on slots that occur 
+      /* TODO: This currently doesn't support switching over on slots that occur
          on a fork */
       /* If need to go to next rocksdb, switch over */
-      if( FD_UNLIKELY( ledger_args->rocksdb_list_cnt>1UL && 
+      if( FD_UNLIKELY( ledger_args->rocksdb_list_cnt>1UL &&
                        slot+1UL==ledger_args->rocksdb_list_slot[curr_rocksdb_idx] ) ) {
         curr_rocksdb_idx++;
         FD_LOG_WARNING(( "Switching to next rocksdb=%s", ledger_args->rocksdb_list[curr_rocksdb_idx] ));
@@ -329,6 +329,14 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
 /***************************** Helpers ****************************************/
 fd_valloc_t allocator_setup( fd_wksp_t * wksp, char const * allocator ) {
+  if( strcmp( allocator, "libc" ) == 0 ) {
+    return fd_libc_alloc_virtual();
+  }
+
+  if( strcmp( allocator, "wksp" ) != 0 ) {
+    FD_LOG_ERR( ( "unknown allocator specified" ) );
+  }
+
   FD_TEST( wksp );
 
   void * alloc_shmem =
@@ -338,14 +346,7 @@ fd_valloc_t allocator_setup( fd_wksp_t * wksp, char const * allocator ) {
   if( FD_UNLIKELY( !alloc_shalloc ) ) { FD_LOG_ERR( ( "fd_allow_new failed" ) ); }
   fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, 3UL );
   if( FD_UNLIKELY( !alloc ) ) { FD_LOG_ERR( ( "fd_alloc_join failed" ) ); }
-
-  if( strcmp( allocator, "libc" ) == 0 ) {
-    return fd_libc_alloc_virtual();
-  } else if( strcmp( allocator, "wksp" ) == 0 ) {
-    return fd_alloc_virtual( alloc );
-  } else {
-    FD_LOG_ERR( ( "unknown allocator specified" ) );
-  }
+  return fd_alloc_virtual( alloc );
 }
 
 void
@@ -404,10 +405,10 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   fd_runtime_recover_banks( args->slot_ctx, 0, args->genesis==NULL );
 
   /* Finish other runtime setup steps  */
+  fd_funk_start_write( funk );
   fd_features_restore( args->slot_ctx );
   fd_runtime_update_leaders( args->slot_ctx, args->slot_ctx->slot_bank.slot );
   fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
-  fd_funk_start_write( funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry( args->slot_ctx, args->slot_ctx->funk_txn );
   fd_funk_end_write( funk );
 }
@@ -506,7 +507,7 @@ ingest_rocksdb( fd_alloc_t *      alloc,
 }
 
 void
-parse_rocksdb_list( fd_ledger_args_t * args, 
+parse_rocksdb_list( fd_ledger_args_t * args,
                     char const *       rocksdb_list,
                     char const *       rocksdb_start_slots ) {
   /* First parse the paths to the different rocksdb */
@@ -598,7 +599,7 @@ init_funk( fd_ledger_args_t * args ) {
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
   }
-  FD_LOG_NOTICE(( "funky at global address 0x%016lx with %lu records", fd_wksp_gaddr_fast( wksp, shmem ), 
+  FD_LOG_NOTICE(( "funky at global address 0x%016lx with %lu records", fd_wksp_gaddr_fast( wksp, shmem ),
                                                                        fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   args->funk = funk;
 }
@@ -650,7 +651,13 @@ checkpt( fd_ledger_args_t * args ) {
     }
     FD_LOG_NOTICE(( "writing funk checkpt %s", args->checkpt_funk ));
     unlink( args->checkpt_funk );
+#ifdef FD_FUNK_WKSP_PROTECT
+    fd_wksp_mprotect( args->funk_wksp, 0 );
+#endif
     int err = fd_wksp_checkpt( args->funk_wksp, args->checkpt_funk, 0666, 0, NULL );
+#ifdef FD_FUNK_WKSP_PROTECT
+    fd_wksp_mprotect( args->funk_wksp, 1 );
+#endif
     if( err ) {
       FD_LOG_ERR(( "funk checkpt failed: error %d", err ));
     }
@@ -769,12 +776,13 @@ ingest( fd_ledger_args_t * args ) {
   fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( fd_funk_wksp( funk ), funk->alloc_gaddr ), 0UL );
   if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", funk->alloc_gaddr ));
 
-  uchar * epoch_ctx_mem = fd_wksp_alloc_laddr( fd_funk_wksp( funk ), fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( args->vote_acct_max ), FD_EXEC_EPOCH_CTX_MAGIC );
+  fd_valloc_t valloc = allocator_setup( args->wksp, args->allocator );
+  uchar * epoch_ctx_mem = fd_valloc_malloc( valloc, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   fd_memset( epoch_ctx_mem, 0, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
 
   uchar slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN)));
-  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
+  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, valloc ) );
   slot_ctx->epoch_ctx = epoch_ctx;
 
   fd_acc_mgr_t mgr[1];
@@ -1307,7 +1315,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   char const * checkpt_path            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-path",            NULL, NULL      );
   ulong        checkpt_freq            = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-freq",            NULL, ULONG_MAX );
   int          checkpt_mismatch        = fd_env_strip_cmdline_int  ( &argc, &argv, "--checkpt-mismatch",        NULL, 0         );
-  char const * allocator               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--allocator",               NULL, "wksp"    );
+  char const * allocator               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--allocator",               NULL, "libc"    );
   int          abort_on_mismatch       = fd_env_strip_cmdline_int  ( &argc, &argv, "--abort-on-mismatch",       NULL, 1         );
   int          on_demand_block_ingest  = fd_env_strip_cmdline_int  ( &argc, &argv, "--on-demand-block-ingest",  NULL, 1         );
   ulong        on_demand_block_history = fd_env_strip_cmdline_ulong( &argc, &argv, "--on-demand-block-history", NULL, 100       );

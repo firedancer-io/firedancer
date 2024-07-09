@@ -460,12 +460,12 @@ after_frag( void *             _ctx,
     };
 
     fd_txn_p_t * txn = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->sender_out_mem, ctx->sender_out_chunk );
-    
+
     /* for now, if consensus.vote == true, modify the timestamp and echo the vote txn back with gossip */
     /* later, we should send out our own vote txns through gossip  */
     long MAGIC_TIMESTAMP = 12345678;
     vote.timestamp = &MAGIC_TIMESTAMP;
-    
+
     txn->payload_sz = fd_vote_txn_generate( &voter,
                                             &vote,
                                             ctx->gossip_vote_txn + recent_blockhash_off,
@@ -536,6 +536,7 @@ after_frag( void *             _ctx,
       xid.ul[0] = fork->slot_ctx.slot_bank.slot;
       /* push a new transaction on the stack */
       fd_funk_start_write( ctx->funk );
+      FD_TEST( !ctx->funk->speed_load );
       fork->slot_ctx.funk_txn = fd_funk_txn_prepare(ctx->funk, fork->slot_ctx.funk_txn, &xid, 1);
       fd_funk_end_write( ctx->funk );
 

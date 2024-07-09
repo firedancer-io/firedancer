@@ -131,9 +131,11 @@ fd_snapshot_load( const char *         snapshotfile,
     break;
   }
 
-  /* TODO: re-enable speed load after leak is resolved */
-  fd_funk_speed_load_mode( slot_ctx->acc_mgr->funk, 0 );
   fd_funk_start_write( slot_ctx->acc_mgr->funk );
+  /* Speed load currently has long term memory usage consequences
+     which are unacceptable. Consider turning it back on when we have a
+     better design. */
+  fd_funk_speed_load_mode( slot_ctx->acc_mgr->funk, 0 );
 
   fd_funk_txn_t * child_txn = slot_ctx->funk_txn;
 
@@ -185,6 +187,6 @@ fd_snapshot_load( const char *         snapshotfile,
 
   fd_hashes_load(slot_ctx);
 
-  fd_funk_end_write( slot_ctx->acc_mgr->funk );
   fd_funk_speed_load_mode( slot_ctx->acc_mgr->funk, 0 );
+  fd_funk_end_write( slot_ctx->acc_mgr->funk );
 }
