@@ -432,6 +432,42 @@ blockstore_checkpt( fd_replay_tile_ctx_t * ctx ) {
 }
 
 static void
+funk_publish( fd_replay_tile_ctx_t * ctx, ulong root ) {
+  fd_blockstore_start_read( ctx->blockstore );
+  fd_hash_t const * root_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, root );
+  fd_funk_txn_xid_t xid;
+  fd_memcpy( xid.uc, root_block_hash, sizeof( fd_funk_txn_xid_t ) );
+  fd_blockstore_end_read( ctx->blockstore );
+
+  xid.ul[0]                = root;
+  fd_funk_txn_t * txn_map  = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
+  fd_funk_txn_t * root_txn = fd_funk_txn_query( &xid, txn_map );
+
+  fd_funk_start_write( ctx->funk );
+  ulong rc = fd_funk_txn_publish( ctx->funk, root_txn, 1 );
+  if( FD_UNLIKELY( !rc ) ) {
+    FD_LOG_WARNING(( "failed to funk publish slot %lu", root ));
+  }
+  fd_funk_end_write( ctx->funk );
+
+  if( FD_LIKELY( ctx->slot_ctx->status_cache ) ) {
+    fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, root );
+  }
+
+  if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx->slot_ctx, epoch_accounts_hash ) ) ) {
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
+    if( root >= epoch_bank->eah_start_slot ) {
+      fd_accounts_hash( ctx->slot_ctx, &ctx->slot_ctx->slot_bank.epoch_account_hash, NULL, 0, 0 );
+      epoch_bank->eah_start_slot = FD_SLOT_NULL;
+    }
+  }
+
+  if( FD_UNLIKELY( ctx->capture_ctx ) ) {
+    fd_runtime_checkpt( ctx->capture_ctx, ctx->slot_ctx, root );
+  }
+}
+
+static void
 after_frag( void *             _ctx,
             ulong              in_idx     FD_PARAM_UNUSED,
             ulong              seq,
@@ -559,12 +595,7 @@ after_frag( void *             _ctx,
       fork->slot_ctx.funk_txn = fd_funk_txn_prepare(ctx->funk, fork->slot_ctx.funk_txn, &xid, 1);
       fd_funk_end_write( ctx->funk );
 
-      int res = fd_runtime_publish_old_txns( &fork->slot_ctx, ctx->capture_ctx );
-      if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
-        FD_LOG_ERR(( "txn publishing failed" ));
-      }
-
-      res = fd_runtime_block_execute_prepare( &fork->slot_ctx );
+      int res = fd_runtime_block_execute_prepare( &fork->slot_ctx );
 
       if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
         FD_LOG_ERR(( "block prep execute failed" ));
@@ -770,6 +801,10 @@ after_frag( void *             _ctx,
         /* Publish ghost. */
 
         FD_TEST( fd_ghost_publish( ctx->ghost, root  ) );
+
+        /* Publish funk. */
+
+        funk_publish( ctx, root );
       }
 
       /* Prepare bank for next execution. */
