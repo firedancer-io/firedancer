@@ -135,11 +135,7 @@ typedef void
    reasonable amount of data ahead of time.  NULL return value implies
    inability to keep up with demand for random values.  In this case,
    function should return NULL.  Function should minimize side effects
-   (notably, should not log).
-
-   TODO API considerations:
-   - read() style error codes?
-   - Buffering to reduce amount of virtual function calls? */
+   (notably, should not log). */
 
 typedef void *
 (* fd_tls_rand_fn_t)( void * ctx,
@@ -153,21 +149,14 @@ struct fd_tls_rand_vt {
 
 typedef struct fd_tls_rand_vt fd_tls_rand_t;
 
-static inline void *
-fd_tls_rand( fd_tls_rand_t const * rand,
-             void *                buf,
-             ulong                 bufsz ) {
-  return rand->rand_fn( rand->ctx, buf, bufsz );
-}
-
 /* fd_tls_sign_fn_t is called by by fd_tls to request signing of a
    TLS 1.3 certificate verify payload.
-   
+
    ctx is an arbitrary pointer that is provided as a callback argument.
    sig points to a 64 byte buffer where the implementor should store the
    ed25519 signature of the payload.  Payload will point to a 130 byte
    buffer containing the TLS 1.3 CertificateVerify payload.
-   
+
    This function must not fail.  Lifetime of the payload buffer ends at
    return. */
 
@@ -230,7 +219,7 @@ fd_tls_sign( fd_tls_sign_t const * sign,
    across multiple TLS handshakes. */
 
 struct fd_tls {
-  fd_tls_rand_t       rand;
+  fd_tls_rand_t       rand;  /* may be NULL */
   fd_tls_secrets_fn_t secrets_fn;
   fd_tls_sendmsg_fn_t sendmsg_fn;
 

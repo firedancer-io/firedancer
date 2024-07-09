@@ -204,6 +204,23 @@ fd_tls_alert( fd_tls_estate_base_t * hs,
   return -(long)alert;
 }
 
+static void *
+fd_tls_rand_default( void * ctx,
+                     void * buf,
+                     ulong  bufsz ) {
+  (void)ctx;
+  return fd_rng_secure( buf, bufsz );
+}
+
+static void *
+fd_tls_rand( fd_tls_rand_t const * rand,
+             void *                buf,
+             ulong                 bufsz ) {
+  fd_tls_rand_fn_t rand_fn = rand->rand_fn;
+  if( !rand_fn ) rand_fn = fd_tls_rand_default;  /* cmov */
+  return rand_fn( rand->ctx, buf, bufsz );
+}
+
 /* fd_tls_send_cert_verify generates and sends a CertificateVerify
    message.  Returns 0L on success and negated TLS alert number on
    failure.  this is the local client or server object.  hs is the
