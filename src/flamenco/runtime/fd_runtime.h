@@ -117,6 +117,8 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         fd_capture_ctx_t * capture_ctx,
                                         fd_txn_p_t * txns,
                                         ulong txn_cnt,
+                                        int ( * query_func )( ulong slot, void * ctx ),
+                                        void * query_arg,
                                         fd_tpool_t * tpool,
                                         ulong max_workers );
 

@@ -850,7 +850,7 @@ fd_collect_fee_task( void *tpool,
   task_info->priority_fee = priority_fee;
 }
 
-static int
+static int FD_FN_UNUSED
 fd_runtime_status_cache_check( ulong slot,
                                void * ctx ) {
   fd_exec_txn_ctx_t * txn_ctx   = (fd_exec_txn_ctx_t *) ctx;
@@ -868,6 +868,8 @@ int
 fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                       fd_execute_txn_task_info_t * task_info,
                                       ulong txn_cnt,
+                                      int ( * query_func )( ulong slot, void * ctx ),
+                                      void * query_arg,
                                       fd_tpool_t * tpool,
                                       ulong max_workers ) {
   int res = 0;
@@ -908,8 +910,9 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
         curr_query.txnhash = hash;
 
         // TODO: figure out if it is faster to batch query properly and loop all txns again
-        fd_txncache_query_batch( slot_ctx->status_cache, &curr_query, 1UL, txn_ctx, fd_runtime_status_cache_check, &err );
+        fd_txncache_query_batch( slot_ctx->status_cache, &curr_query, 1UL, query_arg, query_func, &err );
         if( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
+          // FD_LOG_WARNING(("HELLO %64J", (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off));
           task_info[ txn_idx ].txn->flags = 0;
           res |= FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED;
           continue;
@@ -1011,7 +1014,7 @@ fd_runtime_prepare_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
     return res;
   }
 
-  res = fd_runtime_prepare_txns_phase2_tpool( slot_ctx, task_info, txn_cnt, tpool, max_workers );
+  res = fd_runtime_prepare_txns_phase2_tpool( slot_ctx, task_info, txn_cnt, NULL, NULL, tpool, max_workers );
   if( res != 0 ) {
     return res;
   }
@@ -1553,6 +1556,8 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         fd_capture_ctx_t * capture_ctx,
                                         fd_txn_p_t * txns,
                                         ulong txn_cnt,
+                                        int ( * query_func )( ulong slot, void * ctx ),
+                                        void * query_arg,
                                         fd_tpool_t * tpool,
                                         ulong max_workers ) {
   FD_SCRATCH_SCOPE_BEGIN {
@@ -1595,7 +1600,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
       next_incomplete_txn_idxs = temp_incomplete_txn_idxs;
       incomplete_txn_idxs_cnt = next_incomplete_txn_idxs_cnt;
 
-      res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, tpool, max_workers );
+      res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, query_func, query_arg, tpool, max_workers );
       if( res != 0 ) {
         FD_LOG_WARNING(("Fail prep 2"));
       }
@@ -1961,7 +1966,7 @@ int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_runtime_block_collect_txns( block_info, txn_ptrs );
 
-    res = fd_runtime_execute_txns_in_waves_tpool( slot_ctx, capture_ctx, txn_ptrs, txn_cnt, tpool, max_workers );
+    res = fd_runtime_execute_txns_in_waves_tpool( slot_ctx, capture_ctx, txn_ptrs, txn_cnt, NULL, NULL, tpool, max_workers );
     if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
       return res;
     }
