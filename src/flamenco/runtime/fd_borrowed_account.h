@@ -52,12 +52,14 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
    FD_SCRATCH_SCOPE_{BEGIN,END}. It is also safe to use the original
    acquire/release api within the scoped macro in case you don't want
    variables to go out of scope. An example of this is in the extend
-   instruction within the bpf loader.  */
+   instruction within the bpf loader.
+   Equivalent to Agave's instruction_context::try_borrow_instruction_account()
+   https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/src/transaction_context.rs#L647 */
 #define FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( _ctx, _idx, _account ) do {   \
   fd_borrowed_account_t * _account = NULL;                                \
   int _err = fd_instr_borrowed_account_view_idx( _ctx, _idx, &_account ); \
   if( FD_UNLIKELY( _err != FD_ACC_MGR_SUCCESS ) ) {                       \
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;                             \
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;                     \
   }                                                                       \
   int _acquire_result = fd_borrowed_account_acquire_write(_account);      \
   if( FD_UNLIKELY( !_acquire_result ) ) {                                 \
