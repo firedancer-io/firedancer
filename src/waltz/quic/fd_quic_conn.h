@@ -78,9 +78,10 @@ struct fd_quic_conn {
   fd_quic_t *        quic;
   void *             context;             /* user context */
 
-  int                server;              /* role from self POV: 0=client, 1=server */
-  int                established;         /* used by clients to determine whether to
+  uint               server      : 1;     /* role from self POV: 0=client, 1=server */
+  uint               established : 1;     /* used by clients to determine whether to
                                              switch the destination conn id used */
+  uint               transport_params_set : 1;
 
   uint               version;             /* QUIC version of the connection */
 
