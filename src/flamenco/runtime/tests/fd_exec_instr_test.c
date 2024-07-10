@@ -331,10 +331,10 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Load in executable accounts */
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
-    if (memcmp(borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t)) != 0
-      && memcmp(borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t)) != 0
-      && memcmp(borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) != 0
-      && memcmp(borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t)) != 0
+    if ( memcmp( borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) != 0
+      && memcmp( borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) != 0
+      && memcmp( borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) != 0
+      && memcmp( borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) != 0
     ) {
       continue;
     }
