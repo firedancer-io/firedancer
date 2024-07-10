@@ -338,10 +338,19 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
     ) {
       continue;
     }
+
+    fd_account_meta_t const * meta = borrowed_accts[i].const_meta ? borrowed_accts[i].const_meta : borrowed_accts[i].meta;
+    if (meta == NULL) {
+      static const fd_account_meta_t sentinel = { .magic = FD_ACCOUNT_META_MAGIC };
+      borrowed_accts[i].const_meta        = &sentinel;
+      borrowed_accts[i].starting_lamports = 0UL;
+      borrowed_accts[i].starting_dlen     = 0UL;
+      continue;
+    }
     
-    if( borrowed_accts[i].const_meta->info.executable ) {
+    if( meta->info.executable ) {
       FD_BORROWED_ACCOUNT_DECL(owner_borrowed_account);
-      int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t *)borrowed_accts[i].const_meta->info.owner, owner_borrowed_account );
+      int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t *)meta->info.owner, owner_borrowed_account );
       if( FD_UNLIKELY( err ) ) {
         borrowed_accts[i].starting_owner_dlen = 0;
       } else {
@@ -349,7 +358,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
       }
     }
 
-    if ( FD_UNLIKELY( 0 == memcmp(borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) ) ) {
+    if ( FD_UNLIKELY( 0 == memcmp(meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) ) ) {
       fd_bpf_upgradeable_loader_state_t program_loader_state = {0};
       int err = 0;
       if( FD_UNLIKELY( !read_bpf_upgradeable_loader_state_for_program( txn_ctx, (uchar) i, &program_loader_state, &err ) ) ) {
