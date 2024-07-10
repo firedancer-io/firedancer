@@ -118,11 +118,22 @@ jobs:
       - uses: ./.github/actions/hugepages
       - uses: dtolnay/rust-toolchain@1.73.0
 
+      - name: clean targets
+        run: |
+          make clean --silent >/dev/null
+
+      - uses: ./.github/actions/submodule
+        with:
+          machine: ${{ matrix.machine }}
+          compiler: ${{ matrix.compiler }}
+          compiler-version: ${{ matrix.compiler-version }}
+          action: 'restore'
+        if: ${{ contains(matrix.targets, 'fdctl') }}
+
       - name: build targets
         run: |
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
-          make clean --silent >/dev/null
-          ./contrib/make-j ${{ matrix.targets }}
+          FIREDANCER_CI_COMMIT=none ./contrib/make-j ${{ matrix.targets }}
       
       - name: run unit tests
         if: ${{ matrix.run-unit-tests }}
@@ -158,3 +169,11 @@ jobs:
           sudo prlimit --pid $$ --memlock=-1:-1
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           make run-integration-test
+
+      - uses: ./.github/actions/submodule
+        with:
+          machine: ${{ matrix.machine }}
+          compiler: ${{ matrix.compiler }}
+          compiler-version: ${{ matrix.compiler-version }}
+          action: 'cache'
+        if: ${{ contains(matrix.targets, 'fdctl') }}
