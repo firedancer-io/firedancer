@@ -343,7 +343,9 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( ushort, tiles.repair.repair_serve_listen_port            );
 
   CFG_POP      ( cstr,   tiles.replay.blockstore_checkpt                  );
+  CFG_POP      ( bool,   tiles.replay.blockstore_publish                  );
   CFG_POP      ( cstr,   tiles.replay.capture                             );
+  CFG_POP      ( cstr,   tiles.replay.funk_checkpt                        );
   CFG_POP      ( ulong,  tiles.replay.funk_rec_max                        );
   CFG_POP      ( ulong,  tiles.replay.funk_sz_gb                          );
   CFG_POP      ( ulong,  tiles.replay.funk_txn_max                        );

@@ -243,7 +243,9 @@ typedef struct {
 
     struct {
       char  blockstore_checkpt[ PATH_MAX ];
+      int   blockstore_publish;
       char  capture[ PATH_MAX ];
+      char  funk_checkpt[ PATH_MAX ];
       ulong funk_rec_max;
       ulong funk_sz_gb;
       ulong funk_txn_max;
