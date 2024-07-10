@@ -94,20 +94,20 @@ update_config_for_dev( config_t * const config ) {
      validator to this one, so make this smaller than the default.  */
   config->snapshots.full_snapshot_interval_slots = 200U;
 
-  /* Automatically compute the shred version from genesis if it
-     exists and we don't know it.  If it doesn't exist, we'll keep it
-     set to zero and get from gossip. */
-  char genesis_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->ledger.path ) );
-  ushort shred_version = compute_shred_version( genesis_path, NULL );
-  for( ulong i=0UL; i<config->layout.shred_tile_count; i++ ) {
-    ulong shred_id = fd_topo_find_tile( &config->topo, "shred", i );
-    if( FD_UNLIKELY( shred_id==ULONG_MAX ) ) FD_LOG_ERR(( "could not find shred tile %lu", i ));
-    fd_topo_tile_t * shred = &config->topo.tiles[ shred_id ];
-    if( FD_LIKELY( shred->shred.expected_shred_version==(ushort)0 ) ) {
-      shred->shred.expected_shred_version = shred_version;
-    }
-  }
+  // /* Automatically compute the shred version from genesis if it
+  //    exists and we don't know it.  If it doesn't exist, we'll keep it
+  //    set to zero and get from gossip. */
+  // char genesis_path[ PATH_MAX ];
+  // FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->ledger.path ) );
+  // ushort shred_version = compute_shred_version( genesis_path, NULL );
+  // for( ulong i=0UL; i<config->layout.shred_tile_count; i++ ) {
+  //   ulong shred_id = fd_topo_find_tile( &config->topo, "shred", i );
+  //   if( FD_UNLIKELY( shred_id==ULONG_MAX ) ) FD_LOG_ERR(( "could not find shred tile %lu", i ));
+  //   fd_topo_tile_t * shred = &config->topo.tiles[ shred_id ];
+  //   if( FD_LIKELY( shred->shred.expected_shred_version==(ushort)0 ) ) {
+  //     shred->shred.expected_shred_version = shred_version;
+  //   }
+  // }
 
   if( FD_LIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) )
     FD_TEST( fd_cstr_printf_check( config->consensus.vote_account_path,

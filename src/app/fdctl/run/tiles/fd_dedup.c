@@ -40,10 +40,10 @@ typedef struct {
   ulong             unparsed_in_cnt;
   fd_dedup_in_ctx_t in[ 64UL ];
 
-  fd_wksp_t * out_mem;
-  ulong       out_chunk0;
-  ulong       out_wmark;
-  ulong       out_chunk;
+  // fd_wksp_t * out_mem;
+  // ulong       out_chunk0;
+  // ulong       out_wmark;
+  // ulong       out_chunk;
 } fd_dedup_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -101,10 +101,10 @@ during_frag( void * _ctx,
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz > FD_TPU_DCACHE_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-  uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
-  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  // uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
+  // uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
-  fd_memcpy( dst, src, sz );
+  // fd_memcpy( dst, src, sz );
 }
 
 /* After the transaction has been fully received, and we know we were
@@ -127,6 +127,8 @@ after_frag( void *             _ctx,
   (void)seq;
   (void)opt_tsorig;
   (void)mux;
+  (void)opt_chunk;
+  (void)opt_sz;
 
   fd_dedup_ctx_t * ctx = (fd_dedup_ctx_t *)_ctx;
 
@@ -192,9 +194,9 @@ after_frag( void *             _ctx,
   FD_TCACHE_INSERT( is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, *opt_sig );
   *opt_filter = is_dup;
   if( FD_LIKELY( !*opt_filter ) ) {
-    *opt_chunk     = ctx->out_chunk;
+    // *opt_chunk     = ctx->out_chunk;
     *opt_sig       = 0; /* indicate this txn is coming from dedup, and has already been parsed */
-    ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
+    // ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
   }
 }
 
@@ -252,10 +254,10 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[i].wmark  = fd_dcache_compact_wmark ( ctx->in[i].mem, link->dcache, link->mtu );
   }
 
-  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
-  ctx->out_chunk  = ctx->out_chunk0;
+  // ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
+  // ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
+  // ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
+  // ctx->out_chunk  = ctx->out_chunk0;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

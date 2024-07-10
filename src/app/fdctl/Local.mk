@@ -52,6 +52,7 @@ endif
 # fdctl topologies
 $(call add-objs,run/topos/fd_frankendancer,fd_fdctl)
 $(call add-objs,run/topos/fd_firedancer,fd_fdctl)
+$(call add-objs,run/topos/fd_c1100,fd_fdctl)
 
 # fdctl configure stages
 $(call add-objs,configure/configure,fd_fdctl)
