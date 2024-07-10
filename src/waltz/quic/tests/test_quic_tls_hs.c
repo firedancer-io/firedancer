@@ -97,12 +97,7 @@ main( int     argc,
 
   /* dump transport params */
   fd_quic_transport_params_t tmp_tp[1] = {0};
-  uchar const * transport_params      = test_tp;
-  ulong         transport_params_sz   = sizeof( test_tp ) - 1; /* test_tp has terminating NUL */
-  uchar const * tp_p  = transport_params;
-  ulong         tp_sz = transport_params_sz;
-
-  FD_TEST( fd_quic_decode_transport_params( tmp_tp, tp_p, tp_sz )>=0 );
+  FD_TEST( fd_quic_decode_transport_params( tmp_tp, test_tp, sizeof(test_tp)-1 )>=0 );
 
   fd_quic_dump_transport_params( tmp_tp, stdout );
   fflush( stdout );
@@ -126,8 +121,7 @@ main( int     argc,
                                                      tls_client,
                                                      0 /* is_server */,
                                                      "localhost",
-                                                     transport_params,
-                                                     transport_params_sz );
+                                                     tmp_tp );
   FD_TEST( hs_client );
 
   //uchar   svr_dst_conn_id[1] = {0};
@@ -136,8 +130,7 @@ main( int     argc,
                                                      tls_server,
                                                      1 /* is_server */,
                                                      "localhost",
-                                                     transport_params,
-                                                     transport_params_sz );
+                                                     tmp_tp );
   FD_TEST( hs_server );
 
   // generate initial secrets for client
