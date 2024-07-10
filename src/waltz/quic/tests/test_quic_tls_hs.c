@@ -62,6 +62,15 @@ my_alert( fd_quic_tls_hs_t * hs,
   FD_LOG_INFO(( "Reason: %d-%s", hs->hs.base.reason, fd_tls_reason_cstr( hs->hs.base.reason ) ));
 }
 
+void
+my_transport_params( void *        context,
+                     uchar const * quic_tp,
+                     ulong         quic_tp_sz ) {
+  (void)context;
+  FD_TEST( quic_tp_sz == sizeof(test_tp)-1 );
+  FD_TEST( 0==memcmp( quic_tp, test_tp, quic_tp_sz ) );
+}
+
 static uchar test_quic_tls_mem[ 288144UL ] __attribute__((aligned(128)));
 
 int
@@ -79,6 +88,7 @@ main( int     argc,
     .alert_cb              = my_alert,
     .secret_cb             = my_secrets,
     .handshake_complete_cb = my_hs_complete,
+    .peer_params_cb        = my_transport_params,
 
     .max_concur_handshakes = 16,
     .cert_public_key       = sign_ctx.public_key,
@@ -243,24 +253,6 @@ main( int     argc,
   FD_TEST( hs_server->hs.base.state == FD_TLS_HS_CONNECTED );
   FD_TEST( hs_client->hs.base.state == FD_TLS_HS_CONNECTED );
   FD_LOG_INFO(( "connected" ));
-
-  uchar const * peer_tp    = NULL;
-  ulong         peer_tp_sz = 0;
-
-  fd_quic_tls_get_peer_transport_params( hs_server, &peer_tp, &peer_tp_sz );
-  FD_LOG_HEXDUMP_DEBUG(( "tls server peer transport params", peer_tp, peer_tp_sz ));
-
-  FD_TEST( peer_tp_sz == transport_params_sz );
-  FD_TEST( 0==memcmp( peer_tp, transport_params, transport_params_sz ) );
-
-  peer_tp    = NULL;
-  peer_tp_sz = 0;
-
-  fd_quic_tls_get_peer_transport_params( hs_client, &peer_tp, &peer_tp_sz );
-  FD_LOG_HEXDUMP_DEBUG(( "tls client peer transport params", peer_tp, peer_tp_sz ));
-
-  FD_TEST( peer_tp_sz == transport_params_sz );
-  FD_TEST( 0==memcmp( peer_tp, transport_params, transport_params_sz ) );
 
            fd_quic_tls_hs_delete( hs_client );
            fd_quic_tls_hs_delete( hs_server );

@@ -79,6 +79,11 @@ typedef void
 (* fd_quic_tls_cb_handshake_complete_t)( fd_quic_tls_hs_t * hs,
                                          void *             context  );
 
+typedef void
+(* fd_quic_tls_cb_peer_params_t)( void *        context,
+                                  uchar const * quic_tp,
+                                  ulong         quic_tp_sz );
+
 struct fd_quic_tls_secret {
   uint  suite_id;
   uint  enc_level;
@@ -92,6 +97,7 @@ struct fd_quic_tls_cfg {
   fd_quic_tls_cb_alert_t               alert_cb;
   fd_quic_tls_cb_secret_t              secret_cb;
   fd_quic_tls_cb_handshake_complete_t  handshake_complete_cb;
+  fd_quic_tls_cb_peer_params_t         peer_params_cb;
 
   ulong          max_concur_handshakes;
 
@@ -120,6 +126,7 @@ struct __attribute__((aligned(128))) fd_quic_tls {
   fd_quic_tls_cb_alert_t               alert_cb;
   fd_quic_tls_cb_secret_t              secret_cb;
   fd_quic_tls_cb_handshake_complete_t  handshake_complete_cb;
+  fd_quic_tls_cb_peer_params_t         peer_params_cb;
 
   ulong                                max_concur_handshakes;
 
@@ -189,17 +196,6 @@ struct fd_quic_tls_hs {
 
   /* TLS alert code */
   uint  alert;
-
-  /* buffer peer's QUIC transport params.  TODO This is annoying and a
-     remnant from OpenSSL times.  fd_quic_conn already has a transport
-     params buffer.  Instead, we should callback chain as such when the
-     peer sends transport params:
-
-       fd_tls => fd_quic_tls => fd_quic
-
-     And have fd_quic decode the transport params on the spot. */
-  uchar peer_transport_params_sz;
-  uchar peer_transport_params[ 255 ];
 
   /* buffer our own QUIC transport params.  This is even more annoying. */
   uchar self_transport_params_sz;
@@ -310,20 +306,6 @@ fd_quic_tls_pop_hs_data( fd_quic_tls_hs_t * self, uint enc_level );
        handshake_complete_cb  the handshake is complete - stream handling can begin */
 int
 fd_quic_tls_process( fd_quic_tls_hs_t * self );
-
-
-/* get peer transport params
-
-   retrieves the peer transport params
-
-   args
-     self                 the fd_quic_tls_hs_t to query
-     transport_params     pointer to pointer to the transport params in question
-     transport_params_sz  pointer to the length in bytes of the transport params */
-void
-fd_quic_tls_get_peer_transport_params( fd_quic_tls_hs_t * self,
-                                       uchar const **     transport_params,
-                                       ulong *            transport_params_sz );
 
 #endif /* HEADER_fd_src_waltz_quic_tls_fd_quic_tls_h */
 
