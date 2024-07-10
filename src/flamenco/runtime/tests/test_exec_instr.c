@@ -2,6 +2,7 @@
 #include "../../fd_flamenco_base.h"
 #include "fd_exec_instr_test.h"
 #include <errno.h>
+#include <assert.h>
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -9,6 +10,7 @@
 #include "../../nanopb/pb_firedancer.h"
 #include "../../nanopb/pb_decode.h"
 #include "generated/invoke.pb.h"
+#include <stdio.h>
 
 static int
 run_test( fd_exec_instr_test_runner_t * runner,
@@ -50,10 +52,40 @@ run_test( fd_exec_instr_test_runner_t * runner,
   return ok;
 }
 
+/* Returns the current usage in bytes. Optionally, get the number of unfreed allocations by specifying num_allocations to be non-null. */
+ulong get_current_usage( fd_wksp_t * wksp,
+                         ulong       tag,
+                         ulong *     num_allocations ) {
+  fd_wksp_usage_t usage[1]; memset(usage, 0, sizeof(fd_wksp_usage_t));
+  ulong tags[1] = { tag };
+  fd_wksp_usage( wksp, tags, 1, usage );
+  if( num_allocations ) *num_allocations = usage->used_cnt;
+  return usage->used_sz;
+}
+
+// bool
+// memory_leaked( ulong       pre_exec_usage,
+//                ulong       pre_exec_num_allocations,
+//                fd_wksp_t * wksp,
+//                ulong       tag,
+//                char *      filename ) {
+//   ulong num_allocations;
+//   ulong post_exec_usage = get_current_usage( wksp, tag, &num_allocations );
+//   if( pre_exec_usage != post_exec_usage ) {
+//     printf( "FAIL %s: %lu bytes leaked in %lu allocations\n", filename, post_exec_usage-pre_exec_usage, num_allocations - pre_exec_num_allocations );
+//     return true;
+//   }
+//   return false;
+// }
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  fd_log_level_logfile_set(5);
+  fd_log_level_core_set(4);  /* abort on FD_LOG_ERR */
+
+  ulong wksp_tag = 2; // This is hardcoded in some places within fd_exec_instr_test.c
 
   /* TODO switch to leap API and set up a thread pool once available */
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
@@ -61,25 +93,35 @@ main( int     argc,
   fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 4UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
 
   ulong   scratch_fmem[ 64UL ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
-  uchar * scratch_smem = fd_wksp_alloc_laddr( wksp, FD_SCRATCH_SMEM_ALIGN, 1UL<<31, 1 );
+  uchar * scratch_smem = fd_wksp_alloc_laddr( wksp, FD_SCRATCH_SMEM_ALIGN, 1UL<<31, wksp_tag );
   fd_scratch_attach( scratch_smem, scratch_fmem, 1UL<<31, 64UL );
 
-  void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_exec_instr_test_runner_align(), fd_exec_instr_test_runner_footprint(), 2 );
-  fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, 3 );
+  void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_exec_instr_test_runner_align(), fd_exec_instr_test_runner_footprint(), wksp_tag );
+  fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, wksp_tag );
+
+  printf("-----------\n");
 
   ulong fail_cnt = 0UL;
   for( int j=1; j<argc; j++ ) {
     FD_TEST( fd_scratch_frame_used()==0UL );
+
+    /* Keep track of usage stats to make sure we're not leaking memory */
+    // ulong pre_exec_num_allocations;
+    // ulong pre_exec_usage = get_current_usage( wksp, wksp_tag, &pre_exec_num_allocations );
+
     fd_scratch_push();
+    printf("Running %s\n", argv[j]);
     fail_cnt += !run_test( runner, argv[j] );
+    printf("Finished %s\n", argv[j]);
     fd_scratch_pop();
   }
-
-  /* TODO verify that there are no leaked libc allocs and vallocs */
 
   FD_TEST( fd_scratch_frame_used()==0UL );
   fd_wksp_free_laddr( fd_exec_instr_test_runner_delete( runner ) );
   fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
+
+  assert( get_current_usage( wksp, wksp_tag, NULL ) == 0UL );
+
   fd_wksp_delete_anonymous( wksp );
   fd_halt();
   return fail_cnt>0UL;

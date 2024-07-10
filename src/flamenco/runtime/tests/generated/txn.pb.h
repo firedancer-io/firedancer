@@ -56,6 +56,7 @@ typedef struct fd_exec_test_transaction_message {
     /* Data associated with the accounts referred above. Not all accounts need to be here. */
     pb_size_t account_shared_data_count;
     struct fd_exec_test_acct_state *account_shared_data;
+    pb_byte_t recent_blockhash[32];
     /* The instructions this transaction executes */
     pb_size_t instructions_count;
     struct fd_exec_test_compiled_instruction *instructions;
@@ -92,6 +93,7 @@ typedef struct fd_exec_test_txn_context {
     uint64_t max_age;
     /* The limit of bytes allowed for this transaction to load */
     uint64_t log_messages_byte_limit;
+    pb_byte_t genesis_hash[32];
     bool has_epoch_ctx;
     fd_exec_test_epoch_context_t epoch_ctx;
     bool has_slot_ctx;
@@ -113,6 +115,11 @@ typedef struct fd_exec_test_rent_debits {
     int64_t rent_collected;
 } fd_exec_test_rent_debits_t;
 
+typedef struct fd_exec_test_fee_details {
+    uint64_t transaction_fee;
+    uint64_t prioritization_fee;
+} fd_exec_test_fee_details_t;
+
 /* The execution results for a transaction */
 typedef struct fd_exec_test_txn_result {
     /* Whether this transaction was executed */
@@ -133,7 +140,20 @@ typedef struct fd_exec_test_txn_result {
     uint64_t executed_units;
     /* The change in accounts data len for this transaction */
     int64_t accounts_data_len_delta;
+    /* The collected fees in this transaction */
+    bool has_fee_details;
+    fd_exec_test_fee_details_t fee_details;
 } fd_exec_test_txn_result_t;
+
+/* Txn fixtures */
+typedef struct fd_exec_test_txn_fixture {
+    /* Context */
+    bool has_input;
+    fd_exec_test_txn_context_t input;
+    /* Effects */
+    bool has_output;
+    fd_exec_test_txn_result_t output;
+} fd_exec_test_txn_fixture_t;
 
 
 #ifdef __cplusplus
@@ -145,22 +165,26 @@ extern "C" {
 #define FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_DEFAULT {0, 0, NULL, NULL}
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_DEFAULT {{0}, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_LOADED_ADDRESSES_INIT_DEFAULT {{{NULL}, NULL}, {{NULL}, NULL}}
-#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_DEFAULT, 0, NULL, 0, NULL, 0, NULL, 0, NULL, false, FD_EXEC_TEST_LOADED_ADDRESSES_INIT_DEFAULT}
+#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_DEFAULT, 0, NULL, 0, NULL, {0}, 0, NULL, 0, NULL, false, FD_EXEC_TEST_LOADED_ADDRESSES_INIT_DEFAULT}
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT {false, FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT, NULL, 0, 0, NULL}
-#define FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT    {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT, 0, 0, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT}
+#define FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT    {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT, 0, 0, {0}, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT}
 #define FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT {0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_RENT_DEBITS_INIT_DEFAULT    {{0}, 0}
-#define FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT     {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT, 0, 0, 0, NULL, 0, 0}
+#define FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT    {0, 0}
+#define FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT     {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT, 0, 0, 0, NULL, 0, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT}
+#define FD_EXEC_TEST_TXN_FIXTURE_INIT_DEFAULT    {false, FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT}
 #define FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO    {0, 0, 0}
 #define FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_ZERO {0, 0, NULL, NULL}
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_ZERO {{0}, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_LOADED_ADDRESSES_INIT_ZERO  {{{NULL}, NULL}, {{NULL}, NULL}}
-#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO, 0, NULL, 0, NULL, 0, NULL, 0, NULL, false, FD_EXEC_TEST_LOADED_ADDRESSES_INIT_ZERO}
+#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO, 0, NULL, 0, NULL, {0}, 0, NULL, 0, NULL, false, FD_EXEC_TEST_LOADED_ADDRESSES_INIT_ZERO}
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO {false, FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO, NULL, 0, 0, NULL}
-#define FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO       {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO, 0, 0, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO}
+#define FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO       {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO, 0, 0, {0}, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO}
 #define FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO   {0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_RENT_DEBITS_INIT_ZERO       {{0}, 0}
-#define FD_EXEC_TEST_TXN_RESULT_INIT_ZERO        {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO, 0, 0, 0, NULL, 0, 0}
+#define FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO       {0, 0}
+#define FD_EXEC_TEST_TXN_RESULT_INIT_ZERO        {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO, 0, 0, 0, NULL, 0, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO}
+#define FD_EXEC_TEST_TXN_FIXTURE_INIT_ZERO       {false, FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_TXN_RESULT_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_MESSAGE_HEADER_NUM_REQUIRED_SIGNATURES_TAG 1
@@ -178,9 +202,10 @@ extern "C" {
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_HEADER_TAG 2
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_ACCOUNT_KEYS_TAG 3
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_ACCOUNT_SHARED_DATA_TAG 4
-#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INSTRUCTIONS_TAG 5
-#define FD_EXEC_TEST_TRANSACTION_MESSAGE_ADDRESS_TABLE_LOOKUPS_TAG 6
-#define FD_EXEC_TEST_TRANSACTION_MESSAGE_LOADED_ADDRESSES_TAG 7
+#define FD_EXEC_TEST_TRANSACTION_MESSAGE_RECENT_BLOCKHASH_TAG 5
+#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INSTRUCTIONS_TAG 6
+#define FD_EXEC_TEST_TRANSACTION_MESSAGE_ADDRESS_TABLE_LOOKUPS_TAG 7
+#define FD_EXEC_TEST_TRANSACTION_MESSAGE_LOADED_ADDRESSES_TAG 8
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_MESSAGE_TAG 1
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_MESSAGE_HASH_TAG 2
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_IS_SIMPLE_VOTE_TX_TAG 3
@@ -188,13 +213,16 @@ extern "C" {
 #define FD_EXEC_TEST_TXN_CONTEXT_TX_TAG          1
 #define FD_EXEC_TEST_TXN_CONTEXT_MAX_AGE_TAG     2
 #define FD_EXEC_TEST_TXN_CONTEXT_LOG_MESSAGES_BYTE_LIMIT_TAG 3
-#define FD_EXEC_TEST_TXN_CONTEXT_EPOCH_CTX_TAG   4
-#define FD_EXEC_TEST_TXN_CONTEXT_SLOT_CTX_TAG    5
+#define FD_EXEC_TEST_TXN_CONTEXT_GENESIS_HASH_TAG 4
+#define FD_EXEC_TEST_TXN_CONTEXT_EPOCH_CTX_TAG   5
+#define FD_EXEC_TEST_TXN_CONTEXT_SLOT_CTX_TAG    6
 #define FD_EXEC_TEST_RESULTING_STATE_ACCT_STATES_TAG 1
 #define FD_EXEC_TEST_RESULTING_STATE_RENT_DEBITS_TAG 2
 #define FD_EXEC_TEST_RESULTING_STATE_TRANSACTION_RENT_TAG 3
 #define FD_EXEC_TEST_RENT_DEBITS_PUBKEY_TAG      1
 #define FD_EXEC_TEST_RENT_DEBITS_RENT_COLLECTED_TAG 2
+#define FD_EXEC_TEST_FEE_DETAILS_TRANSACTION_FEE_TAG 1
+#define FD_EXEC_TEST_FEE_DETAILS_PRIORITIZATION_FEE_TAG 2
 #define FD_EXEC_TEST_TXN_RESULT_EXECUTED_TAG     1
 #define FD_EXEC_TEST_TXN_RESULT_SANITIZATION_ERROR_TAG 2
 #define FD_EXEC_TEST_TXN_RESULT_RESULTING_STATE_TAG 3
@@ -204,6 +232,9 @@ extern "C" {
 #define FD_EXEC_TEST_TXN_RESULT_RETURN_DATA_TAG  7
 #define FD_EXEC_TEST_TXN_RESULT_EXECUTED_UNITS_TAG 8
 #define FD_EXEC_TEST_TXN_RESULT_ACCOUNTS_DATA_LEN_DELTA_TAG 9
+#define FD_EXEC_TEST_TXN_RESULT_FEE_DETAILS_TAG  10
+#define FD_EXEC_TEST_TXN_FIXTURE_INPUT_TAG       1
+#define FD_EXEC_TEST_TXN_FIXTURE_OUTPUT_TAG      2
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_MESSAGE_HEADER_FIELDLIST(X, a) \
@@ -238,9 +269,10 @@ X(a, STATIC,   SINGULAR, BOOL,     is_legacy,         1) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  header,            2) \
 X(a, POINTER,  REPEATED, BYTES,    account_keys,      3) \
 X(a, POINTER,  REPEATED, MESSAGE,  account_shared_data,   4) \
-X(a, POINTER,  REPEATED, MESSAGE,  instructions,      5) \
-X(a, POINTER,  REPEATED, MESSAGE,  address_table_lookups,   6) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  loaded_addresses,   7)
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, recent_blockhash,   5) \
+X(a, POINTER,  REPEATED, MESSAGE,  instructions,      6) \
+X(a, POINTER,  REPEATED, MESSAGE,  address_table_lookups,   7) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  loaded_addresses,   8)
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_CALLBACK NULL
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_DEFAULT NULL
 #define fd_exec_test_transaction_message_t_header_MSGTYPE fd_exec_test_message_header_t
@@ -262,8 +294,9 @@ X(a, POINTER,  REPEATED, BYTES,    signatures,        4)
 X(a, STATIC,   OPTIONAL, MESSAGE,  tx,                1) \
 X(a, STATIC,   SINGULAR, UINT64,   max_age,           2) \
 X(a, STATIC,   SINGULAR, UINT64,   log_messages_byte_limit,   3) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  epoch_ctx,         4) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  slot_ctx,          5)
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, genesis_hash,      4) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  epoch_ctx,         5) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  slot_ctx,          6)
 #define FD_EXEC_TEST_TXN_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_TXN_CONTEXT_DEFAULT NULL
 #define fd_exec_test_txn_context_t_tx_MSGTYPE fd_exec_test_sanitized_transaction_t
@@ -285,6 +318,12 @@ X(a, STATIC,   SINGULAR, INT64,    rent_collected,    2)
 #define FD_EXEC_TEST_RENT_DEBITS_CALLBACK NULL
 #define FD_EXEC_TEST_RENT_DEBITS_DEFAULT NULL
 
+#define FD_EXEC_TEST_FEE_DETAILS_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT64,   transaction_fee,   1) \
+X(a, STATIC,   SINGULAR, UINT64,   prioritization_fee,   2)
+#define FD_EXEC_TEST_FEE_DETAILS_CALLBACK NULL
+#define FD_EXEC_TEST_FEE_DETAILS_DEFAULT NULL
+
 #define FD_EXEC_TEST_TXN_RESULT_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BOOL,     executed,          1) \
 X(a, STATIC,   SINGULAR, BOOL,     sanitization_error,   2) \
@@ -294,10 +333,20 @@ X(a, STATIC,   SINGULAR, BOOL,     is_ok,             5) \
 X(a, STATIC,   SINGULAR, UINT32,   status,            6) \
 X(a, POINTER,  SINGULAR, BYTES,    return_data,       7) \
 X(a, STATIC,   SINGULAR, UINT64,   executed_units,    8) \
-X(a, STATIC,   SINGULAR, INT64,    accounts_data_len_delta,   9)
+X(a, STATIC,   SINGULAR, INT64,    accounts_data_len_delta,   9) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  fee_details,      10)
 #define FD_EXEC_TEST_TXN_RESULT_CALLBACK NULL
 #define FD_EXEC_TEST_TXN_RESULT_DEFAULT NULL
 #define fd_exec_test_txn_result_t_resulting_state_MSGTYPE fd_exec_test_resulting_state_t
+#define fd_exec_test_txn_result_t_fee_details_MSGTYPE fd_exec_test_fee_details_t
+
+#define FD_EXEC_TEST_TXN_FIXTURE_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  input,             1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  output,            2)
+#define FD_EXEC_TEST_TXN_FIXTURE_CALLBACK NULL
+#define FD_EXEC_TEST_TXN_FIXTURE_DEFAULT NULL
+#define fd_exec_test_txn_fixture_t_input_MSGTYPE fd_exec_test_txn_context_t
+#define fd_exec_test_txn_fixture_t_output_MSGTYPE fd_exec_test_txn_result_t
 
 extern const pb_msgdesc_t fd_exec_test_message_header_t_msg;
 extern const pb_msgdesc_t fd_exec_test_compiled_instruction_t_msg;
@@ -308,7 +357,9 @@ extern const pb_msgdesc_t fd_exec_test_sanitized_transaction_t_msg;
 extern const pb_msgdesc_t fd_exec_test_txn_context_t_msg;
 extern const pb_msgdesc_t fd_exec_test_resulting_state_t_msg;
 extern const pb_msgdesc_t fd_exec_test_rent_debits_t_msg;
+extern const pb_msgdesc_t fd_exec_test_fee_details_t_msg;
 extern const pb_msgdesc_t fd_exec_test_txn_result_t_msg;
+extern const pb_msgdesc_t fd_exec_test_txn_fixture_t_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define FD_EXEC_TEST_MESSAGE_HEADER_FIELDS &fd_exec_test_message_header_t_msg
@@ -320,7 +371,9 @@ extern const pb_msgdesc_t fd_exec_test_txn_result_t_msg;
 #define FD_EXEC_TEST_TXN_CONTEXT_FIELDS &fd_exec_test_txn_context_t_msg
 #define FD_EXEC_TEST_RESULTING_STATE_FIELDS &fd_exec_test_resulting_state_t_msg
 #define FD_EXEC_TEST_RENT_DEBITS_FIELDS &fd_exec_test_rent_debits_t_msg
+#define FD_EXEC_TEST_FEE_DETAILS_FIELDS &fd_exec_test_fee_details_t_msg
 #define FD_EXEC_TEST_TXN_RESULT_FIELDS &fd_exec_test_txn_result_t_msg
+#define FD_EXEC_TEST_TXN_FIXTURE_FIELDS &fd_exec_test_txn_fixture_t_msg
 
 /* Maximum encoded size of messages (where known) */
 /* fd_exec_test_CompiledInstruction_size depends on runtime parameters */
@@ -331,6 +384,8 @@ extern const pb_msgdesc_t fd_exec_test_txn_result_t_msg;
 /* fd_exec_test_TxnContext_size depends on runtime parameters */
 /* fd_exec_test_ResultingState_size depends on runtime parameters */
 /* fd_exec_test_TxnResult_size depends on runtime parameters */
+/* fd_exec_test_TxnFixture_size depends on runtime parameters */
+#define FD_EXEC_TEST_FEE_DETAILS_SIZE            22
 #define FD_EXEC_TEST_MESSAGE_HEADER_SIZE         18
 #define FD_EXEC_TEST_RENT_DEBITS_SIZE            45
 #define ORG_SOLANA_SEALEVEL_V1_TXN_PB_H_MAX_SIZE FD_EXEC_TEST_RENT_DEBITS_SIZE
@@ -345,7 +400,9 @@ extern const pb_msgdesc_t fd_exec_test_txn_result_t_msg;
 #define org_solana_sealevel_v1_TxnContext fd_exec_test_TxnContext
 #define org_solana_sealevel_v1_ResultingState fd_exec_test_ResultingState
 #define org_solana_sealevel_v1_RentDebits fd_exec_test_RentDebits
+#define org_solana_sealevel_v1_FeeDetails fd_exec_test_FeeDetails
 #define org_solana_sealevel_v1_TxnResult fd_exec_test_TxnResult
+#define org_solana_sealevel_v1_TxnFixture fd_exec_test_TxnFixture
 #define ORG_SOLANA_SEALEVEL_V1_MESSAGE_HEADER_INIT_DEFAULT FD_EXEC_TEST_MESSAGE_HEADER_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_COMPILED_INSTRUCTION_INIT_DEFAULT FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_DEFAULT FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_DEFAULT
@@ -355,7 +412,9 @@ extern const pb_msgdesc_t fd_exec_test_txn_result_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_TXN_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_RESULTING_STATE_INIT_DEFAULT FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_RENT_DEBITS_INIT_DEFAULT FD_EXEC_TEST_RENT_DEBITS_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_FEE_DETAILS_INIT_DEFAULT FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_TXN_RESULT_INIT_DEFAULT FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_TXN_FIXTURE_INIT_DEFAULT FD_EXEC_TEST_TXN_FIXTURE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_MESSAGE_HEADER_INIT_ZERO FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_COMPILED_INSTRUCTION_INIT_ZERO FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_ZERO FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_ZERO
@@ -365,7 +424,9 @@ extern const pb_msgdesc_t fd_exec_test_txn_result_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_TXN_CONTEXT_INIT_ZERO FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_RESULTING_STATE_INIT_ZERO FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_RENT_DEBITS_INIT_ZERO FD_EXEC_TEST_RENT_DEBITS_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_FEE_DETAILS_INIT_ZERO FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_TXN_RESULT_INIT_ZERO FD_EXEC_TEST_TXN_RESULT_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_TXN_FIXTURE_INIT_ZERO FD_EXEC_TEST_TXN_FIXTURE_INIT_ZERO
 
 #ifdef __cplusplus
 } /* extern "C" */
