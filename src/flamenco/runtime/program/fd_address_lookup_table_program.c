@@ -401,7 +401,10 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   state->inner.lookup_table.meta.has_authority = 1;
   state->inner.lookup_table.meta.deactivation_slot = ULONG_MAX;
 
-  fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, 0, &lut_acct );
+  int err = fd_account_get_data_mut ( ctx, ACC_IDX_LUT, NULL, NULL );
+  if (FD_EXECUTOR_INSTR_SUCCESS != err)
+    return err;
+
   FD_TEST( lut_acct->meta );
 
   int state_err = fd_addrlut_serialize_meta( state, lut_acct->data, sizeof(fd_address_lookup_table_state_t) );
@@ -470,6 +473,9 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* Update lookup table account **************************************/
 
+  // Switch to using the proper macros
+  int err = FD_EXECUTOR_INSTR_SUCCESS;
+
   int lock_ok = fd_borrowed_account_acquire_write( lut_acct );
                 /* must be paired with release */
   FD_TEST( !!lock_ok );  /* Lock would always succeed at this point */
@@ -478,7 +484,6 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   uchar const * lut_data    = lut_acct->const_data;
   ulong         lut_data_sz = lut_acct->const_meta->dlen;
 
-  int err = FD_EXECUTOR_INSTR_SUCCESS;
   do {  /* with locked account */
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L195 */
     fd_addrlut_t lut[1];
@@ -511,15 +516,15 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
       err = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA; break;
     }
 
-    /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L216 */
-    int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
-    if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
-      err = FD_EXECUTOR_INSTR_ERR_FATAL; break;
-    }
+    uchar *data = NULL;
+    ulong dlen = 0;
+    err = fd_account_get_data_mut(ctx, ACC_IDX_LUT, &data, &dlen);
+    if (FD_EXECUTOR_INSTR_SUCCESS != err)
+      return err;
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L213-L218 */
     state->meta.has_authority = 0;
-    state_err = fd_addrlut_serialize_meta( &lut->state, lut_acct->data, lut_acct->meta->dlen );
+    state_err = fd_addrlut_serialize_meta( &lut->state, data, dlen );
     if( FD_UNLIKELY( state_err ) ) { err = state_err; break; }
 
   } while(0);
@@ -831,17 +836,17 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
       if( FD_UNLIKELY( !fd_sysvar_clock_read( clock, ctx->slot_ctx ) ) )
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
-    /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L384 */
-    int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
-    if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
-      err = FD_EXECUTOR_INSTR_ERR_FATAL; break;
-    }
+    uchar *data = NULL;
+    ulong dlen = 0;
+    int err = fd_account_get_data_mut ( ctx, ACC_IDX_LUT, &data, &dlen );
+    if (FD_EXECUTOR_INSTR_SUCCESS != err)
+      return err;
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L381 */
     state->meta.deactivation_slot = clock->slot;
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L383-L386 */
-    state_err = fd_addrlut_serialize_meta( &lut->state, lut_acct->data, lut_acct->meta->dlen );
+    state_err = fd_addrlut_serialize_meta( &lut->state, data, dlen );
     if( FD_UNLIKELY( state_err ) ) { err = state_err; break; }
 
     err = FD_EXECUTOR_INSTR_SUCCESS;
@@ -1017,6 +1022,11 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write_is_safe( lut_acct ) ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;  /* Should be impossible */
   /* todo is_early_verification_of_account_modifications_enabled */
+
+  if ( fd_account_can_data_be_changed (ctx->instr, ACC_IDX_LUT, &err ) == 0) {
+    return err;
+  }
+
   modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
   if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_FATAL;
