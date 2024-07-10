@@ -34,16 +34,6 @@ fd_quic_tls_secrets( void const * handshake,
                      void const * send_secret,
                      uint         encryption_level );
 
-/* fd_quic_tls_rand is the RNG provided to fd_tls.  Note: This is
-   a layering violation ... The user should pass the CSPRNG handle to
-   both fd_quic and fd_tls.  Currently, implemented via the getrandom()
-   syscall ... Inefficient! */
-
-void *
-fd_quic_tls_rand( void * ctx,
-                  void * buf,
-                  ulong  bufsz );
-
 /* fd_quic_tls_tp_self is called by fd_tls to retrieve fd_quic's QUIC
    transport parameters. */
 
@@ -164,10 +154,6 @@ fd_quic_tls_init( fd_tls_t *    tls,
   tls = fd_tls_new( tls );
   *tls = (fd_tls_t) {
     .quic = 1,
-    .rand = {
-      .ctx     = NULL,
-      .rand_fn = fd_quic_tls_rand
-    },
     .sign = signer,
     .secrets_fn = fd_quic_tls_secrets,
     .sendmsg_fn = fd_quic_tls_sendmsg,
@@ -589,14 +575,6 @@ fd_quic_tls_get_peer_transport_params( fd_quic_tls_hs_t * self,
   *transport_params_sz  = self->peer_transport_params_sz;
 }
 
-void *
-fd_quic_tls_rand( void * ctx,
-                  void * buf,
-                  ulong  bufsz ) {
-  (void)ctx;
-  FD_TEST( fd_rng_secure( buf, bufsz ) );
-  return buf;
-}
 
 ulong
 fd_quic_tls_tp_self( void *  const handshake,
