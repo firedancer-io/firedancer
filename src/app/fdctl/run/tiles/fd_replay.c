@@ -766,34 +766,23 @@ after_frag( void *             _ctx,
       FD_PARAM_UNUSED long tic_ = fd_log_wallclock();
 
       fd_tower_fork_update( ctx->tower, fork, ctx->acc_mgr, ctx->blockstore, ctx->ghost );
-      long              now         = fd_log_wallclock();
       fd_ghost_node_t * head        = fd_ghost_head_query( ctx->ghost );
-      long              duration_ns = fd_log_wallclock() - now;
-      if( FD_UNLIKELY( head->slot < fork->slot - 32 ) ) {
-        FD_LOG_WARNING( ( "Fork choice slot is too far behind executed slot. Likely there is a "
-                          "bug in execution that is interfering with our ability to process recent votes." ) );
-        __asm__("int $3");
 
-        /* Don't try to proceed with fork choice and voting as our view of where the stake is probably wrong */
+      /* Check which fork to reset to for pack. */
 
+      fd_fork_t const * reset_fork = fd_tower_reset_fork_select( ctx->tower, ctx->forks, ctx->ghost );
+      memcpy( microblock_trailer->hash, reset_fork->slot_ctx.slot_bank.block_hash_queue.last_hash->uc, sizeof(fd_hash_t) );
+      if( ctx->poh_init_done == 1 ) {
+        ulong parent_slot = reset_fork->slot_ctx.slot_bank.prev_slot;
+        ulong curr_slot = reset_fork->slot_ctx.slot_bank.slot;
+        FD_LOG_INFO(( "publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", curr_slot, parent_slot, ctx->flags ));
+        ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+        ulong sig = fd_disco_replay_sig( curr_slot, ctx->flags );
+        fd_mcache_publish( ctx->poh_out_mcache, ctx->poh_out_depth, ctx->poh_out_seq, sig, ctx->poh_out_chunk, txn_cnt, 0UL, *opt_tsorig, tspub );
+        ctx->poh_out_chunk = fd_dcache_compact_next( ctx->poh_out_chunk, (txn_cnt * sizeof(fd_txn_p_t)) + sizeof(fd_microblock_trailer_t), ctx->poh_out_chunk0, ctx->poh_out_wmark );
+        ctx->poh_out_seq = fd_seq_inc( ctx->poh_out_seq, 1UL );
       } else {
-
-        /* Check which fork to reset to for pack. */
-
-        fd_fork_t const * reset_fork = fd_tower_reset_fork_select( ctx->tower, ctx->forks, ctx->ghost );
-        memcpy( microblock_trailer->hash, reset_fork->slot_ctx.slot_bank.block_hash_queue.last_hash->uc, sizeof(fd_hash_t) );
-        if( ctx->poh_init_done == 1 ) {
-          ulong parent_slot = reset_fork->slot_ctx.slot_bank.prev_slot;
-          ulong curr_slot = reset_fork->slot_ctx.slot_bank.slot;
-          FD_LOG_INFO(( "publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", curr_slot, parent_slot, ctx->flags ));
-          ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-          ulong sig = fd_disco_replay_sig( curr_slot, ctx->flags );
-          fd_mcache_publish( ctx->poh_out_mcache, ctx->poh_out_depth, ctx->poh_out_seq, sig, ctx->poh_out_chunk, txn_cnt, 0UL, *opt_tsorig, tspub );
-          ctx->poh_out_chunk = fd_dcache_compact_next( ctx->poh_out_chunk, (txn_cnt * sizeof(fd_txn_p_t)) + sizeof(fd_microblock_trailer_t), ctx->poh_out_chunk0, ctx->poh_out_wmark );
-          ctx->poh_out_seq = fd_seq_inc( ctx->poh_out_seq, 1UL );
-        } else {
-          FD_LOG_INFO(( "NOT publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", ctx->curr_slot, ctx->parent_slot, ctx->flags ));
-        }
+        FD_LOG_INFO(( "NOT publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", ctx->curr_slot, ctx->parent_slot, ctx->flags ));
       }
 
       fd_ghost_print( ctx->ghost );
@@ -803,15 +792,12 @@ after_frag( void *             _ctx,
 
       fd_fork_t const * vote_fork = fd_tower_vote_fork_select( ctx->tower, ctx->forks, ctx->acc_mgr, ctx->ghost );
       FD_LOG_NOTICE( ( "\n\n[Fork Selection]\n"
-                       "# of vote accounts: %lu \n"
+                       "# of vote accounts: %lu\n"
                        "best fork:          %lu\n"
-                       "vote fork:          %lu\n"
-                       "took:               %.2lf ms (%ld ns)\n",
+                       "vote fork:          %lu\n",
                        fd_tower_vote_accs_cnt( ctx->tower->vote_accs ),
                        head->slot,
-                       !!vote_fork ? vote_fork->slot : 0,
-                       (double)( duration_ns ) / 1e6,
-                       duration_ns ) );
+                       !!vote_fork ? vote_fork->slot : 0 ) );
 
       /* Record a vote, if we have a fork to vote on. */
 
