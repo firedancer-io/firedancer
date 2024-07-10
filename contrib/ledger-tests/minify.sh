@@ -98,43 +98,8 @@ minimize_snapshot_solana() {
   rm -rf "$out_dir"
   cd "$in_dir" || exit
 
-  #    rm -rf ledger_tool
-  #    if [[ "$IS_VERIFY" == "true" ]]; then
-  #        set -x
-  #        "$SOLANA_LEDGER_TOOL"  verify -l . --halt-at-slot $end_slot  >& validator1.log
-  #        set +x
-  #    fi
-  #    set -x
-  #    "$SOLANA_LEDGER_TOOL"  create-snapshot -l . $start_slot
-  #    set +x
-
   rm -rf ledger_tool
-  if [[ "$IS_VERIFY" == "true" ]]; then
-    "$SOLANA_LEDGER_TOOL" verify -l . --halt-at-slot $end_slot |& tee validator2.log
-  fi
-  set -x
-  "$SOLANA_LEDGER_TOOL" create-snapshot -l . $start_slot --minimized --ending-slot $end_slot
-  set +x
-
-  rm -rf ledger_tool
-  if [[ "$IS_VERIFY" == "true" ]]; then
-    set -x
-    "$SOLANA_LEDGER_TOOL" verify -l . --halt-at-slot $end_slot |& tee validator3.log
-    set +x
-    echo "[~] checking hash consistency across $in_dir..."
-    check_hash_consistency "$in_dir"
-  fi
-
   minimize_snapshot_frank $in_dir $out_dir $start_slot $end_slot
-
-  if [[ "$IS_VERIFY" == "true" ]]; then
-    cd "$out_dir" || exit
-    set -x
-    "$SOLANA_LEDGER_TOOL" verify -l . |& tee validator4.log
-    set +x
-    echo "[~] checking hash consistency across $in_dir and $out_dir..."
-    check_hash_consistency "$in_dir" "$out_dir"
-  fi
 }
 
 if [[ "$MODE" == "edge" ]]; then

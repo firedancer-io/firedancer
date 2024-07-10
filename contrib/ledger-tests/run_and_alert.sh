@@ -57,8 +57,8 @@ cd $FIREDANCER_DIR
 rm -rf $NETWORK-*.tar.gz
 git checkout $REPO_BRANCH
 git pull origin $REPO_BRANCH
-PATCH_FILES=""
 
+PATCH_FILES=""
 for patch in "$PATCH_DIR"/*.diff;
 do
   if [ -f "$patch" ]; then
@@ -66,6 +66,9 @@ do
     PATCH_FILES+="$(basename "$patch") "
   fi
 done
+if [ -z "$PATCH_FILES" ]; then
+  PATCH_FILES="None"
+fi
 
 GIT_COMMIT=$(git rev-parse HEAD)
 
@@ -101,14 +104,13 @@ slack_alert() {
 
 alert_success() {
     local end_info=$1
-    local end_slot=$(echo "$end_info" | grep -oE '[0-9]{9}' | tail -n 1)
+
     local ledger_min_basename=$(basename "$LEDGER_MIN_DIR")
     local metadata=$FIREDANCER_DIR/dump/$ledger_min_basename/metadata
 
-    local alert_message="Ledger Test Success"
-    local replay_start_slot=$(grep 'replay_start_slot=' $metadata | cut -d'=' -f2)
+    local alert_message="Ledger Test Success"    
     local replay_time=$(grep 'replay_time=' $metadata | cut -d'=' -f2)
-    local replay_slots_before_success=$((end_slot - replay_start_slot))
+    local replay_slots_before_success=$(echo "$end_info" | grep -oP 'slots: \K[0-9]+')
 
     curl -X POST -H 'Content-type: application/json' --data "{\"text\":\"Network: $NETWORK \nCommit: $GIT_COMMIT \nPatches: $PATCH_FILES \nAlert: $alert_message \nSlots Replayed: $replay_slots_before_success \nReplay Time: $replay_time's \"}" $SLACK_WEBHOOK_URL
 }
