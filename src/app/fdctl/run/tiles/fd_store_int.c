@@ -380,7 +380,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       ulong txn_cnt = fd_runtime_block_collect_txns( &block_info, txns );
  
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-      ulong caught_up_flag = (ctx->store->curr_turbine_slot - slot)==0 ? 0UL : REPLAY_FLAG_CATCHING_UP;
+      ulong caught_up_flag = (ctx->store->curr_turbine_slot - slot)<4 ? 0UL : REPLAY_FLAG_CATCHING_UP;
       ulong replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
 
       if( ( ctx->store->curr_turbine_slot - slot )==0 

@@ -216,7 +216,7 @@ test_ghost_print( fd_wksp_t * wksp ) {
   node         = fd_ghost_node_query( ghost, query );
   node->weight = 10;
 
-  fd_ghost_print_node( ghost, node, 8 );
+  fd_ghost_print_node( ghost, query, 8 );
   fd_ghost_print( ghost );
 
   fd_wksp_free_laddr( mem );

@@ -45,7 +45,7 @@ struct fd_sender_tile_ctx {
   fd_pubkey_t vote_acct_addr[ 1 ];
 
   fd_stake_ci_t * stake_ci;
-  ulong *         current_slot;
+  ulong *         poh_slot;
   fd_shred_dest_weighted_t * new_dest_ptr;
   ulong                      new_dest_cnt;
 
@@ -181,16 +181,16 @@ send_packet( fd_sender_tile_ctx_t * ctx,
 static int
 get_current_leader_tpu_vote_contact( fd_sender_tile_ctx_t *      ctx,
                                      fd_shred_dest_weighted_t ** out_dest ) {
-  ulong current_slot = fd_fseq_query( ctx->current_slot );
-  if( current_slot==ULONG_MAX ) { return -1; }
+  ulong poh_slot = fd_fseq_query( ctx->poh_slot );
+  if( poh_slot==ULONG_MAX ) { return -1; }
 
-  fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, current_slot );
+  fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, poh_slot );
   if( FD_UNLIKELY( !lsched      ) ) { return -1; }
 
-  fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( lsched, current_slot );
+  fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( lsched, poh_slot );
   if( FD_UNLIKELY( !slot_leader ) ) { return -1 ; } /* Count this as bad slot too */
 
-  fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, current_slot );
+  fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, poh_slot );
   fd_shred_dest_idx_t sdest_idx = fd_shred_dest_pubkey_to_idx( sdest, slot_leader );
   if( FD_UNLIKELY( sdest_idx==FD_SHRED_DEST_NO_DEST ) ) {
     return -1;
@@ -383,9 +383,9 @@ unprivileged_init( fd_topo_t *      topo,
   fd_net_create_packet_header_template( ctx->packet_hdr, FD_TXN_MTU, ctx->tpu_serve_addr.addr, ctx->src_mac_addr, 
       ctx->tpu_serve_addr.port );
 
-  ulong current_slot_obj_id = fd_pod_query_ulong( topo->props, "current_slot", ULONG_MAX );
-  FD_TEST( current_slot_obj_id!=ULONG_MAX );
-  ctx->current_slot = fd_fseq_join( fd_topo_obj_laddr( topo, current_slot_obj_id ) );
+  ulong poh_slot_obj_id = fd_pod_query_ulong( topo->props, "poh_slot", ULONG_MAX );
+  FD_TEST( poh_slot_obj_id!=ULONG_MAX );
+  ctx->poh_slot = fd_fseq_join( fd_topo_obj_laddr( topo, poh_slot_obj_id ) );
 
   /* Set up stake input */
   ctx->stake_in_idx = fd_topo_find_tile_in_link( topo, tile, "stake_out", 0 );
