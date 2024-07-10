@@ -6,6 +6,7 @@
 
 #include "../fd_quic_common.h"
 #include "../../tls/fd_tls.h"
+#include "../templ/fd_quic_transport_params.h"
 
 /* QUIC-TLS
 
@@ -197,9 +198,8 @@ struct fd_quic_tls_hs {
   /* TLS alert code */
   uint  alert;
 
-  /* buffer our own QUIC transport params.  This is even more annoying. */
-  uchar self_transport_params_sz;
-  uchar self_transport_params[ 255 ];
+  /* our own QUIC transport params */
+  fd_quic_transport_params_t self_transport_params;
 };
 
 ulong
@@ -229,8 +229,7 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
                     void *          context,
                     int             is_server,
                     char const *    hostname,
-                    uchar const *   transport_params_raw,
-                    ulong           transport_params_raw_sz );
+                    fd_quic_transport_params_t const * self_transport_params );
 
 /* delete a handshake object and free resources */
 void
