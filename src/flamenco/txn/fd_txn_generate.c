@@ -30,7 +30,7 @@ fd_txn_base_generate( uchar out_txn_meta[ static FD_TXN_MAX_SZ ],
                       uchar out_txn_payload[ static FD_TXN_MTU ],
                       ulong num_signatures,
                       fd_txn_accounts_t * accounts,
-                      uchar * opt_recent_blockhash ) {
+                      uchar const * opt_recent_blockhash ) {
 
   /* Number of signatures cannot exceed 127. */
   FD_TEST(num_signatures <= FD_TXN_SIG_MAX);

@@ -7,7 +7,7 @@
 ulong
 fd_vote_txn_generate( fd_voter_t *                     voter,
                       fd_compact_vote_state_update_t * vote_update,
-                      uchar *                          recent_blockhash,
+                      uchar const *                    recent_blockhash,
                       uchar                            txn_meta_out[static FD_TXN_MAX_SZ],
                       uchar                            txn_out[static FD_TXN_MTU] ) {
   fd_pubkey_t const * vote_program_addr = &fd_solana_vote_program_id;

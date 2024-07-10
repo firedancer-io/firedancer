@@ -34,8 +34,7 @@
 #define REPAIR_OUT_IDX  1
 #define PACK_OUT_IDX    2
 #define SIGN_OUT_IDX    3
-#define REPLAY_OUT_IDX  4
-#define VOTER_OUT_IDX   5
+#define VOTER_OUT_IDX   4
 
 #define CONTACT_INFO_PUBLISH_TIME_NS ((long)5e9)
 
@@ -124,16 +123,6 @@ struct fd_gossip_tile_ctx {
   fd_wksp_t * replay_in_mem;
   ulong       replay_in_chunk0;
   ulong       replay_in_wmark;
-
-  fd_frag_meta_t * replay_out_mcache;
-  ulong *          replay_out_sync;
-  ulong            replay_out_depth;
-  ulong            replay_out_seq;
-
-  fd_wksp_t * replay_out_mem;
-  ulong       replay_out_chunk0;
-  ulong       replay_out_wmark;
-  ulong       replay_out_chunk;
 
   fd_wksp_t *     wksp;
   fd_gossip_peer_addr_t gossip_my_addr;
@@ -306,12 +295,6 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
     ctx->pack_out_seq   = fd_seq_inc( ctx->pack_out_seq, 1UL );
     ctx->pack_out_chunk = fd_dcache_compact_next( ctx->pack_out_chunk, vote_txn_sz, ctx->pack_out_chunk0, ctx->pack_out_wmark );
 
-    uchar * vote_txn_msg_ = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
-    memcpy( vote_txn_msg_, gossip_vote->txn.raw, vote_txn_sz );
-    fd_mcache_publish( ctx->replay_out_mcache, ctx->replay_out_depth, ctx->replay_out_seq, sig, ctx->replay_out_chunk,
-      vote_txn_sz, 0UL, 0, 0 );
-    ctx->replay_out_seq   = fd_seq_inc( ctx->replay_out_seq, 1UL );
-    ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, vote_txn_sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
   } else if( fd_crds_data_is_contact_info_v1( data ) ) {
     fd_gossip_contact_info_v1_t const * contact_info = &data->inner.contact_info_v1;
     FD_LOG_DEBUG(("contact info v1 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info->gossip.addr.inner.ip4 ), contact_info->gossip.port ));
@@ -576,12 +559,11 @@ unprivileged_init( fd_topo_t *      topo,
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
   }
 
-  if( FD_UNLIKELY( tile->out_cnt != 6 ||
+  if( FD_UNLIKELY( tile->out_cnt != 5 ||
                    strcmp( topo->links[ tile->out_link_id[ SHRED_OUT_IDX  ] ].name, "crds_shred" )    ||
                    strcmp( topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].name, "gossip_repai" )  ||
                    strcmp( topo->links[ tile->out_link_id[ PACK_OUT_IDX   ] ].name, "gossip_pack" )   ||
                    strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX   ] ].name, "gossip_sign" )   ||
-                   strcmp( topo->links[ tile->out_link_id[ REPLAY_OUT_IDX ] ].name, "gossip_repla" )  ||
                    strcmp( topo->links[ tile->out_link_id[ VOTER_OUT_IDX ] ].name,  "gossip_voter" ) ) ) {
     FD_LOG_ERR(( "gossip tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
@@ -732,17 +714,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pack_out_chunk0      = fd_dcache_compact_chunk0( ctx->pack_out_mem, pack_out->dcache );
   ctx->pack_out_wmark       = fd_dcache_compact_wmark ( ctx->pack_out_mem, pack_out->dcache, pack_out->mtu );
   ctx->pack_out_chunk       = ctx->pack_out_chunk0;
-
-  /* Set up crds vote replay tile output  */
-  fd_topo_link_t * replay_out = &topo->links[ tile->out_link_id[ REPLAY_OUT_IDX ] ];
-  ctx->replay_out_mcache      = replay_out->mcache;
-  ctx->replay_out_sync        = fd_mcache_seq_laddr( ctx->replay_out_mcache );
-  ctx->replay_out_depth       = fd_mcache_depth( ctx->replay_out_mcache );
-  ctx->replay_out_seq         = fd_mcache_seq_query( ctx->replay_out_sync );
-  ctx->replay_out_mem         = topo->workspaces[ topo->objs[ replay_out->dcache_obj_id ].wksp_id ].wksp;
-  ctx->replay_out_chunk0      = fd_dcache_compact_chunk0( ctx->replay_out_mem, replay_out->dcache );
-  ctx->replay_out_wmark       = fd_dcache_compact_wmark ( ctx->replay_out_mem, replay_out->dcache, replay_out->mtu );
-  ctx->replay_out_chunk       = ctx->replay_out_chunk0;
 
   /* Set up crds vote voter tile output  */
   fd_topo_link_t * voter_out = &topo->links[ tile->out_link_id[ VOTER_OUT_IDX ] ];
