@@ -1854,43 +1854,6 @@ typedef struct fd_compact_vote_state_update_switch_off fd_compact_vote_state_upd
 #define FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_OFF_FOOTPRINT sizeof(fd_compact_vote_state_update_switch_off_t)
 #define FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_OFF_ALIGN (8UL)
 
-#define DEQUE_NAME deq_fd_lockout_offset_t
-#define DEQUE_T fd_lockout_offset_t
-#include "../../util/tmpl/fd_deque_dynamic.c"
-#undef DEQUE_NAME
-#undef DEQUE_T
-#undef DEQUE_MAX
-static inline fd_lockout_offset_t *
-deq_fd_lockout_offset_t_alloc( fd_valloc_t valloc, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, deq_fd_lockout_offset_t_align(), deq_fd_lockout_offset_t_footprint( max ) );
-  return deq_fd_lockout_offset_t_join( deq_fd_lockout_offset_t_new( mem, max ) );
-}
-/* https://github.com/anza-xyz/agave/blob/20ee70cd1829cd414d09040460defecf9792a370/sdk/program/src/vote/state/mod.rs#L990 */
-/* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_compact_tower_sync {
-  ulong root;
-  fd_lockout_offset_t * lockout_offsets; /* fd_deque_dynamic (min cnt 32) */
-  fd_hash_t hash;
-  long timestamp;
-  uchar has_timestamp;
-  fd_hash_t block_id;
-};
-typedef struct fd_compact_tower_sync fd_compact_tower_sync_t;
-#define FD_COMPACT_TOWER_SYNC_FOOTPRINT sizeof(fd_compact_tower_sync_t)
-#define FD_COMPACT_TOWER_SYNC_ALIGN (8UL)
-
-struct __attribute__((aligned(8UL))) fd_compact_tower_sync_off {
-  uint root_off;
-  uint lockout_offsets_off;
-  uint hash_off;
-  uint timestamp_off;
-  uint block_id_off;
-};
-typedef struct fd_compact_tower_sync_off fd_compact_tower_sync_off_t;
-#define FD_COMPACT_TOWER_SYNC_OFF_FOOTPRINT sizeof(fd_compact_tower_sync_off_t)
-#define FD_COMPACT_TOWER_SYNC_OFF_ALIGN (8UL)
-
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_tower_sync {
@@ -5495,18 +5458,6 @@ void fd_compact_vote_state_update_switch_walk( void * w, fd_compact_vote_state_u
 ulong fd_compact_vote_state_update_switch_size( fd_compact_vote_state_update_switch_t const * self );
 ulong fd_compact_vote_state_update_switch_footprint( void );
 ulong fd_compact_vote_state_update_switch_align( void );
-
-void fd_compact_tower_sync_new( fd_compact_tower_sync_t * self );
-int fd_compact_tower_sync_decode( fd_compact_tower_sync_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_compact_tower_sync_decode_preflight( fd_bincode_decode_ctx_t * ctx );
-void fd_compact_tower_sync_decode_unsafe( fd_compact_tower_sync_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_compact_tower_sync_decode_offsets( fd_compact_tower_sync_off_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_compact_tower_sync_encode( fd_compact_tower_sync_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_compact_tower_sync_destroy( fd_compact_tower_sync_t * self, fd_bincode_destroy_ctx_t * ctx );
-void fd_compact_tower_sync_walk( void * w, fd_compact_tower_sync_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_compact_tower_sync_size( fd_compact_tower_sync_t const * self );
-ulong fd_compact_tower_sync_footprint( void );
-ulong fd_compact_tower_sync_align( void );
 
 void fd_tower_sync_new( fd_tower_sync_t * self );
 int fd_tower_sync_decode( fd_tower_sync_t * self, fd_bincode_decode_ctx_t * ctx );

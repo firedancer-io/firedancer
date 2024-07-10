@@ -387,4 +387,7 @@ fd_tower_publish( fd_tower_t * tower ) {
 void
 fd_tower_print( fd_tower_t const * tower );
 
+void
+fd_tower_from_vote_state( fd_tower_t * tower, fd_vote_state_t const * vote_state );
+
 #endif /* HEADER_fd_src_choreo_tower_fd_tower_h */

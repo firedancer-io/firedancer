@@ -625,6 +625,12 @@ fd_tower_fork_update( fd_tower_t const * tower,
     fd_tower_vote_acc_t * vote_acc      = fd_tower_vote_accs_iter_ele( tower->vote_accs, iter );
     fd_pubkey_t const *   vote_acc_addr = vote_acc->addr;
 
+    fd_pubkey_t me = {
+      .key = {
+        129,65,87,159,43,225,88,224,43,112,12,155,127,186,32,70,190,185,152,133,221,188,54,184,32,234,166,136,227,128,121,62
+      }
+    };
+
     FD_SCRATCH_SCOPE_BEGIN {
       fd_valloc_t               valloc               = fd_scratch_virtual();
       fd_vote_state_versioned_t vote_state_versioned = { 0 };
@@ -640,6 +646,20 @@ fd_tower_fork_update( fd_tower_t const * tower,
 
       fd_vote_state_t *  vote_state   = &vote_state_versioned.inner.current;
       fd_landed_vote_t * landed_votes = vote_state->votes;
+
+      if( FD_UNLIKELY( 0 == memcmp( vote_acc_addr, &me, sizeof( fd_pubkey_t ) ) ) ) {
+        FD_LOG_NOTICE(("processing our tower"));
+        fd_tower_vote_t * votes = fd_tower_votes_join( fd_tower_votes_new(
+            fd_scratch_alloc( fd_tower_votes_align(), fd_tower_votes_footprint() ) ) );
+        for (ulong i = 0; i < deq_fd_landed_vote_t_iter_init(landed_votes); i++) {
+          fd_landed_vote_t landed_vote = deq_fd_landed_vote_t_get(landed_votes, i);
+          fd_tower_votes_push_tail(votes, (fd_tower_vote_t){
+            .slot = landed_vote.lockout.slot,
+            .conf = landed_vote.lockout.confirmation_count
+          });
+        }
+        print(votes, vote_state->root_slot);
+      }
 
       /* If the vote account has an empty tower, continue. */
 

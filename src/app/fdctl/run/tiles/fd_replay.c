@@ -436,7 +436,9 @@ funk_cancel( fd_replay_tile_ctx_t * ctx, ulong mismatch_slot ) {
   xid.ul[0]                    = mismatch_slot;
   fd_funk_txn_t * txn_map      = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
   fd_funk_txn_t * mismatch_txn = fd_funk_txn_query( &xid, txn_map );
+  fd_funk_start_write( ctx->funk );
   FD_TEST( fd_funk_txn_cancel( ctx->funk, mismatch_txn, 1 ) );
+  fd_funk_end_write( ctx->funk );
 }
 
 struct fd_status_check_ctx {
@@ -826,16 +828,18 @@ after_frag( void *             _ctx,
         }
 
         /* Create a voter and generate a vote txn. */
+
         fd_voter_t voter = {
-            .vote_acct_addr              = ctx->vote_acct_addr,
-            .vote_authority_pubkey       = ctx->validator_identity_pubkey,
-            .validator_identity_pubkey   = ctx->validator_identity_pubkey,
+            .vote_acc_addr      = ctx->vote_acct_addr,
+            .validator_identity = ctx->validator_identity_pubkey,
+            .vote_authority     = ctx->validator_identity_pubkey,
         };
 
         fd_txn_p_t * txn = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->sender_out_mem, ctx->sender_out_chunk );
 
         fd_hash_t * blockhash = vote_fork->slot_ctx.slot_bank.block_hash_queue.last_hash;
-        txn->payload_sz = fd_vote_txn_generate( &voter,
+        __asm__("int $3");
+        txn->payload_sz = fd_voter_txn_generate( &voter,
                                                 &update,
                                                 (uchar *)blockhash,
                                                 txn->_,

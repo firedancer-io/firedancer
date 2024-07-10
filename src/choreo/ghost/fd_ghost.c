@@ -391,13 +391,14 @@ fd_ghost_replay_vote_upsert( fd_ghost_t *        ghost,
 
 #if FD_GHOST_USE_HANDHOLDING
   if( FD_UNLIKELY( node->stake > ghost->total_stake ) ) {
-    FD_LOG_ERR( ( "[fd_ghost_replay_vote_upsert] invariant violation. node->stake > total stake."
+    FD_LOG_WARNING( ( "[fd_ghost_replay_vote_upsert] invariant violation. node->stake > total stake."
                   "slot: %lu, "
                   "node->stake %lu, "
                   "ghost->total_stake %lu",
                   slot,
                   node->stake,
                   ghost->total_stake ) );
+    __asm__("int $3");
   }
 #endif
 }
