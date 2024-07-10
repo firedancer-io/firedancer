@@ -1117,6 +1117,12 @@ fd_feature_id_t const ids[] = {
               /* FuS3FPfJDKSNot99ECLXtp3rueq36hMNStJkPJwWodLh */
     .name   = "abort_on_invalid_curve" },
 
+  { .index  = offsetof(fd_features_t, ed25519_precompile_verify_strict)>>3,
+    .id     = {"\x09\xa3\x5e\x55\x96\xaf\xa7\x91\xd2\xf1\xf4\xa9\x08\x55\x4e\xfa\x4e\xe4\xa6\x46\xdb\xb3\xa1\x4a\xb0\x33\xaf\x14\xa5\x49\x1c\xfe"},
+              /* ed9tNscbWLYBooxWA7FE2B5KHWs8A6sxfY8EzezEcoo */
+    .name   = "ed25519_precompile_verify_strict",
+    .hardcoded = 1 },
+
   { .index = ULONG_MAX }
 };
 
@@ -1326,6 +1332,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x7e4172e5ba362509: return &ids[ 195 ];
   case 0x8ba9e9038d9fdcff: return &ids[ 196 ];
   case 0xafe148ad652172dd: return &ids[ 197 ];
+  case 0x91a7af96555ea309: return &ids[ 198 ];
   default: break;
   }
 
@@ -1532,5 +1539,6 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, add_new_reserved_account_keys        
 FD_STATIC_ASSERT( offsetof( fd_features_t, chained_merkle_conflict_duplicate_proofs                )>>3==195UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, simplify_alt_bn128_syscall_error_codes                  )>>3==196UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, abort_on_invalid_curve                                  )>>3==197UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, ed25519_precompile_verify_strict                        )>>3==198UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
