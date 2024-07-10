@@ -93,7 +93,7 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topob_wksp( topo, "funk"       );
   fd_topob_wksp( topo, "pohi"       );
   fd_topob_wksp( topo, "voter"      );
-  fd_topob_wksp( topo, "current_slot" );
+  fd_topob_wksp( topo, "poh_slot" );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
@@ -233,11 +233,12 @@ fd_topo_firedancer( config_t * _config ) {
   }
   FD_TEST( fd_pod_insertf_ulong( topo->props, poh_shred_obj->id, "poh_shred" ) );
 
-  fd_topo_tile_t * voter_tile = &topo->tiles[ fd_topo_find_tile( topo, "sender", 0UL ) ];
-  fd_topo_obj_t * current_slot_obj = fd_topob_obj( topo, "fseq", "current_slot" );
-  fd_topob_tile_uses( topo, poh_tile, current_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, voter_tile, current_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, current_slot_obj->id, "current_slot" ) );
+  fd_topo_obj_t * poh_slot_obj = fd_topob_obj( topo, "fseq", "poh_slot" );
+  fd_topob_tile_uses( topo, poh_tile, poh_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topo_tile_t * sender_tile = &topo->tiles[ fd_topo_find_tile( topo, "sender", 0UL ) ];
+  fd_topob_tile_uses( topo, sender_tile, poh_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topob_tile_uses( topo, replay_tile, poh_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, poh_slot_obj->id, "poh_slot" ) );
 
   if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) ) {
     FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "

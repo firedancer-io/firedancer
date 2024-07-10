@@ -466,6 +466,7 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
 /* Remove a slot from blockstore */
 int
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
+  FD_LOG_DEBUG( ( "[fd_blockstore_slot_remove] slot %lu", slot ) );
   fd_block_map_t * block_map_entry = fd_block_map_remove( fd_blockstore_block_map( blockstore ), &slot );
   if( FD_UNLIKELY( !block_map_entry ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
 
@@ -502,7 +503,6 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
       fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, block->micros_gaddr ) );
     if( block->txns_gaddr ) fd_alloc_free( alloc, txns );
     fd_alloc_free( alloc, block );
-    FD_LOG_NOTICE( ( "[fd_blockstore_slot_remove] freed slot %lu", slot ) );
   } else {
     FD_LOG_WARNING( ( "[fd_blockstore_slot_remove] unable to remove preparing slot %lu", slot ) );
     return FD_BLOCKSTORE_ERR_UNKNOWN;

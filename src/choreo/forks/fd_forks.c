@@ -103,22 +103,22 @@ fd_forks_delete( void * forks ) {
   return forks;
 }
 
-void
+fd_fork_t *
 fd_forks_init( fd_forks_t * forks, fd_exec_slot_ctx_t const * slot_ctx ) {
 
   if( FD_UNLIKELY( !forks ) ) {
     FD_LOG_WARNING( ( "NULL forks" ) );
-    return;
+    return NULL;
   }
 
   if( FD_UNLIKELY( !slot_ctx ) ) {
     FD_LOG_WARNING( ( "NULL slot_ctx" ) );
-    return;
+    return NULL;
   }
 
   fd_fork_t * fork = fd_fork_pool_ele_acquire( forks->pool );
   fork->slot       = slot_ctx->slot_bank.slot;
-  fork->prev   = fd_fork_pool_idx_null( forks->pool );
+  fork->prev       = fd_fork_pool_idx_null( forks->pool );
   fork->slot_ctx   = *slot_ctx; /* this shallow copy is only safe if
                                    the lifetimes of slot_ctx's pointers
                                    are as long as fork */
@@ -126,6 +126,8 @@ fd_forks_init( fd_forks_t * forks, fd_exec_slot_ctx_t const * slot_ctx ) {
   if( FD_UNLIKELY( !fd_fork_frontier_ele_insert( forks->frontier, fork, forks->pool ) ) ) {
     FD_LOG_WARNING( ( "Failed to insert fork into frontier" ) );
   }
+
+  return fork;
 }
 
 fd_fork_t *
@@ -309,7 +311,7 @@ fd_forks_prepare( fd_forks_t const *    forks,
 }
 
 void
-fd_forks_publish( fd_forks_t * forks, ulong root, fd_ghost_t const * ghost ) {
+fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
   fd_fork_t * tail = NULL;
   fd_fork_t * curr = NULL;
 
@@ -323,9 +325,9 @@ fd_forks_publish( fd_forks_t * forks, ulong root, fd_ghost_t const * ghost ) {
 
        Optimize for unlikely because there is usually just one fork. */
 
-    int stale = fork->slot < root || !fd_ghost_is_ancestor( ghost, root, fork->slot );
+    int stale = fork->slot < slot || !fd_ghost_is_descendant( ghost, fork->slot, slot );
     if( FD_UNLIKELY( !fork->frozen && stale ) ) {
-      FD_LOG_NOTICE( ( "adding %lu to prune. root %lu", fork->slot, root ) );
+      FD_LOG_NOTICE( ( "adding %lu to prune. root %lu", fork->slot, slot ) );
       if( FD_LIKELY( !curr ) ) {
         tail = fork;
         curr = fork;

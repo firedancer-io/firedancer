@@ -484,9 +484,9 @@ unprivileged_init( fd_topo_t *      topo,
   // TODO: scratch alloc needs fixing!
   fd_poh_tile_unprivileged_init( topo, tile, ctx->poh_tile_ctx );
 
-  ulong current_slot_obj_id = fd_pod_query_ulong( topo->props, "current_slot", ULONG_MAX );
-  FD_TEST( current_slot_obj_id!=ULONG_MAX );
-  ctx->current_slot = fd_fseq_join( fd_topo_obj_laddr( topo, current_slot_obj_id ) );
+  ulong poh_slot_obj_id = fd_pod_query_ulong( topo->props, "poh_slot", ULONG_MAX );
+  FD_TEST( poh_slot_obj_id!=ULONG_MAX );
+  ctx->current_slot = fd_fseq_join( fd_topo_obj_laddr( topo, poh_slot_obj_id ) );
 
   ctx->is_initialized = 0;
   ctx->recently_reset = 0;

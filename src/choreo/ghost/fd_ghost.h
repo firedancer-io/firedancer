@@ -260,13 +260,13 @@ fd_ghost_publish( fd_ghost_t * ghost, ulong slot );
 
 /* Utilties */
 
-/* fd_ghost_is_ancestor checks if ancestor_slot is in fact an ancestor
-   of slot.  Returns 1 if true, 0 otherwise.  Assumes slot is present in
-   ghost (does not assume the same for ancestor_slot but warns when
-   handholding is enabled). */
+/* fd_ghost_is_descendant returns 1 if slot descends from ancestor_slot,
+   0 otherwise.  Assumes slot is present in ghost (warns and returns 0
+   early if handholding is on).  Does not assume the same of
+   ancestor_slot. */
 
 int
-fd_ghost_is_ancestor( fd_ghost_t const * ghost, ulong ancestor_slot, ulong slot );
+fd_ghost_is_descendant( fd_ghost_t const * ghost, ulong slot, ulong ancestor_slot );
 
 /* fd_ghost_print_node pretty-prints a formatted ghost tree.  node
    controls which node to begin printing from.  depth controls how many
@@ -281,14 +281,14 @@ fd_ghost_is_ancestor( fd_ghost_t const * ghost, ulong ancestor_slot, ulong slot 
    recommended default). */
 
 void
-fd_ghost_print_node( fd_ghost_t * ghost, fd_ghost_node_t * node, ulong depth );
+fd_ghost_print_node( fd_ghost_t * ghost, ulong slot, ulong depth );
 
 /* fd_ghost_print pretty-prints a formatted ghost tree starting from the
    root using fd_ghost_print_node. */
 
 static inline void
 fd_ghost_print( fd_ghost_t * ghost ) {
-  fd_ghost_print_node( ghost, ghost->root, 0 );
+  fd_ghost_print_node( ghost, ghost->root->slot, 0 );
 }
 
 FD_PROTOTYPES_END

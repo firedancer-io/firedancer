@@ -94,17 +94,18 @@ fd_forks_leave( fd_forks_t const * forks );
 void *
 fd_forks_delete( void * forks );
 
-/* fd_forks_init initializes a forks.  Assumes forks is a valid local
-   join and no one else is joined, and non-NULL slot_ctx.  slot_ctx is
-   the first fork that will be inserted into the frontier.  This should
-   be the slot_ctx after loading a snapshot, genesis slot_ctx otherwise.
-   The slot_ctx will be copied into an element acquired from the memory
-   pool owned by forks.
+/* fd_forks_init initializes forks.  Assumes forks is a valid local join
+   and no one else is joined, and non-NULL slot_ctx.  Inserts the first
+   fork into the frontier containing slot_ctx.  This should be the
+   slot_ctx from loading a snapshot, restoring a bank from Funk, or the
+   genesis slot_ctx.  The slot_ctx will be copied into an element
+   acquired from the memory pool owned by forks.  Returns fork on
+   success, NULL on failure.
 
    In general, this should be called by the same process that formatted
    forks' memory, ie. the caller of fd_forks_new. */
 
-void
+fd_fork_t *
 fd_forks_init( fd_forks_t * forks, fd_exec_slot_ctx_t const * slot_ctx );
 
 /* fd_forks_query queries for the fork corresponding to slot in the

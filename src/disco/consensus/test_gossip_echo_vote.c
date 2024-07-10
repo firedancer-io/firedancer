@@ -293,25 +293,22 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
           vote_instr.inner.compact_update_vote_state.timestamp = &new_timestamp;
 
           /* Generate the vote transaction */
-          vote_txn_sign_args_t sign_args = {
+          FD_PARAM_UNUSED vote_txn_sign_args_t sign_args = {
             .vote_authority_keypair     = arg_->vote_authority_keypair,
             .validator_identity_keypair = arg_->validator_identity_keypair
           };
           fd_pubkey_t const * vote_authority_pubkey     = (fd_pubkey_t const *)fd_type_pun_const( arg_->vote_authority_keypair + 32UL );
           fd_pubkey_t const * validator_identity_pubkey = (fd_pubkey_t const *)fd_type_pun_const( arg_->validator_identity_keypair + 32UL );
           fd_voter_t voter = {
-            .vote_acct_addr              = arg_->vote_acct_addr,
-            .vote_authority_pubkey       = vote_authority_pubkey,
-            .validator_identity_pubkey   = validator_identity_pubkey,
-            .voter_sign_arg              = &sign_args,
-            .vote_authority_sign_fun     = vote_txn_vote_authority_signer,
-            .validator_identity_sign_fun = vote_txn_validator_identity_signer
+            .vote_acc_addr              = *arg_->vote_acct_addr,
+            .vote_authority       = *vote_authority_pubkey,
+            .validator_identity   = *validator_identity_pubkey
           };
           fd_crds_data_t echo_data;
           echo_data.discriminant          = fd_crds_data_enum_vote;
-          echo_data.inner.vote.txn.raw_sz = fd_vote_txn_generate( &voter,
+          echo_data.inner.vote.txn.raw_sz = fd_voter_txn_generate( &voter,
                                                                   &vote_instr.inner.compact_update_vote_state,
-                                                                  vote->txn.raw + parsed_txn->recent_blockhash_off,
+                                                                  (fd_hash_t *)fd_type_pun(vote->txn.raw + parsed_txn->recent_blockhash_off),
                                                                   echo_data.inner.vote.txn.txn_buf,
                                                                   echo_data.inner.vote.txn.raw );
           /* echo through gossip  */
