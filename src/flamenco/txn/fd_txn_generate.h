@@ -37,7 +37,7 @@ fd_txn_base_generate( uchar out_txn_meta[ static FD_TXN_MAX_SZ ],
                       uchar out_txn_payload[ static FD_TXN_MTU ],
                       ulong num_signatures,
                       fd_txn_accounts_t * accounts,
-                      uchar * opt_recent_blockhash );
+                      uchar const * opt_recent_blockhash );
 
 /* Method used for adding an instruction to a txn being generated.
    The accounts param is a list of indices to the accounts in the txn.

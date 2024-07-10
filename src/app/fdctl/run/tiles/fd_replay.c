@@ -57,8 +57,7 @@
 
 #define STORE_IN_IDX   (0UL)
 #define PACK_IN_IDX    (1UL)
-#define GOSSIP_IN_IDX  (2UL)
-#define SIGN_IN_IDX    (3UL)
+#define SIGN_IN_IDX    (2UL)
 
 #define POH_OUT_IDX    (0UL)
 #define NOTIF_OUT_IDX  (1UL)
@@ -90,11 +89,6 @@ struct fd_replay_tile_ctx {
   fd_wksp_t * pack_in_mem;
   ulong       pack_in_chunk0;
   ulong       pack_in_wmark;
-
-  // Gossip tile input
-  fd_wksp_t * gossip_in_mem;
-  ulong       gossip_in_chunk0;
-  ulong       gossip_in_wmark;
 
   // PoH tile output defs
   fd_frag_meta_t * poh_out_mcache;
@@ -210,8 +204,6 @@ struct fd_replay_tile_ctx {
   fd_pubkey_t validator_identity_pubkey[ 1 ];
   fd_pubkey_t vote_acct_addr[ 1 ];
 
-  ulong           gossip_vote_txn_sz;
-  uchar           gossip_vote_txn [ FD_TXN_MTU ];
   fd_txncache_t * status_cache;
   void * bmtree;
 };
@@ -364,15 +356,6 @@ during_frag( void * _ctx,
     }
 
     FD_LOG_INFO(( "packed microblock - slot: %lu, parent_slot: %lu, txn_cnt: %lu", ctx->curr_slot, ctx->parent_slot, ctx->txn_cnt ));
-  } else if( in_idx == GOSSIP_IN_IDX ) {
-    if( FD_UNLIKELY( chunk<ctx->gossip_in_chunk0 || chunk>ctx->gossip_in_wmark || sz>USHORT_MAX ) ) { 
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->gossip_in_chunk0, ctx->gossip_in_wmark ));
-    }
-    uchar * src = (uchar *)fd_chunk_to_laddr( ctx->gossip_in_mem, chunk );
-    /* Incoming packet from gossip tile, a raw vote transaction. */
-    ctx->gossip_vote_txn_sz = sz;
-    memcpy( ctx->gossip_vote_txn, src, sz );
-    return;
   }
 
   // if( ctx->flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
@@ -453,6 +436,7 @@ funk_cancel( fd_replay_tile_ctx_t * ctx, ulong mismatch_slot ) {
 struct fd_status_check_ctx {
   fd_slot_history_t * slot_history;
   fd_txncache_t * txncache;
+  ulong curr_slot;
 };
 typedef struct fd_status_check_ctx fd_status_check_ctx_t;
 
@@ -463,7 +447,8 @@ status_check_tower(ulong slot, void * _ctx ) {
     return 1;  
   }
 
-  if( fd_sysvar_slot_history_find_slot( ctx->slot_history, slot ) == FD_SLOT_HISTORY_SLOT_FOUND ) {
+  if( fd_sysvar_slot_history_find_slot( ctx->slot_history, slot ) == FD_SLOT_HISTORY_SLOT_FOUND ||
+      slot == ctx->curr_slot ) {
     return 1;
   }
 
@@ -517,44 +502,6 @@ after_frag( void *             _ctx,
             int *              opt_filter,
             fd_mux_context_t * mux ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
-
-  if ( in_idx == GOSSIP_IN_IDX ) {
-    if ( !ctx->vote ) return;
-    if ( !ctx->poh_init_done ) return;
-
-    /* handle a vote txn from gossip  */
-    ushort recent_blockhash_off;
-    fd_compact_vote_state_update_t vote;
-    if ( FD_VOTE_TXN_PARSE_OK != fd_vote_txn_parse(ctx->gossip_vote_txn, ctx->gossip_vote_txn_sz, ctx->valloc, &recent_blockhash_off, &vote) ) {
-      FD_LOG_WARNING(("failed to parse vote"));
-    };
-    fd_voter_t voter = {
-        .vote_acct_addr              = ctx->vote_acct_addr,
-        .vote_authority_pubkey       = ctx->validator_identity_pubkey,
-        .validator_identity_pubkey   = ctx->validator_identity_pubkey,
-    };
-
-    fd_txn_p_t * txn = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->sender_out_mem, ctx->sender_out_chunk );
-
-    /* for now, if consensus.vote == true, modify the timestamp and echo the vote txn back with gossip */
-    /* later, we should send out our own vote txns through gossip  */
-    long MAGIC_TIMESTAMP = 12345678;
-    vote.timestamp = &MAGIC_TIMESTAMP;
-
-    txn->payload_sz = fd_vote_txn_generate( &voter,
-                                            &vote,
-                                            ctx->gossip_vote_txn + recent_blockhash_off,
-                                            txn->_,
-                                            txn->payload );
-
-    ulong msg_sz = sizeof(fd_txn_p_t);
-    fd_mcache_publish( ctx->sender_out_mcache, ctx->sender_out_depth, ctx->sender_out_seq, 1UL, ctx->sender_out_chunk,
-      msg_sz, 0UL, 0, 0 );
-    ctx->sender_out_seq   = fd_seq_inc( ctx->sender_out_seq, 1UL );
-    ctx->sender_out_chunk = fd_dcache_compact_next( ctx->sender_out_chunk, msg_sz,
-                                                    ctx->sender_out_chunk0, ctx->sender_out_wmark );
-    return;
-  }
 
   /* do a replay */
   ulong txn_cnt = ctx->txn_cnt;
@@ -654,6 +601,7 @@ after_frag( void *             _ctx,
     fd_status_check_ctx_t status_check_ctx = {
       .txncache = fork->slot_ctx.status_cache,
       .slot_history = slot_history,
+      .curr_slot = fork->slot_ctx.slot_bank.slot,
     };
     int res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx, ctx->capture_ctx,
                                                       txns, txn_cnt,
@@ -840,6 +788,56 @@ after_frag( void *             _ctx,
         /* Publish funk. */
 
         funk_publish( ctx, root );
+      }
+
+      if ( ctx->vote && ctx->poh_init_done && vote_fork ) {
+        /* Build a vote state update based on current tower votes. */
+        fd_compact_vote_state_update_t update;
+        update.root = ctx->tower->root;
+        long ts = fd_log_wallclock();
+        update.timestamp = &ts;
+        update.lockouts_len = (ushort)fd_tower_votes_cnt( ctx->tower->votes );
+        update.lockouts = (fd_lockout_offset_t *)fd_scratch_alloc( alignof(fd_lockout_offset_t), update.lockouts_len * sizeof(fd_lockout_offset_t) );
+
+        ulong i = 0UL;
+        ulong curr_slot = update.root;
+        for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init( ctx->tower->votes );
+            !fd_tower_votes_iter_done( ctx->tower->votes, iter );
+            iter = fd_tower_votes_iter_next( ctx->tower->votes, iter ) ) {
+          fd_tower_vote_t const * vote = fd_tower_votes_iter_ele_const( ctx->tower->votes, iter );
+          FD_TEST(vote->slot >= update.root);
+          ulong offset = vote->slot - curr_slot;
+          curr_slot = vote->slot;
+          uchar conf = (uchar)vote->conf;
+          update.lockouts[i].offset = offset;
+          update.lockouts[i].confirmation_count = conf;
+          memcpy( update.hash.uc, vote_fork->slot_ctx.slot_bank.banks_hash.uc, sizeof(fd_hash_t) );
+          i++;
+        }
+
+        /* Create a voter and generate a vote txn. */
+        fd_voter_t voter = {
+            .vote_acct_addr              = ctx->vote_acct_addr,
+            .vote_authority_pubkey       = ctx->validator_identity_pubkey,
+            .validator_identity_pubkey   = ctx->validator_identity_pubkey,
+        };
+
+        fd_txn_p_t * txn = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->sender_out_mem, ctx->sender_out_chunk );
+
+        fd_hash_t * blockhash = vote_fork->slot_ctx.slot_bank.block_hash_queue.last_hash;
+        txn->payload_sz = fd_vote_txn_generate( &voter,
+                                                &update,
+                                                (uchar *)blockhash,
+                                                txn->_,
+                                                txn->payload );
+
+        /* Send the vote txn. */
+        ulong msg_sz = sizeof(fd_txn_p_t);
+        fd_mcache_publish( ctx->sender_out_mcache, ctx->sender_out_depth, ctx->sender_out_seq, 1UL, ctx->sender_out_chunk,
+          msg_sz, 0UL, 0, 0 );
+        ctx->sender_out_seq   = fd_seq_inc( ctx->sender_out_seq, 1UL );
+        ctx->sender_out_chunk = fd_dcache_compact_next( ctx->sender_out_chunk, msg_sz,
+                                                        ctx->sender_out_chunk0, ctx->sender_out_wmark );
       }
 
       /* Prepare bank for next execution. */
@@ -1366,12 +1364,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pack_in_mem              = topo->workspaces[ topo->objs[ pack_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->pack_in_chunk0           = fd_dcache_compact_chunk0( ctx->pack_in_mem, pack_in_link->dcache );
   ctx->pack_in_wmark            = fd_dcache_compact_wmark( ctx->pack_in_mem, pack_in_link->dcache, pack_in_link->mtu );
-
-  /* Set up gossip tile input */
-  fd_topo_link_t * gossip_in_link = &topo->links[ tile->in_link_id[ GOSSIP_IN_IDX ] ];
-  ctx->gossip_in_mem              = topo->workspaces[ topo->objs[ gossip_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->gossip_in_chunk0           = fd_dcache_compact_chunk0( ctx->gossip_in_mem, gossip_in_link->dcache );
-  ctx->gossip_in_wmark            = fd_dcache_compact_wmark( ctx->gossip_in_mem, gossip_in_link->dcache, gossip_in_link->mtu );
 
   fd_topo_link_t * poh_out_link = &topo->links[ tile->out_link_id[ POH_OUT_IDX ] ];
   ctx->poh_out_mcache           = poh_out_link->mcache;

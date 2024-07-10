@@ -24,7 +24,7 @@ typedef struct fd_voter fd_voter_t;
 ulong
 fd_vote_txn_generate( fd_voter_t *                     voter,
                       fd_compact_vote_state_update_t * vote_update,
-                      uchar *                          recent_blockhash,
+                      uchar const *                    recent_blockhash,
                       uchar                            out_txn_meta_buf [static FD_TXN_MAX_SZ],
                       uchar                            out_txn_buf [static FD_TXN_MTU] );
 
