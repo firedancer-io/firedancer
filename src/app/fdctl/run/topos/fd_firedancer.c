@@ -440,30 +440,35 @@ fd_topo_firedancer( config_t * _config ) {
       strncpy( tile->repair.identity_key_path, config->consensus.identity_path, sizeof(tile->repair.identity_key_path) );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
-      tile->replay.vote = config->consensus.vote;
-      tile->replay.ip_addr = config->tiles.net.ip_addr;
-      memcpy( tile->replay.src_mac_addr, config->tiles.net.mac_addr, 6UL );
+
+      /* specified by [tiles.replay] */
 
       strncpy( tile->replay.blockstore_checkpt, config->tiles.replay.blockstore_checkpt, sizeof(tile->replay.blockstore_checkpt) );
+      tile->replay.blockstore_publish = config->tiles.replay.blockstore_publish;
       strncpy( tile->replay.capture, config->tiles.replay.capture, sizeof(tile->replay.capture) );
+      strncpy( tile->replay.funk_checkpt, config->tiles.replay.funk_checkpt, sizeof(tile->replay.funk_checkpt) );
+      tile->replay.funk_rec_max = config->tiles.replay.funk_rec_max;
+      tile->replay.funk_sz_gb   = config->tiles.replay.funk_sz_gb;
+      tile->replay.funk_txn_max = config->tiles.replay.funk_txn_max;
       strncpy( tile->replay.genesis, config->tiles.replay.genesis, sizeof(tile->replay.genesis) );
-      strncpy( tile->replay.identity_key_path, config->consensus.identity_path, sizeof(tile->replay.identity_key_path) );
-      strncpy( tile->replay.vote_account_path, config->consensus.vote_account_path, sizeof(tile->replay.vote_account_path) );
       strncpy( tile->replay.incremental, config->tiles.replay.incremental, sizeof(tile->replay.incremental) );
       strncpy( tile->replay.slots_replayed, config->tiles.replay.slots_replayed, sizeof(tile->replay.slots_replayed) );
       strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
-      FD_LOG_NOTICE(("config->consensus.identity_path: %s", config->consensus.identity_path));
-      FD_LOG_NOTICE(("config->consensus.vote_account_path: %s", config->consensus.vote_account_path));
-
-      tile->replay.tpool_thread_count =  config->tiles.replay.tpool_thread_count;
+      tile->replay.tpool_thread_count = config->tiles.replay.tpool_thread_count;
       if( FD_UNLIKELY( tile->replay.tpool_thread_count == 0 || tile->replay.tpool_thread_count>FD_TILE_MAX ) ) {
         FD_LOG_ERR(( "bad tpool_thread_count %lu", tile->replay.tpool_thread_count ));
       }
 
-      tile->replay.pages     = config->tiles.replay.funk_sz_gb;
-      tile->replay.txn_max   = config->tiles.replay.funk_txn_max;
-      tile->replay.index_max = config->tiles.replay.funk_rec_max;
-      tile->replay.shred_max = config->tiles.replay.tpool_thread_count;
+      /* not specified by [tiles.replay] */
+
+      strncpy( tile->replay.identity_key_path, config->consensus.identity_path, sizeof(tile->replay.identity_key_path) );
+      tile->replay.ip_addr = config->tiles.net.ip_addr;
+      memcpy( tile->replay.src_mac_addr, config->tiles.net.mac_addr, 6UL );
+      tile->replay.vote = config->consensus.vote;
+      strncpy( tile->replay.vote_account_path, config->consensus.vote_account_path, sizeof(tile->replay.vote_account_path) );
+
+      FD_LOG_NOTICE(("config->consensus.identity_path: %s", config->consensus.identity_path));
+      FD_LOG_NOTICE(("config->consensus.vote_account_path: %s", config->consensus.vote_account_path));
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "bhole" ) ) ) {
 

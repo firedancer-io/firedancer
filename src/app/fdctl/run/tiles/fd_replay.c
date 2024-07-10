@@ -150,9 +150,9 @@ struct fd_replay_tile_ctx {
   ulong       stake_weights_out_wmark;
   ulong       stake_weights_out_chunk;
 
-
-
   char const * blockstore_checkpt;
+  int          blockstore_publish;
+  char const * funk_checkpt;
   char const * genesis;
   char const * incremental;
   char const * snapshot;
@@ -421,7 +421,7 @@ hash_transactions( void *       mem,
 }
 
 static void
-blockstore_checkpt( fd_replay_tile_ctx_t * ctx ) {
+checkpt( fd_replay_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->slots_replayed_file ) ) fclose( ctx->slots_replayed_file );
   if( FD_UNLIKELY( strcmp( ctx->blockstore_checkpt, "" ) ) ) {
     int rc = fd_wksp_checkpt( ctx->blockstore_wksp, ctx->blockstore_checkpt, 0666, 0, NULL );
@@ -429,6 +429,24 @@ blockstore_checkpt( fd_replay_tile_ctx_t * ctx ) {
       FD_LOG_ERR( ( "blockstore checkpt failed: error %d", rc ) );
     }
   }
+  int rc = fd_wksp_checkpt( ctx->funk_wksp, ctx->funk_checkpt, 0666, 0, NULL );
+  if( rc ) {
+    FD_LOG_ERR( ( "funk checkpt failed: error %d", rc ) );
+  }
+}
+
+static void
+funk_cancel( fd_replay_tile_ctx_t * ctx, ulong mismatch_slot ) {
+  fd_blockstore_start_read( ctx->blockstore );
+  fd_hash_t const * root_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, mismatch_slot );
+  fd_funk_txn_xid_t xid;
+  memcpy( xid.uc, root_block_hash, sizeof( fd_funk_txn_xid_t ) );
+  fd_blockstore_end_read( ctx->blockstore );
+
+  xid.ul[0]                    = mismatch_slot;
+  fd_funk_txn_t * txn_map      = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
+  fd_funk_txn_t * mismatch_txn = fd_funk_txn_query( &xid, txn_map );
+  FD_TEST( fd_funk_txn_cancel( ctx->funk, mismatch_txn, 1 ) );
 }
 
 static void
@@ -436,7 +454,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx, ulong root ) {
   fd_blockstore_start_read( ctx->blockstore );
   fd_hash_t const * root_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, root );
   fd_funk_txn_xid_t xid;
-  fd_memcpy( xid.uc, root_block_hash, sizeof( fd_funk_txn_xid_t ) );
+  memcpy( xid.uc, root_block_hash, sizeof( fd_funk_txn_xid_t ) );
   fd_blockstore_end_read( ctx->blockstore );
 
   xid.ul[0]                = root;
@@ -784,15 +802,15 @@ after_frag( void *             _ctx,
 
         /* Publish blockstore. */
 
-#if !STOP_SLOT
-        fd_blockstore_start_write( ctx->blockstore );
-        int rc = fd_blockstore_publish( ctx->blockstore, root );
-        if( rc != FD_BLOCKSTORE_OK ) {
-          FD_LOG_WARNING( ( "err %d when publishing blockstore", rc ) );
-          blockstore_checkpt( ctx );
+        if( FD_LIKELY( ctx->blockstore_publish ) ) {
+          fd_blockstore_start_write( ctx->blockstore );
+          int rc = fd_blockstore_publish( ctx->blockstore, root );
+          if( rc != FD_BLOCKSTORE_OK ) {
+            FD_LOG_WARNING( ( "err %d when publishing blockstore", rc ) );
+            checkpt( ctx );
+          }
+          fd_blockstore_end_write( ctx->blockstore );
         }
-        fd_blockstore_end_write( ctx->blockstore );
-#endif
 
         /* Publish forks.*/
 
@@ -800,7 +818,7 @@ after_frag( void *             _ctx,
 
         /* Publish ghost. */
 
-        FD_TEST( fd_ghost_publish( ctx->ghost, root  ) );
+        FD_TEST( fd_ghost_publish( ctx->ghost, root ) );
 
         /* Publish funk. */
 
@@ -820,6 +838,7 @@ after_frag( void *             _ctx,
       if( FD_UNLIKELY( ctx->slots_replayed_file ) ) {
         FD_LOG_DEBUG(( "writing %lu to slots file", prev_slot ));
         fprintf( ctx->slots_replayed_file, "%lu\n", prev_slot );
+        fflush( ctx->slots_replayed_file );
       }
 
       if (NULL != ctx->capture_ctx) {
@@ -843,8 +862,10 @@ after_frag( void *             _ctx,
 
             /* Mismatch */
 
-            blockstore_checkpt( ctx );
+            funk_cancel( ctx, cmp_slot );
+            checkpt( ctx );
             FD_LOG_ERR( ( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ) );
+
             break;
 
           case 0:
@@ -1157,6 +1178,7 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
   /* root_slot fseq                                                     */
   /**********************************************************************/
+
   ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
   FD_TEST( root_slot_obj_id!=ULONG_MAX );
   ctx->root_slot_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
@@ -1168,9 +1190,11 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
 
   ctx->blockstore_checkpt = tile->replay.blockstore_checkpt;
-  ctx->genesis     = tile->replay.genesis;
-  ctx->incremental = tile->replay.incremental;
-  ctx->snapshot    = tile->replay.snapshot;
+  ctx->blockstore_publish = tile->replay.blockstore_publish;
+  ctx->funk_checkpt       = tile->replay.funk_checkpt;
+  ctx->genesis            = tile->replay.genesis;
+  ctx->incremental        = tile->replay.incremental;
+  ctx->snapshot           = tile->replay.snapshot;
 
   /**********************************************************************/
   /* alloc                                                              */
@@ -1224,7 +1248,7 @@ unprivileged_init( fd_topo_t *      topo,
     if (funk_shmem == NULL) {
       FD_LOG_ERR(( "failed to allocate funk" ));
     }
-    ctx->funk = fd_funk_join( fd_funk_new( funk_shmem, FD_FUNK_MAGIC, ctx->funk_seed, tile->replay.txn_max, tile->replay.index_max ) );
+    ctx->funk = fd_funk_join( fd_funk_new( funk_shmem, FD_FUNK_MAGIC, ctx->funk_seed, tile->replay.funk_txn_max, tile->replay.funk_rec_max ) );
     if (ctx->funk == NULL) {
       fd_wksp_free_laddr(funk_shmem);
       FD_LOG_ERR(( "failed to join + new funk" ));
