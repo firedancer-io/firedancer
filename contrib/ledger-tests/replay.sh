@@ -31,12 +31,12 @@ rep_replay_start_time=$(date +%s)
 
 replay_output=$(build/native/gcc/bin/fd_ledger --cmd replay \
                                                 --rocksdb dump/$rep_ledger_min_basename/rocksdb \
-                                                --index-max 600000000 \
-                                                --end-slot "$END_SLOT" \
+                                                --index-max $INDEX_MAX \
+                                                --end-slot $END_SLOT \
                                                 --funk-only 1 \
                                                 --txn-max 100 \
                                                 --page-cnt 75 \
-                                                --funk-page-cnt 550 \
+                                                --funk-page-cnt $GIGANTIC_PAGES \
                                                 --verify-acc-hash 1 \
                                                 --snapshot dump/$rep_ledger_min_basename/$rep_snapshot_basename \
                                                 --slot-history 5000 \
@@ -75,32 +75,32 @@ else
   echo "[-] mismatch_msg: $rep_mismatch_msg"
 
   if [ -n "$UPLOAD_URL" ]; then
-    # Minimize to one block around the mismatch block by locating the mismatch slot
-    # And then calling minify with the exact bounds [bhm-1, bhm+1]
-    rep_mismatch_start=$((rep_mismatch_slot - 1))
-    if [ "$rep_mismatch_start" -lt "$START_SLOT" ]; then
-      rep_mismatch_start=$START_SLOT
-    fi
-    rep_mismatch_end=$((rep_mismatch_slot + 1))
-    if [ "$rep_mismatch_end" -gt "$END_SLOT" ]; then
-      rep_mismatch_end=$END_SLOT
-    fi
     rm -rf "$rep_temp_ledger_upload"
     mkdir -p "$rep_temp_ledger_upload"
     set -x
+    source $ROOT_DIR/utils.sh
+    closest_hourly=$(get_closest_hourly $rep_mismatch_slot $NETWORK)
+    if [ -z "$closest_hourly" ]; then
+      echo "[-] error could not get closest hourly snapshot"
+      exit 1
+    fi
+
+    # Get the closest hourly and minimize the rocksdb from there    
+    closest_hourly_slot=$(echo $closest_hourly | sed -E 's/.*snapshot-([0-9]+)-.*/\1/')
     NETWORK=$NETWORK \
       MODE=exact \
       LEDGER=$LEDGER_MIN \
       LEDGER_MIN=$rep_temp_ledger_upload \
       IS_VERIFY=false \
       SLOTS_IN_EPOCH=$SLOTS_IN_EPOCH \
-      START_SLOT=$rep_mismatch_start \
-      END_SLOT=$rep_mismatch_end \
+      START_SLOT=$closest_hourly_slot \
+      END_SLOT=$rep_mismatch_slot \
       SOLANA_LEDGER_TOOL=$SOLANA_LEDGER_TOOL \
       FIREDANCER=$FIREDANCER \
       GIGANTIC_PAGES=$GIGANTIC_PAGES \
       $ROOT_DIR/minify.sh
     rep_minify_status=$?
+    /bin/gcloud storage cp "$closest_hourly" "$rep_temp_ledger_upload"
     set +x
     if [ $rep_minify_status -ne 0 ]; then
       echo "[-] failed to minify ledger around mismatch slot $rep_mismatch_slot for upload"
@@ -114,7 +114,7 @@ else
     mkdir $rep_mismatch_ledger_dir && mv * $rep_mismatch_ledger_dir
     tar -czvf $rep_mismatch_ledger_basename $rep_mismatch_ledger_dir
     echo "[~] Uploading $rep_mismatch_ledger_basename to $UPLOAD_URL"
-    /bin/gsutil cp -r "$rep_mismatch_ledger_basename" $UPLOAD_URL
+    /bin/gsutil -o GSUtil:parallel_composite_upload_threshold=150M cp "$rep_mismatch_ledger_basename" $UPLOAD_URL
     cd "$FIREDANCER" || exit
   fi
   

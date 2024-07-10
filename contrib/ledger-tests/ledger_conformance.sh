@@ -283,7 +283,7 @@ parse_minify_options() {
   IS_VERIFY="false"
   MODE="exact"
   SLOTS_IN_EPOCH=432000
-  GIGANTIC_PAGES=700
+  GIGANTIC_PAGES=550
   INDEX_MAX=600000000
 
   while true; do
@@ -417,7 +417,7 @@ parse_replay_options() {
 
   # Defaults
   UPLOAD_URL=""
-  GIGANTIC_PAGES=700
+  GIGANTIC_PAGES=550
   INDEX_MAX=600000000
   SLOTS_IN_EPOCH=432000
 
@@ -637,7 +637,7 @@ parse_all_options() {
   MODE="exact"
   SLOTS_IN_EPOCH=432000
   UPLOAD_URL=""
-  GIGANTIC_PAGES=700
+  GIGANTIC_PAGES=550
   INDEX_MAX=600000000
 
   while true; do
