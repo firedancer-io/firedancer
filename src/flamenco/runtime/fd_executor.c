@@ -592,10 +592,6 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
   /* Compute Units */
   instr_context->cu_avail = txn_ctx->compute_meter;
 
-  /* Txn Context */
-  instr_context->has_txn_context = true;
-  // TODO: Fill in transaction context whenever it becomes supported
-
   /* Slot Context */
   instr_context->has_slot_context = true;
 
