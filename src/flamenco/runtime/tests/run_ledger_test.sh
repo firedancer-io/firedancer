@@ -21,6 +21,7 @@ INDEX_MAX="--index-max 5000000"
 TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-21"
+CLUSTER_VERSION="--cluster-version 2000"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -36,6 +37,11 @@ while [[ $# -gt 0 ]]; do
        ;;
     -a|--restore-archive)
        RESTORE_ARCHIVE="--restore-archive dump/$LEDGER/$2"
+       shift
+       shift
+       ;;
+    --cluster-version)
+       CLUSTER_VERSION="--cluster-version $2"
        shift
        shift
        ;;
@@ -87,7 +93,7 @@ done
 
 export LLVM_PROFILE_FILE=$OBJDIR/cov/raw/ledger_test_$LEDGER.profraw
 mkdir -p $OBJDIR/cov/raw
- 
+
 if [[ ! -e dump/$LEDGER && SKIP_INGEST -eq 0 ]]; then
   mkdir -p dump
   if [[ -n "$ZST" ]]; then
@@ -126,6 +132,7 @@ set -x
     $TRASH_HASH \
     $INDEX_MAX \
     $END_SLOT \
+    $CLUSTER_VERSION \
     --funk-only 1 \
     --txn-max 100 \
     $PAGES \

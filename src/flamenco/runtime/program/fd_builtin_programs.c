@@ -42,7 +42,7 @@ void
 write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
   // really?! really!?
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  if (epoch_bank->cluster_type != 3)
+  if( epoch_bank->cluster_type != 3)
     return;
 
   fd_acc_mgr_t *      acc_mgr = slot_ctx->acc_mgr;
@@ -96,9 +96,16 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_compute_budget_program_id.key, "compute_budget_program", 22UL );
 
   /* Precompiles have empty account data */
-  char data[1] = {1};
-  fd_write_builtin_bogus_account( slot_ctx, fd_solana_keccak_secp_256k_program_id.key, data, 1 );
-  fd_write_builtin_bogus_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id.key, data, 1 );
+  if (slot_ctx->epoch_ctx->epoch_bank.cluster_version < 2000) {
+    char data[1] = {1};
+    fd_write_builtin_bogus_account( slot_ctx, fd_solana_keccak_secp_256k_program_id.key, data, 1 );
+    fd_write_builtin_bogus_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id.key, data, 1 );
+  } else {
+    const char data[24] = "zk_elgamal_proof_program";
+    fd_write_builtin_bogus_account( slot_ctx, fd_solana_zk_el_gamal_program_id.key, data, 24);
+    fd_write_builtin_bogus_account( slot_ctx, fd_solana_keccak_secp_256k_program_id.key, data, 0 );
+    fd_write_builtin_bogus_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id.key, data, 0 );
+  }
 
   /* Inline SPL token mint program ("inlined to avoid an external dependency on the spl-token crate") */
   write_inline_spl_native_mint_program_account( slot_ctx );

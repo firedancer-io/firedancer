@@ -64,7 +64,7 @@ fd_exec_epoch_ctx_footprint( ulong vote_acc_max );
 /* fd_exec_epoch_ctx_bank_mem_clear empties out the existing bank
    data structures (votes, delegations, stake history, next_epoch_stakes).
    This method should be used before decoding a bank from funk so as
-   to not step on the work done while decoding. 
+   to not step on the work done while decoding.
 */
 void
 fd_exec_epoch_ctx_bank_mem_clear( fd_exec_epoch_ctx_t * epoch_ctx );

@@ -1026,6 +1026,16 @@
       ]
     },
     {
+      "name": "cluster_type",
+      "type": "enum",
+      "variants": [
+        { "name": "Testnet" },
+        { "name": "MainnetBeta" },
+        { "name": "Devnet" },
+        { "name": "Development" }
+      ]
+    },
+    {
       "name": "epoch_bank",
       "type": "struct",
       "alignment": "16",
@@ -1045,6 +1055,7 @@
         { "name": "eah_interval",          "type": "ulong" },
         { "name": "genesis_hash",          "type": "hash" },
         { "name": "cluster_type",          "type": "uint" },
+        { "name": "cluster_version",       "type": "uint" },
         { "name": "next_epoch_stakes",     "type": "vote_accounts"}
       ]
     },

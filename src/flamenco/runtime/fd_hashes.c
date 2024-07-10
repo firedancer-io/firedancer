@@ -953,14 +953,20 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_fu
         continue;
       } else
         continue;
-    } else if( do_hash_verify ) {
-      uchar hash[32];
-      ulong old_slot = slot_ctx->slot_bank.slot;
-      slot_ctx->slot_bank.slot = metadata->slot;
-      fd_hash_account_current( (uchar *) &hash, metadata, rec->pair.key->uc, fd_account_get_data(metadata), slot_ctx );
-      slot_ctx->slot_bank.slot = old_slot;
-      if ( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
-        FD_LOG_WARNING(( "snapshot hash (%32J) doesn't match calculated hash (%32J)", metadata->hash, &hash ));
+    } else {
+      fd_hash_t *h = (fd_hash_t *) metadata->hash;
+      if ((h->ul[0] | h->ul[1] | h->ul[2] | h->ul[3]) == 0) {
+        // By the time we fall into this case, we can assume the ignore_slot feature is enabled...
+        fd_hash_account_current( (uchar *) metadata->hash, metadata, rec->pair.key->uc, fd_account_get_data(metadata), slot_ctx );
+      } else if( do_hash_verify ) {
+        uchar hash[32];
+        ulong old_slot = slot_ctx->slot_bank.slot;
+        slot_ctx->slot_bank.slot = metadata->slot;
+        fd_hash_account_current( (uchar *) &hash, metadata, rec->pair.key->uc, fd_account_get_data(metadata), slot_ctx );
+        slot_ctx->slot_bank.slot = old_slot;
+        if ( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
+          FD_LOG_WARNING(( "snapshot hash (%32J) doesn't match calculated hash (%32J)", metadata->hash, &hash ));
+        }
       }
     }
 
