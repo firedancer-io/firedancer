@@ -5,6 +5,10 @@ $(call make-unit-test,test_types_meta,test_types_meta,fd_flamenco fd_ballet fd_u
 $(call make-unit-test,test_types_yaml,test_types_yaml,fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_types_fixtures,test_types_fixtures,fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_cast,test_cast,fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_types_meta)
+$(call run-unit-test,test_types_yaml)
+$(call run-unit-test,test_types_fixtures)
+$(call run-unit-test,test_cast)
 endif
 
 # "ConfirmedBlock" Protobuf definitions
