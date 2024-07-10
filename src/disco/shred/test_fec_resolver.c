@@ -2,6 +2,8 @@
 #include "fd_fec_resolver.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/shred/fd_fec_set.h"
+#include "../../ballet/base58/fd_base58.h"
+#include "../../util/archive/fd_ar.h"
 
 #include "../../disco/metrics/fd_metrics.h"
 
@@ -20,6 +22,9 @@ uchar res_mem[ 1024UL*1024UL ] __attribute__((aligned(FD_FEC_RESOLVER_ALIGN)));
 FD_IMPORT_BINARY( test_private_key, "src/disco/shred/fixtures/demo-shreds.key"  );
 
 FD_IMPORT_BINARY( test_bin,         "src/disco/shred/fixtures/demo-shreds.bin"  );
+
+FD_IMPORT_BINARY( chained_test,     "src/disco/shred/fixtures/chained-5XDmMEZpXM2GBXNjhgRCti4qLGeFQvx4RnzWeRgfupYk.ar"  );
+FD_IMPORT_BINARY( resigned_test,    "src/disco/shred/fixtures/resigned-AmKFVSAQ7DyhiW94pWfDexYDCSn8GB6SG2zbQqLhuufU.ar" );
 
 uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0, 0 ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
 
@@ -109,9 +114,9 @@ test_one_batch( void ) {
 
   ulong foot = fd_fec_resolver_footprint( 4UL, 1UL, 1UL, 1UL );
   fd_fec_resolver_t *r1, *r2, *r3;
-  r1 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+0UL*foot, 2UL, 1UL, 1UL, 1UL, out_sets,     SHRED_VER ) );
-  r2 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+1UL*foot, 2UL, 1UL, 1UL, 1UL, out_sets+4UL, SHRED_VER ) );
-  r3 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+2UL*foot, 2UL, 1UL, 1UL, 1UL, out_sets+8UL, SHRED_VER ) );
+  r1 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+0UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets,     SHRED_VER ) );
+  r2 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+1UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets+4UL, SHRED_VER ) );
+  r3 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+2UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets+8UL, SHRED_VER ) );
 
   fd_fec_set_t const * out_fec[1];
   fd_shred_t   const * out_shred[1];
@@ -181,7 +186,7 @@ test_interleaved( void ) {
   fd_fec_set_t const * out_fec[1];
   fd_shred_t   const * out_shred[1];
 
-  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 1UL, out_sets, SHRED_VER ) );
+  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, SHRED_VER ) );
   for( ulong j=0UL; j<set0->data_shred_cnt; j++ ) {
     ADD_SHRED( resolver, set0->data_shreds[ j ], OKAY );
     ADD_SHRED( resolver, set1->data_shreds[ j ], OKAY );
@@ -227,7 +232,7 @@ test_rolloff( void ) {
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
   fd_fec_resolver_t * resolver;
-  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 8UL, out_sets, SHRED_VER ) );
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, SHRED_VER ) );
   for( ulong j=0UL; j<set0->data_shred_cnt; j++ ) { ADD_SHRED( resolver, set0->data_shreds[ j ], OKAY ); }
 
   for( ulong j=0UL; j<set1->data_shred_cnt; j++ ) { ADD_SHRED( resolver, set1->data_shreds[ j ], OKAY ); }
@@ -281,6 +286,81 @@ perf_test( void ) {
 
 }
 
+static void
+test_new_formats( void ) {
+  signer_ctx_t signer_ctx[ 1 ];
+  signer_ctx_init( signer_ctx, test_private_key );
+  uchar * ptr = fec_set_memory;
+
+  fd_fec_set_t out_sets[ 4UL ];
+  for( ulong i=0UL; i<4UL; i++ ) ptr = allocate_fec_set( out_sets+i, ptr );
+
+  fd_fec_resolver_t * resolver;
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, test_signer, signer_ctx, 2UL, 1UL, 1UL, 8UL, out_sets, 1 ) );
+
+  uchar pubkey[32];
+  fd_base58_decode_32( "5XDmMEZpXM2GBXNjhgRCti4qLGeFQvx4RnzWeRgfupYk", pubkey );
+
+  fd_ar_meta_t meta[1];
+
+  FILE * file = fmemopen( (void *)chained_test, chained_test_sz, "rb" );
+  FD_TEST( file );
+  FD_TEST( !fd_ar_read_init( file ) );
+
+  ulong fec_sets = 0UL;
+  int   fec_done = 0;
+  while( !fd_ar_read_next( file, meta ) ) {
+    uchar shred[ 2048 ];
+    fd_fec_set_t const * out_fec[1];
+    fd_shred_t   const * out_shred[1];
+    FD_TEST( 1==fread( shred, (ulong)meta->filesz, 1UL, file ) );
+    fd_shred_t const * parsed = fd_shred_parse( shred, 2048UL );
+    int retval = fd_fec_resolver_add_shred( resolver, parsed, 2048UL, pubkey, out_fec, out_shred );
+    if( FD_UNLIKELY( retval==FD_FEC_RESOLVER_SHRED_COMPLETES ) ) {
+      fec_sets++;
+      fec_done = 1;
+    } else if( retval==FD_FEC_RESOLVER_SHRED_IGNORED ) {
+      FD_TEST( fec_done );
+    } else {
+      FD_TEST( retval==FD_FEC_RESOLVER_SHRED_OKAY );
+      fec_done = 0;
+    }
+  }
+  FD_TEST( fec_sets==4UL );
+  FD_TEST( !fclose( file ) );
+
+
+  fd_base58_decode_32( "AmKFVSAQ7DyhiW94pWfDexYDCSn8GB6SG2zbQqLhuufU", pubkey );
+
+  file = fmemopen( (void *)resigned_test, resigned_test_sz, "rb" );
+  FD_TEST( file );
+  FD_TEST( !fd_ar_read_init( file ) );
+
+  fec_done = 0;
+  fec_sets = 0UL;
+  while( !fd_ar_read_next( file, meta ) ) {
+    uchar shred[ 2048 ];
+    fd_fec_set_t const * out_fec[1];
+    fd_shred_t   const * out_shred[1];
+    FD_TEST( 1==fread( shred, (ulong)meta->filesz, 1UL, file ) );
+    fd_shred_t const * parsed = fd_shred_parse( shred, 2048UL );
+    int retval = fd_fec_resolver_add_shred( resolver, parsed, 2048UL, pubkey, out_fec, out_shred );
+    if( FD_UNLIKELY( retval==FD_FEC_RESOLVER_SHRED_COMPLETES ) ) {
+      fec_sets++;
+      fec_done = 1;
+    } else if( retval==FD_FEC_RESOLVER_SHRED_IGNORED ) {
+      FD_TEST( fec_done );
+    } else {
+      FD_TEST( retval==FD_FEC_RESOLVER_SHRED_OKAY );
+      fec_done = 0;
+    }
+  }
+  FD_TEST( fec_sets==1UL );
+  FD_TEST( !fclose( file ) );
+
+  fd_fec_resolver_delete( fd_fec_resolver_leave( resolver ) );
+}
+
 
 static void
 test_shred_version( void ) {
@@ -305,7 +385,7 @@ test_shred_version( void ) {
 
   for( ulong i=0UL; i<4UL; i++ )  ptr = allocate_fec_set( out_sets+i, ptr );
 
-  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 1UL, out_sets, SHRED_VER ) );
+  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, SHRED_VER ) );
 
   fd_fec_set_t const * out_fec[1];
   fd_shred_t   const * out_shred[1];
@@ -330,6 +410,7 @@ main( int     argc,
   test_interleaved();
   test_one_batch();
   test_rolloff();
+  test_new_formats();
   test_shred_version();
 
 

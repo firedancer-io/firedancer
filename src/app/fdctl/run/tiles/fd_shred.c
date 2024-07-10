@@ -821,10 +821,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_fec_set_t * resolver_sets = fec_sets + (shred_store_mcache_depth+1UL)/2UL + 1UL;
   ctx->shredder = NONNULL( fd_shredder_join     ( fd_shredder_new     ( _shredder, fd_shred_signer, ctx->keyguard_client, (ushort)expected_shred_version ) ) );
-  ctx->resolver = NONNULL( fd_fec_resolver_join ( fd_fec_resolver_new ( _resolver, tile->shred.fec_resolver_depth, 1UL,
-                                                                         (shred_store_mcache_depth+3UL)/2UL,
-                                                                         128UL * tile->shred.fec_resolver_depth, resolver_sets,
-                                                                         (ushort)expected_shred_version ) ) );
+  ctx->resolver = NONNULL( fd_fec_resolver_join ( fd_fec_resolver_new ( _resolver,
+                                                                        fd_shred_signer, ctx->keyguard_client,
+                                                                        tile->shred.fec_resolver_depth, 1UL,
+                                                                        (shred_store_mcache_depth+3UL)/2UL,
+                                                                        128UL * tile->shred.fec_resolver_depth, resolver_sets,
+                                                                        (ushort)expected_shred_version ) ) );
 
   ctx->shred34  = shred34;
   ctx->fec_sets = fec_sets;

@@ -89,6 +89,10 @@
 struct fd_fec_resolver;
 typedef struct fd_fec_resolver fd_fec_resolver_t;
 
+/* fd_fec_resolver_sign_fn: used to sign shreds that require a
+   retransmitter signature. */
+typedef void (fd_fec_resolver_sign_fn)( void * ctx, uchar * sig, uchar const * merkle_root );
+
 FD_PROTOTYPES_BEGIN
 /* fd_fec_resolver_footprint returns the required footprint (in bytes as
    always) required to create an FEC set resolver that can keep track of
@@ -104,27 +108,33 @@ ulong fd_fec_resolver_footprint( ulong depth, ulong partial_depth, ulong complet
 ulong fd_fec_resolver_align    ( void );
 
 /* fd_fec_resolver_new formats a region of memory as a FEC resolver.
-   shmem must have the required alignment and footprint.  depth,
-   partial_depth, complete_depth, and done_depth are as defined above
-   and must be positive.  sets is a pointer to the first of
-   depth+partial_depth+complete_depth FEC sets that this resolver will
-   take ownership of.  The FEC resolver retains a write interest in
-   these FEC sets and the shreds they point to until the resolver is
-   deleted.  These FEC sets and the memory for the shreds they point to
-   are the only values that will be returned in the output parameters of
-   _add_shred.  The FEC resolver will reject any shreds with a shred
-   version that does not match the value provided for
-   expected_shred_version.  Shred versions are always non-zero, so
+   shmem must have the required alignment and footprint.  signer is a
+   function pointer used to sign any shreds that require a retransmitter
+   signature, and sign_ctx is an opaque pointer passed as the first
+   argument to the function.  It is okay to pass NULL for signer, in
+   which case, retransmission signatures will just be zeroed and
+   sign_ctx will be ignored. depth, partial_depth, complete_depth, and
+   done_depth are as defined above and must be positive.  sets is a
+   pointer to the first of depth+partial_depth+complete_depth FEC sets
+   that this resolver will take ownership of.  The FEC resolver retains
+   a write interest in these FEC sets and the shreds they point to until
+   the resolver is deleted.  These FEC sets and the memory for the
+   shreds they point to are the only values that will be returned in the
+   output parameters of _add_shred.  The FEC resolver will reject any
+   shreds with a shred version that does not match the value provided
+   for expected_shred_version.  Shred versions are always non-zero, so
    expected_shred_version must be non-zero.  Returns shmem on success
    and NULL on failure (logs details). */
 void *
-fd_fec_resolver_new( void         * shmem,
-                     ulong          depth,
-                     ulong          partial_depth,
-                     ulong          complete_depth,
-                     ulong          done_depth,
-                     fd_fec_set_t * sets,
-                     ushort         expected_shred_version );
+fd_fec_resolver_new( void                    * shmem,
+                     fd_fec_resolver_sign_fn * signer,
+                     void                    * sign_ctx,
+                     ulong                     depth,
+                     ulong                     partial_depth,
+                     ulong                     complete_depth,
+                     ulong                     done_depth,
+                     fd_fec_set_t            * sets,
+                     ushort                    expected_shred_version );
 
 fd_fec_resolver_t * fd_fec_resolver_join( void * shmem );
 
