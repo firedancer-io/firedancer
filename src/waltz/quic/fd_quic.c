@@ -2090,7 +2090,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
                            fd_quic_conn_t *      conn,
                            fd_quic_pkt_t *       pkt,
                            uchar *         const cur_ptr,
-                           ulong           const cur_sz ) {
+                           ulong           const tot_sz ) {
   if( !conn ) {
     /* this can happen */
     return FD_QUIC_PARSE_FAIL;
@@ -2107,7 +2107,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
   /* hidden field needed by decode function */
   one_rtt->dst_conn_id_len = 8;
 
-  ulong rc = fd_quic_decode_one_rtt( one_rtt, cur_ptr, cur_sz );
+  ulong rc = fd_quic_decode_one_rtt( one_rtt, cur_ptr, tot_sz );
   if( rc == FD_QUIC_PARSE_FAIL ) {
     FD_DEBUG( FD_LOG_DEBUG(( "1-RTT: failed to decode" )) );
     return FD_QUIC_PARSE_FAIL;
@@ -2132,13 +2132,12 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
 
   ulong pkt_number       = ULONG_MAX;
   ulong pkt_number_sz    = ULONG_MAX;
-  ulong tot_sz           = ULONG_MAX;
 
     /* this decrypts the header */
     int server = conn->server;
 
     if( FD_UNLIKELY(
-          fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
+          fd_quic_crypto_decrypt_hdr( cur_ptr, tot_sz,
                                       pn_offset,
                                       suite,
                                       &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) ) {
@@ -2152,7 +2151,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
 
     /* number of bytes in the packet header */
     pkt_number_sz = ( first & 0x03u ) + 1u;
-    tot_sz        = cur_sz; /* total including header and payload */
 
     /* now we have decrypted packet number */
     pkt_number = fd_quic_parse_bits( cur_ptr + pn_offset, 0, 8u * pkt_number_sz );
@@ -2243,7 +2241,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
   /* handle frames */
   ulong         payload_off = pn_offset + pkt_number_sz;
   uchar const * frame_ptr   = cur_ptr + payload_off;
-  ulong         frame_sz    = cur_sz - pn_offset - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
+  ulong         frame_sz    = tot_sz - pn_offset - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
   while( frame_sz != 0UL ) {
     rc = fd_quic_handle_v1_frame( quic,
                                   conn,
