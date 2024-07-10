@@ -1433,7 +1433,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
          most transport params ahead of time.  Only the conn-specific
          differences will have to be appended here. */
 
-      fd_quic_transport_params_t * tp = &state->transport_params;
+      fd_quic_transport_params_t tp[1] = { state->transport_params };
 
       /* assume no retry */
       tp->retry_source_connection_id_present = 0;
@@ -5061,7 +5061,7 @@ fd_quic_connect( fd_quic_t *  quic,
 
       See RFC 9000 Section 18 */
 
-  fd_quic_transport_params_t * tp = &state->transport_params;
+  fd_quic_transport_params_t tp[1] = { state->transport_params };
 
   /* The original_destination_connection_id is omitted by clients.
      Since this is a mutable field, explicitly clear it here. */
