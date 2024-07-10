@@ -1617,20 +1617,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       /* if we fail after here, we must reap the connection
          TODO maybe actually set the connection to reset, and clean up resources later */
 
-      /* Encode transport params to be sent to peer */
-
-      uchar transport_params_raw[ FD_QUIC_TRANSPORT_PARAMS_RAW_SZ ];
-      ulong tp_rc = fd_quic_encode_transport_params(
-          transport_params_raw,
-          FD_QUIC_TRANSPORT_PARAMS_RAW_SZ,
-          tp );
-      if( FD_UNLIKELY( tp_rc == FD_QUIC_ENCODE_FAIL ) ) {
-        /* FIXME log error in counters */
-        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_TRANSPORT_PARAMETER_ERROR, __LINE__ );
-        return FD_QUIC_PARSE_FAIL;
-      }
-      ulong transport_params_raw_sz = tp_rc;
-
       /* Create a TLS handshake */
 
       fd_quic_tls_hs_t * tls_hs = fd_quic_tls_hs_new(
@@ -1638,8 +1624,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           (void*)conn,
           1 /*is_server*/,
           quic->config.sni,
-          transport_params_raw,
-          transport_params_raw_sz );
+          tp );
       if( FD_UNLIKELY( !tls_hs ) ) {
         conn->state = FD_QUIC_CONN_STATE_DEAD;
         fd_quic_reschedule_conn( conn, 0 );
@@ -5099,21 +5084,6 @@ fd_quic_connect( fd_quic_t *  quic,
     goto fail_conn;
   }
 
-  /* Encode transport params to be sent to peer */
-
-  uchar transport_params_raw[ FD_QUIC_TRANSPORT_PARAMS_RAW_SZ ];
-  ulong tp_rc = fd_quic_encode_transport_params(
-      transport_params_raw,
-      FD_QUIC_TRANSPORT_PARAMS_RAW_SZ,
-      tp );
-  if( FD_UNLIKELY( tp_rc == FD_QUIC_ENCODE_FAIL ) ) {
-    /* FIXME log error in counters */
-    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_encode_transport_params failed" )) );
-    goto fail_conn;
-  }
-
-  ulong transport_params_raw_sz = tp_rc;
-
   /* Create a TLS handshake */
 
   fd_quic_tls_hs_t * tls_hs = fd_quic_tls_hs_new(
@@ -5121,8 +5091,7 @@ fd_quic_connect( fd_quic_t *  quic,
       (void*)conn,
       0 /*is_server*/,
       sni,
-      transport_params_raw,
-      transport_params_raw_sz );
+      tp );
   if( FD_UNLIKELY( !tls_hs ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_tls_hs_new failed" )) );
     goto fail_conn;
