@@ -88,7 +88,7 @@ fd_addrlut_serialize_meta( fd_address_lookup_table_state_t const * state,
     { .data    = data,
       .dataend = data+FD_ADDRLUT_META_SZ };
   fd_memset( data, 0, (ulong)encode.dataend - (ulong)encode.data );
-  
+
   int bin_err = fd_address_lookup_table_state_encode( state, &encode );
   FD_TEST( !bin_err );
 
@@ -317,7 +317,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   if( required_lamports > 0UL ) {
     // Create account metas
     FD_SCRATCH_SCOPE_BEGIN {
-      fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *) 
+      fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *)
                                                 fd_scratch_alloc( FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
       fd_native_cpi_create_account_meta( payer_key, 1, 1, &acct_metas[0] );
       fd_native_cpi_create_account_meta( lut_key,   0, 1, &acct_metas[1] );
@@ -347,7 +347,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   }
 
   FD_SCRATCH_SCOPE_BEGIN {
-    fd_vm_rust_account_meta_t * acct_metas = ( fd_vm_rust_account_meta_t * ) 
+    fd_vm_rust_account_meta_t * acct_metas = ( fd_vm_rust_account_meta_t * )
                                               fd_scratch_alloc( FD_VM_RUST_ACCOUNT_META_ALIGN, sizeof(fd_vm_rust_account_meta_t) );
     fd_native_cpi_create_account_meta( lut_key, 1, 1, &acct_metas[0] );
 
@@ -706,7 +706,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
     FD_SCRATCH_SCOPE_BEGIN {
       // Create account metas
-      fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *) 
+      fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *)
                                                 fd_scratch_alloc( FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
       fd_native_cpi_create_account_meta( payer_key, 1, 1, &acct_metas[0] );
       fd_native_cpi_create_account_meta( lut_key,   0, 1, &acct_metas[1] );
@@ -1032,12 +1032,14 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
 int
 fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t _ctx ) {
+  do {
+    int err = fd_exec_consume_cus( _ctx.txn_ctx, DEFAULT_COMPUTE_UNITS );
+    if( FD_UNLIKELY( err ) ) return err;
+  } while(0);
 
   fd_exec_instr_ctx_t * ctx = &_ctx;
   uchar const * instr_data    = ctx->instr->data;
   ulong         instr_data_sz = ctx->instr->data_sz;
-
-  ctx->txn_ctx->compute_meter = fd_ulong_sat_sub( ctx->txn_ctx->compute_meter, DEFAULT_COMPUTE_UNITS );
 
   FD_SCRATCH_SCOPE_BEGIN {
 
