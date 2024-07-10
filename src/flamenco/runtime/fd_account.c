@@ -64,11 +64,11 @@ fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
   fd_borrowed_account_t * account = NULL;
   do {
     int err = fd_instr_borrowed_account_view_idx( ctx, (uchar)instr_acc_idx, &account );
-    if( FD_UNLIKELY( err ) ) { 
+    if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
     }
   } while(0);
-  
+
   /* An account not owned by the program cannot have its blanace decrease */
   if( FD_UNLIKELY( ( !fd_account_is_owned_by_current_program( ctx->instr, account->const_meta ) ) &&
                    ( lamports < account->const_meta->info.lamports ) ) )
@@ -89,7 +89,7 @@ fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
 
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, 0UL, &account );
-    if( FD_UNLIKELY( err ) ) { 
+    if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
     }
   } while(0);
@@ -101,12 +101,12 @@ fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-int 
-fd_account_get_data_mut( fd_exec_instr_ctx_t const * ctx, 
+int
+fd_account_get_data_mut( fd_exec_instr_ctx_t const * ctx,
                          ulong                       instr_acc_idx,
                          uchar * *                   data_out,
                          ulong *                     dlen_out ) {
-  
+
   int err;
   if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx->instr, instr_acc_idx, &err ) ) ) {
     return err;
@@ -114,8 +114,8 @@ fd_account_get_data_mut( fd_exec_instr_ctx_t const * ctx,
 
   fd_borrowed_account_t * account = NULL;
   do {
-    int err = fd_instr_borrowed_account_view_idx( ctx, (uchar)instr_acc_idx, &account );
-    if( FD_UNLIKELY( err ) ) { 
+    int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, 0UL, &account );
+    if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
     }
   } while(0);
@@ -123,8 +123,10 @@ fd_account_get_data_mut( fd_exec_instr_ctx_t const * ctx,
   /* self.touch() */
   account->meta->slot = ctx->slot_ctx->slot_bank.slot;
 
-  *data_out = account->data;
-  *dlen_out = account->meta->dlen;
+  if (NULL != data_out)
+    *data_out = account->data;
+  if (NULL != dlen_out)
+    *dlen_out = account->meta->dlen;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -159,7 +161,7 @@ fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,
 
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, data_sz, &account );
-    if( FD_UNLIKELY( err ) ) { 
+    if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
     }
   } while(0);
@@ -269,7 +271,7 @@ fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,
 
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, 0UL, &account );
-    if( FD_UNLIKELY( err ) ) { 
+    if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
     }
   } while(0);
@@ -288,7 +290,7 @@ fd_account_update_accounts_resize_delta( fd_exec_instr_ctx_t const * ctx,
                                          ulong                       instr_acc_idx,
                                          ulong                       new_len,
                                          int *                       err ) {
-                                          
+
   fd_borrowed_account_t * account = NULL;
   *err = fd_instr_borrowed_account_view_idx( ctx, (uchar)instr_acc_idx, &account );
   if( FD_UNLIKELY( *err ) ) {
@@ -297,7 +299,7 @@ fd_account_update_accounts_resize_delta( fd_exec_instr_ctx_t const * ctx,
 
   ulong size_delta = fd_ulong_sat_sub( new_len, account->const_meta->dlen );
 
-  /* TODO: The size delta should never exceed the value of ULONG_MAX so this 
+  /* TODO: The size delta should never exceed the value of ULONG_MAX so this
      could be replaced with a normal addition. However to match execution with
      the agave client, this is being left as a sat add */
   ctx->txn_ctx->accounts_resize_delta = fd_ulong_sat_add( ctx->txn_ctx->accounts_resize_delta, size_delta );
