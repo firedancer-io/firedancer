@@ -473,6 +473,7 @@ fd_quic_init( fd_quic_t * quic ) {
     .alert_cb              = fd_quic_tls_cb_alert,
     .secret_cb             = fd_quic_tls_cb_secret,
     .handshake_complete_cb = fd_quic_tls_cb_handshake_complete,
+    .peer_params_cb        = fd_quic_tls_cb_peer_params,
 
     .signer = {
       .ctx     = config->sign_ctx,
@@ -3155,8 +3156,104 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
 }
 
 void
+fd_quic_tls_cb_peer_params( void *        context,
+                            uchar const * peer_tp_enc,
+                            ulong         peer_tp_enc_sz ) {
+  fd_quic_conn_t * conn = (fd_quic_conn_t*)context;
+
+  /* decode peer transport parameters */
+  fd_quic_transport_params_t peer_tp[1] = {0};
+  int rc = fd_quic_decode_transport_params( peer_tp, peer_tp_enc, peer_tp_enc_sz );
+  if( FD_UNLIKELY( rc != 0 ) ) {
+    /* failed to parse transport params */
+    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_TRANSPORT_PARAMETER_ERROR, __LINE__ );
+    return;
+  }
+
+  /* flow control parameters */
+  conn->tx_max_data                            = peer_tp->initial_max_data;
+  conn->tx_initial_max_stream_data_uni         = peer_tp->initial_max_stream_data_uni;
+  conn->tx_initial_max_stream_data_bidi_local  = peer_tp->initial_max_stream_data_bidi_local;
+  conn->tx_initial_max_stream_data_bidi_remote = peer_tp->initial_max_stream_data_bidi_remote;
+
+  if( !conn->server ) {
+    /* verify retry_src_conn_id */
+    uint retry_src_conn_id_sz = conn->retry_src_conn_id.sz;
+    if( retry_src_conn_id_sz ) {
+      if( FD_UNLIKELY( !peer_tp->retry_source_connection_id_present
+                        || peer_tp->retry_source_connection_id_len != retry_src_conn_id_sz
+                        || 0 != memcmp( peer_tp->retry_source_connection_id,
+                                        conn->retry_src_conn_id.conn_id,
+                                        retry_src_conn_id_sz ) ) ) {
+        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_TRANSPORT_PARAMETER_ERROR, __LINE__ );
+        return;
+      }
+    } else {
+      if( FD_UNLIKELY( peer_tp->retry_source_connection_id_present ) ) {
+        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_TRANSPORT_PARAMETER_ERROR, __LINE__ );
+        return;
+      }
+    }
+  }
+
+  /* max datagram size */
+  ulong tx_max_datagram_sz = peer_tp->max_udp_payload_size;
+  if( tx_max_datagram_sz < FD_QUIC_INITIAL_PAYLOAD_SZ_MAX ) {
+    tx_max_datagram_sz = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
+  }
+  if( tx_max_datagram_sz > FD_QUIC_INITIAL_PAYLOAD_SZ_MAX ) {
+    tx_max_datagram_sz = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
+  }
+  conn->tx_max_datagram_sz = (uint)tx_max_datagram_sz;
+
+  /* initial max_streams */
+
+  fd_quic_limits_t * limits = &conn->quic->limits;
+  if( conn->server ) {
+    /* other stream types (0x00 and 0x02) use set_max_streams */
+    fd_quic_conn_set_max_streams( conn, 0, limits->initial_stream_cnt[0x00] );
+    fd_quic_conn_set_max_streams( conn, 1, limits->initial_stream_cnt[0x02] );
+  } else {
+    /* other stream types (0x01 and 0x03) use set_max_streams */
+    fd_quic_conn_set_max_streams( conn, 0, limits->initial_stream_cnt[0x01] );
+    fd_quic_conn_set_max_streams( conn, 1, limits->initial_stream_cnt[0x03] );
+  }
+
+  if( conn->server ) {
+    /* see rfc9000 sec 2.1 */
+    /* 0x01 server-initiated, bidirectional */
+    conn->peer_sup_stream_id[0x01] = ( (ulong)peer_tp->initial_max_streams_bidi << 2UL ) + 0x01;
+    /* 0x03 server-initiated, unidirectional */
+    conn->peer_sup_stream_id[0x03] = ( (ulong)peer_tp->initial_max_streams_uni  << 2UL ) + 0x03;
+  } else {
+    /* 0x00 client-initiated, bidirectional */
+    conn->peer_sup_stream_id[0x00] = ( (ulong)peer_tp->initial_max_streams_bidi << 2UL ) + 0x00;
+    /* 0x02 client-initiated, unidirectional */
+    conn->peer_sup_stream_id[0x02] = ( (ulong)peer_tp->initial_max_streams_uni  << 2UL ) + 0x02;
+  }
+
+  /* max_ack_delay */
+  /* rfc9000 specifies values of max_ack_delay >= 2^14 are invalid */
+  ulong max_peer_max_ack_delay = (ulong)1e6 * ((1UL<<14UL)-1UL);
+
+  /* if we don't wait some period, we end up sending packets with only
+    * acks in them */
+  ulong min_peer_max_ack_delay = (ulong)1e6;
+  conn->peer_max_ack_delay = fd_ulong_max(
+                                fd_ulong_min( peer_tp->max_ack_delay * (ulong)1e6,
+                                              max_peer_max_ack_delay ),
+                                min_peer_max_ack_delay );
+
+  /* set the max_idle_timeout to the min of our and peer max_idle_timeout */
+  conn->idle_timeout = fd_ulong_min( (ulong)(1e6) * peer_tp->max_idle_timeout, conn->idle_timeout );
+
+  conn->transport_params_set = 1;
+}
+
+void
 fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
                                    void *             context ) {
+  (void)hs;
   fd_quic_conn_t * conn = (fd_quic_conn_t*)context;
 
   /* need to send quic handshake completion */
@@ -3168,118 +3265,18 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
       return;
 
     case FD_QUIC_CONN_STATE_HANDSHAKE:
-      {
-        conn->handshake_complete = 1;
-        conn->state              = FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE;
-
-        /* handle transport params */
-        uchar const * peer_transport_params_raw    = NULL;
-        ulong         peer_transport_params_raw_sz = 0;
-
-        fd_quic_tls_get_peer_transport_params( hs,
-                                               &peer_transport_params_raw,
-                                               &peer_transport_params_raw_sz );
-
-        /* decode peer transport parameters */
-        fd_quic_transport_params_t peer_tp[1] = {0};
-        int rc = fd_quic_decode_transport_params( peer_tp,
-                                                  peer_transport_params_raw,
-                                                  peer_transport_params_raw_sz );
-        if( FD_UNLIKELY( rc != 0 ) ) {
-          /* failed to parse transport params */
-          fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_TRANSPORT_PARAMETER_ERROR, __LINE__ );
-          return;
-        }
-
-        /* flow control parameters */
-        conn->tx_max_data                            = peer_tp->initial_max_data;
-        conn->tx_initial_max_stream_data_uni         = peer_tp->initial_max_stream_data_uni;
-        conn->tx_initial_max_stream_data_bidi_local  = peer_tp->initial_max_stream_data_bidi_local;
-        conn->tx_initial_max_stream_data_bidi_remote = peer_tp->initial_max_stream_data_bidi_remote;
-
-        fd_quic_state_t * state = fd_quic_get_state( conn->quic );
-        fd_quic_transport_params_t * our_tp = &state->transport_params;
-        conn->rx_max_data                            = our_tp->initial_max_data;
-        conn->rx_initial_max_stream_data_uni         = our_tp->initial_max_stream_data_uni;
-        conn->rx_initial_max_stream_data_bidi_local  = our_tp->initial_max_stream_data_bidi_local;
-        conn->rx_initial_max_stream_data_bidi_remote = our_tp->initial_max_stream_data_bidi_remote;
-
-        if( !conn->server ) {
-          /* verify retry_src_conn_id */
-          uint retry_src_conn_id_sz = conn->retry_src_conn_id.sz;
-          if( retry_src_conn_id_sz ) {
-            if( FD_UNLIKELY( !peer_tp->retry_source_connection_id_present
-                             || peer_tp->retry_source_connection_id_len != retry_src_conn_id_sz
-                             || 0 != memcmp( peer_tp->retry_source_connection_id,
-                                             conn->retry_src_conn_id.conn_id,
-                                             retry_src_conn_id_sz ) ) ) {
-              fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_TRANSPORT_PARAMETER_ERROR, __LINE__ );
-              return;
-            }
-          } else {
-            if( FD_UNLIKELY( peer_tp->retry_source_connection_id_present ) ) {
-              fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_TRANSPORT_PARAMETER_ERROR, __LINE__ );
-              return;
-            }
-          }
-        }
-
-        /* max datagram size */
-        ulong tx_max_datagram_sz = peer_tp->max_udp_payload_size;
-        if( tx_max_datagram_sz < FD_QUIC_INITIAL_PAYLOAD_SZ_MAX ) {
-          tx_max_datagram_sz = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
-        }
-        if( tx_max_datagram_sz > FD_QUIC_INITIAL_PAYLOAD_SZ_MAX ) {
-          tx_max_datagram_sz = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
-        }
-        conn->tx_max_datagram_sz = (uint)tx_max_datagram_sz;
-
-        /* initial max_streams */
-
-        fd_quic_limits_t * limits = &conn->quic->limits;
-        if( conn->server ) {
-          /* other stream types (0x00 and 0x02) use set_max_streams */
-          fd_quic_conn_set_max_streams( conn, 0, limits->initial_stream_cnt[0x00] );
-          fd_quic_conn_set_max_streams( conn, 1, limits->initial_stream_cnt[0x02] );
-        } else {
-          /* other stream types (0x01 and 0x03) use set_max_streams */
-          fd_quic_conn_set_max_streams( conn, 0, limits->initial_stream_cnt[0x01] );
-          fd_quic_conn_set_max_streams( conn, 1, limits->initial_stream_cnt[0x03] );
-        }
-
-        if( conn->server ) {
-          /* see rfc9000 sec 2.1 */
-          /* 0x01 server-initiated, bidirectional */
-          conn->peer_sup_stream_id[0x01] = ( (ulong)peer_tp->initial_max_streams_bidi << 2UL ) + 0x01;
-          /* 0x03 server-initiated, unidirectional */
-          conn->peer_sup_stream_id[0x03] = ( (ulong)peer_tp->initial_max_streams_uni  << 2UL ) + 0x03;
-        } else {
-          /* 0x00 client-initiated, bidirectional */
-          conn->peer_sup_stream_id[0x00] = ( (ulong)peer_tp->initial_max_streams_bidi << 2UL ) + 0x00;
-          /* 0x02 client-initiated, unidirectional */
-          conn->peer_sup_stream_id[0x02] = ( (ulong)peer_tp->initial_max_streams_uni  << 2UL ) + 0x02;
-        }
-
-        /* max_ack_delay */
-        /* rfc9000 specifies values of max_ack_delay >= 2^14 are invalid */
-        ulong max_peer_max_ack_delay = (ulong)1e6 * ((1UL<<14UL)-1UL);
-
-        /* if we don't wait some period, we end up sending packets with only
-         * acks in them */
-        ulong min_peer_max_ack_delay = (ulong)1e6;
-        conn->peer_max_ack_delay = fd_ulong_max(
-                                     fd_ulong_min( peer_tp->max_ack_delay * (ulong)1e6,
-                                                   max_peer_max_ack_delay ),
-                                     min_peer_max_ack_delay );
-
-        /* Trigger allocation of streams to connections */
-        state->flags |= FD_QUIC_FLAGS_ASSIGN_STREAMS;
-
-        /* set the max_idle_timeout to the min of our and peer max_idle_timeout */
-        conn->idle_timeout = fd_ulong_min( (ulong)(1e6) * peer_tp->max_idle_timeout, conn->idle_timeout );
-
+      if( FD_UNLIKELY( !conn->transport_params_set ) ) { /* unreachable */
+        FD_LOG_WARNING(( "Handshake marked as completed but transport params are not set. This is a bug!" ));
+        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
         return;
       }
+      conn->handshake_complete = 1;
+      conn->state              = FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE;
+
+      /* Trigger allocation of streams to connections */
+      fd_quic_state_t * state = fd_quic_get_state( conn->quic );
+      state->flags |= FD_QUIC_FLAGS_ASSIGN_STREAMS;
+      return;
 
     default:
       FD_LOG_WARNING(( "handshake in unexpected state: %u", conn->state ));
@@ -5225,7 +5222,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
 
   /* initialize connection members */
   conn->quic                = quic;
-  conn->server              = server;
+  conn->server              = !!server;
   conn->established         = 0;
   conn->version             = version;
   conn->called_conn_new     = 0;
@@ -5354,6 +5351,13 @@ fd_quic_conn_create( fd_quic_t *               quic,
 
   fd_memset( conn->exp_pkt_number, 0, sizeof( conn->exp_pkt_number ) );
   fd_memset( conn->last_pkt_number, 0, sizeof( conn->last_pkt_number ) );
+
+  /* transport params */
+  fd_quic_transport_params_t * our_tp = &state->transport_params;
+  conn->rx_max_data                            = our_tp->initial_max_data;
+  conn->rx_initial_max_stream_data_uni         = our_tp->initial_max_stream_data_uni;
+  conn->rx_initial_max_stream_data_bidi_local  = our_tp->initial_max_stream_data_bidi_local;
+  conn->rx_initial_max_stream_data_bidi_remote = our_tp->initial_max_stream_data_bidi_remote;
 
   /* update metrics */
   quic->metrics.conn_active_cnt++;
