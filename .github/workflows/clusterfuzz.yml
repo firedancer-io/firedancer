@@ -19,7 +19,8 @@ jobs:
           - machine: linux_clang_icelake
             artifact_dir: build/linux/clang/icelake
             qualifier: highend
-    runs-on: self-hosted
+    runs-on:
+      group: github-v1
     env:
       MACHINE: ${{ matrix.machine }}
       EXTRAS: fuzz asan ubsan

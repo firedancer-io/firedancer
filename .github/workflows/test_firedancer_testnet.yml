@@ -30,4 +30,3 @@ jobs:
           sudo prlimit --pid=$$ --nofile=1048576
           sudo prlimit --pid=$$ --memlock=unlimited
           ./contrib/test/test_firedancer_testnet.sh
-

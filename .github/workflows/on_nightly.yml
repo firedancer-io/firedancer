@@ -20,4 +20,3 @@ jobs:
   test-firedancer-testnet:
     uses: ./.github/workflows/test_firedancer_testnet.yml
     secrets: inherit
-  

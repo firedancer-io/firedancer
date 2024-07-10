@@ -20,7 +20,7 @@ inputs:
   compiler-version:
     description: 'The compiler version to use'
     required: true
-    default: '12.4.0'
+    default: 'system'
 outputs: {}
 runs:
   using: composite
@@ -61,7 +61,9 @@ runs:
     - name: Install dependencies from scratch
       shell: bash
       run: |
-        source /opt/${{ inputs.compiler }}/${{ inputs.compiler }}-${{ inputs.compiler-version }}/activate
+        if [[ "${{ inputs.compiler-version }}" != "system" ]]; then
+          source /opt/${{ inputs.compiler }}/${{ inputs.compiler }}-${{ inputs.compiler-version }}/activate
+        fi
         CC='${{ inputs.compiler }}' \
         CXX='${{ inputs.compiler == 'gcc' && 'g++' || 'clang++' }}' \
         FD_AUTO_INSTALL_PACKAGES=1 \
