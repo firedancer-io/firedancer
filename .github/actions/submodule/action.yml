@@ -1,0 +1,52 @@
+name: submodule
+description: 'Cache solana submodule'
+inputs:
+  machine:
+    description: 'Machine type for this build'
+    required: true
+    default: 'native'
+  compiler:
+    description: 'The C compiler to use'
+    required: true
+    default: 'gcc'
+    type: choice
+    options:
+      - gcc
+      - clang
+  compiler-version:
+    description: 'The C compiler version to use'
+    required: true
+    default: 'system'
+  action:
+    description: 'Action to take'
+    required: true
+    default: 'restore'
+    type: choice
+    options:
+      - restore
+      - cache
+runs:
+  using: composite
+  steps:
+
+    - id: solana-submodule-commit
+      shell: bash
+      run: echo "SUBMODULE_COMMIT=$(git ls-tree HEAD | grep solana | awk '{print $3}')" >> "$GITHUB_ENV"
+
+    - id: solana-submodule-cache
+      uses: actions/cache@v4
+      with:
+        path: solana-submodule-${{ inputs.machine }}-${{ inputs.compiler }}-${{ inputs.compiler-version }}.tar.zst
+        key: solana-submodule-${{ inputs.machine }}-${{ inputs.compiler }}-${{ inputs.compiler-version }}-${{ env.SUBMODULE_COMMIT }}
+
+    - name: Use cached submodule build
+      shell: bash
+      run: tar -Izstd -xvf solana-submodule-${{ inputs.machine }}-${{ inputs.compiler }}-${{ inputs.compiler-version }}.tar.zst
+      if: steps.solana-submodule-cache.outputs.cache-hit == 'true' && inputs.action == 'restore'
+
+    - name: Tar submodule for caching
+      shell: bash
+      run: |
+        rm -vf solana-submodule-${{ inputs.machine }}-${{ inputs.compiler }}-${{ inputs.compiler-version }}.tar.zst
+        tar -Izstd -cvf solana-submodule-${{ inputs.machine }}-${{ inputs.compiler }}-${{ inputs.compiler-version }}.tar.zst ./solana/target
+      if: steps.solana-submodule-cache.outputs.cache-hit != 'true' && inputs.action == 'cache'
