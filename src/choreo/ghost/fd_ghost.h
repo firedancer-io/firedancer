@@ -112,6 +112,8 @@ typedef struct fd_ghost fd_ghost_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* Constructors */
+
 /* fd_ghost_{align,footprint} return the required alignment and
    footprint of a memory region suitable for use as ghost with up to
    node_max nodes and vote_max votes. */
@@ -185,6 +187,8 @@ fd_ghost_delete( void * ghost );
 void
 fd_ghost_init( fd_ghost_t * ghost, ulong root, ulong total_stake );
 
+/* Accessors */
+
 /* fd_ghost_head_query returns ghost's head.  Assumes caller has called
    fd_ghost_init and that the ghost is non-empty, ie. has a root. */
 
@@ -214,6 +218,8 @@ fd_ghost_node_query( fd_ghost_t * ghost, ulong slot );
 
 fd_ghost_node_t const *
 fd_ghost_node_query_const( fd_ghost_t const * ghost, ulong slot );
+
+/* Operations */
 
 /* fd_ghost_replay_vote_upsert inserts a replay vote into ghost.
 
@@ -251,6 +257,8 @@ fd_ghost_gossip_vote_upsert( fd_ghost_t *        ghost,
 
 fd_ghost_node_t *
 fd_ghost_publish( fd_ghost_t * ghost, ulong slot );
+
+/* Utilties */
 
 /* fd_ghost_is_ancestor checks if ancestor_slot is in fact an ancestor
    of slot.  Returns 1 if true, 0 otherwise.  Assumes slot is present in
