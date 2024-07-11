@@ -24,7 +24,7 @@ PB_BIND(FD_EXEC_TEST_TRANSACTION_MESSAGE, fd_exec_test_transaction_message_t, AU
 PB_BIND(FD_EXEC_TEST_SANITIZED_TRANSACTION, fd_exec_test_sanitized_transaction_t, AUTO)
 
 
-PB_BIND(FD_EXEC_TEST_TXN_CONTEXT, fd_exec_test_txn_context_t, AUTO)
+PB_BIND(FD_EXEC_TEST_TXN_CONTEXT, fd_exec_test_txn_context_t, 2)
 
 
 PB_BIND(FD_EXEC_TEST_RESULTING_STATE, fd_exec_test_resulting_state_t, AUTO)
@@ -33,7 +33,13 @@ PB_BIND(FD_EXEC_TEST_RESULTING_STATE, fd_exec_test_resulting_state_t, AUTO)
 PB_BIND(FD_EXEC_TEST_RENT_DEBITS, fd_exec_test_rent_debits_t, AUTO)
 
 
+PB_BIND(FD_EXEC_TEST_FEE_DETAILS, fd_exec_test_fee_details_t, AUTO)
+
+
 PB_BIND(FD_EXEC_TEST_TXN_RESULT, fd_exec_test_txn_result_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_TXN_FIXTURE, fd_exec_test_txn_fixture_t, 2)
 
 
 

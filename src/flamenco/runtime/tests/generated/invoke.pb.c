@@ -9,13 +9,13 @@
 PB_BIND(FD_EXEC_TEST_INSTR_ACCT, fd_exec_test_instr_acct_t, AUTO)
 
 
-PB_BIND(FD_EXEC_TEST_INSTR_CONTEXT, fd_exec_test_instr_context_t, 2)
+PB_BIND(FD_EXEC_TEST_INSTR_CONTEXT, fd_exec_test_instr_context_t, AUTO)
 
 
 PB_BIND(FD_EXEC_TEST_INSTR_EFFECTS, fd_exec_test_instr_effects_t, AUTO)
 
 
-PB_BIND(FD_EXEC_TEST_INSTR_FIXTURE, fd_exec_test_instr_fixture_t, 2)
+PB_BIND(FD_EXEC_TEST_INSTR_FIXTURE, fd_exec_test_instr_fixture_t, AUTO)
 
 
 
