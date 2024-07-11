@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_quic_transport_params_h
 #define HEADER_fd_quic_transport_params_h
 
+#include "../../../util/fd_util_base.h"
 #include <stdio.h>
 
 // TODO set proper defaults, and delete DFT_UNKNOWN
@@ -196,6 +197,8 @@ X( retry_source_connection_id,                                                  
   "server.",                                                                           \
   __VA_ARGS__ )
 
+#define FD_QUIC_PREFERRED_ADDRESS_SZ_MAX (61)
+
 void
 fd_quic_dump_transport_param_desc( FILE * out );
 
@@ -213,11 +216,11 @@ fd_quic_dump_transport_param_desc( FILE * out );
   uchar  NAME##_present;
 #define FD_QUIC_MBR_TYPE_TOKEN(NAME,TYPE)             \
   uint   NAME##_len;                                  \
-  uchar  NAME[1024];                                  \
+  uchar  NAME[16];                                    \
   uchar  NAME##_present;
 #define FD_QUIC_MBR_TYPE_PREFERRED_ADDRESS(NAME,TYPE) \
   uint   NAME##_len;                                  \
-  uchar  NAME[1024];                                  \
+  uchar  NAME[FD_QUIC_PREFERRED_ADDRESS_SZ_MAX];      \
   uchar  NAME##_present;
 
 struct fd_quic_transport_params {

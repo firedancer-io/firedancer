@@ -1307,7 +1307,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
     if( slot_ctx->status_cache ) {
       if( !fd_txncache_insert_batch( slot_ctx->status_cache, status_insert, num_cache_txns ) ) {
-        FD_LOG_ERR(("Status cache is full, this should not be possible"));
+        FD_LOG_WARNING(("Status cache is full, this should not be possible"));
       }
     }
 

@@ -46,8 +46,8 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
 
 #define FD_BORROWED_ACCOUNT_DECL(_x)  fd_borrowed_account_t _x[1]; fd_borrowed_account_init(_x);
 
-/* This macro provides the same scoping guarantees as the Agave client's 
-   borrowed account semantics. It allows for implict/explicit dropping of 
+/* This macro provides the same scoping guarantees as the Agave client's
+   borrowed account semantics. It allows for implict/explicit dropping of
    borrowed accounts' write locks. It's usage mirrors the use of
    FD_SCRATCH_SCOPE_{BEGIN,END}. It is also safe to use the original
    acquire/release api within the scoped macro in case you don't want
@@ -55,6 +55,7 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
    instruction within the bpf loader.
    Equivalent to Agave's instruction_context::try_borrow_instruction_account()
    https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/src/transaction_context.rs#L647 */
+
 #define FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( _ctx, _idx, _account ) do {   \
   fd_borrowed_account_t * _account = NULL;                                \
   int _err = fd_instr_borrowed_account_view_idx( _ctx, _idx, &_account ); \
@@ -68,7 +69,7 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
   fd_borrowed_account_t *  __fd_borrowed_lock_guard_ ## __LINE__          \
     __attribute__((cleanup(fd_borrowed_account_release_write_private)))   \
     __attribute__((unused)) = _account;                                   \
-  do  
+  do
 #define FD_BORROWED_ACCOUNT_DROP( _account_check ) while(0); (void)_account_check; } while(0)
 
 FD_PROTOTYPES_BEGIN
@@ -124,7 +125,7 @@ fd_borrowed_account_acquire_write( fd_borrowed_account_t * rw ) {
   return 1;
 }
 
-/* fd_borrowed_account_release_write{_private} releases a write/exclusive 
+/* fd_borrowed_account_release_write{_private} releases a write/exclusive
    access handle. The private version should only be used by the try borrow
    scoping macro. */
 
@@ -134,7 +135,7 @@ fd_borrowed_account_release_write( fd_borrowed_account_t * rw ) {
   rw->refcnt_excl = (ushort)0;
 }
 
-static inline void 
+static inline void
 fd_borrowed_account_release_write_private(fd_borrowed_account_t ** rw ) {
   /* Only release if it is not yet released */
   if( !fd_borrowed_account_acquire_write_is_safe( *rw ) ) {
