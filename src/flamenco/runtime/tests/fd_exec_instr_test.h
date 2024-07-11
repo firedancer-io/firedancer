@@ -7,6 +7,7 @@
 #include "generated/elf.pb.h"
 #include "generated/invoke.pb.h"
 #include "generated/vm.pb.h"
+#include "generated/vm_cpi.pb.h"
 #include "../../../funk/fd_funk.h"
 #include "../../vm/fd_vm.h"
 #include "../../../ballet/murmur3/fd_murmur3.h"
@@ -98,6 +99,12 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
                              void *                                 output_buf,
                              ulong                                  output_bufsz );
 
+ulong
+fd_exec_vm_cpi_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
+                                 fd_exec_test_cpi_context_t const *       input,
+                                 fd_exec_test_syscall_effects_t **        output,
+                                 void *                                 output_buf,
+                                 ulong                                  output_bufsz );
 
 FD_PROTOTYPES_END
 

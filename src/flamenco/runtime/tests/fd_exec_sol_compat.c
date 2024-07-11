@@ -511,7 +511,7 @@ int
 sol_compat_vm_validate_v1(  uchar *       out,
                             ulong *       out_sz,
                             uchar const * in,
-                            ulong         in_sz) {
+                            ulong         in_sz ) {
   // Setup
   ulong fmem[ 64 ];
   fd_exec_instr_test_runner_t * runner = sol_compat_setup_scratch_and_runner( fmem );
@@ -542,4 +542,18 @@ sol_compat_vm_validate_v1(  uchar *       out,
   sol_compat_check_wksp_usage();
 
   return ok;
+}
+
+int
+sol_compat_vm_cpi_syscall_v1( uchar *       out,
+                              ulong *       out_sz,
+                              uchar const * in,
+                              ulong         in_sz ) {
+  // unused parameters
+  (void)out;
+  (void)out_sz;
+  (void)in;
+  (void)in_sz;
+  fd_exec_vm_cpi_syscall_test_run( NULL, NULL, NULL, NULL, 0 );
+  return 0;
 }

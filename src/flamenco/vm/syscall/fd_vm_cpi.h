@@ -148,4 +148,9 @@ struct __attribute__((packed)) fd_vm_rust_account_info {
 
 typedef struct fd_vm_rust_account_info fd_vm_rust_account_info_t;
 
+/* We wrap the call to fd_execute_instr for stubbing purposes */
+int
+fd_vm_cpi_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
+                         fd_instr_info_t *   instr_info);
+
 #endif /* HEADER_fd_src_flamenco_vm_syscall_fd_vm_cpi_h */
