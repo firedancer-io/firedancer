@@ -485,6 +485,9 @@ export_account_state( fd_borrowed_account_t * borrowed_account,
 
     // Owner
     fd_memcpy(output_account->owner, borrowed_account->const_meta->info.owner, sizeof(fd_pubkey_t));
+
+    // Seed address (not present)
+    output_account->has_seed_addr = false;
 }
 
 void
@@ -592,10 +595,6 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
   /* Compute Units */
   instr_context->cu_avail = txn_ctx->compute_meter;
 
-  /* Txn Context */
-  instr_context->has_txn_context = true;
-  // TODO: Fill in transaction context whenever it becomes supported
-
   /* Slot Context */
   instr_context->has_slot_context = true;
 
@@ -664,8 +663,8 @@ dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx,
 
     /* Output to file */
     ulong out_buf_size = 100 * 1024 * 1024;
-    uint8_t * out = fd_scratch_alloc(alignof(uint8_t), out_buf_size);
-    pb_ostream_t stream = pb_ostream_from_buffer(out, out_buf_size);
+    uint8_t * out = fd_scratch_alloc( alignof(uchar) , out_buf_size );
+    pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
     if (pb_encode(&stream, FD_EXEC_TEST_INSTR_CONTEXT_FIELDS, &instr_context)) {
       char output_filepath[256]; fd_memset(output_filepath, 0, sizeof(output_filepath));
       char * position = fd_cstr_init(output_filepath);
