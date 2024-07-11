@@ -494,6 +494,107 @@ int fd_runtime_microblock_batch_prepare(void const *buf,
   return 0;
 }
 
+fd_microblock_txn_iter_t
+fd_microblock_txn_iter_init( fd_microblock_info_t const * microblock_info FD_PARAM_UNUSED ) {
+  return 0UL;
+}
+
+ulong
+fd_microblock_txn_iter_done( fd_microblock_info_t const * microblock_info, fd_microblock_txn_iter_t iter ) {
+  return iter >= microblock_info->microblock_hdr.txn_cnt;
+}
+
+fd_microblock_txn_iter_t
+fd_microblock_txn_iter_next( fd_microblock_info_t const * microblock_info FD_PARAM_UNUSED, fd_microblock_txn_iter_t iter ) {
+  return iter + 1UL;
+}
+
+fd_txn_p_t *
+fd_microblock_txn_iter_ele( fd_microblock_info_t const * microblock_info, fd_microblock_txn_iter_t iter ) {
+  return &microblock_info->txns[iter];
+}
+
+fd_microblock_batch_txn_iter_t
+fd_microblock_batch_txn_iter_init( fd_microblock_batch_info_t const * microblock_batch_info ) {
+  fd_microblock_batch_txn_iter_t iter = {
+    .curr_microblock = ULONG_MAX,
+  };
+
+  for( ulong i = 0UL; i < microblock_batch_info->microblock_cnt; i++ ) {
+    if( microblock_batch_info->microblock_infos[i].microblock_hdr.txn_cnt > 0 ) {
+      iter.curr_microblock = i;
+      break;
+    }
+  }
+
+  iter.microblock_iter = fd_microblock_txn_iter_init( &microblock_batch_info->microblock_infos[iter.curr_microblock] );
+  return iter;
+  }
+
+ulong
+fd_microblock_batch_txn_iter_done( fd_microblock_batch_info_t const * microblock_batch_info, fd_microblock_batch_txn_iter_t iter ) {
+  return iter.curr_microblock >= microblock_batch_info->microblock_cnt;
+}
+
+fd_microblock_batch_txn_iter_t
+fd_microblock_batch_txn_iter_next( fd_microblock_batch_info_t const * microblock_batch_info, fd_microblock_batch_txn_iter_t iter ) {
+  iter.microblock_iter = fd_microblock_txn_iter_next( &microblock_batch_info->microblock_infos[iter.curr_microblock], iter.microblock_iter );
+  while( fd_microblock_txn_iter_done( &microblock_batch_info->microblock_infos[iter.curr_microblock], iter.microblock_iter ) ) {
+    iter.curr_microblock++;
+    if( iter.curr_microblock >= microblock_batch_info->microblock_cnt ) {
+      break;
+    }
+    iter.microblock_iter = fd_microblock_txn_iter_init( &microblock_batch_info->microblock_infos[iter.curr_microblock] );
+  }
+  return iter;
+}
+
+fd_txn_p_t *
+fd_microblock_batch_txn_iter_ele( fd_microblock_batch_info_t const * microblock_batch_info, fd_microblock_batch_txn_iter_t iter ) {
+  return fd_microblock_txn_iter_ele( &microblock_batch_info->microblock_infos[iter.curr_microblock], iter.microblock_iter );
+}
+
+fd_block_txn_iter_t
+fd_block_txn_iter_init( fd_block_info_t const * block_info ) {
+  fd_block_txn_iter_t iter = {
+    .curr_batch = ULONG_MAX,
+  };
+
+  for( ulong i = 0UL; i < block_info->microblock_batch_cnt; i++ ) {
+    if( block_info->microblock_batch_infos[i].txn_cnt > 0 ) {
+      iter.curr_batch = i;
+      break;
+    }
+  }
+
+  iter.microblock_batch_iter = fd_microblock_batch_txn_iter_init( &block_info->microblock_batch_infos[iter.curr_batch] );
+  return iter;
+}
+
+ulong
+fd_block_txn_iter_done( fd_block_info_t const * block_info, fd_block_txn_iter_t iter ) {
+  return iter.curr_batch >= block_info->microblock_batch_cnt;
+}
+
+fd_block_txn_iter_t
+fd_block_txn_iter_next( fd_block_info_t const * block_info, fd_block_txn_iter_t iter ) {
+  iter.microblock_batch_iter = fd_microblock_batch_txn_iter_next( &block_info->microblock_batch_infos[iter.curr_batch], iter.microblock_batch_iter );
+  while( fd_microblock_batch_txn_iter_done( &block_info->microblock_batch_infos[iter.curr_batch], iter.microblock_batch_iter ) ) {
+    iter.curr_batch++;
+    if( iter.curr_batch >= block_info->microblock_batch_cnt ) {
+      break;
+    }
+    iter.microblock_batch_iter = fd_microblock_batch_txn_iter_init( &block_info->microblock_batch_infos[iter.curr_batch] );
+
+  }
+  return iter;
+}
+
+fd_txn_p_t *
+fd_block_txn_iter_ele( fd_block_info_t const * block_info, fd_block_txn_iter_t iter ) {
+  return fd_microblock_batch_txn_iter_ele( &block_info->microblock_batch_infos[iter.curr_batch], iter.microblock_batch_iter );
+}
+
 ulong
 fd_runtime_microblock_collect_txns( fd_microblock_info_t const * microblock_info,
                                     fd_txn_p_t * out_txns ) {
@@ -531,8 +632,7 @@ fd_runtime_block_collect_txns( fd_block_info_t const * block_info,
 int fd_runtime_block_prepare(void const *buf,
                              ulong buf_sz,
                              fd_valloc_t valloc,
-                             fd_block_info_t *out_block_info)
-{
+                             fd_block_info_t *out_block_info) {
   fd_block_info_t block_info = {
       .raw_block = buf,
       .signature_cnt = 0,
@@ -577,6 +677,27 @@ int fd_runtime_block_prepare(void const *buf,
 
   *out_block_info = block_info;
 
+  return 0;
+}
+
+// TODO: this function doesnt do anything!
+int
+fd_runtime_block_verify_ticks( fd_block_info_t const * block_info, 
+                               ulong                   tick_height,
+                               ulong                   max_tick_height ) {
+  (void)tick_height; (void)max_tick_height;
+  ulong tick_count = 0UL;
+  for( ulong i = 0UL; i < block_info->microblock_batch_cnt; i++ ) {
+    fd_microblock_batch_info_t const * microblock_batch_info = &block_info->microblock_batch_infos[ i ];
+    for( ulong j = 0UL; j < microblock_batch_info->microblock_cnt; j++ ) {
+      fd_microblock_info_t const * microblock_info = &microblock_batch_info->microblock_infos[ i ];
+      if( microblock_info->microblock_hdr.txn_cnt == 0UL ) {
+        /* if this mblk is a tick */
+        tick_count++;
+      }
+    }
+  }
+  (void)tick_count;
   return 0;
 }
 
@@ -815,6 +936,29 @@ struct fd_collect_fee_task_info {
 };
 typedef struct fd_collect_fee_task_info fd_collect_fee_task_info_t;
 
+/* TODO: sigverify should likely use the verify tiles */
+static void FD_FN_UNUSED
+fd_txn_sigverify_task( void *tpool,
+                       ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
+                       void *args FD_PARAM_UNUSED,
+                       void *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
+                       ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
+                       ulong m0, ulong m1 FD_PARAM_UNUSED,
+                       ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED ) {
+  fd_execute_txn_task_info_t * task_info = (fd_execute_txn_task_info_t *)tpool + m0;
+
+  /* the txn failed sanitize sometime earlier */
+  if( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
+    return;
+  }
+
+  fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
+  if( fd_executor_txn_verify( txn_ctx )!=0 ) {
+    FD_LOG_WARNING(("sigverify failed: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
+    task_info->txn->flags = 0;
+  }
+}
+
 static void FD_FN_UNUSED
 fd_collect_fee_task( void *tpool,
                      ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
@@ -873,6 +1017,25 @@ fd_runtime_status_cache_check( ulong slot,
   return is_recent_blockhash || fd_txncache_is_rooted_slot( slot_ctx->status_cache, slot );
 }
 
+static int 
+is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash_queue,
+                            fd_hash_t const *             blockhash,
+                            ulong                         max_age ) {
+  fd_hash_hash_age_pair_t_mapnode_t key;
+  fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
+  
+  fd_hash_hash_age_pair_t_mapnode_t * hash_age = fd_hash_hash_age_pair_t_map_find( block_hash_queue->ages_pool, block_hash_queue->ages_root, &key );
+  if( hash_age==NULL ) {
+    // FD_LOG_WARNING(( "txn with missing recent blockhash - blockhash: %32J", blockhash->uc ));
+    return 0;
+  }
+  ulong age = block_hash_queue->last_hash_index-hash_age->elem.val.hash_index;
+  if( age>max_age ) {
+    // FD_LOG_WARNING(( "txn with old blockhash - age: %lu, blockhash: %32J", age, hash_age->elem.key.uc ));
+  }
+  return ( age<=max_age );
+}
+
 int
 fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                       fd_execute_txn_task_info_t * task_info,
@@ -883,6 +1046,14 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                       ulong max_workers ) {
   int res = 0;
   FD_SCRATCH_SCOPE_BEGIN  {
+    fd_tpool_exec_all_rrobin( tpool, 0, max_workers, fd_txn_sigverify_task, task_info, NULL, NULL, 1, 0, txn_cnt );
+    for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
+      if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
+        res |= FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
+        break;
+      }
+    }
+
     ulong fee_payer_accs_cnt = 0;
     ulong * fee_payer_idxs = fd_scratch_alloc( sizeof(ulong), txn_cnt * sizeof(ulong) );
     fd_borrowed_account_t * * fee_payer_accs = fd_scratch_alloc( FD_BORROWED_ACCOUNT_ALIGN, txn_cnt * FD_BORROWED_ACCOUNT_FOOTPRINT );
@@ -891,6 +1062,10 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
     /* Loop across transactions */
     for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
+      if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
+        continue;
+      }
+
       fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
 
       /* https://github.com/firedancer-io/solana/blob/4b31032e68f85848b02fcc4c9e580d57f32ec04b/runtime/src/bank.rs#L4672 */
@@ -898,10 +1073,8 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
       int is_nonce = fd_has_nonce_account( txn_ctx, &err );
       if( ( NULL == txn_ctx->txn_descriptor ) || !is_nonce ) {
 
-        fd_hash_hash_age_pair_t_mapnode_t key;
-        fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
-
-        if ( fd_hash_hash_age_pair_t_map_find( slot_ctx->slot_bank.block_hash_queue.ages_pool, slot_ctx->slot_bank.block_hash_queue.ages_root, &key ) == NULL ) {
+        if( !is_blockhash_valid_for_age( &slot_ctx->slot_bank.block_hash_queue, blockhash, FD_RECENT_BLOCKHASHES_MAX_ENTRIES ) ) {
+          // FD_LOG_WARNING(("phase 2 invalid: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
           task_info[ txn_idx ].txn->flags = 0;
           res |= FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
           continue;
@@ -920,8 +1093,9 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
         // TODO: figure out if it is faster to batch query properly and loop all txns again
         fd_txncache_query_batch( slot_ctx->status_cache, &curr_query, 1UL, query_arg, query_func, &err );
+
         if( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
-          // FD_LOG_WARNING(("HELLO %64J", (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off));
+          // FD_LOG_WARNING(("phase 2 invalid: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
           task_info[ txn_idx ].txn->flags = 0;
           res |= FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED;
           continue;
@@ -930,6 +1104,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
       err = fd_executor_check_txn_accounts( txn_ctx );
       if ( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
+        // FD_LOG_WARNING(("phase 2 invalid: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
         task_info[ txn_idx ].txn->flags = 0;
         res |= err;
         continue;
@@ -1612,7 +1787,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
     int res = fd_runtime_prepare_txns_phase1( slot_ctx, task_infos, txns, txn_cnt );
     if( res != 0 ) {
-      FD_LOG_WARNING(("Fail prep 1"));
+      FD_LOG_DEBUG(("Fail prep 1"));
     }
 
     ulong * incomplete_txn_idxs = fd_scratch_alloc( 8UL, txn_cnt * sizeof(ulong) );
@@ -1650,12 +1825,12 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
       res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, query_func, query_arg, tpool, max_workers );
       if( res != 0 ) {
-        FD_LOG_WARNING(("Fail prep 2"));
+        FD_LOG_DEBUG(("Fail prep 2"));
       }
 
       res |= fd_runtime_prepare_txns_phase3( slot_ctx, wave_task_infos, wave_task_infos_cnt );
       if( res != 0 ) {
-        FD_LOG_WARNING(("Fail prep 3"));
+        FD_LOG_DEBUG(("Fail prep 3"));
       }
 
       fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_runtime_execute_txn_task, wave_task_infos, NULL, NULL, 1, 0, wave_task_infos_cnt );

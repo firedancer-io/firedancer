@@ -35,8 +35,9 @@ FULL_SNAPSHOT=$(wget -c -nc -S --trust-server-names http://$PRIMARY_IP:8899/snap
 echo "
 name = \"fd1test\"
 [layout]
-    affinity = \"1-32\"
+    affinity = \"1-37\"
     bank_tile_count = 1
+    verify_tile_count = 16
 [gossip]
     port = 8700
 [tiles]
