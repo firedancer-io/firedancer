@@ -90,7 +90,7 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_compute_budget_program_id.key, "compute_budget_program", 22UL );
 
   if( FD_FEATURE_ACTIVE( slot_ctx, zk_elgamal_proof_program_enabled ) ) {
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_zk_elgamal_proof_program_id.key, "zk_elgamal_proof_program", 22UL );
+    fd_write_builtin_bogus_account( slot_ctx, fd_solana_zk_elgamal_proof_program_id.key, "zk_elgamal_proof_program", 24UL );
   }
 
   /* Precompiles have empty account data */
@@ -99,10 +99,8 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_keccak_secp_256k_program_id.key, data, 1 );
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id.key, data, 1 );
   } else {
-    const char data[24] = "zk_elgamal_proof_program";
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_zk_el_gamal_program_id.key, data, 24);
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_keccak_secp_256k_program_id.key, data, 0 );
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id.key, data, 0 );
+    fd_write_builtin_bogus_account( slot_ctx, fd_solana_keccak_secp_256k_program_id.key, "", 0 );
+    fd_write_builtin_bogus_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id.key, "", 0 );
   }
 
   /* Inline SPL token mint program ("inlined to avoid an external dependency on the spl-token crate") */
