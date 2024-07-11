@@ -752,12 +752,14 @@ deactivate_stake( fd_exec_instr_ctx_t const * invoke_context, fd_stake_t * stake
       int err = 0;
       ulong new_rate_activation_epoch = 0;
       // https://github.com/anza-xyz/agave/blob/039c62b76d7b0eb38cb8714c77400f70ccd9cbf6/programs/stake/src/stake_state.rs#L314
-      if (new_warmup_cooldown_rate_epoch(invoke_context, &new_rate_activation_epoch, &err))
-        return err;
+
+      int is_some = new_warmup_cooldown_rate_epoch(invoke_context, &new_rate_activation_epoch, &err);
+      if( FD_UNLIKELY( err ) ) return err;
 
       // https://github.com/anza-xyz/agave/blob/039c62b76d7b0eb38cb8714c77400f70ccd9cbf6/programs/stake/src/stake_state.rs#L311
       fd_stake_history_entry_t status =
-        stake_activating_and_deactivating( &stake->delegation, epoch, stake_history, &new_rate_activation_epoch);
+        stake_activating_and_deactivating( &stake->delegation, epoch, stake_history,
+          fd_ptr_if( is_some, &new_rate_activation_epoch, NULL ));
 
       // https://github.com/anza-xyz/agave/blob/039c62b76d7b0eb38cb8714c77400f70ccd9cbf6/programs/stake/src/stake_state.rs#L316
       if (status.activating != 0) {
