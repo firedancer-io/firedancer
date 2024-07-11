@@ -1725,7 +1725,7 @@ fd_gossip_make_prune( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
     char keystr[ FD_BASE58_ENCODED_32_SZ ];
     fd_base58_encode_32( peerval->id.uc, NULL, keystr );
-    FD_LOG_NOTICE(("sending prune request for %lu origins to %s", origins_cnt, keystr));
+    FD_LOG_DEBUG(("sending prune request for %lu origins to %s", origins_cnt, keystr));
 
     /* Make a prune request */
     fd_gossip_msg_t gmsg;
@@ -1773,11 +1773,11 @@ fd_gossip_log_stats( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   if( glob->recv_pkt_cnt == 0 )
     FD_LOG_WARNING(("received no gossip packets!!"));
   else
-    FD_LOG_NOTICE(("received %lu packets", glob->recv_pkt_cnt));
+    FD_LOG_DEBUG(("received %lu packets", glob->recv_pkt_cnt));
   glob->recv_pkt_cnt = 0;
-  FD_LOG_NOTICE(("received %lu dup values and %lu new", glob->recv_dup_cnt, glob->recv_nondup_cnt));
+  FD_LOG_DEBUG(("received %lu dup values and %lu new", glob->recv_dup_cnt, glob->recv_nondup_cnt));
   glob->recv_dup_cnt = glob->recv_nondup_cnt = 0;
-  FD_LOG_NOTICE(("pushed %lu values and filtered %lu", glob->push_cnt, glob->not_push_cnt));
+  FD_LOG_DEBUG(("pushed %lu values and filtered %lu", glob->push_cnt, glob->not_push_cnt));
   glob->push_cnt = glob->not_push_cnt = 0;
 
   int need_inactive = (glob->inactives_cnt == 0);
