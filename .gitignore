@@ -52,6 +52,8 @@ deps-bundle.tar.zst
 testnet.toml
 mainnet.toml
 sim.toml
+backtest.toml
 testnet.sh
 mainnet.sh
 sim.sh
+backtest.sh

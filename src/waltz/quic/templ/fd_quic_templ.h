@@ -353,3 +353,16 @@ FD_TEMPL_DEF_STRUCT_BEGIN(ecn_counts_frag)
   FD_TEMPL_MBR_ELEM_VARINT( ect1_count,   ulong )
   FD_TEMPL_MBR_ELEM_VARINT( ecn_ce_count, ulong )
 FD_TEMPL_DEF_STRUCT_END(ecn_counts_frag)
+
+
+/* 18.2. Transport Parameter Definitions > Preferred Address */
+
+FD_TEMPL_DEF_STRUCT_BEGIN(preferred_address)
+  FD_TEMPL_MBR_ELEM_FIXED( ipv4_address, uchar,  4          )
+  FD_TEMPL_MBR_ELEM      ( ipv4_port,    ushort             )
+  FD_TEMPL_MBR_ELEM_FIXED( ipv6_address, uchar, 16          )
+  FD_TEMPL_MBR_ELEM      ( ipv6_port,    ushort             )
+  FD_TEMPL_MBR_ELEM      ( conn_id_len,  uchar              )
+  FD_TEMPL_MBR_ELEM_VAR  ( conn_id,      0,160, conn_id_len )
+  FD_TEMPL_MBR_ELEM_FIXED( reset_token,  uchar, 16          )
+FD_TEMPL_DEF_STRUCT_END(preferred_address)

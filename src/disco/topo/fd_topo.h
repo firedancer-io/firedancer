@@ -201,32 +201,29 @@ typedef struct {
     } metric;
 
     struct {
-      int   vote;
-      uint  ip_addr;
-      uchar src_mac_addr[ 6 ];
+
+      /* specified by [tiles.replay] */
 
       char  blockstore_checkpt[ PATH_MAX ];
+      int   blockstore_publish;
       char  capture[ PATH_MAX ];
+      char  funk_checkpt[ PATH_MAX ];
+      ulong funk_rec_max;
+      ulong funk_sz_gb;
+      ulong funk_txn_max;
       char  genesis[ PATH_MAX ];
-      char  identity_key_path[ PATH_MAX ];
-      char  vote_account_path[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
       char  slots_replayed[ PATH_MAX ];
       char  snapshot[ PATH_MAX ];
-
-      ulong funk_sz_gb;
-      ulong funk_txn_max;
-      ulong funk_rec_max;
       ulong tpool_thread_count;
 
-      /* non-config */
+      /* not specified by [tiles.replay] */
 
-      ulong pages;
-      ulong txn_max;
-      ulong index_max;
-      ulong shred_max;
-      ulong slot_history_max;
-      ulong snapshot_slot;
+      char  identity_key_path[ PATH_MAX ];
+      uint  ip_addr;
+      uchar src_mac_addr[ 6 ];
+      int   vote;
+      char  vote_account_path[ PATH_MAX ];
     } replay;
 
     struct {

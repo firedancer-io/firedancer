@@ -12,9 +12,9 @@
 typedef void (*fd_voter_txn_sign_fun)( void * ctx, uchar * sig, uchar const * buffer, ulong len );
 
 struct fd_voter {
-  fd_pubkey_t * vote_acct_addr;
-  fd_pubkey_t * vote_authority_pubkey;
-  fd_pubkey_t * validator_identity_pubkey;
+  fd_pubkey_t const * vote_acct_addr;
+  fd_pubkey_t const * vote_authority_pubkey;
+  fd_pubkey_t const * validator_identity_pubkey;
   void * voter_sign_arg;
   fd_voter_txn_sign_fun vote_authority_sign_fun;
   fd_voter_txn_sign_fun validator_identity_sign_fun;
@@ -24,7 +24,7 @@ typedef struct fd_voter fd_voter_t;
 ulong
 fd_vote_txn_generate( fd_voter_t *                     voter,
                       fd_compact_vote_state_update_t * vote_update,
-                      uchar *                          recent_blockhash,
+                      uchar const *                    recent_blockhash,
                       uchar                            out_txn_meta_buf [static FD_TXN_MAX_SZ],
                       uchar                            out_txn_buf [static FD_TXN_MTU] );
 

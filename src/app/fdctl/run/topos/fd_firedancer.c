@@ -57,7 +57,6 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topob_wksp( topo, "crds_shred"   );
   fd_topob_wksp( topo, "gossip_repai" );
   fd_topob_wksp( topo, "gossip_pack"  );
-  fd_topob_wksp( topo, "gossip_repla" );
 
   fd_topob_wksp( topo, "store_repair" );
   fd_topob_wksp( topo, "repair_store" );
@@ -119,7 +118,6 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                 fd_topob_link( topo, "sign_gossip",  "sign_gossip",  0,        128UL,                                    64UL,                          1UL );
   /* gossip_pack could be FD_TPU_MTU for now, since txns are not parsed, but better to just share one size for all the ins of pack */
   /**/                 fd_topob_link( topo, "gossip_pack",  "gossip_pack",  0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,             1UL );
-  /**/                 fd_topob_link( topo, "gossip_repla", "gossip_repla", 0,        128UL,                                    FD_TXN_MTU,                    1UL );
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "crds_shred",   "crds_shred",   0,        128UL,                                    8UL  + 40200UL * 38UL,         1UL );
   /**/                 fd_topob_link( topo, "gossip_repai", "gossip_repai", 0,        128UL,                                    40200UL * 38UL, 1UL );
@@ -299,7 +297,6 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_pack",  0UL                                                  );
   /**/                 fd_topob_tile_in(  topo, "sign",     0UL,          "metric_in", "gossip_sign",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_sign",  0UL                                                  );
-  /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_repla", 0UL                                                  );
   /**/                 fd_topob_tile_in(  topo, "gossip",   0UL,          "metric_in", "voter_gossip", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in(  topo, "gossip",   0UL,          "metric_in", "sign_gossip",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_out( topo, "sign",     0UL,                       "sign_gossip",  0UL                                                  );
@@ -315,7 +312,6 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_poh",    0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_notif",  0UL                                                  );
   /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "pack_replay",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-  /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "gossip_repla",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_voter",  0UL                                                  );
 
   /**/                 fd_topob_tile_in(  topo, "sender",  0UL,          "metric_in",  "stake_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
@@ -440,30 +436,35 @@ fd_topo_firedancer( config_t * _config ) {
       strncpy( tile->repair.identity_key_path, config->consensus.identity_path, sizeof(tile->repair.identity_key_path) );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
-      tile->replay.vote = config->consensus.vote;
-      tile->replay.ip_addr = config->tiles.net.ip_addr;
-      memcpy( tile->replay.src_mac_addr, config->tiles.net.mac_addr, 6UL );
+
+      /* specified by [tiles.replay] */
 
       strncpy( tile->replay.blockstore_checkpt, config->tiles.replay.blockstore_checkpt, sizeof(tile->replay.blockstore_checkpt) );
+      tile->replay.blockstore_publish = config->tiles.replay.blockstore_publish;
       strncpy( tile->replay.capture, config->tiles.replay.capture, sizeof(tile->replay.capture) );
+      strncpy( tile->replay.funk_checkpt, config->tiles.replay.funk_checkpt, sizeof(tile->replay.funk_checkpt) );
+      tile->replay.funk_rec_max = config->tiles.replay.funk_rec_max;
+      tile->replay.funk_sz_gb   = config->tiles.replay.funk_sz_gb;
+      tile->replay.funk_txn_max = config->tiles.replay.funk_txn_max;
       strncpy( tile->replay.genesis, config->tiles.replay.genesis, sizeof(tile->replay.genesis) );
-      strncpy( tile->replay.identity_key_path, config->consensus.identity_path, sizeof(tile->replay.identity_key_path) );
-      strncpy( tile->replay.vote_account_path, config->consensus.vote_account_path, sizeof(tile->replay.vote_account_path) );
       strncpy( tile->replay.incremental, config->tiles.replay.incremental, sizeof(tile->replay.incremental) );
       strncpy( tile->replay.slots_replayed, config->tiles.replay.slots_replayed, sizeof(tile->replay.slots_replayed) );
       strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
-      FD_LOG_NOTICE(("config->consensus.identity_path: %s", config->consensus.identity_path));
-      FD_LOG_NOTICE(("config->consensus.vote_account_path: %s", config->consensus.vote_account_path));
-
-      tile->replay.tpool_thread_count =  config->tiles.replay.tpool_thread_count;
+      tile->replay.tpool_thread_count = config->tiles.replay.tpool_thread_count;
       if( FD_UNLIKELY( tile->replay.tpool_thread_count == 0 || tile->replay.tpool_thread_count>FD_TILE_MAX ) ) {
         FD_LOG_ERR(( "bad tpool_thread_count %lu", tile->replay.tpool_thread_count ));
       }
 
-      tile->replay.pages     = config->tiles.replay.funk_sz_gb;
-      tile->replay.txn_max   = config->tiles.replay.funk_txn_max;
-      tile->replay.index_max = config->tiles.replay.funk_rec_max;
-      tile->replay.shred_max = config->tiles.replay.tpool_thread_count;
+      /* not specified by [tiles.replay] */
+
+      strncpy( tile->replay.identity_key_path, config->consensus.identity_path, sizeof(tile->replay.identity_key_path) );
+      tile->replay.ip_addr = config->tiles.net.ip_addr;
+      memcpy( tile->replay.src_mac_addr, config->tiles.net.mac_addr, 6UL );
+      tile->replay.vote = config->consensus.vote;
+      strncpy( tile->replay.vote_account_path, config->consensus.vote_account_path, sizeof(tile->replay.vote_account_path) );
+
+      FD_LOG_NOTICE(("config->consensus.identity_path: %s", config->consensus.identity_path));
+      FD_LOG_NOTICE(("config->consensus.vote_account_path: %s", config->consensus.vote_account_path));
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "bhole" ) ) ) {
 

@@ -19,10 +19,10 @@ struct fd_txn_accounts {
   uchar  readonly_signed_cnt;
   uchar  readonly_unsigned_cnt;
   ushort acct_cnt;
-  fd_pubkey_t * signers_w;
-  fd_pubkey_t * signers_r;
-  fd_pubkey_t * non_signers_w;
-  fd_pubkey_t * non_signers_r;
+  fd_pubkey_t const * signers_w;
+  fd_pubkey_t const * signers_r;
+  fd_pubkey_t const * non_signers_w;
+  fd_pubkey_t const * non_signers_r;
 };
 
 typedef struct fd_txn_accounts fd_txn_accounts_t;
@@ -37,7 +37,7 @@ fd_txn_base_generate( uchar out_txn_meta[ static FD_TXN_MAX_SZ ],
                       uchar out_txn_payload[ static FD_TXN_MTU ],
                       ulong num_signatures,
                       fd_txn_accounts_t * accounts,
-                      uchar * opt_recent_blockhash );
+                      uchar const * opt_recent_blockhash );
 
 /* Method used for adding an instruction to a txn being generated.
    The accounts param is a list of indices to the accounts in the txn.
