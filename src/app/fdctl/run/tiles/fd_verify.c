@@ -7,6 +7,15 @@
 
 #include <linux/unistd.h>
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <stdint.h>
+#include <errno.h>
+#include <string.h>
+
 /* The verify tile is a wrapper around the mux tile, that also verifies
    incoming transaction signatures match the data being signed.
    Non-matching transactions are filtered out of the frag stream. */
@@ -154,6 +163,49 @@ after_frag( void *             _ctx,
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
 }
 
+static void 
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile,
+                 void *           scratch ) {
+  (void)topo;
+  (void)tile;
+  (void)scratch;
+
+  const char *device = "/sys/bus/pci/devices/0000:03:00.0/resource0";
+  int fd = open(device, O_RDWR | O_SYNC);
+
+  if (fd == -1) {
+      FD_LOG_ERR(("Error opening device file"));
+      return;
+  }
+
+  size_t size = 1UL << 24UL;
+  void * base_address = (void*)0x3bffe000000UL;
+  void *mapped_addr = mmap(base_address, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+
+  if (mapped_addr == MAP_FAILED) {
+      FD_LOG_ERR(("Error mapping memory: %s\n", strerror(errno)));
+      close(fd);
+      return;
+  }
+
+  uint16_t *memory = (uint16_t *)mapped_addr;
+
+  // Read the value of the first register
+  uint16_t first_register = memory[0];
+  FD_LOG_NOTICE(("First register value: 0x%x\n", first_register));
+
+  // Write a value to the third register
+  memory[2] = 0x0007;
+  FD_LOG_NOTICE(("Written 0x0007 to the third register.\n"));
+
+  // Clean up
+  if (munmap(mapped_addr, size) == -1) {
+      FD_LOG_ERR(("Error unmapping memory"));
+  }
+  close(fd);
+}
+
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
@@ -239,6 +291,6 @@ fd_topo_run_tile_t fd_tile_verify = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
-  .privileged_init          = NULL,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
 };
