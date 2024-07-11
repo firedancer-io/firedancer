@@ -32,6 +32,8 @@ fd_executor_lookup_native_program(  fd_pubkey_t const * program_id );
    IMPORTANT: instr_info must have the same lifetime as txn_ctx. This can
    be achieved by using fd_executor_acquire_instr_info_elem( txn_ctx ) to
    acquire an fd_instr_info_t element with the same lifetime as the txn_ctx */
+int
+fd_executor_txn_verify( fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,

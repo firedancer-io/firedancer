@@ -31,6 +31,20 @@
    and know that pack will not need those hashcnts later to do mixins. */
 #define MAX_MICROBLOCKS_PER_SLOT (16384UL)
 
+/* When we are hashing in the background in case a prior leader skips
+   their slot, we need to store the result of each tick hash so we can
+   publish them when we become leader.  The network requires at least
+   one leader slot to publish in each epoch for the leader schedule to
+   generate, so in the worst case we might need two full epochs of slots
+   to store the hashes.  (Eg, if epoch T only had a published slot in
+   position 0 and epoch T+1 only had a published slot right at the end).
+
+   There is a tighter bound: the block data limit of mainnet-beta is
+   currently FD_PACK_MAX_DATA_PER_BLOCK, or 27,332,342 bytes per slot.
+   At 48 bytes per tick, it is not possible to publish a slot that skips
+   569,424 or more prior slots. */
+#define MAX_SKIPPED_TICKS (1UL+(FD_PACK_MAX_DATA_PER_BLOCK/48UL))
+
 struct fd_poh_tile_in_ctx {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -38,10 +52,19 @@ struct fd_poh_tile_in_ctx {
 };
 typedef struct fd_poh_tile_in_ctx fd_poh_tile_in_ctx_t;
 
+typedef void * (*fd_poh_tile_get_micoblock_buffer_func_t)( void * arg );
+typedef void   (*fd_poh_tile_publish_microblock_func_t)( void * arg, ulong tspub, ulong sig, ulong sz );
+typedef void * (*fd_poh_tile_get_pack_buffer_func_t)( void * arg );
+typedef void   (*fd_poh_tile_publish_pack_func_t)( void * arg, ulong tspub, ulong sig, ulong sz );
+typedef void   (*fd_poh_tile_register_tick_func_t)( void * arg, ulong slot, uchar hash[ static 32 ] );
+typedef void   (*fd_poh_tile_signal_leader_change_func_t)( void * arg );
+
 struct fd_poh_tile_ctx {
   /* Static configuration determined at genesis creation time.  See
      long comment above for more information. */
   double hashcnt_duration_ns;
+  double slot_duration_ns;
+  ulong  tick_duration_ns;
   ulong  hashcnt_per_tick;
   ulong  ticks_per_slot;
 
@@ -60,7 +83,8 @@ struct fd_poh_tile_ctx {
 
      As well, the next leader slot that we can transition into will
      always be strictly more than the slot this hashcnt is in, otherwise
-     we could potentially become leader for a slot twice. */
+     we could potentially become leader for a slot twice. */   
+  ulong last_slot;
   ulong last_hashcnt;
 
   /* See how this field is used below.  If we have sequential leader
@@ -93,7 +117,7 @@ struct fd_poh_tile_ctx {
      the slot hashes sysvar can be updated correctly.  We only need 150
      of these, because that's what's required for consensus in the
      sysvar. */
-  uchar skipped_slot_hashes[ 150 ][ 32 ];
+  uchar skipped_tick_hashes[ MAX_SKIPPED_TICKS ][ 32 ];
 
   /* The timestamp in nanoseconds of when the reset slot was received.
      This is the timestamp we are building on top of to determine when
@@ -101,11 +125,11 @@ struct fd_poh_tile_ctx {
   long reset_slot_start_ns;
 
   /* The hashcnt corresponding to the start of the current reset slot. */
-  ulong reset_slot_hashcnt;
+  ulong reset_slot;
 
   /* The hashcnt at which our next leader slot begins, or ULONG max if
      we have no known next leader slot. */
-  ulong next_leader_slot_hashcnt;
+  ulong next_leader_slot;
 
   /* The current slot where we are leader. If it is set to FD_SLOT_NULL, we are
      not leader. */
@@ -142,10 +166,18 @@ struct fd_poh_tile_ctx {
   fd_histf_t begin_leader_delay[ 1 ];
   fd_histf_t first_microblock_delay[ 1 ];
   fd_histf_t slot_done_delay[ 1 ];
+
+  /* Callbacks */
+  void * arg;
+
+  fd_poh_tile_get_micoblock_buffer_func_t get_microblock_buffer_func;
+  fd_poh_tile_publish_microblock_func_t   publish_microblock_func;
+  fd_poh_tile_get_micoblock_buffer_func_t get_pack_buffer_func;
+  fd_poh_tile_publish_microblock_func_t   publish_pack_func;
+  fd_poh_tile_register_tick_func_t        register_tick_func;
+  fd_poh_tile_signal_leader_change_func_t signal_leader_change_func;
 };
 typedef struct fd_poh_tile_ctx fd_poh_tile_ctx_t;
-
-typedef ulong fd_poh_tile_skipped_hashcnt_iter_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -156,12 +188,7 @@ ulong
 fd_poh_tile_footprint( void );
 
 void
-fd_poh_tile_publish_tick( fd_poh_tile_ctx_t * ctx,
-                          fd_mux_context_t *  mux );
-
-void
 fd_poh_tile_publish_microblock( fd_poh_tile_ctx_t * ctx,
-                                fd_mux_context_t *  mux,
                                 ulong               sig,
                                 ulong               slot,
                                 ulong               hashcnt_delta,
@@ -170,7 +197,7 @@ fd_poh_tile_publish_microblock( fd_poh_tile_ctx_t * ctx,
                               
 void
 fd_poh_tile_initialize( fd_poh_tile_ctx_t * ctx,
-                        double              hashcnt_duration_ns, /* See clock comments above, will be 500ns for mainnet-beta. */
+                        ulong               tick_duration_ns, /* See clock comments above, will be 500ns for mainnet-beta. */
                         ulong               hashcnt_per_tick,    /* See clock comments above, will be 12,500 for mainnet-beta. */
                         ulong               ticks_per_slot,      /* See clock comments above, will almost always be 64. */
                         ulong               tick_height,         /* The counter (height) of the tick to start hashing on top of. */
@@ -186,98 +213,57 @@ fd_poh_tile_publish_became_leader( fd_poh_tile_ctx_t * ctx,
                                    void const *        current_leader_data,
                                    ulong               slot );
 
-ulong
-fd_poh_tile_reset_slot( fd_poh_tile_ctx_t const * ctx );
-
-ulong
-fd_poh_tile_next_leader_slot_hashcnt( fd_poh_tile_ctx_t * ctx );
-
 void
 fd_poh_tile_no_longer_leader( fd_poh_tile_ctx_t * ctx );
 
-int
+void
 fd_poh_tile_reset( fd_poh_tile_ctx_t * ctx,
                    ulong               completed_bank_slot, /* The slot that successfully produced a block */
-                   uchar const *       reset_blockhash      /* The hash of the last tick in the produced block */ );
-
+                   uchar const *       reset_blockhash,     /* The hash of the last tick in the produced block */
+                   ulong               hashcnt_per_tick     /* The hashcnt per tick of the bank that completed */);
 int
 fd_poh_tile_get_leader_after_n_slots( fd_poh_tile_ctx_t * ctx,
                                       ulong               n,
                                       uchar               out_pubkey[ static 32 ] );
+void
+fd_poh_tile_after_credit( fd_poh_tile_ctx_t * ctx,
+                          int *               opt_poll_in );
+
+void
+fd_poh_tile_init_stakes( fd_poh_tile_ctx_t * ctx, uchar const * stakes_msg );
+
+void
+fd_poh_tile_fini_stakes( fd_poh_tile_ctx_t * ctx );
 
 void
 fd_poh_tile_during_housekeeping( fd_poh_tile_ctx_t * ctx );
 
 void
 fd_poh_tile_begin_leader( fd_poh_tile_ctx_t * ctx,
-                          ulong               slot );
-
-int
-fd_poh_tile_do_hashing( fd_poh_tile_ctx_t * ctx,
-                        int                 is_leader );
-
-int
-fd_poh_tile_is_leader( fd_poh_tile_ctx_t * ctx );
-
-int
-fd_poh_tile_has_become_leader( fd_poh_tile_ctx_t * ctx,
-                               int                 is_leader );
-int
-fd_poh_tile_is_no_longer_leader( fd_poh_tile_ctx_t * ctx,
-                                 int                 is_leader );
+                          ulong               slot,
+                          ulong               hashcnt_per_tick );
 
 void
-fd_poh_tile_process_skipped_slot( fd_poh_tile_ctx_t * ctx,
-                                  int                 is_leader );
-
-int
-fd_poh_tile_has_ticked_while_leader( fd_poh_tile_ctx_t * ctx,
-                                     int                 is_leader );
-
-fd_poh_tile_skipped_hashcnt_iter_t
-fd_poh_tile_skipped_hashcnt_iter_init( fd_poh_tile_ctx_t * ctx );
-
-fd_poh_tile_skipped_hashcnt_iter_t
-fd_poh_tile_skipped_hashcnt_iter_next( fd_poh_tile_ctx_t * ctx, fd_poh_tile_skipped_hashcnt_iter_t iter );
-
-int
-fd_poh_tile_skipped_hashcnt_iter_done( fd_poh_tile_ctx_t * ctx, fd_poh_tile_skipped_hashcnt_iter_t iter );
-
-int
-fd_poh_tile_skipped_hashcnt_iter_is_slot_boundary( fd_poh_tile_ctx_t * ctx, fd_poh_tile_skipped_hashcnt_iter_t iter );
-
-uchar const *
-fd_poh_tile_skipped_hashcnt_iter_slot_hash( fd_poh_tile_ctx_t * ctx, fd_poh_tile_skipped_hashcnt_iter_t iter );
+fd_poh_tile_process_packed_microblock( fd_poh_tile_ctx_t * ctx,
+                                       ulong               target_slot,
+                                       ulong               sig,
+                                       fd_txn_p_t *        txns,
+                                       ulong               txn_cnt,
+                                       uchar               mixin_hash[ static 32 ] );
 
 void
-fd_poh_tile_unprivileged_init( fd_topo_t *      topo,
-                               fd_topo_tile_t * tile,
-                               void *           scratch );
+fd_poh_tile_done_packing( fd_poh_tile_ctx_t * ctx,
+                          ulong microblocks_in_slot );
 
-ulong
-fd_poh_tile_get_slot( fd_poh_tile_ctx_t * ctx );
-
-ulong
-fd_poh_tile_get_next_leader_slot( fd_poh_tile_ctx_t * ctx );
-
-ulong
-fd_poh_tile_get_last_slot( fd_poh_tile_ctx_t * ctx );
-
-ulong
-fd_poh_tile_get_highwater_leader_slot( fd_poh_tile_ctx_t * ctx );
-
-void
-fd_poh_tile_stake_update( fd_poh_tile_ctx_t * ctx );
-
-ulong
-fd_poh_tile_mixin( fd_poh_tile_ctx_t * ctx,
-                   uchar               hash[ static 32 ] );
-
-int
-fd_poh_tile_is_at_tick_boundary( fd_poh_tile_ctx_t * ctx );
-
-int
-fd_poh_tile_is_no_longer_leader_simple( fd_poh_tile_ctx_t * ctx );
+fd_poh_tile_ctx_t *
+fd_poh_tile_new( void * scratch,
+                 void * arg,
+                 fd_poh_tile_get_micoblock_buffer_func_t get_microblock_buffer_func,
+                 fd_poh_tile_publish_microblock_func_t   publish_microblock_func,
+                 fd_poh_tile_get_pack_buffer_func_t      get_pack_buffer_func,
+                 fd_poh_tile_publish_pack_func_t         publish_pack_func,
+                 fd_poh_tile_register_tick_func_t        register_tick_func,
+                 fd_poh_tile_signal_leader_change_func_t signal_leader_change_func );
 
 FD_PROTOTYPES_END
 

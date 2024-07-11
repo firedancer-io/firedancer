@@ -247,7 +247,7 @@ class PrimitiveMember:
         if varint:
             print(f'{indent}  err = fd_bincode_compact_u16_encode( &self->{n}, ctx );', file=body),
         else:
-            print(f'{indent}  err = fd_bincode_uint16_encode( &self->{n}, ctx );', file=body),
+            print(f'{indent}  err = fd_bincode_uint16_encode( self->{n}, ctx );', file=body),
         print(f'{indent}  if( FD_UNLIKELY( err ) ) return err;', file=body)
 
     def ulong_encode(n, varint):
@@ -271,7 +271,7 @@ class PrimitiveMember:
         "uchar[128]" : lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_encode( self->{n}, sizeof(self->{n}), ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "uchar[2048]" : lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_encode( self->{n}, sizeof(self->{n}), ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "ulong" :     lambda n, varint: PrimitiveMember.ulong_encode(n, varint),
-        "ushort" :    lambda n, varint: print(f'{indent}  err = fd_bincode_uint16_encode( (ushort)(self->{n}), ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
+        "ushort" :    lambda n, varint: PrimitiveMember.ushort_encode(n, varint),
     }
 
     def emitEncode(self, archival):
