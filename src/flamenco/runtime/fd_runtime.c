@@ -531,8 +531,7 @@ fd_runtime_block_collect_txns( fd_block_info_t const * block_info,
 int fd_runtime_block_prepare(void const *buf,
                              ulong buf_sz,
                              fd_valloc_t valloc,
-                             fd_block_info_t *out_block_info)
-{
+                             fd_block_info_t *out_block_info) {
   fd_block_info_t block_info = {
       .raw_block = buf,
       .signature_cnt = 0,
@@ -577,6 +576,24 @@ int fd_runtime_block_prepare(void const *buf,
 
   *out_block_info = block_info;
 
+  return 0;
+}
+
+int
+fd_runtime_block_verify_ticks( fd_block_info_t const * block_info, 
+                               ulong                   tick_height,
+                               ulong                   max_tick_height ) {
+  ulong tick_count;
+  for( ulong i = 0; i < block_info->microblock_batch_cnt; i++ ) {
+    fd_microblock_batch_info_t const * microblock_batch_info = &block_info->microblock_batch_infos[ i ];
+    for( ulong j = 0; j < microblock_batch_info->microblock_cnt; j++ ) {
+      fd_microblock_info_t const * microblock_info = &microblock_batch_info->microblock_infos[ i ];
+      if( microblock_info->microblock_hdr.txn_cnt == 0 ) {
+        /* if this mblk is a tick */
+        tick_count++;
+      }
+    }
+  }
   return 0;
 }
 
@@ -865,6 +882,20 @@ fd_runtime_status_cache_check( ulong slot,
   return is_recent_blockhash || fd_txncache_is_rooted_slot( slot_ctx->status_cache, slot );
 }
 
+static int
+is_block_hash_valid_for_age( fd_block_hash_queue_t const * block_hash_queue,
+                             fd_hash_t const *             hash ) {
+  fd_hash_hash_age_pair_t_mapnode_t key;
+  fd_memcpy( key.elem.key.uc, hash, sizeof(fd_hash_t) );
+  fd_hash_hash_age_pair_t_mapnode_t * hash_age_node = fd_hash_hash_age_pair_t_map_find( block_hash_queue->ages_pool, block_hash_queue->ages_root, &key );
+  if( hash_age_node==NULL ) {
+    return 0;
+  }
+
+  /* the block hash is not too old. */
+  return (block_hash_queue->last_hash_index - hash_age_node->elem.val.hash_index) <= FD_RECENT_BLOCKHASHES_MAX_ENTRIES;
+}
+
 int
 fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                       fd_execute_txn_task_info_t * task_info,
@@ -889,11 +920,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
       int err;
       int is_nonce = fd_has_nonce_account( txn_ctx, &err );
       if( ( NULL == txn_ctx->txn_descriptor ) || !is_nonce ) {
-
-        fd_hash_hash_age_pair_t_mapnode_t key;
-        fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
-
-        if ( fd_hash_hash_age_pair_t_map_find( slot_ctx->slot_bank.block_hash_queue.ages_pool, slot_ctx->slot_bank.block_hash_queue.ages_root, &key ) == NULL ) {
+        if( !is_block_hash_valid_for_age( &slot_ctx->slot_bank.block_hash_queue, blockhash ) ) {
           task_info[ txn_idx ].txn->flags = 0;
           res |= FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
           continue;
@@ -1307,6 +1334,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     if( slot_ctx->status_cache ) {
+      FD_LOG_WARNING(("TC CNTS: b %lu s %lu", fd_txncache_blockhash_cnt( slot_ctx->status_cache ),  fd_txncache_slot_cnt( slot_ctx->status_cache )));
       if( !fd_txncache_insert_batch( slot_ctx->status_cache, status_insert, num_cache_txns ) ) {
         FD_LOG_WARNING(("Status cache is full, this should not be possible"));
       }

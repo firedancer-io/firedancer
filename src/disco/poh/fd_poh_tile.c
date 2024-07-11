@@ -39,6 +39,8 @@ fd_poh_tile_publish_tick( fd_poh_tile_ctx_t * ctx,
   fd_memcpy( tick->hash, ctx->hash, 32UL );
   tick->txn_cnt = 0UL;
 
+  FD_LOG_WARNING(("PUB TICK: %lu %lu %lu %lu", slot, hash_delta, ctx->hashcnt, ctx->hashcnt_per_slot ));
+
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sz = sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t);
   ulong sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
@@ -443,7 +445,7 @@ fd_poh_tile_do_hashing( fd_poh_tile_ctx_t * ctx,
        We'll prove this by induction for current_slot==0 and
        is_leader==true, since all other slots should be the same.
 
-       Let m_j and r_j be the min_hashcnt and restricted_hashcnt
+       Let m_j and r_j be the min_hashcnt and restricted_hashcn
        (respectively) for the jth call to after_credit in a slot.  We
        want to show that for all values of j, it's possible to pick a
        value h_j, the value of target_hashcnt for the jth call to
@@ -571,6 +573,10 @@ fd_poh_tile_do_hashing( fd_poh_tile_ctx_t * ctx,
   while( ctx->hashcnt<target_hashcnt ) {
     fd_sha256_hash( ctx->hash, 32UL, ctx->hash );
     ctx->hashcnt++;
+  }
+
+  if( FD_UNLIKELY( !( ctx->hashcnt%ctx->hashcnt_per_slot ) ) ) {
+    ctx->slot = ctx->hashcnt/ctx->hashcnt_per_slot;
   }
 
   return 1;
@@ -778,6 +784,10 @@ fd_poh_tile_mixin( fd_poh_tile_ctx_t * ctx,
   ctx->hashcnt++;
   ulong hashcnt_delta = ctx->hashcnt - ctx->last_hashcnt;
   ctx->last_hashcnt = ctx->hashcnt;
+
+  if( FD_UNLIKELY( !( ctx->hashcnt%ctx->hashcnt_per_slot ) ) ) {
+    ctx->slot = ctx->hashcnt/ctx->hashcnt_per_slot;
+  }
 
   return hashcnt_delta;
 }

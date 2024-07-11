@@ -352,7 +352,7 @@ during_frag( void * _ctx,
     if( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) {
       ctx->flags = REPLAY_FLAG_PACKED_MICROBLOCK;
       ctx->txn_cnt = (sz - sizeof(fd_microblock_bank_trailer_t)) / sizeof(fd_txn_p_t);
-
+      memset( ctx->blockhash.uc, 0, sizeof(fd_hash_t) );
       fd_memcpy( dst_poh, src, (sz - sizeof(fd_microblock_bank_trailer_t)) );
       src += (sz-sizeof(fd_microblock_bank_trailer_t));
       fd_microblock_bank_trailer_t * t = (fd_microblock_bank_trailer_t *)src;
@@ -483,6 +483,7 @@ blockstore_publish( fd_replay_tile_ctx_t * ctx, ulong root ) {
 
 static void
 funk_publish( fd_replay_tile_ctx_t * ctx, ulong root ) {
+  
   fd_blockstore_start_read( ctx->blockstore );
   fd_hash_t const * root_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, root );
   fd_funk_txn_xid_t xid;

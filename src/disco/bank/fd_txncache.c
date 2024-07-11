@@ -377,8 +377,7 @@ void *
 fd_txncache_leave( fd_txncache_t * tc ) {
   if( FD_UNLIKELY( !tc ) ) {
     FD_LOG_WARNING(( "NULL tc" ));
-    return NULL;
-  }
+    return NULL;  }
 
   return (void *)tc;
 }
@@ -500,7 +499,7 @@ fd_txncache_find_blockhash( fd_txncache_t const *               tc,
     if( FD_UNLIKELY( blockcache->lowest_slot==FD_TXNCACHE_EMPTY_ENTRY ) ) {
       *out_blockcache = blockcache;
       return FD_TXNCACHE_FIND_FOUNDEMPTY;
-    } else if ( blockcache->lowest_slot==FD_TXNCACHE_TOMBSTONE_ENTRY) {
+    } else if ( blockcache->lowest_slot==FD_TXNCACHE_TOMBSTONE_ENTRY ) {
       if( is_insert ) {
         *out_blockcache = blockcache;
         return FD_TXNCACHE_FIND_FOUNDEMPTY;
@@ -901,4 +900,44 @@ fd_txncache_is_rooted_slot( fd_txncache_t * tc,
 
   fd_rwlock_unread( tc->lock );
   return 0;
+}
+
+ulong
+fd_txncache_blockhash_cnt( fd_txncache_t * tc ) {
+  fd_rwlock_read( tc->lock );
+
+  ulong blockhash_cnt = 0UL;
+  for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
+    fd_txncache_private_blockcache_t * blockcache = &tc->blockcache[ i ];
+    if( FD_UNLIKELY( blockcache->lowest_slot==FD_TXNCACHE_EMPTY_ENTRY ) ) {
+      blockhash_cnt++;
+    } else if ( blockcache->lowest_slot==FD_TXNCACHE_TOMBSTONE_ENTRY ) {
+      blockhash_cnt++;
+    } else if( FD_UNLIKELY( blockcache->lowest_slot==FD_TXNCACHE_TEMP_ENTRY ) ) {
+      blockhash_cnt++;
+    }
+  }
+
+  fd_rwlock_unread( tc->lock );
+  return blockhash_cnt;
+}
+
+ulong
+fd_txncache_slot_cnt( fd_txncache_t * tc ) {
+  fd_rwlock_read( tc->lock );
+
+  ulong slot_cnt = 0UL;
+  for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
+    fd_txncache_private_slotcache_t * slotcache = &tc->slotcache[ i ];
+    if( FD_UNLIKELY( slotcache->slot==FD_TXNCACHE_EMPTY_ENTRY ) ) {
+      slot_cnt++;
+    } else if( FD_UNLIKELY( slotcache->slot==FD_TXNCACHE_TOMBSTONE_ENTRY ) ) {
+      slot_cnt++;
+    } else if( FD_UNLIKELY( slotcache->slot==FD_TXNCACHE_TEMP_ENTRY ) ) {
+      slot_cnt++;
+    }
+  }
+
+  fd_rwlock_unread( tc->lock );
+  return slot_cnt;
 }

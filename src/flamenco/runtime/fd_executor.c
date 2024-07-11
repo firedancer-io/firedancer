@@ -901,9 +901,42 @@ fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
   return compute_budget_status;
 }
 
+static int
+fd_txn_verify( fd_exec_txn_ctx_t * txn_ctx ) {
+  FD_SCRATCH_SCOPE_BEGIN {
+    fd_sha512_t * shas[ FD_TXN_ACTUAL_SIG_MAX ];
+    for ( ulong i=0; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
+      fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( fd_scratch_alloc( alignof( fd_sha512_t ), sizeof( fd_sha512_t ) ) ) );
+      if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512_join failed" ));
+      shas[i] = sha;
+    }
+
+    uchar  signature_cnt = txn_ctx->txn_descriptor->signature_cnt;
+    ushort signature_off = txn_ctx->txn_descriptor->signature_off;
+    ushort acct_addr_off = txn_ctx->txn_descriptor->acct_addr_off;
+    ushort message_off   = txn_ctx->txn_descriptor->message_off;
+
+    uchar const * signatures = (uchar *)txn_ctx->_txn_raw->raw + signature_off;
+    uchar const * pubkeys = (uchar *)txn_ctx->_txn_raw->raw + acct_addr_off;
+    uchar const * msg = (uchar *)txn_ctx->_txn_raw->raw + message_off;
+    ulong msg_sz = (ulong)txn_ctx->_txn_raw->txn_sz - message_off;
+
+    /* Verify signatures */
+    int res = fd_ed25519_verify_batch_single_msg( msg, msg_sz, signatures, pubkeys, shas, signature_cnt );
+    if( FD_UNLIKELY( res != FD_ED25519_SUCCESS ) ) {
+      return -1;
+    }
+
+    return 0;
+  } FD_SCRATCH_SCOPE_END;
+}
+
 int
 fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
                                fd_exec_txn_ctx_t * txn_ctx ) {
+  if( fd_txn_verify( txn_ctx )!=0 ) {
+    return -1;
+  }
 
   fd_pubkey_t * tx_accs = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->acct_addr_off);
 

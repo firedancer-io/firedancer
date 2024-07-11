@@ -205,6 +205,11 @@ slot_ctx_restore( ulong                 slot,
   xid.ul[0]             = slot;
   fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
   fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, txn_map );
+  if( !txn ) {
+    memset( xid.uc, 0, sizeof( fd_funk_txn_xid_t ) );
+    xid.ul[0] = slot;
+    txn = fd_funk_txn_query( &xid, txn_map );
+  }
   if( !txn ) FD_LOG_ERR( ( "missing txn, parent slot %lu", slot ) );
   fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, &id );
   if( rec == NULL ) FD_LOG_ERR( ( "failed to read banks record" ) );

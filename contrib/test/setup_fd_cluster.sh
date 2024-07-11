@@ -28,7 +28,7 @@ GENESIS_OUTPUT=$(./agave/target/release/solana-genesis \
     --bootstrap-validator test-ledger/validator-keypair.json test-ledger/vote-account-keypair.json test-ledger/stake-account-keypair.json \
     --bootstrap-stake-authorized-pubkey test-ledger/validator-keypair.json \
     --bootstrap-validator-lamports 11000000000000000 \
-    --bootstrap-validator-stake-lamports 10000000000000000 \
+    --bootstrap-validator-stake-lamports 1000000000000000 \
     --faucet-pubkey test-ledger/faucet-keypair.json --faucet-lamports 1000000000000000000 \
     --slots-per-epoch 200 \
     --hashes-per-tick 128 \
