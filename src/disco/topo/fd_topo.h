@@ -294,6 +294,10 @@ typedef struct {
       uchar   src_mac_addr[ 6 ];
       char  identity_key_path[ PATH_MAX ];
     } sender;
+
+    struct {
+      char pcie_device[ PATH_MAX ];
+    } verify;
   };
 } fd_topo_tile_t;
 

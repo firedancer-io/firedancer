@@ -15,6 +15,7 @@
 #include <stdint.h>
 #include <errno.h>
 #include <string.h>
+#include <limits.h>
 
 /* The verify tile is a wrapper around the mux tile, that also verifies
    incoming transaction signatures match the data being signed.
@@ -170,40 +171,34 @@ privileged_init( fd_topo_t *      topo,
   (void)topo;
   (void)tile;
   (void)scratch;
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_verify_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  const char *device = "/sys/bus/pci/devices/0000:03:00.0/resource0";
-  int fd = open(device, O_RDWR | O_SYNC);
+  // const char * m = "0000:03:00.0";
+  char path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/bus/pci/devices/%s/resource0", tile->verify.pcie_device ) );
+  // FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/bus/pci/devices/%s/resource0", topo->tiles->verify.pcie_device ) );
+  // const char *device = "/sys/bus/pci/devices/0000:03:00.0/resource0";
+  ctx->fd = open(path, O_RDWR | O_SYNC);
 
-  if (fd == -1) {
-      FD_LOG_ERR(("Error opening device file"));
+  if (ctx->fd == -1) {
+      // FD_LOG_ERR(("Error opening device file %s %s", path, topo->tiles->verify.pcie_device ));
+      FD_LOG_ERR(("Error opening device file %s %s", path, tile->verify.pcie_device ));
       return;
   }
 
   size_t size = 1UL << 24UL;
   void * base_address = (void*)0x3bffe000000UL;
-  void *mapped_addr = mmap(base_address, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  ctx->mapped_addr = mmap(base_address, size, PROT_READ | PROT_WRITE, MAP_SHARED, ctx->fd, 0);
 
-  if (mapped_addr == MAP_FAILED) {
+  if (ctx->mapped_addr == MAP_FAILED) {
       FD_LOG_ERR(("Error mapping memory: %s\n", strerror(errno)));
-      close(fd);
+      close(ctx->fd);
       return;
   }
-
-  uint16_t *memory = (uint16_t *)mapped_addr;
-
-  // Read the value of the first register
-  uint16_t first_register = memory[0];
-  FD_LOG_NOTICE(("First register value: 0x%x\n", first_register));
-
-  // Write a value to the third register
-  memory[2] = 0x0007;
-  FD_LOG_NOTICE(("Written 0x0007 to the third register.\n"));
-
-  // Clean up
-  if (munmap(mapped_addr, size) == -1) {
-      FD_LOG_ERR(("Error unmapping memory"));
-  }
-  close(fd);
 }
 
 static void
@@ -254,6 +249,21 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  uint16_t *memory = (uint16_t *)ctx->mapped_addr;
+
+  // Read the value of the first register
+  uint16_t first_register = memory[0];
+  FD_LOG_NOTICE(("First register value: 0x%x\n", first_register));
+
+  // Write a value to the third register
+  memory[2] = 0x0007;
+  FD_LOG_NOTICE(("Written 0x0007 to the third register.\n"));
+
+  // // Clean up
+  // if (munmap(mapped_addr, size) == -1) {
+  //     FD_LOG_ERR(("Error unmapping memory"));
+  // }
 }
 
 static ulong
@@ -269,13 +279,14 @@ static ulong
 populate_allowed_fds( void * scratch,
                       ulong  out_fds_cnt,
                       int *  out_fds ) {
-  (void)scratch;
-  if( FD_UNLIKELY( out_fds_cnt < 2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)scratch;
+  if( FD_UNLIKELY( out_fds_cnt < 3 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  out_fds[ out_cnt++ ] = ctx->fd;
   return out_cnt;
 }
 

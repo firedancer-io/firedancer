@@ -289,6 +289,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( bool,   tiles.quic.retry                                 );
 
   CFG_POP      ( uint,   tiles.verify.receive_buffer_size                 );
+  CFG_POP      ( cstr,   tiles.verify.pcie_device                         );
   CFG_POP      ( uint,   tiles.verify.mtu                                 );
 
   CFG_POP      ( uint,   tiles.dedup.signature_cache_size                 );
@@ -439,7 +440,7 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO( tiles.pack.max_pending_transactions );
 
   CFG_HAS_NON_ZERO( tiles.shred.max_pending_shred_sets );
-  CFG_HAS_NON_ZERO( tiles.shred.shred_listen_port );
+  // CFG_HAS_NON_ZERO( tiles.shred.shred_listen_port );
 
   CFG_HAS_NON_ZERO( tiles.metric.prometheus_listen_port );
 

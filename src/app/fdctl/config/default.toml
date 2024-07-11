@@ -779,6 +779,8 @@ dynamic_port_range = "8900-9000"
         # can keep up.
         receive_buffer_size = 16384
 
+        pcie_device = "0000:03:00.0"
+
     # After being verified, all transactions are sent to a dedup tile to
     # ensure the same transaction is not repeated multiple times.  The
     # dedup tile keeps a rolling history of signatures it has seen and
@@ -850,7 +852,7 @@ dynamic_port_range = "8900-9000"
         # forward.  This argument controls which port that is.  The port
         # is broadcast over gossip so other validators know how to reach
         # this one.
-        shred_listen_port = 8003
+        shred_listen_port = 0
 
     # The metric tile receives metrics updates published from the rest
     # of the tiles and serves them via. a Prometheus compatible HTTP
