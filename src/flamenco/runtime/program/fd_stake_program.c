@@ -532,14 +532,14 @@ stake_and_activating( fd_delegation_t const *    self,
   }
 }
 
-// https://github.com/anza-xyz/agave/blob/039c62b76d7b0eb38cb8714c77400f70ccd9cbf6/sdk/program/src/stake/state.rs#L655
+// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/stake/state.rs#L641
 static fd_stake_activation_status_t
 stake_activating_and_deactivating( fd_delegation_t const *    self,
                                    ulong                      target_epoch,
                                    fd_stake_history_t const * stake_history,
                                    ulong *                    new_rate_activation_epoch ) {
 
-  // https://github.com/anza-xyz/agave/blob/039c62b76d7b0eb38cb8714c77400f70ccd9cbf6/sdk/program/src/stake/state.rs#L662
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/stake/state.rs#L648
   effective_activating_t effective_activating =
       stake_and_activating( self, target_epoch, stake_history, new_rate_activation_epoch );
 
@@ -551,7 +551,7 @@ stake_activating_and_deactivating( fd_delegation_t const *    self,
   fd_stake_history_entry_t k;
   k.epoch = self->deactivation_epoch;
 
-  // https://github.com/anza-xyz/agave/blob/039c62b76d7b0eb38cb8714c77400f70ccd9cbf6/sdk/program/src/stake/state.rs#L666
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/stake/state.rs#L652
   if( target_epoch < self->deactivation_epoch ) {
     // if is bootstrap
     if( activating_stake == 0 ) {
@@ -834,7 +834,7 @@ get_if_mergeable( fd_exec_instr_ctx_t const *   invoke_context,
                   merge_kind_t *                out,
                   uint *                        custom_err ) {
   // stake_history must be non-NULL
-  // https://github.com/anza-xyz/agave/blob/e4ec48f865208cac7727f12e215ef050421d206c/programs/stake/src/stake_state.rs#1017
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/stake/src/stake_state.rs#L1017
   switch ( stake_state->discriminant ) {
   case fd_stake_state_v2_enum_stake: {
     fd_stake_meta_t const *  meta        = &stake_state->inner.stake.meta;
@@ -843,11 +843,11 @@ get_if_mergeable( fd_exec_instr_ctx_t const *   invoke_context,
 
     ulong new_rate_activation_epoch = ULONG_MAX;
     int   err;
-    // https://github.com/anza-xyz/agave/blob/e4ec48f865208cac7727f12e215ef050421d206c/programs/stake/src/stake_state.rs#1024
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/stake/src/stake_state.rs#L1024
     int   is_some = new_warmup_cooldown_rate_epoch( invoke_context, &new_rate_activation_epoch, &err );
     if( FD_UNLIKELY( err ) ) return err;
 
-    // https://github.com/anza-xyz/agave/blob/e4ec48f865208cac7727f12e215ef050421d206c/programs/stake/src/stake_state.rs#1021
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/stake/src/stake_state.rs#L1021
     fd_stake_history_entry_t status =
         stake_activating_and_deactivating( &stake->delegation,
                                            clock->epoch,
@@ -1820,7 +1820,7 @@ split( fd_exec_instr_ctx_t const * ctx,
   return 0;
 }
 
-// https://github.com/anza-xyz/agave/blob/039c62b76d7b0eb38cb8714c77400f70ccd9cbf6/programs/stake/src/stake_state.rs#L526
+// https://github.com/anza-xyz/agave/blob/v2.0.1/programs/stake/src/stake_state.rs#L526
 static int
 merge( fd_exec_instr_ctx_t const *   ctx,
        uchar                         stake_account_index,
@@ -1856,6 +1856,7 @@ merge( fd_exec_instr_ctx_t const *   ctx,
   if( FD_UNLIKELY( rc ) ) return rc;
 
   merge_kind_t stake_merge_kind = { 0 };
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/stake/src/stake_state.rs#L553
   rc = get_if_mergeable( ctx,
                          &stake_account_state,
                          stake_account->meta->info.lamports,
@@ -1863,10 +1864,13 @@ merge( fd_exec_instr_ctx_t const *   ctx,
                          stake_history,
                          &stake_merge_kind,
                          &ctx->txn_ctx->custom_err );
-  if( FD_UNLIKELY( rc ) ) return rc;
+  if( FD_UNLIKELY( rc ) )
+    return rc;
 
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/stake/src/stake_state.rs#L562
   rc = authorized_check( &meta( &stake_merge_kind )->authorized, signers, STAKE_AUTHORIZE_STAKER );
-  if( FD_UNLIKELY( rc ) ) return rc;
+  if( FD_UNLIKELY( rc ) )
+    return rc;
 
   fd_stake_state_v2_t source_account_state = { 0 };
   rc = get_state( source_account, fd_scratch_virtual(), &source_account_state );
@@ -1892,7 +1896,6 @@ merge( fd_exec_instr_ctx_t const *   ctx,
                          &is_some,
                          &ctx->txn_ctx->custom_err );
   if( FD_UNLIKELY( rc ) ) return rc;
-  // FIXME FD_LIKELY
   if( is_some ) {
     rc = set_state( ctx, stake_account_index, &merged_state );
     if( FD_UNLIKELY( rc ) ) return rc;
