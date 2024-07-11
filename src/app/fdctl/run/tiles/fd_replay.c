@@ -318,6 +318,9 @@ during_frag( void * _ctx,
        Microblock as a list of fd_txn_p_t (sz * sizeof(fd_txn_p_t)) */
 
     ctx->curr_slot = fd_disco_replay_sig_slot( sig );
+    if( FD_UNLIKELY( ctx->curr_slot < ctx->tower->root ) ) {
+      FD_LOG_WARNING(( "store sent slot %lu before our root.", ctx->curr_slot ));
+    }
     ctx->flags = fd_disco_replay_sig_flags( sig );
     ctx->txn_cnt = sz;
 
@@ -338,6 +341,9 @@ during_frag( void * _ctx,
        Microblock bank trailer
     */
     ctx->curr_slot = fd_disco_poh_sig_slot( sig );
+    if( FD_UNLIKELY( ctx->curr_slot < ctx->tower->root ) ) {
+      FD_LOG_WARNING(( "pack sent slot %lu before our root.", ctx->curr_slot, ctx->tower->root ));
+    }
     if( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) {
       ctx->flags = REPLAY_FLAG_PACKED_MICROBLOCK;
       ctx->txn_cnt = (sz - sizeof(fd_microblock_bank_trailer_t)) / sizeof(fd_txn_p_t);
@@ -380,6 +386,7 @@ during_frag( void * _ctx,
       *opt_filter = 1;
     }
   }
+
   fd_blockstore_end_read( ctx->blockstore );
 }
 
@@ -502,6 +509,11 @@ after_frag( void *             _ctx,
             int *              opt_filter,
             fd_mux_context_t * mux ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
+
+  if ( FD_UNLIKELY( ctx->curr_slot < ctx->tower->root ) ) {
+    FD_LOG_WARNING(( "ignoring replay of slot %lu. earlier than our root %lu.", ctx->curr_slot, ctx->tower->root ));
+    return;
+  }
 
   /* do a replay */
   ulong txn_cnt = ctx->txn_cnt;
