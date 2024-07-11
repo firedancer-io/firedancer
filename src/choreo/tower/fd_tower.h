@@ -344,6 +344,15 @@ fd_tower_is_max_lockout( fd_tower_t const * tower ) {
   return fd_tower_votes_cnt( tower->votes ) == FD_TOWER_VOTE_MAX;
 }
 
+/* fd_tower_is_in_sync returns 1 if our local view of our tower is in
+   sync with the cluster view of our tower, 0 otherwise.  It checks if
+   our latest vote account state in fork matches our local tower.  Warns
+   if the cluster tower is more recent than ours (this indicates we
+   restarted). */
+
+int
+fd_tower_is_in_sync( fd_tower_t const * tower, fd_fork_t * fork );
+
 /* fd_tower_publish publishes the tower.  Returns the new root.  Assumes
    caller has already checked that tower has reached max lockout (see
    fd_tower_is_max_lockout). */
