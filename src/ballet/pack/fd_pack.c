@@ -425,6 +425,7 @@ fd_pack_footprint( ulong                    pack_depth,
                    ulong                    bank_tile_cnt,
                    fd_pack_limits_t const * limits         ) {
   if( FD_UNLIKELY( (bank_tile_cnt==0) | (bank_tile_cnt>FD_PACK_MAX_BANK_TILES) ) ) return 0UL;
+  if( FD_UNLIKELY( pack_depth<4UL ) ) return 0UL;
 
   ulong l;
   ulong max_acct_in_treap  = pack_depth * FD_TXN_ACCT_ADDR_MAX;
@@ -660,6 +661,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   if( FD_UNLIKELY( !fd_pack_estimate_rewards_and_compute( txnp, ord ) ) ) REJECT( ESTIMATION_FAIL );
 
   ord->expires_at = expires_at;
+  int is_vote = ord->root==FD_ORD_TXN_ROOT_PENDING_VOTE;
 
   int writes_to_sysvar = 0;
   for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
@@ -691,27 +693,57 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   int replaces = 0;
   if( FD_UNLIKELY( pack->pending_txn_cnt == pack->pack_depth ) ) {
-    /* If the tree is full, we'll double check to make sure this is
-       better than the worst element in the tree before inserting.  If
-       the new transaction is better than that one, we'll delete it and
-       insert the new transaction. Otherwise, we'll throw away this
-       transaction. */
-    fd_pack_ord_txn_t * worst = treap_fwd_iter_ele( treap_fwd_iter_init( pack->pending, pack->pool ), pack->pool );
-    if( FD_UNLIKELY( !worst ) ) {
-      /* We have nothing to sacrifice because they're all votes. */
-      REJECT( FULL );
-    }
-    else if( !COMPARE_WORSE( worst, ord ) ) {
-      /* What we have in the tree is better than this transaction, so just
-         pretend this transaction never happened */
-      REJECT( PRIORITY );
-    } else {
-      /* Remove the worst from the tree */
+    /* If the tree is full, we want to see if this is better than the
+       worst element in the treap before inserting.  If the new
+       transaction is better than that one, we'll delete it and insert
+       the new transaction. Otherwise, we'll throw away this
+       transaction.  We want to make sure we provide reasonable quality
+       of service for votes based on what fraction of the treap is votes
+       though, so we'll employ the following policy:
+
+         Case             New Vote                 New Non-vote
+       Votes < 25%   Replace worst non-vote    If better, replace worst
+                     with it                   non-vote with it
+
+       Votes > 75%   If better, replace        Replace worst vote with
+                     worst vote with it        it
+
+       Else          If better, replace worse of worst non-vote and
+                     worst vote                                        */
+    ulong vote_cnt     = treap_ele_cnt( pack->pending_votes ); int low_votes    = (vote_cnt    <(pack->pack_depth>>2));
+    ulong non_vote_cnt = treap_ele_cnt( pack->pending       ); int low_nonvotes = (non_vote_cnt<(pack->pack_depth>>2));
+    int pool_imbalanced = low_votes | low_nonvotes;
+    int improves_balance = (low_votes & is_vote) | (low_nonvotes & !is_vote);
+
+    /* Need to check that corresponding treap was not empty before dereferencing
+       these two pointers. */
+    fd_pack_ord_txn_t * worst_vote    = treap_fwd_iter_ele( treap_fwd_iter_init( pack->pending_votes, pack->pool ), pack->pool );
+    fd_pack_ord_txn_t * worst_nonvote = treap_fwd_iter_ele( treap_fwd_iter_init( pack->pending,       pack->pool ), pack->pool );
+    fd_pack_ord_txn_t * worst = NULL;
+
+    /* In the imbalanced case, there are two symmetric cases.
+       Considering just the first one, low_nonvotes==true implies
+             vote_cnt > pack_depth - (pack_depth>>2)
+       Which means vote_cnt>0.  In the imbalanced case when
+       low_nonvotes==false, we know low_votes must be true, so similar
+       logic applies.
+       In the balanced case, vote_cnt and non_vote_cnt are both at least
+       as large as (pack_depth>>2) >= 1, since pack_depth>=4 so
+       worst_vote and worst_nonvote are safe, implying worst is safe. */
+    if( pool_imbalanced ) worst = fd_ptr_if( low_nonvotes,                               worst_vote, worst_nonvote );
+    else                  worst = fd_ptr_if( COMPARE_WORSE( worst_vote, worst_nonvote ), worst_vote, worst_nonvote );
+
+    if( FD_LIKELY( improves_balance || COMPARE_WORSE( worst, ord ) ) ) {
       replaces = 1;
       fd_ed25519_sig_t const * worst_sig = fd_txn_get_signatures( TXN( worst->txn ), worst->txn->payload );
       fd_pack_delete_transaction( pack, worst_sig );
+    } else {
+      REJECT( PRIORITY );
     }
   }
+
+  /* At this point, we know we have space to insert the transaction and
+     we've committed to insert it. */
 
   FD_PACK_BITSET_CLEAR( ord->rw_bitset );
   FD_PACK_BITSET_CLEAR( ord->w_bitset  );
