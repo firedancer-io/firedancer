@@ -784,7 +784,6 @@ after_frag( void *             _ctx,
           int rc = fd_blockstore_publish( ctx->blockstore, root );
           if( rc != FD_BLOCKSTORE_OK ) {
             FD_LOG_WARNING( ( "err %d when publishing blockstore", rc ) );
-            checkpt( ctx );
           }
           fd_blockstore_end_write( ctx->blockstore );
         }

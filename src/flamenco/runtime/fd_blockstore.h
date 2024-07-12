@@ -477,9 +477,6 @@ fd_blockstore_block_map_query( fd_blockstore_t * blockstore, ulong slot );
 ulong
 fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot );
 
-fd_block_map_t *
-fd_blockstore_parent_block_map_query( fd_blockstore_t * blockstore, ulong slot );
-
 /* fd_blockstore_child_slots_query queries slot's child slots.  Return
    values are saved in slots_out and slot_cnt.  Returns FD_BLOCKSTORE_OK
    on success, FD_BLOCKSTORE_ERR_SLOT_MISSING if slot is not in the
