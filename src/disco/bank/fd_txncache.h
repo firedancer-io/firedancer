@@ -242,6 +242,11 @@ FD_PROTOTYPES_BEGIN
    local handle to the join on success (this is not necessarily a simple
    cast of the address) and NULL on failure (logs details).
 
+   fd_txncache_join_wksp joins the caller to a txn cache being restored
+   from a wksp. It assumes that the local pointers need to be reloaded
+   and validates the existing fields loaded from the wksp. Returns join
+   on success and NULL on failure.
+
    fd_txncache_leave leaves the caller's current local join to a txn
    cache.  Returns a pointer to the memory region holding the state on
    success (this is not necessarily a simple cast of the address) and
@@ -271,6 +276,9 @@ fd_txncache_new( void * shmem,
 
 fd_txncache_t *
 fd_txncache_join( void * shtc );
+
+fd_txncache_t *
+fd_txncache_join_wksp( void * shtc );
 
 void *
 fd_txncache_leave( fd_txncache_t * tc );

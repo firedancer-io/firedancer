@@ -37,6 +37,9 @@
 #define FD_BLOCKHASH_QUEUE_MAX_ENTRIES       (300UL)
 #define FD_RECENT_BLOCKHASHES_MAX_ENTRIES    (150UL)
 
+/* TODO: increase this to default once we have enough memory to support a 95G status cache. */
+#define MAX_CACHE_TXNS_PER_SLOT (FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 8)
+
 struct fd_execute_txn_task_info {
   fd_exec_txn_ctx_t * txn_ctx;
   fd_txn_p_t * txn;
