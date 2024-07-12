@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
 jobs:
   clusterfuzz-publish:
+    timeout-minutes: 30
     environment:
       name: clusterfuzz
       url: 'https://isol-clusterfuzz.appspot.com/'
@@ -55,6 +56,7 @@ jobs:
           service-account-credentials: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
 
   solfuzz-publish:
+    timeout-minutes: 30
     runs-on:
       group: github-v1
     env:

@@ -12,9 +12,9 @@ on:
         type: string
         default: ""
   workflow_dispatch:
-  merge_group:
 jobs:
   ledger-replay:
+    timeout-minutes: 30
     runs-on: [self-hosted, 512G]
     env:
       CC: gcc
@@ -61,6 +61,7 @@ jobs:
 
 
   ledger-coverage:
+    timeout-minutes: 30
     runs-on: [self-hosted, 512G]
     needs: ledger-replay
     if: ${{ inputs.coverage }}
