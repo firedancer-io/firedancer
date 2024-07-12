@@ -2663,8 +2663,9 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
 
     fd_vote_state_update_t vote_update;
     fd_vote_state_update_new( &vote_update );
-    if( FD_UNLIKELY( !fd_vote_decode_compact_update( vote_state_update, &vote_update ) ) )
+    if( FD_UNLIKELY( !fd_vote_decode_compact_update( vote_state_update, &vote_update ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
 
     if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx.slot_ctx, allow_votes_to_directly_update_vote_state ) &&
                    FD_FEATURE_ACTIVE( ctx.slot_ctx, compact_vote_state_updates ) ) ) {
