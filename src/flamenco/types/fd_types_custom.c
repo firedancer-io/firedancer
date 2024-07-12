@@ -172,16 +172,13 @@ void fd_solana_vote_account_decode_unsafe( fd_solana_vote_account_t * self, fd_b
   ulong data_len;
   fd_bincode_uint64_decode_unsafe( &data_len, ctx );
   if( data_len ) {
-    uchar * data = fd_valloc_malloc( ctx->valloc, 8UL, data_len );
-    fd_bincode_bytes_decode_unsafe( data, data_len, ctx );
-
     FD_SCRATCH_SCOPE_BEGIN {
       /* Deserialize content */
       fd_vote_block_timestamp_t vote_ts;
       fd_vote_state_versioned_t vs[1];
       fd_bincode_decode_ctx_t decode =
-          { .data    = data,
-            .dataend = data + data_len,
+          { .data    = ctx->data,
+            .dataend = (uchar*)ctx->data + data_len,
             .valloc  = fd_scratch_virtual() };
       int decode_err = fd_vote_state_versioned_decode( vs, &decode );
       if( FD_LIKELY( decode_err==FD_BINCODE_SUCCESS ) ) {
@@ -212,7 +209,7 @@ void fd_solana_vote_account_decode_unsafe( fd_solana_vote_account_t * self, fd_b
       }
     } FD_SCRATCH_SCOPE_END;
 
-    fd_valloc_free( ctx->valloc, data );
+    ctx->data = (uchar*)ctx->data + data_len;
   } else {
     self->last_timestamp_ts = 0;
     self->last_timestamp_slot = 0;

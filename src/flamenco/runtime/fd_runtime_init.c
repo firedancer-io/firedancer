@@ -125,7 +125,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
     ctx.data = val;
     ctx.dataend = (uchar*)val + fd_funk_val_sz( rec );
     ctx.valloc  = epoch_valloc;
-    FD_TEST( fd_epoch_bank_decode_no_malloc( epoch_bank, &ctx, epoch_ctx )==FD_BINCODE_SUCCESS );
+    FD_TEST( fd_epoch_bank_decode( epoch_bank, &ctx )==FD_BINCODE_SUCCESS );
 
     FD_LOG_NOTICE(( "recovered epoch_bank" ));
   }

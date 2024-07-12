@@ -116,9 +116,6 @@ fd_exec_epoch_ctx_leaders( fd_exec_epoch_ctx_t * ctx ) {
   return (fd_epoch_leaders_t *)((uchar *)ctx + ctx->layout.leaders_off);
 }
 
-int
-fd_epoch_bank_decode_no_malloc( fd_epoch_bank_t * self, fd_bincode_decode_ctx_t * ctx, fd_exec_epoch_ctx_t * epoch_ctx );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_context_fd_exec_epoch_ctx_h */
