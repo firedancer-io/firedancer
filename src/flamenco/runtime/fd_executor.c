@@ -901,8 +901,8 @@ fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
   return compute_budget_status;
 }
 
-static int
-fd_txn_verify( fd_exec_txn_ctx_t * txn_ctx ) {
+int
+fd_executor_txn_verify( fd_exec_txn_ctx_t * txn_ctx ) {
   FD_SCRATCH_SCOPE_BEGIN {
     fd_sha512_t * shas[ FD_TXN_ACTUAL_SIG_MAX ];
     for ( ulong i=0; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
@@ -934,7 +934,7 @@ fd_txn_verify( fd_exec_txn_ctx_t * txn_ctx ) {
 int
 fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
                                fd_exec_txn_ctx_t * txn_ctx ) {
-  if( fd_txn_verify( txn_ctx )!=0 ) {
+  if( fd_executor_txn_verify( txn_ctx )!=0 ) {
     return -1;
   }
 

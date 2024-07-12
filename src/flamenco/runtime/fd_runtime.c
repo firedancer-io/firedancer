@@ -915,6 +915,13 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
     /* Loop across transactions */
     for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
+      
+      if( fd_executor_txn_verify( txn_ctx )!=0 ) {
+        task_info[ txn_idx ].txn->flags = 0;
+        res |= FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
+        continue;
+      }
+
       fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
 
       /* https://github.com/firedancer-io/solana/blob/4b31032e68f85848b02fcc4c9e580d57f32ec04b/runtime/src/bank.rs#L4672 */
@@ -940,10 +947,8 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
         // TODO: figure out if it is faster to batch query properly and loop all txns again
         fd_txncache_query_batch( slot_ctx->status_cache, &curr_query, 1UL, query_arg, query_func, &err );
-        FD_LOG_WARNING(("TC QB: %lu %32J %32J %64J %d", slot_ctx->slot_bank.slot, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off), hash,  ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off), err ));
 
         if( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
-          // FD_LOG_WARNING(("HELLO %64J", (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off));
           task_info[ txn_idx ].txn->flags = 0;
           res |= FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED;
           continue;
@@ -1267,7 +1272,6 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
         fd_blake3_init( b3 );
         fd_blake3_append( b3, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->message_off), (ulong)( txn_ctx->_txn_raw->txn_sz - txn_ctx->txn_descriptor->message_off ) );
         fd_blake3_fini( b3, hash->uc );
-        FD_LOG_WARNING(("TC IB: %lu %32J %32J %64J", slot_ctx->slot_bank.slot, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off), hash,  ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off) ));
 
         curr_insert->txnhash = hash->uc;
         curr_insert->result = &results[num_cache_txns];
@@ -1338,7 +1342,6 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     if( slot_ctx->status_cache ) {
-      FD_LOG_WARNING(("TC CNTS: b %lu s %lu", fd_txncache_blockhash_cnt( slot_ctx->status_cache ),  fd_txncache_slot_cnt( slot_ctx->status_cache )));
       if( !fd_txncache_insert_batch( slot_ctx->status_cache, status_insert, num_cache_txns ) ) {
         FD_LOG_WARNING(("Status cache is full, this should not be possible"));
       }

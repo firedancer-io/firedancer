@@ -68,10 +68,12 @@
 */
 #define SCRATCH_MAX    (1024UL /*MiB*/ << 21)
 #define SCRATCH_DEPTH  (128UL) /* 128 scratch frames */
+#define TPOOL_WORKER_MEM_SZ (1UL<<28UL) /* 256MB */
 
 #define VOTE_ACC_MAX   (2000000UL)
 
 #define BANK_HASH_CMP_LG_MAX 16
+
 
 struct fd_replay_tile_ctx {
   fd_wksp_t * wksp;
@@ -241,6 +243,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_voter_align(), fd_voter_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
+  l = FD_LAYOUT_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->replay.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -464,8 +467,7 @@ status_check_tower(ulong slot, void * _ctx ) {
     return 1; 
   }
 
-  if( fd_sysvar_slot_history_find_slot( ctx->slot_history, slot ) == FD_SLOT_HISTORY_SLOT_FOUND ||
-      slot == ctx->curr_slot ) {
+  if( fd_sysvar_slot_history_find_slot( ctx->slot_history, slot ) == FD_SLOT_HISTORY_SLOT_FOUND ) {
     return 1;
   }
 
@@ -1238,6 +1240,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * voter_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_voter_align(), fd_voter_footprint() );
   void * bank_hash_cmp_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   ctx->bmtree                = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,           FD_BMTREE_COMMIT_FOOTPRINT(0)      );
+  void * tpool_worker_mem    = FD_SCRATCH_ALLOC_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->replay.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem != ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {
@@ -1438,10 +1441,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_LIKELY( ctx->max_workers > 1 ) ) {
     /* start the tpool workers */
-    ulong tpool_worker_stack_sz = (1UL<<28UL); /* 256MB */
-    uchar * tpool_worker_mem   = fd_wksp_alloc_laddr( ctx->wksp, FD_SCRATCH_ALIGN_DEFAULT, tpool_worker_stack_sz*ctx->max_workers, 421UL ); /* 256MB per thread */
     for( ulong i =1; i<ctx->max_workers; i++ ) {
-      if( fd_tpool_worker_push( ctx->tpool, i, tpool_worker_mem + tpool_worker_stack_sz*(i - 1U), tpool_worker_stack_sz ) == NULL ) {
+      if( fd_tpool_worker_push( ctx->tpool, i, (uchar *)tpool_worker_mem + TPOOL_WORKER_MEM_SZ*(i - 1U), TPOOL_WORKER_MEM_SZ ) == NULL ) {
         FD_LOG_ERR(( "failed to launch worker" ));
       }
     }
