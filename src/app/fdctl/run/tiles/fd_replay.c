@@ -76,9 +76,10 @@
 #define BANK_HASH_CMP_LG_MAX 16
 
 struct fd_replay_tile_ctx {
-  fd_wksp_t *  wksp;
-  fd_wksp_t  * blockstore_wksp;
-  fd_wksp_t  * funk_wksp;
+  fd_wksp_t * wksp;
+  fd_wksp_t * blockstore_wksp;
+  fd_wksp_t * funk_wksp;
+  fd_wksp_t * status_cache_wksp;
 
   // Store tile input
   fd_wksp_t * store_in_mem;
@@ -190,6 +191,7 @@ struct fd_replay_tile_ctx {
   /* Other metadata */
 
   ulong funk_seed;
+  ulong status_cache_seed;
   fd_capture_ctx_t * capture_ctx;
   FILE *             capture_file;
   FILE *             slots_replayed_file;
@@ -216,7 +218,7 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return 45UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
+  return 22UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
 }
 
 FD_FN_PURE static inline ulong
@@ -236,7 +238,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX, FD_VOTER_MAX  ) );
   l = FD_LAYOUT_APPEND( l, fd_tower_align(), fd_tower_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
-  l = FD_LAYOUT_APPEND( l, fd_txncache_align(), fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT) );
   l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
@@ -1142,6 +1143,7 @@ privileged_init( fd_topo_t *      topo    FD_PARAM_UNUSED,
   fd_replay_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
 
   FD_TEST( sizeof(ulong) == getrandom( &ctx->funk_seed, sizeof(ulong), 0 ) );
+  FD_TEST( sizeof(ulong) == getrandom( &ctx->status_cache_seed, sizeof(ulong), 0 ) );
 }
 
 static void
@@ -1171,7 +1173,6 @@ unprivileged_init( fd_topo_t *      topo,
   void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX, FD_VOTER_MAX ) );
   void * tower_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
   void * bank_hash_cmp_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
-  void * status_cache_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(), fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT) );
   ctx->bmtree                = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,           FD_BMTREE_COMMIT_FOOTPRINT(0)      );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
@@ -1200,6 +1201,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->funk_wksp = topo->workspaces[ topo->objs[ funk_obj_id ].wksp_id ].wksp;
   if( ctx->funk_wksp == NULL ) {
     FD_LOG_ERR(( "no funk wksp" ));
+  }
+
+  ulong status_cache_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "txncache" );
+  FD_TEST( status_cache_obj_id!=ULONG_MAX );
+  ctx->status_cache_wksp = topo->workspaces[ topo->objs[ status_cache_obj_id ].wksp_id ].wksp;
+  if( ctx->status_cache_wksp==NULL ) {
+    FD_LOG_ERR(( "no status cache wksp" ));
   }
 
   /**********************************************************************/
@@ -1283,6 +1291,42 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /**********************************************************************/
+  /* status cache                                                       */
+  /**********************************************************************/
+
+  char const * status_cache_path = tile->replay.status_cache;
+  if ( strlen( status_cache_path ) > 0 ) {
+    FD_LOG_NOTICE(("starting status cache restore..."));
+    int err = fd_wksp_restore( ctx->status_cache_wksp, status_cache_path, (uint)ctx->status_cache_seed );
+    FD_LOG_NOTICE(("finished status cache restore..."));
+    if (err) {
+      FD_LOG_ERR(( "failed to restore %s: error %d", status_cache_path, err ));
+    }
+    fd_wksp_tag_query_info_t info;
+    ulong tag = FD_TXNCACHE_MAGIC;
+    if( fd_wksp_tag_query( ctx->status_cache_wksp, &tag, 1, &info, 1 ) > 0 ) {
+      void * status_cache_mem = fd_wksp_laddr_fast( ctx->status_cache_wksp, info.gaddr_lo );
+      /* Set up status cache. */
+      ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT ) );
+      if( ctx->status_cache == NULL ) {
+        FD_LOG_ERR(( "failed to join status cache in %s", status_cache_path ));
+      }
+    } else {
+      FD_LOG_ERR(( "failed to tag query status cache in %s", status_cache_path ));
+    }
+  } else {
+    void * status_cache_mem = fd_wksp_alloc_laddr( ctx->status_cache_wksp, fd_txncache_align(), fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT), FD_TXNCACHE_MAGIC );
+    if (status_cache_mem == NULL) {
+      FD_LOG_ERR(( "failed to allocate status cache" ));
+    }
+    ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT ) );
+    if (ctx->status_cache == NULL) {
+      fd_wksp_free_laddr(status_cache_mem);
+      FD_LOG_ERR(( "failed to join + new status cache" ));
+    }
+  }
+
+  /**********************************************************************/
   /* joins                                                              */
   /**********************************************************************/
 
@@ -1352,9 +1396,6 @@ unprivileged_init( fd_topo_t *      topo,
   //   FD_LOG_ERR( ( "replay tile %lu has no busy flag", tile->kind_id ) );
 
   ctx->poh_init_done = 0U;
-
-  /* Set up status cache. */
-  ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT ) );
 
   /* set up vote related items */
   ctx->vote                           = tile->replay.vote;

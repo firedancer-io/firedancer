@@ -353,6 +353,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   tiles.replay.incremental                         );
   CFG_POP      ( cstr,   tiles.replay.slots_replayed                      );
   CFG_POP      ( cstr,   tiles.replay.snapshot                            );
+  CFG_POP      ( cstr,   tiles.replay.status_cache                        );
   CFG_POP      ( ulong,  tiles.replay.tpool_thread_count                  );
 
   CFG_POP      ( cstr,   tiles.store_int.blockstore_restore               );
