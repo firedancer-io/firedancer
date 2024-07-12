@@ -89,9 +89,8 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
     }
     if( index_in_transaction==USHORT_MAX) {
       /* In this case the callee instruction is referencing an unknown account not listed in the
-         transactions accounts.
-         TODO: return InstructionError::MissingAccount */
-      return 1;
+         transactions accounts. */
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
 
     /* If there was an instruction account before this one which referenced the same
@@ -113,8 +112,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
     /* TODO: this code would maybe be easier to read if we inverted the branches */
     if( duplicate_index!=ULONG_MAX ) {
       if ( FD_UNLIKELY( duplicate_index >= deduplicated_instruction_accounts_cnt ) ) {
-        // TODO: return InstructionError::NotEnoughAccountKeys
-        return 1;
+        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
       }
 
       duplicate_indices[duplicate_indicies_cnt++] = duplicate_index;
@@ -136,8 +134,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       }
 
       if( index_in_caller==USHORT_MAX ) {
-        /* TODO: return InstructionError::MissingAccount */
-        return 1;
+        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
       /* Add the instruction account to the duplicate indicies array */
@@ -186,8 +183,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
           ( !!(instruction_accounts[i].is_writable) * FD_INSTR_ACCT_FLAGS_IS_WRITABLE ) |
           ( !!(instruction_accounts[i].is_signer  ) * FD_INSTR_ACCT_FLAGS_IS_SIGNER   ) );
     } else {
-      // TODO: return InstructionError::NotEnoughAccountKeys
-      return 1;
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
   }
 
@@ -197,7 +193,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
   fd_borrowed_account_t * program_rec = NULL;
   int err = fd_txn_borrowed_account_view( instr_ctx->txn_ctx, &callee_instr->program_id_pubkey, &program_rec );
   if( FD_UNLIKELY( err ) ) {
-    return 1;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
   if( FD_UNLIKELY( fd_account_find_idx_of_insn_account( instr_ctx, &callee_instr->program_id_pubkey )==-1 ) ) {
