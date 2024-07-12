@@ -133,42 +133,6 @@ int c1100_bar_fd( C1100 * c1100, uint bar_num ) {
   return -1;
 }
 
-ulong get_physical_address(ulong vaddr) {
-  int fd = open( "/proc/self/pagemap", O_RDONLY );
-  if( FD_UNLIKELY( fd == -1) ) {
-    perror( "open" );
-    return 0;
-  }
-
-  ulong paddr = 0;
-  ulong pagesize = (ulong)getpagesize();
-  ulong offset = (vaddr / pagesize) * sizeof(ulong);
-
-  if( FD_UNLIKELY( lseek( fd, (long)offset, SEEK_SET ) == -1 ) ) {
-    perror( "lseek" );
-    close( fd );
-    return 0;
-  }
-
-  ulong entry;
-  if( FD_UNLIKELY( read( fd, &entry, sizeof( entry ) ) != sizeof( entry ) ) ) {
-    perror( "read" );
-    close( fd );
-    return 0;
-  }
-
-  close(fd);
-
-  if (!(entry & (1ULL << 63))) {
-    fprintf(stderr, "Page not present\n");
-    return 0;
-  }
-
-  paddr = (entry & ((1ULL << 54) - 1)) * pagesize + (vaddr % pagesize);
-
-  return paddr;
-}
-
 #include <stdint.h>
 ulong _wd_get_phys(void * p)
 {
@@ -214,16 +178,20 @@ uint c1100_dma_enabled( C1100 * c1100 ) {
   return value;
 }
 
+void *
+wd_alloc( ulong len, ulong * dma_addr ) {
+  void * buf = mmap(0, len, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
+  *dma_addr = _wd_get_phys( buf );
+  return buf;
+}
+
 void c1100_interrupts_enable( C1100 * c1100 ) {
   void * handle = c1100_bar_handle( c1100, 0 );
   wd_pcie_poke( handle, 0x0008, 3 );
 }
 
-void doit( C1100 * c1100 ) {
-  void * buf = mmap(0, 1024, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
-  ulong dma_addr2 = get_physical_address( (ulong)buf );
-  ulong dma_addr = _wd_get_phys( buf );
-  FD_LOG_NOTICE(( "virt: %lu phys: %lu phys2: %lu", (ulong)buf, dma_addr, dma_addr2 ));
+int c1100_dma_test( C1100 * c1100, void * buf, ulong dma_addr ) {
+  FD_LOG_NOTICE(( "virt: %lu phys: %lu", (ulong)buf, dma_addr ));
 
   for( uint i=0; i<256; i++ ) {
       ((char *)buf)[i] = (char)i;
@@ -270,7 +238,7 @@ void doit( C1100 * c1100 ) {
   wd_pcie_poke( bar0, 0x000210, 0x100 );
   wd_pcie_poke( bar0, 0x000214, 0x55 );
 
-  usleep(1000);
+  usleep( 1000 );
 
   FD_LOG_NOTICE(( "Read status" ));
 
@@ -287,7 +255,9 @@ void doit( C1100 * c1100 ) {
 
   if( memcmp( buf, &((char *)buf)[0x200], 256 ) == 0 ) {
     FD_LOG_NOTICE(( "test data matches" ));
+    return 0;
   } else {
     FD_LOG_NOTICE(( "test data mismatch" ));
+    return 1;
   }
 }

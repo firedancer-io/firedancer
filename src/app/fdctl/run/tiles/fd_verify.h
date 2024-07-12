@@ -40,7 +40,9 @@ typedef struct {
   ulong       out_wmark;
   ulong       out_chunk;
 
-  C1100 c1100[1];
+  C1100  c1100[1];
+  void * buf;
+  ulong  dma_addr;
 } fd_verify_ctx_t;
 
 #define FD_VERIFY_DEDUP_TAG_FROM_PAYLOAD_SIG(payload_sig_p) FD_LOAD( ulong, (payload_sig_p) )
