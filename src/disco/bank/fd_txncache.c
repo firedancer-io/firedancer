@@ -113,6 +113,7 @@ struct __attribute__((aligned(FD_TXNCACHE_ALIGN))) fd_txncache_private {
   ulong  root_slots_max;
   ulong  live_slots_max;
   ushort txnpages_per_blockhash_max;
+  uint   txnpages_max;
 
   ulong   root_slots_cnt; /* The number of root slots being tracked in the below array. */
   ulong * root_slots; /* The highest N slots that have been rooted.  These slots are
@@ -284,6 +285,7 @@ fd_txncache_new( void * shmem,
   tc->root_slots_max             = max_rooted_slots;
   tc->live_slots_max             = max_live_slots;
   tc->txnpages_per_blockhash_max = max_txnpages_per_blockhash;
+  tc->txnpages_max               = max_txnpages;
 
   memset( tc->root_slots, 0xFF, max_rooted_slots*sizeof(ulong) );
 
@@ -320,6 +322,61 @@ fd_txncache_join( void * shtc ) {
   if( FD_UNLIKELY( tc->magic!=FD_TXNCACHE_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
+  }
+
+  return tc;
+}
+
+fd_txncache_t *
+fd_txncache_join_wksp( void * shtc ) {
+  if( FD_UNLIKELY( !shtc ) ) {
+    FD_LOG_WARNING(( "NULL shtc" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shtc, fd_txncache_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shtc" ));
+    return NULL;
+  }
+
+  fd_txncache_t * tc = (fd_txncache_t *)shtc;
+
+  if( FD_UNLIKELY( tc->magic!=FD_TXNCACHE_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  ulong  max_rooted_slots = tc->root_slots_max;
+  ulong  max_live_slots   = tc->live_slots_max;
+
+  if( FD_UNLIKELY( !max_rooted_slots ) ) return NULL;
+  if( FD_UNLIKELY( !max_live_slots ) ) return NULL;
+  if( FD_UNLIKELY( max_live_slots<max_rooted_slots ) ) return NULL;
+  if( FD_UNLIKELY( !fd_ulong_is_pow2( max_live_slots ) ) ) return NULL;
+
+  uint max_txnpages                 = tc->txnpages_max;
+  ushort max_txnpages_per_blockhash = tc->txnpages_per_blockhash_max;
+
+  if( FD_UNLIKELY( !max_txnpages ) ) return NULL;
+  if( FD_UNLIKELY( !max_txnpages_per_blockhash ) ) return NULL;
+
+  FD_SCRATCH_ALLOC_INIT( l, shtc );
+  fd_txncache_t * txncache = FD_SCRATCH_ALLOC_APPEND( l,  FD_TXNCACHE_ALIGN,                        sizeof(fd_txncache_t)                                   );
+  void * _root_slots       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                            max_rooted_slots*sizeof(ulong)                          );
+  void * _blockcache       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_private_blockcache_t), max_live_slots*sizeof(fd_txncache_private_blockcache_t) );
+  void * _blockcache_pages = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                             max_live_slots*max_txnpages_per_blockhash*sizeof(uint)  );
+  void * _slotcache        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_private_slotcache_t),  max_live_slots*sizeof(fd_txncache_private_slotcache_t ) );
+  void * _txnpages_free    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                             max_txnpages                                            );
+  void * _txnpages         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_private_txnpage_t),    max_txnpages*sizeof(fd_txncache_private_txnpage_t)      );
+
+  txncache->root_slots      = _root_slots;
+  txncache->blockcache      = _blockcache;
+  txncache->slotcache       = _slotcache;
+  txncache->txnpages_free   = _txnpages_free;
+  txncache->txnpages        = _txnpages;
+
+  for( ulong i=0UL; i<max_live_slots; i++ ) {
+    tc->blockcache[ i ].pages       = (uint *)_blockcache_pages + i*max_txnpages_per_blockhash;
   }
 
   return tc;

@@ -10,6 +10,7 @@
 #include <strings.h>
 #include "../../choreo/fd_choreo.h"
 #include "../../disco/fd_disco.h"
+#include "../../disco/bank/fd_txncache.h"
 #include "../../util/fd_util.h"
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/nanopb/pb_decode.h"
@@ -31,13 +32,12 @@
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
-#define TXNCACHE_TXNS_PER_SLOT  (FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 16)
-
 extern void fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx, uchar const pubkey[ static 32 ], char const * data, ulong sz );
 
 struct fd_ledger_args {
   fd_wksp_t *           wksp;                    /* wksp for blockstore, it may include funk */
   fd_wksp_t *           funk_wksp;               /* wksp for funk */
+  fd_wksp_t *           status_cache_wksp;       /* wksp for status cache. */
   fd_blockstore_t *     blockstore;              /* blockstore for replay */
   fd_funk_t *           funk;                    /* handle to funk */
   fd_alloc_t *          alloc;                   /* handle to alloc*/
@@ -48,6 +48,7 @@ struct fd_ledger_args {
   char const *          checkpt;                 /* wksp checkpoint */
   char const *          checkpt_funk;            /* wksp checkpoint for a funk wksp */
   char const *          checkpt_archive;         /* funk archive format */
+  char const *          checkpt_status_cache;    /* status cache checkpoint */
   char const *          restore;                 /* wksp restore */
   char const *          restore_funk;            /* wksp restore for a funk wksp */
   char const *          restore_archive;         /* restore from a funk archive */
@@ -636,7 +637,7 @@ init_blockstore( fd_ledger_args_t * args ) {
 
 void
 checkpt( fd_ledger_args_t * args ) {
-  if( !args->checkpt && !args->checkpt_funk && !args->checkpt_archive ) {
+  if( !args->checkpt && !args->checkpt_funk && !args->checkpt_archive && !args->checkpt_status_cache ) {
     FD_LOG_WARNING(( "No checkpt argument specified" ));
   }
 
@@ -670,6 +671,14 @@ checkpt( fd_ledger_args_t * args ) {
     int err = fd_wksp_checkpt( args->wksp, args->checkpt, 0666, 0, NULL );
     if( err ) {
       FD_LOG_ERR(( "checkpt failed: error %d", err ));
+    }
+  }
+  if( args->checkpt_status_cache ) {
+    FD_LOG_NOTICE(( "writing %s", args->checkpt_status_cache ));
+    unlink( args->checkpt_status_cache );
+    int err = fd_wksp_checkpt( args->status_cache_wksp, args->checkpt_status_cache, 0666, 0, NULL );
+    if( err ) {
+      FD_LOG_ERR(( "status cache checkpt failed: error %d", err ));
     }
   }
 }
@@ -790,6 +799,13 @@ ingest( fd_ledger_args_t * args ) {
   fd_acc_mgr_t mgr[1];
   slot_ctx->acc_mgr = fd_acc_mgr_new( mgr, funk );
   slot_ctx->blockstore = args->blockstore;
+
+  if( args->status_cache_wksp ) {
+    void * status_cache_mem = fd_wksp_alloc_laddr( args->status_cache_wksp, fd_txncache_align(), fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT), FD_TXNCACHE_MAGIC );
+    FD_TEST( status_cache_mem );
+    slot_ctx->status_cache  = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT ) );
+    FD_TEST( slot_ctx->status_cache );
+  }
 
   /* Load in snapshot(s) */
   if( args->snapshot ) {
@@ -1331,6 +1347,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   char const * rocksdb_list            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",                 NULL, NULL      );
   char const * rocksdb_list_starts     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb-starts",          NULL, NULL      );
   uint         cluster_version         = fd_env_strip_cmdline_uint ( &argc, &argv, "--cluster-version",         NULL, FD_DEFAULT_AGAVE_CLUSTER_VERSION );
+  char const * checkpt_status_cache    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-status-cache",    NULL, NULL      );
 
 
   #ifdef _ENABLE_LTHASH
@@ -1382,6 +1399,15 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
       fd_wksp_reset( funk_wksp, args->hashseed );
     }
     args->funk_wksp = funk_wksp;
+  }
+
+  if( checkpt_status_cache && checkpt_status_cache[0] != '\0' ) {
+    FD_LOG_NOTICE(( "Creating status cache wksp" ));
+    fd_wksp_t * status_cache_wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 23UL, 0, "status_cache_wksp", 0UL );
+    fd_wksp_reset( status_cache_wksp, args->hashseed );
+    args->status_cache_wksp = status_cache_wksp;
+  } else {
+    args->status_cache_wksp = NULL;
   }
 
   /* Setup alloc and valloc */
@@ -1438,6 +1464,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->dump_insn_output_dir    = dump_insn_output_dir;
   args->vote_acct_max           = vote_acct_max;
   args->rocksdb_list_cnt        = 0UL;
+  args->checkpt_status_cache    = checkpt_status_cache;
   parse_rocksdb_list( args, rocksdb_list, rocksdb_list_starts );
 
   if( args->rocksdb_list_cnt==1UL ) {

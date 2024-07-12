@@ -8,6 +8,7 @@
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/bank/fd_txncache.h"
 #include "../../../../flamenco/runtime/fd_blockstore.h"
+#include "../../../../flamenco/runtime/fd_runtime.h"
 #include "../../../../funk/fd_funk.h"
 #include "../../../../util/tile/fd_tile_private.h"
 #include "../../../../util/net/fd_net_headers.h"
@@ -194,8 +195,8 @@ fd_topo_firedancer( config_t * _config ) {
                                                         "txncache", 
                                                         "tcache", 
                                                         fd_txncache_align(), 
-                                                        fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 8), 
-                                                        23UL * FD_SHMEM_GIGANTIC_PAGE_SZ );
+                                                        fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT), 
+                                                        0 );
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );

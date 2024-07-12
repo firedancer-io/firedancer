@@ -52,8 +52,6 @@
    transactions, they must be split into multiple sets. */
 #define MAX_TXNS_PER_REPLAY ( ( FD_SHRED_MAX_PER_SLOT * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
 
-/* TODO: increase this to default once we have enough memory to support a 95G status cache. */
-#define MAX_CACHE_TXNS_PER_SLOT (FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 8)
 
 #define STORE_IN_IDX   (0UL)
 #define PACK_IN_IDX    (1UL)
@@ -1307,7 +1305,7 @@ unprivileged_init( fd_topo_t *      topo,
     if( fd_wksp_tag_query( ctx->status_cache_wksp, &tag, 1, &info, 1 ) > 0 ) {
       void * status_cache_mem = fd_wksp_laddr_fast( ctx->status_cache_wksp, info.gaddr_lo );
       /* Set up status cache. */
-      ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT ) );
+      ctx->status_cache = fd_txncache_join_wksp( status_cache_mem );
       if( ctx->status_cache == NULL ) {
         FD_LOG_ERR(( "failed to join status cache in %s", status_cache_path ));
       }
@@ -1315,7 +1313,7 @@ unprivileged_init( fd_topo_t *      topo,
       FD_LOG_ERR(( "failed to tag query status cache in %s", status_cache_path ));
     }
   } else {
-    void * status_cache_mem = fd_wksp_alloc_laddr( ctx->status_cache_wksp, fd_txncache_align(), fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT), FD_TXNCACHE_MAGIC );
+    void * status_cache_mem = fd_topo_obj_laddr( topo, status_cache_obj_id );
     if (status_cache_mem == NULL) {
       FD_LOG_ERR(( "failed to allocate status cache" ));
     }
