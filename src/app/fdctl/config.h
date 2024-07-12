@@ -259,6 +259,8 @@ typedef struct {
     struct {
       char  blockstore_restore[ PATH_MAX ];
       char  slots_pending[PATH_MAX];
+      char  shred_cap_archive[ PATH_MAX ];
+      char  shred_cap_replay[ PATH_MAX ];
     } store_int;
 
   } tiles;
