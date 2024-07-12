@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_util_spad_fd_spad_h
 #define HEADER_fd_src_util_spad_fd_spad_h
 
+#include "../valloc/fd_valloc.h"
+
 /* APIs for high performance persistent inter-process shared scratch pad
    memories.  A spad as a scratch pad that behaves very much like a
    thread's stack:
@@ -490,6 +492,17 @@ static inline void
 fd_spad_publish( fd_spad_t * spad,
                  ulong       sz ) {
   spad->mem_used += sz;
+}
+
+/* fd_spad_vtable is the virtual function table implementing fd_valloc
+   for fd_spad. */
+
+extern const fd_valloc_vtable_t fd_spad_vtable;
+
+FD_FN_CONST static inline fd_valloc_t
+fd_spad_virtual( fd_spad_t * alloc ) {
+  fd_valloc_t valloc = { alloc, &fd_spad_vtable };
+  return valloc;
 }
 
 /* fd_spad_verify returns a negative integer error code if the spad is

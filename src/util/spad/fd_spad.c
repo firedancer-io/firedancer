@@ -110,3 +110,24 @@ fd_spad_publish_debug( fd_spad_t * spad,
      tracking that state */
   fd_spad_publish( spad, sz );
 }
+
+static void *
+fd_spad_malloc_virtual( void * self,
+                        ulong  align,
+                        ulong  sz ) {
+  return fd_spad_alloc( (fd_spad_t *)self, align, sz );
+}
+
+static void
+fd_spad_free_virtual( void * self,
+                      void * addr ) {
+  /* Spad is a bump allocator which never frees */
+  (void)self;
+  (void)addr;
+}
+
+const fd_valloc_vtable_t
+fd_spad_vtable = {
+  .malloc = fd_spad_malloc_virtual,
+  .free   = fd_spad_free_virtual
+};

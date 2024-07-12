@@ -11,8 +11,6 @@
 
 struct fd_exec_epoch_ctx_layout {
   ulong vote_acc_max;
-  ulong footprint;
-
   ulong stake_votes_off;
   ulong stake_delegations_off;
   ulong stake_history_treap_off;
@@ -27,11 +25,15 @@ struct __attribute__((aligned(64UL))) fd_exec_epoch_ctx {
   ulong magic; /* ==FD_EXEC_EPOCH_CTX_MAGIC */
 
   fd_exec_epoch_ctx_layout_t layout;
+  ulong footprint;
 
+  ulong           vote_acc_max;
   fd_features_t   features;
+  fd_bank_hash_cmp_t * bank_hash_cmp;
+
   fd_epoch_bank_t epoch_bank;
 
-  fd_bank_hash_cmp_t * bank_hash_cmp;
+  /* Members of epoch_bank follow */
 };
 
 #define FD_EXEC_EPOCH_CTX_ALIGN (4096UL)

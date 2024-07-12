@@ -3,6 +3,7 @@
 #include "../types/fd_types.h"
 #include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"
+#include "../../util/spad/fd_spad.h"
 
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
@@ -110,7 +111,6 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
   fd_funk_txn_t *       txn          = slot_ctx->funk_txn;
   fd_exec_epoch_ctx_t * epoch_ctx    = slot_ctx->epoch_ctx;
   fd_epoch_bank_t *     epoch_bank   = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
-  fd_valloc_t           epoch_valloc = fd_scratch_virtual();
   {
     fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
     fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
@@ -121,10 +121,15 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
     if( clear_first ) {
       fd_exec_epoch_ctx_bank_mem_clear( epoch_ctx );
     }
+
+    void * mem = ((uchar*)epoch_ctx) + sizeof(fd_exec_epoch_ctx_t);
+    ulong footp = epoch_ctx->footprint - sizeof(fd_exec_epoch_ctx_t);
+    fd_spad_t * spad = fd_spad_join( fd_spad_new( mem, footp ) );
+
     fd_bincode_decode_ctx_t ctx;
     ctx.data = val;
     ctx.dataend = (uchar*)val + fd_funk_val_sz( rec );
-    ctx.valloc  = epoch_valloc;
+    ctx.valloc  = fd_spad_virtual( spad );
     FD_TEST( fd_epoch_bank_decode( epoch_bank, &ctx )==FD_BINCODE_SUCCESS );
 
     FD_LOG_NOTICE(( "recovered epoch_bank" ));
