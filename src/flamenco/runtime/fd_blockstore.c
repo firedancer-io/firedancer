@@ -554,7 +554,7 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong root ) {
 
   /* If trying to publish a root older than current, return an error. */
 
-  if( FD_UNLIKELY( blockstore->root > root ) ) {
+  if( FD_UNLIKELY( root < blockstore->root ) ) {
     FD_LOG_WARNING(( "[fd_blockstore_publish] attempting to publish a root older than the current root. new: %lu, curr: %lu", root, blockstore->root ));
     return FD_BLOCKSTORE_ERR_UNKNOWN;
   }
@@ -572,34 +572,39 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong root ) {
   while( !fd_blockstore_slot_deque_empty( q ) ) {
     ulong slot = fd_blockstore_slot_deque_pop_head( q );
 
+    fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, slot );
+
     /* Add slot's children to the queue. */
 
-    ulong * child_slots    = NULL;
-    ulong   child_slot_cnt = 0;
-
-    int rc = fd_blockstore_child_slots_query( blockstore, slot, &child_slots, &child_slot_cnt );
-    if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) return rc;
-
-    for( ulong i = 0; i < child_slot_cnt; i++ ) {
-      if( FD_LIKELY( child_slots[i] != root ) ) {
-        fd_blockstore_slot_deque_push_tail( q, child_slots[i] );
+    for( ulong i = 0; i < block_map_entry->child_slot_cnt; i++ ) {
+      if( FD_LIKELY( block_map_entry->child_slots[i] != root ) ) {
+        fd_blockstore_slot_deque_push_tail( q, block_map_entry->child_slots[i] );
       }
     }
 
     /* Unlink slot from its parent. */
 
-    fd_block_map_t * parent = fd_blockstore_parent_block_map_query( blockstore, slot );
-    if( FD_LIKELY( parent ) ) {
-      for( ulong i = 0; i < parent->child_slot_cnt; i++ ) {
-        if( FD_LIKELY( parent->child_slots[i] == slot ) ) {
-          parent->child_slots[i] = parent->child_slots[--parent->child_slot_cnt];
+    fd_block_map_t * parent_block_map_entry =
+        fd_blockstore_block_map_query( blockstore, block_map_entry->parent_slot );
+    if( FD_LIKELY( parent_block_map_entry ) ) {
+      for( ulong i = 0; i < parent_block_map_entry->child_slot_cnt; i++ ) {
+        if( FD_LIKELY( parent_block_map_entry->child_slots[i] == slot ) ) {
+          parent_block_map_entry->child_slots[i] =
+              parent_block_map_entry->child_slots[--parent_block_map_entry->child_slot_cnt];
         }
       }
     }
 
+    /* Unset the preparing bit. This is safe, because we know replay
+       will not process any slots earlier than the root fseq, and
+       fd_blockstore_publish is only run after the root fseq is updated
+       (to a later slot). */
+
+    block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_PREPARING );
+
     /* Remove the slot. */
 
-    rc = fd_blockstore_slot_remove( blockstore, slot );
+    int rc = fd_blockstore_slot_remove( blockstore, slot );
     if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) {
       return rc;
     }
@@ -986,12 +991,6 @@ fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot ) {
   fd_block_map_t * query = fd_blockstore_block_map_query( blockstore, slot );
   if( FD_UNLIKELY( !query ) ) return FD_SLOT_NULL;
   return query->parent_slot;
-}
-
-fd_block_map_t *
-fd_blockstore_parent_block_map_query( fd_blockstore_t * blockstore, ulong slot ) {
-  ulong parent_slot = fd_blockstore_parent_slot_query( blockstore, slot );
-  return fd_blockstore_block_map_query( blockstore, parent_slot );
 }
 
 int
