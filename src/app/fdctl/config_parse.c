@@ -357,6 +357,8 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( cstr,   tiles.store_int.blockstore_restore               );
   CFG_POP      ( cstr,   tiles.store_int.slots_pending                    );
+  CFG_POP      ( cstr,   tiles.store_int.shred_cap_archive                );
+  CFG_POP      ( cstr,   tiles.store_int.shred_cap_replay                 );
 
 # undef CFG_POP
 # undef CFG_ARRAY

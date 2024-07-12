@@ -279,6 +279,8 @@ typedef struct {
       /* non-config */
 
       char  identity_key_path[ PATH_MAX ];
+      char  shred_cap_archive[ PATH_MAX ];
+      char  shred_cap_replay[ PATH_MAX ];
     } store_int;
 
     struct {

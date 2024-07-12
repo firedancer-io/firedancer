@@ -12,6 +12,7 @@
 #include "../../../../util/fd_util.h"
 #include "../../../../choreo/fd_choreo.h"
 
+#include <fcntl.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <linux/unistd.h>
@@ -24,6 +25,7 @@
 #include "../../../../util/net/fd_ip4.h"
 #include "../../../../util/net/fd_udp.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
+#include "../../../../disco/shred/fd_shred_cap.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/store/fd_store.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
@@ -111,6 +113,8 @@ struct fd_store_tile_ctx {
   ulong * root_slot_fseq;
 
   int sim;
+
+  fd_shred_cap_ctx_t shred_cap_ctx;
 };
 typedef struct fd_store_tile_ctx fd_store_tile_ctx_t;
 
@@ -206,6 +210,11 @@ after_frag( void *             _ctx,
       // TODO: improve return value of api to not use < OK
       if( fd_store_shred_insert( ctx->store, &ctx->s34_buffer->pkts[i].shred ) < FD_BLOCKSTORE_OK ) {
         FD_LOG_ERR(( "failed inserting to blockstore" ));
+      } else if ( ctx->shred_cap_ctx.is_archive ) {
+        uchar shred_cap_flag = FD_SHRED_CAP_FLAG_MARK_TURBINE(0);
+        if ( fd_shred_cap_archive(&ctx->shred_cap_ctx, &ctx->s34_buffer->pkts[i].shred, shred_cap_flag) < FD_SHRED_CAP_OK ) {
+          FD_LOG_ERR(( "failed at archiving turbine shred to file" ));
+        }
       }
 
       fd_store_shred_update_with_shred_from_turbine( ctx->store, &ctx->s34_buffer->pkts[i].shred );
@@ -215,6 +224,11 @@ after_frag( void *             _ctx,
   if( FD_UNLIKELY( in_idx==REPAIR_IN_IDX ) ) {
     if( fd_store_shred_insert( ctx->store, fd_type_pun_const( ctx->shred_buffer ) ) < FD_BLOCKSTORE_OK ) {
       FD_LOG_ERR(( "failed inserting to blockstore" ));
+    } else if ( ctx->shred_cap_ctx.is_archive ) {
+        uchar shred_cap_flag = FD_SHRED_CAP_FLAG_MARK_REPAIR(0);
+        if ( fd_shred_cap_archive(&ctx->shred_cap_ctx, fd_type_pun_const( ctx->shred_buffer ), shred_cap_flag) < FD_SHRED_CAP_OK ) {
+          FD_LOG_ERR(( "failed at archiving repair shred to file" ));
+        }
     }
   }
 }
@@ -603,6 +617,19 @@ unprivileged_init( fd_topo_t *      topo,
     }
     fd_blockstore_end_write( ctx->blockstore );
     fclose( file );
+  }
+
+  ctx->shred_cap_ctx.stable_slot_end   = 0;
+  ctx->shred_cap_ctx.stable_slot_start = 0;
+  if( strlen( tile->store_int.shred_cap_archive ) > 0 ) {
+    ctx->shred_cap_ctx.is_archive      = 1;
+    ctx->shred_cap_ctx.shred_cap_fileno = open( tile->store_int.shred_cap_archive,
+                                                O_WRONLY | O_CREAT,
+                                                S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH );
+    if( ctx->shred_cap_ctx.shred_cap_fileno==-1 ) FD_LOG_ERR(( "failed at opening the shredcap file" ));
+  } else if ( strlen( tile->store_int.shred_cap_replay ) > 0 ) {
+    ctx->sim = 1;
+    FD_TEST( fd_shred_cap_replay( tile->store_int.shred_cap_replay, ctx->store ) == FD_SHRED_CAP_OK );
   }
 }
 
