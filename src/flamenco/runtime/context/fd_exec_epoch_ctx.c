@@ -68,11 +68,11 @@ fd_exec_epoch_ctx_new( void * mem,
   self->layout = *layout;
 
   fd_features_disable_all( &self->features );
-  fd_features_enable_hardcoded( &self->features );
+  fd_features_enable_hardcoded( &self->features, self->epoch_bank.cluster_version );
 
   fd_epoch_bank_new( &self->epoch_bank );
 
-  self->epoch_bank.cluster_version = 2000;
+  self->epoch_bank.cluster_version = FD_DEFAULT_AGAVE_CLUSTER_VERSION;
 
   void * stake_votes_mem         = (void *)( (ulong)mem + layout->stake_votes_off         );
   void * stake_delegations_mem   = (void *)( (ulong)mem + layout->stake_delegations_off   );
