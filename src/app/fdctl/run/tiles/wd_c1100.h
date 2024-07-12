@@ -41,4 +41,6 @@ void * c1100_bar_handle( C1100 const * c1100, uint bar_num );
 uint   c1100_bar_count( C1100 const * d );
 int    c1100_bar_fd( C1100 * d, uint bar_num );
 
+void doit( C1100 * c1100 );
+
 #endif /* HEADER_fd_src_app_fdctl_run_tiles_wd_c1100_h */

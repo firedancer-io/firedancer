@@ -179,6 +179,7 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   FD_TEST( c1100_init( ctx->c1100, tile->verify.pcie_device ) == 0 );
+  doit( ctx->c1100 );
 }
 
 static void
@@ -230,16 +231,14 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  uint v;
   void * handle = c1100_bar_handle( ctx->c1100, 0 );
   FD_TEST( handle != NULL );
-  wd_pcie_peek( handle, 0x00UL, &v );
-  FD_LOG_NOTICE(("First register value: 0x%x\n", v));
-
-  wd_pcie_poke( handle, 0x00UL, 5 );
-
-  wd_pcie_peek( handle, 0x00UL, &v );
-  FD_LOG_NOTICE(("First register value: 0x%x\n", v));
+  // wd_pcie_peek( handle, 0x00UL, &v );
+  // FD_LOG_NOTICE(("First register value: 0x%x\n", v));
+  // wd_pcie_poke( handle, 0x00UL, 5 );
+  // wd_pcie_peek( handle, 0x00UL, &v );
+  // FD_LOG_NOTICE(("First register value: 0x%x\n", v));
+  // doit( ctx->c1100 );
 }
 
 static ulong

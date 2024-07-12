@@ -3,10 +3,12 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <fcntl.h>
+#define __USE_MISC
 #include <sys/mman.h>
-#include <errno.h>
 #include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
 
 static
 uint read_pci_resource_file(const char * pcie_device, BarInfo * bars, uint bars_sz ) {
@@ -80,13 +82,17 @@ void mmap_bar( BarInfo const * info, BarMap * bm ) {
 
 int wd_pcie_peek( void * h, ulong offset, uint * value ) {
   BarMap * bm = (BarMap *)h;
-  *value = ((uint *)bm->addr)[offset];
+  char   * base_addr   = (char *)bm->addr;
+  uint   * target_addr = (uint *)(base_addr + offset);
+  *value = *target_addr;
   return 0;
 }
 
 int wd_pcie_poke( void * h, ulong offset, uint   value ) {
   BarMap * bm = (BarMap *)h;
-  ((uint *)bm->addr)[offset] = value;
+  char   * base_addr   = (char *)bm->addr;
+  uint   * target_addr = (uint *)(base_addr + offset);
+  *target_addr = value;
   return 0;
 }
 
@@ -125,4 +131,163 @@ int c1100_bar_fd( C1100 * c1100, uint bar_num ) {
     }
   }
   return -1;
+}
+
+ulong get_physical_address(ulong vaddr) {
+  int fd = open( "/proc/self/pagemap", O_RDONLY );
+  if( FD_UNLIKELY( fd == -1) ) {
+    perror( "open" );
+    return 0;
+  }
+
+  ulong paddr = 0;
+  ulong pagesize = (ulong)getpagesize();
+  ulong offset = (vaddr / pagesize) * sizeof(ulong);
+
+  if( FD_UNLIKELY( lseek( fd, (long)offset, SEEK_SET ) == -1 ) ) {
+    perror( "lseek" );
+    close( fd );
+    return 0;
+  }
+
+  ulong entry;
+  if( FD_UNLIKELY( read( fd, &entry, sizeof( entry ) ) != sizeof( entry ) ) ) {
+    perror( "read" );
+    close( fd );
+    return 0;
+  }
+
+  close(fd);
+
+  if (!(entry & (1ULL << 63))) {
+    fprintf(stderr, "Page not present\n");
+    return 0;
+  }
+
+  paddr = (entry & ((1ULL << 54) - 1)) * pagesize + (vaddr % pagesize);
+
+  return paddr;
+}
+
+#include <stdint.h>
+ulong _wd_get_phys(void * p)
+{
+    ulong PAGE_SIZE = (ulong)sysconf(_SC_PAGESIZE);
+    int pagemap_fd;
+    uint64_t vaddr;
+    uintptr_t vpn;
+    uint64_t pfn;
+
+    pagemap_fd = open("/proc/self/pagemap", O_RDONLY);
+    if (pagemap_fd < 0)
+    {
+        FD_LOG_ERR (( "cannot open pagemap file: %d ", pagemap_fd ));
+        return 0;
+    }
+
+    vaddr = (uint64_t)p;
+    vpn = vaddr / PAGE_SIZE;
+    for (size_t nread = 0; nread < sizeof(pfn); )
+    {
+        ssize_t ret = pread(pagemap_fd, &pfn, sizeof(pfn) - nread, (off_t)((vpn * sizeof(pfn)) + nread));
+        if (ret <= 0)
+        {
+            FD_LOG_ERR (( "pread error: %lu ", ret ));
+            close(pagemap_fd);
+            return 0;
+        }
+        nread += (size_t)ret;
+    }
+    pfn &= (1UL << 55) - 1;
+    pfn = (pfn * (long unsigned int)PAGE_SIZE) + (vaddr % (long unsigned int)PAGE_SIZE);
+
+    close(pagemap_fd);
+
+    return pfn;
+}
+
+uint c1100_dma_enabled( C1100 * c1100 ) {
+  void * handle = c1100_bar_handle( c1100, 0 );
+
+  uint value;
+  wd_pcie_peek( handle, 0x0000, &value );
+  return value;
+}
+
+void c1100_interrupts_enable( C1100 * c1100 ) {
+  void * handle = c1100_bar_handle( c1100, 0 );
+  wd_pcie_poke( handle, 0x0008, 3 );
+}
+
+void doit( C1100 * c1100 ) {
+  void * buf = mmap(0, 1024, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
+  ulong dma_addr2 = get_physical_address( (ulong)buf );
+  ulong dma_addr = _wd_get_phys( buf );
+  FD_LOG_NOTICE(( "virt: %lu phys: %lu phys2: %lu", (ulong)buf, dma_addr, dma_addr2 ));
+
+  for( uint i=0; i<256; i++ ) {
+      ((char *)buf)[i] = (char)i;
+  }
+  FD_LOG_HEXDUMP_NOTICE(( "data", buf, 256 ));
+
+  FD_LOG_NOTICE(( "dma enabled: %u", c1100_dma_enabled( c1100 ) ) );
+
+  c1100_interrupts_enable( c1100 );
+
+  void * bar2 = c1100_bar_handle( c1100, 2 );
+  uint value;
+  wd_pcie_poke( bar2, 0, 0 );
+  wd_pcie_peek( bar2, 0, &value );
+  FD_LOG_NOTICE(( "bar2 %08x", value ));
+  wd_pcie_poke( bar2, 0, 0x11223344 );
+  wd_pcie_peek( bar2, 0, &value );
+  FD_LOG_NOTICE(( "bar2 %08x", value ));
+
+  void * bar0 = c1100_bar_handle( c1100, 0 );
+
+  FD_LOG_NOTICE(( "start copy to card" ));
+  wd_pcie_poke( bar0, 0x000100, (uint)((dma_addr + 0x0000) & 0xffffffff ) );
+  wd_pcie_poke( bar0, 0x000104, (uint)(((dma_addr + 0x0000) >> 32) & 0xffffffff ) );
+  wd_pcie_poke( bar0, 0x000108, 0x100 );
+  wd_pcie_poke( bar0, 0x00010C, 0x0 );
+  wd_pcie_poke( bar0, 0x000110, 0x100 );
+  wd_pcie_poke( bar0, 0x000114, 0xAA );
+
+  usleep(1000);
+
+  FD_LOG_NOTICE(( "read status" ));
+  wd_pcie_peek( bar0, 0x000000, &value );
+  FD_LOG_NOTICE(( "%08x", value ));
+
+  wd_pcie_peek( bar0, 0x000118, &value );
+  FD_LOG_NOTICE(( "%08x", value ));
+
+  FD_LOG_NOTICE(( "start copy to host" ));
+  wd_pcie_poke( bar0, 0x000200, (uint)((dma_addr + 0x0200) & 0xffffffff ) );
+  wd_pcie_poke( bar0, 0x000204, (uint)(((dma_addr + 0x0200) >> 32) & 0xffffffff ) );
+  wd_pcie_poke( bar0, 0x000208, 0x100 );
+  wd_pcie_poke( bar0, 0x00020C, 0x0 );
+  wd_pcie_poke( bar0, 0x000210, 0x100 );
+  wd_pcie_poke( bar0, 0x000214, 0x55 );
+
+  usleep(1000);
+
+  FD_LOG_NOTICE(( "Read status" ));
+
+  wd_pcie_peek( bar0, 0x000000, &value );
+  FD_LOG_NOTICE(( "%08x", value ));
+
+  wd_pcie_peek( bar0, 0x000218, &value );
+  FD_LOG_NOTICE(( "%08x", value ));
+
+  FD_LOG_NOTICE(( "read test data" ));
+//   FD_LOG_HEXDUMP_NOTICE(( "data", &((char *)buf)[0x200], 256 ));
+
+  FD_LOG_HEXDUMP_NOTICE(( "data", buf, 1024 ));
+
+  if( memcmp( buf, &((char *)buf)[0x200], 256 ) == 0 ) {
+    FD_LOG_NOTICE(( "test data matches" ));
+  } else {
+    FD_LOG_NOTICE(( "test data mismatch" ));
+  }
 }
