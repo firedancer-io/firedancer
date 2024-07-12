@@ -583,6 +583,7 @@ int
 fd_runtime_block_verify_ticks( fd_block_info_t const * block_info, 
                                ulong                   tick_height,
                                ulong                   max_tick_height ) {
+                                (void)tick_height; (void)max_tick_height;
   ulong tick_count;
   for( ulong i = 0; i < block_info->microblock_batch_cnt; i++ ) {
     fd_microblock_batch_info_t const * microblock_batch_info = &block_info->microblock_batch_infos[ i ];
@@ -939,6 +940,8 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
         // TODO: figure out if it is faster to batch query properly and loop all txns again
         fd_txncache_query_batch( slot_ctx->status_cache, &curr_query, 1UL, query_arg, query_func, &err );
+        FD_LOG_WARNING(("TC QB: %lu %32J %32J %64J %d", slot_ctx->slot_bank.slot, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off), hash,  ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off), err ));
+
         if( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
           // FD_LOG_WARNING(("HELLO %64J", (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off));
           task_info[ txn_idx ].txn->flags = 0;
@@ -1264,6 +1267,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
         fd_blake3_init( b3 );
         fd_blake3_append( b3, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->message_off), (ulong)( txn_ctx->_txn_raw->txn_sz - txn_ctx->txn_descriptor->message_off ) );
         fd_blake3_fini( b3, hash->uc );
+        FD_LOG_WARNING(("TC IB: %lu %32J %32J %64J", slot_ctx->slot_bank.slot, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off), hash,  ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off) ));
 
         curr_insert->txnhash = hash->uc;
         curr_insert->result = &results[num_cache_txns];

@@ -16,30 +16,34 @@ fd_poh_tile_footprint( void ) {
 
 void
 fd_poh_tile_publish_tick( fd_poh_tile_ctx_t * ctx,
-                          fd_mux_context_t *  mux ) {
-  /* We must subtract 1 from hashcnt here, since we might have ticked
-     over into the next slot already. */
-  ulong slot = (ctx->hashcnt-1UL)/ctx->hashcnt_per_slot;
+                          fd_mux_context_t *  mux,
+                          uchar               hash[ static 32 ],
+                          int                 is_skipped ) {
+  ulong hashcnt = ctx->hashcnt_per_tick*(1UL+(ctx->last_hashcnt/ctx->hashcnt_per_tick));
 
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
 
   fd_entry_batch_meta_t * meta = (fd_entry_batch_meta_t *)dst;
+  if( is_skipped ) {
+    meta->reference_tick = 0UL;
+    meta->block_complete = 0;
+  } else {
+    meta->reference_tick = hashcnt/ctx->hashcnt_per_tick;
+    meta->block_complete = !(hashcnt % ctx->hashcnt_per_slot);
+  }
+  ulong slot = fd_ulong_if( meta->block_complete, ctx->slot-1UL, ctx->slot );
   meta->parent_offset = 1UL + slot - (ctx->reset_slot_hashcnt/ctx->hashcnt_per_slot);
-  ulong slot_hashcnt = slot*ctx->hashcnt_per_slot;
-  meta->reference_tick = (ctx->hashcnt-slot_hashcnt)/ctx->hashcnt_per_tick;
 
-  meta->block_complete = !(ctx->hashcnt % ctx->hashcnt_per_slot);
-
-  ulong hash_delta = ctx->hashcnt - ctx->last_hashcnt;
-  ctx->last_hashcnt = ctx->hashcnt;
+  ulong hash_delta = hashcnt - ctx->last_hashcnt;
+  ctx->last_hashcnt = hashcnt;
 
   dst += sizeof(fd_entry_batch_meta_t);
   fd_entry_batch_header_t * tick = (fd_entry_batch_header_t *)dst;
   tick->hashcnt_delta = hash_delta;
-  fd_memcpy( tick->hash, ctx->hash, 32UL );
+  fd_memcpy( tick->hash, hash, 32UL );
   tick->txn_cnt = 0UL;
 
-  FD_LOG_WARNING(("PUB TICK: %lu %lu %lu %lu", slot, hash_delta, ctx->hashcnt, ctx->hashcnt_per_slot ));
+  FD_LOG_WARNING(("PUB TICK(%d): %lu %lu %lu %lu", is_skipped, slot, hash_delta, hashcnt, ctx->hashcnt_per_slot ));
 
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sz = sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t);
@@ -615,7 +619,7 @@ fd_poh_tile_process_skipped_slot( fd_poh_tile_ctx_t * ctx,
     /* We finished a slot while not leader... save the current hash so
        it can be played back into the bank (to update the recent slot
        hashes sysvar) when we become the leader. */
-    fd_memcpy( ctx->skipped_slot_hashes[ (ctx->hashcnt/ctx->hashcnt_per_slot)%150UL ], ctx->hash, 32UL );
+    fd_memcpy( ctx->skipped_tick_hashes[ (ctx->hashcnt/ctx->hashcnt_per_tick)%MAX_SKIPPED_TICKS ], ctx->hash, 32UL );
   }
 }
 
@@ -663,7 +667,7 @@ fd_poh_tile_skipped_hashcnt_iter_is_slot_boundary( fd_poh_tile_ctx_t * ctx, fd_p
 
 uchar const *
 fd_poh_tile_skipped_hashcnt_iter_slot_hash( fd_poh_tile_ctx_t * ctx, fd_poh_tile_skipped_hashcnt_iter_t iter ) {
-  return ctx->skipped_slot_hashes[ (iter/ctx->hashcnt_per_slot)%150UL ];
+  return ctx->skipped_tick_hashes[ (iter/ctx->hashcnt_per_slot)%MAX_SKIPPED_TICKS ];
 }
 
 void

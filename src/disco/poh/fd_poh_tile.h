@@ -31,6 +31,20 @@
    and know that pack will not need those hashcnts later to do mixins. */
 #define MAX_MICROBLOCKS_PER_SLOT (16384UL)
 
+/* When we are hashing in the background in case a prior leader skips
+   their slot, we need to store the result of each tick hash so we can
+   publish them when we become leader.  The network requires at least
+   one leader slot to publish in each epoch for the leader schedule to
+   generate, so in the worst case we might need two full epochs of slots
+   to store the hashes.  (Eg, if epoch T only had a published slot in
+   position 0 and epoch T+1 only had a published slot right at the end).
+
+   There is a tighter bound: the block data limit of mainnet-beta is
+   currently FD_PACK_MAX_DATA_PER_BLOCK, or 27,332,342 bytes per slot.
+   At 48 bytes per tick, it is not possible to publish a slot that skips
+   569,424 or more prior slots. */
+#define MAX_SKIPPED_TICKS (1UL+(FD_PACK_MAX_DATA_PER_BLOCK/48UL))
+
 struct fd_poh_tile_in_ctx {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -93,7 +107,7 @@ struct fd_poh_tile_ctx {
      the slot hashes sysvar can be updated correctly.  We only need 150
      of these, because that's what's required for consensus in the
      sysvar. */
-  uchar skipped_slot_hashes[ 150 ][ 32 ];
+  uchar skipped_tick_hashes[ MAX_SKIPPED_TICKS ][ 32 ];
 
   /* The timestamp in nanoseconds of when the reset slot was received.
      This is the timestamp we are building on top of to determine when
@@ -157,7 +171,9 @@ fd_poh_tile_footprint( void );
 
 void
 fd_poh_tile_publish_tick( fd_poh_tile_ctx_t * ctx,
-                          fd_mux_context_t *  mux );
+                          fd_mux_context_t *  mux,
+                          uchar               hash[ static 32 ],
+                          int                 is_skipped );
 
 void
 fd_poh_tile_publish_microblock( fd_poh_tile_ctx_t * ctx,

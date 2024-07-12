@@ -352,7 +352,6 @@ during_frag( void * _ctx,
     if( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) {
       ctx->flags = REPLAY_FLAG_PACKED_MICROBLOCK;
       ctx->txn_cnt = (sz - sizeof(fd_microblock_bank_trailer_t)) / sizeof(fd_txn_p_t);
-      memset( ctx->blockhash.uc, 0, sizeof(fd_hash_t) );
       fd_memcpy( dst_poh, src, (sz - sizeof(fd_microblock_bank_trailer_t)) );
       src += (sz-sizeof(fd_microblock_bank_trailer_t));
       fd_microblock_bank_trailer_t * t = (fd_microblock_bank_trailer_t *)src;
@@ -450,13 +449,17 @@ funk_cancel( fd_replay_tile_ctx_t * ctx, ulong mismatch_slot ) {
 struct fd_status_check_ctx {
   fd_slot_history_t * slot_history;
   fd_txncache_t * txncache;
-  ulong curr_slot;
+  ulong current_slot;
 };
 typedef struct fd_status_check_ctx fd_status_check_ctx_t;
 
 static int
 status_check_tower(ulong slot, void * _ctx ) {
   fd_status_check_ctx_t * ctx = (fd_status_check_ctx_t *)_ctx;
+  if( slot==ctx->current_slot ) {
+    return 1;
+  }
+
   if( fd_txncache_is_rooted_slot( ctx->txncache, slot ) ) {
     return 1; 
   }
@@ -641,9 +644,11 @@ after_frag( void *             _ctx,
       fork->slot_ctx.slot_bank.slot      = ctx->curr_slot;
 
       fork->slot_ctx.status_cache        = ctx->status_cache;
-      fd_funk_txn_xid_t xid;
+      fd_funk_txn_xid_t xid = { 0 };
 
-      fd_memcpy(xid.uc, ctx->blockhash.uc, sizeof(fd_funk_txn_xid_t));
+      if( !( ctx->flags & REPLAY_FLAG_PACKED_MICROBLOCK ) ) {
+        fd_memcpy(xid.uc, ctx->blockhash.uc, sizeof(fd_funk_txn_xid_t));
+      }
       xid.ul[0] = fork->slot_ctx.slot_bank.slot;
       /* push a new transaction on the stack */
       fd_funk_start_write( ctx->funk );
@@ -672,10 +677,10 @@ after_frag( void *             _ctx,
     fd_sysvar_slot_history_read(  &fork->slot_ctx, fd_scratch_virtual(), slot_history );
       fd_status_check_ctx_t status_check_ctx = {
       .txncache = fork->slot_ctx.status_cache,
-          .slot_history = slot_history,
-      .curr_slot = fork->slot_ctx.slot_bank.slot,
-      };
-    res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx, ctx->capture_ctx,
+      .slot_history = slot_history,
+      .current_slot = fork->slot_ctx.slot_bank.slot,
+    };
+    int res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx, ctx->capture_ctx,
                                                       txns, txn_cnt,
                                                     status_check_tower,
                                                     &status_check_ctx,

@@ -216,6 +216,14 @@ after_credit( void *             _ctx,
     ulong reset_slot = FD_SLOT_NULL;
     int has_reached_leader_slot = fd_poh_tile_reached_leader_slot( ctx->poh_tile_ctx, &leader_slot, &reset_slot );
 
+    if( has_reached_leader_slot && fd_poh_tile_get_last_slot( ctx->poh_tile_ctx )<fd_poh_tile_get_slot( ctx->poh_tile_ctx ) ) {
+      ulong publish_hashcnt = ctx->poh_tile_ctx->last_hashcnt+ctx->poh_tile_ctx->hashcnt_per_tick;
+      ulong tick_idx = (ctx->poh_tile_ctx->last_hashcnt/ctx->poh_tile_ctx->hashcnt_per_tick+publish_hashcnt/ctx->poh_tile_ctx->hashcnt_per_tick)%MAX_SKIPPED_TICKS;
+      fd_poh_tile_publish_tick( ctx->poh_tile_ctx, mux, ctx->poh_tile_ctx->skipped_tick_hashes[ tick_idx ], 1 );
+      *opt_poll_in = 0;
+      return;
+    }
+
     if( has_reached_leader_slot ) {
       fd_poh_begin_leader( ctx, leader_slot );
     }
@@ -223,7 +231,7 @@ after_credit( void *             _ctx,
 
   int is_leader       = fd_poh_tile_is_leader( ctx->poh_tile_ctx );
   int hashes_produced = fd_poh_tile_do_hashing( ctx->poh_tile_ctx, is_leader );
-  
+
   if( !hashes_produced ) {
     /* No hashes were produced, nothing to do. */
     return;
@@ -241,7 +249,7 @@ after_credit( void *             _ctx,
     fd_poh_register_tick( ctx, ctx->poh_tile_ctx->reset_slot_hashcnt, ctx->poh_tile_ctx->hash );
 
     /* And send an empty microblock (a tick) to the shred tile. */
-    fd_poh_tile_publish_tick( ctx->poh_tile_ctx, mux );
+    fd_poh_tile_publish_tick( ctx->poh_tile_ctx, mux, ctx->poh_tile_ctx->hash, 0 );
   }
 
   fd_poh_tile_process_skipped_slot( ctx->poh_tile_ctx, is_leader );

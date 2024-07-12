@@ -21,6 +21,7 @@ solana -u $RPC_URL --keypair fd-identity-keypair.json delegate-stake fd-stake-ke
 solana -u $RPC_URL --keypair fd-identity-keypair.json vote-account fd-vote-keypair.json
 solana -u $RPC_URL --keypair fd-identity-keypair.json stake-account fd-stake-keypair.json
 
+exit 1
 solana-keygen new --no-bip39-passphrase --silent --outfile fd-identity-keypair-2.json
 solana-keygen new --no-bip39-passphrase --silent --outfile fd-stake-keypair-2.json
 solana-keygen new --no-bip39-passphrase --silent --outfile fd-vote-keypair-2.json
