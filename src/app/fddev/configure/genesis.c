@@ -192,7 +192,7 @@ create_genesis( config_t * const config,
 
   fd_features_t features[1];
   fd_features_disable_all( features );
-  fd_features_enable_hardcoded( features );
+  fd_features_enable_hardcoded( features, FD_DEFAULT_AGAVE_CLUSTER_VERSION );
   default_enable_features( features );
 
   options->features = features;

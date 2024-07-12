@@ -40,7 +40,7 @@ while [[ $# -gt 0 ]]; do
        shift
        shift
        ;;
-    --cluster-version)
+    -c|--cluster-version)
        CLUSTER_VERSION="--cluster-version $2"
        shift
        shift
@@ -125,7 +125,6 @@ fi
 echo_notice "Starting on-demand ingest and replay"
 set -x
   "$OBJDIR"/bin/fd_ledger \
-    --reset 1 \
     --cmd replay \
     --rocksdb dump/$LEDGER/rocksdb \
     $RESTORE_ARCHIVE \
@@ -133,15 +132,10 @@ set -x
     $INDEX_MAX \
     $END_SLOT \
     $CLUSTER_VERSION \
-    --funk-only 1 \
-    --txn-max 100 \
     $PAGES \
     $FUNK_PAGES \
     $SNAPSHOT \
-    --slot-history 5000 \
-    --copy-txn-status 0 \
     --allocator wksp \
-    --on-demand-block-ingest 1 \
     $TILE_CPUS >& $LOG
 
 status=$?

@@ -15,6 +15,12 @@
 #define FD_FUNK_KEY_TYPE_ACC ((uchar)1)
 #define FD_FUNK_KEY_TYPE_ELF_CACHE ((uchar)2)
 
+/* CLUSTER_VERSION is the default value for the cluster version
+   in the epoch context. This value will foll forward to the
+   latest version.
+*/
+#define FD_DEFAULT_AGAVE_CLUSTER_VERSION (2000)
+
 /* Forward declarations */
 
 struct fd_exec_epoch_ctx;
