@@ -53,24 +53,24 @@ static
 void print_bar_maps( BarMap * bms, uint bms_sz ) {
   for( uint i=0UL; i<bms_sz; i++ ) {
     FD_LOG_NOTICE(( "BAR %d: Start = 0x%lx, End = 0x%lx, Size = 0x%08lx, MappedAddr=0x%lx, fd=%d, Path=%s",
-        i, bms[i].bi.start, bms[i].bi.end, bms[i].bi.size, (ulong)bms[i].addr, bms[i].fd, bms[i].bi.path ));
+        i, bms[i].info.start, bms[i].info.end, bms[i].info.size, (ulong)bms[i].addr, bms[i].fd, bms[i].info.path ));
   }
 }
 
 static
-void mmap_bar( BarInfo const * bi, BarMap * bm ) {
+void mmap_bar( BarInfo const * info, BarMap * bm ) {
   char path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/bus/pci/devices/%s/resource0", bi->pcie_device ) );
-  bm->fd = open( bi->path, O_RDWR | O_SYNC );
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/bus/pci/devices/%s/resource0", info->pcie_device ) );
+  bm->fd = open( info->path, O_RDWR | O_SYNC );
 
   if( FD_UNLIKELY( bm->fd == -1 ) ) {
-    FD_LOG_ERR(("Error opening device file %s %s", bi->path, bi->pcie_device ));
+    FD_LOG_ERR(("Error opening device file %s %s", info->path, info->pcie_device ));
     return;
   }
 
-  bm->addr = mmap( (void *)bi->start, bi->size, PROT_READ | PROT_WRITE, MAP_SHARED, bm->fd, 0);
+  bm->addr = mmap( (void *)info->start, info->size, PROT_READ | PROT_WRITE, MAP_SHARED, bm->fd, 0);
 
-  bm->bi = *bi;
+  bm->info = *info;
 
   if( FD_UNLIKELY( bm->addr == MAP_FAILED ) ) {
     FD_LOG_ERR(("Error mapping memory: %s\n", strerror(errno)));
@@ -93,7 +93,7 @@ int wd_pcie_poke( void * h, ulong offset, uint   value ) {
 static
 void * get_bar_handle( uint bar_num, BarMap const * bm, uint bm_sz ) {
   for( uint i=0; i<bm_sz; i++ ) {
-    if( FD_UNLIKELY( bm[i].bi.num == bar_num ) ) {
+    if( FD_UNLIKELY( bm[i].info.num == bar_num ) ) {
       return (void *)&bm[i];
     }
   }
@@ -120,7 +120,7 @@ uint c1100_bar_count( C1100 const * c1100 ) {
 
 int c1100_bar_fd( C1100 * c1100, uint bar_num ) {
   for( uint i=0; i<c1100->sz; i++ ) {
-    if( FD_UNLIKELY( c1100->bm[i].bi.num == bar_num ) ) {
+    if( FD_UNLIKELY( c1100->bm[i].info.num == bar_num ) ) {
       return c1100->bm[i].fd;
     }
   }

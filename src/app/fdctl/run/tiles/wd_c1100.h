@@ -17,7 +17,7 @@ typedef struct {
 } BarInfo;
 
 typedef struct {
-  BarInfo bi;
+  BarInfo info;
   void  * addr;
   int     fd;
 } BarMap;
