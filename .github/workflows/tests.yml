@@ -4,12 +4,12 @@ name: Tests
 on:
   workflow_call:
   workflow_dispatch:
-  merge_group:
 concurrency:
   group: tests_${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   test:
+    timeout-minutes: 30
     strategy:
       # We cannot possibly test everything on every commit.
       # This matrix is a tradeoff between required resources and
