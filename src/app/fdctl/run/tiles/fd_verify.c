@@ -178,32 +178,7 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  BarInfo bar_infos[ MAX_BARS ];
-  ctx->bar_cnt = read_pci_resource_file( tile->verify.pcie_device, bar_infos, MAX_BARS );
-  print_bar_infos( bar_infos, ctx->bar_cnt );
-
-  for( uint i=0; i<ctx->bar_cnt; i++ ) {
-    mmap_bar( &bar_infos[i], &ctx->bms[i] );
-  }
-  print_bar_maps( ctx->bms, ctx->bar_cnt );
-  char path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/bus/pci/devices/%s/resource0", tile->verify.pcie_device ) );
-  ctx->fd = open(path, O_RDWR | O_SYNC);
-
-  if (ctx->fd == -1) {
-      FD_LOG_ERR(("Error opening device file %s %s", path, tile->verify.pcie_device ));
-      return;
-  }
-
-  size_t size = 1UL << 24UL;
-  void * base_address = (void*)0x3bffe000000UL;
-  ctx->mapped_addr = mmap(base_address, size, PROT_READ | PROT_WRITE, MAP_SHARED, ctx->fd, 0);
-
-  if (ctx->mapped_addr == MAP_FAILED) {
-      FD_LOG_ERR(("Error mapping memory: %s\n", strerror(errno)));
-      close(ctx->fd);
-      return;
-  }
+  FD_TEST( c1100_init( ctx->c1100, tile->verify.pcie_device ) == 0 );
 }
 
 static void
@@ -255,20 +230,16 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  uint16_t *memory = (uint16_t *)ctx->mapped_addr;
+  uint v;
+  void * handle = c1100_bar_handle( ctx->c1100, 0 );
+  FD_TEST( handle != NULL );
+  wd_pcie_peek( handle, 0x00UL, &v );
+  FD_LOG_NOTICE(("First register value: 0x%x\n", v));
 
-  // Read the value of the first register
-  uint16_t first_register = memory[0];
-  FD_LOG_NOTICE(("First register value: 0x%x\n", first_register));
+  wd_pcie_poke( handle, 0x00UL, 5 );
 
-  // Write a value to the third register
-  memory[2] = 0x0007;
-  FD_LOG_NOTICE(("Written 0x0007 to the third register.\n"));
-
-  // // Clean up
-  // if (munmap(mapped_addr, size) == -1) {
-  //     FD_LOG_ERR(("Error unmapping memory"));
-  // }
+  wd_pcie_peek( handle, 0x00UL, &v );
+  FD_LOG_NOTICE(("First register value: 0x%x\n", v));
 }
 
 static ulong
@@ -285,14 +256,14 @@ populate_allowed_fds( void * scratch,
                       ulong  out_fds_cnt,
                       int *  out_fds ) {
   fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)scratch;
-  if( FD_UNLIKELY( out_fds_cnt < 3 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  uint bar_cnt = c1100_bar_count( ctx->c1100 );
+  if( FD_UNLIKELY( out_fds_cnt < 2+bar_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  for( uint i=0; i<ctx->bar_cnt; i++ ) out_fds[ out_cnt++ ] = ctx->bms[i].fd;
-  out_fds[ out_cnt++ ] = ctx->fd;
+  for( uint i=0; i<bar_cnt; i++ ) out_fds[ out_cnt++ ] = ctx->c1100->bm[i].fd;
   return out_cnt;
 }
 
