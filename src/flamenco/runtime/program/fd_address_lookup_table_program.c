@@ -292,7 +292,8 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
     fd_sha256_fini( sha, derived_tbl_key->key );
   } while(0);
   if( FD_UNLIKELY( fd_ed25519_point_validate( derived_tbl_key->key ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_SEEDS;
+    ctx->txn_ctx->custom_err = 1;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L120-L127 */
