@@ -113,7 +113,7 @@ typedef struct fd_pack_private fd_pack_t;
    object.
 
    pack_depth sets the maximum number of pending transactions that pack
-   stores and may eventually schedule.
+   stores and may eventually schedule.  pack_depth must be at least 4.
 
    bank_tile_cnt sets the number of bank tiles to which this pack object
    can schedule transactions.  bank_tile_cnt must be in [1,
@@ -219,10 +219,6 @@ void fd_pack_set_block_limits( fd_pack_t * pack, ulong max_microblocks_per_block
       Write-locking a sysvar can cause heavy contention.  Solana Labs
       solves this by downgrading these to read locks, but we instead
       solve it by refusing to pack such transactions.
-    * FULL: in rare situations where the heap is full, pack may not be
-      able to accept a transaction regardless of its priority because a
-      transaction cannot be found to be replaced.  This mostly can
-      happen if the whole heap is full of votes.
 
     NOTE: The corresponding enum in metrics.xml must be kept in sync
     with any changes to these return values. */
@@ -240,15 +236,14 @@ void fd_pack_set_block_limits( fd_pack_t * pack, ulong max_microblocks_per_block
 #define FD_PACK_INSERT_REJECT_DUPLICATE_ACCT  (-8)
 #define FD_PACK_INSERT_REJECT_ESTIMATION_FAIL (-9)
 #define FD_PACK_INSERT_REJECT_WRITES_SYSVAR   (-10)
-#define FD_PACK_INSERT_REJECT_FULL            (-11)
 
 /* The FD_PACK_INSERT_{ACCEPT, REJECT}_* values defined above are in the
    range [-FD_PACK_INSERT_RETVAL_OFF,
    -FD_PACK_INSERT_RETVAL_OFF+FD_PACK_INSERT_RETVAL_CNT ) */
-#define FD_PACK_INSERT_RETVAL_OFF 11
-#define FD_PACK_INSERT_RETVAL_CNT 15
+#define FD_PACK_INSERT_RETVAL_OFF 10
+#define FD_PACK_INSERT_RETVAL_CNT 14
 
-FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_FULL>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
+FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_WRITES_SYSVAR>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_VOTE_REPLACE<FD_PACK_INSERT_RETVAL_CNT-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 
 /* fd_pack_insert_txn_{init,fini,cancel} execute the process of

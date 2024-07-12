@@ -26,7 +26,6 @@ metric introduced.
 
 <enum name="PackTxnInsertReturn">
   <!-- Note: You must keep the list of return values in fd_pack.h in sync with this list -->
-  <int value="-11" name="Full" label="Pack couldn't find a transaction that the new transaction could potentially replace" />
   <int value="-10" name="WriteSysvar" label="Transaction tries to write to a sysvar" />
   <int value="-9" name="EstimationFail" label="Estimating compute cost and/or fee failed" />
   <int value="-8" name="DuplicateAccount" label="Transaction included an account address twice" />

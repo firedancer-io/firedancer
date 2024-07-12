@@ -980,6 +980,52 @@ test_limits( void ) {
 }
 
 static inline void
+test_vote_qos( void ) {
+  FD_LOG_NOTICE(( "TEST VOTE QOS" ));
+  fd_pack_t * pack = init_all( 16UL, 1UL, 128UL, &outcome );
+
+  /* Fill with votes */
+  for( ulong i=0UL; i<16UL; i++ ) {
+    make_vote_transaction( i );
+    FD_TEST( insert( i, pack )==FD_PACK_INSERT_ACCEPT_VOTE_ADD );
+  }
+  ulong i=16UL;
+  /* treap is imbalanced so will accept any non-vote, even extremely
+     non-lucrative ones. */
+  make_transaction( i, 1000000UL, 0.001, "A", "B" ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 1000000UL, 0.001, "A", "B" ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 1000000UL, 0.001, "A", "B" ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 1000000UL, 0.001, "A", "B" ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  /* Now it's balanced, so the non-vote will be compared with the other
+     non-votes.  It's not better than them, so reject. */
+  make_transaction( i, 1000000UL, 0.001, "A", "B" ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_PRIORITY        );
+
+  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  /* The first non-votes are worse than the votes, so now these
+     lucrative transactions have replaced the old non-votes and we still
+     have 12 pending votes */
+  for( ulong j=16UL; j<20UL; j++ ) {
+    fd_ed25519_sig_t const * sig = fd_txn_get_signatures( (fd_txn_t *)txn_scratch[j], payload_scratch[j] );
+    FD_TEST( !fd_pack_delete_transaction( pack, sig ) );
+  }
+
+  /* Now replace 8 votes with non-votes */
+  for( ulong j=0UL; j<8UL; j++ ) {
+    make_transaction( i, 100UL, 13.0, "A", "B" );    FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  }
+  /* Exactly 25% votes, so this is not considered imbalanced and QoS
+     rules allow it. */
+  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+
+  /* It's now low on votes (<25%), so inserting a non-vote will compare
+     only against other non-votes. */
+  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_PRIORITY        );
+}
+
+static inline void
 test_reject_writes_to_sysvars( void ) {
   FD_LOG_NOTICE(( "TEST SYSVARS" ));
   fd_pack_t * pack = init_all( 1024UL, 1UL, 128UL, &outcome );
@@ -1084,6 +1130,7 @@ main( int     argc,
   test_expiration();
   test_gap();
   test_limits();
+  test_vote_qos();
   test_reject_writes_to_sysvars();
   test_reject();
   performance_test( extra_benchmark );
