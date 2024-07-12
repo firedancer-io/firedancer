@@ -1111,10 +1111,7 @@ prune( fd_ledger_args_t * args ) {
   /* Replay through the desired slot range ************************************/
 
   fd_ledger_main_setup( args );
-  int err = runtime_replay( args );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Error while replaying" ));
-  }
+  runtime_replay( args );
 
   FD_LOG_NOTICE(("There are currently %lu records in the pruned funk", fd_funk_rec_cnt( fd_funk_rec_map( pruned_funk, pruned_wksp ) ) ));
 
