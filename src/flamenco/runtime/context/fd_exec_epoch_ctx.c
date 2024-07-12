@@ -72,6 +72,21 @@ fd_exec_epoch_ctx_new( void * mem,
   fd_epoch_bank_new( &self->epoch_bank );
   self->epoch_bank.cluster_version = 2000;
 
+  void * stake_votes_mem         = (void *)( (ulong)mem + self->layout.stake_votes_off         );
+  void * stake_delegations_mem   = (void *)( (ulong)mem + self->layout.stake_delegations_off   );
+  void * stake_history_treap_mem = (void *)( (ulong)mem + self->layout.stake_history_treap_off );
+  void * stake_history_pool_mem  = (void *)( (ulong)mem + self->layout.stake_history_pool_off  );
+  void * next_epoch_stakes_mem   = (void *)( (ulong)mem + self->layout.next_epoch_stakes_off   );
+  //void * leaders_mem             = (void *)( (ulong)mem + layout->leaders_off             );
+
+  fd_vote_accounts_pair_t_map_new( stake_votes_mem,         vote_acc_max               );
+  fd_delegation_pair_t_map_new   ( stake_delegations_mem,   vote_acc_max               );
+  fd_stake_history_treap_new     ( stake_history_treap_mem, FD_SYSVAR_STAKE_HISTORY_CAP );
+  fd_stake_history_pool_new      ( stake_history_pool_mem,  FD_SYSVAR_STAKE_HISTORY_CAP );
+  fd_vote_accounts_pair_t_map_new( next_epoch_stakes_mem,   vote_acc_max               );
+  //TODO support separate epoch leaders new and init
+  //fd_epoch_leaders_new           ( leaders_mem,             MAX_PUB_CNT, MAX_SLOTS_CNT );
+
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_EPOCH_CTX_MAGIC;
   FD_COMPILER_MFENCE();
