@@ -3,12 +3,62 @@
 #include "../types/fd_types.h"
 #include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"
-#include "../../util/spad/fd_spad.h"
 
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 /* This file must not depend on fd_executor.h */
+
+struct fd_fake_alloc {
+  fd_exec_epoch_ctx_t * epoch_ctx;
+  uint idx;
+};
+typedef struct fd_fake_alloc fd_fake_alloc_t;
+
+static void *
+fd_fake_alloc_malloc_virtual( void * arg,
+                              ulong  align,
+                              ulong  sz ) {
+  (void)align;
+  (void)sz;
+  fd_fake_alloc_t * self = (fd_fake_alloc_t *)arg;
+  fd_exec_epoch_ctx_t * ctx = self->epoch_ctx;
+  switch( self->idx++ ) {
+  case 0:
+    return (void *)((ulong)ctx + ctx->layout.stake_votes_off);
+  case 1:
+    return (void *)((ulong)ctx + ctx->layout.stake_delegations_off);
+  case 2:
+    return (void *)((ulong)ctx + ctx->layout.stake_history_pool_off);
+  case 3:
+    return (void *)((ulong)ctx + ctx->layout.stake_history_treap_off);
+  case 4:
+    return (void *)((ulong)ctx + ctx->layout.next_epoch_stakes_off);
+  default:
+    FD_LOG_ERR(("lost track of epoch_bank alloc index"));
+    return NULL;
+  }
+}
+
+static void
+fd_fake_alloc_free_virtual( void * self,
+                      void * addr ) {
+  /* This is a bump allocator which never frees */
+  (void)self;
+  (void)addr;
+}
+
+const fd_valloc_vtable_t
+fd_fake_alloc_vtable = {
+  .malloc = fd_fake_alloc_malloc_virtual,
+  .free   = fd_fake_alloc_free_virtual
+};
+
+FD_FN_CONST static inline fd_valloc_t
+fd_fake_alloc_virtual( fd_fake_alloc_t * alloc ) {
+  fd_valloc_t valloc = { alloc, &fd_fake_alloc_vtable };
+  return valloc;
+}
 
 fd_funk_rec_key_t
 fd_runtime_firedancer_bank_key( void ) {
@@ -122,15 +172,19 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
       fd_exec_epoch_ctx_bank_mem_clear( epoch_ctx );
     }
 
-    void * mem = ((uchar*)epoch_ctx) + sizeof(fd_exec_epoch_ctx_t);
-    ulong footp = epoch_ctx->footprint - sizeof(fd_exec_epoch_ctx_t);
-    fd_spad_t * spad = fd_spad_join( fd_spad_new( mem, footp ) );
-
+    fd_fake_alloc_t alloc = { .epoch_ctx = epoch_ctx, .idx = 0 };
     fd_bincode_decode_ctx_t ctx;
     ctx.data = val;
     ctx.dataend = (uchar*)val + fd_funk_val_sz( rec );
-    ctx.valloc  = fd_spad_virtual( spad );
+    ctx.valloc  = fd_fake_alloc_virtual( &alloc );
     FD_TEST( fd_epoch_bank_decode( epoch_bank, &ctx )==FD_BINCODE_SUCCESS );
+
+    /* Make sure the bump allocator gave the expected results */
+    FD_TEST( fd_exec_epoch_ctx_stake_votes_join( epoch_ctx ) == epoch_bank->stakes.vote_accounts.vote_accounts_pool );
+    FD_TEST( fd_exec_epoch_ctx_stake_delegations_join( epoch_ctx ) == epoch_bank->stakes.stake_delegations_pool );
+    FD_TEST( fd_exec_epoch_ctx_stake_history_treap_join( epoch_ctx ) == epoch_bank->stakes.stake_history.treap );
+    FD_TEST( fd_exec_epoch_ctx_stake_history_pool_join( epoch_ctx ) == epoch_bank->stakes.stake_history.pool );
+    FD_TEST( fd_exec_epoch_ctx_next_epoch_stakes_join( epoch_ctx ) == epoch_bank->next_epoch_stakes.vote_accounts_pool );
 
     FD_LOG_NOTICE(( "recovered epoch_bank" ));
   }
