@@ -6,6 +6,7 @@
 #include "../../../../disco/tiles.h"
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_pod_format.h"
+#include "../../../../disco/bank/fd_txncache.h"
 #include "../../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../../funk/fd_funk.h"
 #include "../../../../util/tile/fd_tile_private.h"
@@ -87,6 +88,7 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topob_wksp( topo, "thread"     );
   fd_topob_wksp( topo, "bhole"      );
   fd_topob_wksp( topo, "bstore"     );
+  fd_topob_wksp( topo, "tcache"     );
   fd_topob_wksp( topo, "funk"       );
   fd_topob_wksp( topo, "pohi"       );
   fd_topob_wksp( topo, "voter"      );
@@ -186,6 +188,17 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topob_tile_uses( topo, repair_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );
+
+  /* Create a txncache to be used by replay. */
+  fd_topo_obj_t * txncache_obj = fd_topob_obj_concrete( topo, 
+                                                        "txncache", 
+                                                        "tcache", 
+                                                        fd_txncache_align(), 
+                                                        fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 8), 
+                                                        23UL * FD_SHMEM_GIGANTIC_PAGE_SZ );
+  fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+  FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
   /* Create a shared blockstore to be used by replay. */
   fd_topo_obj_t * funk_obj = fd_topob_obj_concrete( topo, "funk", "funk", fd_funk_align(), fd_funk_footprint(), config->tiles.replay.funk_sz_gb * FD_SHMEM_GIGANTIC_PAGE_SZ );
@@ -452,6 +465,7 @@ fd_topo_firedancer( config_t * _config ) {
       strncpy( tile->replay.incremental, config->tiles.replay.incremental, sizeof(tile->replay.incremental) );
       strncpy( tile->replay.slots_replayed, config->tiles.replay.slots_replayed, sizeof(tile->replay.slots_replayed) );
       strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
+      strncpy( tile->replay.status_cache, config->tiles.replay.status_cache, sizeof(tile->replay.status_cache) );
       tile->replay.tpool_thread_count = config->tiles.replay.tpool_thread_count;
       if( FD_UNLIKELY( tile->replay.tpool_thread_count == 0 || tile->replay.tpool_thread_count>FD_TILE_MAX ) ) {
         FD_LOG_ERR(( "bad tpool_thread_count %lu", tile->replay.tpool_thread_count ));
@@ -513,6 +527,26 @@ fd_topo_firedancer( config_t * _config ) {
     int err = fd_wksp_restore_preview( snapshot+5, &seed, &part_max, &data_max );
     if( err ) FD_LOG_ERR(( "unable to restore %s: error %d", snapshot, err ));
     fd_topo_wksp_t * wksp = &topo->workspaces[ topo->objs[ funk_obj->id ].wksp_id ];
+    wksp->part_max = part_max;
+    wksp->known_footprint = 0;
+    wksp->total_footprint = data_max;
+    ulong page_sz = FD_SHMEM_GIGANTIC_PAGE_SZ;
+    wksp->page_sz = page_sz;
+    ulong footprint = fd_wksp_footprint( part_max, data_max );
+    wksp->page_cnt = footprint / page_sz;
+  }
+
+  const char * status_cache = config->tiles.replay.status_cache;
+  if ( strlen( status_cache ) > 0 ) {
+    /* Make the status cache workspace match the parameters used to create the
+       checkpoint. This is a bit nonintuitive because of the way
+       fd_topo_create_workspace works. */
+    uint seed;
+    ulong part_max;
+    ulong data_max;
+    int err = fd_wksp_restore_preview( status_cache, &seed, &part_max, &data_max );
+    if( err ) FD_LOG_ERR(( "unable to restore %s: error %d", status_cache, err ));
+    fd_topo_wksp_t * wksp = &topo->workspaces[ topo->objs[ txncache_obj->id ].wksp_id ];
     wksp->part_max = part_max;
     wksp->known_footprint = 0;
     wksp->total_footprint = data_max;

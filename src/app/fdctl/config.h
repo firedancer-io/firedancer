@@ -253,6 +253,7 @@ typedef struct {
       char  incremental[ PATH_MAX ];
       char  slots_replayed[PATH_MAX ];
       char  snapshot[ PATH_MAX ];
+      char  status_cache[ PATH_MAX ];
       ulong tpool_thread_count;
     } replay;
 
