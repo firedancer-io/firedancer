@@ -7,6 +7,7 @@
 
 #include <linux/unistd.h>
 
+#include "wd_c1100.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -177,15 +178,19 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  // const char * m = "0000:03:00.0";
+  BarInfo bar_infos[ MAX_BARS ];
+  ctx->bar_cnt = read_pci_resource_file( tile->verify.pcie_device, bar_infos, MAX_BARS );
+  print_bar_infos( bar_infos, ctx->bar_cnt );
+
+  for( uint i=0; i<ctx->bar_cnt; i++ ) {
+    mmap_bar( &bar_infos[i], &ctx->bms[i] );
+  }
+  print_bar_maps( ctx->bms, ctx->bar_cnt );
   char path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/bus/pci/devices/%s/resource0", tile->verify.pcie_device ) );
-  // FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/bus/pci/devices/%s/resource0", topo->tiles->verify.pcie_device ) );
-  // const char *device = "/sys/bus/pci/devices/0000:03:00.0/resource0";
   ctx->fd = open(path, O_RDWR | O_SYNC);
 
   if (ctx->fd == -1) {
-      // FD_LOG_ERR(("Error opening device file %s %s", path, topo->tiles->verify.pcie_device ));
       FD_LOG_ERR(("Error opening device file %s %s", path, tile->verify.pcie_device ));
       return;
   }
@@ -286,6 +291,7 @@ populate_allowed_fds( void * scratch,
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  for( uint i=0; i<ctx->bar_cnt; i++ ) out_fds[ out_cnt++ ] = ctx->bms[i].fd;
   out_fds[ out_cnt++ ] = ctx->fd;
   return out_cnt;
 }

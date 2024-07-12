@@ -39,6 +39,8 @@ $(call add-objs,run/tiles/fd_store,fd_fdctl)
 $(call add-objs,run/tiles/fd_sign,fd_fdctl)
 $(call add-objs,run/tiles/fd_blackhole,fd_fdctl)
 
+$(call add-objs,run/tiles/wd_c1100,fd_fdctl)
+
 ifdef FD_HAS_NO_SOLANA
 $(call add-objs,run/tiles/fd_repair,fd_fdctl)
 $(call add-objs,run/tiles/fd_gossip,fd_fdctl)

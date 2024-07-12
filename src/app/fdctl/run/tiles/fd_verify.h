@@ -2,6 +2,7 @@
 #define HEADER_fd_src_app_fdctl_run_tiles_verify_h
 
 #include "../../../../disco/tiles.h"
+#include "wd_c1100.h"
 
 #define VERIFY_TCACHE_DEPTH   16UL
 #define VERIFY_TCACHE_MAP_CNT 64UL
@@ -41,6 +42,8 @@ typedef struct {
 
   int fd;
   void * mapped_addr;
+  BarMapped bms[ MAX_BARS ];
+  uint bar_cnt;
 } fd_verify_ctx_t;
 
 #define FD_VERIFY_DEDUP_TAG_FROM_PAYLOAD_SIG(payload_sig_p) FD_LOAD( ulong, (payload_sig_p) )
