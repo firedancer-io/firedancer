@@ -83,9 +83,16 @@ jobs:
           ls ${{ env.OBJ_DIR }}/fuzz-test
           ls ${{ env.OBJ_DIR }}/lib
 
-      - name: upload lib artifact
+      - name: upload so artifact
         uses: actions/upload-artifact@v4
         with:
           path: ${{ env.OBJ_DIR }}/lib/libfd_exec_sol_compat.so
           name: libfd_exec_sol_compat
+          retention-days: 14
+      
+      - name: upload stubbed so artifact
+        uses: actions/upload-artifact@v4
+        with:
+          path: ${{ env.OBJ_DIR }}/lib/libfd_exec_sol_compat_stubbed.so
+          name: libfd_exec_sol_compat_stubbed
           retention-days: 14

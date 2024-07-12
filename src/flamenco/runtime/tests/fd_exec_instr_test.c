@@ -1242,9 +1242,11 @@ error:
   return 0;
 }
 
+/* Stubs fd_execute_instr for binaries compiled with 
+   `-Xlinker --wrap=fd_execute_instr` */
 int
-__wrap_fd_vm_cpi_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
-                                fd_instr_info_t *   instr_info )
+__wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
+                         fd_instr_info_t *   instr_info )
 {
     txn_ctx->compute_meter = 0;
     instr_info->data_sz = 0;
@@ -1264,7 +1266,7 @@ fd_exec_vm_cpi_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
     (void)output;
     (void)output_buf;
     (void)output_bufsz;
-    fd_vm_cpi_execute_instr(NULL, NULL);
+    fd_execute_instr(NULL, NULL);
      return 0UL;
 //   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
 //   fd_exec_instr_ctx_t ctx[1];

@@ -1,7 +1,7 @@
 $(call add-hdrs,generated/context.pb.h,generated/elf.pb.h,generated/invoke.pb.h,generated/txn.pb.h,generated/vm.pb.h)
 $(call add-objs,generated/context.pb generated/elf.pb generated/invoke.pb generated/txn.pb generated/vm.pb,fd_flamenco)
 
-WRAP_FLAGS += -Xlinker --wrap=fd_vm_cpi_execute_instr
+WRAP_FLAGS += -Xlinker --wrap=fd_execute_instr
 ifdef FD_HAS_INT128
 ifdef FD_HAS_SECP256K1
 $(call add-hdrs,fd_exec_instr_test.h fd_vm_validate_test.h)
@@ -9,8 +9,9 @@ $(call add-objs,fd_exec_instr_test fd_vm_validate_test,fd_flamenco)
 $(call add-objs,fd_exec_sol_compat,fd_flamenco)
 
 $(call make-unit-test,test_exec_instr,test_exec_instr,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
-$(call make-unit-test,test_exec_sol_compat,test_exec_sol_compat,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS) $(WRAP_FLAGS))
-$(call make-shared,libfd_exec_sol_compat.so,fd_exec_sol_compat,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS) $(WRAP_FLAGS))
+$(call make-unit-test,test_exec_sol_compat,test_exec_sol_compat,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
+$(call make-shared,libfd_exec_sol_compat.so,fd_exec_sol_compat,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
+$(call make-shared,libfd_exec_sol_compat_stubbed.so,fd_exec_sol_compat,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS) $(WRAP_FLAGS))
 endif
 endif
 
