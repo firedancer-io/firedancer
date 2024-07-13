@@ -24,7 +24,7 @@
 
 static char const help_str[] =
   "\n"
-  "fd_xsk_rxdrop counts incoming AF_XDP traffic.\n"
+  "test_xsk_rxdrop counts incoming AF_XDP traffic.\n"
   "\n"
   "This tool is usually used to benchmark the fd_xsk receive path\n"
   "with the help of an external packet generator.\n"
