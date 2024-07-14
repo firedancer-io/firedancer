@@ -110,6 +110,7 @@ static void
 publish_became_leader( fd_poh_ctx_t * ctx,
                        ulong          slot ) {
   fd_poh_tile_publish_became_leader( ctx->poh_tile_ctx, (void const *)( fd_poh_tile_reset_slot( ctx->poh_tile_ctx )-1UL ), slot );
+  // fd_poh_tile_publish_reached_leader( ctx->poh_tile_ctx, slot ); 
 }
 
 /* The PoH tile knows when it should become leader by waiting for its
@@ -406,7 +407,7 @@ after_frag( void *             _ctx,
 
   ulong is_packed_microblock = target_flags & REPLAY_FLAG_PACKED_MICROBLOCK;
   ulong is_finalized_block = target_flags & REPLAY_FLAG_FINISHED_BLOCK;
-  ulong is_catching_up = target_flags & REPLAY_FLAG_CATCHING_UP;
+  // ulong is_catching_up = target_flags & REPLAY_FLAG_CATCHING_UP;
 
   if( is_packed_microblock ) {
     ulong current_slot = fd_poh_tile_get_slot( ctx->poh_tile_ctx );
@@ -454,7 +455,7 @@ after_frag( void *             _ctx,
     ulong sig = fd_disco_poh_sig( target_slot, POH_PKT_TYPE_MICROBLOCK, in_idx );
     fd_poh_tile_publish_microblock( ctx->poh_tile_ctx, mux, sig, target_slot, hashcnt_delta, (fd_txn_p_t *)ctx->_txns, txn_cnt );
   } else {
-     if( is_finalized_block && !is_catching_up && ctx->is_initialized ) {
+     if( is_finalized_block && ctx->is_initialized ) {
       fd_poh_reset( ctx, target_slot, ctx->_microblock_trailer->hash );
     }
   }

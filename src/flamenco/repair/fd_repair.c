@@ -860,6 +860,7 @@ fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) 
     ( *glob->deliver_fail_fun )(&peer->key, slot, shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED );
     return -1;
   }
+  // FD_LOG_DEBUG( ( "[repair] need window %lu, shred_index %lu from %32J", slot, shred_index, id ) );
 
   fd_repair_nonce_t key = glob->next_nonce++;
   fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);

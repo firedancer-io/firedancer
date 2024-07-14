@@ -883,18 +883,19 @@ fd_runtime_status_cache_check( ulong slot,
   return is_recent_blockhash || fd_txncache_is_rooted_slot( slot_ctx->status_cache, slot );
 }
 
-static int
-is_block_hash_valid_for_age( fd_block_hash_queue_t const * block_hash_queue,
-                             fd_hash_t const *             hash ) {
+static int 
+is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash_queue,
+                            fd_hash_t const *             blockhash,
+                            ulong                         max_age ) {
   fd_hash_hash_age_pair_t_mapnode_t key;
-  fd_memcpy( key.elem.key.uc, hash, sizeof(fd_hash_t) );
-  fd_hash_hash_age_pair_t_mapnode_t * hash_age_node = fd_hash_hash_age_pair_t_map_find( block_hash_queue->ages_pool, block_hash_queue->ages_root, &key );
-  if( hash_age_node==NULL ) {
+  fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
+  
+  fd_hash_hash_age_pair_t_mapnode_t * hash_age = fd_hash_hash_age_pair_t_map_find( block_hash_queue->ages_pool, block_hash_queue->ages_root, &key );
+  if( hash_age==NULL ) {
     return 0;
   }
-
-  /* the block hash is not too old. */
-  return (block_hash_queue->last_hash_index - hash_age_node->elem.val.hash_index) <= FD_RECENT_BLOCKHASHES_MAX_ENTRIES;
+  ulong age = block_hash_queue->last_hash_index-hash_age->elem.val.hash_index;
+  return ( age<=max_age );
 }
 
 int
@@ -928,7 +929,8 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
       int err;
       int is_nonce = fd_has_nonce_account( txn_ctx, &err );
       if( ( NULL == txn_ctx->txn_descriptor ) || !is_nonce ) {
-        if( !is_block_hash_valid_for_age( &slot_ctx->slot_bank.block_hash_queue, blockhash ) ) {
+
+        if( !is_blockhash_valid_for_age( &slot_ctx->slot_bank.block_hash_queue, blockhash, FD_RECENT_BLOCKHASHES_MAX_ENTRIES ) ) {
           task_info[ txn_idx ].txn->flags = 0;
           res |= FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
           continue;

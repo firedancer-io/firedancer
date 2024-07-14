@@ -217,6 +217,7 @@ fd_poh_tile_publish_became_leader( fd_poh_tile_ctx_t * ctx,
   leader->bank                    = current_leader_data;
   leader->max_microblocks_in_slot = ctx->max_microblocks_per_slot;
   leader->ticks_per_slot          = ctx->ticks_per_slot;
+  leader->total_skipped_ticks     = ctx->ticks_per_slot*(slot-fd_poh_tile_reset_slot( ctx ) );
 
   FD_LOG_INFO(( "became_leader(slot=%lu)", slot ));
   ulong sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_BECAME_LEADER, 0UL );
@@ -224,6 +225,46 @@ fd_poh_tile_publish_became_leader( fd_poh_tile_ctx_t * ctx,
   ctx->pack_out_chunk = fd_dcache_compact_next( ctx->pack_out_chunk, sizeof(fd_became_leader_t), ctx->pack_out_chunk0, ctx->pack_out_wmark );
   ctx->pack_out_seq = fd_seq_inc( ctx->pack_out_seq, 1UL );
 }
+
+// void
+// fd_poh_tile_publish_reached_leader( fd_poh_tile_ctx_t * ctx,
+//                                     ulong               slot ) {
+//   /* No need to check flow control, there are always credits became when we
+//      are leader, we will not "become" leader again until we are done, so at
+//      most one frag in flight at a time. */
+
+//   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->pack_out_mem, ctx->pack_out_chunk );
+//   FD_STORE( ulong, dst, fd_poh_tile_reset_slot( ctx ) );
+//   dst += sizeof(ulong);
+
+//   ulong skipped_slots_cnt = 0;
+//   for( fd_poh_tile_skipped_hashcnt_iter_t iter = fd_poh_tile_skipped_hashcnt_iter_init( ctx );
+//        !fd_poh_tile_skipped_hashcnt_iter_done( ctx, iter );
+//        iter = fd_poh_tile_skipped_hashcnt_iter_next( ctx, iter ) ) {
+//     /* The "hash" value we provide doesn't matter for all but the
+//        oldest 150 slots, since only the most recent 150 slots are
+//        saved in the sysvar.  The value provided for those is a
+//        dummy value, but we keep the same calculation for
+//        simplicity.  Also the value provided for ticks that are not
+//        on a slot boundary doesn't matter, since the blockhash will
+//        be ignored. */
+//     if( FD_UNLIKELY( fd_poh_tile_skipped_hashcnt_iter_is_slot_boundary( ctx, iter ) ) ) {
+//       memcpy( dst, fd_poh_tile_skipped_hashcnt_iter_slot_hash( ctx, iter ), sizeof(fd_hash_t) );
+//       dst += sizeof(fd_hash_t);
+//       skipped_slots_cnt++;
+//     }
+//   }
+  
+//   ulong out_sz = sizeof(ulong) + ( skipped_slots_cnt*sizeof(fd_hash_t) );
+//   /* TODO: this does not support max skipped ticks yet */
+//   FD_TEST( skipped_slots_cnt<USHORT_MAX );
+//   FD_LOG_INFO(( "reached_leader(slot=%lu, reset_slot=%lu)", slot, fd_poh_tile_reset_slot( ctx ) ));
+//   ulong sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_REACHED_LEADER, 0UL );
+//   fd_mcache_publish( ctx->replay_out_mcache, ctx->replay_out_depth, ctx->replay_out_seq, sig, ctx->replay_out_chunk, skipped_slots_cnt, 0UL, 0UL, 0UL );
+//   ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, out_sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
+//   ctx->replay_out_seq = fd_seq_inc( ctx->replay_out_seq, 1UL );
+// }
+
 
 ulong
 fd_poh_tile_reset_slot( fd_poh_tile_ctx_t const * ctx ) {
@@ -670,6 +711,11 @@ fd_poh_tile_skipped_hashcnt_iter_slot_hash( fd_poh_tile_ctx_t * ctx, fd_poh_tile
   return ctx->skipped_tick_hashes[ (iter/ctx->hashcnt_per_slot)%MAX_SKIPPED_TICKS ];
 }
 
+ulong
+fd_poh_tile_skipped_hashcnt_iter_slot( fd_poh_tile_ctx_t * ctx, fd_poh_tile_skipped_hashcnt_iter_t iter ) {
+  return (iter/ctx->hashcnt_per_slot);
+}
+
 void
 fd_poh_tile_unprivileged_init( fd_topo_t *      topo,
                                fd_topo_tile_t * tile,
@@ -700,8 +746,6 @@ fd_poh_tile_unprivileged_init( fd_topo_t *      topo,
 
   ctx->microblocks_lower_bound = 0UL;
 
-
-
   fd_histf_join( fd_histf_new( ctx->begin_leader_delay, FD_MHIST_SECONDS_MIN( POH_TILE, BEGIN_LEADER_DELAY_SECONDS ),
                                                         FD_MHIST_SECONDS_MAX( POH_TILE, BEGIN_LEADER_DELAY_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->first_microblock_delay, FD_MHIST_SECONDS_MIN( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS  ),
@@ -722,6 +766,15 @@ fd_poh_tile_unprivileged_init( fd_topo_t *      topo,
   ctx->pack_out_chunk0 = fd_dcache_compact_chunk0( ctx->pack_out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
   ctx->pack_out_wmark  = fd_dcache_compact_wmark ( ctx->pack_out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->pack_out_chunk  = ctx->pack_out_chunk0;
+
+  // ctx->replay_out_mcache = topo->links[ tile->out_link_id[ 1 ] ].mcache;
+  // ctx->replay_out_depth  = fd_mcache_depth( ctx->replay_out_mcache );
+  // ctx->replay_out_seq    = 0UL;
+
+  // ctx->replay_out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 1 ] ].dcache_obj_id ].wksp_id ].wksp;
+  // ctx->replay_out_chunk0 = fd_dcache_compact_chunk0( ctx->replay_out_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache );
+  // ctx->replay_out_wmark  = fd_dcache_compact_wmark ( ctx->replay_out_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache, topo->links[ tile->out_link_id[ 1 ] ].mtu );
+  // ctx->replay_out_chunk  = ctx->replay_out_chunk0;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + fd_poh_tile_footprint() ) )

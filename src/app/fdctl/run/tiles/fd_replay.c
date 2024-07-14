@@ -17,6 +17,7 @@
 #include "../../../../flamenco/runtime/program/fd_builtin_programs.h"
 #include "../../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
+#include "../../../../flamenco/runtime/sysvar/fd_sysvar_recent_hashes.h"
 #include "../../../../flamenco/runtime/fd_runtime_init.h"
 #include "../../../../flamenco/snapshot/fd_snapshot.h"
 #include "../../../../flamenco/stakes/fd_stakes.h"
@@ -55,7 +56,8 @@
 
 #define STORE_IN_IDX   (0UL)
 #define PACK_IN_IDX    (1UL)
-#define SIGN_IN_IDX    (2UL)
+#define POH_IN_IDX     (2UL)
+#define SIGN_IN_IDX    (3UL)
 
 #define POH_OUT_IDX    (0UL)
 #define NOTIF_OUT_IDX  (1UL)
@@ -188,7 +190,7 @@ struct fd_replay_tile_ctx {
   fd_hash_t blockhash;
   ulong     flags;
   ulong     txn_cnt;
-
+  
   /* Other metadata */
 
   ulong funk_seed;
@@ -441,6 +443,7 @@ funk_cancel( fd_replay_tile_ctx_t * ctx, ulong mismatch_slot ) {
   memcpy( xid.uc, root_block_hash, sizeof( fd_funk_txn_xid_t ) );
   fd_blockstore_end_read( ctx->blockstore );
 
+  fd_funk_start_write( ctx->funk );
   xid.ul[0]                    = mismatch_slot;
   fd_funk_txn_t * txn_map      = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
   fd_funk_txn_t * mismatch_txn = fd_funk_txn_query( &xid, txn_map );
@@ -498,11 +501,16 @@ funk_publish( fd_replay_tile_ctx_t * ctx, ulong root ) {
   xid.ul[0]                = root;
   fd_funk_txn_t * txn_map  = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
   fd_funk_txn_t * root_txn = fd_funk_txn_query( &xid, txn_map );
+  if( root_txn==NULL ) {
+    memset( xid.uc, 0, sizeof( fd_funk_txn_xid_t ) );
+    xid.ul[0] = root;
+    root_txn = fd_funk_txn_query( &xid, txn_map );
+  }
 
   fd_funk_start_write( ctx->funk );
   ulong rc = fd_funk_txn_publish( ctx->funk, root_txn, 1 );
   if( FD_UNLIKELY( !rc ) ) {
-    FD_LOG_WARNING(( "failed to funk publish slot %lu", root ));
+    FD_LOG_ERR(( "failed to funk publish slot %lu", root ));
   }
   fd_funk_end_write( ctx->funk );
 
@@ -648,7 +656,9 @@ after_frag( void *             _ctx,
       fork->slot_ctx.status_cache        = ctx->status_cache;
       fd_funk_txn_xid_t xid = { 0 };
 
-      if( !( ctx->flags & REPLAY_FLAG_PACKED_MICROBLOCK ) ) {
+      if( ctx->flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
+        memset( xid.uc, 0, sizeof(fd_funk_txn_xid_t) );
+      } else {
         fd_memcpy(xid.uc, ctx->blockhash.uc, sizeof(fd_funk_txn_xid_t));
       }
       xid.ul[0] = fork->slot_ctx.slot_bank.slot;
@@ -796,6 +806,9 @@ after_frag( void *             _ctx,
       fd_tower_fork_update( ctx->tower, fork, ctx->acc_mgr, ctx->blockstore, ctx->ghost );
 
       /* Check which fork to reset to for pack. */
+      FD_LOG_WARNING(("MEEP"));
+      fd_ghost_print( ctx->ghost );
+      fd_tower_print( ctx->tower );
 
       fd_fork_t const * reset_fork = fd_tower_reset_fork_select( ctx->tower, ctx->forks, ctx->ghost );
       memcpy( microblock_trailer->hash, reset_fork->slot_ctx.slot_bank.block_hash_queue.last_hash->uc, sizeof(fd_hash_t) );

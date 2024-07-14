@@ -152,6 +152,14 @@ struct fd_poh_tile_ctx {
   ulong            pack_out_chunk0;
   ulong            pack_out_wmark;
   ulong            pack_out_chunk;
+  
+//   fd_frag_meta_t * replay_out_mcache;
+//   ulong            replay_out_depth;
+//   ulong            replay_out_seq;
+//   fd_wksp_t *      replay_out_mem;
+//   ulong            replay_out_chunk0;
+//   ulong            replay_out_wmark;
+//   ulong            replay_out_chunk;
 
   fd_histf_t begin_leader_delay[ 1 ];
   fd_histf_t first_microblock_delay[ 1 ];
@@ -201,6 +209,10 @@ void
 fd_poh_tile_publish_became_leader( fd_poh_tile_ctx_t * ctx,
                                    void const *        current_leader_data,
                                    ulong               slot );
+
+// void
+// fd_poh_tile_publish_reached_leader( fd_poh_tile_ctx_t * ctx,
+//                                     ulong               slot );
 
 ulong
 fd_poh_tile_reset_slot( fd_poh_tile_ctx_t const * ctx );
@@ -255,6 +267,9 @@ fd_poh_tile_skipped_hashcnt_iter_init( fd_poh_tile_ctx_t * ctx );
 
 fd_poh_tile_skipped_hashcnt_iter_t
 fd_poh_tile_skipped_hashcnt_iter_next( fd_poh_tile_ctx_t * ctx, fd_poh_tile_skipped_hashcnt_iter_t iter );
+
+ulong
+fd_poh_tile_skipped_hashcnt_iter_slot( fd_poh_tile_ctx_t * ctx, fd_poh_tile_skipped_hashcnt_iter_t iter );
 
 int
 fd_poh_tile_skipped_hashcnt_iter_done( fd_poh_tile_ctx_t * ctx, fd_poh_tile_skipped_hashcnt_iter_t iter );

@@ -31,6 +31,7 @@ struct __attribute__((aligned(128UL))) fd_store {
 
   /* internal joins */
   fd_pending_slots_t * pending_slots;
+  
 };
 typedef struct fd_store fd_store_t;
 

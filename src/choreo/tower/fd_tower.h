@@ -329,6 +329,11 @@ fd_tower_vote_fork_select( fd_tower_t *       tower,
 void
 fd_tower_epoch_update( fd_tower_t * tower, fd_exec_epoch_ctx_t const * epoch_ctx );
 
+void
+fd_tower_fork_start( fd_fork_t const *  fork,
+                     fd_blockstore_t *  blockstore,
+                     fd_ghost_t *       ghost );
+
 /* fd_tower_fork_update updates ghost with the latest state of the vote
    accounts after executing the fork head (fork->slot).  Important: this
    should be called _after_ execution of fork->slot, not before. */
@@ -337,7 +342,6 @@ void
 fd_tower_fork_update( fd_tower_t const * tower,
                       fd_fork_t const *  fork,
                       fd_acc_mgr_t *     acc_mgr,
-                      fd_blockstore_t *  blockstore,
                       fd_ghost_t *       ghost );
 
 /* fd_tower_simulate_vote simulates a vote on the vote tower for slot,

@@ -40,7 +40,6 @@
 #define SHRED_IN_IDX    0
 #define REPAIR_IN_IDX   1
 #define STAKE_IN_IDX    2
-#define REPLAY_IN_IDX   3
 
 #define REPAIR_OUT_IDX  0
 #define REPLAY_OUT_IDX  1
@@ -71,14 +70,6 @@ struct fd_store_tile_ctx {
   fd_wksp_t * stake_in_mem;
   ulong       stake_in_chunk0;
   ulong       stake_in_wmark;
-
-  fd_wksp_t * replay_in_mem;
-  ulong       replay_in_chunk0;
-  ulong       replay_in_wmark;
-
-  fd_wksp_t * pack_in_mem;
-  ulong       pack_in_chunk0;
-  ulong       pack_in_wmark;
 
   fd_frag_meta_t * repair_req_out_mcache;
   ulong *          repair_req_out_sync;
@@ -115,6 +106,9 @@ struct fd_store_tile_ctx {
   int sim;
 
   fd_shred_cap_ctx_t shred_cap_ctx;
+
+  fd_trusted_slots_t * trusted_slots;
+  int                  is_trusted;
 };
 typedef struct fd_store_tile_ctx fd_store_tile_ctx_t;
 
@@ -138,6 +132,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
   l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_SMAX ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_SDEPTH ) );
+  l = FD_LAYOUT_APPEND( l, fd_trusted_slots_align(), fd_trusted_slots_footprint( MAX_SLOTS_PER_EPOCH ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -169,6 +164,7 @@ during_frag( void * _ctx,
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->shred_in_chunk0, ctx->shred_in_wmark ));
     }
 
+    ctx->is_trusted = sig==1;
     fd_shred34_t const * s34 = fd_chunk_to_laddr_const( ctx->shred_in_mem, chunk );
 
     memcpy( ctx->s34_buffer, s34, sz );
@@ -206,6 +202,12 @@ after_frag( void *             _ctx,
   }
 
   if( FD_UNLIKELY( in_idx==SHRED_IN_IDX ) ) {
+    FD_TEST( ctx->s34_buffer->shred_cnt>0UL );
+
+    if( FD_UNLIKELY( ctx->is_trusted ) ) { 
+      /* this slot is coming from our leader pipeline */
+      fd_trusted_slots_add( ctx->trusted_slots, ctx->s34_buffer->pkts[ 0 ].shred.slot );
+    }
     for( ulong i = 0; i < ctx->s34_buffer->shred_cnt; i++ ) {
       // TODO: improve return value of api to not use < OK
       if( fd_store_shred_insert( ctx->store, &ctx->s34_buffer->pkts[i].shred ) < FD_BLOCKSTORE_OK ) {
@@ -289,7 +291,10 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
   ulong repair_req_cnt = 0;
   switch( store_slot_prepare_mode ) {
     case FD_STORE_SLOT_PREPARE_CONTINUE: {
-      fd_pending_slots_set_lo_wmark( ctx->store->pending_slots, ctx->blockstore->root );
+      ulong root = fd_fseq_query( ctx->root_slot_fseq );
+      if( root!=ULONG_MAX ) {
+        fd_pending_slots_set_lo_wmark( ctx->store->pending_slots, root );
+      }
       ctx->store->now = fd_log_wallclock();
       break;
     }
@@ -383,12 +388,12 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       ulong caught_up_flag = (ctx->store->curr_turbine_slot - slot)<4 ? 0UL : REPLAY_FLAG_CATCHING_UP;
       ulong replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
 
-      if( ( ctx->store->curr_turbine_slot - slot )==0 
-          && slot_leader && memcmp( ctx->identity_key, slot_leader, sizeof(fd_pubkey_t) ) == 0 ) {
+      if( fd_trusted_slots_find( ctx->trusted_slots, slot ) ) {
         /* if is caught up and is leader */
         txn_cnt = 0;
         replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
       }
+      out_buf += sizeof(ulong);
 
       ulong out_sz = sizeof(ulong) + sizeof(fd_hash_t) + ( txn_cnt * sizeof(fd_txn_p_t) );
       fd_mcache_publish( ctx->replay_out_mcache, ctx->replay_out_depth, ctx->replay_out_seq, replay_sig, ctx->replay_out_chunk, txn_cnt, 0UL, tsorig, tspub );
@@ -475,6 +480,9 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( (!!smem) & (!!fmem) );
   fd_scratch_attach( smem, fmem, SCRATCH_SMAX, SCRATCH_SDEPTH );
 
+  void * trusted_slots_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_trusted_slots_align(), fd_trusted_slots_footprint( MAX_SLOTS_PER_EPOCH ) );
+  ctx->trusted_slots = fd_trusted_slots_join( fd_trusted_slots_new( trusted_slots_mem, MAX_SLOTS_PER_EPOCH ) );
+  FD_TEST( ctx->trusted_slots!=NULL );
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
 
@@ -559,13 +567,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake_in_mem    = topo->workspaces[ topo->objs[ stake_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->stake_in_chunk0 = fd_dcache_compact_chunk0( ctx->stake_in_mem, stake_in_link->dcache );
   ctx->stake_in_wmark  = fd_dcache_compact_wmark( ctx->stake_in_mem, stake_in_link->dcache, stake_in_link->mtu );
-
-  /* Set up replay tile input */
-  fd_topo_link_t * replay_in_link = &topo->links[ tile->in_link_id[ REPLAY_IN_IDX ] ];
-  ctx->replay_in_mem    = topo->workspaces[ topo->objs[ replay_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->replay_in_chunk0 = fd_dcache_compact_chunk0( ctx->replay_in_mem, replay_in_link->dcache );
-  ctx->replay_in_wmark  = fd_dcache_compact_wmark( ctx->replay_in_mem, replay_in_link->dcache, replay_in_link->mtu );
-
   /* Set up repair request output */
   fd_topo_link_t * repair_req_out = &topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ];
   ctx->repair_req_out_mcache = repair_req_out->mcache;

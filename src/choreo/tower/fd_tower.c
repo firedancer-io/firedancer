@@ -601,13 +601,9 @@ fd_tower_epoch_update( fd_tower_t * tower, fd_exec_epoch_ctx_t const * epoch_ctx
 }
 
 void
-fd_tower_fork_update( fd_tower_t const * tower,
-                      fd_fork_t const *  fork,
-                      fd_acc_mgr_t *     acc_mgr,
-                      fd_blockstore_t *  blockstore,
-                      fd_ghost_t *       ghost ) {
-  ulong root = tower->root; /* FIXME fseq */
-
+fd_tower_fork_start( fd_fork_t const *  fork,
+                     fd_blockstore_t *  blockstore,
+                     fd_ghost_t *       ghost ) {
   /* Get the parent key. Every slot except the root must have a parent. */
 
   fd_blockstore_start_read( blockstore );
@@ -630,6 +626,14 @@ fd_tower_fork_update( fd_tower_t const * tower,
     FD_LOG_ERR( ( "failed to insert ghost node %lu", fork->slot ) );
   }
 #endif
+}
+
+void
+fd_tower_fork_update( fd_tower_t const * tower,
+                      fd_fork_t const *  fork,
+                      fd_acc_mgr_t *     acc_mgr,
+                      fd_ghost_t *       ghost ) {
+  ulong root = tower->root; /* FIXME fseq */
 
   for( fd_tower_vote_accs_iter_t iter = fd_tower_vote_accs_iter_init_rev( tower->vote_accs );
        !fd_tower_vote_accs_iter_done_rev( tower->vote_accs, iter );
