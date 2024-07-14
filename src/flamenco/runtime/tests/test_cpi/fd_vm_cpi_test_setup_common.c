@@ -1,7 +1,3 @@
-#include "fd_vm_cpi_test_utils.h"
-
-
-
 /* End State
     - CPI instruction (callee id, acct metas, instr data) loaded somewhere
       in heap space
@@ -19,14 +15,14 @@
     - Cannot exceed heap space
     - FIXME: Is heap space the appropriate place to store these values?
 */
+#define VM_CPI_TEST_SETUP FD_EXPAND_THEN_CONCAT2(setup_cpi_, VM_CPI_TEST_ABI)
 int
-setup_c_cpi_instr(fd_vm_t *vm, fd_exec_test_cpi_instr_t const *cpi_instr)
+VM_CPI_TEST_SETUP(fd_vm_t *vm, fd_exec_test_cpi_instr_t const *cpi_instr)
 {   
     ulong heap_end = (ulong)vm->heap + vm->heap_max;
 
     #define HEAP_HADDR_TO_VMADDR(haddr) \
      ((ulong)(haddr) - (ulong)vm->heap + FD_VM_MEM_MAP_HEAP_REGION_START)
-
 
     uchar *heap_cpi_start = vm->heap + vm->heap_sz;
     FD_SCRATCH_ALLOC_INIT(l, heap_cpi_start);
@@ -38,93 +34,66 @@ setup_c_cpi_instr(fd_vm_t *vm, fd_exec_test_cpi_instr_t const *cpi_instr)
             } \
         } while(0)
     ////////////// CPI Instruction 
-    fd_vm_c_instruction_t instr;
-    // ^ TEMPLATIZE THIS
+    VM_CPI_TEST_INSTR_T instr;
 
     // Load callee program id
-    void *program_id =  FD_SCRATCH_ALLOC_APPEND(l, alignof(uchar), sizeof(fd_pubkey_t));
-    SCRATCH_CHECK;
-
-    memcpy(program_id, cpi_instr->callee_program_id, sizeof(fd_pubkey_t));
-    
+    VM_CPI_TEST_INSTR_INIT_CALLEE_ID(&instr, cpi_instr->callee_program_id);
 
     // Account Metas
-    // fact: instr.accounts_len is in fact the number of account metas
+    // fact: instr.accounts_len is the number of account metas
     // fact: account_meta.pubkey_addr is a pointer to the pubkey
-    fd_vm_c_account_meta_t *account_metas = FD_SCRATCH_ALLOC_APPEND(l, FD_VM_C_ACCOUNT_META_ALIGN, cpi_instr->acct_metas_count * FD_VM_C_ACCOUNT_META_SIZE);
-    // ^ TEMPLATIZE THIS, fd_vm_rust_vec_t
+    VM_CPI_TEST_ACCOUNT_META_T *account_metas = FD_SCRATCH_ALLOC_APPEND(l, VM_CPI_TEST_ACCOUNT_META_ALIGN, cpi_instr->acct_metas_count * VM_CPI_TEST_ACCOUNT_META_SIZE);
     SCRATCH_CHECK;
 
     for( ulong i = 0UL; i < cpi_instr->acct_metas_count; i++ ) {
         fd_exec_test_cpi_account_meta_t *account_meta = &cpi_instr->acct_metas[i];
-        void *pubkey = FD_SCRATCH_ALLOC_APPEND(l, alignof(uchar), sizeof(fd_pubkey_t));
-        SCRATCH_CHECK;
-        memcpy(pubkey, account_meta->pubkey, sizeof(fd_pubkey_t));
-        // TEMPLATIZE BEGIN
-        fd_vm_c_account_meta_t *meta = &account_metas[i];
-        meta->pubkey_addr = HEAP_HADDR_TO_VMADDR(pubkey);
+        VM_CPI_TEST_ACCOUNT_META_T *meta = &account_metas[i];
+
+        // FIXME: Rename
+        VM_CPI_TEST_INSTR_ASSIGN_ACCT_META_PUBKEY(meta, account_meta->pubkey);
+        
+        // FIXME: Also use templates for these?
         meta->is_writable = account_meta->is_writable;
         meta->is_signer = account_meta->is_signer;
-        // TEMPLATIZE END, note that pubkey field is part of struct in rust version instead of pointer
     }
     
+    VM_CPI_TEST_INSTR_ASSIGN_ACCT_META(&instr, account_metas, cpi_instr->acct_metas_count);
 
     // Data
     void *data = FD_SCRATCH_ALLOC_APPEND(l, alignof(uchar), cpi_instr->data->size);
-    // ^ TEMPLATIZE THIS, fd_vm_rust_vec_t
-    SCRATCH_CHECK;
-    
+    SCRATCH_CHECK;    
     memcpy(data, cpi_instr->data->bytes, cpi_instr->data->size);
+    VM_CPI_TEST_INSTR_ASSIGN_DATA(&instr, data, cpi_instr->data->size);
 
-    // Setup pointers
-    // TEMPLATIZE BEGIN
-    instr.program_id_addr = HEAP_HADDR_TO_VMADDR(program_id);
-    instr.accounts_addr = HEAP_HADDR_TO_VMADDR(account_metas);
-    instr.accounts_len = cpi_instr->acct_metas_count;
-    instr.data_addr = HEAP_HADDR_TO_VMADDR(data);
-    instr.data_len = cpi_instr->data->size;
 
     // Load CPI instruction into heap
-    void *instr_addr = FD_SCRATCH_ALLOC_APPEND(l, FD_VM_C_INSTRUCTION_ALIGN, FD_VM_C_INSTRUCTION_SIZE);
+    void *instr_addr = FD_SCRATCH_ALLOC_APPEND(l, VM_CPI_TEST_INSTR_ALIGN, VM_CPI_TEST_INSTR_SIZE);
     SCRATCH_CHECK;
-    memcpy(instr_addr, &instr, FD_VM_C_INSTRUCTION_SIZE);
-    // TEMPLATIZE END
+    memcpy(instr_addr, &instr, VM_CPI_TEST_INSTR_SIZE);
 
     // Save to reg[1]
     vm->reg[1] = HEAP_HADDR_TO_VMADDR(instr_addr);
     //////////////// End CPI Instruction
 
     //////////////// Account infos
-    fd_vm_c_account_info_t *account_infos = FD_SCRATCH_ALLOC_APPEND(l, FD_VM_C_ACCOUNT_INFO_ALIGN, cpi_instr->accounts_count * FD_VM_C_ACCOUNT_INFO_SIZE);
-    // ^ TEMPLATIZE THIS
+    VM_CPI_TEST_ACC_INFO_T *account_infos = FD_SCRATCH_ALLOC_APPEND(l, VM_CPI_TEST_ACC_INFO_ALIGN, cpi_instr->accounts_count * VM_CPI_TEST_ACC_INFO_SIZE);
     SCRATCH_CHECK;
 
     for( ulong i = 0UL; i < cpi_instr->accounts_count; i++ ) {
         fd_exec_test_acct_state_t *account = &cpi_instr->accounts[i];
-        fd_vm_c_account_info_t *info = &account_infos[i];
-        // ^ TEMPLATIZE THIS
+        VM_CPI_TEST_ACC_INFO_T *info = &account_infos[i];
         info->is_signer = account->is_signer;
         info->is_writable = account->is_writable;
         info->executable = account->executable;
         info->rent_epoch = account->rent_epoch;
-        info->data_sz = account->data->size;
 
         // TEMPLATIZE lamports and data, they are RefCells in rust version
-        void *lamports = FD_SCRATCH_ALLOC_APPEND(l, alignof(uchar), sizeof(ulong)*2); /* FIXME: verify size */
-        void *data = FD_SCRATCH_ALLOC_APPEND(l, alignof(uchar), account->data->size);
-        void *owner = FD_SCRATCH_ALLOC_APPEND(l, alignof(uchar), sizeof(fd_pubkey_t));
-        void *pubkey = FD_SCRATCH_ALLOC_APPEND(l, alignof(uchar), sizeof(fd_pubkey_t));
+        VM_CPI_TEST_ACC_INFO_LAMPORTS_SETUP(info, account->lamports);
 
-        SCRATCH_CHECK;
-        memcpy(lamports, &account->lamports, sizeof(ulong)*2);
-        memcpy(data, account->data->bytes, account->data->size);
-        memcpy(owner, account->owner, sizeof(fd_pubkey_t));
-        memcpy(pubkey, account->address, sizeof(fd_pubkey_t));
+        VM_CPI_TEST_ACC_INFO_DATA_SETUP(info, account->data);
 
-        info->lamports_addr = HEAP_HADDR_TO_VMADDR(lamports);
-        info->data_addr = HEAP_HADDR_TO_VMADDR(data);
-        info->owner_addr = HEAP_HADDR_TO_VMADDR(owner);
-        info->pubkey_addr = HEAP_HADDR_TO_VMADDR(pubkey);
+        VM_CPI_TEST_ALLOC_AND_COPY_PUBKEY(info->pubkey_addr, account->address);
+        VM_CPI_TEST_ALLOC_AND_COPY_PUBKEY(info->owner_addr, account->owner);
     }
 
     // Save to reg[2] and reg[3]
