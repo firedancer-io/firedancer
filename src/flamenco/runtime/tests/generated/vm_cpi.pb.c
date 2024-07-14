@@ -9,6 +9,9 @@
 PB_BIND(FD_EXEC_TEST_CPI_SIGNER, fd_exec_test_cpi_signer_t, AUTO)
 
 
+PB_BIND(FD_EXEC_TEST_CPI_ACCOUNT_META, fd_exec_test_cpi_account_meta_t, AUTO)
+
+
 PB_BIND(FD_EXEC_TEST_CPI_INSTR, fd_exec_test_cpi_instr_t, AUTO)
 
 

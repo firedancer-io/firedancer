@@ -19,10 +19,16 @@ typedef struct fd_exec_test_cpi_signer {
     pb_bytes_array_t **seeds;
 } fd_exec_test_cpi_signer_t;
 
+typedef struct fd_exec_test_cpi_account_meta {
+    pb_byte_t pubkey[32];
+    bool is_writable;
+    bool is_signer;
+} fd_exec_test_cpi_account_meta_t;
+
 typedef struct fd_exec_test_cpi_instr {
     pb_byte_t callee_program_id[32];
     pb_size_t acct_metas_count;
-    struct fd_exec_test_instr_acct *acct_metas;
+    struct fd_exec_test_cpi_account_meta *acct_metas;
     pb_bytes_array_t *data;
     pb_size_t accounts_count;
     struct fd_exec_test_acct_state *accounts;
@@ -47,14 +53,19 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_CPI_SIGNER_INIT_DEFAULT     {0, NULL}
+#define FD_EXEC_TEST_CPI_ACCOUNT_META_INIT_DEFAULT {{0}, 0, 0}
 #define FD_EXEC_TEST_CPI_INSTR_INIT_DEFAULT      {{0}, 0, NULL, NULL, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_CPI_CONTEXT_INIT_DEFAULT    {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_CPI_INSTR_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT}
 #define FD_EXEC_TEST_CPI_SIGNER_INIT_ZERO        {0, NULL}
+#define FD_EXEC_TEST_CPI_ACCOUNT_META_INIT_ZERO  {{0}, 0, 0}
 #define FD_EXEC_TEST_CPI_INSTR_INIT_ZERO         {{0}, 0, NULL, NULL, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_CPI_CONTEXT_INIT_ZERO       {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_CPI_INSTR_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_CPI_SIGNER_SEEDS_TAG        1
+#define FD_EXEC_TEST_CPI_ACCOUNT_META_PUBKEY_TAG 1
+#define FD_EXEC_TEST_CPI_ACCOUNT_META_IS_WRITABLE_TAG 2
+#define FD_EXEC_TEST_CPI_ACCOUNT_META_IS_SIGNER_TAG 3
 #define FD_EXEC_TEST_CPI_INSTR_CALLEE_PROGRAM_ID_TAG 1
 #define FD_EXEC_TEST_CPI_INSTR_ACCT_METAS_TAG    2
 #define FD_EXEC_TEST_CPI_INSTR_DATA_TAG          3
@@ -70,6 +81,13 @@ X(a, POINTER,  REPEATED, BYTES,    seeds,             1)
 #define FD_EXEC_TEST_CPI_SIGNER_CALLBACK NULL
 #define FD_EXEC_TEST_CPI_SIGNER_DEFAULT NULL
 
+#define FD_EXEC_TEST_CPI_ACCOUNT_META_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, pubkey,            1) \
+X(a, STATIC,   SINGULAR, BOOL,     is_writable,       2) \
+X(a, STATIC,   SINGULAR, BOOL,     is_signer,         3)
+#define FD_EXEC_TEST_CPI_ACCOUNT_META_CALLBACK NULL
+#define FD_EXEC_TEST_CPI_ACCOUNT_META_DEFAULT NULL
+
 #define FD_EXEC_TEST_CPI_INSTR_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, callee_program_id,   1) \
 X(a, POINTER,  REPEATED, MESSAGE,  acct_metas,        2) \
@@ -78,7 +96,7 @@ X(a, POINTER,  REPEATED, MESSAGE,  accounts,          4) \
 X(a, POINTER,  REPEATED, MESSAGE,  signers_seeds,     5)
 #define FD_EXEC_TEST_CPI_INSTR_CALLBACK NULL
 #define FD_EXEC_TEST_CPI_INSTR_DEFAULT NULL
-#define fd_exec_test_cpi_instr_t_acct_metas_MSGTYPE fd_exec_test_instr_acct_t
+#define fd_exec_test_cpi_instr_t_acct_metas_MSGTYPE fd_exec_test_cpi_account_meta_t
 #define fd_exec_test_cpi_instr_t_accounts_MSGTYPE fd_exec_test_acct_state_t
 #define fd_exec_test_cpi_instr_t_signers_seeds_MSGTYPE fd_exec_test_cpi_signer_t
 
@@ -93,11 +111,13 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  instr_ctx,         3)
 #define fd_exec_test_cpi_context_t_instr_ctx_MSGTYPE fd_exec_test_instr_context_t
 
 extern const pb_msgdesc_t fd_exec_test_cpi_signer_t_msg;
+extern const pb_msgdesc_t fd_exec_test_cpi_account_meta_t_msg;
 extern const pb_msgdesc_t fd_exec_test_cpi_instr_t_msg;
 extern const pb_msgdesc_t fd_exec_test_cpi_context_t_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define FD_EXEC_TEST_CPI_SIGNER_FIELDS &fd_exec_test_cpi_signer_t_msg
+#define FD_EXEC_TEST_CPI_ACCOUNT_META_FIELDS &fd_exec_test_cpi_account_meta_t_msg
 #define FD_EXEC_TEST_CPI_INSTR_FIELDS &fd_exec_test_cpi_instr_t_msg
 #define FD_EXEC_TEST_CPI_CONTEXT_FIELDS &fd_exec_test_cpi_context_t_msg
 
@@ -105,15 +125,20 @@ extern const pb_msgdesc_t fd_exec_test_cpi_context_t_msg;
 /* fd_exec_test_CPISigner_size depends on runtime parameters */
 /* fd_exec_test_CPIInstr_size depends on runtime parameters */
 /* fd_exec_test_CPIContext_size depends on runtime parameters */
+#define FD_EXEC_TEST_CPI_ACCOUNT_META_SIZE       38
+#define ORG_SOLANA_SEALEVEL_V1_VM_CPI_PB_H_MAX_SIZE FD_EXEC_TEST_CPI_ACCOUNT_META_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
 #define org_solana_sealevel_v1_CPISigner fd_exec_test_CPISigner
+#define org_solana_sealevel_v1_CPIAccountMeta fd_exec_test_CPIAccountMeta
 #define org_solana_sealevel_v1_CPIInstr fd_exec_test_CPIInstr
 #define org_solana_sealevel_v1_CPIContext fd_exec_test_CPIContext
 #define ORG_SOLANA_SEALEVEL_V1_CPI_SIGNER_INIT_DEFAULT FD_EXEC_TEST_CPI_SIGNER_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_CPI_ACCOUNT_META_INIT_DEFAULT FD_EXEC_TEST_CPI_ACCOUNT_META_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_CPI_INSTR_INIT_DEFAULT FD_EXEC_TEST_CPI_INSTR_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_CPI_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_CPI_CONTEXT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_CPI_SIGNER_INIT_ZERO FD_EXEC_TEST_CPI_SIGNER_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_CPI_ACCOUNT_META_INIT_ZERO FD_EXEC_TEST_CPI_ACCOUNT_META_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_CPI_INSTR_INIT_ZERO FD_EXEC_TEST_CPI_INSTR_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_CPI_CONTEXT_INIT_ZERO FD_EXEC_TEST_CPI_CONTEXT_INIT_ZERO
 
