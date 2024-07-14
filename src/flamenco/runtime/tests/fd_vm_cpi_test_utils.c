@@ -39,18 +39,20 @@ setup_c_cpi_instr(fd_vm_t *vm, fd_exec_test_cpi_instr_t const *cpi_instr)
         } while(0)
     ////////////// CPI Instruction 
     fd_vm_c_instruction_t instr;
+    // ^ TEMPLATIZE THIS
 
     // Load callee program id
     void *program_id =  FD_SCRATCH_ALLOC_APPEND(l, alignof(uchar), sizeof(fd_pubkey_t));
     SCRATCH_CHECK;
 
     memcpy(program_id, cpi_instr->callee_program_id, sizeof(fd_pubkey_t));
-    instr.program_id_addr = HEAP_HADDR_TO_VMADDR(program_id);
+    
 
     // Account Metas
     // fact: instr.accounts_len is in fact the number of account metas
     // fact: account_meta.pubkey_addr is a pointer to the pubkey
     fd_vm_c_account_meta_t *account_metas = FD_SCRATCH_ALLOC_APPEND(l, FD_VM_C_ACCOUNT_META_ALIGN, cpi_instr->acct_metas_count * FD_VM_C_ACCOUNT_META_SIZE);
+    // ^ TEMPLATIZE THIS, fd_vm_rust_vec_t
     SCRATCH_CHECK;
 
     for( ulong i = 0UL; i < cpi_instr->acct_metas_count; i++ ) {
@@ -58,17 +60,27 @@ setup_c_cpi_instr(fd_vm_t *vm, fd_exec_test_cpi_instr_t const *cpi_instr)
         void *pubkey = FD_SCRATCH_ALLOC_APPEND(l, alignof(uchar), sizeof(fd_pubkey_t));
         SCRATCH_CHECK;
         memcpy(pubkey, account_meta->pubkey, sizeof(fd_pubkey_t));
+        // TEMPLATIZE BEGIN
         fd_vm_c_account_meta_t *meta = &account_metas[i];
         meta->pubkey_addr = HEAP_HADDR_TO_VMADDR(pubkey);
         meta->is_writable = account_meta->is_writable;
         meta->is_signer = account_meta->is_signer;
+        // TEMPLATIZE END, note that pubkey field is part of struct in rust version instead of pointer
     }
+    
 
     // Data
     void *data = FD_SCRATCH_ALLOC_APPEND(l, alignof(uchar), cpi_instr->data->size);
+    // ^ TEMPLATIZE THIS, fd_vm_rust_vec_t
     SCRATCH_CHECK;
     
     memcpy(data, cpi_instr->data->bytes, cpi_instr->data->size);
+
+    // Setup pointers
+    // TEMPLATIZE BEGIN
+    instr.program_id_addr = HEAP_HADDR_TO_VMADDR(program_id);
+    instr.accounts_addr = HEAP_HADDR_TO_VMADDR(account_metas);
+    instr.accounts_len = cpi_instr->acct_metas_count;
     instr.data_addr = HEAP_HADDR_TO_VMADDR(data);
     instr.data_len = cpi_instr->data->size;
 
@@ -76,23 +88,28 @@ setup_c_cpi_instr(fd_vm_t *vm, fd_exec_test_cpi_instr_t const *cpi_instr)
     void *instr_addr = FD_SCRATCH_ALLOC_APPEND(l, FD_VM_C_INSTRUCTION_ALIGN, FD_VM_C_INSTRUCTION_SIZE);
     SCRATCH_CHECK;
     memcpy(instr_addr, &instr, FD_VM_C_INSTRUCTION_SIZE);
+    // TEMPLATIZE END
+
     // Save to reg[1]
     vm->reg[1] = HEAP_HADDR_TO_VMADDR(instr_addr);
     //////////////// End CPI Instruction
 
     //////////////// Account infos
     fd_vm_c_account_info_t *account_infos = FD_SCRATCH_ALLOC_APPEND(l, FD_VM_C_ACCOUNT_INFO_ALIGN, cpi_instr->accounts_count * FD_VM_C_ACCOUNT_INFO_SIZE);
+    // ^ TEMPLATIZE THIS
     SCRATCH_CHECK;
 
     for( ulong i = 0UL; i < cpi_instr->accounts_count; i++ ) {
         fd_exec_test_acct_state_t *account = &cpi_instr->accounts[i];
         fd_vm_c_account_info_t *info = &account_infos[i];
+        // ^ TEMPLATIZE THIS
         info->is_signer = account->is_signer;
         info->is_writable = account->is_writable;
         info->executable = account->executable;
         info->rent_epoch = account->rent_epoch;
         info->data_sz = account->data->size;
 
+        // TEMPLATIZE lamports and data, they are RefCells in rust version
         void *lamports = FD_SCRATCH_ALLOC_APPEND(l, alignof(uchar), sizeof(ulong)*2); /* FIXME: verify size */
         void *data = FD_SCRATCH_ALLOC_APPEND(l, alignof(uchar), account->data->size);
         void *owner = FD_SCRATCH_ALLOC_APPEND(l, alignof(uchar), sizeof(fd_pubkey_t));
@@ -120,6 +137,7 @@ setup_c_cpi_instr(fd_vm_t *vm, fd_exec_test_cpi_instr_t const *cpi_instr)
     // Pointer to C-array of fd_vm_vec_t (signer's seeds) where each
     // element is another fd_vm_vec_t (seed)
     // Note diff between signerS_seeds and signer_seeds
+    // Thankfully no need to TEMPLATIZE this!!! (Why tho?)
     fd_vm_vec_t *signers_seeds = FD_SCRATCH_ALLOC_APPEND(l, FD_VM_VEC_ALIGN, cpi_instr->signers_seeds_count * FD_VM_VEC_SIZE);
     SCRATCH_CHECK;
     for( ulong i = 0UL; i < cpi_instr->signers_seeds_count; i++ ) {
