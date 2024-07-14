@@ -1,8 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_runtime_tests_fd_vm_cpi_test_utils_h
 #define HEADER_fd_src_flamenco_runtime_tests_fd_vm_cpi_test_utils_h
-#include "../../vm/syscall/fd_vm_syscall.h"
-#include "../../../util/fd_util.h"
-#include "generated/vm_cpi.pb.h"
+#include "../../../vm/syscall/fd_vm_syscall.h"
+#include "../../../../util/fd_util.h"
+#include "../generated/vm_cpi.pb.h"
 
 
 typedef struct fd_cpi_test_funcs{
