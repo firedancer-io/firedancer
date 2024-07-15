@@ -78,7 +78,8 @@
       return FD_QUIC_PARSE_FAIL;                                       \
     }                                                                  \
     frame->NAME##_pnoff = (unsigned)( buf - orig_buf );                \
-    if( fd_quic_encode_bits( buf, cur_bit, frame->NAME,                \
+    if( fd_quic_encode_bits( buf, cur_bit,                             \
+          frame->NAME & ( ( 1UL << frame->NAME##_bits ) - 1UL ),       \
           frame->NAME##_bits ) ) {                                     \
       return FD_QUIC_PARSE_FAIL;                                       \
     }                                                                  \
