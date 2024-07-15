@@ -231,9 +231,10 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
                     char const *    hostname,
                     fd_quic_transport_params_t const * self_transport_params );
 
-/* delete a handshake object and free resources */
+/* fd_quic_tls_hs_delete frees a handshake object and its resources.
+   Fine if hs is NULL. */
 void
-fd_quic_tls_hs_delete( fd_quic_tls_hs_t * self );
+fd_quic_tls_hs_delete( fd_quic_tls_hs_t * hs );
 
 /* fd_quic_tls_provide_data forwards an incoming QUIC CRYPTO frame
    containing TLS handshake message data to the underlying TLS
@@ -272,7 +273,7 @@ fd_quic_tls_provide_data( fd_quic_tls_hs_t * self,
      fd_quic_tls_hs_delete
 
    args
-     self        the handshake in question
+     self        the handshake in question (fine if NULL)
      enc_level   a pointer for receiving the encryption level
      data        a pointer for receiving the pointer to the data buffer
      data_sz     a pointer for receiving the data size */
