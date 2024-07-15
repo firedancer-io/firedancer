@@ -60,6 +60,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 
   fd_slot_bank_t           slot_bank;
   fd_sysvar_cache_old_t    sysvar_cache_old; // TODO make const
+  // TODO this leader pointer could become invalid if forks cross epoch boundaries
   fd_pubkey_t const *      leader; /* Current leader */
   ulong                    total_compute_units_requested;
 
@@ -70,6 +71,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                    signature_cnt;
   fd_hash_t                account_delta_hash;
   fd_hash_t                prev_banks_hash;
+  ulong                    parent_signature_cnt;
 
   fd_sysvar_cache_t *      sysvar_cache;
   fd_account_compute_elem_t * account_compute_table;

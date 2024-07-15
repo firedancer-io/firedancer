@@ -102,13 +102,13 @@ fetch () {
 
   mkdir -pv ./opt/git
 
-  checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.5"
+  checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.6"
   checkout_repo lz4       https://github.com/lz4/lz4                "v1.9.4"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.5.0"
-  #checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.0"
+  #checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.1"
   if [[ $DEVMODE == 1 ]]; then
-    checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
-    checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.2.1"
+    checkout_repo zlib      https://github.com/madler/zlib            "v1.3.1"
+    checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.4.0"
     checkout_repo snappy    https://github.com/google/snappy          "1.2.1"
   fi
 }
@@ -292,7 +292,7 @@ install_zstd () {
 
 install_lz4 () {
   cd ./opt/git/lz4/lib
-  
+
   echo "[+] Installing lz4 to $PREFIX"
   "${MAKE[@]}" PREFIX="$PREFIX" BUILD_SHARED=no MOREFLAGS="-fPIC" install
   echo "[+] Successfully installed lz4"
@@ -420,7 +420,7 @@ install_rocksdb () {
   ROCKSDB_DISABLE_ZLIB=1 \
   ROCKSDB_DISABLE_BZIP=1 \
   ROCKSDB_DISABLE_GFLAGS=1 \
-  CFLAGS="-isystem $(pwd)/../../include -g0 -DSNAPPY -DZSTD -Wno-uninitialized" \
+  CFLAGS="-isystem $(pwd)/../../include -g0 -DSNAPPY -DZSTD -Wno-unknown-warning-option -Wno-uninitialized -Wno-array-bounds -Wno-stringop-overread" \
   make -j $NJOBS \
     LITE=1 \
     V=1 \
@@ -455,10 +455,17 @@ install_snappy () {
 }
 
 install () {
-  CC="$(command -v gcc)"
+  _CC="${CC:=gcc}"
+  CC="$(command -v $_CC)"
   cc="$CC"
   export CC
   export cc
+
+  _CXX="${CXX:=g++}"
+  CXX="$(command -v $_CXX)"
+  cxx="$CXX"
+  export CXX
+  export cxx
 
   mkdir -p ./opt/{include,lib}
 

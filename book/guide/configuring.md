@@ -24,18 +24,21 @@ validator might look like:
 ```sh [bash]
 # /home/firedancer/config.toml
 user = "firedancer"
+
 [gossip]
     entrypoints = [
       "10.0.0.2:8001"
     ]
+
 [rpc]
     port = 9099
+
 [consensus]
     identity_path = "/home/firedancer/validator-keypair.json"
     vote_account_path = "/home/firedancer/vote-keypair.json"
 ```
 
-Once your configuration file is specified you can use it by either
+Once your configuration file is created you can use it by either
 setting the `FIREDANCER_CONFIG_TOML` environment variable, or by
 passing it to your command with the `--config` option.
 
@@ -121,8 +124,8 @@ Firedancer installs an XDP program on the network interface
 `[tiles.net.interface]` and `lo` while it is running.  This program 
 redirects traffic on ports that Firedancer is listening on via AF_XDP.
 Traffic targetting any other applications (e.g. an SSH or HTTP server
-running on the system) passes through as usual.  The XDP program is `
-always removed when Firedancer exits.
+running on the system) passes through as usual.  The XDP program is
+unloaded when the Firedancer process exits.
 
 AF_XDP requires `CAP_SYS_ADMIN` and `CAP_NET_RAW` privileges.  This is
 one of the reasons why Firedancer requires root permissions on Linux.
@@ -130,7 +133,7 @@ one of the reasons why Firedancer requires root permissions on Linux.
 ::: warning
 
 Firedancer assumes exclusive XDP access over the aforementioned network
-interfaces.  Using XDP tools such as `xdp-loader` and `xdpdump` may 
+interfaces. Using XDP tools such as `xdp-loader` and `xdpdump` may 
 break connectivity.
 
 :::

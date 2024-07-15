@@ -391,18 +391,18 @@ fd_shmem_create_multi_flags( char const *  name,
 
 unmap:
   if( FD_UNLIKELY( munmap( shmem, sz ) ) )
-    FD_LOG_WARNING(( "munmap(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
-                     path, sz>>10, errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "munmap(\"%s\",%lu KiB) failed (%i-%s)",
+                 path, sz>>10, errno, fd_io_strerror( errno ) ));
 
 close:
   if( FD_UNLIKELY( err ) && FD_UNLIKELY( unlink( path ) ) )
-    FD_LOG_WARNING(( "unlink(\"%s\") failed (%i-%s)", path, errno, fd_io_strerror( errno ) )); /* Don't log "attempting ..." */
+    FD_LOG_ERR(( "unlink(\"%s\") failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( fd ) ) )
-    FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "close(\"%s\") failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
 restore:
   if( FD_UNLIKELY( fd_numa_set_mempolicy( orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
-    FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s); attempting to continue", errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "fd_numa_set_mempolicy failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
 done:
   FD_SHMEM_UNLOCK;

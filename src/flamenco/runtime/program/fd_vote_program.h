@@ -58,7 +58,7 @@ fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
 void
 fd_vote_record_timestamp_vote_with_slot( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_pubkey_t const *  vote_acc,
-                                         ulong                timestamp,
+                                         long                 timestamp,
                                          ulong                slot );
 
 struct fd_commission_split {

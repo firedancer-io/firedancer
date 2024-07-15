@@ -224,9 +224,12 @@ validate_fee_payer( fd_borrowed_account_t * account, fd_rent_t const * rent, ulo
 
 int
 fd_executor_check_txn_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
-  ulong fee = fd_runtime_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw );
+  ulong execution_fee = 0;
+  ulong priority_fee = 0;
+  fd_runtime_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw, &execution_fee, &priority_fee );
+  ulong fee = fd_ulong_sat_add (execution_fee, priority_fee);
 
-  if ( txn_ctx->txn_descriptor->signature_cnt == 0 && fee != 0 ) {
+  if ( txn_ctx->txn_descriptor->signature_cnt == 0 && execution_fee != 0 ) {
     return FD_RUNTIME_TXN_ERR_MISSING_SIGNATURE_FOR_FEE;
   }
 
@@ -357,7 +360,7 @@ fd_should_set_exempt_rent_epoch_max( fd_rent_t const *       rent,
   if( rec->const_meta->info.rent_epoch == ULONG_MAX )
     return 0;
 
-  return 1;                      
+  return 1;
 }
 
 void
@@ -482,16 +485,19 @@ export_account_state( fd_borrowed_account_t * borrowed_account,
 
     // Owner
     fd_memcpy(output_account->owner, borrowed_account->const_meta->info.owner, sizeof(fd_pubkey_t));
+
+    // Seed address (not present)
+    output_account->has_seed_addr = false;
 }
 
-void 
-fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context, 
-                                                    fd_exec_txn_ctx_t *txn_ctx, 
+void
+fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context,
+                                                    fd_exec_txn_ctx_t *txn_ctx,
                                                     fd_instr_info_t *instr ) {
   /*
   NOTE: Calling this function requires the caller to have a scratch frame ready (see dump_instr_to_protobuf)
   */
-  
+
   /* Prepare sysvar cache accounts */
   fd_pubkey_t const fd_relevant_sysvar_ids[] = {
     fd_sysvar_clock_id,
@@ -589,10 +595,6 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
   /* Compute Units */
   instr_context->cu_avail = txn_ctx->compute_meter;
 
-  /* Txn Context */
-  instr_context->has_txn_context = true;
-  // TODO: Fill in transaction context whenever it becomes supported
-
   /* Slot Context */
   instr_context->has_slot_context = true;
 
@@ -620,14 +622,14 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
       --dump-insn-to-pb <0/1>
         * If enabled, instructions will be dumped to the specified output directory
       --dump-insn-sig-filter <base_58_enc_sig>
-        * If enabled, only instructions with the specified signature will be dumped 
+        * If enabled, only instructions with the specified signature will be dumped
         * Provided signature must be base58-encoded
         * Default behavior if signature filter is not provided is to dump EVERY instruction
       --dump-insn-output-dir <output_dir>
         * Each file represents a single instruction as a serialized InstrContext Protobuf message
         * File name format is "instr-<base58_enc_sig>-<instruction_idx>.bin", where instruction_idx is 1-indexed
 
-    solana-conformance (https://github.com/firedancer-io/solana-conformance) 
+    solana-conformance (https://github.com/firedancer-io/solana-conformance)
       * Allows decoding / debugging of instructions in an isolated environment
       * Allows execution result(s) comparison with Solana / Agave
       * See solana-conformance/README.md for functionality and use cases
@@ -661,8 +663,8 @@ dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx,
 
     /* Output to file */
     ulong out_buf_size = 100 * 1024 * 1024;
-    uint8_t * out = fd_scratch_alloc(alignof(uint8_t), out_buf_size);
-    pb_ostream_t stream = pb_ostream_from_buffer(out, out_buf_size);
+    uint8_t * out = fd_scratch_alloc( alignof(uchar) , out_buf_size );
+    pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
     if (pb_encode(&stream, FD_EXEC_TEST_INSTR_CONTEXT_FIELDS, &instr_context)) {
       char output_filepath[256]; fd_memset(output_filepath, 0, sizeof(output_filepath));
       char * position = fd_cstr_init(output_filepath);
@@ -772,7 +774,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       /* TODO where does Agave do this? */
       for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
         if( FD_UNLIKELY( txn_ctx->borrowed_accounts[j].refcnt_excl ) ) {
-          FD_LOG_ERR(( "Txn %64J: Program %32J didn't release lock (%u) on %32J", fd_txn_get_signatures( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw )[0], instr->program_id_pubkey.uc, *(uint *)(instr->data), txn_ctx->borrowed_accounts[j].pubkey->uc ));
+          FD_LOG_ERR(( "Txn %64J: Program %32J didn't release lock (%u) on %32J with %u refcnt", fd_txn_get_signatures( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw )[0], instr->program_id_pubkey.uc, *(uint *)(instr->data), txn_ctx->borrowed_accounts[j].pubkey->uc, txn_ctx->borrowed_accounts[j].refcnt_excl ));
         }
       }
     } else if( !txn_ctx->failed_instr ) {
@@ -783,9 +785,9 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 #ifdef VLOG
   if ( 257035230 == ctx->slot_ctx->slot_bank.slot ) {
     if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
+      FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, instr->program_id_pubkey.uc ));
     } else {
-      FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
+      FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, instr->program_id_pubkey.uc ));
     }
   }
 #endif
@@ -919,12 +921,16 @@ fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
     void * rec_data = fd_valloc_malloc( fd_scratch_virtual(), 8UL, fd_borrowed_account_raw_size( rec ) );
     fd_borrowed_account_make_modifiable( rec, rec_data );
 
-    ulong fee = fd_runtime_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw );
-    if( fd_executor_collect_fee( slot_ctx, rec, fee ) ) {
-      
+    ulong execution_fee = 0;
+    ulong priority_fee = 0;
+
+    fd_runtime_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw, &execution_fee, &priority_fee );
+
+    if( fd_executor_collect_fee( slot_ctx, rec, fd_ulong_sat_add( execution_fee, priority_fee ) ) ) {
       return -1;
     }
-    slot_ctx->slot_bank.collected_fees += fee;
+    slot_ctx->slot_bank.collected_execution_fees = fd_ulong_sat_add (execution_fee, slot_ctx->slot_bank.collected_execution_fees);
+    slot_ctx->slot_bank.collected_priority_fees = fd_ulong_sat_add (priority_fee, slot_ctx->slot_bank.collected_priority_fees);
 
     err = fd_acc_mgr_save( slot_ctx->acc_mgr, rec );
     if( FD_UNLIKELY( err ) ) {
@@ -1106,8 +1112,9 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
     for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
 #ifdef VLOG
-        if ( FD_UNLIKELY( 257037453 == txn_ctx->slot_ctx->slot_bank.slot ) )
-          FD_LOG_WARNING(("Start of transaction for %d for %64J", i, sig));
+      if( txn_ctx->slot_ctx->slot_bank.slot == 273231330 ) {
+        FD_LOG_WARNING(("Start of transaction for %d for %64J", i, sig));
+      }
 #endif
 
       if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
@@ -1124,6 +1131,9 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       }
 
       int exec_result = fd_execute_instr( txn_ctx, instrs[i] );
+#ifdef VLOG
+      FD_LOG_WARNING(( "fd_execute_instr result (%d) for %64J", exec_result, sig ));
+#endif
       if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
         if ( txn_ctx->instr_err_idx == INT_MAX )
         {
@@ -1343,4 +1353,11 @@ fd_executor_acquire_instr_info_elem( fd_exec_txn_ctx_t * txn_ctx ) {
 
   return &fd_instr_info_pool_ele_acquire( txn_ctx->instr_info_pool )->info;
 
+}
+
+// This is purely linker magic to force the inclusion of the yaml type walker so that it is
+// available for debuggers
+void
+fd_debug_symbology(void) {
+  (void)fd_get_types_yaml();
 }

@@ -6,8 +6,10 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <strings.h>
 #include "../../choreo/fd_choreo.h"
 #include "../../disco/fd_disco.h"
+#include "../../disco/bank/fd_txncache.h"
 #include "../../util/fd_util.h"
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/nanopb/pb_decode.h"
@@ -29,13 +31,12 @@
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
-#define TXNCACHE_TXNS_PER_SLOT  (FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 16)
-
 extern void fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx, uchar const pubkey[ static 32 ], char const * data, ulong sz );
 
 struct fd_ledger_args {
   fd_wksp_t *           wksp;                    /* wksp for blockstore, it may include funk */
   fd_wksp_t *           funk_wksp;               /* wksp for funk */
+  fd_wksp_t *           status_cache_wksp;       /* wksp for status cache. */
   fd_blockstore_t *     blockstore;              /* blockstore for replay */
   fd_funk_t *           funk;                    /* handle to funk */
   fd_alloc_t *          alloc;                   /* handle to alloc*/
@@ -44,9 +45,12 @@ struct fd_ledger_args {
   ulong                 end_slot;                /* end slot for offline replay */
   uint                  hashseed;                /* hashseed */
   char const *          checkpt;                 /* wksp checkpoint */
-  char const *          checkpt_funk;            /* wksp checkpoint for a funk wksp*/
+  char const *          checkpt_funk;            /* wksp checkpoint for a funk wksp */
+  char const *          checkpt_archive;         /* funk archive format */
+  char const *          checkpt_status_cache;    /* status cache checkpoint */
   char const *          restore;                 /* wksp restore */
-  char const *          restore_funk;            /* wksp restore for a funk wksp*/
+  char const *          restore_funk;            /* wksp restore for a funk wksp */
+  char const *          restore_archive;         /* restore from a funk archive */
   char const *          allocator;               /* allocator used during replay (libc/wksp) */
   ulong                 shred_max;               /* maximum number of shreds*/
   ulong                 slot_history_max;        /* number of slots stored by blockstore*/
@@ -80,9 +84,12 @@ struct fd_ledger_args {
   char const *          verify_hash;             /* verify the snapshot hash*/
   ulong                 trash_hash;              /* trash hash to be used for negative cases*/
   ulong                 vote_acct_max;           /* max number of vote accounts */
-  char const *          rocksdb_list[ 32UL ];    /* max number of rocksdb dirs that can be passed in */
-  ulong                 rocksdb_list_cnt;        /* number of rocksdb dirs passe din */
-  /* These values are setup before replay  */
+  char const *          rocksdb_list[32];        /* max number of rocksdb dirs that can be passed in */
+  ulong                 rocksdb_list_slot[32];   /* start slot for each rocksdb dir that's passed in assuming there are mulitple */
+  ulong                 rocksdb_list_cnt;        /* number of rocksdb dirs passed in */
+  uint                  cluster_version;         /* What version of solana is the genesis block? */
+
+  /* These values are setup before replay */
   fd_capture_ctx_t *    capture_ctx;             /* capture_ctx is used in runtime_replay for various debugging tasks */
   fd_acc_mgr_t          acc_mgr[ 1UL ];          /* funk wrapper*/
   fd_exec_slot_ctx_t *  slot_ctx;                /* slot_ctx */
@@ -132,10 +139,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   fd_features_restore( ledger_args->slot_ctx );
 
-  if( ledger_args->slot_ctx->blockstore->max < ledger_args->end_slot && !ledger_args->on_demand_block_ingest ) {
-    ledger_args->end_slot = ledger_args->slot_ctx->blockstore->max;
-  }
-
   fd_runtime_update_leaders( ledger_args->slot_ctx, ledger_args->slot_ctx->slot_bank.slot );
 
   fd_calculate_epoch_accounts_hash_values( ledger_args->slot_ctx );
@@ -149,10 +152,10 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
   ulong start_slot = ledger_args->slot_ctx->slot_bank.slot + 1;
 
   /* On demand rocksdb ingest */
-  fd_rocksdb_t rocks_db       = {0};
-  fd_rocksdb_root_iter_t iter = {0};
-  fd_slot_meta_t slot_meta    = {0};
-  ulong curr_rocksdb_idx      = 0UL;
+  fd_rocksdb_t           rocks_db         = {0};
+  fd_rocksdb_root_iter_t iter             = {0};
+  fd_slot_meta_t         slot_meta        = {0};
+  ulong                  curr_rocksdb_idx = 0UL;
   if( ledger_args->on_demand_block_ingest ) {
     fd_rocksdb_init( &rocks_db, ledger_args->rocksdb_list[ 0UL ] );
     fd_rocksdb_root_iter_new( &iter );
@@ -264,27 +267,34 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
     prev_slot = slot;
 
-    if( ledger_args->on_demand_block_ingest && slot < ledger_args->end_slot ) {
-      int ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, ledger_args->slot_ctx->valloc );
-      if( ret<0 ) {
-        ret = fd_rocksdb_get_meta( &rocks_db, slot+1UL, &slot_meta, ledger_args->slot_ctx->valloc );
+    if( ledger_args->on_demand_block_ingest && slot<ledger_args->end_slot ) {
+      /* TODO: This currently doesn't support switching over on slots that occur
+         on a fork */
+      /* If need to go to next rocksdb, switch over */
+      if( FD_UNLIKELY( ledger_args->rocksdb_list_cnt>1UL &&
+                       slot+1UL==ledger_args->rocksdb_list_slot[curr_rocksdb_idx] ) ) {
+        curr_rocksdb_idx++;
+        FD_LOG_WARNING(( "Switching to next rocksdb=%s", ledger_args->rocksdb_list[curr_rocksdb_idx] ));
+        fd_rocksdb_root_iter_destroy( &iter );
+        fd_rocksdb_destroy( &rocks_db );
+
+        fd_memset( &rocks_db,  0, sizeof(fd_rocksdb_t)           );
+        fd_memset( &iter,      0, sizeof(fd_rocksdb_root_iter_t) );
+        fd_memset( &slot_meta, 0, sizeof(fd_slot_meta_t)         );
+
+        fd_rocksdb_init( &rocks_db, ledger_args->rocksdb_list[curr_rocksdb_idx] );
+        fd_rocksdb_root_iter_new( &iter );
+        int ret = fd_rocksdb_root_iter_seek( &iter, &rocks_db, slot+1UL, &slot_meta, ledger_args->slot_ctx->valloc );
         if( ret<0 ) {
-          /* If slot doesn't exist try to look in the next indexed rocksdb */
-          if( ++curr_rocksdb_idx>=ledger_args->rocksdb_list_cnt ) {
-            FD_LOG_ERR(( "Failed to get meta for slot %lu", slot+1UL ));
-          }
-          fd_rocksdb_root_iter_destroy( &iter );
-          fd_rocksdb_destroy( &rocks_db );
-
-          fd_memset( &rocks_db,  0, sizeof(fd_rocksdb_t)           );
-          fd_memset( &iter,      0, sizeof(fd_rocksdb_root_iter_t) );
-          fd_memset( &slot_meta, 0, sizeof(fd_slot_meta_t)         );
-
-          fd_rocksdb_init( &rocks_db, ledger_args->rocksdb_list[ curr_rocksdb_idx ] );
-          fd_rocksdb_root_iter_new( &iter );
-          ret = fd_rocksdb_root_iter_seek( &iter, &rocks_db, slot+1UL, &slot_meta, ledger_args->slot_ctx->valloc );
+          FD_LOG_ERR(( "Failed to seek to slot %lu", slot+1UL ));
+        }
+      } else {
+        /* Otherwise look for next slot in current rocksdb */
+        int ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, ledger_args->slot_ctx->valloc );
+        if( ret<0 ) {
+          ret = fd_rocksdb_get_meta( &rocks_db, slot+1UL, &slot_meta, ledger_args->slot_ctx->valloc );
           if( ret<0 ) {
-            FD_LOG_ERR(( "Failed to seek to slot %lu", slot+1UL ));
+            FD_LOG_ERR(( "Failed to get meta for slot %lu", slot+1UL ));
           }
         }
       }
@@ -321,6 +331,14 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
 /***************************** Helpers ****************************************/
 fd_valloc_t allocator_setup( fd_wksp_t * wksp, char const * allocator ) {
+  if( strcmp( allocator, "libc" ) == 0 ) {
+    return fd_libc_alloc_virtual();
+  }
+
+  if( strcmp( allocator, "wksp" ) != 0 ) {
+    FD_LOG_ERR( ( "unknown allocator specified" ) );
+  }
+
   FD_TEST( wksp );
 
   void * alloc_shmem =
@@ -330,14 +348,7 @@ fd_valloc_t allocator_setup( fd_wksp_t * wksp, char const * allocator ) {
   if( FD_UNLIKELY( !alloc_shalloc ) ) { FD_LOG_ERR( ( "fd_allow_new failed" ) ); }
   fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, 3UL );
   if( FD_UNLIKELY( !alloc ) ) { FD_LOG_ERR( ( "fd_alloc_join failed" ) ); }
-
-  if( strcmp( allocator, "libc" ) == 0 ) {
-    return fd_libc_alloc_virtual();
-  } else if( strcmp( allocator, "wksp" ) == 0 ) {
-    return fd_alloc_virtual( alloc );
-  } else {
-    FD_LOG_ERR( ( "unknown allocator specified" ) );
-  }
+  return fd_alloc_virtual( alloc );
 }
 
 void
@@ -350,11 +361,13 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
 
   /* Setup capture context */
   int has_solcap           = args->capture_fpath && args->capture_fpath[0] != '\0';
-  int has_checkpt_dump     = args->checkpt_path && args->checkpt_path[0] != '\0';
+  int has_checkpt          = args->checkpt_path && args->checkpt_path[0] != '\0';
+  int has_checkpt_funk     = args->checkpt_funk && args->checkpt_funk[0] != '\0';
+  int has_checkpt_arch     = args->checkpt_archive && args->checkpt_archive[0] != '\0';
   int has_prune            = args->pruned_funk != NULL;
   int has_dump_to_protobuf = args->dump_insn_to_pb;
 
-  if( has_solcap || has_checkpt_dump || has_prune || has_dump_to_protobuf ) {
+  if( has_solcap || has_checkpt || has_checkpt_funk || has_checkpt_arch || has_prune || has_dump_to_protobuf ) {
     FILE * capture_file = NULL;
 
     void * capture_ctx_mem = fd_valloc_malloc( valloc, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
@@ -375,8 +388,9 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
       args->capture_ctx->capture = NULL;
     }
 
-    if( has_checkpt_dump ) {
-      args->capture_ctx->checkpt_path = args->checkpt_path;
+    if( has_checkpt || has_checkpt_funk || has_checkpt_arch ) {
+      args->capture_ctx->checkpt_path = ( has_checkpt ? args->checkpt_path : args->checkpt_funk );
+      args->capture_ctx->checkpt_archive = args->checkpt_archive;
       args->capture_ctx->checkpt_freq = args->checkpt_freq;
     }
     if( has_prune ) {
@@ -393,10 +407,10 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   fd_runtime_recover_banks( args->slot_ctx, 0, args->genesis==NULL );
 
   /* Finish other runtime setup steps  */
+  fd_funk_start_write( funk );
   fd_features_restore( args->slot_ctx );
   fd_runtime_update_leaders( args->slot_ctx, args->slot_ctx->slot_bank.slot );
   fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
-  fd_funk_start_write( funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry( args->slot_ctx, args->slot_ctx->funk_txn );
   fd_funk_end_write( funk );
 }
@@ -495,26 +509,42 @@ ingest_rocksdb( fd_alloc_t *      alloc,
 }
 
 void
-parse_rocksdb_list(  fd_ledger_args_t * FD_FN_UNUSED args, char const * rocksdb_list ) {
+parse_rocksdb_list( fd_ledger_args_t * args,
+                    char const *       rocksdb_list,
+                    char const *       rocksdb_start_slots ) {
+  /* First parse the paths to the different rocksdb */
   if( FD_UNLIKELY( !rocksdb_list ) ) {
     FD_LOG_NOTICE(( "No rocksdb list passed in" ));
     return;
   }
 
-  ulong str_len = strlen( rocksdb_list );
-  if ( FD_UNLIKELY( str_len<3UL ) ) {
-    FD_LOG_WARNING(( "Invalid rocksdb list" ));
-    return;
-  }
-
-  /* String is now just the comma seperated paths */
   char * rocksdb_str = strdup( rocksdb_list );
   char * token       = NULL;
-  token = strtok( rocksdb_str, ",[]" );
+  token = strtok( rocksdb_str, "," );
   while( token ) {
     args->rocksdb_list[ args->rocksdb_list_cnt++ ] = token;
-    token = strtok( NULL, ",[]" );
+    token = strtok( NULL, "," );
   }
+
+  /* Now repeat for the start slots assuming there are multiple */
+  if( rocksdb_start_slots == NULL && args->rocksdb_list_cnt > 1 ) {
+    FD_LOG_ERR(( "Multiple rocksdb dirs passed in but no start slots" ));
+  }
+  ulong index = 0UL;
+  if( rocksdb_start_slots ) {
+    char * rocksdb_start_slot_str = strdup( rocksdb_start_slots );
+    token = NULL;
+    token = strtok( rocksdb_start_slot_str, "," );
+    while( token ) {
+      args->rocksdb_list_slot[ index++ ] = strtoul( token, NULL, 10 );
+      token = strtok( NULL, "," );
+    }
+  }
+
+  if( index != args->rocksdb_list_cnt - 1UL ) {
+    FD_LOG_ERR(( "Number of rocksdb dirs passed in doesn't match number of start slots" ));
+  }
+
 
   /* TODO: There is technically a leak here since we don't free the duplicated
      string but it's not a big deal. */
@@ -571,7 +601,8 @@ init_funk( fd_ledger_args_t * args ) {
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
   }
-  FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
+  FD_LOG_NOTICE(( "funky at global address 0x%016lx with %lu records", fd_wksp_gaddr_fast( wksp, shmem ),
+                                                                       fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   args->funk = funk;
 }
 
@@ -605,17 +636,30 @@ init_blockstore( fd_ledger_args_t * args ) {
 
 void
 checkpt( fd_ledger_args_t * args ) {
-  if( !args->checkpt && !args->checkpt_funk ) {
+  if( !args->checkpt && !args->checkpt_funk && !args->checkpt_archive && !args->checkpt_status_cache ) {
     FD_LOG_WARNING(( "No checkpt argument specified" ));
   }
 
+  if( args->checkpt_archive ) {
+    FD_LOG_NOTICE(( "writing funk archive %s", args->checkpt_archive ));
+    int err = fd_funk_archive( args->funk, args->checkpt_archive );
+    if( err ) {
+      FD_LOG_ERR(( "funk archive failed: error %d", err ));
+    }
+  }
   if( args->checkpt_funk ) {
     if( args->funk_wksp == NULL ) {
       FD_LOG_ERR(( "funk_wksp is NULL" ));
     }
     FD_LOG_NOTICE(( "writing funk checkpt %s", args->checkpt_funk ));
     unlink( args->checkpt_funk );
+#ifdef FD_FUNK_WKSP_PROTECT
+    fd_wksp_mprotect( args->funk_wksp, 0 );
+#endif
     int err = fd_wksp_checkpt( args->funk_wksp, args->checkpt_funk, 0666, 0, NULL );
+#ifdef FD_FUNK_WKSP_PROTECT
+    fd_wksp_mprotect( args->funk_wksp, 1 );
+#endif
     if( err ) {
       FD_LOG_ERR(( "funk checkpt failed: error %d", err ));
     }
@@ -628,14 +672,32 @@ checkpt( fd_ledger_args_t * args ) {
       FD_LOG_ERR(( "checkpt failed: error %d", err ));
     }
   }
+  if( args->checkpt_status_cache ) {
+    FD_LOG_NOTICE(( "writing %s", args->checkpt_status_cache ));
+    unlink( args->checkpt_status_cache );
+    int err = fd_wksp_checkpt( args->status_cache_wksp, args->checkpt_status_cache, 0666, 0, NULL );
+    if( err ) {
+      FD_LOG_ERR(( "status cache checkpt failed: error %d", err ));
+    }
+  }
 }
 
 void
-restore( fd_ledger_args_t * args ) {
+archive_restore( fd_ledger_args_t * args ) {
+  if( args->restore_archive != NULL ) {
+    FD_LOG_NOTICE(( "restoring archive %s", args->restore_archive ));
+    fd_funk_unarchive( args->funk, args->restore_archive );
+  }
+}
+
+void
+wksp_restore( fd_ledger_args_t * args ) {
   if( args->restore_funk != NULL ) {
+    FD_LOG_NOTICE(( "restoring funk wksp %s", args->restore_funk ));
     fd_wksp_restore( args->funk_wksp, args->restore_funk, args->hashseed );
   }
   if( args->restore != NULL ) {
+    FD_LOG_NOTICE(( "restoring wksp %s", args->restore ));
     fd_wksp_restore( args->wksp, args->restore, args->hashseed );
   }
 }
@@ -712,27 +774,37 @@ minify( fd_ledger_args_t * args ) {
 void
 ingest( fd_ledger_args_t * args ) {
   /* Setup funk, blockstore, epoch_ctx, and slot_ctx */
+  wksp_restore( args );
   init_funk( args );
   if( !args->funk_only ) {
     init_blockstore( args );
   }
+
   fd_wksp_t * wksp = args->wksp;
   fd_funk_t * funk = args->funk;
 
   fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( fd_funk_wksp( funk ), funk->alloc_gaddr ), 0UL );
   if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", funk->alloc_gaddr ));
 
-  uchar * epoch_ctx_mem = fd_wksp_alloc_laddr( fd_funk_wksp( funk ), fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( args->vote_acct_max ), FD_EXEC_EPOCH_CTX_MAGIC );
+  fd_valloc_t valloc = allocator_setup( args->wksp, args->allocator );
+  uchar * epoch_ctx_mem = fd_valloc_malloc( valloc, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   fd_memset( epoch_ctx_mem, 0, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
 
   uchar slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN)));
-  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
+  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, valloc ) );
   slot_ctx->epoch_ctx = epoch_ctx;
 
   fd_acc_mgr_t mgr[1];
   slot_ctx->acc_mgr = fd_acc_mgr_new( mgr, funk );
   slot_ctx->blockstore = args->blockstore;
+
+  if( args->status_cache_wksp ) {
+    void * status_cache_mem = fd_wksp_alloc_laddr( args->status_cache_wksp, fd_txncache_align(), fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT), FD_TXNCACHE_MAGIC );
+    FD_TEST( status_cache_mem );
+    slot_ctx->status_cache  = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT ) );
+    FD_TEST( slot_ctx->status_cache );
+  }
 
   /* Load in snapshot(s) */
   if( args->snapshot ) {
@@ -889,13 +961,14 @@ replay( fd_ledger_args_t * args ) {
               --slot-history 5000 --allocator wksp --tile-cpus 5-21 --funk-page-cnt 16
   */
 
-  restore( args ); /* Restores checkpointed workspace(s) */
+  wksp_restore( args ); /* Restores checkpointed workspace(s) */
 
   init_funk( args ); /* Joins or creates funk based on if one exists in the workspace */
   init_blockstore( args ); /* Does the same for the blockstore */
 
+  archive_restore( args ); /* Restores checkpointed workspace(s) */
+
   fd_funk_t * funk = args->funk;
-  fd_wksp_t * wksp = args->wksp;
 
   /* Setup slot_ctx */
   fd_valloc_t valloc = allocator_setup( args->wksp, args->allocator );
@@ -905,15 +978,16 @@ replay( fd_ledger_args_t * args ) {
   fd_memset( epoch_ctx_mem, 0, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   void * slot_ctx_mem = fd_wksp_alloc_laddr( args->wksp, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT, FD_EXEC_SLOT_CTX_MAGIC );
   args->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
+
+  args->epoch_ctx->epoch_bank.cluster_version = args->cluster_version;
+  fd_features_enable_hardcoded( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
+
   args->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, valloc ) );
   args->slot_ctx->epoch_ctx = args->epoch_ctx;
   args->slot_ctx->valloc = valloc;
   args->slot_ctx->acc_mgr = fd_acc_mgr_new( args->acc_mgr, funk );
   args->slot_ctx->blockstore = args->blockstore;
-
-  uchar * status_cache_mem = fd_wksp_alloc_laddr( wksp, fd_txncache_align(), fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, TXNCACHE_TXNS_PER_SLOT), FD_TXNCACHE_MAGIC );
-  args->slot_ctx->status_cache = fd_txncache_join( fd_txncache_new( status_cache_mem, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, TXNCACHE_TXNS_PER_SLOT ) );
-  FD_TEST(args->slot_ctx->status_cache);
+  args->slot_ctx->status_cache = NULL;
 
   /* Check number of records in funk. If rec_cnt == 0, then it can be assumed
      that you need to load in snapshot(s). */
@@ -952,40 +1026,16 @@ replay( fd_ledger_args_t * args ) {
 
 void
 prune( fd_ledger_args_t * args ) {
- if( args->start_slot != 0 ) {
-    /* Set prune start and end slot */
-    ulong prune_start_slot = args->start_slot;
-    ulong prune_end_slot = args->end_slot;
-    bool abort_on_mismatch = args->abort_on_mismatch;
-
-    /* Replay all slots before prune slot and checkpoint at prune_start_slot */
-    args->start_slot = 0;
-    args->end_slot = prune_start_slot + FD_RUNTIME_NUM_ROOT_BLOCKS;
-    args->checkpt_freq = prune_start_slot;
-    args->checkpt_path = args->checkpt_funk == NULL ? args->checkpt : args->checkpt_funk;
-    args->abort_on_mismatch = 0;
-
-    int err = replay( args );
-    if( err ) {
-      FD_LOG_ERR(( "Error on replay in prune" ));
-    }
-
-    /* Restore from checkpoint created in replay */
-    args->snapshot = NULL;
-    args->start_slot = prune_start_slot;
-    args->end_slot = prune_end_slot;
-    args->restore = args->checkpt;
-    args->restore_funk = args->checkpt_funk;
-    args->abort_on_mismatch = abort_on_mismatch;
-  }
-
   if( args->restore || args->restore_funk ) {
+    FD_LOG_NOTICE(("restoring workspace"));
     fd_wksp_restore( args->funk_wksp == NULL ? args->wksp : args->funk_wksp, args->restore_funk == NULL ? args->restore : args->restore_funk, args->hashseed );
   }
 
   /* Setup data structures required for the unpruned workspace & replay ********/
   init_funk( args );
   init_blockstore( args );
+
+  archive_restore( args );
 
   fd_funk_t * funk = args->funk;
 
@@ -1077,10 +1127,7 @@ prune( fd_ledger_args_t * args ) {
   /* Replay through the desired slot range ************************************/
 
   fd_ledger_main_setup( args );
-  int err = runtime_replay( args );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Error while replaying" ));
-  }
+  runtime_replay( args );
 
   FD_LOG_NOTICE(("There are currently %lu records in the pruned funk", fd_funk_rec_cnt( fd_funk_rec_map( pruned_funk, pruned_wksp ) ) ));
 
@@ -1093,6 +1140,10 @@ prune( fd_ledger_args_t * args ) {
   fd_wksp_reset( args->funk_wksp, args->hashseed );
 
   /* Setup funk again */
+  if( args->restore || args->restore_funk ) {
+    FD_LOG_NOTICE(("restoring workspace"));
+    fd_wksp_restore( args->funk_wksp == NULL ? args->wksp : args->funk_wksp, args->restore_funk == NULL ? args->restore : args->restore_funk, args->hashseed );
+  }
   init_funk( args );
   init_blockstore( args );
   init_scratch( args->wksp );
@@ -1267,6 +1318,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   uint         check_acc_hash          = fd_env_strip_cmdline_uint ( &argc, &argv, "--check-acc-hash",          NULL, 0         );
   char const * restore                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--restore",                 NULL, NULL      );
   char const * restore_funk            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--funk-restore",            NULL, NULL      );
+  char const * restore_archive         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--restore-archive",         NULL, NULL      );
   char const * shredcap                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--shred-cap",               NULL, NULL      );
   ulong        trash_hash              = fd_env_strip_cmdline_ulong( &argc, &argv, "--trash-hash",              NULL, ULONG_MAX );
   char const * mini_db_dir             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--minified-rocksdb",        NULL, NULL      );
@@ -1275,14 +1327,15 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   int          funk_only               = fd_env_strip_cmdline_int  ( &argc, &argv, "--funk-only",               NULL, 0         );
   char const * checkpt                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt",                 NULL, NULL      );
   char const * checkpt_funk            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-funk",            NULL, NULL      );
+  char const * checkpt_archive         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-archive",         NULL, NULL      );
   char const * capture_fpath           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture-solcap",          NULL, NULL      );
   int          capture_txns            = fd_env_strip_cmdline_int  ( &argc, &argv, "--capture-txns",            NULL, 1         );
   char const * checkpt_path            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-path",            NULL, NULL      );
   ulong        checkpt_freq            = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-freq",            NULL, ULONG_MAX );
   int          checkpt_mismatch        = fd_env_strip_cmdline_int  ( &argc, &argv, "--checkpt-mismatch",        NULL, 0         );
-  char const * allocator               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--allocator",               NULL, "wksp"    );
+  char const * allocator               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--allocator",               NULL, "libc"    );
   int          abort_on_mismatch       = fd_env_strip_cmdline_int  ( &argc, &argv, "--abort-on-mismatch",       NULL, 1         );
-  int          on_demand_block_ingest  = fd_env_strip_cmdline_int  ( &argc, &argv, "--on-demand-block-ingest",  NULL, 0         );
+  int          on_demand_block_ingest  = fd_env_strip_cmdline_int  ( &argc, &argv, "--on-demand-block-ingest",  NULL, 1         );
   ulong        on_demand_block_history = fd_env_strip_cmdline_ulong( &argc, &argv, "--on-demand-block-history", NULL, 100       );
   int          dump_insn_to_pb         = fd_env_strip_cmdline_int  ( &argc, &argv, "--dump-insn-to-pb",         NULL, 0         );
   ulong        dump_insn_start_slot    = fd_env_strip_cmdline_ulong( &argc, &argv, "--dump-insn-start-slot",    NULL, 0         );
@@ -1291,6 +1344,10 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   ulong        vote_acct_max           = fd_env_strip_cmdline_ulong( &argc, &argv, "--vote_acct_max",           NULL, 2000000UL );
   int          use_funk_wksp           = fd_env_strip_cmdline_int  ( &argc, &argv, "--use-funk-wksp",           NULL, 1         );
   char const * rocksdb_list            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",                 NULL, NULL      );
+  char const * rocksdb_list_starts     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb-starts",          NULL, NULL      );
+  uint         cluster_version         = fd_env_strip_cmdline_uint ( &argc, &argv, "--cluster-version",         NULL, FD_DEFAULT_AGAVE_CLUSTER_VERSION );
+  char const * checkpt_status_cache    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-status-cache",    NULL, NULL      );
+
 
   #ifdef _ENABLE_LTHASH
   char const * lthash             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",           NULL, "false"   );
@@ -1343,6 +1400,15 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
     args->funk_wksp = funk_wksp;
   }
 
+  if( checkpt_status_cache && checkpt_status_cache[0] != '\0' ) {
+    FD_LOG_NOTICE(( "Creating status cache wksp" ));
+    fd_wksp_t * status_cache_wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 23UL, 0, "status_cache_wksp", 0UL );
+    fd_wksp_reset( status_cache_wksp, args->hashseed );
+    args->status_cache_wksp = status_cache_wksp;
+  } else {
+    args->status_cache_wksp = NULL;
+  }
+
   /* Setup alloc and valloc */
   #define FD_ALLOC_TAG (422UL)
   void * alloc_shmem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), FD_ALLOC_TAG );
@@ -1359,12 +1425,14 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->end_slot                = end_slot;
   args->checkpt                 = checkpt;
   args->checkpt_funk            = checkpt_funk;
+  args->checkpt_archive         = checkpt_archive;
   args->shred_max               = shred_max;
   args->slot_history_max        = slot_history_max;
   args->txns_max                = txns_max;
   args->index_max               = index_max;
   args->restore                 = restore;
   args->restore_funk            = restore_funk;
+  args->restore_archive         = restore_archive;
   args->mini_db_dir             = mini_db_dir;
   args->funk_only               = funk_only;
   args->copy_txn_status         = copy_txn_status;
@@ -1384,6 +1452,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->checkpt_path            = checkpt_path;
   args->checkpt_freq            = checkpt_freq;
   args->checkpt_mismatch        = checkpt_mismatch;
+  args->cluster_version         = cluster_version;
   args->allocator               = allocator;
   args->abort_on_mismatch       = abort_on_mismatch;
   args->on_demand_block_ingest  = on_demand_block_ingest;
@@ -1394,10 +1463,15 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->dump_insn_output_dir    = dump_insn_output_dir;
   args->vote_acct_max           = vote_acct_max;
   args->rocksdb_list_cnt        = 0UL;
-  parse_rocksdb_list( args, rocksdb_list );
+  args->checkpt_status_cache    = checkpt_status_cache;
+  parse_rocksdb_list( args, rocksdb_list, rocksdb_list_starts );
 
-  for( ulong i = 0; i < args->rocksdb_list_cnt; ++i ) {
-    FD_LOG_NOTICE(( "rocksdb_list[%lu] = %s", i, args->rocksdb_list[i] ));
+  if( args->rocksdb_list_cnt==1UL ) {
+    FD_LOG_NOTICE(( "rocksdb=%s", args->rocksdb_list[0] ));
+  } else {
+    for( ulong i=0UL; i<args->rocksdb_list_cnt; ++i ) {
+      FD_LOG_NOTICE(( "rocksdb_list[ %lu ]=%s slot=%lu", i, args->rocksdb_list[i], args->rocksdb_list_slot[i-1] ));
+    }
   }
 
   #ifdef _ENABLE_LTHASH

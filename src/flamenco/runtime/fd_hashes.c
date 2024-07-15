@@ -280,6 +280,7 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
               fd_pubkey_hash_pair_t * dirty_keys,
               ulong dirty_key_cnt ) {
   slot_ctx->prev_banks_hash = slot_ctx->slot_bank.banks_hash;
+  slot_ctx->parent_signature_cnt = slot_ctx->signature_cnt;
 
   fd_hash_account_deltas( dirty_keys, dirty_key_cnt, &slot_ctx->account_delta_hash, slot_ctx );
 
@@ -311,6 +312,8 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
         slot_ctx->signature_cnt );
   }
 
+  //FD_LOG_NOTICE(( "[Replay] slot: %lu bank hash: %32J parent bank hash: %32J accounts_delta: %32J signature_count: %ld last_blockhash: %32J",
+  //                slot_ctx->slot_bank.slot, hash->hash, slot_ctx->prev_banks_hash.hash, slot_ctx->account_delta_hash.hash, slot_ctx->signature_cnt, slot_ctx->slot_bank.poh.hash ));
   FD_LOG_NOTICE( ( "\n\n[Replay]\n"
                    "slot:             %lu\n"
                    "bank hash:        %32J\n"
@@ -951,14 +954,20 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_fu
         continue;
       } else
         continue;
-    } else if( do_hash_verify ) {
-      uchar hash[32];
-      ulong old_slot = slot_ctx->slot_bank.slot;
-      slot_ctx->slot_bank.slot = metadata->slot;
-      fd_hash_account_current( (uchar *) &hash, metadata, rec->pair.key->uc, fd_account_get_data(metadata), slot_ctx );
-      slot_ctx->slot_bank.slot = old_slot;
-      if ( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
-        FD_LOG_WARNING(( "snapshot hash (%32J) doesn't match calculated hash (%32J)", metadata->hash, &hash ));
+    } else {
+      fd_hash_t *h = (fd_hash_t *) metadata->hash;
+      if ((h->ul[0] | h->ul[1] | h->ul[2] | h->ul[3]) == 0) {
+        // By the time we fall into this case, we can assume the ignore_slot feature is enabled...
+        fd_hash_account_current( (uchar *) metadata->hash, metadata, rec->pair.key->uc, fd_account_get_data(metadata), slot_ctx );
+      } else if( do_hash_verify ) {
+        uchar hash[32];
+        ulong old_slot = slot_ctx->slot_bank.slot;
+        slot_ctx->slot_bank.slot = metadata->slot;
+        fd_hash_account_current( (uchar *) &hash, metadata, rec->pair.key->uc, fd_account_get_data(metadata), slot_ctx );
+        slot_ctx->slot_bank.slot = old_slot;
+        if ( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
+          FD_LOG_WARNING(( "snapshot hash (%32J) doesn't match calculated hash (%32J)", metadata->hash, &hash ));
+        }
       }
     }
 

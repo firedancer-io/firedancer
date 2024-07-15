@@ -98,6 +98,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
                              void *                                 output_buf,
                              ulong                                  output_bufsz );
 
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_tests_fd_exec_instr_test_h */

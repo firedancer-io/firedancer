@@ -88,7 +88,7 @@ fd_addrlut_serialize_meta( fd_address_lookup_table_state_t const * state,
     { .data    = data,
       .dataend = data+FD_ADDRLUT_META_SZ };
   fd_memset( data, 0, (ulong)encode.dataend - (ulong)encode.data );
-  
+
   int bin_err = fd_address_lookup_table_state_encode( state, &encode );
   FD_TEST( !bin_err );
 
@@ -292,7 +292,8 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
     fd_sha256_fini( sha, derived_tbl_key->key );
   } while(0);
   if( FD_UNLIKELY( fd_ed25519_point_validate( derived_tbl_key->key ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_SEEDS;
+    ctx->txn_ctx->custom_err = 1;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L120-L127 */
@@ -317,7 +318,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   if( required_lamports > 0UL ) {
     // Create account metas
     FD_SCRATCH_SCOPE_BEGIN {
-      fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *) 
+      fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *)
                                                 fd_scratch_alloc( FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
       fd_native_cpi_create_account_meta( payer_key, 1, 1, &acct_metas[0] );
       fd_native_cpi_create_account_meta( lut_key,   0, 1, &acct_metas[1] );
@@ -347,7 +348,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   }
 
   FD_SCRATCH_SCOPE_BEGIN {
-    fd_vm_rust_account_meta_t * acct_metas = ( fd_vm_rust_account_meta_t * ) 
+    fd_vm_rust_account_meta_t * acct_metas = ( fd_vm_rust_account_meta_t * )
                                               fd_scratch_alloc( FD_VM_RUST_ACCOUNT_META_ALIGN, sizeof(fd_vm_rust_account_meta_t) );
     fd_native_cpi_create_account_meta( lut_key, 1, 1, &acct_metas[0] );
 
@@ -401,7 +402,10 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   state->inner.lookup_table.meta.has_authority = 1;
   state->inner.lookup_table.meta.deactivation_slot = ULONG_MAX;
 
-  fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, 0, &lut_acct );
+  int err = fd_account_get_data_mut ( ctx, ACC_IDX_LUT, NULL, NULL );
+  if (FD_EXECUTOR_INSTR_SUCCESS != err)
+    return err;
+
   FD_TEST( lut_acct->meta );
 
   int state_err = fd_addrlut_serialize_meta( state, lut_acct->data, sizeof(fd_address_lookup_table_state_t) );
@@ -470,6 +474,9 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* Update lookup table account **************************************/
 
+  // Switch to using the proper macros
+  int err = FD_EXECUTOR_INSTR_SUCCESS;
+
   int lock_ok = fd_borrowed_account_acquire_write( lut_acct );
                 /* must be paired with release */
   FD_TEST( !!lock_ok );  /* Lock would always succeed at this point */
@@ -478,7 +485,6 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   uchar const * lut_data    = lut_acct->const_data;
   ulong         lut_data_sz = lut_acct->const_meta->dlen;
 
-  int err = FD_EXECUTOR_INSTR_SUCCESS;
   do {  /* with locked account */
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L195 */
     fd_addrlut_t lut[1];
@@ -511,15 +517,15 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
       err = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA; break;
     }
 
-    /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L216 */
-    int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
-    if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
-      err = FD_EXECUTOR_INSTR_ERR_FATAL; break;
-    }
+    uchar *data = NULL;
+    ulong dlen = 0;
+    err = fd_account_get_data_mut(ctx, ACC_IDX_LUT, &data, &dlen);
+    if (FD_EXECUTOR_INSTR_SUCCESS != err)
+      return err;
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L213-L218 */
     state->meta.has_authority = 0;
-    state_err = fd_addrlut_serialize_meta( &lut->state, lut_acct->data, lut_acct->meta->dlen );
+    state_err = fd_addrlut_serialize_meta( &lut->state, data, dlen );
     if( FD_UNLIKELY( state_err ) ) { err = state_err; break; }
 
   } while(0);
@@ -649,8 +655,14 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
       state->meta.last_extended_slot_start_index = (uchar)lut->addr_cnt;
     }
 
-    /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L308 */
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/address-lookup-table/src/processor.rs#L302
     new_table_data_sz = FD_ADDRLUT_META_SZ + new_addr_cnt * sizeof(fd_pubkey_t);
+
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/address-lookup-table/src/processor.rs#L308
+    if ( fd_account_can_data_be_changed (ctx->instr, ACC_IDX_LUT, &err ) == 0) {
+      break;
+    }
+
     int modify_err = fd_instr_borrowed_account_modify( ctx, lut_acct->pubkey, new_table_data_sz, &lut_acct );
     if( FD_UNLIKELY( modify_err ) ) {
       err = FD_EXECUTOR_INSTR_ERR_FATAL; break;
@@ -706,7 +718,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
     FD_SCRATCH_SCOPE_BEGIN {
       // Create account metas
-      fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *) 
+      fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *)
                                                 fd_scratch_alloc( FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
       fd_native_cpi_create_account_meta( payer_key, 1, 1, &acct_metas[0] );
       fd_native_cpi_create_account_meta( lut_key,   0, 1, &acct_metas[1] );
@@ -831,17 +843,17 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
       if( FD_UNLIKELY( !fd_sysvar_clock_read( clock, ctx->slot_ctx ) ) )
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
-    /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L384 */
-    int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
-    if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
-      err = FD_EXECUTOR_INSTR_ERR_FATAL; break;
-    }
+    uchar *data = NULL;
+    ulong dlen = 0;
+    int err = fd_account_get_data_mut ( ctx, ACC_IDX_LUT, &data, &dlen );
+    if (FD_EXECUTOR_INSTR_SUCCESS != err)
+      return err;
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L381 */
     state->meta.deactivation_slot = clock->slot;
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L383-L386 */
-    state_err = fd_addrlut_serialize_meta( &lut->state, lut_acct->data, lut_acct->meta->dlen );
+    state_err = fd_addrlut_serialize_meta( &lut->state, data, dlen );
     if( FD_UNLIKELY( state_err ) ) { err = state_err; break; }
 
     err = FD_EXECUTOR_INSTR_SUCCESS;
@@ -1017,6 +1029,11 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write_is_safe( lut_acct ) ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;  /* Should be impossible */
   /* todo is_early_verification_of_account_modifications_enabled */
+
+  if ( fd_account_can_data_be_changed (ctx->instr, ACC_IDX_LUT, &err ) == 0) {
+    return err;
+  }
+
   modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
   if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_FATAL;
@@ -1032,12 +1049,14 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
 int
 fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t _ctx ) {
+  do {
+    int err = fd_exec_consume_cus( _ctx.txn_ctx, DEFAULT_COMPUTE_UNITS );
+    if( FD_UNLIKELY( err ) ) return err;
+  } while(0);
 
   fd_exec_instr_ctx_t * ctx = &_ctx;
   uchar const * instr_data    = ctx->instr->data;
   ulong         instr_data_sz = ctx->instr->data_sz;
-
-  ctx->txn_ctx->compute_meter = fd_ulong_sat_sub( ctx->txn_ctx->compute_meter, DEFAULT_COMPUTE_UNITS );
 
   FD_SCRATCH_SCOPE_BEGIN {
 

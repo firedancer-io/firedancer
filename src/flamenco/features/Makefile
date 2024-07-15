@@ -1,7 +1,7 @@
 # python3.8 -m pip install fd58 --user
 # PYTHON=python3.8 make
 
-PYTHON?=python3
+PYTHON?=python3.8
 BLACK?=$(PYTHON) -m black
 
 .PHONY: generate

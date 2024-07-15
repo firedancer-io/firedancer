@@ -7,13 +7,14 @@
 #include "../../ballet/block/fd_microblock.h"
 #include "../../ballet/pack/fd_microblock.h"
 #include "../../ballet/poh/fd_poh.h"
+#include "../types/fd_types_yaml.h"
 #include "tests/generated/invoke.pb.h"
 
 FD_PROTOTYPES_BEGIN
 
-void 
-fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context, 
-                                                 fd_exec_txn_ctx_t *txn_ctx, 
+void
+fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context,
+                                                 fd_exec_txn_ctx_t *txn_ctx,
                                                  fd_instr_info_t *instr );
 
 /* fd_exec_instr_fn_t processes an instruction.  Returns an error code
@@ -31,7 +32,7 @@ fd_executor_lookup_native_program(  fd_pubkey_t const * program_id );
 /* fd_execute_instr creates a new fd_exec_instr_ctx_t and performs
    instruction processing.  Does fd_scratch allocations.  Returns an
    error code in FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}.
-   
+
    IMPORTANT: instr_info must have the same lifetime as txn_ctx. This can
    be achieved by using fd_executor_acquire_instr_info_elem( txn_ctx ) to
    acquire an fd_instr_info_t element with the same lifetime as the txn_ctx */
@@ -72,8 +73,8 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx );
 
 /* Returns a new fd_instr_info_t element, which will have the same lifetime as the given txn_ctx.
 
-   Returns NULL if we failed to acquire a new fd_instr_info_t element from the pool, which has 
-   FD_MAX_INSTRUCTION_TRACE_LENGTH capacity. The appropiate response to this is usually 
+   Returns NULL if we failed to acquire a new fd_instr_info_t element from the pool, which has
+   FD_MAX_INSTRUCTION_TRACE_LENGTH capacity. The appropiate response to this is usually
    failing with FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED.
  */
 fd_instr_info_t *

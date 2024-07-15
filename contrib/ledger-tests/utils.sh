@@ -84,4 +84,42 @@ set_default_slots() {
   echo "[~] Setting final default rooted START_SLOT=$START_SLOT, END_SLOT=$END_SLOT"
 }
 
-export -f set_default_slots find_rooted_slot is_rooted_slot
+get_closest_hourly() {
+    local slot=$1
+    local network=$2
+    
+    local closest_hourly_url=""
+    local closest_hourly_slot=-1
+
+    if [[ $network == "mainnet" ]]; then
+        bucket="gs://mainnet-beta-ledger-europe-fr2"
+    elif [[ $network == "testnet" ]]; then
+        bucket="gs://testnet-ledger-us-sv15"
+    else
+        echo "[-] error: unknown network $network"
+        exit 1
+    fi
+  
+    local directories=$(gsutil ls $bucket | sort -n -t / -k 4 | tail -n 3)
+
+    for dir in $directories; do
+        local dir_number=$(basename $dir)
+
+        if (( dir_number < slot )); then
+            local snapshots=$(gsutil ls "${dir}hourly" | sort -n -t - -k 3)
+
+            for snapshot in $snapshots; do
+                local snapshot_number=$(basename $snapshot | cut -d '-' -f 2)
+
+                if (( snapshot_number < slot && snapshot_number > closest_hourly_slot )); then
+                    closest_hourly_slot=$snapshot_number
+                    closest_hourly_url=$snapshot
+                fi
+            done
+        fi
+    done
+
+    echo $closest_hourly_url
+}
+
+export -f set_default_slots find_rooted_slot is_rooted_slot get_closest_hourly

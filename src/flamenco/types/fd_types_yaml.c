@@ -4,6 +4,7 @@
 
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h> /* malloc */
 
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
@@ -340,4 +341,24 @@ fd_flamenco_yaml_walk( void *       _self,
 
   /* Remember that we processed an element in the current level */
   self->stack[ level ] |= 1;
+}
+
+
+// (gdb) call fd_vote_state_walk(fd_get_types_yaml(), self, fd_flamenco_yaml_walk, 0, 0U)
+// (gdb) call fd_flush_yaml_dump()
+
+static fd_flamenco_yaml_t * g_yaml = NULL;
+
+fd_flamenco_yaml_t *
+fd_get_types_yaml(void) {
+  if (NULL != g_yaml)
+    return g_yaml;
+  g_yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new(malloc( fd_flamenco_yaml_footprint() ) ), stdout );
+  return g_yaml;
+}
+
+void
+fd_flush_yaml_dump(void) {
+  if (NULL != g_yaml)
+    fflush(g_yaml->file);
 }

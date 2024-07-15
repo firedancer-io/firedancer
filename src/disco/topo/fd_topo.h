@@ -201,30 +201,30 @@ typedef struct {
     } metric;
 
     struct {
-      int   vote;
+
+      /* specified by [tiles.replay] */
 
       char  blockstore_checkpt[ PATH_MAX ];
+      int   blockstore_publish;
       char  capture[ PATH_MAX ];
+      char  funk_checkpt[ PATH_MAX ];
+      ulong funk_rec_max;
+      ulong funk_sz_gb;
+      ulong funk_txn_max;
       char  genesis[ PATH_MAX ];
-      char  identity_key_path[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
       char  slots_replayed[ PATH_MAX ];
       char  snapshot[ PATH_MAX ];
-      char  vote_account_path[ PATH_MAX ];
-
-      ulong funk_sz_gb;
-      ulong funk_txn_max;
-      ulong funk_rec_max;
+      char  status_cache[ PATH_MAX ];
       ulong tpool_thread_count;
 
-      /* non-config */
+      /* not specified by [tiles.replay] */
 
-      ulong pages;
-      ulong txn_max;
-      ulong index_max;
-      ulong shred_max;
-      ulong slot_history_max;
-      ulong snapshot_slot;
+      char  identity_key_path[ PATH_MAX ];
+      uint  ip_addr;
+      uchar src_mac_addr[ 6 ];
+      int   vote;
+      char  vote_account_path[ PATH_MAX ];
     } replay;
 
     struct {
@@ -280,7 +280,19 @@ typedef struct {
       /* non-config */
 
       char  identity_key_path[ PATH_MAX ];
+      char  shred_cap_archive[ PATH_MAX ];
+      char  shred_cap_replay[ PATH_MAX ];
     } store_int;
+
+    struct {
+      ushort  tpu_listen_port;
+
+      /* non-config */
+      
+      uint    ip_addr;
+      uchar   src_mac_addr[ 6 ];
+      char  identity_key_path[ PATH_MAX ];
+    } sender;
   };
 } fd_topo_tile_t;
 
@@ -405,6 +417,30 @@ fd_topo_find_link( fd_topo_t const * topo,
                    ulong             kind_id ) {
   for( ulong i=0; i<topo->link_cnt; i++ ) {
     if( FD_UNLIKELY( !strcmp( topo->links[ i ].name, name ) ) && topo->links[ i ].kind_id == kind_id ) return i;
+  }
+  return ULONG_MAX;
+}
+
+FD_FN_PURE static inline ulong
+fd_topo_find_tile_in_link( fd_topo_t const *      topo,
+                           fd_topo_tile_t const * tile,
+                           char const *           name,
+                           ulong                  kind_id ) {
+  for( ulong i=0; i<tile->in_cnt; i++ ) {
+    if( FD_UNLIKELY( !strcmp( topo->links[ tile->in_link_id[ i ] ].name, name ) )
+        && topo->links[ tile->in_link_id[ i ] ].kind_id == kind_id ) return i;
+  }
+  return ULONG_MAX;
+}
+
+FD_FN_PURE static inline ulong
+fd_topo_find_tile_out_link( fd_topo_t const *      topo,
+                           fd_topo_tile_t const * tile,
+                           char const *           name,
+                           ulong                  kind_id ) {
+  for( ulong i=0; i<tile->out_cnt; i++ ) {
+    if( FD_UNLIKELY( !strcmp( topo->links[ tile->out_link_id[ i ] ].name, name ) )
+        && topo->links[ tile->out_link_id[ i ] ].kind_id == kind_id ) return i;
   }
   return ULONG_MAX;
 }
@@ -556,25 +592,14 @@ fd_topo_wksp_apply( fd_topo_t *      topo,
 void
 fd_topo_fill( fd_topo_t * topo );
 
-/* fd_topo_tile_stack_new creates a new huge page optimized stack for
-   provided tile.  The stack is placed in a workspace in the hugetlbfs
-   mount.
-
-   If optimize is 1, fd_topo_tile_stack_new creates a new huge page
-   optimized stack for the provided tile.  The stack will be placed
-   in a workspace in the hugetlbfs, with a name determined by the
-   provided app_name, tile_name, and tile_kind_id arguments.
-
-   If optimize is 0, fd_topo_tile_stack_new creates a new regular
-   page backed stack, which is not placed in the hugetlbfs.  In
-   this case cpu_idx and the other arguments are ignored. */
+/* fd_topo_tile_stack_join joins a huge page optimized stack for the
+   provided tile.  The stack is assumed to already exist at a known
+   path in the hugetlbfs mount. */
 
 void *
-fd_topo_tile_stack_new( int          optimize,
-                        char const * app_name,
-                        char const * tile_name,
-                        ulong        tile_kind_id,
-                        ulong        cpu_idx );
+fd_topo_tile_stack_join( char const * app_name,
+                         char const * tile_name,
+                         ulong        tile_kind_id );
 
 /* fd_topo_run_single_process runs all the tiles in a single process
    (the calling process).  This spawns a thread for each tile, switches

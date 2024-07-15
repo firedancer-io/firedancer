@@ -1506,7 +1506,7 @@ typedef struct fd_vote_epoch_credits_off fd_vote_epoch_credits_off_t;
 /* Encoded Size: Fixed (16 bytes) */
 struct __attribute__((aligned(8UL))) fd_vote_block_timestamp {
   ulong slot;
-  ulong timestamp;
+  long timestamp;
 };
 typedef struct fd_vote_block_timestamp fd_vote_block_timestamp_t;
 #define FD_VOTE_BLOCK_TIMESTAMP_FOOTPRINT sizeof(fd_vote_block_timestamp_t)
@@ -1798,7 +1798,7 @@ struct __attribute__((aligned(8UL))) fd_vote_state_update {
   ulong root;
   uchar has_root;
   fd_hash_t hash;
-  ulong* timestamp;
+  long* timestamp;
 };
 typedef struct fd_vote_state_update fd_vote_state_update_t;
 #define FD_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_vote_state_update_t)
@@ -1820,7 +1820,7 @@ struct __attribute__((aligned(8UL))) fd_compact_vote_state_update {
   ushort lockouts_len;
   fd_lockout_offset_t * lockouts;
   fd_hash_t hash;
-  ulong* timestamp;
+  long* timestamp;
 };
 typedef struct fd_compact_vote_state_update fd_compact_vote_state_update_t;
 #define FD_COMPACT_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_compact_vote_state_update_t)
@@ -1872,7 +1872,7 @@ struct __attribute__((aligned(8UL))) fd_compact_tower_sync {
   ulong root;
   fd_lockout_offset_t * lockout_offsets; /* fd_deque_dynamic (min cnt 32) */
   fd_hash_t hash;
-  ulong timestamp;
+  long timestamp;
   uchar has_timestamp;
   fd_hash_t block_id;
 };
@@ -1899,7 +1899,7 @@ struct __attribute__((aligned(8UL))) fd_tower_sync {
   ulong root;
   uchar has_root;
   fd_hash_t hash;
-  ulong timestamp;
+  long timestamp;
   uchar has_timestamp;
   fd_hash_t block_id;
 };
@@ -2083,7 +2083,7 @@ struct __attribute__((aligned(8UL))) fd_slot_meta {
   ulong slot;
   ulong consumed;
   ulong received;
-  ulong first_shred_timestamp;
+  long first_shred_timestamp;
   ulong last_index;
   ulong parent_slot;
   ulong next_slot_len;
@@ -2318,6 +2318,19 @@ typedef struct fd_firedancer_bank_off fd_firedancer_bank_off_t;
 #define FD_FIREDANCER_BANK_OFF_FOOTPRINT sizeof(fd_firedancer_bank_off_t)
 #define FD_FIREDANCER_BANK_OFF_ALIGN (16UL)
 
+union fd_cluster_type_inner {
+  uchar nonempty; /* Hack to support enums with no inner structures */ 
+};
+typedef union fd_cluster_type_inner fd_cluster_type_inner_t;
+
+struct fd_cluster_type {
+  uint discriminant;
+  fd_cluster_type_inner_t inner;
+};
+typedef struct fd_cluster_type fd_cluster_type_t;
+#define FD_CLUSTER_TYPE_FOOTPRINT sizeof(fd_cluster_type_t)
+#define FD_CLUSTER_TYPE_ALIGN (8UL)
+
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(16UL))) fd_epoch_bank {
   fd_stakes_t stakes;
@@ -2335,6 +2348,7 @@ struct __attribute__((aligned(16UL))) fd_epoch_bank {
   ulong eah_interval;
   fd_hash_t genesis_hash;
   uint cluster_type;
+  uint cluster_version;
   fd_vote_accounts_t next_epoch_stakes;
 };
 typedef struct fd_epoch_bank fd_epoch_bank_t;
@@ -2357,6 +2371,7 @@ struct __attribute__((aligned(16UL))) fd_epoch_bank_off {
   uint eah_interval_off;
   uint genesis_hash_off;
   uint cluster_type_off;
+  uint cluster_version_off;
   uint next_epoch_stakes_off;
 };
 typedef struct fd_epoch_bank_off fd_epoch_bank_off_t;
@@ -2376,7 +2391,8 @@ struct __attribute__((aligned(16UL))) fd_slot_bank {
   ulong capitalization;
   ulong block_height;
   ulong max_tick_height;
-  ulong collected_fees;
+  ulong collected_execution_fees;
+  ulong collected_priority_fees;
   ulong collected_rent;
   fd_vote_accounts_t epoch_stakes;
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
@@ -2403,7 +2419,8 @@ struct __attribute__((aligned(16UL))) fd_slot_bank_off {
   uint capitalization_off;
   uint block_height_off;
   uint max_tick_height_off;
-  uint collected_fees_off;
+  uint collected_execution_fees_off;
+  uint collected_priority_fees_off;
   uint collected_rent_off;
   uint epoch_stakes_off;
   uint last_restart_slot_off;
@@ -2456,7 +2473,7 @@ deq_ulong_alloc( fd_valloc_t valloc, ulong max ) {
 struct __attribute__((aligned(8UL))) fd_vote {
   ulong * slots; /* fd_deque_dynamic */
   fd_hash_t hash;
-  ulong* timestamp;
+  long* timestamp;
 };
 typedef struct fd_vote fd_vote_t;
 #define FD_VOTE_FOOTPRINT sizeof(fd_vote_t)
@@ -2936,7 +2953,7 @@ typedef struct fd_authorize_checked_with_seed_args_off fd_authorize_checked_with
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L235 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_lockup_checked_args {
-  ulong* unix_timestamp;
+  long* unix_timestamp;
   ulong* epoch;
 };
 typedef struct fd_lockup_checked_args fd_lockup_checked_args_t;
@@ -2954,7 +2971,7 @@ typedef struct fd_lockup_checked_args_off fd_lockup_checked_args_off_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L228 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_lockup_args {
-  ulong* unix_timestamp;
+  long* unix_timestamp;
   ulong* epoch;
   fd_pubkey_t * custodian;
 };
@@ -3919,7 +3936,7 @@ typedef struct fd_gossip_version_v3_off fd_gossip_version_v3_off_t;
 struct __attribute__((aligned(8UL))) fd_gossip_node_instance {
   fd_pubkey_t from;
   ulong wallclock;
-  ulong timestamp;
+  long timestamp;
   ulong token;
 };
 typedef struct fd_gossip_node_instance fd_gossip_node_instance_t;
@@ -4263,7 +4280,7 @@ struct __attribute__((aligned(8UL))) fd_repair_request_header {
   fd_signature_t signature;
   fd_pubkey_t sender;
   fd_pubkey_t recipient;
-  ulong timestamp;
+  long timestamp;
   uint nonce;
 };
 typedef struct fd_repair_request_header fd_repair_request_header_t;
@@ -5707,6 +5724,28 @@ ulong fd_firedancer_bank_size( fd_firedancer_bank_t const * self );
 ulong fd_firedancer_bank_footprint( void );
 ulong fd_firedancer_bank_align( void );
 
+void fd_cluster_type_new_disc( fd_cluster_type_t * self, uint discriminant );
+void fd_cluster_type_new( fd_cluster_type_t * self );
+int fd_cluster_type_decode( fd_cluster_type_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_cluster_type_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_cluster_type_decode_unsafe( fd_cluster_type_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_cluster_type_encode( fd_cluster_type_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_cluster_type_destroy( fd_cluster_type_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_cluster_type_walk( void * w, fd_cluster_type_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_cluster_type_size( fd_cluster_type_t const * self );
+ulong fd_cluster_type_footprint( void );
+ulong fd_cluster_type_align( void );
+
+FD_FN_PURE uchar fd_cluster_type_is_Testnet( fd_cluster_type_t const * self );
+FD_FN_PURE uchar fd_cluster_type_is_MainnetBeta( fd_cluster_type_t const * self );
+FD_FN_PURE uchar fd_cluster_type_is_Devnet( fd_cluster_type_t const * self );
+FD_FN_PURE uchar fd_cluster_type_is_Development( fd_cluster_type_t const * self );
+enum {
+fd_cluster_type_enum_Testnet = 0,
+fd_cluster_type_enum_MainnetBeta = 1,
+fd_cluster_type_enum_Devnet = 2,
+fd_cluster_type_enum_Development = 3,
+}; 
 void fd_epoch_bank_new( fd_epoch_bank_t * self );
 int fd_epoch_bank_decode( fd_epoch_bank_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_epoch_bank_decode_preflight( fd_bincode_decode_ctx_t * ctx );

@@ -243,7 +243,9 @@ typedef struct {
 
     struct {
       char  blockstore_checkpt[ PATH_MAX ];
+      int   blockstore_publish;
       char  capture[ PATH_MAX ];
+      char  funk_checkpt[ PATH_MAX ];
       ulong funk_rec_max;
       ulong funk_sz_gb;
       ulong funk_txn_max;
@@ -251,16 +253,21 @@ typedef struct {
       char  incremental[ PATH_MAX ];
       char  slots_replayed[PATH_MAX ];
       char  snapshot[ PATH_MAX ];
+      char  status_cache[ PATH_MAX ];
       ulong tpool_thread_count;
     } replay;
 
     struct {
       char  blockstore_restore[ PATH_MAX ];
       char  slots_pending[PATH_MAX];
+      char  shred_cap_archive[ PATH_MAX ];
+      char  shred_cap_replay[ PATH_MAX ];
     } store_int;
 
   } tiles;
 } config_t;
+
+FD_PROTOTYPES_BEGIN
 
 /* memlock_max_bytes() returns, for the entire Firedancer application,
    what the maximum total amount of `mlock()`ed memory will be in any
@@ -290,5 +297,7 @@ fdctl_cfg_from_env( int *      pargc,
 
 int
 fdctl_cfg_to_memfd( config_t * config );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_app_fdctl_config_h */

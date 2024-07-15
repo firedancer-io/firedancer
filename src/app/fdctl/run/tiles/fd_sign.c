@@ -298,9 +298,9 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
       FD_TEST( !strcmp( out_link->name, "repair_gossip" ) );
       FD_TEST( in_link->mtu==2048UL );
       FD_TEST( out_link->mtu==64UL );
-    } else if ( !strcmp(in_link->name, "replay_sign" ) ) {
+    } else if ( !strcmp(in_link->name, "voter_sign" ) ) {
       ctx->in_role[ i ] = FD_KEYGUARD_ROLE_VOTER;
-      FD_TEST( !strcmp( out_link->name, "sign_replay"  ) );
+      FD_TEST( !strcmp( out_link->name, "sign_voter"  ) );
       FD_TEST( in_link->mtu==FD_TXN_MTU  );
       FD_TEST( out_link->mtu==64UL );
     } else {

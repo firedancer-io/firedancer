@@ -530,6 +530,8 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
     if( FD_UNLIKELY( rec_idx>=rec_max ) ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
     if( FD_UNLIKELY( fd_funk_txn_idx( rec_map[ rec_idx ].txn_cidx )!=txn_idx ) )
       FD_LOG_CRIT(( "memory corruption detected (cycle or bad idx)" ));
+    if( FD_UNLIKELY( rec_map[ rec_idx ].val_no_free ) )
+      FD_LOG_CRIT(( "new record was speed loaded" ));
     rec_map[ rec_idx ].txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
 
     ulong next_idx = rec_map[ rec_idx ].next_idx;

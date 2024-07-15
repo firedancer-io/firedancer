@@ -54,6 +54,9 @@ fd_vm_strerror( int err ) {
   case FD_VM_ERR_LDQ_NO_ADDL_IMM:   return "LDQ_NO_ADDL_IMM detected a ldq without an addl imm following it";
   case FD_VM_ERR_NO_SUCH_EXT_CALL:  return "NO_SUCH_EXT_CALL detected a call imm with no function was registered for that immediate";
   case FD_VM_ERR_INVALID_REG:       return "INVALID_REG detected an invalid register number in a callx instruction";
+  case FD_VM_ERR_BAD_TEXT:          return "BAD_TEXT detected a bad text section";
+  case FD_VM_SH_OVERFLOW:           return "SH_OVERFLOW detected a shift overflow in an instruction";
+  case FD_VM_TEXT_SZ_UNALIGNED:     return "TEXT_SZ_UNALIGNED detected an unaligned text section size (not a multiple of 8)";
 
   default: break;
   }
@@ -137,7 +140,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
     /* 0xb8 */ FD_INVALID,    /* 0xb9 */ FD_INVALID,    /* 0xba */ FD_INVALID,    /* 0xbb */ FD_INVALID,
     /* 0xbc */ FD_VALID,      /* 0xbd */ FD_CHECK_JMP,  /* 0xbe */ FD_INVALID,    /* 0xbf */ FD_VALID,
     /* 0xc0 */ FD_INVALID,    /* 0xc1 */ FD_INVALID,    /* 0xc2 */ FD_INVALID,    /* 0xc3 */ FD_INVALID,
-    /* 0xc4 */ FD_VALID,      /* 0xc5 */ FD_CHECK_JMP,  /* 0xc6 */ FD_INVALID,    /* 0xc7 */ FD_VALID,
+    /* 0xc4 */ FD_CHECK_SH32, /* 0xc5 */ FD_CHECK_JMP,  /* 0xc6 */ FD_INVALID,    /* 0xc7 */ FD_CHECK_SH64,
     /* 0xc8 */ FD_INVALID,    /* 0xc9 */ FD_INVALID,    /* 0xca */ FD_INVALID,    /* 0xcb */ FD_INVALID,
     /* 0xcc */ FD_VALID,      /* 0xcd */ FD_CHECK_JMP,  /* 0xce */ FD_INVALID,    /* 0xcf */ FD_VALID,
     /* 0xd0 */ FD_INVALID,    /* 0xd1 */ FD_INVALID,    /* 0xd2 */ FD_INVALID,    /* 0xd3 */ FD_INVALID,
@@ -154,8 +157,23 @@ fd_vm_validate( fd_vm_t const * vm ) {
     /* 0xfc */ FD_INVALID,    /* 0xfd */ FD_INVALID,    /* 0xfe */ FD_INVALID,    /* 0xff */ FD_INVALID,
   };
 
-  /* FIXME: CLEAN UP LONG / ULONG TYPE CONVERSION */
+  /* FIXME: These checks are not necessary assuming fd_vm_t is populated by metadata
+     generated in fd_sbpf_elf_peek (which performs these checks). But there is no guarantee, and
+     this non-guarantee is (rightfully) exploited by the fuzz harnesses. 
+     Agave doesn't perform these checks explicitly due to Rust's guarantees  */
+  if( FD_UNLIKELY( vm->text_sz / 8UL != vm->text_cnt || 
+                   (const uchar *) vm->text < vm->rodata ||
+                   (const uchar *) vm->text > (const uchar *) vm->text + vm->text_sz || /* Overflow chk */
+                   (const uchar *) vm->text  + vm->text_sz >  vm->rodata + vm->rodata_sz ) ) 
+    return FD_VM_ERR_BAD_TEXT;
 
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( vm->text_sz, 8UL ) ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L109 */
+    return FD_VM_TEXT_SZ_UNALIGNED;
+
+  if ( FD_UNLIKELY( vm->text_cnt == 0UL ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L112 */
+    return FD_VM_ERR_EMPTY;
+
+  /* FIXME: CLEAN UP LONG / ULONG TYPE CONVERSION */
   ulong const * text     = vm->text;
   ulong         text_cnt = vm->text_cnt;
   for( ulong i=0UL; i<text_cnt; i++ ) {
@@ -184,10 +202,15 @@ fd_vm_validate( fd_vm_t const * vm ) {
     case FD_CHECK_LDQ: {
       /* https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/verifier.rs#L131 */
       if( FD_UNLIKELY( (i+1UL)>=text_cnt ) ) return FD_VM_ERR_INCOMPLETE_LDQ;
-      /* FIXME: SHOULD THERE BE EXTRA CHECKS ON THE ADDL_IMM HERE? */
+
+      /* https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/verifier.rs#L137-L139 */
+      fd_sbpf_instr_t addl_imm = fd_sbpf_instr( text[ i+1UL ] );
+      if( FD_UNLIKELY( addl_imm.opcode.raw!=FD_SBPF_OP_ADDL_IMM ) ) return FD_VM_ERR_LDQ_NO_ADDL_IMM;
+
       /* FIXME: SET A BIT MAP HERE OF ADDL_IMM TO DENOTE * AS FORBIDDEN
          BRANCH TARGETS OF CALL_REG?? */
-      i++;
+      
+      i++; /* Skip the addl imm */
       break;
     }
 
@@ -197,12 +220,12 @@ fd_vm_validate( fd_vm_t const * vm ) {
     }
 
     case FD_CHECK_SH32: {
-      if( FD_UNLIKELY( instr.imm>=32 ) ) return FD_VM_ERR_SIGILL;
+      if( FD_UNLIKELY( instr.imm>=32 ) ) return FD_VM_SH_OVERFLOW;
       break;
     }
 
     case FD_CHECK_SH64: {
-      if( FD_UNLIKELY( instr.imm>=64 ) ) return FD_VM_ERR_SIGILL;
+      if( FD_UNLIKELY( instr.imm>=64 ) ) return FD_VM_SH_OVERFLOW;
       break;
     }
 

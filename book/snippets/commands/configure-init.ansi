@@ -1,0 +1,18 @@
+$ fdctl configure init all
+[32mNOTICE [0m hugetlbfs ... unconfigured ... mounts `/mnt/.fd/.huge` and `/mnt/.fd/.gigantic` do not exist
+[32mNOTICE [0m hugetlbfs ... configuring
+[32mNOTICE [0m RUN: `mkdir -p /mnt/.fd/.huge`
+[32mNOTICE [0m RUN: `mount -t hugetlbfs none /mnt/.fd/.huge -o pagesize=2097152,min_size=241172480`
+[32mNOTICE [0m RUN: `mkdir -p /mnt/.fd/.gigantic`
+[32mNOTICE [0m RUN: `mount -t hugetlbfs none /mnt/.fd/.gigantic -o pagesize=1073741824,min_size=27917287424`
+[32mNOTICE [0m sysctl ... unconfigured ... kernel parameter `/proc/sys/vm/max_map_count` is too low (got 65536 but expected at least 1000000)
+[32mNOTICE [0m RUN: `echo "1000000" > /proc/sys/vm/max_map_count`
+[32mNOTICE [0m RUN: `echo "1024000" > /proc/sys/fs/file-max`
+[32mNOTICE [0m RUN: `echo "1024000" > /proc/sys/fs/nr_open`
+[32mNOTICE [0m RUN: `echo "2" > /proc/sys/net/ipv4/conf/lo/rp_filter`
+[32mNOTICE [0m RUN: `echo "1" > /proc/sys/net/ipv4/conf/lo/accept_local`
+[93mWARNING[0m kernel parameter `/proc/sys/net/core/bpf_jit_enable` is too low (got 0 but expected at least 1). Proceeding but performance may be reduced.
+[93mWARNING[0m kernel parameter `/proc/sys/kernel/numa_balancing` is set to 1, not the expected value of 0. Proceeding but performance may be reduced.
+[32mNOTICE [0m ethtool ... unconfigured ... device `ens3f0` does not have right number of channels (got 1 but expected 2)
+[32mNOTICE [0m ethtool ... configuring
+[32mNOTICE [0m ethtool ... RUN: `ethtool --set-channels ens3f0 combined 2`

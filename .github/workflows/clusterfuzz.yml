@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
 jobs:
   clusterfuzz-publish:
+    timeout-minutes: 30
     environment:
       name: clusterfuzz
       url: 'https://isol-clusterfuzz.appspot.com/'
@@ -54,10 +55,37 @@ jobs:
           qualifier: ${{ matrix.qualifier }}
           service-account-credentials: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
 
+  solfuzz-publish:
+    timeout-minutes: 30
+    runs-on:
+      group: github-v1
+    env:
+      MACHINE: linux_clang_haswell
+      OBJ_DIR: build/linux/clang/haswell
+      EXTRAS: fuzz asan
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: ./.github/actions/hugepages
+      - uses: ./.github/actions/deps
+
+      - run: sudo apt update && sudo apt install -y zip
+
+      - uses: asymmetric-research/clusterfuzz-fuzzbot-builder@main
+        name: Build fuzz tests
+        with:
+          command: make -j -Otarget fuzz-test lib
+
+      - name: List Artifacts
+        run: |
+          ls ${{ env.OBJ_DIR }}/fuzz-test
+          ls ${{ env.OBJ_DIR }}/lib
+
       - name: upload lib artifact
         uses: actions/upload-artifact@v4
-        if: ${{ matrix.machine == 'linux_clang_haswell' }}
         with:
-          path: ${{ matrix.artifact_dir }}/lib/libfd_exec_sol_compat.so
+          path: ${{ env.OBJ_DIR }}/lib/libfd_exec_sol_compat.so
           name: libfd_exec_sol_compat
           retention-days: 14

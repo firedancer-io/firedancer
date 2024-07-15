@@ -652,7 +652,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
   FD_VM_INTERP_BRANCH_BEGIN(0x95) /* FD_SBPF_OP_EXIT */
     if( FD_UNLIKELY( !frame_cnt ) ) {
-        pc++;                                      
+        pc++;
         pc0 = pc; /* Start a new linear segment */
         goto sigexit; /* Exit program */
     }
@@ -760,7 +760,15 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
   /* 0xd0 - 0xdf ******************************************************/
 
   FD_VM_INTERP_INSTR_BEGIN(0xd4) /* FD_SBPF_OP_END_LE */
-    /* fd machine is little endian */
+    /* Note: since fd_vm_validate rejects LE with strange immediates, we
+       sigill if we encouter such in unvalidated code to match (FIXME:
+       IS THIS THE DESIRED BEHAVIOR?) */
+    switch( imm ) {
+    case 16U: reg[ dst ] = (ushort)reg_dst; break;
+    case 32U: reg[ dst ] = (uint)  reg_dst; break;
+    case 64U:                               break;
+    default: goto sigill;
+    }
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xd5) /* FD_SBPF_OP_JSLE_IMM */
@@ -768,9 +776,6 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xdc) /* FD_SBPF_OP_END_BE */
-    /* Note: since fd_vm_validate rejects BE with strange immediates, we
-       sigill if we encouter such in unvalidated code to match (FIXME:
-       IS THIS THE DESIRED BEHAVIOR?) */
     switch( imm ) {
     case 16U: reg[ dst ] = (ulong)fd_ushort_bswap( (ushort)reg_dst ); break;
     case 32U: reg[ dst ] = (ulong)fd_uint_bswap  ( (uint)  reg_dst ); break;

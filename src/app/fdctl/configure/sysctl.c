@@ -95,11 +95,11 @@ check( config_t * const config ) {
     switch( params[ i ].mode ) {
       case ENFORCE_MINIMUM:
         if( FD_UNLIKELY( param<params[ i ].value ) )
-          NOT_CONFIGURED( "kernel parameter `%s` is too low (%u < %u)", params[ i ].path, param, params[ i ].value );
+          NOT_CONFIGURED( "kernel parameter `%s` is too low (got %u but expected at least %u)", params[ i ].path, param, params[ i ].value );
         break;
       case WARN_MINIMUM:
         if( FD_UNLIKELY( !has_warned && param<params[ i ].value ) )
-          FD_LOG_WARNING(( "kernel parameter `%s` is too low (%u < %u). Proceeding but performance may be reduced.", params[ i ].path, param, params[ i ].value ));
+          FD_LOG_WARNING(( "kernel parameter `%s` is too low (got %u but expected at least %u). Proceeding but performance may be reduced.", params[ i ].path, param, params[ i ].value ));
         break;
       case WARN_EXACT:
         if( FD_UNLIKELY( !has_warned && param!=params[ i ].value ) )

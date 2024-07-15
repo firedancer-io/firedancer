@@ -12,6 +12,7 @@
 #include "../../../../util/fd_util.h"
 #include "../../../../choreo/fd_choreo.h"
 
+#include <fcntl.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <linux/unistd.h>
@@ -24,11 +25,14 @@
 #include "../../../../util/net/fd_ip4.h"
 #include "../../../../util/net/fd_udp.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
+#include "../../../../disco/shred/fd_shred_cap.h"
 #include "../../../../disco/topo/fd_pod_format.h"
-#include "../../../../disco/tvu/fd_store.h"
+#include "../../../../disco/store/fd_store.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../flamenco/runtime/fd_runtime.h"
+#include "../../../../disco/metrics/fd_metrics.h"
+#include "../../../../disco/metrics/generated/fd_metrics_replay.h"
 
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
@@ -107,6 +111,10 @@ struct fd_store_tile_ctx {
   ulong blockstore_seed;
 
   ulong * root_slot_fseq;
+
+  int sim;
+
+  fd_shred_cap_ctx_t shred_cap_ctx;
 };
 typedef struct fd_store_tile_ctx fd_store_tile_ctx_t;
 
@@ -202,6 +210,11 @@ after_frag( void *             _ctx,
       // TODO: improve return value of api to not use < OK
       if( fd_store_shred_insert( ctx->store, &ctx->s34_buffer->pkts[i].shred ) < FD_BLOCKSTORE_OK ) {
         FD_LOG_ERR(( "failed inserting to blockstore" ));
+      } else if ( ctx->shred_cap_ctx.is_archive ) {
+        uchar shred_cap_flag = FD_SHRED_CAP_FLAG_MARK_TURBINE(0);
+        if ( fd_shred_cap_archive(&ctx->shred_cap_ctx, &ctx->s34_buffer->pkts[i].shred, shred_cap_flag) < FD_SHRED_CAP_OK ) {
+          FD_LOG_ERR(( "failed at archiving turbine shred to file" ));
+        }
       }
 
       fd_store_shred_update_with_shred_from_turbine( ctx->store, &ctx->s34_buffer->pkts[i].shred );
@@ -211,6 +224,11 @@ after_frag( void *             _ctx,
   if( FD_UNLIKELY( in_idx==REPAIR_IN_IDX ) ) {
     if( fd_store_shred_insert( ctx->store, fd_type_pun_const( ctx->shred_buffer ) ) < FD_BLOCKSTORE_OK ) {
       FD_LOG_ERR(( "failed inserting to blockstore" ));
+    } else if ( ctx->shred_cap_ctx.is_archive ) {
+        uchar shred_cap_flag = FD_SHRED_CAP_FLAG_MARK_REPAIR(0);
+        if ( fd_shred_cap_archive(&ctx->shred_cap_ctx, fd_type_pun_const( ctx->shred_buffer ), shred_cap_flag) < FD_SHRED_CAP_OK ) {
+          FD_LOG_ERR(( "failed at archiving repair shred to file" ));
+        }
     }
   }
 }
@@ -226,7 +244,7 @@ privileged_init( fd_topo_t *      topo  FD_PARAM_UNUSED,
   if( FD_UNLIKELY( !strcmp( tile->store_int.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->identity_key[ 0 ] = *(fd_pubkey_t *)fd_keyload_load( tile->store_int.identity_key_path, /* pubkey only: */ 1 );
+  ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->store_int.identity_key_path, /* pubkey only: */ 1 ) );
 
   FD_TEST( sizeof(ulong) == getrandom( &ctx->blockstore_seed, sizeof(ulong), 0 ) );
 }
@@ -238,17 +256,20 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_repair_request_t * repair_reqs = fd_chunk_to_laddr( ctx->repair_req_out_mem, ctx->repair_req_out_chunk );
   fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, slot );
-  if( FD_UNLIKELY( !lsched ) ) {
+
+  fd_pubkey_t const * slot_leader = NULL;
+  if( FD_LIKELY( !ctx->sim ) ) {
+    if( FD_UNLIKELY( !lsched ) ) {
     // FD_LOG_WARNING(("Get leader schedule for slot %lu failed", slot));
-    return;
-  }
+      return;
+    }
 
-  fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( lsched, slot );
-  if( FD_UNLIKELY( !slot_leader ) ) {
-    FD_LOG_WARNING(("Epoch leaders get fails"));
-    return;
+    slot_leader = fd_epoch_leaders_get( lsched, slot );
+    if( FD_UNLIKELY( !slot_leader ) ) {
+      FD_LOG_WARNING(( "Epoch leaders get fails" ));
+      return;
+    }
   }
-
   /* We are leader at this slot and the slot is newer than turbine! */
   // FIXME: I dont think that this `ctx->store->curr_turbine_slot >= slot`
   // check works on fork switches to lower slot numbers. Use a given fork height
@@ -268,10 +289,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
   ulong repair_req_cnt = 0;
   switch( store_slot_prepare_mode ) {
     case FD_STORE_SLOT_PREPARE_CONTINUE: {
-      if( slot > 64UL ) {
-        ctx->blockstore->smr = fd_ulong_max( ctx->blockstore->smr, slot - 64UL );
-        fd_pending_slots_set_lo_wmark( ctx->store->pending_slots, ctx->blockstore->smr );
-      }
+      fd_pending_slots_set_lo_wmark( ctx->store->pending_slots, ctx->blockstore->root );
       ctx->store->now = fd_log_wallclock();
       break;
     }
@@ -320,8 +338,8 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       FD_LOG_ERR(( "could not find block" ));
     }
 
-    fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( ctx->blockstore, slot );
-    if( slot_meta == NULL ) {
+    fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
+    if( block_map_entry == NULL ) {
       FD_LOG_ERR(( "could not find slot meta" ));
     }
 
@@ -330,7 +348,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       FD_LOG_ERR(( "could not find slot meta" ));
     }
 
-    FD_STORE( ulong, out_buf, slot_meta->parent_slot );
+    FD_STORE( ulong, out_buf, block_map_entry->parent_slot );
     out_buf += sizeof(ulong);
 
     memcpy( out_buf, block_hash->uc, sizeof(fd_hash_t) );
@@ -342,14 +360,22 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       fd_block_info_t block_info;
       fd_runtime_block_prepare( block_data, block->data_sz, fd_scratch_virtual(), &block_info );
 
+      ulong caught_up = slot > ctx->store->first_turbine_slot;
+      ulong behind = ctx->store->curr_turbine_slot - slot;
+
       FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %32J", slot, block_info.microblock_cnt, block_hash->uc ));
       FD_LOG_DEBUG(( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
                       "executed: %lu, caught up: %d",
                       ctx->store->first_turbine_slot,
                       ctx->store->curr_turbine_slot,
-                      ctx->store->curr_turbine_slot - slot,
+                      behind,
                       slot,
-                      slot > ctx->store->first_turbine_slot ));
+                      caught_up ));
+
+      FD_MGAUGE_SET( REPLAY, SLOT, ctx->store->curr_turbine_slot );
+      FD_MGAUGE_SET( REPLAY, CAUGHT_UP, caught_up );
+      FD_MGAUGE_SET( REPLAY, BEHIND, behind );
+
       fd_txn_p_t * txns = fd_type_pun( out_buf );
       ulong txn_cnt = fd_runtime_block_collect_txns( &block_info, txns );
  
@@ -358,7 +384,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       ulong replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
 
       if( ( ctx->store->curr_turbine_slot - slot )==0 
-          && memcmp( ctx->identity_key, slot_leader, sizeof(fd_pubkey_t) ) == 0 ) {
+          && slot_leader && memcmp( ctx->identity_key, slot_leader, sizeof(fd_pubkey_t) ) == 0 ) {
         /* if is caught up and is leader */
         txn_cnt = 0;
         replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
@@ -395,6 +421,11 @@ after_credit( void *             _ctx,
 
   ctx->store->now = fd_log_wallclock();
 
+  if( FD_UNLIKELY( ctx->sim &&
+                   ctx->store->pending_slots->start == ctx->store->pending_slots->end ) ) {
+    FD_LOG_ERR( ( "Sim is complete." ) );
+  }
+
   for( ulong i = fd_pending_slots_iter_init( ctx->store->pending_slots );
          (i = fd_pending_slots_iter_next( ctx->store->pending_slots, ctx->store->now, i )) != ULONG_MAX; ) {
     uchar const * block = NULL;
@@ -408,7 +439,7 @@ after_credit( void *             _ctx,
   }
 }
 
-void
+static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
@@ -563,16 +594,42 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   if( FD_UNLIKELY( strlen( tile->store_int.slots_pending ) > 0 ) ) {
+    ctx->sim = 1;
+
+    const char * split = strchr( tile->store_int.slots_pending, '-' );
+    FD_TEST( split != NULL && *( split + 1 ) != '\0' );
+    const char * snapshot_slot_str = split + 1;
+    char *       endptr;
+    ulong        snapshot_slot = strtoul( snapshot_slot_str, &endptr, 10 );
+
     FILE * file = fopen( tile->store_int.slots_pending, "r" );
     char   buf[20]; /* max # of digits for a ulong */
 
-    ulong cnt = 0;
+    ulong cnt = 1;
+    fd_blockstore_start_write( ctx->blockstore );
+    FD_TEST( fd_block_map_remove( fd_blockstore_block_map (ctx->blockstore), &snapshot_slot ) );
     while( fgets( buf, sizeof( buf ), file ) ) {
-      char * endptr;
-      ulong  slot = strtoul( buf, &endptr, 10 );
+      char *       endptr;
+      ulong        slot  = strtoul( buf, &endptr, 10 );
+      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
+      block_map_entry->flags       = 0;
       fd_store_add_pending( ctx->store, slot, cnt++ );
     }
+    fd_blockstore_end_write( ctx->blockstore );
     fclose( file );
+  }
+
+  ctx->shred_cap_ctx.stable_slot_end   = 0;
+  ctx->shred_cap_ctx.stable_slot_start = 0;
+  if( strlen( tile->store_int.shred_cap_archive ) > 0 ) {
+    ctx->shred_cap_ctx.is_archive      = 1;
+    ctx->shred_cap_ctx.shred_cap_fileno = open( tile->store_int.shred_cap_archive,
+                                                O_WRONLY | O_CREAT,
+                                                S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH );
+    if( ctx->shred_cap_ctx.shred_cap_fileno==-1 ) FD_LOG_ERR(( "failed at opening the shredcap file" ));
+  } else if ( strlen( tile->store_int.shred_cap_replay ) > 0 ) {
+    ctx->sim = 1;
+    FD_TEST( fd_shred_cap_replay( tile->store_int.shred_cap_replay, ctx->store ) == FD_SHRED_CAP_OK );
   }
 }
 

@@ -241,6 +241,11 @@ void
 fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
                                    void *             context  );
 
+void
+fd_quic_tls_cb_peer_params( void *        context,
+                            uchar const * peer_tp_enc,
+                            ulong         peer_tp_enc_sz );
+
 /* Helpers for calling callbacks **************************************/
 
 static inline ulong
@@ -370,6 +375,7 @@ ulong
 fd_quic_handle_v1_frame( fd_quic_t *       quic,
                          fd_quic_conn_t *  conn,
                          fd_quic_pkt_t *   pkt,
+                         uint              pkt_type,
                          uchar const *     frame_ptr,
                          ulong             frame_sz,
                          fd_quic_frame_u * frame_scratch );

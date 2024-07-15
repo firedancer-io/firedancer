@@ -104,14 +104,17 @@ void fd_tower_sync_decode_unsafe( fd_tower_sync_t * self, fd_bincode_decode_ctx_
   ulong lockout_offsets_max = fd_ulong_max( lockout_offsets_len, 32 );
   self->lockouts = deq_fd_vote_lockout_t_alloc( ctx->valloc, lockout_offsets_max );
 
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L1062-L1077
+  ulong last_slot = ((self->root == ULONG_MAX) ? 0 : self->root);
   for( ulong i=0; i < lockout_offsets_len; i++ ) {
     fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy( self->lockouts );
 
     fd_lockout_offset_t o;
     fd_lockout_offset_decode_unsafe( &o, ctx );
 
-    elem->slot = ((self->root == ULONG_MAX) ? 0 : self->root)  + o.offset;
+    elem->slot = last_slot + o.offset;
     elem->confirmation_count = o.confirmation_count;
+    last_slot = elem->slot;
   }
 
   fd_hash_decode_unsafe( &self->hash, ctx );
@@ -120,7 +123,7 @@ void fd_tower_sync_decode_unsafe( fd_tower_sync_t * self, fd_bincode_decode_ctx_
     fd_bincode_bool_decode_unsafe( &o, ctx );
     self->has_timestamp = !!o;
     if( o ) {
-      fd_bincode_uint64_decode_unsafe( &self->timestamp, ctx );
+      fd_bincode_int64_decode_unsafe( &self->timestamp, ctx );
     }
   }
   fd_hash_decode_unsafe( &self->block_id, ctx );
@@ -169,17 +172,15 @@ void fd_solana_vote_account_decode_unsafe( fd_solana_vote_account_t * self, fd_b
   ulong data_len;
   fd_bincode_uint64_decode_unsafe( &data_len, ctx );
   if( data_len ) {
-    uchar * data = fd_valloc_malloc( ctx->valloc, 8UL, data_len );
-    fd_bincode_bytes_decode_unsafe( data, data_len, ctx );
-
     FD_SCRATCH_SCOPE_BEGIN {
       /* Deserialize content */
       fd_vote_block_timestamp_t vote_ts;
       fd_vote_state_versioned_t vs[1];
       fd_bincode_decode_ctx_t decode =
-          { .data    = data,
-            .dataend = data + data_len,
-            .valloc  = fd_scratch_virtual() };
+        { .data    = (uchar *)ctx->data,
+          .dataend = (uchar *)ctx->data + data_len,
+          .valloc  = fd_scratch_virtual() };
+      ctx->data = decode.dataend;
       int decode_err = fd_vote_state_versioned_decode( vs, &decode );
       if( FD_LIKELY( decode_err==FD_BINCODE_SUCCESS ) ) {
         switch( vs->discriminant )
@@ -208,8 +209,6 @@ void fd_solana_vote_account_decode_unsafe( fd_solana_vote_account_t * self, fd_b
         fd_memset( &self->node_pubkey, 0UL, sizeof(fd_pubkey_t) );
       }
     } FD_SCRATCH_SCOPE_END;
-
-    fd_valloc_free( ctx->valloc, data );
   } else {
     self->last_timestamp_ts = 0;
     self->last_timestamp_slot = 0;

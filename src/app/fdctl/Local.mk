@@ -46,6 +46,7 @@ $(call add-objs,run/tiles/fd_store_int,fd_fdctl)
 $(call add-objs,run/tiles/fd_replay,fd_fdctl)
 $(call add-objs,run/tiles/fd_replay_thread,fd_fdctl)
 $(call add-objs,run/tiles/fd_poh_int,fd_fdctl)
+$(call add-objs,run/tiles/fd_sender,fd_fdctl)
 endif
 
 # fdctl topologies
@@ -57,7 +58,6 @@ $(call add-objs,configure/configure,fd_fdctl)
 $(call add-objs,configure/hugetlbfs,fd_fdctl)
 $(call add-objs,configure/sysctl,fd_fdctl)
 $(call add-objs,configure/ethtool,fd_fdctl)
-$(call add-objs,configure/workspace,fd_fdctl)
 
 ifdef FD_HAS_NO_SOLANA
 ifdef FD_HAS_SECP256K1
@@ -73,7 +73,7 @@ $(call run-unit-test,test_tiles_verify)
 $(call make-unit-test,test_config_parse,test_config_parse,fd_fdctl fd_ballet fd_util)
 
 $(OBJDIR)/obj/app/fdctl/configure/xdp.o: src/waltz/xdp/fd_xdp_redirect_prog.o
-$(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
+$(OBJDIR)/obj/app/fdctl/config_parse.o: src/app/fdctl/config/default.toml
 
 $(OBJDIR)/obj/app/fdctl/run/run.o: src/app/fdctl/run/generated/main_seccomp.h src/app/fdctl/run/generated/pidns_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_dedup.o: src/app/fdctl/run/tiles/generated/dedup_seccomp.h
@@ -90,6 +90,7 @@ $(OBJDIR)/obj/app/fdctl/run/tiles/fd_repair.o: src/app/fdctl/run/tiles/generated
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_gossip.o: src/app/fdctl/run/tiles/generated/gossip_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_store_int.o: src/app/fdctl/run/tiles/generated/store_int_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_replay.o: src/app/fdctl/run/tiles/generated/replay_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_sender.o: src/app/fdctl/run/tiles/generated/sender_seccomp.h
 endif
 
 check-solana-hash:

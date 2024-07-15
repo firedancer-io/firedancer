@@ -291,6 +291,9 @@ fd_calculate_stake_weighted_timestamp(
     if ( FD_LIKELY( treap_idx < ULONG_MAX ) ) {
       pool[ treap_idx ].stake += n->elem.stake;
     } else {
+      if( 0 == stake_ts_pool_free( pool ) ) {
+        FD_LOG_ERR(( "stake_ts_pool is empty" ));
+      }
       ulong idx = stake_ts_pool_idx_acquire( pool );
       pool[ idx ].timestamp = estimate;
       pool[ idx ].stake = n->elem.stake;

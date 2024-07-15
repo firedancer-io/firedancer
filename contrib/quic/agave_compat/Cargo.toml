@@ -1,0 +1,11 @@
+[package]
+name = "firedancer-agave-quic-test"
+version = "0.1.0"
+edition = "2021"
+publish = false
+build = "build.rs"
+
+[dependencies]
+env_logger = "0.11.3"
+libc = "0.2"
+solana-client = "1.18"

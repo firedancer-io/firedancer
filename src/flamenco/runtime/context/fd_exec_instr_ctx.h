@@ -55,8 +55,9 @@ static inline int
 fd_instr_borrowed_account_view_idx( fd_exec_instr_ctx_t const * ctx,
                                     ulong                       idx,
                                     fd_borrowed_account_t **    account ) {
-  if( idx >= ctx->instr->acct_cnt )
+  if( FD_UNLIKELY( idx >= ctx->instr->acct_cnt ) ) {
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  }
 
   fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[idx];
   FD_TEST( instr_account->const_meta != NULL );
@@ -68,6 +69,7 @@ int
 fd_instr_borrowed_account_view( fd_exec_instr_ctx_t *    ctx,
                                 fd_pubkey_t const *      pubkey,
                                 fd_borrowed_account_t ** account );
+
 int
 fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t const * ctx,
                                       ulong                       idx,

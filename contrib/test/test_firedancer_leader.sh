@@ -50,6 +50,7 @@ name = \"fd1test\"
         repair_serve_listen_port = 8702
     [tiles.replay]
         capture = \"fddev.solcap\"
+        blockstore_checkpt = \"fddev-blockstore.checkpt\"
         snapshot = \"$FULL_SNAPSHOT\"
         tpool_thread_count = 8
         funk_sz_gb = 32
@@ -62,14 +63,14 @@ name = \"fd1test\"
 [development]
     topology = \"firedancer\"
 [consensus]
+    vote = true
     identity_path = \"fd-identity-keypair.json\"
+    vote_account_path = \"fd-vote-keypair.json\"
 " > fddev.toml
 
 sudo $FD_DIR/build/native/$CC/bin/fddev configure init kill --config $(readlink -f fddev.toml)
 sudo $FD_DIR/build/native/$CC/bin/fddev configure init hugetlbfs --config $(readlink -f fddev.toml)
-sudo $FD_DIR/build/native/$CC/bin/fddev configure init xdp --config $(readlink -f fddev.toml)
 sudo $FD_DIR/build/native/$CC/bin/fddev configure init ethtool --config $(readlink -f fddev.toml)
 sudo $FD_DIR/build/native/$CC/bin/fddev configure init keys --config $(readlink -f fddev.toml)
-sudo $FD_DIR/build/native/$CC/bin/fddev configure init workspace --config $(readlink -f fddev.toml)
 
-sudo $FD_DIR/build/native/$CC/bin/fddev dev --no-configure --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --no-solana --no-sandbox --no-clone
+sudo gdb -iex="set debuginfod enabled on" -ex=r --args $FD_DIR/build/native/$CC/bin/fddev dev --no-configure --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --no-solana --no-sandbox --no-clone

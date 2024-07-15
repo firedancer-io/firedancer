@@ -131,9 +131,18 @@ fd_quic_tls_new( void *              mem,
 
   fd_quic_tls_t * self = (fd_quic_tls_t *)mem;
 
+  if( FD_UNLIKELY( (!cfg->alert_cb             ) |
+                   (!cfg->secret_cb            ) |
+                   (!cfg->handshake_complete_cb) |
+                   (!cfg->peer_params_cb       ) ) ) {
+    FD_LOG_WARNING(( "Missing callbacks" ));
+    return NULL;
+  }
+
   self->alert_cb              = cfg->alert_cb;
   self->secret_cb             = cfg->secret_cb;
   self->handshake_complete_cb = cfg->handshake_complete_cb;
+  self->peer_params_cb        = cfg->peer_params_cb;
   self->max_concur_handshakes = cfg->max_concur_handshakes;
 
   ulong handshakes_laddr = (ulong)mem + layout.handshakes_off;
@@ -287,7 +296,12 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
   (void)hostname;
 
   /* Set QUIC transport params */
-  FD_TEST( transport_params_raw_sz <= sizeof(self->self_transport_params) );
+  if( transport_params_raw_sz > sizeof(self->self_transport_params) ) {
+    /* unreachable with well-behaved caller */
+    FD_LOG_WARNING(( "transport_params_raw_sz too large (got %lu, max %lu)",
+                     transport_params_raw_sz, sizeof(self->self_transport_params) ));
+    return NULL;
+  }
   self->self_transport_params_sz = (uchar)transport_params_raw_sz;
   fd_memcpy( self->self_transport_params, transport_params_raw, transport_params_raw_sz );
 
@@ -581,14 +595,6 @@ fd_quic_tls_pop_hs_data( fd_quic_tls_hs_t * self, uint enc_level ) {
 
 }
 
-void
-fd_quic_tls_get_peer_transport_params( fd_quic_tls_hs_t * self,
-                                       uchar const **     transport_params,
-                                       ulong *            transport_params_sz ) {
-  *transport_params     = self->peer_transport_params;
-  *transport_params_sz  = self->peer_transport_params_sz;
-}
-
 void *
 fd_quic_tls_rand( void * ctx,
                   void * buf,
@@ -616,15 +622,10 @@ void
 fd_quic_tls_tp_peer( void *        handshake,
                      uchar const * quic_tp,
                      ulong         quic_tp_sz ) {
-  fd_quic_tls_hs_t * hs = (fd_quic_tls_hs_t *)handshake;
+  /* Callback issued by fd_tls.  Bubble up callback to fd_quic_tls. */
 
-  /* Copy peer's transport params to fd_quic_tls_hs buffer */
-  if( FD_UNLIKELY( quic_tp_sz > sizeof(hs->peer_transport_params) ) ) {
-    /* TODO mark handshake as dead or report an error to fd_tls via
-            return value */
-    quic_tp_sz = 0UL;
-  }
+  fd_quic_tls_hs_t * hs       = (fd_quic_tls_hs_t *)handshake;
+  fd_quic_tls_t *    quic_tls = hs->quic_tls;
 
-  hs->peer_transport_params_sz = (uchar)quic_tp_sz;
-  fd_memcpy( hs->peer_transport_params, quic_tp, quic_tp_sz );
+  quic_tls->peer_params_cb( hs->context, quic_tp, quic_tp_sz );
 }

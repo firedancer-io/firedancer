@@ -64,10 +64,17 @@ fd_exec_epoch_ctx_footprint( ulong vote_acc_max );
 /* fd_exec_epoch_ctx_bank_mem_clear empties out the existing bank
    data structures (votes, delegations, stake history, next_epoch_stakes).
    This method should be used before decoding a bank from funk so as
-   to not step on the work done while decoding. 
+   to not step on the work done while decoding.
 */
 void
 fd_exec_epoch_ctx_bank_mem_clear( fd_exec_epoch_ctx_t * epoch_ctx );
+
+/* fd_exec_epoch_ctx_bank_mem_setup initializes the bank
+   data structures (votes, delegations, stake history, next_epoch_stakes)
+   to have the correct pool initialization and layout.
+*/
+fd_epoch_bank_t *
+fd_exec_epoch_ctx_bank_mem_setup( fd_exec_epoch_ctx_t * epoch_ctx );
 
 /* Accessors **********************************************************/
 
@@ -115,9 +122,6 @@ FD_FN_PURE static inline fd_epoch_leaders_t *
 fd_exec_epoch_ctx_leaders( fd_exec_epoch_ctx_t * ctx ) {
   return (fd_epoch_leaders_t *)((uchar *)ctx + ctx->layout.leaders_off);
 }
-
-int
-fd_epoch_bank_decode_no_malloc( fd_epoch_bank_t * self, fd_bincode_decode_ctx_t * ctx, fd_exec_epoch_ctx_t * epoch_ctx );
 
 FD_PROTOTYPES_END
 

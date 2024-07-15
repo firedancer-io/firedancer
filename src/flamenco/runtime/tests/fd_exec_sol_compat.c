@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include "../../vm/fd_vm.h"
+#include "fd_vm_validate_test.h"
 
 /* This file defines stable APIs for compatibility testing.
 
@@ -47,6 +48,7 @@ static ulong supported_features[] =
     0x8a8eb9085ca2bb0b,  // commission_updates_only_allowed_in_first_half_of_epoch
     0x7bc99a080444c8d9,  // allow_votes_to_directly_update_vote_state
     0x2ca5833736ba5c69,  // compact_vote_state_updates
+    0x7e787d5c6d662d23,  // reject_callx_r10
   };
 
 static       uchar *     smem;
@@ -333,6 +335,32 @@ sol_compat_syscall_fixture( fd_exec_instr_test_runner_t * runner,
   return ok;
 }
 
+int 
+sol_compat_validate_vm_fixture( fd_exec_instr_test_runner_t * runner,
+                                uchar const *                 in,
+                                ulong                         in_sz ) {
+  // Decode fixture
+  fd_exec_test_validate_vm_fixture_t fixture[1] = {0};
+  if( !sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_validate_vm_fixture_t_msg ) ) {
+    FD_LOG_WARNING(( "Invalid validate_vm fixture." ));
+    return 0;
+  }
+
+  // Execute
+  void * output = NULL;
+  sol_compat_execute_wrapper( runner,
+                              &fixture->input,
+                              &output, 
+                              (exec_test_run_fn_t *)fd_exec_vm_validate_test_run );
+  // Compare effects
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_validate_vm_effects_t_msg );
+
+  // Cleanup
+  pb_release( &fd_exec_test_validate_vm_fixture_t_msg, fixture );
+  return ok;
+
+}
+
 /*
  * execute_v1
  */
@@ -455,4 +483,41 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
   pb_release( &fd_exec_test_syscall_context_t_msg, input );
   sol_compat_cleanup_scratch_and_runner( runner );
   return ok;
+}
+
+int
+sol_compat_vm_validate_v1(  uchar *       out,
+                            ulong *       out_sz,
+                            uchar const * in,
+                            ulong         in_sz) {
+  // Setup
+  ulong fmem[ 64 ];
+  fd_exec_instr_test_runner_t * runner = sol_compat_setup_scratch_and_runner( fmem );
+
+  // Decode context
+  fd_exec_test_full_vm_context_t input[1] = {0};
+  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_full_vm_context_t_msg );
+  if ( res==NULL ) {
+    sol_compat_cleanup_scratch_and_runner( runner );
+    return 0;
+  }
+
+  // Execute
+  void * output = NULL;
+  sol_compat_execute_wrapper( runner, input, &output, (exec_test_run_fn_t *)fd_exec_vm_validate_test_run );
+
+  // Encode effects
+  int ok = 0;
+  if( output ) {
+    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_validate_vm_effects_t_msg );
+  }
+
+  // cleanup
+  pb_release( &fd_exec_test_full_vm_context_t_msg, input );
+  sol_compat_cleanup_scratch_and_runner( runner );
+  return ok;
+
+
+
+  
 }

@@ -186,7 +186,9 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     slot_bank->epoch_account_hash = *manifest->epoch_account_hash;
 
   slot_bank->collected_rent = oldbank->collected_rent;
-  slot_bank->collected_fees = oldbank->collector_fees;
+  // did they not change the bank?!
+  slot_bank->collected_execution_fees = oldbank->collector_fees;
+  slot_bank->collected_priority_fees = 0;
   slot_bank->capitalization = oldbank->capitalization;
   slot_bank->block_height = oldbank->block_height;
   slot_bank->transaction_count = oldbank->transaction_count;
@@ -360,13 +362,22 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
             .blockhash = blockhash->uc,
             .slot = slot,
             .txnhash = status->key_slice,
-            .txnhash_offset = pair->value.txn_idx,
             .result = &result
           };
         }
       }
     }
     fd_txncache_insert_batch( ctx->status_cache, insert_vals, num_entries );
+
+    for( ulong i = 0; i < slot_deltas->slot_deltas_len; i++ ) {
+      fd_slot_delta_t * slot_delta = deltas[i];
+      ulong slot = slot_delta->slot;
+      for( ulong j = 0; j < slot_delta->slot_delta_vec_len; j++ ) {
+        fd_status_pair_t * pair = &slot_delta->slot_delta_vec[j];
+        fd_hash_t * blockhash = &pair->hash;
+        fd_txncache_set_txnhash_offset( ctx->status_cache, slot, blockhash->uc, pair->value.txn_idx );
+      }
+    }
   } FD_SCRATCH_SCOPE_END;
   return ctx;
 }

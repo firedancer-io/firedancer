@@ -37,6 +37,9 @@
 #define FD_BLOCKHASH_QUEUE_MAX_ENTRIES       (300UL)
 #define FD_RECENT_BLOCKHASHES_MAX_ENTRIES    (150UL)
 
+/* TODO: increase this to default once we have enough memory to support a 95G status cache. */
+#define MAX_CACHE_TXNS_PER_SLOT (FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 8)
+
 struct fd_execute_txn_task_info {
   fd_exec_txn_ctx_t * txn_ctx;
   fd_txn_p_t * txn;
@@ -117,13 +120,17 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         fd_capture_ctx_t * capture_ctx,
                                         fd_txn_p_t * txns,
                                         ulong txn_cnt,
+                                        int ( * query_func )( ulong slot, void * ctx ),
+                                        void * query_arg,
                                         fd_tpool_t * tpool,
                                         ulong max_workers );
 
-ulong
+void
 fd_runtime_calculate_fee ( fd_exec_txn_ctx_t * txn_ctx,
                            fd_txn_t const * txn_descriptor,
-                           fd_rawtxn_b_t const * txn_raw );
+                           fd_rawtxn_b_t const * txn_raw,
+                           ulong *execution_fee,
+                           ulong *priority_fee );
 void
 fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx );
 

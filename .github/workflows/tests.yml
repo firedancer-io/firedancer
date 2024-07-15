@@ -4,59 +4,167 @@ name: Tests
 on:
   workflow_call:
   workflow_dispatch:
-  merge_group:
 concurrency:
   group: tests_${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   test:
+    timeout-minutes: 30
     strategy:
       # We cannot possibly test everything on every commit.
       # This matrix is a tradeoff between required resources and
       # test coverage.  You should probably only remove machine
       # targets from here, not add more.
+      fail-fast: true
       matrix:
-        machine:
-          - linux_gcc_noarch64    # least capable target
+        test-case:
+          - linux_gcc_noarch64-gcc-12
+          - linux_gcc_noarch64        # least capable target
           - linux_gcc_x86_64
-          - linux_gcc_icelake     #  most capable target
+          - linux_gcc_icelake         #  most capable target
           - linux_clang_x86_64
           - linux_clang_icelake
           - native
+          - fddev-no-solana
         # Attach additional params to machine types
         include:
-          - machine: linux_gcc_noarch64
+          - test-case: linux_gcc_noarch64-gcc-12 
+            machine: linux_gcc_noarch64
             label: X64
+            extras: rpath
             targets: "all"
-            notest: 1
-          - machine: linux_gcc_x86_64
+            compiler: gcc
+            compiler-version: 12.4.0
+            run-unit-tests: false
+            run-integration-tests: false
+          - test-case: linux_gcc_noarch64
+            machine: linux_gcc_noarch64
             label: X64
-          - machine: linux_gcc_icelake
+            extras: rpath
+            targets: "all"
+            compiler: gcc
+            compiler-version: 8.5.0
+            run-unit-tests: false
+            run-integration-tests: false
+          - test-case: linux_gcc_x86_64
+            machine: linux_gcc_x86_64
+            label: X64
+            extras: rpath
+            targets: "all integration-test fdctl"
+            compiler: gcc
+            compiler-version: 12.4.0
+            run-unit-tests: true
+            run-integration-tests: true
+          - test-case: linux_gcc_icelake
+            machine: linux_gcc_icelake
             label: icelake
-          - machine: linux_clang_x86_64
+            extras: rpath
+            targets: "all integration-test fdctl"
+            compiler: gcc
+            compiler-version: 12.4.0
+            run-unit-tests: true
+            run-integration-tests: true
+          - test-case: linux_clang_x86_64
+            machine: linux_clang_x86_64
             label: X64
-          - machine: native
-            env: CC=clang
+            extras: rpath
+            targets: "all integration-test fdctl"
+            compiler: clang
+            compiler-version: 15.0.6
+            run-unit-tests: true
+            run-integration-tests: true
+          - test-case: linux_clang_icelake
+            machine: linux_clang_icelake
+            label: icelake
+            extras: "asan ubsan rpath"
+            targets: "all integration-test fdctl"
+            compiler: clang
+            compiler-version: 15.0.6
+            run-unit-tests: true
+            run-integration-tests: false
+          - test-case: native
+            machine: native
             label: self-hosted
-          - machine: linux_clang_icelake
-            label: icelake
-            extras: asan ubsan
+            extras: rpath
+            targets: "all integration-test fdctl"
+            compiler: clang
+            compiler-version: 15.0.6
+            run-unit-tests: true
+            run-integration-tests: true
+          - test-case: fddev-no-solana
+            machine: linux_gcc_x86_64
+            label: self-hosted
+            extras: "no-solana rpath"
+            targets: "fddev"
+            compiler: gcc
+            compiler-version: 12.4.0
+            run-unit-tests: false
+            run-integration-tests: false
     runs-on: ${{ matrix.label }}
+    env:
+      MACHINE: ${{ matrix.machine }}
+      EXTRAS: ${{ matrix.extras || '' }}
+      CC: ${{ matrix.compiler }}
+      CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - uses: ./.github/actions/deps
+        with:
+          compiler: ${{ matrix.compiler }}
+          compiler-version: ${{ matrix.compiler-version }}
       - uses: ./.github/actions/hugepages
       - uses: dtolnay/rust-toolchain@1.73.0
 
-      - name: Run tests
+      - name: clean targets
+        run: |
+          make clean --silent >/dev/null
+
+      - uses: ./.github/actions/submodule
+        with:
+          machine: ${{ matrix.machine }}
+          compiler: ${{ matrix.compiler }}
+          compiler-version: ${{ matrix.compiler-version }}
+        if: ${{ contains(matrix.targets, 'fdctl') }}
+
+      - name: build targets
+        run: |
+          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
+          FIREDANCER_CI_COMMIT=none ./contrib/make-j ${{ matrix.targets }}
+      
+      - name: run unit tests
+        if: ${{ matrix.run-unit-tests }}
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
-          MACHINES=${{ matrix.machine }} \
-          EXTRAS="${{ matrix.extras || '' }}" \
-          NOTEST=${{ matrix.notest || '' }} \
-          TARGETS="${{ matrix.targets || '' }}" \
-          ${{ matrix.env || '' }} \
-          contrib/test/ci_tests.sh
+          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
+          make run-unit-test
+
+      - name: run script tests
+        if: ${{ matrix.run-unit-tests }}
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
+          make run-script-test
+
+      - name: run fuzz tests
+        if: ${{ matrix.run-unit-tests }}
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
+          make run-fuzz-test
+
+      - name: run test-vector tests
+        if: ${{ matrix.run-unit-tests }}
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
+          make run-test-vectors
+
+      - name: run integration tests
+        if: ${{ matrix.run-integration-tests }}
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
+          make run-integration-test

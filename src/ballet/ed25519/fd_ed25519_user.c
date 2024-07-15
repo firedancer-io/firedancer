@@ -51,7 +51,7 @@ fd_ed25519_public_from_private( uchar         public_key [ static 32 ],
   /* Sanitize */
 
   fd_memset_explicit( s, 0, FD_SHA512_HASH_SZ );
-  fd_sha512_init( sha );
+  fd_sha512_clear( sha );
 
   return public_key;
 }
@@ -124,9 +124,10 @@ fd_ed25519_sign( uchar         sig[ static 64 ],
 
   /* Sanitize */
 
+  /* note: no need to sanitize k as all inputs to k are public values */
   fd_memset_explicit( s, 0, FD_SHA512_HASH_SZ );
   fd_memset_explicit( r, 0, FD_SHA512_HASH_SZ );
-  fd_sha512_init( sha );
+  fd_sha512_clear( sha );
 
   return sig;
 }

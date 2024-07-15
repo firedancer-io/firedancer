@@ -1,8 +1,8 @@
-[32mNOTICE [0m large-pages ... already valid
-[32mNOTICE [0m shmem ... unconfigured ... mounts `/mnt/.fd/.huge` and `/mnt/.fd/.gigantic` do not exist
-[32mNOTICE [0m shmem ... configuring
+[32mNOTICE [0m hugetlbfs ... unconfigured ... mounts `/mnt/.fd/.huge` and `/mnt/.fd/.gigantic` do not exist
+[32mNOTICE [0m hugetlbfs ... configuring
+[32mNOTICE [0m RUN: `mkdir -p /mnt/.fd/.huge`
+[32mNOTICE [0m RUN: `mount -t hugetlbfs none /mnt/.fd/.huge -o pagesize=2097152,min_size=241172480`
+[32mNOTICE [0m RUN: `mkdir -p /mnt/.fd/.gigantic`
+[32mNOTICE [0m RUN: `mount -t hugetlbfs none /mnt/.fd/.gigantic -o pagesize=1073741824,min_size=27917287424`
 [32mNOTICE [0m sysctl ... already valid
 [32mNOTICE [0m ethtool ... already valid
-[32mNOTICE [0m workspace-leftover ... already valid
-[32mNOTICE [0m workspace ... unconfigured ... no workspaces files found
-[32mNOTICE [0m workspace ... configuring

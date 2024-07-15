@@ -32,6 +32,17 @@ fd_libc_alloc_virtual( void ) {
   return valloc;
 }
 
+static inline FD_FN_CONST fd_valloc_t
+fd_null_alloc_virtual( void ) {
+  fd_valloc_t valloc = { NULL, NULL };
+  return valloc;
+}
+
+static inline FD_FN_CONST int
+fd_is_null_alloc_virtual( fd_valloc_t valloc ) {
+  return (int)(valloc.vt == NULL);
+}
+
 static inline void *
 fd_valloc_malloc( fd_valloc_t valloc,
                   ulong       align,

@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
 jobs:
   coverage-report:
+    timeout-minutes: 30
     name: Coverage Report
-    runs-on:
-      group: rhel85-icelake
+    runs-on: icelake
     environment:
       name: coverage-report
       url: ${{ vars.COVERAGE_URL }}

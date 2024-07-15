@@ -411,7 +411,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
     }
 
     fd_funk_start_write( funk );
-    
+
     for( ulong i = 0; i < accounts_cnt; i++ ) {
       fd_borrowed_account_t * account = accounts[i];
       ulong batch_idx = i & batch_mask;

@@ -46,7 +46,6 @@ insert( ulong _blockhash,
     .blockhash = blockhash,
     .txnhash   = txnhash,
     .slot      = slot,
-    .txnhash_offset = 0UL,
     .result    = result,
   };
   if( FD_UNLIKELY( !fd_txncache_insert_batch( (fd_txncache_t*)txncache_scratch, &insert, 1 ) ) )
@@ -67,7 +66,6 @@ no_insert( ulong _blockhash,
     .blockhash = blockhash,
     .txnhash   = txnhash,
     .slot      = slot,
-    .txnhash_offset = 0UL,
     .result    = result,
   };
   FD_TEST( !fd_txncache_insert_batch( (fd_txncache_t*)txncache_scratch, &insert, 1 ) );
@@ -471,15 +469,21 @@ test_purge_gap( void ) {
   insert( 0, 0, 1000 );
   insert( 1, 0, 0 );
   insert( 1025, 0, 1001 );
+  insert( 2, 0, 1002 );
+  insert( 1026, 0, 1003 );
 
   contains( 0, 0, 1000 );
   contains( 1, 0, 0 );
   contains( 1025, 0, 1001 );
+  contains( 2, 0, 1002 );
+  contains( 1026, 0, 1003 );
 
   for( ulong i=0UL; i<1000UL; i++) fd_txncache_register_root_slot( tc, i );
   contains( 0, 0, 1000 );
   no_contains( 1, 0, 0 );
   contains( 1025, 0, 1001 );
+  contains( 2, 0, 1002 );
+  contains( 1026, 0, 1003 );
 }
 
 void
@@ -597,6 +601,29 @@ test_many_blockhashes_concurrent( void ) {
   }
 }
 
+void
+test_cache_full( void ) {
+  FD_LOG_NOTICE(( "TEST CACHE FULL" ));
+
+  fd_txncache_t * tc = init_all( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
+            TXNCACHE_LIVE_SLOTS,
+            FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
+
+  for( ulong i=0UL; i<TXNCACHE_LIVE_SLOTS; i++ ) {
+    insert( i, 0, i);
+  }
+
+  no_insert( 1024, 0, 0 );
+
+  for( ulong i=0UL; i<500; i++ ) {
+    fd_txncache_register_root_slot( tc, i );
+  }
+
+  for( ulong i=0UL; i<10; i++ ) {
+    insert( i, 0, i );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -622,6 +649,7 @@ main( int     argc,
   test_many_blockhashes();
   test_full_blockhash_concurrent();
   test_many_blockhashes_concurrent();
+  test_cache_full();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

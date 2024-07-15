@@ -9,7 +9,7 @@
 #include "../../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../../flamenco/fd_flamenco.h"
 #include "../../../../util/fd_util.h"
-#include "../../../../disco/tvu/util.h"
+#include "../../../../disco/store/util.h"
 #include "../../../../disco/fd_disco.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
@@ -428,12 +428,12 @@ repair_get_shred( ulong  slot,
   fd_blockstore_start_read( blockstore );
 
   if( shred_idx == UINT_MAX ) {
-    fd_slot_meta_t * meta = fd_blockstore_slot_meta_query( blockstore, slot );
+    fd_block_map_t * meta = fd_blockstore_block_map_query( blockstore, slot );
     if( meta == NULL ) {
       fd_blockstore_end_read( blockstore );
       return -1L;
     }
-    shred_idx = (uint)meta->last_index;
+    shred_idx = (uint)meta->complete_idx;
   }
   long sz = fd_buf_shred_query_copy_data( blockstore, slot, shred_idx, buf, buf_max );
 
@@ -451,7 +451,7 @@ repair_get_parent( ulong  slot,
   }
   fd_blockstore_start_read( blockstore );
 
-  fd_slot_meta_t * meta = fd_blockstore_slot_meta_query( blockstore, slot );
+  fd_block_map_t * meta = fd_blockstore_block_map_query( blockstore, slot );
   if( meta == NULL ) {
     fd_blockstore_end_read( blockstore );
     return FD_SLOT_NULL;

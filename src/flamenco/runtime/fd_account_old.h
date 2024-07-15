@@ -72,7 +72,9 @@ int fd_account_can_data_be_changed2(fd_exec_instr_ctx_t *ctx, fd_account_meta_t 
 
 static inline
 int fd_account_set_executable2( fd_exec_instr_ctx_t * ctx,
-                               fd_pubkey_t const * program_acc, fd_account_meta_t * metadata, char is_executable) {
+                                fd_pubkey_t const * program_acc, 
+                                fd_account_meta_t * metadata, 
+                                char is_executable ) {
   fd_rent_t rent;
   fd_rent_new( &rent );
   if( fd_sysvar_rent_read( &rent, ctx->slot_ctx ) ) {

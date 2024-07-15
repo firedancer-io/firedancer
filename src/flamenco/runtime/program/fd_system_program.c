@@ -187,9 +187,10 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L108 */
 
   do {
-    int err = FD_EXECUTOR_INSTR_ERR_FATAL;  /* 'FATAL', in case set_data_length doesn't initialize this value */
-    int ok = fd_account_set_data_length( ctx, acct_idx, space, &err );
-    if( FD_UNLIKELY( !ok ) ) return err;
+    int err = fd_account_set_data_length( ctx, acct_idx, space );
+    if( FD_UNLIKELY( err ) ) {
+      return err;
+    }
   } while(0);
 
   return FD_EXECUTOR_INSTR_SUCCESS;

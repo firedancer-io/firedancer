@@ -13,7 +13,7 @@
 extern fd_topo_run_tile_t * TILES[];
 
 
-#define CONFIGURE_STAGE_COUNT 10
+#define CONFIGURE_STAGE_COUNT 9
 struct configure_stage;
 
 typedef union {
@@ -43,6 +43,7 @@ typedef union {
     int  parent_pipefd;
     int  monitor;
     int  no_configure;
+    int  no_init_workspaces;
     int  no_solana_labs;
     char debug_tile[ 32 ];
   } dev;

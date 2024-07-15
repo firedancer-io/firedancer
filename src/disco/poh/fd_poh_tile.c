@@ -69,7 +69,7 @@ fd_poh_tile_publish_microblock( fd_poh_tile_ctx_t * ctx,
   ulong payload_sz = 0UL;
   ulong included_txn_cnt = 0UL;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_txn_p_t * txn = (fd_txn_p_t *)(txns + i*sizeof(fd_txn_p_t));
+    fd_txn_p_t * txn = &txns[ i ];
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) continue;
 
     fd_memcpy( dst, txn->payload, txn->payload_sz );
@@ -103,7 +103,6 @@ fd_poh_tile_initialize( fd_poh_tile_ctx_t * ctx,
   ctx->reset_slot_start_ns = fd_log_wallclock(); /* safe to call from Rust */
 
   memcpy( ctx->hash, last_entry_hash, 32UL );
-
 
   /* Store configuration about the clock. */
   ctx->hashcnt_duration_ns = hashcnt_duration_ns;
@@ -312,11 +311,6 @@ fd_poh_tile_reset( fd_poh_tile_ctx_t * ctx,
      ctx->last_hashcnt = reset_hashcnt;
    }
 
-  memcpy( ctx->hash, reset_blockhash, 32UL );
-  ctx->slot                = completed_bank_slot+1UL;
-  ctx->hashcnt             = reset_hashcnt;
-  ctx->reset_slot_hashcnt  = ctx->hashcnt;
-
   if( FD_UNLIKELY( ctx->expect_sequential_leader_slot==ctx->reset_slot_hashcnt/ctx->hashcnt_per_slot ) ) {
     /* If we are being reset onto a slot, it means some block was fully
       processed, so we reset to build on top of it.  Typically we want
@@ -334,8 +328,13 @@ fd_poh_tile_reset( fd_poh_tile_ctx_t * ctx,
   }
   ctx->expect_sequential_leader_slot = ULONG_MAX;
 
+  memcpy( ctx->hash, reset_blockhash, 32UL );
+  ctx->slot                = completed_bank_slot+1UL;
+  ctx->hashcnt             = reset_hashcnt;
+  ctx->reset_slot_hashcnt  = ctx->hashcnt;
+
   ctx->next_leader_slot_hashcnt = fd_poh_tile_next_leader_slot_hashcnt( ctx );
-  FD_LOG_INFO(( "fd_poh_tile_reset(slot=%lu,next_leader_slot=%lu)", ctx->reset_slot_hashcnt/ctx->hashcnt_per_slot, ctx->next_leader_slot_hashcnt/ctx->hashcnt_per_slot ));
+  FD_LOG_INFO(( "fd_poh_tile_reset(slot=%lu,next_leader_slot=%lu) slots_until_leader=%lu", ctx->reset_slot_hashcnt/ctx->hashcnt_per_slot, ctx->next_leader_slot_hashcnt/ctx->hashcnt_per_slot, (ctx->next_leader_slot_hashcnt-ctx->reset_slot_hashcnt)/ctx->hashcnt_per_slot ));
 
   return leader_before_reset;
 }

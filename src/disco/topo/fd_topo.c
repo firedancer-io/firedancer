@@ -207,9 +207,17 @@ fd_topo_tile_extra_huge_pages( fd_topo_tile_t const * tile ) {
 FD_FN_PURE static ulong
 fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
   ulong key_pages = 0UL;
-  if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ||
-                   !strcmp( tile->name, "pack" ) ) ) {
-    /* Shred and pack tiles use 5 normal pages to hold key material. */
+  if( FD_UNLIKELY( !strcmp( tile->name, "sign"   ) ||
+                   !strcmp( tile->name, "shred"  ) ||
+                   !strcmp( tile->name, "poh"    ) ||
+                   !strcmp( tile->name, "quic"   ) ||
+
+                   !strcmp( tile->name, "gossip" ) ||
+                   !strcmp( tile->name, "repair" ) ||
+                   !strcmp( tile->name, "pohi"   ) ||
+                   !strcmp( tile->name, "storei" ) ) ) {
+    /* Certain tiles using fd_keyload_load need normal pages to hold
+       key material. */
     key_pages = 5UL;
   }
 
@@ -329,7 +337,7 @@ fd_topo_print_log( int         stdout,
   PRINT( "\nSUMMARY\n" );
 
   /* The logic to compute number of stack pages is taken from
-     fd_tile_thread.cxx, in function fd_topo_tile_stack_new, and this
+     fd_tile_thread.cxx, in function fd_topo_tile_stack_join, and this
      should match that. */
   ulong stack_pages = topo->tile_cnt * FD_SHMEM_HUGE_PAGE_SZ * ((FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL);
 

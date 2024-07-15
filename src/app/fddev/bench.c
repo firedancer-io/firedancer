@@ -151,6 +151,8 @@ bench_cmd_fn( args_t *         args,
 
   update_config_for_dev( config );
 
+  run_firedancer_init( config, 1 );
+
   fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
 

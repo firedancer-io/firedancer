@@ -1,0 +1,43 @@
+name: submodule
+description: 'Cache solana submodule'
+inputs:
+  machine:
+    description: 'Machine type for this build'
+    required: true
+    default: 'native'
+  compiler:
+    description: 'The C compiler to use'
+    required: true
+    default: 'gcc'
+    type: choice
+    options:
+      - gcc
+      - clang
+  compiler-version:
+    description: 'The C compiler version to use'
+    required: true
+    default: 'system'
+  action:
+    description: 'Action to take'
+    required: true
+    default: 'restore'
+    type: choice
+    options:
+      - restore
+      - cache
+runs:
+  using: composite
+  steps:
+
+    - id: solana-submodule-commit
+      shell: bash
+      run: echo "SUBMODULE_COMMIT=$(git ls-tree HEAD | grep solana | awk '{print $3}')" >> "$GITHUB_ENV"
+
+    - id: solana-submodule-cache
+      uses: corca-ai/local-cache@v2
+      with:
+        base: "${{ runner.tool_cache }}/cache"
+        path: "solana/target"
+        key: solana-submodule-${{ inputs.machine }}-${{ inputs.compiler }}-${{ inputs.compiler-version }}-${{ env.SUBMODULE_COMMIT }}
+        clean-key: solana-submodule
+

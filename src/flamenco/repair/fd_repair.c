@@ -470,7 +470,7 @@ fd_repair_send_requests( fd_repair_t * glob ) {
       fd_repair_window_index_t * wi = &protocol.inner.window_index;
       fd_hash_copy(&wi->header.sender, glob->public_key);
       fd_hash_copy(&wi->header.recipient, &active->key);
-      wi->header.timestamp = (ulong)glob->now/1000000LU;
+      wi->header.timestamp = glob->now/1000000L;
       wi->header.nonce = n;
       wi->slot = ele->dupkey.slot;
       wi->shred_index = ele->dupkey.shred_index;
@@ -482,7 +482,7 @@ fd_repair_send_requests( fd_repair_t * glob ) {
       fd_repair_highest_window_index_t * wi = &protocol.inner.highest_window_index;
       fd_hash_copy(&wi->header.sender, glob->public_key);
       fd_hash_copy(&wi->header.recipient, &active->key);
-      wi->header.timestamp = (ulong)glob->now/1000000LU;
+      wi->header.timestamp = glob->now/1000000L;
       wi->header.nonce = n;
       wi->slot = ele->dupkey.slot;
       wi->shred_index = ele->dupkey.shred_index;
@@ -494,7 +494,7 @@ fd_repair_send_requests( fd_repair_t * glob ) {
       fd_repair_orphan_t * wi = &protocol.inner.orphan;
       fd_hash_copy(&wi->header.sender, glob->public_key);
       fd_hash_copy(&wi->header.recipient, &active->key);
-      wi->header.timestamp = (ulong)glob->now/1000000LU;
+      wi->header.timestamp = glob->now/1000000L;
       wi->header.nonce = n;
       wi->slot = ele->dupkey.slot;
       break;
@@ -686,7 +686,7 @@ is_good_peer( fd_active_elem_t * val ) {
 static void
 fd_actives_shuffle( fd_repair_t * repair ) {
   if( repair->stake_weights_cnt == 0 ) {
-    FD_LOG_WARNING(( "repair does not have stake weights yet, shuffling active set" ));
+    FD_LOG_NOTICE(( "repair does not have stake weights yet, shuffling active set" ));
   }
 
   FD_SCRATCH_SCOPE_BEGIN {
@@ -756,7 +756,7 @@ fd_actives_shuffle( fd_repair_t * repair ) {
          latency. */
       fd_latency_sort_inplace( latencies, latencies_cnt );
       first_quartile_latency = latencies[ latencies_cnt / 4UL ];
-      FD_LOG_WARNING(( "repair peers first quartile latency - latency: %6.6f ms", (double)first_quartile_latency * 1e-6 ));
+      FD_LOG_NOTICE(( "repair peers first quartile latency - latency: %6.6f ms", (double)first_quartile_latency * 1e-6 ));
     }
 
     /* select an upper bound */
@@ -803,7 +803,7 @@ fd_actives_shuffle( fd_repair_t * repair ) {
     }
     repair->actives_sticky_cnt = tot_cnt;
 
-    FD_LOG_NOTICE(
+    FD_LOG_DEBUG(
         ( "selected %lu peers for repair (best was %lu, good was %lu, leftovers was %lu)",
           tot_cnt,
           best_cnt,
@@ -943,9 +943,9 @@ print_stats( fd_active_elem_t * val ) {
   if( val->avg_reqs == 0 )
     FD_LOG_DEBUG(( "repair peer %32J: no requests sent", id ));
   else if( val->avg_reps == 0 )
-    FD_LOG_NOTICE(( "repair peer %32J: avg_requests=%lu, no responses received", id, val->avg_reqs ));
+    FD_LOG_DEBUG(( "repair peer %32J: avg_requests=%lu, no responses received", id, val->avg_reqs ));
   else
-    FD_LOG_NOTICE(( "repair peer %32J: avg_requests=%lu, response_rate=%f, latency=%f",
+    FD_LOG_DEBUG(( "repair peer %32J: avg_requests=%lu, response_rate=%f, latency=%f",
                     id,
                     val->avg_reqs,
                     ((double)val->avg_reps)/((double)val->avg_reqs),
@@ -961,7 +961,7 @@ fd_repair_print_all_stats( fd_repair_t * glob ) {
     if( !val->sticky ) continue;
     print_stats( val );
   }
-  FD_LOG_NOTICE( ( "peer count: %lu", fd_active_table_key_cnt( glob->actives ) ) );
+  FD_LOG_DEBUG( ( "peer count: %lu", fd_active_table_key_cnt( glob->actives ) ) );
 }
 
 void fd_repair_add_sticky( fd_repair_t * glob, fd_pubkey_t const * id ) {

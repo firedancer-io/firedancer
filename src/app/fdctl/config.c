@@ -3,6 +3,7 @@
 #include "config_parse.h"
 #include "fdctl.h"
 
+#include "run/topos/topos.h"
 #include "run/run.h"
 
 #include "../../ballet/toml/fd_toml.h"
@@ -26,8 +27,6 @@
 #include <sys/ioctl.h>
 #include <sys/utsname.h>
 #include <sys/wait.h>
-
-FD_IMPORT_BINARY( default_config, "src/app/fdctl/config/default.toml" );
 
 void
 replace( char *       in,
@@ -65,10 +64,12 @@ fdctl_cfg_load_buf( config_t *   out,
   uchar scratch[ 4096 ];
   long toml_err = fd_toml_parse( buf, sz, pod, scratch, sizeof(scratch) );
   if( FD_UNLIKELY( toml_err!=FD_TOML_SUCCESS ) ) {
-    FD_LOG_ERR(( "Invalid config (%s) at line %lu", path, toml_err ));
+    FD_LOG_ERR(( "Invalid config (%s)", path ));
   }
 
-  fdctl_pod_to_cfg( out, pod );
+  if( FD_UNLIKELY( !fdctl_pod_to_cfg( out, pod ) ) ) {
+    FD_LOG_ERR(( "Invalid config (%s)", path ));
+  }
 
   fd_pod_delete( fd_pod_leave( pod ) );
 }
@@ -452,7 +453,9 @@ void
 fdctl_cfg_from_env( int *      pargc,
                     char ***   pargv,
                     config_t * config ) {
-  fdctl_cfg_load_buf( config, (char const *)default_config, default_config_sz, "default" );
+
+  memset( config, 0, sizeof(config_t) );
+  fdctl_cfg_load_buf( config, (char const *)fdctl_default_config, fdctl_default_config_sz, "default" );
 
   const char * user_config = fd_env_strip_cmdline_cstr(
       pargc,
@@ -666,6 +669,7 @@ fdctl_cfg_from_env( int *      pargc,
                                    config->scratch_directory ) );
   }
 
+  fdctl_cfg_validate( config );
   validate_ports( config );
   topo_initialize( config );
 }

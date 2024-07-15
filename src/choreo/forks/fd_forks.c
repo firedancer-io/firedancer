@@ -29,16 +29,16 @@ fd_forks_new( void * shmem, ulong max, ulong seed ) {
   }
 
   fd_memset( shmem, 0, footprint );
-  ulong        laddr = (ulong)shmem;
+  ulong laddr = (ulong)shmem;
 
   laddr = fd_ulong_align_up( laddr, alignof( fd_forks_t ) );
   laddr += sizeof( fd_forks_t );
 
-  laddr       = fd_ulong_align_up( laddr, fd_fork_pool_align() );
+  laddr = fd_ulong_align_up( laddr, fd_fork_pool_align() );
   fd_fork_pool_new( (void *)laddr, max );
   laddr += fd_fork_pool_footprint( max );
 
-  laddr           = fd_ulong_align_up( laddr, fd_fork_frontier_align() );
+  laddr = fd_ulong_align_up( laddr, fd_fork_frontier_align() );
   fd_fork_frontier_new( (void *)laddr, max, seed );
   laddr += fd_fork_frontier_footprint( max );
 
@@ -103,17 +103,100 @@ fd_forks_delete( void * forks ) {
   return forks;
 }
 
+void
+fd_forks_init( fd_forks_t * forks, fd_exec_slot_ctx_t const * slot_ctx ) {
+
+  if( FD_UNLIKELY( !forks ) ) {
+    FD_LOG_WARNING( ( "NULL forks" ) );
+    return;
+  }
+
+  if( FD_UNLIKELY( !slot_ctx ) ) {
+    FD_LOG_WARNING( ( "NULL slot_ctx" ) );
+    return;
+  }
+
+  fd_fork_t * fork = fd_fork_pool_ele_acquire( forks->pool );
+  fork->slot       = slot_ctx->slot_bank.slot;
+  fork->prev   = fd_fork_pool_idx_null( forks->pool );
+  fork->slot_ctx   = *slot_ctx; /* this shallow copy is only safe if
+                                   the lifetimes of slot_ctx's pointers
+                                   are as long as fork */
+  fork->frozen = 0;
+  if( FD_UNLIKELY( !fd_fork_frontier_ele_insert( forks->frontier, fork, forks->pool ) ) ) {
+    FD_LOG_WARNING( ( "Failed to insert fork into frontier" ) );
+  }
+}
 
 fd_fork_t *
-fd_forks_rollback( fd_forks_t * forks, ulong slot ) {
-  fd_fork_t *          fork     = fd_fork_pool_ele_acquire( forks->pool );
-  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx, forks->valloc ) );
-  if( FD_UNLIKELY( !slot_ctx ) ) FD_LOG_ERR( ( "failed to new and join slot_ctx" ) );
-  fork->slot = slot;
+fd_forks_query( fd_forks_t * forks, ulong slot ) {
+  return fd_fork_frontier_ele_query( forks->frontier, &slot, NULL, forks->pool );
+}
 
-  fd_funk_txn_t *   txn_map    = fd_funk_txn_map( forks->funk, fd_funk_wksp( forks->funk ) );
-  fd_hash_t const * block_hash = fd_blockstore_block_hash_query( forks->blockstore, slot );
-  FD_LOG_NOTICE( ( "trying to restore %lu", slot_ctx->slot_bank.slot ) );
+fd_fork_t const *
+fd_forks_query_const( fd_forks_t const * forks, ulong slot ) {
+  return fd_fork_frontier_ele_query_const( forks->frontier, &slot, NULL, forks->pool );
+}
+
+// fd_fork_t *
+// fd_forks_advance( fd_forks_t *          forks,
+//                   fd_fork_t *           fork,
+//                   ulong                 slot,
+//                   fd_acc_mgr_t *        acc_mgr,
+//                   fd_blockstore_t *     blockstore,
+//                   fd_exec_epoch_ctx_t * epoch_ctx,
+//                   fd_funk_t *           funk,
+//                   fd_valloc_t           valloc ) {
+//   // Remove slot ctx from frontier
+//   fd_fork_t * child = fd_fork_frontier_ele_remove( forks->frontier,
+//                                                    &fork->slot,
+//                                                    NULL,
+//                                                    forks->pool );
+//   child->slot       = curr_slot;
+//   if( FD_UNLIKELY( fd_fork_frontier_ele_query( forks->frontier,
+//                                                &curr_slot,
+//                                                NULL,
+//                                                forks->pool ) ) ) {
+//         FD_LOG_ERR( ( "invariant violation: child slot %lu was already in the
+//         frontier", curr_slot ) );
+//   }
+//   fd_fork_frontier_ele_insert( forks->frontier, child, forks->pool );
+//   FD_TEST( fork == child );
+
+//   // fork is advancing
+//   FD_LOG_DEBUG( ( "new block execution - slot: %lu, parent_slot: %lu", curr_slot, parent_slot )
+//   );
+
+//   fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
+//   fork->slot_ctx.slot_bank.slot      = curr_slot;
+
+//   fork->slot_ctx.status_cache = status_cache;
+//   fd_funk_txn_xid_t xid;
+
+//   fd_memcpy( xid.uc, blockhash.uc, sizeof( fd_funk_txn_xid_t ) );
+//   xid.ul[0] = fork->slot_ctx.slot_bank.slot;
+//   /* push a new transaction on the stack */
+//   fd_funk_start_write( funk );
+//   fork->slot_ctx.funk_txn = fd_funk_txn_prepare( funk, fork->slot_ctx.funk_txn, &xid, 1 );
+//   fd_funk_end_write( funk );
+
+//   int res = fd_runtime_publish_old_txns( &fork->slot_ctx, capture_ctx );
+//   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
+//     FD_LOG_ERR( ( "txn publishing failed" ) );
+//   }
+// }
+
+static void
+slot_ctx_restore( ulong                 slot,
+                  fd_acc_mgr_t *        acc_mgr,
+                  fd_blockstore_t *     blockstore,
+                  fd_exec_epoch_ctx_t * epoch_ctx,
+                  fd_funk_t *           funk,
+                  fd_valloc_t           valloc,
+                  fd_exec_slot_ctx_t *  slot_ctx_out ) {
+  fd_funk_txn_t *   txn_map    = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+  fd_hash_t const * block_hash = fd_blockstore_block_hash_query( blockstore, slot );
+  FD_LOG_DEBUG( ( "Current slot %lu", slot ) );
   if( !block_hash ) FD_LOG_ERR( ( "missing block hash of slot we're trying to restore" ) );
   fd_funk_txn_xid_t xid;
   fd_memcpy( xid.uc, block_hash, sizeof( fd_funk_txn_xid_t ) );
@@ -121,48 +204,155 @@ fd_forks_rollback( fd_forks_t * forks, ulong slot ) {
   fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
   fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, txn_map );
   if( !txn ) FD_LOG_ERR( ( "missing txn, parent slot %lu", slot ) );
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global( forks->funk, txn, &id );
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, &id );
   if( rec == NULL ) FD_LOG_ERR( ( "failed to read banks record" ) );
-  void *                  val = fd_funk_val( rec, fd_funk_wksp( forks->funk ) );
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data    = val;
-  ctx.dataend = (uchar *)val + fd_funk_val_sz( rec );
-  ctx.valloc  = forks->valloc;
+  void *                  val = fd_funk_val( rec, fd_funk_wksp( funk ) );
+  fd_bincode_decode_ctx_t decode_ctx;
+  decode_ctx.data    = val;
+  decode_ctx.dataend = (uchar *)val + fd_funk_val_sz( rec );
+  decode_ctx.valloc  = valloc;
 
-  FD_TEST( slot_ctx->magic == FD_EXEC_SLOT_CTX_MAGIC );
+  FD_TEST( slot_ctx_out->magic == FD_EXEC_SLOT_CTX_MAGIC );
 
-  slot_ctx->epoch_ctx = forks->epoch_ctx;
+  slot_ctx_out->funk_txn = txn;
 
-  slot_ctx->funk_txn   = txn;
-  slot_ctx->acc_mgr    = forks->acc_mgr;
-  slot_ctx->blockstore = forks->blockstore;
-  slot_ctx->valloc     = forks->valloc;
+  slot_ctx_out->acc_mgr    = acc_mgr;
+  slot_ctx_out->blockstore = blockstore;
+  slot_ctx_out->epoch_ctx  = epoch_ctx;
+  slot_ctx_out->valloc     = valloc;
 
-  FD_TEST( fd_slot_bank_decode( &slot_ctx->slot_bank, &ctx ) == FD_BINCODE_SUCCESS );
-  FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx ) );
+  fd_bincode_destroy_ctx_t destroy_ctx = {
+      .valloc = valloc,
+  };
 
-  slot_ctx->leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot );
+  fd_slot_bank_destroy( &slot_ctx_out->slot_bank, &destroy_ctx );
+  FD_TEST( fd_slot_bank_decode( &slot_ctx_out->slot_bank, &decode_ctx ) == FD_BINCODE_SUCCESS );
+  FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx_out ) );
+  slot_ctx_out->leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx_out->epoch_ctx ),
+                                               slot );
 
   // TODO how do i get this info, ignoring rewards for now
-  // slot_ctx->epoch_reward_status = ???
+  // slot_ctx_out->epoch_reward_status = ???
 
-  // signature_cnt, account_delta_hash, prev_banks_hash are used for the banks hash calculation and
-  // not needed when restoring parent
+  // signature_cnt, account_delta_hash, prev_banks_hash are used for the banks
+  // hash calculation and not needed when restoring parent
 
   FD_LOG_NOTICE( ( "recovered slot_bank for slot=%lu banks_hash=%32J poh_hash %32J",
-                   slot_ctx->slot_bank.slot,
-                   slot_ctx->slot_bank.banks_hash.hash,
-                   slot_ctx->slot_bank.poh.hash ) );
+                   slot_ctx_out->slot_bank.slot,
+                   slot_ctx_out->slot_bank.banks_hash.hash,
+                   slot_ctx_out->slot_bank.poh.hash ) );
 
   /* Prepare bank for next slot */
-  slot_ctx->slot_bank.slot           = slot;
-  slot_ctx->slot_bank.collected_fees = 0;
-  slot_ctx->slot_bank.collected_rent = 0;
+  slot_ctx_out->slot_bank.slot                     = slot;
+  slot_ctx_out->slot_bank.collected_execution_fees = 0;
+  slot_ctx_out->slot_bank.collected_priority_fees  = 0;
+  slot_ctx_out->slot_bank.collected_rent           = 0;
 
-  /* FIXME epoch boundary stuff when forking */
+  /* FIXME epoch boundary stuff when replaying */
   // fd_features_restore( slot_ctx );
   // fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot );
   // fd_calculate_epoch_accounts_hash_values( slot_ctx );
+}
+
+fd_fork_t *
+fd_forks_prepare( fd_forks_t const *    forks,
+                  ulong                 parent_slot,
+                  fd_acc_mgr_t *        acc_mgr,
+                  fd_blockstore_t *     blockstore,
+                  fd_exec_epoch_ctx_t * epoch_ctx,
+                  fd_funk_t *           funk,
+                  fd_valloc_t           valloc ) {
+
+  /* Check the parent block is present in the blockstore and executed. */
+
+  fd_block_t * block = fd_blockstore_block_query( blockstore, parent_slot );
+  if( FD_UNLIKELY( !block ) ) {
+    FD_LOG_WARNING( ( "fd_forks_prepare missing parent_slot %lu", parent_slot ) );
+  }
+
+  /* Query for parent_slot in the frontier. */
+
+  fd_fork_t * fork = fd_fork_frontier_ele_query( forks->frontier, &parent_slot, NULL, forks->pool );
+
+  /* If the parent block is both present and executed, but isn't in the
+     frontier, that means this block is starting a new fork and needs to
+     be added to the frontier. This requires recovering the slot_ctx
+     as of that parent_slot by executing a funky rollback. */
+
+  if( FD_UNLIKELY( !fork ) ) {
+
+    /* Alloc a new slot_ctx */
+
+    fork         = fd_fork_pool_ele_acquire( forks->pool );
+    fork->prev   = fd_fork_pool_idx_null( forks->pool );
+    fork->slot   = parent_slot;
+    fork->frozen = 1;
+
+    /* Format and join the slot_ctx */
+
+    fd_exec_slot_ctx_t * slot_ctx =
+        fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx, fd_libc_alloc_virtual() ) );
+    if( FD_UNLIKELY( !slot_ctx ) ) {
+      FD_LOG_ERR( ( "failed to new and join slot_ctx" ) );
+    }
+
+    /* Restore and decode w/ funk */
+
+    slot_ctx_restore( fork->slot, acc_mgr, blockstore, epoch_ctx, funk, valloc, slot_ctx );
+
+    /* Add to frontier */
+
+    fd_fork_frontier_ele_insert( forks->frontier, fork, forks->pool );
+  }
 
   return fork;
+}
+
+void
+fd_forks_publish( fd_forks_t * forks, ulong root, fd_ghost_t const * ghost ) {
+  fd_fork_t * tail = NULL;
+  fd_fork_t * curr = NULL;
+
+  for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( forks->frontier, forks->pool );
+       !fd_fork_frontier_iter_done( iter, forks->frontier, forks->pool );
+       iter = fd_fork_frontier_iter_next( iter, forks->frontier, forks->pool ) ) {
+
+    fd_fork_t * fork = fd_fork_frontier_iter_ele( iter, forks->frontier, forks->pool );
+
+    /* Prune any forks not in the ancestry from root.
+
+       Optimize for unlikely because there is usually just one fork. */
+
+    int stale = fork->slot < root || !fd_ghost_is_ancestor( ghost, root, fork->slot );
+    if( FD_UNLIKELY( !fork->frozen && stale ) ) {
+      FD_LOG_NOTICE( ( "adding %lu to prune. root %lu", fork->slot, root ) );
+      if( FD_LIKELY( !curr ) ) {
+        tail = fork;
+        curr = fork;
+      } else {
+        curr->prev = fd_fork_pool_idx( forks->pool, fork );
+        curr       = fd_fork_pool_ele( forks->pool, curr->prev );
+      }
+    }
+  }
+
+  while( FD_UNLIKELY( tail ) ) {
+    ulong remove = fd_fork_frontier_idx_remove( forks->frontier,
+                                                &tail->slot,
+                                                ULONG_MAX,
+                                                forks->pool );
+#if FD_FORKS_USE_HANDHOLDING
+    if( FD_UNLIKELY( remove == ULONG_MAX ) ) {
+      FD_LOG_ERR( ( "failed to remove fork we added to prune." ) );
+    }
+#endif
+
+    /* pool_idx_release cannot fail given we just removed this from the
+      frontier directly above. */
+
+    fd_fork_pool_idx_release( forks->pool, remove );
+    tail = fd_ptr_if( tail->prev != fd_fork_pool_idx_null( forks->pool ),
+                      fd_fork_pool_ele( forks->pool, tail->prev ),
+                      NULL );
+  }
 }

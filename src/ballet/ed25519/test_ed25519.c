@@ -601,6 +601,66 @@ test_fe_pow22523( fd_rng_t * rng ) {
 #endif
 }
 
+void
+test_affine_frombytes( FD_PARAM_UNUSED fd_rng_t * rng ) {
+  uchar x[32], y[32];
+  fd_ed25519_point_t fd_ed25519_base_point[1];
+  fd_hex_decode( x, "1ad5258f602d56c9b2a7259560c72c695cdcd6fd31e2a4c0fe536ecdd3366921", 32 );
+  fd_hex_decode( y, "5866666666666666666666666666666666666666666666666666666666666666", 32 );
+  fd_curve25519_affine_frombytes( fd_ed25519_base_point, x, y );
+  FD_LOG_NOTICE(( "test_affine_frombytes: ok" ));
+}
+
+void
+test_affine_is_small_order( FD_PARAM_UNUSED fd_rng_t * rng ) {
+  uchar                 _s[32]; uchar *              s = _s;
+  fd_ed25519_point_t    _r[1];  fd_ed25519_point_t * r = _r;
+
+  // Passsing condition
+  fd_hex_decode(s, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( ! fd_ed25519_affine_is_small_order( r ) );
+
+  fd_hex_decode(s, "0000000000000000000000000000000000000000000000000000000000000001", 32 );
+  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( ! fd_ed25519_affine_is_small_order( r ) );
+
+  // Small order points
+  fd_hex_decode(s, "0100000000000000000000000000000000000000000000000000000000000000", 32 );
+  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( fd_ed25519_affine_is_small_order( r ) );
+
+  fd_hex_decode(s, "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", 32 );
+  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( fd_ed25519_affine_is_small_order( r ) );
+
+  fd_hex_decode(s, "0000000000000000000000000000000000000000000000000000000000000000", 32 );
+  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( fd_ed25519_affine_is_small_order( r ) );
+
+  fd_hex_decode(s, "0000000000000000000000000000000000000000000000000000000000000080", 32 );
+  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( fd_ed25519_affine_is_small_order( r ) );
+
+  fd_hex_decode(s, "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05", 32 );
+  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( fd_ed25519_affine_is_small_order( r ) );
+
+  fd_hex_decode(s, "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85", 32 );
+  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( fd_ed25519_affine_is_small_order( r ) );
+
+  fd_hex_decode(s, "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a", 32 );
+  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( fd_ed25519_affine_is_small_order( r ) );
+
+  fd_hex_decode(s, "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa", 32 );
+  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( fd_ed25519_affine_is_small_order( r ) );
+
+  FD_LOG_NOTICE(( "test_affine_is_small_order: ok" ));
+}
+
 /* FIXME: ADD VMUL, VSQ, VSQN TESTS HERE */
 
 /**********************************************************************/
@@ -1103,6 +1163,9 @@ main( int     argc,
   test_fe_if        ( rng );
   test_fe_isnonzero ( rng );
   test_fe_pow22523  ( rng );
+
+  test_affine_frombytes      ( rng );
+  test_affine_is_small_order ( rng );
 
   test_point_validate( rng );
 

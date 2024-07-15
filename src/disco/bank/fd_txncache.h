@@ -197,7 +197,6 @@ struct fd_txncache_insert {
   uchar const * blockhash;
   uchar const * txnhash;
   ulong         slot;
-  ulong         txnhash_offset;
   uchar const * result;
 };
 
@@ -243,6 +242,11 @@ FD_PROTOTYPES_BEGIN
    local handle to the join on success (this is not necessarily a simple
    cast of the address) and NULL on failure (logs details).
 
+   fd_txncache_join_wksp joins the caller to a txn cache being restored
+   from a wksp. It assumes that the local pointers need to be reloaded
+   and validates the existing fields loaded from the wksp. Returns join
+   on success and NULL on failure.
+
    fd_txncache_leave leaves the caller's current local join to a txn
    cache.  Returns a pointer to the memory region holding the state on
    success (this is not necessarily a simple cast of the address) and
@@ -272,6 +276,9 @@ fd_txncache_new( void * shmem,
 
 fd_txncache_t *
 fd_txncache_join( void * shtc );
+
+fd_txncache_t *
+fd_txncache_join_wksp( void * shtc );
 
 void *
 fd_txncache_leave( fd_txncache_t * tc );
@@ -378,6 +385,21 @@ fd_txncache_query_batch( fd_txncache_t *             tc,
                          void *                      query_func_ctx,
                          int ( * query_func )( ulong slot, void * ctx ),
                          int *                       out_results );
+
+/* fd_txncache_set_txnhash_offset sets the correct offset value for the
+   txn hash "key slice" in the blockcache and slotblockcache. This is used
+   primarily for snapshot restore since in firedancer we always use the
+   offset of 0. Return an error if the cache entry isn't found. */
+int
+fd_txncache_set_txnhash_offset( fd_txncache_t * tc,
+                                ulong slot,
+                                uchar blockhash[ 32 ],
+                                ulong txnhash_offset );
+
+/* fd_txncache_is_rooted_slot returns 1 is `slot` is rooted, 0 otherwise. */
+int
+fd_txncache_is_rooted_slot( fd_txncache_t * tc,
+                            ulong slot );
 
 FD_PROTOTYPES_END
 

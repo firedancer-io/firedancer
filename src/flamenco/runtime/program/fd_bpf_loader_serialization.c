@@ -90,7 +90,6 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
       fd_borrowed_account_t * view_acc = NULL;
       int read_result = fd_instr_borrowed_account_view( &ctx, acc, &view_acc );
       if (FD_UNLIKELY(read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT)) {
-
         uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx.instr, (uchar)i );
         FD_STORE( uchar, serialized_params, is_signer );
         serialized_params += sizeof(uchar);
@@ -99,33 +98,31 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
         FD_STORE( uchar, serialized_params, is_writable );
         serialized_params += sizeof(uchar);
 
-        fd_memset( serialized_params, 0,
-          sizeof(uchar)                                 // is_executable
-          + sizeof(uint));                                // original_data_len
+        fd_memset( serialized_params, 0, sizeof(uchar) + // is_executable
+                                         sizeof(uint) ); // original_data_len
 
-        serialized_params +=
-          sizeof(uchar)                     // is_executable
-          + sizeof(uint);                     // original_data_len
+        serialized_params += sizeof(uchar) + // is_executable
+                             sizeof(uint);   // original_data_len
 
         fd_pubkey_t key = *acc;
         FD_STORE( fd_pubkey_t, serialized_params, key );
         serialized_params += sizeof(fd_pubkey_t);
 
-        fd_memset( serialized_params, 0, sizeof(fd_pubkey_t)  // owner
-          + sizeof(ulong)                                       // lamports
-          + sizeof(ulong)                                       // data_len
-          + 0                                                   // data
-          + MAX_PERMITTED_DATA_INCREASE
-          + sizeof(ulong));                                     // rent_epoch
+        fd_memset( serialized_params, 0, sizeof(fd_pubkey_t) +         // owner
+                                         sizeof(ulong) +               // lamports
+                                         sizeof(ulong) +               // data_len
+                                         0 +                           // data
+                                         MAX_PERMITTED_DATA_INCREASE +
+                                         sizeof(ulong));               // rent_epoch
         serialized_params += sizeof(fd_pubkey_t)  // owner
-          + sizeof(ulong)                           // lamports
-          + sizeof(ulong)                           // data_len
-          + 0                                       // data
+          + sizeof(ulong)                         // lamports
+          + sizeof(ulong)                         // data_len
+          + 0                                     // data
           + MAX_PERMITTED_DATA_INCREASE;
         if (FD_FEATURE_ACTIVE( ctx.slot_ctx, set_exempt_rent_epoch_max)) {
           FD_STORE( ulong, serialized_params, ULONG_MAX );
         }
-        serialized_params += sizeof(ulong);                     // rent_epoch
+        serialized_params += sizeof(ulong); // rent_epoch
         pre_lens[i] = 0;
         continue;
       } else if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
@@ -203,160 +200,133 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
   return serialized_params_start;
 }
 
+/* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L500-L603 */
 int
 fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
                                          ulong const *       pre_lens,
-                                         uchar *             input,
-                                         ulong               input_sz ) {
-  // TODO!! important!! somebody needs to be calling can_data_be_changed!!
+                                         uchar *             buffer,
+                                         ulong               buffer_sz ) {
+  /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L507 */
+  ulong start = 0UL;
 
-  uchar * input_cursor = input;
-
-  uchar acc_idx_seen[256];
-  memset(acc_idx_seen, 0, sizeof(acc_idx_seen));
+  uchar acc_idx_seen[256] = {0};
 
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
   fd_pubkey_t * txn_accs =  ctx.txn_ctx->accounts;
 
-  input_cursor += sizeof(ulong);
-  for( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+  start += sizeof(ulong); // number of accounts
+  /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L508-L600 */
+  for( ulong i=0UL; i<ctx.instr->acct_cnt; i++ ) {
     uchar acc_idx = instr_acc_idxs[i];
     fd_pubkey_t * acc = &txn_accs[instr_acc_idxs[i]];
 
-    input_cursor++;
+    start++; // position
     fd_borrowed_account_t * view_acc = NULL;
-    int view_err = fd_instr_borrowed_account_view(&ctx, acc, &view_acc);
-    if ( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
-      input_cursor += 7;
-    } else if ( fd_instr_acc_is_writable_idx(ctx.instr, (uchar)i) && !fd_pubkey_is_sysvar_id( acc ) ) {
-
+    /* Intentionally ignore the borrowed account error because it is not used */
+    fd_instr_borrowed_account_view( &ctx, acc, &view_acc );
+    if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
+      /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L515-517 */
+      start += 7UL;
+    } else {
+      /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L518-524 */
       acc_idx_seen[acc_idx] = 1;
-      input_cursor += sizeof(uchar) // is_signer
-          + sizeof(uchar)           // is_writable
-          + sizeof(uchar)           // executable
-          + sizeof(uint)            // original_data_len
-          + sizeof(fd_pubkey_t);    // key
+      start += sizeof(uchar)        // is_signer
+             + sizeof(uchar)        // is_writable
+             + sizeof(uchar)        // executable
+             + sizeof(uint)         // original_data_len
+             + sizeof(fd_pubkey_t); // key
 
-      if ( view_acc->const_meta ) {
-        if (view_acc->const_meta->info.executable) {
-          if (memcmp( view_acc->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) != 0) {
-            input_cursor += sizeof(fd_pubkey_t);  // owner
-            input_cursor += sizeof(ulong);        // lamports
-            input_cursor += sizeof(ulong);        // data_len
+      /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L525-548 */
 
-            fd_account_meta_t const * metadata = view_acc->const_meta;
+      if( FD_UNLIKELY( start+sizeof(fd_pubkey_t)>buffer_sz ) ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+      fd_pubkey_t * owner = (fd_pubkey_t *)(buffer+start);
+      start += sizeof(fd_pubkey_t); // owner
 
-            if ( view_err == FD_ACC_MGR_SUCCESS ) {
-              input_cursor += fd_ulong_align_up(metadata->dlen, 8);
-            }
-            input_cursor += MAX_PERMITTED_DATA_INCREASE;
-
-            input_cursor += sizeof(ulong);
-            continue;
-          }
+      if( FD_UNLIKELY( start+sizeof(ulong)>buffer_sz ) ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+      ulong lamports = FD_LOAD( ulong, buffer+start );
+      if( lamports != view_acc->const_meta->info.lamports ) {
+        int err = fd_account_set_lamports( &ctx, i, lamports );
+        if( FD_UNLIKELY( err ) ) {
+          return err;
         }
       }
+      start += sizeof(ulong); // lamports
 
+      if( FD_UNLIKELY( start+sizeof(ulong)>buffer_sz ) ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+      ulong post_len = FD_LOAD( ulong, buffer+start );
+      start += sizeof(ulong); // data length
 
-      fd_pubkey_t * owner = (fd_pubkey_t *)input_cursor;
-      input_cursor += sizeof(fd_pubkey_t);
+      if( FD_LIKELY( view_acc->const_meta != NULL ) ) {
+        if( FD_UNLIKELY( start+post_len>buffer_sz ) ) {
+          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        }
+        uchar * post_data = buffer+start;
 
-      ulong lamports = FD_LOAD(ulong, input_cursor);
-      input_cursor += sizeof(ulong);
-
-      ulong post_data_len = FD_LOAD(ulong, input_cursor);
-      input_cursor += sizeof(ulong);
-
-      uchar * post_data = input_cursor;
-
-      ulong acc_sz = post_data_len;
-
-      if (FD_LIKELY(view_acc->const_meta != NULL)) {
         fd_account_meta_t const * metadata_check = view_acc->const_meta;
-        if ( fd_ulong_sat_sub( post_data_len, metadata_check->dlen ) > MAX_PERMITTED_DATA_INCREASE || post_data_len > MAX_PERMITTED_DATA_LENGTH ) {
-          return -1;
+        if ( FD_UNLIKELY( fd_ulong_sat_sub( post_len, metadata_check->dlen ) > MAX_PERMITTED_DATA_INCREASE || 
+                          post_len > MAX_PERMITTED_DATA_LENGTH ) ) {
+          return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
         }
 
+        /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L564-587 */
         fd_borrowed_account_t * modify_acc = NULL;
-        int modify_err = fd_instr_borrowed_account_modify(&ctx, acc, acc_sz, &modify_acc);
-        if ( modify_err != FD_ACC_MGR_SUCCESS ) {
-          fd_valloc_free( ctx.valloc, input );
-          return -1;
+        int modify_err = fd_instr_borrowed_account_modify( &ctx, acc, post_len, &modify_acc );
+        if( FD_UNLIKELY( modify_err != FD_ACC_MGR_SUCCESS ) ) {
+          fd_valloc_free( ctx.valloc, buffer );
+          return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
         }
-        fd_account_meta_t * metadata = (fd_account_meta_t *)modify_acc->meta;
 
         ulong pre_len = pre_lens[i];
 
-        input_cursor += fd_ulong_align_up( pre_len, 8 );
-
-        uchar * acc_data = fd_account_get_data( metadata );
+        start += fd_ulong_align_up( pre_len, FD_BPF_ALIGN_OF_U128 );
 
         int err;
-        if (fd_account_can_data_be_resized(&ctx, metadata, post_data_len, &err)
-          && fd_account_can_data_be_changed(ctx.instr, i, &err)) {
-          metadata->dlen = post_data_len;
-          fd_memcpy( acc_data, post_data, post_data_len );
-        } else if (metadata->dlen != post_data_len || memcmp(acc_data, post_data, post_data_len) != 0) {
+        if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, post_len, &err ) && 
+            fd_account_can_data_be_changed( ctx.instr, i, &err ) ) {
+
+          int err = fd_account_set_data_length( &ctx, i, post_len );
+          if( FD_UNLIKELY( err ) ) {
+            return err;
+          }
+
+          uchar * acc_data = NULL;
+          ulong   acc_dlen = 0UL;
+          err = fd_account_get_data_mut( &ctx, i, &acc_data, &acc_dlen );
+          if( FD_UNLIKELY( err ) ) {
+            return err;
+          }
+          fd_memcpy( acc_data, post_data, post_len );
+        } else if( view_acc->const_meta->dlen != post_len || 
+                   memcmp( view_acc->const_data, post_data, post_len ) ) {
           FD_LOG_DEBUG(("Data resize failed"));
           return err;
         }
 
-        metadata->info.lamports = lamports;
-        if( memcmp( metadata->info.owner, owner, sizeof(fd_pubkey_t) ) != 0 ) {
-          fd_account_set_owner( &ctx, i, owner );
-        }
-
-        // add to dirty list
-        metadata->slot = ctx.slot_ctx->slot_bank.slot;
-        #ifdef VLOG
-        FD_LOG_WARNING(("Deserialize success %32J", acc->uc));
-        #endif
-      } else if ( view_err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-        // no-op
-        input_cursor += fd_ulong_align_up( pre_lens[i], 8 );
-        #ifdef VLOG
-        FD_LOG_WARNING(("Account %32J unknown", acc->uc));
-        #endif
       } else {
-        input_cursor += fd_ulong_align_up( pre_lens[i], 8 );
-        #ifdef VLOG
-        FD_LOG_WARNING(("Account %32J not found in deserialize", acc->uc));
-        #endif
+        start += fd_ulong_align_up( pre_lens[i], FD_BPF_ALIGN_OF_U128 );
       }
 
-      input_cursor += MAX_PERMITTED_DATA_INCREASE;
-
-      input_cursor += sizeof(ulong);
-    } else {
-      acc_idx_seen[acc_idx] = 1;
-      // Account is not writable, skip over
-      input_cursor += sizeof(uchar)         // is_signer
-          + sizeof(uchar)                   // is_writable
-          + sizeof(uchar)                   // executable
-          + sizeof(uint)                    // original_data_len
-          + sizeof(fd_pubkey_t);            // key
-      input_cursor += sizeof(fd_pubkey_t);  // owner
-      input_cursor += sizeof(ulong);        // lamports
-      input_cursor += sizeof(ulong);        // data_len
-
-      // fd_borrowed_account_t * view_acc = NULL;
-      // int view_err = fd_instr_borrowed_account_view(&ctx, acc, &view_acc);
-      fd_account_meta_t const * metadata = view_acc->const_meta;
-
-      if ( view_err == FD_ACC_MGR_SUCCESS ) {
-        input_cursor += fd_ulong_align_up(metadata->dlen, 8);
+      /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L593-598 */
+      start += MAX_PERMITTED_DATA_INCREASE;
+      start += sizeof(ulong); // rent epoch        
+      if( memcmp( view_acc->const_meta->info.owner, owner, sizeof(fd_pubkey_t) ) ) {
+        int err = fd_account_set_owner( &ctx, i, owner );
+        if( FD_UNLIKELY( err ) ) {
+          return err;
+        }
       }
-      input_cursor += MAX_PERMITTED_DATA_INCREASE;
-
-      input_cursor += sizeof(ulong);
     }
   }
 
-  FD_TEST( input_cursor <= input + input_sz );
+  fd_valloc_free( ctx.valloc, buffer );
 
-  fd_valloc_free( ctx.valloc, input );
-
-  return 0;
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 uchar *
@@ -519,6 +489,8 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t ctx,
   return serialized_params_start;
 }
 
+/* FIXME: This function needs to have updated checks and can line up with
+   fd_bpf_loader_input_deserialize_aligned */
 int
 fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx, ulong const * pre_lens, uchar * input, ulong input_sz ) {
   uchar * input_cursor = input;

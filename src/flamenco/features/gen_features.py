@@ -80,8 +80,8 @@ fd_feature_id_t const ids[] = {{""",
             file=body,
             end="",
         )
-        if x.get("hardcoded") == 1:
-            print(f",\n    .hardcoded = 1", file=body, end="")
+        if x.get("hardcoded"):
+            print(f",\n    .hardcoded = {x.get('hardcoded')}", file=body, end="")
         print(" },\n", file=body)
     print(
         f"""  {{ .index = ULONG_MAX }}

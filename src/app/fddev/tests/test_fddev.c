@@ -42,6 +42,23 @@ fddev_configure( config_t * config,
 }
 
 static int
+fddev_wksp( config_t * config,
+             int        pipefd ) {
+  (void)pipefd;
+
+  fd_log_thread_set( "wksp" );
+  args_t args = {0};
+  fd_caps_ctx_t caps[1] = {0};
+  wksp_cmd_perm( &args, caps, config );
+  if( FD_UNLIKELY( caps->err_cnt ) ) {
+    for( ulong i=0; i<caps->err_cnt; i++ ) FD_LOG_WARNING(( "%s", caps->err[ i ] ));
+    FD_LOG_ERR(( "insufficient permissions to create workspaces" ));
+  }
+  wksp_cmd_fn( &args, config );
+  return 0;
+}
+
+static int
 fddev_ready( config_t * config,
              int        pipefd ) {
   (void)pipefd;
@@ -57,10 +74,11 @@ fddev_dev( config_t * config,
            int        pipefd ) {
   fd_log_thread_set( "dev" );
   args_t args = {
-    .dev.parent_pipefd  = pipefd,
-    .dev.no_configure   = 1,
-    .dev.no_solana_labs = 0,
-    .dev.monitor        = 0,
+    .dev.parent_pipefd      = pipefd,
+    .dev.no_configure       = 1,
+    .dev.no_init_workspaces = 1,
+    .dev.no_solana_labs     = 0,
+    .dev.monitor            = 0,
   };
   args.dev.debug_tile[ 0 ] = '\0';
   fd_caps_ctx_t caps[ 1 ] = {0};
@@ -175,6 +193,8 @@ static int
 test_fddev( config_t * config ) {
   struct child_info configure = fork_child( "fddev configure", config, fddev_configure );
   wait_children( &configure, 1UL, 15UL );
+  struct child_info wksp = fork_child( "fddev wksp", config, fddev_wksp );
+  wait_children( &wksp, 1UL, 15UL );
 
   struct child_info dev = fork_child( "fddev dev", config, fddev_dev );
   struct child_info ready = fork_child( "fddev ready", config, fddev_ready );

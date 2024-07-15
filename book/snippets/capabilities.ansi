@@ -1,3 +1,7 @@
-[93mWARNING[0m run ... process requires capability `CAP_NET_RAW` to call `bind(2)` to bind to a socket with `SOCK_RAW`
-[93mWARNING[0m run ... process requires capability `CAP_SYS_ADMIN` to initialize XDP by calling `bpf_obj_get`
-[31mERR    [0m insufficient permissions to execute command `run`
+$ ./build/native/gcc/bin/fdctl run
+[93mWARNING[0m run ... process requires capability `CAP_NET_RAW` to call `socket(2)` to bind to a raw socket for use by XDP
+[93mWARNING[0m run ... process requires capability `CAP_SYS_ADMIN` to call `bpf(2)` with the `BPF_OBJ_GET` command to initialize XDP
+[93mWARNING[0m run ... process requires capability `CAP_SYS_ADMIN` to call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace
+[93mWARNING[0m run ... process requires capability `CAP_SETUID` to call `setresuid(2)` to switch uid to the sandbox user
+[93mWARNING[0m run ... process requires capability `CAP_SETGID` to call `setresgid(2)` to switch gid to the sandbox user
+[31mERR    [0m insufficient permissions to execute command `run`. It is recommended to start Firedancer as the root user, but you can also start it with the missing capabilities listed above. The program only needs to start with elevated permissions to do privileged operations at boot, and will immediately drop permissions and switch to the user specified in your configuration file once they are complete. Firedancer will not execute outside of the boot process as root, and will refuse to start if it cannot drop privileges. Firedancer needs to be started privileged to configure high performance networking with XDP.

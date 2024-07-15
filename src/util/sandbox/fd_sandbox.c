@@ -11,6 +11,7 @@
 #include <sched.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <sys/prctl.h>
 #include <sys/mount.h>
 #include <sys/random.h>
@@ -38,6 +39,63 @@
 #endif
 
 #endif
+
+static int
+check_unshare_eacces_main( void * arg ) {
+  (void)arg;
+
+  int result = unshare( CLONE_NEWUSER );
+  if( -1==result && errno==EACCES ) return 999;
+  else if( -1==result ) FD_LOG_ERR(( "unshare(CLONE_NEWUSER) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  return 0;
+}
+
+int
+fd_sandbox_requires_cap_sys_admin( void ) {
+
+  /* Check for the `unprivileged_userns_clone` sysctl which restricts
+     unprivileged user namespaces on Debian. */
+
+  int fd = open( "/proc/sys/kernel/unprivileged_userns_clone", O_RDONLY );
+  if( -1==fd && errno!=ENOENT ) FD_LOG_ERR(( "open(/proc/sys/kernel/unprivileged_userns_clone) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  else if( -1!=fd ) {
+    char buf[ 16 ] = {0};
+    long count = read( fd, buf, sizeof( buf ) );
+    if( -1L==count )                         FD_LOG_ERR(( "read(/proc/sys/kernel/unprivileged_userns_clone) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( (ulong)count>=sizeof( buf ) )        FD_LOG_ERR(( "read(/proc/sys/kernel/unprivileged_userns_clone) returned truncated data" ));
+    if( 0L!=read( fd, buf, sizeof( buf ) ) ) FD_LOG_ERR(( "read(/proc/sys/kernel/unprivileged_userns_clone) did not return all the data" ));
+
+    char * end;
+    ulong unprivileged_userns_clone = strtoul( buf, &end, 10 );
+    if( *end!='\n' ) FD_LOG_ERR(( "read(/proc/sys/kernel/unprivileged_userns_clone) returned malformed data" ));
+    if( close( fd ) ) FD_LOG_ERR(( "close(/proc/sys/kernel/unprivileged_userns_clone) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    if( unprivileged_userns_clone!=0 && unprivileged_userns_clone!=1 ) FD_LOG_ERR(( "unprivileged_userns_clone has unexpected value %lu", unprivileged_userns_clone ));
+
+    if( !unprivileged_userns_clone ) return 1;
+  }
+
+  /* Check for EACCESS when actually trying to create a user namespace,
+     which indicates an Ubuntu, AppArmor, or SELinux restriction.  We do
+     this in a forked process so it doesn't unintentionally sandbox the
+     caller.  Actually we can't fork here, because the stack might be
+     MAP_SHARED, so do it in a clone with a new stack instead. */
+
+  do {
+    uchar child_stack[ 2097152 ]; /* 2 MiB */
+    int child_pid = clone( check_unshare_eacces_main, child_stack+sizeof(child_stack), 0, NULL );
+    if( -1==child_pid ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    int wstatus;
+    if( -1==waitpid( child_pid, &wstatus, __WALL ) )            FD_LOG_ERR(( "waitpid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( WIFSIGNALED( wstatus ) )                                FD_LOG_ERR(( "user namespace privilege checking process terminated by signal %i-%s", WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+    if( WEXITSTATUS( wstatus ) && WEXITSTATUS( wstatus )!=999 ) FD_LOG_ERR(( "user namespace privilege checking process exited with status %i", WEXITSTATUS( wstatus ) ));
+
+    if( WEXITSTATUS( wstatus ) ) return 1;
+  } while(0);
+
+  return 0;
+}
 
 extern char ** environ;
 
@@ -200,11 +258,12 @@ void
 fd_sandbox_private_write_userns_uid_gid_maps( uint uid_in_parent,
                                               uint gid_in_parent ) {
   int setgroups_fd = open( "/proc/self/setgroups", O_WRONLY );
-  if( FD_UNLIKELY( setgroups_fd<0 ) ) FD_LOG_ERR(( "open(/proc/self/setgroups) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( setgroups_fd<0 ) )                 FD_LOG_ERR(( "open(/proc/self/setgroups) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
   long written = write( setgroups_fd, "deny", strlen( "deny" ) );
-  if( FD_UNLIKELY( -1L==written ) ) FD_LOG_ERR(( "write(/proc/self/setgroups) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1L==written ) )                   FD_LOG_ERR(( "write(/proc/self/setgroups) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   else if( FD_UNLIKELY( written!=strlen( "deny" ) ) ) FD_LOG_ERR(( "write(/proc/self/setgroups) failed to write all data" ));
-  if( FD_UNLIKELY( close( setgroups_fd ) ) ) FD_LOG_ERR(( "close(/proc/self/setgroups) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( setgroups_fd ) ) )          FD_LOG_ERR(( "close(/proc/self/setgroups) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   static char const * MAP_PATHS[] = {
     "/proc/self/uid_map",
@@ -218,14 +277,14 @@ fd_sandbox_private_write_userns_uid_gid_maps( uint uid_in_parent,
 
   for( ulong i=0UL; i<2UL; i++ ) {
     int fd = open( MAP_PATHS[ i ], O_WRONLY );
-    if( -1==fd ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", MAP_PATHS[ i ], errno, fd_io_strerror( errno ) ));
+    if( -1==fd )                              FD_LOG_ERR(( "open(%s) failed (%i-%s)", MAP_PATHS[ i ], errno, fd_io_strerror( errno ) ));
 
     char map_line[ 64 ];
     FD_TEST( fd_cstr_printf_check( map_line, sizeof( map_line ), NULL, "1 %u 1\n", ids[ i ] ) );
     long written = write( fd, map_line, strlen( map_line ) );
-    if( -1L==written ) FD_LOG_ERR(( "write(%s) failed (%i-%s)", MAP_PATHS[ i ], errno, fd_io_strerror( errno ) ));
+    if( -1L==written )                        FD_LOG_ERR(( "write(%s) failed (%i-%s)", MAP_PATHS[ i ], errno, fd_io_strerror( errno ) ));
     if( written != (long)strlen( map_line ) ) FD_LOG_ERR(( "write(%s) failed to write all data", MAP_PATHS[ i ] ));
-    if( close( fd ) ) FD_LOG_ERR(( "close(%s) failed (%i-%s)", MAP_PATHS[ i ], errno, fd_io_strerror( errno ) ));
+    if( close( fd ) )                         FD_LOG_ERR(( "close(%s) failed (%i-%s)", MAP_PATHS[ i ], errno, fd_io_strerror( errno ) ));
   }
 }
 
@@ -243,7 +302,7 @@ fd_sandbox_private_deny_namespaces( void ) {
 
   static char const * VALUES[] = {
     "1", /* One user namespace is allowed, to created the nested child. */
-    "1", /* One mount namespace is allowed, to pivot the root in the user namespace */
+    "2", /* Two mount namespaces are allowed, the one in the parent user namespace, and the one we will use to pivot the root in the child namespace */
     "0",
     "0",
     "0",
@@ -253,10 +312,11 @@ fd_sandbox_private_deny_namespaces( void ) {
 
   for( ulong i=0UL; i<sizeof(SYSCTLS)/sizeof(SYSCTLS[ 0 ]); i++) {
     int fd = open( SYSCTLS[ i ], O_WRONLY );
-    if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", SYSCTLS[ i ], errno, fd_io_strerror( errno ) ));
+    if( fd<0 )                       FD_LOG_ERR(( "open(%s) failed (%i-%s)", SYSCTLS[ i ], errno, fd_io_strerror( errno ) ));
+
     long written = write( fd, VALUES[ i ], 1 );
-    if( FD_UNLIKELY( written==-1 ) ) FD_LOG_ERR(( "write(%s) failed (%i-%s)", SYSCTLS[ i ], errno, fd_io_strerror( errno ) ));
-    else if( FD_UNLIKELY( written!=1 ) ) FD_LOG_ERR(( "write(%s) failed to write data", SYSCTLS[ i ] ));
+    if( written==-1 )                FD_LOG_ERR(( "write(%s) failed (%i-%s)", SYSCTLS[ i ], errno, fd_io_strerror( errno ) ));
+    else if( written!=1 )            FD_LOG_ERR(( "write(%s) failed to write data", SYSCTLS[ i ] ));
     if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(%s) failed (%i-%s)", SYSCTLS[ i ], errno, fd_io_strerror( errno ) ));
   }
 }
@@ -307,6 +367,19 @@ void
 fd_sandbox_private_set_rlimits( ulong rlimit_file_cnt ) {
   struct rlimit_setting rlimits[] = {
     { .resource=RLIMIT_NOFILE,     .limit=rlimit_file_cnt },
+    /* The man page for setrlimit(2) states about RLIMIT_NICE: 
+    
+          The useful range for this limit is thus from 1 (corresponding
+          to a nice value of 19) to 40 (corresponding to a nice value of
+          -20).
+       
+       But this is misleading.  The range of values is from 0 to 40,
+       even though the "useful" range is 1 to 40, because a value of 0
+       and a value of 1 for the rlimit both map to a nice value of 19.
+
+       But... if you attempt to call setrlimit( RLIMIT_NICE, 1 ) without
+       CAP_SYS_RESOURCE, and the hard limit is already 0, you will get
+       EPERM, so we actually have to set the limit to 0 here, not 1. */
     { .resource=RLIMIT_NICE,       .limit=0UL             },
 
     { .resource=RLIMIT_AS,         .limit=0UL             },
@@ -512,33 +585,44 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
   /* Certain Linux kernels are configured to not allow user namespaces
      from an unprivileged process, since it's a common security exploit
      vector.  You can still make the namespace if you have CAP_SYS_ADMIN
-     so we need to make sure to carry this through the switch_uid_gid. */
-  if( -1==prctl( PR_SET_KEEPCAPS, 1 ) ) FD_LOG_ERR(( "prctl(PR_SET_KEEPCAPS, 1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+     so we need to make sure to carry this through the switch_uid_gid
+     which would drop all capabilities by default. */
+  int userns_requires_cap_sys_admin = fd_sandbox_requires_cap_sys_admin();
+  if( userns_requires_cap_sys_admin ) {
+    if( -1==prctl( PR_SET_KEEPCAPS, 1 ) ) FD_LOG_ERR(( "prctl(PR_SET_KEEPCAPS, 1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
   fd_sandbox_private_switch_uid_gid( desired_uid, desired_gid );
 
-  /* Now raise CAP_SYS_ADMIN again after we switched UID/GID. */
-  struct __user_cap_header_struct capheader;
-  capheader.version = _LINUX_CAPABILITY_VERSION_3;
-  capheader.pid = 0;
-  struct __user_cap_data_struct capdata[2] = { {0} };
-  if( -1==syscall( SYS_capget, &capheader, capdata ) ) FD_LOG_ERR(( "syscall(SYS_capget) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  capdata[ CAP_TO_INDEX( CAP_SYS_ADMIN ) ].effective |= CAP_TO_MASK( CAP_SYS_ADMIN );
-  if( -1==syscall( SYS_capset, &capheader, capdata ) ) FD_LOG_ERR(( "syscall(SYS_capset) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  /* Unshare everything except the user namespace first, so that the
-     user namespace does not have privileges over the other namespaces. */
-  if( -1==unshare( CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS ) )
-    FD_LOG_ERR(( "unshare(CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  /* Now raise CAP_SYS_ADMIN again after we switched UID/GID, if it's
+     required to create the user namespace. */
+  if( userns_requires_cap_sys_admin ) {
+    struct __user_cap_header_struct capheader;
+    capheader.version = _LINUX_CAPABILITY_VERSION_3;
+    capheader.pid = 0;
+    struct __user_cap_data_struct capdata[2] = { {0} };
+    if( -1==syscall( SYS_capget, &capheader, capdata ) ) FD_LOG_ERR(( "syscall(SYS_capget) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    capdata[ CAP_TO_INDEX( CAP_SYS_ADMIN ) ].effective |= CAP_TO_MASK( CAP_SYS_ADMIN );
+    if( -1==syscall( SYS_capset, &capheader, capdata ) ) FD_LOG_ERR(( "syscall(SYS_capset) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   /* Now unshare the user namespace, disallow creating any more
      namespaces except one child user namespace, and then create the
      child user namespace so that the sandbox can't undo the change. */
   if( -1==unshare( CLONE_NEWUSER ) ) FD_LOG_ERR(( "unshare(CLONE_NEWUSER) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   fd_sandbox_private_write_userns_uid_gid_maps( desired_uid, desired_gid );
+
+  /* Unshare everything in the parent user namespace, so that the nested
+     user namespace does not have privileges over them. */
+  if( -1==unshare( CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS ) )
+    FD_LOG_ERR(( "unshare(CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
   fd_sandbox_private_deny_namespaces();
+
   if( -1==unshare( CLONE_NEWUSER ) ) FD_LOG_ERR(( "unshare(CLONE_NEWUSER) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   fd_sandbox_private_write_userns_uid_gid_maps( 1, 1 );
 
+  /* PR_SET_KEEPCAPS will already be 0 if we didn't need to raise
+     CAP_SYS_ADMIN, but we always clear it anyway. */
   if( -1==prctl( PR_SET_KEEPCAPS, 0 ) ) FD_LOG_ERR(( "prctl(PR_SET_KEEPCAPS, 0) failed (%i-%s)", errno, fd_io_strerror( errno ) )); 
   if( -1==prctl( PR_SET_DUMPABLE, 0 ) ) FD_LOG_ERR(( "prctl(PR_SET_DUMPABLE, 0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 

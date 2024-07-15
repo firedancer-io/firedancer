@@ -184,6 +184,10 @@ fd_funk_join( void * shfunk ) {
     return NULL;
   }
 
+#ifdef FD_FUNK_WKSP_PROTECT
+  fd_wksp_mprotect( wksp, 1 );
+#endif
+
   return funk;
 }
 
@@ -411,6 +415,9 @@ fd_funk_log_mem_usage( fd_funk_t * funk ) {
 
 void
 fd_funk_start_write( fd_funk_t * funk ) {
+#ifdef FD_FUNK_WKSP_PROTECT
+  fd_wksp_mprotect( fd_funk_wksp( funk ), 0 );
+#endif
 # if FD_HAS_THREADS
   register ulong oldval;
   for(;;) {
@@ -443,6 +450,9 @@ fd_funk_end_write( fd_funk_t * funk ) {
 # else
   (void)funk;
 # endif
+#ifdef FD_FUNK_WKSP_PROTECT
+  fd_wksp_mprotect( fd_funk_wksp( funk ), 1 );
+#endif
 }
 
 void

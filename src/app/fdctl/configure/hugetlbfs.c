@@ -88,16 +88,16 @@ init( config_t * const config ) {
                        "the value of `%s` at runtime. You might need to enable huge pages in grub at boot time. This error can also happen "
                        "because system uptime is high and memory is fragmented. You can fix this by rebooting the machine and "
                        "running the `hugetlbfs` stage immediately on boot.",
-                      PAGE_NAMES[ j ],
-                      i,
-                      required_pages[ 1 ] + (required_pages[ 0 ] / 512),
-                      required_pages[ 1 ],
-                      required_pages[ 0 ],
-                      free_pages,
-                      PAGE_NAMES[ i ],
-                      free_page_path,
-                      PAGE_NAMES[ i ],
-                      total_page_path ));
+                       PAGE_NAMES[ j ],
+                       i,
+                       required_pages[ 1 ] + (required_pages[ 0 ] / 512),
+                       required_pages[ 1 ],
+                       required_pages[ 0 ],
+                       free_pages,
+                       PAGE_NAMES[ i ],
+                       free_page_path,
+                       PAGE_NAMES[ i ],
+                       total_page_path ));
       }
     }
   }
@@ -269,8 +269,10 @@ check( config_t * const config ) {
 
   if( FD_UNLIKELY( result1 && result2 ) )
     NOT_CONFIGURED( "mounts `%s` and `%s` do not exist", mount_path[ 0 ], mount_path[ 1 ] );
-  else if( FD_UNLIKELY( result1 || result2 ) )
-    PARTIALLY_CONFIGURED( "only one of `%s` and `%s` exists", mount_path[ 0 ], mount_path[ 1 ] );
+  else if( FD_UNLIKELY( result1 ) )
+    PARTIALLY_CONFIGURED( "mount `%s` does not exist", mount_path[ 0 ] );
+  else if( FD_UNLIKELY( result2 ) )
+    PARTIALLY_CONFIGURED( "mount `%s` does not exist", mount_path[ 1 ] );
 
   CHECK( check_dir( config->hugetlbfs.mount_path, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
   for( ulong i=0UL; i<2UL; i++ ) {

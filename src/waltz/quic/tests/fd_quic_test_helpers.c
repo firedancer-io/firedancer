@@ -180,6 +180,27 @@ fd_quic_new_anonymous( fd_wksp_t *              wksp,
   return quic;
 }
 
+fd_quic_t *
+fd_quic_new_anonymous_small( fd_wksp_t * wksp,
+                             int         role,
+                             fd_rng_t *  rng ) {
+
+  fd_quic_limits_t quic_limits = {
+    .conn_cnt           = 1UL,
+    .handshake_cnt      = 1UL,
+    .conn_id_cnt        = 4UL,
+    .conn_id_sparsity   = 4.0,
+    .stream_cnt         = { 1, 1, 1, 1 },
+    .initial_stream_cnt = { 1, 1, 1, 1 },
+    .stream_sparsity    = 4.0,
+    .inflight_pkt_cnt   = 64UL,
+    .tx_buf_sz          = 1UL<<15UL,
+    .stream_pool_cnt    = 16
+  };
+
+  return fd_quic_new_anonymous( wksp, &quic_limits, role, rng );
+}
+
 static void
 fd_quic_virtual_pair_direct( fd_quic_virtual_pair_t * pair,
                              fd_quic_t *              quic_a,
@@ -356,9 +377,9 @@ fd_quic_udpsock_create( void *           _sock,
   if( FD_UNLIKELY( !_src_mac ) ) do {
     char path[ 22 + IF_NAMESIZE ];
     FILE * address_file;
-    
+
     snprintf( path, sizeof(path), "/sys/class/net/%s/address", if_name );
-    
+
     address_file = fopen( path, "r" );
     if( FD_UNLIKELY( !address_file ) )
       goto detect_fail;
@@ -451,7 +472,7 @@ detect_fail:
     }
 
     FD_LOG_NOTICE(( "Joining fd_xsk_aio" ));
-    
+
     if( FD_UNLIKELY( !xsk_aio ) ) {
       FD_LOG_WARNING(( "failed to join fd_xsk_aio" ));
       fd_wksp_free_laddr( fd_xsk_aio_delete( fd_xsk_aio_leave( xsk_aio ) ) );
@@ -467,7 +488,7 @@ detect_fail:
     quic_sock->aio         = fd_xsk_aio_get_tx( quic_sock->xdp.xsk_aio );
     fd_xsk_aio_set_rx( xsk_aio, rx_aio );
 
-    fd_xdp_link_session_t * link_session =  
+    fd_xdp_link_session_t * link_session =
         fd_xdp_link_session_init( &quic_sock->xdp.link_session, session, if_idx, xdp_mode );
     if( FD_UNLIKELY( !link_session ) ) {
       FD_LOG_WARNING(( "failed to hook iface" ));
