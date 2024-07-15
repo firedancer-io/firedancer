@@ -57,37 +57,19 @@ fd_exec_epoch_ctx_new( void * mem,
     return NULL;
   }
 
-  fd_exec_epoch_ctx_layout_t layout[1];
-  if( FD_UNLIKELY( !fd_exec_epoch_ctx_footprint_ext( layout, vote_acc_max ) ) ) {
+  fd_exec_epoch_ctx_t * self = mem;
+  fd_memset( self, 0, sizeof(fd_exec_epoch_ctx_t) );
+
+  if( FD_UNLIKELY( !fd_exec_epoch_ctx_footprint_ext( &self->layout, vote_acc_max ) ) ) {
     FD_LOG_WARNING(( "invalid vote_acc_max" ));
     return NULL;
   }
 
-  fd_exec_epoch_ctx_t * self = mem;
-  fd_memset( self, 0, sizeof(fd_exec_epoch_ctx_t) );
-  self->layout = *layout;
+  fd_exec_epoch_ctx_bank_mem_setup( self );
 
   fd_features_disable_all( &self->features );
   self->epoch_bank.cluster_version = FD_DEFAULT_AGAVE_CLUSTER_VERSION;
   fd_features_enable_hardcoded( &self->features, self->epoch_bank.cluster_version );
-
-  fd_epoch_bank_new( &self->epoch_bank );
-
-
-  void * stake_votes_mem         = (void *)( (ulong)mem + layout->stake_votes_off         );
-  void * stake_delegations_mem   = (void *)( (ulong)mem + layout->stake_delegations_off   );
-  void * stake_history_treap_mem = (void *)( (ulong)mem + layout->stake_history_treap_off );
-  void * stake_history_pool_mem  = (void *)( (ulong)mem + layout->stake_history_pool_off  );
-  void * next_epoch_stakes_mem   = (void *)( (ulong)mem + layout->next_epoch_stakes_off   );
-  //void * leaders_mem             = (void *)( (ulong)mem + layout->leaders_off             );
-
-  fd_vote_accounts_pair_t_map_new( stake_votes_mem,         vote_acc_max               );
-  fd_delegation_pair_t_map_new   ( stake_delegations_mem,   vote_acc_max               );
-  fd_stake_history_treap_new     ( stake_history_treap_mem, FD_SYSVAR_STAKE_HISTORY_CAP );
-  fd_stake_history_pool_new      ( stake_history_pool_mem,  FD_SYSVAR_STAKE_HISTORY_CAP );
-  fd_vote_accounts_pair_t_map_new( next_epoch_stakes_mem,   vote_acc_max               );
-  //TODO support separate epoch leaders new and init
-  //fd_epoch_leaders_new           ( leaders_mem,             MAX_PUB_CNT, MAX_SLOTS_CNT );
 
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_EPOCH_CTX_MAGIC;
@@ -242,75 +224,32 @@ fd_exec_epoch_ctx_bank_mem_clear( fd_exec_epoch_ctx_t * epoch_ctx ) {
 }
 }
 
-static void fd_vote_accounts_decode_unsafe_no_malloc( fd_vote_accounts_t * self, fd_bincode_decode_ctx_t * ctx, fd_vote_accounts_pair_t_mapnode_t * pool ) {
-  ulong vote_accounts_len;
-  fd_bincode_uint64_decode_unsafe( &vote_accounts_len, ctx );
-  self->vote_accounts_pool = pool;
-  self->vote_accounts_root = NULL;
-  for( ulong i=0; i < vote_accounts_len; i++ ) {
-    fd_vote_accounts_pair_t_mapnode_t * node = fd_vote_accounts_pair_t_map_acquire( self->vote_accounts_pool );
-    fd_vote_accounts_pair_new( &node->elem );
-    fd_vote_accounts_pair_decode_unsafe( &node->elem, ctx );
-    fd_vote_accounts_pair_t_map_insert( self->vote_accounts_pool, &self->vote_accounts_root, node );
-  }
-}
+fd_epoch_bank_t *
+fd_exec_epoch_ctx_bank_mem_setup( fd_exec_epoch_ctx_t * self ) {
+  fd_exec_epoch_ctx_layout_t * layout = &self->layout;
 
-static void fd_stake_history_decode_unsafe_no_malloc( fd_stake_history_t * self, fd_bincode_decode_ctx_t * ctx, fd_stake_history_entry_t * pool, fd_stake_history_treap_t * treap ) {
-  ulong fd_stake_history_treap_len;
-  fd_bincode_uint64_decode_unsafe( &fd_stake_history_treap_len, ctx );
-  self->pool = pool;
-  self->treap = treap;
-  for( ulong i=0; i < fd_stake_history_treap_len; i++ ) {
-    fd_stake_history_entry_t * ele = fd_stake_history_pool_ele_acquire( self->pool );
-    fd_stake_history_entry_new( ele );
-    fd_stake_history_entry_decode_unsafe( ele, ctx );
-    fd_stake_history_treap_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */
-  }
-}
+  void * stake_votes_mem         = (void *)( (ulong)self + layout->stake_votes_off         );
+  void * stake_delegations_mem   = (void *)( (ulong)self + layout->stake_delegations_off   );
+  void * stake_history_treap_mem = (void *)( (ulong)self + layout->stake_history_treap_off );
+  void * stake_history_pool_mem  = (void *)( (ulong)self + layout->stake_history_pool_off  );
+  void * next_epoch_stakes_mem   = (void *)( (ulong)self + layout->next_epoch_stakes_off   );
+  //void * leaders_mem             = (void *)( (ulong)self + layout->leaders_off             );
 
-static void fd_stakes_decode_unsafe_no_malloc( fd_stakes_t * self, fd_bincode_decode_ctx_t * ctx, fd_exec_epoch_ctx_t * epoch_ctx ) {
-  fd_vote_accounts_decode_unsafe_no_malloc( &self->vote_accounts, ctx, fd_exec_epoch_ctx_stake_votes_join( epoch_ctx ) );
-  ulong stake_delegations_len;
-  fd_bincode_uint64_decode_unsafe( &stake_delegations_len, ctx );
-  self->stake_delegations_pool = fd_exec_epoch_ctx_stake_delegations_join( epoch_ctx );
-  self->stake_delegations_root = NULL;
-  for( ulong i=0; i < stake_delegations_len; i++ ) {
-    fd_delegation_pair_t_mapnode_t * node = fd_delegation_pair_t_map_acquire( self->stake_delegations_pool );
-    fd_delegation_pair_new( &node->elem );
-    fd_delegation_pair_decode_unsafe( &node->elem, ctx );
-    fd_delegation_pair_t_map_insert( self->stake_delegations_pool, &self->stake_delegations_root, node );
-  }
-  fd_bincode_uint64_decode_unsafe( &self->unused, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->epoch, ctx );
-  fd_stake_history_decode_unsafe_no_malloc( &self->stake_history, ctx, fd_exec_epoch_ctx_stake_history_pool_join( epoch_ctx ), fd_exec_epoch_ctx_stake_history_treap_join( epoch_ctx) );
-}
+  fd_epoch_bank_t * epoch_bank = &self->epoch_bank;
+  fd_epoch_bank_new( &self->epoch_bank );
 
-static void fd_epoch_bank_decode_unsafe_no_malloc( fd_epoch_bank_t * self, fd_bincode_decode_ctx_t * ctx, fd_exec_epoch_ctx_t * epoch_ctx ) {
-  fd_stakes_decode_unsafe_no_malloc( &self->stakes, ctx, epoch_ctx );
-  fd_bincode_uint64_decode_unsafe( &self->hashes_per_tick, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->ticks_per_slot, ctx );
-  fd_bincode_uint128_decode_unsafe( &self->ns_per_slot, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->genesis_creation_time, ctx );
-  fd_bincode_double_decode_unsafe( &self->slots_per_year, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->max_tick_height, ctx );
-  fd_inflation_decode_unsafe( &self->inflation, ctx );
-  fd_epoch_schedule_decode_unsafe( &self->epoch_schedule, ctx );
-  fd_rent_decode_unsafe( &self->rent, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->eah_start_slot, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->eah_stop_slot, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->eah_interval, ctx );
-  fd_hash_decode_unsafe( &self->genesis_hash, ctx );
-  fd_bincode_uint32_decode_unsafe( &self->cluster_type, ctx );
-  fd_bincode_uint32_decode_unsafe( &self->cluster_version, ctx );
-  fd_vote_accounts_decode_unsafe_no_malloc( &self->next_epoch_stakes, ctx, fd_exec_epoch_ctx_next_epoch_stakes_join( epoch_ctx ) );
-}
+  epoch_bank->stakes.vote_accounts.vote_accounts_pool =
+    fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( stake_votes_mem,         layout->vote_acc_max        ) );
+  epoch_bank->stakes.stake_delegations_pool =
+    fd_delegation_pair_t_map_join   ( fd_delegation_pair_t_map_new   ( stake_delegations_mem,   layout->vote_acc_max        ) );
+  epoch_bank->stakes.stake_history.treap =
+    fd_stake_history_treap_join     ( fd_stake_history_treap_new     ( stake_history_treap_mem, FD_SYSVAR_STAKE_HISTORY_CAP ) );
+  epoch_bank->stakes.stake_history.pool =
+    fd_stake_history_pool_join      ( fd_stake_history_pool_new      ( stake_history_pool_mem,  FD_SYSVAR_STAKE_HISTORY_CAP ) );
+  epoch_bank->next_epoch_stakes.vote_accounts_pool =
+    fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( next_epoch_stakes_mem,   layout->vote_acc_max        ) );
+  //TODO support separate epoch leaders new and init
+  //fd_epoch_leaders_new           ( leaders_mem,             MAX_PUB_CNT, MAX_SLOTS_CNT );
 
-int fd_epoch_bank_decode_no_malloc( fd_epoch_bank_t * self, fd_bincode_decode_ctx_t * ctx, fd_exec_epoch_ctx_t * epoch_ctx ) {
-  void const * data = ctx->data;
-  int err = fd_epoch_bank_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  ctx->data = data;
-  fd_epoch_bank_new( self );
-  fd_epoch_bank_decode_unsafe_no_malloc( self, ctx, epoch_ctx );
-  return FD_BINCODE_SUCCESS;
+  return epoch_bank;
 }

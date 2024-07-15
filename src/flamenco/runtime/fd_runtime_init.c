@@ -10,15 +10,6 @@
 /* This file must not depend on fd_executor.h */
 
 fd_funk_rec_key_t
-fd_runtime_firedancer_bank_key( void ) {
-  fd_funk_rec_key_t id;
-  fd_memset(&id, 1, sizeof(id));
-  id.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_BLOCK_BANKS_TYPE;
-
-  return id;
-}
-
-fd_funk_rec_key_t
 fd_runtime_epoch_bank_key( void ) {
   fd_funk_rec_key_t id;
   fd_memset(&id, 1, sizeof(id));
@@ -109,8 +100,6 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
   fd_funk_t *           funk         = slot_ctx->acc_mgr->funk;
   fd_funk_txn_t *       txn          = slot_ctx->funk_txn;
   fd_exec_epoch_ctx_t * epoch_ctx    = slot_ctx->epoch_ctx;
-  fd_epoch_bank_t *     epoch_bank   = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
-  fd_valloc_t           epoch_valloc = fd_scratch_virtual();
   {
     fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
     fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
@@ -121,11 +110,14 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
     if( clear_first ) {
       fd_exec_epoch_ctx_bank_mem_clear( epoch_ctx );
     }
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_bank_mem_setup( epoch_ctx );
     fd_bincode_decode_ctx_t ctx;
     ctx.data = val;
     ctx.dataend = (uchar*)val + fd_funk_val_sz( rec );
-    ctx.valloc  = epoch_valloc;
-    FD_TEST( fd_epoch_bank_decode_no_malloc( epoch_bank, &ctx, epoch_ctx )==FD_BINCODE_SUCCESS );
+    /* We use this special allocator to indicate that the data
+       structure has already been constructed in its final memory layout */
+    ctx.valloc  = fd_null_alloc_virtual();
+    FD_TEST( fd_epoch_bank_decode( epoch_bank, &ctx )==FD_BINCODE_SUCCESS );
 
     FD_LOG_NOTICE(( "recovered epoch_bank" ));
   }
