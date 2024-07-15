@@ -61,6 +61,16 @@
  * which may only contain acks. */
 # define FD_QUIC_OPT_SEND_ALL_ACKS 0
 
+/* FD_QUIC_PING_ENABLE
+ *
+ * This compile time option specifies whether the server should use
+ * QUIC PING frames to keep connections alive
+ *
+ * Set to 1 to keep connections alive
+ * Set to 0 to allow connections to close on idle */
+# define FD_QUIC_PING_ENABLE 0
+
+
 
 /* Construction API ***************************************************/
 
@@ -2811,6 +2821,12 @@ fd_quic_process_packet( fd_quic_t * quic,
     return;
   }
 
+  /* verify ip4 packet isn't truncated
+   * AF_XDP can silently do this */
+  if( FD_UNLIKELY( pkt.ip4->net_tot_len > cur_sz ) ) {
+    return;
+  }
+
   /* update pointer + size */
   cur_ptr += rc;
   cur_sz  -= rc;
@@ -2821,9 +2837,14 @@ fd_quic_process_packet( fd_quic_t * quic,
     return;
   }
 
+  /* sanity check udp length */
+  if( FD_UNLIKELY( pkt.udp->net_len > cur_sz ) ) {
+    return;
+  }
+
   /* update pointer + size */
   cur_ptr += rc;
-  cur_sz  -= rc;
+  cur_sz   = pkt.udp->net_len - rc; /* replace with udp length */
 
   /* cur_ptr[0..cur_sz-1] should be payload */
 
@@ -3414,7 +3435,7 @@ fd_quic_service( fd_quic_t * quic ) {
           conn->state = FD_QUIC_CONN_STATE_DEAD;
           quic->metrics.conn_aborted_cnt++;
         }
-      } else {
+      } else if( FD_QUIC_PING_ENABLE ) {
         /* send PING */
         if( !( conn->flags & FD_QUIC_CONN_FLAGS_PING ) ) {
           conn->flags         |= FD_QUIC_CONN_FLAGS_PING;
@@ -4629,7 +4650,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     pkt_meta->flags |= key_phase_flags;
 
     if( FD_UNLIKELY( fd_quic_crypto_encrypt( conn->tx_ptr, &cipher_text_sz, hdr, hdr_sz,
-          pay, pay_sz, suite, pkt_keys, hp_keys ) != FD_QUIC_SUCCESS ) ) {
+          pay, pay_sz, suite, pkt_keys, hp_keys, pkt_number ) != FD_QUIC_SUCCESS ) ) {
       FD_LOG_WARNING(( "fd_quic_crypto_encrypt failed" ));
 
       /* reschedule, since some data was unable to be sent */
