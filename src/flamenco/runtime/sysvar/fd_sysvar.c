@@ -8,7 +8,7 @@ int
 fd_sysvar_set( fd_exec_slot_ctx_t * slot_ctx,
                uchar const *        owner,
                fd_pubkey_t const *  pubkey,
-               uchar *              data,
+               void const *         data,
                ulong                sz,
                ulong                slot,
                ulong                lamports ) {
@@ -23,7 +23,7 @@ fd_sysvar_set( fd_exec_slot_ctx_t * slot_ctx,
     return FD_ACC_MGR_ERR_READ_FAILED;
 
   fd_memcpy(rec->data, data, sz);
-  
+
   /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank.rs#L1825 */
   fd_acc_lamports_t lamports_before = rec->meta->info.lamports;
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
