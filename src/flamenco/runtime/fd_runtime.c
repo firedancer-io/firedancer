@@ -1405,6 +1405,10 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
     for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
+      if( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) {
+        slot_ctx->signature_cnt += txn_ctx->txn_descriptor->signature_cnt;
+      }
+
       fd_valloc_free( txn_ctx->valloc, fd_instr_info_pool_delete( fd_instr_info_pool_leave( txn_ctx->instr_info_pool ) ) );
       fd_valloc_free( slot_ctx->valloc, txn_ctx );
     }
@@ -1616,10 +1620,6 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
         FD_LOG_ERR(("Fail finalize"));
       }
 
-      for( ulong j = 0UL; j < wave_task_infos_cnt; j++ ) {
-        if( !(wave_task_infos[j].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) continue;
-        slot_ctx->signature_cnt += wave_task_infos[j].txn_ctx->txn_descriptor->signature_cnt;
-      }
       wave_time += fd_log_wallclock();
       double wave_time_ms = (double)wave_time * 1e-6;
       cum_wave_time_ms += wave_time_ms;
