@@ -42,5 +42,34 @@ void * c1100_bar_handle( C1100 const * c1100, uint bar_num );
 uint   c1100_bar_count( C1100 const * d );
 int    c1100_bar_fd( C1100 * d, uint bar_num );
 int    c1100_dma_test( C1100 * c1100, void * buf, ulong dma_addr );
+int    c1100_dma_benchmark( C1100 * c1100, ulong dma_region_addr );
+
+
+
+
+
+void
+dma_block_write( C1100 * c1100,
+                 ulong   dma_addr,        ulong dma_offset,
+                 ulong   dma_offset_mask, ulong dma_stride,
+                 ulong   ram_addr,        ulong ram_offset,
+                 ulong   ram_offset_mask, ulong ram_stride,
+                 ulong   block_len,       ulong block_count );
+
+void
+dma_block_read( C1100 * c1100,
+                ulong   dma_addr,        ulong dma_offset,
+                ulong   dma_offset_mask, ulong dma_stride,
+                ulong   ram_addr,        ulong ram_offset,
+                ulong   ram_offset_mask, ulong ram_stride,
+                ulong   block_len,       ulong block_count );
+
+void
+dma_block_write_bench( C1100 * c1100,
+                       ulong   dma_addr, ulong size, ulong stride, ulong count );
+
+void
+dma_block_read_bench( C1100 * c1100,
+                      ulong   dma_addr, ulong size, ulong stride, ulong count );
 
 #endif /* HEADER_fd_src_app_fdctl_run_tiles_wd_c1100_h */

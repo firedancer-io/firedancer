@@ -232,6 +232,8 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   FD_TEST( c1100_dma_test( ctx->c1100, ctx->buf, ctx->dma_addr ) == 0 );
+
+  FD_TEST( c1100_dma_benchmark( ctx->c1100, ctx->dma_addr ) == 0 );
 }
 
 static ulong
