@@ -36,6 +36,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   for( ulong i=0; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
     l = FD_LAYOUT_APPEND( l, fd_sha512_align(), fd_sha512_footprint() );
   }
+  l = FD_LAYOUT_APPEND( l, 32, 1UL<<25 );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -174,12 +175,15 @@ privileged_init( fd_topo_t *      topo,
   (void)scratch;
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_verify_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
+  ctx->buf = FD_SCRATCH_ALLOC_APPEND( l, 32, 1UL<<25 );
+  ctx->dma_addr = _wd_get_phys( ctx->buf );
+  // ctx->buf = wd_alloc( 1UL<<25UL, &ctx->dma_addr );
+
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   FD_TEST( c1100_init( ctx->c1100, tile->verify.pcie_device ) == 0 );
-  ctx->buf = wd_alloc( 1024, &ctx->dma_addr );
 }
 
 static void
@@ -234,6 +238,8 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( c1100_dma_test( ctx->c1100, ctx->buf, ctx->dma_addr ) == 0 );
 
   FD_TEST( c1100_dma_benchmark( ctx->c1100, ctx->dma_addr ) == 0 );
+
+  FD_TEST( c1100_dma_benchmark2( ctx->c1100, ctx->buf, ctx->dma_addr, 1UL<<24UL ) == 0 );
 }
 
 static ulong

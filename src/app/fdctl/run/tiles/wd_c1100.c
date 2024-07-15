@@ -55,7 +55,7 @@ static
 void print_bar_maps( BarMap * bms, uint bms_sz ) {
   for( uint i=0UL; i<bms_sz; i++ ) {
     FD_LOG_NOTICE(( "BAR %d: Start = 0x%lx, End = 0x%lx, Size = 0x%08lx, MappedAddr=0x%lx, fd=%d, Path=%s",
-        i, bms[i].info.start, bms[i].info.end, bms[i].info.size, (ulong)bms[i].addr, bms[i].fd, bms[i].info.path ));
+        bms[i].info.num, bms[i].info.start, bms[i].info.end, bms[i].info.size, (ulong)bms[i].addr, bms[i].fd, bms[i].info.path ));
   }
 }
 
@@ -97,13 +97,17 @@ int wd_pcie_poke( void * h, ulong offset, uint   value ) {
 }
 
 static
-void * get_bar_handle( uint bar_num, BarMap const * bm, uint bm_sz ) {
+BarMap const * get_bar( uint bar_num, BarMap const * bm, uint bm_sz ) {
   for( uint i=0; i<bm_sz; i++ ) {
     if( FD_UNLIKELY( bm[i].info.num == bar_num ) ) {
-      return (void *)&bm[i];
+      return &bm[i];
     }
   }
   return NULL;
+}
+
+BarMap const * C1100_bar_get( C1100 const * c1100, uint bar_num ) {
+  return get_bar( bar_num, c1100->bm, c1100->sz );
 }
 
 int c1100_init( C1100 * c1100, const char * pcie_device ) {
@@ -117,7 +121,7 @@ int c1100_init( C1100 * c1100, const char * pcie_device ) {
 }
 
 void * c1100_bar_handle( C1100 const * c1100, uint bar_num ) {
-  return get_bar_handle( bar_num, c1100->bm, c1100->sz );
+  return (void *)C1100_bar_get( c1100, bar_num );
 }
 
 uint c1100_bar_count( C1100 const * c1100 ) {
@@ -178,12 +182,29 @@ uint c1100_dma_enabled( C1100 * c1100 ) {
   return value;
 }
 
+
+#ifndef MAP_HUGE_1GB
+#define MAP_HUGE_1GB (30 << MAP_HUGE_SHIFT)
+#endif
+
+#define GIGANTIC_PAGE_SIZE (1UL << 30) // 1GB
+#define GIGANTIC_PAGE_MASK (~(GIGANTIC_PAGE_SIZE - 1))
+
+
 void *
 wd_alloc( ulong len, ulong * dma_addr ) {
-  void * buf = mmap(0, len, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
+  (void)len;
+  void * buf = mmap(0, GIGANTIC_PAGE_SIZE, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_LOCKED | MAP_HUGETLB | MAP_HUGE_1GB, -1, 0);
   *dma_addr = _wd_get_phys( buf );
   return buf;
 }
+
+// void *
+// wd_alloc( ulong len, ulong * dma_addr ) {
+//   void * buf = mmap(0, len, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
+//   *dma_addr = _wd_get_phys( buf );
+//   return buf;
+// }
 
 void c1100_interrupts_enable( C1100 * c1100 ) {
   void * handle = c1100_bar_handle( c1100, 0 );
@@ -273,38 +294,38 @@ dma_block_write( C1100 * c1100,
   void * bar0 = c1100_bar_handle( c1100, 0 );
 
   // DMA base address
-  wd_pcie_poke(bar0, 0x001180, (uint)(dma_addr & 0xffffffff));
-  wd_pcie_poke(bar0, 0x001184, (uint)((dma_addr >> 32) & 0xffffffff));
+  wd_pcie_poke( bar0, 0x001180, (uint)(dma_addr & 0xffffffff) );
+  wd_pcie_poke( bar0, 0x001184, (uint)((dma_addr >> 32) & 0xffffffff) );
   // DMA offset address
-  wd_pcie_poke(bar0, 0x001188, (uint)(dma_offset & 0xffffffff));
-  wd_pcie_poke(bar0, 0x00118c, (uint)((dma_offset >> 32) & 0xffffffff));
+  wd_pcie_poke( bar0, 0x001188, (uint)(dma_offset & 0xffffffff) );
+  wd_pcie_poke( bar0, 0x00118c, (uint)((dma_offset >> 32) & 0xffffffff) );
   // DMA offset mask
-  wd_pcie_poke(bar0, 0x001190, (uint)(dma_offset_mask & 0xffffffff));
-  wd_pcie_poke(bar0, 0x001194, (uint)((dma_offset_mask >> 32) & 0xffffffff));
+  wd_pcie_poke( bar0, 0x001190, (uint)(dma_offset_mask & 0xffffffff) );
+  wd_pcie_poke( bar0, 0x001194, (uint)((dma_offset_mask >> 32) & 0xffffffff) );
   // DMA stride
-  wd_pcie_poke(bar0, 0x001198, (uint)(dma_stride & 0xffffffff));
-  wd_pcie_poke(bar0, 0x00119c, (uint)((dma_stride >> 32) & 0xffffffff));
+  wd_pcie_poke( bar0, 0x001198, (uint)(dma_stride & 0xffffffff) );
+  wd_pcie_poke( bar0, 0x00119c, (uint)((dma_stride >> 32) & 0xffffffff) );
   // RAM base address
-  wd_pcie_poke(bar0, 0x0011c0, (uint)(ram_addr & 0xffffffff));
-  wd_pcie_poke(bar0, 0x0011c4, (uint)((ram_addr >> 32) & 0xffffffff));
+  wd_pcie_poke( bar0, 0x0011c0, (uint)(ram_addr & 0xffffffff) );
+  wd_pcie_poke( bar0, 0x0011c4, (uint)((ram_addr >> 32) & 0xffffffff) );
   // RAM offset address
-  wd_pcie_poke(bar0, 0x0011c8, (uint)(ram_offset & 0xffffffff));
-  wd_pcie_poke(bar0, 0x0011cc, (uint)((ram_offset >> 32) & 0xffffffff));
+  wd_pcie_poke( bar0, 0x0011c8, (uint)(ram_offset & 0xffffffff) );
+  wd_pcie_poke( bar0, 0x0011cc, (uint)((ram_offset >> 32) & 0xffffffff) );
   // RAM offset mask
-  wd_pcie_poke(bar0, 0x0011d0, (uint)(ram_offset_mask & 0xffffffff));
-  wd_pcie_poke(bar0, 0x0011d4, (uint)((ram_offset_mask >> 32) & 0xffffffff));
+  wd_pcie_poke( bar0, 0x0011d0, (uint)(ram_offset_mask & 0xffffffff) );
+  wd_pcie_poke( bar0, 0x0011d4, (uint)((ram_offset_mask >> 32) & 0xffffffff) );
   // RAM stride
-  wd_pcie_poke(bar0, 0x0011d8, (uint)(ram_stride & 0xffffffff));
-  wd_pcie_poke(bar0, 0x0011dc, (uint)((ram_stride >> 32) & 0xffffffff));
+  wd_pcie_poke( bar0, 0x0011d8, (uint)(ram_stride & 0xffffffff) );
+  wd_pcie_poke( bar0, 0x0011dc, (uint)((ram_stride >> 32) & 0xffffffff) );
   // clear cycle count
-  wd_pcie_poke(bar0, 0x001108, 0);
-  wd_pcie_poke(bar0, 0x00110c, 0);
+  wd_pcie_poke( bar0, 0x001108, 0 );
+  wd_pcie_poke( bar0, 0x00110c, 0 );
   // block length
-  wd_pcie_poke(bar0, 0x001110, (uint)block_len);
+  wd_pcie_poke( bar0, 0x001110, (uint)block_len );
   // block count
-  wd_pcie_poke(bar0, 0x001118, (uint)block_count);
+  wd_pcie_poke( bar0, 0x001118, (uint)block_count );
   // start
-  wd_pcie_poke(bar0, 0x001100, 1);
+  wd_pcie_poke( bar0, 0x001100, 1 );
 
   // wait for transfer to complete
   for( uint i=0; i<20000; i++ ) {
@@ -314,12 +335,14 @@ dma_block_write( C1100 * c1100,
     usleep( 1 );
   }
 
-  wd_pcie_peek(bar0, 0x001100, &value);
+  wd_pcie_peek( bar0, 0x001100, &value );
+  // FD_LOG_NOTICE(( "status 0x001100 %u", value ));
   if( FD_UNLIKELY( (value & 1) != 0 ) )
-    FD_LOG_ERR(( "operation timed out" ));
-  wd_pcie_peek(bar0, 0x000000, &value);
+    FD_LOG_ERR(( "operation timed out"  ));
+  wd_pcie_peek( bar0, 0x000000, &value );
+  // FD_LOG_NOTICE(( "status 0x000000 %u", value ));
   if( FD_UNLIKELY( (value & 0x300) != 0 ) )
-    FD_LOG_ERR(( "DMA engine busy" ));
+    FD_LOG_ERR(( "DMA engine busy"  ));
 }
 
 void
@@ -333,38 +356,38 @@ dma_block_read( C1100 * c1100,
   void * bar0 = c1100_bar_handle( c1100, 0 );
 
   // DMA base address
-  wd_pcie_poke(bar0, 0x001080, (uint)(dma_addr & 0xffffffff));
-  wd_pcie_poke(bar0, 0x001084, (uint)((dma_addr >> 32) & 0xffffffff));
+  wd_pcie_poke( bar0, 0x001080, (uint)(dma_addr & 0xffffffff) );
+  wd_pcie_poke( bar0, 0x001084, (uint)((dma_addr >> 32) & 0xffffffff) );
   // DMA offset address
-  wd_pcie_poke(bar0, 0x001088, (uint)(dma_offset & 0xffffffff));
-  wd_pcie_poke(bar0, 0x00108c, (uint)((dma_offset >> 32) & 0xffffffff));
+  wd_pcie_poke( bar0, 0x001088, (uint)(dma_offset & 0xffffffff) );
+  wd_pcie_poke( bar0, 0x00108c, (uint)((dma_offset >> 32) & 0xffffffff) );
   // DMA offset mask
-  wd_pcie_poke(bar0, 0x001090, (uint)(dma_offset_mask & 0xffffffff));
-  wd_pcie_poke(bar0, 0x001094, (uint)((dma_offset_mask >> 32) & 0xffffffff));
+  wd_pcie_poke( bar0, 0x001090, (uint)(dma_offset_mask & 0xffffffff) );
+  wd_pcie_poke( bar0, 0x001094, (uint)((dma_offset_mask >> 32) & 0xffffffff) );
   // DMA stride
-  wd_pcie_poke(bar0, 0x001098, (uint)(dma_stride & 0xffffffff));
-  wd_pcie_poke(bar0, 0x00109c, (uint)((dma_stride >> 32) & 0xffffffff));
+  wd_pcie_poke( bar0, 0x001098, (uint)(dma_stride & 0xffffffff) );
+  wd_pcie_poke( bar0, 0x00109c, (uint)((dma_stride >> 32) & 0xffffffff) );
   // RAM base address
-  wd_pcie_poke(bar0, 0x0010c0, (uint)(ram_addr & 0xffffffff));
-  wd_pcie_poke(bar0, 0x0010c4, (uint)((ram_addr >> 32) & 0xffffffff));
+  wd_pcie_poke( bar0, 0x0010c0, (uint)(ram_addr & 0xffffffff) );
+  wd_pcie_poke( bar0, 0x0010c4, (uint)((ram_addr >> 32) & 0xffffffff) );
   // RAM offset address
-  wd_pcie_poke(bar0, 0x0010c8, (uint)(ram_offset & 0xffffffff));
-  wd_pcie_poke(bar0, 0x0010cc, (uint)((ram_offset >> 32) & 0xffffffff));
+  wd_pcie_poke( bar0, 0x0010c8, (uint)(ram_offset & 0xffffffff) );
+  wd_pcie_poke( bar0, 0x0010cc, (uint)((ram_offset >> 32) & 0xffffffff) );
   // RAM offset mask
-  wd_pcie_poke(bar0, 0x0010d0, (uint)(ram_offset_mask & 0xffffffff));
-  wd_pcie_poke(bar0, 0x0010d4, (uint)((ram_offset_mask >> 32) & 0xffffffff));
+  wd_pcie_poke( bar0, 0x0010d0, (uint)(ram_offset_mask & 0xffffffff) );
+  wd_pcie_poke( bar0, 0x0010d4, (uint)((ram_offset_mask >> 32) & 0xffffffff) );
   // RAM stride
-  wd_pcie_poke(bar0, 0x0010d8, (uint)(ram_stride & 0xffffffff));
-  wd_pcie_poke(bar0, 0x0010dc, (uint)((ram_stride >> 32) & 0xffffffff));
+  wd_pcie_poke( bar0, 0x0010d8, (uint)(ram_stride & 0xffffffff) );
+  wd_pcie_poke( bar0, 0x0010dc, (uint)((ram_stride >> 32) & 0xffffffff) );
   // clear cycle count
-  wd_pcie_poke(bar0, 0x001008, 0);
-  wd_pcie_poke(bar0, 0x00100c, 0);
+  wd_pcie_poke( bar0, 0x001008, 0 );
+  wd_pcie_poke( bar0, 0x00100c, 0 );
   // block length
-  wd_pcie_poke(bar0, 0x001010, (uint)block_len);
+  wd_pcie_poke( bar0, 0x001010, (uint)block_len );
   // block count
-  wd_pcie_poke(bar0, 0x001018, (uint)block_count);
+  wd_pcie_poke( bar0, 0x001018, (uint)block_count );
   // start
-  wd_pcie_poke(bar0, 0x001000, 1);
+  wd_pcie_poke( bar0, 0x001000, 1);
 
   // wait for transfer to complete
   for( uint i=0; i<20000; i++ ) {
@@ -374,10 +397,10 @@ dma_block_read( C1100 * c1100,
     usleep( 1 );
   }
 
-  wd_pcie_peek(bar0, 0x001000, &value);
+  wd_pcie_peek( bar0, 0x001000, &value );
   if( FD_UNLIKELY( (value & 1) != 0 ) )
     FD_LOG_ERR(( "operation timed out" ));
-  wd_pcie_peek(bar0, 0x000000, &value);
+  wd_pcie_peek( bar0, 0x000000, &value );
   if( FD_UNLIKELY( (value & 0x300) != 0 ) )
     FD_LOG_ERR(( "DMA engine busy" ));
 }
@@ -393,8 +416,8 @@ dma_block_write_bench( C1100 * c1100,
   void * bar0 = c1100_bar_handle( c1100, 0 );
   wd_pcie_peek( bar0, 0x000028, &wr_req );
 
-  dma_block_write( c1100, dma_addr, 0, 0x3fff, stride,
-                   0, 0, 0x3fff, stride, size, count );
+  dma_block_write( c1100, dma_addr, 0, 0xffffff, stride,
+                   0, 0, 0xffffff, stride, size, count );
 
   wd_pcie_peek( bar0, 0x001108, (uint *)&cycles );
 
@@ -421,8 +444,8 @@ dma_block_read_bench( C1100 * c1100,
   wd_pcie_peek( bar0, 0x000020, &rd_req );
   wd_pcie_peek( bar0, 0x000024, &rd_cpl );
 
-  dma_block_read( c1100, dma_addr, 0, 0x3fff, stride,
-                  0, 0, 0x3fff, stride, size, count );
+  dma_block_read( c1100, dma_addr, 0, 0xffffff, stride,
+                  0, 0, 0xffffff, stride, size, count );
 
   wd_pcie_peek( bar0, 0x001008, &cycles );
 
@@ -475,5 +498,48 @@ c1100_dma_benchmark( C1100 * c1100, ulong dma_region_addr ) {
     }
   }
 
+  return 0;
+}
+
+int
+c1100_dma_benchmark2( C1100 * c1100, void * buf, ulong dma_region_addr, uint sz ) {
+  ulong size = 2048;
+  ulong stride = 2048;
+  ulong count = 8192UL;
+
+  for( uint i=0; i<sz; i++ ) {
+      ((char *)buf)[i] = (char)i;
+  }
+
+  FD_LOG_NOTICE(( "disable interrupts" ));
+  void * bar0 = c1100_bar_handle( c1100, 0 );
+  wd_pcie_poke( bar0, 0x000008, 0x0 );
+
+  FD_LOG_NOTICE(( "perform block reads (dma_alloc_coherent)" ));
+
+  dma_block_read_bench( c1100, dma_region_addr + 0x0000, size, stride, count );
+  uint value;
+  wd_pcie_peek( bar0, 0x000000, &value );
+  if( (value & 0x300) != 0 )
+    return 1;
+
+  FD_LOG_NOTICE(( "perform block writes (dma_alloc_coherent)" ));
+
+  dma_block_write_bench( c1100, dma_region_addr + (1UL<<24UL), size, stride, count );
+  wd_pcie_peek( bar0, 0x000000, &value );
+  if( (value & 0x300) != 0 )
+    return 1;
+
+  for( uint i=0; i<count; i++ ) {
+    ulong offset = i*size;
+    if( memcmp( (char *)buf+offset, &((char *)buf)[(1UL<<24UL) + offset], size ) != 0 ) {
+      FD_LOG_NOTICE(( "test data mismatch" ));
+      FD_LOG_HEXDUMP_NOTICE(( "data in",  (char *)buf+offset, 1024 ));
+      FD_LOG_HEXDUMP_NOTICE(( "data out", &((char *)buf)[(1UL<<24UL)+offset], 1024 ));
+      return 1;
+    }
+  }
+
+  FD_LOG_NOTICE(( "test data matches" ));
   return 0;
 }

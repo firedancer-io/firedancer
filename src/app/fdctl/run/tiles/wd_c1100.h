@@ -39,10 +39,14 @@ void * wd_alloc( ulong len, ulong * dma_addr );
 
 int    c1100_init( C1100 * c1100, const char * pcie_device );
 void * c1100_bar_handle( C1100 const * c1100, uint bar_num );
-uint   c1100_bar_count( C1100 const * d );
+int    c1100_bar_info(   C1100 const * c1100, uint bar_num );
+uint   c1100_bar_count(  C1100 const * d );
 int    c1100_bar_fd( C1100 * d, uint bar_num );
 int    c1100_dma_test( C1100 * c1100, void * buf, ulong dma_addr );
 int    c1100_dma_benchmark( C1100 * c1100, ulong dma_region_addr );
+int    c1100_dma_benchmark2( C1100 * c1100, void * buf, ulong dma_region_addr, uint sz );
+BarMap const * C1100_bar_get( C1100 const * c1100, uint bar_num );
+ulong _wd_get_phys(void * p);
 
 
 
