@@ -568,9 +568,7 @@ fd_ghost_is_descendant( fd_ghost_t const * ghost, ulong slot, ulong ancestor_slo
      Stop looking when there is either no ancestry remaining or there is
      no reason to look further because we've searched past the
      ancestor_slot. */
-  FD_LOG_WARNING(("ANCESETORS: %lu", ancestor_slot));
   while( FD_LIKELY( ancestor && ancestor->slot >= ancestor_slot ) ) {
-    FD_LOG_WARNING(("ANC: %lu", ancestor->slot));
     if( FD_UNLIKELY( ancestor->slot == ancestor_slot ) ) return 1; /* optimize for not found */
     ancestor = ancestor->parent;
   }

@@ -602,20 +602,21 @@ fd_tower_epoch_update( fd_tower_t * tower, fd_exec_epoch_ctx_t const * epoch_ctx
 
 void
 fd_tower_fork_start( fd_fork_t const *  fork,
-                     fd_blockstore_t *  blockstore,
-                     fd_ghost_t *       ghost ) {
+                     fd_blockstore_t *  blockstore FD_PARAM_UNUSED,
+                     fd_ghost_t *       ghost,
+                     ulong              parent_slot ) {
   /* Get the parent key. Every slot except the root must have a parent. */
 
-  fd_blockstore_start_read( blockstore );
-  ulong parent_slot = fd_blockstore_parent_slot_query( blockstore, fork->slot );
-#if FD_TOWER_USE_HANDHOLDING
-  /* we must have a parent slot and bank hash, given we just executed
-     its child. if not, likely a bug in blockstore pruning. */
-  if( FD_UNLIKELY( parent_slot == FD_SLOT_NULL ) ) {
-    FD_LOG_ERR( ( "missing parent slot for curr slot %lu", fork->slot ) );
-  };
-#endif
-  fd_blockstore_end_read( blockstore );
+//   fd_blockstore_start_read( blockstore );
+//   ulong parent_slot = fd_blockstore_query( blockstore, fork->slot );
+// #if FD_TOWER_USE_HANDHOLDING
+//   /* we must have a parent slot and bank hash, given we just executed
+//      its child. if not, likely a bug in blockstore pruning. */
+//   if( FD_UNLIKELY( parent_slot == FD_SLOT_NULL ) ) {
+//     FD_LOG_ERR( ( "missing parent slot for curr slot %lu", fork->slot ) );
+//   };
+// #endif
+//   fd_blockstore_end_read( blockstore );
 
   /* Insert the new fork head into ghost. */
 

@@ -10,6 +10,10 @@
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../disco/metrics/generated/fd_metrics_poh.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
+#include "../../../../flamenco/fd_flamenco.h"
+
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 /* The PoH recorder is implemented in Firedancer but for now needs to
    work with Solana Labs, so we have a locking scheme for them to
@@ -198,7 +202,7 @@ FD_FN_CONST static inline void *
 mux_ctx( void * scratch ) {
   return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_poh_ctx_t ) );
 }
-
+static ulong x = 0;
 static inline void
 after_credit( void *             _ctx,
               fd_mux_context_t * mux,
@@ -211,37 +215,41 @@ after_credit( void *             _ctx,
     return;
   }
 
+  int is_leader       = fd_poh_tile_is_leader( ctx->poh_tile_ctx );
+  if( FD_UNLIKELY( fd_poh_tile_has_become_leader( ctx->poh_tile_ctx, is_leader ) ) ) {
+    /* We were not leader but beame leader... we don't want to do any
+       other hashing until we get the leader bank from the replay
+       stage. */
+    return;
+  }
+
+  if( is_leader && fd_poh_tile_get_last_slot( ctx->poh_tile_ctx )<fd_poh_tile_get_slot( ctx->poh_tile_ctx ) ) {
+    FD_LOG_WARNING(("QQQ: %lu %lu %lu %lu %lu", fd_poh_tile_get_last_slot( ctx->poh_tile_ctx ), ctx->poh_tile_ctx->last_hashcnt, fd_poh_tile_get_slot( ctx->poh_tile_ctx ), ctx->poh_tile_ctx->hashcnt, ctx->poh_tile_ctx->slot ));
+    ulong tick_idx = ((ctx->poh_tile_ctx->last_hashcnt+ctx->poh_tile_ctx->hashcnt_per_tick)/ctx->poh_tile_ctx->hashcnt_per_tick)%MAX_SKIPPED_TICKS;
+      FD_LOG_WARNING(("skipped tick out: %lu %32J %lu", tick_idx, ctx->poh_tile_ctx->skipped_tick_hashes[ tick_idx ], x ));
+    fd_poh_tile_publish_tick( ctx->poh_tile_ctx, mux, ctx->poh_tile_ctx->skipped_tick_hashes[ tick_idx ], 1 );
+    *opt_poll_in = 0;
+    x++;
+    return;
+  } else {
+    x = 0;
+  }
+
   if( FD_LIKELY( ctx->poh_tile_ctx->current_leader_slot==ULONG_MAX && ctx->recently_reset ) ) {
     /* We are not leader, but we should check if we have reached a leader slot! */
     ulong leader_slot = FD_SLOT_NULL;
     ulong reset_slot = FD_SLOT_NULL;
     int has_reached_leader_slot = fd_poh_tile_reached_leader_slot( ctx->poh_tile_ctx, &leader_slot, &reset_slot );
 
-    if( has_reached_leader_slot && fd_poh_tile_get_last_slot( ctx->poh_tile_ctx )<fd_poh_tile_get_slot( ctx->poh_tile_ctx ) ) {
-      ulong publish_hashcnt = ctx->poh_tile_ctx->last_hashcnt+ctx->poh_tile_ctx->hashcnt_per_tick;
-      ulong tick_idx = (ctx->poh_tile_ctx->last_hashcnt/ctx->poh_tile_ctx->hashcnt_per_tick+publish_hashcnt/ctx->poh_tile_ctx->hashcnt_per_tick)%MAX_SKIPPED_TICKS;
-      fd_poh_tile_publish_tick( ctx->poh_tile_ctx, mux, ctx->poh_tile_ctx->skipped_tick_hashes[ tick_idx ], 1 );
-      *opt_poll_in = 0;
-      return;
-    }
-
     if( has_reached_leader_slot ) {
       fd_poh_begin_leader( ctx, leader_slot );
     }
   }
 
-  int is_leader       = fd_poh_tile_is_leader( ctx->poh_tile_ctx );
   int hashes_produced = fd_poh_tile_do_hashing( ctx->poh_tile_ctx, is_leader );
 
   if( !hashes_produced ) {
     /* No hashes were produced, nothing to do. */
-    return;
-  }
-
-  if( FD_UNLIKELY( fd_poh_tile_has_become_leader( ctx->poh_tile_ctx, is_leader ) ) ) {
-    /* We were not leader but beame leader... we don't want to do any
-       other hashing until we get the leader bank from the replay
-       stage. */
     return;
   }
 
@@ -482,6 +490,8 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
+  fd_flamenco_boot( NULL, NULL );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_poh_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_poh_ctx_t ), sizeof( fd_poh_ctx_t ) );
   ctx->poh_tile_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_poh_tile_align(), fd_poh_tile_footprint()  );

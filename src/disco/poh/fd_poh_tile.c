@@ -1,5 +1,8 @@
 #include "fd_poh_tile.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 ulong
 fd_poh_tile_align( void ) {
   return 128UL;
@@ -656,7 +659,7 @@ fd_poh_tile_has_ticked_while_leader( fd_poh_tile_ctx_t * ctx,
 void
 fd_poh_tile_process_skipped_slot( fd_poh_tile_ctx_t * ctx,
                                   int                 is_leader ) {
-  if( FD_UNLIKELY( !is_leader && !(ctx->hashcnt%ctx->hashcnt_per_slot) ) ) {
+  if( FD_UNLIKELY( !is_leader && !(ctx->hashcnt%ctx->hashcnt_per_tick) ) ) {
     /* We finished a slot while not leader... save the current hash so
        it can be played back into the bank (to update the recent slot
        hashes sysvar) when we become the leader. */

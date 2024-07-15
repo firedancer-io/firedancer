@@ -367,8 +367,19 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
       ulong caught_up = slot > ctx->store->first_turbine_slot;
       ulong behind = ctx->store->curr_turbine_slot - slot;
-
-      FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %32J", slot, block_info.microblock_cnt, block_hash->uc ));
+      
+      ulong tick_cnt = 0UL;
+      /* count ticks */
+      for( ulong i = 0; i<block_info.microblock_batch_cnt; i++ ) {
+        fd_microblock_batch_info_t const * microblock_batch_info = &block_info.microblock_batch_infos[i];
+        for( ulong j = 0; j<block_info.microblock_batch_cnt; j++ ) {
+          fd_microblock_info_t const * microblock_info = &microblock_batch_info->microblock_infos[j];
+          if( microblock_info->microblock_hdr.txn_cnt==0UL ) {
+            tick_cnt++;
+          }
+        }
+      }
+      FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %32J, tick_cnt: %lu", slot, block_info.microblock_cnt, block_hash->uc, tick_cnt ));
       FD_LOG_DEBUG(( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
                       "executed: %lu, caught up: %d",
                       ctx->store->first_turbine_slot,

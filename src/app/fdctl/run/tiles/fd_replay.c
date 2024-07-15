@@ -260,12 +260,12 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
                        fd_mux_context_t *     mux_ctx,
                        fd_exec_slot_ctx_t *   slot_ctx ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  if( ctx->slot_ctx->slot_bank.epoch_stakes.vote_accounts_root!=NULL ) {
+  if( slot_ctx->slot_bank.epoch_stakes.vote_accounts_root!=NULL ) {
     ulong * stake_weights_msg         = fd_chunk_to_laddr( ctx->stake_weights_out_mem, ctx->stake_weights_out_chunk );
     fd_stake_weight_t * stake_weights = (fd_stake_weight_t *)&stake_weights_msg[5];
     ulong stake_weight_idx            = fd_stake_weights_by_node( &ctx->slot_ctx->slot_bank.epoch_stakes, stake_weights );
 
-    stake_weights_msg[0] = fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, ctx->slot_ctx->slot_bank.slot ) - 1; /* epoch */
+    stake_weights_msg[0] = fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot ) - 1; /* epoch */
     stake_weights_msg[1] = stake_weight_idx; /* staked_cnt */
     stake_weights_msg[2] = fd_epoch_slot0( &epoch_bank->epoch_schedule, stake_weights_msg[0] ); /* start_slot */
     stake_weights_msg[3] = epoch_bank->epoch_schedule.slots_per_epoch; /* slot_cnt */
@@ -284,7 +284,7 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
     fd_stake_weight_t * stake_weights = (fd_stake_weight_t *)&stake_weights_msg[5];
     ulong stake_weight_idx            = fd_stake_weights_by_node( &epoch_bank->next_epoch_stakes, stake_weights );
 
-    stake_weights_msg[0] = fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, ctx->slot_ctx->slot_bank.slot ); /* epoch */
+    stake_weights_msg[0] = fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot ); /* epoch */
     stake_weights_msg[1] = stake_weight_idx; /* staked_cnt */
     stake_weights_msg[2] = fd_epoch_slot0( &epoch_bank->epoch_schedule, stake_weights_msg[0] ); /* start_slot */
     stake_weights_msg[3] = epoch_bank->epoch_schedule.slots_per_epoch; /* slot_cnt */
@@ -597,6 +597,7 @@ after_frag( void *             _ctx,
 
   // ctx->curr_slot = fd_disco_replay_sig_slot( *opt_sig );
   // ctx->flags = fd_disco_replay_sig_flags( *opt_sig );
+  int is_new_epoch_in_new_block = 0;
 
     /* This is an edge case related to pack. The parent fork might
        already be in the frontier and currently executing (ie.
@@ -618,7 +619,6 @@ after_frag( void *             _ctx,
       long prepare_time_ns = -fd_log_wallclock();
 
       fork = fd_forks_prepare( ctx->forks, ctx->parent_slot, ctx->acc_mgr, ctx->blockstore, ctx->epoch_ctx, ctx->funk, ctx->valloc );
-
       // Remove slot ctx from frontier
       fd_fork_t * child = fd_fork_frontier_ele_remove( ctx->forks->frontier, &fork->slot, NULL, ctx->forks->pool );
       child->slot = ctx->curr_slot;
@@ -628,12 +628,12 @@ after_frag( void *             _ctx,
       }
       fd_fork_frontier_ele_insert( ctx->forks->frontier, child, ctx->forks->pool );
       FD_TEST( fork == child );
+      fd_tower_fork_start( fork, ctx->blockstore, ctx->ghost, ctx->parent_slot );
 
       // fork is advancing
       FD_LOG_NOTICE(( "new block execution - slot: %lu, parent_slot: %lu", ctx->curr_slot, ctx->parent_slot ));
 
       /* if it is an epoch boundary, push out stake weights */
-      int is_new_epoch = 0;
       if( fork->slot_ctx.slot_bank.slot != 0 ) {
         ulong slot_idx;
         fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx.epoch_ctx );
@@ -641,13 +641,9 @@ after_frag( void *             _ctx,
         ulong new_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, fork->slot_ctx.slot_bank.slot, &slot_idx );
 
         if( prev_epoch < new_epoch || slot_idx == 0 ) {
-          FD_LOG_DEBUG(("Epoch boundary"));
-          is_new_epoch = 1;
+          FD_LOG_WARNING(("Epoch boundary"));
+          is_new_epoch_in_new_block = 1;
         }
-      }
-
-      if( is_new_epoch ) {
-        publish_stake_weights( ctx, mux, &fork->slot_ctx );
       }
 
       fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
@@ -669,6 +665,10 @@ after_frag( void *             _ctx,
       fd_funk_end_write( ctx->funk );
 
       int res = fd_runtime_block_execute_prepare( &fork->slot_ctx );
+
+      if( is_new_epoch_in_new_block ) {
+        publish_stake_weights( ctx, mux, &fork->slot_ctx );
+      }
 
       if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
         FD_LOG_ERR(( "block prep execute failed" ));
@@ -803,7 +803,7 @@ after_frag( void *             _ctx,
 
       FD_PARAM_UNUSED long tic_ = fd_log_wallclock();
 
-      fd_tower_fork_update( ctx->tower, fork, ctx->acc_mgr, ctx->blockstore, ctx->ghost );
+      fd_tower_fork_update( ctx->tower, fork, ctx->acc_mgr, ctx->ghost );
 
       /* Check which fork to reset to for pack. */
       FD_LOG_WARNING(("MEEP"));

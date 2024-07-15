@@ -332,7 +332,8 @@ fd_tower_epoch_update( fd_tower_t * tower, fd_exec_epoch_ctx_t const * epoch_ctx
 void
 fd_tower_fork_start( fd_fork_t const *  fork,
                      fd_blockstore_t *  blockstore,
-                     fd_ghost_t *       ghost );
+                     fd_ghost_t *       ghost,
+                     ulong              parent_slot );
 
 /* fd_tower_fork_update updates ghost with the latest state of the vote
    accounts after executing the fork head (fork->slot).  Important: this

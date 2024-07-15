@@ -28,7 +28,7 @@ solana-keygen new --no-bip39-passphrase --silent --outfile fd-withdrawer-keypair
 
 solana -u $RPC_URL --keypair faucet-keypair.json transfer --allow-unfunded-recipient fd-identity-keypair-2.json 4000000
 solana -u $RPC_URL --keypair fd-identity-keypair-2.json create-vote-account fd-vote-keypair-2.json fd-identity-keypair-2.json fd-withdrawer-keypair-2.json
-solana -u $RPC_URL --keypair fd-identity-keypair-2.json create-stake-account fd-stake-keypair-2.json 1000000
+solana -u $RPC_URL --keypair fd-identity-keypair-2.json create-stake-account fd-stake-keypair-2.json 100000
 solana -u $RPC_URL --keypair fd-identity-keypair-2.json delegate-stake fd-stake-keypair-2.json fd-vote-keypair-2.json
 
 solana -u $RPC_URL --keypair fd-identity-keypair-2.json vote-account fd-vote-keypair-2.json
