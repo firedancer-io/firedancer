@@ -873,11 +873,15 @@ class MapMember:
             print(f'  ulong {self.name}_len;', file=body)
             print(f'  fd_bincode_uint64_decode_unsafe( &{self.name}_len, ctx );', file=body)
 
+        # We use this special allocator to indicate that the data
+        # structure has already been constructed in its final memory layout */
+        print('  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {', file=body)
         if self.minalloc > 0:
-            print(f'  self->{self.name}_pool = {mapname}_alloc( ctx->valloc, fd_ulong_max({self.name}_len, {self.minalloc} ) );', file=body)
+            print(f'    self->{self.name}_pool = {mapname}_alloc( ctx->valloc, fd_ulong_max({self.name}_len, {self.minalloc} ) );', file=body)
         else:
-            print(f'  self->{self.name}_pool = {mapname}_alloc( ctx->valloc, {self.name}_len );', file=body)
-        print(f'  self->{self.name}_root = NULL;', file=body)
+            print(f'    self->{self.name}_pool = {mapname}_alloc( ctx->valloc, {self.name}_len );', file=body)
+        print(f'    self->{self.name}_root = NULL;', file=body)
+        print('  }', file=body)
         print(f'  for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
         print(f'    {nodename} * node = {mapname}_acquire( self->{self.name}_pool );', file=body);
         print(f'    {namespace}_{self.element}_new( &node->elem );', file=body)
@@ -1075,9 +1079,13 @@ class TreapMember:
             print(f'  ulong {treap_name}_len;', file=body)
             print(f'  fd_bincode_uint64_decode_unsafe( &{treap_name}_len, ctx );', file=body)
 
-        print(f'  ulong {treap_name}_max = fd_ulong_max( {treap_name}_len, {self.min_name} );', file=body)
-        print(f'  self->pool = {pool_name}_alloc( ctx->valloc, {treap_name}_max );', file=body)
-        print(f'  self->treap = {treap_name}_alloc( ctx->valloc, {treap_name}_max );', file=body)
+        # We use this special allocator to indicate that the data
+        # structure has already been constructed in its final memory layout */
+        print('  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {', file=body)
+        print(f'    ulong {treap_name}_max = fd_ulong_max( {treap_name}_len, {self.min_name} );', file=body)
+        print(f'    self->pool = {pool_name}_alloc( ctx->valloc, {treap_name}_max );', file=body)
+        print(f'    self->treap = {treap_name}_alloc( ctx->valloc, {treap_name}_max );', file=body)
+        print('  }', file=body)
         print(f'  for( ulong i=0; i < {treap_name}_len; i++ ) {{', file=body)
         print(f'    {treap_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
         print(f'    {treap_t.rstrip("_t")}_new( ele );', file=body)
@@ -1663,7 +1671,9 @@ class StructType:
             print(f'  int err = {n}_decode_preflight( ctx );', file=body)
             print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
             print(f'  ctx->data = data;', file=body)
-            print(f'  {n}_new( self );', file=body)
+            print('  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {', file=body)
+            print(f'    {n}_new( self );', file=body)
+            print('  }', file=body)
             print(f'  {n}_decode_unsafe( self, ctx );', file=body)
             print(f'  return FD_BINCODE_SUCCESS;', file=body)
             print(f'}}', file=body)
@@ -1920,7 +1930,11 @@ class EnumType:
         print(f'  int err = {n}_decode_preflight( ctx );', file=body)
         print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
         print(f'  ctx->data = data;', file=body)
-        print(f'  {n}_new( self );', file=body)
+        # We use this special allocator to indicate that the data
+        # structure has already been constructed in its final memory layout */
+        print('  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {', file=body)
+        print(f'    {n}_new( self );', file=body)
+        print('  }', file=body)
         print(f'  {n}_decode_unsafe( self, ctx );', file=body)
         print(f'  return FD_BINCODE_SUCCESS;', file=body)
         print(f'}}', file=body)

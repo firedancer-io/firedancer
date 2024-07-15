@@ -7,9 +7,6 @@
 #include "../fd_flamenco_base.h"
 #include "../../funk/fd_funk_rec.h"
 
-/* FD_BLOCK_BANKS_TYPE stores fd_firedancer_banks_t bincode encoded (obsolete)*/
-#define FD_BLOCK_BANKS_TYPE ((uchar)3)
-
 /* FD_BLOCK_SLOT_BANK_TYPE stores fd_slot_bank_t bincode encoded */
 #define FD_BLOCK_SLOT_BANK_TYPE ((uchar)6)
 
@@ -17,9 +14,6 @@
 #define FD_BLOCK_EPOCH_BANK_TYPE ((uchar)7)
 
 FD_PROTOTYPES_BEGIN
-
-fd_funk_rec_key_t
-fd_runtime_firedancer_bank_key( void );
 
 fd_funk_rec_key_t
 fd_runtime_epoch_bank_key( void );
