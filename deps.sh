@@ -107,7 +107,7 @@ fetch () {
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.5.0"
   #checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.1"
   if [[ $DEVMODE == 1 ]]; then
-    checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
+    checkout_repo zlib      https://github.com/madler/zlib            "v1.3.1"
     checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.4.0"
     checkout_repo snappy    https://github.com/google/snappy          "1.2.1"
   fi
@@ -292,7 +292,7 @@ install_zstd () {
 
 install_lz4 () {
   cd ./opt/git/lz4/lib
-  
+
   echo "[+] Installing lz4 to $PREFIX"
   "${MAKE[@]}" PREFIX="$PREFIX" BUILD_SHARED=no MOREFLAGS="-fPIC" install
   echo "[+] Successfully installed lz4"
