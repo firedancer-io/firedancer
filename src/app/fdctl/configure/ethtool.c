@@ -77,10 +77,19 @@ init_device( const char * device,
     FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GCHANNELS) failed (%i-%s)",
                  errno, fd_io_strerror( errno ) ));
 
-  channels.combined_count = combined_channel_count;
   channels.cmd = ETHTOOL_SCHANNELS;
+  if( channels.max_combined ) {
+    channels.combined_count = combined_channel_count;
+    channels.rx_count       = 0;
+    channels.tx_count       = 0;
+    FD_LOG_NOTICE(( "RUN: `ethtool --set-channels %s combined %u`", device, combined_channel_count ));
+  } else {
+    channels.combined_count = 0;
+    channels.rx_count       = combined_channel_count;
+    channels.tx_count       = combined_channel_count;
+    FD_LOG_NOTICE(( "RUN: `ethtool --set-channels %s rx %u tx %u`", device, combined_channel_count, combined_channel_count ));
+  }
 
-  FD_LOG_NOTICE(( "RUN: `ethtool --set-channels %s combined %u`", device, combined_channel_count ));
   if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) ) {
     if( FD_LIKELY( errno == EBUSY ) )
       FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SCHANNELS) failed (%i-%s). "
@@ -146,15 +155,23 @@ check_device( const char * device,
       FD_LOG_ERR(( "error configuring network device `%s`, ioctl(SIOCETHTOOL,ETHTOOL_GCHANNELS) failed (%i-%s)",
                    device, errno, fd_io_strerror( errno ) ));
     }
-  } else {
-    current_channels = channels.combined_count;
   }
 
   if( FD_UNLIKELY( close( sock ) ) )
     FD_LOG_ERR(( "error configuring network device, close() socket failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+  if( channels.combined_count ) {
+    current_channels = channels.combined_count;
+  } else if( channels.rx_count || channels.tx_count ) {
+    if( FD_UNLIKELY( channels.rx_count != channels.tx_count ) ) {
+      NOT_CONFIGURED( "device `%s` has unbalanced channel count: (got %u rx, %u tx, expected %u)",
+                      device, channels.rx_count, channels.tx_count, expected_channel_count );
+    }
+    current_channels = channels.rx_count;
+  }
+
   if( FD_UNLIKELY( current_channels != expected_channel_count ) ) {
-    if( FD_UNLIKELY( !supports_channels ) )
+    if( FD_UNLIKELY( !supports_channels ) ) {
       FD_LOG_ERR(( "Network device `%s` does not support setting number of channels, "
                    "but you are running with more than one net tile (expected {%u}), "
                    "and there must be one channel per tile. You can either use a NIC "
@@ -164,10 +181,11 @@ check_device( const char * device,
                    "configuration file. It is not recommended to do this in production "
                    "as it will limit network performance.",
                    device, expected_channel_count ));
-      else
-        NOT_CONFIGURED( "device `%s` does not have right number of channels (got %u but "
-                        "expected %u)",
-                        device, current_channels, expected_channel_count );
+    } else {
+      NOT_CONFIGURED( "device `%s` does not have right number of channels (got %u but "
+                      "expected %u)",
+                      device, current_channels, expected_channel_count );
+    }
   }
 
   CONFIGURE_OK();
