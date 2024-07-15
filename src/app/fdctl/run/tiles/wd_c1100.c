@@ -392,8 +392,8 @@ dma_block_write_bench( C1100 * c1100,
   void * bar0 = c1100_bar_handle( c1100, 0 );
   wd_pcie_peek( bar0, 0x000028, &wr_req );
 
-  dma_block_write( c1100, dma_addr, 0, 0xffffff, stride,
-                   0, 0, 0xffffff, stride, size, count );
+  dma_block_write( c1100, dma_addr, 0, 0x3fffffff, stride,
+                   0, 0, 0x3fffffff, stride, size, count );
 
   wd_pcie_peek( bar0, 0x001108, (uint *)&cycles );
 
@@ -420,8 +420,8 @@ dma_block_read_bench( C1100 * c1100,
   wd_pcie_peek( bar0, 0x000020, &rd_req );
   wd_pcie_peek( bar0, 0x000024, &rd_cpl );
 
-  dma_block_read( c1100, dma_addr, 0, 0xffffff, stride,
-                  0, 0, 0xffffff, stride, size, count );
+  dma_block_read( c1100, dma_addr, 0, 0x3fffffff, stride,
+                  0, 0, 0x3fffffff, stride, size, count );
 
   wd_pcie_peek( bar0, 0x001008, &cycles );
 
@@ -481,7 +481,7 @@ int
 c1100_dma_benchmark2( C1100 * c1100, void * buf, ulong dma_region_addr, uint sz ) {
   ulong size = 2048;
   ulong stride = 2048;
-  ulong count = 8192UL;
+  ulong count = sz / size;
 
   for( uint i=0; i<sz; i++ ) {
       ((char *)buf)[i] = (char)i;
@@ -501,17 +501,17 @@ c1100_dma_benchmark2( C1100 * c1100, void * buf, ulong dma_region_addr, uint sz 
 
   FD_LOG_NOTICE(( "perform block writes (dma_alloc_coherent)" ));
 
-  dma_block_write_bench( c1100, dma_region_addr + (1UL<<24UL), size, stride, count );
+  dma_block_write_bench( c1100, dma_region_addr + sz, size, stride, count );
   wd_pcie_peek( bar0, 0x000000, &value );
   if( (value & 0x300) != 0 )
     return 1;
 
   for( uint i=0; i<count; i++ ) {
     ulong offset = i*size;
-    if( memcmp( (char *)buf+offset, &((char *)buf)[(1UL<<24UL) + offset], size ) != 0 ) {
-      FD_LOG_NOTICE(( "test data mismatch" ));
+    if( memcmp( (char *)buf+offset, &((char *)buf)[sz + offset], size ) != 0 ) {
+      FD_LOG_NOTICE(( "test data mismatch offset=%lu", offset ));
       FD_LOG_HEXDUMP_NOTICE(( "data in",  (char *)buf+offset, 1024 ));
-      FD_LOG_HEXDUMP_NOTICE(( "data out", &((char *)buf)[(1UL<<24UL)+offset], 1024 ));
+      FD_LOG_HEXDUMP_NOTICE(( "data out", &((char *)buf)[sz+offset], 1024 ));
       return 1;
     }
   }
