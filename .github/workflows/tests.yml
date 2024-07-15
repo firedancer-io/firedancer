@@ -127,7 +127,6 @@ jobs:
           machine: ${{ matrix.machine }}
           compiler: ${{ matrix.compiler }}
           compiler-version: ${{ matrix.compiler-version }}
-          action: 'restore'
         if: ${{ contains(matrix.targets, 'fdctl') }}
 
       - name: build targets
@@ -169,11 +168,3 @@ jobs:
           sudo prlimit --pid $$ --memlock=-1:-1
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           make run-integration-test
-
-      - uses: ./.github/actions/submodule
-        with:
-          machine: ${{ matrix.machine }}
-          compiler: ${{ matrix.compiler }}
-          compiler-version: ${{ matrix.compiler-version }}
-          action: 'cache'
-        if: ${{ contains(matrix.targets, 'fdctl') }}
