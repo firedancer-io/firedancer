@@ -1304,7 +1304,7 @@ unprivileged_init( fd_topo_t *      topo,
     if( fd_wksp_tag_query( ctx->status_cache_wksp, &tag, 1, &info, 1 ) > 0 ) {
       void * status_cache_mem = fd_wksp_laddr_fast( ctx->status_cache_wksp, info.gaddr_lo );
       /* Set up status cache. */
-      ctx->status_cache = fd_txncache_join_wksp( status_cache_mem );
+      ctx->status_cache = fd_txncache_join( status_cache_mem );
       if( ctx->status_cache == NULL ) {
         FD_LOG_ERR(( "failed to join status cache in %s", status_cache_path ));
       }
