@@ -383,7 +383,8 @@ fd_quic_crypto_encrypt(
     ulong                          const pkt_sz,
     fd_quic_crypto_suite_t const * const suite,
     fd_quic_crypto_keys_t const *  const pkt_keys,
-    fd_quic_crypto_keys_t const *  const hp_keys ) {
+    fd_quic_crypto_keys_t const *  const hp_keys,
+    ulong                          const pkt_number ) {
 
   (void)suite;
 
@@ -415,17 +416,17 @@ fd_quic_crypto_encrypt(
   /* first byte needed in a couple of places */
   uchar first = out[0];
   ulong pkt_number_sz = ( first & 0x03u ) + 1;
-  uchar const * pkt_number = out + hdr_sz - pkt_number_sz;
+  uchar const * pkt_number_ptr = out + hdr_sz - pkt_number_sz;
 
   // nonce is quic-iv XORed with packet-number
   // packet number is 1-4 bytes, so only XOR last pkt_number_sz bytes
   uchar nonce[FD_QUIC_NONCE_SZ] = {0};
-  ulong nonce_tmp = FD_QUIC_NONCE_SZ - pkt_number_sz;
+  uint nonce_tmp = FD_QUIC_NONCE_SZ - 4;
   uchar const * quic_iv = pkt_keys->iv;
-  fd_memcpy( nonce, quic_iv, nonce_tmp );
-  for( ulong k = 0; k < pkt_number_sz; ++k ) {
-    ulong j = nonce_tmp + k;
-    nonce[j] = quic_iv[j] ^ pkt_number[k];
+  memcpy( nonce, quic_iv, nonce_tmp );
+  for( uint k = 0; k < 4; ++k ) {
+    uint j = nonce_tmp + k;
+    nonce[j] = (uchar)( quic_iv[j] ^ ( (uchar)( (pkt_number>>( (3u - k) * 8u ))&0xFF ) ) );
   }
 
   // Initial packets cipher uses AEAD_AES_128_GCM with keys derived from the Destination Connection ID field of the
@@ -447,7 +448,7 @@ fd_quic_crypto_encrypt(
 
   /* sample start is defined as 4 bytes after the start of the packet number
      so shorter packet numbers means sample starts later in the cipher text */
-  uchar const * sample = pkt_number + 4;
+  uchar const * sample = pkt_number_ptr + 4;
 
   fd_aes_key_t ecb[1];
   fd_aes_set_encrypt_key( hp_keys->hp_key, 128, ecb );

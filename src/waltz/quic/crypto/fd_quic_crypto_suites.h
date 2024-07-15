@@ -380,7 +380,8 @@ fd_quic_crypto_encrypt(
     ulong                          const pkt_sz,
     fd_quic_crypto_suite_t const * const suite,
     fd_quic_crypto_keys_t const *  const pkt_keys,
-    fd_quic_crypto_keys_t const *  const hp_keys );
+    fd_quic_crypto_keys_t const *  const hp_keys,
+    ulong                          const pkt_number );
 
 
 /* decrypt a quic protected packet

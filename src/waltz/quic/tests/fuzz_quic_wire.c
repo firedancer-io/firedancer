@@ -356,6 +356,11 @@ encrypt_packet( uchar * const data,
   uchar const * hdr    = data;
   ulong         hdr_sz = pkt_num_pnoff + pkt_number_sz;
 
+  ulong pkt_number = 0UL;
+  for( ulong j = 0UL; j < pkt_number_sz; ++j ) {
+    pkt_number = ( pkt_number << 8UL ) + (ulong)( hdr[pkt_num_pnoff + j] );
+  }
+
   if( ( out_sz          < hdr_sz ) |
       ( out_sz - hdr_sz < FD_QUIC_CRYPTO_TAG_SZ ) )
     return size;
@@ -367,7 +372,8 @@ encrypt_packet( uchar * const data,
     fd_quic_crypto_encrypt( out, &out_sz,
                             hdr, hdr_sz,
                             pay, pay_sz,
-                            suite, keys, keys );
+                            suite, keys, keys,
+                            pkt_number );
   if( encrypt_res != FD_QUIC_SUCCESS )
     return size;
   assert( out_sz == total_len );
