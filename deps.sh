@@ -108,7 +108,7 @@ fetch () {
   #checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.1"
   if [[ $DEVMODE == 1 ]]; then
     checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
-    checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.2.1"
+    checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.4.0"
     checkout_repo snappy    https://github.com/google/snappy          "1.2.1"
   fi
 }
