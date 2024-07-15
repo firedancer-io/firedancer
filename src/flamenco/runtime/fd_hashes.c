@@ -280,6 +280,7 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
               fd_pubkey_hash_pair_t * dirty_keys,
               ulong dirty_key_cnt ) {
   slot_ctx->prev_banks_hash = slot_ctx->slot_bank.banks_hash;
+  slot_ctx->parent_signature_cnt = slot_ctx->signature_cnt;
 
   fd_hash_account_deltas( dirty_keys, dirty_key_cnt, &slot_ctx->account_delta_hash, slot_ctx );
 
