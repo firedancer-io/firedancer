@@ -3451,14 +3451,6 @@ fd_quic_service( fd_quic_t * quic ) {
         }
     }
   }
-
-  FD_DEBUG(
-    t1 = fd_quic_now( quic );
-    long delta = (long)( t1 - t0 );
-    if( delta > (long)500e3 ) {
-      FD_LOG_NOTICE(( "SERVICE took %lu  t0: %lu  t1: %lu", delta, t0, t1 ));
-    }
-  )
 }
 
 /* attempt to transmit buffered data
