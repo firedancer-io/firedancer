@@ -44,11 +44,13 @@ runs:
       run: cat /etc/os-release '${{ inputs.deps-script-path }}' | sha256sum | awk '{print "HASH=" $1}' >> "$GITHUB_OUTPUT"
 
     - id: deps-sh-cache
-      uses: actions/cache@v4
+      uses: corca-ai/local-cache@v2
       with:
+        base: "${{ runner.tool_cache }}/cache"
         path: deps-bundle.tar.zst
-        key: ${{ runner.os }}-${{ runner.arch }}-${{ inputs.compiler }}-${{ inputs.compiler-version }}-deps-sh-${{ steps.deps-sh-hash.outputs.HASH }}
-
+        key: deps-sh-${{ runner.os }}-${{ runner.arch }}-${{ inputs.compiler }}-${{ inputs.compiler-version }}-${{ steps.deps-sh-hash.outputs.HASH }}
+        clean-key: deps-sh
+        
     - name: Install system level dependencies
       shell: bash
       run: FD_AUTO_INSTALL_PACKAGES=1 '${{ inputs.deps-script-path }}' check
