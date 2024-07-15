@@ -1222,7 +1222,6 @@ fd_log_private_boot( int  *   pargc,
   FD_LOG_INFO(( "fd_log: --log-dedup         %i",  fd_log_private_dedup   ));
   FD_LOG_INFO(( "fd_log: --log-colorize      %i",  fd_log_colorize()      ));
   FD_LOG_INFO(( "fd_log: --log-level-logfile %i",  fd_log_level_logfile() ));
-  FD_LOG_INFO(( "fd_log: --log-level-logfile %i",  fd_log_level_logfile() ));
   FD_LOG_INFO(( "fd_log: --log-level-stderr  %i",  fd_log_level_stderr()  ));
   FD_LOG_INFO(( "fd_log: --log-level-flush   %i",  fd_log_level_flush()   ));
   FD_LOG_INFO(( "fd_log: --log-level-core    %i",  fd_log_level_core()    ));
@@ -1490,7 +1489,7 @@ fd_log_private_stack_discover( ulong   stack_sz,
   char * p = filebuf;
   int found = 0;
   while( !found ) {
-    
+
     /* Scan a line */
 
     int full_line = 0;
@@ -1555,7 +1554,7 @@ fd_log_private_stack_discover( ulong   stack_sz,
     FD_LOG_WARNING(( "unable to find stack size around address 0x%lx", stack_addr ));
 
   close(filefd);
-  
+
   *_stack0 = stack0;
   *_stack1 = stack1;
 }
