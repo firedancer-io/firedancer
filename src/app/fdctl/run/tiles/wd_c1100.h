@@ -35,7 +35,6 @@ typedef struct {
 
 int    wd_pcie_peek( void * h, ulong offset, uint * value );
 int    wd_pcie_poke( void * h, ulong offset, uint   value );
-void * wd_alloc( ulong len, ulong * dma_addr );
 
 int    c1100_init( C1100 * c1100, const char * pcie_device );
 void * c1100_bar_handle( C1100 const * c1100, uint bar_num );

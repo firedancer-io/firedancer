@@ -182,30 +182,6 @@ uint c1100_dma_enabled( C1100 * c1100 ) {
   return value;
 }
 
-
-#ifndef MAP_HUGE_1GB
-#define MAP_HUGE_1GB (30 << MAP_HUGE_SHIFT)
-#endif
-
-#define GIGANTIC_PAGE_SIZE (1UL << 30) // 1GB
-#define GIGANTIC_PAGE_MASK (~(GIGANTIC_PAGE_SIZE - 1))
-
-
-void *
-wd_alloc( ulong len, ulong * dma_addr ) {
-  (void)len;
-  void * buf = mmap(0, GIGANTIC_PAGE_SIZE, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_LOCKED | MAP_HUGETLB | MAP_HUGE_1GB, -1, 0);
-  *dma_addr = _wd_get_phys( buf );
-  return buf;
-}
-
-// void *
-// wd_alloc( ulong len, ulong * dma_addr ) {
-//   void * buf = mmap(0, len, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
-//   *dma_addr = _wd_get_phys( buf );
-//   return buf;
-// }
-
 void c1100_interrupts_enable( C1100 * c1100 ) {
   void * handle = c1100_bar_handle( c1100, 0 );
   wd_pcie_poke( handle, 0x0008, 3 );

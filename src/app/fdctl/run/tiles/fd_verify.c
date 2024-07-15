@@ -177,7 +177,6 @@ privileged_init( fd_topo_t *      topo,
   fd_verify_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
   ctx->buf = FD_SCRATCH_ALLOC_APPEND( l, 32, 1UL<<25 );
   ctx->dma_addr = _wd_get_phys( ctx->buf );
-  // ctx->buf = wd_alloc( 1UL<<25UL, &ctx->dma_addr );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
