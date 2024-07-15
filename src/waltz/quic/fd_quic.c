@@ -4262,11 +4262,8 @@ fd_quic_conn_tx( fd_quic_t *      quic,
       /* are we at application level of encryption? */
       if( enc_level == fd_quic_enc_level_appdata_id ) {
         if( conn->handshake_done_send ) {
-          if( FD_UNLIKELY( conn->handshake_done_ackd ) ) {
-            /* already acked? then ignore it
-             * just clear the send flag */
-            conn->handshake_done_send = 0;
-          } else {
+          conn->handshake_done_send = 0;
+          if( FD_LIKELY( !conn->handshake_done_ackd ) ) {
             /* send handshake done frame */
             frame_sz = 1;
             pkt_meta->flags |= FD_QUIC_PKT_META_FLAGS_HS_DONE;
@@ -4831,8 +4828,6 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
               fd_quic_tls_pop_hs_data( conn->tls_hs, enc_level );
               hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
             }
-
-            /* TODO we should be able to free the TLS object now */
           }
 
           /* if we're the client, fd_quic_conn_tx will flush the hs
@@ -4983,10 +4978,8 @@ fd_quic_conn_free( fd_quic_t *      quic,
   fd_memset( conn->keys, 0, sizeof(conn->keys) );
 
   /* free tls-hs */
-  if( conn->tls_hs ) {
-    fd_quic_tls_hs_delete( conn->tls_hs );
-    conn->tls_hs = NULL;
-  }
+  fd_quic_tls_hs_delete( conn->tls_hs );
+  conn->tls_hs = NULL;
 
   /* put connection back in free list */
   conn->next   = state->conns;
@@ -5360,10 +5353,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   /* return connection */
   return conn;
 }
-
-extern inline FD_FN_PURE
-int
-fd_quic_handshake_complete( fd_quic_conn_t * conn );
 
 ulong
 fd_quic_get_next_wakeup( fd_quic_t * quic ) {
@@ -5748,6 +5737,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_HS_DATA ) {
+    /* Note that tls_hs could already be freed */
     /* is this ack'ing the next consecutive bytes?
        if so, we can increase the ack'd bytes
        if not, we retransmit the bytes expected to be ack'd
@@ -5782,7 +5772,12 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
       hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
     }
 
-    /* TODO we should be able to free the TLS object now */
+    conn->handshake_done_ackd = 1;
+    conn->handshake_done_send = 0;
+    conn->hs_data_empty       = 1;
+
+    fd_quic_tls_hs_delete( conn->tls_hs );
+    conn->tls_hs = NULL;
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_MAX_DATA ) {
