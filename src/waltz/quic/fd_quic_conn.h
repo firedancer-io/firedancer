@@ -126,10 +126,10 @@ struct fd_quic_conn {
   uint               tx_max_datagram_sz;  /* size of maximum datagram allowed by peer */
 
   /* handshake members */
-  int                handshake_complete;  /* have we completed a successful handshake? */
-  int                handshake_done_send; /* do we need to send handshake-done to peer? */
-  int                handshake_done_ackd; /* was handshake_done ack'ed? */
-  int                hs_data_empty;       /* has all hs_data been consumed? */
+  uint               handshake_complete  : 1; /* have we completed a successful handshake? */
+  uint               handshake_done_send : 1; /* do we need to send handshake-done to peer? */
+  uint               handshake_done_ackd : 1; /* was handshake_done ack'ed? */
+  uint               hs_data_empty       : 1; /* has all hs_data been consumed? */
   fd_quic_tls_hs_t * tls_hs;
 
   /* expected handshake data offset - one per encryption level
@@ -360,16 +360,6 @@ fd_quic_conn_set_context( fd_quic_conn_t * conn, void * context );
 /* get the user-defined context value from a connection */
 void *
 fd_quic_conn_get_context( fd_quic_conn_t * conn );
-
-/* fd_quic_handshake_complete checks whether the initial conn handshake
-   is complete for the given conn.  Returns 1 if a handshake has been
-   completed, 0 otherwise.  Will return 1 even if the conn has died
-   since handshake. */
-
-FD_QUIC_API FD_FN_PURE inline int
-fd_quic_handshake_complete( fd_quic_conn_t * conn ) {
-  return conn->handshake_complete;
-}
 
 
 /* set the max concurrent streams value for the specified type
