@@ -49,6 +49,12 @@ write_clock( fd_exec_slot_ctx_t *    slot_ctx,
 fd_sol_sysvar_clock_t *
 fd_sysvar_clock_read( fd_sol_sysvar_clock_t * result,
                       fd_exec_slot_ctx_t *    slot_ctx  ) {
+  fd_sol_sysvar_clock_t const * ret = fd_sysvar_cache_clock( slot_ctx->sysvar_cache );
+  if( NULL != ret ) {
+    fd_memcpy(result, ret, sizeof(fd_sol_sysvar_clock_t));
+    return result;
+  }
+
   FD_BORROWED_ACCOUNT_DECL(acc);
   int rc = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_clock_id, acc );
   if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) )
