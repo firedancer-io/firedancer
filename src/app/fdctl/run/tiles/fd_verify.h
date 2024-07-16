@@ -40,6 +40,8 @@ typedef struct {
   ulong       out_chunk;
 } fd_verify_ctx_t;
 
+#define FD_VERIFY_DEDUP_TAG_FROM_PAYLOAD_SIG(payload_sig_p) FD_LOAD( ulong, (payload_sig_p) )
+
 static inline int
 fd_txn_verify( fd_verify_ctx_t * ctx,
                uchar const *     udp_payload,
@@ -62,7 +64,7 @@ fd_txn_verify( fd_verify_ctx_t * ctx,
      So use this to do a quick dedup of ha traffic. */
 
   /* TODO: use more than 64 bits to dedup. */
-  ulong ha_dedup_tag = FD_LOAD( ulong, signatures );
+  ulong ha_dedup_tag = FD_VERIFY_DEDUP_TAG_FROM_PAYLOAD_SIG( signatures );
   int ha_dup;
   FD_FN_UNUSED ulong tcache_map_idx = 0; /* ignored */
   FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );

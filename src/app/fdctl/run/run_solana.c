@@ -25,7 +25,7 @@ clone_labs_memory_space_tiles( config_t * const config ) {
     } else if( FD_LIKELY( !strcmp( wksp->name, "bank_poh" ) ||
                           !strcmp( wksp->name, "bank_busy" ) ||
                           !strcmp( wksp->name, "poh_shred" ) ||
-                          !strcmp( wksp->name, "gossip_pack" ) ||
+                          !strcmp( wksp->name, "gossip_dedup" ) ||
                           !strcmp( wksp->name, "stake_out" ) ||
                           !strcmp( wksp->name, "metric_in" ) ||
                           !strcmp( wksp->name, "bank" ) ||

@@ -253,6 +253,9 @@ prometheus_print( fd_topo_t * topo,
   result = prometheus_print1( topo, out, out_len, "quic", FD_METRICS_QUIC_TOTAL, FD_METRICS_QUIC, PRINT_TILE );
   if( FD_UNLIKELY( result<0 ) ) return result;
   PRINT( "\n" );
+  result = prometheus_print1( topo, out, out_len, "dedup", FD_METRICS_DEDUP_TOTAL, FD_METRICS_DEDUP, PRINT_TILE );
+  if( FD_UNLIKELY( result<0 ) ) return result;
+  PRINT( "\n" );
   result = prometheus_print1( topo, out, out_len, "pack", FD_METRICS_PACK_TOTAL, FD_METRICS_PACK, PRINT_TILE );
   if( FD_UNLIKELY( result<0 ) ) return result;
   PRINT( "\n" );

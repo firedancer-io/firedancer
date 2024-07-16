@@ -1625,7 +1625,7 @@ struct poh_link {
 
 typedef struct poh_link poh_link_t;
 
-poh_link_t gossip_pack;
+poh_link_t gossip_dedup;
 poh_link_t stake_out;
 poh_link_t crds_shred;
 
@@ -1702,7 +1702,7 @@ poh_link_init( poh_link_t *     link,
 void
 fd_ext_poh_publish_gossip_vote( uchar * data,
                                 ulong   data_len ) {
-  poh_link_publish( &gossip_pack, 1UL, data, data_len );
+  poh_link_publish( &gossip_dedup, 1UL, data, data_len );
 }
 
 void
@@ -1765,9 +1765,9 @@ unprivileged_init( fd_topo_t *      topo,
   fd_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, poh_shred_obj_id ) );
   FD_TEST( fd_shred_version );
 
-  poh_link_init( &gossip_pack, topo, tile, 1UL );
-  poh_link_init( &stake_out,   topo, tile, 2UL );
-  poh_link_init( &crds_shred,  topo, tile, 3UL );
+  poh_link_init( &gossip_dedup, topo, tile, 1UL );
+  poh_link_init( &stake_out,    topo, tile, 2UL );
+  poh_link_init( &crds_shred,   topo, tile, 3UL );
 
   FD_LOG_NOTICE(( "PoH waiting to be initialized by Solana Labs client... %lu %lu", fd_poh_waiting_lock, fd_poh_returned_lock ));
   FD_VOLATILE( fd_poh_global_ctx ) = ctx;

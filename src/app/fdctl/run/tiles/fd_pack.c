@@ -14,7 +14,9 @@
    multiple microblocks can execute in parallel, if they don't
    write to the same accounts. */
 
-#define POH_IN_IDX (2UL)
+#define DEDUP_IN_IDX (0UL)
+#define POH_IN_IDX   (1UL)
+#define TOTAL_IN_IDX (2UL)
 
 #define MAX_SLOTS_PER_EPOCH          432000UL
 
@@ -522,42 +524,21 @@ during_frag( void * _ctx,
   }
 
   ulong payload_sz;
-  /* There are two senders, one (dedup tile) which has already parsed the
-     transaction, and one (gossip vote receiver in Solana Labs) which has
-     not.  In either case, the transaction has already been verified.
-
-     The dedup tile sets sig to 0, while the gossip receiver sets sig to
-     1 so they can be distinguished. */
-
-  if( FD_LIKELY( !sig ) ) {
-    FD_MCNT_INC( PACK, NORMAL_TRANSACTION_RECEIVED, 1UL );
-    /* Assume that the dcache entry is:
-          Payload ....... (payload_sz bytes)
-          0 or 1 byte of padding (since alignof(fd_txn) is 2)
-          fd_txn ....... (size computed by fd_txn_footprint)
-          payload_sz  (2B)
-      mline->sz includes all three fields and the padding */
-    payload_sz = *(ushort*)(dcache_entry + sz - sizeof(ushort));
-    uchar    const * payload = dcache_entry;
-    fd_txn_t const * txn     = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
-    fd_memcpy( ctx->cur_spot->payload, payload, payload_sz                                                     );
-    fd_memcpy( TXN(ctx->cur_spot),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
-    ctx->cur_spot->payload_sz = payload_sz;
-  } else {
-    /* Here there is just a transaction payload, so it needs to be
-       parsed.  We can parse right out into the pack structure. */
-    FD_MCNT_INC( PACK, GOSSIPED_VOTES_RECEIVED, 1UL );
-    payload_sz = sz;
-    fd_memcpy( ctx->cur_spot->payload, dcache_entry, sz );
-    ulong txn_t_sz = fd_txn_parse( ctx->cur_spot->payload, sz, TXN(ctx->cur_spot), NULL );
-    if( FD_UNLIKELY( !txn_t_sz ) ) {
-      FD_LOG_WARNING(( "fd_txn_parse failed for gossiped vote" ));
-      fd_pack_insert_txn_cancel( ctx->pack, ctx->cur_spot );
-      *opt_filter = 1;
-      return;
-    }
-    ctx->cur_spot->payload_sz = payload_sz;
-  }
+  /* We get transactions from the dedup tile.
+     The transactions should have been parsed and verified. */
+  FD_MCNT_INC( PACK, NORMAL_TRANSACTION_RECEIVED, 1UL );
+  /* Assume that the dcache entry is:
+        Payload ....... (payload_sz bytes)
+        0 or 1 byte of padding (since alignof(fd_txn) is 2)
+        fd_txn ....... (size computed by fd_txn_footprint)
+        payload_sz  (2B)
+    mline->sz includes all three fields and the padding */
+  payload_sz = *(ushort*)(dcache_entry + sz - sizeof(ushort));
+  uchar    const * payload = dcache_entry;
+  fd_txn_t const * txn     = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
+  fd_memcpy( ctx->cur_spot->payload, payload, payload_sz                                                     );
+  fd_memcpy( TXN(ctx->cur_spot),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+  ctx->cur_spot->payload_sz = payload_sz;
 
 #if DETAILED_LOGGING
   FD_LOG_NOTICE(( "Pack got a packet. Payload size: %lu, txn footprint: %lu", payload_sz,
@@ -613,6 +594,15 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
+  if( FD_UNLIKELY( tile->in_cnt!=TOTAL_IN_IDX ||
+                   strcmp( topo->links[ tile->in_link_id[ DEDUP_IN_IDX ] ].name, "dedup_pack" ) ||
+                   strcmp( topo->links[ tile->in_link_id[ POH_IN_IDX   ] ].name, "poh_pack"   ) ) ) {
+    FD_LOG_ERR(( "pack tile has none or unexpected input links %lu %s %s",
+                 tile->in_cnt,
+                 tile->in_cnt>=1 ? topo->links[ tile->in_link_id[ 0 ] ].name : "NULL",
+                 tile->in_cnt>=2 ? topo->links[ tile->in_link_id[ 1 ] ].name : "NULL" ));
+  }
+
   ulong out_cnt = fd_topo_link_consumer_cnt( topo, &topo->links[ tile->out_link_id_primary ] );
 
   if( FD_UNLIKELY( !out_cnt ) ) FD_LOG_ERR(( "pack tile connects to no banking tiles" ));
