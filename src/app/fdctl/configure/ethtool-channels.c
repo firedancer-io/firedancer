@@ -9,7 +9,7 @@
 #include <linux/ethtool.h>
 #include <linux/sockios.h>
 
-#define NAME "ethtool"
+#define NAME "ethtool-channels"
 
 static int
 enabled( config_t * const config ) {
@@ -51,6 +51,7 @@ device_read_slaves( const char * device,
   if( FD_UNLIKELY( feof( fp ) ) ) FD_LOG_ERR(( "error configuring network device, fgets(%s) failed (EOF)", path ));
   if( FD_UNLIKELY( ferror( fp ) ) ) FD_LOG_ERR(( "error configuring network device, fgets(%s) failed (error)", path ));
   if( FD_UNLIKELY( strlen( output ) == 4095 ) ) FD_LOG_ERR(( "line too long in `%s`", path ));
+  if( FD_UNLIKELY( strlen( output ) == 0 ) ) FD_LOG_ERR(( "line empty in `%s`", path ));
   if( FD_UNLIKELY( fclose( fp ) ) )
     FD_LOG_ERR(( "error configuring network device, fclose(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   output[ strlen( output ) - 1 ] = '\0';
@@ -60,6 +61,7 @@ static void
 init_device( const char * device,
              uint         combined_channel_count ) {
   if( FD_UNLIKELY( strlen( device ) >= IF_NAMESIZE ) ) FD_LOG_ERR(( "device name `%s` is too long", device ));
+  if( FD_UNLIKELY( strlen( device ) == 0 ) ) FD_LOG_ERR(( "device name `%s` is empty", device ));
 
   int sock = socket( AF_INET, SOCK_DGRAM, 0 );
   if( FD_UNLIKELY( sock < 0 ) )
@@ -69,7 +71,7 @@ init_device( const char * device,
   struct ethtool_channels channels = {0};
   channels.cmd = ETHTOOL_GCHANNELS;
 
-  struct ifreq ifr;
+  struct ifreq ifr = {0};
   strncpy( ifr.ifr_name, device, IF_NAMESIZE-1 );
   ifr.ifr_data = (void *)&channels;
 
@@ -103,6 +105,7 @@ init_device( const char * device,
                    errno, fd_io_strerror( errno ) ));
   }
 
+
   if( FD_UNLIKELY( close( sock ) ) )
     FD_LOG_ERR(( "error configuring network device, close() socket failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
@@ -129,6 +132,7 @@ static configure_result_t
 check_device( const char * device,
               uint         expected_channel_count ) {
   if( FD_UNLIKELY( strlen( device ) >= IF_NAMESIZE ) ) FD_LOG_ERR(( "device name `%s` is too long", device ));
+  if( FD_UNLIKELY( strlen( device ) == 0 ) ) FD_LOG_ERR(( "device name `%s` is empty", device ));
 
   int sock = socket( AF_INET, SOCK_DGRAM, 0 );
   if( FD_UNLIKELY( sock < 0 ) )
@@ -207,7 +211,7 @@ check( config_t * const config ) {
   CONFIGURE_OK();
 }
 
-configure_stage_t ethtool = {
+configure_stage_t ethtool_channels = {
   .name            = NAME,
   .always_recreate = 0,
   .enabled         = enabled,

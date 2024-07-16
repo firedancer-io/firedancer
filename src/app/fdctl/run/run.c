@@ -626,7 +626,8 @@ initialize_stacks( config_t * const config ) {
 }
 
 extern configure_stage_t hugetlbfs;
-extern configure_stage_t ethtool;
+extern configure_stage_t ethtool_channels;
+extern configure_stage_t ethtool_gro;
 extern configure_stage_t sysctl;
 
 static void
@@ -637,10 +638,15 @@ check_configure( config_t * const config ) {
                  "to create the mounts correctly. This must be done after every system restart before running "
                  "Firedancer.", check.message ));
 
-  check = ethtool.check( config );
+  check = ethtool_channels.check( config );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-    FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool` to set the number of channels on the "
+    FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-channels` to set the number of channels on the "
                  "network device correctly.", check.message ));
+
+  check = ethtool_gro.check( config );
+  if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+    FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-gro` to disable generic-receive-offload "
+                 "as required.", check.message ));
 
   check = sysctl.check( config );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
