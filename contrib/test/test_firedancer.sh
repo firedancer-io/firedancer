@@ -142,6 +142,7 @@ name = \"fd1test\"
         funk_sz_gb = 32
         funk_rec_max = 10000000
         funk_txn_max = 1024
+        cluster_version = 1180
 [log]
     path = \"fddev.log\"
     level_stderr = \"INFO\"
