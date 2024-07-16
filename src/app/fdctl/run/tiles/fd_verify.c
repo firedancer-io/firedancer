@@ -37,6 +37,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     l = FD_LAYOUT_APPEND( l, fd_sha512_align(), fd_sha512_footprint() );
   }
   l = FD_LAYOUT_APPEND( l, 32, 1UL<<30 );
+  l = FD_LAYOUT_APPEND( l, 32, 1UL<<30 );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -177,6 +178,8 @@ privileged_init( fd_topo_t *      topo,
   fd_verify_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
   ctx->buf = FD_SCRATCH_ALLOC_APPEND( l, 32, 1UL<<30 );
   ctx->dma_addr = _wd_get_phys( ctx->buf );
+  ctx->buf2 = FD_SCRATCH_ALLOC_APPEND( l, 32, 1UL<<30 );
+  ctx->dma_addr2 = _wd_get_phys( ctx->buf2 );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

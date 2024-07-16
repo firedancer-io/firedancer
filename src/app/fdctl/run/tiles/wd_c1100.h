@@ -44,6 +44,7 @@ int    c1100_bar_fd( C1100 * d, uint bar_num );
 int    c1100_dma_test( C1100 * c1100, void * buf, ulong dma_addr );
 int    c1100_dma_benchmark( C1100 * c1100, ulong dma_region_addr );
 int    c1100_dma_benchmark2( C1100 * c1100, void * buf, ulong dma_region_addr, uint sz );
+int    c1100_dma_benchmark3( C1100 * c1100, void * buf1, ulong dma1, void * buf2, ulong dma2, uint sz );
 BarMap const * C1100_bar_get( C1100 const * c1100, uint bar_num );
 ulong _wd_get_phys(void * p);
 

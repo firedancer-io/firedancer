@@ -43,6 +43,8 @@ typedef struct {
   C1100  c1100[1];
   void * buf;
   ulong  dma_addr;
+  void * buf2;
+  ulong  dma_addr2;
 } fd_verify_ctx_t;
 
 #define FD_VERIFY_DEDUP_TAG_FROM_PAYLOAD_SIG(payload_sig_p) FD_LOAD( ulong, (payload_sig_p) )

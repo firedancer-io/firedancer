@@ -519,3 +519,56 @@ c1100_dma_benchmark2( C1100 * c1100, void * buf, ulong dma_region_addr, uint sz 
   FD_LOG_NOTICE(( "test data matches" ));
   return 0;
 }
+
+#include <sys/random.h>
+int
+c1100_dma_benchmark3( C1100 * c1100, void * buf1, ulong dma1, void * buf2, ulong dma2, uint sz ) {
+  ulong size = 2048;
+  ulong stride = 2048;
+  ulong count = sz / size;
+  (void)dma2;
+
+  long ret;
+  if( FD_UNLIKELY( (ret = getrandom( buf1, sz, 0 ) ) != sz ) ) {
+    FD_LOG_ERR(( "getrandom %ld", ret ));
+  }
+  memcpy( buf2, buf1, sz );
+  // for( uint i=0; i<sz; i++ ) {
+      // ((char *)buf1)[i] = (char)i;
+      // ((char *)buf2)[i] = (char)i;
+  // }
+
+  FD_LOG_NOTICE(( "disable interrupts" ));
+  void * bar0 = c1100_bar_handle( c1100, 0 );
+  wd_pcie_poke( bar0, 0x000008, 0x0 );
+
+  FD_LOG_NOTICE(( "perform block reads (dma_alloc_coherent)" ));
+
+  dma_block_read_bench( c1100, dma1 + 0x0000, size, stride, count );
+  uint value;
+  wd_pcie_peek( bar0, 0x000000, &value );
+  if( (value & 0x300) != 0 )
+    return 1;
+
+  memset( buf1, 0, sz );
+
+  FD_LOG_NOTICE(( "perform block writes (dma_alloc_coherent)" ));
+
+  dma_block_write_bench( c1100, dma1 + sz, size, stride, count );
+  wd_pcie_peek( bar0, 0x000000, &value );
+  if( (value & 0x300) != 0 )
+    return 1;
+
+  for( uint i=0; i<count; i++ ) {
+    ulong offset = i*size;
+    if( memcmp( (char *)buf1+offset, &((char *)buf2)[sz + offset], size ) != 0 ) {
+      FD_LOG_NOTICE(( "test data mismatch offset=%lu", offset ));
+      FD_LOG_HEXDUMP_NOTICE(( "data in",  (char *)buf1+offset, 1024 ));
+      FD_LOG_HEXDUMP_NOTICE(( "data out", &((char *)buf2)[sz+offset], 1024 ));
+      return 1;
+    }
+  }
+
+  FD_LOG_NOTICE(( "test data matches" ));
+  return 0;
+}
