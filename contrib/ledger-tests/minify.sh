@@ -61,6 +61,13 @@ minimize_snapshot_frank() {
     echo "[-] rocksdb not found in $in_dir/rocksdb"
     exit 1
   fi
+
+  # Extend rocksdb to 10 slots after the mismatch
+  end_slot=$((end_slot + 10))
+  if [ $end_slot -gt $minf_rocksdb_max ]; then
+    end_slot=$minf_rocksdb_max
+  fi
+
   set -x
   "$minf_fd_frank_minimize_tool" --cmd minify --rocksdb "$in_dir/rocksdb" --minified-rocksdb "$out_dir/rocksdb" --start-slot $start_slot --end-slot $end_slot --page-cnt $GIGANTIC_PAGES --copy-txn-status 1
   set +x

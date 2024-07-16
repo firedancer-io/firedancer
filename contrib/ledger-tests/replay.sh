@@ -9,6 +9,7 @@ rep_temp_ledger_upload="$FIREDANCER/.ledger-min"
 if [ -z "$ROOT_DIR" ]; then
   ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 fi
+source $ROOT_DIR/utils.sh
 
 rm -rf "$rep_fd_ledger_dump"
 mkdir -p "$rep_fd_ledger_dump"
@@ -47,6 +48,8 @@ replay_output=$(build/native/gcc/bin/fd_ledger --cmd replay \
 rep_replay_end_time=$(date +%s)
 echo "replay_start_slot=$START_SLOT" > dump/$rep_ledger_min_basename/metadata
 echo "replay_time=$((rep_replay_end_time - rep_replay_start_time))" >> dump/$rep_ledger_min_basename/metadata
+epoch=$(slot_to_epoch $START_SLOT $NETWORK)
+echo "epoch=$epoch" >> dump/$rep_ledger_min_basename/metadata
 
 set +x
 echo "$replay_output"
@@ -78,7 +81,6 @@ else
     rm -rf "$rep_temp_ledger_upload"
     mkdir -p "$rep_temp_ledger_upload"
     set -x
-    source $ROOT_DIR/utils.sh
     closest_hourly=$(get_closest_hourly $rep_mismatch_slot $NETWORK)
     if [ -z "$closest_hourly" ]; then
       echo "[-] error could not get closest hourly snapshot"

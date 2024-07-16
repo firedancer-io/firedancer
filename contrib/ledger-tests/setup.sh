@@ -2,15 +2,17 @@
 
 setup_firedancer_repo="$REPO_ROOT/firedancer"
 setup_solana_repo="$REPO_ROOT/solana"
-setup_agave_repo="$REPO_ROOT/solfuzz-agave"
+setup_agave_repo="$REPO_ROOT/agave"
+setup_solfuzz_repo="$REPO_ROOT/solfuzz-agave"
 setup_solana_conformance_repo="$REPO_ROOT/solana-conformance"
 
 setup_firedancer_branch="main"
 setup_solana_branch="master-tools"
-setup_agave_branch="agave-v2.0"
+setup_agave_branch="ledger-gen-v200"
+setup_solfuzz_branch="agave-v2.0"
 setup_solana_conformance_branch="main"
 
-update_firedancer() {    
+update_firedancer() {
     cd $setup_firedancer_repo
     git checkout $setup_firedancer_branch
     git pull
@@ -28,11 +30,18 @@ update_solana() {
     cargo build --package solana-ledger-tool --release
 }
 
-update_solfuzz_agave() {
+update_agave() {
     cd $setup_agave_repo
     git checkout $setup_agave_branch
     git pull
-    cargo build --lib    
+    cargo build --package agave-ledger-tool --release
+}
+
+update_solfuzz_agave() {
+    cd $setup_solfuzz_repo
+    git checkout $setup_solfuzz_branch
+    git pull
+    cargo build --lib
 }
 
 update_solana_conformance() {
@@ -50,18 +59,24 @@ update_firedancer
 
 # Setup solana (master-tools)
 if [ ! -d "$setup_solana_repo" ]; then
-    git clone https://github.com/firedancer-io/solana $REPO_ROOT/solana
+    git clone https://github.com/firedancer-io/solana.git $REPO_ROOT/solana
 fi
 update_solana
 
-# Setup agave
+# Setup agave (ledger-gen-v200)
 if [ ! -d "$setup_agave_repo" ]; then
+    git clone https://github.com/firedancer-io/agave.git $REPO_ROOT/agave
+fi
+update_agave
+
+# Setup solfuzz-agave
+if [ ! -d "$setup_solfuzz_repo" ]; then
     git clone https://github.com/firedancer-io/solfuzz-agave.git $REPO_ROOT/solfuzz-agave
 fi
-update_solfuzz_agave        
+update_solfuzz_agave
 
-# Setup solana conformance 
+# Setup solana conformance
 if [ ! -d "$setp_solana_conformance_repo" ]; then
     git clone https://github.com/firedancer-io/solana-conformance.git $REPO_ROOT/solana-conformance
-fi 
+fi
 update_solana_conformance
