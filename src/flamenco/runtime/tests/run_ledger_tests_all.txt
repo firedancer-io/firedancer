@@ -1,7 +1,7 @@
 src/flamenco/runtime/tests/run_ledger_test.sh -l v201-small -p 30 -y 16 -m 500000 -e 120
 src/flamenco/runtime/tests/run_ledger_test.sh -t 105 -l v18multi-inverted -s snapshot-100-FpGocyQzYgnzjnvazuiDHPLkVPZt3vRvGvSNX1GBUMGT.tar.zst -p 30 -y 16 -m 5000000 -e 110 -c 1186
 src/flamenco/runtime/tests/run_ledger_test.sh -l v118-multi -c 1185
-src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-519       -s snapshot-255311992-Fju7xb3XaTY6SBxkGcsKko15EGAqnvdfkXBd1o6agPDq.tar.zst -p 45 -y 32 -m 1000000 -e 255312007-c 1190
+src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-519       -s snapshot-255311992-Fju7xb3XaTY6SBxkGcsKko15EGAqnvdfkXBd1o6agPDq.tar.zst -p 45 -y 32 -m 1000000 -e 255312007 -c 1190
 src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-251418170 -s snapshot-251418170-8sAkojR9PYTZvqiQZ1VWu27ewX5tXeVdC97wMXAtgHnT.tar.zst -p 45 -y 32 -m 2000000 -e 251418233 -c 1190
 src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257066033 -s snapshot-257066033-AD2nFFTCtZVmo5nXLVsQMV1hiQDjzoEBXibRicBJc5Vw.tar.zst -p 30 -y 16 -m 5000000 -e 257066038 -c 1190 --zst
 src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257066844 -s snapshot-257066844-B5JpRYzvMa4iyQeR8w9co4y7oEayphgbXVeQHXLDoWvV.tar.zst -p 30 -y 16 -m 5000000 -e 257066849 -c 1190 --zst
