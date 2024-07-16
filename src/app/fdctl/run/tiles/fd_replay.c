@@ -848,7 +848,7 @@ after_frag( void *             _ctx,
 
 
       ulong poh_slot = fd_fseq_query( ctx->poh_slot );
-      if( FD_UNLIKELY( poh_slot == ULONG_MAX ) ) {
+      if( FD_UNLIKELY( ctx->vote && poh_slot == ULONG_MAX ) ) {
 
         /* Only proceed with voting if we're caught up. */
 
