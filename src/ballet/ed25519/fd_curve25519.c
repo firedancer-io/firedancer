@@ -33,19 +33,9 @@ fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
   fd_f25519_sub( u, u, fd_f25519_one ); /* u = y^2-1 */
   fd_f25519_add( v, v, fd_f25519_one ); /* v = dy^2+1 */
 
-  fd_f25519_sqrt_ratio( x, u, v );
-
-  fd_f25519_t vxx  [1];
-  fd_f25519_t check[1];
-  fd_f25519_sqr( vxx,   x      );
-  fd_f25519_mul( vxx,   vxx, v );
-  fd_f25519_sub( check, vxx, u );       /* vx^2-u */
-  if( fd_f25519_is_nonzero( check ) ) { /* unclear prob */
-    fd_f25519_add( check, vxx, u );     /* vx^2+u */
-    if( FD_UNLIKELY( fd_f25519_is_nonzero( check ) ) ) {
-      return NULL;
-    }
-    fd_f25519_mul( x, x, fd_f25519_sqrtm1 );
+  int was_square = fd_f25519_sqrt_ratio( x, u, v );
+  if( FD_UNLIKELY( !was_square ) ) {
+    return NULL;
   }
 
   if( fd_f25519_sgn(x)!=expected_x_sign ) { /* 50% prob */
