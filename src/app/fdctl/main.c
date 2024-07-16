@@ -5,8 +5,8 @@
 configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &hugetlbfs,
   &sysctl,
-  &ethtool,
-  NULL,
+  &ethtool_channels,
+  &ethtool_gro,
   NULL,
   NULL,
   NULL,
