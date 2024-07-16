@@ -20,7 +20,8 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &netns,
   &hugetlbfs,
   &sysctl,
-  &ethtool,
+  &ethtool_channels,
+  &ethtool_gro,
   &keys,
   &genesis,
 #ifdef FD_HAS_NO_SOLANA

@@ -6,11 +6,14 @@ so Firedancer can run correctly. It does three things:
 
 * **hugetlbfs** Reserves huge and gigantic pages for use by Firedancer.
 * **sysctl** Sets required kernel parameters.
-* **ethtool** Configures the number of channels on the network device.
+* **ethtool-channels** Configures the number of channels on the network
+device.
+* **ethtool-gro** Disable network device generic-receive-offload.
 
 The `hugetlbfs` configuration must be performed every time the system
-is rebooted, to remount the `hugetlbfs` filesystems, but `sysctl` and
-`ethtool` configuration only needs to be performed on the machine once.
+is rebooted, to remount the `hugetlbfs` filesystems, but `sysctl`,
+`ethtool-channels` and `ethtool-gro` configuration only needs to be
+performed on the machine once.
 
 The configure command is run like `fdctl configure <mode> <stage>...`
 where `mode` is one of:
@@ -22,9 +25,9 @@ where `mode` is one of:
    privileges and will not make any changes to the system.
  - `fini` Unconfigure (reverse) the stage if it is reversible.
 
-`stage` can be one or more of `hugetlbfs`, `sysctl`, or `ethtool` and
-these stages are described below. You ca also use the stage `all` which
-will configure everything.
+`stage` can be one or more of `hugetlbfs`, `sysctl`, `ethtool-channels`
+or `ethtool-gro` and these stages are described below. You can also use
+the stage `all` which will configure everything.
 
 Stages have different privilege requirements, which you can see by
 trying to run the stage without privileges. The `check` mode never
@@ -101,7 +104,7 @@ The `init` mode requires either `root` privileges, or to be run with
 will never be reduced or changed back as a result of running
 `configure`.
 
-## ethtool
+## ethtool-channels
 In addition to XDP, Firedancer uses receive side scaling (RSS) to
 improve network performance. This uses functionality of modern NICs to
 steer packets to different queues to distribute processing among CPUs.
@@ -110,23 +113,39 @@ documentation](https://docs.kernel.org/networking/scaling.html) for more
 information.
 
 In Firedancer, each `net` tile serves one network queue, so the
-`ethtool` stage will modify the combined channel count of the configured
-network device `[tiles.net.interface]` to be the same as the number of
-`net` tiles, `[layout.net_tile_count]`. If your NIC does not support the
-required number of queues, you will need to reduce the number of `net`
-tiles, potentially down to one for NICs which don't support queues at
-all.
+`ethtool-channels` stage will modify the combined channel count of the
+configured network device `[tiles.net.interface]` to be the same as the
+number of `net` tiles, `[layout.net_tile_count]`. If your NIC does not
+support the required number of queues, you will need to reduce the
+number of `net` tiles, potentially down to one for NICs which don't
+support queues at all.
 
 The command run by the stage is similar to running `ethtool
 --set-channels <device> combined <N>` but it also supports bonded
 devices. We can check that it worked:
 
-<<< @/snippets/ethtool.ansi
+<<< @/snippets/ethtool-channels.ansi
 
 The stage only needs to be run once after boot but before running
 Firedancer. It has no dependencies on any other stage, although it is
-dependent on the number of  in your
-configuration.
+dependent on the number of `net` tiles in your configuration.
 
-Changing device settings with `ethtool` requires root privileges, and
+Changing device settings with `ethtool-channels` requires root privileges, and
+cannot be performed with capabilities.
+
+## ethtool-gro
+XDP is incomatible with a feature of network devices called
+`generic-receive-offload`. If enabled, this feature must be disabled for
+Firedancer to work.
+
+The command run by the stage is similar to running `ethtool --offload
+generic-receive-offload <device> off` but it also supports bonded
+devices. We can check that it worked:
+
+<<< @/snippets/ethtool-gro.ansi
+
+The stage only needs to be run once after boot but before running
+Firedancer. It has no dependencies on any other stage.
+
+Changing device settings with `ethtool-gro` requires root privileges, and
 cannot be performed with capabilities.
