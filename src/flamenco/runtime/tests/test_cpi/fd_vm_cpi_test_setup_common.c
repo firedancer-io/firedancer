@@ -19,17 +19,20 @@
 int
 VM_CPI_TEST_SETUP(fd_vm_t *vm, fd_exec_test_cpi_instr_t const *cpi_instr)
 {   
-    ulong heap_end = (ulong)vm->heap + vm->heap_max;
+    /* Ignore frame size limitations */
+    ulong stack_end = (ulong)vm->stack + FD_VM_STACK_MAX;
 
     #define HEAP_HADDR_TO_VMADDR(haddr) \
-     ((ulong)(haddr) - (ulong)vm->heap + FD_VM_MEM_MAP_HEAP_REGION_START)
+     ((ulong)(haddr) - (ulong)vm->stack + FD_VM_MEM_MAP_STACK_REGION_START)
 
-    uchar *heap_cpi_start = vm->heap + vm->heap_sz;
-    FD_SCRATCH_ALLOC_INIT(l, heap_cpi_start);
+    /* "Push" a frame, but also ignore frame size limitations */
+    uchar *cpi_stack_start = vm->stack + vm->frame_cnt * FD_VM_STACK_FRAME_SZ + FD_VM_STACK_GUARD_SZ;
+    vm->frame_cnt += 1;
+    FD_SCRATCH_ALLOC_INIT(l, cpi_stack_start);
 
     #define SCRATCH_CHECK \
         do { \
-            if( FD_UNLIKELY( _l >= heap_end ) ) { \
+            if( FD_UNLIKELY( _l >= stack_end ) ) { \
                 return -1; \
             } \
         } while(0)
@@ -138,8 +141,8 @@ VM_CPI_TEST_SETUP(fd_vm_t *vm, fd_exec_test_cpi_instr_t const *cpi_instr)
 
     //////////////// End Signers seeds
 
-    ulong heap_cpi_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-    vm->heap_sz = heap_cpi_end - (ulong)vm->heap;
+    ulong cpi_stack_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+    vm->reg[10] = cpi_stack_end - (ulong)vm->heap;
     
     return 0;
 }

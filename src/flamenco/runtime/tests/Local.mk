@@ -1,5 +1,5 @@
-$(call add-hdrs,generated/context.pb.h,generated/elf.pb.h,generated/invoke.pb.h,generated/txn.pb.h,generated/vm.pb.h)
-$(call add-objs,generated/context.pb generated/elf.pb generated/invoke.pb generated/txn.pb generated/vm.pb,fd_flamenco)
+$(call add-hdrs,generated/context.pb.h,generated/elf.pb.h,generated/invoke.pb.h,generated/txn.pb.h,generated/vm.pb.h,generated/vm_cpi.pb.h)
+$(call add-objs,generated/context.pb generated/elf.pb generated/invoke.pb generated/txn.pb generated/vm.pb generated/vm_cpi.pb,fd_flamenco)
 
 WRAP_FLAGS += -Xlinker --wrap=fd_execute_instr
 ifdef FD_HAS_INT128
