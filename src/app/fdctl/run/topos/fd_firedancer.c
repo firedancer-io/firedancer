@@ -471,6 +471,7 @@ fd_topo_firedancer( config_t * _config ) {
       if( FD_UNLIKELY( tile->replay.tpool_thread_count == 0 || tile->replay.tpool_thread_count>FD_TILE_MAX ) ) {
         FD_LOG_ERR(( "bad tpool_thread_count %lu", tile->replay.tpool_thread_count ));
       }
+      tile->replay.cluster_version = config->tiles.replay.cluster_version;
 
       /* not specified by [tiles.replay] */
 
