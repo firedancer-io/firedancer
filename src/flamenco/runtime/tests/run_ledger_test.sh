@@ -22,21 +22,27 @@ TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-21"
 CLUSTER_VERSION="--cluster-version 2000"
+DUMP_DIR=${DUMP_DIR:="./dump"}
 
 while [[ $# -gt 0 ]]; do
   case $1 in
+    -d|--dump-dir)
+       DUMP_DIR="$2"
+       shift
+       shift
+       ;;
     -l|--ledger)
        LEDGER="$2"
        shift
        shift
        ;;
     -s|--snapshot)
-       SNAPSHOT="--snapshot dump/$LEDGER/$2"
+       SNAPSHOT="$LEDGER/$2"
        shift
        shift
        ;;
     -a|--restore-archive)
-       RESTORE_ARCHIVE="--restore-archive dump/$LEDGER/$2"
+       RESTORE_ARCHIVE="$LEDGER/$2"
        shift
        shift
        ;;
@@ -94,8 +100,10 @@ done
 export LLVM_PROFILE_FILE=$OBJDIR/cov/raw/ledger_test_$LEDGER.profraw
 mkdir -p $OBJDIR/cov/raw
 
-if [[ ! -e dump/$LEDGER && SKIP_INGEST -eq 0 ]]; then
-  mkdir -p dump
+DUMP=$(realpath $DUMP_DIR)
+mkdir -p $DUMP
+
+if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
   if [[ -n "$ZST" ]]; then
     echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.zst"
   else
@@ -112,21 +120,29 @@ if [[ ! -e dump/$LEDGER && SKIP_INGEST -eq 0 ]]; then
     fi
   fi
   if [[ -n "$ZST" ]]; then
-    gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.zst | zstd -d --stdout | tar xf - -C ./dump
+    gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.zst | zstd -d --stdout | tar xf - -C $DUMP
   else
-    gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tar zxf - -C ./dump
+    gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tar zxf - -C $DUMP
   fi
 fi
 
+if [[ "" != "$SNAPSHOT" ]]; then
+  SNAPSHOT="--snapshot $DUMP/$SNAPSHOT"
+fi
+
+if [[ "" != "$RESTORE_ARCHIVE" ]]; then
+  RESTORE_ARCHIVE="--restore-archive $DUMP/$RESTORE_ARCHIVE"
+fi
+
 if [[ "" == "$SNAPSHOT" && "" == "$RESTORE_ARCHIVE" ]]; then
-  SNAPSHOT="--genesis dump/$LEDGER/genesis.bin"
+  SNAPSHOT="--genesis $DUMP/$LEDGER/genesis.bin"
 fi
 
 echo_notice "Starting on-demand ingest and replay"
 set -x
   "$OBJDIR"/bin/fd_ledger \
     --cmd replay \
-    --rocksdb dump/$LEDGER/rocksdb \
+    --rocksdb $DUMP/$LEDGER/rocksdb \
     $RESTORE_ARCHIVE \
     $TRASH_HASH \
     $INDEX_MAX \
