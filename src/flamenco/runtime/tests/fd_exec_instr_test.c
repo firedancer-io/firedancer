@@ -1,3 +1,4 @@
+
 #include "generated/invoke.pb.h"
 #undef FD_SCRATCH_USE_HANDHOLDING
 #define FD_SCRATCH_USE_HANDHOLDING 1
@@ -773,6 +774,25 @@ _diff_effects( fd_exec_instr_fixture_diff_t * check ) {
            violation) */
 }
 
+static fd_sbpf_syscalls_t *
+lookup_syscall_func( fd_sbpf_syscalls_t *syscalls,
+                     const char *syscall_name,
+                     size_t len) {
+  ulong i;
+
+  if (!syscall_name) return NULL;
+
+  for (i = 0; i < fd_sbpf_syscalls_slot_cnt(); ++i) {
+    if (!fd_sbpf_syscalls_key_inval(syscalls[i].key) && syscalls[i].name && strlen(syscalls[i].name) == len) {
+      if (!memcmp(syscalls[i].name, syscall_name, len)) {
+        return syscalls + i;
+      }
+    }
+  }
+  
+  return NULL;
+}
+
 int
 fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
                            fd_exec_test_instr_fixture_t const * test,
@@ -1053,8 +1073,9 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   /* Create execution context */
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t ctx[1];
+
   if( !_context_create( runner, ctx, input_instr_ctx, true ) )
-    return 0UL;
+    goto error;
   fd_valloc_t valloc = fd_scratch_virtual();
 
   /* Capture outputs */
@@ -1064,8 +1085,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_syscall_effects_t),
                                 sizeof (fd_exec_test_syscall_effects_t) );
   if( FD_UNLIKELY( _l > output_end ) ) {
-    _context_destroy( runner, ctx );
-    return 0UL;
+    goto error;
   }
   fd_memset( effects, 0, sizeof(fd_exec_test_instr_effects_t) );
 
@@ -1076,27 +1096,42 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   fd_vm_syscall_register_all( syscalls, 0 );
 
   /* Pull out the memory regions */
-  FD_TEST( input->has_vm_ctx );
-  FD_TEST( input->vm_ctx.rodata );
+  if( !input->has_vm_ctx || !input->vm_ctx.rodata ) {
+    goto error;
+  }
   uchar * rodata = input->vm_ctx.rodata->bytes;
   ulong rodata_sz = input->vm_ctx.rodata->size;
 
   /* Concatenate the input data regions into the flat input memory region */
   ulong input_data_sz = 0;
   for ( ulong i=0; i<input->vm_ctx.input_data_regions_count; i++ ) {
+    if( !input->vm_ctx.input_data_regions[i].content ) {
+      continue;
+    }
     input_data_sz += input->vm_ctx.input_data_regions[i].content->size;
   }
   uchar * input_data = fd_valloc_malloc( valloc, alignof(uchar), input_data_sz );
   uchar * input_data_ptr = input_data;
   for ( ulong i=0; i<input->vm_ctx.input_data_regions_count; i++ ) {
     pb_bytes_array_t * array = input->vm_ctx.input_data_regions[i].content;
+    if( !input->vm_ctx.input_data_regions[i].content ) {
+      continue;
+    }
     fd_memcpy( input_data_ptr, array->bytes, array->size );
     input_data_ptr += array->size;
   }
-  FD_TEST( input_data_ptr == (input_data + input_data_sz) );
+  if( input_data_ptr != (input_data + input_data_sz) ) {
+    goto error;
+  }
+
+  if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
+    goto error;
+  }
 
   fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
-  FD_TEST( vm );
+  if ( !vm ) {
+    goto error;
+  }
   fd_vm_init(
     vm,
     ctx,
@@ -1117,7 +1152,9 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
     sha);
 
   // Setup the vm state for execution
-  FD_TEST( fd_vm_setup_state_for_execution( vm ) == FD_VM_SUCCESS );
+  if( fd_vm_setup_state_for_execution( vm ) != FD_VM_SUCCESS ) {
+    goto error;
+  }
 
   // Override some execution state values from the syscall fuzzer input
   // This is so we can test if the syscall mutates any of these erroneously
@@ -1141,12 +1178,11 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   }
 
   // Look up the syscall to execute
-  const char * syscall_name = input->syscall_invocation.function_name;
-  fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const(
-    syscalls,
-    fd_murmur3_32( syscall_name, strlen( syscall_name ), 0U ),
-    NULL );
-  if( !syscall ) return 0;
+  char * syscall_name = (char *)input->syscall_invocation.function_name.bytes;
+  fd_sbpf_syscalls_t const * syscall = lookup_syscall_func(syscalls, syscall_name, input->syscall_invocation.function_name.size);
+  if( !syscall ) {
+    goto error;
+  }
 
   /* Actually invoke the syscall */
   int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
@@ -1192,4 +1228,8 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
 
   *output = effects;
   return actual_end - (ulong)output_buf;
+
+error:
+  _context_destroy( runner, ctx );
+  return 0;
 }
