@@ -48,7 +48,7 @@
                                   |         |     sequenced metadata         |
                                   v         v    for deduped verified        |
                                +---- core -----+     transactions            |
-                               |     BLOCK     |                             |         core ideally near muma node as connected
+                               |     BLOCK     |                             |         core ideally near numa node as connected
                                |    PACKING    |-----------------------------+         obj wksps, performance likely bounded by NOC
                                |               |      flow control info                deduped transaction payload bandwidth
                                +---------------+
