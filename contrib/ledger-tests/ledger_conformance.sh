@@ -95,13 +95,13 @@ usage() {
                 --network -n                    : Solana network to download the ledger from. Choose: mainnet|testnet|internal. \n\                
                 --ledger -l                     : Directory where the initial ledger can be found. \n\
                 --ledger-min -z                 : Directory where the minimized ledger should be placed. \n\
-                --solana-build-dir -d           : Path to the solana build directory. E.g. /home/fd_user/solana/target/debug \n\
+                --solana-build-dir -d           : Path to the solana|agave build directory. E.g. /home/fd_user/solana|agave/target/debug \n\
                 --firedancer-root-dir -f        : Path to the firedancer root directory. E.g. /home/fd_user/firedancer \n\
                 --edge-offset -o                : Required if the mode is edge, this defines the number of slots to minimize the initial ledger on each side of the epoch boundary. \n\
                 --start-slot -s                 : Required if the mode is exact, this defines the slot to start reading from. \n\
                 --end-slot -e                   : Required if the mode is exact, this defines the slot to end reading. \n\
                 --mode -m                       : Method to minimize the initial ledger. Either as an offset around an epoch edge, or defined as an exact start and end slot. Default: exact. Choose: edge|exact. \n\
-                --is-verify -v [Optional]       : If passed, use solana-ledger-tool to verify created ledgers. Default: false. \n\
+                --is-verify -v [Optional]       : If passed, use solana|agave-ledger-tool to verify created ledgers. Default: false. \n\
                 --slots-in-epoch -i [Optional]  : Slot count for an epoch in the defined network. Default: 432_000. \n\
                 --gigantic-pages -g [Optional]  : Number of gigantic pages. Default: 700 \n\
                 --index-max -x [Optional]       : Maximum index. Default: 600_000_000"
@@ -114,7 +114,7 @@ usage() {
                 --start-slot -s                 : The slot to start replay. \n\
                 --end-slot -e                   : The slot to end replay. \n\
                 --firedancer-root-dir -f        : Path to the firedancer root directory. \n\
-                --solana-build-dir -d           : Path to the solana build directory. E.g. /home/fd_user/solana/target/debug \n\
+                --solana-build-dir -d           : Path to the solana|agave build directory. E.g. /home/fd_user/solana|agave/target/debug \n\
                 --slots-in-epoch -i [Optional]  : Slot count for an epoch in the defined network. Default: 432_000. \n\
                 --gigantic-pages -g [Optional]  : Number of gigantic pages. Default: 700 \n\
                 --index-max -x [Optional]       : Maximum index. Default: 600_000_000 \n\
@@ -124,6 +124,7 @@ usage() {
   elif [[ $1 == "solcap" ]]; then
     echo -e "Usage: $0 solcap \n\
                 --directory -d                  : Path to the root directory containing firedancer, solana, solfuzz-agave and solana-conformance repos. \n\
+                --solana-build-dir -b           : Path to the solana|agave build directory. E.g. /home/fd_user/solana|agave/target/debug \n\
                 --index-max -x [Optional]       : Maximum index. Default: 600_000_000 \n\
                 --pages -p [Optional]           : Number of pages. Default: 75 \n\
                 --funk-pages -f [Optional]      : Number of funk pages. Default: 550"
@@ -133,7 +134,7 @@ usage() {
                 --network -n                    : Solana network to download the ledger from. Choose: mainnet|testnet|internal. \n\                
                 --ledger -l                     : Directory where the initial ledger can be found. \n\
                 --ledger-min -z                 : Directory where the minimized ledger should be placed. \n\
-                --solana-build-dir -d           : Path to the solana build directory. E.g. /home/fd_user/solana/target/debug \n\
+                --solana-build-dir -d           : Path to the solana|agave build directory. E.g. /home/fd_user/solana|agave/target/debug \n\
                 --firedancer-root-dir -f        : Path to the firedancer root directory. \n\
                 --edge-offset -o                : Required if the mode is edge, this defines the number of slots to minimize the initial ledger on each side of the epoch boundary. \n\
                 --start-slot -s                 : Defines the slot to start reading from. \n\
@@ -141,7 +142,7 @@ usage() {
                 --repetitions -r                : Required if the mode is exact, running with multiple repetitions repeats the minify and replay for new slot ranges until the entire ledger is checked. Choose: once|multiple. \n\
                 --no-fetch [Optional]           : Run all the commands excluding fetch-recent. Just pass in the ledger directories. \n\
                 --mode -m [Optional]            : Method to minimize the initial ledger. Either as an offset around an epoch edge, or defined as an exact start and end slot. Default: exact. Choose: edge|exact. \n\
-                --is-verify -v [Optional]       : If passed, use solana-ledger-tool to verify created ledgers. Default: false. \n\
+                --is-verify -v [Optional]       : If passed, use solana|agave-ledger-tool to verify created ledgers. Default: false. \n\
                 --slots-in-epoch -i [Optional]  : Slot count for an epoch in the defined network. Default: 432_000. \n\
                 --gigantic-pages -g [Optional]  : Number of gigantic pages. Default: 700 \n\
                 --index-max -x [Optional]       : Maximum index. Default: 600_000_000 \n\
@@ -260,8 +261,8 @@ parse_fetch_options() {
     exit 1
   fi
 
-  SOLANA_LEDGER_TOOL="$SOLANA_BUILD_DIR/solana-ledger-tool"
-  if [ ! -f "$SOLANA_LEDGER_TOOL" ]; then
+  SOLANA_LEDGER_TOOL="$SOLANA_BUILD_DIR/*-ledger-tool"
+  if [ -z "$(ls $SOLANA_LEDGER_TOOL 2>/dev/null)" ]; then
     echo "error $SOLANA_LEDGER_TOOL does not exist"
     exit 1
   fi
@@ -400,8 +401,8 @@ parse_minify_options() {
     exit 1
   fi
 
-  SOLANA_LEDGER_TOOL="$SOLANA_BUILD_DIR/solana-ledger-tool"
-  if [ ! -f "$SOLANA_LEDGER_TOOL" ]; then
+  SOLANA_LEDGER_TOOL="$SOLANA_BUILD_DIR/*-ledger-tool"
+  if [ -z "$(ls $SOLANA_LEDGER_TOOL 2>/dev/null)" ]; then
     echo "error $SOLANA_LEDGER_TOOL does not exist"
     exit 1
   fi
@@ -490,15 +491,15 @@ parse_replay_options() {
     exit 1
   fi
 
-  SOLANA_LEDGER_TOOL="$SOLANA_BUILD_DIR/solana-ledger-tool"
-  if [ ! -f "$SOLANA_LEDGER_TOOL" ]; then
+  SOLANA_LEDGER_TOOL="$SOLANA_BUILD_DIR/*-ledger-tool"
+  if [ -z "$(ls $SOLANA_LEDGER_TOOL 2>/dev/null)" ]; then
     echo "error $SOLANA_LEDGER_TOOL does not exist"
     exit 1
   fi
 }
 
 parse_solcap_options() {
-  TEMP=$(getopt -o d:x:p:f: --long directory:,index-max:,pages:,funk-pages: -- "$@")
+  TEMP=$(getopt -o d:b:x:p:f: --long directory:,solana-build-dir:,index-max:,pages:,funk-pages: -- "$@")
   if [ $? != 0 ]; then
     echo "Incorrect options provided" >&2
     exit 1
@@ -516,6 +517,10 @@ parse_solcap_options() {
     case "$1" in
       -d | --directory)
         REPO_ROOT="$2"
+        shift 2
+        ;;
+      -b | --solana-build-dir)
+        SOLANA_BUILD_DIR="$2"
         shift 2
         ;;
       -x | --index-max)
@@ -541,19 +546,16 @@ parse_solcap_options() {
     esac
   done
 
-  if [ -z "$REPO_ROOT" ]; then
+  if [ -z "$REPO_ROOT" ] || [ -z "$SOLANA_BUILD_DIR" ]; then
     usage "solcap"
     exit 1
   fi
 
-  if [ ! -f "$REPO_ROOT/solana/target/release/solana-ledger-tool" ]; then
-    echo "error: $REPO_ROOT/solana/target/release/solana-ledger-tool does not exist.\n\
-          Manually run cargo build --package solana-ledger-tool --release in the solana repository or\n\
-          Run `./ledger_conformance.sh setup`"
+  SOLANA_LEDGER_TOOL="$SOLANA_BUILD_DIR/*-ledger-tool"
+  if [ -z "$(ls $SOLANA_LEDGER_TOOL 2>/dev/null)" ]; then
+    echo "error $SOLANA_LEDGER_TOOL does not exist"
     exit 1
   fi
-
-  SOLANA_LEDGER_TOOL="$REPO_ROOT/solana/target/release/solana-ledger-tool"
 }
 
 parse_mismatch_instr_options() {
@@ -776,8 +778,8 @@ parse_all_options() {
     exit 1
   fi
 
-  SOLANA_LEDGER_TOOL="$SOLANA_BUILD_DIR/solana-ledger-tool"
-  if [ ! -f "$SOLANA_LEDGER_TOOL" ]; then
+  SOLANA_LEDGER_TOOL="$SOLANA_BUILD_DIR/*-ledger-tool"
+  if [ -z "$(ls $SOLANA_LEDGER_TOOL 2>/dev/null)" ]; then
     echo "error $SOLANA_LEDGER_TOOL does not exist"
     exit 1
   fi
@@ -841,6 +843,7 @@ case $COMMAND in
     parse_solcap_options "$@"
     echo -e "running cmd=solcap with\n" \
       " repo-root=$REPO_ROOT,\n" \
+      " solana-build-dir=$SOLANA_BUILD_DIR,\n" \
       " index-max=$INDEX_MAX,\n" \
       " pages=$PAGES,\n" \
       " funk-pages=$FUNK_PAGES"
