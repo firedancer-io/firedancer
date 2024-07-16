@@ -32,7 +32,7 @@
 
 #define SHRED_OUT_IDX   0
 #define REPAIR_OUT_IDX  1
-#define PACK_OUT_IDX    2
+#define DEDUP_OUT_IDX   2
 #define SIGN_OUT_IDX    3
 #define VOTER_OUT_IDX   4
 
@@ -110,15 +110,15 @@ struct fd_gossip_tile_ctx {
   ulong       voter_contact_out_wmark;
   ulong       voter_contact_out_chunk;
 
-  fd_frag_meta_t * pack_out_mcache;
-  ulong *          pack_out_sync;
-  ulong            pack_out_depth;
-  ulong            pack_out_seq;
+  fd_frag_meta_t * dedup_out_mcache;
+  ulong *          dedup_out_sync;
+  ulong            dedup_out_depth;
+  ulong            dedup_out_seq;
 
-  fd_wksp_t * pack_out_mem;
-  ulong       pack_out_chunk0;
-  ulong       pack_out_wmark;
-  ulong       pack_out_chunk;
+  fd_wksp_t * dedup_out_mem;
+  ulong       dedup_out_chunk0;
+  ulong       dedup_out_wmark;
+  ulong       dedup_out_chunk;
 
   fd_wksp_t * replay_in_mem;
   ulong       replay_in_chunk0;
@@ -285,15 +285,15 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
       return;
     }
 
-    uchar * vote_txn_msg = fd_chunk_to_laddr( ctx->pack_out_mem, ctx->pack_out_chunk );
+    uchar * vote_txn_msg = fd_chunk_to_laddr( ctx->dedup_out_mem, ctx->dedup_out_chunk );
     ulong vote_txn_sz    = gossip_vote->txn.raw_sz;
     memcpy( vote_txn_msg, gossip_vote->txn.raw, vote_txn_sz );
 
     ulong sig = 1UL; 
-    fd_mcache_publish( ctx->pack_out_mcache, ctx->pack_out_depth, ctx->pack_out_seq, sig, ctx->pack_out_chunk,
+    fd_mcache_publish( ctx->dedup_out_mcache, ctx->dedup_out_depth, ctx->dedup_out_seq, sig, ctx->dedup_out_chunk,
       vote_txn_sz, 0UL, 0, 0 );
-    ctx->pack_out_seq   = fd_seq_inc( ctx->pack_out_seq, 1UL );
-    ctx->pack_out_chunk = fd_dcache_compact_next( ctx->pack_out_chunk, vote_txn_sz, ctx->pack_out_chunk0, ctx->pack_out_wmark );
+    ctx->dedup_out_seq   = fd_seq_inc( ctx->dedup_out_seq, 1UL );
+    ctx->dedup_out_chunk = fd_dcache_compact_next( ctx->dedup_out_chunk, vote_txn_sz, ctx->dedup_out_chunk0, ctx->dedup_out_wmark );
 
   } else if( fd_crds_data_is_contact_info_v1( data ) ) {
     fd_gossip_contact_info_v1_t const * contact_info = &data->inner.contact_info_v1;
@@ -552,9 +552,9 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
   if( FD_UNLIKELY( tile->in_cnt != 3UL ||
-                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_gossip" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ VOTER_IN_IDX  ] ].name,  "voter_gossip" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX    ] ].name, "sign_gossip" ) ) ) {
+                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX   ] ].name, "net_gossip" )   ||
+                   strcmp( topo->links[ tile->in_link_id[ VOTER_IN_IDX ] ].name, "voter_gossip" ) ||
+                   strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX  ] ].name, "sign_gossip" ) ) ) {
     FD_LOG_ERR(( "gossip tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
   }
@@ -562,9 +562,9 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->out_cnt != 5 ||
                    strcmp( topo->links[ tile->out_link_id[ SHRED_OUT_IDX  ] ].name, "crds_shred" )    ||
                    strcmp( topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].name, "gossip_repai" )  ||
-                   strcmp( topo->links[ tile->out_link_id[ PACK_OUT_IDX   ] ].name, "gossip_pack" )   ||
+                   strcmp( topo->links[ tile->out_link_id[ DEDUP_OUT_IDX  ] ].name, "gossip_dedup" )  ||
                    strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX   ] ].name, "gossip_sign" )   ||
-                   strcmp( topo->links[ tile->out_link_id[ VOTER_OUT_IDX ] ].name,  "gossip_voter" ) ) ) {
+                   strcmp( topo->links[ tile->out_link_id[ VOTER_OUT_IDX  ] ].name, "gossip_voter" ) ) ) {
     FD_LOG_ERR(( "gossip tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
   }
@@ -704,16 +704,16 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_contact_out_wmark       = fd_dcache_compact_wmark ( ctx->repair_contact_out_mem, repair_contact_out->dcache, repair_contact_out->mtu );
   ctx->repair_contact_out_chunk       = ctx->repair_contact_out_chunk0;
 
-  /* Set up repair contact info tile output */
-  fd_topo_link_t * pack_out = &topo->links[ tile->out_link_id[ PACK_OUT_IDX ] ];
-  ctx->pack_out_mcache      = pack_out->mcache;
-  ctx->pack_out_sync        = fd_mcache_seq_laddr( ctx->pack_out_mcache );
-  ctx->pack_out_depth       = fd_mcache_depth( ctx->pack_out_mcache );
-  ctx->pack_out_seq         = fd_mcache_seq_query( ctx->pack_out_sync );
-  ctx->pack_out_mem         = topo->workspaces[ topo->objs[ pack_out->dcache_obj_id ].wksp_id ].wksp;
-  ctx->pack_out_chunk0      = fd_dcache_compact_chunk0( ctx->pack_out_mem, pack_out->dcache );
-  ctx->pack_out_wmark       = fd_dcache_compact_wmark ( ctx->pack_out_mem, pack_out->dcache, pack_out->mtu );
-  ctx->pack_out_chunk       = ctx->pack_out_chunk0;
+  /* Set up dedup tile output */
+  fd_topo_link_t * dedup_out = &topo->links[ tile->out_link_id[ DEDUP_OUT_IDX ] ];
+  ctx->dedup_out_mcache      = dedup_out->mcache;
+  ctx->dedup_out_sync        = fd_mcache_seq_laddr( ctx->dedup_out_mcache );
+  ctx->dedup_out_depth       = fd_mcache_depth( ctx->dedup_out_mcache );
+  ctx->dedup_out_seq         = fd_mcache_seq_query( ctx->dedup_out_sync );
+  ctx->dedup_out_mem         = topo->workspaces[ topo->objs[ dedup_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->dedup_out_chunk0      = fd_dcache_compact_chunk0( ctx->dedup_out_mem, dedup_out->dcache );
+  ctx->dedup_out_wmark       = fd_dcache_compact_wmark ( ctx->dedup_out_mem, dedup_out->dcache, dedup_out->mtu );
+  ctx->dedup_out_chunk       = ctx->dedup_out_chunk0;
 
   /* Set up crds vote voter tile output  */
   fd_topo_link_t * voter_out = &topo->links[ tile->out_link_id[ VOTER_OUT_IDX ] ];

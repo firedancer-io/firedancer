@@ -257,6 +257,10 @@ metric introduced.
     <counter name="StreamReceivedBytes" summary="Total stream payload bytes received." />
 </group>
 
+<group name="Dedup" tile="dedup">
+  <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
+</group>
+
 <group name="Pack" tile="pack">
   <histogram name="ScheduleMicroblockDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
     <summary>Duration of scheduling one microblock</summary>
@@ -270,7 +274,6 @@ metric introduced.
   <histogram name="VotesPerMicroblockCount" min="0" max="64">
     <summary>Count of simple vote transactions in a scheduled microblock</summary>
   </histogram>
-  <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
   <counter name="NormalTransactionReceived" summary="Count of transactions received via the normal TPU path" />
   <counter name="TransactionInserted" enum="PackTxnInsertReturn" summary="Result of inserting a transaction into the pack object" />
   <counter name="MetricTiming" enum="PackTimingState" summary="Time in nanos spent in each state" />

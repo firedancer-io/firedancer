@@ -87,16 +87,16 @@ struct fd_sender_tile_ctx {
   ulong       gossip_out_wmark;
   ulong       gossip_out_chunk;
 
-  ulong            pack_out_idx;
-  fd_frag_meta_t * pack_out_mcache;
-  ulong *          pack_out_sync;
-  ulong            pack_out_depth;
-  ulong            pack_out_seq;
+  ulong            dedup_out_idx;
+  fd_frag_meta_t * dedup_out_mcache;
+  ulong *          dedup_out_sync;
+  ulong            dedup_out_depth;
+  ulong            dedup_out_seq;
 
-  fd_wksp_t * pack_out_mem;
-  ulong       pack_out_chunk0;
-  ulong       pack_out_wmark;
-  ulong       pack_out_chunk;
+  fd_wksp_t * dedup_out_mem;
+  ulong       dedup_out_chunk0;
+  ulong       dedup_out_wmark;
+  ulong       dedup_out_chunk;
 
   ulong            net_out_idx;
   fd_frag_meta_t * net_out_mcache;
@@ -329,14 +329,14 @@ after_frag( void *             _ctx,
     ctx->gossip_out_seq   = fd_seq_inc( ctx->gossip_out_seq, 1UL );
     ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, txn->payload_sz,
                                                     ctx->gossip_out_chunk0, ctx->gossip_out_wmark );
-    /* send to pack */
-    uchar * msg_to_pack = fd_chunk_to_laddr( ctx->pack_out_mem, ctx->pack_out_chunk );
+    /* send to dedup */
+    uchar * msg_to_pack = fd_chunk_to_laddr( ctx->dedup_out_mem, ctx->dedup_out_chunk );
     memcpy( msg_to_pack, msg_to_gossip, txn->payload_sz );
-    fd_mcache_publish( ctx->pack_out_mcache, ctx->pack_out_depth, ctx->pack_out_seq, 1UL, ctx->pack_out_chunk,
+    fd_mcache_publish( ctx->dedup_out_mcache, ctx->dedup_out_depth, ctx->dedup_out_seq, 1UL, ctx->dedup_out_chunk,
       txn->payload_sz, 0UL, 0, 0 );
-    ctx->pack_out_seq    = fd_seq_inc( ctx->pack_out_seq, 1UL );
-    ctx->pack_out_chunk = fd_dcache_compact_next( ctx->pack_out_chunk, txn->payload_sz, ctx->pack_out_chunk0,
-        ctx->pack_out_wmark );
+    ctx->dedup_out_seq    = fd_seq_inc( ctx->dedup_out_seq, 1UL );
+    ctx->dedup_out_chunk = fd_dcache_compact_next( ctx->dedup_out_chunk, txn->payload_sz, ctx->dedup_out_chunk0,
+        ctx->dedup_out_wmark );
   }
 }
 
@@ -424,18 +424,18 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->gossip_out_wmark  = fd_dcache_compact_wmark ( ctx->gossip_out_mem, gossip_out_link->dcache, gossip_out_link->mtu );
   ctx->gossip_out_chunk  = ctx->gossip_out_chunk0;
 
-  /* Set up pack output */
-  ctx->pack_out_idx = fd_topo_find_tile_out_link( topo, tile, "voter_pack", 0 );
-  FD_TEST( ctx->pack_out_idx!=ULONG_MAX );
-  fd_topo_link_t * pack_out_link = &topo->links[ tile->out_link_id[ ctx->pack_out_idx ] ];
-  ctx->pack_out_mcache = pack_out_link->mcache;
-  ctx->pack_out_sync   = fd_mcache_seq_laddr( ctx->pack_out_mcache );
-  ctx->pack_out_depth  = fd_mcache_depth( ctx->pack_out_mcache );
-  ctx->pack_out_seq    = fd_mcache_seq_query( ctx->pack_out_sync );
-  ctx->pack_out_mem    = topo->workspaces[ topo->objs[ pack_out_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->pack_out_chunk0 = fd_dcache_compact_chunk0( ctx->pack_out_mem, pack_out_link->dcache );
-  ctx->pack_out_wmark  = fd_dcache_compact_wmark ( ctx->pack_out_mem, pack_out_link->dcache, pack_out_link->mtu );
-  ctx->pack_out_chunk  = ctx->pack_out_chunk0;
+  /* Set up dedup output */
+  ctx->dedup_out_idx = fd_topo_find_tile_out_link( topo, tile, "voter_dedup", 0 );
+  FD_TEST( ctx->dedup_out_idx!=ULONG_MAX );
+  fd_topo_link_t * dedup_out_link = &topo->links[ tile->out_link_id[ ctx->dedup_out_idx ] ];
+  ctx->dedup_out_mcache = dedup_out_link->mcache;
+  ctx->dedup_out_sync   = fd_mcache_seq_laddr( ctx->dedup_out_mcache );
+  ctx->dedup_out_depth  = fd_mcache_depth( ctx->dedup_out_mcache );
+  ctx->dedup_out_seq    = fd_mcache_seq_query( ctx->dedup_out_sync );
+  ctx->dedup_out_mem    = topo->workspaces[ topo->objs[ dedup_out_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->dedup_out_chunk0 = fd_dcache_compact_chunk0( ctx->dedup_out_mem, dedup_out_link->dcache );
+  ctx->dedup_out_wmark  = fd_dcache_compact_wmark ( ctx->dedup_out_mem, dedup_out_link->dcache, dedup_out_link->mtu );
+  ctx->dedup_out_chunk  = ctx->dedup_out_chunk0;
 
   /* Set up net output */
   ctx->net_out_idx = fd_topo_find_tile_out_link( topo, tile, "voter_net", 0 );
