@@ -276,17 +276,18 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
 
   if( epoch_bank->next_epoch_stakes.vote_accounts_root!=NULL ) {
     ulong * stake_weights_msg         = fd_chunk_to_laddr( ctx->stake_weights_out_mem, ctx->stake_weights_out_chunk );
-    fd_stake_weight_t * stake_weights = (fd_stake_weight_t *)&stake_weights_msg[4];
+    fd_stake_weight_t * stake_weights = (fd_stake_weight_t *)&stake_weights_msg[5];
     ulong stake_weight_idx            = fd_stake_weights_by_node( &epoch_bank->next_epoch_stakes, stake_weights );
 
     stake_weights_msg[0] = fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, ctx->slot_ctx->slot_bank.slot ); /* epoch */
     stake_weights_msg[1] = stake_weight_idx; /* staked_cnt */
     stake_weights_msg[2] = fd_epoch_slot0( &epoch_bank->epoch_schedule, stake_weights_msg[0] ); /* start_slot */
     stake_weights_msg[3] = epoch_bank->epoch_schedule.slots_per_epoch; /* slot_cnt */
+    stake_weights_msg[4] = 0UL; /* excluded stake */
     FD_LOG_INFO(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
 
-    ulong stake_weights_sz = 4*sizeof(ulong) + (stake_weight_idx * sizeof(fd_stake_weight_t));
+    ulong stake_weights_sz = 5*sizeof(ulong) + (stake_weight_idx * sizeof(fd_stake_weight_t));
     ulong stake_weights_sig = 4UL;
     fd_mux_publish( mux_ctx, stake_weights_sig, ctx->stake_weights_out_chunk, stake_weights_sz, 0UL, 0UL, tspub );
     ctx->stake_weights_out_chunk = fd_dcache_compact_next( ctx->stake_weights_out_chunk, stake_weights_sz, ctx->stake_weights_out_chunk0, ctx->stake_weights_out_wmark );
