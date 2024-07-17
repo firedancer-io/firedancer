@@ -823,31 +823,6 @@ after_frag( void *             _ctx,
                        !!vote_fork ? vote_fork->slot : 0,
                        fd_ghost_head_query( ctx->ghost )->slot ) );
 
-      /* Query the cluster's view of our tower ie. the vote state. */
-
-      fd_vote_state_versioned_t versioned = { 0 };
-
-      fd_cluster_tower_t * cluster_tower = fd_tower_cluster_query( ctx->tower,
-                                                                   &ctx->voter->vote_acc_addr,
-                                                                   ctx->acc_mgr,
-                                                                   child,
-                                                                   fd_scratch_virtual(),
-                                                                   &versioned );
-
-      if( FD_LIKELY( ctx->vote && cluster_tower ) ) {
-
-        /* We only try to sync with the cluster view of our tower if
-           voting is on and we can find the vote state. */
-
-        // fd_landed_vote_t const * cluster_latest_vote =
-        //     deq_fd_landed_vote_t_peek_tail_const( cluster_tower->votes );
-
-        // if( ( child->slot - cluster_latest_vote->lockout.slot ) > 16 ) {
-        //   fd_tower_cluster_sync( ctx->tower, cluster_tower );
-        // }
-      } 
-
-
       ulong poh_slot = fd_fseq_query( ctx->poh_slot );
       if( FD_UNLIKELY( ctx->vote && poh_slot == ULONG_MAX ) ) {
 
@@ -1063,12 +1038,11 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
   }
 
   fd_runtime_update_leaders( ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot );
-  FD_LOG_NOTICE( ( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ) );
+  FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
   fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
-  fd_bpf_scan_and_create_bpf_program_cache_entry_tpool(
-      ctx->slot_ctx, ctx->slot_ctx->funk_txn, ctx->tpool, ctx->max_workers );
+  fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx, ctx->slot_ctx->funk_txn, ctx->tpool, ctx->max_workers );
   fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
-  FD_LOG_NOTICE( ( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ) );
+  FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
   ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
 
