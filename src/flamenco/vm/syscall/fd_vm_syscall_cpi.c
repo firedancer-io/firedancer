@@ -14,6 +14,18 @@
 #define STRINGIFY(x) TOSTRING(x)
 #define TOSTRING(x) #x
 
+typedef struct{
+  pb_size_t size;
+  pb_byte_t const *bytes;
+} bytes_region_t;
+
+static inline bool
+write_bytes_callback( pb_ostream_t *stream, const pb_field_iter_t *field, void * const *arg ) {
+  if (!pb_encode_tag_for_field(stream, field)) return false;
+  bytes_region_t const *bytes_region = (bytes_region_t const *)*arg;
+  return pb_encode_string(stream, bytes_region->bytes, bytes_region->size);
+}
+
 static inline void
 dump_vm_cpi_state(fd_vm_t *vm,
                   char const * abi_str,
@@ -24,71 +36,71 @@ dump_vm_cpi_state(fd_vm_t *vm,
                   ulong   signers_seeds_cnt ) {
   char filename[100];
   fd_instr_info_t const *instr = vm->instr_ctx->instr;
-  sprintf(filename, "vm_cpi_state/%lu_%lu%lu_%lu.txt", fd_tile_id(), instr->program_id_pubkey.ul[0], instr->program_id_pubkey.ul[1], instr->data_sz);
-  // sprintf(filename, "vm_cpi_state/%lu.txt", fd_tile_id(), instr->program_id_pubkey.ul[0], instr->program_id_pubkey.ul[1], instr->data_sz);
-  FILE *f = fopen(filename, "wb+");
-  if (f == NULL) {
-    FD_LOG_WARNING(("Failed to open file %s", filename));
-    return;
+  sprintf(filename, "vm_cpi_state/%lu_%lu%lu_%lu.cpisnap", fd_tile_id(), instr->program_id_pubkey.ul[0], instr->program_id_pubkey.ul[1], instr->data_sz);
+
+  fd_exec_test_cpi_snapshot_t cpi_snap = FD_EXEC_TEST_CPI_SNAPSHOT_INIT_DEFAULT;
+
+  if (memcmp(abi_str, "c", 1) == 0) {
+    cpi_snap.abi = FD_EXEC_TEST_CPIABI_C;
+  } else if (memcmp(abi_str, "rust", 4) == 0) {
+    cpi_snap.abi = FD_EXEC_TEST_CPIABI_RUST;
+  } else {
+    cpi_snap.abi = FD_EXEC_TEST_CPIABI_UNKNOWN;
   }
-  fprintf(f, "cpi state for vm %p, abi: %s\n", vm, abi_str);
-  fprintf(f, "cpi meta: \n", vm);
-  fprintf(f, "instruction_va: %p\n",      instruction_va);
-  fprintf(f, "acct_infos_va: %p\n",       acct_infos_va);
-  fprintf(f, "acct_info_cnt: %lu\n",      acct_info_cnt);
-  fprintf(f, "signers_seeds_va: %p\n",    signers_seeds_va);
-  fprintf(f, "signers_seeds_cnt: %lu\n",  signers_seeds_cnt);
 
-  // Dump program
-  fprintf(f, "Program:\n");
-  fwrite(vm->rodata, 1, vm->rodata_sz, f);
+  cpi_snap.instruction_va = instruction_va;
+  cpi_snap.account_infos_va = acct_infos_va;
+  cpi_snap.account_infos_cnt = acct_info_cnt;
+  cpi_snap.signers_seeds_va = signers_seeds_va;
+  cpi_snap.signers_seeds_cnt = signers_seeds_cnt;
 
-  // Dump stack
-  fprintf(f, "\nStack:\n");
-  fwrite(vm->stack, 1, vm->frame_cnt*FD_VM_STACK_GUARD_SZ*2, f);
+  bytes_region_t ro_region = { .size = (pb_size_t) vm->rodata_sz, .bytes = vm->rodata };
+  cpi_snap.ro_region.arg = &ro_region;
+  cpi_snap.ro_region.funcs.encode = write_bytes_callback;
 
-  // Dump heap
-  fprintf(f, "\nHeap:\n");
-  fwrite(vm->heap, 1, vm->heap_sz, f);
+  bytes_region_t stack_region = { .size = (pb_size_t) vm->frame_cnt*FD_VM_STACK_GUARD_SZ*2, .bytes = vm->stack };
+  cpi_snap.stack.arg = &stack_region;
+  cpi_snap.stack.funcs.encode = write_bytes_callback;
 
-  // Dump input data region
-  fprintf(f, "\nInput:\n");
-  fwrite(vm->input, 1, vm->input_sz, f);
+  bytes_region_t heap_region = { .size = (pb_size_t) vm->heap_sz, .bytes = vm->heap };
+  cpi_snap.heap.arg = &heap_region;
+  cpi_snap.heap.funcs.encode = write_bytes_callback;
 
-  // Dump instruction proto
-  fprintf(f, "\nInstruction PB:\n");
-  fflush(f);
+  bytes_region_t input_region = { .size = (pb_size_t) vm->input_sz, .bytes = vm->input };
+  cpi_snap.input_region.arg = &input_region;
+  cpi_snap.input_region.funcs.encode = write_bytes_callback;
+  
+  fd_create_instr_context_protobuf_from_instructions( &cpi_snap.instr_ctx, vm->instr_ctx->txn_ctx, vm->instr_ctx->instr );
 
-  long int cur_offset = ftell(f);
-  cur_offset = (long) fd_ulong_align_up((ulong) cur_offset, 4096);
-  size_t pb_alloc_size = 1000 * 1024 * 1024;
+  size_t pb_alloc_size = 1024 * 1024 * 1024;
 
-  if (ftruncate(fileno(f), cur_offset + (off_t) pb_alloc_size) != 0) {
+  FILE *f = fopen(filename, "wb+");
+  if (ftruncate(fileno(f), (off_t) pb_alloc_size) != 0) {
     FD_LOG_WARNING(("Failed to resize file %s", filename));
     fclose(f);
     return;
   }
 
-  fd_exec_test_instr_context_t instr_ctx = FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT;
-  fd_create_instr_context_protobuf_from_instructions( &instr_ctx, vm->instr_ctx->txn_ctx, vm->instr_ctx->instr);
-
-  uchar *pb_alloc = mmap(NULL, pb_alloc_size, PROT_READ | PROT_WRITE, MAP_SHARED, fileno(f), (long int) cur_offset);
+  uchar *pb_alloc = mmap( NULL, 
+                          pb_alloc_size, 
+                          PROT_READ | PROT_WRITE, 
+                          MAP_SHARED, 
+                          fileno(f), 
+                          0 /* offset */);
 
   if (pb_alloc == MAP_FAILED) {
     FD_LOG_WARNING(("Failed to mmap file %d", errno));
-    // get errno
-
     fclose(f);
     return;
   }
 
   pb_ostream_t stream = pb_ostream_from_buffer(pb_alloc, pb_alloc_size);
-  if (!pb_encode(&stream, FD_EXEC_TEST_INSTR_CONTEXT_FIELDS, &instr_ctx)) {
+  if (!pb_encode(&stream, FD_EXEC_TEST_CPI_SNAPSHOT_FIELDS, &cpi_snap)) {
     FD_LOG_WARNING(("Failed to encode instruction context"));
   }
 
   // resize file to actual size
-  if (ftruncate( fileno(f), cur_offset + (off_t) stream.bytes_written) != 0) {
+  if (ftruncate( fileno(f), (off_t) stream.bytes_written) != 0) {
     FD_LOG_WARNING(("Failed to resize file %s", filename));
   }
 

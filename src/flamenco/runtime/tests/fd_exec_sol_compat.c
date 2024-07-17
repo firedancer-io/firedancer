@@ -555,7 +555,22 @@ sol_compat_vm_cpi_syscall_v1( uchar *       out,
   fd_exec_instr_test_runner_t * runner = sol_compat_setup_scratch_and_runner( fmem );
 
   // Decode context
-  fd_exec_test_cpi_context_t input[1] = {0};
+  fd_exec_test_cpi_snapshot_t input[1] = {0};
+
+  // setup regions for callback fields
+  /* FIXME: potential lifetime issues? */
+  input->ro_region.arg = &(bytes_region_t){ .bytes = NULL, .size = 0 };
+  input->ro_region.funcs.decode = read_bytes_callback;
+
+  input->heap.arg = &(bytes_region_t){ .bytes = NULL, .size = 0 };
+  input->heap.funcs.decode = read_bytes_callback;
+
+  input->stack.arg = &(bytes_region_t){ .bytes = NULL, .size = 0 };
+  input->stack.funcs.decode = read_bytes_callback;
+
+  input->input_region.arg = &(bytes_region_t){ .bytes = NULL, .size = 0 };
+  input->input_region.funcs.decode = read_bytes_callback;
+
   void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_cpi_context_t_msg );
   if ( res==NULL ) {
     sol_compat_cleanup_scratch_and_runner( runner );

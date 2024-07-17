@@ -13,6 +13,13 @@
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
+/* Enum definitions */
+typedef enum fd_exec_test_cpiabi {
+    FD_EXEC_TEST_CPIABI_UNKNOWN = 0,
+    FD_EXEC_TEST_CPIABI_C = 1,
+    FD_EXEC_TEST_CPIABI_RUST = 2
+} fd_exec_test_cpiabi_t;
+
 /* Struct definitions */
 typedef struct fd_exec_test_cpi_signer {
     pb_size_t seeds_count;
@@ -36,6 +43,12 @@ typedef struct fd_exec_test_cpi_instr {
     struct fd_exec_test_cpi_signer *signers_seeds;
 } fd_exec_test_cpi_instr_t;
 
+/* Output from stubbed execute call */
+typedef struct fd_exec_test_cpi_execute_output {
+    bool has_callee_effects;
+    fd_exec_test_instr_effects_t callee_effects;
+} fd_exec_test_cpi_execute_output_t;
+
 typedef struct fd_exec_test_cpi_context {
     /* The vm context */
     bool has_vm_ctx;
@@ -44,22 +57,56 @@ typedef struct fd_exec_test_cpi_context {
     fd_exec_test_cpi_instr_t cpi_instr;
     bool has_instr_ctx;
     fd_exec_test_instr_context_t instr_ctx;
+    bool has_cpi_exec_out;
+    fd_exec_test_cpi_execute_output_t cpi_exec_out;
 } fd_exec_test_cpi_context_t;
+
+typedef struct fd_exec_test_cpi_snapshot {
+    uint64_t instruction_va;
+    uint64_t account_infos_va;
+    uint64_t account_infos_cnt;
+    uint64_t signers_seeds_va;
+    uint64_t signers_seeds_cnt;
+    pb_callback_t ro_region;
+    pb_callback_t stack;
+    pb_callback_t heap;
+    pb_callback_t input_region;
+    bool has_instr_ctx;
+    fd_exec_test_instr_context_t instr_ctx;
+    fd_exec_test_cpiabi_t abi;
+} fd_exec_test_cpi_snapshot_t;
 
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+/* Helper constants for enums */
+#define _FD_EXEC_TEST_CPIABI_MIN FD_EXEC_TEST_CPIABI_UNKNOWN
+#define _FD_EXEC_TEST_CPIABI_MAX FD_EXEC_TEST_CPIABI_RUST
+#define _FD_EXEC_TEST_CPIABI_ARRAYSIZE ((fd_exec_test_cpiabi_t)(FD_EXEC_TEST_CPIABI_RUST+1))
+
+
+
+
+
+
+#define fd_exec_test_cpi_snapshot_t_abi_ENUMTYPE fd_exec_test_cpiabi_t
+
+
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_CPI_SIGNER_INIT_DEFAULT     {0, NULL}
 #define FD_EXEC_TEST_CPI_ACCOUNT_META_INIT_DEFAULT {{0}, 0, 0}
 #define FD_EXEC_TEST_CPI_INSTR_INIT_DEFAULT      {{0}, 0, NULL, NULL, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_CPI_CONTEXT_INIT_DEFAULT    {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_CPI_INSTR_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT}
+#define FD_EXEC_TEST_CPI_EXECUTE_OUTPUT_INIT_DEFAULT {false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT}
+#define FD_EXEC_TEST_CPI_CONTEXT_INIT_DEFAULT    {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_CPI_INSTR_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_CPI_EXECUTE_OUTPUT_INIT_DEFAULT}
+#define FD_EXEC_TEST_CPI_SNAPSHOT_INIT_DEFAULT   {0, 0, 0, 0, 0, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, _FD_EXEC_TEST_CPIABI_MIN}
 #define FD_EXEC_TEST_CPI_SIGNER_INIT_ZERO        {0, NULL}
 #define FD_EXEC_TEST_CPI_ACCOUNT_META_INIT_ZERO  {{0}, 0, 0}
 #define FD_EXEC_TEST_CPI_INSTR_INIT_ZERO         {{0}, 0, NULL, NULL, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_CPI_CONTEXT_INIT_ZERO       {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_CPI_INSTR_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO}
+#define FD_EXEC_TEST_CPI_EXECUTE_OUTPUT_INIT_ZERO {false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO}
+#define FD_EXEC_TEST_CPI_CONTEXT_INIT_ZERO       {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_CPI_INSTR_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_CPI_EXECUTE_OUTPUT_INIT_ZERO}
+#define FD_EXEC_TEST_CPI_SNAPSHOT_INIT_ZERO      {0, 0, 0, 0, 0, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, _FD_EXEC_TEST_CPIABI_MIN}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_CPI_SIGNER_SEEDS_TAG        1
@@ -71,9 +118,22 @@ extern "C" {
 #define FD_EXEC_TEST_CPI_INSTR_DATA_TAG          3
 #define FD_EXEC_TEST_CPI_INSTR_ACCOUNTS_TAG      4
 #define FD_EXEC_TEST_CPI_INSTR_SIGNERS_SEEDS_TAG 5
+#define FD_EXEC_TEST_CPI_EXECUTE_OUTPUT_CALLEE_EFFECTS_TAG 1
 #define FD_EXEC_TEST_CPI_CONTEXT_VM_CTX_TAG      1
 #define FD_EXEC_TEST_CPI_CONTEXT_CPI_INSTR_TAG   2
 #define FD_EXEC_TEST_CPI_CONTEXT_INSTR_CTX_TAG   3
+#define FD_EXEC_TEST_CPI_CONTEXT_CPI_EXEC_OUT_TAG 4
+#define FD_EXEC_TEST_CPI_SNAPSHOT_INSTRUCTION_VA_TAG 1
+#define FD_EXEC_TEST_CPI_SNAPSHOT_ACCOUNT_INFOS_VA_TAG 2
+#define FD_EXEC_TEST_CPI_SNAPSHOT_ACCOUNT_INFOS_CNT_TAG 3
+#define FD_EXEC_TEST_CPI_SNAPSHOT_SIGNERS_SEEDS_VA_TAG 4
+#define FD_EXEC_TEST_CPI_SNAPSHOT_SIGNERS_SEEDS_CNT_TAG 5
+#define FD_EXEC_TEST_CPI_SNAPSHOT_RO_REGION_TAG  6
+#define FD_EXEC_TEST_CPI_SNAPSHOT_STACK_TAG      7
+#define FD_EXEC_TEST_CPI_SNAPSHOT_HEAP_TAG       8
+#define FD_EXEC_TEST_CPI_SNAPSHOT_INPUT_REGION_TAG 9
+#define FD_EXEC_TEST_CPI_SNAPSHOT_INSTR_CTX_TAG  10
+#define FD_EXEC_TEST_CPI_SNAPSHOT_ABI_TAG        11
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_CPI_SIGNER_FIELDLIST(X, a) \
@@ -100,47 +160,89 @@ X(a, POINTER,  REPEATED, MESSAGE,  signers_seeds,     5)
 #define fd_exec_test_cpi_instr_t_accounts_MSGTYPE fd_exec_test_acct_state_t
 #define fd_exec_test_cpi_instr_t_signers_seeds_MSGTYPE fd_exec_test_cpi_signer_t
 
+#define FD_EXEC_TEST_CPI_EXECUTE_OUTPUT_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  callee_effects,    1)
+#define FD_EXEC_TEST_CPI_EXECUTE_OUTPUT_CALLBACK NULL
+#define FD_EXEC_TEST_CPI_EXECUTE_OUTPUT_DEFAULT NULL
+#define fd_exec_test_cpi_execute_output_t_callee_effects_MSGTYPE fd_exec_test_instr_effects_t
+
 #define FD_EXEC_TEST_CPI_CONTEXT_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  vm_ctx,            1) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  cpi_instr,         2) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  instr_ctx,         3)
+X(a, STATIC,   OPTIONAL, MESSAGE,  instr_ctx,         3) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  cpi_exec_out,      4)
 #define FD_EXEC_TEST_CPI_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_CPI_CONTEXT_DEFAULT NULL
 #define fd_exec_test_cpi_context_t_vm_ctx_MSGTYPE fd_exec_test_vm_context_t
 #define fd_exec_test_cpi_context_t_cpi_instr_MSGTYPE fd_exec_test_cpi_instr_t
 #define fd_exec_test_cpi_context_t_instr_ctx_MSGTYPE fd_exec_test_instr_context_t
+#define fd_exec_test_cpi_context_t_cpi_exec_out_MSGTYPE fd_exec_test_cpi_execute_output_t
+
+#define FD_EXEC_TEST_CPI_SNAPSHOT_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT64,   instruction_va,    1) \
+X(a, STATIC,   SINGULAR, UINT64,   account_infos_va,   2) \
+X(a, STATIC,   SINGULAR, UINT64,   account_infos_cnt,   3) \
+X(a, STATIC,   SINGULAR, UINT64,   signers_seeds_va,   4) \
+X(a, STATIC,   SINGULAR, UINT64,   signers_seeds_cnt,   5) \
+X(a, CALLBACK, SINGULAR, BYTES,    ro_region,         6) \
+X(a, CALLBACK, SINGULAR, BYTES,    stack,             7) \
+X(a, CALLBACK, SINGULAR, BYTES,    heap,              8) \
+X(a, CALLBACK, SINGULAR, BYTES,    input_region,      9) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  instr_ctx,        10) \
+X(a, STATIC,   SINGULAR, UENUM,    abi,              11)
+#define FD_EXEC_TEST_CPI_SNAPSHOT_CALLBACK pb_default_field_callback
+#define FD_EXEC_TEST_CPI_SNAPSHOT_DEFAULT NULL
+#define fd_exec_test_cpi_snapshot_t_instr_ctx_MSGTYPE fd_exec_test_instr_context_t
 
 extern const pb_msgdesc_t fd_exec_test_cpi_signer_t_msg;
 extern const pb_msgdesc_t fd_exec_test_cpi_account_meta_t_msg;
 extern const pb_msgdesc_t fd_exec_test_cpi_instr_t_msg;
+extern const pb_msgdesc_t fd_exec_test_cpi_execute_output_t_msg;
 extern const pb_msgdesc_t fd_exec_test_cpi_context_t_msg;
+extern const pb_msgdesc_t fd_exec_test_cpi_snapshot_t_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define FD_EXEC_TEST_CPI_SIGNER_FIELDS &fd_exec_test_cpi_signer_t_msg
 #define FD_EXEC_TEST_CPI_ACCOUNT_META_FIELDS &fd_exec_test_cpi_account_meta_t_msg
 #define FD_EXEC_TEST_CPI_INSTR_FIELDS &fd_exec_test_cpi_instr_t_msg
+#define FD_EXEC_TEST_CPI_EXECUTE_OUTPUT_FIELDS &fd_exec_test_cpi_execute_output_t_msg
 #define FD_EXEC_TEST_CPI_CONTEXT_FIELDS &fd_exec_test_cpi_context_t_msg
+#define FD_EXEC_TEST_CPI_SNAPSHOT_FIELDS &fd_exec_test_cpi_snapshot_t_msg
 
 /* Maximum encoded size of messages (where known) */
 /* fd_exec_test_CPISigner_size depends on runtime parameters */
 /* fd_exec_test_CPIInstr_size depends on runtime parameters */
 /* fd_exec_test_CPIContext_size depends on runtime parameters */
+/* fd_exec_test_CPISnapshot_size depends on runtime parameters */
 #define FD_EXEC_TEST_CPI_ACCOUNT_META_SIZE       38
 #define ORG_SOLANA_SEALEVEL_V1_VM_CPI_PB_H_MAX_SIZE FD_EXEC_TEST_CPI_ACCOUNT_META_SIZE
+#if defined(fd_exec_test_InstrEffects_size)
+#define FD_EXEC_TEST_CPI_EXECUTE_OUTPUT_SIZE     (6 + fd_exec_test_InstrEffects_size)
+#endif
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
+#define org_solana_sealevel_v1_CPIABI fd_exec_test_CPIABI
 #define org_solana_sealevel_v1_CPISigner fd_exec_test_CPISigner
 #define org_solana_sealevel_v1_CPIAccountMeta fd_exec_test_CPIAccountMeta
 #define org_solana_sealevel_v1_CPIInstr fd_exec_test_CPIInstr
+#define org_solana_sealevel_v1_CPIExecuteOutput fd_exec_test_CPIExecuteOutput
 #define org_solana_sealevel_v1_CPIContext fd_exec_test_CPIContext
+#define org_solana_sealevel_v1_CPISnapshot fd_exec_test_CPISnapshot
+#define _ORG_SOLANA_SEALEVEL_V1_CPIABI_MIN _FD_EXEC_TEST_CPIABI_MIN
+#define _ORG_SOLANA_SEALEVEL_V1_CPIABI_MAX _FD_EXEC_TEST_CPIABI_MAX
+#define _ORG_SOLANA_SEALEVEL_V1_CPIABI_ARRAYSIZE _FD_EXEC_TEST_CPIABI_ARRAYSIZE
 #define ORG_SOLANA_SEALEVEL_V1_CPI_SIGNER_INIT_DEFAULT FD_EXEC_TEST_CPI_SIGNER_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_CPI_ACCOUNT_META_INIT_DEFAULT FD_EXEC_TEST_CPI_ACCOUNT_META_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_CPI_INSTR_INIT_DEFAULT FD_EXEC_TEST_CPI_INSTR_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_CPI_EXECUTE_OUTPUT_INIT_DEFAULT FD_EXEC_TEST_CPI_EXECUTE_OUTPUT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_CPI_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_CPI_CONTEXT_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_CPI_SNAPSHOT_INIT_DEFAULT FD_EXEC_TEST_CPI_SNAPSHOT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_CPI_SIGNER_INIT_ZERO FD_EXEC_TEST_CPI_SIGNER_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_CPI_ACCOUNT_META_INIT_ZERO FD_EXEC_TEST_CPI_ACCOUNT_META_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_CPI_INSTR_INIT_ZERO FD_EXEC_TEST_CPI_INSTR_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_CPI_EXECUTE_OUTPUT_INIT_ZERO FD_EXEC_TEST_CPI_EXECUTE_OUTPUT_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_CPI_CONTEXT_INIT_ZERO FD_EXEC_TEST_CPI_CONTEXT_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_CPI_SNAPSHOT_INIT_ZERO FD_EXEC_TEST_CPI_SNAPSHOT_INIT_ZERO
 
 #ifdef __cplusplus
 } /* extern "C" */
