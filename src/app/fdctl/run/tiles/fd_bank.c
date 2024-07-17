@@ -101,6 +101,7 @@ extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns,
 extern void   fd_ext_bank_commit_txns( void const * bank, void const * txns, ulong txn_cnt , void * load_and_execute_output, void * pre_balance_info );
 extern void   fd_ext_bank_release_thunks( void * load_and_execute_output );
 extern void   fd_ext_bank_release_pre_balance_info( void * pre_balance_info );
+extern int    fd_ext_bank_verify_precompiles( void const * bank, void const * txn );
 
 static inline void
 during_frag( void * _ctx,
@@ -181,6 +182,12 @@ after_frag( void *             _ctx,
     int result = fd_bank_abi_txn_init( abi_txn, abi_txn_sidecar, ctx->_bank, ctx->blake3, txn->payload, txn->payload_sz, TXN(txn), !!(txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) );
     ctx->metrics.txn_load_address_lookup_tables[ result ]++;
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) continue;
+
+    int precompile_result = fd_ext_bank_verify_precompiles( ctx->_bank, abi_txn );
+    if( FD_UNLIKELY( precompile_result ) ) {
+      FD_MCNT_INC( BANK_TILE, PRECOMPILE_VERIFY_FAILURE, 1 );
+      continue;
+    }
 
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
