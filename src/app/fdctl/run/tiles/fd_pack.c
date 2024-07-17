@@ -376,8 +376,8 @@ after_credit( void *             _ctx,
        helps with account locality. */
     fd_pack_microblock_complete( ctx->pack, (ulong)i );
 
-    /* TODO: record metrics for expire */
-    fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
+    ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
+    FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
 
     void * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     long schedule_duration = -fd_tickcount();
@@ -503,6 +503,10 @@ during_frag( void * _ctx,
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_DCACHE_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+  long now = fd_tickcount();
+  ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
+  FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
 
   if( FD_LIKELY( ctx->leader_slot!=ULONG_MAX || fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
     ctx->cur_spot = fd_pack_insert_txn_init( ctx->pack );
