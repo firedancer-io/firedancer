@@ -205,6 +205,7 @@ after_frag( void *             _ctx,
     FD_TEST( ctx->s34_buffer->shred_cnt>0UL );
 
     if( FD_UNLIKELY( ctx->is_trusted ) ) { 
+      FD_LOG_WARNING(("IS TRUSTED: %lu", ctx->s34_buffer->pkts[ 0 ].shred.slot ));
       /* this slot is coming from our leader pipeline */
       fd_trusted_slots_add( ctx->trusted_slots, ctx->s34_buffer->pkts[ 0 ].shred.slot );
     }
@@ -372,7 +373,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       /* count ticks */
       for( ulong i = 0; i<block_info.microblock_batch_cnt; i++ ) {
         fd_microblock_batch_info_t const * microblock_batch_info = &block_info.microblock_batch_infos[i];
-        for( ulong j = 0; j<block_info.microblock_batch_cnt; j++ ) {
+        for( ulong j = 0; j<microblock_batch_info->microblock_cnt; j++ ) {
           fd_microblock_info_t const * microblock_info = &microblock_batch_info->microblock_infos[j];
           if( microblock_info->microblock_hdr.txn_cnt==0UL ) {
             tick_cnt++;

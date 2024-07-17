@@ -95,7 +95,7 @@ struct fd_microblock_bank_trailer {
 typedef struct fd_microblock_bank_trailer fd_microblock_bank_trailer_t;
 
 typedef struct __attribute__((packed)) {
-  double hashcnt_duration_ns;
+  ulong  tick_duration_ns;
   ulong  hashcnt_per_tick;
   ulong  ticks_per_slot;
   ulong  tick_height;

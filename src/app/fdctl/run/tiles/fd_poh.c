@@ -1071,7 +1071,7 @@ after_credit( void *             _ctx,
   /* If we have skipped ticks pending because we skipped some slots to
      become leader, register them now one at a time. */
   if( FD_UNLIKELY( is_leader && ctx->last_slot<ctx->slot ) ) {
-  ulong publish_hashcnt = ctx->last_hashcnt+ctx->hashcnt_per_tick;
+    ulong publish_hashcnt = ctx->last_hashcnt+ctx->hashcnt_per_tick;
     ulong tick_idx = (ctx->last_slot*ctx->ticks_per_slot+publish_hashcnt/ctx->hashcnt_per_tick)%MAX_SKIPPED_TICKS;
 
     fd_ext_poh_register_tick( ctx->current_leader_bank, ctx->skipped_tick_hashes[ tick_idx ] );

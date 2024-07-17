@@ -353,12 +353,12 @@ during_frag( void * _ctx,
     ulong                         entry_sz   = sz           - sizeof(fd_entry_batch_meta_t);
 
     fd_entry_batch_header_t const * microblock = (fd_entry_batch_header_t const *)entry;
-
     /* It should never be possible for this to fail, but we check it
        anyway. */
     FD_TEST( entry_sz + ctx->pending_batch.pos <= sizeof(ctx->pending_batch.payload) );
 
     ulong target_slot = fd_disco_poh_sig_slot( sig );
+    FD_LOG_WARNING(( "EB: slot: %lu block_complete: %d parent_offset: %lu ref_tick: %lu hashcnt: %lu txn_cnt: %lu", target_slot, entry_meta->block_complete, entry_meta->parent_offset, entry_meta->reference_tick, microblock->hashcnt_delta, microblock->txn_cnt ));
     if( FD_UNLIKELY( (ctx->pending_batch.microblock_cnt>0) & (ctx->pending_batch.slot!=target_slot) ) ) {
       /* TODO: The Labs client sends a dummy entry batch with only 1
          byte and the block-complete bit set.  This helps other

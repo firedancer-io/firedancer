@@ -988,7 +988,7 @@ after_frag( void *             _ctx,
       fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->epoch_ctx );
       msg->hashcnt_per_tick = ctx->epoch_ctx->epoch_bank.hashes_per_tick;
       msg->ticks_per_slot   = ctx->epoch_ctx->epoch_bank.ticks_per_slot;
-      msg->hashcnt_duration_ns = (double)(epoch_bank->ns_per_slot / epoch_bank->ticks_per_slot) / (double) msg->hashcnt_per_tick;
+      msg->tick_duration_ns = (ulong)(epoch_bank->ns_per_slot / epoch_bank->ticks_per_slot);
       if( ctx->slot_ctx->slot_bank.block_hash_queue.last_hash ) {
         memcpy(msg->last_entry_hash, ctx->slot_ctx->slot_bank.block_hash_queue.last_hash->uc, sizeof(fd_hash_t));
       } else {
