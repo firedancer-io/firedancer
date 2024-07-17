@@ -97,7 +97,7 @@
       "fields": [
         { "name": "last_hash_index", "type": "ulong" },
         { "name": "last_hash", "type": "option", "element": "hash" },
-        { "name": "ages", "type": "map", "element": "hash_hash_age_pair", "key": "key", "minalloc": 300 },
+        { "name": "ages", "type": "map", "element": "hash_hash_age_pair", "key": "key", "minalloc": 400 },
         { "name": "max_age", "type": "ulong" }
       ]
     },

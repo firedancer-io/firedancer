@@ -58,7 +58,7 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 
-doneInvalidEntryHash
+done
 if [[ -z "$TESTS" && -z "${RECURSE_GUARD:-}" ]]; then
   # No tests given, so indirect test execution through Make and retry.
   # This ensures that we select the correct build dir for the current

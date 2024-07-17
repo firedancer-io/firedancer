@@ -683,20 +683,20 @@ after_frag( void *             _ctx,
     // Execute all txns which were succesfully prepared
     long execute_time_ns = -fd_log_wallclock();
 
-    int res;
+    int res = 0UL;
     FD_SCRATCH_SCOPE_BEGIN {
       fd_slot_history_t slot_history[1];
-    fd_sysvar_slot_history_read(  &fork->slot_ctx, fd_scratch_virtual(), slot_history );
-      fd_status_check_ctx_t status_check_ctx = {
-      .txncache = fork->slot_ctx.status_cache,
-      .slot_history = slot_history,
-      .current_slot = fork->slot_ctx.slot_bank.slot,
-    };
-    int res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx, ctx->capture_ctx,
-                                                      txns, txn_cnt,
+      fd_sysvar_slot_history_read(  &fork->slot_ctx, fd_scratch_virtual(), slot_history );
+        fd_status_check_ctx_t status_check_ctx = {
+        .txncache = fork->slot_ctx.status_cache,
+        .slot_history = slot_history,
+        .current_slot = fork->slot_ctx.slot_bank.slot,
+      };
+      res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx, ctx->capture_ctx,
+                                                    txns, txn_cnt,
                                                     status_check_tower,
                                                     &status_check_ctx,
-                                                      ctx->tpool, ctx->max_workers );
+                                                    ctx->tpool, ctx->max_workers );
     } FD_SCRATCH_SCOPE_END;
 
     execute_time_ns += fd_log_wallclock();

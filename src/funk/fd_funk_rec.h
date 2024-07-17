@@ -80,7 +80,7 @@ FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 3U*64U, record size is wrong );
 
 /* fd_funk_rec_map allows for indexing records by their (xid,key) pair.
    It is used to store all records of the last published transaction and
-   the records being updated for a transaction that is in-preparation.`
+   the records being updated for a transaction that is in-preparation.
    Published records are stored under the pair (root,key).  (This is
    done so that publishing a transaction doesn't require updating all
    transaction id of all the records that were not updated by the
