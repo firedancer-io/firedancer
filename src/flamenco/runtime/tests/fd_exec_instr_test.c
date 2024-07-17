@@ -449,6 +449,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
     if( last ) {
       *recent_block_hash = *last;
       slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      slot_ctx->prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
     }
   }
 

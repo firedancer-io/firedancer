@@ -216,7 +216,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
           .authority      = data->authority,
           .durable_nonce  = next_durable_nonce,
           .fee_calculator = {
-            .lamports_per_signature = ctx->slot_ctx->slot_bank.lamports_per_signature
+            .lamports_per_signature = ctx->slot_ctx->prev_lamports_per_signature
           }
         } }
       } }
@@ -592,7 +592,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
           .authority      = *authorized,
           .durable_nonce  = durable_nonce,
           .fee_calculator = {
-            .lamports_per_signature = ctx->slot_ctx->slot_bank.lamports_per_signature
+            .lamports_per_signature = ctx->slot_ctx->prev_lamports_per_signature
           }
         } }
       } }

@@ -69,7 +69,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
   memset(slot_ctx->slot_bank.banks_hash.hash, 0, FD_SHA256_HASH_SZ);
 
   slot_ctx->slot_bank.fee_rate_governor = genesis_block->fee_rate_governor;
-  slot_ctx->slot_bank.lamports_per_signature = 5000;
+  slot_ctx->slot_bank.lamports_per_signature = 5000UL;
+  slot_ctx->prev_lamports_per_signature = 5000UL;
 
   fd_poh_config_t *poh = &genesis_block->poh_config;
   fd_exec_epoch_ctx_t * epoch_ctx = slot_ctx->epoch_ctx;

@@ -71,6 +71,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                    signature_cnt;
   fd_hash_t                account_delta_hash;
   fd_hash_t                prev_banks_hash;
+  ulong                    prev_lamports_per_signature;
   ulong                    parent_signature_cnt;
 
   fd_sysvar_cache_t *      sysvar_cache;
