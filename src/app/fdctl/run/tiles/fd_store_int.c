@@ -380,7 +380,8 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
           }
         }
       }
-      FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %32J, tick_cnt: %lu", slot, block_info.microblock_cnt, block_hash->uc, tick_cnt ));
+
+      fd_txn_p_t * txns = fd_type_pun( out_buf );
       FD_LOG_DEBUG(( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
                       "executed: %lu, caught up: %d",
                       ctx->store->first_turbine_slot,
@@ -393,9 +394,9 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       FD_MGAUGE_SET( REPLAY, CAUGHT_UP, caught_up );
       FD_MGAUGE_SET( REPLAY, BEHIND, behind );
 
-      fd_txn_p_t * txns = fd_type_pun( out_buf );
       ulong txn_cnt = fd_runtime_block_collect_txns( &block_info, txns );
- 
+      FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %32J, txn_cnt: %lu, tick_cnt: %lu", slot, block_info.microblock_cnt, block_hash->uc, txn_cnt, tick_cnt ));
+
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       ulong caught_up_flag = (ctx->store->curr_turbine_slot - slot)<4 ? 0UL : REPLAY_FLAG_CATCHING_UP;
       ulong replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
