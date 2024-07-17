@@ -4,6 +4,97 @@
 #include "../../runtime/fd_account.h"
 #include "../../runtime/fd_executor.h"
 #include "../../runtime/fd_account_old.h" /* FIXME: remove this and update to use new APIs */
+#include <stdio.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <errno.h>
+#include "../../nanopb/pb_encode.h"
+#include "../../runtime/tests/generated/vm_cpi.pb.h"
+
+#define STRINGIFY(x) TOSTRING(x)
+#define TOSTRING(x) #x
+
+static inline void
+dump_vm_cpi_state(fd_vm_t *vm,
+                  char const * abi_str,
+                  ulong   instruction_va,
+                  ulong   acct_infos_va,
+                  ulong   acct_info_cnt,
+                  ulong   signers_seeds_va,
+                  ulong   signers_seeds_cnt ) {
+  char filename[100];
+  fd_instr_info_t const *instr = vm->instr_ctx->instr;
+  sprintf(filename, "vm_cpi_state/%lu_%lu%lu_%lu.txt", fd_tile_id(), instr->program_id_pubkey.ul[0], instr->program_id_pubkey.ul[1], instr->data_sz);
+  // sprintf(filename, "vm_cpi_state/%lu.txt", fd_tile_id(), instr->program_id_pubkey.ul[0], instr->program_id_pubkey.ul[1], instr->data_sz);
+  FILE *f = fopen(filename, "wb+");
+  if (f == NULL) {
+    FD_LOG_WARNING(("Failed to open file %s", filename));
+    return;
+  }
+  fprintf(f, "cpi state for vm %p, abi: %s\n", vm, abi_str);
+  fprintf(f, "cpi meta: \n", vm);
+  fprintf(f, "instruction_va: %p\n",      instruction_va);
+  fprintf(f, "acct_infos_va: %p\n",       acct_infos_va);
+  fprintf(f, "acct_info_cnt: %lu\n",      acct_info_cnt);
+  fprintf(f, "signers_seeds_va: %p\n",    signers_seeds_va);
+  fprintf(f, "signers_seeds_cnt: %lu\n",  signers_seeds_cnt);
+
+  // Dump program
+  fprintf(f, "Program:\n");
+  fwrite(vm->rodata, 1, vm->rodata_sz, f);
+
+  // Dump stack
+  fprintf(f, "\nStack:\n");
+  fwrite(vm->stack, 1, vm->frame_cnt*FD_VM_STACK_GUARD_SZ*2, f);
+
+  // Dump heap
+  fprintf(f, "\nHeap:\n");
+  fwrite(vm->heap, 1, vm->heap_sz, f);
+
+  // Dump input data region
+  fprintf(f, "\nInput:\n");
+  fwrite(vm->input, 1, vm->input_sz, f);
+
+  // Dump instruction proto
+  fprintf(f, "\nInstruction PB:\n");
+  fflush(f);
+
+  long int cur_offset = ftell(f);
+  cur_offset = (long) fd_ulong_align_up((ulong) cur_offset, 4096);
+  size_t pb_alloc_size = 1000 * 1024 * 1024;
+
+  if (ftruncate(fileno(f), cur_offset + (off_t) pb_alloc_size) != 0) {
+    FD_LOG_WARNING(("Failed to resize file %s", filename));
+    fclose(f);
+    return;
+  }
+
+  fd_exec_test_instr_context_t instr_ctx = FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT;
+  fd_create_instr_context_protobuf_from_instructions( &instr_ctx, vm->instr_ctx->txn_ctx, vm->instr_ctx->instr);
+
+  uchar *pb_alloc = mmap(NULL, pb_alloc_size, PROT_READ | PROT_WRITE, MAP_SHARED, fileno(f), (long int) cur_offset);
+
+  if (pb_alloc == MAP_FAILED) {
+    FD_LOG_WARNING(("Failed to mmap file %d", errno));
+    // get errno
+
+    fclose(f);
+    return;
+  }
+
+  pb_ostream_t stream = pb_ostream_from_buffer(pb_alloc, pb_alloc_size);
+  if (!pb_encode(&stream, FD_EXEC_TEST_INSTR_CONTEXT_FIELDS, &instr_ctx)) {
+    FD_LOG_WARNING(("Failed to encode instruction context"));
+  }
+
+  // resize file to actual size
+  if (ftruncate( fileno(f), cur_offset + (off_t) stream.bytes_written) != 0) {
+    FD_LOG_WARNING(("Failed to resize file %s", filename));
+  }
+
+  fclose(f);
+
+}
 
 /* FIXME: ALGO EFFICIENCY */
 static inline int
