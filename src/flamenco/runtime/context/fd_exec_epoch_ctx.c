@@ -69,7 +69,7 @@ fd_exec_epoch_ctx_new( void * mem,
 
   fd_features_disable_all( &self->features );
   self->epoch_bank.cluster_version = FD_DEFAULT_AGAVE_CLUSTER_VERSION;
-  fd_features_enable_hardcoded( &self->features, self->epoch_bank.cluster_version );
+  fd_features_enable_cleaned_up( &self->features, self->epoch_bank.cluster_version );
 
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_EPOCH_CTX_MAGIC;
