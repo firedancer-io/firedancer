@@ -342,7 +342,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
         signers_cnt
       );
       if ( err != 0 ) {
-        return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+        return err;
       }
     } FD_SCRATCH_SCOPE_END;
   }
