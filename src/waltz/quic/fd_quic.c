@@ -2542,8 +2542,7 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
     if( FD_LIKELY( cur_ack ) ) {
       uint cur_flags = (uint)cur_ack->flags;
       if( FD_LIKELY( FD_QUIC_OPT_EXTEND_SENT || !(cur_ack->flags & FD_QUIC_ACK_FLAGS_SENT ) ) ) {
-        if( FD_LIKELY( pkt_number == cur_ack->pkt_number.offset_hi
-            && ( flag_mandatory == ( cur_ack->flags & FD_QUIC_ACK_FLAGS_MANDATORY ) ) ) ) {
+        if( FD_LIKELY( pkt_number == cur_ack->pkt_number.offset_hi ) ) {
           /* combine extend */
           cur_ack->pkt_number.offset_hi = pkt_number + 1;
           cur_ack->tx_time              = fd_ulong_min( cur_ack->tx_time, ack_time );
@@ -2564,8 +2563,7 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
           return;
         }
 
-        if( FD_LIKELY( pkt_number+1 == cur_ack->pkt_number.offset_lo
-            && ( flag_mandatory == ( cur_ack->flags & FD_QUIC_ACK_FLAGS_MANDATORY ) ) ) ) {
+        if( FD_LIKELY( pkt_number+1 == cur_ack->pkt_number.offset_lo ) ) {
           /* combine extend */
           cur_ack->pkt_number.offset_lo = pkt_number;
           cur_ack->tx_time              = fd_ulong_min( cur_ack->tx_time, ack_time );
@@ -2589,8 +2587,17 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
   }
 
   /* already have an ack for this */
-  if( FD_UNLIKELY( cur_ack && pkt_number >= cur_ack->pkt_number.offset_lo ) ) {
+  if( FD_UNLIKELY( cur_ack && pkt_number >= cur_ack->pkt_number.offset_lo
+                           && pkt_number <  cur_ack->pkt_number.offset_hi ) ) {
     return;
+  }
+
+  /* ensure we are past the relevant ranges */
+  while( FD_LIKELY( cur_ack ) ) {
+    if( FD_UNLIKELY( pkt_number < cur_ack->pkt_number.offset_hi ) ) break;
+
+    pri_ack = cur_ack;
+    cur_ack = cur_ack->next;
   }
 
   /* we need to create a new ack range */
