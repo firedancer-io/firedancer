@@ -5,7 +5,6 @@
 #include "../fd_choreo_base.h"
 #include "../forks/fd_forks.h"
 #include "../ghost/fd_ghost.h"
-#include "../voter/fd_voter.h"
 
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
@@ -49,8 +48,6 @@ typedef struct fd_tower_vote_acc fd_tower_vote_acc_t;
 #define DEQUE_T    fd_tower_vote_acc_t
 #define DEQUE_MAX  FD_VOTER_MAX
 #include "../../util/tmpl/fd_deque.c"
-
-typedef fd_vote_state_t fd_cluster_tower_t;
 
 /* fd_tower implements the TowerBFT algorithm and related consensus
    rules. */
@@ -133,16 +130,16 @@ fd_tower_leave( fd_tower_t const * tower );
 /* fd_tower_delete unformats a memory region used as a tower.  Assumes
    only the local process is joined to the region.  Returns a pointer to
    the underlying shared memory region or NULL if used obviously in
-   error (e.g.  tower is obviously not a tower ...  logs details).  The
+   error (e.g. tower is obviously not a tower ...  logs details).  The
    ownership of the memory region is transferred to the caller. */
 
 void *
 fd_tower_delete( void * tower );
 
 /* fd_tower_init initializes a tower.  Assumes tower is a valid local
-   join and no other processes are joined. root is the initial root that
-   tower will use. This is the snapshot slot if booting from a snapshot,
-   genesis slot otherwise.
+   join and no other processes are joined.  root is the initial root
+   that tower will use.  This is the snapshot slot if booting from a
+   snapshot, genesis slot otherwise.
 
    In general, this should be called by the same process that formatted
    tower's memory, ie. the caller of fd_tower_new. */
@@ -254,7 +251,7 @@ int
 fd_tower_switch_check( fd_tower_t const * tower, fd_fork_t const * fork, fd_ghost_t const * ghost );
 
 /* fd_tower_threshold_check checks if we pass the threshold required to
-   continue voting along the  same fork as our last vote.  Returns 1 if
+   continue voting along the same fork as our last vote.  Returns 1 if
    we pass the threshold check, 0 otherwise.
 
    The following psuedocode describes the algorithm:
@@ -277,7 +274,7 @@ fd_tower_switch_check( fd_tower_t const * tower, fd_fork_t const * fork, fd_ghos
    ```
 
    The threshold check simulates voting for the current slot to expire
-   stale votes. This is to prevent validators that haven't voted in a
+   stale votes.  This is to prevent validators that haven't voted in a
    long time from counting towards the threshold stake. */
 
 int
@@ -288,8 +285,8 @@ fd_tower_threshold_check( fd_tower_t const * tower,
 /* fd_tower_best_fork_select picks the best fork, where best is defined
    as the fork head containing the highest stake-weight in its ancestry.
    Returns a non-NULL fork.  Assumes forks->frontier is non-empty.  Note
-   that this is not necessarily the same fork as the one we vote on, as
-   we might be locked out on a different fork.
+   this is not necessarily the same fork as the one we vote on, as we
+   might be locked out on a different fork.
 
    Does not modify tower. */
 
@@ -299,7 +296,7 @@ fd_tower_best_fork_select( fd_tower_t const * tower,
                            fd_ghost_t const * ghost );
 
 /* fd_tower_reset_fork_select picks which fork to reset PoH to for our
-   next leader slot.  Returns a non-NULL fork.  Note that this is not
+   next leader slot.  Returns a non-NULL fork.  Note this is not
    necessarily the same fork as the one we vote on, as we do not always
    vote for the fork we reset to.
 
@@ -330,8 +327,10 @@ void
 fd_tower_epoch_update( fd_tower_t * tower, fd_exec_epoch_ctx_t const * epoch_ctx );
 
 /* fd_tower_fork_update updates ghost with the latest state of the vote
-   accounts after executing the fork head (fork->slot).  Important: this
-   should be called _after_ execution of fork->slot, not before. */
+   accounts after executing the fork head (fork->slot).
+
+   IMPORTANT SAFETY TIP!  This should be called _after_ execution of
+   fork->slot, not before. */
 
 void
 fd_tower_fork_update( fd_tower_t const * tower,
@@ -399,48 +398,51 @@ fd_tower_publish( fd_tower_t * tower ) {
 void
 fd_tower_print( fd_tower_t const * tower );
 
-/* Cluster API */
+/* Vote state API */
 
-/* fd_tower_cluster_cmp compares our local view of our tower's state
-   with the cluster's view.  Returns -1 if the cluster view is newer, 1
-   if our local view is newer and 0 if they're in sync. Assumes both
-   tower and vote_state are valid ie. there is a root and there is at
-   least one vote (verifies this with handholding enabled).
+/* fd_tower_vote_state_cmp compares tower with vote_state.  Conceptually
+   this is our comparing our local view of our tower with the cluster's
+   view (which may be out of sync).  Returns -1 if the vote_state is
+   newer, 0 if they're in sync and 1 if the local view is newer.
+   Assumes both tower and vote_state are valid ie. there is a root and
+   there is at least one vote (verifies this with handholding enabled).
 
-   If the local tower is newer, then our last vote didn't land.  This
-   means we need to refresh that vote (ie. send that vote again).  We
-   also rollback our tower to the previous tower rules
+   If tower is newer than vote_state, then the cluster has a stale view
+   of our local tower.  This normally just means our last vote hasn't
+   landed yet and our vote state will eventually updated once that vote
+   or a later one does land.
 
-   If the cluster tower is newer, then we already voted for fork->slot.
-   This means we need to sync our local view with the cluster's view
-   (ie. replace our local tower votes and root with the cluster's
-   version).  This should only happen after a restart, and our latest
-   vote slot was higher than the snapshot slot we restarted from.
+   If vote_state is newer than tower, then we already voted for
+   fork->slot.  This means we are not caught up yet or more
+   problematically there is potentially another process running that is
+   voting using our private key.
 
-   If they're in sync, then we can safely run through the tower rules
-   and update our local tower (and send a vote if possible). */
+   IMPORTANT SAFETY TIP!  Even though these towers may be out of sync,
+   they should never be incompatible.  For example, tower should never
+   contain a state that could only be reached from vote_state by
+   violating lockouts. */
 
 int
-fd_tower_cluster_cmp( fd_tower_t const * tower, fd_cluster_tower_t * cluster_tower );
+fd_tower_vote_state_cmp( fd_tower_t const * tower, fd_vote_state_t * vote_state );
 
-/* fd_tower_vote_state_query queries for the cluster view of the vote_acc_addr's tower
-   which is the current vote account state inside funk on the provided
-   fork.  Returns a pointer to the vote_state on success, NULL on
-   failure.  The vote_state is allocated using the provided valloc. */
+/* fd_tower_vote_state_query queries for vote_acc_addr's vote state
+   which is effectively the cluster view of the tower as of fork->slot.
+   Returns a pointer to vote_state on success, NULL on failure.  The
+   vote_state is allocated using the provided valloc. */
 
-fd_cluster_tower_t *
-fd_tower_cluster_query( fd_tower_t const *          tower,
-                        fd_pubkey_t const *         vote_acc_addr,
-                        fd_acc_mgr_t *              acc_mgr,
-                        fd_fork_t const *           fork,
-                        fd_valloc_t                 valloc,
-                        fd_vote_state_versioned_t * versioned );
+fd_vote_state_t *
+fd_tower_vote_state_query( fd_tower_t const *          tower,
+                           fd_pubkey_t const *         vote_acc_addr,
+                           fd_acc_mgr_t *              acc_mgr,
+                           fd_fork_t const *           fork,
+                           fd_valloc_t                 valloc,
+                           fd_vote_state_versioned_t * versioned );
 
-/* fd_tower_cluster_sync syncs our local tower with the cluster's,
-   replacing all votes and the root. */
+/* fd_tower_from_vote_state replaces the votes and root of tower with
+   those from the vote state. */
 
 void
-fd_tower_cluster_sync( fd_tower_t * tower, fd_vote_state_t * vote_state );
+fd_tower_from_vote_state( fd_tower_t * tower, fd_vote_state_t * vote_state );
 
 /* fd_tower_to_tower_sync converts an fd_tower_t into a fd_tower_sync_t
    to be sent out as a vote program ix inside a txn. */
