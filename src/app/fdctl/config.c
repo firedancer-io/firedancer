@@ -429,8 +429,18 @@ default_user( void ) {
   name = getenv( "LOGNAME" );
   if( FD_LIKELY( name ) ) return name;
 
+  name = getenv( "USER" );
+  if( FD_LIKELY( name ) ) return name;
+
+  name = getenv( "LNAME" );
+  if( FD_LIKELY( name ) ) return name;
+
+  name = getenv( "USERNAME" );
+  if( FD_LIKELY( name ) ) return name;
+
   name = getlogin();
-  if( FD_UNLIKELY( !name ) ) FD_LOG_ERR(( "getlogin failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( !name && (errno==ENXIO || errno==ENOTTY) ) ) return NULL;
+  else if( FD_UNLIKELY( !name ) ) FD_LOG_ERR(( "getlogin failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   return name;
 }
 
@@ -464,8 +474,9 @@ fdctl_cfg_from_env( int *      pargc,
 
   if( FD_UNLIKELY( !strcmp( config->user, "" ) ) ) {
     const char * user = default_user();
+    if( FD_UNLIKELY( !user ) ) FD_LOG_ERR(( "could not automatically determine a user to run Firedancer as. You must specify a [user] in your configuration TOML file." ));
     if( FD_UNLIKELY( strlen( user ) >= sizeof( config->user ) ) )
-      FD_LOG_ERR(( "user name `%s` is too long", user ));
+                              FD_LOG_ERR(( "user name `%s` is too long", user ));
     strncpy( config->user, user, 256 );
   }
 
