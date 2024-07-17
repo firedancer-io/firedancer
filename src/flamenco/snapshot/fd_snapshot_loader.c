@@ -294,6 +294,10 @@ fd_snapshot_src_parse( fd_snapshot_src_t * src,
     FD_LOG_WARNING(( "Failed to resolve socket address for %s", hostname ));
     freeaddrinfo( result );
     return NULL;
+  } else if( 0==strncmp( cstr, "archive:", sizeof("archive:")-1 ) ) {
+    src->type = FD_SNAPSHOT_SRC_ARCHIVE;
+    src->file.path = cstr + (sizeof("archive:")-1);
+    return src;
   } else {
     src->type = FD_SNAPSHOT_SRC_FILE;
     src->file.path = cstr;

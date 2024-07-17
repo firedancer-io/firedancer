@@ -133,11 +133,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
   ledger_args->tpool       = tpool;
   ledger_args->max_workers = tcnt;
 
-  fd_funk_start_write( ledger_args->slot_ctx->acc_mgr->funk );
-  ulong r = fd_funk_txn_cancel_all( ledger_args->slot_ctx->acc_mgr->funk, 1 );
-  fd_funk_end_write( ledger_args->slot_ctx->acc_mgr->funk );
-  FD_LOG_INFO(( "Cancelled old transactions %lu", r ));
-
   fd_features_restore( ledger_args->slot_ctx );
 
   fd_runtime_update_leaders( ledger_args->slot_ctx, ledger_args->slot_ctx->slot_bank.slot );
@@ -590,6 +585,10 @@ init_funk( fd_ledger_args_t * args ) {
         FD_LOG_ERR(( "verification failed" ));
       }
     }
+    /* Clean up old transactions */
+    fd_funk_start_write( funk );
+    fd_funk_txn_cancel_all( funk, 0 );
+    fd_funk_end_write( funk );
   } else {
     shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
     if( shmem == NULL ) {
@@ -636,17 +635,24 @@ init_blockstore( fd_ledger_args_t * args ) {
 }
 
 void
-checkpt( fd_ledger_args_t * args ) {
+checkpt( fd_ledger_args_t * args, fd_exec_slot_ctx_t * slot_ctx ) {
   if( !args->checkpt && !args->checkpt_funk && !args->checkpt_archive && !args->checkpt_status_cache ) {
     FD_LOG_WARNING(( "No checkpt argument specified" ));
   }
 
   if( args->checkpt_archive ) {
     FD_LOG_NOTICE(( "writing funk archive %s", args->checkpt_archive ));
-    int err = fd_funk_archive( args->funk, args->checkpt_archive );
-    if( err ) {
-      FD_LOG_ERR(( "funk archive failed: error %d", err ));
-    }
+
+    /* Switch to archival format */
+    fd_funk_start_write( args->funk );
+    int err = fd_runtime_save_slot_bank_archival( slot_ctx );
+    if( err ) FD_LOG_ERR(( "funk archive failed: error %d", err ));
+    err = fd_runtime_save_epoch_bank_archival( slot_ctx );
+    if( err ) FD_LOG_ERR(( "funk archive failed: error %d", err ));
+    fd_funk_end_write( args->funk );
+
+    err = fd_funk_archive( args->funk, args->checkpt_archive );
+    if( err ) FD_LOG_ERR(( "funk archive failed: error %d", err ));
   }
   if( args->checkpt_funk ) {
     if( args->funk_wksp == NULL ) {
@@ -821,6 +827,10 @@ ingest( fd_ledger_args_t * args ) {
     fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL );
   }
 
+  if( !args->snapshot && (args->restore_funk != NULL || args->restore != NULL) ) {
+    fd_runtime_recover_banks( slot_ctx, 0, 1 );
+  }
+
   /* At this point the account state has been ingested into funk. Intake rocksdb */
   if( args->start_slot == 0 ) {
     args->start_slot = slot_ctx->slot_bank.slot;
@@ -926,8 +936,9 @@ ingest( fd_ledger_args_t * args ) {
     }
   }
 
+  checkpt( args, slot_ctx );
+
   cleanup_scratch();
-  checkpt( args );
 }
 
 int
@@ -1272,7 +1283,6 @@ prune( fd_ledger_args_t * args ) {
   /* Verify that the pruned records are in the funk */
   FD_LOG_NOTICE(("Pruned funk record count is %lu", fd_funk_rec_global_cnt( pruned_funk, pruned_wksp )));
 
-  cleanup_scratch();
   fd_funk_leave( unpruned_funk );
 
   if( fd_funk_verify( pruned_funk ) ) {
@@ -1284,7 +1294,9 @@ prune( fd_ledger_args_t * args ) {
   fd_funk_end_write( unpruned_funk );
   args->funk = pruned_funk;
   args->wksp = pruned_wksp;
-  checkpt( args );
+  checkpt( args, slot_ctx_pruned );
+
+  cleanup_scratch();
 }
 
 /* Parse user arguments and setup shared data structures used across commands */

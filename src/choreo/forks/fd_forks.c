@@ -209,8 +209,11 @@ slot_ctx_restore( ulong                 slot,
   fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, &id );
   if( rec == NULL ) FD_LOG_ERR( ( "failed to read banks record" ) );
   void *                  val = fd_funk_val( rec, fd_funk_wksp( funk ) );
+
+  uint magic = *(uint*)val;
+
   fd_bincode_decode_ctx_t decode_ctx;
-  decode_ctx.data    = val;
+  decode_ctx.data    = (uchar *)val + sizeof( uint );
   decode_ctx.dataend = (uchar *)val + fd_funk_val_sz( rec );
   decode_ctx.valloc  = valloc;
 
@@ -228,7 +231,13 @@ slot_ctx_restore( ulong                 slot,
   };
 
   fd_slot_bank_destroy( &slot_ctx_out->slot_bank, &destroy_ctx );
-  FD_TEST( fd_slot_bank_decode( &slot_ctx_out->slot_bank, &decode_ctx ) == FD_BINCODE_SUCCESS );
+  if( magic == FD_RUNTIME_ENC_BINCODE ) {
+    FD_TEST( fd_slot_bank_decode( &slot_ctx_out->slot_bank, &decode_ctx ) == FD_BINCODE_SUCCESS );
+  } else if( magic == FD_RUNTIME_ENC_ARCHIVE ) {
+    FD_TEST( fd_slot_bank_decode_archival( &slot_ctx_out->slot_bank, &decode_ctx )==FD_BINCODE_SUCCESS );
+  } else {
+    FD_LOG_ERR(("failed to read banks record: invalid magic number"));
+  }
   FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx_out ) );
   slot_ctx_out->leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx_out->epoch_ctx ),
                                                slot );
