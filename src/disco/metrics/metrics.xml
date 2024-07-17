@@ -278,6 +278,7 @@ metric introduced.
   <counter name="TransactionDroppedFromExtra" summary="Transactions dropped from the extra transaction storage because it was full" />
   <counter name="TransactionInsertedToExtra" summary="Transactions inserted into the extra transaction storage because pack's primary storage was full" />
   <counter name="TransactionInsertedFromExtra" summary="Transactions pulled from the extra transaction storage and inserted into pack's primary storage" />
+  <counter name="TransactionExpired" summary="Transactions deleted from pack because their TTL expired" />
 
   <gauge name="AvailableTransactions" summary="The total number of pending transactions in pack's pool that are available to be scheduled" />
   <gauge name="AvailableVoteTransactions" summary="The number of pending simple vote transactions in pack's pool that are available to be scheduled" />
