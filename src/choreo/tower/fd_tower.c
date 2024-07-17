@@ -825,11 +825,11 @@ void
 fd_tower_cluster_sync( fd_tower_t * tower, fd_cluster_tower_t * cluster_tower ) {
 #if FD_TOWER_USE_HANDHOLDING
   if( FD_UNLIKELY( !cluster_tower->has_root_slot ) ) {
-    FD_LOG_ERR( ( "[%s] cluster_tower is missing root.", __func__ ) );
+    // FD_LOG_ERR( ( "[%s] cluster_tower is missing root.", __func__ ) );
   }
 
   if( FD_UNLIKELY( deq_fd_landed_vote_t_empty( cluster_tower->votes ) ) ) {
-    FD_LOG_ERR( ( "[%s] cluster_tower is empty.", __func__ ) );
+    // FD_LOG_ERR( ( "[%s] cluster_tower is empty.", __func__ ) );
   }
 #endif
 

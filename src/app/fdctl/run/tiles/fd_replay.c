@@ -537,21 +537,32 @@ send_tower_sync( fd_replay_tile_ctx_t * ctx ) {
   FD_LOG_NOTICE( ( "sending tower sync" ) );
   ulong vote_slot = fd_tower_votes_peek_tail_const( ctx->tower->votes )->slot;
   fd_blockstore_start_read( ctx->blockstore );
-  fd_hash_t vote_bank_hash  = *fd_blockstore_bank_hash_query( ctx->blockstore, vote_slot );
-  fd_hash_t vote_block_hash = *fd_blockstore_block_hash_query( ctx->blockstore, vote_slot );
+  fd_hash_t const * vote_bank_hash  = fd_blockstore_bank_hash_query( ctx->blockstore, vote_slot );
+  fd_hash_t const * vote_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, vote_slot );
+
+  if( vote_bank_hash==NULL ) {
+    FD_LOG_WARNING(("no vote bank hash found"));
+    return;
+  }
+
+  if( vote_block_hash==NULL ) {
+    FD_LOG_WARNING(("no vote block hash found"));
+    return;
+  }
+
   fd_blockstore_end_read( ctx->blockstore );
 
   /* Build a vote state update based on current tower votes. */
 
   fd_compact_vote_state_update_t update;
-  fd_tower_to_tower_sync( ctx->tower, &vote_bank_hash, &update );
+  fd_tower_to_tower_sync( ctx->tower, vote_bank_hash, &update );
 
   /* Send a vote txn. */
 
   fd_txn_p_t * txn = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->sender_out_mem, ctx->sender_out_chunk );
   txn->payload_sz  = fd_voter_txn_generate( ctx->voter,
                                            &update,
-                                           &vote_block_hash,
+                                           vote_block_hash,
                                            txn->_,
                                            txn->payload );
   ulong msg_sz     = sizeof( fd_txn_p_t );
