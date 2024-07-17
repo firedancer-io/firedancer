@@ -14,8 +14,8 @@ FD_PROTOTYPES_BEGIN
 
 void
 fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context,
-                                                 fd_exec_txn_ctx_t *txn_ctx,
-                                                 fd_instr_info_t *instr );
+                                                 fd_exec_txn_ctx_t const *txn_ctx,
+                                                 fd_instr_info_t const *instr );
 
 /* fd_exec_instr_fn_t processes an instruction.  Returns an error code
    in FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}. */
