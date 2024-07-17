@@ -47,11 +47,20 @@ FD_PROTOTYPES_BEGIN
 #define fd_pubkey_decode_preflight fd_hash_decode_preflight
 #define fd_pubkey_decode_unsafe    fd_hash_decode_unsafe
 #define fd_pubkey_encode           fd_hash_encode
+#define fd_pubkey_decode_archival  fd_hash_decode
+#define fd_pubkey_encode_archival  fd_hash_encode
 #define fd_pubkey_destroy          fd_hash_destroy
 #define fd_pubkey_size             fd_hash_size
 #define fd_pubkey_check_zero       fd_hash_check_zero
 #define fd_pubkey_set_zero         fd_hash_set_zero
 #define fd_pubkey_walk             fd_hash_walk
+
+#define fd_hash_decode_archival             fd_hash_decode
+#define fd_hash_decode_archival_preflight   fd_hash_decode_preflight
+#define fd_hash_decode_archival_unsafe      fd_hash_decode_unsafe
+#define fd_hash_encode_archival             fd_hash_encode
+#define fd_pubkey_decode_archival_preflight fd_hash_decode_preflight
+#define fd_pubkey_decode_archival_unsafe    fd_hash_decode_unsafe
 
 struct __attribute__((aligned(8UL))) fd_option_slot {
   uchar is_some;
@@ -103,14 +112,22 @@ fd_solana_vote_account_new( fd_solana_vote_account_t * self );
 int
 fd_solana_vote_account_decode( fd_solana_vote_account_t * self, fd_bincode_decode_ctx_t * ctx );
 
+#define fd_solana_vote_account_decode_archival fd_solana_vote_account_decode
+
 int
 fd_solana_vote_account_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+
+#define fd_solana_vote_account_decode_archival_preflight fd_solana_vote_account_decode_preflight
 
 void
 fd_solana_vote_account_decode_unsafe( fd_solana_vote_account_t * self, fd_bincode_decode_ctx_t * ctx );
 
+#define fd_solana_vote_account_decode_archival_unsafe fd_solana_vote_account_decode_unsafe
+
 int
 fd_solana_vote_account_encode( fd_solana_vote_account_t const * self, fd_bincode_encode_ctx_t * ctx );
+
+#define fd_solana_vote_account_encode_archival fd_solana_vote_account_encode
 
 void
 fd_solana_vote_account_destroy( fd_solana_vote_account_t * self, fd_bincode_destroy_ctx_t * ctx );

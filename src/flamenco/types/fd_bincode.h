@@ -418,5 +418,68 @@ fd_bincode_varint_size( ulong val ) {
   }
 }
 
+enum {
+  /* All meta tags must fit in 6 bits */
+
+  /* Primitive types with an implicit encoding length */
+  FD_ARCHIVE_META_CHAR = 0x1,
+  FD_ARCHIVE_META_STRING = 0x2,
+  FD_ARCHIVE_META_CHAR32 = 0x3,
+  FD_ARCHIVE_META_DOUBLE = 0x4,
+  FD_ARCHIVE_META_LONG = 0x5,
+  FD_ARCHIVE_META_UINT = 0x6,
+  FD_ARCHIVE_META_UINT128 = 0x7,
+  FD_ARCHIVE_META_BOOL = 0x8,
+  FD_ARCHIVE_META_UCHAR = 0x9,
+  FD_ARCHIVE_META_UCHAR32 = 0xa,
+  FD_ARCHIVE_META_UCHAR128 = 0xb,
+  FD_ARCHIVE_META_UCHAR2048 = 0xc,
+  FD_ARCHIVE_META_ULONG = 0xd,
+  FD_ARCHIVE_META_USHORT = 0xe,
+
+  /* Meta types which have an encoding length after the short tag */
+  FD_ARCHIVE_META_STRUCT = 0x21,
+  FD_ARCHIVE_META_VECTOR = 0x22,
+  FD_ARCHIVE_META_DEQUE = 0x23,
+  FD_ARCHIVE_META_MAP = 0x24,
+  FD_ARCHIVE_META_TREAP = 0x25,
+  FD_ARCHIVE_META_OPTION = 0x26,
+  FD_ARCHIVE_META_ARRAY = 0x27,
+};
+
+#define FD_ARCHIVE_META_SENTINAL (ushort)0 /* End of structure */
+
+static inline int fd_archive_encode_setup_length( fd_bincode_encode_ctx_t * ctx, void ** offset_out ) {
+  uchar * ptr = (uchar *)ctx->data;
+  if ( FD_UNLIKELY((void *)(ptr + sizeof(uint)) > ctx->dataend ) )
+    return FD_BINCODE_ERR_OVERFLOW;
+  /* Skip over length for now but make space for it */
+  *offset_out = ptr;
+  ctx->data = ptr + sizeof(uint);
+  return FD_BINCODE_SUCCESS;
+}
+
+static inline int fd_archive_encode_set_length( fd_bincode_encode_ctx_t * ctx, void * offset ) {
+  *(uint *)offset = (uint)((uchar *)ctx->data - ((uchar *)offset + sizeof(uint)));
+  return FD_BINCODE_SUCCESS;
+}
+
+static inline int fd_archive_decode_setup_length( fd_bincode_decode_ctx_t * ctx, void ** offset_out ) {
+  uchar * ptr = (uchar *)ctx->data;
+  if ( FD_UNLIKELY((void *)(ptr + sizeof(uint)) > ctx->dataend ) )
+    return FD_BINCODE_ERR_UNDERFLOW;
+  /* Skip over length for now and verify it later */
+  *offset_out = ptr;
+  ctx->data = ptr + sizeof(uint);
+  return FD_BINCODE_SUCCESS;
+}
+
+static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx, void * offset ) {
+  if( *(uint *)offset != (uint)((uchar *)ctx->data - ((uchar *)offset + sizeof(uint))) )
+    return FD_BINCODE_ERR_ENCODING;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_archive_decode_skip_field( fd_bincode_decode_ctx_t * ctx, ushort tag );
 
 #endif /* HEADER_fd_src_util_encoders_fd_bincode_h */

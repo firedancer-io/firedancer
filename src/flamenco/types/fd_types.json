@@ -1038,6 +1038,7 @@
     {
       "name": "epoch_bank",
       "type": "struct",
+      "archival": "true",
       "alignment": "16",
       "fields": [
         { "name": "stakes",                "type": "stakes" },
@@ -1062,6 +1063,7 @@
     {
       "name": "slot_bank",
       "type": "struct",
+      "archival": "true",
       "alignment": "16",
       "fields": [
         { "name": "recent_block_hashes",       "type": "recent_block_hashes" },

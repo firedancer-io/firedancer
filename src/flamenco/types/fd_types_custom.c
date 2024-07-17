@@ -297,3 +297,53 @@ int fd_solana_vote_account_encode( fd_solana_vote_account_t const * self, fd_bin
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
+
+int fd_archive_decode_skip_field( fd_bincode_decode_ctx_t * ctx, ushort tag ) {
+  /* Extract the meta tag */
+  tag = tag & (ushort)((1<<6)-1);
+  uint len;
+  switch( tag ) {
+  case FD_ARCHIVE_META_CHAR:      len = sizeof(uchar);   break;
+  case FD_ARCHIVE_META_CHAR32:    len = 32;              break;
+  case FD_ARCHIVE_META_DOUBLE:    len = sizeof(double);  break;
+  case FD_ARCHIVE_META_LONG:      len = sizeof(long);    break;
+  case FD_ARCHIVE_META_UINT:      len = sizeof(uint);    break;
+  case FD_ARCHIVE_META_UINT128:   len = sizeof(uint128); break;
+  case FD_ARCHIVE_META_BOOL:      len = 1;               break;
+  case FD_ARCHIVE_META_UCHAR:     len = sizeof(uchar);   break;
+  case FD_ARCHIVE_META_UCHAR32:   len = 32;              break;
+  case FD_ARCHIVE_META_UCHAR128:  len = 128;             break;
+  case FD_ARCHIVE_META_UCHAR2048: len = 2048;            break;
+  case FD_ARCHIVE_META_ULONG:     len = sizeof(ulong);   break;
+  case FD_ARCHIVE_META_USHORT:    len = sizeof(ushort);  break;
+
+  case FD_ARCHIVE_META_STRING: {
+    ulong slen;
+    int err = fd_bincode_uint64_decode( &slen, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    len = (uint)slen;
+    break;
+  }
+
+  case FD_ARCHIVE_META_STRUCT:
+  case FD_ARCHIVE_META_VECTOR:
+  case FD_ARCHIVE_META_DEQUE:
+  case FD_ARCHIVE_META_MAP:
+  case FD_ARCHIVE_META_TREAP:
+  case FD_ARCHIVE_META_OPTION:
+  case FD_ARCHIVE_META_ARRAY: {
+    int err = fd_bincode_uint32_decode( &len, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    break;
+  }
+
+  default:
+    return FD_BINCODE_ERR_ENCODING;
+  }
+
+  uchar * ptr = (uchar *)ctx->data;
+  if ( FD_UNLIKELY((void *)(ptr + len) > ctx->dataend ) )
+    return FD_BINCODE_ERR_UNDERFLOW;
+  ctx->data = ptr + len;
+  return FD_BINCODE_SUCCESS;
+}

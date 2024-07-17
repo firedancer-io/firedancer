@@ -70,6 +70,17 @@ load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "Failed to load snapshot" ));
   }
 
+  if( src->type == FD_SNAPSHOT_SRC_ARCHIVE ) {
+    if( FD_UNLIKELY( fd_funk_unarchive( slot_ctx->acc_mgr->funk, src->file.path ) ) ) {
+      FD_LOG_ERR(( "Failed to load snapshot" ));
+    }
+    fd_runtime_recover_banks( slot_ctx, 0, 1 );
+    memset( name_out, 0, sizeof(fd_snapshot_name_t) );
+    name_out->type = FD_SNAPSHOT_TYPE_FULL;
+    name_out->slot = slot_ctx->slot_bank.slot;
+    return;
+  }
+
   fd_valloc_t     valloc   = slot_ctx->valloc;
   fd_acc_mgr_t *  acc_mgr  = slot_ctx->acc_mgr;
   fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;

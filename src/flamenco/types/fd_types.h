@@ -4618,6 +4618,10 @@ void fd_fee_calculator_walk( void * w, fd_fee_calculator_t const * self, fd_type
 ulong fd_fee_calculator_size( fd_fee_calculator_t const * self );
 ulong fd_fee_calculator_footprint( void );
 ulong fd_fee_calculator_align( void );
+int fd_fee_calculator_decode_archival( fd_fee_calculator_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_fee_calculator_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_fee_calculator_decode_archival_unsafe( fd_fee_calculator_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_fee_calculator_encode_archival( fd_fee_calculator_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_epoch_rewards_new( fd_epoch_rewards_t * self );
 int fd_epoch_rewards_decode( fd_epoch_rewards_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -4642,6 +4646,10 @@ void fd_hash_age_walk( void * w, fd_hash_age_t const * self, fd_types_walk_fn_t 
 ulong fd_hash_age_size( fd_hash_age_t const * self );
 ulong fd_hash_age_footprint( void );
 ulong fd_hash_age_align( void );
+int fd_hash_age_decode_archival( fd_hash_age_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_hash_age_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_hash_age_decode_archival_unsafe( fd_hash_age_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_hash_age_encode_archival( fd_hash_age_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_hash_hash_age_pair_new( fd_hash_hash_age_pair_t * self );
 int fd_hash_hash_age_pair_decode( fd_hash_hash_age_pair_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -4654,6 +4662,10 @@ void fd_hash_hash_age_pair_walk( void * w, fd_hash_hash_age_pair_t const * self,
 ulong fd_hash_hash_age_pair_size( fd_hash_hash_age_pair_t const * self );
 ulong fd_hash_hash_age_pair_footprint( void );
 ulong fd_hash_hash_age_pair_align( void );
+int fd_hash_hash_age_pair_decode_archival( fd_hash_hash_age_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_hash_hash_age_pair_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_hash_hash_age_pair_decode_archival_unsafe( fd_hash_hash_age_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_hash_hash_age_pair_encode_archival( fd_hash_hash_age_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_block_hash_vec_new( fd_block_hash_vec_t * self );
 int fd_block_hash_vec_decode( fd_block_hash_vec_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -4678,6 +4690,10 @@ void fd_block_hash_queue_walk( void * w, fd_block_hash_queue_t const * self, fd_
 ulong fd_block_hash_queue_size( fd_block_hash_queue_t const * self );
 ulong fd_block_hash_queue_footprint( void );
 ulong fd_block_hash_queue_align( void );
+int fd_block_hash_queue_decode_archival( fd_block_hash_queue_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_block_hash_queue_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_block_hash_queue_decode_archival_unsafe( fd_block_hash_queue_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_block_hash_queue_encode_archival( fd_block_hash_queue_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_fee_rate_governor_new( fd_fee_rate_governor_t * self );
 int fd_fee_rate_governor_decode( fd_fee_rate_governor_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -4690,6 +4706,10 @@ void fd_fee_rate_governor_walk( void * w, fd_fee_rate_governor_t const * self, f
 ulong fd_fee_rate_governor_size( fd_fee_rate_governor_t const * self );
 ulong fd_fee_rate_governor_footprint( void );
 ulong fd_fee_rate_governor_align( void );
+int fd_fee_rate_governor_decode_archival( fd_fee_rate_governor_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_fee_rate_governor_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_fee_rate_governor_decode_archival_unsafe( fd_fee_rate_governor_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_fee_rate_governor_encode_archival( fd_fee_rate_governor_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_slot_pair_new( fd_slot_pair_t * self );
 int fd_slot_pair_decode( fd_slot_pair_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -4726,6 +4746,10 @@ void fd_inflation_walk( void * w, fd_inflation_t const * self, fd_types_walk_fn_
 ulong fd_inflation_size( fd_inflation_t const * self );
 ulong fd_inflation_footprint( void );
 ulong fd_inflation_align( void );
+int fd_inflation_decode_archival( fd_inflation_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_inflation_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_inflation_decode_archival_unsafe( fd_inflation_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_inflation_encode_archival( fd_inflation_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_rent_new( fd_rent_t * self );
 int fd_rent_decode( fd_rent_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -4738,6 +4762,10 @@ void fd_rent_walk( void * w, fd_rent_t const * self, fd_types_walk_fn_t fun, con
 ulong fd_rent_size( fd_rent_t const * self );
 ulong fd_rent_footprint( void );
 ulong fd_rent_align( void );
+int fd_rent_decode_archival( fd_rent_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_rent_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_rent_decode_archival_unsafe( fd_rent_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_rent_encode_archival( fd_rent_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_epoch_schedule_new( fd_epoch_schedule_t * self );
 int fd_epoch_schedule_decode( fd_epoch_schedule_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -4750,6 +4778,10 @@ void fd_epoch_schedule_walk( void * w, fd_epoch_schedule_t const * self, fd_type
 ulong fd_epoch_schedule_size( fd_epoch_schedule_t const * self );
 ulong fd_epoch_schedule_footprint( void );
 ulong fd_epoch_schedule_align( void );
+int fd_epoch_schedule_decode_archival( fd_epoch_schedule_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_epoch_schedule_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_epoch_schedule_decode_archival_unsafe( fd_epoch_schedule_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_epoch_schedule_encode_archival( fd_epoch_schedule_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_rent_collector_new( fd_rent_collector_t * self );
 int fd_rent_collector_decode( fd_rent_collector_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -4774,6 +4806,10 @@ void fd_stake_history_entry_walk( void * w, fd_stake_history_entry_t const * sel
 ulong fd_stake_history_entry_size( fd_stake_history_entry_t const * self );
 ulong fd_stake_history_entry_footprint( void );
 ulong fd_stake_history_entry_align( void );
+int fd_stake_history_entry_decode_archival( fd_stake_history_entry_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_stake_history_entry_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_stake_history_entry_decode_archival_unsafe( fd_stake_history_entry_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_stake_history_entry_encode_archival( fd_stake_history_entry_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_stake_history_new( fd_stake_history_t * self );
 int fd_stake_history_decode( fd_stake_history_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -4786,6 +4822,10 @@ void fd_stake_history_walk( void * w, fd_stake_history_t const * self, fd_types_
 ulong fd_stake_history_size( fd_stake_history_t const * self );
 ulong fd_stake_history_footprint( void );
 ulong fd_stake_history_align( void );
+int fd_stake_history_decode_archival( fd_stake_history_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_stake_history_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_stake_history_decode_archival_unsafe( fd_stake_history_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_stake_history_encode_archival( fd_stake_history_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_solana_account_new( fd_solana_account_t * self );
 int fd_solana_account_decode( fd_solana_account_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -4810,6 +4850,10 @@ void fd_vote_accounts_pair_walk( void * w, fd_vote_accounts_pair_t const * self,
 ulong fd_vote_accounts_pair_size( fd_vote_accounts_pair_t const * self );
 ulong fd_vote_accounts_pair_footprint( void );
 ulong fd_vote_accounts_pair_align( void );
+int fd_vote_accounts_pair_decode_archival( fd_vote_accounts_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_vote_accounts_pair_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_vote_accounts_pair_decode_archival_unsafe( fd_vote_accounts_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_vote_accounts_pair_encode_archival( fd_vote_accounts_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_vote_accounts_new( fd_vote_accounts_t * self );
 int fd_vote_accounts_decode( fd_vote_accounts_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -4822,6 +4866,10 @@ void fd_vote_accounts_walk( void * w, fd_vote_accounts_t const * self, fd_types_
 ulong fd_vote_accounts_size( fd_vote_accounts_t const * self );
 ulong fd_vote_accounts_footprint( void );
 ulong fd_vote_accounts_align( void );
+int fd_vote_accounts_decode_archival( fd_vote_accounts_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_vote_accounts_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_vote_accounts_decode_archival_unsafe( fd_vote_accounts_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_vote_accounts_encode_archival( fd_vote_accounts_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_stake_accounts_pair_new( fd_stake_accounts_pair_t * self );
 int fd_stake_accounts_pair_decode( fd_stake_accounts_pair_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -4834,6 +4882,10 @@ void fd_stake_accounts_pair_walk( void * w, fd_stake_accounts_pair_t const * sel
 ulong fd_stake_accounts_pair_size( fd_stake_accounts_pair_t const * self );
 ulong fd_stake_accounts_pair_footprint( void );
 ulong fd_stake_accounts_pair_align( void );
+int fd_stake_accounts_pair_decode_archival( fd_stake_accounts_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_stake_accounts_pair_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_stake_accounts_pair_decode_archival_unsafe( fd_stake_accounts_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_stake_accounts_pair_encode_archival( fd_stake_accounts_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_stake_accounts_new( fd_stake_accounts_t * self );
 int fd_stake_accounts_decode( fd_stake_accounts_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -4846,6 +4898,10 @@ void fd_stake_accounts_walk( void * w, fd_stake_accounts_t const * self, fd_type
 ulong fd_stake_accounts_size( fd_stake_accounts_t const * self );
 ulong fd_stake_accounts_footprint( void );
 ulong fd_stake_accounts_align( void );
+int fd_stake_accounts_decode_archival( fd_stake_accounts_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_stake_accounts_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_stake_accounts_decode_archival_unsafe( fd_stake_accounts_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_stake_accounts_encode_archival( fd_stake_accounts_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_stake_weight_new( fd_stake_weight_t * self );
 int fd_stake_weight_decode( fd_stake_weight_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -4882,6 +4938,10 @@ void fd_delegation_walk( void * w, fd_delegation_t const * self, fd_types_walk_f
 ulong fd_delegation_size( fd_delegation_t const * self );
 ulong fd_delegation_footprint( void );
 ulong fd_delegation_align( void );
+int fd_delegation_decode_archival( fd_delegation_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_delegation_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_delegation_decode_archival_unsafe( fd_delegation_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_delegation_encode_archival( fd_delegation_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_delegation_pair_new( fd_delegation_pair_t * self );
 int fd_delegation_pair_decode( fd_delegation_pair_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -4894,6 +4954,10 @@ void fd_delegation_pair_walk( void * w, fd_delegation_pair_t const * self, fd_ty
 ulong fd_delegation_pair_size( fd_delegation_pair_t const * self );
 ulong fd_delegation_pair_footprint( void );
 ulong fd_delegation_pair_align( void );
+int fd_delegation_pair_decode_archival( fd_delegation_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_delegation_pair_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_delegation_pair_decode_archival_unsafe( fd_delegation_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_delegation_pair_encode_archival( fd_delegation_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_stakes_new( fd_stakes_t * self );
 int fd_stakes_decode( fd_stakes_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -4906,6 +4970,10 @@ void fd_stakes_walk( void * w, fd_stakes_t const * self, fd_types_walk_fn_t fun,
 ulong fd_stakes_size( fd_stakes_t const * self );
 ulong fd_stakes_footprint( void );
 ulong fd_stakes_align( void );
+int fd_stakes_decode_archival( fd_stakes_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_stakes_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_stakes_decode_archival_unsafe( fd_stakes_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_stakes_encode_archival( fd_stakes_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_bank_incremental_snapshot_persistence_new( fd_bank_incremental_snapshot_persistence_t * self );
 int fd_bank_incremental_snapshot_persistence_decode( fd_bank_incremental_snapshot_persistence_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -5270,6 +5338,10 @@ void fd_sol_sysvar_last_restart_slot_walk( void * w, fd_sol_sysvar_last_restart_
 ulong fd_sol_sysvar_last_restart_slot_size( fd_sol_sysvar_last_restart_slot_t const * self );
 ulong fd_sol_sysvar_last_restart_slot_footprint( void );
 ulong fd_sol_sysvar_last_restart_slot_align( void );
+int fd_sol_sysvar_last_restart_slot_decode_archival( fd_sol_sysvar_last_restart_slot_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_sol_sysvar_last_restart_slot_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_sol_sysvar_last_restart_slot_decode_archival_unsafe( fd_sol_sysvar_last_restart_slot_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_sol_sysvar_last_restart_slot_encode_archival( fd_sol_sysvar_last_restart_slot_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_vote_lockout_new( fd_vote_lockout_t * self );
 int fd_vote_lockout_decode( fd_vote_lockout_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -5603,6 +5675,10 @@ void fd_block_block_hash_entry_walk( void * w, fd_block_block_hash_entry_t const
 ulong fd_block_block_hash_entry_size( fd_block_block_hash_entry_t const * self );
 ulong fd_block_block_hash_entry_footprint( void );
 ulong fd_block_block_hash_entry_align( void );
+int fd_block_block_hash_entry_decode_archival( fd_block_block_hash_entry_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_block_block_hash_entry_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_block_block_hash_entry_decode_archival_unsafe( fd_block_block_hash_entry_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_block_block_hash_entry_encode_archival( fd_block_block_hash_entry_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_recent_block_hashes_new( fd_recent_block_hashes_t * self );
 int fd_recent_block_hashes_decode( fd_recent_block_hashes_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -5615,6 +5691,10 @@ void fd_recent_block_hashes_walk( void * w, fd_recent_block_hashes_t const * sel
 ulong fd_recent_block_hashes_size( fd_recent_block_hashes_t const * self );
 ulong fd_recent_block_hashes_footprint( void );
 ulong fd_recent_block_hashes_align( void );
+int fd_recent_block_hashes_decode_archival( fd_recent_block_hashes_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_recent_block_hashes_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_recent_block_hashes_decode_archival_unsafe( fd_recent_block_hashes_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_recent_block_hashes_encode_archival( fd_recent_block_hashes_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_slot_meta_new( fd_slot_meta_t * self );
 int fd_slot_meta_decode( fd_slot_meta_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -5639,6 +5719,10 @@ void fd_clock_timestamp_vote_walk( void * w, fd_clock_timestamp_vote_t const * s
 ulong fd_clock_timestamp_vote_size( fd_clock_timestamp_vote_t const * self );
 ulong fd_clock_timestamp_vote_footprint( void );
 ulong fd_clock_timestamp_vote_align( void );
+int fd_clock_timestamp_vote_decode_archival( fd_clock_timestamp_vote_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_clock_timestamp_vote_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_clock_timestamp_vote_decode_archival_unsafe( fd_clock_timestamp_vote_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_clock_timestamp_vote_encode_archival( fd_clock_timestamp_vote_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_clock_timestamp_votes_new( fd_clock_timestamp_votes_t * self );
 int fd_clock_timestamp_votes_decode( fd_clock_timestamp_votes_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -5651,6 +5735,10 @@ void fd_clock_timestamp_votes_walk( void * w, fd_clock_timestamp_votes_t const *
 ulong fd_clock_timestamp_votes_size( fd_clock_timestamp_votes_t const * self );
 ulong fd_clock_timestamp_votes_footprint( void );
 ulong fd_clock_timestamp_votes_align( void );
+int fd_clock_timestamp_votes_decode_archival( fd_clock_timestamp_votes_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_clock_timestamp_votes_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_clock_timestamp_votes_decode_archival_unsafe( fd_clock_timestamp_votes_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_clock_timestamp_votes_encode_archival( fd_clock_timestamp_votes_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_sysvar_fees_new( fd_sysvar_fees_t * self );
 int fd_sysvar_fees_decode( fd_sysvar_fees_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -5757,6 +5845,10 @@ void fd_epoch_bank_walk( void * w, fd_epoch_bank_t const * self, fd_types_walk_f
 ulong fd_epoch_bank_size( fd_epoch_bank_t const * self );
 ulong fd_epoch_bank_footprint( void );
 ulong fd_epoch_bank_align( void );
+int fd_epoch_bank_decode_archival( fd_epoch_bank_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_epoch_bank_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_epoch_bank_decode_archival_unsafe( fd_epoch_bank_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_epoch_bank_encode_archival( fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_slot_bank_new( fd_slot_bank_t * self );
 int fd_slot_bank_decode( fd_slot_bank_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -5769,6 +5861,10 @@ void fd_slot_bank_walk( void * w, fd_slot_bank_t const * self, fd_types_walk_fn_
 ulong fd_slot_bank_size( fd_slot_bank_t const * self );
 ulong fd_slot_bank_footprint( void );
 ulong fd_slot_bank_align( void );
+int fd_slot_bank_decode_archival( fd_slot_bank_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_slot_bank_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_slot_bank_decode_archival_unsafe( fd_slot_bank_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_slot_bank_encode_archival( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_prev_epoch_inflation_rewards_new( fd_prev_epoch_inflation_rewards_t * self );
 int fd_prev_epoch_inflation_rewards_decode( fd_prev_epoch_inflation_rewards_t * self, fd_bincode_decode_ctx_t * ctx );

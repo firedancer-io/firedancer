@@ -8,6 +8,8 @@ def group_cpus_by_batch_size(batch_size=8):
     import os
     # Get the number of available CPUs
     num_cpus = os.cpu_count()
+    if num_cpus > 128:
+        num_cpus = 128
     print(f"Total CPUs available: {num_cpus}")
 
     # Create batches of CPUs
