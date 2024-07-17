@@ -231,6 +231,20 @@ main1( int     argc,
   char ** argv = _argv;
   argc--; argv++;
 
+  /* Short circuit evaluating help and version commands so that we don't
+     need to load and evaluate the entire config file to run them.
+     This is useful for some operators in CI environments where, for
+     example, they want to show the version or validate the produced
+     binary without yet setting up the full TOML. */
+
+  if( FD_UNLIKELY( argc==1 && (!strcmp( argv[ 0 ], "help" ) || !strcmp( argv[ 0 ], "--help" )) ) ) {
+    help_cmd_fn( NULL, NULL );
+    return 0;
+  } else if( FD_UNLIKELY( argc==1 && (!strcmp( argv[ 0 ], "version" ) || !strcmp( argv[ 0 ], "--version" )) ) ) {
+    version_cmd_fn( NULL, NULL );
+    return 0;
+  }
+
   fdctl_boot( &argc, &argv, &config, NULL );
 
   if( FD_UNLIKELY( !argc ) ) {
