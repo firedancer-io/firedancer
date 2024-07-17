@@ -67,8 +67,8 @@ parent_signal( int sig ) {
   if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
   else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s",                fd_io_strsignal( sig ) ));
 
-  if( FD_LIKELY( sig==SIGINT ) ) exit_group( 128+SIGINT  );
-  else                           exit_group( 128+SIGTERM );
+  if( FD_LIKELY( sig==SIGINT ) ) exit_group( 128+SIGINT );
+  else                           exit_group( 0          );
 }
 
 static void
