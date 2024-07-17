@@ -18,14 +18,14 @@
 
 typedef struct {
   ulong   struct_size;
-  ulong * hardcoded_features;
-  ulong   hardcoded_feature_cnt;
+  ulong * cleaned_up_features;
+  ulong   cleaned_up_feature_cnt;
   ulong * supported_features;
   ulong   supported_feature_cnt;
 } sol_compat_features_t;
 
 static sol_compat_features_t features;
-static ulong hardcoded_features[] =
+static ulong cleaned_up_features[] =
   { 0xd924059c5749c4c1,  // secp256k1_program_enabled
     0x8f688d4e3ab17a60,  // enable_early_verification_of_account_modifications
     0x50a615bae8ca3874,  // native_programs_consume_cu
@@ -81,8 +81,8 @@ sol_compat_wksp_init( void ) {
   assert( smem );
 
   features.struct_size           = sizeof(sol_compat_features_t);
-  features.hardcoded_features    = hardcoded_features;
-  features.hardcoded_feature_cnt = sizeof(hardcoded_features)/sizeof(ulong);
+  features.cleaned_up_features    = cleaned_up_features;
+  features.cleaned_up_feature_cnt = sizeof(cleaned_up_features)/sizeof(ulong);
   features.supported_features    = supported_features;
   features.supported_feature_cnt = sizeof(supported_features)/sizeof(ulong);
 }

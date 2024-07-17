@@ -981,7 +981,7 @@ replay( fd_ledger_args_t * args ) {
   args->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
 
   args->epoch_ctx->epoch_bank.cluster_version = args->cluster_version;
-  fd_features_enable_hardcoded( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
+  fd_features_enable_cleaned_up( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
 
   args->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, valloc ) );
   args->slot_ctx->epoch_ctx = args->epoch_ctx;
