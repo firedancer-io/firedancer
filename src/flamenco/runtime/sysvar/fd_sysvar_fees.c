@@ -88,6 +88,12 @@ fd_sysvar_fees_new_derived(
     me.max_lamports_per_signature = me.target_lamports_per_signature;
   }
 
+  if( FD_UNLIKELY( slot_ctx->slot_bank.lamports_per_signature==0UL ) ) {
+    slot_ctx->prev_lamports_per_signature = lamports_per_signature;
+  } else {
+    slot_ctx->prev_lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature;
+  }
+
   slot_ctx->slot_bank.lamports_per_signature = lamports_per_signature;
   fd_memcpy(&slot_ctx->slot_bank.fee_rate_governor, &me, sizeof(fd_fee_rate_governor_t));
 }
