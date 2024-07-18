@@ -7129,12 +7129,12 @@ fd_quic_assign_stream( fd_quic_conn_t * conn, ulong stream_type, fd_quic_stream_
   /* set the max stream data to the appropriate initial value */
   stream->tx_max_stream_data = ( dirtype == FD_QUIC_TYPE_BIDIR )
                                    ? conn->tx_initial_max_stream_data_bidi_local
-                                   : 0ul;
+                                   : 0UL;
 
   /* probably we should add rx_buf */
   stream->rx_max_stream_data = ( dirtype == FD_QUIC_TYPE_BIDIR )
                                    ? conn->rx_initial_max_stream_data_bidi_local
-                                   : conn->tx_initial_max_stream_data_uni;
+                                   : conn->rx_initial_max_stream_data_uni;
 
   /* send a max data update to allow data on this stream */
   conn->rx_max_data   += stream->rx_max_stream_data;
