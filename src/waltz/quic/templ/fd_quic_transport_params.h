@@ -212,7 +212,6 @@ fd_quic_dump_transport_param_desc( FILE * out );
   uchar  NAME[20];                                    \
   uchar  NAME##_present;
 #define FD_QUIC_MBR_TYPE_ZERO_LENGTH(NAME,TYPE)       \
-  uchar  NAME;                                        \
   uchar  NAME##_present;
 #define FD_QUIC_MBR_TYPE_TOKEN(NAME,TYPE)             \
   uint   NAME##_len;                                  \

@@ -39,7 +39,6 @@ fd_quic_dump_transport_param_desc( FILE * out ) {
   } while(0)
 
 #define FD_QUIC_PARSE_TP_ZERO_LENGTH(NAME) \
-  params->NAME = 1u;                       \
   params->NAME##_present = 1;
 
 #define FD_QUIC_PARSE_TP_TOKEN(NAME)                        \
@@ -117,7 +116,7 @@ fd_quic_decode_transport_params( fd_quic_transport_params_t * params,
     } \
   } while(0)
 #define FD_QUIC_DUMP_TP_ZERO_LENGTH(NAME) \
-  fprintf( out, "%u", (unsigned)params->NAME )
+  fprintf( out, "1" )
 #define FD_QUIC_DUMP_TP_TOKEN(NAME) FD_QUIC_DUMP_TP_CONN_ID(NAME)
 #define FD_QUIC_DUMP_TP_PREFERRED_ADDRESS(NAME) FD_QUIC_DUMP_TP_CONN_ID(NAME)
 
@@ -156,7 +155,7 @@ fd_quic_dump_transport_params( fd_quic_transport_params_t const * params, FILE *
 
 #define FD_QUIC_ENCODE_TP_ZERO_LENGTH(NAME,ID)                         \
   do {                                                                 \
-    if( params->NAME ) {                                               \
+    if( params->NAME##_present ) {                                               \
       FD_QUIC_ENCODE_VARINT( buf, buf_sz, ID );                        \
       FD_QUIC_ENCODE_VARINT( buf, buf_sz, 0 );                         \
     }                                                                  \

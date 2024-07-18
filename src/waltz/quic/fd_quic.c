@@ -548,7 +548,7 @@ fd_quic_init( fd_quic_t * quic ) {
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_uni,             0                        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                  0                        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_ack_delay,                       10                       );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, disable_active_migration,            1                        );
+  /*                        */ tp->disable_active_migration_present =   1;
   FD_QUIC_TRANSPORT_PARAM_SET( tp, active_connection_id_limit,          FD_QUIC_MAX_CONN_ID_PER_CONN );
 
   /* Initialize next ephemeral udp port */
