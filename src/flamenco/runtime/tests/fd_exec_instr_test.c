@@ -307,8 +307,8 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   for ( uint i = 0; i < test_ctx->accounts_count; i++ ) {
     memcpy( &(txn_ctx->accounts[i]), test_ctx->accounts[i].address, sizeof(fd_pubkey_t) );
   }
-  fd_txn_t * txn_descriptor = (fd_txn_t *) fd_scratch_alloc( fd_txn_align(), fd_txn_footprint(0, 0) );
-  fd_memset(txn_descriptor, 0, sizeof(txn_descriptor));
+  fd_txn_t * txn_descriptor = (fd_txn_t *) fd_scratch_alloc( fd_txn_align(), fd_txn_footprint(1, 0) );
+  fd_memset(txn_descriptor, 0, fd_txn_footprint(1, 0) );
   txn_descriptor->acct_addr_cnt = (ushort) test_ctx->accounts_count;
   txn_descriptor->addr_table_adtl_cnt = 0;
   txn_ctx->txn_descriptor = txn_descriptor;
