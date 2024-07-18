@@ -1,6 +1,6 @@
 #include "fd_exec_sol_compat.h"
-#include "../../nanopb/pb_decode.h"
 #include "../../nanopb/pb_encode.h"
+#include "../../nanopb/pb_decode.h"
 #include "generated/elf.pb.h"
 #include "generated/invoke.pb.h"
 #include "generated/vm.pb.h"
@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include "../../vm/fd_vm.h"
 #include "fd_vm_validate_test.h"
+#include <stdio.h>
 
 /* This file defines stable APIs for compatibility testing.
 
@@ -55,6 +56,8 @@ static       uchar *     smem;
 static const ulong       smax = 1UL<<30;
 static       fd_wksp_t * wksp = NULL;
 
+#define WKSP_TAG 2
+
 void
 sol_compat_init( void ) {
   assert( !smem );
@@ -95,14 +98,24 @@ sol_compat_fini( void ) {
   smem = NULL;
 }
 
+void
+sol_compat_check_wksp_usage( void ) {
+  fd_wksp_usage_t usage[1];
+  ulong tags[1] = { WKSP_TAG };
+  fd_wksp_usage( wksp, tags, 1, usage );
+  if( usage->used_sz ) {
+    FD_LOG_ERR(( "%lu bytes leaked in %lu allocations", usage->used_sz, usage->used_cnt ));
+  }
+}
+
 fd_exec_instr_test_runner_t *
 sol_compat_setup_scratch_and_runner( void * fmem ) {
   // Setup scratch
   fd_scratch_attach( smem, fmem, smax, 64UL );
 
   // Setup test runner
-  void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_exec_instr_test_runner_align(), fd_exec_instr_test_runner_footprint(), 2 );
-  fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, 3 );
+  void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_exec_instr_test_runner_align(), fd_exec_instr_test_runner_footprint(), WKSP_TAG );
+  fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, WKSP_TAG );
 
   return runner;
 }
@@ -358,7 +371,6 @@ sol_compat_validate_vm_fixture( fd_exec_instr_test_runner_t * runner,
   // Cleanup
   pb_release( &fd_exec_test_validate_vm_fixture_t_msg, fixture );
   return ok;
-
 }
 
 /*
@@ -395,6 +407,10 @@ sol_compat_instr_execute_v1( uchar *       out,
   // Cleanup
   pb_release( &fd_exec_test_instr_context_t_msg, input );
   sol_compat_cleanup_scratch_and_runner( runner );
+
+  // Check wksp usage is 0
+  sol_compat_check_wksp_usage();
+
   return ok;
 }
 
@@ -443,8 +459,11 @@ sol_compat_elf_loader_v1( uchar *       out,
   pb_release( &fd_exec_test_elf_loader_ctx_t_msg, input );
   fd_scratch_pop();
   fd_scratch_detach( NULL );
-  return ok;
 
+  // Check wksp usage is 0
+  sol_compat_check_wksp_usage();
+
+  return ok;
 }
 
 sol_compat_features_t const *
@@ -482,6 +501,10 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
   // Cleanup
   pb_release( &fd_exec_test_syscall_context_t_msg, input );
   sol_compat_cleanup_scratch_and_runner( runner );
+
+  // Check wksp usage is 0
+  sol_compat_check_wksp_usage();
+
   return ok;
 }
 
@@ -515,9 +538,9 @@ sol_compat_vm_validate_v1(  uchar *       out,
   // cleanup
   pb_release( &fd_exec_test_full_vm_context_t_msg, input );
   sol_compat_cleanup_scratch_and_runner( runner );
+
+  // Check wksp usage is 0
+  sol_compat_check_wksp_usage();
+
   return ok;
-
-
-
-  
 }
