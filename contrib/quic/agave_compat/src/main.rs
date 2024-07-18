@@ -5,6 +5,7 @@ use solana_client::connection_cache::ConnectionCache;
 use solana_client::tpu_connection::TpuConnection;
 use std::ffi::{c_char, c_void};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 type fd_aio_t = c_void;
 type fd_quic_t = c_void;
@@ -150,10 +151,12 @@ unsafe fn _main() {
     // To escape this hostage situation, we indrect via usize ... sigh
     let udpsock2 = udpsock as usize;
     let quic2 = quic as usize;
+    let stop_ptr = Box::leak(Box::new(AtomicU32::new(0))) as *mut AtomicU32 as usize;
     let fd_quic_thread = std::thread::spawn(move || {
+        let stop = stop_ptr as *mut AtomicU32;
         let udpsock3: *mut fd_udpsock_t = udpsock2 as *mut fd_udpsock_t;
         let quic3: *mut fd_quic_t = quic2 as *mut fd_quic_t;
-        loop {
+        while (*stop).load(Ordering::Relaxed) == 0 {
             fd_udpsock_service(udpsock3);
             fd_quic_service(quic3);
         }
@@ -168,6 +171,8 @@ unsafe fn _main() {
     ));
     conn.send_data(b"Hello").expect("Failed to send data");
 
+    let stop = stop_ptr as *mut AtomicU32;
+    (*stop).store(1, Ordering::Relaxed);
     fd_quic_thread.join().unwrap();
     fd_halt();
 }
