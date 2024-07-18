@@ -14,6 +14,9 @@ sol_compat_wksp_init( void );
 void
 sol_compat_fini( void );
 
+void
+sol_compat_check_wksp_usage( void );
+
 fd_exec_instr_test_runner_t *
 sol_compat_setup_scratch_and_runner( void * fmem );
 

@@ -8,7 +8,6 @@
 #include <stdlib.h>
 #include "../../vm/fd_vm.h"
 #include "fd_vm_validate_test.h"
-#include <stdio.h>
 
 /* This file defines stable APIs for compatibility testing.
 
