@@ -182,6 +182,9 @@ after_frag( void *             _ctx,
     /* Write signature for dedup. */
     ulong txn_sig = FD_VERIFY_DEDUP_TAG_FROM_PAYLOAD_SIG( dcache_entry + sig_off );
     *opt_sig = txn_sig;
+
+    /* Write new size for mcache. */
+    *opt_sz = new_sz;
   }
 
   int is_dup;
