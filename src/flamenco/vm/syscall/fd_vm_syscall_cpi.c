@@ -58,11 +58,11 @@ dump_vm_cpi_state(fd_vm_t *vm,
   cpi_snap.ro_region.arg = &ro_region;
   cpi_snap.ro_region.funcs.encode = write_bytes_callback;
 
-  bytes_region_t stack_region = { .size = (pb_size_t) vm->frame_cnt*FD_VM_STACK_GUARD_SZ*2, .bytes = vm->stack };
+  bytes_region_t stack_region = { .size = (pb_size_t) (vm->frame_cnt + 1)*FD_VM_STACK_GUARD_SZ*2, .bytes = vm->stack };
   cpi_snap.stack.arg = &stack_region;
   cpi_snap.stack.funcs.encode = write_bytes_callback;
 
-  bytes_region_t heap_region = { .size = (pb_size_t) vm->heap_sz, .bytes = vm->heap };
+  bytes_region_t heap_region = { .size = (pb_size_t) FD_VM_HEAP_DEFAULT /* FIXME: use FD_VM_HEAP_MAX instead? */, .bytes = vm->heap };
   cpi_snap.heap.arg = &heap_region;
   cpi_snap.heap.funcs.encode = write_bytes_callback;
 
@@ -70,42 +70,41 @@ dump_vm_cpi_state(fd_vm_t *vm,
   cpi_snap.input_region.arg = &input_region;
   cpi_snap.input_region.funcs.encode = write_bytes_callback;
   
-  fd_create_instr_context_protobuf_from_instructions( &cpi_snap.instr_ctx, vm->instr_ctx->txn_ctx, vm->instr_ctx->instr );
+  FD_SCRATCH_SCOPE_BEGIN{
+    cpi_snap.has_instr_ctx = true;
+    fd_create_instr_context_protobuf_from_instructions( &cpi_snap.instr_ctx, vm->instr_ctx->txn_ctx, vm->instr_ctx->instr );
+    size_t pb_alloc_size = 1024 * 1024 * 1024;
+    FILE *f = fopen(filename, "wb+");
+    if (ftruncate(fileno(f), (off_t) pb_alloc_size) != 0) {
+      FD_LOG_WARNING(("Failed to resize file %s", filename));
+      fclose(f);
+      return;
+    }
 
-  size_t pb_alloc_size = 1024 * 1024 * 1024;
+    uchar *pb_alloc = mmap( NULL, 
+                            pb_alloc_size, 
+                            PROT_READ | PROT_WRITE, 
+                            MAP_SHARED, 
+                            fileno(f), 
+                            0 /* offset */);
+    if (pb_alloc == MAP_FAILED) {
+      FD_LOG_WARNING(("Failed to mmap file %d", errno));
+      fclose(f);
+      return;
+    }
 
-  FILE *f = fopen(filename, "wb+");
-  if (ftruncate(fileno(f), (off_t) pb_alloc_size) != 0) {
-    FD_LOG_WARNING(("Failed to resize file %s", filename));
+    pb_ostream_t stream = pb_ostream_from_buffer(pb_alloc, pb_alloc_size);
+    if (!pb_encode(&stream, FD_EXEC_TEST_CPI_SNAPSHOT_FIELDS, &cpi_snap)) {
+      FD_LOG_WARNING(("Failed to encode instruction context"));
+    }
+    // resize file to actual size
+    if (ftruncate( fileno(f), (off_t) stream.bytes_written) != 0) {
+      FD_LOG_WARNING(("Failed to resize file %s", filename));
+    }
+
     fclose(f);
-    return;
-  }
 
-  uchar *pb_alloc = mmap( NULL, 
-                          pb_alloc_size, 
-                          PROT_READ | PROT_WRITE, 
-                          MAP_SHARED, 
-                          fileno(f), 
-                          0 /* offset */);
-
-  if (pb_alloc == MAP_FAILED) {
-    FD_LOG_WARNING(("Failed to mmap file %d", errno));
-    fclose(f);
-    return;
-  }
-
-  pb_ostream_t stream = pb_ostream_from_buffer(pb_alloc, pb_alloc_size);
-  if (!pb_encode(&stream, FD_EXEC_TEST_CPI_SNAPSHOT_FIELDS, &cpi_snap)) {
-    FD_LOG_WARNING(("Failed to encode instruction context"));
-  }
-
-  // resize file to actual size
-  if (ftruncate( fileno(f), (off_t) stream.bytes_written) != 0) {
-    FD_LOG_WARNING(("Failed to resize file %s", filename));
-  }
-
-  fclose(f);
-
+  } FD_SCRATCH_SCOPE_END;
 }
 
 /* FIXME: ALGO EFFICIENCY */

@@ -512,7 +512,9 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
     fd_sysvar_instructions_id,
   };
   const ulong num_sysvar_entries = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
-
+  /* Lamports */
+  instr_context->starting_lamports_h = instr->starting_lamports_h;
+  instr_context->starting_lamports_l = instr->starting_lamports_l;
   /* Program ID */
   fd_memcpy( instr_context->program_id, instr->program_id_pubkey.uc, sizeof(fd_pubkey_t) );
 

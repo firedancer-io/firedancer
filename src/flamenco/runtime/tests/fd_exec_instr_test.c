@@ -287,6 +287,8 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
     info->data    = test_ctx->data->bytes;
   }
 
+  info->starting_lamports_h = test_ctx->starting_lamports_h;
+  info->starting_lamports_l = test_ctx->starting_lamports_l;
   memcpy( info->program_id_pubkey.uc, test_ctx->program_id, sizeof(fd_pubkey_t) );
 
   /* Prepare borrowed account table (correctly handles aliasing) */
@@ -1382,7 +1384,7 @@ fd_exec_vm_cpi_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   // Create instruction context
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t ctx[1];
-  if( !_context_create( runner, ctx, input_instr_ctx, true ) )
+  if( !_context_create( runner, ctx, input_instr_ctx, false ) )
     return 0UL;
   fd_valloc_t valloc = fd_scratch_virtual();
 
@@ -1399,8 +1401,8 @@ fd_exec_vm_cpi_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   fd_memset( effects, 0, sizeof(fd_exec_test_syscall_effects_t) );
 
   /* Set up the VM instance */
-  // fd_sha256_t _sha[1];
-  // fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
   fd_vm_syscall_register_all( syscalls, 0 );
 
@@ -1427,7 +1429,7 @@ fd_exec_vm_cpi_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
     input_data->bytes,
     input_data->size,
     NULL, // TODO
-    NULL // sha
+    sha
   );
 
   // Copy heap and stack from the snapshot
@@ -1444,13 +1446,16 @@ fd_exec_vm_cpi_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   vm->reg[5] = input->signers_seeds_cnt;
 
   ulong ret = 0;
+  int err = 0;
   if (input->abi == FD_EXEC_TEST_CPIABI_C ){
-    fd_vm_syscall_cpi_c( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &ret );
+    err = fd_vm_syscall_cpi_c( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &ret );
   } else if (input->abi == FD_EXEC_TEST_CPIABI_RUST ){
-    fd_vm_syscall_cpi_rust( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &ret );
+    err = fd_vm_syscall_cpi_rust( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &ret );
   } 
+  effects->error = -err;
+  FD_LOG_WARNING(( "Result %s", fd_vm_strerror( err ) ));
   *output = effects;
-  return 0;
+  return sizeof(fd_exec_test_syscall_effects_t);
   
 
 }
