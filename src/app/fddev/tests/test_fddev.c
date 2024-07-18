@@ -43,7 +43,7 @@ fddev_configure( config_t * config,
 
 static int
 fddev_wksp( config_t * config,
-             int        pipefd ) {
+            int        pipefd ) {
   (void)pipefd;
 
   fd_log_thread_set( "wksp" );
