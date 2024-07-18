@@ -57,22 +57,27 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   sol_compat_wksp_init();
-
   ulong fmem[ 64 ];
-  fd_exec_instr_test_runner_t * runner = sol_compat_setup_scratch_and_runner( fmem );
 
   ulong fail_cnt = 0UL;
   for( int j=1; j<argc; j++ ) {
+    // Init runner
+    fd_exec_instr_test_runner_t * runner = sol_compat_setup_scratch_and_runner( fmem );
+
     FD_TEST( fd_scratch_frame_used()==0UL );
     fd_scratch_push();
     fail_cnt += !run_test( runner, argv[j] );
     fd_scratch_pop();
+ 
+    // Free runner
+    sol_compat_cleanup_scratch_and_runner( runner );
+
+    // Check usage
+    sol_compat_check_wksp_usage();
   }
 
   /* TODO verify that there are no leaked libc allocs and vallocs */
-
   FD_TEST( fd_scratch_frame_used()==0UL );
-  sol_compat_cleanup_scratch_and_runner( runner );
   sol_compat_fini();
   fd_halt();
   return fail_cnt>0UL;

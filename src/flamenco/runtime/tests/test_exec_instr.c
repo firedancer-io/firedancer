@@ -1,4 +1,6 @@
 #define FD_SCRATCH_USE_HANDHOLDING 1
+#define WKSP_TAG 2
+
 #include "../../fd_flamenco_base.h"
 #include "fd_exec_instr_test.h"
 #include <errno.h>
@@ -9,6 +11,9 @@
 #include "../../nanopb/pb_firedancer.h"
 #include "../../nanopb/pb_decode.h"
 #include "generated/invoke.pb.h"
+
+#include <stdio.h>
+
 
 static int
 run_test( fd_exec_instr_test_runner_t * runner,
@@ -61,25 +66,39 @@ main( int     argc,
   fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 4UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
 
   ulong   scratch_fmem[ 64UL ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
-  uchar * scratch_smem = fd_wksp_alloc_laddr( wksp, FD_SCRATCH_SMEM_ALIGN, 1UL<<31, 1 );
+  uchar * scratch_smem = malloc( 1 << 30 ); // 1 GB
   fd_scratch_attach( scratch_smem, scratch_fmem, 1UL<<31, 64UL );
 
-  void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_exec_instr_test_runner_align(), fd_exec_instr_test_runner_footprint(), 2 );
-  fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, 3 );
+  // Setup usage tracking
+  fd_wksp_usage_t usage[1];
+  ulong tags[1] = { WKSP_TAG };
+  fd_wksp_usage( wksp, tags, 1, usage );
+  ulong initial_usage = usage->used_sz;
 
   ulong fail_cnt = 0UL;
   for( int j=1; j<argc; j++ ) {
+    // Init runner
+    void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_exec_instr_test_runner_align(), fd_exec_instr_test_runner_footprint(), 2 );
+    fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, 2 );
+
+    // Run the test
     FD_TEST( fd_scratch_frame_used()==0UL );
     fd_scratch_push();
     fail_cnt += !run_test( runner, argv[j] );
     fd_scratch_pop();
+
+    // Free runner
+    fd_wksp_free_laddr( fd_exec_instr_test_runner_delete( runner ) );
+
+    // Calculate usage
+    fd_wksp_usage( wksp, tags, 1, usage );
+    FD_TEST( usage->used_sz == initial_usage );
   }
 
   /* TODO verify that there are no leaked libc allocs and vallocs */
 
   FD_TEST( fd_scratch_frame_used()==0UL );
-  fd_wksp_free_laddr( fd_exec_instr_test_runner_delete( runner ) );
-  fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
+  free( scratch_smem );
   fd_wksp_delete_anonymous( wksp );
   fd_halt();
   return fail_cnt>0UL;
