@@ -9,6 +9,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include "../../../ballet/ed25519/fd_ed25519.h"
+#include "../../../ballet/txn/fd_txn.h" /* FD_TXN_MTU */
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 
@@ -134,6 +135,7 @@ fd_quic_config_anonymous( fd_quic_t * quic,
   /* Default settings */
   config->idle_timeout     = (ulong)200e6; /* 200ms */
   config->service_interval = (ulong) 10e6; /*  10ms */
+  config->initial_rx_max_stream_data = FD_TXN_MTU;
   strcpy( config->sni, "local" );
 
   /* Default callbacks */
