@@ -307,7 +307,7 @@ populate_quic_config( fd_quic_config_t * config ) {
   config->service_interval = (ulong)1e6;
   config->ping_interval = (ulong)1e6;
   config->retry = 0;
-  config->initial_rx_max_stream_data = 1<<12;
+  config->initial_rx_max_stream_data = 0; /* we don't expect the server to initiate streams */
 
   config->net.ephem_udp_port.lo = 12000;
   config->net.ephem_udp_port.hi = 12100;
@@ -589,7 +589,7 @@ unprivileged_init( fd_topo_t *      topo,
     quic->config.net.ip_addr                = quic_ip_addr;
     quic->config.net.listen_udp_port        = 42424; /* should be unused */
     quic->config.idle_timeout               = quic_idle_timeout_millis * 1000000UL;
-    quic->config.initial_rx_max_stream_data = 1<<15;
+    quic->config.initial_rx_max_stream_data = 0;
     quic->config.retry                      = 0; /* unused on clients */
     fd_memcpy( quic->config.link.src_mac_addr, quic_src_mac_addr, 6 );
 
