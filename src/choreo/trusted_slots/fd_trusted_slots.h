@@ -3,6 +3,8 @@
 
 #include "../../util/fd_util_base.h"
 
+/* fd_trusted_slots_t is a simple root-aware data structure for managing the 
+   slots which a validator has begun or did produce recently. */
 struct fd_slot_ele {
     ulong parent_cidx;
     ulong left_cidx;
@@ -46,7 +48,7 @@ FD_PROTOTYPES_BEGIN
 ulong
 fd_trusted_slots_align( void );
 
-/* slots_max should be the slots_per_epoch */
+/* slots_max should be the slots_per_epoch. */
 ulong
 fd_trusted_slots_footprint( ulong slots_max );
 
@@ -56,14 +58,17 @@ fd_trusted_slots_new( void * shmem, ulong slot_max );
 fd_trusted_slots_t *
 fd_trusted_slots_join( void * shmem );
 
+/* Adds a slot to the trusted set of slots. */
 void
 fd_trusted_slots_add( fd_trusted_slots_t * trusted_slots,
                       ulong                slot );
 
+/* Finds a slot in the trusted set. Returns 1 if found, 0 if not found. */
 int
 fd_trusted_slots_find( fd_trusted_slots_t * trusted_slots,
                       ulong                 slot );
 
+/* Publishes a root slot. Prunes out slots older than root. */
 void
 fd_trusted_slots_publish( fd_trusted_slots_t * trusted_slots,
                           ulong                root );
