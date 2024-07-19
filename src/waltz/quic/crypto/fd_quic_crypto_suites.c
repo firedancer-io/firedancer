@@ -765,24 +765,25 @@ int fd_quic_retry_token_decrypt(
   return FD_QUIC_SUCCESS;
 }
 
-int fd_quic_retry_integrity_tag_encrypt(
+void
+fd_quic_retry_integrity_tag_encrypt(
     uchar * retry_pseudo_pkt,
-    int     retry_pseudo_pkt_len,
+    ulong   retry_pseudo_pkt_len,
     uchar   retry_integrity_tag[static FD_QUIC_RETRY_INTEGRITY_TAG_SZ]
 ) {
   fd_aes_gcm_t gcm[1];
   fd_aes_128_gcm_init( gcm, FD_QUIC_RETRY_INTEGRITY_TAG_KEY, FD_QUIC_RETRY_INTEGRITY_TAG_NONCE );
-  fd_aes_gcm_aead_encrypt( gcm, NULL, NULL, 0UL, retry_pseudo_pkt, (ulong)retry_pseudo_pkt_len, retry_integrity_tag );
-  return FD_QUIC_SUCCESS;
+  fd_aes_gcm_aead_encrypt( gcm, NULL, NULL, 0UL, retry_pseudo_pkt, retry_pseudo_pkt_len, retry_integrity_tag );
 }
 
-int fd_quic_retry_integrity_tag_decrypt(
-    uchar * retry_pseudo_pkt,
-    int     retry_pseudo_pkt_len,
-    uchar   retry_integrity_tag[static FD_QUIC_RETRY_INTEGRITY_TAG_SZ]
+int
+fd_quic_retry_integrity_tag_decrypt(
+    uchar *     retry_pseudo_pkt,
+    ulong       retry_pseudo_pkt_len,
+    uchar const retry_integrity_tag[static FD_QUIC_RETRY_INTEGRITY_TAG_SZ]
 ) {
   fd_aes_gcm_t gcm[1];
   fd_aes_128_gcm_init( gcm, FD_QUIC_RETRY_INTEGRITY_TAG_KEY, FD_QUIC_RETRY_INTEGRITY_TAG_NONCE );
-  int ok = fd_aes_gcm_aead_decrypt( gcm, NULL, NULL, 0UL, retry_pseudo_pkt, (ulong)retry_pseudo_pkt_len, retry_integrity_tag );
+  int ok = fd_aes_gcm_aead_decrypt( gcm, NULL, NULL, 0UL, retry_pseudo_pkt, retry_pseudo_pkt_len, retry_integrity_tag );
   return ok ? FD_QUIC_SUCCESS : FD_QUIC_FAILED;
 }
