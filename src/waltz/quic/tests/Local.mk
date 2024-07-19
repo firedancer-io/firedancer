@@ -35,6 +35,8 @@ $(call make-unit-test,test_quic_retry_unit,test_quic_retry_unit,fd_quic fd_balle
 $(call make-unit-test,test_quic_retry_integration,test_quic_retry_integration,fd_quic fd_tls fd_ballet fd_waltz fd_util)
 $(call make-unit-test,test_quic_arp_server,arp/test_quic_arp_server,fd_quic fd_tls fd_ballet fd_waltz fd_util)
 $(call make-unit-test,test_quic_arp_client,arp/test_quic_arp_client,fd_quic fd_tls fd_ballet fd_waltz fd_util fd_fibre)
+$(call run-unit-test,test_quic_retry_unit)
+$(call run-unit-test,test_quic_retry_integration)
 
 ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_quic,fuzz_quic,fd_quic fd_tls fd_ballet fd_waltz fd_util)
