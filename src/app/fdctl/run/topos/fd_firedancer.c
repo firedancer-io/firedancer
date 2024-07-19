@@ -81,6 +81,7 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topob_wksp( topo, "sign"         );
   fd_topob_wksp( topo, "repair"       );
   fd_topob_wksp( topo, "gossip"       );
+  fd_topob_wksp( topo, "http"         );
   fd_topob_wksp( topo, "metric"       );
   fd_topob_wksp( topo, "replay"       );
   fd_topob_wksp( topo, "thread"       );
@@ -166,7 +167,7 @@ fd_topo_firedancer( config_t * _config ) {
   FOR(replay_tpool_thread_count-1) fd_topob_tile( topo, "thread",  "thread",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
   /**/                             fd_topob_tile( topo, "bhole",   "bhole",   "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
   /**/                             fd_topob_tile( topo, "sign",    "sign",    "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
-  /**/                             fd_topob_tile( topo, "metric",  "metric",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
+  /**/                             fd_topob_tile( topo, "http",    "http",    "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
   /**/                             fd_topob_tile( topo, "pack",    "pack",    "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "pack_replay",  0UL );
   /**/                             fd_topob_tile( topo, "pohi",    "pohi",    "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "poh_shred",    0UL );
 
@@ -452,8 +453,9 @@ fd_topo_firedancer( config_t * _config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
       strncpy( tile->sign.identity_key_path, config->consensus.identity_path, sizeof(tile->sign.identity_key_path) );
 
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) {
-      tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "http" ) ) ) {
+      tile->http.gui_listen_port = config->tiles.http.gui_listen_port;
+      tile->http.prometheus_listen_port = config->tiles.http.prometheus_listen_port;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "thread" ) ) ) {
       /* Nothing for now */

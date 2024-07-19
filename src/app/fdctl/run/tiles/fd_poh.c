@@ -1629,6 +1629,9 @@ poh_link_t gossip_pack;
 poh_link_t stake_out;
 poh_link_t crds_shred;
 
+poh_link_t replay_plugin;
+poh_link_t gossip_plugin;
+
 static void
 poh_link_wait_credit( poh_link_t * link ) {
   if( FD_LIKELY( link->cr_avail ) ) return;
@@ -1717,6 +1720,19 @@ fd_ext_poh_publish_cluster_info( uchar * data,
   poh_link_publish( &crds_shred, 2UL, data, data_len );
 }
 
+void
+fd_ext_plugin_publish_replay_stage( ulong   sig,
+                                   uchar * data,
+                                   ulong   data_len ) {
+  poh_link_publish( &replay_plugin, sig, data, data_len );
+}
+
+void
+fd_ext_plugin_publish_contact_info( uchar * data,
+                                    ulong   data_len ) {
+  poh_link_publish( &gossip_plugin, 0UL, data, data_len );
+}
+
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
@@ -1765,9 +1781,11 @@ unprivileged_init( fd_topo_t *      topo,
   fd_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, poh_shred_obj_id ) );
   FD_TEST( fd_shred_version );
 
-  poh_link_init( &gossip_pack, topo, tile, 1UL );
-  poh_link_init( &stake_out,   topo, tile, 2UL );
-  poh_link_init( &crds_shred,  topo, tile, 3UL );
+  poh_link_init( &gossip_pack,   topo, tile, 1UL );
+  poh_link_init( &stake_out,     topo, tile, 2UL );
+  poh_link_init( &crds_shred,    topo, tile, 3UL );
+  poh_link_init( &replay_plugin, topo, tile, 4UL );
+  poh_link_init( &gossip_plugin, topo, tile, 5UL );
 
   FD_LOG_NOTICE(( "PoH waiting to be initialized by Solana Labs client... %lu %lu", fd_poh_waiting_lock, fd_poh_returned_lock ));
   FD_VOLATILE( fd_poh_global_ctx ) = ctx;
@@ -1803,7 +1821,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->bank_in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->bank_in[i].mem, link->dcache, link->mtu );
   }
 
-  FD_TEST( tile->out_cnt==4UL );
+  FD_TEST( tile->out_cnt==6UL );
 
   ctx->stake_in.mem    = topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ ctx->stake_in_idx ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->stake_in.chunk0 = fd_dcache_compact_chunk0( ctx->stake_in.mem, topo->links[ tile->in_link_id[ ctx->stake_in_idx ] ].dcache );
