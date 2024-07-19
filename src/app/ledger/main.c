@@ -787,7 +787,6 @@ ingest( fd_ledger_args_t * args ) {
     init_blockstore( args );
   }
 
-  fd_wksp_t * wksp = args->wksp;
   fd_funk_t * funk = args->funk;
 
   fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( fd_funk_wksp( funk ), funk->alloc_gaddr ), 0UL );
@@ -875,7 +874,7 @@ ingest( fd_ledger_args_t * args ) {
   #endif
 
   if( args->verify_hash ) {
-    fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
+    fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, fd_funk_wksp( funk ) );
     ulong num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
 
     FD_LOG_NOTICE(( "verifying hash for %lu accounts", num_iter_accounts ));
@@ -895,7 +894,7 @@ ingest( fd_ledger_args_t * args ) {
         FD_LOG_NOTICE(( "read %lu so far", num_pairs ));
       }
 
-      fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
+      fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, fd_funk_wksp( funk ) );
       if( (metadata->magic != FD_ACCOUNT_META_MAGIC) || (metadata->hlen != sizeof(fd_account_meta_t)) ) {
         FD_LOG_ERR(( "invalid magic on metadata" ));
       }
