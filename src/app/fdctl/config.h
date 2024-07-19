@@ -27,6 +27,7 @@ typedef struct {
 
   fd_topo_t topo;
 
+  char cluster[ 32 ];
   int is_live_cluster;
 
   uint uid;
@@ -226,8 +227,9 @@ typedef struct {
     } shred;
 
     struct {
+      ushort gui_listen_port;
       ushort prometheus_listen_port;
-    } metric;
+    } http;
 
     /* Firedancer-only tile configs */
 
