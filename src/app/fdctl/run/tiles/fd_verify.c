@@ -87,6 +87,8 @@ after_frag( void *             _ctx,
   (void)seq;
   (void)opt_sig;
   (void)opt_chunk;
+  (void)opt_tsorig;
+  (void)mux;
 
   fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)_ctx;
 
@@ -135,23 +137,22 @@ after_frag( void *             _ctx,
                   payload_sz, txn_t_sz ));
   }
 
-  /* We need to access signatures and accounts, which are all before the recent_blockhash_off.
-     We assert that the payload_sz includes all signatures and account pubkeys we need. */
-  ushort recent_blockhash_off = txn_t->recent_blockhash_off;
-  if( FD_UNLIKELY( recent_blockhash_off>=*opt_sz ) ) {
-    FD_LOG_ERR( ("txn is invalid: payload_sz = %lx, recent_blockhash_off = %x", *opt_sz, recent_blockhash_off ) );
-  }
-
-  ulong txn_sig;
-  int res = fd_txn_verify( ctx, txn, (ushort)payload_sz, txn_t, &txn_sig );
+  int res = fd_txn_verify( ctx, txn, (ushort)payload_sz, txn_t );
   if( FD_UNLIKELY( res!=FD_TXN_VERIFY_SUCCESS ) ) {
     *opt_filter = 1; /* Signature verification failed. */
     return;
   }
 
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_mux_publish( mux, txn_sig, ctx->out_chunk, new_sz, 0UL, *opt_tsorig, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
+}
+
+static void
+privileged_init( FD_PARAM_UNUSED fd_topo_t *      topo,
+                 FD_PARAM_UNUSED fd_topo_tile_t * tile,
+                 void *           scratch ) {
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_verify_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
+  FD_TEST( fd_rng_secure( &ctx->hashmap_seed, 8U ) );
 }
 
 static void
@@ -239,6 +240,6 @@ fd_topo_run_tile_t fd_tile_verify = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
-  .privileged_init          = NULL,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
 };

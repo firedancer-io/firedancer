@@ -38,16 +38,25 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  ulong       hashmap_seed;
 } fd_verify_ctx_t;
 
-#define FD_VERIFY_DEDUP_TAG_FROM_PAYLOAD_SIG(payload_sig_p) FD_LOAD( ulong, (payload_sig_p) )
+FD_FN_PURE static inline ulong
+fd_hashmap_hash( uchar const k[ 64 ],
+                 ulong seed ) {
+  ulong * kul = (ulong *)k;
+  return ( (fd_ulong_hash( seed ^ (1UL<<0) ^ kul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ kul[1] ) ) ^
+           (fd_ulong_hash( seed ^ (1UL<<2) ^ kul[2] ) ^ fd_ulong_hash( seed ^ (1UL<<3) ^ kul[3] ) ) ) ^
+         ( (fd_ulong_hash( seed ^ (1UL<<4) ^ kul[4] ) ^ fd_ulong_hash( seed ^ (1UL<<5) ^ kul[5] ) ) ^
+           (fd_ulong_hash( seed ^ (1UL<<6) ^ kul[6] ) ^ fd_ulong_hash( seed ^ (1UL<<7) ^ kul[7] ) ) ); /* tons of ILP */
+}
 
 static inline int
 fd_txn_verify( fd_verify_ctx_t * ctx,
                uchar const *     udp_payload,
                ushort const      payload_sz,
-               fd_txn_t const *  txn,
-               ulong *           opt_sig ) {
+               fd_txn_t const *  txn ) {
 
   /* We do not want to deref any non-data field from the txn struct more than once */
   uchar  signature_cnt = txn->signature_cnt;
@@ -63,8 +72,7 @@ fd_txn_verify( fd_verify_ctx_t * ctx,
   /* The first signature is the transaction id, i.e. a unique identifier.
      So use this to do a quick dedup of ha traffic. */
 
-  /* TODO: use more than 64 bits to dedup. */
-  ulong ha_dedup_tag = FD_VERIFY_DEDUP_TAG_FROM_PAYLOAD_SIG( signatures );
+  ulong ha_dedup_tag = fd_hashmap_hash( signatures, ctx->hashmap_seed );
   int ha_dup;
   FD_FN_UNUSED ulong tcache_map_idx = 0; /* ignored */
   FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
@@ -85,7 +93,6 @@ fd_txn_verify( fd_verify_ctx_t * ctx,
     return FD_TXN_VERIFY_DEDUP;
   }
 
-  *opt_sig = ha_dedup_tag;
   return FD_TXN_VERIFY_SUCCESS;
 }
 
