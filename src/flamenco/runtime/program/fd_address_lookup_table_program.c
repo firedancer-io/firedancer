@@ -1013,13 +1013,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write_is_safe( recipient_acct ) ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L459 */
-  int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_RECIPIENT, /* min_data_sz */ 0UL, &recipient_acct );
-  if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
-    return FD_EXECUTOR_INSTR_ERR_FATAL;
-  }
-  /* TODO handle is_early_verification_of_account_modifications_enabled */
-  int op_err = fd_borrowed_account_checked_add_lamports( recipient_acct, withdrawn_lamports );
+  int op_err = fd_account_checked_add_lamports( ctx, ACC_IDX_RECIPIENT, withdrawn_lamports);
   if( FD_UNLIKELY( op_err ) ) return op_err;
 
   /* Delete LUT account ***********************************************/
@@ -1034,12 +1028,11 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
     return err;
   }
 
-  modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
-  if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
-    return FD_EXECUTOR_INSTR_ERR_FATAL;
-  }
-  lut_acct->meta->dlen          = 0UL;
-  lut_acct->meta->info.lamports = 0UL;
+  op_err = fd_account_set_lamports( ctx, ACC_IDX_LUT, 0);
+  if( FD_UNLIKELY( op_err ) ) return op_err;
+  op_err = fd_account_set_data_length( ctx, ACC_IDX_LUT, 0);
+  if( FD_UNLIKELY( op_err ) ) return op_err;
+
   return FD_EXECUTOR_INSTR_SUCCESS;
 
 # undef ACC_IDX_LUT
