@@ -302,7 +302,7 @@ fd_forks_prepare( fd_forks_t const *    forks,
     /* Format and join the slot_ctx */
 
     fd_exec_slot_ctx_t * slot_ctx =
-        fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx, fd_libc_alloc_virtual() ) );
+        fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx, valloc ) );
     if( FD_UNLIKELY( !slot_ctx ) ) {
       FD_LOG_ERR( ( "failed to new and join slot_ctx" ) );
     }
@@ -348,6 +348,10 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
   }
 
   while( FD_UNLIKELY( tail ) ) {
+    fd_fork_t * fork = fd_fork_frontier_ele_query( forks->frontier, &tail->slot, NULL, forks->pool );
+    if( fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( &fork->slot_ctx ) )==NULL ) {
+      FD_LOG_ERR(( "could not delete fork slot ctx" ));
+    }
     ulong remove = fd_fork_frontier_idx_remove( forks->frontier,
                                                 &tail->slot,
                                                 ULONG_MAX,
@@ -360,7 +364,6 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
 
     /* pool_idx_release cannot fail given we just removed this from the
       frontier directly above. */
-
     fd_fork_pool_idx_release( forks->pool, remove );
     tail = fd_ptr_if( tail->prev != fd_fork_pool_idx_null( forks->pool ),
                       fd_fork_pool_ele( forks->pool, tail->prev ),
