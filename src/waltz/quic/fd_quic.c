@@ -2020,8 +2020,8 @@ fd_quic_handle_v1_retry(
   /* Clients MUST discard Retry packets that have a Retry Integrity Tag that
      cannot be validated */
 
-  if ( FD_UNLIKELY( rc == FD_QUIC_FAILED ) ) {
-    return cur_sz;  // FIXME hack to drop packet
+  if( FD_UNLIKELY( rc == FD_QUIC_FAILED ) ) {
+    return FD_QUIC_PARSE_FAIL;
   }
 
   /* Update the peer using the retry src conn id */

@@ -782,6 +782,6 @@ int fd_quic_retry_integrity_tag_decrypt(
 ) {
   fd_aes_gcm_t gcm[1];
   fd_aes_128_gcm_init( gcm, FD_QUIC_RETRY_INTEGRITY_TAG_KEY, FD_QUIC_RETRY_INTEGRITY_TAG_NONCE );
-  fd_aes_gcm_aead_decrypt( gcm, NULL, NULL, 0UL, retry_pseudo_pkt, (ulong)retry_pseudo_pkt_len, retry_integrity_tag );
-  return FD_QUIC_SUCCESS;
+  int ok = fd_aes_gcm_aead_decrypt( gcm, NULL, NULL, 0UL, retry_pseudo_pkt, (ulong)retry_pseudo_pkt_len, retry_integrity_tag );
+  return ok ? FD_QUIC_SUCCESS : FD_QUIC_FAILED;
 }
