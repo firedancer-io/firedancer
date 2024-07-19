@@ -7,6 +7,20 @@
 /* Max number of validators that can be known */
 #define FD_PEER_KEY_MAX (1<<14)
 
+/* Contact info v2 socket tag constants */
+#define FD_GOSSIP_SOCKET_TAG_GOSSIP             (0)
+#define FD_GOSSIP_SOCKET_TAG_RPC                (2)
+#define FD_GOSSIP_SOCKET_TAG_RPC_PUBSUB         (3)
+#define FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR       (4)
+#define FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR_QUIC  (1)
+#define FD_GOSSIP_SOCKET_TAG_TPU                (5)
+#define FD_GOSSIP_SOCKET_TAG_TPU_FORWARDS       (6)
+#define FD_GOSSIP_SOCKET_TAG_TPU_FORWARDS_QUIC  (7)
+#define FD_GOSSIP_SOCKET_TAG_TPU_QUIC           (8)
+#define FD_GOSSIP_SOCKET_TAG_TPU_VOTE           (9)
+#define FD_GOSSIP_SOCKET_TAG_TVU                (10)
+#define FD_GOSSIP_SOCKET_TAG_TVU_QUIC           (11)
+
 /* Global state of gossip protocol */
 typedef struct fd_gossip fd_gossip_t;
 ulong         fd_gossip_align    ( void );
@@ -32,6 +46,16 @@ fd_gossip_from_soladdr(fd_gossip_peer_addr_t * dst, fd_gossip_socket_addr_t cons
 
 int
 fd_gossip_to_soladdr( fd_gossip_socket_addr_t * dst, fd_gossip_peer_addr_t const * src );
+
+
+void
+fd_gossip_contact_info_v2_to_v1( fd_gossip_contact_info_v2_t const * v2,
+                                 fd_gossip_contact_info_v1_t *       v1 );
+
+int
+fd_gossip_contact_info_v2_find_proto_ident( fd_gossip_contact_info_v2_t const * contact_info,
+                                            uchar                               proto_ident,
+                                            fd_gossip_socket_addr_t *           out_addr );
 
 /* Callback when a new message is received */
 typedef void (*fd_gossip_data_deliver_fun)(fd_crds_data_t* data, void* arg);

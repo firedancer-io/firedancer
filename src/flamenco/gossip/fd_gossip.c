@@ -421,6 +421,42 @@ fd_gossip_unlock( fd_gossip_t * gossip ) {
   FD_VOLATILE( gossip->lock ) = 0UL;
 }
 
+void
+fd_gossip_contact_info_v2_to_v1( fd_gossip_contact_info_v2_t const * v2,
+                                 fd_gossip_contact_info_v1_t *       v1 ) {
+  memset( v1, 0, sizeof(fd_gossip_contact_info_v1_t) );
+  v1->id = v2->from;
+  v1->shred_version = v2->shred_version;
+  v1->wallclock = v2->wallclock;
+  fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_GOSSIP, &v1->gossip );
+  fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR, &v1->serve_repair );
+  fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR, &v1->serve_repair );
+  fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_TPU, &v1->tpu );
+  fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_TPU_VOTE, &v1->tpu_vote );
+  fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_TVU, &v1->tvu );
+}
+
+int
+fd_gossip_contact_info_v2_find_proto_ident( fd_gossip_contact_info_v2_t const * contact_info,
+                                            uchar                               proto_ident,
+                                            fd_gossip_socket_addr_t *           out_addr ) {
+  ushort port = 0;
+  for( ulong i = 0UL; i<contact_info->sockets_len; i++ ) {
+    fd_gossip_socket_entry_t const * socket_entry = &contact_info->sockets[ i ];
+    port += socket_entry->offset;
+    if( socket_entry->key==proto_ident ) {
+      if( socket_entry->index>=contact_info->addrs_len) {
+        continue;
+      }
+      out_addr->addr = contact_info->addrs[ socket_entry->index ];
+      out_addr->port = port;
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
 /* Convert my style of address to solana style */
 int
 fd_gossip_to_soladdr( fd_gossip_socket_addr_t * dst, fd_gossip_peer_addr_t const * src ) {
@@ -1072,6 +1108,10 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     pubkey = &crd->data.inner.incremental_snapshot_hashes.from;
     wallclock = crd->data.inner.incremental_snapshot_hashes.wallclock;
     break;
+  case fd_crds_data_enum_contact_info_v2:
+    pubkey = &crd->data.inner.contact_info_v2.from;
+    wallclock = crd->data.inner.contact_info_v2.wallclock;
+    break;
   default:
     wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* In millisecs */
     break;
@@ -1194,6 +1234,44 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     if (glob->my_contact_info.shred_version == 0U && fd_gossip_is_allowed_entrypoint( glob, &peer_addr )) {
       FD_LOG_NOTICE(("using shred version %lu", (ulong)crd->data.inner.contact_info_v1.shred_version));
       glob->my_contact_info.shred_version = crd->data.inner.contact_info_v1.shred_version;
+    }
+  }
+
+  if (crd->data.discriminant == fd_crds_data_enum_contact_info_v2) {
+    fd_gossip_contact_info_v2_t * info = &crd->data.inner.contact_info_v2;
+    fd_gossip_socket_addr_t socket_addr;
+    if( fd_gossip_contact_info_v2_find_proto_ident( info, FD_GOSSIP_SOCKET_TAG_GOSSIP, &socket_addr ) ) {
+      if (socket_addr.port != 0) {
+        /* Remember the peer */
+        fd_gossip_peer_addr_t pkey;
+        fd_memset(&pkey, 0, sizeof(pkey));
+        fd_gossip_from_soladdr(&pkey, &socket_addr);
+        fd_peer_elem_t * val = fd_peer_table_query(glob->peers, &pkey, NULL);
+        if (val == NULL) {
+          if (fd_peer_table_is_full(glob->peers)) {
+            FD_LOG_DEBUG(("too many peers"));
+          } else {
+            val = fd_peer_table_insert(glob->peers, &pkey);
+            if (glob->inactives_cnt < INACTIVES_MAX &&
+                fd_active_table_query(glob->actives, &pkey, NULL) == NULL) {
+              /* Queue this peer for later pinging */
+              fd_gossip_peer_addr_copy(glob->inactives + (glob->inactives_cnt++), &pkey);
+            }
+          }
+        }
+        if (val != NULL) {
+          val->wallclock = wallclock;
+          val->stake = 0;
+          fd_hash_copy(&val->id, &info->from);
+        }
+      }
+
+      fd_gossip_peer_addr_t peer_addr = { .addr = crd->data.inner.contact_info_v1.gossip.addr.inner.ip4,
+                                          .port = fd_ushort_bswap( crd->data.inner.contact_info_v1.gossip.port ) };
+      if (glob->my_contact_info.shred_version == 0U && fd_gossip_is_allowed_entrypoint( glob, &peer_addr )) {
+        FD_LOG_NOTICE(("using shred version %lu", (ulong)crd->data.inner.contact_info_v1.shred_version));
+        glob->my_contact_info.shred_version = crd->data.inner.contact_info_v1.shred_version;
+      }
     }
   }
 

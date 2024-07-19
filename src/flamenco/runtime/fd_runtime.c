@@ -918,6 +918,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
       
       if( fd_executor_txn_verify( txn_ctx )!=0 ) {
+        FD_LOG_WARNING(("phase 2 invalid: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
         task_info[ txn_idx ].txn->flags = 0;
         res |= FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
         continue;
@@ -931,6 +932,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
       if( ( NULL == txn_ctx->txn_descriptor ) || !is_nonce ) {
 
         if( !is_blockhash_valid_for_age( &slot_ctx->slot_bank.block_hash_queue, blockhash, FD_RECENT_BLOCKHASHES_MAX_ENTRIES ) ) {
+          FD_LOG_WARNING(("phase 2 invalid: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
           task_info[ txn_idx ].txn->flags = 0;
           res |= FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
           continue;
@@ -951,6 +953,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
         fd_txncache_query_batch( slot_ctx->status_cache, &curr_query, 1UL, query_arg, query_func, &err );
 
         if( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
+          FD_LOG_WARNING(("phase 2 invalid: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
           task_info[ txn_idx ].txn->flags = 0;
           res |= FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED;
           continue;
@@ -959,6 +962,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
       err = fd_executor_check_txn_accounts( txn_ctx );
       if ( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
+        FD_LOG_WARNING(("phase 2 invalid: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
         task_info[ txn_idx ].txn->flags = 0;
         res |= err;
         continue;
