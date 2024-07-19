@@ -148,7 +148,14 @@ fd_snapshot_load( const char *         snapshotfile,
      better design. */
   fd_funk_speed_load_mode( slot_ctx->acc_mgr->funk, 0 );
 
+  fd_funk_txn_t * par_txn = slot_ctx->funk_txn;
   fd_funk_txn_t * child_txn = slot_ctx->funk_txn;
+  if( verify_hash && FD_FEATURE_ACTIVE(slot_ctx, incremental_snapshot_only_incremental_hash_calculation) ) {
+    fd_funk_txn_xid_t xid;
+    memset( &xid, 0xc3, sizeof( xid ) );
+    child_txn = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, child_txn, &xid, 0 );
+    slot_ctx->funk_txn = child_txn;
+  }
 
   fd_scratch_push();
   size_t slen = strlen( snapshotfile );
@@ -194,6 +201,11 @@ fd_snapshot_load( const char *         snapshotfile,
     } else {
       FD_LOG_ERR(( "invalid snapshot type %u", snapshot_type ));
     }
+  }
+
+  if( child_txn != par_txn ) {
+    fd_funk_txn_publish( slot_ctx->acc_mgr->funk, child_txn, 0 );
+    slot_ctx->funk_txn = par_txn;
   }
 
   fd_hashes_load(slot_ctx);

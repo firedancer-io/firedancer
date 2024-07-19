@@ -142,6 +142,7 @@ echo_notice "Starting on-demand ingest and replay"
 set -x
   "$OBJDIR"/bin/fd_ledger \
     --cmd replay \
+    --verify-acc-hash 1 \
     --rocksdb $DUMP/$LEDGER/rocksdb \
     $RESTORE_ARCHIVE \
     $TRASH_HASH \
