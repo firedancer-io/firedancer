@@ -800,6 +800,29 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 }
 
 void
+fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
+  for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
+    fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
+
+    /* An account writable iff it is writable AND it is not being demoted.
+        If this criteria is not met, the account should not be marked as touched
+        via updating its most recent slot. */
+    int is_writable = fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i) &&
+                      !fd_txn_account_is_demotion( txn_ctx, (int)i );
+    if( !is_writable ) {
+      continue;
+    }
+
+    acc_rec->meta->slot = txn_ctx->slot_ctx->slot_bank.slot;
+
+    if( acc_rec->meta->info.lamports == 0 ) {
+      acc_rec->meta->dlen = 0;
+      memset( acc_rec->meta->info.owner, 0, sizeof(fd_pubkey_t) );
+    }
+  }
+}
+
+void
 fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   ulong j = 0;
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
@@ -1184,27 +1207,6 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
         return ret;
       }
     }
-
-    for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
-      fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
-
-      /* An account writable iff it is writable AND it is not being demoted.
-         If this criteria is not met, the account should not be marked as touched
-         via updating its most recent slot. */
-      int is_writable = fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i) &&
-                        !fd_txn_account_is_demotion( txn_ctx, (int)i );
-      if( !is_writable ) {
-        continue;
-      }
-
-      acc_rec->meta->slot = txn_ctx->slot_ctx->slot_bank.slot;
-
-      if( acc_rec->meta->info.lamports == 0 ) {
-        acc_rec->meta->dlen = 0;
-        memset( acc_rec->meta->info.owner, 0, sizeof(fd_pubkey_t) );
-      }
-    }
-
     return 0;
   } FD_SCRATCH_SCOPE_END;
 }
