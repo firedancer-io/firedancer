@@ -331,7 +331,6 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   development.bench.affinity                       );
   CFG_POP      ( bool,   development.bench.larger_max_cost_per_block      );
   CFG_POP      ( bool,   development.bench.larger_shred_limits_per_block  );
-  CFG_POP      ( bool,   development.bench.rocksdb_disable_wal            );
 
   /* Firedancer-only configuration */
 
