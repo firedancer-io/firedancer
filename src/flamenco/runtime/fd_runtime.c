@@ -649,6 +649,10 @@ fd_runtime_microblock_execute( fd_exec_slot_ctx_t * slot_ctx,
 
     int exec_res = fd_execute_txn(&txn_ctx);
 
+    if( exec_res == 0 ) {
+      fd_txn_reclaim_accounts( &txn_ctx );
+    }
+
     res = fd_execute_txn_finalize(slot_ctx, &txn_ctx, exec_res);
     if (res != 0) {
       FD_LOG_ERR(("could not finalize txn"));
@@ -696,6 +700,10 @@ fd_runtime_execute_txn_task(void *tpool,
 //   FD_LOG_WARNING(("hi mom"));
 
   task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
+  if( task_info->exec_res != 0 ) {
+    return;
+  }
+  fd_txn_reclaim_accounts( task_info->txn_ctx );
   // FD_LOG_WARNING(("Transaction result %d for %64J %lu %lu %lu", task_info->exec_res, (uchar *)raw_txn->raw + txn->signature_off, task_info->txn_ctx->compute_meter, task_info->txn_ctx->compute_unit_limit, task_info->txn_ctx->num_instructions));
 }
 
@@ -1440,6 +1448,9 @@ fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
     txns[i].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     slot_ctx->signature_cnt += (ulong)(TXN(&txns[i])->signature_cnt);
     task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
+    if( task_info->exec_res == 0 ) {
+      fd_txn_reclaim_accounts( task_info->txn_ctx );
+    }
   }
 
   int res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, task_infos, txn_cnt, tpool, max_workers );

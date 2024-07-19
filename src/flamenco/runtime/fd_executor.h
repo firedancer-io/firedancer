@@ -109,6 +109,9 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
                          fd_borrowed_account_t const * rec,
                          ulong                fee );
 
+void
+fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx );
+
 /* fd_io_strerror converts an FD_EXECUTOR_INSTR_ERR_{...} code into a
    human readable cstr.  The lifetime of the returned pointer is
    infinite and the call itself is thread safe.  The returned pointer is
