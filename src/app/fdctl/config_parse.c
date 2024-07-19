@@ -217,6 +217,8 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   log.level_stderr                                 );
   CFG_POP      ( cstr,   log.level_flush                                  );
 
+  CFG_POP      ( cstr,   reporting.solana_metrics_config                  );
+
   CFG_POP      ( cstr,   ledger.path                                      );
   CFG_POP      ( cstr,   ledger.accounts_path                             );
   CFG_POP      ( uint,   ledger.limit_size                                );

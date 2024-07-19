@@ -131,6 +131,31 @@ dynamic_port_range = "8900-9000"
     # disk.  Must be one of the levels described above.
     level_flush = "WARNING"
 
+# The client supports sending health reports, and performance and
+# diagnostic information to a remote server for collection and analysis.
+# This reporting powers the Solana Validator Dashboard and is often used
+# by developers to monitor network health.
+[reporting]
+    # A metrics environment string describing where to report the
+    # diagnostic event data to.  The options for public clusters are
+    # described at https://docs.solanalabs.com/clusters/available,
+    # and are:
+    #
+    # mainnet-beta:
+    #   "host=https://metrics.solana.com:8086,db=mainnet-beta,u=mainnet-beta_write,p=password"
+    #
+    # devnet:
+    #   "host=https://metrics.solana.com:8086,db=devnet,u=scratch_writer,p=topsecret"
+    #
+    # testnet:
+    #   "host=https://metrics.solana.com:8086,db=tds,u=testnet_write,p=c4fa841aa918bf8274e3e2a44d77568d9861b3ea"
+    #
+    # If no option is provided here, event reporting is disabled.
+    #
+    # This string is passed to the Solana Labs client with the
+    # `SOLANA_METRICS_CONFIG` environment variable.
+    solana_metrics_config = ""
+
 # The ledger is the set of information that can be replayed to get back
 # to the current state of the chain.  In Solana, it is considered a
 # combination of the genesis, and the recent unconfirmed blocks.  The

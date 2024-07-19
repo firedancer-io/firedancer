@@ -58,6 +58,10 @@ typedef struct {
   } log;
 
   struct {
+    char solana_metrics_config[ 512 ];
+  } reporting;
+
+  struct {
     char  path[ PATH_MAX ];
     char  accounts_path[ PATH_MAX ];
     uint  limit_size;
