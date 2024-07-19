@@ -155,6 +155,18 @@ main( int argc, char ** argv ) {
     }
   }
 
+  FD_TEST( client_quic->metrics.conn_created_cnt== 1 );
+  FD_TEST( client_quic->metrics.conn_retry_cnt  == 0 );
+  FD_TEST( server_quic->metrics.conn_created_cnt== 1 );
+  FD_TEST( server_quic->metrics.conn_retry_cnt  == 1 );
+  /* Server: Retry, Initial, Handshake
+     Client: Initial, Initial, Handshake */
+  FD_TEST( client_quic->metrics.net_rx_pkt_cnt  == 3 );
+  FD_TEST( client_quic->metrics.net_tx_pkt_cnt  == 3 );
+  FD_TEST( server_quic->metrics.net_rx_pkt_cnt  == 3 );
+  FD_TEST( server_quic->metrics.net_tx_pkt_cnt  == 3 );
+  FD_TEST( client_quic->metrics.net_tx_byte_cnt > server_quic->metrics.net_tx_byte_cnt );
+
   /* TODO we get callback before the call to fd_quic_conn_new_stream can complete
      must delay until the conn->state is ACTIVE */
 
@@ -226,6 +238,8 @@ main( int argc, char ** argv ) {
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
   }
+
+  FD_TEST( client_quic->metrics.conn_created_cnt== 1 );
 
   FD_LOG_NOTICE(( "Cleaning up" ));
   fd_quic_virtual_pair_fini( &vp );

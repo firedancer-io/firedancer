@@ -2,6 +2,7 @@
 #define HEADER_fd_src_waltz_quic_fd_quic_conn_h
 
 #include "fd_quic.h"
+#include "fd_quic_retry.h"
 #include "fd_quic_stream.h"
 #include "fd_quic_conn_id.h"
 #include "crypto/fd_quic_crypto_suites.h"
@@ -333,7 +334,7 @@ struct fd_quic_conn {
   /* next connection in the free list, or in service list */
   fd_quic_conn_t *     next;
   ulong token_len;
-  uchar token[FD_QUIC_TOKEN_SZ_MAX];
+  uchar token[ FD_QUIC_RETRY_MAX_TOKEN_SZ ];
 };
 
 FD_PROTOTYPES_BEGIN

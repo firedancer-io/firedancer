@@ -24,8 +24,9 @@ extern ulong fd_quic_conn_id_hash_seed;
 /* pad fd_quic_conn_id struct */
 #define FD_QUIC_CONN_ID_PAD (24 - 1 - FD_QUIC_MAX_CONN_ID_SZ)
 
-// have to support variable length connection ids
-// in various parts of the protocol
+/* fd_quic_conn_id_t contains a QUIC connection ID with size in [0,20]
+   bytes.  The unused conn_id high bytes MUST be zeroed. */
+
 struct fd_quic_conn_id {
   uchar sz;
   uchar conn_id[FD_QUIC_MAX_CONN_ID_SZ];
@@ -39,7 +40,7 @@ FD_PROTOTYPES_BEGIN
 
 static inline fd_quic_conn_id_t
 fd_quic_conn_id_new( void const * conn_id,
-                     ulong        sz /* in [0,16] */ ) {
+                     ulong        sz /* in [0,20] */ ) {
   /* TODO debug assertion verifying sz */
   fd_quic_conn_id_t id = { .sz = (uchar)sz };
   fd_memcpy( id.conn_id, conn_id, sz );
