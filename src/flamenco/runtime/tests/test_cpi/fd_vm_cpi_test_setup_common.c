@@ -55,9 +55,7 @@ VM_CPI_TEST_SETUP(fd_vm_t *vm, fd_exec_test_cpi_instr_t const *cpi_instr)
         // FIXME: Rename
         VM_CPI_TEST_INSTR_ASSIGN_ACCT_META_PUBKEY(meta, account_meta->pubkey);
         
-        // FIXME: Also use templates for these?
-        meta->is_writable = account_meta->is_writable;
-        meta->is_signer = account_meta->is_signer;
+        // FIXME: is_writable and is_signer 
     }
     
     VM_CPI_TEST_INSTR_ASSIGN_ACCT_META(&instr, account_metas, cpi_instr->acct_metas_count);
@@ -85,8 +83,7 @@ VM_CPI_TEST_SETUP(fd_vm_t *vm, fd_exec_test_cpi_instr_t const *cpi_instr)
     for( ulong i = 0UL; i < cpi_instr->accounts_count; i++ ) {
         fd_exec_test_acct_state_t *account = &cpi_instr->accounts[i];
         VM_CPI_TEST_ACC_INFO_T *info = &account_infos[i];
-        info->is_signer = account->is_signer;
-        info->is_writable = account->is_writable;
+        // FIXME: is_signer and is_writable
         info->executable = account->executable;
         info->rent_epoch = account->rent_epoch;
 

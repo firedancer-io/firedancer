@@ -512,6 +512,7 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
     fd_sysvar_instructions_id,
   };
   const ulong num_sysvar_entries = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
+
   /* Lamports */
   instr_context->starting_lamports_h = instr->starting_lamports_h;
   instr_context->starting_lamports_l = instr->starting_lamports_l;
@@ -616,6 +617,9 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
   instr_context->epoch_context.has_features = true;
   instr_context->epoch_context.features.features_count = (pb_size_t) num_features;
   instr_context->epoch_context.features.features = sorted_features;
+
+  /* Heap Size */
+  instr_context->heap_size = txn_ctx->heap_size;
 }
 
 /*  This function dumps individual instructions from a ledger replay.

@@ -41,6 +41,8 @@ typedef struct fd_exec_test_instr_context {
     fd_exec_test_epoch_context_t epoch_context;
     uint64_t starting_lamports_h;
     uint64_t starting_lamports_l;
+    /* FIXME: move to future transaction context protobuf */
+    uint64_t heap_size;
 } fd_exec_test_instr_context_t;
 
 /* The results of executing an InstrContext. */
@@ -78,11 +80,11 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_INSTR_ACCT_INIT_DEFAULT     {0, 0, 0}
-#define FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT  {{0}, 0, NULL, 0, NULL, NULL, 0, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT, 0, 0}
+#define FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT  {{0}, 0, NULL, 0, NULL, NULL, 0, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT, 0, 0, 0}
 #define FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT  {0, 0, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_INSTR_FIXTURE_INIT_DEFAULT  {false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_INSTR_ACCT_INIT_ZERO        {0, 0, 0}
-#define FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO     {{0}, 0, NULL, 0, NULL, NULL, 0, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO, 0, 0}
+#define FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO     {{0}, 0, NULL, 0, NULL, NULL, 0, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO, 0, 0, 0}
 #define FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO     {0, 0, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_INSTR_FIXTURE_INIT_ZERO     {false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO}
 
@@ -99,6 +101,7 @@ extern "C" {
 #define FD_EXEC_TEST_INSTR_CONTEXT_EPOCH_CONTEXT_TAG 9
 #define FD_EXEC_TEST_INSTR_CONTEXT_STARTING_LAMPORTS_H_TAG 10
 #define FD_EXEC_TEST_INSTR_CONTEXT_STARTING_LAMPORTS_L_TAG 11
+#define FD_EXEC_TEST_INSTR_CONTEXT_HEAP_SIZE_TAG 12
 #define FD_EXEC_TEST_INSTR_EFFECTS_RESULT_TAG    1
 #define FD_EXEC_TEST_INSTR_EFFECTS_CUSTOM_ERR_TAG 2
 #define FD_EXEC_TEST_INSTR_EFFECTS_MODIFIED_ACCOUNTS_TAG 3
@@ -124,7 +127,8 @@ X(a, STATIC,   SINGULAR, UINT64,   cu_avail,          6) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  slot_context,      8) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  epoch_context,     9) \
 X(a, STATIC,   SINGULAR, UINT64,   starting_lamports_h,  10) \
-X(a, STATIC,   SINGULAR, UINT64,   starting_lamports_l,  11)
+X(a, STATIC,   SINGULAR, UINT64,   starting_lamports_l,  11) \
+X(a, STATIC,   SINGULAR, UINT64,   heap_size,        12)
 #define FD_EXEC_TEST_INSTR_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_INSTR_CONTEXT_DEFAULT NULL
 #define fd_exec_test_instr_context_t_accounts_MSGTYPE fd_exec_test_acct_state_t

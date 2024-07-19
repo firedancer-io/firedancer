@@ -62,7 +62,7 @@ dump_vm_cpi_state(fd_vm_t *vm,
   cpi_snap.stack.arg = &stack_region;
   cpi_snap.stack.funcs.encode = write_bytes_callback;
 
-  bytes_region_t heap_region = { .size = (pb_size_t) FD_VM_HEAP_DEFAULT /* FIXME: use FD_VM_HEAP_MAX instead? */, .bytes = vm->heap };
+  bytes_region_t heap_region = { .size = (pb_size_t) vm->instr_ctx->txn_ctx->heap_size, .bytes = vm->heap };
   cpi_snap.heap.arg = &heap_region;
   cpi_snap.heap.funcs.encode = write_bytes_callback;
 

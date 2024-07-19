@@ -198,7 +198,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Initial variables */
   txn_ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
-  txn_ctx->heap_size = FD_VM_HEAP_SIZE;
+  txn_ctx->heap_size                       = fd_ulong_max( txn_ctx->heap_size, FD_VM_HEAP_SIZE ); /* FIXME: bound this to FD_VM_HEAP_MAX?*/
 
   /* Set up epoch context */
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );

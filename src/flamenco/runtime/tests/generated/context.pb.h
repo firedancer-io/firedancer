@@ -49,9 +49,6 @@ typedef struct fd_exec_test_acct_state {
  with the org.solana.sealevel.v1 API. */
     bool has_seed_addr;
     fd_exec_test_seed_address_t seed_addr;
-    /* Account info additional fields */
-    bool is_signer;
-    bool is_writable;
 } fd_exec_test_acct_state_t;
 
 /* EpochContext includes context scoped to an epoch.
@@ -76,12 +73,12 @@ extern "C" {
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT    {0, NULL}
 #define FD_EXEC_TEST_SEED_ADDRESS_INIT_DEFAULT   {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
-#define FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT     {{0}, 0, NULL, 0, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_DEFAULT, 0, 0}
+#define FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT     {{0}, 0, NULL, 0, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_DEFAULT}
 #define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT  {false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT}
 #define FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT   {0}
 #define FD_EXEC_TEST_FEATURE_SET_INIT_ZERO       {0, NULL}
 #define FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO      {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
-#define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {{0}, 0, NULL, 0, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO, 0, 0}
+#define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {{0}, 0, NULL, 0, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO}
 #define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO     {false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
 #define FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO      {0}
 
@@ -97,8 +94,6 @@ extern "C" {
 #define FD_EXEC_TEST_ACCT_STATE_RENT_EPOCH_TAG   5
 #define FD_EXEC_TEST_ACCT_STATE_OWNER_TAG        6
 #define FD_EXEC_TEST_ACCT_STATE_SEED_ADDR_TAG    7
-#define FD_EXEC_TEST_ACCT_STATE_IS_SIGNER_TAG    8
-#define FD_EXEC_TEST_ACCT_STATE_IS_WRITABLE_TAG  9
 #define FD_EXEC_TEST_EPOCH_CONTEXT_FEATURES_TAG  1
 #define FD_EXEC_TEST_SLOT_CONTEXT_SLOT_TAG       1
 
@@ -122,9 +117,7 @@ X(a, POINTER,  SINGULAR, BYTES,    data,              3) \
 X(a, STATIC,   SINGULAR, BOOL,     executable,        4) \
 X(a, STATIC,   SINGULAR, UINT64,   rent_epoch,        5) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, owner,             6) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  seed_addr,         7) \
-X(a, STATIC,   SINGULAR, BOOL,     is_signer,         8) \
-X(a, STATIC,   SINGULAR, BOOL,     is_writable,       9)
+X(a, STATIC,   OPTIONAL, MESSAGE,  seed_addr,         7)
 #define FD_EXEC_TEST_ACCT_STATE_CALLBACK NULL
 #define FD_EXEC_TEST_ACCT_STATE_DEFAULT NULL
 #define fd_exec_test_acct_state_t_seed_addr_MSGTYPE fd_exec_test_seed_address_t
