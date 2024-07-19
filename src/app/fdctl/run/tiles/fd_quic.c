@@ -310,7 +310,7 @@ after_frag( void *             _ctx,
       return;
     }
 
-    if( FD_UNLIKELY( *opt_sz>FD_TPU_MTU ) ) {
+    if( FD_UNLIKELY( *opt_sz-network_hdr_sz>FD_TPU_MTU ) ) {
       /* Transaction couldn't possibly be valid if it's longer than transaction
          MTU so drop it. This is not required, as the txn will fail to parse,
          but it's a nice short circuit. */
