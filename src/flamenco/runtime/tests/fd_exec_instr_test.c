@@ -1455,6 +1455,8 @@ fd_exec_vm_cpi_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   effects->error = -err;
   FD_LOG_WARNING(( "Result %s", fd_vm_strerror( err ) ));
   *output = effects;
+
+  _context_destroy( runner, ctx );
   return sizeof(fd_exec_test_syscall_effects_t);
   
 
