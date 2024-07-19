@@ -21,7 +21,7 @@ PB_BIND(FD_EXEC_TEST_CPI_EXECUTE_OUTPUT, fd_exec_test_cpi_execute_output_t, AUTO
 PB_BIND(FD_EXEC_TEST_CPI_CONTEXT, fd_exec_test_cpi_context_t, 2)
 
 
-PB_BIND(FD_EXEC_TEST_CPI_SNAPSHOT, fd_exec_test_cpi_snapshot_t, 2)
+PB_BIND(FD_EXEC_TEST_CPI_SNAPSHOT, fd_exec_test_cpi_snapshot_t, AUTO)
 
 
 

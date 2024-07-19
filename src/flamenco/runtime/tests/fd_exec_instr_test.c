@@ -287,8 +287,6 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
     info->data    = test_ctx->data->bytes;
   }
 
-  info->starting_lamports_h = test_ctx->starting_lamports_h;
-  info->starting_lamports_l = test_ctx->starting_lamports_l;
   memcpy( info->program_id_pubkey.uc, test_ctx->program_id, sizeof(fd_pubkey_t) );
 
   /* Prepare borrowed account table (correctly handles aliasing) */
@@ -483,6 +481,9 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
     acc_idx_seen[index] = 1;
   }
   info->acct_cnt = (uchar)test_ctx->instr_accounts_count;
+
+  //  FIXME: Specifically for CPI syscalls, flag guard this?
+  fd_instr_info_sum_account_lamports( info, &info->starting_lamports_h, &info->starting_lamports_l );
 
   /* This function is used to create context both for instructions and for syscalls,
      however some of the remaining checks are only relevant for program instructions. */
@@ -1257,108 +1258,6 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     FD_LOG_WARNING(( "fd_execute_instr is disabled" ));
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
-
-// ulong
-// fd_exec_vm_cpi_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
-//                                  fd_exec_test_cpi_context_t const *       input,
-//                                  fd_exec_test_syscall_effects_t **        output,
-//                                  void *                                 output_buf,
-//                                  ulong                                  output_bufsz ){
-//   fd_cpi_test_funcs_t cpi_test_funcs = c_cpi_test_funcs;
-//   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
-//   fd_exec_instr_ctx_t ctx[1];
-//   if( !_context_create( runner, ctx, input_instr_ctx, true ) )
-//     return 0UL;
-//   fd_valloc_t valloc = fd_scratch_virtual();
-
-//   ulong output_end = (ulong)output_buf + output_bufsz;
-//   FD_SCRATCH_ALLOC_INIT( l, output_buf );
-//   fd_exec_test_syscall_effects_t * effects =
-//     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_syscall_effects_t),
-//                                 sizeof (fd_exec_test_syscall_effects_t) );
-//   if( FD_UNLIKELY( _l > output_end ) ) {
-//     _context_destroy( runner, ctx );
-//     return 0UL;
-//   }
-//   fd_memset( effects, 0, sizeof(fd_exec_test_syscall_effects_t) );
-
-//   /* Set up the VM instance */
-//   fd_sha256_t _sha[1];
-//   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
-//   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
-//   fd_vm_syscall_register_all( syscalls, 0 );
-
-//   /* Pull out the memory regions */
-//   FD_TEST( input->has_vm_ctx );
-//   FD_TEST( input->vm_ctx.rodata );
-//   uchar * rodata = input->vm_ctx.rodata->bytes;
-//   ulong rodata_sz = input->vm_ctx.rodata->size;
-
-//   /* Concatenate the input data regions into the flat input memory region */
-//   ulong input_data_sz = 0;
-//   for ( ulong i=0; i<input->vm_ctx.input_data_regions_count; i++ ) {
-//     input_data_sz += input->vm_ctx.input_data_regions[i].content->size;
-//   }
-//   uchar * input_data = fd_valloc_malloc( valloc, alignof(uchar), input_data_sz );
-//   uchar * input_data_ptr = input_data;
-//   for ( ulong i=0; i<input->vm_ctx.input_data_regions_count; i++ ) {
-//     pb_bytes_array_t * array = input->vm_ctx.input_data_regions[i].content;
-//     fd_memcpy( input_data_ptr, array->bytes, array->size );
-//     input_data_ptr += array->size;
-//   }
-//   FD_TEST( input_data_ptr == (input_data + input_data_sz) );
-
-//   fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
-//   FD_TEST( vm );
-//   fd_vm_init(
-//     vm,
-//     ctx,
-//     input->vm_ctx.heap_max,
-//     ctx->txn_ctx->compute_meter,
-//     rodata,
-//     rodata_sz,
-//     NULL, // TODO
-//     0, // TODO
-//     0, // TODO
-//     0, // TODO, text_sz
-//     0, // TODO
-//     NULL, // TODO
-//     syscalls,
-//     input_data,
-//     input_data_sz,
-//     NULL, // TODO
-//     sha // sha
-//   );
-
-//   // Setup the vm state for execution
-//   FD_TEST( fd_vm_setup_state_for_execution( vm ) == FD_VM_SUCCESS );
-
-//   // Override some execution state values from the syscall fuzzer input
-//   // This is so we can test if the syscall mutates any of these erroneously
-//   vm->reg[0] = input->vm_ctx.r0;
-//   vm->reg[1] = input->vm_ctx.r1;
-//   vm->reg[2] = input->vm_ctx.r2;
-//   vm->reg[3] = input->vm_ctx.r3;
-//   vm->reg[4] = input->vm_ctx.r4;
-//   vm->reg[5] = input->vm_ctx.r5;
-//   vm->reg[6] = input->vm_ctx.r6;
-//   vm->reg[7] = input->vm_ctx.r7;
-//   vm->reg[8] = input->vm_ctx.r8;
-//   vm->reg[9] = input->vm_ctx.r9;
-//   vm->reg[10] = input->vm_ctx.r10;
-//   vm->reg[11] = input->vm_ctx.r11;
-
-//   // Setup CPI instruction and other ABI-specific structures
-//   c_cpi_test_funcs.setup_cpi_instr( vm, &input->cpi_instr );
-
-//   // Invoke the CPI syscall
-//   int syscall_err = cpi_test_funcs.syscall( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
-//   effects->error = -syscall_err;
-
-//   // TODO: Capture the effects
-//   *output = effects;
-//   return sizeof(fd_exec_test_syscall_effects_t);
-// }
 
 bool
 read_bytes_callback( pb_istream_t *stream,
