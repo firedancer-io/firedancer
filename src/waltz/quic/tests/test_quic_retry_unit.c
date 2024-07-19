@@ -3,6 +3,7 @@
 
 #include "../fd_quic_common.h"
 #include "../fd_quic_types.h"
+#include "../fd_quic_retry.h"
 
 #include "../templ/fd_quic_encoders_decl.h"
 #include "../templ/fd_quic_frames_templ.h"
@@ -117,7 +118,7 @@ test_retry_integrity_tag( void ) {
   memcpy( buf, buf_, sz );
 
   uchar retry_integrity_tag_actual[16];
-  fd_quic_retry_integrity_tag_encrypt( buf, (int)sz, retry_integrity_tag_actual );
+  fd_quic_retry_integrity_tag_encrypt( buf, sz, retry_integrity_tag_actual );
 
   uchar retry_integrity_tag_expected[16] =
       "\x04\xa2\x65\xba\x2e\xff\x4d\x82\x90\x58\xfb\x3f\x0f\x24\x96\xba";
@@ -127,7 +128,7 @@ test_retry_integrity_tag( void ) {
   }
 
   // check the retry integrity tag tag authenticates successfully (AEAD)
-  int rc = fd_quic_retry_integrity_tag_decrypt( buf, (int)sz, retry_integrity_tag_expected );
+  int rc = fd_quic_retry_integrity_tag_decrypt( buf, sz, retry_integrity_tag_expected );
   FD_TEST( rc == FD_QUIC_SUCCESS );
 }
 
@@ -153,22 +154,98 @@ test_retry_token_invalid_length( void ) {
   FD_TEST ( rc == FD_QUIC_FAILED );
 }
 
-/* Invariant: a valid token should always decrypt to the original inputs. */
-void
-test_property_retry_token_encrypt_decrypt( void ) {
-  /* TODO */
+/* bench_retry_server tests packet throughput for server-side retry
+   handling.  Servers produce unique authenticated tokens (opauqe/custom
+   scheme) and also create Retry Integrity Tags (RFC 9001). */
+
+static void
+bench_retry_server( void ) {
+  FD_LOG_NOTICE(( "Benchmarking Retry" ));
+
+  fd_quic_retry_t retry_pkt = {
+    .hdr_form  = 1,
+    .fixed_bit = 1,
+    .unused = 0xf,
+    .version = 1,
+    .dst_conn_id_len = 8,
+    .src_conn_id_len = 20,
+  };
+
+  uchar             retry_secret[32] = {1};
+  fd_quic_conn_id_t orig_dst_conn_id = { .sz = 20 };
+  fd_quic_conn_id_t new_conn_id      = { .sz = 8 };
+
+  fd_quic_retry_pseudo_t retry_pseudo_pkt = {
+      .odcid_len        = 20,
+      .hdr_form         = 1,
+      .fixed_bit        = 1,
+      .long_packet_type = 3,
+      .version          = 1,
+      .dst_conn_id_len  = 8,
+      .src_conn_id_len  = 20,
+  };
+  uchar retry_phdr[ 256 ];
+  ulong retry_phdr_sz = fd_quic_encode_retry_pseudo( retry_phdr, sizeof(retry_phdr), &retry_pseudo_pkt );
+  FD_TEST( retry_phdr_sz!=FD_QUIC_PARSE_FAIL );
+
+  long dt = -fd_log_wallclock();
+  ulong iter = 1000000UL;
+  for( ulong j=0UL; j<iter; j++ ) {
+    int rc = fd_quic_retry_token_encrypt(
+        retry_secret,
+        &orig_dst_conn_id,
+        1UL,
+        &new_conn_id,
+        FD_IP4_ADDR( 127, 0, 0, 1 ),
+        80U,
+        retry_pkt.retry_token
+    );
+    FD_TEST( rc==FD_QUIC_SUCCESS );
+
+    fd_quic_retry_integrity_tag_encrypt( retry_phdr, retry_phdr_sz, retry_pkt.retry_integrity_tag );
+    FD_COMPILER_UNPREDICTABLE( retry_pkt.retry_integrity_tag[0] );
+  }
+  dt += fd_log_wallclock();
+  double mpps = ((double)iter / ((double)dt / 1e9)) / 1e6;
+  double ns   = (double)dt / (double)iter;
+  FD_LOG_NOTICE(( "  ~%9.3f Mpps / core", mpps ));
+  FD_LOG_NOTICE(( "  ~%9.3f ns / pkt",    ns   ));
 }
 
-/* Invariant: invalid-length tokens should always return an error. */
-void
-test_property_retry_token_invalid_length_decrypt( void ) {
-  /* TODO */
-}
+/* bench_retry_client tests packet throughput for client-side retry
+   handling.  Clients validate Retry Integrity Tags (RFC 9001) to
+   prevent injection of bogus retries.  (Even though these can be forged
+   if the attacker is able to eavesdrop) */
 
-/* Invariant: generating and checking the integrity tag should always match. */
-void
-test_property_retry_integrity_tag_encrypt_decrypt( void ) {
-  /* TODO */
+static void
+bench_retry_client( void ) {
+  FD_LOG_NOTICE(( "Benchmarking Retry Integrity Tag Verify" ));
+
+  fd_quic_retry_pseudo_t retry_pseudo_pkt = {
+      .odcid_len        = 20,
+      .hdr_form         = 1,
+      .fixed_bit        = 1,
+      .long_packet_type = 3,
+      .version          = 1,
+      .dst_conn_id_len  = 8,
+      .src_conn_id_len  = 20,
+  };
+  uchar retry_phdr[ 256 ];
+  ulong retry_phdr_sz = fd_quic_encode_retry_pseudo( retry_phdr, sizeof(retry_phdr), &retry_pseudo_pkt );
+  FD_TEST( retry_phdr_sz!=FD_QUIC_PARSE_FAIL );
+
+  long dt = -fd_log_wallclock();
+  ulong iter = 1000000UL;
+  for( ulong j=0UL; j<iter; j++ ) {
+    uchar retry_integrity_tag[16];
+    (void)fd_quic_retry_integrity_tag_decrypt( retry_phdr, retry_phdr_sz, retry_integrity_tag );
+    FD_COMPILER_UNPREDICTABLE( retry_integrity_tag[0] );
+  }
+  dt += fd_log_wallclock();
+  double mpps = ((double)iter / ((double)dt / 1e9)) / 1e6;
+  double ns   = (double)dt / (double)iter;
+  FD_LOG_NOTICE(( "  ~%9.3f Mpps / core", mpps ));
+  FD_LOG_NOTICE(( "  ~%9.3f ns / pkt",    ns   ));
 }
 
 int
@@ -179,6 +256,8 @@ main( int     argc,
   test_retry_token_encrypt_decrypt();
   test_retry_integrity_tag();
   // test_retry_token_invalid_length();  // FIXME after error change
+  bench_retry_server();
+  bench_retry_client();
 
   FD_LOG_NOTICE( ( "pass" ) );
   fd_halt();

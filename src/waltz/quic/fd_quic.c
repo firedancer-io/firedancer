@@ -5,6 +5,7 @@
 #include "fd_quic_conn.h"
 #include "fd_quic_conn_map.h"
 #include "fd_quic_proto.h"
+#include "fd_quic_retry.h"
 
 #include "templ/fd_quic_frame_handler_decl.h"
 #include "templ/fd_quic_frames_templ.h"
@@ -1273,7 +1274,7 @@ fd_quic_send_retry( fd_quic_t *                  quic,
     return FD_QUIC_PARSE_FAIL;
   }
   fd_quic_encode_retry_pseudo( retry_pseudo_buf, retry_pseudo_footprint, &retry_pseudo_pkt );
-  fd_quic_retry_integrity_tag_encrypt( retry_pseudo_buf, (int) retry_pseudo_footprint, retry_pkt.retry_integrity_tag );
+  fd_quic_retry_integrity_tag_encrypt( retry_pseudo_buf, retry_pseudo_footprint, retry_pkt.retry_integrity_tag );
 
   ulong tx_buf_sz = fd_quic_encode_footprint_retry( &retry_pkt );
   uchar tx_buf[tx_buf_sz];
@@ -2014,7 +2015,7 @@ fd_quic_handle_v1_retry(
      corrupted by the network, and only an entity that observes an Initial packet can send a valid
      Retry packet.*/
   int rc = fd_quic_retry_integrity_tag_decrypt(
-      retry_pseudo_buf, (int)retry_pseudo_footprint, retry_pkt.retry_integrity_tag
+      retry_pseudo_buf, retry_pseudo_footprint, retry_pkt.retry_integrity_tag
   );
 
   /* Clients MUST discard Retry packets that have a Retry Integrity Tag that

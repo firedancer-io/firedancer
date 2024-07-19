@@ -526,16 +526,4 @@ fd_quic_retry_token_decrypt(
     ulong *             now
 );
 
-int fd_quic_retry_integrity_tag_encrypt(
-    uchar * retry_pseudo_pkt,
-    int     retry_pseudo_pkt_len,
-    uchar   retry_integrity_tag[static FD_QUIC_RETRY_INTEGRITY_TAG_SZ]
-);
-
-int fd_quic_retry_integrity_tag_decrypt(
-    uchar * retry_pseudo_pkt,
-    int     retry_pseudo_pkt_len,
-    uchar   retry_integrity_tag[static FD_QUIC_RETRY_INTEGRITY_TAG_SZ]
-);
-
 #endif /* HEADER_fd_src_waltz_quic_crypto_fd_quic_crypto_suites_h */
