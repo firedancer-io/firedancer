@@ -137,6 +137,11 @@ solana_labs_boot( config_t * config ) {
 
   argv[ idx ] = NULL;
 
+  if( FD_LIKELY( strcmp( config->reporting.solana_metrics_config, "" ) ) ) {
+    if( FD_UNLIKELY( setenv( "SOLANA_METRICS_CONFIG", config->reporting.solana_metrics_config, 1 ) ) )
+      FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
   /* silence a bunch of solana_metrics INFO spam */
   if( FD_UNLIKELY( setenv( "RUST_LOG", "solana=info,solana_metrics::metrics=warn", 1 ) ) )
     FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
