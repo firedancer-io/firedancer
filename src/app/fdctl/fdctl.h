@@ -82,6 +82,7 @@ typedef union {
     ushort  rpc_port;
     ulong   accounts;
     ulong   connections;
+    long    duration;
     ulong   benchg;
     ulong   benchs;
     int     no_quic;

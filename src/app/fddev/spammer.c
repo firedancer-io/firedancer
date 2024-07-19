@@ -34,9 +34,9 @@ void
 spammer_cmd_args( int *    pargc,
                   char *** pargv,
                   args_t * args ) {
-  const char * tpu_ip      = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--tpu-ip",      NULL,  NULL );
-  const char * rpc_ip      = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--rpc-ip",      NULL,  NULL );
-  const char * affinity    = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--affinity",     "-a", NULL );
+  const char * tpu_ip       = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--tpu-ip",      NULL,  NULL );
+  const char * rpc_ip       = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--rpc-ip",      NULL,  NULL );
+  const char * affinity     = fd_env_strip_cmdline_cstr  ( pargc, pargv, "--affinity",     "-a", NULL );
 
   args->spammer.tpu_port    = fd_env_strip_cmdline_ushort( pargc, pargv, "--tpu-port",    NULL,     0 );
   args->spammer.rpc_port    = fd_env_strip_cmdline_ushort( pargc, pargv, "--rpc-port",    NULL,     0 );
@@ -44,6 +44,7 @@ spammer_cmd_args( int *    pargc,
   args->spammer.benchs      = fd_env_strip_cmdline_ulong ( pargc, pargv, "--num-benchs",   "-s",    0 );
   args->spammer.accounts    = fd_env_strip_cmdline_ulong ( pargc, pargv, "--num-accounts", NULL,    0 );
   args->spammer.connections = fd_env_strip_cmdline_ulong ( pargc, pargv, "--connections",  "-c",    0 );
+  args->spammer.duration    = fd_env_strip_cmdline_long  ( pargc, pargv, "--duration",     "-d",    0 );
 
   fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( args->spammer.affinity ), affinity, sizeof( args->spammer.affinity )-1UL ) );
 
@@ -66,6 +67,20 @@ void
 spammer_cmd_fn( args_t *         args,
                 config_t * const config ) {
 
+  /* Use a separate shmem path for the spammer */
+  strncpy( config->hugetlbfs.mount_path, "/mnt/.spammer", sizeof( config->hugetlbfs.mount_path ) );
+  strncpy( config->hugetlbfs.gigantic_page_mount_path, "/mnt/.spammer/.gigantic",
+           sizeof( config->hugetlbfs.gigantic_page_mount_path ) );
+  strncpy( config->hugetlbfs.huge_page_mount_path, "/mnt/.spammer/.huge",
+           sizeof( config->hugetlbfs.huge_page_mount_path ) );
+  char * shmem_args[ 3 ];
+  shmem_args[ 0 ] = "--shmem-path";
+  shmem_args[ 1 ] = config->hugetlbfs.mount_path;
+  shmem_args[ 2 ] = NULL;
+  char ** argv = shmem_args;
+  int     argc = 2;
+  fd_shmem_private_boot( &argc, &argv );
+
   /* set defaults */
   if( FD_UNLIKELY( !args->spammer.tpu_ip ) )
     args->spammer.tpu_ip      = config->tiles.net.ip_addr;
@@ -83,7 +98,9 @@ spammer_cmd_fn( args_t *         args,
     args->spammer.rpc_port    = config->rpc.port;
 
   if( FD_UNLIKELY( !strcmp( args->spammer.affinity, "" ) ) )
-    fd_cstr_append_cstr_safe( args->spammer.affinity, config->development.bench.affinity, sizeof( args->spammer.affinity )-1UL );
+    fd_cstr_append_cstr_safe( args->spammer.affinity,
+                              config->development.bench.affinity,
+                              sizeof( args->spammer.affinity )-1UL );
 
   if( FD_UNLIKELY( !args->spammer.benchg ) )
     args->spammer.benchg      = config->development.bench.benchg_tile_count;
@@ -125,10 +142,18 @@ spammer_cmd_fn( args_t *         args,
 
   run_firedancer_init( config, 1 );
 
-  // Do we need a sandbox?
-
   fd_topo_run_single_process( &config->topo, 0, config->uid, config->gid, fdctl_tile_run, NULL );
 
-  /* Sleep parent thread forever, Ctrl+C will terminate. */
-  for(;;) pause();
+  if( FD_UNLIKELY( args->spammer.duration ) ) {
+    /* Sleep parent thread for `duration` seconds */
+    long then = fd_log_wallclock();
+    long now  = fd_log_wallclock();
+    do {
+      nanosleep1( 1, 0 );
+      now = fd_log_wallclock();
+    } while( ( now-then )<args->spammer.duration*1000L*1000L*1000L );
+  } else {
+    /* Sleep parent thread forever, Ctrl-c will terminate */
+    for(;;) pause();
+  }
 }

@@ -57,12 +57,15 @@ monitor: bin
 
 ifdef FD_HAS_NO_SOLANA
 ifdef FD_HAS_SECP256K1
-$(call make-integration-test,test_fddev,tests/test_fddev,fd_fddev fd_fdctl fd_choreo fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions, $(SECP256K1_LIBS))
+$(call make-integration-test,test_ready,tests/test_ready,fd_fddev fd_fdctl fd_choreo fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions, $(SECP256K1_LIBS))
+$(call make-integration-test,test_bench,tests/test_bench,fd_fddev fd_fdctl fd_choreo fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions, $(SECP256K1_LIBS))
 endif
 else
-$(call make-integration-test,test_fddev,tests/test_fddev,fd_fddev fd_fdctl fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator)
+$(call make-integration-test,test_ready,tests/test_ready,fd_fddev fd_fdctl fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator)
+$(call make-integration-test,test_bench,tests/test_bench,fd_fddev fd_fdctl fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator)
 endif
-$(call run-integration-test,test_fddev)
+$(call run-integration-test,test_ready)
+$(call run-integration-test,test_bench)
 
 endif
 endif
