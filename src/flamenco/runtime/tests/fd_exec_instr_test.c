@@ -1352,11 +1352,13 @@ fd_exec_vm_cpi_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
     err = fd_vm_syscall_cpi_rust( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &ret );
   } 
   effects->error = -err;
-  FD_LOG_WARNING(( "Result %s", fd_vm_strerror( err ) ));
+  effects->r0 = vm->reg[0];
+  effects->cu_avail = (ulong)vm->cu;
+  effects->frame_count = vm->frame_cnt;
+  // TODO: Capture data regions and log
+
   *output = effects;
 
   _context_destroy( runner, ctx );
   return sizeof(fd_exec_test_syscall_effects_t);
-  
-
 }
