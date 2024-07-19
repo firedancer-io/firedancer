@@ -735,10 +735,15 @@ fd_topo_validate( fd_topo_t const * topo );
 
 /* Prints a message describing the topology to an output stream.  If
    stdout is true, will be written to stdout, otherwise will be written
-   as a NOTICE log message to the log file. */
+   as a message to the log file.
+   
+   If writing to the logfile notice_level determins what level the
+   message is written as: zero implies a level of INFO, and nonzero is
+   a level of NOTICE. */
 void
 fd_topo_print_log( int         stdout,
-                   fd_topo_t * topo );
+                   fd_topo_t * topo,
+                   int         notice_level );
 
 FD_PROTOTYPES_END
 

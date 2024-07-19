@@ -17,10 +17,17 @@ FD_PROTOTYPES_BEGIN
    here.
 
    See https://ubuntu.com/blog/ubuntu-23-10-restricted-unprivileged-user-namespaces
-   for more information on the Ubuntu restrictions. */
+   and https://ubuntu.com/blog/whats-new-in-security-for-ubuntu-24-04-lts
+   for more information on the Ubuntu restrictions.
+   
+   desired_uid and desired_gid should be the UID and GID that will be
+   switched to when entering the sandbox, as whether the namespace can
+   be created unprivileged on Ubuntu depends on the AppArmor
+   configuration of this pair. */
 
 int
-fd_sandbox_requires_cap_sys_admin( void );
+fd_sandbox_requires_cap_sys_admin( uint desired_uid,
+                                   uint desired_gid );
 
 /* fd_sandbox_enter takes various steps to enter the process into a
    fully sandboxed execution environment where it has very limited

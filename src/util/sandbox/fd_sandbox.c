@@ -40,18 +40,31 @@
 
 #endif
 
-static int
-check_unshare_eacces_main( void * arg ) {
-  (void)arg;
+void
+fd_sandbox_private_switch_uid_gid( uint desired_uid,
+                                   uint desired_gid );
 
+static int
+check_unshare_eacces_main( void * _arg ) {
+  ulong arg = (ulong)_arg;
+  uint desired_uid = (uint)((arg >> 0UL) & 0xFFFFUL);
+  uint desired_gid = (uint)((arg >> 4UL) & 0xFFFFUL);
+
+  FD_LOG_WARNING(( "desired %u %u", desired_uid, desired_gid ));
+
+  fd_sandbox_private_switch_uid_gid( desired_uid, desired_gid );
   int result = unshare( CLONE_NEWUSER );
-  if( -1==result && errno==EACCES ) return 999;
+  if( -1==result && errno==EACCES ) return 255;
   else if( -1==result ) FD_LOG_ERR(( "unshare(CLONE_NEWUSER) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  result = open( "/proc/self/setgroups", O_WRONLY );
+  if( -1==result && errno==EACCES ) return 255;
+  if( -1==result ) FD_LOG_ERR(( "open(/proc/self/setgroups) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   return 0;
 }
 
 int
-fd_sandbox_requires_cap_sys_admin( void ) {
+fd_sandbox_requires_cap_sys_admin( uint desired_uid,
+                                   uint desired_gid ) {
 
   /* Check for the `unprivileged_userns_clone` sysctl which restricts
      unprivileged user namespaces on Debian. */
@@ -75,21 +88,30 @@ fd_sandbox_requires_cap_sys_admin( void ) {
     if( !unprivileged_userns_clone ) return 1;
   }
 
-  /* Check for EACCESS when actually trying to create a user namespace,
+  /* Check for EACCES when actually trying to create a user namespace,
      which indicates an Ubuntu, AppArmor, or SELinux restriction.  We do
      this in a forked process so it doesn't unintentionally sandbox the
      caller.  Actually we can't fork here, because the stack might be
-     MAP_SHARED, so do it in a clone with a new stack instead. */
+     MAP_SHARED, so do it in a clone with a new stack instead.
+
+     From Ubuntu 23.10 til 24.04, user namespace creation is disallowed
+     by default and trying to create one as an unprivileged user will
+     return EACCES.
+     
+     From Ubuntu 24.04 onwards, user namespace creation is allowed, but
+     trying to write to /proc/self/setgroups or set the UID/GID maps
+     within the namespace will return EACCES. */
 
   do {
     uchar child_stack[ 2097152 ]; /* 2 MiB */
-    int child_pid = clone( check_unshare_eacces_main, child_stack+sizeof(child_stack), 0, NULL );
+    ulong arg = ((ulong)desired_uid << 0UL) | (((ulong)desired_gid) << 4UL);
+    int child_pid = clone( check_unshare_eacces_main, child_stack+sizeof(child_stack), 0, (void*)arg );
     if( -1==child_pid ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     int wstatus;
     if( -1==waitpid( child_pid, &wstatus, __WALL ) )            FD_LOG_ERR(( "waitpid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( WIFSIGNALED( wstatus ) )                                FD_LOG_ERR(( "user namespace privilege checking process terminated by signal %i-%s", WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
-    if( WEXITSTATUS( wstatus ) && WEXITSTATUS( wstatus )!=999 ) FD_LOG_ERR(( "user namespace privilege checking process exited with status %i", WEXITSTATUS( wstatus ) ));
+    if( WEXITSTATUS( wstatus ) && WEXITSTATUS( wstatus )!=255 ) FD_LOG_ERR(( "user namespace privilege checking process exited with status %i", WEXITSTATUS( wstatus ) ));
 
     if( WEXITSTATUS( wstatus ) ) return 1;
   } while(0);
@@ -587,7 +609,7 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
      vector.  You can still make the namespace if you have CAP_SYS_ADMIN
      so we need to make sure to carry this through the switch_uid_gid
      which would drop all capabilities by default. */
-  int userns_requires_cap_sys_admin = fd_sandbox_requires_cap_sys_admin();
+  int userns_requires_cap_sys_admin = fd_sandbox_requires_cap_sys_admin( desired_uid, desired_gid );
   if( userns_requires_cap_sys_admin ) {
     if( -1==prctl( PR_SET_KEEPCAPS, 1 ) ) FD_LOG_ERR(( "prctl(PR_SET_KEEPCAPS, 1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }

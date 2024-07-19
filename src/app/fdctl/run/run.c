@@ -38,7 +38,7 @@ run_cmd_perm( args_t *         args,
                                                                        "call `rlimit(2)  to increase `RLIMIT_NOFILE` to allow more open files for Agave" );
   fd_caps_check_capability(   caps, NAME, CAP_NET_RAW,                 "call `socket(2)` to bind to a raw socket for use by XDP" );
   fd_caps_check_capability(   caps, NAME, CAP_SYS_ADMIN,               "call `bpf(2)` with the `BPF_OBJ_GET` command to initialize XDP" );
-  if( fd_sandbox_requires_cap_sys_admin() )
+  if( fd_sandbox_requires_cap_sys_admin( config->uid, config->gid ) )
     fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,               "call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace" );
   if( FD_LIKELY( getuid() != config->uid ) )
     fd_caps_check_capability( caps, NAME, CAP_SETUID,                  "call `setresuid(2)` to switch uid to the sandbox user" );
@@ -714,7 +714,7 @@ run_firedancer( config_t * const config,
                 int              parent_pipefd,
                 int              init_workspaces ) {
   /* dump the topology we are using to the output log */
-  fd_topo_print_log( 0, &config->topo );
+  fd_topo_print_log( 0, &config->topo, 0 );
 
   run_firedancer_init( config, init_workspaces );
 
@@ -731,8 +731,8 @@ run_firedancer( config_t * const config,
 #endif
   long abi = syscall( SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION );
   if( -1L==abi && (errno==ENOSYS || errno==EOPNOTSUPP ) ) {
-    FD_LOG_WARNING(( "The Landlock access control system is not supported by your Linux kernel. Firedancer uses landlock to "
-                     "provide an additional layer of security to the sandbox, but it is not required." ));
+    FD_LOG_INFO(( "The Landlock access control system is not supported by your Linux kernel. Firedancer uses landlock to "
+                  "provide an additional layer of security to the sandbox, but it is not required." ));
   }
 
   if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));

@@ -130,7 +130,7 @@ static void
 run_firedancer_threaded( config_t * config ) {
   install_parent_signals();
 
-  fd_topo_print_log( 0, &config->topo );
+  fd_topo_print_log( 0, &config->topo, 1 );
 
   run_firedancer_init( config, 1 );
 
