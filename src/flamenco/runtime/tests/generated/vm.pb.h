@@ -56,6 +56,7 @@ typedef struct fd_exec_test_vm_context {
     uint64_t r10;
     uint64_t r11;
     bool check_align;
+    bool check_size;
 } fd_exec_test_vm_context_t;
 
 typedef PB_BYTES_ARRAY_T(1400) fd_exec_test_syscall_invocation_function_name_t;
@@ -65,6 +66,8 @@ typedef struct fd_exec_test_syscall_invocation {
     fd_exec_test_syscall_invocation_function_name_t function_name;
     /* The initial portion of the heap, for example to store syscall inputs */
     pb_bytes_array_t *heap_prefix;
+    /* The initial portion of the stack, for example to store syscall inputs */
+    pb_bytes_array_t *stack_prefix;
 } fd_exec_test_syscall_invocation_t;
 
 /* Execution context for a VM Syscall execution. */
@@ -135,8 +138,8 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_DEFAULT {0, NULL, 0}
-#define FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT     {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-#define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT {{0, {0}}, NULL}
+#define FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT     {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT {{0, {0}}, NULL, NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT}
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT {0, 0, 0, NULL, NULL, NULL, 0, NULL}
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT}
@@ -144,8 +147,8 @@ extern "C" {
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_DEFAULT {0, 0}
 #define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_ZERO {0, NULL, 0}
-#define FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO        {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-#define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO {{0, {0}}, NULL}
+#define FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO        {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO {{0, {0}}, NULL, NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO}
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO   {0, 0, 0, NULL, NULL, NULL, 0, NULL}
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_ZERO   {false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO}
@@ -175,8 +178,10 @@ extern "C" {
 #define FD_EXEC_TEST_VM_CONTEXT_R10_TAG          16
 #define FD_EXEC_TEST_VM_CONTEXT_R11_TAG          17
 #define FD_EXEC_TEST_VM_CONTEXT_CHECK_ALIGN_TAG  18
+#define FD_EXEC_TEST_VM_CONTEXT_CHECK_SIZE_TAG   19
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_FUNCTION_NAME_TAG 1
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_HEAP_PREFIX_TAG 2
+#define FD_EXEC_TEST_SYSCALL_INVOCATION_STACK_PREFIX_TAG 3
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_VM_CTX_TAG  1
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INSTR_CTX_TAG 2
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_SYSCALL_INVOCATION_TAG 3
@@ -223,14 +228,16 @@ X(a, STATIC,   SINGULAR, UINT64,   r8,               14) \
 X(a, STATIC,   SINGULAR, UINT64,   r9,               15) \
 X(a, STATIC,   SINGULAR, UINT64,   r10,              16) \
 X(a, STATIC,   SINGULAR, UINT64,   r11,              17) \
-X(a, STATIC,   SINGULAR, BOOL,     check_align,      18)
+X(a, STATIC,   SINGULAR, BOOL,     check_align,      18) \
+X(a, STATIC,   SINGULAR, BOOL,     check_size,       19)
 #define FD_EXEC_TEST_VM_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_VM_CONTEXT_DEFAULT NULL
 #define fd_exec_test_vm_context_t_input_data_regions_MSGTYPE fd_exec_test_input_data_region_t
 
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BYTES,    function_name,     1) \
-X(a, POINTER,  SINGULAR, BYTES,    heap_prefix,       2)
+X(a, POINTER,  SINGULAR, BYTES,    heap_prefix,       2) \
+X(a, POINTER,  SINGULAR, BYTES,    stack_prefix,      3)
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_CALLBACK NULL
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_DEFAULT NULL
 

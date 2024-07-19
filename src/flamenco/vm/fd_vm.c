@@ -379,6 +379,11 @@ fd_vm_init(
     return NULL;
   }
 
+  if ( FD_UNLIKELY( heap_max > FD_VM_HEAP_MAX ) ) {
+    FD_LOG_WARNING(( "heap_max > FD_VM_HEAP_MAX" ));
+    return NULL;
+  }
+
   // Set the vm fields
   vm->instr_ctx = instr_ctx;
   vm->heap_max = heap_max;

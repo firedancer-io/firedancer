@@ -1173,11 +1173,18 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   vm->reg[11] = input->vm_ctx.r11;
 
   vm->check_align = input->vm_ctx.check_align;
+  vm->check_size = input->vm_ctx.check_size;
 
   // Override initial part of the heap, if specified the syscall fuzzer input
   if( input->syscall_invocation.heap_prefix ) {
     fd_memcpy( vm->heap, input->syscall_invocation.heap_prefix->bytes,
                fd_ulong_min(input->syscall_invocation.heap_prefix->size, vm->heap_max) );
+  }
+
+  // Override initial part of the stack, if specified the syscall fuzzer input
+  if( input->syscall_invocation.stack_prefix ) {
+    fd_memcpy( vm->stack, input->syscall_invocation.stack_prefix->bytes,
+               fd_ulong_min(input->syscall_invocation.stack_prefix->size, FD_VM_STACK_MAX) );
   }
 
   // Look up the syscall to execute
