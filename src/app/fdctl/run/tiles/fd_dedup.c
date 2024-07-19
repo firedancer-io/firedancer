@@ -129,6 +129,10 @@ after_frag( void *             _ctx,
   (void)mux;
   (void)opt_chunk;
   (void)opt_sz;
+  (void)in_idx;
+  (void)opt_sig;
+  (void)opt_filter;
+  (void)_ctx;
 
   fd_dedup_ctx_t * ctx = (fd_dedup_ctx_t *)_ctx;
 
@@ -150,44 +154,44 @@ after_frag( void *             _ctx,
       FD_LOG_ERR(( "got malformed txn (sz %lu) insufficient space left in dcache for fd_txn_t", payload_sz ));
     }
 
-    uchar    * dcache_entry = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-    fd_txn_t * txn = (fd_txn_t *)(dcache_entry + txn_off);
-    ulong txn_t_sz = fd_txn_parse( dcache_entry, payload_sz, txn, NULL );
-    if( FD_UNLIKELY( !txn_t_sz ) ) {
-      FD_LOG_ERR(( "fd_txn_parse failed for vote transactions that should have been sigverified" ));
-      *opt_filter = 1;
-      return;
-    }
+    // uchar    * dcache_entry = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    // fd_txn_t * txn = (fd_txn_t *)(dcache_entry + txn_off);
+    // ulong txn_t_sz = fd_txn_parse( dcache_entry, payload_sz, txn, NULL );
+    // if( FD_UNLIKELY( !txn_t_sz ) ) {
+    //   FD_LOG_ERR(( "fd_txn_parse failed for vote transactions that should have been sigverified" ));
+    //   *opt_filter = 1;
+    //   return;
+    // }
 
     /* Write payload_sz into trailer.
        fd_txn_parse always returns a multiple of 2 so this sz is
        correctly aligned. */
-    ushort * payload_sz_p = (ushort *)((ulong)txn + txn_t_sz);
-    *payload_sz_p = (ushort)payload_sz;
+    // ushort * payload_sz_p = (ushort *)((ulong)txn + txn_t_sz);
+    // *payload_sz_p = (ushort)payload_sz;
 
     /* End of parsed message. */
 
     /* Paranoia post parsing. */
-    ulong new_sz = ( (ulong)payload_sz_p + sizeof(ushort) ) - (ulong)dcache_entry;
-    if( FD_UNLIKELY( new_sz>FD_TPU_DCACHE_MTU ) ) {
-      FD_LOG_CRIT(( "memory corruption detected (txn_sz=%lu txn_t_sz=%lu)",
-                    payload_sz, txn_t_sz ));
-    }
+    // ulong new_sz = ( (ulong)payload_sz_p + sizeof(ushort) ) - (ulong)dcache_entry;
+    // if( FD_UNLIKELY( new_sz>FD_TPU_DCACHE_MTU ) ) {
+    //   FD_LOG_CRIT(( "memory corruption detected (txn_sz=%lu txn_t_sz=%lu)",
+    //                 payload_sz, txn_t_sz ));
+    // }
 
     /* Assert that the payload_sz includes all signatures.
        We don't need them all for dedup. */
-    ushort sig_off = txn->signature_off;
-    ulong sig_end_off = sig_off + FD_TXN_SIGNATURE_SZ * txn->signature_cnt;
-    if( FD_UNLIKELY( sig_end_off > payload_sz ) ) {
-      FD_LOG_ERR( ("txn is invalid: payload_sz = %lx, sig_off = %x, sig_end_off = %lx", payload_sz, sig_off, sig_end_off ) );
-    }
+    // ushort sig_off = txn->signature_off;
+    // ulong sig_end_off = sig_off + FD_TXN_SIGNATURE_SZ * txn->signature_cnt;
+    // if( FD_UNLIKELY( sig_end_off > payload_sz ) ) {
+    //   FD_LOG_ERR( ("txn is invalid: payload_sz = %lx, sig_off = %x, sig_end_off = %lx", payload_sz, sig_off, sig_end_off ) );
+    // }
 
     /* Write signature for dedup. */
-    ulong txn_sig = FD_VERIFY_DEDUP_TAG_FROM_PAYLOAD_SIG( dcache_entry + sig_off );
-    *opt_sig = txn_sig;
+    // ulong txn_sig = FD_VERIFY_DEDUP_TAG_FROM_PAYLOAD_SIG( dcache_entry + sig_off );
+    // *opt_sig = txn_sig;
 
     /* Write new size for mcache. */
-    *opt_sz = new_sz;
+    // *opt_sz = new_sz;
   }
 
   int is_dup;
@@ -204,33 +208,33 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  /* Frankendancer has gossip_dedup, verify_dedup+
-     Firedancer has gossip_dedup, voter_dedup, verify_dedup+ */
-  ulong unparsed_in_cnt = 1;
-  if( FD_UNLIKELY( tile->in_cnt<2UL ) ) {
-    FD_LOG_ERR(( "dedup tile needs at least two input links, got %lu", tile->in_cnt ));
-  } else if( FD_UNLIKELY( strcmp( topo->links[ tile->in_link_id[ GOSSIP_IN_IDX ] ].name, "gossip_dedup" ) ) ) {
-    /* We have one link for gossip messages... */
-    FD_LOG_ERR(( "dedup tile has unexpected input links %lu %lu %s",
-                 tile->in_cnt, GOSSIP_IN_IDX, topo->links[ tile->in_link_id[ GOSSIP_IN_IDX ] ].name ));
-  } else {
-    /* ...followed by a voter_dedup link if it were the Firedancer topology */
-    ulong voter_dedup_idx = fd_topo_find_tile_in_link( topo, tile, "voter_dedup", 0 );
-    if( voter_dedup_idx!=ULONG_MAX ) {
-      FD_TEST( voter_dedup_idx == VOTER_IN_IDX );
-      unparsed_in_cnt = 2;
-    } else {
-      unparsed_in_cnt = 1;
-    }
+  // /* Frankendancer has gossip_dedup, verify_dedup+
+  //    Firedancer has gossip_dedup, voter_dedup, verify_dedup+ */
+  // ulong unparsed_in_cnt = 1;
+  // if( FD_UNLIKELY( tile->in_cnt<2UL ) ) {
+  //   FD_LOG_ERR(( "dedup tile needs at least two input links, got %lu", tile->in_cnt ));
+  // } else if( FD_UNLIKELY( strcmp( topo->links[ tile->in_link_id[ GOSSIP_IN_IDX ] ].name, "gossip_dedup" ) ) ) {
+  //   /* We have one link for gossip messages... */
+  //   FD_LOG_ERR(( "dedup tile has unexpected input links %lu %lu %s",
+  //                tile->in_cnt, GOSSIP_IN_IDX, topo->links[ tile->in_link_id[ GOSSIP_IN_IDX ] ].name ));
+  // } else {
+  //   /* ...followed by a voter_dedup link if it were the Firedancer topology */
+  //   ulong voter_dedup_idx = fd_topo_find_tile_in_link( topo, tile, "voter_dedup", 0 );
+  //   if( voter_dedup_idx!=ULONG_MAX ) {
+  //     FD_TEST( voter_dedup_idx == VOTER_IN_IDX );
+  //     unparsed_in_cnt = 2;
+  //   } else {
+  //     unparsed_in_cnt = 1;
+  //   }
 
-    /* ...followed by a sequence of verify_dedup links */
-    for( ulong i=unparsed_in_cnt; i<tile->in_cnt; i++ ) {
-      if( FD_UNLIKELY( strcmp( topo->links[ tile->in_link_id[ i ] ].name, "verify_dedup" ) ) ) {
-        FD_LOG_ERR(( "dedup tile has unexpected input links %lu %lu %s",
-                     tile->in_cnt, i, topo->links[ tile->in_link_id[ i ] ].name ));
-      }
-    }
-  }
+  //   /* ...followed by a sequence of verify_dedup links */
+  //   for( ulong i=unparsed_in_cnt; i<tile->in_cnt; i++ ) {
+  //     if( FD_UNLIKELY( strcmp( topo->links[ tile->in_link_id[ i ] ].name, "verify_dedup" ) ) ) {
+  //       FD_LOG_ERR(( "dedup tile has unexpected input links %lu %lu %s",
+  //                    tile->in_cnt, i, topo->links[ tile->in_link_id[ i ] ].name ));
+  //     }
+  //   }
+  // }
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_dedup_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_dedup_ctx_t ), sizeof( fd_dedup_ctx_t ) );
@@ -244,7 +248,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tcache_map     = fd_tcache_map_laddr   ( tcache );
 
   FD_TEST( tile->in_cnt<=sizeof( ctx->in )/sizeof( ctx->in[ 0 ] ) );
-  ctx->unparsed_in_cnt = unparsed_in_cnt;
+  // ctx->unparsed_in_cnt = unparsed_in_cnt;
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
