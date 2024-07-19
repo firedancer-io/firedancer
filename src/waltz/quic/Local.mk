@@ -19,6 +19,7 @@ $(call add-hdrs,fd_quic_proto.h fd_quic_proto_structs.h fd_quic_types.h)
 $(call add-objs,fd_quic_proto,fd_quic)
 
 $(call add-hdrs,fd_quic_retry.h)
+$(call add-objs,fd_quic_retry,fd_quic)
 
 $(call add-hdrs,fd_quic_stream_pool.h)
 $(call add-objs,fd_quic_stream_pool,fd_quic)
