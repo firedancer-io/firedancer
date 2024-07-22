@@ -198,7 +198,6 @@ fd_vm_mem_haddr( FD_FN_UNUSED fd_vm_t const *  vm,
   ulong region    = fd_ulong_min( vaddr_hi, 5UL );
   ulong offset    = vaddr & 0xffffffffUL;
   ulong region_sz = (ulong)vm_region_sz[ region ];
-  ulong sz_max    = region_sz - fd_ulong_min( offset, region_sz );
 
   /* Stack memory regions have 4kB unmapped "gaps" in-between each frame.
      https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L141
@@ -208,11 +207,11 @@ fd_vm_mem_haddr( FD_FN_UNUSED fd_vm_t const *  vm,
   }
   
 # ifdef FD_VM_INTERP_MEM_TRACING_ENABLED
-  if ( FD_LIKELY( sz<=sz_max ) ) {
+  if ( FD_LIKELY( offset + sz >= offset && offset + sz < region_sz ) ) {
     fd_vm_trace_event_mem( vm->trace, write, vaddr, sz, vm_region_haddr[ region ] + offset );
   }
 # endif
-  return fd_ulong_if( sz<=sz_max, vm_region_haddr[ region ] + offset, sentinel );
+  return fd_ulong_if( offset + sz >= offset && offset + sz < region_sz, vm_region_haddr[ region ] + offset, sentinel );
 }
 
 FD_FN_PURE static inline ulong
