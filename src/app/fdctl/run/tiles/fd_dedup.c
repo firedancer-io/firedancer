@@ -95,6 +95,8 @@ during_frag( void * _ctx,
   (void)seq;
   (void)sig;
   (void)opt_filter;
+  *opt_filter = 1;
+  return;
 
   fd_dedup_ctx_t * ctx = (fd_dedup_ctx_t *)_ctx;
 
