@@ -1212,7 +1212,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 }
 
 int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn ) {
-  fd_rent_t const * rent = slot_ctx->sysvar_cache_old.rent;
+  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
 
   ulong ending_lamports = 0;
   ulong ending_dlen = 0;
