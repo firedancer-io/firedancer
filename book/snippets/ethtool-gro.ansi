@@ -4,4 +4,4 @@ $ sudo fdctl configure init ethtool-gro
 [32mNOTICE [0m ethtool-gro ... RUN: `ethtool --offload ens3f0 generic-receive-offload off`
 
 $ ethtool --show-offload ens3f0 | grep generic-receive-offload
-[01;31m[Kgeneric-receive-offload[m[K: off
+generic-receive-offload: off
