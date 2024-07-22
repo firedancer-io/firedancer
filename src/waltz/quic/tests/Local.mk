@@ -1,5 +1,5 @@
 ifdef FD_HAS_HOSTED
-$(call add-hdrs,fd_quic_sandbox.h)
+$(call add-hdrs,fd_quic_sandbox.h fd_quic_test_helpers.h)
 $(call add-objs,fd_quic_stream_spam fd_quic_sandbox fd_quic_test_helpers,fd_quic)
 
 # fd_quic unit tests
