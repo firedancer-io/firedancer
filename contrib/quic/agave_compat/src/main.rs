@@ -7,63 +7,21 @@ use std::ffi::{c_char, c_void};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-type fd_aio_t = c_void;
-type fd_quic_t = c_void;
-type fd_udpsock_t = c_void;
-type fd_wksp_t = c_void;
-
-#[repr(C, align(16))]
-struct fd_rng_t {
-    seq: u64,
-    idx: u64,
+#[allow(non_upper_case_globals)]
+#[allow(non_camel_case_types)]
+#[allow(non_snake_case)]
+#[allow(unused)]
+#[allow(clippy::all)]
+mod bindings {
+    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
 
-const FD_QUIC_ROLE_SERVER: i32 = 2;
-
-#[link(name = "fd_quic", kind = "static")]
-#[link(name = "fd_waltz", kind = "static")] // net
-#[link(name = "fd_tls", kind = "static")]
-#[link(name = "fd_ballet", kind = "static")] // crypto
-#[link(name = "fd_util", kind = "static")]
-#[link(name = "stdc++", kind = "static")]
-extern "C" {
-    fn fd_boot(pargc: *mut i32, pargv: *mut *mut *mut c_char);
-    fn fd_halt();
-
-    fn fd_wksp_new_anon(
-        name: *const c_char,
-        page_sz: u64,
-        sub_cnt: u64,
-        sub_page_cnt: *const u64,
-        sub_cpu_idx: *const u64,
-        seed: u32,
-        opt_part_max: u64,
-    ) -> *mut fd_wksp_t;
-
-    fn fd_udpsock_align() -> u64;
-    fn fd_udpsock_footprint(mtu: u64, rx_pkt_cnt: u64, tx_pkt_cnt: u64) -> u64;
-
-    fn fd_udpsock_new(
-        shmem: *mut c_void,
-        mtu: u64,
-        rx_pkt_cnt: u64,
-        tx_pkt_cnt: u64,
-    ) -> *mut c_void;
-    fn fd_udpsock_join(shsock: *mut c_void, fd: i32) -> *mut fd_udpsock_t;
-    fn fd_udpsock_set_rx(sock: *mut fd_udpsock_t, aio: *const fd_aio_t);
-    fn fd_udpsock_get_tx(sock: *mut fd_udpsock_t) -> *const fd_aio_t;
-    fn fd_udpsock_service(sock: *mut fd_udpsock_t);
-
-    fn fd_quic_new_anonymous_small(
-        wksp: *mut fd_wksp_t,
-        role: i32,
-        rng: *mut fd_rng_t,
-    ) -> *mut fd_quic_t;
-    fn fd_quic_get_aio_net_rx(quic: *mut fd_quic_t) -> *const fd_aio_t;
-    fn fd_quic_set_aio_net_tx(quic: *mut fd_quic_t, aio_tx: *const fd_aio_t);
-    fn fd_quic_init(quic: *mut fd_quic_t) -> *mut fd_quic_t;
-    fn fd_quic_service(quic: *mut fd_quic_t);
-}
+use crate::bindings::{
+    fd_boot, fd_halt, fd_quic_get_aio_net_rx, fd_quic_init, fd_quic_new_anonymous_small,
+    fd_quic_service, fd_quic_set_aio_net_tx, fd_quic_t, fd_rng_t, fd_udpsock_align,
+    fd_udpsock_footprint, fd_udpsock_get_tx, fd_udpsock_join, fd_udpsock_new, fd_udpsock_service,
+    fd_udpsock_set_rx, fd_udpsock_t, fd_wksp_new_anon, fd_wksp_t, FD_QUIC_ROLE_SERVER,
+};
 
 unsafe fn fd_wksp_new_anonymous(
     page_sz: u64,
@@ -138,7 +96,7 @@ unsafe fn _main() {
     let udpsock = fd_udpsock_join(fd_udpsock_new(udpsock_mem, 2048, 256, 256), udp_sock_fd);
     assert!(!udpsock.is_null(), "Failed to create fd_udpsock_t");
 
-    let quic = fd_quic_new_anonymous_small(wksp, FD_QUIC_ROLE_SERVER, &mut rng);
+    let quic = fd_quic_new_anonymous_small(wksp, FD_QUIC_ROLE_SERVER as i32, &mut rng);
     assert!(!quic.is_null(), "Failed to create fd_quic_t");
 
     fd_quic_set_aio_net_tx(quic, fd_udpsock_get_tx(udpsock));
