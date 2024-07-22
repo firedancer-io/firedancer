@@ -30,3 +30,5 @@ close
 
 # server: serving metric values over HTTP requires polling conns
 poll
+
+clock_gettime

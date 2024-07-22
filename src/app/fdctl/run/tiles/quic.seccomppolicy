@@ -19,3 +19,5 @@ fsync: (eq (arg 0) logfile_fd)
 
 # QUIC uses getrandom for cryptographically secure randomness.
 getrandom
+
+clock_gettime

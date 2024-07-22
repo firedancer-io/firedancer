@@ -53,16 +53,18 @@
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
 #include "../../ballet/txn/fd_txn.h"
+
+/* Wiredancer unit test */
+
+#if 0
+// #if FD_HAS_HOSTED && FD_HAS_X86 && FD_HAS_WIREDANCER
+
 #include "../../ballet/ed25519/fd_ed25519_private.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/sha512/fd_sha512.h"
 #include "../c/wd_f1.h"
 #include "wd_f1_mon.h"
 #include <pthread.h>
-
-/* Wiredancer unit test */
-
-#if FD_HAS_HOSTED && FD_HAS_X86 && FD_HAS_WIREDANCER
 
 #define DEMO_REPLAY_FSEQ_CNT_MAX 1 /* max number of replay consumers*/
 

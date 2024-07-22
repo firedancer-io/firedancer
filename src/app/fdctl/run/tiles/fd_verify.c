@@ -155,6 +155,22 @@ after_frag( void *             _ctx,
 }
 
 static void
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile,
+                 void *           scratch ) {
+  (void)topo;
+  (void)tile;
+  (void)scratch;
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_verify_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  FD_TEST( wd_init_pci( &ctx->wd, 1 ) == 0 );
+}
+
+static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
@@ -239,6 +255,6 @@ fd_topo_run_tile_t fd_tile_verify = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
-  .privileged_init          = NULL,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
 };

@@ -90,3 +90,6 @@ recvfrom: (and (eq (arg 0) netlink_fd)
                (eq (arg 3) 0)
                (eq (arg 4) 0)
                (eq (arg 5) 0))
+
+
+clock_gettime

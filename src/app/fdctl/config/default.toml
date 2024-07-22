@@ -531,7 +531,7 @@ dynamic_port_range = "8900-9000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so
     # that the Solana network can run as fast as possible.
-    affinity = "1-16"
+    affinity = "1-5"
 
     # In addition to the Firedancer tiles which use a core each, the
     # current version of Firedancer hosts a Solana Labs (Agave)
@@ -569,7 +569,7 @@ dynamic_port_range = "8900-9000"
     # How many verify tiles to run.  Verify tiles perform signature
     # verification on incoming transactions, an expensive operation that
     # is often the bottleneck of the validator.
-    verify_tile_count = 5
+    verify_tile_count = 1
 
     # How many bank tiles to run.  Multiple banks can run in parallel,
     # if they are not writing to the same accounts at the same time.
@@ -943,7 +943,7 @@ dynamic_port_range = "8900-9000"
     #   - "frankendancer"   The Frankendancer topology for running the
     #                       mixed client with Firedancer networking
     #                       and Solana runtime.
-    topology = "frankendancer"
+    topology = "wd-f1"
 
     # It can be convenient during development to use a network namespace
     # for running Firedancer.  This allows us to send packets at a local

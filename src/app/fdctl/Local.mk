@@ -52,6 +52,7 @@ endif
 # fdctl topologies
 $(call add-objs,run/topos/fd_frankendancer,fd_fdctl)
 $(call add-objs,run/topos/fd_firedancer,fd_fdctl)
+$(call add-objs,run/topos/fd_wd_f1,fd_fdctl)
 
 # fdctl configure stages
 $(call add-objs,configure/configure,fd_fdctl)
@@ -64,7 +65,7 @@ ifdef FD_HAS_NO_SOLANA
 ifdef FD_HAS_SECP256K1
 $(call make-lib,external_functions)
 $(call add-objs,external_functions,external_functions)
-$(call make-bin-rust,fdctl,main,fd_fdctl fd_choreo fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_ip fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions, $(SECP256K1_LIBS))
+$(call make-bin-rust,fdctl,main,fd_fdctl fd_choreo fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_ip fd_reedsol fd_ballet fd_waltz fd_tango fd_util fd_wiredancer external_functions, $(SECP256K1_LIBS))
 endif
 else
 $(call make-bin-rust,fdctl,main,fd_fdctl fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_ip fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator)
