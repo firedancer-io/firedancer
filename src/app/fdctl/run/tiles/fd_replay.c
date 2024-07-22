@@ -810,7 +810,7 @@ after_frag( void *             _ctx,
                                                                ctx->ghost );
 
       // fd_ghost_print( ctx->ghost );
-      fd_ghost_print_node( ctx->ghost, child->slot, 8 );
+      fd_ghost_slot_print( ctx->ghost, child->slot, 8 );
       fd_tower_print( ctx->tower );
 
       FD_LOG_NOTICE( ( "\n\n[Fork Selection]\n"
@@ -821,7 +821,7 @@ after_frag( void *             _ctx,
                        fd_tower_vote_accs_cnt( ctx->tower->vote_accs ),
                        !!reset_fork ? reset_fork->slot : 0,
                        !!vote_fork ? vote_fork->slot : 0,
-                       fd_ghost_head_query( ctx->ghost )->slot ) );
+                       fd_ghost_head( ctx->ghost )->slot ) );
 
       ulong poh_slot = fd_fseq_query( ctx->poh_slot );
       if( FD_UNLIKELY( ctx->vote && poh_slot == ULONG_MAX ) ) {
