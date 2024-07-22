@@ -30,20 +30,20 @@ print( fd_tower_vote_t * tower_votes, ulong root ) {
 
   /* Calculate the number of digits in the maximum slot value. */
 
-  int           radix = 0;
-  unsigned long rem   = max_slot;
+  int           digit_cnt = 0;
+  unsigned long rem       = max_slot;
   do {
     rem /= 10;
-    ++radix;
+    ++digit_cnt;
   } while( rem > 0 );
 
   /* Print the table header */
 
-  printf( "%*s | %s\n", radix, "slot", "confirmation count" );
+  printf( "%*s | %s\n", digit_cnt, "slot", "confirmation count" );
 
   /* Print the divider line */
 
-  for( int i = 0; i < radix; i++ ) {
+  for( int i = 0; i < digit_cnt; i++ ) {
     printf( "-" );
   }
   printf( " | " );
@@ -59,10 +59,10 @@ print( fd_tower_vote_t * tower_votes, ulong root ) {
        iter = fd_tower_votes_iter_prev( tower_votes, iter ) ) {
 
     fd_tower_vote_t const * vote = fd_tower_votes_iter_ele_const( tower_votes, iter );
-    printf( "%*lu | %lu\n", radix, vote->slot, vote->conf );
+    printf( "%*lu | %lu\n", digit_cnt, vote->slot, vote->conf );
     max_slot = fd_ulong_max( max_slot, fd_tower_votes_iter_ele_const( tower_votes, iter )->slot );
   }
-  printf( "%*lu | root\n", radix, root );
+  printf( "%*lu | root\n", digit_cnt, root );
   printf( "\n" );
 }
 
@@ -254,11 +254,10 @@ fd_tower_lockout_check( fd_tower_t const * tower,
 
   int lockout_check = top_vote->slot < ghost->root->slot ||
                       fd_ghost_is_descendant( ghost, fork->slot, top_vote->slot );
-  if( FD_UNLIKELY( !lockout_check ) ) {
-    FD_LOG_NOTICE( ( "[fd_tower_lockout_check] locked out from voting for %lu by prior vote %lu",
-                     fork->slot,
-                     top_vote->slot ) );
-  }
+  FD_LOG_NOTICE(( "[fd_tower_lockout_check] ok? %d. top: %lu. switch: %lu.",
+                  lockout_check,
+                  top_vote->slot,
+                  fork->slot ));
   return lockout_check;
 }
 
@@ -266,36 +265,67 @@ int
 fd_tower_switch_check( fd_tower_t const * tower,
                        fd_fork_t const *  fork,
                        fd_ghost_t const * ghost ) {
-  ulong switch_stake = 0;
 
-  fd_ghost_node_t const * ancestor = fd_ghost_node_query_const( ghost, fork->slot );
+  fd_tower_vote_t const * latest_vote = fd_tower_votes_peek_tail_const( tower->votes );
 
-#if FD_GHOST_USE_HANDHOLDING
-  if( FD_UNLIKELY( !ancestor ) ) {
+  if( FD_UNLIKELY( latest_vote->slot < ghost->root->slot ) ) {
 
-    /* It is invariant that the fork head must be in ghost, as it was just inserted during
-       fd_tower_fork_update. */
+    /* It is possible our latest vote slot precedes our ghost root. This
+       can happen, for example, when we restart from a snapshot and set
+       the ghost root to the snapshot slot (we won't have an ancestry
+       before the snapshot slot.)
 
-    FD_LOG_ERR(( "unable to find fork head %lu in ghost", fork->slot ));
+       If this is the case, we assume it's ok to switch. */
+
+    return 1;
   }
-#endif
 
-  while( FD_LIKELY( ancestor->parent ) ) {
-    fd_ghost_node_t * child = ancestor->child;
+  /* Assumption: fd_tower_switch_check is only called if
+     latest_vote->slot and fork->slot are on different forks (determined
+     by is_descendant), so they must not fall on the same ancestry path
+     back to the gca.
 
-    /* Both conditionals are marked FD_LIKELY because we only try to
-       switch if the best fork differs from our latest vote fork. */
+     INVALID:
 
-    while( FD_LIKELY( child ) ) {
+       0
+        \
+         1    <- a
+          \
+           2  <- b
 
-      if( FD_LIKELY( child != ancestor && child->slot ) ) switch_stake += child->weight;
-      child = child->sibling;
+     VALID:
+
+       0
+      / \
+     1   2
+     ^   ^
+     a   b
+
+  */
+
+  fd_ghost_node_t const * gca = fd_ghost_gca( ghost, latest_vote->slot, fork->slot );
+
+  /* gca_child is our latest_vote slot's ancestor that is also a direct
+     child of GCA.  So we do not count it towards the stake of the
+     different forks. */
+
+  fd_ghost_node_t const * gca_child = fd_ghost_query_const( ghost, latest_vote->slot );
+  while( gca_child->parent != gca ) {
+    gca_child = gca_child->parent;
+  }
+
+  ulong switch_stake = 0;
+  fd_ghost_node_t const * child = gca->child;
+  while ( FD_LIKELY( child ) ) {
+    if ( FD_LIKELY ( child != gca_child ) ) {
+      switch_stake += child->weight;
     }
-    ancestor = ancestor->parent;
+    child = child->sibling;
   }
 
   double switch_pct = (double)switch_stake / (double)tower->total_stake;
-  FD_LOG_NOTICE(( "[fd_tower_switch_check] latest vote slot: %lu. switch slot: %lu. stake: %.0lf%%",
+  FD_LOG_NOTICE(( "[fd_tower_switch_check] ok? %d. top: %lu. switch: %lu. switch stake: %.0lf%%.",
+                  switch_pct > SWITCH_PCT,
                   fd_tower_votes_peek_tail_const( tower->votes )->slot,
                   fork->slot,
                   switch_pct * 100.0 ));
@@ -395,7 +425,8 @@ fd_tower_threshold_check( fd_tower_t const * tower,
   }
 
   double threshold_pct = (double)threshold_stake / (double)tower->total_stake;
-  FD_LOG_NOTICE(( "[fd_tower_threshold_check] latest vote slot %lu. threshold slot: %lu. stake: %.0lf%%",
+  FD_LOG_NOTICE(( "[fd_tower_threshold_check] ok? %d. top: %lu. threshold: %lu. stake: %.0lf%%.",
+                  threshold_pct > THRESHOLD_PCT,
                   fd_tower_votes_peek_tail_const( tower->votes )->slot,
                   threshold_slot,
                   threshold_pct * 100.0 ));
@@ -406,7 +437,7 @@ fd_fork_t const *
 fd_tower_best_fork_select( FD_PARAM_UNUSED fd_tower_t const * tower,
                            fd_forks_t const *                 forks,
                            fd_ghost_t const *                 ghost ) {
-  fd_ghost_node_t const * head = fd_ghost_head_query_const( ghost );
+  fd_ghost_node_t const * head = fd_ghost_head( ghost );
 
   /* Search for the fork head in the frontier. */
 
@@ -498,7 +529,20 @@ fd_tower_vote_fork_select( fd_tower_t *       tower,
     /* The best fork is on the same fork and we can vote for
        best_fork->slot if we pass the threshold check. */
 
-    if( FD_LIKELY( fd_tower_threshold_check( tower, best, acc_mgr ) ) ) vote_fork = best;
+    if( FD_LIKELY( fd_tower_threshold_check( tower, best, acc_mgr ) ) ) {
+      FD_LOG_NOTICE(( "[fd_tower_vote_fork_select] success (threshold). best: %lu. vote: "
+                      "(slot: %lu conf: %lu)",
+                      best->slot,
+                      latest_vote->slot,
+                      latest_vote->conf ));
+      vote_fork = best;
+    } else {
+      FD_LOG_NOTICE(( "[fd_tower_vote_fork_select] failure (threshold). best: %lu. vote: "
+                      "(slot: %lu conf: %lu)",
+                      best->slot,
+                      latest_vote->slot,
+                      latest_vote->conf ));
+    }
 
   } else {
 
@@ -507,13 +551,18 @@ fd_tower_vote_fork_select( fd_tower_t *       tower,
 
     if( FD_UNLIKELY( fd_tower_lockout_check( tower, best, ghost ) &&
                      fd_tower_switch_check( tower, best, ghost ) ) ) {
-      fd_tower_vote_t const * vote = fd_tower_votes_peek_tail_const( tower->votes );
-      FD_LOG_NOTICE(( "[fd_tower_vote_fork_select] switching to best fork %lu from last vote "
+      FD_LOG_NOTICE(( "[fd_tower_vote_fork_select] success (lockout switch). best: %lu. vote: "
                       "(slot: %lu conf: %lu)",
                       best->slot,
-                      vote->slot,
-                      vote->conf ));
+                      latest_vote->slot,
+                      latest_vote->conf ));
       vote_fork = best;
+    } else {
+      FD_LOG_NOTICE(( "[fd_tower_vote_fork_select] failure (lockout switch). best: %lu. vote: "
+                      "(slot: %lu conf: %lu)",
+                      best->slot,
+                      latest_vote->slot,
+                      latest_vote->conf ));
     }
   }
 
@@ -610,7 +659,7 @@ fd_tower_fork_update( fd_tower_t const * tower,
 
   /* Insert the new fork head into ghost. */
 
-  fd_ghost_node_t * ghost_node = fd_ghost_node_insert( ghost, fork->slot, parent_slot );
+  fd_ghost_node_t * ghost_node = fd_ghost_insert( ghost, fork->slot, parent_slot );
 
 #if FD_TOWER_USE_HANDHOLDING
   if( FD_UNLIKELY( !ghost_node ) ) {
@@ -659,7 +708,7 @@ fd_tower_fork_update( fd_tower_t const * tower,
 
       /* Upsert the vote into ghost. */
 
-      fd_ghost_replay_vote_upsert( ghost, vote_slot, &vote_state->node_pubkey, vote_acc->stake );
+      fd_ghost_replay_vote( ghost, vote_slot, &vote_state->node_pubkey, vote_acc->stake );
     }
     FD_SCRATCH_SCOPE_END;
   }

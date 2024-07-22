@@ -151,19 +151,19 @@ fd_tower_init( fd_tower_t *                tower,
                fd_fork_t const *           fork );
 
 /* fd_tower_lockout_check checks if we are locked out from voting for
-   a given fork.  Returns 1 if we can vote without violating lockout,
-   0 otherwise.
+   fork.  Returns 1 if we can vote for fork without violating lockout, 0
+   otherwise.
 
-   After voting for a slot n, we are locked out for 2^k slots,
-   where k is the confirmation count of that vote.  Once locked out,
-   we cannot vote for a different fork until that previously-voted fork
-   expires at slot n+2^k.  This implies the earliest slot in which we
-   can switch from the previously-voted fork is (n+2^k)+1.
+   After voting for a slot n, we are locked out for 2^k slots, where k
+   is the confirmation count of that vote.  Once locked out, we cannot
+   vote for a different fork until that previously-voted fork expires at
+   slot n+2^k.  This implies the earliest slot in which we can switch
+   from the previously-voted fork is (n+2^k)+1.
 
    In the case of the tower, every vote has its own expiration slot
-   depending on confirmations. The confirmation count is the max number of
-   consecutive votes that have been pushed on top of the vote, and not
-   necessarily its current height in the tower.
+   depending on confirmations. The confirmation count is the max number
+   of consecutive votes that have been pushed on top of the vote, and
+   not necessarily its current height in the tower.
 
    For example, the following is a diagram of a tower pushing and
    popping with each vote:
@@ -216,33 +216,32 @@ fd_tower_lockout_check( fd_tower_t const * tower,
                         fd_fork_t const *  fork,
                         fd_ghost_t const * ghost );
 
-/* fd_tower_switch_check checks if we can switch forks based on the
-   percentage of validators locked out from voting for our latest vote
-   fork.  Returns 1 if we can switch, 0 otherwise.
+/* fd_tower_switch_check checks if we can switch to fork.  Returns 1 if
+   we can switch, 0 otherwise.
+
+   The switch rule is based on the percentage of validators whose: 1.
+   last vote slot is for fork and 2. lockout prevents them from voting
+   for our last vote slot.
+
+   A validator is locked out from voting for our last vote slot when
+   their last vote slot is on a different fork, and that vote's
+   expiration slot > our last vote slot.
 
    The following pseudocode describes the algorithm:
 
    ```
+   find the greatest common ancestor (gca) of our fork and fork
    for all validators v
-      if v is locked out[1] from voting for our latest vote slot
+      if v's latest vote is for fork
+         add v's stake to switch stake
+
+
+   for all validators v
+      if v's  locked out[1] from voting for our latest vote slot
          add v's stake to switch stake
    return switch stake >= FD_TOWER_SWITCH_PCT
    ```
 
-   [1]: locked out is defined as v's latest vote slot is not on the same
-        fork as our latest vote slot and v's latest vote slot's
-        expiration > fork->slot
-
-   We determine a validator is locked out from:
-      1. their latest vote slot is on a different branch in the ghost
-         tree than our latest vote slot.
-      2. their latest vote's expiration slot > fork->slot.
-
-   ```
-   for all the ancestors starting from fork->slot
-      for all the siblings not on the ancestry path
-         add their weight to the switch stake
-   ```
 
    The switch check is used to safeguard optimistic confirmation.
    Invariant: FD_TOWER_OPT_CONF_PCT + FD_TOWER_SWITCH_PCT >= 1. */
