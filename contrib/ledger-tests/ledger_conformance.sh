@@ -101,7 +101,6 @@ usage() {
                 --start-slot -s                 : Required if the mode is exact, this defines the slot to start reading from. \n\
                 --end-slot -e                   : Required if the mode is exact, this defines the slot to end reading. \n\
                 --mode -m                       : Method to minimize the initial ledger. Either as an offset around an epoch edge, or defined as an exact start and end slot. Default: exact. Choose: edge|exact. \n\
-                --is-verify -v [Optional]       : If passed, use solana|agave-ledger-tool to verify created ledgers. Default: false. \n\
                 --slots-in-epoch -i [Optional]  : Slot count for an epoch in the defined network. Default: 432_000. \n\
                 --gigantic-pages -g [Optional]  : Number of gigantic pages. Default: 700 \n\
                 --index-max -x [Optional]       : Maximum index. Default: 600_000_000"
@@ -142,7 +141,6 @@ usage() {
                 --repetitions -r                : Required if the mode is exact, running with multiple repetitions repeats the minify and replay for new slot ranges until the entire ledger is checked. Choose: once|multiple. \n\
                 --no-fetch [Optional]           : Run all the commands excluding fetch-recent. Just pass in the ledger directories. \n\
                 --mode -m [Optional]            : Method to minimize the initial ledger. Either as an offset around an epoch edge, or defined as an exact start and end slot. Default: exact. Choose: edge|exact. \n\
-                --is-verify -v [Optional]       : If passed, use solana|agave-ledger-tool to verify created ledgers. Default: false. \n\
                 --slots-in-epoch -i [Optional]  : Slot count for an epoch in the defined network. Default: 432_000. \n\
                 --gigantic-pages -g [Optional]  : Number of gigantic pages. Default: 700 \n\
                 --index-max -x [Optional]       : Maximum index. Default: 600_000_000 \n\
@@ -261,16 +259,16 @@ parse_fetch_options() {
     exit 1
   fi
 
-  SOLANA_LEDGER_TOOL="$SOLANA_BUILD_DIR/*-ledger-tool"
-  if [ -z "$(ls $SOLANA_LEDGER_TOOL 2>/dev/null)" ]; then
+  SOLANA_LEDGER_TOOL=$(find $SOLANA_BUILD_DIR -maxdepth 1 -name '*-ledger-tool' | head -n 1)
+  if [ -z "$SOLANA_LEDGER_TOOL" ]; then
     echo "error $SOLANA_LEDGER_TOOL does not exist"
     exit 1
   fi
 }
 
 parse_minify_options() {
-  TEMP=$(getopt -o n:m:l:z:v:i:g:x:o:s:e:d:f: \
-    --long network:,mode:,ledger:,ledger-min:,is-verify:,slots-in-epoch:,gigantic-pages:,index-max:,edge-offset:,start-slot:,end-slot:,solana-build-dir:,firedancer-root-dir: \
+  TEMP=$(getopt -o n:m:l:z:i:g:x:o:s:e:d:f: \
+    --long network:,mode:,ledger:,ledger-min:,slots-in-epoch:,gigantic-pages:,index-max:,edge-offset:,start-slot:,end-slot:,solana-build-dir:,firedancer-root-dir: \
     -- "$@")
 
   if [ $? != 0 ]; then
@@ -281,7 +279,6 @@ parse_minify_options() {
   eval set -- "$TEMP"
 
   # Defaults
-  IS_VERIFY="false"
   MODE="exact"
   SLOTS_IN_EPOCH=432000
   GIGANTIC_PAGES=550
@@ -303,10 +300,6 @@ parse_minify_options() {
         ;;
       -z | --ledger-min)
         LEDGER_MIN="$2"
-        shift 2
-        ;;
-      -v | --is-verify)
-        IS_VERIFY="true"
         shift 2
         ;;
       -i | --slots-in-epoch)
@@ -401,8 +394,8 @@ parse_minify_options() {
     exit 1
   fi
 
-  SOLANA_LEDGER_TOOL="$SOLANA_BUILD_DIR/*-ledger-tool"
-  if [ -z "$(ls $SOLANA_LEDGER_TOOL 2>/dev/null)" ]; then
+  SOLANA_LEDGER_TOOL=$(find $SOLANA_BUILD_DIR -maxdepth 1 -name '*-ledger-tool' | head -n 1)
+  if [ -z "$SOLANA_LEDGER_TOOL" ]; then
     echo "error $SOLANA_LEDGER_TOOL does not exist"
     exit 1
   fi
@@ -491,8 +484,8 @@ parse_replay_options() {
     exit 1
   fi
 
-  SOLANA_LEDGER_TOOL="$SOLANA_BUILD_DIR/*-ledger-tool"
-  if [ -z "$(ls $SOLANA_LEDGER_TOOL 2>/dev/null)" ]; then
+  SOLANA_LEDGER_TOOL=$(find $SOLANA_BUILD_DIR -maxdepth 1 -name '*-ledger-tool' | head -n 1)
+  if [ -z "$SOLANA_LEDGER_TOOL" ]; then
     echo "error $SOLANA_LEDGER_TOOL does not exist"
     exit 1
   fi
@@ -551,8 +544,8 @@ parse_solcap_options() {
     exit 1
   fi
 
-  SOLANA_LEDGER_TOOL="$SOLANA_BUILD_DIR/*-ledger-tool"
-  if [ -z "$(ls $SOLANA_LEDGER_TOOL 2>/dev/null)" ]; then
+  SOLANA_LEDGER_TOOL=$(find $SOLANA_BUILD_DIR -maxdepth 1 -name '*-ledger-tool' | head -n 1)
+  if [ -z "$SOLANA_LEDGER_TOOL" ]; then
     echo "error $SOLANA_LEDGER_TOOL does not exist"
     exit 1
   fi
@@ -622,8 +615,8 @@ parse_mismatch_instr_options() {
 }
 
 parse_all_options() {
-  TEMP=$(getopt -o n:m:l:z:v:q:i:g:x:o:s:e:d:f:u:r: \
-    --long network:,mode:,ledger:,ledger-min:,is-verify:,no-fetch,slots-in-epoch:,gigantic-pages:,index-max:,edge-offset:,start-slot:,end-slot:,solana-build-dir:,firedancer-root-dir:,upload:,repetitions: \
+  TEMP=$(getopt -o n:m:l:z:q:i:g:x:o:s:e:d:f:u:r: \
+    --long network:,mode:,ledger:,ledger-min:,no-fetch,slots-in-epoch:,gigantic-pages:,index-max:,edge-offset:,start-slot:,end-slot:,solana-build-dir:,firedancer-root-dir:,upload:,repetitions: \
     -- "$@")
 
   if [ $? != 0 ]; then
@@ -634,7 +627,6 @@ parse_all_options() {
   eval set -- "$TEMP"
 
   # Defaults
-  IS_VERIFY="false"
   NO_FETCH="false"
   MODE="exact"
   SLOTS_IN_EPOCH=432000
@@ -658,10 +650,6 @@ parse_all_options() {
         ;;
       -z | --ledger-min)
         LEDGER_MIN="$2"
-        shift 2
-        ;;
-      -v | --is-verify)
-        IS_VERIFY="true"
         shift 2
         ;;
       -q | --no-fetch)
@@ -778,8 +766,8 @@ parse_all_options() {
     exit 1
   fi
 
-  SOLANA_LEDGER_TOOL="$SOLANA_BUILD_DIR/*-ledger-tool"
-  if [ -z "$(ls $SOLANA_LEDGER_TOOL 2>/dev/null)" ]; then
+  SOLANA_LEDGER_TOOL=$(find $SOLANA_BUILD_DIR -maxdepth 1 -name '*-ledger-tool' | head -n 1)
+  if [ -z "$SOLANA_LEDGER_TOOL" ]; then
     echo "error $SOLANA_LEDGER_TOOL does not exist"
     exit 1
   fi
@@ -813,7 +801,6 @@ case $COMMAND in
       " mode=$MODE,\n" \
       " ledger=$LEDGER,\n" \
       " ledger-min=$LEDGER_MIN,\n" \
-      " is-verify=$IS_VERIFY,\n" \
       " slots-in-epoch=$SLOTS_IN_EPOCH,\n" \
       " edge-offset=$EDGE_OFFSET,\n" \
       " start-slot=$START_SLOT,\n" \
@@ -856,7 +843,6 @@ case $COMMAND in
       " mode=$MODE,\n" \
       " ledger=$LEDGER,\n" \
       " ledger-min=$LEDGER_MIN,\n" \
-      " is-verify=$IS_VERIFY,\n" \
       " no-fetch=$NO_FETCH,\n" \
       " slots-in-epoch=$SLOTS_IN_EPOCH,\n" \
       " edge-offset=$EDGE_OFFSET,\n" \
