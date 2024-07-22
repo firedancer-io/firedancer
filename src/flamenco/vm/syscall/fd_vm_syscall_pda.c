@@ -159,7 +159,7 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
   ulong r0 = 1UL; /* No PDA found */
 
   uchar bump_seed[1];
-  for ( ulong i=0UL; i<256UL; i++ ) {
+  for ( ulong i=0UL; i<255UL; i++ ) {
     bump_seed[0] = (uchar)(255UL - i);
 
     fd_pubkey_t const * program_id = FD_VM_MEM_HADDR_LD( vm, program_id_vaddr, alignof(fd_pubkey_t), sizeof(fd_pubkey_t) );
