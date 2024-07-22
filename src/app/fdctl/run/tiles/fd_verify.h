@@ -36,6 +36,12 @@ typedef struct {
 
   fd_verify_in_ctx_t in[ 32 ];
 
+  ulong dma_phys;
+  fd_frag_meta_t * out_mcache;
+  ulong *          out_sync;
+  ulong            out_depth;
+  ulong            out_seq;
+
   fd_wksp_t * out_mem;
   ulong       out_chunk0;
   ulong       out_wmark;

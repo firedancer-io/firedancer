@@ -76,6 +76,14 @@ wd_ed25519_verify_init_req( wd_wksp_t *        wd,
                             uint64_t           mcache_depth,
                             void*              mcache_addr);
 
+uint64_t _wd_get_phys(void* p);
+
+void
+wd_ed25519_verify_init_req2( wd_wksp_t *        wd,
+                             uint8_t            send_fails,
+                             uint64_t           mcache_depth,
+                             ulong              mcache_dma_addr);
+
 /* wd_ed25519_verify_init_resp initializes the internal state
    of the response path. */
 void

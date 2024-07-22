@@ -168,6 +168,14 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   FD_TEST( wd_init_pci( &ctx->wd, 1 ) == 0 );
+
+  fd_topo_link_t * link_out = &topo->links[ tile->out_link_id_primary ];
+  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->dma_phys = _wd_get_phys( ctx->out_mem );
+  ulong offset = topo->objs[ topo->links[ tile->out_link_id_primary ].mcache_obj_id ].offset;
+  ulong mcache_addr_dma = ctx->dma_phys + offset;
+  FD_LOG_NOTICE(( "dedup out link workspace %p dma=%lu offset=%lu mcache=%lu", (void*)ctx->out_mem, ctx->dma_phys, offset, mcache_addr_dma ));
+  wd_ed25519_verify_init_req2( &ctx->wd, 1, link_out->depth, mcache_addr_dma );
 }
 
 static void
@@ -210,7 +218,12 @@ unprivileged_init( fd_topo_t *      topo,
     }
   }
 
-  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
+  fd_topo_link_t * link_out = &topo->links[ tile->out_link_id_primary ];
+  ctx->out_mcache = link_out->mcache;
+  ctx->out_sync   = fd_mcache_seq_laddr( ctx->out_mcache );
+  ctx->out_depth  = fd_mcache_depth( ctx->out_mcache );
+  ctx->out_seq    = fd_mcache_seq_query( ctx->out_sync );
+
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;

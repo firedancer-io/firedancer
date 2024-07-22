@@ -306,6 +306,39 @@ uint64_t _wd_get_phys(void* p)
 //  SSSSSSSSSSSSSSS               VVV            
 
 void
+wd_ed25519_verify_init_req2( wd_wksp_t *        wd,
+                             uint8_t            send_fails,
+                             uint64_t           mcache_depth,
+                             ulong              mcache_dma_addr)
+{
+    wd->sv.req_slot     = _wd_next_slot(wd, 0);
+    wd->sv.req_depth    = mcache_depth;
+
+    for (uint32_t slot = 0; slot < WD_N_PCI_SLOTS; slot ++)
+    {
+        if (!(wd->pci_slots & (1UL << slot)))
+            continue;
+
+        // setup threshold levels for pipe-chain
+        for (uint32_t i = 0; i < 5; i ++)
+        {
+            _wd_write_32(&wd->pci[slot], 0x10<<2, i);
+            _wd_write_32(&wd->pci[slot], 0x13<<2, 0);
+            _wd_write_32(&wd->pci[slot], 0x14<<2, (200 << 0) | (200 << 12));
+        }
+        // sha_pad thresholds
+        _wd_write_32(&wd->pci[slot], 0x10<<2, 0);
+        _wd_write_32(&wd->pci[slot], 0x13<<2, 0);
+        _wd_write_32(&wd->pci[slot], 0x14<<2, 10 | (10 << 12));
+        // send fails back
+        _wd_write_32(&wd->pci[slot], 0x11<<2, send_fails);
+
+        _wd_set_vdip_64(wd, slot, 0, mcache_dma_addr);
+        _wd_set_vdip_64(wd, slot, 1, ((wd->sv.req_depth-1) << 5) | 0x1f);
+    }
+}
+
+void
 wd_ed25519_verify_init_req( wd_wksp_t *        wd,
                             uint8_t            send_fails,
                             uint64_t           mcache_depth,
