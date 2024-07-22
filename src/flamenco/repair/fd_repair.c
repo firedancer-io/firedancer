@@ -461,47 +461,95 @@ fd_repair_send_requests( fd_repair_t * glob ) {
 
     /* Track statistics */
     ele->when = glob->now;
-    active->avg_reqs++;
+    // ulong active_cnt = 0UL;
+    for( fd_active_table_iter_t iter = fd_active_table_iter_init(glob->actives); 
+         !fd_active_table_iter_done(glob->actives, iter);
+         iter = fd_active_table_iter_next(glob->actives, iter)) {
+        // if( active_cnt++ == 32UL ) break;
+        fd_active_elem_t * active = fd_active_table_iter_ele(glob->actives, iter);
+        active->avg_reqs++;
 
-    fd_repair_protocol_t protocol;
-    switch (ele->dupkey.type) {
-    case fd_needed_window_index: {
-      fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_window_index);
-      fd_repair_window_index_t * wi = &protocol.inner.window_index;
-      fd_hash_copy(&wi->header.sender, glob->public_key);
-      fd_hash_copy(&wi->header.recipient, &active->key);
-      wi->header.timestamp = glob->now/1000000L;
-      wi->header.nonce = n;
-      wi->slot = ele->dupkey.slot;
-      wi->shred_index = ele->dupkey.shred_index;
-      break;
-    }
+        fd_repair_protocol_t protocol;
+        switch (ele->dupkey.type) {
+          case fd_needed_window_index: {
+            fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_window_index);
+            fd_repair_window_index_t * wi = &protocol.inner.window_index;
+            fd_hash_copy(&wi->header.sender, glob->public_key);
+            fd_hash_copy(&wi->header.recipient, &active->key);
+            wi->header.timestamp = glob->now/1000000L;
+            wi->header.nonce = n;
+            wi->slot = ele->dupkey.slot;
+            wi->shred_index = ele->dupkey.shred_index;
+            break;
+          }
 
-    case fd_needed_highest_window_index: {
-      fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_highest_window_index);
-      fd_repair_highest_window_index_t * wi = &protocol.inner.highest_window_index;
-      fd_hash_copy(&wi->header.sender, glob->public_key);
-      fd_hash_copy(&wi->header.recipient, &active->key);
-      wi->header.timestamp = glob->now/1000000L;
-      wi->header.nonce = n;
-      wi->slot = ele->dupkey.slot;
-      wi->shred_index = ele->dupkey.shred_index;
-      break;
-    }
+          case fd_needed_highest_window_index: {
+            fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_highest_window_index);
+            fd_repair_highest_window_index_t * wi = &protocol.inner.highest_window_index;
+            fd_hash_copy(&wi->header.sender, glob->public_key);
+            fd_hash_copy(&wi->header.recipient, &active->key);
+            wi->header.timestamp = glob->now/1000000L;
+            wi->header.nonce = n;
+            wi->slot = ele->dupkey.slot;
+            wi->shred_index = ele->dupkey.shred_index;
+            break;
+          }
 
-    case fd_needed_orphan: {
-      fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_orphan);
-      fd_repair_orphan_t * wi = &protocol.inner.orphan;
-      fd_hash_copy(&wi->header.sender, glob->public_key);
-      fd_hash_copy(&wi->header.recipient, &active->key);
-      wi->header.timestamp = glob->now/1000000L;
-      wi->header.nonce = n;
-      wi->slot = ele->dupkey.slot;
-      break;
-    }
-    }
+          case fd_needed_orphan: {
+            fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_orphan);
+            fd_repair_orphan_t * wi = &protocol.inner.orphan;
+            fd_hash_copy(&wi->header.sender, glob->public_key);
+            fd_hash_copy(&wi->header.recipient, &active->key);
+            wi->header.timestamp = glob->now/1000000L;
+            wi->header.nonce = n;
+            wi->slot = ele->dupkey.slot;
+            break;
+          }
+        }
 
-    fd_repair_sign_and_send(glob, &protocol, &active->addr);
+        fd_repair_sign_and_send(glob, &protocol, &active->addr);
+    }
+    // active->avg_reqs++;
+
+    // fd_repair_protocol_t protocol;
+    // switch (ele->dupkey.type) {
+    // case fd_needed_window_index: {
+    //   fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_window_index);
+    //   fd_repair_window_index_t * wi = &protocol.inner.window_index;
+    //   fd_hash_copy(&wi->header.sender, glob->public_key);
+    //   fd_hash_copy(&wi->header.recipient, &active->key);
+    //   wi->header.timestamp = glob->now/1000000L;
+    //   wi->header.nonce = n;
+    //   wi->slot = ele->dupkey.slot;
+    //   wi->shred_index = ele->dupkey.shred_index;
+    //   break;
+    // }
+
+    // case fd_needed_highest_window_index: {
+    //   fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_highest_window_index);
+    //   fd_repair_highest_window_index_t * wi = &protocol.inner.highest_window_index;
+    //   fd_hash_copy(&wi->header.sender, glob->public_key);
+    //   fd_hash_copy(&wi->header.recipient, &active->key);
+    //   wi->header.timestamp = glob->now/1000000L;
+    //   wi->header.nonce = n;
+    //   wi->slot = ele->dupkey.slot;
+    //   wi->shred_index = ele->dupkey.shred_index;
+    //   break;
+    // }
+
+    // case fd_needed_orphan: {
+    //   fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_orphan);
+    //   fd_repair_orphan_t * wi = &protocol.inner.orphan;
+    //   fd_hash_copy(&wi->header.sender, glob->public_key);
+    //   fd_hash_copy(&wi->header.recipient, &active->key);
+    //   wi->header.timestamp = glob->now/1000000L;
+    //   wi->header.nonce = n;
+    //   wi->slot = ele->dupkey.slot;
+    //   break;
+    // }
+    // }
+
+    // fd_repair_sign_and_send(glob, &protocol, &active->addr);
   }
   glob->current_nonce = n;
   if( k )
@@ -860,7 +908,7 @@ fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) 
     ( *glob->deliver_fail_fun )(&peer->key, slot, shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED );
     return -1;
   }
-  // FD_LOG_DEBUG( ( "[repair] need window %lu, shred_index %lu from %32J", slot, shred_index, id ) );
+  // FD_LOG_INFO( ( "[repair] need window %lu, shred_index %lu from %32J", slot, shred_index, id ) );
 
   fd_repair_nonce_t key = glob->next_nonce++;
   fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
@@ -881,7 +929,7 @@ fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_
     return -1;
   };
   fd_pubkey_t * const id = &peer->key;
-  FD_LOG_DEBUG( ( "[repair] need highest %lu from %32J", slot, id ) );
+  // FD_LOG_INFO( ( "[repair] need highest %lu from %32J", slot, id ) );
   fd_dupdetect_key_t dupkey = { .type = fd_needed_highest_window_index, .slot = slot, .shred_index = shred_index };
   if( fd_dupdetect_table_query( glob->dupdetect, &dupkey, NULL ) != NULL ) {
     fd_repair_unlock( glob );

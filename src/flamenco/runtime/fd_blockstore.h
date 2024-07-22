@@ -40,6 +40,7 @@
 
 #define FD_BLOCKSTORE_OK                  0
 #define FD_BLOCKSTORE_OK_SLOT_COMPLETE    1
+#define FD_BLOCKSTORE_OK_SLOT_EXISTS      2
 #define FD_BLOCKSTORE_ERR_SHRED_FULL      -1 /* no space left for shreds */
 #define FD_BLOCKSTORE_ERR_SLOT_FULL       -2 /* no space left for slots */
 #define FD_BLOCKSTORE_ERR_TXN_FULL        -3 /* no space left for txns */

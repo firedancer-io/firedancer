@@ -676,7 +676,7 @@ after_frag( void *             _ctx,
       fd_funk_end_write( ctx->funk );
 
       int res = fd_runtime_block_execute_prepare( &fork->slot_ctx );
-
+      FD_LOG_WARNING(("Current leader: %32J", fork->slot_ctx.leader->uc));
       if( is_new_epoch_in_new_block ) {
         publish_stake_weights( ctx, mux, &fork->slot_ctx );
       }
