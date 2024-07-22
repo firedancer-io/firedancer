@@ -40,10 +40,10 @@ typedef struct {
   ulong             unparsed_in_cnt;
   fd_dedup_in_ctx_t in[ 64UL ];
 
-  // fd_wksp_t * out_mem;
-  // ulong       out_chunk0;
-  // ulong       out_wmark;
-  // ulong       out_chunk;
+  fd_wksp_t * out_mem;
+  ulong       out_chunk0;
+  ulong       out_wmark;
+  ulong       out_chunk;
 } fd_dedup_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -95,18 +95,18 @@ during_frag( void * _ctx,
   (void)seq;
   (void)sig;
   (void)opt_filter;
-  *opt_filter = 1;
-  return;
+  // *opt_filter = 1;
+  // return;
 
   fd_dedup_ctx_t * ctx = (fd_dedup_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz > FD_TPU_DCACHE_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-  // uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
-  // uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
+  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
-  // fd_memcpy( dst, src, sz );
+  fd_memcpy( dst, src, sz );
 }
 
 /* After the transaction has been fully received, and we know we were
@@ -156,53 +156,53 @@ after_frag( void *             _ctx,
       FD_LOG_ERR(( "got malformed txn (sz %lu) insufficient space left in dcache for fd_txn_t", payload_sz ));
     }
 
-    // uchar    * dcache_entry = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-    // fd_txn_t * txn = (fd_txn_t *)(dcache_entry + txn_off);
-    // ulong txn_t_sz = fd_txn_parse( dcache_entry, payload_sz, txn, NULL );
-    // if( FD_UNLIKELY( !txn_t_sz ) ) {
-    //   FD_LOG_ERR(( "fd_txn_parse failed for vote transactions that should have been sigverified" ));
-    //   *opt_filter = 1;
-    //   return;
-    // }
+    uchar    * dcache_entry = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    fd_txn_t * txn = (fd_txn_t *)(dcache_entry + txn_off);
+    ulong txn_t_sz = fd_txn_parse( dcache_entry, payload_sz, txn, NULL );
+    if( FD_UNLIKELY( !txn_t_sz ) ) {
+      FD_LOG_ERR(( "fd_txn_parse failed for vote transactions that should have been sigverified" ));
+      *opt_filter = 1;
+      return;
+    }
 
-    // /* Write payload_sz into trailer.
-    //    fd_txn_parse always returns a multiple of 2 so this sz is
-    //    correctly aligned. */
-    // ushort * payload_sz_p = (ushort *)((ulong)txn + txn_t_sz);
-    // *payload_sz_p = (ushort)payload_sz;
+    /* Write payload_sz into trailer.
+       fd_txn_parse always returns a multiple of 2 so this sz is
+       correctly aligned. */
+    ushort * payload_sz_p = (ushort *)((ulong)txn + txn_t_sz);
+    *payload_sz_p = (ushort)payload_sz;
 
-    // /* End of parsed message. */
+    /* End of parsed message. */
 
-    // /* Paranoia post parsing. */
-    // ulong new_sz = ( (ulong)payload_sz_p + sizeof(ushort) ) - (ulong)dcache_entry;
-    // if( FD_UNLIKELY( new_sz>FD_TPU_DCACHE_MTU ) ) {
-    //   FD_LOG_CRIT(( "memory corruption detected (txn_sz=%lu txn_t_sz=%lu)",
-    //                 payload_sz, txn_t_sz ));
-    // }
+    /* Paranoia post parsing. */
+    ulong new_sz = ( (ulong)payload_sz_p + sizeof(ushort) ) - (ulong)dcache_entry;
+    if( FD_UNLIKELY( new_sz>FD_TPU_DCACHE_MTU ) ) {
+      FD_LOG_CRIT(( "memory corruption detected (txn_sz=%lu txn_t_sz=%lu)",
+                    payload_sz, txn_t_sz ));
+    }
 
-    // /* Assert that the payload_sz includes all signatures.
-    //    We don't need them all for dedup. */
-    // ushort sig_off = txn->signature_off;
-    // ulong sig_end_off = sig_off + FD_TXN_SIGNATURE_SZ * txn->signature_cnt;
-    // if( FD_UNLIKELY( sig_end_off > payload_sz ) ) {
-    //   FD_LOG_ERR( ("txn is invalid: payload_sz = %lx, sig_off = %x, sig_end_off = %lx", payload_sz, sig_off, sig_end_off ) );
-    // }
+    /* Assert that the payload_sz includes all signatures.
+       We don't need them all for dedup. */
+    ushort sig_off = txn->signature_off;
+    ulong sig_end_off = sig_off + FD_TXN_SIGNATURE_SZ * txn->signature_cnt;
+    if( FD_UNLIKELY( sig_end_off > payload_sz ) ) {
+      FD_LOG_ERR( ("txn is invalid: payload_sz = %lx, sig_off = %x, sig_end_off = %lx", payload_sz, sig_off, sig_end_off ) );
+    }
 
-    // /* Write signature for dedup. */
-    // ulong txn_sig = FD_VERIFY_DEDUP_TAG_FROM_PAYLOAD_SIG( dcache_entry + sig_off );
-    // *opt_sig = txn_sig;
+    /* Write signature for dedup. */
+    ulong txn_sig = FD_VERIFY_DEDUP_TAG_FROM_PAYLOAD_SIG( dcache_entry + sig_off );
+    *opt_sig = txn_sig;
 
-    // /* Write new size for mcache. */
-    // *opt_sz = new_sz;
+    /* Write new size for mcache. */
+    *opt_sz = new_sz;
   }
 
   int is_dup;
   FD_TCACHE_INSERT( is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, *opt_sig );
   *opt_filter = is_dup;
   if( FD_LIKELY( !*opt_filter ) ) {
-    // *opt_chunk     = ctx->out_chunk;
+    *opt_chunk     = ctx->out_chunk;
     *opt_sig       = 0; /* indicate this txn is coming from dedup, and has already been parsed */
-    // ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
+    ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
   }
 }
 
@@ -260,10 +260,10 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[i].wmark  = fd_dcache_compact_wmark ( ctx->in[i].mem, link->dcache, link->mtu );
   }
 
-  // ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
-  // ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
-  // ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
-  // ctx->out_chunk  = ctx->out_chunk0;
+  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
+  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
+  ctx->out_chunk  = ctx->out_chunk0;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
