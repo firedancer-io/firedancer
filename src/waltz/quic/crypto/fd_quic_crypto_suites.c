@@ -5,7 +5,7 @@
 #include <limits.h>
 #include <sys/random.h>
 
-#include "../../../ballet/aes/fd_aes_gcm.h"
+#include "../../../ballet/aes/fd_aes_gcm_private.h"
 
 /* FD_QUIC_CRYPTO_V1_INITIAL_SALT is the salt to the initial secret
    HKDF in QUIC v1. */
