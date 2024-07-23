@@ -152,7 +152,7 @@
         units are in hashes are called a "hashcnt" to distinguish them
         from actual hashed values.
 
-        Solana Labs generally defines a constant duration for each tick
+        Agave generally defines a constant duration for each tick
         (see below) and then varies the number of hashcnt per tick, but
         as we consider the hashcnt the base unit of time, Firedancer and
         this PoH implementation defines everything in terms of hashcnt
@@ -318,13 +318,13 @@
 
 /* When we are becoming leader, and we think the prior leader might have
    skipped their slot, we give them a grace period to finish.  In the
-   Solana Labs client this is called grace ticks.  This is a courtesy to
+   Agave client this is called grace ticks.  This is a courtesy to
    maintain network health, and is not strictly necessary.  It is
    actually advantageous to us as new leader to take over right away and
    give no grace period, since we could generate more fees.
 
    Here we define the grace period to be two slots, which is taken from
-   Solana Labs directly. */
+   Agave directly. */
 #define GRACE_SLOTS (2UL)
 
 /* The maximum number of microblocks that pack is allowed to pack into a
@@ -452,7 +452,7 @@ typedef struct {
      It will be NULL for a brief race period between consecutive leader
      slots, as we ping-pong back to replay stage waiting for a new bank.
 
-     Solana Labs refers to this as the "working bank". */
+     Agave refers to this as the "working bank". */
   void const * current_leader_bank;
 
   fd_sha256_t * sha256;
@@ -464,7 +464,7 @@ typedef struct {
 
   fd_pubkey_t identity_key;
 
-  /* The Solana Labs client needs to be notified when the leader changes,
+  /* The Agave client needs to be notified when the leader changes,
      so that they can resume the replay stage if it was suspended waiting. */
   void * signal_leader_change;
 
@@ -496,16 +496,16 @@ typedef struct {
 } fd_poh_ctx_t;
 
 /* The PoH recorder is implemented in Firedancer but for now needs to
-   work with Solana Labs, so we have a locking scheme for them to
+   work with Agave, so we have a locking scheme for them to
    co-operate.
 
-   This is because the PoH tile lives in the Solana Labs memory address
+   This is because the PoH tile lives in the Agave memory address
    space and their version of concurrency is locking the PoH recorder
    and reading arbitrary fields.
 
    So we allow them to lock the PoH tile, although with a very bad (for
    them) locking scheme.  By default, the tile has full and exclusive
-   access to the data.  If part of Solana Labs wishes to read/write they
+   access to the data.  If part of Agave wishes to read/write they
    can either,
 
      1. Rewrite their concurrency to message passing based on mcache
@@ -564,9 +564,9 @@ fd_ext_poh_write_unlock( void ) {
   FD_VOLATILE( fd_poh_returned_lock ) = 0UL;
 }
 
-/* The PoH tile needs to interact with the Solana Labs address space to
+/* The PoH tile needs to interact with the Agave address space to
    do certain operations that Firedancer hasn't reimplemented yet, a.k.a
-   transaction execution.  We have Solana Labs export some wrapper
+   transaction execution.  We have Agave export some wrapper
    functions that we call into during regular tile execution.  These do
    not need any locking, since they are called serially from the single
    PoH tile. */
@@ -576,11 +576,11 @@ extern CALLED_FROM_RUST void fd_ext_bank_release( void const * bank );
 extern CALLED_FROM_RUST void fd_ext_poh_signal_leader_change( void * sender );
 extern                  void fd_ext_poh_register_tick( void const * bank, uchar const * hash );
 
-/* fd_ext_poh_initialize is called by Solana Labs on startup to
+/* fd_ext_poh_initialize is called by Agave on startup to
    initialize the PoH tile with some static configuration, and the
    initial reset slot and hash which it retrieves from a snapshot.
 
-   This function is called by some random Solana Labs thread, but
+   This function is called by some random Agave thread, but
    it blocks booting of the PoH tile.  The tile will spin until it
    determines that this initialization has happened.
 
@@ -891,7 +891,7 @@ no_longer_leader( fd_poh_ctx_t * ctx ) {
   FD_LOG_INFO(( "no_longer_leader(next_leader_slot=%lu)", ctx->next_leader_slot ));
 }
 
-/* fd_ext_poh_reset is called by the Solana Labs client when a slot on
+/* fd_ext_poh_reset is called by the Agave client when a slot on
    the active fork has finished a block and we need to reset our PoH to
    be ticking on top of the block it produced. */
 
@@ -1536,7 +1536,7 @@ after_frag( void *             _ctx,
 
   /* We don't publish transactions that fail to execute.  If all the
      transctions failed to execute, the microblock would be empty, causing
-     solana labs to think it's a tick and complain.  Instead we just skip
+     agave to think it's a tick and complain.  Instead we just skip
      the microblock and don't hash or update the hashcnt. */
   if( FD_UNLIKELY( !executed_txn_cnt ) ) return;
 
@@ -1591,7 +1591,7 @@ privileged_init( fd_topo_t *      topo,
   fd_memcpy( ctx->identity_key.uc, identity_key, 32UL );
 }
 
-/* The Solana Labs client needs to communicate to the shred tile what
+/* The Agave client needs to communicate to the shred tile what
    the shred version is on boot, but shred tile does not live in the
    same address space, so have the PoH tile pass the value through
    via. a shared memory ulong. */
@@ -1604,7 +1604,7 @@ fd_ext_shred_set_shred_version( ulong shred_version ) {
   *fd_shred_version = shred_version;
 }
 
-/* Solana Labs also needs to write to some mcaches, so we trampoline
+/* Agave also needs to write to some mcaches, so we trampoline
    that via. the PoH tile as well. */
 
 struct poh_link {
@@ -1769,7 +1769,7 @@ unprivileged_init( fd_topo_t *      topo,
   poh_link_init( &stake_out,    topo, tile, 2UL );
   poh_link_init( &crds_shred,   topo, tile, 3UL );
 
-  FD_LOG_NOTICE(( "PoH waiting to be initialized by Solana Labs client... %lu %lu", fd_poh_waiting_lock, fd_poh_returned_lock ));
+  FD_LOG_NOTICE(( "PoH waiting to be initialized by Agave client... %lu %lu", fd_poh_waiting_lock, fd_poh_returned_lock ));
   FD_VOLATILE( fd_poh_global_ctx ) = ctx;
   FD_COMPILER_MFENCE();
   for(;;) {
@@ -1785,7 +1785,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
   FD_COMPILER_MFENCE();
 
-  if( FD_UNLIKELY( ctx->reset_slot==ULONG_MAX ) ) FD_LOG_ERR(( "PoH was not initialized by Solana Labs client" ));
+  if( FD_UNLIKELY( ctx->reset_slot==ULONG_MAX ) ) FD_LOG_ERR(( "PoH was not initialized by Agave client" ));
 
   fd_histf_join( fd_histf_new( ctx->begin_leader_delay, FD_MHIST_SECONDS_MIN( POH_TILE, BEGIN_LEADER_DELAY_SECONDS ),
                                                         FD_MHIST_SECONDS_MAX( POH_TILE, BEGIN_LEADER_DELAY_SECONDS ) ) );

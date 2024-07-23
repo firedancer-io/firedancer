@@ -6,13 +6,13 @@ FIREDANCER_VERSION_MAJOR := $(VERSION_MAJOR)
 
 # The minor version is a Firedancer specific version number, indicating
 # which release candidate branch this is. Different Firedancer release
-# branches could point to the same Solana Labs patch.
+# branches could point to the same Agave patch.
 FIREDANCER_VERSION_MINOR := $(VERSION_MINOR)$(shell printf "%02d" $(VERSION_PATCH))
 
-# For Frankendancer, we stuff the entire Solana Labs version that we are
+# For Frankendancer, we stuff the entire Agave version that we are
 # linking to in the patch version.  This transforms, for example, a full
-# Solana Labs version of "1.17.8" to a minor version of "11708".
-FIREDANCER_VERSION_PATCH := $(shell grep -Po "(?<=^version = \").*(?=\")" "solana/Cargo.toml" | awk -F. '{ printf "%d%02d%02d\n", $$1, $$2, $$3 }')
+# Agave version of "1.18.7" to a minor version of "11807".
+FIREDANCER_VERSION_PATCH := $(shell grep -Po "(?<=^version = \").*(?=\")" "agave/Cargo.toml" | awk -F. '{ printf "%d%02d%02d\n", $$1, $$2, $$3 }')
 
 export FIREDANCER_VERSION_MAJOR
 export FIREDANCER_VERSION_MINOR

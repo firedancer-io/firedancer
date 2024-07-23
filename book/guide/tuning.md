@@ -17,7 +17,7 @@ Example Original Config:
     quic_tile_count = 2
     verify_tile_count = 4
     bank_tile_count = 4
-    solana_labs_affinity = "19-31"
+    agave_affinity = "19-31"
 ```
 
 Example New Config:
@@ -29,7 +29,7 @@ Example New Config:
     verify_tile_count = 5
     bank_tile_count = 2
     shred_tile_count = 2
-    solana_labs_affinity = "19-31"
+    agave_affinity = "19-31"
 ```
 
 This takes a core from the `bank` tile (transaction execution) and
@@ -37,7 +37,7 @@ gives it to another `shred` tile (turbine and shred processing). It
 takes another core from another `bank` tile and gives it to a `verify`
 (signature verification) tile.
 
-### Increase Cores for Solana Labs
+### Increase Cores for Agave
 
 Example Original Config:
 
@@ -48,7 +48,7 @@ Example Original Config:
     verify_tile_count = 5
     bank_tile_count = 2
     shred_tile_count = 2
-    solana_labs_affinity = "19-31"
+    agave_affinity = "19-31"
 ```
 
 Example New Config:
@@ -60,11 +60,11 @@ Example New Config:
     verify_tile_count = 4
     bank_tile_count = 2
     shred_tile_count = 2
-    solana_labs_affinity = "17-31"
+    agave_affinity = "17-31"
 ```
 
 This takes 1 core from the `quic` tile and another from the `verify`
-tile gives them both to the solana labs threads (where the replay stage
+tile gives them both to the agave threads (where the replay stage
 runs).
 
 ## QUIC

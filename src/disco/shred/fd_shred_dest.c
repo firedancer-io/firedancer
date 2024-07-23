@@ -409,7 +409,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
         0                |  1, 2, ..., F
         j in [1, F]      |  j + l*F for l in [1,F]
         [F+1, F^2+F]     |  Nobody
-        [F^2+F+1, inf)   |  Not yet implemented in Labs code
+        [F^2+F+1, inf)   |  Not yet implemented in Agave code
      */
     ulong last_dest_idx = fd_ulong_if( my_idx==0UL, fanout, my_idx+fanout*fanout ); /* inclusive */
     ulong stride        = fd_ulong_if( my_idx==0UL, 1UL,    fanout               );

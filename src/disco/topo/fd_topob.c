@@ -126,7 +126,7 @@ fd_topob_tile( fd_topo_t *    topo,
                char const *   cnc_wksp,
                char const *   metrics_wksp,
                ulong          cpu_idx,
-               int            is_solana_labs,
+               int            is_agave,
                char const *   out_link,
                ulong          out_link_kind_id ) {
   if( FD_UNLIKELY( !topo || !tile_name || !tile_wksp || !cnc_wksp || !metrics_wksp ) ) FD_LOG_ERR(( "NULL args" ));
@@ -142,7 +142,7 @@ fd_topob_tile( fd_topo_t *    topo,
   strncpy( tile->name, tile_name, sizeof(tile->name) );
   tile->id                  = topo->tile_cnt;
   tile->kind_id             = kind_id;
-  tile->is_labs             = is_solana_labs;
+  tile->is_agave            = is_agave;
   tile->cpu_idx             = cpu_idx;
   tile->in_cnt              = 0UL;
   tile->out_cnt             = 0UL;
@@ -313,7 +313,7 @@ validate( fd_topo_t const * topo ) {
     for( ulong j=0UL; j<topo->tiles[ i ].out_cnt; j++ ) {
       for( ulong k=0UL; k<topo->tiles[ i ].in_cnt; k++ ) {
         char const * link_name = topo->links[ topo->tiles[ i ].out_link_id[ j ] ].name;
-        /* PoH tile "publishes" this on behalf of Solana Labs, so it's not
+        /* PoH tile "publishes" this on behalf of Agave, so it's not
            a real circular link. */
         if( FD_UNLIKELY( !strcmp( link_name, "stake_out" ) ||
                          !strcmp( link_name, "crds_shred" ) ) ) continue;

@@ -90,7 +90,7 @@ typedef struct {
   ulong id;                     /* The ID of this tile.  Indexed from [0, tile_cnt).  When placed in a topology, the ID must be the index of the tile in the tiles list. */
   char  name[ 7UL ];            /* The name of this tile.  There can be multiple of each tile name in a topology. */
   ulong kind_id;                /* The ID of this tile within its name.  If there are n tile of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a tile, as does "id" on its own. */
-  int   is_labs;                /* If the tile needs to run in the Solana Labs (Anza) address space or not. */
+  int   is_agave;               /* If the tile needs to run in the Agave (Anza) address space or not. */
 
   ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of ULONG_MAX or more indicates the tile should be floating and not pinned to a core. */
 
@@ -507,21 +507,21 @@ fd_topo_tile_stack_join( char const * app_name,
    calling thread will also switch to the provided UID and GID before
    it returns.
 
-   In production, when running with a Solana Labs child process this is
-   used for spawning certain tiles inside the Solana Labs address space.
+   In production, when running with an Agave child process this is
+   used for spawning certain tiles inside the Agave address space.
    It's also useful for tooling and debugging, but is not how the main
    production Firedancer process runs.  For production, each tile is run
    in its own address space with a separate process and full security
    sandbox.
-   
-   The solana_labs argument determines which tiles are started.  If the
-   argument is 0 or 1, only non-labs (or only labs) tiles are started.
+
+   The agave argument determines which tiles are started.  If the
+   argument is 0 or 1, only non-agave (or only agave) tiles are started.
    If the argument is any other value, all tiles in the topology are
-   started regardless of if they are Solana Labs tiles or not. */
+   started regardless of if they are Agave tiles or not. */
 
 void
 fd_topo_run_single_process( fd_topo_t * topo,
-                            int         solana_labs,
+                            int         agave,
                             uint        uid,
                             uint        gid,
                             fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t * tile ),

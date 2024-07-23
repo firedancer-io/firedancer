@@ -57,10 +57,10 @@
                                        v
                                +---- wksp -----+                                       very deep, consider implementing as
                                |  block store  |                                       MCACHE / DCACHE pair with Rust shims for use
-                               +---------------+                                       in Solana validator
+                               +---------------+                                       in Agave validator
                                        |
                                        v
-                              to Solana validator
+                              to Agave validator
                              for block distribution
                                  and execution
 ```
@@ -90,7 +90,7 @@
   implementation is single process with named workspaces with support
   for quick refactoring into multi-process model if useful.
 
-- Communications path from NIC(s) to Solana validator is reliable for
+- Communications path from NIC(s) to Agave validator is reliable for
   simplicitly / reproducibility.
 
 - And, as such, these sub-components could potentially be moved (in part

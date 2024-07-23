@@ -43,7 +43,7 @@ flame_cmd_args( int *    pargc,
                 char *** pargv,
                 args_t * args ) {
 
-  if( FD_UNLIKELY( !*pargc ) ) FD_LOG_ERR(( "usage: flame [all|tile|tile:idx|solana]" ));
+  if( FD_UNLIKELY( !*pargc ) ) FD_LOG_ERR(( "usage: flame [all|tile|tile:idx|agave]" ));
   strncpy( args->flame.name, **pargv, sizeof( args->flame.name ) - 1 );
 
   (*pargc)--;
@@ -68,8 +68,8 @@ flame_cmd_fn( args_t *         args,
       tile_idxs[ tile_cnt ] = i;
       tile_cnt++;
     }
-  } else if( FD_UNLIKELY( !strcmp( "solana", args->flame.name ) ) ) {
-    /* Find the bank tile so we can get the Solana PID */
+  } else if( FD_UNLIKELY( !strcmp( "agave", args->flame.name ) ) ) {
+    /* Find the bank tile so we can get the Agave PID */
     ulong bank_tile_idx = fd_topo_find_tile( &config->topo, "bank", 0UL );
     if( FD_UNLIKELY( bank_tile_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `bank` not found" ));
     whole_process = 1;

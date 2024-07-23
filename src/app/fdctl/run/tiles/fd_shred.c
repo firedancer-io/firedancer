@@ -377,7 +377,7 @@ during_frag( void * _ctx,
 
     ulong target_slot = fd_disco_poh_sig_slot( sig );
     if( FD_UNLIKELY( (ctx->pending_batch.microblock_cnt>0) & (ctx->pending_batch.slot!=target_slot) ) ) {
-      /* TODO: The Labs client sends a dummy entry batch with only 1
+      /* TODO: The Agave client sends a dummy entry batch with only 1
          byte and the block-complete bit set.  This helps other
          validators know that the block is dead and they should not try
          to continue building a fork on it.  We probably want a similar
