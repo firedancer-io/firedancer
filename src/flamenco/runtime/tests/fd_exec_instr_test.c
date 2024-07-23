@@ -1280,11 +1280,15 @@ fd_exec_vm_cpi_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
                                  fd_exec_test_syscall_effects_t **        output,
                                  void *                                 output_buf,
                                  ulong                                  output_bufsz ){
+  fd_wksp_t *  wksp  = fd_wksp_attach( "wksp" );
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
   // Create instruction context
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t ctx[1];
-  if( !_context_create( runner, ctx, input_instr_ctx, false ) )
+  if( !_context_create( runner, ctx, input_instr_ctx, alloc, false ) ){
+    _context_destroy( runner, ctx, wksp, alloc );
     return 0UL;
+  }
   fd_valloc_t valloc = fd_scratch_virtual();
 
   // Allocate space for captured effects
@@ -1294,7 +1298,7 @@ fd_exec_vm_cpi_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_syscall_effects_t),
                                 sizeof (fd_exec_test_syscall_effects_t) );
   if( FD_UNLIKELY( _l > output_end ) ) {
-    _context_destroy( runner, ctx );
+    _context_destroy( runner, ctx, wksp, alloc );
     return 0UL;
   }
   fd_memset( effects, 0, sizeof(fd_exec_test_syscall_effects_t) );
@@ -1359,6 +1363,6 @@ fd_exec_vm_cpi_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
 
   *output = effects;
 
-  _context_destroy( runner, ctx );
+  _context_destroy( runner, ctx, wksp, alloc );
   return sizeof(fd_exec_test_syscall_effects_t);
 }
