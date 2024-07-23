@@ -9,7 +9,7 @@ file directly as it is compiled into the binary.
 
 ::: tip MIGRATING
 
-The Solana labs validator is configured with command line options like
+The Agave validator is configured with command line options like
 `--identity identity.json --rpc-port 8899`. When migrating your scripts,
 these command line options will need to move to the corresponding
 configuration option in the TOML file.
@@ -73,7 +73,7 @@ efficient pipeline for processing transactions.
 
 Each tile needs a dedicated CPU core and it will be saturated at 100%
 utilization. The Agave process will run on the cores under the
-`solana_labs_affinity` and this should not overlap with tile cores. 
+`agave_affinity` and this should not overlap with tile cores. 
 
 :::
 
@@ -87,7 +87,7 @@ should be started.
     quic_tile_count = 2
     verify_tile_count = 4
     bank_tile_count = 4
-    solana_labs_affinity = "19-31"
+    agave_affinity = "19-31"
 ```
 
 It is suggested to run as many tiles as possible and tune the tile

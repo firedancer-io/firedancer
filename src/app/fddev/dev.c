@@ -24,9 +24,8 @@ dev_cmd_args( int *    pargc,
   args->dev.monitor = fd_env_strip_cmdline_contains( pargc, pargv, "--monitor" );
   args->dev.no_configure = fd_env_strip_cmdline_contains( pargc, pargv, "--no-configure" );
   args->dev.no_init_workspaces = fd_env_strip_cmdline_contains( pargc, pargv, "--no-init-workspaces" );
-  args->dev.no_solana_labs = fd_env_strip_cmdline_contains( pargc, pargv, "--no-solana-labs" ) ||
-                             fd_env_strip_cmdline_contains( pargc, pargv, "--no-solana" ) ||
-                             fd_env_strip_cmdline_contains( pargc, pargv, "--no-labs" );
+  args->dev.no_agave = fd_env_strip_cmdline_contains( pargc, pargv, "--no-agave"  ) ||
+                       fd_env_strip_cmdline_contains( pargc, pargv, "--no-solana" );
   const char * debug_tile = fd_env_strip_cmdline_cstr( pargc, pargv, "--debug-tile", NULL, NULL );
   if( FD_UNLIKELY( debug_tile ) )
     strncpy( args->dev.debug_tile, debug_tile, sizeof( args->dev.debug_tile ) - 1 );
@@ -118,8 +117,8 @@ update_config_for_dev( config_t * const config ) {
 }
 
 static void *
-solana_labs_main1( void * args ) {
-  solana_labs_boot( args );
+agave_main1( void * args ) {
+  agave_boot( args );
   return NULL;
 }
 
@@ -146,9 +145,9 @@ run_firedancer_threaded( config_t * config ) {
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
 
-  if( FD_LIKELY( !config->development.no_solana_labs ) ) {
+  if( FD_LIKELY( !config->development.no_agave ) ) {
     pthread_t pthread;
-    if( FD_UNLIKELY( pthread_create( &pthread, NULL, solana_labs_main1, config ) ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( pthread_create( &pthread, NULL, agave_main1, config ) ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( pthread_setname_np( pthread, "fdSolMain" ) ) ) FD_LOG_ERR(( "pthread_setname_np() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
@@ -169,7 +168,7 @@ dev_cmd_fn( args_t *         args,
   }
 
   update_config_for_dev( config );
-  if( FD_UNLIKELY( args->dev.no_solana_labs ) ) config->development.no_solana_labs = 1;
+  if( FD_UNLIKELY( args->dev.no_agave ) ) config->development.no_agave = 1;
 
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
     /* if we entered a network namespace during configuration, leave it
@@ -184,9 +183,8 @@ dev_cmd_fn( args_t *         args,
     }
 
     if( !strcmp( args->dev.debug_tile, "solana" ) ||
-        !strcmp( args->dev.debug_tile, "labs" ) ||
-        !strcmp( args->dev.debug_tile, "solana-labs" ) ) {
-      config->development.debug_tile = UINT_MAX; /* Sentinel value representing Solana Labs */
+        !strcmp( args->dev.debug_tile, "agave" ) ) {
+      config->development.debug_tile = UINT_MAX; /* Sentinel value representing Agave */
     } else {
       ulong tile_id = fd_topo_find_tile( &config->topo, args->dev.debug_tile, 0UL );
       if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "--debug-tile `%s` not present in topology", args->dev.debug_tile ));

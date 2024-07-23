@@ -10,7 +10,7 @@ jobs:
     runs-on: [self-hosted, 512G]
     env:
       CC: gcc
-      EXTRAS: no-solana
+      EXTRAS: no-agave
     steps:
       - uses: actions/checkout@v4
         with:

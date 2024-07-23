@@ -6,7 +6,7 @@
 #include <poll.h>
 
 /* This is a poor RPC client implementation to retrieve information from
-   the Solana Labs validator.  It is not a Firedancer RPC implementation
+   the Agave validator.  It is not a Firedancer RPC implementation
    and should not be used in that way.  It is just here to provide code
    interoperability.  It is not fuzzed or hardened, and should not be
    used in any code that matters. */

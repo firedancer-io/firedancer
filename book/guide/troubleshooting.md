@@ -29,7 +29,7 @@ the solana submodule _after_ pulling the latest changes. For example:
 
 ```sh [bash]
 error: the 'cargo' binary, normally provided by the 'cargo' component, is not applicable to the '1.75.0-x86_64-unknown-linux-gnu' toolchain
-+ exec cargo +1.75.0 build --profile=release-with-debug --lib -p solana-validator
++ exec cargo +1.75.0 build --profile=release-with-debug --lib -p agave-validator
 error: the 'cargo' binary, normally provided by the 'cargo' component, is not applicable to the '1.75.0-x86_64-unknown-linux-gnu' toolchain
 make: *** [src/app/fdctl/Local.mk:107: cargo-validator] Error 1
 ```

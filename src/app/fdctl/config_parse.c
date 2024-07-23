@@ -262,6 +262,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   snapshots.path                                   );
 
   CFG_POP      ( cstr,   layout.affinity                                  );
+  CFG_POP      ( cstr,   layout.agave_affinity                            );
   CFG_POP      ( cstr,   layout.solana_labs_affinity                      );
   CFG_POP      ( uint,   layout.net_tile_count                            );
   CFG_POP      ( uint,   layout.quic_tile_count                           );
@@ -304,7 +305,7 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( bool,   development.sandbox                              );
   CFG_POP      ( bool,   development.no_clone                             );
-  CFG_POP      ( bool,   development.no_solana_labs                       );
+  CFG_POP      ( bool,   development.no_agave                             );
   CFG_POP      ( bool,   development.bootstrap                            );
   CFG_POP      ( cstr,   development.topology                             );
 
@@ -407,7 +408,7 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO( snapshots.incremental_snapshot_interval_slots );
 
   CFG_HAS_NON_EMPTY( layout.affinity );
-  CFG_HAS_NON_EMPTY( layout.solana_labs_affinity );
+  CFG_HAS_NON_EMPTY( layout.agave_affinity );
   CFG_HAS_NON_ZERO ( layout.net_tile_count );
   CFG_HAS_NON_ZERO ( layout.quic_tile_count );
   CFG_HAS_NON_ZERO ( layout.verify_tile_count );

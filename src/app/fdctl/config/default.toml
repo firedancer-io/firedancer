@@ -47,8 +47,8 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
 # votes from clients and other validators.
 #
 # For Firedancer, ports are assigned statically in later parts of this
-# configuration file, and this option is passed to the Solana Labs
-# client with the `--dynamic-port-range` argument.  Solana Labs will use
+# configuration file, and this option is passed to the Agave
+# client with the `--dynamic-port-range` argument.  Agave will use
 # this to determine port locations for services not yet rewritten as
 # part of Firedancer, including gossip and RPC.  This port range should
 # NOT overlap with any of the static ports used by Firedancer below.
@@ -152,7 +152,7 @@ dynamic_port_range = "8900-9000"
     #
     # If no option is provided here, event reporting is disabled.
     #
-    # This string is passed to the Solana Labs client with the
+    # This string is passed to the Agave client with the
     # `SOLANA_METRICS_CONFIG` environment variable.
     solana_metrics_config = ""
 
@@ -163,7 +163,7 @@ dynamic_port_range = "8900-9000"
 # information that is derived from the ledger.
 [ledger]
     # Absolute directory path to place the ledger.  Firedancer currently
-    # spawns a Solana Labs validator to execute transactions that it
+    # spawns a Agave validator to execute transactions that it
     # receives.  If no ledger path is provided, it is defaulted to the
     # `ledger` subdirectory of the scratch directory above.
     #
@@ -172,13 +172,13 @@ dynamic_port_range = "8900-9000"
     # as above, and "{name}" will be replaced with the name of the
     # Firedancer instance.
     #
-    # The ledger path constructed here is passed to the Solana Labs
+    # The ledger path constructed here is passed to the Agave
     # client with the `--ledger` argument.
     path = ""
 
     # Absolute directory path to place the accounts database in.  If
     # this is empty, it will default to the `accounts` subdirectory of
-    # the ledger `path` above.  This option is passed to the Solana Labs
+    # the ledger `path` above.  This option is passed to the Agave
     # client with the `--accounts` argument.
     accounts_path = ""
 
@@ -191,49 +191,49 @@ dynamic_port_range = "8900-9000"
     # enough slots locally to catch back up to where it was when it
     # stopped.  It works out to around 400GB of space.
     #
-    # This option is passed to the Solana Labs client with the
+    # This option is passed to the Agave client with the
     # `--limit-ledger-size` argument.
     limit_size = 200_000_000
 
     # If nonempty, enable an accounts index indexed by the specified
     # field.  The account field must be one of "program-id",
     # "spl-token-owner", or "spl-token-mint".  These options are passed
-    # to the Solana Labs client with the `--account-index` argument.
+    # to the Agave client with the `--account-index` argument.
     account_indexes = []
 
     # If account indexes are enabled, exclude these keys from the index.
-    # These options are passed to the Solana Labs client with the
+    # These options are passed to the Agave client with the
     # `--account-index-exclude-key` argument.
     account_index_exclude_keys = []
 
     # Whether to use compression when storing snapshots.  This option is
-    # passed to the Solana Labs client with the
+    # passed to the Agave client with the
     # `--snapshot-archive-format` argument.
     snapshot_archive_format = "zstd"
 
     # Refuse to start if saved tower state is not found.  This option is
-    # passed to the Solana Labs client with the `--require-tower`
+    # passed to the Agave client with the `--require-tower`
     # argument.
     require_tower = false
 
 [gossip]
     # Routable DNS name or IP address and port number to use to
     # rendezvous with the gossip cluster.  These entrypoints are passed
-    # to the Solana Labs client with the `--entrypoint` argument.
+    # to the Agave client with the `--entrypoint` argument.
     entrypoints = []
 
     # If true, checks at startup that at least one of the provided
     # entrypoints can connect to this validator on all necessary ports.
     # If it can't, then the validator will exit.
     #
-    # This option is passed to the Solana Labs client inverted with the
+    # This option is passed to the Agave client inverted with the
     # `--no-port-check` argument.
     port_check = true
 
     # The port number to use for receiving gossip messages on this
-    # validator.  This option is passed to the Solana Labs client with
-    # the `--gossip-port` argument.  This argument is required.  Solana
-    # Labs treats this as an optional argument, but the code that tries
+    # validator.  This option is passed to the Agave client with
+    # the `--gossip-port` argument.  This argument is required.  Agave
+    # treats this as an optional argument, but the code that tries
     # to find a default will always fail.
     port = 8001
 
@@ -245,52 +245,52 @@ dynamic_port_range = "8900-9000"
     # testnet, this IP must be externally resolvable and should not be
     # on a local subnet.
     #
-    # This option is passed to the Solana Labs client with the
+    # This option is passed to the Agave client with the
     # `--gossip-host` argument.
     host = ""
 
 [rpc]
     # If nonzero, enable JSON RPC on this port, and use the next port
     # for the RPC websocket.  If zero, disable JSON RPC.  This option is
-    # passed to the Solana Labs client with the `--rpc-port` argument.
+    # passed to the Agave client with the `--rpc-port` argument.
     port = 0
 
     # If true, all RPC operations are enabled on this validator,
     # including non-default RPC methods for querying chain state and
-    # transaction history.  This option is passed to the Solana Labs
+    # transaction history.  This option is passed to the Agave
     # client with the `--full-rpc-api` argument.
     full_api = false
 
     # If the RPC is private, the validator's open RPC port is not
     # published in the `solana gossip` command for use by others.  This
-    # option is passed to the Solana Labs client with the
+    # option is passed to the Agave client with the
     # `--private-rpc` argument.
     private = false
 
     # Enable historical transaction info over JSON RPC, including the
     # `getConfirmedBlock` API.  This will cause an increase in disk
-    # usage and IOPS.  This option is passed to the Solana Labs client
+    # usage and IOPS.  This option is passed to the Agave client
     # with the `--enable-rpc-transaction-history` argument.
     transaction_history = false
 
     # If enabled, include CPI inner instructions, logs, and return data
     # in the historical transaction info stored.  This option is passed
-    # to the Solana Labs client with the
+    # to the Agave client with the
     # `--enable-extended-tx-metadata-storage` argument.
     extended_tx_metadata_storage = false
 
     # If true, use the RPC service of known validators only.  This
-    # option is passed to the Solana Labs client with the
+    # option is passed to the Agave client with the
     # `--only-known-rpc` argument.
     only_known = false
 
     # If true, enable the unstable RPC PubSub `blockSubscribe`
-    # subscription.  This option is passed to the Solana Labs client
+    # subscription.  This option is passed to the Agave client
     # with the `--rpc-pubsub-enable-block-subscription` argument.
     pubsub_enable_block_subscription = false
 
     # If true, enable the unstable RPC PubSub `voteSubscribe`
-    # subscription.  This option is passed to the Solana Labs client
+    # subscription.  This option is passed to the Agave client
     # with the `--rpc-pubsub-enable-vote-subscription` argument.
     pubsub_enable_vote_subscription = false
 
@@ -299,16 +299,16 @@ dynamic_port_range = "8900-9000"
     # requests.  The `GOOGLE_APPLICATION_CREDENTIALS` environment
     # variable must be set to access BigTable.
     #
-    # This option is passed to the Solana Labs client with the
+    # This option is passed to the Agave client with the
     # `--enable-rpc-bigtable-ledger-storage` argument.
     bigtable_ledger_storage = false
 
-# The Solana Labs client periodically takes and stores snapshots of the
+# The Agave client periodically takes and stores snapshots of the
 # chain's state.  Other clients, especially as they bootstrap or catch
 # up to the head of the chain, may request a snapshot.
 [snapshots]
     # Enable incremental snapshots by setting this flag.  This option is
-    # passed to the Solana Labs client (inverted) with the
+    # passed to the Agave client (inverted) with the
     # `--no-incremental-snapshots` flag.
     incremental_snapshots = true
 
@@ -331,7 +331,7 @@ dynamic_port_range = "8900-9000"
     # as above, and "{name}" will be replaced with the name of the
     # Firedancer instance.
     #
-    # The snapshot path constructed here is passed to the Solana Labs
+    # The snapshot path constructed here is passed to the Agave
     # client with the `--snapshots` argument.
     path = ""
 
@@ -349,7 +349,7 @@ dynamic_port_range = "8900-9000"
     # if one is not provided (or has not already been generated) and
     # place it in the scratch directory, under path `identity.json`.
     #
-    # This option is passed to the Solana Labs client with the
+    # This option is passed to the Agave client with the
     # `--identity` argument.
     identity_path = ""
 
@@ -363,7 +363,7 @@ dynamic_port_range = "8900-9000"
     # as above, and "{name}" will be replaced with the name of the
     # Firedancer instance.
     #
-    # This option is passed to the Solana Labs client with the
+    # This option is passed to the Agave client with the
     # `--vote-account` argument.
     vote_account_path = ""
 
@@ -373,12 +373,12 @@ dynamic_port_range = "8900-9000"
     # or you need to fetch it.  The snapshot will be fetched from a
     # validator in the list of entrypoints.  If no validators are listed
     # there, starting the validator will fail.  This option is passed
-    # (inverted) to the Solana Labs client with the `no-snapshot-fetch`
+    # (inverted) to the Agave client with the `no-snapshot-fetch`
     # argument.
     snapshot_fetch = true
 
     # If false, do not attempt to fetch the genesis from the cluster.
-    # This option is passed (inverted) to the Solana Labs client with
+    # This option is passed (inverted) to the Agave client with
     # the `no-genesis-fetch` argument.
     genesis_fetch = true
 
@@ -386,20 +386,20 @@ dynamic_port_range = "8900-9000"
     # generate proof of history, and if it too slow to keep up with the
     # network, exit out during boot.  It is recommended to leave this on
     # to ensure you can keep up with the network.  This option is passed
-    # to the Solana Labs client (inverted) with the
+    # to the Agave client (inverted) with the
     # `--no-poh-speed-test` argument.
     poh_speed_test = true
 
     # If set, require the genesis block to have the given hash.  If it
     # does not the validator will abort with an error.  This option is
-    # passed to the Solana Labs client with the
+    # passed to the Agave client with the
     # `--expected-genesis-hash` argument.
     expected_genesis_hash = ""
 
     # If nonzero, after processing the ledger, and the next slot is the
     # provided value, wait until a supermajority of stake is visible on
     # gossip before starting proof of history.  This option is passed to
-    # the Solana Labs client with the `--wait-for-supermajority`
+    # the Agave client with the `--wait-for-supermajority`
     # argument.
     wait_for_supermajority_at_slot = 0
 
@@ -408,43 +408,43 @@ dynamic_port_range = "8900-9000"
     # If this is not provided, or we are not waiting for a
     # supermajority, the bank hash is not checked.  Otherwise we require
     # the bank at the supermajority slot to have this hash.  This option
-    # is passed to the Solana Labs client with the
+    # is passed to the Agave client with the
     # `--expected-bank-hash` argument.
     expected_bank_hash = ""
 
     # The shred version is a small hash of the genesis block and any
-    # subsequent hard forks.  The Solana Labs client uses it to filter
+    # subsequent hard forks.  The Agave client uses it to filter
     # out any shred traffic from validators that disagree with this
     # validator on the genesis hash or the set of hard forks.  If
     # nonzero, ignore any shreds that have a different shred version
     # than this value.  If zero, the expected shred version is
     # automatically determined by copying the shred version that the
     # entrypoint validator is using.  This option is passed to the
-    # Solana Labs client with the `--expected-shred-version` argument.
+    # Agave client with the `--expected-shred-version` argument.
     expected_shred_version = 0
 
     # If the validator starts up with no ledger, it will wait to start
     # block production until it sees a vote land in a rooted slot.  This
     # prevents double signing.  Turn off to risk double signing a block.
-    # This option is passed to the Solana Labs client (inverted) with
+    # This option is passed to the Agave client (inverted) with
     # the `--no-wait-for-vote-to-start-leader` argument.
     wait_for_vote_to_start_leader = true
 
     # Perform a network speed test on starting up the validator.  If
     # this is not disabled, and the speed test fails, the validator will
-    # refuse to start.  This option is passed to the Solana Labs client
+    # refuse to start.  This option is passed to the Agave client
     # (inverted) with the `--no-os-network-limits-test` argument.
     os_network_limits_test = true
 
     # If nonempty, add a hard fork at each of the provided slots.  These
-    # options are passed to the Solana Labs client with the
+    # options are passed to the Agave client with the
     # `--hard-fork` argument.
     hard_fork_at_slots = []
 
     # A set of validators we trust to publish snapshots.  If a snapshot
     # is not published by a validator with one of these keys, it is
     # ignored.  If no known validators are specified, any hash will be
-    # accepted.  These options are passed to the Solana Labs client with
+    # accepted.  These options are passed to the Agave client with
     # the `--trusted-validator` argument.
     known_validators = []
 
@@ -534,20 +534,21 @@ dynamic_port_range = "8900-9000"
     affinity = "1-16"
 
     # In addition to the Firedancer tiles which use a core each, the
-    # current version of Firedancer hosts a Solana Labs (Agave)
-    # validator as a subprocess.
+    # current version of Firedancer hosts a Agave validator as
+    # a subprocess.
     #
-    # This affinity congtrols which logical CPU cores the Solana Labs
+    # This affinity congtrols which logical CPU cores the Agave
     # subprocess and all of its threads are allowed to run on.  This is
     # specified in the same format as the above Firedancer affinity.
     #
     # It is strongly suggested that you do not overlap the Firedancer
-    # affinity with the Solana Labs affinity, as Firedancer tiles expect
+    # affinity with the Agave affinity, as Firedancer tiles expect
     # to have exclusive use of their core.  Unexpected latency  spikes
     # due to context switching may decrease performance overall.
-    #
-    # An empty string here will not affine the process, and it will run
-    # be free to run on any floating core.
+    agave_affinity = ""
+
+    # The following option is retained for backwards compatibility.  It
+    # will be disregarded if agave_affinity is specified.
     solana_labs_affinity = "17-31"
 
     # How many net tiles to run.  Each networking tile will service
@@ -826,8 +827,8 @@ dynamic_port_range = "8900-9000"
     # them in an optimal way to generate the most fees per compute
     # resource used to execute them.
     [tiles.pack]
-        # The pack tile may process transactions faster than the Solana
-        # Labs bank stage that sits downstream of it.  If this happens,
+        # The pack tile may process transactions faster than the Agave
+        # bank stage that sits downstream of it.  If this happens,
         # the pack tile will accumulate a buffer of transactions that
         # need to be forwarded, up to this limit after which the least
         # profitable transactions will be dropped.
@@ -850,7 +851,7 @@ dynamic_port_range = "8900-9000"
     # The bank tile is what executes transactions and updates the
     # accounting state as a result of any operations performed by the
     # transactions.  Currently the bank tile is implemented by the
-    # Solana Labs execution engine and is not configurable.
+    # Agave execution engine and is not configurable.
     [tiles.bank]
 
     # The shred tile distributes processed transactions that have been
@@ -913,15 +914,15 @@ dynamic_port_range = "8900-9000"
     # `--no-clone` argument to `fddev`.
     no_clone = false
 
-    # Firedancer currently hosts a Solana Labs client as a child process
+    # Firedancer currently hosts a Agave client as a child process
     # when it starts up, to provide functionality that has not yet been
     # implemented. For development sometimes it is desirable to not
     # launch this subprocess, although it will prevent the validator
     # from operating correctly.
     #
-    # In development, you can disable solana for testing and debugging
-    # with the `--no-solana-labs` argument to `fddev`.
-    no_solana_labs = false
+    # In development, you can disable agave for testing and debugging
+    # with the `--no-agave` argument to `fddev`.
+    no_agave = false
 
     # Sometimes, it may be useful to run a bootstrap firedancer
     # validator, either for development or for testing purposes.  The
@@ -942,7 +943,7 @@ dynamic_port_range = "8900-9000"
     # supported topology types are:
     #   - "frankendancer"   The Frankendancer topology for running the
     #                       mixed client with Firedancer networking
-    #                       and Solana runtime.
+    #                       and Agave runtime.
     topology = "frankendancer"
 
     # It can be convenient during development to use a network namespace
@@ -995,7 +996,7 @@ dynamic_port_range = "8900-9000"
         # configuration item allows Firedancer to gossip with nodes
         # located on a private internet (rfc1918).
         #
-        # This option is passed to the Solana Labs client with the
+        # This option is passed to the Agave client with the
         # `--allow-private-addr` flag.
         allow_private_address = false
 
@@ -1007,7 +1008,7 @@ dynamic_port_range = "8900-9000"
         # A value of one is the default, and will be used to mean that
         # the proof of history component will run in low power mode,
         # and use one hash per tick.  This is equivalent to a value of
-        # "sleep" when providing hashes-per-tick to the Solana Labs
+        # "sleep" when providing hashes-per-tick to the Agave
         # genesis.
         #
         # A value of zero means the genesis will automatically determine

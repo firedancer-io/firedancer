@@ -298,7 +298,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
     int _is_upgradeable_loader_present = is_upgradeable_loader_present( txn, payload, NULL );
     for( ushort i=0; i<txn->acct_addr_cnt; i++ ) {
       int is_writable = fd_txn_is_writable( txn, i ) &&
-                        /* Solana Labs does this check, but we don't need to here because pack
+                        /* Agave does this check, but we don't need to here because pack
                            rejects these transactions before they make it to the bank.
 
                            !fd_bank_abi_builtin_keys_and_sysvars_tbl_contains( (const fd_acct_addr_t*)(payload + txn->acct_addr_off + i*32UL) ) */
@@ -367,7 +367,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
     int _is_upgradeable_loader_present = is_upgradeable_loader_present( txn, payload, loaded_addresses->writable );
     for( ushort i=0; i<txn->acct_addr_cnt; i++ ) {
       int is_writable = fd_txn_is_writable( txn, i ) &&
-                        /* Solana Labs does this check, but we don't need to here because pack
+                        /* Agave does this check, but we don't need to here because pack
                            rejects these transactions before they make it to the bank.
 
                            !fd_bank_abi_builtin_keys_and_sysvars_tbl_contains( (const fd_acct_addr_t*)(payload + txn->acct_addr_off + i*32UL) ) */

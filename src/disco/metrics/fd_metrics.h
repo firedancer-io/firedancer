@@ -11,7 +11,7 @@
 #include "generated/fd_metrics_poh.h"
 #include "generated/fd_metrics_store.h"
 #include "generated/fd_metrics_shred.h"
-#ifdef FD_HAS_NO_SOLANA
+#ifdef FD_HAS_NO_AGAVE
 #include "generated/fd_metrics_replay.h"
 #include "generated/fd_metrics_storei.h"
 #endif

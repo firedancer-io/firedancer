@@ -104,7 +104,7 @@ if [ -n "${JOB_URL-}" ]; then
   echo "$JOB_URL" > github_job_url.txt
 fi
 
-fddev --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --no-sandbox --no-clone --no-solana-labs &
+fddev --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --no-sandbox --no-clone --no-agave &
 
 CAUGHT_UP=0
 set +x

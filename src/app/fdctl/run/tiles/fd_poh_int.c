@@ -12,16 +12,16 @@
 #include "../../../../flamenco/leaders/fd_leaders.h"
 
 /* The PoH recorder is implemented in Firedancer but for now needs to
-   work with Solana Labs, so we have a locking scheme for them to
+   work with Agave, so we have a locking scheme for them to
    co-operate.
 
-   This is because the PoH tile lives in the Solana Labs memory address
+   This is because the PoH tile lives in the Agave memory address
    space and their version of concurrency is locking the PoH recorder
    and reading arbitrary fields.
 
    So we allow them to lock the PoH tile, although with a very bad (for
    them) locking scheme.  By default, the tile has full and exclusive
-   access to the data.  If part of Solana Labs wishes to read/write they
+   access to the data.  If part of Agave wishes to read/write they
    can either,
 
      1. Rewrite their concurrency to message passing based on mcache
@@ -62,9 +62,9 @@ typedef struct {
   fd_poh_tile_in_ctx_t pack_in;
 } fd_poh_ctx_t;
 
-/* The PoH tile needs to interact with the Solana Labs address space to
+/* The PoH tile needs to interact with the Agave address space to
    do certain operations that Firedancer hasn't reimplemented yet, a.k.a
-   transaction execution.  We have Solana Labs export some wrapper
+   transaction execution.  We have Agave export some wrapper
    functions that we call into during regular tile execution.  These do
    not need any locking, since they are called serially from the single
    PoH tile. */
@@ -78,11 +78,11 @@ void fd_poh_register_tick( fd_poh_ctx_t * ctx         FD_PARAM_UNUSED,
                            ulong          reset_slot  FD_PARAM_UNUSED,
                            uchar const *  hash        FD_PARAM_UNUSED ) { }
 
-/* fd_ext_poh_initialize is called by Solana Labs on startup to
+/* fd_ext_poh_initialize is called by Agave on startup to
    initialize the PoH tile with some static configuration, and the
    initial reset slot and hash which it retrieves from a snapshot.
 
-   This function is called by some random Solana Labs thread, but
+   This function is called by some random Agave thread, but
    it blocks booting of the PoH tile.  The tile will spin until it
    determines that this initialization has happened.
 
@@ -158,7 +158,7 @@ no_longer_leader( fd_poh_ctx_t * ctx ) {
   fd_poh_signal_leader_change( ctx );
 }
 
-/* fd_ext_poh_reset is called by the Solana Labs client when a slot on
+/* fd_ext_poh_reset is called by the Agave client when a slot on
    the active fork has finished a block and we need to reset our PoH to
    be ticking on top of the block it produced. */
 
@@ -421,7 +421,7 @@ after_frag( void *             _ctx,
 
     /* We don't publish transactions that fail to execute.  If all the
       transactions failed to execute, the microblock would be empty, causing
-      solana labs to think it's a tick and complain.  Instead, we just skip
+      agave to think it's a tick and complain.  Instead we just skip
       the microblock and don't hash or update the hashcnt. */
     if( FD_UNLIKELY( !executed_txn_cnt ) ) return;
 

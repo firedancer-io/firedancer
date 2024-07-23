@@ -75,14 +75,14 @@ clean:
 	#######################################################################
 	# Cleaning $(OBJDIR)
 	#######################################################################
-	$(RMDIR) $(OBJDIR) && $(RMDIR) target && $(RMDIR) solana/target && \
+	$(RMDIR) $(OBJDIR) && $(RMDIR) target && $(RMDIR) agave/target && \
 $(SCRUB)
 
 distclean:
 	#######################################################################
 	# Cleaning $(BASEDIR)
 	#######################################################################
-	$(RMDIR) $(BASEDIR) && $(RMDIR) target && $(RMDIR) solana/target && \
+	$(RMDIR) $(BASEDIR) && $(RMDIR) target && $(RMDIR) agave/target && \
 $(SCRUB)
 
 run-unit-test:

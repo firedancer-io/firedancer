@@ -58,7 +58,7 @@ undergoing reviews by auditors.
 
 The first Firedancer validator to go into testnet [is version 0.1 and]
 is nicknamed Frankendancer. It is Firedancer’s networking layer grafted
-onto the Solana runtime and consensus code. Although the networking
+onto the Agave runtime and consensus code. Although the networking
 layer will be much faster, it is likely that the performance of the
 Frankendancer validator will be bottlenecked by the legacy runtime and
 consensus code. Frankendancer still offers an advantage with DoS
@@ -77,7 +77,7 @@ independent validator by the end of 2024.
 Firedancer is a new Solana validator with a new codebase, but it is
 being developed incrementally. To enable testing and deployment before
 the entire Solana protocol has been implemented we rely on the existing
-Solana Labs validator code to provide functionality that is missing.
+Agave validator code to provide functionality that is missing.
 This side-by-side configuration is referred to as "frankendancer".
 
 Currently, Firedancer has implemented the following parts:
@@ -93,22 +93,22 @@ Currently, Firedancer has implemented the following parts:
 
  * The block packing logic.
 
-All other functionality is retained by Solana Labs, including the
+All other functionality is retained by Agave, including the
 runtime itself which tracks account state and executes transactions.
 
 This means building and running a Firedancer validator also builds a
-Solana Labs validator and runs it as a child process. The Solana Labs
+Agave validator and runs it as a child process. The Solana
 process is fully built into and managed by Firedancer and you do not
 need to start it up or otherwise configure it.
 
 Because of this side by side operation, existing knowledge and processes
-you have from running a Solana Labs validator will likely apply to
+you have from running a Agave validator will likely apply to
 Firedancer too. For example, the monitoring and metrics are left the
-same, and you will run the same Solana Labs `solana` CLI command.
+same, and you will run the same `solana` CLI command.
 
 ## This Book
 This book is intended for operators and administrators already familiar
-with running a Solana Labs validator, as Firedancer heavily leans on the
+with running a Agave validator, as Firedancer heavily leans on the
 same concepts and components. To get up to speed there, read the Solana
 Labs [validators guide](https://docs.solana.com/running-validator).
 

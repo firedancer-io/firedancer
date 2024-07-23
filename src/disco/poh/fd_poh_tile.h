@@ -8,13 +8,13 @@
 
 /* When we are becoming leader, and we think the prior leader might have
    skipped their slot, we give them a grace period to finish.  In the
-   Solana Labs client this is called grace ticks.  This is a courtesy to
+   Agave client this is called grace ticks.  This is a courtesy to
    maintain network health, and is not strictly necessary.  It is
    actually advantageous to us as new leader to take over right away and
    give no grace period, since we could generate more fees.
 
    Here we define the grace period to be two slots, which is taken from
-   Solana Labs directly. */
+   Agave directly. */
 #define GRACE_SLOTS (2UL)
 
 /* The maximum number of microblocks that pack is allowed to pack into a

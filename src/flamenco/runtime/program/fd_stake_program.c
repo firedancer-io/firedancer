@@ -446,7 +446,7 @@ set_lockup_meta( fd_stake_meta_t *             self,
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
   if( lockup->unix_timestamp )
-    // FIXME bincode doesn't support long -- check: is Labs also doing this cast?
+    // FIXME bincode doesn't support long -- check: is Agave also doing this cast?
     self->lockup.unix_timestamp = (long)( *lockup->unix_timestamp );
   if( lockup->epoch ) self->lockup.epoch = *lockup->epoch;
   if( lockup->custodian ) self->lockup.custodian = *lockup->custodian;
@@ -2411,7 +2411,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t ctx ) {
   ctx.txn_ctx->dirty_stake_acc = 1;
 
   int rc;
-  /* PLEASE PRESERVE SWITCH-CASE ORDERING TO MIRROR LABS IMPL:
+  /* PLEASE PRESERVE SWITCH-CASE ORDERING TO MIRROR AGAVE IMPL:
    * https://github.com/firedancer-io/solana/blob/debug-master/programs/stake/src/stake_instruction.rs#L76 */
   switch ( instruction->discriminant ) {
 

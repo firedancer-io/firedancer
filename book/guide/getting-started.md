@@ -277,7 +277,7 @@ systemd --switched-root --system --deserialize 17
   └─sudo ./build/native/gcc/bin/fdctl run --config ~/config.toml
       └─fdctl run --config ~/config.toml
           └─fdctl run --config ~/config.toml
-              ├─fdctl run-solana --config-fd 0
+              ├─fdctl run-agave --config-fd 0
               │   └─35*[{fdctl}]
               ├─fdctl run1 net 0 --pipe-fd 7 --config-fd 0
               ├─fdctl run1 quic 0 --pipe-fd 8 --config-fd 0

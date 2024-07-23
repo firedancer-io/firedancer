@@ -17,7 +17,7 @@ FD_STATIC_ASSERT( FD_SHRED_DEST_ALIGN==alignof(fd_shred_dest_t), shred_dest_alig
 FD_STATIC_ASSERT( sizeof(fd_shred_dest_weighted_t)==56UL, dest_info_construction );
 
 static void
-test_compute_first_matches_solana( void ) {
+test_compute_first_matches_agave( void ) {
   ulong cnt = t1_dest_info_sz / sizeof(fd_shred_dest_weighted_t);
   fd_shred_dest_weighted_t const * info = (fd_shred_dest_weighted_t const *)t1_dest_info;
   fd_pubkey_t const * src_key = (fd_pubkey_t const *)t1_pubkey;
@@ -67,7 +67,7 @@ test_compute_first_matches_solana( void ) {
 }
 
 static void
-test_compute_children_matches_solana( void ) {
+test_compute_children_matches_agave( void ) {
   ulong cnt = t1_dest_info_sz / sizeof(fd_shred_dest_weighted_t);
   fd_shred_dest_weighted_t const * info = (fd_shred_dest_weighted_t const *)t1_dest_info;
   fd_pubkey_t const * src_key = (fd_pubkey_t const *)t1_pubkey;
@@ -490,9 +490,9 @@ main( int     argc,
   FD_TEST( fd_shred_dest_align() == FD_SHRED_DEST_ALIGN );
 
   test_errors();
-  FD_LOG_NOTICE(( "Testing conformance with Solana Labs code" ));
-  test_compute_first_matches_solana();
-  test_compute_children_matches_solana();
+  FD_LOG_NOTICE(( "Testing conformance with Agave code" ));
+  test_compute_first_matches_agave();
+  test_compute_children_matches_agave();
   FD_LOG_NOTICE(( "Varying stake" ));
   test_vary_stake();
   FD_LOG_NOTICE(( "Varying radix" ));

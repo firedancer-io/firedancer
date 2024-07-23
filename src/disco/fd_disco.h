@@ -9,7 +9,7 @@
 
 struct __attribute__((packed)) fd_shred_dest_wire {
   fd_pubkey_t pubkey[1];
-  /* The Labs splice writes this as octets, which means when we read
+  /* The Agave splice writes this as octets, which means when we read
      this, it's essentially network byte order */
   uint   ip4_addr;
   ushort udp_port;

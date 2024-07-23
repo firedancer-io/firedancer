@@ -13,7 +13,7 @@ scratch_directory = "/dev/shm/fd1"
 
 [layout]
   affinity = "28-78/2,1-69/2"
-  solana_labs_affinity = "71-79/2"
+  agave_affinity = "71-79/2"
   verify_tile_count = 33
   bank_tile_count = 19
 
