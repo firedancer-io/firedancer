@@ -7,15 +7,13 @@
 
 #define FD_PUBKEY_HASH_PAIR_ALIGN (16UL)
 struct __attribute__((aligned(FD_PUBKEY_HASH_PAIR_ALIGN))) fd_pubkey_hash_pair {
-  fd_pubkey_t const * pubkey;
-  fd_hash_t   const * hash;
+  fd_funk_rec_t const * rec;
+  fd_hash_t     const * hash;
 };
 typedef struct fd_pubkey_hash_pair fd_pubkey_hash_pair_t;
 #define FD_PUBKEY_HASH_PAIR_FOOTPRINT (sizeof(fd_pubkey_hash_pair_t))
 
 FD_PROTOTYPES_BEGIN
-
-void fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t * hash, fd_exec_slot_ctx_t * slot_ctx );
 
 int fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
                          fd_capture_ctx_t * capture_ctx,
@@ -77,18 +75,23 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
 /* Generate a complete accounts_hash of the entire account database. */
 int
 fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx,
+                  fd_tpool_t * tpool,
                   fd_hash_t * accounts_hash,
-                  fd_funk_txn_t * child_txn,
-                  ulong do_hash_verify,
-                  int with_dead );
+                  ulong do_hash_verify );
 
-/* Generate a non-incremental hash of the entire account database. */
+/* Special version for verifying incremental snapshot */
+int
+fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
+                           fd_hash_t * accounts_hash,
+                           fd_funk_txn_t * child_txn,
+                           ulong do_hash_verify );
+
+/* Generate a non-incremental hash of the entire account database, including epoch bank hash. */
 int
 fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
+                  fd_tpool_t * tpool,
                   fd_hash_t * accounts_hash,
-                  fd_funk_txn_t * child_txn,
-                  uint check_hash,
-                  int with_dead );
+                  uint check_hash );
 
 int
 fd_accounts_init_lthash( fd_exec_slot_ctx_t * slot_ctx );

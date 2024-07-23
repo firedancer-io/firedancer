@@ -2401,9 +2401,10 @@ fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
   }
 }
 
-int
+static int
 fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
-                             fd_capture_ctx_t * capture_ctx ) {
+                             fd_capture_ctx_t * capture_ctx,
+                             fd_tpool_t * tpool ) {
   /* Publish any transaction older than 31 slots */
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
   fd_funk_txn_t * txnmap = fd_funk_txn_map(funk, fd_funk_wksp(funk));
@@ -2426,7 +2427,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
       if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
         fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
         if (txn->xid.ul[0] >= epoch_bank->eah_start_slot) {
-          fd_accounts_hash( slot_ctx, &slot_ctx->slot_bank.epoch_account_hash, NULL, 0, 0 );
+          fd_accounts_hash( slot_ctx, tpool, &slot_ctx->slot_bank.epoch_account_hash, 0 );
           epoch_bank->eah_start_slot = ULONG_MAX;
         }
       }
@@ -2455,7 +2456,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
                                 ulong * txn_cnt ) {
   (void)scheduler;
 
-  int err = fd_runtime_publish_old_txns( slot_ctx, capture_ctx );
+  int err = fd_runtime_publish_old_txns( slot_ctx, capture_ctx, tpool );
   if( err != 0 ) {
     return err;
   }

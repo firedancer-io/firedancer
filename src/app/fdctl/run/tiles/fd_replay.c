@@ -458,7 +458,7 @@ static int
 status_check_tower(ulong slot, void * _ctx ) {
   fd_status_check_ctx_t * ctx = (fd_status_check_ctx_t *)_ctx;
   if( fd_txncache_is_rooted_slot( ctx->txncache, slot ) ) {
-    return 1; 
+    return 1;
   }
 
   if( fd_sysvar_slot_history_find_slot( ctx->slot_history, slot ) == FD_SLOT_HISTORY_SLOT_FOUND ||
@@ -507,7 +507,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx, ulong root ) {
   if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx->slot_ctx, epoch_accounts_hash ) ) ) {
     fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
     if( root >= epoch_bank->eah_start_slot ) {
-      fd_accounts_hash( ctx->slot_ctx, &ctx->slot_ctx->slot_bank.epoch_account_hash, NULL, 0, 0 );
+      fd_accounts_hash( ctx->slot_ctx, ctx->tpool, &ctx->slot_ctx->slot_bank.epoch_account_hash, 0 );
       epoch_bank->eah_start_slot = FD_SLOT_NULL;
     }
   }
@@ -1022,7 +1022,7 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
   const char * snapshot = snapshotfile;
   if( strncmp( snapshot, "wksp:", 5 ) != 0 ) {
     FD_MCNT_SET( REPLAY, SNAPSHOT_STATUS_SNAPSHOT_BEGIN, 1 );
-    fd_snapshot_load( snapshot, ctx->slot_ctx, false, false, FD_SNAPSHOT_TYPE_FULL );
+    fd_snapshot_load( snapshot, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_FULL );
     FD_MCNT_SET( REPLAY, SNAPSHOT_STATUS_SNAPSHOT_END, 1 );
   } else {
     fd_runtime_recover_banks( ctx->slot_ctx, 0, 1 );
@@ -1032,7 +1032,7 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
 
   if( strlen( incremental ) > 0 ) {
     FD_MCNT_SET( REPLAY, SNAPSHOT_STATUS_INCREMENTAL_BEGIN, 1 );
-    fd_snapshot_load( incremental, ctx->slot_ctx, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL );
+    fd_snapshot_load( incremental, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL );
     FD_MCNT_SET( REPLAY, SNAPSHOT_STATUS_INCREMENTAL_END, 1 );
     ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
   }
@@ -1194,6 +1194,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
+  memset( ctx, 0, sizeof(fd_replay_tile_ctx_t) );
   void * alloc_shmem         = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   void * scratch_smem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
   void * scratch_fmem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );

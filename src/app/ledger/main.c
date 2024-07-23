@@ -82,7 +82,6 @@ struct fd_ledger_args {
   int                   verify_funk;             /* verify funk before execution starts */
   uint                  verify_acc_hash;         /* verify account hash from the snapshot */
   uint                  check_acc_hash;          /* check account hash by reconstructing with data */
-  char const *          verify_hash;             /* verify the snapshot hash*/
   ulong                 trash_hash;              /* trash hash to be used for negative cases*/
   ulong                 vote_acct_max;           /* max number of vote accounts */
   char const *          rocksdb_list[32];        /* max number of rocksdb dirs that can be passed in */
@@ -106,8 +105,8 @@ struct fd_ledger_args {
 typedef struct fd_ledger_args fd_ledger_args_t;
 
 /* Runtime Replay *************************************************************/
-int
-runtime_replay( fd_ledger_args_t * ledger_args ) {
+static int
+init_tpool( fd_ledger_args_t * ledger_args ) {
   ulong tcnt = fd_tile_cnt();
   uchar * tpool_scr_mem = NULL;
   fd_tpool_t * tpool = NULL;
@@ -132,7 +131,11 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
   }
   ledger_args->tpool       = tpool;
   ledger_args->max_workers = tcnt;
+  return 0;
+}
 
+int
+runtime_replay( fd_ledger_args_t * ledger_args ) {
   fd_features_restore( ledger_args->slot_ctx );
 
   fd_runtime_update_leaders( ledger_args->slot_ctx, ledger_args->slot_ctx->slot_bank.slot );
@@ -800,6 +803,7 @@ ingest( fd_ledger_args_t * args ) {
   uchar slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN)));
   fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, valloc ) );
   slot_ctx->epoch_ctx = epoch_ctx;
+  args->slot_ctx = slot_ctx;
 
   fd_acc_mgr_t mgr[1];
   slot_ctx->acc_mgr = fd_acc_mgr_new( mgr, funk );
@@ -812,13 +816,15 @@ ingest( fd_ledger_args_t * args ) {
     FD_TEST( slot_ctx->status_cache );
   }
 
+  init_tpool( args );
+
   /* Load in snapshot(s) */
   if( args->snapshot ) {
-    fd_snapshot_load( args->snapshot, slot_ctx, args->verify_acc_hash, args->check_acc_hash , FD_SNAPSHOT_TYPE_FULL );
+    fd_snapshot_load( args->snapshot, slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash , FD_SNAPSHOT_TYPE_FULL );
     FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
   if( args->incremental ) {
-    fd_snapshot_load( args->incremental, slot_ctx, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
+    fd_snapshot_load( args->incremental, slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
     FD_LOG_NOTICE(( "imported %lu records from incremental snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
 
@@ -872,68 +878,6 @@ ingest( fd_ledger_args_t * args ) {
       fd_accounts_check_lthash( slot_ctx );
     }
   #endif
-
-  if( args->verify_hash ) {
-    fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, fd_funk_wksp( funk ) );
-    ulong num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
-
-    FD_LOG_NOTICE(( "verifying hash for %lu accounts", num_iter_accounts ));
-
-    ulong zero_accounts = 0;
-    ulong num_pairs = 0;
-    fd_pubkey_hash_pair_t * pairs = (fd_pubkey_hash_pair_t *) malloc( num_iter_accounts*sizeof(fd_pubkey_hash_pair_t) );
-    for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
-         !fd_funk_rec_map_iter_done( rec_map, iter );
-         iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
-      fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
-      if( !fd_funk_key_is_acc( rec->pair.key ) ) {
-        continue;
-      }
-
-      if( num_pairs % 10000000 == 0 ) {
-        FD_LOG_NOTICE(( "read %lu so far", num_pairs ));
-      }
-
-      fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, fd_funk_wksp( funk ) );
-      if( (metadata->magic != FD_ACCOUNT_META_MAGIC) || (metadata->hlen != sizeof(fd_account_meta_t)) ) {
-        FD_LOG_ERR(( "invalid magic on metadata" ));
-      }
-
-      if( (metadata->info.lamports == 0) | ((metadata->info.executable & ~1) != 0) ) {
-        zero_accounts++;
-        continue;
-      }
-
-      fd_hash_t acc_hash;
-      if( fd_hash_account_v0( acc_hash.uc, metadata, rec->pair.key->uc, fd_account_get_data( metadata ), metadata->slot )==NULL ) {
-        FD_LOG_ERR(("error processing account hash"));
-      }
-
-      if( memcmp( acc_hash.uc, metadata->hash, 32 ) != 0 ) {
-        FD_LOG_ERR(("account hash mismatch - num_pairs: %lu, slot: %lu, acc: %32J, acc_hash: %32J, snap_hash: %32J", num_pairs, slot_ctx->slot_bank.slot, rec->pair.key->uc, acc_hash.uc, metadata->hash));
-      }
-
-      pairs[num_pairs].pubkey = (const fd_pubkey_t *)rec->pair.key->uc;
-      pairs[num_pairs].hash = (const fd_hash_t *)metadata->hash;
-      num_pairs++;
-    }
-    FD_LOG_NOTICE(( "num_iter_accounts: %ld zero_accounts: %lu", num_iter_accounts, zero_accounts ));
-
-    fd_hash_t accounts_hash;
-    fd_hash_account_deltas( pairs, num_pairs, &accounts_hash, slot_ctx );
-
-    free( pairs );
-
-    char accounts_hash_58[FD_BASE58_ENCODED_32_SZ];
-    fd_base58_encode_32( (uchar const *)accounts_hash.hash, NULL, accounts_hash_58 );
-
-    FD_LOG_NOTICE(( "hash result %s", accounts_hash_58 ));
-    if( strcmp( args->verify_hash, accounts_hash_58 ) == 0 ) {
-      FD_LOG_NOTICE(( "hash verified!" ));
-    } else {
-      FD_LOG_ERR(( "hash does not match!" ));
-    }
-  }
 
   checkpt( args, slot_ctx );
 
@@ -1000,17 +944,19 @@ replay( fd_ledger_args_t * args ) {
   args->slot_ctx->blockstore = args->blockstore;
   args->slot_ctx->status_cache = NULL;
 
+  init_tpool( args );
+
   /* Check number of records in funk. If rec_cnt == 0, then it can be assumed
      that you need to load in snapshot(s). */
   ulong rec_cnt = fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) );
   if( !rec_cnt ) {
     /* Load in snapshot(s) */
     if( args->snapshot ) {
-      fd_snapshot_load( args->snapshot, args->slot_ctx, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL );
+      fd_snapshot_load( args->snapshot, args->slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
     if( args->incremental ) {
-      fd_snapshot_load( args->incremental, args->slot_ctx, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
+      fd_snapshot_load( args->incremental, args->slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
     if( args->genesis ) {
@@ -1067,11 +1013,11 @@ prune( fd_ledger_args_t * args ) {
   if( !rec_cnt ) {
     /* Load in snapshot(s) */
     if( args->snapshot ) {
-      fd_snapshot_load( args->snapshot, args->slot_ctx, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL );
+      fd_snapshot_load( args->snapshot, args->slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
     if( args->incremental ) {
-      fd_snapshot_load( args->incremental, args->slot_ctx, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
+      fd_snapshot_load( args->incremental, args->slot_ctx, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
   }
@@ -1137,6 +1083,7 @@ prune( fd_ledger_args_t * args ) {
 
   /* Replay through the desired slot range ************************************/
 
+  init_tpool( args );
   fd_ledger_main_setup( args );
   runtime_replay( args );
 
@@ -1175,11 +1122,11 @@ prune( fd_ledger_args_t * args ) {
 
   /* Load in snapshot(s) */
   if( args->snapshot ) {
-    fd_snapshot_load( args->snapshot, args->slot_ctx, 0, 0, FD_SNAPSHOT_TYPE_FULL );
+    fd_snapshot_load( args->snapshot, args->slot_ctx, args->tpool, 0, 0, FD_SNAPSHOT_TYPE_FULL );
     FD_LOG_NOTICE(( "reload: imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
   if( args->incremental ) {
-    fd_snapshot_load( args->incremental, args->slot_ctx, 0, 0, FD_SNAPSHOT_TYPE_INCREMENTAL );
+    fd_snapshot_load( args->incremental, args->slot_ctx, args->tpool, 0, 0, FD_SNAPSHOT_TYPE_INCREMENTAL );
     FD_LOG_NOTICE(( "reload: imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
 
@@ -1325,7 +1272,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   ulong        shred_max               = fd_env_strip_cmdline_ulong( &argc, &argv, "--shred-max",               NULL, 1UL << 17 );
   ulong        start_slot              = fd_env_strip_cmdline_ulong( &argc, &argv, "--start-slot",              NULL, 0UL       );
   ulong        end_slot                = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",                NULL, ULONG_MAX );
-  char const * verify_hash             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verify-hash",             NULL, NULL      );
   uint         verify_acc_hash         = fd_env_strip_cmdline_uint ( &argc, &argv, "--verify-acc-hash",         NULL, 0         );
   uint         check_acc_hash          = fd_env_strip_cmdline_uint ( &argc, &argv, "--check-acc-hash",          NULL, 0         );
   char const * restore                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--restore",                 NULL, NULL      );
@@ -1456,7 +1402,6 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->check_acc_hash          = check_acc_hash;
   args->verify_acc_hash         = verify_acc_hash;
   args->trash_hash              = trash_hash;
-  args->verify_hash             = verify_hash;
   args->index_max_pruned        = index_max_pruned;
   args->pages_pruned            = pages_pruned;
   args->capture_fpath           = capture_fpath;
