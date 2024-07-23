@@ -121,6 +121,7 @@ typedef struct {
 
   struct {
     char affinity[ AFFINITY_SZ ];
+    char agave_affinity[ AFFINITY_SZ ];
     char solana_labs_affinity[ AFFINITY_SZ ];
 
     uint net_tile_count;
@@ -139,7 +140,7 @@ typedef struct {
   struct {
     int sandbox;
     int no_clone;
-    int no_solana_labs;
+    int no_agave;
     int bootstrap;
     uint debug_tile;
     char topology[ 32 ];

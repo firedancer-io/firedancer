@@ -8,7 +8,7 @@
 #include <pthread.h>
 #include <sys/wait.h>
 
-#define NAME "run-solana"
+#define NAME "run-agave"
 
 extern void fd_ext_validator_main( const char ** args );
 
@@ -16,7 +16,7 @@ extern int * fd_log_private_shared_lock;
 
 static void
 clone_labs_memory_space_tiles( config_t * const config ) {
-  /* preload shared memory for all the solana tiles at once */
+  /* preload shared memory for all the agave tiles at once */
   for( ulong i=0; i<config->topo.wksp_cnt; i++ ) {
     fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
     if( FD_LIKELY( !strcmp( wksp->name, "pack_bank" ) ||
@@ -44,7 +44,7 @@ int fd_ext_larger_max_cost_per_block    ( void ) { return _fd_ext_larger_max_cos
 int fd_ext_larger_shred_limits_per_block( void ) { return _fd_ext_larger_shred_limits_per_block; }
 
 void
-solana_labs_boot( config_t * config ) {
+agave_boot( config_t * config ) {
   uint idx = 0;
   char * argv[ 128 ];
   uint bufidx = 0;
@@ -147,7 +147,7 @@ solana_labs_boot( config_t * config ) {
   if( FD_UNLIKELY( setenv( "RUST_LOG_STYLE", log_style, 1 ) ) )
     FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  FD_LOG_INFO(( "Running Solana Labs validator with the following arguments:" ));
+  FD_LOG_INFO(( "Running Agave validator with the following arguments:" ));
   for( ulong j=0UL; j<idx; j++ ) FD_LOG_INFO(( "%s", argv[j] ));
 
   FD_CPUSET_DECL( floating_cpu_set );
@@ -155,17 +155,17 @@ solana_labs_boot( config_t * config ) {
     FD_LOG_ERR(( "sched_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( FD_LIKELY( strcmp( "", config->layout.solana_labs_affinity ) ) ) {
-    ushort solana_labs_cpu[ FD_TILE_MAX ];
-    ulong labs_cpu_cnt = fd_tile_private_cpus_parse( config->layout.solana_labs_affinity, solana_labs_cpu );
+    ushort agave_cpu[ FD_TILE_MAX ];
+    ulong agave_cpu_cnt = fd_tile_private_cpus_parse( config->layout.agave_affinity, agave_cpu );
     FD_CPUSET_DECL( cpu_set );
-    for( ulong i=0UL; i<labs_cpu_cnt; i++ ) {
-      fd_cpuset_insert( cpu_set, solana_labs_cpu[ i ] );
+    for( ulong i=0UL; i<agave_cpu_cnt; i++ ) {
+      fd_cpuset_insert( cpu_set, agave_cpu[ i ] );
     }
 
     if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) ) {
       if( FD_LIKELY( errno==EINVAL ) ) {
-        FD_LOG_ERR(( "Unable to set the affinity for threads created by Solana Labs. It is likely "
-                     "that the affinity you have specified for Solana Labs under [layout.solana_labs_affinity] "
+        FD_LOG_ERR(( "Unable to set the affinity for threads created by Agave. It is likely "
+                     "that the affinity you have specified for Agave under [layout.agave_affinity] "
                      "in the configuration file contains CPUs which do not exist on this machine." ));
       } else {
         FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -178,17 +178,17 @@ solana_labs_boot( config_t * config ) {
   _fd_ext_larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
   FD_COMPILER_MFENCE();
 
-  /* solana labs main will exit(1) if it fails, so no return code */
+  /* agave_main will exit(1) if it fails, so no return code */
   fd_ext_validator_main( (const char **)argv );
 }
 
 int
-solana_labs_main( void * args ) {
+agave_main( void * args ) {
   config_t * const config = args;
 
   if( FD_UNLIKELY( config->development.debug_tile ) ) {
     if( FD_UNLIKELY( config->development.debug_tile==UINT_MAX ) ) {
-      FD_LOG_WARNING(( "waiting for debugger to attach to tile solana-labs pid:%lu", fd_sandbox_getpid() ));
+      FD_LOG_WARNING(( "waiting for debugger to attach to tile agave pid:%lu", fd_sandbox_getpid() ));
       if( FD_UNLIKELY( -1==kill( getpid(), SIGSTOP ) ) )
         FD_LOG_ERR(( "kill(SIGSTOP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       fd_log_private_shared_lock[1] = 0;
@@ -203,26 +203,26 @@ solana_labs_main( void * args ) {
   fd_log_private_tid_set( pid );
   fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ,
                                  &fd_tile_private_stack0, &fd_tile_private_stack1 );
-  FD_LOG_NOTICE(( "booting solana pid:%lu", fd_log_group_id() ));
+  FD_LOG_NOTICE(( "booting agave pid:%lu", fd_log_group_id() ));
 
   fd_sandbox_switch_uid_gid( config->uid, config->gid );
 
-  solana_labs_boot( config );
+  agave_boot( config );
   return 0;
 }
 
 void
-run_solana_cmd_fn( args_t *         args,
+run_agave_cmd_fn( args_t *         args,
                    config_t * const config ) {
   (void)args;
 
-  fd_log_thread_set( "solana-labs" );
+  fd_log_thread_set( "agave" );
 
   void * stack = create_clone_stack();
 
-  /* Also clone Solana Labs into PID namespaces so it cannot signal
+  /* Also clone Agave into PID namespaces so it cannot signal
      other tile or the parent. */
   int flags = config->development.sandbox ? CLONE_NEWPID : 0;
-  pid_t clone_pid = clone( solana_labs_main, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, flags, config );
+  pid_t clone_pid = clone( agave_main, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, flags, config );
   if( FD_UNLIKELY( clone_pid<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }

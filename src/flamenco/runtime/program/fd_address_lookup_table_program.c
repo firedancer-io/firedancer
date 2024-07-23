@@ -147,7 +147,7 @@ fd_addrlut_status( fd_lookup_table_meta_t const * state,
 
 /* Note on uses of fd_borrowed_account_acquire_write_is_safe:
 
-   In some places of this program, the Labs implementation acquires a
+   In some places of this program, the Agave implementation acquires a
    "mutable borrow" on the account that is immediately dropped before
    any borrow can occur.  In other words, this borrow attempt only
    introduces a "borrow failed" error case into the protocol but

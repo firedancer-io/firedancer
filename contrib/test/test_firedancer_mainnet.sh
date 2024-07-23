@@ -102,4 +102,4 @@ if [ -n "${JOB_URL-}" ]; then
 fi
 
 fddev configure fini all
-fddev --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --no-sandbox --no-clone --no-solana-labs
+fddev --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --no-sandbox --no-clone --no-agave

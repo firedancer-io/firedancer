@@ -311,7 +311,7 @@ run_tile_thread( fd_topo_t *         topo,
 
 void
 fd_topo_run_single_process( fd_topo_t * topo,
-                            int         solana_labs,
+                            int         agave,
                             uint        uid,
                             uint        gid,
                             fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t * tile ),
@@ -327,8 +327,8 @@ fd_topo_run_single_process( fd_topo_t * topo,
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
-    if( !solana_labs && tile->is_labs ) continue;
-    if( solana_labs==1 && !tile->is_labs ) continue;
+    if( !agave && tile->is_agave ) continue;
+    if( agave==1 && !tile->is_agave ) continue;
 
     fd_topo_run_tile_t run_tile = tile_run( tile );
     run_tile_thread( topo, tile, run_tile, uid, gid, done_futex, floating_cpu_set, save_priority );

@@ -10,7 +10,7 @@
 action_t ACTIONS[ ACTIONS_CNT ] = {
   { .name = "run",        .args = NULL,               .fn = run_cmd_fn,        .perm = run_cmd_perm,        .description = "Start up a Firedancer validator" },
   { .name = "run1",       .args = run1_cmd_args,      .fn = run1_cmd_fn,       .perm = NULL,                .description = "Start up a single Firedancer tile" },
-  { .name = "run-solana", .args = NULL,               .fn = run_solana_cmd_fn, .perm = NULL,                .description = "Start up the Solana Labs side of a Firedancer validator" },
+  { .name = "run-agave",  .args = NULL,               .fn = run_agave_cmd_fn,  .perm = NULL,                .description = "Start up the Agave side of a Firedancer validator" },
   { .name = "configure",  .args = configure_cmd_args, .fn = configure_cmd_fn,  .perm = configure_cmd_perm,  .description = "Configure the local host so it can run Firedancer correctly" },
   { .name = "monitor",    .args = monitor_cmd_args,   .fn = monitor_cmd_fn,    .perm = monitor_cmd_perm,    .description = "Monitor a locally running Firedancer instance with a terminal GUI" },
   { .name = "keys",       .args = keys_cmd_args,      .fn = keys_cmd_fn,       .perm = NULL,                .description = "Generate new keypairs for use with the validator or print a public key" },

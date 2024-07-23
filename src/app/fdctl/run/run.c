@@ -125,7 +125,7 @@ create_clone_stack( void ) {
 
 
 static int
-execve_solana_labs( int config_memfd,
+execve_agave( int config_memfd,
                     int pipefd ) {
   if( FD_UNLIKELY( -1==fcntl( pipefd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   pid_t child = fork();
@@ -136,7 +136,7 @@ execve_solana_labs( int config_memfd,
 
     char config_fd[ 32 ];
     FD_TEST( fd_cstr_printf_check( config_fd, sizeof( config_fd ), NULL, "%d", config_memfd ) );
-    char * args[ 5 ] = { _current_executable_path, "run-solana", "--config-fd", config_fd, NULL };
+    char * args[ 5 ] = { _current_executable_path, "run-agave", "--config-fd", config_fd, NULL };
 
     char * envp[] = { NULL, NULL };
     char * google_creds = getenv( "GOOGLE_APPLICATION_CREDENTIALS" );
@@ -245,13 +245,13 @@ main_pid_namespace( void * _args ) {
   }
 
   ulong child_cnt = 0UL;
-  if( FD_LIKELY( !config->development.no_solana_labs ) ) {
+  if( FD_LIKELY( !config->development.no_agave ) ) {
     int pipefd[ 2 ];
     if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
-    child_pids[ child_cnt ] = execve_solana_labs( config_memfd, pipefd[ 1 ] );
+    child_pids[ child_cnt ] = execve_agave( config_memfd, pipefd[ 1 ] );
     if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    strncpy( child_names[ child_cnt ], "solana-labs", 32 );
+    strncpy( child_names[ child_cnt ], "agave", 32 );
     child_cnt++;
   }
 
@@ -266,7 +266,7 @@ main_pid_namespace( void * _args ) {
 
   for( ulong i=0; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &config->topo.tiles[ i ];
-    if( FD_UNLIKELY( tile->is_labs ) ) continue;
+    if( FD_UNLIKELY( tile->is_agave ) ) continue;
 
     int pipefd[ 2 ];
     if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -680,7 +680,7 @@ run_firedancer_init( config_t * const config,
 
    + main
    +-- pidns
-       +-- solana-labs
+       +-- agave
        +-- tile 0
        +-- tile 1
        ...
@@ -694,7 +694,7 @@ run_firedancer_init( config_t * const config,
     (b) main is the parent of pidns, so it can issue a waitpid() on the
         child PID, and when it completes terminate itself.
 
-    (c) pidns is the parent of solana-labs and the tiles, so it could
+    (c) pidns is the parent of agave and the tiles, so it could
         issue a waitpid() of -1 to wait for any of them to terminate,
         but how would it know if main has died?
 

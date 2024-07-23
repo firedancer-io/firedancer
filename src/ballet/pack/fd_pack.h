@@ -216,7 +216,7 @@ void fd_pack_set_block_limits( fd_pack_t * pack, ulong max_microblocks_per_block
       fee failed, typically because the transaction contained a
       malformed ComputeBudgetProgram instruction.
     * WRITES_SYSVAR: the transaction attempts to write-lock a sysvar.
-      Write-locking a sysvar can cause heavy contention.  Solana Labs
+      Write-locking a sysvar can cause heavy contention.  Agave
       solves this by downgrading these to read locks, but we instead
       solve it by refusing to pack such transactions.
 

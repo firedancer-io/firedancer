@@ -11,7 +11,7 @@ jobs:
     if: github.event.pull_request.draft == false
     env:
       CC: gcc
-      EXTRAS: no-solana
+      EXTRAS: no-agave
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,6 +26,7 @@ jobs:
       - name: stop any dead runs - local cluster
         run: |
           sudo killall -9 -q solana-validator || true
+          sudo killall -9 -q agave-validator || true
           sudo killall -9 -q fddev || true
 
       - uses: ./.github/actions/hugepages

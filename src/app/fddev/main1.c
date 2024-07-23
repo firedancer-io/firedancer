@@ -24,7 +24,7 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &ethtool_gro,
   &keys,
   &genesis,
-#ifdef FD_HAS_NO_SOLANA
+#ifdef FD_HAS_NO_AGAVE
   NULL,
 #else
   &blockstore,
@@ -49,7 +49,7 @@ extern fd_topo_run_tile_t fd_tile_bencho;
 extern fd_topo_run_tile_t fd_tile_benchg;
 extern fd_topo_run_tile_t fd_tile_benchs;
 
-#ifdef FD_HAS_NO_SOLANA
+#ifdef FD_HAS_NO_AGAVE
 extern fd_topo_run_tile_t fd_tile_gossip;
 extern fd_topo_run_tile_t fd_tile_repair;
 extern fd_topo_run_tile_t fd_tile_store_int;
@@ -76,7 +76,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,
-#ifdef FD_HAS_NO_SOLANA
+#ifdef FD_HAS_NO_AGAVE
   &fd_tile_gossip,
   &fd_tile_repair,
   &fd_tile_store_int,

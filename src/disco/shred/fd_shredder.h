@@ -79,7 +79,7 @@ void *          fd_shredder_delete( void *          mem      );
    required to send an entry batch of size sz_bytes bytes.  For data and
    parity shred counts, this is the total count across all FEC sets.
 
-   We use the same policy for shredding that the Labs validator uses,
+   We use the same policy for shredding that the Agave validator uses,
    even though it's a bit strange.  If the entry batch size is an exact
    multiple of the default FEC set total data size of 31840, then we
    make sz_byte/31840 FEC sets, where each FEC set has 32 data shreds,
@@ -97,7 +97,7 @@ void *          fd_shredder_delete( void *          mem      );
    num_data_shreds = payload_sz_remaining/payload_bytes_per_shred and
    num_parity_shreds is a non-decreasing function of num_data_shreds.
 
-   The Solana Labs validator solves this formula by brute force.
+   The Agave validator solves this formula by brute force.
    Instead, we'll do the computation ahead of time to build a nice
    table:
            Case               payload_bytes_per_shred

@@ -53,9 +53,8 @@ dev1_cmd_fn( args_t *         args,
 
   int result = 0;
   if( !strcmp( args->dev1.tile_name, "solana" ) ||
-      !strcmp( args->dev1.tile_name, "labs" ) ||
-      !strcmp( args->dev1.tile_name, "solana-labs" ) ) {
-    result = solana_labs_main( config );
+      !strcmp( args->dev1.tile_name, "agave" ) ) {
+    result = agave_main( config );
   } else {
     ulong tile_id = fd_topo_find_tile( &config->topo, args->dev1.tile_name, 0UL );
     if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "tile %s not found in topology", args->dev1.tile_name ));

@@ -101,7 +101,7 @@ FD_PROTOTYPES_BEGIN
 int
 fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,       /* Memory to place the result in, must be at least FD_BANK_ABI_TXN_FOOTPRINT bytes. */
                       uchar *             out_sidecar,   /* Memory to place sidecar data in, must be at least FD_BANK_ABI_TXN_FOOTPRINT_SIDECAR( out_txn ) bytes. */
-                      void const *        bank,          /* Pointer to a Solana `Bank` object the transaction is being loaded for.  */
+                      void const *        bank,          /* Pointer to an Agave `Bank` object the transaction is being loaded for.  */
                       fd_blake3_t *       blake3,        /* Blake3 implementation used to create `message_hash` of the transaction. */
                       uchar *             payload,       /* Transaction raw wire payload. */
                       ulong               payload_sz,    /* Transaction raw wire size. */

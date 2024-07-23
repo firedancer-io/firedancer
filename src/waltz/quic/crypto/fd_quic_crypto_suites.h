@@ -494,7 +494,7 @@ fd_quic_crypto_lookup_suite( uchar major,
   Footnotes
   - This is _not_ the Retry Integrity Tag scheme specified in RFC 9001, Section 5.8.
   - This scheme is based on what's done in quinn (which is the QUIC implementation used by the
-    original Solana validator client), though a similar HKDF + AEAD scheme is used in other
+    original Agave client), though a similar HKDF + AEAD scheme is used in other
     implementations as well (quic-go, msquic). The differences are mainly what metadata is passed
     to AEAD as plaintext vs. as associated data. */
 int

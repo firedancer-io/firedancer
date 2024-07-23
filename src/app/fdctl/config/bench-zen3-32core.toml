@@ -10,7 +10,7 @@
 
 [layout]
   affinity = "14-57,f1"
-  solana_labs_affinity = "58-63"
+  agave_affinity = "58-63"
   verify_tile_count = 30
   bank_tile_count = 6
 

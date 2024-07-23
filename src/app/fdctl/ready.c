@@ -18,10 +18,10 @@ ready_cmd_fn( args_t *         args,
   for( ulong i=0; i<config->topo.tile_cnt; i++) {
     fd_topo_tile_t * tile = &config->topo.tiles[i];
 
-    /* Don't wait for solana labs hosted tiles yet, they will take a
+    /* Don't wait for agave hosted tiles yet, they will take a
        long time, and aren't needed to start sending transactions
        anyway. */
-    if( FD_UNLIKELY( tile->is_labs ) ) continue;
+    if( FD_UNLIKELY( tile->is_agave ) ) continue;
     
     long start = fd_log_wallclock();
     int printed = 0;
