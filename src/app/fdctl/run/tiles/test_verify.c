@@ -33,6 +33,21 @@ invalid_txn_same_1sig[] = {
 };
 
 static char *
+invalid_txn_1sig_same_64bit[] = {
+  "01",
+  "fd5dd258de925a15000000000000000000000000b8339cebc707d5f47ab16986803c667a12693265dcdf2d89cd5ddf5da636f6c01d2cf1e64eb662304da78f00",
+  "01000104",
+  "be5b54cdb01762497c7fd98bfcaaec1d2a2cad1c2bb5134857b68f0214935ebb",
+  "39b50f550575dc96d25125430d6a1aa7483b458f5786ef9e7e605ead7d7b9a13",
+  "62e658c293c604459865e83503e2d1987f4dc07210e3a777477ee13843fcd265",
+  "0863ba8dd9c4c2fb174a05cba27e2a2cd623573d79e90b35b579fc0d00000000",
+  "f270416e4022a36d79c23416f8c483693b5da245ec40d4b3049ff5ab11e7d009",
+  "01",
+  "030302010001",
+  "00", // CloseContextState
+};
+
+static char *
 valid_txn_2sigs[] = {
   "02",
   "50e91db2a2c889fec7f7a92cfdfc4735c20722e58cedeec048e1de80dec5937e31c46b37efea6f6cf91241b48c84d11a12aaf6864990f3ae0de975487ef7fd0c",
@@ -265,6 +280,42 @@ test_verify_invalid_dedup_success( void ) {
   free_verify_ctx( ctx, mem );
 }
 
+static void
+test_verify_invalid_dedup_with_collision_success( void ) {
+  fd_verify_ctx_t ctx[1];
+  void *          mem = NULL;
+  uchar           out_buf[FD_TXN_MAX_SZ];
+  fd_txn_t *      txn = (fd_txn_t *)out_buf;
+  ulong           opt_sig = 0;
+  uchar *         payload = NULL;
+  ulong           payload_sz = 0;
+  int             res = 0;
+
+  FD_LOG_NOTICE(( "test_verify_invalid_dedup_with_collision_success" ));
+  setup_verify_ctx( ctx, &mem );
+
+  payload = load_test_txn( valid_txn_1sig, sizeof(valid_txn_1sig), &payload_sz );
+  fd_txn_parse( payload, payload_sz, out_buf, NULL );
+
+  /* valid txn with 1 signature */
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, &opt_sig );
+  FD_TEST( res==FD_TXN_VERIFY_SUCCESS );
+
+  free(payload);
+  payload = load_test_txn( invalid_txn_1sig_same_64bit, sizeof(invalid_txn_1sig_same_64bit), &payload_sz );
+  fd_txn_parse( payload, payload_sz, out_buf, NULL );
+
+  /* invalid txn, with same low 64-bit signature as a valid one.
+     this is NOT deduped... but of course will fail sigverify.
+     A better test would be finding valid signature with the same
+     low 64-bit, but the effect is the same. */
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, &opt_sig );
+  FD_TEST( res==FD_TXN_VERIFY_FAILED );
+
+  free(payload);
+  free_verify_ctx( ctx, mem );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -273,6 +324,7 @@ main( int     argc,
   test_verify_success();
   test_verify_invalid_sigs_success();
   test_verify_invalid_dedup_success();
+  test_verify_invalid_dedup_with_collision_success();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
