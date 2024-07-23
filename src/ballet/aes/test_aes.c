@@ -1,4 +1,4 @@
-#include "fd_aes_gcm.h"
+#include "fd_aes_gcm_private.h"
 #include "fd_aes_private.h"
 
 /* Key expansion tests ************************************************/
