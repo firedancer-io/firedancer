@@ -1261,7 +1261,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
       for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
         fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
 
-        if( !fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i) ) {
+        if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
           continue;
         }
 
@@ -1394,7 +1394,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
       }
 
       for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
-        if( !fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i) ) {
+        if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
           continue;
         }
         if( !txn_ctx->nonce_accounts[i] ) {
@@ -1553,7 +1553,7 @@ fd_runtime_generate_wave( fd_execute_txn_task_info_t * task_infos,
           is_executable_now = 0;
           break;
         }
-        if( fd_txn_account_is_writable_idx( task_info->txn_ctx->txn_descriptor, task_info->txn_ctx->accounts, (int)j ) ) {
+        if( fd_txn_account_is_writable_idx( task_info->txn_ctx, (int)j ) ) {
           if( fd_pubkey_map_query( read_map, task_info->txn_ctx->accounts[j], NULL ) != NULL ) {
             is_executable_now = 0;
             break;
@@ -1569,7 +1569,7 @@ fd_runtime_generate_wave( fd_execute_txn_task_info_t * task_infos,
 
       /* Include txn in wave */
       for( ulong j = 0; j < task_info->txn_ctx->accounts_cnt; j++ ) {
-        if( fd_txn_account_is_writable_idx( task_info->txn_ctx->txn_descriptor, task_info->txn_ctx->accounts, (int)j) ) {
+        if( fd_txn_account_is_writable_idx( task_info->txn_ctx, (int)j ) ) {
           uint ins_res = fd_pubkey_map_insert_if_not_in( write_map, task_info->txn_ctx->accounts[j] );
           if( ins_res == 2 ) {
             accounts_in_wave++;

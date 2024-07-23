@@ -26,30 +26,6 @@ int fd_account_is_owned_by_current_program2(const fd_exec_instr_ctx_t *ctx, cons
 }
 
 static inline
-int fd_account_is_writable_idx( fd_txn_t const * txn_descriptor,
-                                fd_pubkey_t const * accounts,
-                                uchar program_id,
-                                int idx ) {
-  int acct_addr_cnt = txn_descriptor->acct_addr_cnt;
-  if (txn_descriptor->transaction_version == FD_TXN_V0) {
-    acct_addr_cnt += txn_descriptor->addr_table_adtl_cnt;
-  }
-
-  if (idx == acct_addr_cnt)
-    return 0;
-
-  // You just cannot write to a program...
-  if (idx == program_id)
-    return 0;
-
-  if (fd_pubkey_is_builtin_program(&accounts[idx]) || fd_pubkey_is_sysvar_id(&accounts[idx])) {
-    return 0;
-  }
-
-  return fd_txn_is_writable(txn_descriptor, idx);
-}
-
-static inline
 int fd_account_can_data_be_changed2(fd_exec_instr_ctx_t *ctx, fd_account_meta_t const * acct, fd_pubkey_t const * key,  int *err) {
 
   if (fd_account_is_executable( acct )) {
