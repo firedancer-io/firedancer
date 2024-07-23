@@ -1335,28 +1335,51 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
         /* TODO: factor this out into a separate function */
         /* Even if a transaction fails, we still include the nonce account if it
            was part of the transaction. However, there is an exception to this:
-           if a recent blockhash is found then we do not include the nonce account. */
+           if a blockhash from the last 151 blockhashes in the blockhash queue
+           is found then we do not include the nonce account. Agave handles this
+           check before transaction execution and propogates if a nonce was valid
+           to the point where the accounts are stored after execution. Firedancer
+           instead computes this after the transaction has finished executing. */
         if( !txn_ctx->nonce_accounts[i] ) {
           continue;
         }
         int skip_hash = 0;
-        ushort recent_blockhash_off = task_info[txn_idx].txn_ctx->txn_descriptor->recent_blockhash_off;
-        fd_hash_t * recent_blockhash = (fd_hash_t *)((uchar *)task_info[txn_idx].txn_ctx->_txn_raw->raw + recent_blockhash_off);
+
+        ushort      recent_blockhash_off = task_info[txn_idx].txn_ctx->txn_descriptor->recent_blockhash_off;
+        fd_hash_t * recent_blockhash     = (fd_hash_t *)((uchar *)task_info[txn_idx].txn_ctx->_txn_raw->raw + recent_blockhash_off);
+        if( FD_UNLIKELY( !recent_blockhash ) ) {
+          FD_LOG_ERR(( "Transaction has no recent blockhash" ));
+        }
 
         /* If the transaction fails */
-        if( exec_txn_err != 0 ) {
-          /* Look up the transactions blockhash */
-          fd_block_block_hash_entry_t * hashes_deque = slot_ctx->slot_bank.recent_block_hashes.hashes;
-          for( deq_fd_block_block_hash_entry_t_iter_t iter = deq_fd_block_block_hash_entry_t_iter_init( hashes_deque );
-                !deq_fd_block_block_hash_entry_t_iter_done( hashes_deque, iter );
-                iter = deq_fd_block_block_hash_entry_t_iter_next( hashes_deque, iter ) ) {
-            /* If the block hash entry matches the transactions recent block hash, we skip the hash */
-            fd_block_block_hash_entry_t * entry = deq_fd_block_block_hash_entry_t_iter_ele( hashes_deque, iter );
-            if( memcmp( entry->blockhash.hash, recent_blockhash->hash, sizeof(fd_hash_t) ) == 0 ) {
-              skip_hash = 1;
-              accounts_to_save_cnt--;
-              break;
+        if( FD_UNLIKELY( exec_txn_err!=0 ) ) {
+          /* https://github.com/anza-xyz/agave/blob/ab04ff8fae8c708d495c5b8d59f3ba354be291d7/runtime/src/bank.rs#L3481 */
+          fd_block_hash_queue_t queue             = slot_ctx->slot_bank.block_hash_queue;
+          ulong                 max_hash_idx      = 0UL; /* last_hash_index */
+          ulong                 cur_blockhash_idx = 0UL; /* hash index of transactions blockhash */
+          ulong                 queue_sz          = fd_hash_hash_age_pair_t_map_size( queue.ages_pool, queue.ages_root );
+
+          if( FD_UNLIKELY( !queue_sz ) ) {
+            FD_LOG_ERR(( "Blockhash queue is empty" ));
+          }
+
+          for( fd_hash_hash_age_pair_t_mapnode_t * n=fd_hash_hash_age_pair_t_map_minimum( queue.ages_pool, queue.ages_root );
+               n!=NULL; n=fd_hash_hash_age_pair_t_map_successor( queue.ages_pool, n ) ) {
+            max_hash_idx = fd_ulong_max( max_hash_idx, n->elem.val.hash_index );
+            fd_hash_t * blockhash = &n->elem.key;
+            if( !memcmp( blockhash->hash, recent_blockhash->hash, sizeof(fd_hash_t) ) ) {
+              cur_blockhash_idx = n->elem.val.hash_index;
             }
+          }
+
+          /* https://github.com/anza-xyz/agave/blob/ab04ff8fae8c708d495c5b8d59f3ba354be291d7/accounts-db/src/blockhash_queue.rs#L109-L111 */
+          /* In agave, is_hash_index_valid checks if last_hash_index - hash_index <= max_age where max_age = 150 using the blockhash queue. 
+             This means that the last 151 blockhashes are valid according to this check because when the value last_hash_index is equal to hash_index, 
+             we are looking are the "first" most recent blockhash */
+          if( max_hash_idx-cur_blockhash_idx<=FD_RECENT_BLOCKHASHES_MAX_ENTRIES ) { /* This intentionally age of 151 and NOT 150 */
+            skip_hash = 1;
+            accounts_to_save_cnt--;
+            break;
           }
         }
         /* Only save if a hash didn't match */
