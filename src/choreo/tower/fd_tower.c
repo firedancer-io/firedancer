@@ -80,7 +80,7 @@ simulate_vote( fd_tower_vote_t const * votes, ulong slot ) {
     }
     cnt--;
   }
-  return cnt + 1; /* Add 1 to represent the simulated vote. */
+  return cnt;
 }
 
 static void
@@ -220,9 +220,9 @@ fd_tower_init( fd_tower_t *                tower,
       fd_tower_from_vote_state( tower, vote_state );
       FD_LOG_NOTICE(( "[%s] loading vote state for vote acc: %32J", __func__, vote_acc_addr ));
     } else {
-      FD_LOG_WARNING( ( "[%s] didn't find existing vote state for vote acc: %32J",
-                        __func__,
-                        vote_acc_addr ) );
+      FD_LOG_WARNING(( "[%s] didn't find existing vote state for vote acc: %32J",
+                       __func__,
+                       vote_acc_addr ));
     }
   }
   FD_SCRATCH_SCOPE_END;
@@ -239,42 +239,27 @@ fd_tower_lockout_check( fd_tower_t const * tower,
                         fd_fork_t const *  fork,
                         fd_ghost_t const * ghost ) {
 
+  /* Simulate a vote to pop off all the votes that have been expired at
+     the top of the tower. */
+
   ulong cnt = simulate_vote( tower->votes, fork->slot );
 
-  /* Subtract the simulated vote. */
+  /* By definition, all votes in the tower must be for the same fork, so
+     check if the top vote of the tower after simulating is on the same
+     fork as the fork we want to vote for (ie. fork->slot is a
+     descendant of top vote slot).  If the top vote slot is too old (ie.
+     older than ghost->root), we just assume it is on the same fork. */
 
-  cnt--;
+  fd_tower_vote_t const * top_vote = fd_tower_votes_peek_index_const( tower->votes, cnt - 1 );
 
-  /* Check all remaining votes on the tower to make sure they are on the
-     same fork. */
-
-  while( cnt ) {
-    fd_tower_vote_t const * vote = fd_tower_votes_peek_index_const( tower->votes, cnt-- );
-
-    /* We're locked out if the fork->slot is not a descendant of this
-       previous vote->slot.
-
-       If the vote slot is older than the ghost root, then we no longer
-       have a valid ancestry. So we assume this fork slot is a
-       descendant. */
-
-    if( FD_UNLIKELY( vote->slot > ghost->root->slot &&
-                     !fd_ghost_is_descendant( ghost, fork->slot, vote->slot ) ) ) {
-      FD_LOG_NOTICE(( "[fd_tower_lockout_check] lockout for %lu by prev vote (slot: "
-                      "%lu, conf: %lu)",
-                      fork->slot,
-                      vote->slot,
-                      vote->conf ));
-      return 0;
-    }
+  int lockout_check = top_vote->slot < ghost->root->slot ||
+                      fd_ghost_is_descendant( ghost, fork->slot, top_vote->slot );
+  if( FD_UNLIKELY( !lockout_check ) ) {
+    FD_LOG_NOTICE( ( "[fd_tower_lockout_check] locked out from voting for %lu by prior vote %lu",
+                     fork->slot,
+                     top_vote->slot ) );
   }
-
-  FD_LOG_NOTICE(( "[fd_tower_lockout_check] no lockout for %lu", fork->slot ));
-
-  /* All remaining votes in the tower are on the same fork, so we are
-     not locked out and OK to vote. */
-
-  return 1;
+  return lockout_check;
 }
 
 int
@@ -311,9 +296,9 @@ fd_tower_switch_check( fd_tower_t const * tower,
 
   double switch_pct = (double)switch_stake / (double)tower->total_stake;
   FD_LOG_NOTICE(( "[fd_tower_switch_check] latest vote slot: %lu. switch slot: %lu. stake: %.0lf%%",
-                   fd_tower_votes_peek_tail_const( tower->votes )->slot,
-                   fork->slot,
-                   switch_pct * 100.0 ));
+                  fd_tower_votes_peek_tail_const( tower->votes )->slot,
+                  fork->slot,
+                  switch_pct * 100.0 ));
   return switch_pct > SWITCH_PCT;
 }
 
@@ -321,17 +306,23 @@ int
 fd_tower_threshold_check( fd_tower_t const * tower,
                           fd_fork_t const *  fork,
                           fd_acc_mgr_t *     acc_mgr ) {
+
+  /* First, simulate a vote, popping off everything that would be
+     expired by voting for the current slot. */
+
   ulong cnt = simulate_vote( tower->votes, fork->slot );
 
-  /* Return early if our tower is not at least THRESHOLD_DEPTH deep after
-     simulating. */
+  /* Return early if our tower is not at least THRESHOLD_DEPTH deep
+     after simulating. */
 
   if( FD_UNLIKELY( cnt < THRESHOLD_DEPTH ) ) return 1;
 
-  /* Get the vote slot from THRESHOLD_DEPTH back. */
+  /* Get the vote slot from THRESHOLD_DEPTH back. Note THRESHOLD_DEPTH
+     is the 8th index back _including_ the simulated vote at index 0,
+     which is not accounted for by `cnt`, so subtracting THRESHOLD_DEPTH
+     will conveniently index the threshold vote. */
 
-  fd_tower_vote_t * our_threshold_vote = fd_tower_votes_peek_index( tower->votes,
-                                                                    cnt - THRESHOLD_DEPTH );
+  ulong threshold_slot = fd_tower_votes_peek_index( tower->votes, cnt - THRESHOLD_DEPTH )->slot;
 
   /* Track the amount of stake that has vote slot >= threshold_slot. */
 
@@ -377,28 +368,26 @@ fd_tower_threshold_check( fd_tower_t const * tower,
 
       ulong cnt = simulate_vote( their_tower_votes, fork->slot );
 
-      /* Continue if their tower is not yet THRESHOLD_DEPTH deep after
-         simulating. */
+      /* Continue if their tower is empty after simulating. */
 
-      if( FD_UNLIKELY( cnt < THRESHOLD_DEPTH ) ) continue;
+      if( FD_UNLIKELY( !cnt ) ) continue;
 
-      /* Get the vote slot from THRESHOLD_DEPTH back.*/
+      /* Get their latest vote slot.*/
 
-      fd_tower_vote_t * their_threshold_vote = fd_tower_votes_peek_index( their_tower_votes,
-                                                                          cnt - THRESHOLD_DEPTH );
+      fd_tower_vote_t const * vote_slot = fd_tower_votes_peek_index( their_tower_votes, cnt - 1 );
 
-      /* Add their stake if their threshold vote's slot >= our threshold
-         vote's slot.
+      /* Count their stake towards the threshold check if their latest
+         vote slot >= our threshold slot.
 
          Because we are iterating vote accounts on the same fork that we
-         are threshold checking, we know these slots must occur in a
-         common ancestry.
+         we want to vote for, we know these slots must all occur along
+         the same fork ancestry.
 
-         If their_threshold_vote->slot >= our_threshold_vote->slot, we
-         know their threshold vote is either for the same slot or a
-         descendant slot of our threshold vote. */
+         Therefore, if their latest vote slot >= our threshold slot, we
+         know that vote must be for the threshold slot itself or one of
+         threshold slot's descendants. */
 
-      if( FD_LIKELY( their_threshold_vote->slot >= our_threshold_vote->slot ) ) {
+      if( FD_LIKELY( vote_slot->slot >= threshold_slot ) ) {
         threshold_stake += vote_acc->stake;
       }
     }
@@ -408,7 +397,7 @@ fd_tower_threshold_check( fd_tower_t const * tower,
   double threshold_pct = (double)threshold_stake / (double)tower->total_stake;
   FD_LOG_NOTICE(( "[fd_tower_threshold_check] latest vote slot %lu. threshold slot: %lu. stake: %.0lf%%",
                   fd_tower_votes_peek_tail_const( tower->votes )->slot,
-                  our_threshold_vote->slot,
+                  threshold_slot,
                   threshold_pct * 100.0 ));
   return threshold_pct > THRESHOLD_PCT;
 }
@@ -722,10 +711,6 @@ fd_tower_vote( fd_tower_t const * tower, ulong slot ) {
      vote onto the tower. */
 
   ulong cnt = simulate_vote( tower->votes, slot );
-
-  /* Subtract the simulated vote. */
-
-  cnt--;
 
   /* Pop everything that got expired. */
 
