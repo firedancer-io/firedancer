@@ -394,26 +394,6 @@ fd_spad_alloc( fd_spad_t * spad,
   return buf;
 }
 
-static inline void *
-fd_spad_checked_alloc_atomic( fd_spad_t * spad,
-                              ulong       align,
-                              ulong       sz ) {
-  align = fd_ulong_if( align>0UL, align, FD_SPAD_ALLOC_ALIGN_DEFAULT ); /* typically compile time */
-  FD_COMPILER_MFENCE();
-  for(;;) {
-    ulong old = spad->mem_used;
-    ulong off = fd_ulong_align_up( old, align );
-    if( FD_UNLIKELY( off + sz > spad->mem_max ) ) {
-      return NULL;
-    }
-    if( FD_UNLIKELY( FD_ATOMIC_CAS( &spad->mem_used, old, off + sz ) != old ) ) {
-      FD_YIELD();
-      continue;
-    }
-    return fd_spad_private_mem( spad ) + off;
-  }
-}
-
 /* fd_spad_trim trims trims frame_hi to end at hi where hi is given the
    caller's local address space.  Assumes spad is a current local join
    in a frame and hi is in [frame_lo,frame_hi] (FIXME: consider

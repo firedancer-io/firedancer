@@ -986,7 +986,7 @@ int
 fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t * accounts_hash, ulong do_hash_verify ) {
   FD_LOG_NOTICE(("accounts_hash start with do_hash_verify=%s", (void *)do_hash_verify ? "true" : "false" ));
 
-  if( tpool == NULL || fd_tpool_worker_cnt( tpool ) == 1U ) {
+  if( tpool == NULL || fd_tpool_worker_cnt( tpool ) <= 1U ) {
     ulong                   num_pairs = 0;
     fd_pubkey_hash_pair_t * pairs = fd_accounts_sorted_subrange( slot_ctx, 0, 1, do_hash_verify, &num_pairs );
     FD_TEST(NULL != pairs);
