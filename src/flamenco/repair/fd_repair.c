@@ -27,7 +27,7 @@
 /* Max number of validator clients that we ping */
 #define FD_REPAIR_PINGED_MAX (1<<14)
 /* Number of peers to send requests to. */
-#define FD_REPAIR_NUM_NEEDED_PEERS (4UL)
+#define FD_REPAIR_NUM_NEEDED_PEERS (4)
 
 /* Test if two hash values are equal */
 static int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
@@ -100,6 +100,7 @@ struct fd_dupdetect_key {
   enum fd_needed_elem_type type;
   ulong slot;
   uint shred_index;
+  uint req_cnt;
 };
 typedef struct fd_dupdetect_key fd_dupdetect_key_t;
 
@@ -146,7 +147,7 @@ void fd_repair_nonce_copy( fd_repair_nonce_t * keyd, const fd_repair_nonce_t * k
 struct fd_needed_elem {
   fd_repair_nonce_t key;
   ulong next;
-  fd_pubkey_t id[FD_REPAIR_NUM_NEEDED_PEERS];
+  fd_pubkey_t id;
   fd_dupdetect_key_t dupkey;
   long when;
 };
@@ -428,7 +429,7 @@ fd_repair_sign_and_send( fd_repair_t * glob, fd_repair_protocol_t * protocol, fd
 static void
 fd_repair_send_requests( fd_repair_t * glob ) {
   /* Garbage collect old requests */
-  long expire = glob->now - (long)100e6; /* 1 seconds */
+  long expire = glob->now - (long)1000e6; /* 1 seconds */
   fd_repair_nonce_t n;
   for ( n = glob->oldest_nonce; n != glob->next_nonce; ++n ) {
     fd_needed_elem_t * ele = fd_needed_table_query( glob->needed, &n, NULL );
@@ -437,7 +438,10 @@ fd_repair_send_requests( fd_repair_t * glob ) {
     if (ele->when > expire)
       break;
     // (*glob->deliver_fail_fun)( &ele->key, ele->slot, ele->shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_TIMEOUT );
-    fd_dupdetect_table_remove( glob->dupdetect, &ele->dupkey );
+    fd_dupdetect_elem_t * dup = fd_dupdetect_table_query( glob->dupdetect, &ele->dupkey, NULL );
+    if( dup && --dup->key.req_cnt == 0) {
+      fd_dupdetect_table_remove( glob->dupdetect, &ele->dupkey );
+    }
     fd_needed_table_remove( glob->needed, &n );
   }
   glob->oldest_nonce = n;
@@ -453,66 +457,65 @@ fd_repair_send_requests( fd_repair_t * glob ) {
     if ( NULL == ele )
       continue;
 
-    if(j == 100U) break;
+    if(j == 400U) break;
     ++j;
 
     /* Track statistics */
     ele->when = glob->now;
 
-    uint found_active = 0;
-    for( ulong active_idx=0UL; active_idx<FD_REPAIR_NUM_NEEDED_PEERS; active_idx++ ) {
-      fd_active_elem_t * active = fd_active_table_query( glob->actives, &ele->id[active_idx], NULL );
-      if( active == NULL ) continue;
-      found_active = 1;
-      
-      active->avg_reqs++;
-
-      fd_repair_protocol_t protocol;
-      switch (ele->dupkey.type) {
-        case fd_needed_window_index: {
-          fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_window_index);
-          fd_repair_window_index_t * wi = &protocol.inner.window_index;
-          fd_hash_copy(&wi->header.sender, glob->public_key);
-          fd_hash_copy(&wi->header.recipient, &active->key);
-          wi->header.timestamp = glob->now/1000000L;
-          wi->header.nonce = n;
-          wi->slot = ele->dupkey.slot;
-          wi->shred_index = ele->dupkey.shred_index;
-          break;
-        }
-
-        case fd_needed_highest_window_index: {
-          fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_highest_window_index);
-          fd_repair_highest_window_index_t * wi = &protocol.inner.highest_window_index;
-          fd_hash_copy(&wi->header.sender, glob->public_key);
-          fd_hash_copy(&wi->header.recipient, &active->key);
-          wi->header.timestamp = glob->now/1000000L;
-          wi->header.nonce = n;
-          wi->slot = ele->dupkey.slot;
-          wi->shred_index = ele->dupkey.shred_index;
-          break;
-        }
-
-        case fd_needed_orphan: {
-          fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_orphan);
-          fd_repair_orphan_t * wi = &protocol.inner.orphan;
-          fd_hash_copy(&wi->header.sender, glob->public_key);
-          fd_hash_copy(&wi->header.recipient, &active->key);
-          wi->header.timestamp = glob->now/1000000L;
-          wi->header.nonce = n;
-          wi->slot = ele->dupkey.slot;
-          break;
-        }
+    fd_active_elem_t * active = fd_active_table_query( glob->actives, &ele->id, NULL );
+    if ( active == NULL) {
+      fd_dupdetect_elem_t * dup = fd_dupdetect_table_query( glob->dupdetect, &ele->dupkey, NULL );
+      if( dup && --dup->key.req_cnt == 0) {
+        fd_dupdetect_table_remove( glob->dupdetect, &ele->dupkey );
       }
-
-      fd_repair_sign_and_send(glob, &protocol, &active->addr);
-    }
-
-    if ( !found_active) {
-      fd_dupdetect_table_remove( glob->dupdetect, &ele->dupkey );
       fd_needed_table_remove( glob->needed, &n );
       continue;
     }
+    
+    active->avg_reqs++;
+
+    fd_repair_protocol_t protocol;
+    switch (ele->dupkey.type) {
+      case fd_needed_window_index: {
+        fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_window_index);
+        fd_repair_window_index_t * wi = &protocol.inner.window_index;
+        fd_hash_copy(&wi->header.sender, glob->public_key);
+        fd_hash_copy(&wi->header.recipient, &active->key);
+        wi->header.timestamp = glob->now/1000000L;
+        wi->header.nonce = n;
+        wi->slot = ele->dupkey.slot;
+        wi->shred_index = ele->dupkey.shred_index;
+        // FD_LOG_INFO(("[repair]"))
+        break;
+      }
+
+      case fd_needed_highest_window_index: {
+        fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_highest_window_index);
+        fd_repair_highest_window_index_t * wi = &protocol.inner.highest_window_index;
+        fd_hash_copy(&wi->header.sender, glob->public_key);
+        fd_hash_copy(&wi->header.recipient, &active->key);
+        wi->header.timestamp = glob->now/1000000L;
+        wi->header.nonce = n;
+        wi->slot = ele->dupkey.slot;
+        wi->shred_index = ele->dupkey.shred_index;
+        break;
+      }
+
+      case fd_needed_orphan: {
+        fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_orphan);
+        fd_repair_orphan_t * wi = &protocol.inner.orphan;
+        fd_hash_copy(&wi->header.sender, glob->public_key);
+        fd_hash_copy(&wi->header.recipient, &active->key);
+        wi->header.timestamp = glob->now/1000000L;
+        wi->header.nonce = n;
+        wi->slot = ele->dupkey.slot;
+        break;
+      }
+    }
+
+    fd_repair_sign_and_send(glob, &protocol, &active->addr);
+
   }
   glob->current_nonce = n;
   if( k )
@@ -654,13 +657,11 @@ fd_repair_recv_clnt_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
       return 0;
     }
 
-    for( ulong i=0UL; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {
-      fd_active_elem_t * active = fd_active_table_query( glob->actives, &val->id[i], NULL );
-      if ( NULL != active ) {
-        /* Update statistics */
-        active->avg_reps++;
-        active->avg_lat += glob->now - val->when;
-      }
+    fd_active_elem_t * active = fd_active_table_query( glob->actives, &val->id, NULL );
+    if ( NULL != active ) {
+      /* Update statistics */
+      active->avg_reps++;
+      active->avg_lat += glob->now - val->when;
     }
 
     fd_shred_t const * shred = fd_shred_parse(msg, shredlen);
@@ -668,7 +669,7 @@ fd_repair_recv_clnt_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
     if (shred == NULL) {
       FD_LOG_WARNING(("invalid shread"));
     } else {
-      (*glob->deliver_fun)(shred, shredlen, from, &val->id[0], glob->fun_arg);
+      (*glob->deliver_fun)(shred, shredlen, from, &val->id, glob->fun_arg);
     }
   } FD_SCRATCH_SCOPE_END;
   return 0;
@@ -868,7 +869,7 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
     return -1;
   };
 
-  fd_dupdetect_key_t dupkey = { .type = type, .slot = slot, .shred_index = shred_index };
+  fd_dupdetect_key_t dupkey = { .type = type, .slot = slot, .shred_index = shred_index, .req_cnt = FD_REPAIR_NUM_NEEDED_PEERS };
   if( fd_dupdetect_table_query( glob->dupdetect, &dupkey, NULL ) != NULL ) {
     fd_repair_unlock( glob );
     return 0;
@@ -881,14 +882,13 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
     ( *glob->deliver_fail_fun )(ids[0], slot, shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED );
     return -1;
   }
-
-  fd_repair_nonce_t key = glob->next_nonce++;
-  fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
   for( ulong i=0UL; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {
-    fd_hash_copy(&val->id[i], ids[i]);
+    fd_repair_nonce_t key = glob->next_nonce++;
+    fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
+    fd_hash_copy(&val->id, ids[i]);
+    val->dupkey = dupkey;
+    val->when = glob->now;
   }
-  val->dupkey = dupkey;
-  val->when = glob->now;
   fd_repair_unlock( glob );
   return 0;
 }
