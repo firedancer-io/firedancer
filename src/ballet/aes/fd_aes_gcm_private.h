@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_ballet_aes_fd_aes_gcm_private_h
 #define HEADER_fd_src_ballet_aes_fd_aes_gcm_private_h
 
+#include "fd_aes_gcm.h"
 #include "fd_aes_private.h"
 
 union fd_gcm128 {
@@ -33,8 +34,6 @@ struct __attribute__((aligned(64UL))) fd_aes_gcm {
 
   fd_aes_key_t key;
 };
-
-typedef struct fd_aes_gcm fd_aes_gcm_t;
 
 /* AVX accelerated GCM ************************************************/
 

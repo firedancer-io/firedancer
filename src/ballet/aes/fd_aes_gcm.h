@@ -1,8 +1,7 @@
 #ifndef HEADER_fd_src_ballet_aes_fd_aes_gcm_h
 #define HEADER_fd_src_ballet_aes_fd_aes_gcm_h
 
-#include "fd_aes_gcm_private.h"
-
+#include "../fd_ballet_base.h"
 
 /* AES-GCM ************************************************************/
 
@@ -29,6 +28,9 @@
    in parallel. */
 
 #define AES_GCM_TAG_SZ (16UL)
+
+struct fd_aes_gcm;
+typedef struct fd_aes_gcm fd_aes_gcm_t;
 
 FD_PROTOTYPES_BEGIN
 
