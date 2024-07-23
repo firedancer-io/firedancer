@@ -9,6 +9,9 @@ build = "build.rs"
 bindgen = "0.69"
 
 [dependencies]
+crossbeam-channel = "0.5"
 env_logger = "0.11"
 libc = "0.2"
 solana-client = "1.18"
+solana-sdk = "1.18"
+solana-streamer = "1.18"
