@@ -275,8 +275,8 @@ fd_executor_check_txn_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
       validated_fee_payer = 1;
     }
 
-    if ( txn_ctx->slot_ctx->epoch_reward_status.is_active && fd_txn_account_is_writable_idx( txn_ctx->txn_descriptor, tx_accs, (int)i)
-          && memcmp( acct->const_meta->info.owner, fd_solana_stake_program_id.uc, sizeof(fd_pubkey_t)) == 0 ) {
+    if( txn_ctx->slot_ctx->epoch_reward_status.is_active && fd_txn_account_is_writable_idx( txn_ctx, (int)i )
+        && memcmp( acct->const_meta->info.owner, fd_solana_stake_program_id.uc, sizeof(fd_pubkey_t))==0 ) {
       return FD_RUNTIME_TXN_ERR_PROGRAM_EXECUTION_TEMPORARILY_RESTRICTED;
     }
   }
@@ -813,9 +813,7 @@ fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
     /* An account writable iff it is writable AND it is not being demoted.
         If this criteria is not met, the account should not be marked as touched
         via updating its most recent slot. */
-    int is_writable = fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i) &&
-                      !fd_txn_account_is_demotion( txn_ctx, (int)i );
-    if( !is_writable ) {
+    if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
       continue;
     }
 
@@ -842,7 +840,7 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       // FD_LOG_WARNING(( "fd_acc_mgr_view(%32J) failed (%d-%s)", acc->uc, err, fd_acc_mgr_strerror( err ) ));
     }
 
-    if( fd_txn_account_is_writable_idx( txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i ) ) {
+    if( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
         void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
         fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
     }
@@ -998,9 +996,7 @@ fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t * slot_ctx,
          ctrl != fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
       ulong i = fd_txn_acct_iter_idx( ctrl );
       fd_pubkey_t * acct = &tx_accs[i];
-      int is_writable = fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, tx_accs, (int)i) &&
-                        !fd_txn_account_is_demotion( txn_ctx, (int)i );
-      if (!is_writable) {
+      if (!fd_txn_account_is_writable_idx( txn_ctx, (int)i )) {
         continue;
       }
       fd_account_compute_elem_t * elem = fd_account_compute_table_query( slot_ctx->account_compute_table, acct, NULL );
@@ -1072,7 +1068,7 @@ fd_execute_txn_finalize( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
-    if( !fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i) ) {
+    if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
       continue;
     }
 
