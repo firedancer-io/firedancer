@@ -43,6 +43,8 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  ulong       hashmap_seed;
 } fd_dedup_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -129,6 +131,18 @@ after_frag( void *             _ctx,
 
   fd_dedup_ctx_t * ctx = (fd_dedup_ctx_t *)_ctx;
 
+  /* Transactions coming from verify tile, already parsed.
+     We need to reconstruct fd_txn_t * txn, because we need the
+     tx signature to compute the dedup tag.
+     To find the position of fd_txn_t * txn, we need the (udp)
+     payload_sz that's stored as ushort at the end of the
+     dcache_entry. */
+  uchar    * dcache_entry = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  ushort * payload_sz_p = (ushort *)(dcache_entry + *opt_sz - sizeof(ushort));
+  ulong payload_sz = *payload_sz_p;
+  ulong txn_off = fd_ulong_align_up( payload_sz, 2UL );
+  fd_txn_t * txn = (fd_txn_t *)(dcache_entry + txn_off);
+
   if ( FD_UNLIKELY( in_idx < ctx->unparsed_in_cnt ) ) {
     /* Transactions coming in from these links are not parsed.
 
@@ -139,6 +153,8 @@ after_frag( void *             _ctx,
     /* Increment on GOSSIP_IN_IDX but not VOTER_IN_IDX */
     FD_MCNT_INC( DEDUP, GOSSIPED_VOTES_RECEIVED, 1UL - in_idx );
 
+    /* Here, *opt_sz is the size of udp payload, as the tx has not
+       been parsed yet. Code here is similar to the verify tile. */
     ulong payload_sz = *opt_sz;
     ulong txn_off = fd_ulong_align_up( payload_sz, 2UL );
 
@@ -147,8 +163,7 @@ after_frag( void *             _ctx,
       FD_LOG_ERR(( "got malformed txn (sz %lu) insufficient space left in dcache for fd_txn_t", payload_sz ));
     }
 
-    uchar    * dcache_entry = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-    fd_txn_t * txn = (fd_txn_t *)(dcache_entry + txn_off);
+    txn = (fd_txn_t *)(dcache_entry + txn_off);
     ulong txn_t_sz = fd_txn_parse( dcache_entry, payload_sz, txn, NULL );
     if( FD_UNLIKELY( !txn_t_sz ) ) {
       FD_LOG_ERR(( "fd_txn_parse failed for vote transactions that should have been sigverified" ));
@@ -159,7 +174,7 @@ after_frag( void *             _ctx,
     /* Write payload_sz into trailer.
        fd_txn_parse always returns a multiple of 2 so this sz is
        correctly aligned. */
-    ushort * payload_sz_p = (ushort *)((ulong)txn + txn_t_sz);
+    payload_sz_p = (ushort *)((ulong)txn + txn_t_sz);
     *payload_sz_p = (ushort)payload_sz;
 
     /* End of parsed message. */
@@ -171,30 +186,30 @@ after_frag( void *             _ctx,
                     payload_sz, txn_t_sz ));
     }
 
-    /* Assert that the payload_sz includes all signatures.
-       We don't need them all for dedup. */
-    ushort sig_off = txn->signature_off;
-    ulong sig_end_off = sig_off + FD_TXN_SIGNATURE_SZ * txn->signature_cnt;
-    if( FD_UNLIKELY( sig_end_off > payload_sz ) ) {
-      FD_LOG_ERR( ("txn is invalid: payload_sz = %lx, sig_off = %x, sig_end_off = %lx", payload_sz, sig_off, sig_end_off ) );
-    }
-
-    /* Write signature for dedup. */
-    ulong txn_sig = FD_VERIFY_DEDUP_TAG_FROM_PAYLOAD_SIG( dcache_entry + sig_off );
-    *opt_sig = txn_sig;
-
     /* Write new size for mcache. */
     *opt_sz = new_sz;
   }
 
+  /* Compute fd_hash(signature) for dedup. */
+  ulong ha_dedup_tag = fd_hash( ctx->hashmap_seed, dcache_entry + txn->signature_off, 64UL );
+
   int is_dup;
-  FD_TCACHE_INSERT( is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, *opt_sig );
+  FD_TCACHE_INSERT( is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
   *opt_filter = is_dup;
   if( FD_LIKELY( !*opt_filter ) ) {
     *opt_chunk     = ctx->out_chunk;
     *opt_sig       = 0; /* indicate this txn is coming from dedup, and has already been parsed */
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
   }
+}
+
+static void
+privileged_init( FD_PARAM_UNUSED fd_topo_t *      topo,
+                 FD_PARAM_UNUSED fd_topo_tile_t * tile,
+                 void *                           scratch ) {
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_dedup_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_dedup_ctx_t ), sizeof( fd_dedup_ctx_t ) );
+  FD_TEST( fd_rng_secure( &ctx->hashmap_seed, 8U ) );
 }
 
 static void
@@ -295,6 +310,6 @@ fd_topo_run_tile_t fd_tile_dedup = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
-  .privileged_init          = NULL,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
 };
