@@ -746,6 +746,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     fd_exec_txn_ctx_reset_return_data( txn_ctx );
     int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
     if( native_prog_fn != NULL ) {
+      // defense in depth to confirm account ownerships are correct
       fd_borrowed_account_t * prog_acct = &txn_ctx->borrowed_accounts[instr->program_id];
       if( memcmp( prog_acct->const_meta->info.owner, fd_solana_native_loader_id.uc, sizeof(fd_pubkey_t) ) ) {
         exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
