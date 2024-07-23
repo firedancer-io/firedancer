@@ -123,6 +123,7 @@ load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_snapshot_load( const char *         snapshotfile,
                   fd_exec_slot_ctx_t * slot_ctx,
+                  fd_tpool_t *         tpool,
                   uint                 verify_hash,
                   uint                 check_hash,
                   int                  snapshot_type ) {
@@ -177,7 +178,7 @@ fd_snapshot_load( const char *         snapshotfile,
   if( verify_hash ) {
     if (snapshot_type == FD_SNAPSHOT_TYPE_FULL) {
       fd_hash_t accounts_hash;
-      fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn, check_hash, 0);
+      fd_snapshot_hash(slot_ctx, tpool, &accounts_hash, check_hash);
 
       if (memcmp(fhash->uc, accounts_hash.uc, 32) != 0)
         FD_LOG_ERR(("snapshot accounts_hash %32J != %32J", accounts_hash.hash, fhash->uc));
@@ -188,10 +189,10 @@ fd_snapshot_load( const char *         snapshotfile,
 
       if (FD_FEATURE_ACTIVE(slot_ctx, incremental_snapshot_only_incremental_hash_calculation)) {
         FD_LOG_NOTICE(( "hashing incremental snapshot with only deltas" ));
-        fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn, check_hash, 1);
+        fd_accounts_hash_inc_only(slot_ctx, &accounts_hash, child_txn, check_hash);
       } else {
         FD_LOG_NOTICE(( "hashing incremental snapshot with all accounts" ));
-        fd_snapshot_hash(slot_ctx, &accounts_hash, NULL, check_hash, 0);
+        fd_snapshot_hash(slot_ctx, tpool, &accounts_hash, check_hash);
       }
 
       if (memcmp(fhash->uc, accounts_hash.uc, 32) != 0)
