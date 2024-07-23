@@ -271,3 +271,114 @@ fd_topo_run_tile_t fd_tile_verify = {
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
 };
+
+
+static inline void
+after_frag2( void *             _ctx,
+            ulong              in_idx,
+            ulong              seq,
+            ulong *            opt_sig,
+            ulong *            opt_chunk,
+            ulong *            opt_sz,
+            ulong *            opt_tsorig,
+            int *              opt_filter,
+            fd_mux_context_t * mux ) {
+  (void)in_idx;
+  (void)seq;
+  (void)opt_sig;
+  (void)opt_chunk;
+
+  fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)_ctx;
+
+  /* At this point, the payload only contains the serialized txn.
+     Beyond end of txn, but within bounds of msg layout, add a trailer
+     describing the txn layout.
+
+     [ payload          ] (payload_sz bytes)
+     [ pad: align to 2B ] (0-1 bytes)
+     [ fd_txn_t         ] (? bytes)
+     [ payload_sz       ] (2B) */
+
+  ulong payload_sz = *opt_sz;
+  ulong txnt_off   = fd_ulong_align_up( payload_sz, 2UL );
+
+  /* Ensure sufficient space to store trailer */
+
+  long txnt_maxsz = (long)FD_TPU_DCACHE_MTU -
+                    (long)txnt_off -
+                    (long)sizeof(ushort);
+  if( FD_UNLIKELY( txnt_maxsz<(long)FD_TXN_MAX_SZ ) ) FD_LOG_ERR(( "got malformed txn (sz %lu) does not fit in dcache", payload_sz ));
+
+  uchar const * txn   = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  fd_txn_t *    txn_t = (fd_txn_t *)((ulong)txn + txnt_off);
+
+  /* Parse transaction */
+
+  ulong txn_t_sz = fd_txn_parse( txn, payload_sz, txn_t, NULL );
+  if( FD_UNLIKELY( !txn_t_sz ) ) {
+    *opt_filter = 1; /* Invalid txn fails to parse. */
+    return;
+  }
+
+  /* Write payload_sz */
+
+  /* fd_txn_parse always returns a multiple of 2 so this sz is
+     correctly aligned. */
+  ushort * payload_sz_p = (ushort *)( (ulong)txn_t + txn_t_sz );
+  *payload_sz_p = (ushort)payload_sz;
+
+  /* End of message */
+
+  ulong new_sz = ( (ulong)payload_sz_p + sizeof(ushort) ) - (ulong)txn;
+  if( FD_UNLIKELY( new_sz>FD_TPU_DCACHE_MTU ) ) {
+    FD_LOG_CRIT(( "memory corruption detected (txn_sz=%lu txn_t_sz=%lu)",
+                  payload_sz, txn_t_sz ));
+  }
+
+  uchar  signature_cnt = txn_t->signature_cnt;
+  ushort signature_off = txn_t->signature_off;
+  ushort acct_addr_off = txn_t->acct_addr_off;
+  ushort message_off   = txn_t->message_off;
+
+  uchar const * signatures = txn + signature_off;
+  uchar const * pubkeys = txn + acct_addr_off;
+  uchar const * msg = txn + message_off;
+  ulong msg_sz = (ulong)payload_sz - message_off;
+
+  ulong ctl = fd_frag_meta_ctl( 0, 1 /*ctl_som*/, 1 /*ctl_eom*/, 0 /*ctl_err*/ );
+  (void)ctl;
+  (void)msg_sz;
+  (void)msg;
+  (void)pubkeys;
+  (void)signatures;
+  (void)signature_cnt;
+  (void)opt_tsorig;
+  (void)mux;
+  /* Block until the request is sent (or error on timeout) */
+  FD_TEST( !wd_ed25519_verify_req( &ctx->wd, /* wiredancer context */
+                                    msg, msg_sz, signatures, pubkeys, /* verify arguments */
+                                    ctx->out_seq, (uint)ctx->out_chunk, (uint16_t)ctl, (uint16_t)new_sz /* mcache arguments */) );
+
+  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
+
+  *opt_filter = 1;
+
+
+  // /* We need to access signatures and accounts, which are all before the recent_blockhash_off.
+  //    We assert that the payload_sz includes all signatures and account pubkeys we need. */
+  // ushort recent_blockhash_off = txn_t->recent_blockhash_off;
+  // if( FD_UNLIKELY( recent_blockhash_off>=*opt_sz ) ) {
+  //   FD_LOG_ERR( ("txn is invalid: payload_sz = %lx, recent_blockhash_off = %x", *opt_sz, recent_blockhash_off ) );
+  // }
+
+  // ulong txn_sig;
+  // int res = fd_txn_verify( ctx, txn, (ushort)payload_sz, txn_t, &txn_sig );
+  // if( FD_UNLIKELY( res!=FD_TXN_VERIFY_SUCCESS ) ) {
+  //   *opt_filter = 1; /* Signature verification failed. */
+  //   return;
+  // }
+
+  // ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  // fd_mux_publish( mux, txn_sig, ctx->out_chunk, new_sz, 0UL, *opt_tsorig, tspub );
+  // ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
+}

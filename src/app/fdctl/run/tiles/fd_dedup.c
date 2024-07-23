@@ -95,6 +95,7 @@ during_frag( void * _ctx,
   (void)seq;
   (void)sig;
   (void)opt_filter;
+  FD_LOG_NOTICE(( "during_frag "));
   // *opt_filter = 1;
   // return;
 
