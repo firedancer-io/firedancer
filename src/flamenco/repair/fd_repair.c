@@ -849,9 +849,8 @@ actives_sample( fd_repair_t * repair ) {
   return NULL;
 }
 
-
-int
-fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
+static int
+fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint shred_index ) {
   fd_repair_lock( glob );
   fd_pubkey_t * ids[FD_REPAIR_NUM_NEEDED_PEERS] = {0};
   uint found_peer = 0;
@@ -869,7 +868,7 @@ fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) 
     return -1;
   };
 
-  fd_dupdetect_key_t dupkey = { .type = fd_needed_window_index, .slot = slot, .shred_index = shred_index };
+  fd_dupdetect_key_t dupkey = { .type = type, .slot = slot, .shred_index = shred_index };
   if( fd_dupdetect_table_query( glob->dupdetect, &dupkey, NULL ) != NULL ) {
     fd_repair_unlock( glob );
     return 0;
@@ -882,7 +881,6 @@ fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) 
     ( *glob->deliver_fail_fun )(ids[0], slot, shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED );
     return -1;
   }
-  // FD_LOG_INFO( ( "[repair] need window %lu, shred_index %lu from %32J", slot, shred_index, id ) );
 
   fd_repair_nonce_t key = glob->next_nonce++;
   fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
@@ -892,95 +890,25 @@ fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) 
   val->dupkey = dupkey;
   val->when = glob->now;
   fd_repair_unlock( glob );
-  return 1;
+  return 0;
+}
+
+int
+fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
+  // FD_LOG_INFO( ( "[repair] need window %lu, shred_index %lu", slot, shred_index ) );
+  return fd_repair_create_needed_request( glob, fd_needed_window_index, slot, shred_index );
 }
 
 int
 fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
-  fd_repair_lock( glob );
-  fd_pubkey_t * ids[FD_REPAIR_NUM_NEEDED_PEERS] = {0};
-  uint found_peer = 0;
-  for( ulong i=0UL; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {
-    fd_active_elem_t * peer = actives_sample( glob );
-    if(!peer) continue;
-    found_peer = 1;
-
-    ids[i] = &peer->key;
-  }
-  
-  if (!found_peer) {
-    FD_LOG_DEBUG( ( "failed to find a good peer." ) );
-    fd_repair_unlock( glob );
-    return -1;
-  };
-
-  // FD_LOG_INFO( ( "[repair] need highest %lu from %32J", slot, ids[0] ) );
-  fd_dupdetect_key_t dupkey = { .type = fd_needed_highest_window_index, .slot = slot, .shred_index = shred_index };
-  if( fd_dupdetect_table_query( glob->dupdetect, &dupkey, NULL ) != NULL ) {
-    fd_repair_unlock( glob );
-    return 0;
-  }
-  fd_dupdetect_table_insert( glob->dupdetect, &dupkey );
-
-  if (fd_needed_table_is_full(glob->needed)) {
-    fd_repair_unlock( glob );
-    ( *glob->deliver_fail_fun )(ids[0], slot, shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED );
-    return -1;
-  }
-
-  fd_repair_nonce_t key = glob->next_nonce++;
-  fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
-  for( ulong i=0UL; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {
-    fd_hash_copy(&val->id[i], ids[i]);
-  }
-  val->dupkey = dupkey;
-  val->when = glob->now;
-  fd_repair_unlock( glob );
-  return 0;
+  // FD_LOG_INFO( ( "[repair] need highest %lu", slot ) );
+  return fd_repair_create_needed_request( glob, fd_needed_highest_window_index, slot, shred_index );
 }
 
 int
 fd_repair_need_orphan( fd_repair_t * glob, ulong slot ) {
-  fd_repair_lock( glob );
-  fd_pubkey_t * ids[FD_REPAIR_NUM_NEEDED_PEERS] = {0};
-  uint found_peer = 0;
-  for( ulong i=0UL; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {
-    fd_active_elem_t * peer = actives_sample( glob );
-    if(!peer) continue;
-    found_peer = 1;
-
-    ids[i] = &peer->key;
-  }
-  
-  if (!found_peer) {
-    FD_LOG_DEBUG( ( "failed to find a good peer." ) );
-    fd_repair_unlock( glob );
-    return -1;
-  };
-
   FD_LOG_NOTICE( ( "[repair] need orphan %lu", slot ) );
-  fd_dupdetect_key_t dupkey = { .type = fd_needed_orphan, .slot = slot, .shred_index = UINT_MAX };
-  if( fd_dupdetect_table_query( glob->dupdetect, &dupkey, NULL ) != NULL ) {
-    fd_repair_unlock( glob );
-    return 0;
-  }
-  fd_dupdetect_table_insert( glob->dupdetect, &dupkey );
-
-  if (fd_needed_table_is_full(glob->needed)) {
-    fd_repair_unlock( glob );
-    ( *glob->deliver_fail_fun )(ids[0], slot, UINT_MAX, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED );
-    return -1;
-  }
-
-  fd_repair_nonce_t key = glob->next_nonce++;
-  fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
-  for( ulong i=0UL; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {
-    fd_hash_copy(&val->id[i], ids[i]);
-  }
-  val->dupkey = dupkey;
-  val->when = glob->now;
-  fd_repair_unlock( glob );
-  return 0;
+  return fd_repair_create_needed_request( glob, fd_needed_orphan, slot, UINT_MAX );
 }
 
 static void
