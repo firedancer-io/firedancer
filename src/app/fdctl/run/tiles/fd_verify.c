@@ -256,23 +256,6 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
-fd_topo_run_tile_t fd_tile_verify = {
-  .name                     = "verify",
-  .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_before_frag          = before_frag,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
-  .populate_allowed_seccomp = populate_allowed_seccomp,
-  .populate_allowed_fds     = populate_allowed_fds,
-  .scratch_align            = scratch_align,
-  .scratch_footprint        = scratch_footprint,
-  .privileged_init          = privileged_init,
-  .unprivileged_init        = unprivileged_init,
-};
-
-
 static inline void
 after_frag2( void *             _ctx,
             ulong              in_idx,
@@ -360,8 +343,10 @@ after_frag2( void *             _ctx,
                                     ctx->out_seq, (uint)ctx->out_chunk, (uint16_t)ctl, (uint16_t)new_sz /* mcache arguments */) );
 
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
+  ctx->out_seq = fd_seq_inc( seq, 1UL );
+  mux->cr_avail -= 1;
 
-  *opt_filter = 1;
+  *opt_filter = 0;
 
 
   // /* We need to access signatures and accounts, which are all before the recent_blockhash_off.
@@ -382,3 +367,19 @@ after_frag2( void *             _ctx,
   // fd_mux_publish( mux, txn_sig, ctx->out_chunk, new_sz, 0UL, *opt_tsorig, tspub );
   // ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
 }
+
+fd_topo_run_tile_t fd_tile_verify = {
+  .name                     = "verify",
+  .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
+  .burst                    = 1UL,
+  .mux_ctx                  = mux_ctx,
+  .mux_before_frag          = before_frag,
+  .mux_during_frag          = during_frag,
+  .mux_after_frag           = after_frag2,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .populate_allowed_fds     = populate_allowed_fds,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
+  .unprivileged_init        = unprivileged_init,
+};
