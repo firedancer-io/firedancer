@@ -25,10 +25,17 @@ $(call add-objs,configure/blockstore,fd_fddev)
 
 ifdef FD_HAS_NO_AGAVE
 ifdef FD_HAS_SECP256K1
+# firedancer
 $(call make-bin-rust,fddev,main,fd_fddev fd_fdctl fd_choreo fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions, $(SECP256K1_LIBS))
 endif
 else
+# frankendancer
+ifndef FD_HAS_WIREDANCER_C1100
 $(call make-bin-rust,fddev,main,fd_fddev fd_fdctl agave_validator fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util)
+else
+# frankendancer with C1100
+$(call make-bin-rust,fddev,main,fd_fddev fd_fdctl agave_validator fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util fd_wiredancer)
+endif
 endif
 
 ifeq (run,$(firstword $(MAKECMDGOALS)))
