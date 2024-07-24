@@ -1253,8 +1253,8 @@ int
 __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                          fd_instr_info_t *   instr_info )
 {
-    txn_ctx->compute_meter = 0;
-    instr_info->data_sz = 0;
+    (void)(txn_ctx);
+    (void)(instr_info);
     FD_LOG_WARNING(( "fd_execute_instr is disabled" ));
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
