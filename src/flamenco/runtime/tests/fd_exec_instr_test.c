@@ -20,7 +20,6 @@
 #include <assert.h>
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
-#include "test_cpi/fd_vm_cpi_test_utils.h"
 #include "../../nanopb/pb_decode.h"
 
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
