@@ -489,7 +489,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
   int err = fd_bpf_upgradeable_loader_program_instruction_decode( &instruction, &decode_ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
     FD_LOG_WARNING(( "Bincode decode for instruction failed" ));
-    return err;
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
   uchar const * instr_acc_idxs   = instr_ctx->instr->acct_txn_idxs;
