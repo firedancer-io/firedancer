@@ -7,9 +7,9 @@ int
 fd_vm_syscall_sol_curve_validate_point( /**/            void *  _vm,
                                         /**/            ulong   curve_id,
                                         /**/            ulong   point_addr,
-                                        FD_PARAM_UNUSED ulong   r2,
                                         FD_PARAM_UNUSED ulong   r3,
                                         FD_PARAM_UNUSED ulong   r4,
+                                        FD_PARAM_UNUSED ulong   r5,
                                         /**/            ulong * _ret ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L871 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
