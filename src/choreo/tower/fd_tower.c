@@ -254,9 +254,10 @@ fd_tower_lockout_check( fd_tower_t const * tower,
 
   int lockout_check = top_vote->slot < ghost->root->slot ||
                       fd_ghost_is_descendant( ghost, fork->slot, top_vote->slot );
-  FD_LOG_NOTICE(( "[fd_tower_lockout_check] ok? %d. top: %lu. switch: %lu.",
+  FD_LOG_NOTICE(( "[fd_tower_lockout_check] ok? %d. top: (slot: %lu, conf: %lu). switch: %lu.",
                   lockout_check,
                   top_vote->slot,
+                  top_vote->conf,
                   fork->slot ));
   return lockout_check;
 }
