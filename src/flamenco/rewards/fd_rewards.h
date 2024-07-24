@@ -14,26 +14,22 @@ FD_PROTOTYPES_BEGIN
 
 void
 fd_update_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                   ulong                prev_epoch );
+                   ulong                parent_epoch );
 
 void
-fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                              ulong                parent_epoch );
+fd_begin_partitioned_rewards(
+                    fd_exec_slot_ctx_t * slot_ctx,
+                    const fd_hash_t *    parent_blockhash,
+                    ulong                parent_epoch );
+
+void
+fd_rewards_recalculate_partitioned_rewards(
+    fd_exec_slot_ctx_t * slot_ctx,
+    const fd_hash_t * parent_blockhash
+);
 
 void
 fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx );
-
-struct fd_inflation_rates {
-    ulong epoch;
-    double foundation;
-    double total;
-    double validator;
-};
-typedef struct fd_inflation_rates fd_inflation_rates_t;
-
-void
-fd_calculate_inflation_rates( fd_exec_slot_ctx_t *   slot_ctx,
-                              fd_inflation_rates_t * rates );
 
 FD_PROTOTYPES_END
 

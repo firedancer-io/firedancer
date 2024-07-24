@@ -347,3 +347,13 @@ int fd_archive_decode_skip_field( fd_bincode_decode_ctx_t * ctx, ushort tag ) {
   ctx->data = ptr + len;
   return FD_BINCODE_SUCCESS;
 }
+
+#define REDBLK_T fd_vote_reward_t_mapnode_t
+#define REDBLK_NAME fd_vote_reward_t_map
+#define REDBLK_IMPL_STYLE 2
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
+long fd_vote_reward_t_map_compare( fd_vote_reward_t_mapnode_t * left, fd_vote_reward_t_mapnode_t * right ) {
+  return memcmp( left->elem.pubkey.uc, right->elem.pubkey.uc, sizeof(right->elem.pubkey) );
+}

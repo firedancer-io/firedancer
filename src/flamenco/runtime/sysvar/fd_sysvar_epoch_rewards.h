@@ -6,31 +6,42 @@
 
 FD_PROTOTYPES_BEGIN
 
-void
-fd_sysvar_epoch_rewards_burn_and_purge(
-    fd_exec_slot_ctx_t * slot_ctx
-);
-
+/* Read the current value of the EpochRewards sysvar from Funk. */
 fd_sysvar_epoch_rewards_t *
 fd_sysvar_epoch_rewards_read(
     fd_sysvar_epoch_rewards_t * result,
-    fd_exec_slot_ctx_t * slot_ctx,
-    fd_acc_lamports_t * acc_lamports
+    fd_exec_slot_ctx_t * slot_ctx
 );
 
-/* Update EpochRewards sysvar with distributed rewards */
+/* Update EpochRewards sysvar with distributed rewards
+
+   https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/epoch_rewards.rs#L44 */
 void
-fd_sysvar_epoch_rewards_update(
+fd_sysvar_epoch_rewards_distribute(
     fd_exec_slot_ctx_t * slot_ctx,
     ulong distributed
 );
 
-/* Initialize the epoch rewards sysvar account. */
-void fd_sysvar_epoch_rewards_init(
+/* Set the EpochRewards sysvar to inactive
+
+    https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L82 */
+void
+fd_sysvar_epoch_rewards_set_inactive(
+  fd_exec_slot_ctx_t * slot_ctx
+);
+
+/* Initialize the EpochRewards sysvar account
+
+    https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L25 */
+void
+fd_sysvar_epoch_rewards_init(
     fd_exec_slot_ctx_t * slot_ctx,
     ulong total_rewards,
     ulong distributed_rewards,
-    ulong distribution_complete_block_height
+    ulong distribution_starting_block_height,
+    ulong num_partitions,
+    uint128 total_points,
+    const fd_hash_t * last_blockhash
 );
 
 FD_PROTOTYPES_END

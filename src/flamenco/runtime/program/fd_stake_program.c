@@ -2477,8 +2477,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t ctx ) {
      enable_partitioned_epoch_reward feature is activated. If it exists, check
      the `active` field */
   fd_sysvar_epoch_rewards_t const * rewards = fd_sysvar_cache_epoch_rewards( ctx.slot_ctx->sysvar_cache );
- // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L80
-  int epoch_rewards_active = (NULL!=rewards) ? rewards->epoch_rewards.active : false;
+  int epoch_rewards_active = (NULL != rewards) ? rewards->active : false;
 
   if (epoch_rewards_active && instruction->discriminant!=fd_stake_instruction_enum_get_minimum_delegation) {
     ctx.txn_ctx->custom_err = FD_STAKE_ERR_EPOCH_REWARDS_ACTIVE;
