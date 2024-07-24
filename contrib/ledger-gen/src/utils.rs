@@ -15,9 +15,11 @@ use {
     solana_bpf_loader_program::{
         syscalls::create_program_runtime_environment_v1,
     },
+    solana_compute_budget::{
+        compute_budget::ComputeBudget,
+    },
     solana_program_runtime::{
         invoke_context::InvokeContext,
-        compute_budget::ComputeBudget,
     },
     solana_rbpf::{
         elf::Executable,
