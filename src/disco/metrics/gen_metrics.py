@@ -222,3 +222,23 @@ if __name__ == '__main__':
     with open('generated/fd_metrics_all.h', 'a') as f:
         # Kind of a hack for now.  Different tiles should get a different size.
         f.write(f'\n#define FD_METRICS_TOTAL_SZ (8UL*{max_offset}UL)\n')
+
+    with open('../../../book/api/metrics-generated.md', 'w') as f:
+        f.write('\n## All Links\n<!--@include: ./metrics-link-preamble.md-->\n')
+        f.write('| Metric | Type | Description |\n')
+        f.write('|--------|------|-------------|\n')
+        for metric in metrics:
+            if metric.link:
+                f.write(f'| {metric.full_name().lower().replace("_", "_&#8203;")} | `{metric.type}` | {metric.summary} |\n')
+
+        for tile in ['all', 'quic', 'dedup', 'pack', 'bank', 'poh', 'store', 'shred']:
+            tile_metrics = [x for x in metrics if x.tile == tile]
+            if tile == 'all':
+                f.write('\n## All Tiles\n<!--@include: ./metrics-tile-preamble.md-->\n')
+            else:
+                f.write(f'\n## {tile.capitalize()} Tile\n')
+            f.write('| Metric | Type | Description |\n')
+            f.write('|--------|------|-------------|\n')
+            for metric in tile_metrics:
+                if not metric.link:
+                    f.write(f'| {metric.full_name().lower().replace("_", "_&#8203;")} | `{metric.type}` | {metric.summary} |\n')
