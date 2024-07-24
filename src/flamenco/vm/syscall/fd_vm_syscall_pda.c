@@ -87,7 +87,7 @@ Parameters:
 - seed_cnt: the number of scatter elements
 - program_id_vaddr: the address of the program id pubkey in VM address space
 - out_vaddr: the address of the memory location where the resulting derived PDA will be written to, in VM address space, if the syscall is successful
-- arg4: unused
+- r5: unused
 - _ret: a pointer to the return value of the syscall
 */
 int
@@ -96,7 +96,7 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
                                           /**/            ulong   seeds_cnt,
                                           /**/            ulong   program_id_vaddr,
                                           /**/            ulong   out_vaddr,
-                                          FD_PARAM_UNUSED ulong   arg4,
+                                          FD_PARAM_UNUSED ulong   r5,
                                           /**/            ulong * _ret )  {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 

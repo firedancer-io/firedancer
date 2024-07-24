@@ -28,8 +28,8 @@ fd_vm_syscall_sol_sha256( /**/            void *  _vm,
                           /**/            ulong   vals_addr,
                           /**/            ulong   vals_len,
                           /**/            ulong   result_addr,
-                          FD_PARAM_UNUSED ulong   r3,
                           FD_PARAM_UNUSED ulong   r4,
+                          FD_PARAM_UNUSED ulong   r5,
                           /**/            ulong * _ret ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1897 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
@@ -81,8 +81,8 @@ fd_vm_syscall_sol_blake3( /**/            void *  _vm,
                           /**/            ulong   vals_addr,
                           /**/            ulong   vals_len,
                           /**/            ulong   result_addr,
-                          FD_PARAM_UNUSED ulong   r3,
                           FD_PARAM_UNUSED ulong   r4,
+                          FD_PARAM_UNUSED ulong   r5,
                           /**/            ulong * _ret ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1897 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
@@ -134,8 +134,8 @@ fd_vm_syscall_sol_keccak256( /**/            void *  _vm,
                              /**/            ulong   vals_addr,
                              /**/            ulong   vals_len,
                              /**/            ulong   result_addr,
-                             FD_PARAM_UNUSED ulong   r3,
                              FD_PARAM_UNUSED ulong   r4,
+                             FD_PARAM_UNUSED ulong   r5,
                              /**/            ulong * _ret ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1897 */
   fd_vm_t * vm = (fd_vm_t *)_vm;

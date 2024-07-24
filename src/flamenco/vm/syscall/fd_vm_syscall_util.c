@@ -175,9 +175,9 @@ int
 fd_vm_syscall_sol_log_data( /**/            void *  _vm,
                             /**/            ulong   slice_vaddr,
                             /**/            ulong   slice_cnt,
-                            FD_PARAM_UNUSED ulong   r2,
                             FD_PARAM_UNUSED ulong   r3,
                             FD_PARAM_UNUSED ulong   r4,
+                            FD_PARAM_UNUSED ulong   r5,
                             /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
@@ -354,8 +354,8 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
                           /**/            ulong   dst_vaddr,
                           /**/            ulong   src_vaddr,
                           /**/            ulong   sz,
-                          FD_PARAM_UNUSED ulong   r3,
                           FD_PARAM_UNUSED ulong   r4,
+                          FD_PARAM_UNUSED ulong   r5,
                           /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
@@ -396,7 +396,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
                           /**/            ulong   m1_vaddr,
                           /**/            ulong   sz,
                           /**/            ulong   out_vaddr,
-                          FD_PARAM_UNUSED ulong   r4,
+                          FD_PARAM_UNUSED ulong   r5,
                           /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
