@@ -207,17 +207,29 @@ after_frag( void *             _ctx,
 
   if( FD_UNLIKELY( in_idx==SHRED_IN_IDX ) ) {
     for( ulong i = 0; i < ctx->s34_buffer->shred_cnt; i++ ) {
+      fd_shred_t * shred = &ctx->s34_buffer->pkts[i].shred;
+
+      if( FD_UNLIKELY( (long)(ctx->store->pending_slots->end - shred->slot) > (long)FD_PENDING_MAX ) ) {
+        FD_LOG_WARNING(("received shred %lu that would overrun pending queue. skipping.", shred->slot));
+        continue;
+      }
+
+      if( FD_UNLIKELY( (long)(ctx->store->curr_turbine_slot - shred->slot) > 100 ) ) {
+        FD_LOG_WARNING(("received shred with slot %lu that would overrun pending queue. skipping.", shred->slot));
+        continue;
+      }
+
       // TODO: improve return value of api to not use < OK
-      if( fd_store_shred_insert( ctx->store, &ctx->s34_buffer->pkts[i].shred ) < FD_BLOCKSTORE_OK ) {
+      if( fd_store_shred_insert( ctx->store, shred ) < FD_BLOCKSTORE_OK ) {
         FD_LOG_ERR(( "failed inserting to blockstore" ));
       } else if ( ctx->shred_cap_ctx.is_archive ) {
         uchar shred_cap_flag = FD_SHRED_CAP_FLAG_MARK_TURBINE(0);
-        if ( fd_shred_cap_archive(&ctx->shred_cap_ctx, &ctx->s34_buffer->pkts[i].shred, shred_cap_flag) < FD_SHRED_CAP_OK ) {
+        if ( fd_shred_cap_archive(&ctx->shred_cap_ctx, shred, shred_cap_flag) < FD_SHRED_CAP_OK ) {
           FD_LOG_ERR(( "failed at archiving turbine shred to file" ));
         }
       }
 
-      fd_store_shred_update_with_shred_from_turbine( ctx->store, &ctx->s34_buffer->pkts[i].shred );
+      fd_store_shred_update_with_shred_from_turbine( ctx->store, shred );
     }
   }
 

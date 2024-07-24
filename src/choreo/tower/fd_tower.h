@@ -400,8 +400,8 @@ fd_tower_print( fd_tower_t const * tower );
 /* Vote state API */
 
 /* fd_tower_vote_state_cmp compares tower with vote_state.  Conceptually
-   this is our comparing our local view of our tower with the cluster's
-   view (which may be out of sync).  Returns -1 if the vote_state is
+   this is comparing our local view of our tower with the cluster's view
+   (which may be out of sync).  Returns -1 if the vote_state is
    newer, 0 if they're in sync and 1 if the local view is newer.
    Assumes both tower and vote_state are valid ie. there is a root and
    there is at least one vote (verifies this with handholding enabled).
