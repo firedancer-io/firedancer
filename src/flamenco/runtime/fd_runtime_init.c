@@ -117,15 +117,6 @@ int fd_runtime_save_slot_bank(fd_exec_slot_ctx_t *slot_ctx)
   FD_TEST(ctx.data == ctx.dataend);
 
   // FD_LOG_DEBUG(("slot frozen, slot=%d bank_hash=%32J poh_hash=%32J", slot_ctx->slot_bank.slot, slot_ctx->slot_bank.banks_hash.hash, slot_ctx->slot_bank.poh.hash));
-  slot_ctx->slot_bank.block_height += 1UL;
-
-  // Update blockstore
-  if ( slot_ctx->blockstore != NULL ) {
-    fd_blockstore_block_height_update(
-        slot_ctx->blockstore, slot_ctx->slot_bank.slot, slot_ctx->slot_bank.block_height );
-  } else {
-    FD_LOG_WARNING(( "NULL blockstore in slot_ctx" ));
-  }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }

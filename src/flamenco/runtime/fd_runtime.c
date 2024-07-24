@@ -1657,6 +1657,13 @@ fd_runtime_block_update_current_leader( fd_exec_slot_ctx_t * slot_ctx ) {
 
 int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
+  /* Update block height */
+  slot_ctx->slot_bank.block_height += 1UL;
+  fd_blockstore_block_height_update(
+        slot_ctx->blockstore,
+        slot_ctx->slot_bank.slot,
+        slot_ctx->slot_bank.block_height );
+
   // TODO: this is not part of block execution, move it.
   if( slot_ctx->slot_bank.slot != 0 ) {
     ulong slot_idx;
@@ -1683,7 +1690,9 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
   slot_ctx->signature_cnt = 0;
 
   if( slot_ctx->slot_bank.slot != 0 && FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
+    fd_funk_start_write( slot_ctx->acc_mgr->funk );
     fd_distribute_partitioned_epoch_rewards( slot_ctx );
+    fd_funk_end_write( slot_ctx->acc_mgr->funk );
   }
 
   int result = fd_runtime_block_update_current_leader( slot_ctx );
@@ -3407,11 +3416,16 @@ FD_SCRATCH_SCOPE_BEGIN {
   // Update the epoch bank vote_accounts with the latest values from the slot bank
   // FIXME: resize the vote_accounts_pool if necessary
   for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
-    slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, slot_ctx->slot_bank.vote_account_keys.vote_accounts_root );
+    slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool,
+    slot_ctx->slot_bank.vote_account_keys.vote_accounts_root );
         n;
         n = fd_vote_accounts_pair_t_map_successor( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, n ) ) {
-    // If the vote account is not in the epoch cache, insert it
-    if( fd_vote_accounts_pair_t_map_find( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root, n ) == NULL ) {
+
+    // If the vote account is not in the epoch stakes cache, insert it
+    fd_vote_accounts_pair_t_mapnode_t key;
+    fd_memcpy( &key.elem.key, &n->elem.key, FD_PUBKEY_FOOTPRINT );
+    fd_vote_accounts_pair_t_mapnode_t * epoch_cache_node = fd_vote_accounts_pair_t_map_find( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root, &key );
+    if( epoch_cache_node == NULL ) {
       fd_vote_accounts_pair_t_mapnode_t * new_entry = fd_vote_accounts_pair_t_map_acquire( stakes->vote_accounts.vote_accounts_pool );
 
       fd_memcpy(&new_entry->elem.key, &n->elem.key, sizeof(fd_pubkey_t));
@@ -3419,6 +3433,8 @@ FD_SCRATCH_SCOPE_BEGIN {
       fd_memcpy(&new_entry->elem.value, &n->elem.value, sizeof(fd_solana_account_t));
 
       fd_vote_accounts_pair_t_map_insert( stakes->vote_accounts.vote_accounts_pool, &stakes->vote_accounts.vote_accounts_root, new_entry );
+    } else {
+      epoch_cache_node->elem.stake = n->elem.stake;
     }
   }
 
@@ -3450,39 +3466,43 @@ FD_SCRATCH_SCOPE_BEGIN {
 } FD_SCRATCH_SCOPE_END;
 }
 
+/* Save a copy of epoch_ctx->epoch_bank->stakes.vote_accounts into epoch_ctx->epoch->bank->next_epoch_stakes,
+   to be sent out to other components for the leader schedule calculation.
+   
+   Also copy it into the slot_ctx->slot_bank.epoch_stakes.
+   
+   TODO: This means the three fields hold the same value, which doesn't change for the duration of the epoch.
+   Can we remove two? */
 void fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_SCRATCH_SCOPE_BEGIN
   {
     fd_epoch_bank_t * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
-    fd_vote_accounts_t const * vaccs = &epoch_bank->next_epoch_stakes;
+    fd_vote_accounts_t const * vaccs = &epoch_bank->stakes.vote_accounts;
     ulong bufsz = fd_vote_accounts_size(vaccs);
     uchar *buf = fd_scratch_alloc(1UL, bufsz);
     fd_bincode_encode_ctx_t encode_ctx = {
         .data = buf,
         .dataend = (void *)((ulong)buf + bufsz)};
     FD_TEST(fd_vote_accounts_encode(vaccs, &encode_ctx) == FD_BINCODE_SUCCESS);
+
+    /* Copy epoch_ctx->epoch_bank->stakes.vote_accounts into epoch_bank->next_epoch_stakes */
     fd_bincode_decode_ctx_t decode_ctx = {
         .data = buf,
         .dataend = (void const *)((ulong)buf + bufsz),
         .valloc = slot_ctx->valloc,
     };
-    fd_bincode_destroy_ctx_t slot_destroy = {.valloc = slot_ctx->valloc};
-    fd_vote_accounts_destroy(&slot_ctx->slot_bank.epoch_stakes, &slot_destroy);
-    FD_TEST(fd_vote_accounts_decode(&slot_ctx->slot_bank.epoch_stakes, &decode_ctx) == FD_BINCODE_SUCCESS);
+    fd_bincode_destroy_ctx_t destroy = {.valloc = slot_ctx->valloc};
+    fd_vote_accounts_destroy(&epoch_bank->next_epoch_stakes, &destroy);
+    FD_TEST(fd_vote_accounts_decode(&epoch_bank->next_epoch_stakes, &decode_ctx) == FD_BINCODE_SUCCESS);
 
-    fd_vote_accounts_pair_t_mapnode_t * pool = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
-    fd_vote_accounts_pair_t_mapnode_t * root = epoch_bank->stakes.vote_accounts.vote_accounts_root;
-
-    // Reset vote accounts in next epoch stakes
-    /* FIXME consider pool sweep instead of recursive descent */
-    fd_vote_accounts_pair_t_map_release_tree( epoch_bank->next_epoch_stakes.vote_accounts_pool, epoch_bank->next_epoch_stakes.vote_accounts_root );
-    epoch_bank->next_epoch_stakes.vote_accounts_root = NULL;
-
-    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(pool, root); n; n = fd_vote_accounts_pair_t_map_successor(pool, n) ) {
-      fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire( epoch_bank->next_epoch_stakes.vote_accounts_pool );
-      fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
-      fd_vote_accounts_pair_t_map_insert( epoch_bank->next_epoch_stakes.vote_accounts_pool, &epoch_bank->next_epoch_stakes.vote_accounts_root, elem );
-    }
+    /* Copy epoch_ctx->epoch_bank->stakes.vote_accounts into slot_ctx->slot_bank.epoch_stakes */
+    fd_bincode_decode_ctx_t second_decode_ctx = {
+        .data = buf,
+        .dataend = (void const *)((ulong)buf + bufsz),
+        .valloc = slot_ctx->valloc,
+    };
+    fd_vote_accounts_destroy(&slot_ctx->slot_bank.epoch_stakes, &destroy);
+    FD_TEST(fd_vote_accounts_decode(&slot_ctx->slot_bank.epoch_stakes, &second_decode_ctx) == FD_BINCODE_SUCCESS);
   }
   FD_SCRATCH_SCOPE_END;
 }
@@ -3513,34 +3533,25 @@ void fd_process_new_epoch(
   else if (FD_FEATURE_ACTIVE(slot_ctx, update_hashes_per_tick2))
     epoch_bank->hashes_per_tick = UPDATED_HASHES_PER_TICK2;
 
-  // Add new entry to stakes.stake_history, set appropriate epoch and
-  // update vote accounts with warmed up stakes before saving a
-  // snapshot of stakes in epoch stakes
-  fd_stakes_activate_epoch(slot_ctx, epoch);
+  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+  if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
 
-  // (We might not implement this part)
-  /* Save a snapshot of stakes for use in consensus and stake weighted networking
-  let leader_schedule_epoch = self.epoch_schedule.get_leader_schedule_epoch(slot);
+  /* Updates `epoch_bank->stakes->epoch` with new epoch number,
+     and updates stake history sysvar accumulated values. */
+  fd_stakes_activate_epoch( slot_ctx );
 
-  */
-
-
-      /*
-  let (_, update_epoch_stakes_time) = measure!(
-           self.update_epoch_stakes(leader_schedule_epoch),
-           "update_epoch_stakes",
-       ); */
+  /* Distribute rewards */
+  fd_hash_t const * parent_blockhash = fd_blockstore_block_hash_query( 
+    slot_ctx->blockstore, fd_ulong_sat_sub( slot_ctx->slot_bank.slot, 1UL ) );
   if ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
-    fd_begin_partitioned_rewards( slot_ctx, parent_epoch );
+    fd_begin_partitioned_rewards( slot_ctx, parent_blockhash, parent_epoch );
   } else {
     fd_update_rewards( slot_ctx, parent_epoch );
   }
 
-  fd_update_stake_delegations( slot_ctx );
-
-  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
-  if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   refresh_vote_accounts( slot_ctx, history );
+
+  fd_update_stake_delegations( slot_ctx );
 
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
   FD_LOG_WARNING(("Leader schedule epoch %lu", fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot)));
@@ -3548,6 +3559,9 @@ void fd_process_new_epoch(
 
   fd_runtime_update_leaders(slot_ctx, slot_ctx->slot_bank.slot);
   FD_LOG_WARNING(("Updated leader %32J", slot_ctx->leader->uc));
+
+  /* Update the current epoch value */
+  epoch_bank->stakes.epoch = epoch;
 }
 
 /* Loads the sysvar cache. Expects acc_mgr, funk_txn, valloc to be non-NULL and valid. */

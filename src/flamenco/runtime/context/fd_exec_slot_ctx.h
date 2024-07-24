@@ -6,7 +6,6 @@
 #include "../../../util/rng/fd_rng.h"
 #include "../../../util/wksp/fd_wksp.h"
 
-#include "../../rewards/fd_rewards_types.h"
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../sysvar/fd_sysvar_cache_old.h"
 #include "../../types/fd_types.h"
