@@ -413,38 +413,17 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
 }
 
 int
-write_stake_state( fd_exec_slot_ctx_t *   global,
-                   fd_pubkey_t const * stake_acc,
-                   fd_stake_state_v2_t *  stake_state,
-                   ushort              is_new_account ) {
-                    // TODO
-                    (void)stake_state;
+write_stake_state( fd_borrowed_account_t *  stake_acc_rec,
+                   fd_stake_state_v2_t *    stake_state ) {
 
-  ulong encoded_stake_state_size = (is_new_account) ? STAKE_ACCOUNT_SIZE : fd_stake_state_v2_size(stake_state);
+  ulong encoded_stake_state_size = fd_stake_state_v2_size(stake_state);
 
-  FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
-
-  int err = fd_acc_mgr_modify( global->acc_mgr, global->funk_txn, stake_acc, !!is_new_account, encoded_stake_state_size, stake_acc_rec );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "write_stake_state failed" ));
-    return err;
-  }
-
-  if (is_new_account)
-    fd_memset( stake_acc_rec->data, 0, encoded_stake_state_size );
-
-  fd_bincode_encode_ctx_t ctx3;
-  ctx3.data    = stake_acc_rec->data;
-  ctx3.dataend = stake_acc_rec->data + encoded_stake_state_size;
-  if( FD_UNLIKELY( fd_stake_state_v2_encode( stake_state, &ctx3 )!=FD_BINCODE_SUCCESS ) )
-    FD_LOG_ERR(("fd_stake_state_encode failed"));
-
-  if( is_new_account ) {
-    stake_acc_rec->meta->dlen = STAKE_ACCOUNT_SIZE;
-    /* TODO Lamports? */
-    stake_acc_rec->meta->info.executable = 0;
-    stake_acc_rec->meta->info.rent_epoch = 0UL;
-    memcpy( &stake_acc_rec->meta->info.owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) );
+  fd_bincode_encode_ctx_t ctx = {
+    .data = stake_acc_rec->data,
+    .dataend = stake_acc_rec->data + encoded_stake_state_size,
+  };
+  if( FD_UNLIKELY( fd_stake_state_v2_encode( stake_state, &ctx ) != FD_BINCODE_SUCCESS ) ) {
+    FD_LOG_ERR(( "fd_stake_state_encode failed" ));
   }
 
   return 0;

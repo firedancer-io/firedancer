@@ -142,7 +142,9 @@ typedef struct fd_solcap_account_tbl fd_solcap_account_tbl_t;
 #define FD_SOLCAP_FHDR_SZ (256UL)
 
 /* FD_SOLCAP_ACC_TBL_CNT is the number of entries that fit in the in-
-   memory buffer for the account table. */
+   memory buffer for the account table.
+   
+   N.b: to support epoch boundaries increase this number to 2097152 */
 
 #define FD_SOLCAP_ACC_TBL_CNT (8192U)
 

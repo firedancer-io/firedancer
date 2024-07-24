@@ -7,6 +7,7 @@
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
+#include "../rewards/fd_rewards.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -210,6 +211,11 @@ fd_snapshot_load( const char *         snapshotfile,
   }
 
   fd_hashes_load(slot_ctx);
+
+  fd_rewards_recalculate_partitioned_rewards(
+    slot_ctx,
+    &deq_fd_block_block_hash_entry_t_peek_head_const( 
+      slot_ctx->slot_bank.recent_block_hashes.hashes )->blockhash );
 
   fd_funk_speed_load_mode( slot_ctx->acc_mgr->funk, 0 );
   fd_funk_end_write( slot_ctx->acc_mgr->funk );
