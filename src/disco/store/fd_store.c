@@ -184,14 +184,18 @@ end:
 int
 fd_store_shred_insert( fd_store_t * store,
                        fd_shred_t const * shred ) {
+
+  fd_blockstore_t * blockstore = store->blockstore;
+
+  if (shred->slot < blockstore->root) {
+    return FD_BLOCKSTORE_OK;
+  }
   uchar shred_type = fd_shred_type( shred->variant );
   if( shred_type != FD_SHRED_TYPE_LEGACY_DATA
       && shred_type != FD_SHRED_TYPE_MERKLE_DATA 
       && shred_type != FD_SHRED_TYPE_MERKLE_DATA_CHAINED ) {
     return FD_BLOCKSTORE_OK;
   } 
-
-  fd_blockstore_t * blockstore = store->blockstore;
 
   fd_blockstore_start_write( blockstore );
   /* TODO remove this check when we can handle duplicate shreds and blocks */
