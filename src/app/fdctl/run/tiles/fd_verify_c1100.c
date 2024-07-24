@@ -1,5 +1,5 @@
 #include "../../../../disco/tiles.h"
-#include "fd_verify.h"
+#include "fd_verify_c1100.h"
 
 #include "generated/verify_c1100_seccomp.h"
 
@@ -8,10 +8,6 @@
 #include <linux/unistd.h>
 
 
-
-// #ifdef FD_HAS_WIREDANCER_C1100
-#include "../../../../wiredancer/c/wd_c1100.h"
-// #endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
