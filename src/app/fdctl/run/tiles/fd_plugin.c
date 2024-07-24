@@ -82,7 +82,7 @@ after_frag( void *             _ctx,
   switch( in_idx ) {
     case 0UL: sig = *opt_sig; break;
     case 1UL: sig = FD_PLUGIN_MSG_GOSSIP_UPDATE; break;
-    case 2UL: sig = FD_PLUGIN_MSG_LEADER_SCHEDULE; break;
+    case 2UL: sig = FD_PLUGIN_MSG_LEADER_SCHEDULE; FD_LOG_NOTICE(( "sending leader schedule" )); break;
     default: FD_LOG_ERR(( "bad in_idx" ));
   }
 

@@ -36,7 +36,20 @@ fd_gui_new( void *             shmem,
   gui->summary.slot_completed                = 0UL;
   gui->summary.slot_estimated                = 0UL;
 
+  gui->epoch.max_known_epoch = 1UL;
+  fd_stake_weight_t dummy_stakes[1] = {{ .key = {{0}}, .stake = 1UL }};
+  for( ulong i = 0UL; i < FD_GUI_NUM_EPOCHS; i++ ) {
+    gui->epoch.epochs[i].epoch          = i;
+    gui->epoch.epochs[i].start_slot     = 0UL;
+    gui->epoch.epochs[i].end_slot       = 0UL; // end_slot is inclusive.
+    gui->epoch.epochs[i].excluded_stake = 0UL;
+    gui->epoch.epochs[i].lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( gui->epoch.epochs[i]._lsched, 0UL, 0UL, 1UL, 1UL, dummy_stakes, 0UL ) );
+    fd_memcpy(gui->epoch.epochs[i].stakes, dummy_stakes, sizeof(dummy_stakes[0]));
+  }
+
   gui->gossip.peer_cnt = 0UL;
+
+  jsonb_new(gui->jsonb, gui->json_buf, sizeof(gui->json_buf));
 
   return gui;
 }
@@ -44,6 +57,43 @@ fd_gui_new( void *             shmem,
 fd_gui_t *
 fd_gui_join( void * shmem ) {
   return (fd_gui_t *)shmem;
+}
+
+static void
+fd_gui_epoch_to_json( fd_gui_t * gui,
+                      jsonb_t  * jsonb,
+                      ulong      epoch_idx) {
+  jsonb_init( jsonb );
+  jsonb_open_obj( jsonb, NULL );
+  jsonb_str( jsonb, "topic", "epoch" );
+  jsonb_str( jsonb, "key",   "new" );
+  jsonb_open_obj( jsonb, "value" );
+  jsonb_ulong( jsonb, "epoch",                   gui->epoch.epochs[epoch_idx].epoch );
+  jsonb_ulong( jsonb, "start_slot",              gui->epoch.epochs[epoch_idx].start_slot );
+  jsonb_ulong( jsonb, "end_slot",                gui->epoch.epochs[epoch_idx].end_slot );
+  jsonb_ulong( jsonb, "excluded_stake_lamports", gui->epoch.epochs[epoch_idx].excluded_stake );
+  jsonb_open_arr( jsonb, "staked_pubkeys" );
+  fd_epoch_leaders_t * lsched = gui->epoch.epochs[epoch_idx].lsched;
+  for( ulong i = 0; i < lsched->pub_cnt; i++ ) {
+    char identity_base58[ FD_BASE58_ENCODED_32_SZ ];
+    fd_base58_encode_32( lsched->pub[ i ].uc, NULL, identity_base58 );
+    jsonb_str(jsonb, NULL, identity_base58);
+  }
+  jsonb_close_arr( jsonb );
+  jsonb_open_arr( jsonb, "staked_lamports" );
+  fd_stake_weight_t * stakes = gui->epoch.epochs[epoch_idx].stakes;
+  for( ulong i = 0; i < lsched->pub_cnt; i++ ) {
+    jsonb_ulong(jsonb, NULL, stakes[ i ].stake);
+  }
+  jsonb_close_arr( jsonb );
+  jsonb_open_arr( jsonb, "leader_slots" );
+  for( ulong i = 0; i < lsched->sched_cnt; i++ ) {
+    jsonb_ulong(jsonb, NULL, lsched->sched[ i ]);
+  }
+  jsonb_close_arr( jsonb );
+  jsonb_close_obj( jsonb );
+  jsonb_close_obj( jsonb );
+  jsonb_fini( jsonb );
 }
 
 void
@@ -84,6 +134,17 @@ fd_gui_ws_open( fd_gui_t *         gui,
   FD_TEST( buffer );
   FD_TEST( fd_cstr_printf_check( buffer, 1024UL, &message_len, "{\n    \"topic\": \"summary\",\n    \"key\": \"estimated_slot\",\n    \"value\": %lu,\n}\n", gui->summary.slot_estimated ) );
   fd_http_server_ws_send( gui->server, conn_id, buffer, message_len );
+
+  ulong idx                 = (gui->epoch.max_known_epoch + 1) % FD_GUI_NUM_EPOCHS;
+  for ( ulong i=0UL; i < FD_GUI_NUM_EPOCHS; i++ ) {
+    jsonb_t * jsonb = gui->jsonb;
+    fd_gui_epoch_to_json( gui, jsonb, idx );
+    buffer = fd_alloc_malloc( gui->alloc, 1UL, jsonb->cur_sz );
+    FD_TEST( buffer );
+    fd_memcpy( buffer, jsonb->buf, jsonb->cur_sz );
+    fd_http_server_ws_send( gui->server, conn_id, buffer, jsonb->cur_sz );
+    idx = (idx + 1) % FD_GUI_NUM_EPOCHS;
+  }
 
   const ulong buffer_size = 1024UL * 1024UL;
   char * buffer1 = fd_alloc_malloc( gui->alloc, 1UL, buffer_size );
@@ -184,8 +245,44 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       FD_TEST( fd_cstr_printf_check( buffer, 1024UL, &message_len, "{\n    \"topic\": \"summary\",\n    \"key\": \"slot_estimated\",\n    \"value\": %lu,\n}\n", gui->summary.slot_estimated ) );
       fd_http_server_ws_broadcast( gui->server, (uchar const *)buffer, message_len );
       break;
-    case FD_PLUGIN_MSG_LEADER_SCHEDULE:
+    case FD_PLUGIN_MSG_LEADER_SCHEDULE: {
+      ulong const * hdr         = fd_type_pun_const( msg );
+      ulong epoch               = hdr[ 0 ];
+      ulong staked_cnt          = hdr[ 1 ];
+      ulong start_slot          = hdr[ 2 ];
+      ulong slot_cnt            = hdr[ 3 ];
+      ulong excluded_stake      = hdr[ 4 ];
+      ulong idx                 = epoch % FD_GUI_NUM_EPOCHS;
+      if( staked_cnt > MAX_PUB_CNT ) {
+        FD_LOG_ERR(( "Unexpectedly large staked_cnt = %lu", staked_cnt ));
+      }
+      FD_LOG_NOTICE(( "got leader schedule epoch %lu staked_cnt %lu start_slot %lu slot_cnt %lu", epoch, staked_cnt, start_slot, slot_cnt ));
+      if ( epoch > gui->epoch.max_known_epoch ) {
+        gui->epoch.max_known_epoch = epoch;
+      }
+      gui->epoch.epochs[idx].epoch          = epoch;
+      gui->epoch.epochs[idx].start_slot     = start_slot;
+      gui->epoch.epochs[idx].end_slot       = start_slot + slot_cnt - 1; // end_slot is inclusive.
+      gui->epoch.epochs[idx].excluded_stake = excluded_stake;
+      fd_epoch_leaders_delete( fd_epoch_leaders_leave( gui->epoch.epochs[idx].lsched ) );
+      gui->epoch.epochs[idx].lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( gui->epoch.epochs[idx]._lsched,
+                                                                                   epoch,
+                                                                                   gui->epoch.epochs[idx].start_slot,
+                                                                                   slot_cnt,
+                                                                                   staked_cnt,
+                                                                                   fd_type_pun_const( hdr + 5UL ),
+                                                                                   excluded_stake ) );
+      fd_memcpy(gui->epoch.epochs[idx].stakes, fd_type_pun_const( hdr + 5UL ), staked_cnt * sizeof(gui->epoch.epochs[idx].stakes[0]));
+
+      /* Serialize to JSON */
+      jsonb_t * jsonb = gui->jsonb;
+      fd_gui_epoch_to_json( gui, jsonb, idx );
+      buffer = fd_alloc_malloc( gui->alloc, 1UL, jsonb->cur_sz );
+      FD_TEST( buffer );
+      fd_memcpy( buffer, jsonb->buf, jsonb->cur_sz );
+      fd_http_server_ws_broadcast( gui->server, (uchar const *)buffer, jsonb->cur_sz );
       break;
+    }
     case FD_PLUGIN_MSG_GOSSIP_UPDATE: {
       ulong const * header = (ulong const *)fd_type_pun_const( msg );
       ulong peer_cnt = header[ 0 ];

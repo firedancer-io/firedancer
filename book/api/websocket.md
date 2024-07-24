@@ -208,7 +208,7 @@ published once they are confirmed (the prior epoch has fully rooted).
     "epoch": 636,
     "start_slot": 274752000,
     "end_slot": 275183999,
-    "unknown_stake_lamports": 0,
+    "excluded_stake_lamports": 0,
     "staked_pubkeys": [
         "Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF",
         "2CeCyRoYQcctDmbXWrSUfTT4aQkGVCnArAmbdmQ5QGFi",
@@ -240,7 +240,7 @@ published once they are confirmed (the prior epoch has fully rooted).
 | epoch      | `number` | An identity counter for each epoch, starting at zero for the first epoch and going up |
 | start_slot | `number` | The first slot (inclusive) in the epoch |
 | end_slot   | `number` | The last slot (inclusive) in the epoch |
-| poisoned_stake_lamports | `number` | This number is almost always zero. Firedancer has a limit of 40,200 for the number of staked peer validators it can keep track of. In the unlikely event that this number is exceeded, the lowest staked peers will be forgotten, and their stake will not appear in the below lists. But is is useful to know the total stake in the epoch, so this value represents the leftover ("poisoned") amount of stake that we do not know which validator it belongs to
+| excluded_stake_lamports | `number` | This number is almost always zero. Firedancer has a limit of 40,200 for the number of staked peer validators it can keep track of. In the unlikely event that this number is exceeded, the lowest staked peers will be forgotten, and their stake will not appear in the below lists. But is is useful to know the total stake in the epoch, so this value represents the leftover/excluded ("poisoned") amount of stake that we do not know which validator it belongs to
 | staked_pubkeys | `string[]` | A list of all of validator identity keys for validators which have are staked in this epoch.  There will be at most 40,200 staked keys, after which lower staked keys will not be included |
 | staked_lamports | `string[]` | A list with the same length as the `staked_pubkeys` field. `stake_lamports[ i ]` is the number of lamports staked on the pubkey `staked_pubkeys[ i ]` as of this epoch
 | leader_slots | `number[]` | An array, one entry per four slots, of which pubkey in the `leader_pubkeys` array is leader for those slots. On `mainnet-beta` this array will always have a length of 108,000, which is the number of slots in an epoch divded by four.  Leader slots are in groups of four because the leader schedule is generated in such a way as to guarantee each leader gets at least four consecutive slots.  For example, to find the pubkey of the leader in slot 1000 of the epoch, it is `staked_pubkeys[ leader_slots[ 1000/4 ] ]` |
