@@ -1103,7 +1103,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       programdata->meta->info.lamports = programdata_balance_required;
       /* Buffer account set_data_length */
-      err = fd_account_set_data_length( instr_ctx, 2UL, PROGRAMDATA_METADATA_SIZE );
+      err = fd_account_set_data_length( instr_ctx, 2UL, BUFFER_METADATA_SIZE );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
