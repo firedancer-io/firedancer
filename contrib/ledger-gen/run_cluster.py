@@ -83,7 +83,7 @@ async def first_cluster_validator(expected_shred_version, expected_genesis_hash,
     vote_pubkey = await get_pubkey(vote_key, solana_source_directory)
 
     process = await asyncio.create_subprocess_shell(
-        f"{solana_binary('agave-validator', solana_source_directory)} --enable-rpc-transaction-history --allow-private-addr --identity {identity_key}  --ledger {ledger_path} --limit-ledger-size 100000000 --dynamic-port-range 8000-8100 --no-snapshot-fetch --no-poh-speed-test --no-os-network-limits-test --vote-account {vote_pubkey} --expected-shred-version {expected_shred_version} --expected-genesis-hash {expected_genesis_hash} --no-wait-for-vote-to-start-leader --incremental-snapshots --full-snapshot-interval-slots {snapshot_interval} --incremental-snapshot-interval-slots {snapshot_interval // 2} --maximum-full-snapshots-to-retain {snapshots_to_retain} --rpc-port 8899 --gossip-port 8010 --full-rpc-api --tpu-enable-udp --log {ledger_path}/validator.log",
+        f"{solana_binary('agave-validator', solana_source_directory)} --enable-rpc-transaction-history --allow-private-addr --identity {identity_key}  --ledger {ledger_path} --limit-ledger-size 100000000 --dynamic-port-range 8000-8100 --no-snapshot-fetch --no-poh-speed-test --no-os-network-limits-test --vote-account {vote_pubkey} --expected-shred-version {expected_shred_version} --expected-genesis-hash {expected_genesis_hash} --no-wait-for-vote-to-start-leader --no-incremental-snapshots --full-snapshot-interval-slots {snapshot_interval} --maximum-full-snapshots-to-retain {snapshots_to_retain} --rpc-port 8899 --gossip-port 8010 --full-rpc-api --tpu-enable-udp --log {ledger_path}/validator.log",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
     )
@@ -126,7 +126,7 @@ async def solana_cluster_validators(count, expected_shred_version, expected_gene
             vote_pubkey = await get_pubkey(vote_key, solana_source_directory)
 
             process = await asyncio.create_subprocess_shell(
-                f"{solana_binary('agave-validator', solana_source_directory)} --allow-private-addr --identity {identity_key}  --ledger {ledger_path} --limit-ledger-size 100000000 --dynamic-port-range 8{i}00-8{i}99 --no-poh-speed-test --no-os-network-limits-test --vote-account {vote_pubkey} --entrypoint 127.0.0.1:8010 --expected-shred-version {expected_shred_version} --expected-genesis-hash {expected_genesis_hash} --tpu-disable-quic --tpu-enable-udp --log {log_path} --incremental-snapshot-interval-slots 0",
+                f"{solana_binary('agave-validator', solana_source_directory)} --allow-private-addr --identity {identity_key}  --ledger {ledger_path} --limit-ledger-size 100000000 --dynamic-port-range 8{i}00-8{i}99 --no-poh-speed-test --no-os-network-limits-test --vote-account {vote_pubkey} --entrypoint 127.0.0.1:8010 --expected-shred-version {expected_shred_version} --expected-genesis-hash {expected_genesis_hash} --tpu-disable-quic --tpu-enable-udp --log {log_path}",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
