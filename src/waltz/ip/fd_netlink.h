@@ -84,7 +84,7 @@ struct fd_nl_arp_entry {
      FD_NL_ARP_FLAGS_USED        Entry contains data
      FD_NL_ARP_FLAGS_IP_ADDR     Entry contains an ip address
      FD_NL_ARP_FLAGS_MAC_ADDR    Entry contains a MAC address
-     FD_NL_ARP_FLAGS_IFINDEX     Entry contains a interface index
+     FD_NL_ARP_FLAGS_IFINDEX     Entry contains an interface index
      FD_NL_ARP_FLAGS_UNSUPPORTED Entry contains an unsupported feature */
   uint flags;
 # define  FD_NL_ARP_FLAGS_USED        (1U << 0U)

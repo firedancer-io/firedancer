@@ -625,7 +625,7 @@ fd_double_eq( double x,
    if such is beneficial for higher performance.
 
    Accesses that would normally be atomic (e.g. an aligned access to a
-   primitive type like a ulong) are no guaranteed to be atomic if done
+   primitive type like a ulong) are not guaranteed to be atomic if done
    through these annotations. */
 
 #ifndef FD_UNALIGNED_ACCESS_STYLE

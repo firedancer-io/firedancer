@@ -241,8 +241,8 @@ fd_dcache_compact_wmark( void const * base,
    This is equivalent to saying that, if there are at least chunk_mtu
    chunks until the end of a dcache after a frag, that frag's footprint
    will be enough contiguous chunks to cover the frag (up to chunk_mtu).
-   But if there there are less than chunk_mtu chunks, that frag's
-   footprint will be until the end of the dcache.
+   But if there are less than chunk_mtu chunks, that frag's footprint
+   will be until the end of the dcache.
 
    This implies, in the worst case, there at least depth+1 chunk_mtu
    footprint frags (those not near the end) and 1 frag with a
