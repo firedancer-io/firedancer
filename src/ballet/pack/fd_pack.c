@@ -377,7 +377,7 @@ struct fd_pack_private {
   /* At the end of every slot, we have to clear out writer_costs.  The
      map is large, but typically very sparsely populated.  As an
      optimization, we keep track of the elements of the map that we've
-     actually used, up to a maximum.  If we use more than the maxiumum,
+     actually used, up to a maximum.  If we use more than the maximum,
      we revert to the old way of just clearing the whole map.
 
      written_list indexed [0, written_list_cnt).

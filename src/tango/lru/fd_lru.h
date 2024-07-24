@@ -54,9 +54,9 @@ struct __attribute( ( aligned( FD_LRU_ALIGN ) ) ) fd_lru_private {
   /* depth ulong (doubly linked list):
 
      After the tcache has started up (i.e. at least depth unique tags
-     have been inserted), list[oldest] will be contain the oldest tag in
-     the tcache.  This is a circular doubly linked list with a sentinel:
-     the entry before sentinel (cyclic) is the newest tag in the tcache and
+     have been inserted), list[oldest] will contain the oldest tag in the
+     tcache.  This is a circular doubly linked list with a sentinel: the
+     entry before sentinel (cyclic) is the newest tag in the tcache and
      the list entry after oldest (cyclic) is the 2nd oldest tag in the
      tcache. During startup (the first depth-1 unique tags inserted),
      list[oldest] will be FD_TCACHE_NULL.  In high performance operation,

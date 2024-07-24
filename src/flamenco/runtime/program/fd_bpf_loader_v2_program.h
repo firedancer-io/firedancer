@@ -4,7 +4,7 @@
 /* fd_bpf_loader_v2_program.h implements the second version of the BPF
    loader program, which is now deprecated.  Currently, it is a simple
    stub that returns an error on any invocation.  This means that new
-   programs cannot deployed with this loader.  The execution of
+   programs cannot be deployed with this loader.  The execution of
    existing programs is still allowed.
 
    Address: BPFLoader2111111111111111111111111111111111 */

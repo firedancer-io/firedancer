@@ -8,9 +8,10 @@
    These saturate at the boundaries of the integer representation, instead of overflowing
    or underflowing.
 
-   Note that this is a placeholder API, and the implementations will be optimised and hardened in future.
-   The intent of this is to to provide an abstraction for saturating operations which
-   can be used throughout the codebase, providing a single place to optimize these. */
+   Note that this is a placeholder API, and the implementations will be optimised and
+   hardened in the future.  The intent of this is to provide an abstraction for saturating
+   operations which can be used throughout the codebase, providing a single place to optimize
+   these. */
 
 FD_PROTOTYPES_BEGIN
 

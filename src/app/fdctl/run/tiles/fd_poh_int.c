@@ -230,7 +230,7 @@ after_credit( void *             _ctx,
   }
 
   if( FD_UNLIKELY( fd_poh_tile_has_become_leader( ctx->poh_tile_ctx, is_leader ) ) ) {
-    /* We were not leader but beame leader... we don't want to do any
+    /* We were not leader but became leader... we don't want to do any
        other hashing until we get the leader bank from the replay
        stage. */
     return;
@@ -420,8 +420,8 @@ after_frag( void *             _ctx,
     }
 
     /* We don't publish transactions that fail to execute.  If all the
-      transctions failed to execute, the microblock would be empty, causing
-      solana labs to think it's a tick and complain.  Instead we just skip
+      transactions failed to execute, the microblock would be empty, causing
+      solana labs to think it's a tick and complain.  Instead, we just skip
       the microblock and don't hash or update the hashcnt. */
     if( FD_UNLIKELY( !executed_txn_cnt ) ) return;
 
