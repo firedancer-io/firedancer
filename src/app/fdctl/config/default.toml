@@ -811,6 +811,15 @@ dynamic_port_range = "8900-9000"
         # can keep up.
         receive_buffer_size = 16384
 
+        # If compiled with EXTRAS=wd-c1100 then the following field specifies
+        # the PCIE address of the c1100 card. The value can be obtained with
+        # lspci. Here is an example:
+        # > lspci
+        # ... snip output ...
+        # 17:00.0 Memory controller: Device 1234:0001
+        # ... snip output ...
+        pcie_device = "0000:17:00.0"
+
     # After being verified, all transactions are sent to a dedup tile to
     # ensure the same transaction is not repeated multiple times.  The
     # dedup tile keeps a rolling history of signatures it has seen and

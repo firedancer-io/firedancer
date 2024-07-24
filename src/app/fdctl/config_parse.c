@@ -293,6 +293,7 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( uint,   tiles.verify.receive_buffer_size                 );
   CFG_POP      ( uint,   tiles.verify.mtu                                 );
+  CFG_POP      ( cstr,   tiles.verify.pcie_device                         );
 
   CFG_POP      ( uint,   tiles.dedup.signature_cache_size                 );
 

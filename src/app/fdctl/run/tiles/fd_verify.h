@@ -2,6 +2,9 @@
 #define HEADER_fd_src_app_fdctl_run_tiles_verify_h
 
 #include "../../../../disco/tiles.h"
+// #ifdef FD_HAS_WIREDANCER_C1100
+#include "../../../../wiredancer/c/wd_c1100.h"
+// #endif
 
 #define VERIFY_TCACHE_DEPTH   16UL
 #define VERIFY_TCACHE_MAP_CNT 64UL
@@ -38,8 +41,14 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
-
-  ulong       hashmap_seed;
+  // #ifdef FD_HAS_WIREDANCER_C1100
+  ulong  kind_id;
+  C1100  c1100[1];
+  void * buf;
+  ulong  dma_addr;
+  void * buf2;
+  ulong  dma_addr2;
+  // #endif
 } fd_verify_ctx_t;
 
 static inline int

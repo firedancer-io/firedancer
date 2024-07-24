@@ -258,6 +258,9 @@ fd_topo_frankendancer( config_t * config ) {
       tile->quic.stream_pool_cnt                = config->tiles.quic.stream_pool_cnt;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "verify" ) ) ) {
+      #ifdef FD_HAS_WIREDANCER_C1100
+      strncpy( tile->verify.pcie_device, config->tiles.verify.pcie_device, sizeof(tile->verify.pcie_device) );
+      #endif
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "dedup" ) ) ) {
       tile->dedup.tcache_depth = config->tiles.dedup.signature_cache_size;

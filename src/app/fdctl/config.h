@@ -211,6 +211,7 @@ typedef struct {
     struct {
       uint receive_buffer_size;
       uint mtu;
+      char pcie_device[ PATH_MAX ];
     } verify;
 
     struct {

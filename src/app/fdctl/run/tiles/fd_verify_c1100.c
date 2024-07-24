@@ -1,11 +1,29 @@
 #include "../../../../disco/tiles.h"
 #include "fd_verify.h"
 
-#include "generated/verify_seccomp.h"
+#include "generated/verify_c1100_seccomp.h"
 
 #include "../../../../disco/quic/fd_tpu.h"
 
 #include <linux/unistd.h>
+
+
+
+// #ifdef FD_HAS_WIREDANCER_C1100
+#include "../../../../wiredancer/c/wd_c1100.h"
+// #endif
+#include <stdio.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <stdint.h>
+#include <errno.h>
+#include <string.h>
+#include <limits.h>
+
+
+
 
 /* The verify tile is a wrapper around the mux tile, that also verifies
    incoming transaction signatures match the data being signed.
@@ -25,6 +43,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   for( ulong i=0; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
     l = FD_LAYOUT_APPEND( l, fd_sha512_align(), fd_sha512_footprint() );
   }
+  l = FD_LAYOUT_APPEND( l, 32, 1UL<<30 );
+  l = FD_LAYOUT_APPEND( l, 32, 1UL<<30 );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -158,7 +178,6 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  FD_LOG_NOTICE(( "working" ));
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_verify_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
   fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( FD_SCRATCH_ALLOC_APPEND( l, FD_TCACHE_ALIGN, FD_TCACHE_FOOTPRINT( VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) ), VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) );
@@ -203,6 +222,38 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  if( FD_UNLIKELY( tile->kind_id == 0 ) ) {
+    FD_TEST( c1100_dma_test( ctx->c1100, ctx->buf, ctx->dma_addr ) == 0 );
+
+    FD_TEST( c1100_dma_benchmark( ctx->c1100, ctx->dma_addr ) == 0 );
+
+    FD_TEST( c1100_dma_benchmark2( ctx->c1100, ctx->buf, ctx->dma_addr, 1UL<<28UL ) == 0 );
+  }
+}
+
+static void
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile,
+                 void *           scratch ) {
+  (void)topo;
+  (void)tile;
+  (void)scratch;
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_verify_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
+  ctx->buf = FD_SCRATCH_ALLOC_APPEND( l, 32, 1UL<<30 );
+  ctx->dma_addr = _wd_get_phys( ctx->buf );
+  ctx->buf2 = FD_SCRATCH_ALLOC_APPEND( l, 32, 1UL<<30 );
+  ctx->dma_addr2 = _wd_get_phys( ctx->buf2 );
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  ctx->kind_id = tile->kind_id;
+  if( FD_UNLIKELY( ctx->kind_id == 0 ) ) {
+    FD_TEST( c1100_init( ctx->c1100, tile->verify.pcie_device ) == 0 );
+  }
 }
 
 static ulong
@@ -210,21 +261,27 @@ populate_allowed_seccomp( void *               scratch,
                           ulong                out_cnt,
                           struct sock_filter * out ) {
   (void)scratch;
-  populate_sock_filter_policy_verify( out_cnt, out, (uint)fd_log_private_logfile_fd() );
-  return sock_filter_policy_verify_instr_cnt;
+  populate_sock_filter_policy_verify_c1100( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_verify_c1100_instr_cnt;
 }
 
 static ulong
 populate_allowed_fds( void * scratch,
                       ulong  out_fds_cnt,
                       int *  out_fds ) {
-  (void)scratch;
-  if( FD_UNLIKELY( out_fds_cnt < 2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)scratch;
+  uint bar_cnt = 0;
+  if( FD_UNLIKELY( ctx->kind_id == 0 ) ) {
+    bar_cnt = c1100_bar_count( ctx->c1100 );
+  }
+
+  if( FD_UNLIKELY( out_fds_cnt < 2+bar_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  for( uint i=0; i<bar_cnt; i++ ) out_fds[ out_cnt++ ] = ctx->c1100->bm[i].fd;
   return out_cnt;
 }
 
@@ -240,6 +297,6 @@ fd_topo_run_tile_t fd_tile_verify = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
-  .privileged_init          = NULL,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
 };
