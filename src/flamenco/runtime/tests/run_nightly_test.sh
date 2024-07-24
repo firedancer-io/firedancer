@@ -91,7 +91,7 @@ set -x
 status=$?
 
 if [ $status -eq 0 ]; then
-    END_SLACK_MESSAGE="ALERT: Ledger \`$LEDGER\` Completed using Commit \`$FD_NIGHTLY_COMMIT\` on Branch \`$FD_NIGHTLY_BRANCH\`"
+    END_SLACK_MESSAGE="Ledger \`$LEDGER\` Completed using Commit \`$FD_NIGHTLY_COMMIT\` on Branch \`$FD_NIGHTLY_BRANCH\`"
 else
     END_SLACK_MESSAGE="@here ALERT: Ledger \`$LEDGER\` Failed using Commit \`$FD_NIGHTLY_COMMIT\` on Branch \`$FD_NIGHTLY_BRANCH\`"
 fi
