@@ -1355,7 +1355,7 @@ fd_exec_vm_cpi_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   } else if (input->abi == FD_EXEC_TEST_CPIABI_RUST ){
     err = fd_vm_syscall_cpi_rust( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &ret );
   } 
-  effects->error = -err;
+  effects->error = err;
   effects->r0 = vm->reg[0];
   effects->cu_avail = (ulong)vm->cu;
   effects->frame_count = vm->frame_cnt;
