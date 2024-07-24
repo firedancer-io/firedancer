@@ -54,6 +54,7 @@ export default defineConfig({
           text: 'API',
           items: [
             { text: 'Commands Line Interface', link: 'cli' },
+            { text: 'Metrics', link: 'metrics' },
           ]
         }
       ] },
