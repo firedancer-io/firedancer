@@ -31,7 +31,11 @@ $(call add-objs,run/tiles/fd_netmux,fd_fdctl)
 $(call add-objs,run/tiles/fd_dedup,fd_fdctl)
 $(call add-objs,run/tiles/fd_pack,fd_fdctl)
 $(call add-objs,run/tiles/fd_quic,fd_fdctl)
+ifndef FD_HAS_WIREDANCER_C1100
 $(call add-objs,run/tiles/fd_verify,fd_fdctl)
+else
+$(call add-objs,run/tiles/fd_verify_c1100,fd_fdctl)
+endif
 $(call add-objs,run/tiles/fd_poh,fd_fdctl)
 $(call add-objs,run/tiles/fd_bank,fd_fdctl)
 $(call add-objs,run/tiles/fd_shred,fd_fdctl)
@@ -84,6 +88,7 @@ $(OBJDIR)/obj/app/fdctl/run/tiles/fd_pack.o: src/app/fdctl/run/tiles/generated/p
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_quic.o: src/app/fdctl/run/tiles/generated/quic_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_shred.o: src/app/fdctl/run/tiles/generated/shred_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_verify.o: src/app/fdctl/run/tiles/generated/verify_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_verify_c1100.o: src/app/fdctl/run/tiles/generated/verify_c1100_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_metric.o: src/app/fdctl/run/tiles/generated/metric_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_sign.o: src/app/fdctl/run/tiles/generated/sign_seccomp.h
 ifdef FD_HAS_NO_AGAVE
