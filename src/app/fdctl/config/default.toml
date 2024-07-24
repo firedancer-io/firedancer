@@ -2,7 +2,7 @@
 # so that multiple Firedancer instances can run side by side without
 # conflicting when they need to share a system or kernel namespace.
 # When starting a Firedancer instance, it will potentially load, reset,
-# or overwrite any state created by a prior, or currently running
+# or overwrite any state created by a prior or currently running
 # instance with the same name.
 name = "fd1"
 
@@ -11,9 +11,9 @@ name = "fd1"
 # or as root, so that it can configure kernel bypass networking.  Once
 # this configuration has been performed, the process will enter a highly
 # restrictive sandbox, drop all privileges, and switch to the user given
-# here.  When running the configuration steps of `fdctl configure`, data
-# will be permissioned as read/write for this user, irrespective of
-# which user is performing the configuration.
+# here.  When running the configuration steps of `fdctl configure` data
+# will be permissioned so that is it writable for this user and not the
+# user which is performing the configuration.
 #
 # Firedancer requires nothing from this user, and it should be as
 # minimally permissioned as is possible.  It is suggested to run
@@ -24,16 +24,23 @@ name = "fd1"
 # to use the root user.  It is also not a good idea to use a user that
 # has access to `sudo` or has other entries in the sudoers file.
 #
-# When running in a development environment (with `fddev`), Firedancer
-# will automatically determine a user to run as if none is provided.  By
-# default, it will use the terminal user which is starting the program.
-# If running as sudo, the terminal user is not root but the user which
-# invoked sudo.
+# Firedancer will automatically determine a user to run as if none is
+# provided.  By default, the user is determined by the following
+# sequence:
+#
+#  1. The `SUDO_USER`, `LOGNAME`, `USER`, `LNAME`, or `USERNAME`
+#     environment variables are checked in this order, and if one of
+#     them is set that user is used
+#  2. The `/proc/self/loginid` file is used to determine the UID, and
+#     the username is looked up in nss (the name service switch).
+#
+# This means if running as sudo, the user will be the terminal user
+# which invoked sudo, not the root user.
 user = ""
 
 # Absolute directory path to place scratch files used during setup and
 # operation.  The ledger and accounts databases will also be placed in
-# here by default, although that is overridable by other options.
+# here by default, although that can be overriden by other options.
 #
 # Two substitutions will be performed on this string.  If "{user}" is
 # present it will be replaced with the user running Firedancer, as
@@ -81,7 +88,6 @@ dynamic_port_range = "8900-9000"
 #   - WARNING is NOTICE + the log file is flushed to disk.
 #   - ERR and above are WARNING + the program will be exited with an
 #     error code of 1.
-#   - CRIT and above are WARNING + the program will
 #
 # All processes in Firedancer share one log file, and they all inherit
 # STDERR and STDOUT from the launcher.  An example log message would

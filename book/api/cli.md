@@ -65,7 +65,10 @@ possible stages to each configure command:
     and mounts huge page filesystems for then under a path in the
     configuration TOML file.
  - `sysctl` Set required kernel parameters.
- - `ethtool` Configures the number of channels on the network device.
+ - `ethtool-channels` Configures the number of channels on the network
+    device.
+ - `ethtool-gro` Disables generic receive offload (GRO) on the network
+    device.
 
 ::: code-group
 
@@ -91,7 +94,8 @@ and configure the number of combined channels on the network device.
 | Capability | Reason |
 |------------|--------|
 | `root` | increase `/proc/sys/vm/nr_hugepages` and mount hugetblfs filesystems. Only applies for the `hugetlbfs` stage |
-| `root` | increase network device channels with `ethtool --set-channels`. Only applies for the `ethtool` stage |
+| `root` | increase network device channels with `ethtool --set-channels`. Only applies for the `ethtool-channels` stage |
+| `root` | disable network device generic-receive-offload (gro) with `ethtool --set-offload generic-receive-offload off`. Only applies for the `ethtool-gro` stage |
 | `CAP_SYS_ADMIN` | set kernel parameters in `/proc/sys`. Only applies for the `sysctl` stage |
 
 :::

@@ -8,7 +8,8 @@ so Firedancer can run correctly. It does three things:
 * **sysctl** Sets required kernel parameters.
 * **ethtool-channels** Configures the number of channels on the network
 device.
-* **ethtool-gro** Disable network device generic-receive-offload.
+* **ethtool-gro** Disable generic-receive-offload (GRO) on the network
+device.
 
 The `hugetlbfs` configuration must be performed every time the system
 is rebooted, to remount the `hugetlbfs` filesystems, but `sysctl`,
