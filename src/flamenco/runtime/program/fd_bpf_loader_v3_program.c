@@ -235,17 +235,17 @@ write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
                     ulong                   bytes_len ) {
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, instr_acc_idx, program ) {
 
-  ulong write_offset = fd_ulong_sat_add( program_data_offset, bytes_len );
-  if( FD_UNLIKELY( program->meta->dlen<write_offset ) ) {
-    FD_LOG_WARNING(( "Write overflow %lu < %lu", program->meta->dlen, write_offset ));
-    return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
-  }
-
   uchar * data = NULL;
   ulong   dlen = 0UL;
   int err = fd_account_get_data_mut( instr_ctx, instr_acc_idx, &data, &dlen );
   if( FD_UNLIKELY( err ) ) {
     return err;
+  }
+
+  ulong write_offset = fd_ulong_sat_add( program_data_offset, bytes_len );
+  if( FD_UNLIKELY( program->meta->dlen<write_offset ) ) {
+    FD_LOG_WARNING(( "Write overflow %lu < %lu", program->meta->dlen, write_offset ));
+    return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
 
   if( FD_UNLIKELY( program_data_offset>dlen ) ) {
