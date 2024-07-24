@@ -138,18 +138,18 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost, int round_up_heap_size, i
 /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L105-L171
 
    Our arguments to deploy_program are different from the Agave version because
-   we handle the caching of deployed programs differently. In Firedancer we 
+   we handle the caching of deployed programs differently. In Firedancer we
    lack the concept of ProgramCacheEntryType entirely.
    https://github.com/anza-xyz/agave/blob/114d94a25e9631f9bf6349c4b833d7900ef1fb1c/program-runtime/src/loaded_programs.rs#L158
 
-   In Agave there is a separate caching structure that is used to store the 
+   In Agave there is a separate caching structure that is used to store the
    deployed programs. In Firedancer the deployed, validated program is stored as
   metadata for the account in the funk record.
 
    See https://github.com/firedancer-io/firedancer/blob/9c1df680b3f38bebb0597e089766ec58f3b41e85/src/flamenco/runtime/program/fd_bpf_loader_v3_program.c#L1640
    for how we handle the concept of 'LoadedProgramType::DelayVisibility' in Firedancer.
 
-   As a concrete example, our version of deploy_program does not have the 
+   As a concrete example, our version of deploy_program does not have the
    'account_size' argument because we do not update the funk record here. */
 int
 deploy_program( fd_exec_instr_ctx_t * instr_ctx,
@@ -292,7 +292,7 @@ fd_bpf_loader_v3_program_set_state( fd_exec_instr_ctx_t *               instr_ct
 
   uchar * data = NULL;
   ulong   dlen = 0UL;
-  
+
   int err = fd_account_get_data_mut( instr_ctx, instr_acc_idx, &data, &dlen );
   if( FD_UNLIKELY( err ) ) {
     return err;
@@ -411,7 +411,7 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog ) {
     /* trace     */ NULL,
     /* sha       */ sha);
   if ( FD_UNLIKELY( vm == NULL ) ) {
-    FD_LOG_ERR(( "null vm" )); 
+    FD_LOG_ERR(( "null vm" ));
   }
 
 #ifdef FD_DEBUG_SBPF_TRACES
@@ -685,7 +685,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         FD_LOG_WARNING(( "Buffer account too small" ));
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
-    
+
       if( FD_UNLIKELY( instruction.inner.deploy_with_max_data_len.max_data_len<buffer_data_len ) ) {
         FD_LOG_WARNING(( "Max data length is too small to hold Buffer data" ));
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
@@ -894,7 +894,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L716-L745 */
       /* Verify Program account */
-      
+
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 1UL, program ) {
 
       if( FD_UNLIKELY( !program->meta->info.executable ) ) {
@@ -962,7 +962,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         FD_LOG_WARNING(( "Buffer account too small" ));
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
-      
+
       } FD_BORROWED_ACCOUNT_DROP( buffer );
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L775-L823 */
@@ -976,7 +976,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, programdata ) {
 
       programdata_balance_required = fd_ulong_max( 1UL, fd_rent_exempt_minimum_balance( instr_ctx->slot_ctx, programdata->const_meta->dlen ) );
-    
+
       if( FD_UNLIKELY( programdata->meta->dlen<fd_ulong_sat_add( PROGRAMDATA_METADATA_SIZE, buffer_data_len ) ) ) {
         FD_LOG_WARNING(( "ProgramData account not large enough" ));
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
@@ -1189,6 +1189,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     }
     /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L958-L1030 */
     case fd_bpf_upgradeable_loader_program_instruction_enum_set_authority_checked: {
+      if( !FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, enable_bpf_loader_set_authority_checked_ix ) ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+      }
+
       if( FD_UNLIKELY( fd_account_check_num_insn_accounts( instr_ctx, 3U ) ) ) {
         FD_LOG_WARNING(( "Not enough account keys for instruction" ));
         return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
@@ -1275,7 +1279,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, close_account ) {
-      
+
       fd_pubkey_t * close_key = close_account->pubkey;
       fd_bpf_upgradeable_loader_state_t close_account_state = {0};
       err = fd_bpf_loader_v3_program_get_state( instr_ctx, close_account, &close_account_state );
@@ -1378,7 +1382,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
             checked by checking to see if the programdata account's loader state
             is unitialized. The firedancer implementation also removes closed
             accounts from the loaded program cache at the end of a slot. Closed
-            accounts currently get handled in the 
+            accounts currently get handled in the
             fd_bpf_loader_v3_is_executable check in fd_executor.c */
 
         } else {
@@ -1387,7 +1391,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         }
 
         } FD_BORROWED_ACCOUNT_DROP( program_account );
-      } else {        
+      } else {
         FD_LOG_WARNING(( "Account does not support closing" ));
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
@@ -1552,7 +1556,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* Setting the discriminant and upgrade authority address here can likely
          be a no-op because these values shouldn't change. These can probably be
-         removed, but can help to mirror against Agave client's implementation. 
+         removed, but can help to mirror against Agave client's implementation.
          The set_state function also contains an ownership check. */
 
       if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( programdata_account ) ) ) {
