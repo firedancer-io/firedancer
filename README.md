@@ -43,17 +43,13 @@ like `make`, `gcc` along with `rustc`, and `clang`.
 Firedancer currently only supports Linux, and requires a kernel newer
 than v5.7 to build.
 
-```bash
-$ sudo dnf groupinstall development
-$ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-Then you can clone and build the application from source,
+Then you can clone and build the application from source.
 
 ```bash
-$ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
+$ git clone https://github.com/firedancer-io/firedancer.git
 $ cd firedancer
 $ ./deps.sh
+$ source ~/.cargo/env
 $ make -j run
 ```
 
