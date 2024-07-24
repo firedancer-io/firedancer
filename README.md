@@ -36,19 +36,8 @@ is not ready for test or production use and has no releases.
 Frankendancer is currently in testing on the Solana testnet.
 
 ## Developing
-The below describes building Firedancer from scratch and running it
-optimized on a stock Linux image. You will need basic development tools
-like `make`, `gcc` along with `rustc`, and `clang`.
-
-Firedancer currently only supports Linux, and requires a kernel newer
-than v5.7 to build.
-
-```bash
-$ sudo dnf groupinstall development
-$ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-Then you can clone and build the application from source,
+Firedancer currently only supports Linux and requires a relatively new
+kernel, at least v4.18 to build. 
 
 ```bash
 $ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git

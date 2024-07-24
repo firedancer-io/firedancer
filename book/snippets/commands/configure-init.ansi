@@ -13,6 +13,9 @@ $ fdctl configure init all
 [32mNOTICE [0m RUN: `echo "1" > /proc/sys/net/ipv4/conf/lo/accept_local`
 [93mWARNING[0m kernel parameter `/proc/sys/net/core/bpf_jit_enable` is too low (got 0 but expected at least 1). Proceeding but performance may be reduced.
 [93mWARNING[0m kernel parameter `/proc/sys/kernel/numa_balancing` is set to 1, not the expected value of 0. Proceeding but performance may be reduced.
-[32mNOTICE [0m ethtool ... unconfigured ... device `ens3f0` does not have right number of channels (got 1 but expected 2)
-[32mNOTICE [0m ethtool ... configuring
-[32mNOTICE [0m ethtool ... RUN: `ethtool --set-channels ens3f0 combined 2`
+[32mNOTICE [0m ethtool-channels ... unconfigured ... device `ens3f0` does not have right number of channels (got 1 but expected 2)
+[32mNOTICE [0m ethtool-channels ... configuring
+[32mNOTICE [0m ethtool-channels ... RUN: `ethtool --set-channels ens3f0 combined 2`
+[32mNOTICE [0m ethtool-gro ... unconfigured ... device `ens3f0` has generic-receive-offload enabled. Should be disabled
+[32mNOTICE [0m ethtool-gro ... configuring
+[32mNOTICE [0m ethtool-gro ... RUN: `ethtool --offload ens3f0 generic-receive-offload off`
