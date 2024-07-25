@@ -1030,7 +1030,8 @@ fd_feature_id_t const ids[] = {
   { .index      = offsetof(fd_features_t, curve25519_restrict_msm_length)>>3,
     .id         = {"\x09\xa2\xb5\xbc\x88\x50\x95\xbe\x4d\xe1\x58\x5a\x7f\xf3\x63\x72\xc1\x6f\x40\x3a\x9a\x48\x0f\xd3\x51\xd3\xb3\xa5\xc6\x0c\x4b\x91"},
                   /* eca6zf6JJRjQsYYPkBHF3N32MTzur4n2WL4QiiacPCL */
-    .name       = "curve25519_restrict_msm_length" },
+    .name       = "curve25519_restrict_msm_length",
+    .cleaned_up = 2000 },
 
   { .index      = offsetof(fd_features_t, allow_commission_decrease_at_any_time)>>3,
     .id         = {"\x09\x63\x71\x6c\x93\x25\xce\xfb\xac\xdf\x2e\x42\x3f\xdf\x5d\xf2\x5e\xae\xda\x5d\x77\xf7\x49\xa7\xb6\xf8\x67\x27\xf9\x0d\x29\xe4"},
