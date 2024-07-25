@@ -23,6 +23,7 @@ LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-21"
 CLUSTER_VERSION="--cluster-version 2000"
 DUMP_DIR=${DUMP_DIR:="./dump"}
+ONE_OFFS=""
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -74,6 +75,10 @@ while [[ $# -gt 0 ]]; do
     -t|--trash)
        TRASH_HASH="--trash-hash $2"
        shift
+       shift
+       ;;
+    -o|--one-offs)
+       ONE_OFFS="--one-off-features $2"
        shift
        ;;
     --zst)
@@ -152,6 +157,7 @@ set -x
     $PAGES \
     $FUNK_PAGES \
     $SNAPSHOT \
+    $ONE_OFFS \
     --allocator wksp \
     $TILE_CPUS >& $LOG
 

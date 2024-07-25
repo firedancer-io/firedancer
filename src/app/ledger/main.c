@@ -88,6 +88,8 @@ struct fd_ledger_args {
   ulong                 rocksdb_list_slot[32];   /* start slot for each rocksdb dir that's passed in assuming there are mulitple */
   ulong                 rocksdb_list_cnt;        /* number of rocksdb dirs passed in */
   uint                  cluster_version;         /* What version of solana is the genesis block? */
+  char const *          one_off_features[32];    /* List of one off feature pubkeys to enable for execution agnostic of cluster version */
+  uint                  one_off_features_cnt;    /* Number of one off features */
 
   /* These values are setup before replay */
   fd_capture_ctx_t *    capture_ctx;             /* capture_ctx is used in runtime_replay for various debugging tasks */
@@ -505,6 +507,26 @@ ingest_rocksdb( fd_alloc_t *      alloc,
   fd_rocksdb_destroy( &rocks_db );
 
   FD_LOG_NOTICE(( "ingested %lu blocks", blk_cnt ));
+}
+
+void
+parse_one_off_features( fd_ledger_args_t * args, char const * one_off_features ) {
+  if( !one_off_features ) {
+    FD_LOG_NOTICE(( "No one-off features passed in" ));
+    return;
+  }
+
+  char * one_off_features_str = strdup( one_off_features );
+  char * token = NULL;
+  token = strtok( one_off_features_str, "," );
+  while( token ) {
+    args->one_off_features[ args->one_off_features_cnt++ ] = token;
+    token = strtok( NULL, "," );
+  }
+
+  FD_LOG_NOTICE(( "Found %lu one off features to include", args->one_off_features_cnt ));
+
+  /* TODO: Fix the leak here and in parse_rocksdb_list */
 }
 
 void
@@ -936,6 +958,7 @@ replay( fd_ledger_args_t * args ) {
 
   args->epoch_ctx->epoch_bank.cluster_version = args->cluster_version;
   fd_features_enable_cleaned_up( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
+  fd_features_enable_one_offs( &args->epoch_ctx->features, args->one_off_features, args->one_off_features_cnt );
 
   args->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, valloc ) );
   args->slot_ctx->epoch_ctx = args->epoch_ctx;
@@ -1291,7 +1314,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   char const * checkpt_path            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-path",            NULL, NULL      );
   ulong        checkpt_freq            = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-freq",            NULL, ULONG_MAX );
   int          checkpt_mismatch        = fd_env_strip_cmdline_int  ( &argc, &argv, "--checkpt-mismatch",        NULL, 0         );
-  char const * allocator               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--allocator",               NULL, "libc"    );
+  char const * allocator               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--allocator",               NULL, "wksp"    );
   int          abort_on_mismatch       = fd_env_strip_cmdline_int  ( &argc, &argv, "--abort-on-mismatch",       NULL, 1         );
   int          on_demand_block_ingest  = fd_env_strip_cmdline_int  ( &argc, &argv, "--on-demand-block-ingest",  NULL, 1         );
   ulong        on_demand_block_history = fd_env_strip_cmdline_ulong( &argc, &argv, "--on-demand-block-history", NULL, 100       );
@@ -1305,7 +1328,7 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   char const * rocksdb_list_starts     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb-starts",          NULL, NULL      );
   uint         cluster_version         = fd_env_strip_cmdline_uint ( &argc, &argv, "--cluster-version",         NULL, FD_DEFAULT_AGAVE_CLUSTER_VERSION );
   char const * checkpt_status_cache    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkpt-status-cache",    NULL, NULL      );
-
+  char const * one_off_features        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--one-off-features",        NULL, NULL      );
 
   #ifdef _ENABLE_LTHASH
   char const * lthash             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",           NULL, "false"   );
@@ -1421,6 +1444,8 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   args->vote_acct_max           = vote_acct_max;
   args->rocksdb_list_cnt        = 0UL;
   args->checkpt_status_cache    = checkpt_status_cache;
+  args->one_off_features_cnt    = 0UL;
+  parse_one_off_features( args, one_off_features );
   parse_rocksdb_list( args, rocksdb_list, rocksdb_list_starts );
 
   if( args->rocksdb_list_cnt==1UL ) {
