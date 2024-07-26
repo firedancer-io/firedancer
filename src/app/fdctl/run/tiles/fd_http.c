@@ -88,6 +88,7 @@ before_credit( void *             _ctx,
   fd_http_ctx_t * ctx = (fd_http_ctx_t *)_ctx;
   fd_http_server_poll( ctx->gui_server );
   fd_http_server_poll( ctx->metrics_server );
+  fd_gui_poll( ctx->gui, ctx->topo );
 }
 
 static inline void
