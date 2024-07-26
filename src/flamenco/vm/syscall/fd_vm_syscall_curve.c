@@ -203,7 +203,8 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
   }
 
   default:
-    goto soft_error; /* unknown curve op */
+    /* COV: this can never happen because of the previous switch */
+    return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
   }
 
 soft_error:
@@ -385,6 +386,10 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
     }
     break;
   }
+
+  default:
+    /* COV: this can never happen because of the previous switch */
+    return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
   }
 
 soft_error:
