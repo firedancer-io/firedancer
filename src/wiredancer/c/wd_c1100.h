@@ -18,7 +18,7 @@ typedef struct {
 
 typedef struct {
   BarInfo info;
-  void  * addr;
+  volatile void * addr;
   int     fd;
 } BarMap;
 
@@ -65,5 +65,19 @@ dma_block_write_bench( C1100 * c1100,
 void
 dma_block_read_bench( C1100 * c1100,
                       ulong   dma_addr, ulong size, ulong stride, ulong count );
+
+uint c1100_dma_enabled( C1100 * c1100 );
+void c1100_interrupts_enable( C1100 * c1100 );
+void c1100_verify_set_dma( C1100 * c1100, ulong dma_phys );
+
+void
+c1100_verify_packet_ed25519( C1100 * c1100,
+                             uint    pkt_offset,
+                             uint    pkt_sz );
+uint
+c1100_verify_deserializer( C1100 * c1100 );
+
+uint
+c1100_verify_backpressure( C1100 * c1100 );
 
 #endif /* HEADER_fd_src_wiredancer_c_wd_c1100_h */

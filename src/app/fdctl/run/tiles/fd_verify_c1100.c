@@ -40,7 +40,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     l = FD_LAYOUT_APPEND( l, fd_sha512_align(), fd_sha512_footprint() );
   }
   l = FD_LAYOUT_APPEND( l, 32, 1UL<<30 );
-  l = FD_LAYOUT_APPEND( l, 32, 1UL<<30 );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -220,11 +219,24 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   if( FD_UNLIKELY( tile->kind_id == 0 ) ) {
-    FD_TEST( c1100_dma_test( ctx->c1100, ctx->buf, ctx->dma_addr ) == 0 );
+    ulong * dma_region = (ulong *)ctx->buf;
+    for (uint i = 0; i < 1024; i ++) {
+        uint off = i * 2048 / 8;
+        for (uint j = 0; j < 256; j ++)
+            dma_region[off+j] = 0xabcdeffe0000000FL + (i << 16) + (j << 8);
+        dma_region[off+4] = 0x5e00000000000000; // udp len
+    }
+    FD_LOG_NOTICE(( "dma addr: %lx", ctx->dma_addr ));
+    c1100_verify_set_dma( ctx->c1100, ctx->dma_addr );
+    uint32_t size = 32*8;
+    c1100_verify_packet_ed25519( ctx->c1100, 0, size );
+    c1100_verify_packet_ed25519( ctx->c1100, 2048, size );
 
-    FD_TEST( c1100_dma_benchmark( ctx->c1100, ctx->dma_addr ) == 0 );
-
-    FD_TEST( c1100_dma_benchmark2( ctx->c1100, ctx->buf, ctx->dma_addr, 1UL<<28UL ) == 0 );
+    FD_LOG_NOTICE(( "results %x", c1100_verify_backpressure( ctx->c1100 ) ));
+    FD_LOG_NOTICE(( "results %x", c1100_verify_deserializer( ctx->c1100 ) ));
+    sleep( 1 );
+    FD_LOG_NOTICE(( "results %x", c1100_verify_backpressure( ctx->c1100 ) ));
+    FD_LOG_NOTICE(( "results %x", c1100_verify_deserializer( ctx->c1100 ) ));
   }
 }
 
@@ -238,9 +250,6 @@ privileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_verify_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
   ctx->buf = FD_SCRATCH_ALLOC_APPEND( l, 32, 1UL<<30 );
-  ctx->dma_addr = _wd_get_phys( ctx->buf );
-  ctx->buf2 = FD_SCRATCH_ALLOC_APPEND( l, 32, 1UL<<30 );
-  ctx->dma_addr2 = _wd_get_phys( ctx->buf2 );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -249,6 +258,7 @@ privileged_init( fd_topo_t *      topo,
   ctx->kind_id = tile->kind_id;
   if( FD_UNLIKELY( ctx->kind_id == 0 ) ) {
     FD_TEST( c1100_init( ctx->c1100, tile->verify.pcie_device ) == 0 );
+    ctx->dma_addr = _wd_get_phys( ctx->buf );
   }
 }
 
