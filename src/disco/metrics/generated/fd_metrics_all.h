@@ -54,6 +54,11 @@
 #define FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_TYPE (FD_METRICS_TYPE_COUNTER)
 #define FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_DESC "The number of input overruns detected while reading metadata by the consumer."
 
+#define FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF  (7UL)
+#define FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_NAME "link_overrun_reading_frag_count"
+#define FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_DESC "The number of fragments the link failed to process because overruns were detected while reading metadata by the consumer."
+
 /* Start of TILE metrics */
 
 #define FD_METRICS_GAUGE_TILE_PID_OFF  (0UL)
@@ -160,7 +165,7 @@
 #define FD_METRICS_ALL_TOTAL (14UL)
 extern const fd_metrics_meta_t FD_METRICS_ALL[FD_METRICS_ALL_TOTAL];
 
-#define FD_METRICS_ALL_LINK_IN_TOTAL (7UL)
+#define FD_METRICS_ALL_LINK_IN_TOTAL (8UL)
 extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOTAL];
 
 #define FD_METRICS_ALL_LINK_OUT_TOTAL (1UL)
