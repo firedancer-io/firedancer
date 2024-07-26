@@ -101,7 +101,8 @@ fd_vm_syscall_sol_log_64( void *  _vm,
   ulong  msg_max = fd_vm_log_prepare_max( vm );
   ulong  msg_len;
 
-  fd_cstr_printf( msg, msg_max, &msg_len, "Program log: %lx %lx %lx %lx %lx", r1, r2, r3, r4, r5 );
+  fd_cstr_printf( msg, msg_max, &msg_len, "Program log: 0x%lx, 0x%lx, 0x%lx, 0x%lx, 0x%lx",
+                  r1, r2, r3, r4, r5 );
 
   fd_vm_log_publish( vm, msg_len );
 
