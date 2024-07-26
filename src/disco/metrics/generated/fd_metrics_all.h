@@ -7,10 +7,12 @@
 #include "fd_metrics_pack.h"
 #include "fd_metrics_poh.h"
 #include "fd_metrics_quic.h"
-#include "fd_metrics_replay.h"
 #include "fd_metrics_shred.h"
 #include "fd_metrics_store.h"
+#ifdef FD_HAS_NO_SOLANA
 #include "fd_metrics_storei.h"
+#include "fd_metrics_replay.h"
+#endif
 
 /* Start of LINK OUT metrics */
 
