@@ -416,7 +416,8 @@ main( int     argc,
   ulong r3 = fd_rng_ulong(rng);
   ulong r4 = fd_rng_ulong(rng);
   char  msg[1024];
-  ulong msg_len = (ulong)sprintf( msg, "Program log: %lx %lx %lx %lx %lx", r0, r1, r2, r3, r4 );
+  ulong msg_len = (ulong)sprintf( msg, "Program log: 0x%lx, 0x%lx, 0x%lx, 0x%lx, 0x%lx", r0, r1, r2, r3, r4 );
+
   APPEND( msg, msg_len );
   test_vm_syscall_sol_log_64( "test_vm_syscall_sol_log_64: log_64 at the heap region",
                               vm,
