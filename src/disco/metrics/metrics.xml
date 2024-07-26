@@ -137,6 +137,7 @@ metric introduced.
     <counter name="OverrunPollingCount" summary="The number of times the link has been overrun while polling." />
     <counter name="OverrunPollingFragCount" summary="The number of fragments the link has not processed because it was overrun while polling." />
     <counter name="OverrunReadingCount" summary="The number of input overruns detected while reading metadata by the consumer." />
+    <counter name="OverrunReadingFragCount" summary="The number of fragments the link failed to process because overruns were detected while reading metadata by the consumer." />
 </group>
 
 <group name="Tile" tile="all">
@@ -201,7 +202,9 @@ metric introduced.
     <counter name="ReassemblyAppend" enum="TpuReasm" summary="Result of fragment reassembly for a QUIC transaction." />
     <counter name="ReassemblyPublish" enum="TpuReasm" summary="Result of publishing reassmbled fragment for a QUIC transaction." />
 
+    <counter name="ReassemblyNotifyAttempted" summary="Cumulative count of reassembly slot notified." />
     <counter name="ReassemblyNotifyClobbered" summary="Reassembly slot was clobbered before it was notified." />
+    <counter name="ReassemblyNotifyOkay" summary="Cumulative count of reassembly slot notified." />
 
     <counter name="QuicPacketTooSmall" summary="Count of packets received on the QUIC port that were too small to be a valid IP packet." />
 

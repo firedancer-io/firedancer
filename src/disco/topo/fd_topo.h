@@ -330,6 +330,7 @@ typedef struct fd_topo_t {
   fd_topo_link_t links[ FD_TOPO_MAX_LINKS ];
   fd_topo_tile_t tiles[ FD_TOPO_MAX_TILES ];
   fd_topo_obj_t  objs[ FD_TOPO_MAX_OBJS ];
+  void *         config;
 } fd_topo_t;
 
 typedef struct {

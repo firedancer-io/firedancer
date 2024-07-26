@@ -7,10 +7,12 @@
 #include "fd_metrics_pack.h"
 #include "fd_metrics_poh.h"
 #include "fd_metrics_quic.h"
-#include "fd_metrics_replay.h"
 #include "fd_metrics_shred.h"
 #include "fd_metrics_store.h"
+#ifdef FD_HAS_NO_SOLANA
 #include "fd_metrics_storei.h"
+#include "fd_metrics_replay.h"
+#endif
 
 /* Start of LINK OUT metrics */
 
@@ -55,6 +57,11 @@
 #define FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_NAME "link_overrun_reading_count"
 #define FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_TYPE (FD_METRICS_TYPE_COUNTER)
 #define FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_DESC "The number of input overruns detected while reading metadata by the consumer."
+
+#define FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF  (7UL)
+#define FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_NAME "link_overrun_reading_frag_count"
+#define FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_DESC "The number of fragments the link failed to process because overruns were detected while reading metadata by the consumer."
 
 /* Start of TILE metrics */
 
@@ -162,13 +169,13 @@
 #define FD_METRICS_ALL_TOTAL (14UL)
 extern const fd_metrics_meta_t FD_METRICS_ALL[FD_METRICS_ALL_TOTAL];
 
-#define FD_METRICS_ALL_LINK_IN_TOTAL (7UL)
+#define FD_METRICS_ALL_LINK_IN_TOTAL (8UL)
 extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOTAL];
 
 #define FD_METRICS_ALL_LINK_OUT_TOTAL (1UL)
 extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_OUT[FD_METRICS_ALL_LINK_OUT_TOTAL];
 
-#define FD_METRICS_TOTAL_SZ (8UL*308UL)
+#define FD_METRICS_TOTAL_SZ (8UL*309UL)
 
 #define FD_METRICS_TILE_KIND_CNT 9
 extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];
