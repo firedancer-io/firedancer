@@ -199,13 +199,14 @@ after_credit( void *             _ctx,
     return;
   }
 
-  if( FD_LIKELY( ctx->poh_tile_ctx->current_leader_slot==FD_SLOT_NULL ) ) {
+  if( FD_LIKELY( ctx->poh_tile_ctx->current_leader_slot==FD_SLOT_NULL && ctx->recently_reset ) ) {
     /* We are not leader, but we should check if we have reached a leader slot! */
     ulong leader_slot = FD_SLOT_NULL;
     ulong reset_slot = FD_SLOT_NULL;
     int has_reached_leader_slot = fd_poh_tile_reached_leader_slot( ctx->poh_tile_ctx, &leader_slot, &reset_slot );
     if( has_reached_leader_slot ) {
       fd_poh_tile_begin_leader( ctx->poh_tile_ctx, leader_slot, ctx->poh_tile_ctx->hashcnt_per_tick );
+      ctx->recently_reset = 0;
     }
   }
 
@@ -361,6 +362,7 @@ after_frag( void *             _ctx,
   } else {
      if( is_finalized_block && ctx->is_initialized ) {
       fd_poh_tile_reset( ctx->poh_tile_ctx, target_slot, ctx->_microblock_trailer->hash, ctx->poh_tile_ctx->hashcnt_per_tick );
+      ctx->recently_reset = 1;
     }
   }
 }

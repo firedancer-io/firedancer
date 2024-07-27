@@ -9,10 +9,14 @@
 #include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../waltz/ip/fd_ip.h"
 #include "../../../../disco/fd_disco.h"
+#include "../../../../flamenco/fd_flamenco.h"
 
 #include "../../../../util/net/fd_net_headers.h"
 
 #include <linux/unistd.h>
+
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 /* The shred tile handles shreds from two data sources: shreds
    generated from microblocks from the banking tile, and shreds
@@ -440,6 +444,8 @@ during_frag( void * _ctx,
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->net_in_chunk0, ctx->net_in_wmark ));
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->net_in_mem, chunk );
     ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
+    // fd_net_hdrs_t * hdr =  (fd_net_hdrs_t *)dcache_entry;
+    // FD_LOG_INFO(("SHRED! " FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( *(uint *)hdr->ip4->saddr_c ) ));
     FD_TEST( hdr_sz < sz ); /* Should be ensured by the net tile */
     fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz );
     if( FD_UNLIKELY( !shred ) ) {
@@ -572,7 +578,6 @@ after_frag( void *             _ctx,
         if( FD_UNLIKELY( !sdest ) ) break;
         fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, _dests, 1UL, fanout, fanout, max_dest_cnt );
         if( FD_UNLIKELY( !dests ) ) break;
-
         for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, sdest, dests[ j ], ctx->tsorig );
       } while( 0 );
     }
@@ -673,6 +678,7 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
+  fd_flamenco_boot(NULL,NULL);
   if( FD_UNLIKELY( tile->in_cnt!=5UL ||
                    strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_shred" )    ||
                    strcmp( topo->links[ tile->in_link_id[ POH_IN_IDX     ] ].name, "poh_shred"  )    ||

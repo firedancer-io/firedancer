@@ -64,4 +64,8 @@ RUST_LOG=debug ./agave/target/release/agave-validator \
     --full-rpc-api \
     --allow-private-addr \
     --rpc-faucet-address 127.0.0.1:9900 \
+    --enable-rpc-transaction-history \
+    --tpu-enable-udp \
     --log test-ledger/validator.log
+    # --tpu-disable-quic \
+    # --public-tpu-address 127.0.0.1:9010 \

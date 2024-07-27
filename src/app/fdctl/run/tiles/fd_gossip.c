@@ -313,7 +313,7 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
 
     fd_gossip_contact_info_v1_t contact_info;
     fd_gossip_contact_info_v2_to_v1( contact_info_v2, &contact_info );
-    FD_LOG_INFO(("contact info v2 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info.gossip.addr.inner.ip4 ), contact_info.gossip.port ));
+    FD_LOG_DEBUG(("contact info v2 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info.gossip.addr.inner.ip4 ), contact_info.gossip.port ));
 
     fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, &contact_info.id, NULL );
     if (FD_UNLIKELY(!ele &&

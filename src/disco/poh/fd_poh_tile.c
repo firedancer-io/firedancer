@@ -315,7 +315,7 @@ fd_poh_tile_reset( fd_poh_tile_ctx_t * ctx,
     }
   }
 
-if( FD_UNLIKELY( leader_before_reset ) ) {
+  if( FD_UNLIKELY( leader_before_reset ) ) {
     /* No longer have a leader bank if we are reset. Replay stage will
        call back again to give us a new one if we should become leader
        for the reset slot.

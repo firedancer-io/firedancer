@@ -892,9 +892,13 @@ is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash_queue,
   
   fd_hash_hash_age_pair_t_mapnode_t * hash_age = fd_hash_hash_age_pair_t_map_find( block_hash_queue->ages_pool, block_hash_queue->ages_root, &key );
   if( hash_age==NULL ) {
+    FD_LOG_WARNING(( "txn with missing recent blockhash - blockhash: %32J", blockhash->uc ));
     return 0;
   }
   ulong age = block_hash_queue->last_hash_index-hash_age->elem.val.hash_index;
+  if( age>max_age ) {
+    FD_LOG_WARNING(( "txn with old blockhash - age: %lu, blockhash: %32J", age, hash_age->elem.key.uc ));
+  }
   return ( age<=max_age );
 }
 

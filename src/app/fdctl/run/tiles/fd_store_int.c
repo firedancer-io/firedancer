@@ -294,7 +294,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
     case FD_STORE_SLOT_PREPARE_CONTINUE: {
       ulong root = fd_fseq_query( ctx->root_slot_fseq );
       if( root!=ULONG_MAX ) {
-        fd_pending_slots_set_lo_wmark( ctx->store->pending_slots, root );
+        fd_store_set_root( ctx->store, root );
       }
       ctx->store->now = fd_log_wallclock();
       break;
@@ -627,7 +627,7 @@ unprivileged_init( fd_topo_t *      topo,
       ulong        slot  = strtoul( buf, &endptr, 10 );
       fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
       block_map_entry->flags       = 0;
-      fd_store_add_pending( ctx->store, slot, cnt++ );
+      fd_store_add_pending( ctx->store, slot, (long)cnt++, 0, 0 );
     }
     fd_blockstore_end_write( ctx->blockstore );
     fclose( file );

@@ -281,7 +281,10 @@ struct fd_gossip {
     /* The last timestamp hash that we pushed our own contact info */
     long last_contact_time;
     fd_hash_t last_contact_info_key;
-    fd_hash_t last_contact_version_key;
+    fd_hash_t last_version_key;
+    fd_hash_t last_contact_info_v2_key;
+    fd_hash_t last_node_instance_key;
+
     /* Array of push destinations currently in use */
     fd_push_state_t * push_states[FD_PUSH_LIST_MAX];
     ulong push_states_cnt;
@@ -770,6 +773,10 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
   case fd_crds_data_enum_incremental_snapshot_hashes:
     pubkey = &crd->data.inner.incremental_snapshot_hashes.from;
     wallclock = &crd->data.inner.incremental_snapshot_hashes.wallclock;
+    break;
+  case fd_crds_data_enum_contact_info_v2:
+    pubkey = &crd->data.inner.contact_info_v2.from;
+    wallclock = &crd->data.inner.contact_info_v2.wallclock;
     break;
   default:
     return;
@@ -1266,11 +1273,11 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
         }
       }
 
-      fd_gossip_peer_addr_t peer_addr = { .addr = crd->data.inner.contact_info_v1.gossip.addr.inner.ip4,
-                                          .port = fd_ushort_bswap( crd->data.inner.contact_info_v1.gossip.port ) };
+      fd_gossip_peer_addr_t peer_addr = { .addr = socket_addr.addr.inner.ip4,
+                                          .port = fd_ushort_bswap( socket_addr.port ) };
       if (glob->my_contact_info.shred_version == 0U && fd_gossip_is_allowed_entrypoint( glob, &peer_addr )) {
-        FD_LOG_NOTICE(("using shred version %lu", (ulong)crd->data.inner.contact_info_v1.shred_version));
-        glob->my_contact_info.shred_version = crd->data.inner.contact_info_v1.shred_version;
+        FD_LOG_NOTICE(("using shred version %lu", (ulong)crd->data.inner.contact_info_v2.shred_version));
+        glob->my_contact_info.shred_version = crd->data.inner.contact_info_v2.shred_version;
       }
     }
   }
@@ -1365,11 +1372,20 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
     }
 
     /* Remove the old version value */
-    ele = fd_value_table_query(glob->values, &glob->last_contact_version_key, NULL);
+    ele = fd_value_table_query(glob->values, &glob->last_version_key, NULL);
     if (ele != NULL) {
-      fd_value_table_remove( glob->values, &glob->last_contact_version_key );
+      fd_value_table_remove( glob->values, &glob->last_version_key );
     }
 
+    ele = fd_value_table_query(glob->values, &glob->last_contact_info_v2_key, NULL);
+    if (ele != NULL) {
+      fd_value_table_remove( glob->values, &glob->last_contact_info_v2_key );
+    }
+   
+    ele = fd_value_table_query(glob->values, &glob->last_node_instance_key, NULL);
+    if (ele != NULL) {
+      fd_value_table_remove( glob->values, &glob->last_node_instance_key );
+    }
   }
 
   glob->last_contact_time = glob->now;
@@ -1385,11 +1401,110 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
 
   {
     fd_crds_data_t crd;
+    fd_crds_data_new_disc(&crd, fd_crds_data_enum_contact_info_v2);
+    fd_gossip_contact_info_v2_t * ci = &crd.inner.contact_info_v2;
+
+    fd_gossip_ip_addr_t addrs[ 256 ] = {0};
+    fd_gossip_socket_entry_t sockets[ 256 ] = {0};
+    // uint extentions[ 1 ] = {0};
+    ci->addrs = addrs;
+    ci->sockets = sockets;
+
+    ushort last_port = 0;
+    uchar cnt = 0;
+    for(;;) {
+      fd_gossip_ip_addr_t * min_addr = NULL; 
+      ushort min_port = USHORT_MAX;
+      uchar min_key = 0;
+      
+      ushort gossip_port = glob->my_contact_info.gossip.port;
+      ushort tvu_port = glob->my_contact_info.tvu.port;
+      ushort tpu_port = glob->my_contact_info.tpu.port;
+      ushort tpu_quic_port = glob->my_contact_info.tpu.port + 6;
+      ushort tpu_vote_port = glob->my_contact_info.tpu_vote.port;
+      if( gossip_port > 0 && gossip_port > last_port && gossip_port < min_port ) {
+        min_key = FD_GOSSIP_SOCKET_TAG_GOSSIP;
+        min_addr = &glob->my_contact_info.gossip.addr;
+        min_port = glob->my_contact_info.gossip.port;
+      }
+      if( tvu_port > 0 && tvu_port > last_port && tvu_port < min_port ) {
+        min_key = FD_GOSSIP_SOCKET_TAG_TVU;
+        min_addr = &glob->my_contact_info.tvu.addr;
+        min_port = glob->my_contact_info.tvu.port;
+      }
+      if( tpu_port > 0 && tpu_port > last_port && tpu_port < min_port ) {
+        min_key = FD_GOSSIP_SOCKET_TAG_TPU;
+        min_addr = &glob->my_contact_info.tpu.addr;
+        min_port = glob->my_contact_info.tpu.port;
+      }
+      if( tpu_quic_port > 0 && tpu_quic_port > last_port && tpu_quic_port < min_port ) {
+        min_key = FD_GOSSIP_SOCKET_TAG_TPU_QUIC;
+        min_addr = &glob->my_contact_info.tpu.addr;
+        min_port = glob->my_contact_info.tpu.port + 6;
+      }
+      if( tpu_vote_port > 0 && tpu_vote_port > last_port && tpu_vote_port < min_port ) {
+        min_key = FD_GOSSIP_SOCKET_TAG_TPU_VOTE;
+        min_addr = &glob->my_contact_info.tpu_vote.addr;
+        min_port = glob->my_contact_info.tpu_vote.port;
+      }
+      if( min_port==USHORT_MAX ) {
+        break;
+      }
+      
+      ci->addrs[ cnt ] = *min_addr;
+      ci->sockets[ cnt ].index = 0;
+      ci->sockets[ cnt ].offset = min_port - last_port;
+      ci->sockets[ cnt ].key = min_key;
+      cnt++;
+      last_port = min_port;
+      
+      if( min_key ==FD_GOSSIP_SOCKET_TAG_TPU) {
+        ci->addrs[ cnt ] = *min_addr;
+        ci->sockets[ cnt ].index = 0;
+        ci->sockets[ cnt ].offset = 0;
+        ci->sockets[ cnt ].key = FD_GOSSIP_SOCKET_TAG_TPU_VOTE;
+        cnt++;
+        last_port = min_port;
+      }
+    }
+
+    ci->addrs_len = 1;
+    ci->sockets_len = cnt;
+    // ci->extensions_len = 0;
+    // ci->extensions = extentions;
+    ci->shred_version = glob->my_contact_info.shred_version;
+    ci->wallclock = FD_NANOSEC_TO_MILLI(glob->now);
+    ci->from = glob->my_contact_info.id;
+    ci->outset = 1UL;
+    ci->version.client = 2;
+    ci->version.commit = 42;
+    ci->version.feature_set = 42;
+    ci->version.major = 42;
+    ci->version.minor = 42;
+    ci->version.patch = 42;
+
+    fd_gossip_push_value_nolock(glob, &crd, &glob->last_contact_info_v2_key);
+  }
+
+  {
+    fd_crds_data_t crd;
+    fd_crds_data_new_disc(&crd, fd_crds_data_enum_node_instance);
+    fd_gossip_node_instance_t * node_instance = &crd.inner.node_instance;
+    node_instance->from = glob->my_contact_info.id;
+    node_instance->timestamp = (long)FD_NANOSEC_TO_MILLI(glob->now);
+    node_instance->wallclock = FD_NANOSEC_TO_MILLI(glob->now);
+    node_instance->token = fd_rng_ulong( glob->rng );
+
+    fd_gossip_push_value_nolock(glob, &crd, &glob->last_node_instance_key);
+  }
+
+  {
+    fd_crds_data_t crd;
     fd_crds_data_new_disc(&crd, fd_crds_data_enum_version_v2);
     fd_gossip_version_v2_t * version = &crd.inner.version_v2;
     fd_memcpy(version, &glob->my_version, sizeof(fd_gossip_version_v2_t));
 
-    fd_gossip_push_value_nolock(glob, &crd, &glob->last_contact_version_key);
+    fd_gossip_push_value_nolock(glob, &crd, &glob->last_version_key);
   }
 }
 

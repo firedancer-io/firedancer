@@ -21,7 +21,7 @@
 /* Max number of pending shred requests */
 #define FD_NEEDED_KEY_MAX (1<<18)
 /* Max number of sticky repair peers */
-#define FD_REPAIR_STICKY_MAX   32
+#define FD_REPAIR_STICKY_MAX   128
 /* Max number of validator identities in stake weights */
 #define FD_STAKE_WEIGHTS_MAX (1<<14)
 /* Max number of validator clients that we ping */
@@ -81,6 +81,7 @@ struct fd_active_elem {
     uchar sticky;
     uchar permanent;
     long  first_request_time;
+    ulong stake;
 };
 /* Active table */
 typedef struct fd_active_elem fd_active_elem_t;
@@ -380,6 +381,7 @@ fd_repair_add_active_peer( fd_repair_t * glob, fd_repair_peer_addr_t const * add
     val->sticky = 0;
     val->first_request_time = 0;
     val->permanent = 0;
+    val->stake = 0UL;
     FD_LOG_DEBUG( ( "adding repair peer %32J", val->key.uc ) );
   }
   fd_repair_unlock( glob );
@@ -733,6 +735,9 @@ fd_actives_shuffle( fd_repair_t * repair ) {
         if( !stake ) continue;
         fd_pubkey_t const * key = &stake_weight->key;
         fd_active_elem_t * peer = fd_active_table_query( repair->actives, key, NULL );
+        if( peer!=NULL ) {
+          peer->stake = stake;
+        }
         if( NULL == peer || peer->sticky ) continue;
         leftovers[leftovers_cnt++] = peer;
       }
@@ -855,7 +860,8 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
   fd_repair_lock( glob );
   fd_pubkey_t * ids[FD_REPAIR_NUM_NEEDED_PEERS] = {0};
   uint found_peer = 0;
-  for( ulong i=0UL; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {
+  uint peer_cnt = fd_uint_min( (uint)glob->actives_sticky_cnt, FD_REPAIR_NUM_NEEDED_PEERS );
+  for( ulong i=0UL; i<peer_cnt; i++ ) {
     fd_active_elem_t * peer = actives_sample( glob );
     if(!peer) continue;
     found_peer = 1;
@@ -869,7 +875,7 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
     return -1;
   };
 
-  fd_dupdetect_key_t dupkey = { .type = type, .slot = slot, .shred_index = shred_index, .req_cnt = FD_REPAIR_NUM_NEEDED_PEERS };
+  fd_dupdetect_key_t dupkey = { .type = type, .slot = slot, .shred_index = shred_index, .req_cnt = peer_cnt };
   if( fd_dupdetect_table_query( glob->dupdetect, &dupkey, NULL ) != NULL ) {
     fd_repair_unlock( glob );
     return 0;
@@ -882,7 +888,7 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
     ( *glob->deliver_fail_fun )(ids[0], slot, shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED );
     return -1;
   }
-  for( ulong i=0UL; i<FD_REPAIR_NUM_NEEDED_PEERS; i++ ) {
+  for( ulong i=0UL; i<peer_cnt; i++ ) {
     fd_repair_nonce_t key = glob->next_nonce++;
     fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
     fd_hash_copy(&val->id, ids[i]);
@@ -916,15 +922,16 @@ print_stats( fd_active_elem_t * val ) {
   fd_pubkey_t const * id = &val->key;
   if( FD_UNLIKELY( NULL == val ) ) return;
   if( val->avg_reqs == 0 )
-    FD_LOG_DEBUG(( "repair peer %32J: no requests sent", id ));
+    FD_LOG_INFO(( "repair peer %32J: no requests sent, stake=%lu", id, val->stake / (ulong)1e9 ));
   else if( val->avg_reps == 0 )
-    FD_LOG_DEBUG(( "repair peer %32J: avg_requests=%lu, no responses received", id, val->avg_reqs ));
+    FD_LOG_INFO(( "repair peer %32J: avg_requests=%lu, no responses received, stake=%lu", id, val->avg_reqs, val->stake / (ulong)1e9 ));
   else
-    FD_LOG_DEBUG(( "repair peer %32J: avg_requests=%lu, response_rate=%f, latency=%f",
+    FD_LOG_INFO(( "repair peer %32J: avg_requests=%lu, response_rate=%f, latency=%f, stake=%lu",
                     id,
                     val->avg_reqs,
                     ((double)val->avg_reps)/((double)val->avg_reqs),
-                    1.0e-9*((double)val->avg_lat)/((double)val->avg_reps) ));
+                    1.0e-9*((double)val->avg_lat)/((double)val->avg_reps),
+                    val->stake / (ulong)1e9 ));
 }
 
 static void
@@ -936,7 +943,7 @@ fd_repair_print_all_stats( fd_repair_t * glob ) {
     if( !val->sticky ) continue;
     print_stats( val );
   }
-  FD_LOG_DEBUG( ( "peer count: %lu", fd_active_table_key_cnt( glob->actives ) ) );
+  FD_LOG_INFO( ( "peer count: %lu", fd_active_table_key_cnt( glob->actives ) ) );
 }
 
 void fd_repair_add_sticky( fd_repair_t * glob, fd_pubkey_t const * id ) {

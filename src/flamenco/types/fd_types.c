@@ -21634,7 +21634,7 @@ int fd_lookup_table_meta_encode( fd_lookup_table_meta_t const * self, fd_bincode
     err = fd_pubkey_encode( &self->authority, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
-  err = fd_bincode_uint16_encode( (ushort)(self->_padding), ctx );
+  err = fd_bincode_uint16_encode( self->_padding, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -22792,7 +22792,7 @@ int fd_gossip_socket_addr_encode( fd_gossip_socket_addr_t const * self, fd_binco
   int err;
   err = fd_gossip_ip_addr_encode( &self->addr, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)(self->port), ctx );
+  err = fd_bincode_uint16_encode( self->port, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -22913,7 +22913,7 @@ int fd_gossip_contact_info_v1_encode( fd_gossip_contact_info_v1_t const * self, 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->wallclock, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)(self->shred_version), ctx );
+  err = fd_bincode_uint16_encode( self->shred_version, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -23897,11 +23897,11 @@ int fd_gossip_version_v1_encode( fd_gossip_version_v1_t const * self, fd_bincode
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->wallclock, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)(self->major), ctx );
+  err = fd_bincode_uint16_encode( self->major, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)(self->minor), ctx );
+  err = fd_bincode_uint16_encode( self->minor, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)(self->patch), ctx );
+  err = fd_bincode_uint16_encode( self->patch, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_bool_encode( self->has_commit, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -24041,11 +24041,11 @@ int fd_gossip_version_v2_encode( fd_gossip_version_v2_t const * self, fd_bincode
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->wallclock, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)(self->major), ctx );
+  err = fd_bincode_uint16_encode( self->major, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)(self->minor), ctx );
+  err = fd_bincode_uint16_encode( self->minor, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)(self->patch), ctx );
+  err = fd_bincode_uint16_encode( self->patch, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_bool_encode( self->has_commit, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -24171,17 +24171,17 @@ void fd_gossip_version_v3_decode_unsafe( fd_gossip_version_v3_t * self, fd_binco
 }
 int fd_gossip_version_v3_encode( fd_gossip_version_v3_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
-  err = fd_bincode_uint16_encode( (ushort)(self->major), ctx );
+  err = fd_bincode_compact_u16_encode( &self->major, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)(self->minor), ctx );
+  err = fd_bincode_compact_u16_encode( &self->minor, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)(self->patch), ctx );
+  err = fd_bincode_compact_u16_encode( &self->patch, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint32_encode( self->commit, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint32_encode( self->feature_set, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)(self->client), ctx );
+  err = fd_bincode_compact_u16_encode( &self->client, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -24380,7 +24380,7 @@ void fd_gossip_duplicate_shred_decode_unsafe( fd_gossip_duplicate_shred_t * self
 }
 int fd_gossip_duplicate_shred_encode( fd_gossip_duplicate_shred_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
-  err = fd_bincode_uint16_encode( (ushort)(self->version), ctx );
+  err = fd_bincode_uint16_encode( self->version, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_pubkey_encode( &self->from, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -24649,7 +24649,7 @@ int fd_gossip_socket_entry_encode( fd_gossip_socket_entry_t const * self, fd_bin
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint8_encode( (uchar)(self->index), ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)(self->offset), ctx );
+  err = fd_bincode_compact_u16_encode( &self->offset, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -24784,7 +24784,7 @@ int fd_gossip_contact_info_v2_encode( fd_gossip_contact_info_v2_t const * self, 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->outset, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint16_encode( (ushort)(self->shred_version), ctx );
+  err = fd_bincode_uint16_encode( self->shred_version, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_gossip_version_v3_encode( &self->version, ctx );
   if( FD_UNLIKELY( err ) ) return err;
