@@ -1,6 +1,6 @@
 #include <assert.h>
-#include <tango/quic/fd_quic.h>
-#include <tango/quic/crypto/fd_quic_crypto_suites.h>
+#include <waltz/quic/fd_quic.h>
+#include <waltz/quic/crypto/fd_quic_crypto_suites.h>
 
 const fd_quic_crypto_suite_t
 mock_crypto_suite = {
@@ -96,84 +96,72 @@ fd_quic_gen_new_secrets(
 
 int
 fd_quic_crypto_decrypt_hdr(
-    uchar *                  plain_text,
-    ulong                    plain_text_sz,
-    uchar const *            cipher_text,
-    ulong                    cipher_text_sz,
-    ulong                    pkt_number_off,
+    uchar *                        buf,
+    ulong                          buf_sz,
+    ulong                          pkt_number_off,
     fd_quic_crypto_suite_t const * suite,
     fd_quic_crypto_keys_t const *  keys ) {
 
-  __CPROVER_w_ok( plain_text,  plain_text_sz  );
-  __CPROVER_r_ok( cipher_text, cipher_text_sz );
-  __CPROVER_r_ok( suite,      sizeof(fd_quic_crypto_suite_t) );
-  __CPROVER_r_ok( keys,       sizeof(fd_quic_crypto_keys_t) );
+  __CPROVER_rw_ok( buf, buf_sz );
+  __CPROVER_r_ok( suite, sizeof(fd_quic_crypto_suite_t) );
+  __CPROVER_r_ok( keys,  sizeof(fd_quic_crypto_keys_t) );
 
-  if( cipher_text_sz < FD_QUIC_CRYPTO_TAG_SZ )
+  if( buf_sz < FD_QUIC_CRYPTO_TAG_SZ )
     return FD_QUIC_FAILED;
 
-  if( plain_text_sz < pkt_number_off + 4UL )
+  if( buf_sz < pkt_number_off + 4UL )
     return FD_QUIC_FAILED;
 
   ulong sample_off = pkt_number_off + 4UL;
 
-  if( sample_off + FD_QUIC_HP_SAMPLE_SZ > cipher_text_sz )
+  if( sample_off + FD_QUIC_HP_SAMPLE_SZ > buf_sz )
     return FD_QUIC_FAILED;
 
   uchar first;
   ulong pkt_number_sz = ( first & 0x03u ) + 1u;
 
-  __CPROVER_w_ok( plain_text+pkt_number_off, pkt_number_sz );
+  __CPROVER_w_ok( buf+buf_sz, pkt_number_sz );
   return FD_QUIC_SUCCESS;
 }
 
 int
 fd_quic_crypto_decrypt(
-    uchar *                  const out,
-    ulong *                  const p_out_sz,
-    uchar const *            const in,
-    ulong                    const in_sz,
-    ulong                    const pkt_number_off,
-    ulong                    const pkt_number,
-    fd_quic_crypto_suite_t const * const suite,
-    fd_quic_crypto_keys_t  const * const keys ) {
+    uchar *                        buf,
+    ulong                          buf_sz,
+    ulong                          pkt_number_off,
+    ulong                          pkt_number,
+    fd_quic_crypto_suite_t const * suite,
+    fd_quic_crypto_keys_t const *  keys ) {
 
-  __CPROVER_r_ok( suite,      sizeof(fd_quic_crypto_suite_t) );
-  __CPROVER_r_ok( keys,       sizeof(fd_quic_crypto_keys_t) );
+  __CPROVER_r_ok( suite, sizeof(fd_quic_crypto_suite_t) );
+  __CPROVER_r_ok( keys,  sizeof(fd_quic_crypto_keys_t) );
 
-  ulong const out_bufsz = *p_out_sz;
-  if( FD_UNLIKELY( in_sz < FD_QUIC_CRYPTO_TAG_SZ ) )
-    return FD_QUIC_FAILED;
-
-  if( FD_UNLIKELY( out_bufsz + FD_QUIC_CRYPTO_TAG_SZ < in_sz ) )
+  if( FD_UNLIKELY( buf_sz < FD_QUIC_CRYPTO_TAG_SZ ) )
     return FD_QUIC_FAILED;
 
   uchar         first;
   ulong         pkt_number_sz = ( first & 0x03u ) + 1u;
-  uchar const * hdr           = out;
+  uchar const * hdr           = buf_sz;
   ulong         hdr_sz        = pkt_number_off + pkt_number_sz;
 
-  if( FD_UNLIKELY( in_sz < hdr_sz+FD_QUIC_CRYPTO_TAG_SZ ) )
-    return FD_QUIC_FAILED;
-
-  uchar *       const gcm_p   = out    + hdr_sz;
-  uchar const * const gcm_c   = in     + hdr_sz;
-  uchar const * const in_end  = in     + in_sz;
+  uchar *       const gcm_p   = buf    + hdr_sz;
+  uchar const * const gcm_c   = buf    + hdr_sz;
+  uchar const * const in_end  = buf    + buf_sz;
   uchar const * const gcm_tag = in_end - FD_QUIC_CRYPTO_TAG_SZ;
   ulong         const gcm_sz  = (ulong)( gcm_tag - gcm_c );
   uchar const * const out_end = gcm_p  + gcm_sz;
   uchar const * const gcm_a   = hdr;
   ulong         const gcm_asz = hdr_sz;
-  if( FD_UNLIKELY( out_end > out + out_bufsz ) )
+  if( FD_UNLIKELY( out_end > buf + buf_sz ) )
     return FD_QUIC_FAILED;
 
-  assert( FD_QUIC_CRYPTO_TAG_SZ<=in_sz  );
-  assert( gcm_p         >=out           );
-  assert( gcm_p+gcm_sz  <=out+out_bufsz );
-  assert( gcm_c         >=in            );
-  assert( gcm_c+gcm_sz  <=in+in_sz      );
-  assert( gcm_tag       >=in            );
-  assert( gcm_tag+FD_QUIC_CRYPTO_TAG_SZ<=in+in_sz );
+  assert( FD_QUIC_CRYPTO_TAG_SZ<=buf_sz );
+  assert( gcm_p         >=buf           );
+  assert( gcm_p+gcm_sz  <=buf+buf_sz    );
+  assert( gcm_c         >=buf           );
+  assert( gcm_c+gcm_sz  <=buf+buf_sz    );
+  assert( gcm_tag       >=buf           );
+  assert( gcm_tag+FD_QUIC_CRYPTO_TAG_SZ<=buf+buf_sz );
 
   __CPROVER_r_ok( gcm_c, gcm_sz  );
   __CPROVER_w_ok( gcm_p, gcm_sz  );
@@ -184,13 +172,13 @@ fd_quic_crypto_decrypt(
   if( FD_UNLIKELY( !decrypt_ok ) )
     return FD_QUIC_FAILED;
 
-  *p_out_sz = (ulong)(out_end - out);
   return FD_QUIC_SUCCESS;
 }
 
 int
 fd_quic_retry_token_decrypt(
-    uchar *             retry_token,
+    uchar const         retry_secret[static FD_QUIC_RETRY_SECRET_SZ],
+    uchar               retry_token[static FD_QUIC_RETRY_TOKEN_SZ],
     fd_quic_conn_id_t * retry_src_conn_id,
     uint                ip_addr,
     ushort              udp_port,

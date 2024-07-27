@@ -4,7 +4,7 @@
 #include <ballet/sha512/fd_sha512.h>
 #include <ballet/ed25519/fd_ed25519.h>
 
-void *
+uchar *
 fd_ed25519_sign( void *        sig,
                  void const *  msg,
                  ulong         sz,
@@ -23,10 +23,10 @@ fd_ed25519_sign( void *        sig,
 
 
 int
-fd_ed25519_verify( void const *  msg,
+fd_ed25519_verify( uchar const   msg[],
                    ulong         sz,
-                   void const *  sig,
-                   void const *  public_key,
+                   uchar const   sig[64],
+                   uchar const   public_key[32],
                    fd_sha512_t * sha ) {
 
   __CPROVER_r_ok( msg,        sz                  );
@@ -42,10 +42,10 @@ fd_ed25519_verify( void const *  msg,
   return retval;
 }
 
-void *
-fd_x25519_exchange( void *       shared_secret,
-                    void const * self_private_key,
-                    void const * peer_public_key ) {
+uchar *
+fd_x25519_exchange( uchar *       shared_secret,
+                    uchar const * self_private_key,
+                    uchar const * peer_public_key ) {
   __CPROVER_r_ok( self_private_key, 32UL );
   __CPROVER_r_ok( peer_public_key,  32UL  );
   __CPROVER_havoc_slice( shared_secret, 32UL );

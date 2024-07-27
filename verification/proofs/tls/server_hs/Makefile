@@ -11,7 +11,7 @@ PROOF_SOURCES += $(PROOF_STUB)/fd_aes.c
 PROOF_SOURCES += $(PROOF_STUB)/fd_sha.c
 PROOF_SOURCES += $(PROOF_STUB)/fd_tls_proto.c
 PROOF_SOURCES += $(PROOF_STUB)/fd_tls_sign.c
-PROJECT_SOURCES = $(SRCDIR)/tango/tls/fd_tls.c
+PROJECT_SOURCES = $(SRCDIR)/waltz/tls/fd_tls.c
 
 CBMC_OBJECT_BITS = 16
 UNWINDSET += harness.0:8

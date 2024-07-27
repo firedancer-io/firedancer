@@ -345,6 +345,12 @@ fd_quic_send_retry( fd_quic_t *                  quic,
                     ushort                       dst_udp_port );
 
 ulong
+fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
+                                fd_quic_pkt_t * pkt,
+                                uchar *         cur_ptr,
+                                ulong           cur_sz );
+
+ulong
 fd_quic_handle_v1_initial( fd_quic_t *               quic,
                            fd_quic_conn_t **         p_conn,
                            fd_quic_pkt_t *           pkt,

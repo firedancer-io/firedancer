@@ -3,7 +3,7 @@
 
 #include <assert.h>
 #include <stdlib.h>
-#include <tango/tls/fd_tls.h>
+#include <waltz/tls/fd_tls.h>
 
 static void * tls_rand_ctx;  /* arbitrary */
 
