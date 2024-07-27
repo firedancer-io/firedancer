@@ -1,7 +1,7 @@
 /* fd_tls_proto.c stubs fd_tls parsers */
 
 #include <assert.h>
-#include <tango/tls/fd_tls_proto.h>
+#include <waltz/tls/fd_tls_proto.h>
 
 static long
 generic_encode( void const * in,
