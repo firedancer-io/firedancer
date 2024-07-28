@@ -825,6 +825,29 @@ struct fd_collect_fee_task_info {
 };
 typedef struct fd_collect_fee_task_info fd_collect_fee_task_info_t;
 
+/* TODO: sigverify should likely use the verify tiles */
+static void FD_FN_UNUSED
+fd_txn_sigverify_task( void *tpool,
+                       ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
+                       void *args FD_PARAM_UNUSED,
+                       void *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
+                       ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
+                       ulong m0, ulong m1 FD_PARAM_UNUSED,
+                       ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED ) {
+  fd_execute_txn_task_info_t * task_info = (fd_execute_txn_task_info_t *)tpool + m0;
+
+  /* the txn failed sanitize sometime earlier */
+  if( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
+    return;
+  }
+
+  fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
+  if( fd_executor_txn_verify( txn_ctx )!=0 ) {
+    FD_LOG_WARNING(("sigverify failed: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
+    task_info->txn->flags = 0;
+  }
+}
+
 static void FD_FN_UNUSED
 fd_collect_fee_task( void *tpool,
                      ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
@@ -912,6 +935,14 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                       ulong max_workers ) {
   int res = 0;
   FD_SCRATCH_SCOPE_BEGIN  {
+    fd_tpool_exec_all_rrobin( tpool, 0, max_workers, fd_txn_sigverify_task, task_info, NULL, NULL, 1, 0, txn_cnt );
+    for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
+      if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
+        res |= FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
+        break;
+      }
+    }
+
     ulong fee_payer_accs_cnt = 0;
     ulong * fee_payer_idxs = fd_scratch_alloc( sizeof(ulong), txn_cnt * sizeof(ulong) );
     fd_borrowed_account_t * * fee_payer_accs = fd_scratch_alloc( FD_BORROWED_ACCOUNT_ALIGN, txn_cnt * FD_BORROWED_ACCOUNT_FOOTPRINT );
@@ -920,11 +951,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
     /* Loop across transactions */
     for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
-      
-      if( fd_executor_txn_verify( txn_ctx )!=0 ) {
-        FD_LOG_WARNING(("phase 2 invalid: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
-        task_info[ txn_idx ].txn->flags = 0;
-        res |= FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
+      if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
         continue;
       }
 

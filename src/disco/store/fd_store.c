@@ -17,6 +17,7 @@ fd_store_new( void * mem, ulong lo_wmark_slot ) {
   fd_store_t * store = (fd_store_t *)mem;
   store->first_turbine_slot = FD_SLOT_NULL;
   store->curr_turbine_slot = FD_SLOT_NULL;
+  store->root = FD_SLOT_NULL;
   fd_repair_backoff_map_new( store->repair_backoff_map );
   store->pending_slots = fd_pending_slots_new( (uchar *)mem + fd_store_footprint(), lo_wmark_slot );
   if( FD_UNLIKELY( !store->pending_slots ) ) {    
@@ -198,6 +199,10 @@ fd_store_shred_insert( fd_store_t * store,
     return FD_BLOCKSTORE_OK;
   } 
 
+  if( store->root!=FD_SLOT_NULL && shred->slot<store->root ) {
+    FD_LOG_WARNING(( "shred slot is behind root, dropping shred - root: %lu, shred_slot: %lu", store->root, shred->slot ));
+    return FD_BLOCKSTORE_OK;
+  }
   fd_blockstore_t * blockstore = store->blockstore;
 
   fd_blockstore_start_write( blockstore );
@@ -274,12 +279,18 @@ fd_store_add_pending( fd_store_t * store,
   //   delay = backoff->last_backoff;
   // }
   // if( should_backoff ) FD_LOG_INFO(("PENDING %lu %d %lu %ld", slot, should_backoff, delay/1000000, (existing_when-store->now)/1000000L));
+  if( store->root!=FD_SLOT_NULL && slot<store->root) {
+    FD_LOG_WARNING(( "slot is older than root, skipping adding slot to pending queue - root: %lu, slot: %lu", 
+        store->root, slot ));
+    return;
+  }
   fd_pending_slots_add( store->pending_slots, slot, store->now + (long)delay );
 }
 
 void
 fd_store_set_root( fd_store_t * store, 
                    ulong        root ) {
+  store->root = root;
   fd_pending_slots_set_lo_wmark( store->pending_slots, root );
 
   /* remove old roots */
@@ -356,10 +367,9 @@ fd_store_slot_repair( fd_store_t * store,
       repair_req->type = FD_REPAIR_REQ_TYPE_NEED_WINDOW_INDEX;
     }
     if( repair_req_cnt ) {
-      FD_LOG_INFO( ( "[repair] need %lu [%lu, %lu], sent %lu requests", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt ) );
+      FD_LOG_DEBUG( ( "[repair] need %lu [%lu, %lu], sent %lu requests", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt ) );
     }
   }
-  FD_LOG_WARNING(("X %lu", slot));
   // fd_store_add_pending( store, slot, FD_REPAIR_BACKOFF_TIME, 1, 0 );
   return repair_req_cnt;
 }

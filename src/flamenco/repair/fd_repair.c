@@ -922,11 +922,11 @@ print_stats( fd_active_elem_t * val ) {
   fd_pubkey_t const * id = &val->key;
   if( FD_UNLIKELY( NULL == val ) ) return;
   if( val->avg_reqs == 0 )
-    FD_LOG_INFO(( "repair peer %32J: no requests sent, stake=%lu", id, val->stake / (ulong)1e9 ));
+    FD_LOG_DEBUG(( "repair peer %32J: no requests sent, stake=%lu", id, val->stake / (ulong)1e9 ));
   else if( val->avg_reps == 0 )
-    FD_LOG_INFO(( "repair peer %32J: avg_requests=%lu, no responses received, stake=%lu", id, val->avg_reqs, val->stake / (ulong)1e9 ));
+    FD_LOG_DEBUG(( "repair peer %32J: avg_requests=%lu, no responses received, stake=%lu", id, val->avg_reqs, val->stake / (ulong)1e9 ));
   else
-    FD_LOG_INFO(( "repair peer %32J: avg_requests=%lu, response_rate=%f, latency=%f, stake=%lu",
+    FD_LOG_DEBUG(( "repair peer %32J: avg_requests=%lu, response_rate=%f, latency=%f, stake=%lu",
                     id,
                     val->avg_reqs,
                     ((double)val->avg_reps)/((double)val->avg_reqs),

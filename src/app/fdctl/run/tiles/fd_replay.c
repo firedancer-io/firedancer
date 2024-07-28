@@ -223,7 +223,7 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return 22UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
+  return 50UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
 }
 
 FD_FN_PURE static inline ulong
@@ -542,11 +542,13 @@ send_tower_sync( fd_replay_tile_ctx_t * ctx ) {
 
   if( vote_bank_hash==NULL ) {
     FD_LOG_WARNING(("no vote bank hash found"));
+    fd_blockstore_end_read( ctx->blockstore );
     return;
   }
 
   if( vote_block_hash==NULL ) {
     FD_LOG_WARNING(("no vote block hash found"));
+    fd_blockstore_end_read( ctx->blockstore );
     return;
   }
 
@@ -817,10 +819,6 @@ after_frag( void *             _ctx,
       fd_tower_fork_update( ctx->tower, fork, ctx->acc_mgr, ctx->ghost );
 
       /* Check which fork to reset to for pack. */
-      FD_LOG_WARNING(("MEEP"));
-      fd_ghost_print( ctx->ghost );
-      fd_tower_print( ctx->tower );
-
       fd_fork_t const * reset_fork = fd_tower_reset_fork_select( ctx->tower, ctx->forks, ctx->ghost );
       memcpy( microblock_trailer->hash, reset_fork->slot_ctx.slot_bank.block_hash_queue.last_hash->uc, sizeof(fd_hash_t) );
       if( ctx->poh_init_done == 1 ) {
@@ -833,7 +831,7 @@ after_frag( void *             _ctx,
         ctx->poh_out_chunk = fd_dcache_compact_next( ctx->poh_out_chunk, (txn_cnt * sizeof(fd_txn_p_t)) + sizeof(fd_microblock_trailer_t), ctx->poh_out_chunk0, ctx->poh_out_wmark );
         ctx->poh_out_seq = fd_seq_inc( ctx->poh_out_seq, 1UL );
       } else {
-        FD_LOG_INFO(( "NOT publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", ctx->curr_slot, ctx->parent_slot, ctx->flags ));
+        FD_LOG_DEBUG(( "NOT publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", ctx->curr_slot, ctx->parent_slot, ctx->flags ));
       }
 
       fd_fork_t const * vote_fork = fd_tower_vote_fork_select( ctx->tower,
@@ -841,7 +839,7 @@ after_frag( void *             _ctx,
                                                                ctx->acc_mgr,
                                                                ctx->ghost );
 
-      // fd_ghost_print( ctx->ghost );
+      fd_ghost_print( ctx->ghost );
       fd_ghost_print_node( ctx->ghost, child->slot, 8 );
       fd_tower_print( ctx->tower );
 
@@ -1024,7 +1022,7 @@ after_frag( void *             _ctx,
       ctx->poh_out_chunk = fd_dcache_compact_next( ctx->poh_out_chunk, (txn_cnt * sizeof(fd_txn_p_t)) + sizeof(fd_microblock_trailer_t), ctx->poh_out_chunk0, ctx->poh_out_wmark );
       ctx->poh_out_seq = fd_seq_inc( ctx->poh_out_seq, 1UL );
     } else {
-      FD_LOG_INFO(( "NOT publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", ctx->curr_slot, ctx->parent_slot, ctx->flags ));
+      FD_LOG_DEBUG(( "NOT publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", ctx->curr_slot, ctx->parent_slot, ctx->flags ));
     }
 
 #if STOP_SLOT

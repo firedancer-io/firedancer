@@ -433,7 +433,12 @@ fd_txncache_purge_slot( fd_txncache_t * tc,
                         ulong           slot ) {
   fd_txncache_private_blockcache_t * blockcache = fd_txncache_get_blockcache( tc );
   for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
-    if( FD_LIKELY( blockcache[ i ].max_slot==FD_TXNCACHE_EMPTY_ENTRY || blockcache[ i ].max_slot==FD_TXNCACHE_TOMBSTONE_ENTRY || (blockcache[ i ].max_slot)>slot ) ) continue;
+    if( FD_LIKELY( blockcache[ i ].max_slot==FD_TXNCACHE_EMPTY_ENTRY || blockcache[ i ].max_slot==FD_TXNCACHE_TOMBSTONE_ENTRY || (blockcache[ i ].max_slot)>slot ) ) {
+      if( blockcache[ i ].max_slot!=FD_TXNCACHE_EMPTY_ENTRY && blockcache[ i ].max_slot!=FD_TXNCACHE_TOMBSTONE_ENTRY ) {
+        FD_LOG_INFO(( "not purging blockcache - purge_slot: %lu, max_slot: %lu, distance: %lu, blockhash: %32J", slot, blockcache[ i ].max_slot, blockcache[ i ].max_slot-slot, blockcache[i].blockhash ));
+      }
+      continue;
+    }
     fd_txncache_remove_blockcache_idx( tc, i );
   }
 
@@ -754,7 +759,10 @@ fd_txncache_insert_batch( fd_txncache_t *              tc,
 
   for( ulong i=0UL; i<txns_cnt; i++ ) {
     fd_txncache_private_blockcache_t * blockcache;
-    if( FD_UNLIKELY( !fd_txncache_ensure_blockcache( tc, txns[ i ].blockhash, &blockcache ) ) ) goto unlock_fail;
+    if( FD_UNLIKELY( !fd_txncache_ensure_blockcache( tc, txns[ i ].blockhash, &blockcache ) ) ) {
+      FD_LOG_WARNING(( "no blockcache found" ));
+      goto unlock_fail;
+    }
 
     // TODO: should this be enabled? Ledger tests fail immediately
     // if( FD_UNLIKELY( blockcache->max_slot!=ULONG_MAX-2 && txns[ i ].slot>=blockcache->max_slot+150UL ) ) {
@@ -763,14 +771,23 @@ fd_txncache_insert_batch( fd_txncache_t *              tc,
     // }
 
     fd_txncache_private_slotcache_t * slotcache;
-    if( FD_UNLIKELY( !fd_txncache_ensure_slotcache( tc, txns[ i ].slot, &slotcache ) ) ) goto unlock_fail;
+    if( FD_UNLIKELY( !fd_txncache_ensure_slotcache( tc, txns[ i ].slot, &slotcache ) ) ) {
+      FD_LOG_WARNING(( "no slotcache found" ));
+      goto unlock_fail;
+    }
 
     fd_txncache_private_slotblockcache_t * slotblockcache;
-    if( FD_UNLIKELY( !fd_txncache_ensure_slotblockcache( slotcache, txns[ i ].blockhash, &slotblockcache ) ) ) goto unlock_fail;
+    if( FD_UNLIKELY( !fd_txncache_ensure_slotblockcache( slotcache, txns[ i ].blockhash, &slotblockcache ) ) ) {
+      FD_LOG_WARNING(( "no slotblockcache found" ));
+      goto unlock_fail;
+    }
 
     for(;;) {
       fd_txncache_private_txnpage_t * txnpage = fd_txncache_ensure_txnpage( tc, blockcache );
-      if( FD_UNLIKELY( !txnpage ) ) goto unlock_fail;
+      if( FD_UNLIKELY( !txnpage ) ) {
+        goto unlock_fail;
+        FD_LOG_WARNING(( "no txnpage found" ));
+      }
 
       int success = fd_txncache_insert_txn( tc, blockcache, slotblockcache, txnpage, &txns[ i ] );
       if( FD_LIKELY( success ) ) break;
@@ -801,7 +818,7 @@ fd_txncache_query_batch( fd_txncache_t *             tc,
     fd_txncache_query_t const * query = &queries[ i ];
     fd_txncache_private_blockcache_t * blockcache;
     int result = fd_txncache_find_blockhash( tc, query->blockhash, 0, &blockcache );
-    FD_LOG_WARNING(("Result %d for %32J", result, query->blockhash));
+    // FD_LOG_WARNING(("Result %d for %32J", result, query->blockhash));
     if( FD_UNLIKELY( result!=FD_TXNCACHE_FIND_FOUND ) ) {
       continue;
     }

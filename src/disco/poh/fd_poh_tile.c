@@ -82,7 +82,7 @@ fd_poh_tile_reached_leader_slot( fd_poh_tile_ctx_t * ctx,
     /* Didn't reach our leader slot yet. */
     return 0;
   }
-  FD_LOG_WARNING(("X: %lu %lu", ctx->reset_slot, ctx->next_leader_slot));
+
   if( FD_LIKELY( ctx->reset_slot==ctx->next_leader_slot ) ) {
     /* We were reset onto our leader slot, because the prior leader
        completed theirs, so we should start immediately, no need for a

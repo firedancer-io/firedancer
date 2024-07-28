@@ -46,6 +46,7 @@ struct __attribute__((aligned(128UL))) fd_store {
   ulong first_turbine_slot;  /* the first turbine slot we received on startup */
   ulong curr_turbine_slot;
   ulong curr_pack_slot;
+  ulong root;
 
   fd_repair_backoff_t repair_backoff_map[ 1UL<<15UL ];
   /* external joins */
