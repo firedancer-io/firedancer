@@ -513,12 +513,18 @@ TREAP_(idx)( TREAP_T const * e,
 FD_FN_CONST static inline TREAP_T *
 TREAP_(ele)( ulong     i,
              TREAP_T * pool ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if (i > TREAP_(ele_cnt)( treap )) abort();
+#endif
   return fd_ptr_if( !TREAP_IDX_IS_NULL( i ), pool + i, NULL );
 }
 
 FD_FN_CONST static inline TREAP_T const *
 TREAP_(ele_const)( ulong           i,
                    TREAP_T const * pool ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if (i > TREAP_(ele_cnt)( treap )) abort();
+#endif
   return fd_ptr_if( !TREAP_IDX_IS_NULL( i ), pool + i, NULL );
 }
 
@@ -539,7 +545,9 @@ TREAP_(ele_query)( TREAP_(t) const * treap,
                    TREAP_QUERY_T     q,
                    TREAP_T *         pool ) {
   ulong i = TREAP_(idx_query)( treap, q, pool );
+#if FD_TMPL_USE_HANDHOLDING
   if (TREAP_(ele_cnt)( treap ) == 0 && !TREAP_IDX_IS_NULL( i )) abort();
+#endif
   return fd_ptr_if( !TREAP_IDX_IS_NULL( i ), pool + i, NULL );
 }
 
@@ -548,7 +556,9 @@ TREAP_(ele_query_const)( TREAP_(t) const * treap,
                          TREAP_QUERY_T     q,
                          TREAP_T const *   pool ) {
   ulong i = TREAP_(idx_query)( treap, q, pool );
+#if FD_TMPL_USE_HANDHOLDING
   if (TREAP_(ele_cnt)( treap ) == 0 && !TREAP_IDX_IS_NULL( i )) abort();
+#endif
   return fd_ptr_if( !TREAP_IDX_IS_NULL( i ), pool + i, NULL );
 }
 
@@ -695,6 +705,10 @@ TREAP_(idx_insert)( TREAP_(t) * treap,
                     ulong       n,
                     TREAP_T *   pool ) {
 
+#if FD_TMPL_USE_HANDHOLDING
+  if (TREAP_(ele_cnt)( treap ) + 1 > TREAP_(ele_max)( treap )) abort();
+#endif
+
   /* Find leaf where to insert n */
 
   TREAP_IDX_T * _p_child = &treap->root;
@@ -774,7 +788,6 @@ TREAP_(idx_insert)( TREAP_(t) * treap,
   }
 
   treap->ele_cnt++;
-  if (TREAP_(ele_cnt)( treap ) > TREAP_(ele_max)( treap )) abort();
   return treap;
 }
 
@@ -782,10 +795,11 @@ TREAP_(t) *
 TREAP_(idx_remove)( TREAP_(t) * treap,
                     ulong       d,
                     TREAP_T *   pool ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if (TREAP_(ele_cnt)( treap ) == 0) abort();
+#endif
 
   /* Make a hole at d */
-
-  if (TREAP_(ele_cnt)( treap ) == 0) abort();
 
   ulong p = (ulong)pool[ d ].TREAP_PARENT;
   ulong l = (ulong)pool[ d ].TREAP_LEFT;

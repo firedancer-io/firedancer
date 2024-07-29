@@ -337,8 +337,10 @@ FD_FN_CONST static inline ulong SET_(const_iter_done)( ulong j ) { return !~j; }
 static inline SET_(t) *
 SET_(insert)( SET_(t) * set,
               ulong     idx ) {
+#if FD_TMPL_USE_HANDHOLDING
   if (SET_(is_full)( set )) abort();
   if (!SET_(valid_idx)( set, idx )) abort();
+#endif
   set[ idx >> 6 ] |= 1UL << (idx & 63UL);
   return set;
 }
@@ -346,8 +348,10 @@ SET_(insert)( SET_(t) * set,
 static inline SET_(t) *
 SET_(remove)( SET_(t) * set,
               ulong     idx ) {
+#if FD_TMPL_USE_HANDHOLDING
   if (SET_(is_null)( set )) abort();
   if (!SET_(valid_idx)( set, idx )) abort();
+#endif
   set[ idx >> 6 ] &= ~(1UL << (idx & 63UL));
   return set;
 }
@@ -356,10 +360,12 @@ static inline SET_(t) *
 SET_(insert_if)( SET_(t) * set,
                  int       c,
                  ulong     idx ) {
+#if FD_TMPL_USE_HANDHOLDING
   if ((ulong)!!c) {
     if (SET_(is_full)( set )) abort();
     if (!SET_(valid_idx)( set, idx )) abort();
   }
+#endif
   set[ idx >> 6 ] |= ((ulong)!!c) << (idx & 63UL);
   return set;
 }
@@ -368,10 +374,12 @@ static inline SET_(t) *
 SET_(remove_if)( SET_(t) * set,
                  int       c,
                  ulong     idx ) {
+#if FD_TMPL_USE_HANDHOLDING
   if ((ulong)!!c) {
     if (SET_(is_null)( set )) abort();
     if (!SET_(valid_idx)( set, idx )) abort();
   }
+#endif
   set[ idx >> 6 ] &= ~(((ulong)!!c) << (idx & 63UL));
   return set;
 }
@@ -379,7 +387,9 @@ SET_(remove_if)( SET_(t) * set,
 FD_FN_PURE static inline int
 SET_(test)( SET_(t) const * set,
             ulong           idx ) {
+#if FD_TMPL_USE_HANDHOLDING
   if (!SET_(valid_idx)( set, idx )) abort();
+#endif
   return (int)((set[ idx >> 6 ] >> (idx & 63UL)) & 1UL);
 }
 
@@ -387,7 +397,9 @@ FD_FN_PURE static inline int
 SET_(eq)( SET_(t) const * x,
           SET_(t) const * y ) {
   ulong word_cnt = SET_(private_hdr_from_set_const)( x )->word_cnt;
+#if FD_TMPL_USE_HANDHOLDING
   if (word_cnt != SET_(private_hdr_from_set_const)( y )->word_cnt) abort();
+#endif
   for( ulong i=0UL; i<word_cnt; i++ ) if( x[i]!=y[i] ) return 0;
   return 1;
 }
@@ -396,7 +408,9 @@ FD_FN_PURE static inline int
 SET_(subset)( SET_(t) const * x,
               SET_(t) const * y ) {
   ulong word_cnt = SET_(private_hdr_from_set_const)( x )->word_cnt;
+#if FD_TMPL_USE_HANDHOLDING
   if (word_cnt > SET_(private_hdr_from_set_const)( y )->word_cnt) abort();
+#endif
   for( ulong i=0UL; i<word_cnt; i++ ) if( x[i]!=(y[i] & x[i]) ) return 0;
   return 1;
 }
@@ -445,7 +459,9 @@ static inline SET_(t) *
 SET_(copy)( SET_(t) *       z,
             SET_(t) const * x ) {
   ulong word_cnt = SET_(private_hdr_from_set)( z )->word_cnt;
+#if FD_TMPL_USE_HANDHOLDING
   if (word_cnt != SET_(private_hdr_from_set_const)( x )->word_cnt) abort();
+#endif
   for( ulong i=0UL; i<word_cnt; i++ ) z[i] = x[i];
   return z;
 }
@@ -455,7 +471,9 @@ SET_(complement)( SET_(t) *       z,
                   SET_(t) const * x ) {
   SET_(private_t) * hdr = SET_(private_hdr_from_set)( z );
   ulong last_word = hdr->word_cnt - 1UL;
+#if FD_TMPL_USE_HANDHOLDING
   if (last_word != SET_(private_hdr_from_set)( (SET_(t) *)x )->word_cnt - 1UL) abort();
+#endif
   for( ulong i=0UL; i<last_word; i++ ) z[i] = ~x[i];
   z[last_word] = (~x[last_word]) & hdr->full_last_word;
   return z;
@@ -466,8 +484,10 @@ SET_(union)( SET_(t) *       z,
              SET_(t) const * x,
              SET_(t) const * y ) {
   ulong word_cnt = SET_(private_hdr_from_set)( z )->word_cnt;
+#if FD_TMPL_USE_HANDHOLDING
   if (word_cnt != SET_(private_hdr_from_set_const)( x )->word_cnt
     && word_cnt != SET_(private_hdr_from_set_const)( y )->word_cnt) abort();
+#endif
   for( ulong i=0UL; i<word_cnt; i++ ) z[i] = x[i] | y[i];
   return z;
 }
@@ -477,8 +497,10 @@ SET_(intersect)( SET_(t) *       z,
                  SET_(t) const * x,
                  SET_(t) const * y ) {
   ulong word_cnt = SET_(private_hdr_from_set)( z )->word_cnt;
+#if FD_TMPL_USE_HANDHOLDING
   if (word_cnt != SET_(private_hdr_from_set_const)( x )->word_cnt
     && word_cnt != SET_(private_hdr_from_set_const)( y )->word_cnt) abort();
+#endif
   for( ulong i=0UL; i<word_cnt; i++ ) z[i] = x[i] & y[i];
   return z;
 }
@@ -488,8 +510,10 @@ SET_(subtract)( SET_(t) *       z,
                 SET_(t) const * x,
                 SET_(t) const * y ) {
   ulong word_cnt = SET_(private_hdr_from_set)( z )->word_cnt;
+#if FD_TMPL_USE_HANDHOLDING
   if (word_cnt != SET_(private_hdr_from_set_const)( x )->word_cnt
     && word_cnt != SET_(private_hdr_from_set_const)( y )->word_cnt) abort();
+#endif
   for( ulong i=0UL; i<word_cnt; i++ ) z[i] = x[i] & ~y[i];
   return z;
 }
@@ -499,8 +523,10 @@ SET_(xor)( SET_(t) *       z,
            SET_(t) const * x,
            SET_(t) const * y ) {
   ulong word_cnt = SET_(private_hdr_from_set)( z )->word_cnt;
+#if FD_TMPL_USE_HANDHOLDING
   if (word_cnt != SET_(private_hdr_from_set_const)( x )->word_cnt
     && word_cnt != SET_(private_hdr_from_set_const)( y )->word_cnt) abort();
+#endif
   for( ulong i=0UL; i<word_cnt; i++ ) z[i] = x[i] ^ y[i];
   return z;
 }
