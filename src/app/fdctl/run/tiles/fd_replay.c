@@ -700,7 +700,7 @@ after_frag( void *             _ctx,
     FD_SCRATCH_SCOPE_BEGIN {
       fd_slot_history_t slot_history[1];
       fd_sysvar_slot_history_read(  &fork->slot_ctx, fd_scratch_virtual(), slot_history );
-        fd_status_check_ctx_t status_check_ctx = {
+      fd_status_check_ctx_t status_check_ctx = {
         .txncache = fork->slot_ctx.status_cache,
         .slot_history = slot_history,
         .current_slot = fork->slot_ctx.slot_bank.slot,

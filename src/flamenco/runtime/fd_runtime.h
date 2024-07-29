@@ -47,6 +47,22 @@ struct fd_execute_txn_task_info {
 };
 typedef struct fd_execute_txn_task_info fd_execute_txn_task_info_t;
 
+typedef ulong fd_microblock_txn_iter_t;
+
+struct fd_microblock_batch_txn_iter {
+  ulong curr_microblock;
+  fd_microblock_txn_iter_t microblock_iter;
+};
+
+typedef struct fd_microblock_batch_txn_iter fd_microblock_batch_txn_iter_t;
+
+struct fd_block_txn_iter {
+  ulong curr_batch;
+  fd_microblock_batch_txn_iter_t microblock_batch_iter;
+};
+
+typedef struct fd_block_txn_iter fd_block_txn_iter_t;
+
 FD_PROTOTYPES_BEGIN
 
 ulong
@@ -197,6 +213,42 @@ void
 fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
                     fd_exec_slot_ctx_t * slot_ctx,
                     ulong slot );
+
+fd_microblock_txn_iter_t
+fd_microblock_txn_iter_init( fd_microblock_info_t const * microblock_info );
+
+ulong
+fd_microblock_txn_iter_done( fd_microblock_info_t const * microblock_info, fd_microblock_txn_iter_t iter );
+
+fd_microblock_txn_iter_t
+fd_microblock_txn_iter_next( fd_microblock_info_t const * microblock_info FD_PARAM_UNUSED, fd_microblock_txn_iter_t iter );
+
+fd_txn_p_t *
+fd_microblock_txn_iter_ele( fd_microblock_info_t const * microblock_info, fd_microblock_txn_iter_t iter );
+
+fd_microblock_batch_txn_iter_t
+fd_microblock_batch_txn_iter_init( fd_microblock_batch_info_t const * microblock_batch_info );
+
+ulong
+fd_microblock_batch_txn_iter_done( fd_microblock_batch_info_t const * microblock_batch_info, fd_microblock_batch_txn_iter_t iter );
+
+fd_microblock_batch_txn_iter_t
+fd_microblock_batch_txn_iter_next( fd_microblock_batch_info_t const * microblock_batch_info, fd_microblock_batch_txn_iter_t iter );
+
+fd_txn_p_t *
+fd_microblock_batch_txn_iter_ele( fd_microblock_batch_info_t const * microblock_batch_info, fd_microblock_batch_txn_iter_t iter );
+
+fd_block_txn_iter_t
+fd_block_txn_iter_init( fd_block_info_t const * block_info );
+
+ulong
+fd_block_txn_iter_done( fd_block_info_t const * block_info, fd_block_txn_iter_t iter );
+
+fd_block_txn_iter_t
+fd_block_txn_iter_next( fd_block_info_t const * block_info, fd_block_txn_iter_t iter );
+
+fd_txn_p_t *
+fd_block_txn_iter_ele( fd_block_info_t const * block_info, fd_block_txn_iter_t iter );
 
 FD_PROTOTYPES_END
 

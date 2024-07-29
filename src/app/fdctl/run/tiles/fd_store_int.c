@@ -49,6 +49,26 @@
 #define SCRATCH_SMAX     (256UL << 21UL)
 #define SCRATCH_SDEPTH   (128UL)
 
+struct fd_txn_iter {
+  ulong slot;
+  fd_block_txn_iter_t iter;
+};
+
+typedef struct fd_txn_iter fd_txn_iter_t;
+
+#define MAP_NAME              fd_txn_iter_map
+#define MAP_T                 fd_txn_iter_t
+#define MAP_KEY_T             ulong
+#define MAP_KEY               slot
+#define MAP_KEY_NULL          FD_SLOT_NULL
+#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL(k, FD_SLOT_NULL)
+#define MAP_KEY_EQUAL(k0,k1)  (k0==k1)
+#define MAP_KEY_EQUAL_IS_SLOW 0
+#define MAP_MEMOIZE           0
+#define MAP_KEY_HASH(key)     ((uint)fd_ulong_hash( key ))
+#define MAP_LG_SLOT_CNT       5
+#include "../../../../util/tmpl/fd_map.c"
+
 struct fd_store_in_ctx {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -114,6 +134,8 @@ struct fd_store_tile_ctx {
 
   fd_trusted_slots_t * trusted_slots;
   int                  is_trusted;
+
+  fd_txn_iter_t * txn_iter_map;
 };
 typedef struct fd_store_tile_ctx fd_store_tile_ctx_t;
 
@@ -138,6 +160,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
   l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_SMAX ) );
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_SDEPTH ) );
   l = FD_LAYOUT_APPEND( l, fd_trusted_slots_align(), fd_trusted_slots_footprint( MAX_SLOTS_PER_EPOCH ) );
+  l = FD_LAYOUT_APPEND( l, fd_txn_iter_map_align(), fd_txn_iter_map_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -375,7 +398,11 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
       ulong caught_up = slot > ctx->store->first_turbine_slot;
       ulong behind = ctx->store->curr_turbine_slot - slot;
-      
+
+      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+      ulong caught_up_flag = (ctx->store->curr_turbine_slot - slot)<4 ? 0UL : REPLAY_FLAG_CATCHING_UP;
+      ulong replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_MICROBLOCK | caught_up_flag );
+
       ulong tick_cnt = 0UL;
       /* count ticks */
       for( ulong i = 0; i<block_info.microblock_batch_cnt; i++ ) {
@@ -388,31 +415,52 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
         }
       }
 
-      fd_txn_p_t * txns = fd_type_pun( out_buf );
-      FD_LOG_DEBUG(( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
-                      "executed: %lu, caught up: %d",
-                      ctx->store->first_turbine_slot,
-                      ctx->store->curr_turbine_slot,
-                      behind,
-                      slot,
-                      caught_up ));
-
-      FD_MGAUGE_SET( REPLAY, SLOT, ctx->store->curr_turbine_slot );
-      FD_MGAUGE_SET( REPLAY, CAUGHT_UP, caught_up );
-      FD_MGAUGE_SET( REPLAY, BEHIND, behind );
-
-      ulong txn_cnt = fd_runtime_block_collect_txns( &block_info, txns );
-      FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %32J, txn_cnt: %lu, tick_cnt: %lu", slot, block_info.microblock_cnt, block_hash->uc, txn_cnt, tick_cnt ));
-
-      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-      ulong caught_up_flag = (ctx->store->curr_turbine_slot - slot)<4 ? 0UL : REPLAY_FLAG_CATCHING_UP;
-      ulong replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
-
-      if( fd_trusted_slots_find( ctx->trusted_slots, slot ) ) {
+      ulong txn_cnt = 0;
+      if( FD_UNLIKELY( fd_trusted_slots_find( ctx->trusted_slots, slot ) ) ) {
         /* if is caught up and is leader */
-        txn_cnt = 0;
         replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
+      } else {
+        fd_txn_p_t * txns = fd_type_pun( out_buf );
+        FD_LOG_DEBUG(( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
+                        "executed: %lu, caught up: %d",
+                        ctx->store->first_turbine_slot,
+                        ctx->store->curr_turbine_slot,
+                        behind,
+                        slot,
+                        caught_up ));
+
+        FD_MGAUGE_SET( REPLAY, SLOT, ctx->store->curr_turbine_slot );
+        FD_MGAUGE_SET( REPLAY, CAUGHT_UP, caught_up );
+        FD_MGAUGE_SET( REPLAY, BEHIND, behind );
+
+        fd_block_txn_iter_t iter;
+        fd_txn_iter_t * query = fd_txn_iter_map_query( ctx->txn_iter_map, slot, NULL);
+        if( FD_LIKELY( query ) ) {
+          iter = query->iter;
+        } else {
+          iter = fd_block_txn_iter_init( &block_info );
+        }
+
+        for( ; !fd_block_txn_iter_done( &block_info, iter ); iter = fd_block_txn_iter_next( &block_info, iter ) ) {
+          /* TODO: remove magic number for txns per send */
+          if( txn_cnt == 1024 ) break;
+          fd_txn_p_t * txn = fd_block_txn_iter_ele( &block_info, iter );
+          fd_memcpy( txns + txn_cnt, txn, sizeof(fd_txn_p_t) );
+          txn_cnt++;
+        }
+
+        if( FD_LIKELY( query ) )
+            fd_txn_iter_map_remove( ctx->txn_iter_map, query );
+
+        if( FD_LIKELY( !fd_block_txn_iter_done( &block_info, iter ) ) ) {
+          fd_txn_iter_t * insert = fd_txn_iter_map_insert( ctx->txn_iter_map, slot );
+          insert->iter = iter;
+        } else {
+          replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
+        }
+        FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %32J, txn_cnt: %lu, tick_cnt: %lu", slot, block_info.microblock_cnt, block_hash->uc, txn_cnt, tick_cnt ));
       }
+
       out_buf += sizeof(ulong);
 
       ulong out_sz = sizeof(ulong) + sizeof(fd_hash_t) + ( txn_cnt * sizeof(fd_txn_p_t) );
@@ -449,6 +497,12 @@ after_credit( void *             _ctx,
   if( FD_UNLIKELY( ctx->sim &&
                    ctx->store->pending_slots->start == ctx->store->pending_slots->end ) ) {
     FD_LOG_ERR( ( "Sim is complete." ) );
+  }
+
+  for( ulong i = 0; i<fd_txn_iter_map_slot_cnt(); i++ ) {
+    if( ctx->txn_iter_map[i].slot != FD_SLOT_NULL ) {
+      fd_store_tile_slot_prepare( ctx, FD_STORE_SLOT_PREPARE_CONTINUE, ctx->txn_iter_map[i].slot );
+    }
   }
 
   for( ulong i = fd_pending_slots_iter_init( ctx->store->pending_slots );
@@ -503,6 +557,9 @@ unprivileged_init( fd_topo_t *      topo,
   void * trusted_slots_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_trusted_slots_align(), fd_trusted_slots_footprint( MAX_SLOTS_PER_EPOCH ) );
   ctx->trusted_slots = fd_trusted_slots_join( fd_trusted_slots_new( trusted_slots_mem, MAX_SLOTS_PER_EPOCH ) );
   FD_TEST( ctx->trusted_slots!=NULL );
+
+  void * iter_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_txn_iter_map_align(), fd_txn_iter_map_footprint() );
+  ctx->txn_iter_map = fd_txn_iter_map_join( fd_txn_iter_map_new( iter_map_mem ) );
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
 

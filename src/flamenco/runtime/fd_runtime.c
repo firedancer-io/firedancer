@@ -494,6 +494,107 @@ int fd_runtime_microblock_batch_prepare(void const *buf,
   return 0;
 }
 
+fd_microblock_txn_iter_t
+fd_microblock_txn_iter_init( fd_microblock_info_t const * microblock_info FD_PARAM_UNUSED ) {
+  return 0UL;
+}
+
+ulong
+fd_microblock_txn_iter_done( fd_microblock_info_t const * microblock_info, fd_microblock_txn_iter_t iter ) {
+  return iter >= microblock_info->microblock_hdr.txn_cnt;
+}
+
+fd_microblock_txn_iter_t
+fd_microblock_txn_iter_next( fd_microblock_info_t const * microblock_info FD_PARAM_UNUSED, fd_microblock_txn_iter_t iter ) {
+  return iter + 1UL;
+}
+
+fd_txn_p_t *
+fd_microblock_txn_iter_ele( fd_microblock_info_t const * microblock_info, fd_microblock_txn_iter_t iter ) {
+  return &microblock_info->txns[iter];
+}
+
+fd_microblock_batch_txn_iter_t
+fd_microblock_batch_txn_iter_init( fd_microblock_batch_info_t const * microblock_batch_info ) {
+  fd_microblock_batch_txn_iter_t iter = {
+    .curr_microblock = ULONG_MAX,
+  };
+
+  for( ulong i = 0UL; i < microblock_batch_info->microblock_cnt; i++ ) {
+    if( microblock_batch_info->microblock_infos[i].microblock_hdr.txn_cnt > 0 ) {
+      iter.curr_microblock = i;
+      break;
+    }
+  }
+
+  iter.microblock_iter = fd_microblock_txn_iter_init( &microblock_batch_info->microblock_infos[iter.curr_microblock] );
+  return iter;
+  }
+
+ulong
+fd_microblock_batch_txn_iter_done( fd_microblock_batch_info_t const * microblock_batch_info, fd_microblock_batch_txn_iter_t iter ) {
+  return iter.curr_microblock >= microblock_batch_info->microblock_cnt;
+}
+
+fd_microblock_batch_txn_iter_t
+fd_microblock_batch_txn_iter_next( fd_microblock_batch_info_t const * microblock_batch_info, fd_microblock_batch_txn_iter_t iter ) {
+  iter.microblock_iter = fd_microblock_txn_iter_next( &microblock_batch_info->microblock_infos[iter.curr_microblock], iter.microblock_iter );
+  while( fd_microblock_txn_iter_done( &microblock_batch_info->microblock_infos[iter.curr_microblock], iter.microblock_iter ) ) {
+    iter.curr_microblock++;
+    if( iter.curr_microblock >= microblock_batch_info->microblock_cnt ) {
+      break;
+    }
+    iter.microblock_iter = fd_microblock_txn_iter_init( &microblock_batch_info->microblock_infos[iter.curr_microblock] );
+  }
+  return iter;
+}
+
+fd_txn_p_t *
+fd_microblock_batch_txn_iter_ele( fd_microblock_batch_info_t const * microblock_batch_info, fd_microblock_batch_txn_iter_t iter ) {
+  return fd_microblock_txn_iter_ele( &microblock_batch_info->microblock_infos[iter.curr_microblock], iter.microblock_iter );
+}
+
+fd_block_txn_iter_t
+fd_block_txn_iter_init( fd_block_info_t const * block_info ) {
+  fd_block_txn_iter_t iter = {
+    .curr_batch = ULONG_MAX,
+  };
+
+  for( ulong i = 0UL; i < block_info->microblock_batch_cnt; i++ ) {
+    if( block_info->microblock_batch_infos[i].txn_cnt > 0 ) {
+      iter.curr_batch = i;
+      break;
+    }
+  }
+
+  iter.microblock_batch_iter = fd_microblock_batch_txn_iter_init( &block_info->microblock_batch_infos[iter.curr_batch] );
+  return iter;
+}
+
+ulong
+fd_block_txn_iter_done( fd_block_info_t const * block_info, fd_block_txn_iter_t iter ) {
+  return iter.curr_batch >= block_info->microblock_batch_cnt;
+}
+
+fd_block_txn_iter_t
+fd_block_txn_iter_next( fd_block_info_t const * block_info, fd_block_txn_iter_t iter ) {
+  iter.microblock_batch_iter = fd_microblock_batch_txn_iter_next( &block_info->microblock_batch_infos[iter.curr_batch], iter.microblock_batch_iter );
+  while( fd_microblock_batch_txn_iter_done( &block_info->microblock_batch_infos[iter.curr_batch], iter.microblock_batch_iter ) ) {
+    iter.curr_batch++;
+    if( iter.curr_batch >= block_info->microblock_batch_cnt ) {
+      break;
+    }
+    iter.microblock_batch_iter = fd_microblock_batch_txn_iter_init( &block_info->microblock_batch_infos[iter.curr_batch] );
+
+  }
+  return iter;
+}
+
+fd_txn_p_t *
+fd_block_txn_iter_ele( fd_block_info_t const * block_info, fd_block_txn_iter_t iter ) {
+  return fd_microblock_batch_txn_iter_ele( &block_info->microblock_batch_infos[iter.curr_batch], iter.microblock_batch_iter );
+}
+
 ulong
 fd_runtime_microblock_collect_txns( fd_microblock_info_t const * microblock_info,
                                     fd_txn_p_t * out_txns ) {
