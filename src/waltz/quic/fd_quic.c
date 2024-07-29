@@ -2741,12 +2741,6 @@ fd_quic_process_packet( fd_quic_t * quic,
     return;
   }
 
-#define DECODE_UINT32(p) ( \
-    ( (uint)((p)[0]) << (uint)0x18 ) + \
-    ( (uint)((p)[1]) << (uint)0x10 ) + \
-    ( (uint)((p)[2]) << (uint)0x08 ) + \
-    ( (uint)((p)[3]) << (uint)0x00 ) )
-
   /* check version */
 
   /* short packets don't have version */
@@ -2756,7 +2750,7 @@ fd_quic_process_packet( fd_quic_t * quic,
   uint version = 0;
 
   if( long_pkt ) {
-    version = DECODE_UINT32( cur_ptr + 1 );
+    version = fd_uint_bswap( FD_LOAD( uint, cur_ptr + 1 ) );
 
     /* version negotiation packet has version 0 */
     if( version == 0 ) {
@@ -2765,18 +2759,18 @@ fd_quic_process_packet( fd_quic_t * quic,
       return;
     }
 
-    if( version != 1 ) {
-      /* cannot interpret length, so discard entire packet */
-      /* TODO send version negotiation */
-      FD_DEBUG( FD_LOG_DEBUG(( "Got unknown version QUIC packet" )) );
-      return;
-    }
-
     /* 0x?a?a?a?au is intended to force version negotiation
        TODO implement */
     if( ( version & 0x0a0a0a0au ) == 0x0a0a0a0au ) {
       /* at present, ignore */
       FD_DEBUG( FD_LOG_DEBUG(( "Got version negotiation packet (forced)" )) );
+      return;
+    }
+
+    if( version != 1 ) {
+      /* cannot interpret length, so discard entire packet */
+      /* TODO send version negotiation */
+      FD_DEBUG( FD_LOG_DEBUG(( "Got unknown version QUIC packet" )) );
       return;
     }
 
@@ -2793,7 +2787,7 @@ fd_quic_process_packet( fd_quic_t * quic,
       if( FD_UNLIKELY( short_pkt ) ) break;
 
       /* check version */
-      uint cur_version = DECODE_UINT32( cur_ptr + 1 );
+      uint cur_version = fd_uint_bswap( FD_LOAD( uint, cur_ptr + 1 ) );
 
       if( cur_version != version ) {
         /* multiple versions in a single connection is a violation, and by
@@ -2864,8 +2858,6 @@ fd_quic_process_packet( fd_quic_t * quic,
 #else
   (void)fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
 #endif
-
-# undef DECODE_UINT32
 }
 
 /* main receive-side entry point */
