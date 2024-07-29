@@ -123,13 +123,13 @@ make -j
 cd $AGAVE_REPO
 git checkout $AGAVE_BRANCH
 git pull
-cargo build --lib
+make conformance
 
 # setup solana-conformance
 cd $SOLANA_CONFORMANCE_REPO
 git checkout $SOLANA_CONFORMANCE_BRANCH
 git pull
-source install.sh
+source install_lite.sh
 source test_suite_env/bin/activate
 
 if [ -z "${OUTPUT_DIR}" ]; then
@@ -137,4 +137,4 @@ if [ -z "${OUTPUT_DIR}" ]; then
 fi
 mkdir -p $OUTPUT_DIR
 
-solana-test-suite run-tests --input-dir $TEST_INPUTS --solana-target ${AGAVE_REPO}/target/debug/libsolfuzz_agave.so --target ${FIREDANCER_REPO}/build/native/gcc/lib/libfd_exec_sol_compat.so --output-dir $OUTPUT_DIR --consensus-mode --failures-only --save-failures
+HARNESS_TYPE=TxnHarness solana-test-suite run-tests --input-dir $TEST_INPUTS --solana-target ${AGAVE_REPO}/target/debug/libsolfuzz_agave.so --target ${FIREDANCER_REPO}/build/native/gcc/lib/libfd_exec_sol_compat.so --output-dir $OUTPUT_DIR --consensus-mode --failures-only --save-failures

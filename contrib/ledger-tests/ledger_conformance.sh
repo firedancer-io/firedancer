@@ -26,8 +26,8 @@ solcap() {
   source ./solcap.sh
 }
 
-mismatch-instr() {
-  source ./instr.sh
+mismatch-txn() {
+  source ./txn.sh
 }
 
 one_repetition() {
@@ -148,8 +148,8 @@ usage() {
                 --index-max -x [Optional]       : Maximum index. Default: 600_000_000 \n\
                 --upload -u [Optional]          : Gcloud storage url for minimized ledger to be stored. Default: None"
   
-  elif [[ $1 == "mismatch-instr" ]]; then
-  echo -e "Usage: $0 mismatch-instr \n\
+  elif [[ $1 == "mismatch-txn" ]]; then
+  echo -e "Usage: $0 mismatch-txn \n\
                 --directory -d                  : Path to the root directory containing firedancer, solana, solfuzz-agave and solana-conformance repos. \n\
                 --index-max -x [Optional]       : Maximum index. Default: 600_000_000 \n\
                 --pages -p [Optional]           : Number of pages. Default: 75 \n\
@@ -167,7 +167,7 @@ usage() {
                 replay                                  : Replay the minimized ledger to check for bank hash mismatches 
                                                             and upload the minimized one block ledger to the cloud storage
                 solcap                                  : Produce a diff between firedancer and solana labs solcaps                                                            
-                mismatch-instr                          : Produce the mismatching instruction
+                mismatch-txn                            : Produce the mismatching transaction
                 all                                     : Run all commands - fetch-recent, minify, replay in sequence
                                                           In the `all` subcommand, bounds are checked if rooted, if not it searches for a bound that is rooted.
                     --no-fetch                          : Run all the commands excluding fetch-recent. Just pass in the ledger directories.
@@ -558,7 +558,7 @@ parse_solcap_options() {
   fi
 }
 
-parse_mismatch_instr_options() {
+parse_mismatch_txn_options() {
   TEMP=$(getopt -o d:x:p:f: --long directory:,index-max:,pages:,funk-pages: -- "$@")
   if [ $? != 0 ]; then
     echo "Incorrect options provided" >&2
@@ -604,7 +604,7 @@ parse_mismatch_instr_options() {
 
 
   if [ -z "$REPO_ROOT" ]; then
-    usage "mismatch-instr"
+    usage "mismatch-txn"
     exit 1
   fi
 
@@ -870,14 +870,14 @@ case $COMMAND in
       " index-max=$INDEX_MAX"
     all
     ;;
-  mismatch-instr)
-    parse_mismatch_instr_options "$@"
-    echo -e "running cmd=mismatch-instr with\n" \
+  mismatch-txn)
+    parse_mismatch_txn_options "$@"
+    echo -e "running cmd=mismatch-txn with\n" \
       " repo-root=$REPO_ROOT,\n" \
       " index-max=$INDEX_MAX,\n" \
       " gigantic-pages=$PAGES\n" \
       " funk-pages=$FUNK_PAGES"
-    mismatch-instr
+    mismatch-txn
     ;;
   *)
     echo "error: invalid command '$COMMAND'"

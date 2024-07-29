@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Build / update solfuzz-agave and solana-conformance
-./contrib/conformance/build.sh
+REPO_ROOT=./dump SETUP_LITE=true ./contrib/ledger-tests/setup.sh
 
 source dump/solana-conformance/test_suite_env/bin/activate
 HARNESS_TYPE="TxnHarness" solana-test-suite run-tests -s dump/solfuzz-agave/target/debug/libsolfuzz_agave.so -t $OBJDIR/lib/libfd_exec_sol_compat.so -f $INPUT_DIR $NUM_PROCESSES

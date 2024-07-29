@@ -2,7 +2,7 @@
 
 set -ex
 
-# Usage: ./run_tests.sh -t <agave/fd> -i <input_file>
+# Usage: ./debug.sh -t <agave/fd> -i <input_file>
 
 OBJDIR=${OBJDIR:-build/native/gcc}
 
@@ -49,7 +49,7 @@ case $TARGET in
 esac
 
 # Build / update solfuzz-agave and solana-conformance
-./contrib/conformance/build.sh
+REPO_ROOT=./dump SETUP_LITE=true ./contrib/ledger-tests/setup.sh
 
 source dump/solana-conformance/test_suite_env/bin/activate
 HARNESS_TYPE="TxnHarness" $DEBUGGER --args python3.11 -m test_suite.test_suite exec-instr $TARGET_SHARED_OBJ_FILE $INPUT_FILE
