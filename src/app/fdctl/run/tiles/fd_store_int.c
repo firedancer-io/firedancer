@@ -531,8 +531,9 @@ unprivileged_init( fd_topo_t *      topo,
     ulong * gossip_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
     FD_LOG_INFO(( "waiting for shred version to be determined via gossip." ));
     do {
-      expected_shred_version = FD_VOLATILE_CONST( *gossip_shred_version );
+      expected_shred_version = fd_fseq_query( gossip_shred_version );
     } while( expected_shred_version==ULONG_MAX );
+    FD_LOG_INFO(( "using shred version %lu", expected_shred_version ));
   }
 
   if( FD_UNLIKELY( strlen( tile->store_int.blockstore_restore ) > 0 ) ) {
