@@ -19,6 +19,114 @@
 #include <limits.h>
 
 
+uchar * ibuf_ele( fd_verify_ctx_t * ctx, uint i ) {
+  return ctx->ibuf + i*IBUF_ELE_SZ;
+}
+
+uchar * ibuf_curr( fd_verify_ctx_t * ctx) {
+  return ctx->ibuf + ctx->ibuf_cnt*IBUF_ELE_SZ;
+}
+
+void ibuf_advance( fd_verify_ctx_t * ctx ) {
+  ctx->ibuf_cnt++;
+}
+
+void ibuf_next( fd_verify_ctx_t * ctx , uchar ** p ) {
+  *p = ctx->ibuf + ctx->ibuf_cnt*IBUF_ELE_SZ;
+  ctx->ibuf_cnt++;
+}
+
+int ibuf_poll_needed( fd_verify_ctx_t * ctx ) {
+  long now = fd_tickcount();
+  if( FD_UNLIKELY( ctx->ibuf_cnt == IBUF_SZ || (now-ctx->then)>=IBUF_TICKER_NS ) ) {
+    ctx->then = now;
+    return 1;
+  }
+  return 0;
+}
+
+void poll_and_publish( fd_verify_ctx_t * ctx, fd_mux_context_t * mux ) {
+  /* no work needed */
+  if( FD_UNLIKELY( ctx->ibuf_cnt == 0 ) ) {
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->ibuf_cnt > IBUF_SZ ) ) {
+    FD_LOG_CRIT(( "overrun %u", ctx->ibuf_cnt ));
+  }
+
+  // C1100 backpressure work here
+
+  // c1100_verify_backpressure( ctx->c1100 );
+
+  // uint bp;
+  // for( uint i=0; i<C1100_MAX_TRIES; i++ ) {
+  //   bp=c1100_verify_backpressure( ctx->c1100 );
+  //   if( FD_UNLIKELY( bp != 0 ) ) {
+  //     break;
+  //   }
+  // }
+
+  // if( FD_UNLIKELY( bp == 0 ) ) {
+  //   FD_LOG_WARNING(( "C1100_MAX_TRIES exceeded" ));
+  //   ctx->ibuf_cnt = 0;
+  //   return;
+  // }
+
+  for( uint i=0; i<ctx->ibuf_cnt; i++ ) {
+    ulong payload_sz = ctx->payload_sz[i];
+    ulong txnt_off   = fd_ulong_align_up( payload_sz, 2UL );
+
+    /* Ensure sufficient space to store trailer */
+
+    long txnt_maxsz = (long)FD_TPU_DCACHE_MTU -
+                      (long)txnt_off -
+                      (long)sizeof(ushort);
+    if( FD_UNLIKELY( txnt_maxsz<(long)FD_TXN_MAX_SZ ) ) FD_LOG_ERR(( "got malformed txn (sz %lu) does not fit in dcache", payload_sz ));
+
+    // uchar const * txn   = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    uchar const * txn   = ibuf_ele( ctx, i );
+    fd_txn_t *    txn_t = (fd_txn_t *)((ulong)txn + txnt_off);
+
+    /* Parse transaction */
+
+    ulong txn_t_sz = fd_txn_parse( txn, payload_sz, txn_t, NULL );
+    if( FD_UNLIKELY( !txn_t_sz ) ) {
+      continue;
+    }
+
+    /* Write payload_sz */
+
+    /* fd_txn_parse always returns a multiple of 2 so this sz is
+      correctly aligned. */
+    ushort * payload_sz_p = (ushort *)( (ulong)txn_t + txn_t_sz );
+    *payload_sz_p = (ushort)payload_sz;
+
+    /* End of message */
+
+    ulong new_sz = ( (ulong)payload_sz_p + sizeof(ushort) ) - (ulong)txn;
+    if( FD_UNLIKELY( new_sz>FD_TPU_DCACHE_MTU ) ) {
+      FD_LOG_CRIT(( "memory corruption detected (txn_sz=%lu txn_t_sz=%lu)",
+                    payload_sz, txn_t_sz ));
+    }
+
+    ulong txn_sig;
+    int res = fd_txn_verify( ctx, txn, (ushort)payload_sz, txn_t, &txn_sig );
+    if( FD_UNLIKELY( res!=FD_TXN_VERIFY_SUCCESS ) ) {
+      continue;
+    }
+
+    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+
+    uchar * ptr   = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    fd_memcpy( ptr, ibuf_ele( ctx, i), new_sz );
+
+    fd_mux_publish( mux, txn_sig, ctx->out_chunk, new_sz, 0UL, 0, tspub );
+    ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
+  }
+
+  ctx->ibuf_cnt = 0;
+}
 
 
 /* The verify tile is a wrapper around the mux tile, that also verifies
@@ -40,12 +148,21 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     l = FD_LAYOUT_APPEND( l, fd_sha512_align(), fd_sha512_footprint() );
   }
   l = FD_LAYOUT_APPEND( l, 32, 1UL<<30 );
+  l = FD_LAYOUT_APPEND( l, 32, IBUF_ELE_SZ * IBUF_SZ );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 FD_FN_CONST static inline void *
 mux_ctx( void * scratch ) {
   return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_verify_ctx_t ) );
+}
+
+static void
+before_credit( void * _ctx, fd_mux_context_t * mux ) {
+  fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)_ctx;
+  if( FD_UNLIKELY( ibuf_poll_needed( ctx ) ) ) {
+    poll_and_publish( ctx, mux );
+  }
 }
 
 static void
@@ -83,7 +200,7 @@ during_frag( void * _ctx,
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
-  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  uchar * dst = ibuf_curr( ctx );
 
   fd_memcpy( dst, src, sz );
 }
@@ -102,71 +219,16 @@ after_frag( void *             _ctx,
   (void)seq;
   (void)opt_sig;
   (void)opt_chunk;
+  (void)opt_tsorig;
+  (void)opt_filter;
 
   fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)_ctx;
+  ctx->payload_sz[ ctx->ibuf_cnt ] = *opt_sz;
+  ibuf_advance( ctx );
 
-  /* At this point, the payload only contains the serialized txn.
-     Beyond end of txn, but within bounds of msg layout, add a trailer
-     describing the txn layout.
-
-     [ payload          ] (payload_sz bytes)
-     [ pad: align to 2B ] (0-1 bytes)
-     [ fd_txn_t         ] (? bytes)
-     [ payload_sz       ] (2B) */
-
-  ulong payload_sz = *opt_sz;
-  ulong txnt_off   = fd_ulong_align_up( payload_sz, 2UL );
-
-  /* Ensure sufficient space to store trailer */
-
-  long txnt_maxsz = (long)FD_TPU_DCACHE_MTU -
-                    (long)txnt_off -
-                    (long)sizeof(ushort);
-  if( FD_UNLIKELY( txnt_maxsz<(long)FD_TXN_MAX_SZ ) ) FD_LOG_ERR(( "got malformed txn (sz %lu) does not fit in dcache", payload_sz ));
-
-  uchar const * txn   = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-  fd_txn_t *    txn_t = (fd_txn_t *)((ulong)txn + txnt_off);
-
-  /* Parse transaction */
-
-  ulong txn_t_sz = fd_txn_parse( txn, payload_sz, txn_t, NULL );
-  if( FD_UNLIKELY( !txn_t_sz ) ) {
-    *opt_filter = 1; /* Invalid txn fails to parse. */
-    return;
+  if( FD_UNLIKELY( ibuf_poll_needed( ctx ) ) ) {
+    poll_and_publish( ctx, mux );
   }
-
-  /* Write payload_sz */
-
-  /* fd_txn_parse always returns a multiple of 2 so this sz is
-     correctly aligned. */
-  ushort * payload_sz_p = (ushort *)( (ulong)txn_t + txn_t_sz );
-  *payload_sz_p = (ushort)payload_sz;
-
-  /* End of message */
-
-  ulong new_sz = ( (ulong)payload_sz_p + sizeof(ushort) ) - (ulong)txn;
-  if( FD_UNLIKELY( new_sz>FD_TPU_DCACHE_MTU ) ) {
-    FD_LOG_CRIT(( "memory corruption detected (txn_sz=%lu txn_t_sz=%lu)",
-                  payload_sz, txn_t_sz ));
-  }
-
-  /* We need to access signatures and accounts, which are all before the recent_blockhash_off.
-     We assert that the payload_sz includes all signatures and account pubkeys we need. */
-  ushort recent_blockhash_off = txn_t->recent_blockhash_off;
-  if( FD_UNLIKELY( recent_blockhash_off>=*opt_sz ) ) {
-    FD_LOG_ERR( ("txn is invalid: payload_sz = %lx, recent_blockhash_off = %x", *opt_sz, recent_blockhash_off ) );
-  }
-
-  ulong txn_sig;
-  int res = fd_txn_verify( ctx, txn, (ushort)payload_sz, txn_t, &txn_sig );
-  if( FD_UNLIKELY( res!=FD_TXN_VERIFY_SUCCESS ) ) {
-    *opt_filter = 1; /* Signature verification failed. */
-    return;
-  }
-
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_mux_publish( mux, txn_sig, ctx->out_chunk, new_sz, 0UL, *opt_tsorig, tspub );
-  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
 }
 
 static void
@@ -250,6 +312,8 @@ privileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_verify_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
   ctx->buf = FD_SCRATCH_ALLOC_APPEND( l, 32, 1UL<<30 );
+  ctx->ibuf = FD_SCRATCH_ALLOC_APPEND( l, 32, IBUF_ELE_SZ * IBUF_SZ );
+  ctx->ibuf_cnt = 0;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -296,6 +360,7 @@ fd_topo_run_tile_t fd_tile_verify = {
   .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,
+  .mux_before_credit        = before_credit,
   .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
