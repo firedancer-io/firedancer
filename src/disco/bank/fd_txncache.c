@@ -431,17 +431,34 @@ fd_txncache_remove_slotcache_idx( fd_txncache_t * tc,
 static void
 fd_txncache_purge_slot( fd_txncache_t * tc,
                         ulong           slot ) {
+  ulong not_purged_cnt = 0;
+  ulong purged_cnt = 0;
+  ulong max_distance = 0;
+  ulong sum_distance = 0;
+  ulong empty_entry_cnt = 0;
+  ulong tombstone_entry_cnt = 0;
   fd_txncache_private_blockcache_t * blockcache = fd_txncache_get_blockcache( tc );
   for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
     if( FD_LIKELY( blockcache[ i ].max_slot==FD_TXNCACHE_EMPTY_ENTRY || blockcache[ i ].max_slot==FD_TXNCACHE_TOMBSTONE_ENTRY || (blockcache[ i ].max_slot)>slot ) ) {
-      if( blockcache[ i ].max_slot!=FD_TXNCACHE_EMPTY_ENTRY && blockcache[ i ].max_slot!=FD_TXNCACHE_TOMBSTONE_ENTRY ) {
-        FD_LOG_INFO(( "not purging blockcache - purge_slot: %lu, max_slot: %lu, distance: %lu, blockhash: %32J", slot, blockcache[ i ].max_slot, blockcache[ i ].max_slot-slot, blockcache[i].blockhash ));
+      if( blockcache[ i ].max_slot==FD_TXNCACHE_EMPTY_ENTRY ) {
+        empty_entry_cnt++;
+      } else if ( blockcache[ i ].max_slot==FD_TXNCACHE_TOMBSTONE_ENTRY ) {
+        tombstone_entry_cnt++;
+      } else {
+        // FD_LOG_INFO(( "not purging blockcache - purge_slot: %lu, max_slot: %lu, distance: %lu, blockhash: %32J", slot, blockcache[ i ].max_slot, blockcache[ i ].max_slot-slot, blockcache[i].blockhash ));
+        not_purged_cnt++;
+        ulong dist = blockcache[ i ].max_slot-slot;
+        max_distance = fd_ulong_max( max_distance, dist );
+        sum_distance += blockcache[ i ].max_slot-slot;
       }
       continue;
     }
     fd_txncache_remove_blockcache_idx( tc, i );
+    purged_cnt++;
   }
-
+  ulong avg_distance = (not_purged_cnt==0) ? ULONG_MAX : (sum_distance/not_purged_cnt);
+  FD_LOG_INFO(( "not purging cnt - purge_slot: %lu, purged_cnt: %lu, not_purged_cnt: %lu, empty_entry_cnt: %lu, tombstone_entry_cnt: %lu, max_distance: %lu, avg_distance: %lu", 
+      slot, purged_cnt, not_purged_cnt, empty_entry_cnt, tombstone_entry_cnt, max_distance, avg_distance ));
   fd_txncache_private_slotcache_t * slotcache = fd_txncache_get_slotcache( tc );
   for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
     if( FD_LIKELY( slotcache[ i ].slot==FD_TXNCACHE_EMPTY_ENTRY || slotcache[ i ].slot==FD_TXNCACHE_TOMBSTONE_ENTRY || slotcache[ i ].slot>slot ) ) continue;
@@ -512,7 +529,7 @@ fd_txncache_find_blockhash( fd_txncache_t const *               tc,
       }
       *out_blockcache = blockcache;
       return FD_TXNCACHE_FIND_FOUNDEMPTY;
-    } else if ( blockcache->max_slot==FD_TXNCACHE_TOMBSTONE_ENTRY) {
+    } else if ( blockcache->max_slot==FD_TXNCACHE_TOMBSTONE_ENTRY ) {
       if( is_insert && first_tombstone == ULONG_MAX ) {
         first_tombstone = blockcache_idx;
         // *out_blockcache = blockcache;
@@ -529,6 +546,10 @@ fd_txncache_find_blockhash( fd_txncache_t const *               tc,
       *out_blockcache = blockcache;
       return FD_TXNCACHE_FIND_FOUND;
     }
+  }
+  if( is_insert && first_tombstone != ULONG_MAX ) {
+    *out_blockcache = &tc_blockcache[ first_tombstone ];
+    return FD_TXNCACHE_FIND_FOUNDEMPTY;
   }
   return FD_TXNCACHE_FIND_FULL;
 }
