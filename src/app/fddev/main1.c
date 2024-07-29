@@ -172,11 +172,17 @@ fddev_main( int     argc,
   if( FD_LIKELY( action->args ) ) action->args( &argc, &argv, &args );
   if( FD_UNLIKELY( argc ) ) FD_LOG_ERR(( "unknown argument `%s`", argv[ 0 ] ));
 
-  /* check if we are appropriate permissioned to run the desired command */
+  /* Check if we are appropriately permissioned to run the desired
+     command. */
   if( FD_LIKELY( action->perm ) ) {
-    fd_caps_ctx_t caps = {0};
-    action->perm( &args, &caps, &config );
-    if( FD_UNLIKELY( caps.err_cnt ) ) {
+    fd_caps_ctx_t caps[1] = {0};
+    action->perm( &args, caps, &config );
+    if( FD_UNLIKELY( caps->err_cnt ) ) {
+      if( FD_UNLIKELY( !geteuid() ) ) {
+        for( ulong i=0; i<caps->err_cnt; i++ ) FD_LOG_WARNING(( "%s", caps->err[ i ] ));
+        FD_LOG_ERR(( "insufficient permissions to execute command `%s` when running as root. "
+                     "fddev is likely being run with a reduced capability bounding set.", action_name ));
+      }
       execve_as_root( orig_argc, orig_argv );
     }
   }
