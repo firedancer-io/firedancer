@@ -539,6 +539,7 @@ TREAP_(ele_query)( TREAP_(t) const * treap,
                    TREAP_QUERY_T     q,
                    TREAP_T *         pool ) {
   ulong i = TREAP_(idx_query)( treap, q, pool );
+  if (TREAP_(ele_cnt)( treap ) == 0 && !TREAP_IDX_IS_NULL( i )) abort();
   return fd_ptr_if( !TREAP_IDX_IS_NULL( i ), pool + i, NULL );
 }
 
@@ -547,6 +548,7 @@ TREAP_(ele_query_const)( TREAP_(t) const * treap,
                          TREAP_QUERY_T     q,
                          TREAP_T const *   pool ) {
   ulong i = TREAP_(idx_query)( treap, q, pool );
+  if (TREAP_(ele_cnt)( treap ) == 0 && !TREAP_IDX_IS_NULL( i )) abort();
   return fd_ptr_if( !TREAP_IDX_IS_NULL( i ), pool + i, NULL );
 }
 
@@ -772,6 +774,7 @@ TREAP_(idx_insert)( TREAP_(t) * treap,
   }
 
   treap->ele_cnt++;
+  if (TREAP_(ele_cnt)( treap ) > TREAP_(ele_max)( treap )) abort();
   return treap;
 }
 
@@ -781,6 +784,8 @@ TREAP_(idx_remove)( TREAP_(t) * treap,
                     TREAP_T *   pool ) {
 
   /* Make a hole at d */
+
+  if (TREAP_(ele_cnt)( treap ) == 0) abort();
 
   ulong p = (ulong)pool[ d ].TREAP_PARENT;
   ulong l = (ulong)pool[ d ].TREAP_LEFT;
