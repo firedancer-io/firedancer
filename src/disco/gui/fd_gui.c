@@ -59,14 +59,28 @@ fd_gui_join( void * shmem ) {
   return (fd_gui_t *)shmem;
 }
 
+
+static void
+fd_gui_topic_key_to_json_init( jsonb_t    * jsonb,
+                               char const * topic,
+                               char const * key) {
+  jsonb_init( jsonb );
+  jsonb_open_obj( jsonb, NULL );
+  jsonb_str( jsonb, "topic", topic );
+  jsonb_str( jsonb, "key",   key );
+}
+
+static void
+fd_gui_topic_key_to_json_fini( jsonb_t * jsonb) {
+  jsonb_close_obj( jsonb );
+  jsonb_fini( jsonb );
+}
+
 static void
 fd_gui_epoch_to_json( fd_gui_t * gui,
                       jsonb_t  * jsonb,
                       ulong      epoch_idx) {
-  jsonb_init( jsonb );
-  jsonb_open_obj( jsonb, NULL );
-  jsonb_str( jsonb, "topic", "epoch" );
-  jsonb_str( jsonb, "key",   "new" );
+  fd_gui_topic_key_to_json_init( jsonb, "epoch", "new" );
   jsonb_open_obj( jsonb, "value" );
   jsonb_ulong( jsonb, "epoch",                   gui->epoch.epochs[epoch_idx].epoch );
   jsonb_ulong( jsonb, "start_slot",              gui->epoch.epochs[epoch_idx].start_slot );
@@ -92,60 +106,119 @@ fd_gui_epoch_to_json( fd_gui_t * gui,
   }
   jsonb_close_arr( jsonb );
   jsonb_close_obj( jsonb );
-  jsonb_close_obj( jsonb );
-  jsonb_fini( jsonb );
+  fd_gui_topic_key_to_json_fini( jsonb );
+}
+
+static void
+fd_gui_version_to_json( fd_gui_t * gui,
+                        jsonb_t  * jsonb) {
+  fd_gui_topic_key_to_json_init( jsonb, "summary", "version" );
+  jsonb_str( jsonb, "value", gui->summary.version );
+  fd_gui_topic_key_to_json_fini( jsonb );
+}
+
+static void
+fd_gui_cluster_to_json( fd_gui_t * gui,
+                        jsonb_t  * jsonb) {
+  fd_gui_topic_key_to_json_init( jsonb, "summary", "cluster" );
+  jsonb_str( jsonb, "value", gui->summary.cluster );
+  fd_gui_topic_key_to_json_fini( jsonb );
+}
+
+static void
+fd_gui_identity_key_to_json( fd_gui_t * gui,
+                             jsonb_t  * jsonb) {
+  fd_gui_topic_key_to_json_init( jsonb, "summary", "identity_key" );
+  jsonb_str( jsonb, "value", gui->summary.identity_key_base58 );
+  fd_gui_topic_key_to_json_fini( jsonb );
+}
+
+static void
+fd_gui_root_slot_to_json( fd_gui_t * gui,
+                          jsonb_t  * jsonb) {
+  fd_gui_topic_key_to_json_init( jsonb, "summary", "root_slot" );
+  jsonb_ulong( jsonb, "value", gui->summary.slot_rooted );
+  fd_gui_topic_key_to_json_fini( jsonb );
+}
+
+static void
+fd_gui_optimistically_confirmed_slot_to_json( fd_gui_t * gui,
+                                              jsonb_t  * jsonb) {
+  fd_gui_topic_key_to_json_init( jsonb, "summary", "optimistically_confirmed_slot" );
+  jsonb_ulong( jsonb, "value", gui->summary.slot_optimistically_confirmed );
+  fd_gui_topic_key_to_json_fini( jsonb );
+}
+
+static void
+fd_gui_completed_slot_to_json( fd_gui_t * gui,
+                               jsonb_t  * jsonb) {
+  fd_gui_topic_key_to_json_init( jsonb, "summary", "completed_slot" );
+  jsonb_ulong( jsonb, "value", gui->summary.slot_completed );
+  fd_gui_topic_key_to_json_fini( jsonb );
+}
+
+static void
+fd_gui_estimated_slot_to_json( fd_gui_t * gui,
+                               jsonb_t  * jsonb) {
+  fd_gui_topic_key_to_json_init( jsonb, "summary", "estimated_slot" );
+  jsonb_ulong( jsonb, "value", gui->summary.slot_estimated );
+  fd_gui_topic_key_to_json_fini( jsonb );
+}
+
+static void
+fd_gui_jsonb_send( fd_gui_t * gui,
+                   jsonb_t  * jsonb,
+                   ulong conn_id) {
+  void * buffer = fd_alloc_malloc( gui->alloc, 1UL, jsonb->cur_sz );
+  FD_TEST( buffer );
+  fd_memcpy( buffer, jsonb->buf, jsonb->cur_sz );
+  fd_http_server_ws_send( gui->server, conn_id, buffer, jsonb->cur_sz );
+}
+
+static void
+fd_gui_jsonb_broadcast( fd_gui_t * gui,
+                        jsonb_t  * jsonb) {
+  void * buffer = fd_alloc_malloc( gui->alloc, 1UL, jsonb->cur_sz );
+  FD_TEST( buffer );
+  fd_memcpy( buffer, jsonb->buf, jsonb->cur_sz );
+  fd_http_server_ws_broadcast( gui->server, buffer, jsonb->cur_sz );
 }
 
 void
 fd_gui_ws_open( fd_gui_t *         gui,
                 ulong              conn_id ) {
-  void * buffer = fd_alloc_malloc( gui->alloc, 1UL, 1024UL );
-  FD_TEST( buffer );
-  ulong message_len;
-  FD_TEST( fd_cstr_printf_check( buffer, 1024UL, &message_len, "{\n    \"topic\": \"summary\",\n    \"key\": \"version\",\n    \"value\": \"%s\",\n}\n", gui->summary.version ) );
-  fd_http_server_ws_send( gui->server, conn_id, buffer, message_len );
 
-  buffer = fd_alloc_malloc( gui->alloc, 1UL, 1024UL );
-  FD_TEST( buffer );
-  FD_TEST( fd_cstr_printf_check( buffer, 1024UL, &message_len, "{\n    \"topic\": \"summary\",\n    \"key\": \"cluster\",\n    \"value\": \"%s\",\n}\n", gui->summary.cluster ) );
-  fd_http_server_ws_send( gui->server, conn_id, buffer, message_len );
+  jsonb_t * jsonb = gui->jsonb;
 
-  buffer = fd_alloc_malloc( gui->alloc, 1UL, 1024UL );
-  FD_TEST( buffer );
-  FD_TEST( fd_cstr_printf_check( buffer, 1024UL, &message_len, "{\n    \"topic\": \"summary\",\n    \"key\": \"identity_key\",\n    \"value\": \"%s\",\n}\n", gui->summary.identity_key_base58 ) );
-  fd_http_server_ws_send( gui->server, conn_id, buffer, message_len );
+  fd_gui_version_to_json( gui, jsonb );
+  fd_gui_jsonb_send( gui, jsonb, conn_id );
 
-  buffer = fd_alloc_malloc( gui->alloc, 1UL, 1024UL );
-  FD_TEST( buffer );
-  FD_TEST( fd_cstr_printf_check( buffer, 1024UL, &message_len, "{\n    \"topic\": \"summary\",\n    \"key\": \"root_slot\",\n    \"value\": %lu,\n}\n", gui->summary.slot_rooted ) );
-  fd_http_server_ws_send( gui->server, conn_id, buffer, message_len );
+  fd_gui_cluster_to_json( gui, jsonb );
+  fd_gui_jsonb_send( gui, jsonb, conn_id );
 
-  buffer = fd_alloc_malloc( gui->alloc, 1UL, 1024UL );
-  FD_TEST( buffer );
-  FD_TEST( fd_cstr_printf_check( buffer, 1024UL, &message_len, "{\n    \"topic\": \"summary\",\n    \"key\": \"optimistically_confirmed_slot\",\n    \"value\": %lu,\n}\n", gui->summary.slot_optimistically_confirmed ) );
-  fd_http_server_ws_send( gui->server, conn_id, buffer, message_len );
+  fd_gui_identity_key_to_json( gui, jsonb );
+  fd_gui_jsonb_send( gui, jsonb, conn_id );
 
-  buffer = fd_alloc_malloc( gui->alloc, 1UL, 1024UL );
-  FD_TEST( buffer );
-  FD_TEST( fd_cstr_printf_check( buffer, 1024UL, &message_len, "{\n    \"topic\": \"summary\",\n    \"key\": \"completed_slot\",\n    \"value\": %lu,\n}\n", gui->summary.slot_completed ) );
-  fd_http_server_ws_send( gui->server, conn_id, buffer, message_len );
+  fd_gui_root_slot_to_json( gui, jsonb );
+  fd_gui_jsonb_send( gui, jsonb, conn_id );
 
-  buffer = fd_alloc_malloc( gui->alloc, 1UL, 1024UL );
-  FD_TEST( buffer );
-  FD_TEST( fd_cstr_printf_check( buffer, 1024UL, &message_len, "{\n    \"topic\": \"summary\",\n    \"key\": \"estimated_slot\",\n    \"value\": %lu,\n}\n", gui->summary.slot_estimated ) );
-  fd_http_server_ws_send( gui->server, conn_id, buffer, message_len );
+  fd_gui_optimistically_confirmed_slot_to_json( gui, jsonb );
+  fd_gui_jsonb_send( gui, jsonb, conn_id );
+
+  fd_gui_completed_slot_to_json( gui, jsonb );
+  fd_gui_jsonb_send( gui, jsonb, conn_id );
+
+  fd_gui_estimated_slot_to_json( gui, jsonb );
+  fd_gui_jsonb_send( gui, jsonb, conn_id );
 
   ulong idx                 = (gui->epoch.max_known_epoch + 1) % FD_GUI_NUM_EPOCHS;
   for ( ulong i=0UL; i < FD_GUI_NUM_EPOCHS; i++ ) {
-    jsonb_t * jsonb = gui->jsonb;
     fd_gui_epoch_to_json( gui, jsonb, idx );
-    buffer = fd_alloc_malloc( gui->alloc, 1UL, jsonb->cur_sz );
-    FD_TEST( buffer );
-    fd_memcpy( buffer, jsonb->buf, jsonb->cur_sz );
-    fd_http_server_ws_send( gui->server, conn_id, buffer, jsonb->cur_sz );
+    fd_gui_jsonb_send( gui, jsonb, conn_id );
     idx = (idx + 1) % FD_GUI_NUM_EPOCHS;
   }
 
+  ulong message_len;
   const ulong buffer_size = 1024UL * 1024UL;
   char * buffer1 = fd_alloc_malloc( gui->alloc, 1UL, buffer_size );
   FD_TEST( buffer1 );
@@ -214,36 +287,26 @@ fd_gui_plugin_message( fd_gui_t *    gui,
                        uchar const * msg,
                        ulong         msg_len ) {
   (void)msg_len;
+  jsonb_t * jsonb = gui->jsonb;
 
   switch( plugin_msg ) {
     case FD_PLUGIN_MSG_SLOT_ROOTED:
       gui->summary.slot_rooted = *(ulong const *)msg;
-      char * buffer = fd_alloc_malloc( gui->alloc, 1UL, 1024UL );
-      FD_TEST( buffer );
-      ulong message_len;
-      FD_TEST( fd_cstr_printf_check( buffer, 1024UL, &message_len, "{\n    \"topic\": \"summary\",\n    \"key\": \"slot_rooted\",\n    \"value\": %lu,\n}\n", gui->summary.slot_rooted ) );
-      fd_http_server_ws_broadcast( gui->server, (uchar const *)buffer, message_len );
+      fd_gui_root_slot_to_json( gui, jsonb );
+      fd_gui_jsonb_broadcast( gui, jsonb );
       break;
     case FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED:
       gui->summary.slot_optimistically_confirmed = *(ulong const *)msg;
-      buffer = fd_alloc_malloc( gui->alloc, 1UL, 1024UL );
-      FD_TEST( buffer );
-      FD_TEST( fd_cstr_printf_check( buffer, 1024UL, &message_len, "{\n    \"topic\": \"summary\",\n    \"key\": \"slot_optimistically_confirmed\",\n    \"value\": %lu,\n}\n", gui->summary.slot_optimistically_confirmed ) );
-      fd_http_server_ws_broadcast( gui->server, (uchar const *)buffer, message_len );
+      fd_gui_optimistically_confirmed_slot_to_json( gui, jsonb );
+      fd_gui_jsonb_broadcast( gui, jsonb );
       break;
     case FD_PLUGIN_MSG_SLOT_COMPLETED:
-      gui->summary.slot_completed = *(ulong const *)msg;
-      buffer = fd_alloc_malloc( gui->alloc, 1UL, 1024UL );
-      FD_TEST( buffer );
-      FD_TEST( fd_cstr_printf_check( buffer, 1024UL, &message_len, "{\n    \"topic\": \"summary\",\n    \"key\": \"slot_completed\",\n    \"value\": %lu,\n}\n", gui->summary.slot_completed ) );
-      fd_http_server_ws_broadcast( gui->server, (uchar const *)buffer, message_len );
+      fd_gui_completed_slot_to_json( gui, jsonb );
+      fd_gui_jsonb_broadcast( gui, jsonb );
       break;
     case FD_PLUGIN_MSG_SLOT_ESTIMATED:
-      gui->summary.slot_estimated = *(ulong const *)msg;
-      buffer = fd_alloc_malloc( gui->alloc, 1UL, 1024UL );
-      FD_TEST( buffer );
-      FD_TEST( fd_cstr_printf_check( buffer, 1024UL, &message_len, "{\n    \"topic\": \"summary\",\n    \"key\": \"slot_estimated\",\n    \"value\": %lu,\n}\n", gui->summary.slot_estimated ) );
-      fd_http_server_ws_broadcast( gui->server, (uchar const *)buffer, message_len );
+      fd_gui_estimated_slot_to_json( gui, jsonb );
+      fd_gui_jsonb_broadcast( gui, jsonb );
       break;
     case FD_PLUGIN_MSG_LEADER_SCHEDULE: {
       ulong const * hdr         = fd_type_pun_const( msg );
@@ -277,10 +340,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       /* Serialize to JSON */
       jsonb_t * jsonb = gui->jsonb;
       fd_gui_epoch_to_json( gui, jsonb, idx );
-      buffer = fd_alloc_malloc( gui->alloc, 1UL, jsonb->cur_sz );
-      FD_TEST( buffer );
-      fd_memcpy( buffer, jsonb->buf, jsonb->cur_sz );
-      fd_http_server_ws_broadcast( gui->server, (uchar const *)buffer, jsonb->cur_sz );
+      fd_gui_jsonb_broadcast( gui, jsonb );
       break;
     }
     case FD_PLUGIN_MSG_GOSSIP_UPDATE: {
@@ -392,8 +452,9 @@ fd_gui_plugin_message( fd_gui_t *    gui,
         }
       }
 
+      ulong message_len;
       const ulong buffer_size = 8192UL;
-      buffer = fd_alloc_malloc( gui->alloc, 1UL, buffer_size );
+      char * buffer = fd_alloc_malloc( gui->alloc, 1UL, buffer_size );
       FD_TEST( buffer );
       FD_TEST( fd_cstr_printf_check( buffer, buffer_size, &message_len, "{\n    \"topic\": \"gossip\",\n    \"key\": \"update\",\n    \"value\": {\n        \"add\": [\n" ) );
 
