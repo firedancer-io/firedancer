@@ -162,8 +162,7 @@ fd_vm_syscall_sol_log_compute_units( /**/            void *  _vm,
   ulong  msg_max = fd_vm_log_prepare_max( vm );
   ulong  msg_len;
 
-  /* FIXME: SHOULD THIS HAVE A NEWLINE? */
-  fd_cstr_printf( msg, msg_max, &msg_len, "Program consumption: %lu units remaining\n", vm->cu );
+  fd_cstr_printf( msg, msg_max, &msg_len, "Program consumption: %lu units remaining", vm->cu );
 
   fd_vm_log_publish( vm, msg_len );
 
