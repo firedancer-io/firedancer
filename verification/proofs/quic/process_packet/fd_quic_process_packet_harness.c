@@ -8,6 +8,9 @@
 
 /* Stub QUIC functions */
 
+static uchar * s_data0;
+static uchar * s_data1;
+
 fd_quic_conn_entry_t *
 fd_quic_conn_map_query( fd_quic_conn_map_t * map, fd_quic_conn_id_t * key ) {
   fd_quic_conn_entry_t * entry;
@@ -19,6 +22,8 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
                                 fd_quic_pkt_t * pkt,
                                 uchar *         cur_ptr,
                                 ulong           cur_sz ) {
+  assert( cur_ptr          >= s_data0 );
+  assert( cur_ptr + cur_sz <= s_data1 );
   __CPROVER_r_ok( cur_ptr, cur_sz );
   ulong rc;
   __CPROVER_assume( rc==FD_QUIC_PARSE_FAIL || rc<=cur_sz );
@@ -32,8 +37,11 @@ harness( void ) {
 
   /* Generate a random packet */
   ulong data_sz;
-  __CPROVER_assume( data_sz < 0x10000 );
+  __CPROVER_assume( data_sz <= 0x10000 );
   uchar data[data_sz];
+
+  s_data0 = data;
+  s_data1 = data + data_sz;
 
   /* Pass it to the user entrypoint */
   fd_quic_process_packet( quic, data, data_sz );
