@@ -338,8 +338,10 @@ static inline SET_(t) *
 SET_(insert)( SET_(t) * set,
               ulong     idx ) {
 #if FD_TMPL_USE_HANDHOLDING
-  if (SET_(is_full)( set )) FD_LOG_CRIT(("insert: set_dynamic is full"));
-  if (!SET_(valid_idx)( set, idx )) FD_LOG_CRIT(("insert: %lu is not in set_dynamic range (%lu)", idx, SET_(private_hdr_from_set_const)( set )->max));
+  if ( FD_UNLIKELY( SET_(is_full)( set ) ) )
+    FD_LOG_CRIT(("insert: set_dynamic is full"));
+  if ( FD_UNLIKELY( !SET_(valid_idx)( set, idx ) ) )
+    FD_LOG_CRIT(("insert: %lu is not in set_dynamic range (%lu)", idx, SET_(private_hdr_from_set_const)( set )->max));
 #endif
   set[ idx >> 6 ] |= 1UL << (idx & 63UL);
   return set;
@@ -349,8 +351,10 @@ static inline SET_(t) *
 SET_(remove)( SET_(t) * set,
               ulong     idx ) {
 #if FD_TMPL_USE_HANDHOLDING
-  if (SET_(is_null)( set )) FD_LOG_CRIT(("remove: set_dynamic is empty"));
-  if (!SET_(valid_idx)( set, idx )) FD_LOG_CRIT(("remove: %lu is not in set_dynamic range (%lu)", idx, SET_(private_hdr_from_set_const)( set )->max));
+  if ( FD_UNLIKELY( SET_(is_null)( set ) ) )
+    FD_LOG_CRIT(("remove: set_dynamic is empty"));
+  if ( FD_UNLIKELY( !SET_(valid_idx)( set, idx ) ) )
+    FD_LOG_CRIT(("remove: %lu is not in set_dynamic range (%lu)", idx, SET_(private_hdr_from_set_const)( set )->max));
 #endif
   set[ idx >> 6 ] &= ~(1UL << (idx & 63UL));
   return set;
@@ -362,8 +366,10 @@ SET_(insert_if)( SET_(t) * set,
                  ulong     idx ) {
 #if FD_TMPL_USE_HANDHOLDING
   if ((ulong)!!c) {
-    if (SET_(is_full)( set )) FD_LOG_CRIT(("insert_if: set_dynamic is full"));
-    if (!SET_(valid_idx)( set, idx )) FD_LOG_CRIT(("insert_if: %lu is not in set_dynamic range (%lu)", idx, SET_(private_hdr_from_set_const)( set )->max));
+    if ( FD_UNLIKELY( SET_(is_full)( set ) ) )
+      FD_LOG_CRIT(("insert_if: set_dynamic is full"));
+    if ( FD_UNLIKELY( !SET_(valid_idx)( set, idx ) ) )
+      FD_LOG_CRIT(("insert_if: %lu is not in set_dynamic range (%lu)", idx, SET_(private_hdr_from_set_const)( set )->max));
   }
 #endif
   set[ idx >> 6 ] |= ((ulong)!!c) << (idx & 63UL);
@@ -376,8 +382,10 @@ SET_(remove_if)( SET_(t) * set,
                  ulong     idx ) {
 #if FD_TMPL_USE_HANDHOLDING
   if ((ulong)!!c) {
-    if (SET_(is_null)( set )) FD_LOG_CRIT(("remove_if: set_dynamic is full"));
-    if (!SET_(valid_idx)( set, idx )) FD_LOG_CRIT(("remove_if: %lu is not in set_dynamic range (%lu)", idx, SET_(private_hdr_from_set_const)( set )->max));
+    if ( FD_UNLIKELY( SET_(is_null)( set ) ) )
+      FD_LOG_CRIT(("remove_if: set_dynamic is full"));
+    if ( FD_UNLIKELY( !SET_(valid_idx)( set, idx ) ) )
+      FD_LOG_CRIT(("remove_if: %lu is not in set_dynamic range (%lu)", idx, SET_(private_hdr_from_set_const)( set )->max));
   }
 #endif
   set[ idx >> 6 ] &= ~(((ulong)!!c) << (idx & 63UL));
@@ -388,7 +396,8 @@ FD_FN_PURE static inline int
 SET_(test)( SET_(t) const * set,
             ulong           idx ) {
 #if FD_TMPL_USE_HANDHOLDING
-  if (!SET_(valid_idx)( set, idx )) FD_LOG_CRIT(("test: %lu is not in set_dynamic range (%lu)", idx, SET_(private_hdr_from_set_const)( set )->max));
+  if ( FD_UNLIKELY( !SET_(valid_idx)( set, idx ) ) )
+    FD_LOG_CRIT(("test: %lu is not in set_dynamic range (%lu)", idx, SET_(private_hdr_from_set_const)( set )->max));
 #endif
   return (int)((set[ idx >> 6 ] >> (idx & 63UL)) & 1UL);
 }
@@ -398,7 +407,8 @@ SET_(eq)( SET_(t) const * x,
           SET_(t) const * y ) {
   ulong word_cnt = SET_(private_hdr_from_set_const)( x )->word_cnt;
 #if FD_TMPL_USE_HANDHOLDING
-  if (word_cnt != SET_(private_hdr_from_set_const)( y )->word_cnt) FD_LOG_CRIT(("eq: set_dynamics have different counts"));
+  if (FD_UNLIKELY(  word_cnt != SET_(private_hdr_from_set_const)( y )->word_cnt ) )
+    FD_LOG_CRIT(("eq: set_dynamics have different counts"));
 #endif
   for( ulong i=0UL; i<word_cnt; i++ ) if( x[i]!=y[i] ) return 0;
   return 1;
@@ -409,7 +419,8 @@ SET_(subset)( SET_(t) const * x,
               SET_(t) const * y ) {
   ulong word_cnt = SET_(private_hdr_from_set_const)( x )->word_cnt;
 #if FD_TMPL_USE_HANDHOLDING
-  if (word_cnt != SET_(private_hdr_from_set_const)( y )->word_cnt) FD_LOG_CRIT(("subset: set_dynamics have different counts"));
+  if ( FD_UNLIKELY( word_cnt != SET_(private_hdr_from_set_const)( y )->word_cnt ) )
+    FD_LOG_CRIT(("subset: set_dynamics have different counts"));
 #endif
   for( ulong i=0UL; i<word_cnt; i++ ) if( x[i]!=(y[i] & x[i]) ) return 0;
   return 1;
@@ -460,7 +471,8 @@ SET_(copy)( SET_(t) *       z,
             SET_(t) const * x ) {
   ulong word_cnt = SET_(private_hdr_from_set)( z )->word_cnt;
 #if FD_TMPL_USE_HANDHOLDING
-  if (word_cnt != SET_(private_hdr_from_set_const)( x )->word_cnt) FD_LOG_CRIT(("copy: set_dynamics have different counts"));
+  if ( FD_UNLIKELY( word_cnt != SET_(private_hdr_from_set_const)( x )->word_cnt ) )
+    FD_LOG_CRIT(("copy: set_dynamics have different counts"));
 #endif
   for( ulong i=0UL; i<word_cnt; i++ ) z[i] = x[i];
   return z;
@@ -472,7 +484,8 @@ SET_(complement)( SET_(t) *       z,
   SET_(private_t) * hdr = SET_(private_hdr_from_set)( z );
   ulong last_word = hdr->word_cnt - 1UL;
 #if FD_TMPL_USE_HANDHOLDING
-  if (hdr->word_cnt != SET_(private_hdr_from_set_const)( x )->word_cnt) FD_LOG_CRIT(("complement: set_dynamics have different counts"));
+  if ( FD_UNLIKELY( hdr->word_cnt != SET_(private_hdr_from_set_const)( x )->word_cnt ) )
+    FD_LOG_CRIT(("complement: set_dynamics have different counts"));
 #endif
   for( ulong i=0UL; i<last_word; i++ ) z[i] = ~x[i];
   z[last_word] = (~x[last_word]) & hdr->full_last_word;
@@ -485,8 +498,9 @@ SET_(union)( SET_(t) *       z,
              SET_(t) const * y ) {
   ulong word_cnt = SET_(private_hdr_from_set)( z )->word_cnt;
 #if FD_TMPL_USE_HANDHOLDING
-  if (word_cnt != SET_(private_hdr_from_set_const)( x )->word_cnt
-    || word_cnt != SET_(private_hdr_from_set_const)( y )->word_cnt) FD_LOG_CRIT(("union: set_dynamics have different counts"));
+  if ( FD_UNLIKELY( word_cnt != SET_(private_hdr_from_set_const)( x )->word_cnt
+    || word_cnt != SET_(private_hdr_from_set_const)( y )->word_cnt ) )
+    FD_LOG_CRIT(("union: set_dynamics have different counts"));
 #endif
   for( ulong i=0UL; i<word_cnt; i++ ) z[i] = x[i] | y[i];
   return z;
@@ -498,8 +512,9 @@ SET_(intersect)( SET_(t) *       z,
                  SET_(t) const * y ) {
   ulong word_cnt = SET_(private_hdr_from_set)( z )->word_cnt;
 #if FD_TMPL_USE_HANDHOLDING
-  if (word_cnt != SET_(private_hdr_from_set_const)( x )->word_cnt
-    || word_cnt != SET_(private_hdr_from_set_const)( y )->word_cnt) FD_LOG_CRIT(("intersect: set_dynamics have different counts"));
+  if ( FD_UNLIKELY( word_cnt != SET_(private_hdr_from_set_const)( x )->word_cnt
+    || word_cnt != SET_(private_hdr_from_set_const)( y )->word_cnt ) )
+    FD_LOG_CRIT(("intersect: set_dynamics have different counts"));
 #endif
   for( ulong i=0UL; i<word_cnt; i++ ) z[i] = x[i] & y[i];
   return z;
@@ -511,8 +526,9 @@ SET_(subtract)( SET_(t) *       z,
                 SET_(t) const * y ) {
   ulong word_cnt = SET_(private_hdr_from_set)( z )->word_cnt;
 #if FD_TMPL_USE_HANDHOLDING
-  if (word_cnt != SET_(private_hdr_from_set_const)( x )->word_cnt
-    || word_cnt != SET_(private_hdr_from_set_const)( y )->word_cnt) FD_LOG_CRIT(("subtract: set_dynamics have different counts"));
+  if ( FD_UNLIKELY( word_cnt != SET_(private_hdr_from_set_const)( x )->word_cnt
+    || word_cnt != SET_(private_hdr_from_set_const)( y )->word_cnt ) )
+    FD_LOG_CRIT(("subtract: set_dynamics have different counts"));
 #endif
   for( ulong i=0UL; i<word_cnt; i++ ) z[i] = x[i] & ~y[i];
   return z;
@@ -524,8 +540,9 @@ SET_(xor)( SET_(t) *       z,
            SET_(t) const * y ) {
   ulong word_cnt = SET_(private_hdr_from_set)( z )->word_cnt;
 #if FD_TMPL_USE_HANDHOLDING
-  if (word_cnt != SET_(private_hdr_from_set_const)( x )->word_cnt
-    || word_cnt != SET_(private_hdr_from_set_const)( y )->word_cnt) FD_LOG_CRIT(("xor: set_dynamics have different counts"));
+  if ( FD_UNLIKELY( word_cnt != SET_(private_hdr_from_set_const)( x )->word_cnt
+    || word_cnt != SET_(private_hdr_from_set_const)( y )->word_cnt ) )
+    FD_LOG_CRIT(("xor: set_dynamics have different counts"));
 #endif
   for( ulong i=0UL; i<word_cnt; i++ ) z[i] = x[i] ^ y[i];
   return z;

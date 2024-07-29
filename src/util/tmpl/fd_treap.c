@@ -540,7 +540,8 @@ TREAP_(ele_query)( TREAP_(t) const * treap,
                    TREAP_T *         pool ) {
   ulong i = TREAP_(idx_query)( treap, q, pool );
 #if FD_TMPL_USE_HANDHOLDING
-  if (TREAP_(ele_cnt)( treap ) == 0 && !TREAP_IDX_IS_NULL( i )) FD_LOG_CRIT(("ele_query: treap is empty"));
+  if ( FD_UNLIKELY( TREAP_(ele_cnt)( treap ) == 0 && !TREAP_IDX_IS_NULL( i ) ) )
+    FD_LOG_CRIT(("ele_query: treap is empty"));
 #endif
   return fd_ptr_if( !TREAP_IDX_IS_NULL( i ), pool + i, NULL );
 }
@@ -551,7 +552,8 @@ TREAP_(ele_query_const)( TREAP_(t) const * treap,
                          TREAP_T const *   pool ) {
   ulong i = TREAP_(idx_query)( treap, q, pool );
 #if FD_TMPL_USE_HANDHOLDING
-  if (TREAP_(ele_cnt)( treap ) == 0 && !TREAP_IDX_IS_NULL( i )) FD_LOG_CRIT(("ele_query_const: treap is empty"));
+  if ( FD_UNLIKELY( TREAP_(ele_cnt)( treap ) == 0 && !TREAP_IDX_IS_NULL( i ) ) )
+    FD_LOG_CRIT(("ele_query_const: treap is empty"));
 #endif
   return fd_ptr_if( !TREAP_IDX_IS_NULL( i ), pool + i, NULL );
 }
@@ -700,7 +702,8 @@ TREAP_(idx_insert)( TREAP_(t) * treap,
                     TREAP_T *   pool ) {
 
 #if FD_TMPL_USE_HANDHOLDING
-  if (TREAP_(ele_cnt)( treap ) + 1 > TREAP_(ele_max)( treap )) FD_LOG_CRIT(("idx_insert: treap is full"));
+  if ( FD_UNLIKELY( TREAP_(ele_cnt)( treap ) + 1 > TREAP_(ele_max)( treap ) ) )
+    FD_LOG_CRIT(("idx_insert: treap is full"));
 #endif
 
   /* Find leaf where to insert n */
@@ -790,7 +793,8 @@ TREAP_(idx_remove)( TREAP_(t) * treap,
                     ulong       d,
                     TREAP_T *   pool ) {
 #if FD_TMPL_USE_HANDHOLDING
-  if (TREAP_(ele_cnt)( treap ) == 0) FD_LOG_CRIT(("idx_remove: treap is empty"));
+  if ( FD_UNLIKELY( TREAP_(ele_cnt)( treap ) == 0 ) )
+    FD_LOG_CRIT(("idx_remove: treap is empty"));
 #endif
 
   /* Make a hole at d */

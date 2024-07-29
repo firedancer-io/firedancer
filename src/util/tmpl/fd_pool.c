@@ -341,7 +341,8 @@ FD_FN_CONST static inline ulong
 POOL_(idx)( POOL_T const * join,
             POOL_T const * ele ) {
 #if FD_TMPL_USE_HANDHOLDING
-  if ((ulong)(ele-join) > POOL_(private_meta_const)( join )->max) FD_LOG_CRIT(("idx: ele does not belong in pool"));
+  if ( FD_UNLIKELY( (ulong)(ele-join) > POOL_(private_meta_const)( join )->max ) )
+    FD_LOG_CRIT(("idx: ele does not belong in pool"));
 #endif
   return ele ? (ulong)(ele-join) : POOL_IDX_NULL;
 }
@@ -350,7 +351,8 @@ FD_FN_CONST static inline POOL_T *
 POOL_(ele)( POOL_T *   join,
             ulong      idx ) {
 #if FD_TMPL_USE_HANDHOLDING
-  if (idx > POOL_(private_meta_const)( join )->max) FD_LOG_CRIT(("ele: %lu not in pool max range", idx));
+  if ( FD_UNLIKELY( idx > POOL_(private_meta_const)( join )->max ) )
+    FD_LOG_CRIT(("ele: %lu not in pool max range", idx));
 #endif
   return (idx==POOL_IDX_NULL) ? NULL : (join + idx);
 }
@@ -359,7 +361,8 @@ FD_FN_CONST static inline POOL_T const *
 POOL_(ele_const)( POOL_T const *   join,
                   ulong            idx ) {
 #if FD_TMPL_USE_HANDHOLDING
-  if (idx > POOL_(private_meta_const)( join )->max) FD_LOG_CRIT(("ele_const: %lu not in pool max range", idx));
+  if ( FD_UNLIKELY( idx > POOL_(private_meta_const)( join )->max ) )
+    FD_LOG_CRIT(("ele_const: %lu not in pool max range", idx));
 #endif
   return (idx==POOL_IDX_NULL) ? NULL : (join + idx);
 }
@@ -381,7 +384,8 @@ static inline ulong
 POOL_(idx_acquire)( POOL_T * join ) {
   POOL_(private_t) * meta = POOL_(private_meta)( join );
 #if FD_TMPL_USE_HANDHOLDING
-  if (!POOL_(free)( join )) FD_LOG_CRIT(("idx_acquire: pool is full"));
+  if ( FD_UNLIKELY( !POOL_(free)( join ) ) )
+    FD_LOG_CRIT(("idx_acquire: pool is full"));
 #endif
   ulong idx = meta->free_top;
   meta->free_top = (ulong)join[ idx ].POOL_NEXT;
@@ -394,7 +398,8 @@ POOL_(idx_release)( POOL_T * join,
                     ulong    idx ) {
   POOL_(private_t) * meta = POOL_(private_meta)( join );
 #if FD_TMPL_USE_HANDHOLDING
-  if (POOL_(free)( join ) > POOL_(max)( join )) FD_LOG_CRIT(("idx_release: pool is empty"));
+  if ( FD_UNLIKELY( POOL_(free)( join ) > POOL_(max)( join ) ) )
+    FD_LOG_CRIT(("idx_release: pool is empty"));
 #endif
   join[ idx ].POOL_NEXT = (POOL_IDX_T)meta->free_top;
   meta->free_top = idx;
