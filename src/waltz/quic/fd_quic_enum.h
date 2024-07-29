@@ -91,6 +91,9 @@
 #define FD_QUIC_PKT_TYPE_ZERO_RTT  2
 #define FD_QUIC_PKT_TYPE_ONE_RTT   3
 
+/* FD_QUIC_PKT_COALESCE_LIMIT controls how many QUIC long packets are
+   handled in the same datagram. */
+#define FD_QUIC_PKT_COALESCE_LIMIT (4)
 
 #endif
 
