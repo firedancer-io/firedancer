@@ -589,7 +589,11 @@ fd_double_eq( double x,
    cases need to be wrapped in a fd_type_pun.  In short, mixing pointer
    types between t and f is strongly discouraged. */
 
+#if FD_HAS_UBSAN
+#define fd_ptr_if(c,t,f) ((__typeof__((t)))( (c) ? (ulong)(t) : (ulong)(f) ))
+#else
 #define fd_ptr_if(c,t,f) ((__typeof__((t)))fd_ulong_if( (c), (ulong)(t), (ulong)(f) ))
+#endif
 
 /* FD_ULONG_{MASK_LSB,MASK_MSB,ALIGN_UP} are the same as
    fd_ulong_{mask_lsb,mask_msb,align_up} but can be used at compile
