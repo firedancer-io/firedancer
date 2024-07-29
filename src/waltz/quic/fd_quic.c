@@ -2846,7 +2846,8 @@ fd_quic_process_packet( fd_quic_t * quic,
   }
 
   /* sanity check udp length */
-  if( FD_UNLIKELY( pkt.udp->net_len > cur_sz ) ) {
+  if( FD_UNLIKELY( pkt.udp->net_len < sizeof(fd_udp_hdr_t) ||
+                   pkt.udp->net_len > cur_sz ) ) {
     return;
   }
 
@@ -2911,7 +2912,8 @@ fd_quic_process_packet( fd_quic_t * quic,
 
     /* multiple QUIC packets in a UDP packet */
     /* shortest valid quic payload? */
-    while(1) {
+    ulong pkt_idx;
+    for( pkt_idx=0UL; pkt_idx<FD_QUIC_PKT_COALESCE_LIMIT; pkt_idx++ ) {
       /* Are we done? Omit short packet handling that follows */
       if( FD_UNLIKELY( cur_sz < FD_QUIC_SHORTEST_PKT ) ) return;
 
@@ -2959,6 +2961,10 @@ fd_quic_process_packet( fd_quic_t * quic,
       /* return code (rc) is the number of bytes consumed */
       cur_sz  -= rc;
       cur_ptr += rc;
+    }
+    if( pkt_idx==FD_QUIC_PKT_COALESCE_LIMIT ) {
+      /* too many packets in a single udp datagram */
+      return;
     }
   }
 
