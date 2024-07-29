@@ -4,19 +4,23 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/mount.h>
+#include <linux/capability.h>
 
 static void
 init_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   (void)config;
-  fd_caps_check_root( caps, "hugetlbfs", "increase `/proc/sys/vm/nr_hugepages` and mount hugetblfs filesystems" );
+  fd_caps_check_root( caps, "hugetlbfs", "increase `/proc/sys/vm/nr_hugepages`" );
+  fd_caps_check_capability( caps, "hugetlbfs", CAP_SYS_ADMIN, "mount hugetlbfs filesystems" );
 }
 
 static void
 fini_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   (void)config;
-  fd_caps_check_root( caps, "hugetlbfs", "remove directories from `/mnt`, unmount hugetlbfs" );
+  fd_caps_check_root( caps, "hugetlbfs", "remove directories from `/mnt`" );
+  fd_caps_check_capability( caps, "hugetlbfs", CAP_SYS_ADMIN, "unmount hugetlbfs filesystems" );
+
 }
 
 void
