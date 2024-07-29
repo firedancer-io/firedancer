@@ -1340,10 +1340,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
          with in the future (via dest conn ID). */
 
       fd_quic_conn_id_t new_conn_id;
-      if( FD_UNLIKELY( !fd_quic_conn_id_rand( &new_conn_id ) ) ) {
-        FD_LOG_DEBUG(( "fd_quic_conn_id_rand failed" ));
-        return FD_QUIC_PARSE_FAIL;
-      }
+      fd_quic_conn_id_rand( &new_conn_id, state->_rng );
 
       /* Save peer's conn ID, which we will use to address peer with. */
 
@@ -4920,15 +4917,14 @@ fd_quic_connect( fd_quic_t *  quic,
   fd_quic_state_t * state = fd_quic_get_state( quic );
   state->now = fd_quic_now( quic );
 
+  fd_rng_t * rng = state->_rng;
+
   /* create conn ids for us and them
      client creates connection id for the peer, peer immediately replaces it */
   fd_quic_conn_id_t our_conn_id;
   fd_quic_conn_id_t peer_conn_id;
-  if( FD_UNLIKELY( !fd_quic_conn_id_rand( &peer_conn_id ) ||
-                   !fd_quic_conn_id_rand( &our_conn_id  ) ) ) {
-    FD_LOG_DEBUG(( "fd_rng_secure failed" ));
-    return NULL;
-  }
+  fd_quic_conn_id_rand( &peer_conn_id, rng );
+  fd_quic_conn_id_rand( &our_conn_id,  rng );
 
   fd_quic_conn_t * conn = fd_quic_conn_create(
       quic,
