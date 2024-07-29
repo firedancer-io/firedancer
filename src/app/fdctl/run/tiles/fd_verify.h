@@ -38,6 +38,8 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  ulong       hashmap_seed;
 } fd_verify_ctx_t;
 
 static inline int

@@ -232,9 +232,9 @@ unprivileged_init( fd_topo_t *      topo,
     c1100_verify_packet_ed25519( ctx->c1100, 0, size );
     c1100_verify_packet_ed25519( ctx->c1100, 2048, size );
 
-    FD_LOG_NOTICE(( "results %x", c1100_verify_backpressure( ctx->c1100 ) ));
-    FD_LOG_NOTICE(( "results %x", c1100_verify_deserializer( ctx->c1100 ) ));
-    sleep( 1 );
+    for( uint bp=c1100_verify_backpressure( ctx->c1100 ); bp != 0; bp=c1100_verify_backpressure( ctx->c1100 ) ) {
+      FD_LOG_NOTICE(( "results %x", bp ));
+    }
     FD_LOG_NOTICE(( "results %x", c1100_verify_backpressure( ctx->c1100 ) ));
     FD_LOG_NOTICE(( "results %x", c1100_verify_deserializer( ctx->c1100 ) ));
   }

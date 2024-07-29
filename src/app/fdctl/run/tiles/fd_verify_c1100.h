@@ -43,7 +43,13 @@ typedef struct {
   C1100  c1100[1];
   void * buf;
   ulong  dma_addr;
+  uchar * ibuf;
+
 } fd_verify_ctx_t;
+
+#define BUF_ELE_SZ 2112
+FD_STATIC_ASSERT( BUF_ELE_SZ >= FD_TPU_DCACHE_MTU, intermediate_buffer_sz_check );
+FD_STATIC_ASSERT( BUF_ELE_SZ % 32 == 0, intermediate_buffer_align_check );
 
 #define FD_VERIFY_DEDUP_TAG_FROM_PAYLOAD_SIG(payload_sig_p) FD_LOAD( ulong, (payload_sig_p) )
 
