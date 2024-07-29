@@ -680,12 +680,13 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   // Override default values if provided
   if( slot_ctx->sysvar_cache->has_epoch_schedule ) {
     epoch_bank->epoch_schedule = *slot_ctx->sysvar_cache->val_epoch_schedule;
-    fd_sysvar_epoch_schedule_init( slot_ctx );
   }
   if( slot_ctx->sysvar_cache->has_rent ) {
     epoch_bank->rent = *slot_ctx->sysvar_cache->val_rent;
-    fd_sysvar_rent_init( slot_ctx );
   }
+
+  fd_sysvar_epoch_schedule_init( slot_ctx );
+  fd_sysvar_rent_init( slot_ctx );
 
   /* Restore sysvar cache (again, since we may need to provide default sysvars) */
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
@@ -847,7 +848,10 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   /* Set up txn descriptor from raw data */
   fd_txn_t * txn_descriptor = (fd_txn_t *) fd_scratch_alloc( fd_txn_align(), fd_txn_footprint( instr_count, addr_table_cnt ) );
   ushort txn_raw_sz = (ushort) (txn_raw_cur_ptr - txn_raw_begin);
-  fd_txn_parse( txn_raw_begin, txn_raw_sz, txn_descriptor, NULL );
+  if( !fd_txn_parse( txn_raw_begin, txn_raw_sz, txn_descriptor, NULL ) ) {
+    FD_LOG_WARNING(("could not parse txn descriptor"));
+    return 0;
+  }
 
   /* Set up txn_raw */
   fd_rawtxn_b_t raw_txn[1] = {{.raw = txn_raw_begin, .txn_sz = txn_raw_sz}};
