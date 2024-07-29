@@ -79,10 +79,16 @@ send_udp_packet( fd_quic_t *   quic,
 
   fd_eth_hdr_t eth = { .net_type = FD_ETH_HDR_TYPE_IP };
   fd_ip4_hdr_t ip4 = {
-    .verihl   = FD_IP4_VERIHL(4,5),
-    .protocol = FD_IP4_HDR_PROTOCOL_UDP,
+    .verihl      = FD_IP4_VERIHL(4,5),
+    .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
+    .net_tot_len = (ushort)( sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)+size ),
   };
-  fd_udp_hdr_t udp = {0};
+  fd_udp_hdr_t udp = {
+    .net_sport = 8000,
+    .net_dport = 8001,
+    .net_len   = (ushort)( sizeof(fd_udp_hdr_t)+size ),
+    .check     = 0
+  };
 
   /* Guaranteed to not overflow */
   fd_quic_encode_eth( cur, (ulong)( end-cur ), &eth ); cur += sizeof(fd_eth_hdr_t);
