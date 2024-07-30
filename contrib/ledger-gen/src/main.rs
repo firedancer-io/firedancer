@@ -20,6 +20,7 @@ mod utils;
 
 mod bpf_loader;
 mod nonce;
+mod stake;
 
 /// Workflow for Creating Ledgers
 /// * Set up all buffer accounts
@@ -53,5 +54,6 @@ fn main() {
     let account_data = vec![0u8; 4];
 
     // ----------------------- ONLY CHANGE BELOW THIS LINE -----------------------
-    ledgers::bpf_loader_ledger(&rpc_client, &arc_client, &payer, &program_data, &account_data);
+    // ledgers::bpf_loader_ledger(&rpc_client, &arc_client, &payer, &program_data, &account_data);
+    ledgers::stake_ledger(&rpc_client, &payer);
 }

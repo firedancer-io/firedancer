@@ -2993,6 +2993,8 @@ union fd_stake_instruction_inner {
   fd_stake_instruction_authorize_t authorize;
   ulong split;
   ulong withdraw;
+  ulong move_stake;
+  ulong move_lamports;
   fd_lockup_args_t set_lockup;
   fd_authorize_with_seed_args_t authorize_with_seed;
   fd_stake_authorize_t authorize_checked;
@@ -6311,7 +6313,8 @@ FD_FN_PURE uchar fd_stake_instruction_is_authorize_checked_with_seed( fd_stake_i
 FD_FN_PURE uchar fd_stake_instruction_is_set_lockup_checked( fd_stake_instruction_t const * self );
 FD_FN_PURE uchar fd_stake_instruction_is_get_minimum_delegation( fd_stake_instruction_t const * self );
 FD_FN_PURE uchar fd_stake_instruction_is_deactivate_delinquent( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_redelegate( fd_stake_instruction_t const * self );
+FD_FN_PURE uchar fd_stake_instruction_is_move_stake( fd_stake_instruction_t const * self );
+FD_FN_PURE uchar fd_stake_instruction_is_move_lamports( fd_stake_instruction_t const * self );
 enum {
 fd_stake_instruction_enum_initialize = 0,
 fd_stake_instruction_enum_authorize = 1,
@@ -6329,6 +6332,8 @@ fd_stake_instruction_enum_set_lockup_checked = 12,
 fd_stake_instruction_enum_get_minimum_delegation = 13,
 fd_stake_instruction_enum_deactivate_delinquent = 14,
 fd_stake_instruction_enum_redelegate = 15,
+fd_stake_instruction_enum_move_stake = 16,
+fd_stake_instruction_enum_move_lamports = 17,
 }; 
 void fd_stake_meta_new( fd_stake_meta_t * self );
 int fd_stake_meta_decode( fd_stake_meta_t * self, fd_bincode_decode_ctx_t * ctx );

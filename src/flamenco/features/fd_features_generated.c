@@ -1131,6 +1131,11 @@ fd_feature_id_t const ids[] = {
                   /* zkhiy5oLowR7HY4zogXjCjeMXyruLqBwSWH21qcFtnv */
     .name       = "zk_elgamal_proof_program_enabled" },
 
+  { .index      = offsetof(fd_features_t, move_stake_and_move_lamports_ixs)>>3,
+    .id         = {"\x61\xf9\x9e\xbb\xb5\x47\x90\x0b\xb6\x5d\x66\x44\xb8\x45\xca\x36\xc5\xaf\x9f\x6f\xe1\x6d\x73\x7e\x83\x64\xb5\x59\x1c\x46\x2b\x63"},
+                  /* 7bTK6Jis8Xpfrs8ZoUfiMDPazTcdPcTWheZFJTA5Z6X4 */
+    .name       = "move_stake_and_move_lamports_ixs" },
+
   { .index = ULONG_MAX }
 };
 
@@ -1342,6 +1347,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0xafe148ad652172dd: return &ids[ 197 ];
   case 0x91a7af96555ea309: return &ids[ 198 ];
   case 0x8e1411a93085cb0e: return &ids[ 199 ];
+  case 0x0b9047b5bb9ef961: return &ids[ 200 ];
   default: break;
   }
 
@@ -1550,5 +1556,6 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, simplify_alt_bn128_syscall_error_code
 FD_STATIC_ASSERT( offsetof( fd_features_t, abort_on_invalid_curve                                  )>>3==197UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, ed25519_precompile_verify_strict                        )>>3==198UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, zk_elgamal_proof_program_enabled                        )>>3==199UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, move_stake_and_move_lamports_ixs                        )>>3==200UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
