@@ -745,7 +745,7 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   }
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
-  uchar * txn_raw_begin = fd_scratch_alloc( alignof(uchar), FD_TXN_MTU );
+  uchar * txn_raw_begin = fd_scratch_alloc( alignof(uchar), 10000 ); // max txn size is 1232 but we allocate extra for safety
   uchar * txn_raw_cur_ptr = txn_raw_begin;
 
   /* Compact array of signatures (https://solana.com/docs/core/transactions#transaction)
