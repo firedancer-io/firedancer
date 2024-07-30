@@ -804,14 +804,13 @@ after_frag( void *             _ctx,
         FD_LOG_INFO(( "NOT publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", ctx->curr_slot, ctx->parent_slot, ctx->flags ));
       }
 
+      fd_ghost_slot_print( ctx->ghost, child->slot, 12 );
+      // fd_ghost_print( ctx->ghost );
+      fd_tower_print( ctx->tower );
       fd_fork_t const * vote_fork = fd_tower_vote_fork_select( ctx->tower,
                                                                ctx->forks,
                                                                ctx->acc_mgr,
                                                                ctx->ghost );
-
-      // fd_ghost_print( ctx->ghost );
-      fd_ghost_slot_print( ctx->ghost, child->slot, 8 );
-      fd_tower_print( ctx->tower );
 
       FD_LOG_NOTICE( ( "\n\n[Fork Selection]\n"
                        "# of vote accounts: %lu\n"
