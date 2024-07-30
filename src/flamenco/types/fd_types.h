@@ -342,7 +342,7 @@ typedef struct fd_stake_history_entry_off fd_stake_history_entry_off_t;
 #define FD_STAKE_HISTORY_ENTRY_OFF_FOOTPRINT sizeof(fd_stake_history_entry_off_t)
 #define FD_STAKE_HISTORY_ENTRY_OFF_ALIGN (8UL)
 
-#define FD_STAKE_HISTORY_MIN 512
+#define FD_STAKE_HISTORY_MIN 513
 #define POOL_NAME fd_stake_history_pool
 #define POOL_T fd_stake_history_entry_t
 #define POOL_NEXT parent
@@ -1609,10 +1609,10 @@ struct __attribute__((aligned(8UL))) fd_vote_state_0_23_5 {
   fd_vote_prior_voters_0_23_5_t prior_voters;
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
-  fd_vote_lockout_t * votes; /* fd_deque_dynamic (min cnt 32) */
+  fd_vote_lockout_t * votes; /* fd_deque_dynamic (min cnt 33) */
   ulong root_slot;
   uchar has_root_slot;
-  fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (min cnt 64) */
+  fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (min cnt 65) */
   fd_vote_block_timestamp_t last_timestamp;
 };
 typedef struct fd_vote_state_0_23_5 fd_vote_state_0_23_5_t;
@@ -1635,7 +1635,7 @@ typedef struct fd_vote_state_0_23_5_off fd_vote_state_0_23_5_off_t;
 #define FD_VOTE_STATE_0_23_5_OFF_FOOTPRINT sizeof(fd_vote_state_0_23_5_off_t)
 #define FD_VOTE_STATE_0_23_5_OFF_ALIGN (8UL)
 
-#define FD_VOTE_AUTHORIZED_VOTERS_MIN 64
+#define FD_VOTE_AUTHORIZED_VOTERS_MIN 65
 #define POOL_NAME fd_vote_authorized_voters_pool
 #define POOL_T fd_vote_authorized_voter_t
 #define POOL_NEXT parent
@@ -1687,12 +1687,12 @@ struct __attribute__((aligned(8UL))) fd_vote_state_1_14_11 {
   fd_pubkey_t node_pubkey;
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
-  fd_vote_lockout_t * votes; /* fd_deque_dynamic (min cnt 32) */
+  fd_vote_lockout_t * votes; /* fd_deque_dynamic (min cnt 33) */
   ulong root_slot;
   uchar has_root_slot;
   fd_vote_authorized_voters_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
-  fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (min cnt 64) */
+  fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (min cnt 65) */
   fd_vote_block_timestamp_t last_timestamp;
 };
 typedef struct fd_vote_state_1_14_11 fd_vote_state_1_14_11_t;
@@ -1732,12 +1732,12 @@ struct __attribute__((aligned(8UL))) fd_vote_state {
   fd_pubkey_t node_pubkey;
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
-  fd_landed_vote_t * votes; /* fd_deque_dynamic (min cnt 32) */
+  fd_landed_vote_t * votes; /* fd_deque_dynamic (min cnt 33) */
   ulong root_slot;
   uchar has_root_slot;
   fd_vote_authorized_voters_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
-  fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (min cnt 64) */
+  fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (min cnt 65) */
   fd_vote_block_timestamp_t last_timestamp;
 };
 typedef struct fd_vote_state fd_vote_state_t;
@@ -1794,7 +1794,7 @@ typedef struct fd_vote_state_versioned_off fd_vote_state_versioned_off_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_vote_state_update {
-  fd_vote_lockout_t * lockouts; /* fd_deque_dynamic (min cnt 32) */
+  fd_vote_lockout_t * lockouts; /* fd_deque_dynamic (min cnt 33) */
   ulong root;
   uchar has_root;
   fd_hash_t hash;
@@ -1870,7 +1870,7 @@ deq_fd_lockout_offset_t_alloc( fd_valloc_t valloc, ulong max ) {
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_compact_tower_sync {
   ulong root;
-  fd_lockout_offset_t * lockout_offsets; /* fd_deque_dynamic (min cnt 32) */
+  fd_lockout_offset_t * lockout_offsets; /* fd_deque_dynamic (min cnt 33) */
   fd_hash_t hash;
   long timestamp;
   uchar has_timestamp;
@@ -2021,7 +2021,7 @@ deq_fd_slot_hash_t_alloc( fd_valloc_t valloc, ulong max ) {
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L31 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_slot_hashes {
-  fd_slot_hash_t * hashes; /* fd_deque_dynamic (min cnt 512) */
+  fd_slot_hash_t * hashes; /* fd_deque_dynamic (min cnt 513) */
 };
 typedef struct fd_slot_hashes fd_slot_hashes_t;
 #define FD_SLOT_HASHES_FOOTPRINT sizeof(fd_slot_hashes_t)
@@ -2065,7 +2065,7 @@ deq_fd_block_block_hash_entry_t_alloc( fd_valloc_t valloc, ulong max ) {
 }
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_recent_block_hashes {
-  fd_block_block_hash_entry_t * hashes; /* fd_deque_dynamic (min cnt 151) */
+  fd_block_block_hash_entry_t * hashes; /* fd_deque_dynamic (min cnt 152) */
 };
 typedef struct fd_recent_block_hashes fd_recent_block_hashes_t;
 #define FD_RECENT_BLOCK_HASHES_FOOTPRINT sizeof(fd_recent_block_hashes_t)
