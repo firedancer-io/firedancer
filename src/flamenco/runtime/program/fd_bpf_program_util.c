@@ -230,9 +230,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
   /* Use random-ish xid to avoid concurrency issues */
   fd_funk_txn_xid_t cache_xid;
   cache_xid.ul[0] = fd_log_cpu_id() + 1;
-  cache_xid.ul[1] = fd_log_cpu_id() + 1;
-  cache_xid.ul[2] = fd_log_app_id() + 1;
-  cache_xid.ul[3] = fd_log_thread_id() + 1;
+  cache_xid.ul[1] = fd_log_thread_id() + 1;
 
   fd_funk_txn_t * cache_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
   if( !cache_txn ) {
@@ -242,12 +240,12 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
 
   fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
   slot_ctx->funk_txn = cache_txn;
-  
+
   fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, funk_txn );
   while( rec!=NULL ) {
     FD_SCRATCH_SCOPE_BEGIN {
       fd_funk_rec_t const * * recs = fd_scratch_alloc( alignof(fd_funk_rec_t const *), 65536UL * sizeof(fd_funk_rec_t const *) );
-      uchar * is_bpf_program = fd_scratch_alloc( 8UL, 65536UL * sizeof(uchar) );      
+      uchar * is_bpf_program = fd_scratch_alloc( 8UL, 65536UL * sizeof(uchar) );
 
       /* Make a list of rec ptrs to process */
       ulong rec_cnt = 0;
@@ -274,7 +272,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
           cached_cnt++;
         }
       }
-      
+
     } FD_SCRATCH_SCOPE_END;
   }
 
@@ -301,9 +299,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
   /* Use random-ish xid to avoid concurrency issues */
   fd_funk_txn_xid_t cache_xid;
   cache_xid.ul[0] = fd_log_cpu_id() + 1;
-  cache_xid.ul[1] = fd_log_cpu_id() + 1;
-  cache_xid.ul[2] = fd_log_app_id() + 1;
-  cache_xid.ul[3] = fd_log_thread_id() + 1;
+  cache_xid.ul[1] = fd_log_thread_id() + 1;
 
   fd_funk_txn_t * cache_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
   if( !cache_txn ) {
@@ -343,7 +339,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 
 int
 fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                                 fd_funk_txn_t *      funk_txn, 
+                                                 fd_funk_txn_t *      funk_txn,
                                                  fd_pubkey_t const *  pubkey ) {
   FD_BORROWED_ACCOUNT_DECL(exec_rec);
   if( fd_acc_mgr_view( slot_ctx->acc_mgr, funk_txn, pubkey, exec_rec ) != FD_ACC_MGR_SUCCESS ) {

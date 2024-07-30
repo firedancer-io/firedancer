@@ -126,7 +126,7 @@ _txn_collect_rent( fd_exec_txn_ctx_t * txn_ctx ) {
 
   ulong slot = slot_ctx->slot_bank.slot;
   ulong epoch = fd_slot_to_epoch(schedule, slot, NULL);
-  
+
   for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
     FD_BORROWED_ACCOUNT_DECL(acc);
 
@@ -182,7 +182,7 @@ _load_account( fd_borrowed_account_t *           acc,
 
 int
 _restore_feature_flags( fd_exec_epoch_ctx_t *              epoch_ctx,
-                        fd_exec_test_feature_set_t const * feature_set ) { 
+                        fd_exec_test_feature_set_t const * feature_set ) {
   fd_features_disable_all( &epoch_ctx->features );
   for( ulong j=0UL; j < feature_set->features_count; j++ ) {
     ulong                   prefix = feature_set->features[j];
@@ -212,10 +212,8 @@ _instr_context_create( fd_exec_instr_test_runner_t *        runner,
   static FD_TL ulong xid_seq = 0UL;
 
   fd_funk_txn_xid_t xid[1] = {0};
-  xid->ul[0] = fd_log_app_id();
-  xid->ul[1] = fd_log_thread_id();
-  xid->ul[2] = xid_seq++;
-  xid->ul[3] = (ulong)fd_tickcount();
+  xid->ul[0] = xid_seq++;
+  xid->ul[1] = (ulong)fd_tickcount();
 
   /* Create temporary funk transaction and scratch contexts */
 
@@ -299,7 +297,7 @@ _instr_context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->vote_accounts_pool      = NULL;
   txn_ctx->accounts_resize_delta   = 0;
 
-  txn_ctx->instr_info_pool         = fd_instr_info_pool_join( fd_instr_info_pool_new( 
+  txn_ctx->instr_info_pool         = fd_instr_info_pool_join( fd_instr_info_pool_new(
     fd_valloc_malloc( fd_scratch_virtual(), fd_instr_info_pool_align( ), fd_instr_info_pool_footprint( FD_MAX_INSTRUCTION_TRACE_LENGTH ) ),
     FD_MAX_INSTRUCTION_TRACE_LENGTH
   ) );
@@ -379,7 +377,7 @@ _instr_context_create( fd_exec_instr_test_runner_t *        runner,
       borrowed_accts[i].starting_dlen     = 0UL;
       continue;
     }
-    
+
     if( meta->info.executable ) {
       FD_BORROWED_ACCOUNT_DECL(owner_borrowed_account);
       int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t *)meta->info.owner, owner_borrowed_account );
@@ -580,10 +578,8 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   static FD_TL ulong xid_seq = 0UL;
 
   fd_funk_txn_xid_t xid[1] = {0};
-  xid->ul[0] = fd_log_app_id();
-  xid->ul[1] = fd_log_thread_id();
-  xid->ul[2] = xid_seq++;
-  xid->ul[3] = (ulong)fd_tickcount();
+  xid->ul[0] = xid_seq++;
+  xid->ul[1] = (ulong)fd_tickcount();
 
   /* Create temporary funk transaction and scratch contexts */
 
@@ -620,7 +616,7 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
 
   /* Restore slot bank */
   fd_slot_bank_new( &slot_ctx->slot_bank );
-  
+
   /* Initialize builtin accounts */
   fd_builtin_programs_init( slot_ctx );
 
@@ -708,7 +704,7 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
      - sysvar_cache_recent_block_hashes
      - slot_ctx->slot_bank.recent_block_hashes */
   ulong num_blockhashes = test_ctx->blockhash_queue_count;
-  
+
   /* Recent blockhashes init */
   fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( fd_scratch_virtual(), FD_SYSVAR_RECENT_HASHES_CAP );
 
@@ -736,7 +732,7 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   // Blockhash_queue[0] = genesis hash
   if( num_blockhashes > 0 ) {
     memcpy( &epoch_bank->genesis_hash, test_ctx->blockhash_queue[0]->bytes, sizeof(fd_hash_t) );
-    
+
     for( ulong i = 0; i < num_blockhashes; ++i ) {
       // Recent block hashes cap is 150 (actually 151), while blockhash queue capacity is 300 (actually 301)
       fd_block_block_hash_entry_t blockhash_entry;
@@ -756,7 +752,7 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   uchar * txn_raw_begin = fd_scratch_alloc( alignof(uchar), FD_TXN_MTU );
   uchar * txn_raw_cur_ptr = txn_raw_begin;
 
-  /* Compact array of signatures (https://solana.com/docs/core/transactions#transaction) 
+  /* Compact array of signatures (https://solana.com/docs/core/transactions#transaction)
      Note that although documentation interchangably refers to the signature cnt as a compact-u16
      and a u8, the max signature cnt is capped at 48 (due to txn size limits), so u8 and compact-u16
      is represented the same way anyways and can be parsed identically. */
@@ -1229,7 +1225,7 @@ lookup_syscall_func( fd_sbpf_syscalls_t *syscalls,
       }
     }
   }
-  
+
   return NULL;
 }
 
@@ -1435,7 +1431,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
     txn_result->resulting_state.acct_states_count = 0;
 
     // TODO: txn_result->resulting_state->rent_debits
-    
+
     /* Capture borrowed accounts */
 
     for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
@@ -1512,17 +1508,17 @@ fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * run
   if ( FD_UNLIKELY( !input->has_elf || !input->elf.data ) ){
     return 0UL;
   }
-  
+
   ulong elf_sz = input->elf_sz;
   void const * _bin;
 
   /* elf_sz will be passed as arguments to elf loader functions.
      pb decoder allocates memory for elf.data based on its actual size,
-     not elf_sz !. 
+     not elf_sz !.
      If elf_sz is larger than the size of actual elf data, this may result
      in out-of-bounds accesses which will upset ASAN (however intentional).
-     So in this case we just copy the data into a memory region of elf_sz bytes 
-     
+     So in this case we just copy the data into a memory region of elf_sz bytes
+
      ! The decoupling of elf_sz and the actual binary size is intentional to test
       underflow/overflow behavior */
   if ( elf_sz > input->elf.data->size ){
@@ -1549,9 +1545,9 @@ fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * run
   }
   fd_memset( elf_effects, 0, sizeof(fd_exec_test_elf_loader_effects_t) );
 
-  /* wrap the loader code in do-while(0) block so that we can exit 
+  /* wrap the loader code in do-while(0) block so that we can exit
      immediately if execution fails at any point */
-     
+
   do{
 
     if( FD_UNLIKELY( !fd_sbpf_elf_peek( &info, _bin, elf_sz, input->deploy_checks ) ) ) {

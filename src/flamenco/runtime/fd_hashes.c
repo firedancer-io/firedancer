@@ -905,7 +905,7 @@ fd_accounts_sorted_subrange( fd_exec_slot_ctx_t * slot_ctx, uint range_idx, uint
     fd_funk_rec_t const * rec = rec_map + (i-1UL);
     if ( ( rec->map_next >> 63 ) /* unused map entry */ ||
          !fd_funk_key_is_acc( rec->pair.key ) /* not a solana record */ ||
-         ( rec->pair.xid->ul[0] | rec->pair.xid->ul[1] | rec->pair.xid->ul[2] | rec->pair.xid->ul[3] ) != 0 /* not root xid */ ) {
+         ( rec->pair.xid->ul[0] | rec->pair.xid->ul[1] ) != 0 /* not root xid */ ) {
       continue;
     }
 

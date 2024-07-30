@@ -17,14 +17,8 @@ FD_STATIC_ASSERT( FD_FUNK_TXN_IDX_NULL==(ulong)UINT_MAX, unit_test );
 static fd_funk_txn_xid_t *
 fd_funk_txn_xid_set_unique( fd_funk_txn_xid_t * xid ) {
   static FD_TL ulong tag = 0UL;
-  xid->ul[0] = fd_log_app_id();
+  xid->ul[0] = tag++;
   xid->ul[1] = fd_log_thread_id();
-  xid->ul[2] = ++tag;
-# if FD_HAS_X86
-  xid->ul[3] = (ulong)fd_tickcount();
-# else
-  xid->ul[3] = 0UL;
-# endif
   return xid;
 }
 
