@@ -6,7 +6,7 @@
 
 /* FEATURE_ID_CNT is the number of features in ids */
 
-#define FD_FEATURE_ID_CNT (200UL)
+#define FD_FEATURE_ID_CNT (199UL)
 
 union fd_features {
 
@@ -75,7 +75,6 @@ union fd_features {
     /* 0xffed385aa352ef27 */ ulong filter_votes_outside_slot_hashes;
     /* 0x06adecee02a12019 */ ulong update_syscall_base_costs;
     /* 0xd79987a3abf61d2d */ ulong stake_deactivate_delinquent_instruction;
-    /* 0xd56fc1708dc98c13 */ ulong stake_redelegate_instruction;
     /* 0x317a863da11d0a8d */ ulong vote_withdraw_authority_may_change_authorized_voter;
     /* 0x96ac475392d395d8 */ ulong spl_associated_token_account_v1_0_4;
     /* 0x9479e273205da38a */ ulong reject_vote_account_close_unless_zero_credit_epoch;

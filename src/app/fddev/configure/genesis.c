@@ -28,7 +28,6 @@ default_enable_features( fd_features_t * features ) {
   features->commission_updates_only_allowed_in_first_half_of_epoch = 0UL;
   features->validate_fee_collector_account = 0UL;
   features->incremental_snapshot_only_incremental_hash_calculation = 0UL;
-  features->stake_redelegate_instruction = 0UL;
   features->timely_vote_credits = 0UL;
   features->apply_cost_tracker_during_replay = 0UL;
   features->reject_callx_r10 = 0UL;
