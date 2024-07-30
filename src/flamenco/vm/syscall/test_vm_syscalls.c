@@ -368,7 +368,7 @@ main( int     argc,
 
   FD_TEST( fd_vm_log_reset( vm )==vm ); expected_log_sz = 0UL;
 
-  APPEND( "hello world", 11UL );
+  APPEND( "Program log: hello world", 24UL );
   memcpy( &vm->heap[0], "hello world", 11 );
   // test for collecting logs at the heap region
   test_vm_syscall_sol_log( "test_vm_syscall_sol_log: log at the heap region",
@@ -380,6 +380,7 @@ main( int     argc,
                            expected_log, expected_log_sz );
 
   // test for collecting logs at the read only region
+  APPEND( "Program log: ", 13UL );
   APPEND( &vm->rodata[0], 100UL );
   test_vm_syscall_sol_log( "test_vm_syscall_sol_log: log at the read only region",
                            vm,
@@ -390,6 +391,7 @@ main( int     argc,
                            expected_log, expected_log_sz );
 
   // test for writing logs that exceed the remaining space
+  APPEND( "Program log: ", 13UL );
   APPEND( &vm->heap[0], FD_VM_LOG_MAX );
   test_vm_syscall_sol_log( "test_vm_syscall_sol_log: log that exceeds the limit",
                            vm,

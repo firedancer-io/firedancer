@@ -68,7 +68,11 @@ fd_vm_syscall_sol_log( /**/            void *  _vm,
      return success? */
 
   FD_VM_CU_UPDATE( vm, fd_ulong_max( msg_sz, FD_VM_SYSCALL_BASE_COST ) );
-  fd_vm_log_append( vm, FD_VM_MEM_SLICE_HADDR_LD( vm, msg_vaddr, 1UL, msg_sz ), msg_sz );
+
+  /* https://github.com/anza-xyz/agave/blob/ba9bf247c312a7f5e309650f921d1e0e8e741fde/programs/bpf_loader/src/syscalls/logging.rs#L21-L30 */
+  const void * msg_content = FD_VM_MEM_SLICE_HADDR_LD( vm, msg_vaddr, 1UL, msg_sz );
+  fd_vm_log_append( vm, "Program log: ", 13UL );
+  fd_vm_log_append( vm, msg_content, msg_sz );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
