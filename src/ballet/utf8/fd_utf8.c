@@ -29,6 +29,10 @@ fd_utf8_verify( char const * str,
                 ulong        sz ) {
 
   uchar const *       cur = (uchar const *)str;
+  if( FD_UNLIKELY( cur==NULL ) ) {
+    return 1;
+  }
+
   uchar const * const end = cur+sz;
 
   while( cur<end ) {
