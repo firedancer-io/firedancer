@@ -149,22 +149,17 @@ set_state( fd_exec_instr_ctx_t const * ctx,
            ulong                       acct_idx,
            fd_stake_state_v2_t const * state ) {
 
-  do {
-    int err = FD_EXECUTOR_INSTR_ERR_FATAL;
-    if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx->instr, acct_idx, &err ) ) )
-      return err;
-  } while(0);
-
-  fd_borrowed_account_t * account = NULL;
-  do {
-    int err = fd_instr_borrowed_account_view_idx( ctx, acct_idx, &account );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
-  } while(0);
+  uchar * data = NULL;
+  ulong   dlen = 0UL;
+  
+  int err = fd_account_get_data_mut( ctx, acct_idx, &data, &dlen );
+  if( FD_UNLIKELY( err ) ) return err;
 
   ulong serialized_size = fd_stake_state_v2_size( state );
-  if( FD_UNLIKELY( serialized_size > account->meta->dlen ) )
+  if( FD_UNLIKELY( serialized_size>dlen ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
 
+  fd_borrowed_account_t * account = NULL;
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, acct_idx, serialized_size, &account );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
@@ -220,7 +215,7 @@ validate_delegated_amount( fd_borrowed_account_t *      account,
                            fd_exec_slot_ctx_t *         slot_ctx,
                            validated_delegated_info_t * out,
                            uint *                       custom_err ) {
-  ulong stake_amount = fd_ulong_sat_sub( account->meta->info.lamports, meta->rent_exempt_reserve );
+  ulong stake_amount = fd_ulong_sat_sub( account->const_meta->info.lamports, meta->rent_exempt_reserve );
 
   if( FD_UNLIKELY( stake_amount < get_minimum_delegation( slot_ctx ) ) ) {
     *custom_err = FD_STAKE_ERR_INSUFFICIENT_DELEGATION;
@@ -258,7 +253,7 @@ validate_split_amount( fd_exec_instr_ctx_t const * invoke_context,
 
   /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/stake/src/stake_state.rs#L1251 */
 
-  ulong source_lamports = source_account->meta->info.lamports;
+  ulong source_lamports = source_account->const_meta->info.lamports;
 
   /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/stake/src/stake_state.rs#L1252 */
 
@@ -275,8 +270,8 @@ validate_split_amount( fd_exec_instr_ctx_t const * invoke_context,
 
   /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/stake/src/stake_state.rs#L1255-L1256 */
 
-  ulong destination_lamports = destination_account->meta->info.lamports;
-  ulong destination_data_len = destination_account->meta->dlen;
+  ulong destination_lamports = destination_account->const_meta->info.lamports;
+  ulong destination_data_len = destination_account->const_meta->dlen;
 
   /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/stake/src/stake_state.rs#L1257 */
 
@@ -1213,12 +1208,12 @@ initialize( fd_exec_instr_ctx_t const *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/stake/src/stake_state.rs#L482-L484 */
 
-  if( FD_UNLIKELY( stake_account->meta->dlen != stake_state_v2_size_of() ) )
+  if( FD_UNLIKELY( stake_account->const_meta->dlen!=stake_state_v2_size_of() ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
   /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/stake/src/stake_state.rs#L486 */
 
-  fd_stake_state_v2_t stake_state = { 0 };
+  fd_stake_state_v2_t stake_state = {0};
   do {
     int rc = get_state( stake_account, fd_scratch_virtual(), &stake_state );
     if( FD_UNLIKELY( rc ) ) return rc;
@@ -1228,11 +1223,11 @@ initialize( fd_exec_instr_ctx_t const *   ctx,
 
     /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/stake/src/stake_state.rs#L487 */
 
-    ulong rent_exempt_reserve = fd_rent_exempt_minimum_balance2( rent, stake_account->meta->dlen );
+    ulong rent_exempt_reserve = fd_rent_exempt_minimum_balance2( rent, stake_account->const_meta->dlen );
 
     /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/stake/src/stake_state.rs#L488-L496 */
 
-    if( FD_LIKELY( stake_account->const_meta->info.lamports >= rent_exempt_reserve ) ) {
+    if( FD_LIKELY( stake_account->const_meta->info.lamports>=rent_exempt_reserve ) ) {
       fd_stake_state_v2_t initialized = {
         .discriminant = fd_stake_state_v2_enum_initialized,
         .inner = { .initialized = { .meta = {
@@ -1541,10 +1536,10 @@ split( fd_exec_instr_ctx_t const * ctx,
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( split ) ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
 
-  if( FD_UNLIKELY( 0!=memcmp( &split->meta->info.owner, fd_solana_stake_program_id.key, 32UL ) ) )
+  if( FD_UNLIKELY( 0!=memcmp( &split->const_meta->info.owner, fd_solana_stake_program_id.key, 32UL ) ) )
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
 
-  if( FD_UNLIKELY( split->meta->dlen != stake_state_v2_size_of() ) )
+  if( FD_UNLIKELY( split->const_meta->dlen != stake_state_v2_size_of() ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
   fd_stake_state_v2_t split_get_state = { 0 };
@@ -1554,7 +1549,7 @@ split( fd_exec_instr_ctx_t const * ctx,
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
-  ulong split_lamport_balance = split->meta->info.lamports;
+  ulong split_lamport_balance = split->const_meta->info.lamports;
 
   fd_borrowed_account_release_write( split );
 
@@ -1565,7 +1560,7 @@ split( fd_exec_instr_ctx_t const * ctx,
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( stake_account ) ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
 
-  if( FD_UNLIKELY( lamports > stake_account->meta->info.lamports ) )
+  if( FD_UNLIKELY( lamports > stake_account->const_meta->info.lamports ) )
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
 
   fd_stake_state_v2_t stake_state = { 0 };
@@ -1731,7 +1726,7 @@ split( fd_exec_instr_ctx_t const * ctx,
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( stake_account ) ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
 
-  if( FD_UNLIKELY( lamports == stake_account->meta->info.lamports ) ) {
+  if( FD_UNLIKELY( lamports == stake_account->const_meta->info.lamports ) ) {
     fd_stake_state_v2_t uninitialized = { 0 };
     uninitialized.discriminant        = fd_stake_state_v2_enum_uninitialized;
     rc                                = set_state( ctx, stake_account_index, &uninitialized );
@@ -1782,7 +1777,7 @@ merge( fd_exec_instr_ctx_t const *   ctx,
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( source_account ) ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
 
-  if( FD_UNLIKELY( 0!=memcmp( &source_account->meta->info.owner,
+  if( FD_UNLIKELY( 0!=memcmp( &source_account->const_meta->info.owner,
                               fd_solana_stake_program_id.key, 32UL ) ) )
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
 
@@ -1804,7 +1799,7 @@ merge( fd_exec_instr_ctx_t const *   ctx,
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/stake/src/stake_state.rs#L553
   rc = get_if_mergeable( ctx,
                          &stake_account_state,
-                         stake_account->meta->info.lamports,
+                         stake_account->const_meta->info.lamports,
                          clock,
                          stake_history,
                          &stake_merge_kind,
@@ -1824,7 +1819,7 @@ merge( fd_exec_instr_ctx_t const *   ctx,
   merge_kind_t source_merge_kind = { 0 };
   rc = get_if_mergeable( ctx,
                          &source_account_state,
-                         source_account->meta->info.lamports,
+                         source_account->const_meta->info.lamports,
                          clock,
                          stake_history,
                          &source_merge_kind,
@@ -1851,7 +1846,7 @@ merge( fd_exec_instr_ctx_t const *   ctx,
   rc                                = set_state( ctx, source_account_index, &uninitialized );
   if( FD_UNLIKELY( rc ) ) return rc;
 
-  ulong lamports = source_account->meta->info.lamports;
+  ulong lamports = source_account->const_meta->info.lamports;
   rc = fd_account_checked_sub_lamports( ctx, source_account_index, lamports );
   if( FD_UNLIKELY( rc ) ) return rc;
   rc = fd_account_checked_add_lamports( ctx, stake_account_index, lamports );
@@ -1966,19 +1961,19 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
   rc                         = fd_ulong_checked_add( lamports, reserve, &lamports_and_reserve );
   if( FD_UNLIKELY( rc ) ) return rc;
 
-  if( FD_UNLIKELY( is_staked && lamports_and_reserve > stake_account->meta->info.lamports ) ) {
+  if( FD_UNLIKELY( is_staked && lamports_and_reserve > stake_account->const_meta->info.lamports ) ) {
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
   }
 
-  if( FD_UNLIKELY( lamports != stake_account->meta->info.lamports &&
-                    lamports_and_reserve > stake_account->meta->info.lamports ) ) {
+  if( FD_UNLIKELY( lamports != stake_account->const_meta->info.lamports &&
+                    lamports_and_reserve > stake_account->const_meta->info.lamports ) ) {
     // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_state.rs#L1083
     FD_TEST( !is_staked );
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
   }
 
   // FIXME FD_LIKELY
-  if( lamports == stake_account->meta->info.lamports ) {
+  if( lamports == stake_account->const_meta->info.lamports ) {
     fd_stake_state_v2_t uninitialized = { 0 };
     uninitialized.discriminant        = fd_stake_state_v2_enum_uninitialized;
     rc                                = set_state( ctx, stake_account_index, &uninitialized );
@@ -2135,7 +2130,7 @@ get_stake_account( fd_exec_instr_ctx_t const * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/stake/src/stake_instruction.rs#L65-L67 */
 
-  if( FD_UNLIKELY( 0!=memcmp( account->meta->info.owner, fd_solana_stake_program_id.key, 32UL ) ) )
+  if( FD_UNLIKELY( 0!=memcmp( account->const_meta->info.owner, fd_solana_stake_program_id.key, 32UL ) ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
