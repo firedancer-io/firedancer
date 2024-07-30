@@ -653,6 +653,9 @@ fd_system_program_execute( fd_exec_instr_ctx_t ctx ) {
 
   /* Deserialize the SystemInstruction enum */
   uchar * data = ctx.instr->data;
+  if( FD_UNLIKELY( data==NULL ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
 
   fd_system_program_instruction_t instruction;
   fd_bincode_decode_ctx_t decode =

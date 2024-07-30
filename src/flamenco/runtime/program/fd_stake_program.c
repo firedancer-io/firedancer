@@ -2466,6 +2466,9 @@ fd_stake_program_execute( fd_exec_instr_ctx_t ctx ) {
   fd_instr_get_signers( ctx.instr, signers );
 
   /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/stake/src/stake_instruction.rs#L72 */
+  if( FD_UNLIKELY( ctx.instr->data==NULL ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
 
   fd_valloc_t valloc = fd_scratch_virtual();
   fd_bincode_decode_ctx_t decode =

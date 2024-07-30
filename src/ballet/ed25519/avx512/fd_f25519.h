@@ -100,10 +100,10 @@ fd_f25519_mul_121666( fd_f25519_t * r,
 FD_25519_INLINE fd_f25519_t *
 fd_f25519_frombytes( fd_f25519_t * r,
                      uchar const   buf[ 32 ] ) {
-  ulong y0 = ((ulong *)buf)[0];                      /* Bits   0- 63 */
-  ulong y1 = ((ulong *)buf)[1];                      /* Bits  64-127 */
-  ulong y2 = ((ulong *)buf)[2];                      /* Bits 128-191 */
-  ulong y3 = ((ulong *)buf)[3] & 0x7fffffffffffffff; /* Bits 192-254 */
+  ulong y0 = fd_ulong_load_8_fast( buf );                         /* Bits   0- 63 */
+  ulong y1 = fd_ulong_load_8_fast( buf+8 );                       /* Bits  64-127 */
+  ulong y2 = fd_ulong_load_8_fast( buf+16 );                      /* Bits 128-191 */
+  ulong y3 = fd_ulong_load_8_fast( buf+24 ) & 0x7fffffffffffffff; /* Bits 192-254 */
   r->el = fd_r43x6_unpack( wv( y0, y1, y2, y3 ) );
   return r;
 }

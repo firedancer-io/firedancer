@@ -66,7 +66,6 @@ fd_bpf_loader_v3_is_executable( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_bpf_upgradeable_loader_state_t loader_state = {0};
   if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode( &loader_state, &ctx ) ) ) {
-    FD_LOG_WARNING(( "fd_bpf_upgradeable_loader_state_decode failed" ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -105,7 +104,6 @@ read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *              
   };
 
   if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode( result, &ctx ) ) ) {
-    FD_LOG_WARNING(( "fd_bpf_upgradeable_loader_state_decode failed" ));
     *opt_err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     return NULL;
   }
@@ -1652,7 +1650,6 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
 
     fd_sbpf_validated_program_t * prog = NULL;
     if( FD_UNLIKELY( fd_bpf_load_cache_entry( ctx.slot_ctx, &ctx.instr->program_id_pubkey, &prog ) ) ) {
-      FD_LOG_WARNING(( "Program cache load for program failed" ));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
