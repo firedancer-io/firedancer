@@ -939,6 +939,18 @@ fd_funk_txn_next_rec( fd_funk_t *           funk,
   return rec_map + rec_idx;
 }
 
+fd_funk_txn_xid_t
+fd_funk_generate_xid(void) {
+  fd_funk_txn_xid_t xid;
+  static FD_TL ulong seq = 0;
+  xid.ul[0] =
+    (fd_log_cpu_id() + 1U)*3138831853UL +
+    (fd_log_thread_id() + 1U)*9180195821UL +
+    (++seq)*6208101967UL;
+  xid.ul[1] = ((ulong)fd_tickcount())*2810745731UL;
+  return xid;
+}
+
 int
 fd_funk_txn_verify( fd_funk_t * funk ) {
   fd_wksp_t *     wksp    = fd_funk_wksp( funk );          /* Previously verified */

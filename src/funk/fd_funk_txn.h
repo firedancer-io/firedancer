@@ -80,6 +80,9 @@ static inline ulong fd_funk_txn_idx ( uint  idx ) { return (ulong)idx; }
 
 static inline int fd_funk_txn_idx_is_null( ulong idx ) { return idx==FD_FUNK_TXN_IDX_NULL; }
 
+/* Generate a globally unique psuedo-random xid */
+fd_funk_txn_xid_t fd_funk_generate_xid(void);
+
 /* Accessors */
 
 /* fd_funk_txn_cnt returns the number of transactions currently in

@@ -21,31 +21,8 @@ print( f"output directory: {os.getcwd()}" )
 print( f"solana endpoint: {solana_url}" )
 
 def download(url):
-    while True:
-        print( f'trying {url}' )
-        cmd = f'curl --max-redirs 0 --silent {url}'
-        proc = subprocess.Popen( cmd, shell=True, stdout=subprocess.PIPE )
-        newname = proc.stdout.read().decode("utf-8").split('/')[-1]
-        if os.path.exists(newname) and os.stat(newname).st_size > 0:
-            return (newname,False)
-        if len(newname) == 0:
-            # We are temporarily banned
-            print( f'"{cmd}" failed' )
-            time.sleep( 10 )
-            continue
-
-        print( f'downloading {newname} ...' )
-        subprocess.run( 'rm -f tmp', shell=True )
-        cmd = f'wget --output-document=tmp --quiet {url}'
-        subprocess.run( cmd, shell=True )
-        if not (os.path.exists('tmp') and os.stat('tmp').st_size > 0):
-            print( f'"{cmd}" failed' )
-            time.sleep( 10 )
-            continue
-
-        subprocess.run( f'mv -f tmp {newname}', shell=True )
-        print( f'downloaded {newname}' )
-        return (newname,True)
+    cmd = f'wget --no-clobber --trust-server-names {url}'
+    subprocess.run( cmd, shell=True )
 
 def relink(snap, link):
     subprocess.run( f'rm -f tmp-link', shell=True )
@@ -54,18 +31,13 @@ def relink(snap, link):
     print( f'linked {link} to {snap}' )
 
 def rmold(files, keep):
-    files.sort( key=os.path.getmtime, reverse=True)
     for i in range(keep, len(files)):
         os.remove( files[i] )
         print( f'removed {files[i]}' )
 
 while True:
-    (fullsnap,fullsnapnew) = download( f'{solana_url}/snapshot.tar.bz2' )
-    (incsnap,incsnapnew) = download( f'{solana_url}/incremental-snapshot.tar.bz2' )
-
-    if (fullsnapnew or incsnapnew) and (fullsnap.split('-')[1] == incsnap.split('-')[2]):
-        relink( fullsnap, 'snapshot.tar.bz2' )
-        relink( incsnap, 'incremental-snapshot.tar.bz2' )
+    download( f'{solana_url}/snapshot.tar.bz2' )
+    download( f'{solana_url}/incremental-snapshot.tar.bz2' )
 
     fullfiles = []
     incfiles = []
@@ -76,7 +48,20 @@ while True:
         elif "snapshot" in file:
             if file != 'snapshot.tar.bz2':
                 fullfiles.append(file)
+
+    fullfiles.sort( key=(lambda n: int(n.split('-')[1])), reverse=True );
+    incfiles.sort( key=(lambda n: int(n.split('-')[3])), reverse=True );
+
     rmold(fullfiles, 2)
     rmold(incfiles, 3)
+
+    if fullfiles[0].split('-')[1] == incfiles[0].split('-')[2]:
+        fullname = os.path.realpath(fullfiles[0])
+        incname = os.path.realpath(incfiles[0])
+        print(f'FULLSNAP={fullname}')
+        print(f'INCSNAP={incname}')
+        with open('latest', 'w') as fd:
+            fd.write(f'FULLSNAP={fullname}\n')
+            fd.write(f'INCSNAP={incname}\n')
 
     time.sleep(30)

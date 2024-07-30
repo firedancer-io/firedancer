@@ -43,20 +43,9 @@ fd_funk_rec_key_set_unique( fd_funk_rec_key_t * key ) {
   return key;
 }
 
-static fd_funk_txn_xid_t *
-fd_funk_txn_xid_set_unique( fd_funk_txn_xid_t * xid ) {
-  xid->ul[0] = ++unique_tag;
-# if FD_HAS_X86
-  xid->ul[1] = (ulong)fd_tickcount();
-# else
-  xid->ul[1] = 0UL;
-# endif
-  return xid;
-}
-
 static fd_funk_xid_key_pair_t *
 fd_funk_xid_key_pair_set_unique( fd_funk_xid_key_pair_t * pair ) {
-  fd_funk_txn_xid_set_unique( pair->xid );
+  pair->xid[0] = fd_funk_generate_xid();
   fd_funk_rec_key_set_unique( pair->key );
   return pair;
 }
@@ -98,8 +87,8 @@ main( int     argc,
   FD_TEST( !(z->ul[0] | z->ul[1]) );
 
   for( ulong rem=1000000UL; rem; rem-- ) {
-    fd_funk_txn_xid_t a[1]; fd_funk_txn_xid_set_unique( a );
-    fd_funk_txn_xid_t b[1]; fd_funk_txn_xid_set_unique( b );
+    fd_funk_txn_xid_t a[1]; a[0] = fd_funk_generate_xid();
+    fd_funk_txn_xid_t b[1]; b[0] = fd_funk_generate_xid();
 
     ulong hash = fd_funk_txn_xid_hash( a, 1234UL ); FD_COMPILER_FORGET( hash );
     /**/  hash = fd_funk_txn_xid_hash( b, 1234UL ); FD_COMPILER_FORGET( hash );
