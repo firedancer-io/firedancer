@@ -4,7 +4,7 @@
 #include "../../ballet/elf/fd_elf.h"
 #include "../../util/fd_util.h"
 
-#define FD_EBPF_MAX_SYM_CNT (128UL)
+#define FD_EBPF_MAX_SYM_CNT (32UL)
 
 struct __attribute__((aligned(16UL))) fd_ebpf_known_sym {
   ulong value;
@@ -152,6 +152,8 @@ fd_ebpf_static_link( fd_ebpf_link_opts_t * const opts,
   /* Walk symbol table */
 
   for( ulong i=0; i<sym_cnt; i++ ) {
+    sym_mapping[ i ] = (fd_ebpf_known_sym_t){ .value = 0UL, .known = 0U };
+
     char const * sym_name = fd_elf_read_cstr( elf, elf_sz, strtab->sh_offset + sym[ i ].st_name, 128UL );
     if( !sym_name ) continue;
 
@@ -163,6 +165,7 @@ fd_ebpf_static_link( fd_ebpf_link_opts_t * const opts,
           .known = 1,
           .value = (ulong)(uint)opts->sym[ j ].value
         };
+        break; /* next symbol */
       }
     }
   }
@@ -177,6 +180,7 @@ fd_ebpf_static_link( fd_ebpf_link_opts_t * const opts,
     ulong r_type = FD_ELF64_R_TYPE( rel[ i ].r_info );
     FD_ELF_REQUIRE( r_sym < sym_cnt );
 
+    FD_ELF_REQUIRE( sym_mapping[ r_sym ].known );
     ulong S = sym_mapping[ r_sym ].value;
 
     /* TODO another bounds check? */

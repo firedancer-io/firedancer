@@ -9,7 +9,11 @@ target/
 *.lcov
 *.profraw
 
-# Clang
+# GDB
+.gdb_history
+
+# Clangd
+.cache
 .clangd
 
 # Rust
