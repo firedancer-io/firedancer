@@ -120,6 +120,9 @@ from_vote_state_1_14_11( fd_vote_state_t *         vote_state,
          !deq_fd_landed_vote_t_iter_done( vote_state->votes, iter );
          iter = deq_fd_landed_vote_t_iter_next( vote_state->votes, iter ) ) {
       fd_landed_vote_t const * landed_vote = deq_fd_landed_vote_t_iter_ele_const( vote_state->votes, iter );
+      if( deq_fd_vote_lockout_t_avail( vote_state_1_14_11->votes) == 0 ) {
+        FD_LOG_CRIT(( "deq_fd_vote_lockout_t_avail( vote_state_1_14_11->votes) == 0" ));
+      }
       deq_fd_vote_lockout_t_push_tail( vote_state_1_14_11->votes, landed_vote->lockout );
     }
   }
@@ -595,6 +598,9 @@ increment_credits( fd_vote_state_t * self, ulong epoch, ulong credits ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L643
   if( FD_UNLIKELY( deq_fd_vote_epoch_credits_t_empty( self->epoch_credits ) ) ) {
     // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L644
+    if( deq_fd_vote_epoch_credits_t_avail(self->epoch_credits) == 0 ) {
+      FD_LOG_CRIT(( "deq_fd_vote_epoch_credits_t_avail(self->epoch_credits) == 0" ));
+    }
     deq_fd_vote_epoch_credits_t_push_tail(
         self->epoch_credits,
         ( fd_vote_epoch_credits_t ){ .epoch = epoch, .credits = 0, .prev_credits = 0 } );
@@ -607,6 +613,9 @@ increment_credits( fd_vote_state_t * self, ulong epoch, ulong credits ) {
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L648
     if( FD_LIKELY( credits != prev_credits ) ) {
+      if( deq_fd_vote_epoch_credits_t_avail(self->epoch_credits) == 0 ) {
+        FD_LOG_CRIT(( "deq_fd_vote_epoch_credits_t_avail(self->epoch_credits) == 0" ));
+      }
       deq_fd_vote_epoch_credits_t_push_tail(
           self->epoch_credits,
           ( fd_vote_epoch_credits_t ){
@@ -664,6 +673,9 @@ process_next_vote_slot( fd_vote_state_t * self,
   }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L634
+  if( deq_fd_landed_vote_t_avail(self->votes) == 0 ) {
+    FD_LOG_CRIT(( "deq_fd_landed_vote_t_avail(self->votes) == 0" ));
+  }
   deq_fd_landed_vote_t_push_tail( self->votes, landed_vote );
   double_lockouts( self );
 }
@@ -1448,6 +1460,10 @@ process_new_vote_state( fd_vote_state_t *           vote_state,
        !deq_fd_landed_vote_t_iter_done( new_state, iter );
        iter = deq_fd_landed_vote_t_iter_next( new_state, iter ) ) {
     fd_landed_vote_t * landed_vote = deq_fd_landed_vote_t_iter_ele( new_state, iter );
+
+    if( deq_fd_landed_vote_t_avail(vote_state->votes) == 0 ) {
+      FD_LOG_CRIT(( "deq_fd_landed_vote_t_avail(vote_state->votes) == 0" ));
+    }
     deq_fd_landed_vote_t_push_tail( vote_state->votes, *landed_vote );
   }
 
@@ -1921,6 +1937,10 @@ do_process_vote_state_update( fd_vote_state_t *           vote_state,
        iter = deq_fd_vote_lockout_t_iter_next( vote_state_update->lockouts, iter ) ) {
     fd_vote_lockout_t * lockout =
         deq_fd_vote_lockout_t_iter_ele( vote_state_update->lockouts, iter );
+
+    if( deq_fd_landed_vote_t_avail( landed_votes ) == 0 ) {
+      FD_LOG_CRIT(( "deq_fd_landed_vote_t_avail(landed_votes) == 0" ));
+    }
     deq_fd_landed_vote_t_push_tail( landed_votes,
                                     ( fd_landed_vote_t ){ .latency = 0, .lockout = *lockout } );
   }
