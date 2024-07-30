@@ -228,9 +228,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
   ulong cached_cnt = 0;
 
   /* Use random-ish xid to avoid concurrency issues */
-  fd_funk_txn_xid_t cache_xid;
-  cache_xid.ul[0] = fd_log_cpu_id() + 1;
-  cache_xid.ul[1] = fd_log_thread_id() + 1;
+  fd_funk_txn_xid_t cache_xid = fd_funk_generate_xid();
 
   fd_funk_txn_t * cache_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
   if( !cache_txn ) {
@@ -297,9 +295,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
   ulong cnt = 0;
 
   /* Use random-ish xid to avoid concurrency issues */
-  fd_funk_txn_xid_t cache_xid;
-  cache_xid.ul[0] = fd_log_cpu_id() + 1;
-  cache_xid.ul[1] = fd_log_thread_id() + 1;
+  fd_funk_txn_xid_t cache_xid = fd_funk_generate_xid();
 
   fd_funk_txn_t * cache_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
   if( !cache_txn ) {

@@ -209,11 +209,8 @@ _instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Generate unique ID for funk txn */
 
-  static FD_TL ulong xid_seq = 0UL;
-
   fd_funk_txn_xid_t xid[1] = {0};
-  xid->ul[0] = xid_seq++;
-  xid->ul[1] = (ulong)fd_tickcount();
+  xid[0] = fd_funk_generate_xid();
 
   /* Create temporary funk transaction and scratch contexts */
 
@@ -575,11 +572,9 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   fd_funk_t * funk = runner->funk;
 
   /* Generate unique ID for funk txn */
-  static FD_TL ulong xid_seq = 0UL;
 
   fd_funk_txn_xid_t xid[1] = {0};
-  xid->ul[0] = xid_seq++;
-  xid->ul[1] = (ulong)fd_tickcount();
+  xid[0] = fd_funk_generate_xid();
 
   /* Create temporary funk transaction and scratch contexts */
 
