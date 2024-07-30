@@ -38,7 +38,6 @@ static ulong supported_features[] =
     0xfba69c4970d7ad9d,  // vote_stake_checked_instructions
     0x65b79c7f3e7441b3,  // require_custodian_for_locked_stake_authorize
     0x74b022574093eeec,  // reduce_stake_warmup_cooldown
-    0xd56fc1708dc98c13,  // stake_redelegate_instruction
     0x6d22c4ce75df6f0b,  // stake_merge_with_unmatched_credits_observed
     0x4b241cb4c6f3b3b2,  // require_rent_exempt_split_destination
     0x74326f811fd7d861,  // vote_state_add_vote_latency
