@@ -18328,6 +18328,12 @@ FD_FN_PURE uchar fd_stake_instruction_is_deactivate_delinquent(fd_stake_instruct
 FD_FN_PURE uchar fd_stake_instruction_is_redelegate(fd_stake_instruction_t const * self) {
   return self->discriminant == 15;
 }
+FD_FN_PURE uchar fd_stake_instruction_is_move_stake(fd_stake_instruction_t const * self) {
+  return self->discriminant == 16;
+}
+FD_FN_PURE uchar fd_stake_instruction_is_move_lamports(fd_stake_instruction_t const * self) {
+  return self->discriminant == 17;
+}
 void fd_stake_instruction_inner_new( fd_stake_instruction_inner_t * self, uint discriminant );
 int fd_stake_instruction_inner_decode_preflight( uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
   int err;
@@ -18398,6 +18404,12 @@ int fd_stake_instruction_inner_decode_preflight( uint discriminant, fd_bincode_d
   case 15: {
     return FD_BINCODE_SUCCESS;
   }
+  case 16: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 17: {
+    return FD_BINCODE_SUCCESS;
+  }
   default: return FD_BINCODE_ERR_ENCODING;
   }
 }
@@ -18458,6 +18470,14 @@ void fd_stake_instruction_inner_decode_unsafe( fd_stake_instruction_inner_t * se
     break;
   }
   case 15: {
+    break;
+  }
+  case 16: {
+    fd_bincode_uint64_decode_unsafe( &self->move_stake, ctx );
+    break;
+  }
+  case 17: {
+    fd_bincode_uint64_decode_unsafe( &self->move_lamports, ctx );
     break;
   }
   }
@@ -18538,6 +18558,12 @@ void fd_stake_instruction_inner_new( fd_stake_instruction_inner_t * self, uint d
     break;
   }
   case 15: {
+    break;
+  }
+  case 16: {
+    break;
+  }
+  case 17: {
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -18728,6 +18754,16 @@ int fd_stake_instruction_inner_encode( fd_stake_instruction_inner_t const * self
   }
   case 12: {
     err = fd_lockup_checked_args_encode( &self->set_lockup_checked, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  case 16: {
+    err = fd_bincode_uint64_encode( self->move_stake, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  case 17: {
+    err = fd_bincode_uint64_encode( self->move_lamports, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
