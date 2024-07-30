@@ -166,7 +166,7 @@ xid_unique( void );
 static inline fd_funk_txn_xid_t *
 xid_set( fd_funk_txn_xid_t * xid,
          ulong               _xid ) {
-  xid->ul[0] = _xid; xid->ul[1] = _xid+_xid; xid->ul[2] = _xid*_xid; xid->ul[3] = -_xid;
+  xid->ul[0] = _xid; xid->ul[1] = _xid+_xid;
   return xid;
 }
 
@@ -181,7 +181,7 @@ static inline fd_funk_rec_key_t *
 key_set( fd_funk_rec_key_t * key,
          ulong               _key ) {
   key->ul[0] = _key; key->ul[1] = _key+_key; key->ul[2] = _key*_key; key->ul[3] = -_key;
-  key->ul[4] = _key; key->ul[5] = _key+_key; key->ul[6] = _key*_key; key->ul[7] = -_key;
+  key->ul[4] = _key*3U;
   return key;
 }
 

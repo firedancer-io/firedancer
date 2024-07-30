@@ -37,7 +37,7 @@
 
 /* A fd_funk_rec_t describes a funk record. */
 
-struct fd_funk_rec {
+struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
 
   /* These fields are managed by the funk's rec_map */
 
@@ -76,7 +76,7 @@ struct fd_funk_rec {
 
 typedef struct fd_funk_rec fd_funk_rec_t;
 
-FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 3U*64U, record size is wrong );
+FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 5U*32U, record size is wrong );
 
 /* fd_funk_rec_map allows for indexing records by their (xid,key) pair.
    It is used to store all records of the last published transaction and

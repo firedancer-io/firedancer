@@ -27,7 +27,7 @@
    transaction.  The details are exposed here to facilitate inlining
    various operations. */
 
-struct fd_funk_txn_private {
+struct __attribute__((aligned(FD_FUNK_TXN_ALIGN))) fd_funk_txn_private {
 
   /* These fields are managed by the funk's txn_map */
 

@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include "../util/io/fd_io.h"
 
-#define FD_ARCH_MAGIC 0x92a1234fU
+#define FD_ARCH_MAGIC 0x92a1235fU
 
 int
 fd_funk_archive( fd_funk_t *  funk,
