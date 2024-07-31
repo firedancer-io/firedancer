@@ -71,7 +71,7 @@ fd_store_footprint( void ) {
 }
 
 void *
-fd_store_new( void * mem, ulong lo_wmark_slot );
+fd_store_new( void * mem, uint seed );
 
 fd_store_t *
 fd_store_join( void * store );

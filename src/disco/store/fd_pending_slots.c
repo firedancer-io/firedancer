@@ -1,8 +1,7 @@
 #include "fd_pending_slots.h"
 
 void *
-fd_pending_slots_new( void * mem, ulong lo_wmark ) {
-
+fd_pending_slots_new( void * mem, uint seed ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING( ( "NULL mem" ) );
     return NULL;
@@ -13,27 +12,27 @@ fd_pending_slots_new( void * mem, ulong lo_wmark ) {
     return NULL;
   }
 
-  ulong footprint = fd_pending_slots_footprint();
+  fd_memset( mem, 0, fd_pending_slots_footprint() );
 
-  fd_memset( mem, 0, footprint );
-  ulong laddr = (ulong)mem;
-  fd_pending_slots_t * pending_slots = (void *)laddr;
-  pending_slots->lo_wmark = lo_wmark;
-  pending_slots->start = 0;
-  pending_slots->end = 0;
-  pending_slots->lock = 0;
+  fd_pending_slots_t * pending_slots = mem;
+  ulong                laddr         = (ulong)(mem) + sizeof( fd_pending_slots_t );
 
-  laddr += sizeof( fd_pending_slots_t );
-  pending_slots->pending = (void *)laddr;
+  laddr                = fd_ulong_align_up( laddr, fd_rng_align() );
+  pending_slots->rng   = fd_rng_join( fd_rng_new( (void *)(laddr), seed, 0UL ) );
+  laddr               += fd_rng_footprint();
 
-  laddr += sizeof(long) * FD_PENDING_MAX;
+  laddr                = fd_ulong_align_up( laddr, fd_pending_slots_treap_align() );
+  pending_slots->treap = fd_pending_slots_treap_join( fd_pending_slots_treap_new( (void *)(laddr), FD_BLOCK_MAX ) );
+  laddr               += fd_pending_slots_treap_footprint( FD_BLOCK_MAX );
 
-  FD_TEST( laddr == (ulong)mem + footprint );
+  laddr                = fd_ulong_align_up( laddr, fd_pending_slots_pool_align() );
+  pending_slots->pool  = fd_pending_slots_pool_join( fd_pending_slots_pool_new( (void *)(laddr), FD_BLOCK_MAX ) );
+  laddr               += fd_pending_slots_pool_footprint( FD_BLOCK_MAX );
 
+  FD_TEST( laddr==(ulong)mem + fd_pending_slots_footprint() );
   return mem;
 }
 
-/* TODO only safe for local joins */
 fd_pending_slots_t *
 fd_pending_slots_join( void * pending_slots ) {
   if( FD_UNLIKELY( !pending_slots ) ) {
@@ -46,7 +45,22 @@ fd_pending_slots_join( void * pending_slots ) {
     return NULL;
   }
 
-  fd_pending_slots_t * pending_slots_ = (fd_pending_slots_t *)pending_slots;
+  fd_pending_slots_t * pending_slots_ = pending_slots;
+  ulong                laddr          = (ulong)pending_slots + sizeof( fd_pending_slots_t );
+
+  laddr                 = fd_ulong_align_up( laddr, fd_rng_align() );
+  pending_slots_->rng   = fd_rng_join( (void *)laddr );
+  laddr                += fd_rng_footprint();
+
+  laddr                 = fd_ulong_align_up( laddr, fd_pending_slots_treap_align() );
+  pending_slots_->treap = fd_pending_slots_treap_join( (void *)laddr );
+  laddr                += fd_pending_slots_treap_footprint( FD_BLOCK_MAX );
+
+  laddr                 = fd_ulong_align_up( laddr, fd_pending_slots_pool_align() );
+  pending_slots_->pool  = fd_pending_slots_pool_join( (void *)laddr );
+  laddr                += fd_pending_slots_pool_footprint( FD_BLOCK_MAX );
+
+  FD_TEST( laddr==(ulong)pending_slots + fd_pending_slots_footprint() );
 
   return pending_slots_;
 }
@@ -57,6 +71,9 @@ fd_pending_slots_leave( fd_pending_slots_t const * pending_slots ) {
     FD_LOG_WARNING( ( "NULL pending_slots" ) );
     return NULL;
   }
+
+  FD_TEST( fd_pending_slots_treap_leave( pending_slots->treap )==pending_slots->treap );
+  FD_TEST( fd_pending_slots_pool_leave( pending_slots->pool )==pending_slots->pool );
 
   return (void *)pending_slots;
 }
@@ -73,127 +90,53 @@ fd_pending_slots_delete( void * pending_slots ) {
     return NULL;
   }
 
+  fd_pending_slots_t * pending_slots_ = pending_slots;
+  FD_TEST( fd_pending_slots_treap_delete( pending_slots_->treap )==pending_slots_->treap );
+  FD_TEST( fd_pending_slots_pool_delete( pending_slots_->pool )==pending_slots_->pool );
   return pending_slots;
-}
-
-static void
-fd_pending_slots_lock( fd_pending_slots_t * pending_slots ) {
-# if FD_HAS_THREADS
-  for(;;) {
-    if( FD_LIKELY( !FD_ATOMIC_CAS( &pending_slots->lock, 0UL, 1UL) ) ) break;
-    FD_SPIN_PAUSE();
-  }
-# else
-  pending_slots->lock = 1UL;
-# endif
-  FD_COMPILER_MFENCE();
-}
-
-static void
-fd_pending_slots_unlock( fd_pending_slots_t * pending_slots ) {
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( pending_slots->lock ) = 0UL;
-}
-
-
-ulong
-fd_pending_slots_iter_init( fd_pending_slots_t * pending_slots ) {
-  return pending_slots->start;
-}
-
-ulong
-fd_pending_slots_iter_next( fd_pending_slots_t * pending_slots,
-                            long now,
-                            ulong i ) {
-  fd_pending_slots_lock( pending_slots );
-  ulong end = pending_slots->end;
-  for( i = fd_ulong_max(i, pending_slots->start); 1; ++i ) {
-    if( i >= end ) {
-      /* End sentinel */
-      i = ULONG_MAX;
-      break;
-    }
-    long * ele = &pending_slots->pending[ i & FD_PENDING_MASK ];
-    if( i <= pending_slots->lo_wmark || *ele == 0 ) {
-      /* Empty or useless slot */
-      if( pending_slots->start == i )
-        pending_slots->start = i+1U; /* Pop it */
-    } else if( *ele <= now ) {
-      /* Do this slot */
-      long when = *ele;
-      *ele = 0;
-      if( pending_slots->start == i )
-        pending_slots->start = i+1U; /* Pop it */
-      FD_LOG_DEBUG(( "preparing slot %lu when=%ld now=%ld latency=%ld",
-                     i, when, now, now - when ));
-      break;
-    }
-  }
-  fd_pending_slots_unlock( pending_slots );
-  return i;
 }
 
 void
 fd_pending_slots_add( fd_pending_slots_t * pending_slots,
                       ulong slot,
-                      long when ) {
-  fd_pending_slots_lock( pending_slots );
-
-  long * pending = pending_slots->pending;
-  if( pending_slots->start == pending_slots->end ) {
-    /* Queue is empty */
-    pending_slots->start = slot;
-    pending_slots->end = slot+1U;
-    pending[slot & FD_PENDING_MASK] = when;
-
-  } else if ( slot < pending_slots->start ) {
-    /* Grow down */
-    if( (long)(pending_slots->end - slot) > (long)FD_PENDING_MAX )
-      FD_LOG_ERR(( "pending queue overrun: start=%lu, end=%lu, new slot=%lu", pending_slots->start, pending_slots->end, slot ));
-    pending[slot & FD_PENDING_MASK] = when;
-    for( ulong i = slot+1; i < pending_slots->start; i++ ) {
-      /* Zero fill */
-      pending[i & FD_PENDING_MASK] = 0;
-    }
-    pending_slots->start = slot;
-
-  } else if ( slot >= pending_slots->end ) {
-    /* Grow up */
-    if( (long)(slot - pending_slots->start) > (long)FD_PENDING_MAX )
-      FD_LOG_ERR(( "pending queue overrun: start=%lu, end=%lu, new slot=%lu", pending_slots->start, pending_slots->end, slot ));
-    pending[slot & FD_PENDING_MASK] = when;
-    for( ulong i = pending_slots->end; i < slot; i++ ) {
-      /* Zero fill */
-      pending[i & FD_PENDING_MASK] = 0;
-    }
-    pending_slots->end = slot+1U;
-
+                      long when) {
+  fd_pending_slots_treap_ele_t * ele = fd_pending_slots_treap_ele_query( pending_slots->treap, slot, pending_slots->pool );
+  if( FD_LIKELY( ele ) ) {
+    if( FD_LIKELY( ele->time>when ) ) ele->time = when;
   } else {
-    /* Update in place */
-    long * p = &pending[slot & FD_PENDING_MASK];
-    if( 0 == *p || *p > when )
-      *p = when;
-  }
+    if( FD_UNLIKELY( fd_pending_slots_pool_free( pending_slots->pool )==0 ) ) {
+      FD_LOG_ERR(( "pending_slots (size=%lu) is full during insertion", FD_BLOCK_MAX ));
+    }
 
-  fd_pending_slots_unlock( pending_slots );
+    ele       = fd_pending_slots_pool_ele_acquire( pending_slots->pool );
+    ele->slot = slot;
+    ele->time = when;
+    ele->prio = fd_rng_ulong( pending_slots->rng );
+    fd_pending_slots_treap_ele_insert( pending_slots->treap, ele, pending_slots->pool );
+  }
 }
 
 long
 fd_pending_slots_get( fd_pending_slots_t * pending_slots,
                       ulong                slot ) {
-  if( pending_slots->start == pending_slots->end ) {
-    return LONG_MAX;
-  } else if( slot < pending_slots->start ) {
-    return LONG_MAX;
-  } else if( slot >= pending_slots->end ) {
-    return LONG_MAX;
-  } else {
-    return pending_slots->pending[ slot & FD_PENDING_MASK ];
-  }
+  fd_pending_slots_treap_ele_t * ele = fd_pending_slots_treap_ele_query( pending_slots->treap, slot, pending_slots->pool );
+  return ele ? ele->time : LONG_MAX;
 }
 
 void
 fd_pending_slots_set_lo_wmark( fd_pending_slots_t * pending_slots,
-                               ulong slot ) {
-  pending_slots->lo_wmark = slot;
+                               ulong lo_wmark ) {
+  for( fd_pending_slots_treap_fwd_iter_t iter =
+          fd_pending_slots_treap_fwd_iter_init( pending_slots->treap, pending_slots->pool );
+        !fd_pending_slots_treap_fwd_iter_done( iter ); ) {
+    fd_pending_slots_treap_ele_t * prev = fd_pending_slots_treap_fwd_iter_ele( iter, pending_slots->pool );
+    if( FD_UNLIKELY( prev->slot>lo_wmark ) ) break;
+
+    /* Advance the iterator before removing element prev from the treap;
+     * it is safe to remove the previous element while iterating a treap;
+     * an example is given in the test_iteration() function of test_treap.c */
+    iter = fd_pending_slots_treap_fwd_iter_next( iter, pending_slots->pool );
+    fd_pending_slots_treap_ele_remove( pending_slots->treap, prev, pending_slots->pool );
+    fd_pending_slots_pool_ele_release( pending_slots->pool, prev );
+  }
 }
