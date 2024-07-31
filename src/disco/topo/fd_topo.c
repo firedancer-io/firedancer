@@ -321,7 +321,10 @@ fd_topo_mem_sz_string( ulong sz, char out[static 24] ) {
 void
 fd_topo_print_log( int         stdout,
                    fd_topo_t * topo ) {
-  char message[ 4UL*4096UL ] = {0}; /* Same as FD_LOG_BUF_SZ */
+  /* FD_LOG_BUF_SZ is 4UL*4096UL, if we exceed that size here the log
+     message will be truncated.  For now this is OK but we should figure
+     out a better way to log very long topologies. */
+  char message[ 4UL*4UL*4096UL ] = {0};
 
   char * cur = message;
   ulong remaining = sizeof(message) - 1; /* Leave one character at the end to ensure NUL terminated */
