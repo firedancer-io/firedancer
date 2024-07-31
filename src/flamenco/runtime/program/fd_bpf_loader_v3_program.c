@@ -243,8 +243,8 @@ write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
   }
 
   ulong write_offset = fd_ulong_sat_add( program_data_offset, bytes_len );
-  if( FD_UNLIKELY( program->meta->dlen<write_offset ) ) {
-    FD_LOG_WARNING(( "Write overflow %lu < %lu", program->meta->dlen, write_offset ));
+  if( FD_UNLIKELY( program->const_meta->dlen<write_offset ) ) {
+    FD_LOG_WARNING(( "Write overflow %lu < %lu", program->const_meta->dlen, write_offset ));
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
 
@@ -339,7 +339,7 @@ common_close_account( fd_pubkey_t * authority_address,
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, close_account     ) {
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 1UL, recipient_account ) {
 
-  int err = fd_account_checked_add_lamports( instr_ctx, 1UL, close_account->meta->info.lamports );
+  int err = fd_account_checked_add_lamports( instr_ctx, 1UL, close_account->const_meta->info.lamports );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -803,9 +803,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L675-L689 */
-      if( FD_UNLIKELY( PROGRAMDATA_METADATA_SIZE+buffer_data_len>programdata->meta->dlen ) ) {
+      if( FD_UNLIKELY( PROGRAMDATA_METADATA_SIZE+buffer_data_len>programdata->const_meta->dlen ) ) {
         uchar * sig = (uchar *)instr_ctx->txn_ctx->_txn_raw->raw + instr_ctx->txn_ctx->txn_descriptor->signature_off;
-        FD_LOG_WARNING(( "ProgramData account too small %32J %lu %lu", sig, buffer_data_len, programdata->meta->dlen ));
+        FD_LOG_WARNING(( "ProgramData account too small %32J %lu %lu", sig, buffer_data_len, programdata->const_meta->dlen ));
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
       if( FD_UNLIKELY( buffer_data_offset>buffer->const_meta->dlen ) ) {
@@ -897,14 +897,14 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 1UL, program ) {
 
-      if( FD_UNLIKELY( !program->meta->info.executable ) ) {
+      if( FD_UNLIKELY( !program->const_meta->info.executable ) ) {
         FD_LOG_WARNING(( "Program account not executable" ));
         return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
       }
       if( FD_UNLIKELY( !fd_instr_acc_is_writable( instr_ctx->instr, program->pubkey ) ) ) {
         FD_LOG_WARNING(( "Program account not writeable" ));
       }
-      if( FD_UNLIKELY( memcmp( &program->meta->info.owner, program_id, sizeof(fd_pubkey_t) ) ) ) {
+      if( FD_UNLIKELY( memcmp( &program->const_meta->info.owner, program_id, sizeof(fd_pubkey_t) ) ) ) {
         FD_LOG_WARNING(( "Program account not owned by loader" ));
         return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
       }
@@ -977,11 +977,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       programdata_balance_required = fd_ulong_max( 1UL, fd_rent_exempt_minimum_balance( instr_ctx->slot_ctx, programdata->const_meta->dlen ) );
 
-      if( FD_UNLIKELY( programdata->meta->dlen<fd_ulong_sat_add( PROGRAMDATA_METADATA_SIZE, buffer_data_len ) ) ) {
+      if( FD_UNLIKELY( programdata->const_meta->dlen<fd_ulong_sat_add( PROGRAMDATA_METADATA_SIZE, buffer_data_len ) ) ) {
         FD_LOG_WARNING(( "ProgramData account not large enough" ));
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
-      if( FD_UNLIKELY( fd_ulong_sat_add( programdata->meta->info.lamports, buffer_lamports )<programdata_balance_required ) ) {
+      if( FD_UNLIKELY( fd_ulong_sat_add( programdata->const_meta->info.lamports, buffer_lamports )<programdata_balance_required ) ) {
         FD_LOG_WARNING(( "Buffer account balance too low to fund upgrade" ));
         return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
       }
@@ -1054,7 +1054,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L846-L875 */
       /* We want to copy over the data and zero out the rest */
-      if( FD_UNLIKELY( programdata_data_offset+buffer_data_len>programdata->meta->dlen ) ) {
+      if( FD_UNLIKELY( programdata_data_offset+buffer_data_len>programdata->const_meta->dlen ) ) {
         FD_LOG_WARNING(( "ProgramData account too small" ));
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
@@ -1077,7 +1077,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       const uchar * src_slice = buffer->const_data + buffer_data_offset;
       fd_memcpy( dst_slice, src_slice, dst_slice_len );
-      fd_memset( dst_slice + dst_slice_len, 0, programdata->meta->dlen - programdata_data_offset - dst_slice_len );
+      fd_memset( dst_slice + dst_slice_len, 0, programdata->const_meta->dlen - programdata_data_offset - dst_slice_len );
 
       } FD_BORROWED_ACCOUNT_DROP( buffer );
 
@@ -1086,7 +1086,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 2UL, buffer ) {
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 3UL, spill  ) {
 
-      ulong spill_addend = fd_ulong_sat_sub( fd_ulong_sat_add( programdata->meta->info.lamports, buffer_lamports ),
+      ulong spill_addend = fd_ulong_sat_sub( fd_ulong_sat_add( programdata->const_meta->info.lamports, buffer_lamports ),
                                              programdata_balance_required );
       err = fd_account_checked_add_lamports( instr_ctx, 3UL, spill_addend );
       if( FD_UNLIKELY( err ) ) {
@@ -1101,7 +1101,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      programdata->meta->info.lamports = programdata_balance_required;
       /* Buffer account set_data_length */
       err = fd_account_set_data_length( instr_ctx, 2UL, BUFFER_METADATA_SIZE );
       if( FD_UNLIKELY( err ) ) {
@@ -1298,7 +1297,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
         FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 1UL, recipient_account ) {
 
-        err = fd_account_checked_add_lamports( instr_ctx, 1UL, close_account->meta->info.lamports );
+        err = fd_account_checked_add_lamports( instr_ctx, 1UL, close_account->const_meta->info.lamports );
         if( FD_UNLIKELY( err ) ) {
           return err;
         }
@@ -1539,7 +1538,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      if( FD_UNLIKELY( PROGRAMDATA_METADATA_SIZE>programdata_account->meta->dlen ) ) {
+      if( FD_UNLIKELY( PROGRAMDATA_METADATA_SIZE>programdata_account->const_meta->dlen ) ) {
         return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
       }
 
