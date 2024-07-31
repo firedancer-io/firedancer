@@ -814,12 +814,8 @@ after_frag( void *             _ctx,
 
       FD_LOG_NOTICE( ( "\n\n[Fork Selection]\n"
                        "# of vote accounts: %lu\n"
-                       "reset fork:         %lu\n"
-                       "vote fork:          %lu\n"
                        "best fork:          %lu\n",
                        fd_tower_vote_accs_cnt( ctx->tower->vote_accs ),
-                       !!reset_fork ? reset_fork->slot : 0,
-                       !!vote_fork ? vote_fork->slot : 0,
                        fd_ghost_head( ctx->ghost )->slot ) );
 
       ulong poh_slot = fd_fseq_query( ctx->poh_slot );

@@ -208,6 +208,13 @@ after_frag( void *             _ctx,
   if( FD_UNLIKELY( in_idx==SHRED_IN_IDX ) ) {
     for( ulong i = 0; i < ctx->s34_buffer->shred_cnt; i++ ) {
       fd_shred_t * shred = &ctx->s34_buffer->pkts[i].shred;
+      // fd_epoch_leaders_t * epoch_leaders = fd_stake_ci_get_lsched_for_slot(ctx->stake_ci, shred->slot);
+      // if (!epoch_leaders) {
+      //   FD_LOG_WARNING(("no epoch leaders for slot %lu", shred->slot));
+      // }
+      // FD_LOG_NOTICE( ( "receiving shred slot %lu from %32J",
+      //                  shred->slot,
+      //                  fd_epoch_leaders_get( epoch_leaders, shred->slot ) ) );
 
       if ( FD_UNLIKELY( (long)(ctx->store->pending_slots->end - shred->slot) > (long)FD_PENDING_MAX  ) ) {
         FD_LOG_WARNING(("received shred %lu that would overrun pending queue. skipping.", shred->slot));
