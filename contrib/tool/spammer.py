@@ -34,7 +34,7 @@ def create_account_tx(lamports, recent_blockhash, acc):
 
 def get_balance(lamports, client: Client, acc):
     bal = client.get_balance(acc.pubkey()).value
-    if bal >= lamports:
+    if bal >= lamports/2:
         return acc
     else:
         return None

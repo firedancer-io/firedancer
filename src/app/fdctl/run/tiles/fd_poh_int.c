@@ -162,6 +162,7 @@ fd_poh_initialize( fd_poh_ctx_t * ctx,
                    uchar const *  last_entry_hash      /* Points to start of a 32 byte region of memory, the hash itself at the tick height. */ ) {
   fd_poh_tile_initialize( ctx->poh_tile_ctx, tick_duration_ns, hashcnt_per_tick, ticks_per_slot, tick_height,
       last_entry_hash );
+  ctx->recently_reset = 1;
   ctx->is_initialized = 1;
 }
 

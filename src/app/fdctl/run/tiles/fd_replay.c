@@ -370,7 +370,7 @@ during_frag( void * _ctx,
       return;
     }
 
-    FD_LOG_INFO(( "packed microblock - slot: %lu, parent_slot: %lu, txn_cnt: %lu", ctx->curr_slot, ctx->parent_slot, ctx->txn_cnt ));
+    FD_LOG_DEBUG(( "packed microblock - slot: %lu, parent_slot: %lu, txn_cnt: %lu", ctx->curr_slot, ctx->parent_slot, ctx->txn_cnt ));
   }
 
   // if( ctx->flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
@@ -824,7 +824,7 @@ after_frag( void *             _ctx,
       if( ctx->poh_init_done == 1 ) {
         ulong parent_slot = reset_fork->slot_ctx.slot_bank.prev_slot;
         ulong curr_slot = reset_fork->slot_ctx.slot_bank.slot;
-        FD_LOG_INFO(( "publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", curr_slot, parent_slot, ctx->flags ));
+        FD_LOG_DEBUG(( "publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", curr_slot, parent_slot, ctx->flags ));
         ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
         ulong sig = fd_disco_replay_sig( curr_slot, ctx->flags );
         fd_mcache_publish( ctx->poh_out_mcache, ctx->poh_out_depth, ctx->poh_out_seq, sig, ctx->poh_out_chunk, txn_cnt, 0UL, *opt_tsorig, tspub );

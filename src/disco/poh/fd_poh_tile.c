@@ -375,7 +375,7 @@ fd_poh_tile_publish_tick( fd_poh_tile_ctx_t * ctx,
   fd_memcpy( tick->hash, hash, 32UL );
   tick->txn_cnt = 0UL;
 
-  FD_LOG_WARNING(("PUB TICK(%d): %lu %lu %lu %lu", is_skipped, slot, hash_delta, hashcnt, ctx->hashcnt_per_slot ));
+  // FD_LOG_WARNING(("PUB TICK(%d): %lu %lu %lu %lu", is_skipped, slot, hash_delta, hashcnt, ctx->hashcnt_per_slot ));
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sz = sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t);
   ulong sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
@@ -622,7 +622,7 @@ fd_poh_tile_after_credit( fd_poh_tile_ctx_t * ctx,
   if( FD_UNLIKELY( is_leader && !(ctx->hashcnt%ctx->hashcnt_per_tick) ) ) {
     /* We ticked while leader... tell the leader bank. */
     ctx->register_tick_func( ctx->arg, ctx->current_leader_slot, ctx->hash );
-    FD_LOG_WARNING(("TICK TIME"));
+    // FD_LOG_WARNING(("TICK TIME"));
     /* And send an empty microblock (a tick) to the shred tile. */
     fd_poh_tile_publish_tick( ctx, ctx->hash, 0 );
   }

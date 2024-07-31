@@ -1036,7 +1036,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                       ulong max_workers ) {
   int res = 0;
   FD_SCRATCH_SCOPE_BEGIN  {
-    fd_tpool_exec_all_rrobin( tpool, 0, max_workers, fd_txn_sigverify_task, task_info, NULL, NULL, 1, 0, txn_cnt );
+    fd_tpool_exec_all_batch( tpool, 0, max_workers, fd_txn_sigverify_task, task_info, NULL, NULL, 1, 0, txn_cnt );
     for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
       if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
         res |= FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
@@ -1064,7 +1064,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
       if( ( NULL == txn_ctx->txn_descriptor ) || !is_nonce ) {
 
         if( !is_blockhash_valid_for_age( &slot_ctx->slot_bank.block_hash_queue, blockhash, FD_RECENT_BLOCKHASHES_MAX_ENTRIES ) ) {
-          FD_LOG_WARNING(("phase 2 invalid: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
+          FD_LOG_DEBUG(("phase 2 invalid: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
           task_info[ txn_idx ].txn->flags = 0;
           res |= FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
           continue;
@@ -1085,7 +1085,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
         fd_txncache_query_batch( slot_ctx->status_cache, &curr_query, 1UL, query_arg, query_func, &err );
 
         if( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
-          FD_LOG_WARNING(("phase 2 invalid: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
+          FD_LOG_DEBUG(("phase 2 invalid: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
           task_info[ txn_idx ].txn->flags = 0;
           res |= FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED;
           continue;
@@ -1094,7 +1094,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
       err = fd_executor_check_txn_accounts( txn_ctx );
       if ( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
-        FD_LOG_WARNING(("phase 2 invalid: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
+        FD_LOG_DEBUG(("phase 2 invalid: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
         task_info[ txn_idx ].txn->flags = 0;
         res |= err;
         continue;
@@ -1749,7 +1749,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
     int res = fd_runtime_prepare_txns_phase1( slot_ctx, task_infos, txns, txn_cnt );
     if( res != 0 ) {
-      FD_LOG_WARNING(("Fail prep 1"));
+      FD_LOG_DEBUG(("Fail prep 1"));
     }
 
     ulong * incomplete_txn_idxs = fd_scratch_alloc( 8UL, txn_cnt * sizeof(ulong) );
@@ -1780,12 +1780,12 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
       res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, query_func, query_arg, tpool, max_workers );
       if( res != 0 ) {
-        FD_LOG_WARNING(("Fail prep 2"));
+        FD_LOG_DEBUG(("Fail prep 2"));
       }
 
       res |= fd_runtime_prepare_txns_phase3( slot_ctx, wave_task_infos, wave_task_infos_cnt );
       if( res != 0 ) {
-        FD_LOG_WARNING(("Fail prep 3"));
+        FD_LOG_DEBUG(("Fail prep 3"));
       }
 
       fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_runtime_execute_txn_task, wave_task_infos, NULL, NULL, 1, 0, wave_task_infos_cnt );

@@ -581,7 +581,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ULONG_MAX==fd_fseq_query( ctx->root_slot_fseq ) );
 
   /* Prevent blockstore from being created until we know the shred version */
-  ulong expected_shred_version = tile->shred.expected_shred_version;
+  ulong expected_shred_version = 0UL;
   if( FD_LIKELY( !expected_shred_version ) ) {
     ulong busy_obj_id = fd_pod_query_ulong( topo->props, "poh_shred", ULONG_MAX );
     FD_TEST( busy_obj_id!=ULONG_MAX );

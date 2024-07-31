@@ -45,7 +45,7 @@ _PRIMARY_INTERFACE=$(ip route show default | awk '/default/ {print $5}')
 RUST_LOG=debug ./agave/target/release/agave-validator \
     --identity test-ledger/validator-keypair.json \
     --ledger test-ledger \
-    --limit-ledger-size 100000000 \
+    --limit-ledger-size 1000000000 \
     --no-genesis-fetch \
     --no-snapshot-fetch \
     --no-poh-speed-test \
