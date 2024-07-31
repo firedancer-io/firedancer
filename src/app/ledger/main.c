@@ -418,6 +418,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
   fd_bpf_scan_and_create_bpf_program_cache_entry( args->slot_ctx, args->slot_ctx->funk_txn );
   fd_funk_end_write( funk );
+
 }
 
 void

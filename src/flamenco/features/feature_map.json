@@ -116,7 +116,7 @@
   {"name":"disable_cpi_setting_executable_and_rent_epoch","pubkey": "B9cdB55u4jQsDNsdTK525yE9dmSc5Ga7YBaBrDFvEhM9","cleaned_up":1180},
   {"name":"on_load_preserve_rent_epoch_for_rent_exempt_accounts","pubkey": "CpkdQmspsaZZ8FVAouQTtTWZkc8eeQ7V3uj7dWz543rZ","cleaned_up":1180},
   {"name":"account_hash_ignore_slot","pubkey": "SVn36yVApPLYsa8koK3qUcy14zXDnqkNYWyUh1f4oK1","cleaned_up":1180},
-  {"name":"set_exempt_rent_epoch_max","pubkey": "5wAGiy15X1Jb2hkHnPDCM8oB9V42VNA9ftNVFK84dEgv"},
+  {"name":"set_exempt_rent_epoch_max","pubkey": "5wAGiy15X1Jb2hkHnPDCM8oB9V42VNA9ftNVFK84dEgv","cleaned_up":1180},
   {"name":"relax_authority_signer_check_for_lookup_table_creation","pubkey": "FKAcEvNgSY79RpqsPNUV5gDyumopH4cEHqUxyfm8b8Ap"},
   {"name":"stop_sibling_instruction_search_at_parent","pubkey": "EYVpEP7uzH1CoXzbD6PubGhYmnxRXPeq3PPsm1ba3gpo","cleaned_up":1180},
   {"name":"vote_state_update_root_fix","pubkey": "G74BkWBzmsByZ1kxHy44H3wjwp5hp7JbrGRuDpco22tY","cleaned_up":1180},

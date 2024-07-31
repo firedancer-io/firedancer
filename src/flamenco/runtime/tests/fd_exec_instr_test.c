@@ -135,11 +135,8 @@ _txn_collect_rent( fd_exec_txn_ctx_t * txn_ctx ) {
       continue;
     }
 
-    /* Filter accounts that we've already visited */
-    if (acc->const_meta->info.rent_epoch <= epoch || FD_FEATURE_ACTIVE(slot_ctx, set_exempt_rent_epoch_max)) {
-      /* Actually invoke rent collection */
-      fd_runtime_collect_rent_account(slot_ctx, acc->meta, acc->pubkey, epoch);
-    }
+    /* Actually invoke rent collection */
+    fd_runtime_collect_rent_account( slot_ctx, acc->meta, acc->pubkey, epoch );
   }
 }
 
@@ -892,7 +889,7 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
     return 0;
   }
 
-  res = fd_execute_txn_prepare_phase4( slot_ctx, txn_ctx );
+  res = fd_execute_txn_prepare_phase4( txn_ctx );
   if (res != 0) {
     FD_LOG_WARNING(("could not prepare txn (phase 4 failed)"));
     return 0;
