@@ -216,8 +216,14 @@ after_frag( void *             _ctx,
       //                  shred->slot,
       //                  fd_epoch_leaders_get( epoch_leaders, shred->slot ) ) );
 
+
       if ( FD_UNLIKELY( (long)(ctx->store->pending_slots->end - shred->slot) > (long)FD_PENDING_MAX  ) ) {
         FD_LOG_WARNING(("received shred %lu that would overrun pending queue. skipping.", shred->slot));
+        continue;
+      }
+
+      if ( FD_UNLIKELY( (long)(ctx->store->curr_turbine_slot - shred->slot) > 100  ) ) {
+        FD_LOG_WARNING(("received shred with slot %lu that would overrun pending queue. skipping.", shred->slot));
         continue;
       }
 
