@@ -653,7 +653,7 @@ fd_runtime_microblock_execute( fd_exec_slot_ctx_t * slot_ctx,
       fd_txn_reclaim_accounts( &txn_ctx );
     }
 
-    res = fd_execute_txn_finalize(slot_ctx, &txn_ctx, exec_res);
+    res = fd_execute_txn_finalize(&txn_ctx, exec_res);
     if (res != 0) {
       FD_LOG_ERR(("could not finalize txn"));
       return -1;
@@ -681,7 +681,7 @@ fd_runtime_execute_txn_task(void *tpool,
     return;
   }
 
-  int res = fd_execute_txn_prepare_phase4( task_info->txn_ctx->slot_ctx, task_info->txn_ctx );
+  int res = fd_execute_txn_prepare_phase4( task_info->txn_ctx );
   if( res != 0 ) {
     FD_LOG_ERR(("could not prepare txn"));
   }
@@ -1304,9 +1304,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
         if( txn_ctx->unknown_accounts[i] ) {
           memset( acc_rec->meta->hash, 0xFF, sizeof(fd_hash_t) );
-          if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) {
-            fd_txn_set_exempt_rent_epoch_max( txn_ctx, &txn_ctx->accounts[i] );
-          }
+          fd_txn_set_exempt_rent_epoch_max( txn_ctx, &txn_ctx->accounts[i] );
         }
         if( !txn_ctx->nonce_accounts[i] ) {
           accounts_to_save_cnt++; /* Don't double count nonce accounts */
@@ -1464,7 +1462,7 @@ fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
       continue;
     }
     fd_execute_txn_task_info_t * task_info = &task_infos[i];
-    int res = fd_execute_txn_prepare_phase4( task_info->txn_ctx->slot_ctx, task_info->txn_ctx );
+    int res = fd_execute_txn_prepare_phase4( task_info->txn_ctx );
     if( res != 0 ) {
       FD_LOG_ERR(("could not prepare txn phase 4")); // this can never happen
     }
@@ -2920,13 +2918,10 @@ fd_runtime_collect_rent_account( fd_exec_slot_ctx_t * slot_ctx,
             .feature_set
             .is_active(&solana_sdk::feature_set::set_exempt_rent_epoch_max::id()); */
     /* entry point here: https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L5972-L5982 */
-    if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) {
-      if( !fd_pubkey_is_sysvar_id( key ) ) {
-        info->rent_epoch = ULONG_MAX;
-      }
-      return 0;
+    if( !fd_pubkey_is_sysvar_id( key ) ) {
+      info->rent_epoch = ULONG_MAX;
     }
-    return 1;
+    return 0;
   }
 
   // RentCollector::calculate_rent_result (cont)
@@ -3002,11 +2997,8 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulon
       continue;
     }
 
-    /* Filter accounts that we've already visited */
-    if (rec->const_meta->info.rent_epoch <= epoch || FD_FEATURE_ACTIVE(slot_ctx, set_exempt_rent_epoch_max)) {
-      /* Actually invoke rent collection */
-      (void)fd_runtime_collect_rent_account(slot_ctx, rec->meta, key, epoch);
-    }
+    /* Actually invoke rent collection */
+    fd_runtime_collect_rent_account( slot_ctx, rec->meta, key, epoch );
   }
 }
 

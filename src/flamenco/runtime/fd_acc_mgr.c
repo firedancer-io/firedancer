@@ -217,8 +217,9 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
 
   fd_account_meta_t * ret = fd_funk_val( rec, fd_funk_wksp( funk ) );
 
-  if( do_create && ret->magic == 0 )
-    fd_account_meta_init(ret);
+  if( do_create && ret->magic==0UL ) {
+    fd_account_meta_init( ret );
+  }
 
   if( ret->magic != FD_ACCOUNT_META_MAGIC )
     FD_LOG_ERR(( "bad magic" ));

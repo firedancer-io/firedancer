@@ -355,11 +355,14 @@ fd_should_set_exempt_rent_epoch_max( fd_rent_t const *       rent,
   if( fd_pubkey_is_sysvar_id( rec->pubkey ) ) {
     return 0;
   }
-
-  if( rec->const_meta->info.lamports < fd_rent_exempt_minimum_balance2( rent, rec->const_meta->dlen ) )
+  /* If an account does not exist, that means that the rent epoch should be
+     set because all new accounts must be rent-exempt. */
+  if( rec->const_meta->info.lamports && rec->const_meta->info.lamports<fd_rent_exempt_minimum_balance2( rent, rec->const_meta->dlen ) ) {
     return 0;
-  if( rec->const_meta->info.rent_epoch == ULONG_MAX )
+  }
+  if( rec->const_meta->info.rent_epoch==ULONG_MAX ) {
     return 0;
+  }
 
   return 1;
 }
@@ -369,16 +372,20 @@ fd_txn_set_exempt_rent_epoch_max( fd_exec_txn_ctx_t * txn_ctx,
                                   void const *        addr ) {
   fd_borrowed_account_t * rec = NULL;
   int err = fd_txn_borrowed_account_view( txn_ctx, (fd_pubkey_t const *)addr, &rec);
-  if( FD_UNLIKELY( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) )
+  if( FD_UNLIKELY( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
     return;
-  FD_TEST( err==FD_ACC_MGR_SUCCESS );
+  } else if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_ERR(( "fd_txn_borrowed_account_view err=%d", err ));
+  }
 
   if( !fd_should_set_exempt_rent_epoch_max( &txn_ctx->epoch_ctx->epoch_bank.rent, rec ) ) {
     return;
   }
 
   err = fd_txn_borrowed_account_modify( txn_ctx, (fd_pubkey_t const *)addr, 0, &rec);
-  FD_TEST( err==FD_ACC_MGR_SUCCESS );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_ERR(( "fd_txn_borrowed_account_modify err=%d", err ));
+  }
 
   rec->meta->info.rent_epoch = ULONG_MAX;
 }
@@ -452,12 +459,10 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t *          slot_ctx,
     rec->meta->info.lamports -= fee;
   }
 
-  if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) {
-    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-    if( FD_LIKELY( rec->const_meta->info.lamports >= fd_rent_exempt_minimum_balance2( &epoch_bank->rent,rec->const_meta->dlen ) ) ) {
-      if( !fd_pubkey_is_sysvar_id( rec->pubkey ) ) {
-        rec->meta->info.rent_epoch = ULONG_MAX;
-      }
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  if( FD_LIKELY( rec->const_meta->info.lamports>=fd_rent_exempt_minimum_balance2( &epoch_bank->rent,rec->const_meta->dlen ) ) ) {
+    if( !fd_pubkey_is_sysvar_id( rec->pubkey ) ) {
+      rec->meta->info.rent_epoch = ULONG_MAX;
     }
   }
 
@@ -833,12 +838,8 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     fd_pubkey_t * acc = &txn_ctx->accounts[i];
 
     fd_borrowed_account_t * borrowed_account = fd_borrowed_account_init( &txn_ctx->borrowed_accounts[i] );
-    int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, acc, borrowed_account );
+    fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, acc, borrowed_account );
     memcpy(borrowed_account->pubkey->key, acc, sizeof(*acc));
-
-    if( FD_UNLIKELY( err ) ) {
-      // FD_LOG_WARNING(( "fd_acc_mgr_view(%32J) failed (%d-%s)", acc->uc, err, fd_acc_mgr_strerror( err ) ));
-    }
 
     if( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
         void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
@@ -1016,31 +1017,23 @@ fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 int
-fd_execute_txn_prepare_phase4( fd_exec_slot_ctx_t * slot_ctx,
-                               fd_exec_txn_ctx_t * txn_ctx ) {
+fd_execute_txn_prepare_phase4( fd_exec_txn_ctx_t * txn_ctx ) {
+  /* Setup all borrowed accounts used in the transaction. */
   fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
-  /* Update rent exempt on writable accounts if feature activated
-    TODO this should probably not run on executable accounts
-        Also iterate over LUT accounts */
-  if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) {
-    fd_pubkey_t * tx_accs   = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->acct_addr_off);
-    for( fd_txn_acct_iter_t ctrl = fd_txn_acct_iter_init( txn_ctx->txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE );
-         ctrl != fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
-      ulong i = fd_txn_acct_iter_idx( ctrl );
-      if( (i == 0) || fd_pubkey_is_sysvar_id( &tx_accs[i] ) )
-        continue;
-      fd_txn_set_exempt_rent_epoch_max( txn_ctx, &tx_accs[i] );
-    }
-  }
-
-  for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
-    txn_ctx->unknown_accounts[i] = 0;
-    txn_ctx->nonce_accounts[i] = 0;
-    if (fd_txn_is_writable(txn_ctx->txn_descriptor, (int)i)) {
-      FD_BORROWED_ACCOUNT_DECL(writable_new);
-      int err = fd_acc_mgr_view(txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[i], writable_new);
-      if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-        txn_ctx->unknown_accounts[i] = 1;
+  /* Update rent exempt on writable accounts if feature activated. All
+     writable accounts that don't exist, will already be marked as being
+     rent exempt (rent_epoch==ULONG_MAX). */
+  for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
+    txn_ctx->unknown_accounts[ i ] = 0;
+    txn_ctx->nonce_accounts  [ i ] = 0;
+    if( fd_txn_is_writable( txn_ctx->txn_descriptor, (int)i ) ) {
+      if( FD_LIKELY( i!=0UL ) ) {
+        fd_txn_set_exempt_rent_epoch_max( txn_ctx, &txn_ctx->accounts[ i ] );
+      }
+      FD_BORROWED_ACCOUNT_DECL( writable_new );
+      int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[ i ], writable_new );
+      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+        txn_ctx->unknown_accounts[ i ] = 1;
       }
     }
   }
@@ -1050,8 +1043,7 @@ fd_execute_txn_prepare_phase4( fd_exec_slot_ctx_t * slot_ctx,
 
 /* Stuff to be done after multithreading ends */
 int
-fd_execute_txn_finalize( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_exec_txn_ctx_t * txn_ctx,
+fd_execute_txn_finalize( fd_exec_txn_ctx_t * txn_ctx,
                          int exec_txn_err ) {
   if( exec_txn_err != 0 ) {
     for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
@@ -1075,9 +1067,7 @@ fd_execute_txn_finalize( fd_exec_slot_ctx_t * slot_ctx,
 
     if( txn_ctx->unknown_accounts[i] ) {
       memset( acc_rec->meta->hash, 0xFF, sizeof(fd_hash_t) );
-      if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) {
-        fd_txn_set_exempt_rent_epoch_max( txn_ctx, &txn_ctx->accounts[i] );
-      }
+      fd_txn_set_exempt_rent_epoch_max( txn_ctx, &txn_ctx->accounts[i] );
     }
 
     int ret = fd_acc_mgr_save_non_tpool( txn_ctx->acc_mgr, txn_ctx->funk_txn, acc_rec );

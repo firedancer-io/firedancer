@@ -119,9 +119,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx,
           + sizeof(ulong)                         // data_len
           + 0                                     // data
           + MAX_PERMITTED_DATA_INCREASE;
-        if (FD_FEATURE_ACTIVE( ctx.slot_ctx, set_exempt_rent_epoch_max)) {
-          FD_STORE( ulong, serialized_params, ULONG_MAX );
-        }
+        FD_STORE( ulong, serialized_params, ULONG_MAX );
         serialized_params += sizeof(ulong); // rent_epoch
         pre_lens[i] = 0;
         continue;

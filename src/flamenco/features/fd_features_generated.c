@@ -693,7 +693,8 @@ fd_feature_id_t const ids[] = {
   { .index      = offsetof(fd_features_t, set_exempt_rent_epoch_max)>>3,
     .id         = {"\x49\x4e\x98\x21\x34\x4b\x72\xe0\x04\xd2\x66\xa2\x2e\xf9\xfb\x20\xbd\xba\x5a\xad\xec\xe7\xf6\xbc\x0a\x93\xe4\xd1\x83\xe0\xfd\x8f"},
                   /* 5wAGiy15X1Jb2hkHnPDCM8oB9V42VNA9ftNVFK84dEgv */
-    .name       = "set_exempt_rent_epoch_max" },
+    .name       = "set_exempt_rent_epoch_max",
+    .cleaned_up = 1180 },
 
   { .index      = offsetof(fd_features_t, relax_authority_signer_check_for_lookup_table_creation)>>3,
     .id         = {"\xd4\xaa\xef\x53\x4b\x5a\xa1\xad\x90\xf8\x49\xb9\x13\x45\x25\x3c\x4c\x39\x46\x28\xb4\xb6\xb4\xfa\x41\x0d\xb5\x1e\xa1\x4f\xa8\xf5"},
