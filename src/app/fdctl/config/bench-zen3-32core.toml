@@ -13,9 +13,9 @@
   agave_affinity = "58-63"
   verify_tile_count = 30
   bank_tile_count = 6
+  shred_tile_count = 1
 
 [development.genesis]
-  hashes_per_tick = 12500
   fund_initial_accounts = 32768
 
 [development.bench]

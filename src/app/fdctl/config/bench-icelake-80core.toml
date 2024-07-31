@@ -16,9 +16,9 @@ scratch_directory = "/dev/shm/fd1"
   agave_affinity = "71-79/2"
   verify_tile_count = 33
   bank_tile_count = 19
+  shred_tile_count = 1
 
 [development.genesis]
-  hashes_per_tick = 12500
   fund_initial_accounts = 10000
 
 [development.bench]

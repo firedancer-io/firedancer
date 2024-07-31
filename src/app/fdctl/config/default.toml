@@ -459,57 +459,84 @@ dynamic_port_range = "8900-9000"
 # run on which cores and for how long, Firedancer overrides most of this
 # behavior by pinning threads to CPU cores.
 #
-# Consider a validator node needing to do six essential pieces of work:
+# The validator splits all work into eleven distinct jobs, with each
+# thread running one of the jobs:
 #
-#  1. quic      Parse received QUIC packets into transactions, and
-#               respond to the client appropriately
-#  2. verify    Verify the signature of the transaction, dropping
-#               invalid ones
-#  3. dedup     Drop duplicated or repeatedly sent transactions
-#  4. pack      Decide which transactions to execute, ordering them by
-#               profitability
-#  5. bank      Run the transactions in order and update accounting
-#  6. shred     Sign outgoing messages and forward to other validators
+#  - net        Sends and receives network packets from the network
+#               device
 #
-# This is a data pipeline.  When we model the flow of a transaction
-# through the system, it's a simple linear sequence, and could run
-# nicely on six CPU cores, one for each stage,
+#  - quic       Receives transactions from clients, performing all
+#               connection management and packet processing to manage
+#               and implement the QUIC protocol
 #
-#   1 -> 2 -> 3 -> 4 -> 5 -> 6
+#  - verify     Verifies the cryptographic signature of incoming
+#               transactions, filtering invalid ones
 #
-# Transactions can largely be processed independently, except for
-# deduplication.  With that in mind, if we had ten CPU cores, we could
-# make our pipeline faster by parallelizing it as follows,
+#  - dedup      Checks for and filters out duplicated incoming
+#               transactions
 #
-#   1 -> 2 --> 3 --> 4 --> 5 -> 6
-#           |          |
-#   1 -> 2 -+          +-> 5 -> 6
+#  - pack       Collects incoming transactions and smartly schedules
+#               them for execution when we are leader
 #
-# The problem of deciding which cores to use, and what work to run on
+#  - bank       Executes transactions that have been scheduled when we
+#               are leader
+#
+#  - poh        Continuously hashes in the background, and mixes the
+#               hash in with executed transactions to prove passage of
+#               time
+#
+#  - shred      Distributes block data to the network when leader, and
+#               receives and retransmits block data when not leader
+#
+#  - store      Receives block data when we are leader, or from other
+#               nodes when they are leader, and stores it locally in a
+#               database on disk
+#
+#  - metric     Collects monitoring information about other tiles and
+#               serves it on a HTTP endpoint
+#
+#  - sign       Holds the validator private key, and receives and
+#               responds to signing requests from other tiles
+#
+# The jobs involved in producing blocks when we are leader are organized
+# in a pipeline, where transactions flow through the system in a linear
+# sequence.
+#
+#   net -> quic -> verify -> dedup -> pack -> bank -> poh -> shred -> store
+#
+# Some of these jobs (net, quic, verify, bank, and shred) can be
+# parallelized, and run on multiple CPU cores at once. For example, we
+# could structure the pipeline like this for performance:
+#
+# net -> quic +-> verify -+> dedup -> pack +-> bank -+> poh -> shred -> store
+#             +-> verify -+                +-> bank -+
+#             +-> verify -+
+#             +-> verify -+
+#
+# Each instance of a job running on a CPU core is called a tile.  In
+# this configuration we are running 4 verify tiles and 2 bank tiles.
+#
+# The problem of deciding which cores to use, and what job to run on
 # each core we call layout.  Layout is system dependent and the highest
 # throughput layout will vary depending on the specific hardware
 # available.
 #
-# Pinning and layout is accomplished with help from a primitive we call
-# a tile.  A tile is a thread which you can dispatch work to.  Tiles may
-# either be pinned to a specific core, or float between unassigned cores
-# (the OS scheduler will assign).  While a tile could receive and handle
-# arbitrary new work requests over its lifetime, acting like a worker
-# thread in a thread pool, in practice most tiles are dispatched just
-# one piece of work at startup, one of the six described above, which
-# they run forever.
+# Tiles communciate with each other using message queues.  If a queue
+# between two tiles fills up, the producer will either block, waiting
+# until there is free space to continue which is referred to as
+# backpressure, or it will drop transactions or data and continue.
 #
-# The concurrency model is that each tile runs exclusively on its own
-# thread, and communicates with other tiles via. message passing.  The
-# message passing primitives are built on top of shared memory, but
-# tiles do not otherwise communicate via. shared memory.  These message
-# queues between tiles are all fixed size, and when a producer outruns a
-# downstream consumer and fills the outgoing buffer transactions will be
-# dropped.
+# A slow tile can cause backpressure through the rest of the system
+# causing it to halt, and the goal of adding more tiles is to increase
+# throughput of a job, preventing dropped transactions.  For example,
+# if the QUIC server was producing 100,000 transactions a second, but
+# each verify tile could only handle 20,000 transactions a second, five
+# of the verify tiles would be needed to keep up without dropping
+# transactions.
 #
-# A full Firedancer layout spins up these six tasks onto a variety of
-# tiles and connects them together with queues so that data can flow in
-# and out of the system with maximum throughput and minimal overruns.
+# A full Firedancer layout spins up these eleven tasks onto a variety of
+# CPU cores and connects them together with queues so that data can flow
+# in and out of the system with maximum throughput and minimal drops.
 [layout]
     # Logical CPU cores to run Firedancer tiles on.  Can be specified as
     # a single core like "0", a range like "0-10", or a range with
@@ -534,57 +561,100 @@ dynamic_port_range = "8900-9000"
     #    3 | 2
     #    4 | 4
     #    5 | floating
-    #
-    # It is suggested to use all available CPU cores for Firedancer, so
-    # that the Solana network can run as fast as possible.
     affinity = "1-16"
 
     # In addition to the Firedancer tiles which use a core each, the
     # current version of Firedancer hosts a Agave validator as
     # a subprocess.
     #
-    # This affinity congtrols which logical CPU cores the Agave
+    # This affinity controls which logical CPU cores the Agave
     # subprocess and all of its threads are allowed to run on.  This is
     # specified in the same format as the above Firedancer affinity.
     #
     # It is strongly suggested that you do not overlap the Firedancer
     # affinity with the Agave affinity, as Firedancer tiles expect
-    # to have exclusive use of their core.  Unexpected latency  spikes
+    # to have exclusive use of their core.  Unexpected latency spikes
     # due to context switching may decrease performance overall.
     agave_affinity = ""
 
     # The following option is retained for backwards compatibility.  It
-    # will be disregarded if agave_affinity is specified.
+    # will be ignored if agave_affinity is specified.
     solana_labs_affinity = "17-31"
 
-    # How many net tiles to run.  Each networking tile will service
-    # exactly one queue from a network device being listened to.  If
-    # there are less net tiles than queues, some queues will not get
-    # drained and packets will be lost, and if there are more tiles than
-    # queues, some tiles will spin a CPU core doing nothing since no
-    # packets will ever arrive.
+    # How many net tiles to run.  Should be set to 1.  This is
+    # configurable and designed to scale out for future network
+    # conditions but there is no need to run more than 1 net tile given
+    # current `mainnet-beta` conditions.
+    #
+    # Net tiles are responsible for sending and receiving packets from
+    # the network device configured in the [tiles.net] section below.
+    # Each net tile will service exactly one queue from the device, and
+    # firedancer will error on boot if the number of queues on the
+    # device is not configured correctly.
+    #
+    # The net tile is designed to scale linearly when adding more tiles.
     #
     # See the comments for the [tiles.net] section below for more
     # information.
     net_tile_count = 1
 
-    # How many QUIC tiles to run.  Each QUIC tile can service persistent
-    # QUIC connections, and will be responsible for parsing and and
-    # responding to incoming data.
+    # How many QUIC tiles to run.  Should be set to 1.  This is
+    # configurable and designed to scale out for future network
+    # conditions but there is no need to run more then 1 QUIC tile given
+    # current `mainnet-beta` conditions, unless the validator is the
+    # subject of large DoS attack.
+    #
+    # QUIC tiles are responsible for parsing incoming QUIC protocol
+    # messages, managing connections and responding to clients.
+    # Connections from the net tiles will be evenly distributed
+    # between the available QUIC tiles round robin style.
+    #
+    # QUIC tiles are designed to scale linearly when adding more tiles,
     quic_tile_count = 1
 
     # How many verify tiles to run.  Verify tiles perform signature
     # verification on incoming transactions, an expensive operation that
     # is often the bottleneck of the validator.
-    verify_tile_count = 5
+    #
+    # Verify tiles are designed to scale linearly when adding more
+    # tiles, and the verify tile count should be increased until the
+    # validator is not dropping incoming QUIC transactions from clients.
+    #
+    # On modern hardware, each verify tile can handle around 20-40K
+    # transactions per second.  Four tiles seems to be enough to handle
+    # current `mainnet-beta` traffic, unless the validator is under a
+    # DoS or spam attack.
+    verify_tile_count = 4
 
-    # How many bank tiles to run.  Multiple banks can run in parallel,
-    # if they are not writing to the same accounts at the same time.
+    # How many bank tiles to run.  Should be set to 2.  Bank tiles
+    # execute transactions, so the validator can include the results of
+    # the transaction into a block when we are leader.  Because of
+    # current consensus limits restricting blocks to around 32,000
+    # transactions per block, there is no need to use more than 2 bank
+    # tiles on mainnet-beta.  For development and benchmarking, it can
+    # be useful to increase this number further.
+    #
+    # Bank tiles do not scale linearly.  The current implementation uses
+    # the agave runtime for execution, which takes various locks and
+    # uses concurrent data structures which slow down with multiple
+    # parallel users.
     bank_tile_count = 2
 
-    # How many shred tiles to run.  Multiple shred tiles can run in
-    # parallel to create shreds from transaction entries.
-    shred_tile_count = 1
+    # How many shred tiles to run.  Should be set to 2.  This is
+    # configurable and designed to scale out for future network
+    # conditions but there is no need to run more than 2 shred tiles
+    # given current `mainnet-beta` conditions.
+    #
+    # Shred tiles distribute block data to the network when we are
+    # leader, and receive and retransmit it to other nodes when we are
+    # not leader.
+    #
+    # Shred tile performance heavily dependent on the number of peer
+    # nodes in the cluster, as computing where data should go is an
+    # expensive function with this list of peers as the input.  In
+    # development and benchmarking, 1 tile is sufficient to hit very
+    # high TPS rates because the cluster size will be very small.
+    shred_tile_count = 2
 
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2MB and gigantic
@@ -715,7 +785,7 @@ dynamic_port_range = "8900-9000"
         # be accepted.
         #
         # This must be >= 2 and also a power of 2.
-        max_concurrent_connections = 256
+        max_concurrent_connections = 2048
 
         # QUIC allows for multiple streams to be multiplexed over a
         # single connection.  This option sets the maximum number of
@@ -737,12 +807,12 @@ dynamic_port_range = "8900-9000"
 
         # QUIC uses a fixed-size pool of streams to use for all the
         # connections in the QUIC instance.  When a new connection is
-        # established, QUIC attempts to allocate stream objects to it for
-        # incoming peer-initiated streams. Locally-initiated streams are
-        # allocated explicitly.  One stream per connection is reserved, so
-        # every connection can be used.  This means that this value MUST
-        # be at least as high as max_concurrent_connections.
-        # The size of the pool is defined here:
+        # established, QUIC attempts to allocate stream objects to it
+        # for incoming peer-initiated streams.  Locally initiated
+        # streams are allocated explicitly.  One stream per connection is
+        # reserved, so every connection can be used.  This means that
+        # this value must be at least as high as the value of
+        # `max_concurrent_connections` above.
         stream_pool_cnt = 4096
 
         # Controls how much transactions coming in via TPU can be
@@ -768,7 +838,7 @@ dynamic_port_range = "8900-9000"
         # above.
         #
         # TODO: This should be removed.
-        max_concurrent_handshakes = 256
+        max_concurrent_handshakes = 2048
 
         # QUIC has a concept of a "QUIC packet", there can be multiple
         # of these inside a UDP packet.  Each QUIC packet we send to the
@@ -1022,13 +1092,15 @@ dynamic_port_range = "8900-9000"
         # the generating computer can do in the target tick duration
         # specified below.
         #
-        # A value of 12500 is the same as mainnet, devnet, and testnet.
+        # This value specifies the initial value for the chain in the
+        # genesis, but it might be overriden at runtime if the related
+        # features which increase this value are enabled. The features
+        # are named like `update_hashes_per_tick2`.
         #
-        # This value specifies the initial value for chain in the
-        # genesis, but it might be immediately overriden at runtime if
-        # the related features which increase this value are enabled.
-        # The features are like update_hashes_per_tick2.
-        hashes_per_tick = 1
+        # A value of 62,500 is the same as mainnet-beta, devnet, and
+        # testnet, following activation of the `update_hashes_per_tick6`
+        # feature.
+        hashes_per_tick = 62_500
 
         # How long each tick of the proof of history component should
         # take, in microseconds.  This value specifies the initial value
