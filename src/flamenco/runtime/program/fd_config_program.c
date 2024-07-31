@@ -16,6 +16,7 @@
 
 static int
 _process_config_instr( fd_exec_instr_ctx_t ctx ) {
+# define ACC_IDX_CONFIG ((uchar)0)
 
   /* Deserialize the Config Program instruction data, which consists only of the ConfigKeys
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L21 */
@@ -29,31 +30,31 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
   int decode_result = fd_config_keys_decode( &key_list, &decode );
   /* Fail if the number of bytes consumed by deserialize exceeds 1232
      (hardcoded constant by Agave limited_deserialize) */
-  if( decode_result != FD_BINCODE_SUCCESS ||
-      (ulong)ctx.instr->data + 1232UL < (ulong)decode.data )
+  if( FD_UNLIKELY(decode_result != FD_BINCODE_SUCCESS || (ulong)ctx.instr->data + 1232UL < (ulong)decode.data ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L22-L26 */
 
-  if( FD_UNLIKELY( ctx.instr->acct_cnt < 1UL ) )
+  if( FD_UNLIKELY( ctx.instr->acct_cnt<1UL ) ) {
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-# define ACC_IDX_CONFIG ((uchar)0)
-  fd_borrowed_account_t * config_acc_rec = NULL;
-  fd_instr_borrowed_account_view_idx( &ctx, ACC_IDX_CONFIG, &config_acc_rec );
+  }
+  fd_pubkey_t const * config_account_key = &ctx.instr->acct_pubkeys[ ACC_IDX_CONFIG ];
 
-  fd_pubkey_t const * config_account_key = config_acc_rec->pubkey;
+  int              is_config_account_signer = 0;
+  fd_config_keys_t current_data             = {0};
 
-  if( FD_UNLIKELY( !fd_borrowed_account_acquire_read( config_acc_rec ) ) )
-    return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( &ctx, ACC_IDX_CONFIG, config_acc_rec ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L27 */
 
-  int is_config_account_signer = fd_instr_acc_is_signer_idx( ctx.instr, ACC_IDX_CONFIG );
+  is_config_account_signer = fd_instr_acc_is_signer_idx( ctx.instr, ACC_IDX_CONFIG );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L29-L31 */
 
-  if( 0!=memcmp( &config_acc_rec->const_meta->info.owner, fd_solana_config_program_id.key, sizeof(fd_pubkey_t) ) )
+  if( FD_UNLIKELY( memcmp( &config_acc_rec->const_meta->info.owner, fd_solana_config_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L33-L40 */
 
@@ -62,37 +63,39 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
     .data    = config_acc_rec->const_data,
     .dataend = config_acc_rec->const_data + config_acc_rec->const_meta->dlen,
   };
-  fd_config_keys_t current_data;
   decode_result = fd_config_keys_decode( &current_data, &config_acc_state_decode_context );
-  if( decode_result != FD_BINCODE_SUCCESS )
+  if( FD_UNLIKELY( decode_result!=FD_BINCODE_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L42 */
 
-  fd_borrowed_account_release_read( config_acc_rec );
+  } FD_BORROWED_ACCOUNT_DROP( config_acc_rec );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L44-L49 */
 
-  fd_pubkey_t * current_signer_keys = fd_scratch_alloc( alignof(fd_pubkey_t), sizeof(fd_pubkey_t) * current_data.keys_len );
+  fd_pubkey_t * current_signer_keys    = fd_scratch_alloc( alignof(fd_pubkey_t), sizeof(fd_pubkey_t) * current_data.keys_len );
   ulong         current_signer_key_cnt = 0UL;
 
-  for( ulong i=0UL; i < current_data.keys_len; i++ )
-    if( current_data.keys[i].signer )
-      current_signer_keys[ current_signer_key_cnt++ ] = current_data.keys[i].key;
+  for( ulong i=0UL; i<current_data.keys_len; i++ ) {
+    if( current_data.keys[ i ].signer ) {
+      current_signer_keys[ current_signer_key_cnt++ ] = current_data.keys[ i ].key;
+    }
+  }
 
   /* If we have no keys in the account, require the config account to have signed the transaction
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L50-L56 */
 
-  if( ( current_signer_key_cnt==0 ) &
-      ( !is_config_account_signer ) )
+  if( FD_UNLIKELY( current_signer_key_cnt==0UL && !is_config_account_signer ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L58 */
 
   ulong counter = 0UL;
   /* Invariant: counter <= key_list.keys_len */
 
-  for( ulong i=0UL; i < key_list.keys_len; i++ ) {
+  for( ulong i=0UL; i<key_list.keys_len; i++ ) {
     if( !key_list.keys[i].signer ) continue;
     fd_pubkey_t const * signer = &key_list.keys[i].key;
 
@@ -102,26 +105,23 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
 
     /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L61 */
 
-    if( 0!=memcmp( signer, config_account_key, sizeof(fd_pubkey_t) ) ) {
+    if( memcmp( signer, config_account_key, sizeof(fd_pubkey_t) ) ) {
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L62-L71 */
 
-      fd_borrowed_account_t * signer_account = NULL;
-      int borrow_err = fd_instr_borrowed_account_view_idx( &ctx, (uchar)counter, &signer_account );
-      if( FD_UNLIKELY( borrow_err!=FD_ACC_MGR_SUCCESS ) )
-        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-      if( FD_UNLIKELY( !fd_borrowed_account_acquire_read( signer_account ) ) )
-        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;  /* seems to be deliberately not ACC_BORROW_FAILED? */
+      FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( &ctx, counter, signer_account ) {
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L72-L79 */
 
-      if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx.instr, (uchar)counter ) ) )
+      if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx.instr, (uchar)counter ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      }
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L80-L87 */
 
-      if( FD_UNLIKELY( 0!=memcmp( signer_account->pubkey, signer, sizeof(fd_pubkey_t) ) ) )
+      if( FD_UNLIKELY( memcmp( signer_account->pubkey, signer, sizeof(fd_pubkey_t) ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      }
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L89-L98 */
 
@@ -129,79 +129,84 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
         /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L90 */
         int is_signer = 0;
         for( ulong j=0UL; j < current_signer_key_cnt; j++ ) {
-          if( 0==memcmp( &current_signer_keys[j], signer, sizeof(fd_pubkey_t) ) ) {
+          if( !memcmp( &current_signer_keys[j], signer, sizeof(fd_pubkey_t) ) ) {
             is_signer = 1;
             break;
           }
         }
         /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L97 */
-        if( !is_signer )
+        if( FD_UNLIKELY( !is_signer ) ) {
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+        }
       }
 
-    } else if( !is_config_account_signer ) {
+      } FD_BORROWED_ACCOUNT_DROP( signer_account );
+
+    } else if( FD_UNLIKELY( !is_config_account_signer ) ) {
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L101 */
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-
     }
   }
 
   /* Disallow duplicate keys
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L105-L115
 
-     TODO: Agave uses a O(n log n) algorithm here */
-  if( FD_FEATURE_ACTIVE( ctx.slot_ctx, dedupe_config_program_signers ) ) {
-    for( ulong i = 0; i < key_list.keys_len; i++ ) {
-      for( ulong j = 0; j < key_list.keys_len; j++ ) {
-        if( i == j ) continue;
+    TODO: Agave uses a O(n log n) algorithm here */
+  for( ulong i=0UL; i<key_list.keys_len; i++ ) {
+    for( ulong j=0UL; j<key_list.keys_len; j++ ) {
+      if( i==j ) continue;
 
-        if( memcmp( &key_list.keys[i].key, &key_list.keys[j].key, sizeof(fd_pubkey_t) ) == 0 && key_list.keys[i].signer == key_list.keys[j].signer ) {
-          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-        }
+      if( FD_UNLIKELY( !memcmp( &key_list.keys[i].key, &key_list.keys[j].key, sizeof(fd_pubkey_t) ) && 
+                       key_list.keys[i].signer==key_list.keys[j].signer ) ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
     }
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L118-L126 */
 
-  if( FD_UNLIKELY( current_signer_key_cnt > counter ) )
+  if( FD_UNLIKELY( current_signer_key_cnt>counter ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+  }
 
   /* Upgrade to writable handle
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L128-L129 */
 
-  if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( config_acc_rec ) ) )
-    return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( &ctx, ACC_IDX_CONFIG, config_acc_rec ) {
 
   /* Upgrade to writable handle
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L130-L133 */
 
-  if( FD_UNLIKELY( config_acc_rec->const_meta->dlen < ctx.instr->data_sz ) ) {
+  if( FD_UNLIKELY( config_acc_rec->const_meta->dlen<ctx.instr->data_sz ) ) {
     /* TODO Log: "instruction data too large" */
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  /* Inlined solana_sdk::transaction_context::BorrowedAccount::get_data_mut */
+  int err = 0;
+  if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx.instr, ACC_IDX_CONFIG, &err ) ) ) {
+    return err;
+  }
 
-  do {
-    int err;
-    if( !fd_account_can_data_be_changed( ctx.instr, 0, &err ) )
-      return err;
-  } while(0);
+  err = fd_instr_borrowed_account_modify_idx( &ctx, ACC_IDX_CONFIG, config_acc_rec->const_meta->dlen, &config_acc_rec );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
+  }
 
-  do {
-    int err = fd_instr_borrowed_account_modify_idx( &ctx, 0, config_acc_rec->const_meta->dlen, &config_acc_rec );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
-  } while(0);
+  uchar * acc_data = NULL;
+  ulong   acc_dlen = 0UL;
+  err = fd_account_get_data_mut( &ctx, ACC_IDX_CONFIG, &acc_data, &acc_dlen );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   /* copy_from_slice */
 
-  fd_memcpy( config_acc_rec->data, ctx.instr->data, ctx.instr->data_sz );
+  fd_memcpy( acc_data, ctx.instr->data, ctx.instr->data_sz );
 
-  /* Implicitly dropped in Labs */
+  /* Implicitly dropped in Anza */
 
-  fd_borrowed_account_release_write( config_acc_rec );
+  } FD_BORROWED_ACCOUNT_DROP( config_acc_rec );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 # undef ACC_IDX_CONFIG
