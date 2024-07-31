@@ -321,7 +321,7 @@ fd_topo_mem_sz_string( ulong sz, char out[static 24] ) {
 void
 fd_topo_print_log( int         stdout,
                    fd_topo_t * topo ) {
-  char message[ 4UL*4096UL ] = {0}; /* Same as FD_LOG_BUF_SZ */
+  char message[ 16UL*4096UL ] = {0}; /* Same as FD_LOG_BUF_SZ */
 
   char * cur = message;
   ulong remaining = sizeof(message) - 1; /* Leave one character at the end to ensure NUL terminated */
