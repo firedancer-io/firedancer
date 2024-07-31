@@ -1115,3 +1115,15 @@ dynamic_port_range = "8900-9000"
         # it would cause consensus violations between the validator and
         # the rest of the network.
         larger_shred_limits_per_block = false
+
+        # Frankendancer currently depends on the Agave blockstore
+        # component for storing block data to disk.  This component can
+        # frequently be a bottleneck when testing the throughput of the
+        # leader pipeline, so this option is provided to disable it.
+        #
+        # This option should not be uesd in a production network, it
+        # causes the validator to not be able to serve repair requests,
+        # snapshots, or participate in other consensus critical
+        # operations.  It is only useful for benchmarking the leader
+        # TPU performance in a single node cluster case.
+        disable_blockstore = false
