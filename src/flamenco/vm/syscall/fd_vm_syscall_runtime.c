@@ -4,6 +4,7 @@
 #include "../../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../runtime/sysvar/fd_sysvar_fees.h"
 #include "../../runtime/sysvar/fd_sysvar_rent.h"
+#include "../../runtime/sysvar/fd_sysvar_last_restart_slot.h"
 #include "../../runtime/context/fd_exec_txn_ctx.h"
 #include "../../runtime/context/fd_exec_instr_ctx.h"
 
@@ -146,6 +147,29 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
   /* FIXME: no delete function to match new (probably should be fini for the same reason anyway) */
 
   memcpy( out, rent, FD_RENT_FOOTPRINT );
+
+  *_ret = 0UL;
+  return FD_VM_SUCCESS;
+}
+
+/* https://github.com/anza-xyz/agave/blob/36323b6dcd3e29e4d6fe6d73d716a3f33927148b/programs/bpf_loader/src/syscalls/sysvar.rs#L144 */
+int
+fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
+                                                /**/            ulong   out_vaddr,
+                                                FD_PARAM_UNUSED ulong   r2,
+                                                FD_PARAM_UNUSED ulong   r3,
+                                                FD_PARAM_UNUSED ulong   r4,
+                                                FD_PARAM_UNUSED ulong   r5,
+                                                /**/            ulong * _ret ) {
+  fd_vm_t * vm = (fd_vm_t *)_vm;
+
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT ) );
+
+  fd_sol_sysvar_last_restart_slot_t * out = 
+    FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_SOL_SYSVAR_LAST_RESTART_SLOT_ALIGN, FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT );
+  if( FD_UNLIKELY( fd_sysvar_last_restart_slot_read( out, vm->instr_ctx->slot_ctx ) == NULL ) ) {
+    return FD_VM_ERR_ABORT;
+  }
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
