@@ -34,7 +34,7 @@ fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
                  0UL );
 }
 
-static fd_sol_sysvar_last_restart_slot_t *
+fd_sol_sysvar_last_restart_slot_t *
 fd_sysvar_last_restart_slot_read( fd_sol_sysvar_last_restart_slot_t * result,
                                   fd_exec_slot_ctx_t const *          slot_ctx ) {
 
