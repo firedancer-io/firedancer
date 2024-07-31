@@ -46,6 +46,7 @@ src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-281688085 -s snapshot-2
 src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-277660422 -s snapshot-277660421-7fen26CUSpoKnaTXr3cAettDPuF6rsFcu7bEXNz9yhbM.tar.zst -p 30 -y 16 -m 5000000 -e 277660423 -c 1190
 src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-277876060 -s snapshot-277876059-9vTzJ6qWyH7qkw11V5Np8wutCtExSw5XzethrdFfsjUk.tar.zst -p 30 -y 16 -m 5000000 -e 277876061 -c 1190
 src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-277927063 -s snapshot-277927062-HqChvv7URAqMvvSx2WdfzL1HJFp21C1UoQHfzKxHyXtJ.tar.zst -p 30 -y 16 -m 5000000 -e 277927065 -c 1190
-src/flamenco/runtime/tests/run_ledger_test.sh -l v203-move-stake -s snapshot-4467-5yzwTpG83nRbokX2iKNYPCPod6fJu3aE8pBEE4SyqLCb.tar.zst -p 30 -y 16 -m 5000000 -e 4470 -o 7bTK6Jis8Xpfrs8ZoUfiMDPazTcdPcTWheZFJTA5Z6X4
-src/flamenco/runtime/tests/run_ledger_test.sh -l v203-move-lamports -s snapshot-650-Q8pVZ4jfmzpAGwAytPs4PJXmb4iaBXwVhvVjc8AaAXh.tar.zst -p 30 -y 16 -m 5000000 -e 655 -o 7bTK6Jis8Xpfrs8ZoUfiMDPazTcdPcTWheZFJTA5Z6X4
 src/flamenco/runtime/tests/run_ledger_test.sh -l v203-bpf-loader -s snapshot-40-HDKtRRz86coYSVbyocSzPF7Y8xtNLCTUnaZtULrM4Nz9.tar.zst -p 30 -y 16 -m 5000000 -e 100
+src/flamenco/runtime/tests/run_ledger_test.sh -l v203-move-stake -s snapshot-4467-5yzwTpG83nRbokX2iKNYPCPod6fJu3aE8pBEE4SyqLCb.tar.zst        -p 30 -y 16 -m 5000000 -e 4470 -o 7bTK6Jis8Xpfrs8ZoUfiMDPazTcdPcTWheZFJTA5Z6X4
+src/flamenco/runtime/tests/run_ledger_test.sh -l v203-move-lamports -s snapshot-650-Q8pVZ4jfmzpAGwAytPs4PJXmb4iaBXwVhvVjc8AaAXh.tar.zst       -p 30 -y 16 -m 5000000 -e 655 -o 7bTK6Jis8Xpfrs8ZoUfiMDPazTcdPcTWheZFJTA5Z6X4
+src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-283927487 -s snapshot-283927486-7gCbg5g4BnD9SkQUjpHvhepWsQTpo2WaZaA5bhcNBMhG.tar.zst -p 30 -y 16 -m 5000000 -e 283927497 -c 2000
