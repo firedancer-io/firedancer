@@ -2,17 +2,44 @@
 #define HEADER_fd_src_flamenco_runtime_fd_pending_slots_h
 
 #include "../../util/fd_util.h"
+#include "../../util/bits/fd_bits.h"
+#include "../../choreo/fd_choreo_base.h"
 
+struct fd_pending_slots_treap_ele {
+  /* The treap fields */
+  ulong parent;
+  ulong left;
+  ulong right;
+  ulong prio;
+  ulong next;
+  ulong prev;
 
-#define FD_PENDING_MAX      ( 1U << 14U ) /* 16 kb */
-#define FD_PENDING_MASK     ( FD_PENDING_MAX - 1U )
+  /* Pending slots fields */
+  ulong slot;
+  long  time;
+};
+typedef struct fd_pending_slots_treap_ele fd_pending_slots_treap_ele_t;
 
-struct fd_pending_slots {
-  ulong start;
-  ulong end;
-  ulong lo_wmark;
-  ulong lock;
-  long * pending; /* pending slots to try to prepare */
+#define TREAP_NAME               fd_pending_slots_treap
+#define TREAP_IDX_T              ulong
+#define TREAP_QUERY_T            ulong
+#define TREAP_T                  fd_pending_slots_treap_ele_t
+#define TREAP_CMP(q,e)           ((int)((long)q - (long)e->slot))
+#define TREAP_LT(e0,e1)          ((e0)->slot < (e1)->slot)
+#define TREAP_IMPL_STYLE         0
+#define TREAP_OPTIMIZE_ITERATION 1
+#include "../../util/tmpl/fd_treap.c"
+
+#define POOL_NAME                fd_pending_slots_pool
+#define POOL_T                   fd_pending_slots_treap_ele_t
+#define POOL_IDX_T               ulong
+#include "../../util/tmpl/fd_pool.c"
+
+struct  __attribute__((aligned(128UL))) fd_pending_slots  {
+  fd_pending_slots_treap_t *     treap;
+  fd_pending_slots_treap_ele_t * pool;
+  ulong                          seed;
+  ulong                          total_insert;
 };
 typedef struct fd_pending_slots fd_pending_slots_t;
 
@@ -25,7 +52,15 @@ fd_pending_slots_align( void ) {
 
 FD_FN_CONST static inline ulong
 fd_pending_slots_footprint( void ) {
-  return sizeof( fd_pending_slots_t ) + (sizeof(long) * FD_PENDING_MAX);
+  return FD_LAYOUT_FINI(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+      FD_LAYOUT_INIT,
+      alignof( fd_pending_slots_t ),  sizeof( fd_pending_slots_t ) ),
+      fd_pending_slots_treap_align(), fd_pending_slots_treap_footprint( FD_BLOCK_MAX ) ),
+      fd_pending_slots_pool_align(),  fd_pending_slots_pool_footprint( FD_BLOCK_MAX ) ),
+    fd_pending_slots_align() );
 }
 
 void *
@@ -47,14 +82,6 @@ fd_pending_slots_add( fd_pending_slots_t * pending_slots,
 void
 fd_pending_slots_set_lo_wmark( fd_pending_slots_t * pending_slots,
                                ulong slot );
-
-ulong
-fd_pending_slots_iter_init( fd_pending_slots_t * pending_slots );
-
-ulong
-fd_pending_slots_iter_next( fd_pending_slots_t * pending_slots,
-                            long now,
-                            ulong i );
 
 long
 fd_pending_slots_get( fd_pending_slots_t * pending_slots,
