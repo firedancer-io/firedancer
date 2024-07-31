@@ -506,7 +506,7 @@ int fd_log_private_logfile_fd( void ) { return FD_VOLATILE_CONST( fd_log_private
 /* Buffer size used for vsnprintf calls (this is also one more than the
    maximum size that this can passed to fd_io_write) */
 
-#define FD_LOG_BUF_SZ (4UL*4096UL)
+#define FD_LOG_BUF_SZ (16UL*4096UL)
 
 /* Lock to used by fd_log_private_fprintf_0 to sequence calls writes
    between different _processes_ that share the same fd. */
