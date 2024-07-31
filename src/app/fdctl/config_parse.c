@@ -332,6 +332,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   development.bench.affinity                       );
   CFG_POP      ( bool,   development.bench.larger_max_cost_per_block      );
   CFG_POP      ( bool,   development.bench.larger_shred_limits_per_block  );
+  CFG_POP      ( bool,   development.bench.disable_blockstore             );
 
 # undef CFG_POP
 # undef CFG_ARRAY

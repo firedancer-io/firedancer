@@ -190,6 +190,10 @@ typedef struct {
     } shred;
 
     struct {
+      int disable_blockstore;
+    } store;
+
+    struct {
       char   identity_key_path[ PATH_MAX ];
     } sign;
 

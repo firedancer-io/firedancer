@@ -288,6 +288,7 @@ fd_topo_frankendancer( config_t * config ) {
       tile->shred.shred_listen_port      = config->tiles.shred.shred_listen_port;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "store" ) ) ) {
+      tile->store.disable_blockstore =  config->development.bench.disable_blockstore;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
       strncpy( tile->sign.identity_key_path, config->consensus.identity_path, sizeof(tile->sign.identity_key_path) );

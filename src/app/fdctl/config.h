@@ -174,6 +174,7 @@ typedef struct {
       char affinity[ AFFINITY_SZ ];
       int  larger_max_cost_per_block;
       int  larger_shred_limits_per_block;
+      int  disable_blockstore;
     } bench;
   } development;
 
