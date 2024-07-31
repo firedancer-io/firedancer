@@ -517,13 +517,19 @@ fd_quic_init( fd_quic_t * quic ) {
   state->cs_tree = (fd_quic_cs_tree_t*)cs_tree_laddr;
   fd_quic_cs_tree_init( state->cs_tree, ( limits->conn_cnt << 1UL ) + 1UL );
 
-  fd_rng_new( state->_rng, 0UL, 0UL );
+  /* generate a secure random number as seed for fd_rng */
+  uint rng_seed = 0;
+  int rng_seed_ok = !!fd_rng_secure( &rng_seed, sizeof(rng_seed) );
+  if( FD_UNLIKELY( !rng_seed_ok ) ) {
+    FD_LOG_ERR(( "fd_rng_secure failed" ));
+  }
+  fd_rng_new( state->_rng, rng_seed, 0UL );
 
   /* use rng to generate secret bytes for future RETRY token generation */
   int rng1_ok = !!fd_rng_secure( state->retry_secret, FD_QUIC_RETRY_SECRET_SZ );
   int rng2_ok = !!fd_rng_secure( state->retry_iv,     FD_QUIC_RETRY_IV_SZ     );
   if( FD_UNLIKELY( !rng1_ok || !rng2_ok ) ) {
-    FD_LOG_WARNING(( "fd_rng_secure failed" ));
+    FD_LOG_ERR(( "fd_rng_secure failed" ));
     return NULL;
   }
 
