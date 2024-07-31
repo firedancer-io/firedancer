@@ -5,6 +5,8 @@
 
 #include "../../ballet/base58/fd_base58.h"
 
+#include "../../app/fdctl/config.h"
+
 FD_FN_CONST ulong
 fd_gui_align( void ) {
   return 128UL;
@@ -35,6 +37,9 @@ fd_gui_new( void *             shmem,
   gui->summary.slot_optimistically_confirmed = 0UL;
   gui->summary.slot_completed                = 0UL;
   gui->summary.slot_estimated                = 0UL;
+
+  fd_memset( &gui->summary.txn_info, 0, sizeof(gui->summary.txn_info) );
+  gui->summary.last_txn_ts = fd_log_wallclock();
 
   gui->epoch.max_known_epoch = 1UL;
   fd_stake_weight_t dummy_stakes[1] = {{ .key = {{0}}, .stake = 1UL }};
@@ -106,6 +111,28 @@ fd_gui_epoch_to_json( fd_gui_t * gui,
   }
   jsonb_close_arr( jsonb );
   jsonb_close_obj( jsonb );
+  fd_gui_topic_key_to_json_fini( jsonb );
+}
+
+static void
+fd_gui_txn_info_to_json_no_init( fd_gui_t * gui,
+                                 jsonb_t  * jsonb) {
+  jsonb_open_obj( jsonb, "value" );
+  jsonb_ulong( jsonb, "acquired_txns_quic",          gui->summary.txn_info.acquired_txns_quic );
+  jsonb_ulong( jsonb, "dropped_txns_quic_failed",    gui->summary.txn_info.dropped_txns_quic_failed );
+  jsonb_ulong( jsonb, "dropped_txns_verify_failed",  gui->summary.txn_info.dropped_txns_verify_failed );
+  jsonb_ulong( jsonb, "dropped_txns_verify_overrun", gui->summary.txn_info.dropped_txns_verify_overrun );
+  jsonb_ulong( jsonb, "dropped_txns_dedup_failed",   gui->summary.txn_info.dropped_txns_dedup_failed );
+  jsonb_ulong( jsonb, "dropped_txns_pack_invalid",   gui->summary.txn_info.dropped_txns_pack_invalid );
+  jsonb_ulong( jsonb, "dropped_txns_pack_overrun",   gui->summary.txn_info.dropped_txns_pack_overrun );
+  jsonb_close_obj( jsonb );
+}
+
+static void
+fd_gui_txn_info_summary_to_json( fd_gui_t * gui,
+                                 jsonb_t  * jsonb) {
+  fd_gui_topic_key_to_json_init( jsonb, "summary", "upcoming_slot_txn_info" );
+  fd_gui_txn_info_to_json_no_init( gui, jsonb );
   fd_gui_topic_key_to_json_fini( jsonb );
 }
 
@@ -218,6 +245,9 @@ fd_gui_ws_open( fd_gui_t *         gui,
     idx = (idx + 1) % FD_GUI_NUM_EPOCHS;
   }
 
+  fd_gui_txn_info_summary_to_json( gui, jsonb );
+  fd_gui_jsonb_send( gui, jsonb, conn_id );
+
   ulong message_len;
   const ulong buffer_size = 1024UL * 1024UL;
   char * buffer1 = fd_alloc_malloc( gui->alloc, 1UL, buffer_size );
@@ -282,6 +312,78 @@ fd_gui_ws_open( fd_gui_t *         gui,
 }
 
 void
+fd_gui_poll( fd_gui_t *  gui,
+             fd_topo_t * topo ) {
+  long current = fd_log_wallclock();
+  /* Has 100 millis passed since we last collected info? */
+  if( current - gui->summary.last_txn_ts <= 100000000 ) return;
+
+  /* Recalculate and publish. */
+  gui->summary.last_txn_ts = current;
+  config_t * config     = topo->config;
+  // ulong net_tile_cnt    = config->layout.net_tile_count;
+  ulong quic_tile_cnt   = config->layout.quic_tile_count;
+  ulong verify_tile_cnt = config->layout.verify_tile_count;
+  // ulong bank_tile_cnt   = config->layout.bank_tile_count;
+
+#define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
+
+  ulong quic_recv = 0UL;
+  ulong quic_sent = 0UL;
+  FOR( quic_tile_cnt ) {
+    fd_topo_tile_t const * quic = &topo->tiles[ fd_topo_find_tile( topo, "quic", i ) ];
+    ulong * quic_metrics = fd_metrics_tile( quic->metrics );
+    quic_sent += quic_metrics[ MIDX( COUNTER, QUIC_TILE, REASSEMBLY_NOTIFY_OKAY ) ];
+    quic_recv += quic_metrics[ MIDX( COUNTER, QUIC_TILE, REASSEMBLY_NOTIFY_ATTEMPTED ) ];
+  }
+
+  ulong verify_failed  = 0UL;
+  ulong verify_sent    = 0UL;
+  ulong verify_overrun = 0UL;
+  FOR( verify_tile_cnt ) {
+    fd_topo_tile_t const * verify = &topo->tiles[ fd_topo_find_tile( topo, "verify", i ) ];
+    verify_overrun += fd_metrics_link_in( verify->metrics, 0UL )[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_FRAG_COUNT_OFF ] / verify_tile_cnt;
+    verify_overrun += fd_metrics_link_in( verify->metrics, 0UL )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF ] / verify_tile_cnt;
+    verify_failed += fd_metrics_link_in( verify->metrics, 0UL )[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
+    verify_sent += fd_metrics_link_in( verify->metrics, 0UL )[ FD_METRICS_COUNTER_LINK_PUBLISHED_COUNT_OFF ];
+  }
+
+  fd_topo_tile_t const * dedup = &topo->tiles[ fd_topo_find_tile( topo, "dedup", 0UL ) ];
+  ulong dedup_failed  = 0UL;
+  FOR( verify_tile_cnt ) {
+    dedup_failed += fd_metrics_link_in( dedup->metrics, i )[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
+  }
+  // ulong dedup_sent = fd_mcache_seq_query( fd_mcache_seq_laddr( topo->links[ dedup->out_link_id_primary ].mcache ) );
+
+  fd_topo_tile_t const * pack = &topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ];
+  ulong * pack_metrics = fd_metrics_tile( pack->metrics );
+  // TODO this list is not comprehensive
+  ulong pack_invalid = pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_WRITE_SYSVAR_OFF ] +
+                        pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_ESTIMATION_FAIL_OFF ] +
+                        pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_TOO_LARGE_OFF ] +
+                        pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_EXPIRED_OFF ] +
+                        pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_ADDR_LUT_OFF ] +
+                        pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_UNAFFORDABLE_OFF ] +
+                        pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_DUPLICATE_OFF ] +
+                        pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_PRIORITY_OFF ] +
+                        pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_NONVOTE_REPLACE_OFF ] +
+                        pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_VOTE_REPLACE_OFF ];
+  ulong pack_overrun = pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_DROPPED_FROM_EXTRA_OFF ];
+  // ulong pack_sent = pack_metrics[ FD_METRICS_HISTOGRAM_PACK_TOTAL_TRANSACTIONS_PER_MICROBLOCK_COUNT_OFF + FD_HISTF_BUCKET_CNT ];
+
+  fd_gui_txn_info_t * txn_info = &gui->summary.txn_info;
+  txn_info->acquired_txns_quic = quic_recv;
+  txn_info->dropped_txns_verify_failed = verify_failed;
+  txn_info->dropped_txns_verify_overrun = verify_overrun;
+  txn_info->dropped_txns_dedup_failed = dedup_failed;
+  txn_info->dropped_txns_pack_invalid = pack_invalid;
+  txn_info->dropped_txns_pack_overrun = pack_overrun;
+
+  fd_gui_txn_info_summary_to_json( gui, gui->jsonb );
+  fd_gui_jsonb_broadcast( gui, gui->jsonb );
+}
+
+void
 fd_gui_plugin_message( fd_gui_t *    gui,
                        ulong         plugin_msg,
                        uchar const * msg,
@@ -301,10 +403,12 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       fd_gui_jsonb_broadcast( gui, jsonb );
       break;
     case FD_PLUGIN_MSG_SLOT_COMPLETED:
+      gui->summary.slot_completed = *(ulong const *)msg;
       fd_gui_completed_slot_to_json( gui, jsonb );
       fd_gui_jsonb_broadcast( gui, jsonb );
       break;
     case FD_PLUGIN_MSG_SLOT_ESTIMATED:
+      gui->summary.slot_estimated = *(ulong const *)msg;
       fd_gui_estimated_slot_to_json( gui, jsonb );
       fd_gui_jsonb_broadcast( gui, jsonb );
       break;

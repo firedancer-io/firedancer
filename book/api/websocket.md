@@ -177,7 +177,7 @@ the client can calculate it from the stream of new slot data.
 #### `summary.upcoming_slot_txn_info`
 | frequency   | type     | example     |
 |-------------|----------|-------------|
-| Once + 1s   | `SlotTxnInfo` | below |
+| Once + 100ms | `SlotTxnInfo` | below |
 
 ::: details Example
 
@@ -242,13 +242,13 @@ published once they are confirmed (the prior epoch has fully rooted).
 | end_slot   | `number` | The last slot (inclusive) in the epoch |
 | excluded_stake_lamports | `number` | This number is almost always zero. Firedancer has a limit of 40,200 for the number of staked peer validators it can keep track of. In the unlikely event that this number is exceeded, the lowest staked peers will be forgotten, and their stake will not appear in the below lists. But is is useful to know the total stake in the epoch, so this value represents the leftover/excluded ("poisoned") amount of stake that we do not know which validator it belongs to
 | staked_pubkeys | `string[]` | A list of all of validator identity keys for validators which have are staked in this epoch.  There will be at most 40,200 staked keys, after which lower staked keys will not be included |
-| staked_lamports | `string[]` | A list with the same length as the `staked_pubkeys` field. `stake_lamports[ i ]` is the number of lamports staked on the pubkey `staked_pubkeys[ i ]` as of this epoch
+| staked_lamports | `number[]` | A list with the same length as the `staked_pubkeys` field. `stake_lamports[ i ]` is the number of lamports staked on the pubkey `staked_pubkeys[ i ]` as of this epoch
 | leader_slots | `number[]` | An array, one entry per four slots, of which pubkey in the `leader_pubkeys` array is leader for those slots. On `mainnet-beta` this array will always have a length of 108,000, which is the number of slots in an epoch divded by four.  Leader slots are in groups of four because the leader schedule is generated in such a way as to guarantee each leader gets at least four consecutive slots.  For example, to find the pubkey of the leader in slot 1000 of the epoch, it is `staked_pubkeys[ leader_slots[ 1000/4 ] ]` |
 
 On establishing a connection two epochs are sent to the client. The
 current epoch that the cluster is in, and the next epoch. From then on,
-new epochs are published live as they calculated by the validator. For
-epoch T, it is published as as `end_slot` in epoch T-2 is rooted. The
+new epochs are published live as they are calculated by the validator. For
+epoch T, it is published as `end_slot` in epoch T-2 is rooted. The
 epoch is speculatively known as soon as `end_slot` in epoch T-2 is
 compelted, rather than rooted, but no speculative epoch information is
 published until the epoch is finalized by rooting the slot.
@@ -348,21 +348,36 @@ for a slot looks like:
 
 :::
 
+**`DropInfo`**
+| Field      | Type           | Description |
+|------------|----------------|-------------|
+| count      | `number`                             | The total number of transactions that were dropped.
+| breakdown  | `{key(string): value(number)}\|null` | A breakdown of various causes of transaction drops.  This detailed breakdown may or may not be available.  The values in this breakdown, if available, should sum up to the total count above.  We currently supply the following keys.  The keys are subject to change.
+
+| Field            | Description |
+|------------------|-------------|
+| "quic_overrun"   | Transactions were dropped because the quic tile couldn't keep up and were overrun by the net tile.  It is technically unclear how many transactions would have been produced by the fragments from net that were overrun.  So for the purpose of this counter, we pretend that each overrun fragment corresponds to one transaction.  Overruns of the quic tile shouldn't happen a lot, if at all, and this makes it abundantly clear when it does happen.  Pay attention to per-tile utilization stats for more evidence of whether the quic tile is keeping up with the net tile.
+| "quic_reasm"     | Transactions were dropped because the quic tile failed to reassemble a full transaction out of a stream.
+| "verify_overrun" | Transactions were dropped because the system could not verify incoming transactions quickly enough, and a verify tile was overrun.  This could be because the verify tiles themselves couldn't keep up.  It could also be due to backpressure from downstream tiles.  The link between the quic tile and the verify tile is unreliable and is allowed to be overrun, whereas the downstream links after the verify tile are reliable and backpressures.
+| "verify_drop"    | Transactions were dropped because the quic tile failed to reassemble a full transaction out of a stream.
+
 **`SlotTxnInfo`**
-| Field      | Type      | Description |
-|-----------------------------|-----------|-------------|
+| Field      | Type           | Description |
+|------------|----------------|-------------|
 | acquired_txns               | `number` | The total number of transactions that were acquired since the end of our prior leader slot, until the end of this leader slot. Transactions can be acquired for many reasons, which are given individually below.
 | acquired_txns_leftover      | `number` | The transactions were received during or prior to an earlier leader slot, but weren't executed yet so they stayed available to execute in this slot.
-| acquired_txns_quic          | `number` | A transaction stream was received via. QUIC.  The stream does not have to successfully complete.
-| acquired_txns_nonquic       | `number` | A transaction stream was received via. regular UDP.
-| acquired_txns_gossip        | `number` | A gossipped vote was received from a gossip peer.
+| acquired_txns_quic          | `number` | A transaction stream was received via QUIC.  The stream does not have to successfully complete.  Streams that fail to complete are counted by dropped_txns_quic_dropped.  A single stream, if successful, produces a single transaction.
+| acquired_txns_nonquic       | `number` | A transaction stream was received via regular UDP.
+| acquired_txns_gossip        | `number` | A gossipped vote transaction was received from a gossip peer.
 | dropped_txns                | `number` | The total number of transactions that were dropped from the end of our prior leader slot, until the end of this leader slot. Transactions can be dropped for many reasons, which are given individually below.
-| dropped_txns_verify_overrun | `number` | Count of transactions that were dropped because the system could not verify incoming transactions quickly enough, and a verify tile was overrun.
-| dropped_txns_verify_failed  | `number` | Count of transactions that were dropped because signature verification failed.
-| dropped_txns_dedup_failed   | `number` | Count of transactions that were dropped because they were a duplicate of another recently received transaction.
-| dropped_txns_pack_overrun   | `number` | Count of transactions that were dropped because the pack buffer was filled prior to becoming leader, and we had to start dropping lower priority transactions.
+| dropped_txns_quic_dropped   | `number` | Transactions were dropped due to the quic tile.
+| dropped_txns_verify_overrun | `number` | 
+| dropped_txns_verify_dropped | `number` | Count of transactions that were dropped because signature verification failed or because of verify's simple dedup.
+| dropped_txns_dedup_dropped  | `number` | Count of transactions that were dropped because they were a duplicate of another recently received transaction.
+| dropped_txns_pack_dropped   | `number` | Count of transactions that were dropped because the pack buffer was filled prior to becoming leader, and we had to start dropping lower priority transactions.
+| dropped_txns_pack_dropped   | `number` | Count of transactions that were dropped because the pack buffer was filled prior to becoming leader, and we had to start dropping lower priority transactions.
 | dropped_txns_pack_invalid   | `number` | Count of transactions that were dropped because pack determined they would never execute. Reasons can include the transaction expired, requested too many compute units, or was too large to fit in a block.
-| dropped_txns_bank_overrun   | `number` | Count of transactions that were dropped because the system could not execute incoming transactions quickly enough, and pack was overrun while it was trying to execute transaxtions.
+| dropped_txns_bank_overrun   | `number` | Count of transactions that were dropped because the system could not execute incoming transactions quickly enough, and pack was overrun while it was trying to execute transactions.
 | dropped_txns_fee_payer      | `number` | Count of transactions that were dropped because the fee payer did not have enough balance.
 | dropped_txns_lookup_table   | `number` | Count of transactions that were dropped because there was an error loading an account lookup table.
 
@@ -375,7 +390,7 @@ for a slot looks like:
 | status     | `string`  | One of `rooted`, `optimistically_confirmed`, `completed`, or `unpublished`. The state is the state in the currently active fork of the validator. The state can change normally (for example, a completed slot becoming optimisitically confirmed or rooted), or also because the validator switched forks |
 | transactions | `number` | Total number of transactions (vote and non-vote) in the block. In some cases, this will be non-zero even for skipped slots, because we might still have learned how many transactions were in the skipped slot. Sometimes though, we never receive information for a skipped slot and it will be zero |
 | vote_transactions | `number` | Total number of vote transactions in the block. Will always be less than or equal to `transactions`. The number of non-vote transactions is given by `transactions - vote_transactions`
-| failed_transactions | `number` | Total number of failed transactions (vote and non-vote) in the block. Failed transactions are those which are included in the block and were charged fees, but failed to execute successfully. This is different from dropped transations which do not pay fees and are not included in the  block. In some cases, this will be non-zero even for skipped slots, because we might still have learned how many transactions were in the skipped slot. Sometimes though, we never receive information for a skipped slot and it will be zero |
+| failed_transactions | `number` | Total number of failed transactions (vote and non-vote) in the block. Failed transactions are those which are included in the block and were charged fees, but failed to execute successfully. This is different from dropped transations which do not pay fees and are not included in the block. In some cases, this will be non-zero even for skipped slots, because we might still have learned how many transactions were in the skipped slot. Sometimes though, we never receive information for a skipped slot and it will be zero |
 | failed_vote_transactions | `number` | Total number of failed vote transactions. Will always be less than or equal to `vote_transactions`
 | compute_units | `number` | Total number of compute units used by the slot
 | leader_info | `SlotTxnInfo\|null` | Detailed information about slots which we were the leader for. Will be null if the slot is not `mine` |

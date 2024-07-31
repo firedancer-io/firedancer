@@ -7,6 +7,8 @@
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 
+#include "../topo/fd_topo.h"
+
 struct fd_gui_gossip_peer {
   fd_pubkey_t pubkey[ 1 ];
   ulong       wallclock;
@@ -162,6 +164,26 @@ jsonb_str(jsonb_t * jsonb, char const * key, char const * val) {
 }
 
 
+struct fd_gui_txn_info {
+  ulong acquired_txns;
+  ulong acquired_txns_leftover;
+  ulong acquired_txns_quic;
+  ulong acquired_txns_nonquic;
+  ulong acquired_txns_gossip;
+  ulong dropped_txns;
+  ulong dropped_txns_quic_failed;
+  ulong dropped_txns_verify_overrun;
+  ulong dropped_txns_verify_failed;
+  ulong dropped_txns_dedup_failed;
+  ulong dropped_txns_pack_overrun;
+  ulong dropped_txns_pack_invalid;
+  ulong dropped_txns_bank_overrun;
+  ulong dropped_txns_fee_payer;
+  ulong dropped_txns_lookup_table;
+};
+
+typedef struct fd_gui_txn_info fd_gui_txn_info_t;
+
 struct fd_gui {
   fd_http_server_t * server;
 
@@ -176,6 +198,9 @@ struct fd_gui {
     ulong slot_optimistically_confirmed;
     ulong slot_completed;
     ulong slot_estimated;
+
+    fd_gui_txn_info_t txn_info;
+    long              last_txn_ts;
   } summary;
 
   struct {
@@ -232,6 +257,10 @@ fd_gui_plugin_message( fd_gui_t *    gui,
                        ulong         plugin_msg,
                        uchar const * msg,
                        ulong         msg_len );
+
+void
+fd_gui_poll( fd_gui_t *  gui,
+             fd_topo_t * topo );
 
 FD_PROTOTYPES_END
 

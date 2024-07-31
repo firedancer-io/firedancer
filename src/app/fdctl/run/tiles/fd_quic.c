@@ -429,8 +429,8 @@ static void
 quic_stream_notify( fd_quic_stream_t * stream,
                     void *             stream_ctx,
                     int                type ) {
-
   /* Load TPU state */
+  FD_MCNT_INC( QUIC_TILE, REASSEMBLY_NOTIFY_ATTEMPTED, 1UL );
 
   fd_quic_t *           quic   = stream->conn->quic;
   fd_quic_ctx_t *       ctx    = quic->cb.quic_ctx;
@@ -462,6 +462,10 @@ quic_stream_notify( fd_quic_stream_t * stream,
   uint   tspub = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
   int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
   ctx->metrics.reasm_publish[ pub_err ]++;
+
+  if( FD_LIKELY( pub_err == FD_TPU_REASM_SUCCESS ) ) {
+    FD_MCNT_INC( QUIC_TILE, REASSEMBLY_NOTIFY_OKAY, 1UL );
+  }
 
   fd_mux_advance( mux );
 }

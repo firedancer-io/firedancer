@@ -439,6 +439,9 @@ typedef struct {
      we have no known next leader slot. */
   ulong next_leader_slot;
 
+  ulong txns_in_slot;
+  ulong txns_in_slot_failed;
+
   ulong bank_cnt;
   ulong * bank_busy[ 64UL ];
 
@@ -1569,6 +1572,7 @@ after_frag( void *             _ctx,
       /* We ticked while leader and are no longer leader... transition
          the state machine. */
       no_longer_leader( ctx );
+      // publish_no_longer_leader( txn_count, success_txn_count );
     }
   }
 

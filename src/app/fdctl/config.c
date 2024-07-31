@@ -309,6 +309,7 @@ topo_initialize( config_t * config ) {
     FD_LOG_NOTICE(( "initializing %s topology", config->development.topology ));
   }
   topo_config_fn( config );
+  config->topo.config = config;
 }
 
 
