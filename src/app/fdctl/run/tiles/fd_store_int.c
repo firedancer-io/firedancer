@@ -214,6 +214,11 @@ after_frag( void *             _ctx,
         continue;
       }
 
+      if ( FD_UNLIKELY( (long)(ctx->store->curr_turbine_slot - shred->slot) > 100  ) ) {
+        FD_LOG_WARNING(("received shred with slot %lu that would overrun pending queue. skipping.", shred->slot));
+        continue;
+      }
+
       // TODO: improve return value of api to not use < OK
       if( fd_store_shred_insert( ctx->store, shred ) < FD_BLOCKSTORE_OK ) {
         FD_LOG_ERR(( "failed inserting to blockstore" ));
