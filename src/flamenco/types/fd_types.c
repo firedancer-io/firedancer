@@ -18405,9 +18405,13 @@ int fd_stake_instruction_inner_decode_preflight( uint discriminant, fd_bincode_d
     return FD_BINCODE_SUCCESS;
   }
   case 16: {
+    err = fd_bincode_uint64_decode_preflight( ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 17: {
+    err = fd_bincode_uint64_decode_preflight( ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
@@ -18613,6 +18617,12 @@ void fd_stake_instruction_inner_destroy( fd_stake_instruction_inner_t * self, ui
     fd_lockup_checked_args_destroy( &self->set_lockup_checked, ctx );
     break;
   }
+  case 16: {
+    break;
+  }
+  case 17: {
+    break;
+  }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
   }
 }
@@ -18662,6 +18672,14 @@ void fd_stake_instruction_walk( void * w, fd_stake_instruction_t const * self, f
     fd_lockup_checked_args_walk( w, &self->inner.set_lockup_checked, fun, "set_lockup_checked", level );
     break;
   }
+  case 16: {
+  fun( w, &self->inner.move_stake, "move_stake", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+    break;
+  }
+  case 17: {
+  fun( w, &self->inner.move_lamports, "move_lamports", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+    break;
+  }
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_stake_instruction", level-- );
 }
@@ -18703,6 +18721,14 @@ ulong fd_stake_instruction_size( fd_stake_instruction_t const * self ) {
   }
   case 12: {
     size += fd_lockup_checked_args_size( &self->inner.set_lockup_checked );
+    break;
+  }
+  case 16: {
+    size += sizeof(ulong);
+    break;
+  }
+  case 17: {
+    size += sizeof(ulong);
     break;
   }
   }

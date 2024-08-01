@@ -2993,17 +2993,17 @@ union fd_stake_instruction_inner {
   fd_stake_instruction_authorize_t authorize;
   ulong split;
   ulong withdraw;
-  ulong move_stake;
-  ulong move_lamports;
   fd_lockup_args_t set_lockup;
   fd_authorize_with_seed_args_t authorize_with_seed;
   fd_stake_authorize_t authorize_checked;
   fd_authorize_checked_with_seed_args_t authorize_checked_with_seed;
   fd_lockup_checked_args_t set_lockup_checked;
+  ulong move_stake;
+  ulong move_lamports;
 };
 typedef union fd_stake_instruction_inner fd_stake_instruction_inner_t;
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L58 */
+/* https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/sdk/program/src/stake/instruction.rs#L96 */
 struct fd_stake_instruction {
   uint discriminant;
   fd_stake_instruction_inner_t inner;
@@ -6313,6 +6313,7 @@ FD_FN_PURE uchar fd_stake_instruction_is_authorize_checked_with_seed( fd_stake_i
 FD_FN_PURE uchar fd_stake_instruction_is_set_lockup_checked( fd_stake_instruction_t const * self );
 FD_FN_PURE uchar fd_stake_instruction_is_get_minimum_delegation( fd_stake_instruction_t const * self );
 FD_FN_PURE uchar fd_stake_instruction_is_deactivate_delinquent( fd_stake_instruction_t const * self );
+FD_FN_PURE uchar fd_stake_instruction_is_redelegate( fd_stake_instruction_t const * self );
 FD_FN_PURE uchar fd_stake_instruction_is_move_stake( fd_stake_instruction_t const * self );
 FD_FN_PURE uchar fd_stake_instruction_is_move_lamports( fd_stake_instruction_t const * self );
 enum {
