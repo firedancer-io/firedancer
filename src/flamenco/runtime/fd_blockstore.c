@@ -397,8 +397,7 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
                                           fd_ulong_min( sz - blockoff, FD_TXN_MTU ),
                                           txn_out,
                                           NULL,
-                                          &pay_sz,
-                                          0 );
+                                          &pay_sz );
         if( txn_sz == 0 || txn_sz > FD_TXN_MTU ) {
           FD_LOG_ERR( ( "failed to parse transaction %lu in microblock %lu in slot %lu. txn size: %lu",
                         txn_idx,
@@ -734,7 +733,7 @@ fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
   switch( deshredder.result ) {
   case FD_SHRED_ESLOT:
     fd_blockstore_scan_block( blockstore, slot, block );
-    
+
     /* Do this last when it's safe */
     FD_COMPILER_MFENCE();
     block_map_entry->block_gaddr     = fd_wksp_gaddr_fast( wksp, block );
@@ -1265,7 +1264,7 @@ fd_blockstore_init( fd_blockstore_t * blockstore, fd_slot_bank_t const * slot_ba
   block_map_entry->bank_hash = slot_bank->banks_hash;
   /* clang-format off */
   block_map_entry->flags     = fd_uchar_set_bit(
-                               fd_uchar_set_bit( 
+                               fd_uchar_set_bit(
                                fd_uchar_set_bit( block_map_entry->flags,
                                  FD_BLOCK_FLAG_PROCESSED ),
                                  FD_BLOCK_FLAG_CONFIRMED ),

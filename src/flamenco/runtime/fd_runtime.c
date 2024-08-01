@@ -383,7 +383,7 @@ int fd_runtime_parse_microblock_txns( void const * buf,
 
   for (ulong i = 0; i < microblock_hdr->txn_cnt; i++) {
     ulong payload_sz = 0;
-    ulong txn_sz = fd_txn_parse_core((uchar const *)buf + buf_off, fd_ulong_min( buf_sz-buf_off, FD_TXN_MTU), TXN(&out_txns[i]), NULL, &payload_sz, 0);
+    ulong txn_sz = fd_txn_parse_core( (uchar const *)buf + buf_off, fd_ulong_min( buf_sz-buf_off, FD_TXN_MTU), TXN(&out_txns[i]), NULL, &payload_sz );
     if (txn_sz == 0 || txn_sz > FD_TXN_MTU) {
       return -1;
     }
