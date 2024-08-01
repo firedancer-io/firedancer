@@ -40,16 +40,18 @@ jobs:
         with:
           command: make -j -Otarget fuzz-test lib
 
-      - name: List Artifacts
+      - name: ClusterFuzz directory structure
         run: |
           ls ${{ matrix.artifact_dir }}/fuzz-test
           ls ${{ matrix.artifact_dir }}/lib
+          mkdir cf-dist
+          find build/clang-fuzz/fuzz-test -maxdepth 1 -executable -print | while read -r BIN_PATH; do TARGET=$(basename "$BIN_PATH"); mkdir cf-dist/$TARGET && mv $BIN_PATH cf-dist/$TARGET/$TARGET; done
 
       - uses: asymmetric-research/firedancer-clusterfuzz-action@main
         name: Upload fuzz targets to ClusterFuzz
         with:
           bucket-name: firedancer-builds.isol-clusterfuzz.appspot.com
-          artifact-dir: ${{ matrix.artifact_dir }}/fuzz-test
+          artifact-dir: cf-dist
           object-prefix: main/libfuzzer/${{ matrix.qualifier }}/firedancer
           project-id: isol-clusterfuzz
           qualifier: ${{ matrix.qualifier }}
