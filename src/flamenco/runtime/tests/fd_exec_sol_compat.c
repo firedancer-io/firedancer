@@ -152,7 +152,7 @@ sol_compat_execute_wrapper( fd_exec_instr_test_runner_t * runner,
                             void * input,
                             void ** output,
                             exec_test_run_fn_t * exec_test_run_fn ) {
-  // fd_scratch_push();
+  fd_scratch_push();
   do {
     ulong out_bufsz = 100000000;  /* 100 MB */
     void * out0 = fd_scratch_prepare( 1UL );
@@ -164,7 +164,7 @@ sol_compat_execute_wrapper( fd_exec_instr_test_runner_t * runner,
       break;
     }
   } while(0);
-  // fd_scratch_pop();
+  fd_scratch_pop();
 }
 
 /*
@@ -591,7 +591,7 @@ sol_compat_vm_interp_v1( uchar *       out,
   }
 
   // Cleanup
-  pb_release( &fd_exec_test_vm_context_t_msg, input );
+  pb_release( &fd_exec_test_syscall_context_t_msg, input );
   sol_compat_cleanup_scratch_and_runner( runner );
 
   // Check wksp usage is 0

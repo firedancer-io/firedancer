@@ -190,6 +190,9 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
 
   for( ulong i=0; i< fd_sbpf_syscalls_slot_cnt(); i++ ){
     fd_sbpf_syscalls_t * syscall = fd_sbpf_syscalls_query( syscalls, syscalls[i].key, NULL ); // TODO: can just use syscalls[i].func directly?
+    if ( !syscall ) {
+      continue;
+    }
     syscall->func = fd_vm_syscall_noop;
   }
 
@@ -197,10 +200,12 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
   fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
   FD_TEST( vm );
 
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( valloc, false /* flag not required here */);
+
   fd_vm_init(
     vm,
-    NULL, /* ctx */
-    input->vm_ctx.heap_max,
+    instr_ctx,
+    FD_VM_HEAP_MAX,
     input->vm_ctx.entry_cu,
     rodata,
     rodata_sz,
@@ -262,13 +267,11 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
   fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
 
   /* TODO: capture input region */
-
+  effects->inputdata = NULL;
   /* skip logs since syscalls are stubbed */
+  effects->log = NULL;
 
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   *output = effects;
   return actual_end - (ulong)output_buf;
-
-
-
 }
