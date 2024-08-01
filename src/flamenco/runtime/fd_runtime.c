@@ -1036,7 +1036,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                       ulong max_workers ) {
   int res = 0;
   FD_SCRATCH_SCOPE_BEGIN  {
-    fd_tpool_exec_all_batch( tpool, 0, max_workers, fd_txn_sigverify_task, task_info, NULL, NULL, 1, 0, txn_cnt );
+    fd_tpool_exec_all_rrobin( tpool, 0, max_workers, fd_txn_sigverify_task, task_info, NULL, NULL, 1, 0, txn_cnt );
     for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
       if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
         res |= FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
