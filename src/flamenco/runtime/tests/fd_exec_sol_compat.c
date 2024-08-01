@@ -608,7 +608,7 @@ sol_compat_vm_interp_v1( uchar *       out,
   }
 
   // Cleanup
-  pb_release( &fd_exec_test_vm_context_t_msg, input );
+  pb_release( &fd_exec_test_syscall_context_t_msg, input );
   sol_compat_cleanup_scratch_and_runner( runner );
 
   // Check wksp usage is 0
