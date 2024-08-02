@@ -1,5 +1,6 @@
 #include "fd_keyguard.h"
 #include "../../ballet/shred/fd_shred.h"
+#include "../../ballet/txn/fd_compact_u16.h"
 
 /* fd_keyguard_match fingerprints signing requests and checks them for
    ambiguity.
@@ -11,7 +12,6 @@
    - Legacy shred signed payloads
    - Merkle shred roots
    - TLS CertificateVerify challenges
-   - X.509 Certificate Signing Requests
    - Gossip message signed payloads (CrdsData)
 
    ### Fake Signing Attacks
@@ -85,9 +85,14 @@
           required to reliably detect types of identity key signing
           payloads without false negatives. */
 
-FD_FN_PURE int
+FD_FN_PURE static int
 fd_keyguard_payload_matches_txn_msg( uchar const * data,
-                                     ulong         sz ) {
+                                     ulong         sz,
+                                     int           sign_type ) {
+
+  uchar const * end = data + sz;
+
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
 
   /* txn_msg_min_sz is the smallest valid size of a transaction msg. A
      transaction is the concatenation of (signature count, signatures,
@@ -131,7 +136,9 @@ fd_keyguard_payload_matches_txn_msg( uchar const * data,
   if( sig_cnt==0U ) return 0;
 
   /* Check if signatures exceed txn size limit */
-  if( sig_cnt*64UL > (FD_TXN_MTU-txn_msg_min_sz) ) return 0;
+  ulong sig_sz;
+  if( __builtin_umull_overflow( sig_cnt, 64UL, &sig_sz ) ) return 0;
+  if( sig_sz > (FD_TXN_MTU-txn_msg_min_sz) ) return 0;
 
   /* Skip other fields */
   //uint ro_signed_cnt   = *cursor;
@@ -139,41 +146,57 @@ fd_keyguard_payload_matches_txn_msg( uchar const * data,
   //uint ro_unsigned_cnt = *cursor;
   cursor++;
 
-  /* The next field is the address count encoded as compact_u16.
+  if( cursor + 3 > end ) return 0;
+  ulong addr_cnt_sz = fd_cu16_dec_sz( cursor, 3UL );
+  if( !addr_cnt_sz ) return 0;
+  ulong addr_cnt    = fd_cu16_dec_fixed( cursor, addr_cnt_sz );
+  cursor += addr_cnt_sz;
 
-     There must be at least as many addresses as signatures.
-     This check prevents ambiguity with gossip msgs, see
-     fd_txn_ambiguity_gossip_proof.
-
-     We deliberately only read the first byte of the compact_u16
-     encoding, which is equivalent to 'min( addr_cnt, 127 )'.
-
-     This is safe assuming signature count <= 127, which is the max
-     number that compact_u16 encoding can represent with one byte. */
-  uint addr_cnt = *cursor;
-  cursor++;
   if( sig_cnt>addr_cnt ) return 0;
 
   return 1;
 }
 
-FD_FN_PURE int
+FD_FN_PURE static int
 fd_keyguard_payload_matches_ping_msg( uchar const * data,
-                                      ulong sz ) {
-  return sz==48UL && (memcmp( data, "SOLANA_PING_PONG", 16UL ) == 0);
+                                      ulong         sz,
+                                      int           sign_type ) {
+  return sign_type==FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 &&
+         sz==48UL &&
+         (memcmp( data, "SOLANA_PING_PONG", 16UL ) == 0);
 }
 
-FD_FN_PURE int
-fd_keyguard_payload_matches_gossip_msg( uchar const * data,
-                                        ulong         sz ) {
+FD_FN_PURE static int
+fd_keyguard_payload_matches_prune_data( uchar const * data,
+                                        ulong         sz,
+                                        int           sign_type ) {
+
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+
+  ulong const static_sz = 80UL;
+  if( sz < static_sz ) return 0;
+
+  ulong prune_cnt = FD_LOAD( ulong, data+32UL );
+  ulong expected_sz;
+  if( __builtin_umull_overflow( prune_cnt,   32UL,      &expected_sz ) ) return 0;
+  if( __builtin_uaddl_overflow( expected_sz, static_sz, &expected_sz ) ) return 0;
+  if( sz != expected_sz ) return 0;
+
+  return 1;
+}
+
+FD_FN_PURE static int
+fd_keyguard_payload_matches_gossip( uchar const * data,
+                                        ulong         sz,
+                                        int           sign_type ) {
+
+  /* All gossip messages except pings use raw signing */
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
 
   /* Every gossip message contains a 4 byte enum variant tag (at the
      beginning of the message) and a 32 byte public key (at an arbitrary
      location). */
   if( sz<36UL ) return 0;
-
-  /* Pings and pongs are prefixed with a string */
-  if ( fd_keyguard_payload_matches_ping_msg( data, sz) ) return 1;
 
   /* There probably won't ever be more than 32 different gossip message
      types. */
@@ -183,22 +206,44 @@ fd_keyguard_payload_matches_gossip_msg( uchar const * data,
     & (data[3]==0x00) )
     return 1;
 
-#define MIN_PRUNE_MSG_SZ 80
-  if ( sz>=MIN_PRUNE_MSG_SZ ) {
-    ulong prune_len = *(ulong *)(data + 32);
-    if ( sz==(MIN_PRUNE_MSG_SZ + prune_len * 32) ) return 1;
-  }
-#undef MIN_PRUNE_MSG_SZ
+  return 0;
+}
+
+FD_FN_PURE static int
+fd_keyguard_payload_matches_repair( uchar const * data,
+                                    ulong         sz,
+                                    int           sign_type ) {
+
+  /* All repair messages except pings use raw signing */
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+
+  /* Every repair message contains a 4 byte enum variant tag (at the
+     beginning of the message) and a 32 byte public key (at an arbitrary
+     location). */
+  if( sz<36UL ) return 0;
+
+  /* There probably won't ever be more than 32 different repair message
+     types. */
+  if( (data[0] <0x20)
+    & (data[1]==0x00)
+    & (data[2]==0x00)
+    & (data[3]==0x00) )
+    return 1;
 
   return 0;
 }
 
 FD_FN_PURE int
 fd_keyguard_payload_matches_shred( uchar const * data,
-                                   ulong         sz ) {
+                                   ulong         sz,
+                                   int           sign_type ) {
+
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+
   switch( sz ) {
 
   /* Merkle shreds signing payloads always 32 byte */
+  /* FIXME: Sign Merkle shreds using SIGN_TYPE_SHA256_ED25519 (!!!) */
   case   32UL:
     return 1;
 
@@ -220,7 +265,11 @@ fd_keyguard_payload_matches_shred( uchar const * data,
 
 FD_FN_PURE int
 fd_keyguard_payload_matches_tls_cv( uchar const * data,
-                                    ulong         sz ) {
+                                    ulong         sz,
+                                    int           sign_type ) {
+
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+
   /* TLS CertificateVerify signing payload one of 3 sizes
      depending on hash function chosen */
   switch( sz ) {
@@ -246,34 +295,17 @@ fd_keyguard_payload_matches_tls_cv( uchar const * data,
   return (is_client)|(is_server);
 }
 
-FD_FN_PURE int
-fd_keyguard_payload_matches_x509_csr( uchar const * data,
-                                      ulong         sz ) {
-  if( sz<1UL        ) return 0;
-  if( data[0]!=0x30 ) return 0;  /* ASN.1 SEQUENCE */
-
-  /* Conservative estimate: TBSCertificate is at least 33 bytes long
-     (1 byte ASN.1 DER overhead + 32 byte Ed25519 public key).
-
-     It is probably possible to craft a shorter TBSCertificate, but
-     only by changing the SubjectPublicKeyInfo to be something other
-     than Ed25519.  But we don't care about that case, since cert
-     validation is then guaranteed to fail at a later step. */
-  if( sz<33UL       ) return 0;
-
-  return 1;
-}
-
-FD_FN_PURE int
-fd_keyguard_payload_authorize( uchar const * data,
-                               ulong         sz,
-                               int           role ) {
-  switch( role ) {
-    case FD_KEYGUARD_ROLE_VOTER: return fd_keyguard_payload_matches_txn_msg( data, sz );
-    case FD_KEYGUARD_ROLE_GOSSIP: return fd_keyguard_payload_matches_gossip_msg( data, sz );
-    case FD_KEYGUARD_ROLE_LEADER: return fd_keyguard_payload_matches_shred( data, sz );
-    case FD_KEYGUARD_ROLE_TLS: return fd_keyguard_payload_matches_tls_cv( data, sz );
-    case FD_KEYGUARD_ROLE_X509_CA: return fd_keyguard_payload_matches_x509_csr( data, sz );
-    default: return 0;
-  }
+FD_FN_PURE ulong
+fd_keyguard_payload_match( uchar const * data,
+                           ulong         sz,
+                           int           sign_type ) {
+  ulong res = 0UL;
+  res |= fd_ulong_if( fd_keyguard_payload_matches_txn_msg   ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TXN,    0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_gossip    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_GOSSIP, 0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_repair    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_REPAIR, 0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_prune_data( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PRUNE,  0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_shred     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_SHRED,  0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_tls_cv    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TLS_CV, 0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_ping_msg  ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PING,   0 );
+  return res;
 }

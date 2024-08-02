@@ -6,6 +6,7 @@
 #include "../../../../disco/shred/fd_fec_resolver.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
+#include "../../../../disco/keyguard/fd_keyguard.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../waltz/ip/fd_ip.h"
 #include "../../../../disco/fd_disco.h"
@@ -662,11 +663,11 @@ privileged_init( fd_topo_t *      topo,
   ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->shred.identity_key_path, /* pubkey only: */ 1 ) );
 }
 
-void
+static void
 fd_shred_signer( void *        signer_ctx,
                  uchar         signature[ static 64 ],
                  uchar const   merkle_root[ static 32 ] ) {
-  fd_keyguard_client_sign( signer_ctx, signature, merkle_root, 32UL );
+  fd_keyguard_client_sign( signer_ctx, signature, merkle_root, 32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
 static void
