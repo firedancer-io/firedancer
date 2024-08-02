@@ -16,6 +16,7 @@ jobs:
     secrets: inherit
 
   trigger:
+    needs: clusterfuzz
     runs-on: ubuntu-latest
     steps:
       - name: dispatch solfuzz CI
