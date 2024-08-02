@@ -84,6 +84,8 @@ typedef struct {
   struct {
     char   identity_path[ PATH_MAX ];
     char   vote_account_path[ PATH_MAX ];
+    ulong  authorized_voter_paths_cnt;
+    char   authorized_voter_paths[ 16 ][ PATH_MAX ];
     int    snapshot_fetch;
     int    genesis_fetch;
     int    poh_speed_test;

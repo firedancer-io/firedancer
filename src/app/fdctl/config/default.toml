@@ -362,6 +362,20 @@ dynamic_port_range = "8900-9000"
     # `--vote-account` argument.
     vote_account_path = ""
 
+    # List of absolute paths to authorized-voter keypairs for the vote
+    # account.  This is not needed if no vote account is specified.
+    # If a vote account is specified and this is empty, the identity
+    # account will be used as the authorized-voter account.
+    #
+    # Two substitutions will be performed on each string in this list.
+    # If "{user}" is present it will be replaced with the user running
+    # Firedancer, as above, and "{name}" will be replaced with the
+    # name of the Firedancer instance.
+    #
+    # These options are passed to the Agave client with the
+    # `--authorized-voter` argument.
+    authorized_voter_paths = []
+
     # If false, do not attempt to fetch a snapshot from the cluster,
     # instead start from a local snapshot if one is present.  A snapshot
     # is required to run the validator, so either one must be present,
