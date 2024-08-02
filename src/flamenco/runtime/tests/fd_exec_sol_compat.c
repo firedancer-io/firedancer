@@ -67,7 +67,7 @@ sol_compat_wksp_init( void ) {
   for( const fd_feature_id_t * current_feature = fd_feature_iter_init(); !fd_feature_iter_done( current_feature ); current_feature = fd_feature_iter_next( current_feature ) ) {
     // Skip reverted features
     if( current_feature->reverted ) continue;
-  
+
     if( current_feature->cleaned_up ) {
       memcpy( &features.cleaned_up_features[features.cleaned_up_feature_cnt++], &current_feature->id, sizeof(ulong) );
     } else {
@@ -165,7 +165,7 @@ sol_compat_execute_wrapper( fd_exec_instr_test_runner_t * runner,
                             void * input,
                             void ** output,
                             exec_test_run_fn_t * exec_test_run_fn ) {
-  
+
   assert( fd_scratch_prepare_is_safe( 1UL ) );
   ulong out_bufsz = 100000000;  /* 100 MB */
   void * out0 = fd_scratch_prepare( 1UL );
@@ -320,7 +320,7 @@ sol_compat_cmp_txn( fd_exec_test_txn_result_t *  expected,
   if( !_diff_resulting_states( &expected->resulting_state, &actual->resulting_state ) ) {
     return 0;
   }
-  
+
   /* TxnResult -> rent */
   if( expected->rent != actual->rent ) {
     FD_LOG_WARNING(( "Rent mismatch: expected=%lu actual=%lu", expected->rent, actual->rent ));
@@ -554,7 +554,7 @@ sol_compat_vm_interp_fixture( fd_exec_instr_test_runner_t * runner,
   return ok;
 }
 
-int 
+int
 sol_compat_validate_vm_fixture( fd_exec_instr_test_runner_t * runner,
                                 uchar const *                 in,
                                 ulong                         in_sz ) {
@@ -780,7 +780,7 @@ sol_compat_vm_validate_v1(  uchar *       out,
   return ok;
 }
 
-/* We still need a separate entrypoint since other harnesses (namely sfuzz-agave) 
+/* We still need a separate entrypoint since other harnesses (namely sfuzz-agave)
    do something other than wrap their vm_syscall equivalent */
 int
 sol_compat_vm_cpi_syscall_v1( uchar *       out,

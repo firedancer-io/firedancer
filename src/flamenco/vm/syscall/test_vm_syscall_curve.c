@@ -75,7 +75,7 @@ main( int     argc,
   uchar       rodata[ rodata_sz ];
   set_memory_region( rodata, rodata_sz );
 
-  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual(), false );
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual() );
   fd_features_enable_all( &((fd_exec_epoch_ctx_t *)instr_ctx->epoch_ctx)->features );
 
   int vm_ok = !!fd_vm_init(
