@@ -67,6 +67,8 @@ agave_boot( config_t * config ) {
   ADD( "--identity", config->consensus.identity_path );
   if( strcmp( config->consensus.vote_account_path, "" ) )
     ADD( "--vote-account", config->consensus.vote_account_path );
+  for( ulong i=0UL; i<config->consensus.authorized_voter_paths_cnt; i++ )
+    ADD( "--authorized-voter", config->consensus.authorized_voter_paths[ i ] );
   if( !config->consensus.snapshot_fetch ) ADD1( "--no-snapshot-fetch" );
   if( !config->consensus.genesis_fetch  ) ADD1( "--no-genesis-fetch"  );
   if( !config->consensus.poh_speed_test ) ADD1( "--no-poh-speed-test" );
@@ -95,13 +97,13 @@ agave_boot( config_t * config ) {
   ADD( "--ledger", config->ledger.path );
   if( strcmp( "", config->ledger.accounts_path ) ) ADD( "--accounts", config->ledger.accounts_path );
   ADDU( "--limit-ledger-size", config->ledger.limit_size );
-  for( ulong i=0; i<config->ledger.account_indexes_cnt; i++ )
+  for( ulong i=0UL; i<config->ledger.account_indexes_cnt; i++ )
     ADD( "--account-index", config->ledger.account_indexes[ i ] );
-  for( ulong i=0; i<config->ledger.account_index_exclude_keys_cnt; i++ )
+  for( ulong i=0UL; i<config->ledger.account_index_exclude_keys_cnt; i++ )
     ADD( "--account-index-exclude-key", config->ledger.account_index_exclude_keys[ i ] );
 
   /* gossip */
-  for( ulong i=0; i<config->gossip.entrypoints_cnt; i++ ) ADD( "--entrypoint", config->gossip.entrypoints[ i ] );
+  for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) ADD( "--entrypoint", config->gossip.entrypoints[ i ] );
   if( !config->gossip.port_check ) ADD1( "--no-port-check" );
   ADDH( "--gossip-port", config->gossip.port );
   char ip_addr[16]; /* ADD stored the address for later use, so ip_addr must be in scope */
