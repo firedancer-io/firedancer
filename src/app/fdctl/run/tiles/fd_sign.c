@@ -25,6 +25,7 @@ typedef struct {
 
   int               in_role[ MAX_IN ];
   uchar *           in_data[ MAX_IN ];
+  ushort            in_mtu [ MAX_IN ];
 
   fd_sign_out_ctx_t out[ MAX_IN ];
 
@@ -73,9 +74,11 @@ during_frag_sensitive( void * _ctx,
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
   FD_TEST( in_idx<MAX_IN );
 
-  int role = ctx->in_role[ in_idx ];
-  if( sz>FD_KEYGUARD_SIGN_REQ_MTU ) {
-    FD_LOG_EMERG(( "oversz signing request (role=%d sz=%lu)", role, sz ));
+  int  role = ctx->in_role[ in_idx ];
+  uint mtu  = ctx->in_mtu [ in_idx ];
+
+  if( sz>mtu ) {
+    FD_LOG_EMERG(( "oversz signing request (role=%d sz=%lu mtu=%u)", role, sz, mtu ));
   }
   fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], sz );
 }
@@ -218,7 +221,9 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ i ] ];
 
+    if( in_link->mtu > FD_KEYGUARD_SIGN_REQ_MTU ) FD_LOG_CRIT(( "oversz link[%lu].mtu=%lu", i, in_link->mtu ));
     ctx->in_data[ i ] = in_link->dcache;
+    ctx->in_mtu [ i ] = (ushort)in_link->mtu;
 
     ctx->out[ i ].mcache = out_link->mcache;
     ctx->out[ i ].data   = out_link->dcache;
