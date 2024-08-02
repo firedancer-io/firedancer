@@ -68,6 +68,19 @@ read_key( char const * key_path,
 #undef KEY_SZ
 #undef KEY_PARSE_ERR
 
+  /* Verify the public key */
+  fd_sha512_t _sha[1];
+  fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
+  if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "could not validate keypair, fd_sha512 join failed" ));
+  uchar check_public_key[ 32 ];
+  fd_ed25519_public_from_private( check_public_key, key, sha );
+  if( FD_UNLIKELY( memcmp( check_public_key, key+32, 32 ) ) )
+    FD_LOG_EMERG(( "!!! INVALID KEY FILE !!!\n"
+                   "\tThe public key in the key file does not match the public key derived from the private key.\n"
+                   "\tFiredancer will not use the key pair to sign as it might leak the private key." ));
+  fd_sha512_delete( fd_sha512_leave( sha ) );
+  explicit_bzero( _sha, sizeof(fd_sha512_t) );
+
   return key;
 }
 
