@@ -2146,7 +2146,7 @@ move_lamports(fd_exec_instr_ctx_t const * ctx,
       break;
     }
     case merge_kind_inactive: {
-      source_free_lamports = fd_ulong_sat_sub ( destination_account->const_meta->info.lamports,
+      source_free_lamports = fd_ulong_sat_sub ( source_merge_kind.inner.inactive.active_stake,
                                                 source_merge_kind.inner.inactive.meta.rent_exempt_reserve );
       break;
     }
