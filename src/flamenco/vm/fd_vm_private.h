@@ -242,9 +242,9 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
      enabled, then there is only 1 memory region which spans the input region. */
   ulong region_idx = fd_vm_get_input_mem_region_idx( vm, offset );
 
-  uint bytes_left          = (uint)sz;
-  uint bytes_in_cur_region = fd_uint_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
-                                              (uint)fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
+  ulong bytes_left          = sz;
+  ulong bytes_in_cur_region = fd_ulong_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
+                                                fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
 
   if( FD_UNLIKELY( write && vm->input_mem_regions[ region_idx ].is_writable==0U ) ) {
     return sentinel; /* Illegal write */
@@ -257,7 +257,7 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
     if( FD_UNLIKELY( write && vm->input_mem_regions[ region_idx ].is_writable==0U ) ) {
       return sentinel; /* Illegal write */
     }
-    bytes_left = fd_uint_sat_sub( bytes_left, bytes_in_cur_region );
+    bytes_left = fd_ulong_sat_sub( bytes_left, bytes_in_cur_region );
 
     region_idx += 1U;
 
@@ -270,6 +270,7 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
   ulong adjusted_haddr = vm->input_mem_regions[ region_idx ].haddr + offset - vm->input_mem_regions[ region_idx ].vaddr_offset;
   return adjusted_haddr; 
 }
+
 
 static inline ulong
 fd_vm_mem_haddr( fd_vm_t const *    vm,
