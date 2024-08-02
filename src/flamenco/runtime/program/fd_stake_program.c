@@ -1919,13 +1919,11 @@ move_stake_or_lamports_shared_checks( fd_exec_instr_ctx_t const *   invoke_conte
                          stake_history,
                          source_merge_kind,
                          &invoke_context->txn_ctx->custom_err );
-    if( FD_UNLIKELY( rc ) )
-      return rc;
+    if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L191
     rc = authorized_check( &meta( source_merge_kind )->authorized, signers, STAKE_AUTHORIZE_STAKER );
-    if( FD_UNLIKELY( rc ) )
-      return rc;
+    if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L197
     fd_stake_state_v2_t destination_account_state = { 0 };
@@ -1939,6 +1937,7 @@ move_stake_or_lamports_shared_checks( fd_exec_instr_ctx_t const *   invoke_conte
                          stake_history,
                          destination_merge_kind,
                          &invoke_context->txn_ctx->custom_err );
+    if( FD_UNLIKELY( rc ) ) return rc;
     
     // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L206
     rc = metas_can_merge( invoke_context, meta( source_merge_kind ), meta( destination_merge_kind ), clock, custom_err );
