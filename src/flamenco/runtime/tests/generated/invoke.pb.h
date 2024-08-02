@@ -43,7 +43,7 @@ typedef struct fd_exec_test_instr_context {
 
 /* The results of executing an InstrContext. */
 typedef struct fd_exec_test_instr_effects {
-    /* result is zero if the instruction executed succesfully.
+    /* result is zero if the instruction executed successfully.
  Otherwise, a non-zero error code.  Error codes are not relevant to
  consensus. */
     int32_t result;

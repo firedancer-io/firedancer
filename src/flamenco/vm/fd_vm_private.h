@@ -174,7 +174,7 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
    [haddr,haddr+sz).  On success, returns haddr and every byte in the
    haddr range is a valid address.  On failure, returns sentinel and
    there was at least one byte in the virtual address range that did not
-   have a corresponding byte inthe host address range.
+   have a corresponding byte in the host address range.
 
    IMPORTANT SAFETY TIP!  When sz==0, the return value currently is
    arbitrary.  This is often fine as there should be no
