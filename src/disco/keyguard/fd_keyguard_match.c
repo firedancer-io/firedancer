@@ -237,30 +237,15 @@ FD_FN_PURE int
 fd_keyguard_payload_matches_shred( uchar const * data,
                                    ulong         sz,
                                    int           sign_type ) {
+  (void)data;
 
-  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+  /* Note: Legacy shreds no longer relevant (drop_legacy_shreds) */
 
-  switch( sz ) {
-
-  /* Merkle shreds signing payloads always 32 byte */
   /* FIXME: Sign Merkle shreds using SIGN_TYPE_SHA256_ED25519 (!!!) */
-  case   32UL:
-    return 1;
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+  if( sz != 32 ) return 0;
 
-  /* Legacy shred signing payloads always 1228 (mtu) - 64 (sig sz) bytes */
-  case 1164UL: {
-    /* Verify shred type */
-    uint shred_type = data[ 0x00 ];
-    if( (shred_type==0x5a) | (shred_type==0xa5) )
-      return 1;
-    return 0;
-  }
-
-  default:
-  /* Not a known shred type */
-    return 0;
-
-  }
+  return 1;
 }
 
 FD_FN_PURE int
