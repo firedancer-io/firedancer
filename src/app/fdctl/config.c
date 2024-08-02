@@ -639,6 +639,11 @@ fdctl_cfg_from_env( int *      pargc,
   replace( config->consensus.vote_account_path, "{user}", config->user );
   replace( config->consensus.vote_account_path, "{name}", config->name );
 
+  for( ulong i=0UL; i<config->consensus.authorized_voter_paths_cnt; i++ ) {
+    replace( config->consensus.authorized_voter_paths[ i ], "{user}", config->user );
+    replace( config->consensus.authorized_voter_paths[ i ], "{name}", config->name );
+  }
+
   if( FD_UNLIKELY( config->is_live_cluster && cluster!=FD_CONFIG_CLUSTER_TESTNET ) )
     FD_LOG_ERR(( "Attempted to start against live cluster `%s`. Firedancer is not "
                  "ready for production deployment, has not been tested, and is "
