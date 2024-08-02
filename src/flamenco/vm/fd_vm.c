@@ -239,12 +239,12 @@ fd_vm_validate( fd_vm_t const * vm ) {
 
   /* FIXME: These checks are not necessary assuming fd_vm_t is populated by metadata
      generated in fd_sbpf_elf_peek (which performs these checks). But there is no guarantee, and
-     this non-guarantee is (rightfully) exploited by the fuzz harnesses. 
+     this non-guarantee is (rightfully) exploited by the fuzz harnesses.
      Agave doesn't perform these checks explicitly due to Rust's guarantees  */
-  if( FD_UNLIKELY( vm->text_sz / 8UL != vm->text_cnt || 
+  if( FD_UNLIKELY( vm->text_sz / 8UL != vm->text_cnt ||
                    (const uchar *) vm->text < vm->rodata ||
                    (const uchar *) vm->text > (const uchar *) vm->text + vm->text_sz || /* Overflow chk */
-                   (const uchar *) vm->text  + vm->text_sz >  vm->rodata + vm->rodata_sz ) ) 
+                   (const uchar *) vm->text  + vm->text_sz >  vm->rodata + vm->rodata_sz ) )
     return FD_VM_ERR_BAD_TEXT;
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( vm->text_sz, 8UL ) ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L109 */
@@ -289,7 +289,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
 
       /* FIXME: SET A BIT MAP HERE OF ADDL_IMM TO DENOTE * AS FORBIDDEN
          BRANCH TARGETS OF CALL_REG?? */
-      
+
       i++; /* Skip the addl imm */
       break;
     }
@@ -312,7 +312,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
     case FD_CHECK_CALLX: {
       /* The register number to read is stored in the immediate.
          https://github.com/solana-labs/rbpf/blob/v0.8.1/src/verifier.rs#L218 */
-      if( FD_UNLIKELY( instr.imm > ( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, reject_callx_r10 )  ? 9 : 10 ) ) ) {
+      if( FD_UNLIKELY( instr.imm > 9 ) ) {
         return FD_VM_ERR_INVALID_REG;
       }
       break;

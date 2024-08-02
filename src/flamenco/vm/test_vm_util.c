@@ -7,8 +7,7 @@
    For now, we just need to setup feature flags. */
 fd_exec_instr_ctx_t *
 test_vm_minimal_exec_instr_ctx(
-    fd_valloc_t valloc,
-    int         reject_callx_r10 ) {
+    fd_valloc_t valloc ) {
 
   void * _ctx = fd_exec_instr_ctx_new( fd_valloc_malloc( valloc, FD_EXEC_INSTR_CTX_ALIGN, FD_EXEC_INSTR_CTX_FOOTPRINT ) );
 
@@ -44,9 +43,7 @@ test_vm_minimal_exec_instr_ctx(
 
   /* Setup feature flags */
   fd_features_disable_all( &epoch_ctx->features );
-  if ( reject_callx_r10 ) {
-    fd_features_set( &epoch_ctx->features, fd_feature_id_query(TEST_VM_REJECT_CALLX_R10_FEATURE_PREFIX), 0UL );
-  }
+  fd_features_set( &epoch_ctx->features, fd_feature_id_query(TEST_VM_REJECT_CALLX_R10_FEATURE_PREFIX), 0UL );
 
   return ctx;
 }
