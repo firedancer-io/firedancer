@@ -48,6 +48,7 @@ static ulong supported_features[] =
     0x7bc99a080444c8d9,  // allow_votes_to_directly_update_vote_state
     0x2ca5833736ba5c69,  // compact_vote_state_updates
     0x7e787d5c6d662d23,  // reject_callx_r10
+    0x0b9047b5bb9ef961,  // move_stake_and_move_lamports_ixs
   };
 
 static       uchar *     smem;
