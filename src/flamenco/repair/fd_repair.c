@@ -3,6 +3,7 @@
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../disco/keyguard/fd_keyguard.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/rng/fd_rng.h"
 #include <string.h>
@@ -396,31 +397,61 @@ fd_repair_gettime( fd_repair_t * glob ) {
 }
 
 static void
-fd_repair_sign_and_send( fd_repair_t * glob, fd_repair_protocol_t * protocol, fd_gossip_peer_addr_t * addr) {
-  fd_bincode_encode_ctx_t ctx;
-  uchar buf[1024];
-  ctx.data = buf;
-  ctx.dataend = buf + sizeof(buf);
-  FD_TEST(0 == fd_repair_protocol_encode(protocol, &ctx));
+fd_repair_sign_and_send( fd_repair_t *           glob,
+                         fd_repair_protocol_t *  protocol,
+                         fd_gossip_peer_addr_t * addr ) {
 
-  // https://github.com/solana-labs/solana/blob/master/core/src/repair/serve_repair.rs#L874
-  ulong buflen = (ulong)((uchar*)ctx.data - buf);
-  fd_memcpy(buf + 64U, buf, 4U);
+  uchar _buf[1024];
+  uchar * buf    = _buf;
+  ulong   buflen = sizeof(_buf);
+  fd_bincode_encode_ctx_t ctx = { .data = buf, .dataend = buf + buflen };
+  if( FD_UNLIKELY( fd_repair_protocol_encode( protocol, &ctx ) != FD_BINCODE_SUCCESS ) ) {
+    FD_LOG_CRIT(( "Failed to encode repair message (type %#x)", protocol->discriminant ));
+  }
+
+  buflen = (ulong)ctx.data - (ulong)buf;
+  if( FD_UNLIKELY( buflen<68 ) ) {
+    FD_LOG_CRIT(( "Attempted to sign unsigned repair message type (type %#x)", protocol->discriminant ));
+  }
+
+  /* At this point buffer contains
+
+     [ discriminant ] [ signature ] [ payload ]
+     ^                ^             ^
+     0                4             68 */
+
+  /* https://github.com/solana-labs/solana/blob/master/core/src/repair/serve_repair.rs#L874 */
+
+  fd_memcpy( buf+64, buf, 4 );
+  buf    += 64UL;
+  buflen -= 64UL;
+
+  /* Now it contains
+
+     [ discriminant ] [ payload ]
+     ^                ^
+     0                4 */
+
   fd_signature_t sig;
   if( glob->sign_fun ) {
-    (*glob->sign_fun)( glob->sign_arg, sig.uc, buf + 64U, buflen - 64U );
+    (*glob->sign_fun)( glob->sign_arg, sig.uc, buf, buflen, FD_KEYGUARD_SIGN_TYPE_ED25519 );
   } else {
     fd_sha512_t sha[1];
     fd_ed25519_sign( /* sig */ sig.uc,
-                     /* msg */ buf + 64U,
-                     /* sz  */ buflen - 64U,
+                     /* msg */ buf,
+                     /* sz  */ buflen,
                      /* public_key  */ glob->public_key->key,
                      /* private_key */ glob->private_key,
                      sha );
   }
-  fd_memcpy(buf + 4U, &sig, 64U);
 
-  (*glob->clnt_send_fun)(buf, buflen, addr, glob->fun_arg);
+  /* Reintroduce the signature */
+
+  buf    -= 64UL;
+  buflen += 64UL;
+  fd_memcpy( buf + 4U, &sig, 64U );
+
+  (*glob->clnt_send_fun)( buf, buflen, addr, glob->fun_arg );
 }
 
 static void
@@ -576,7 +607,7 @@ fd_repair_recv_ping(fd_repair_t * glob, fd_gossip_ping_t const * ping, fd_gossip
 
   /* Sign it */
   if( glob->sign_fun ) {
-    (*glob->sign_fun)( glob->sign_arg, pong->signature.uc, pong->token.uc, 32UL );
+    (*glob->sign_fun)( glob->sign_arg, pong->signature.uc, pong->token.uc, 32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
   } else {
     fd_sha512_t sha2[1];
     fd_ed25519_sign( /* sig */ pong->signature.uc,
@@ -1008,8 +1039,9 @@ fd_repair_send_ping(fd_repair_t * glob, fd_gossip_peer_addr_t const * addr, fd_p
     ping->token.ul[i] = val->token.ul[i] = fd_rng_ulong(glob->rng);
 
   if( glob->sign_fun ) {
-    (*glob->sign_fun)( glob->sign_arg, ping->signature.uc, ping->token.uc, 32UL );
+    (*glob->sign_fun)( glob->sign_arg, ping->signature.uc, ping->token.uc, 32UL, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 );
   } else {
+    /* FIXME wrong signature for pings */
     fd_sha512_t sha[1];
     fd_ed25519_sign( /* sig */ ping->signature.uc,
                      /* msg */ ping->token.uc,

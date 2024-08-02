@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "../keyguard/fd_keyload.h"
+#include "../keyguard/fd_keyguard.h"
 #include "../keyguard/fd_keyguard_client.h"
 #include "../metrics/fd_metrics.h"
 #include "../shred/fd_shred_cap.h"
@@ -44,11 +45,13 @@
 uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0, 0 ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
 
 static void
-sign_fun( void * arg, uchar * sig, uchar const * buffer, ulong len ) {
+sign_fun( void * arg, uchar * sig, uchar const * buffer, ulong len, int sign_type ) {
   fd_gossip_config_t * config = (fd_gossip_config_t *)arg;
   fd_sha512_t          sha[1];
-  if (len == 48UL && (memcmp( buffer, "SOLANA_PING_PONG", 16UL ) == 0)) {
-    /* Gossip currently requires special handling of signing the ping/pong messages  */
+
+  switch( sign_type ) {
+
+  case FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519: {
     uchar hash[32];
     fd_sha256_hash( buffer, len, hash );
     fd_ed25519_sign( /* sig */ sig,
@@ -57,13 +60,20 @@ sign_fun( void * arg, uchar * sig, uchar const * buffer, ulong len ) {
                      /* public_key  */ config->public_key->uc,
                      /* private_key */ config->private_key,
                      sha );
-  } else {
+    break;
+  }
+
+  case FD_KEYGUARD_SIGN_TYPE_ED25519:
     fd_ed25519_sign( /* sig */ sig,
                      /* msg */ buffer,
                      /* sz  */ len,
                      /* public_key  */ config->public_key->uc,
                      /* private_key */ config->private_key,
                      sha );
+    break;
+
+  default:
+    FD_LOG_CRIT(( "Invalid sign type %u", sign_type ));
   }
 }
 

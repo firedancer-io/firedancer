@@ -21,10 +21,13 @@ void
 fd_keyguard_client_sign( fd_keyguard_client_t * client,
                          uchar *                signature,
                          uchar const *          sign_data,
-                         ulong                  sign_data_len ) {
+                         ulong                  sign_data_len,
+                         int                    sign_type ) {
+
   fd_memcpy( client->request_data, sign_data, sign_data_len );
 
-  fd_mcache_publish( client->request, 128UL, client->request_seq, 0UL, 0UL, sign_data_len, 0UL, 0UL, 0UL );
+  ulong sig = (ulong)(uint)sign_type;
+  fd_mcache_publish( client->request, 128UL, client->request_seq, sig, 0UL, sign_data_len, 0UL, 0UL, 0UL );
   client->request_seq = fd_seq_inc( client->request_seq, 1UL );
 
   fd_frag_meta_t meta;

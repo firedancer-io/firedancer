@@ -40,7 +40,7 @@ typedef void (*fd_gossip_data_deliver_fun)(fd_crds_data_t* data, void* arg);
 typedef void (*fd_gossip_send_packet_fun)( uchar const * msg, size_t msglen, fd_gossip_peer_addr_t const * addr, void * arg );
 
 /* Callback for signing */
-typedef void (*fd_gossip_sign_fun)( void * ctx, uchar * sig, uchar const * buffer, ulong len );
+typedef void (*fd_gossip_sign_fun)( void * ctx, uchar * sig, uchar const * buffer, ulong len, int sign_type );
 
 struct fd_gossip_config {
     fd_pubkey_t * public_key;

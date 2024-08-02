@@ -23,7 +23,7 @@ typedef struct {
 typedef struct {
   uchar             _data[ FD_KEYGUARD_SIGN_REQ_MTU ];
 
-  ulong             in_role [ MAX_IN ];
+  int               in_role[ MAX_IN ];
   uchar *           in_data[ MAX_IN ];
 
   fd_sign_out_ctx_t out[ MAX_IN ];
@@ -73,35 +73,11 @@ during_frag_sensitive( void * _ctx,
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
   FD_TEST( in_idx<MAX_IN );
 
-  switch( ctx->in_role[ in_idx ] ) {
-    case FD_KEYGUARD_ROLE_VOTER:
-      fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], sz );
-      break;
-    case FD_KEYGUARD_ROLE_LEADER:
-      fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], 32UL );
-      break;
-    case FD_KEYGUARD_ROLE_TLS:
-      fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], 130UL );
-      break;
-    case FD_KEYGUARD_ROLE_GOSSIP:
-      if( sz>FD_KEYGUARD_SIGN_REQ_MTU ) {
-        FD_LOG_WARNING(("Corrupt gossip signing message with size %lu", sz));
-        *opt_filter = 1;
-        return;
-      }
-      fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], sz );
-      break;
-    case FD_KEYGUARD_ROLE_REPAIR:
-      if( sz>FD_KEYGUARD_SIGN_REQ_MTU ) {
-        FD_LOG_WARNING(("Corrupt repair signing message with size %lu", sz));
-        *opt_filter = 1;
-        return;
-      }
-      fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], sz );
-      break;
-    default:
-      FD_LOG_CRIT(( "unexpected link role %lu", ctx->in_role[ in_idx ] ));
+  int role = ctx->in_role[ in_idx ];
+  if( sz>FD_KEYGUARD_SIGN_REQ_MTU ) {
+    FD_LOG_EMERG(( "oversz signing request (role=%d sz=%lu)", role, sz ));
   }
+  fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], sz );
 }
 
 
@@ -127,64 +103,41 @@ after_frag_sensitive( void *             _ctx,
                       int *              opt_filter,
                       fd_mux_context_t * mux ) {
   (void)seq;
-  (void)opt_sig;
   (void)opt_chunk;
-  (void)opt_sz;
   (void)opt_tsorig;
   (void)opt_filter;
   (void)mux;
 
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
 
+  ulong sz        = *opt_sz;
+  ulong sig       = *opt_sig;
+  int   sign_type = (int)(uint)sig;
+
   FD_TEST( in_idx<MAX_IN );
 
-  switch( ctx->in_role[ in_idx ] ) {
-    case FD_KEYGUARD_ROLE_VOTER: {
-       if( FD_UNLIKELY( !fd_keyguard_payload_authorize( ctx->_data, *opt_sz, FD_KEYGUARD_ROLE_VOTER ) ) ) {
-        FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed" ));
-      }
-      fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, *opt_sz, ctx->public_key, ctx->private_key, ctx->sha512 );
-      break;
-    }
-    case FD_KEYGUARD_ROLE_LEADER: {
-      if( FD_UNLIKELY( !fd_keyguard_payload_authorize( ctx->_data, 32UL, FD_KEYGUARD_ROLE_LEADER ) ) ) {
-        FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed" ));
-      }
-      fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
-      break;
-    }
-    case FD_KEYGUARD_ROLE_TLS: {
-      if( FD_UNLIKELY( !fd_keyguard_payload_authorize( ctx->_data, 130UL, FD_KEYGUARD_ROLE_TLS ) ) ) {
-        FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed" ));
-      }
-      fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, 130UL, ctx->public_key, ctx->private_key, ctx->sha512 );
-      break;
-    }
-    case FD_KEYGUARD_ROLE_GOSSIP: {
-      if( FD_UNLIKELY( !fd_keyguard_payload_authorize( ctx->_data, *opt_sz, FD_KEYGUARD_ROLE_GOSSIP ) ) ) {
-        FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed" ));
-      }
-      if ( fd_keyguard_payload_matches_ping_msg( ctx->_data, *opt_sz ) ) {
-        /* Gossip tile sends the sh256 pre-image for ping/pong msgs. */
-        uchar hash[32];
-        fd_sha256_hash( ctx->_data, *opt_sz, hash );
+  int role = ctx->in_role[ in_idx ];
 
-        fd_ed25519_sign( ctx->out[ in_idx ].data, hash, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
-      } else {
-        fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, *opt_sz, ctx->public_key, ctx->private_key, ctx->sha512 );
-      }
+  fd_keyguard_authority_t authority = {0};
+  memcpy( authority.identity_pubkey, ctx->public_key, 32 );
 
-      break;
-    }
-    case FD_KEYGUARD_ROLE_REPAIR: {
-      if( FD_UNLIKELY( !fd_keyguard_payload_authorize( ctx->_data, *opt_sz, FD_KEYGUARD_ROLE_REPAIR ) ) ) {
-        FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed" ));
-      }
-      fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, *opt_sz, ctx->public_key, ctx->private_key, ctx->sha512 );
-      break;
-    }
-    default:
-      FD_LOG_CRIT(( "unexpected link role %lu", ctx->in_role[ in_idx ] ));
+  if( FD_UNLIKELY( !fd_keyguard_payload_authorize( &authority, ctx->_data, sz, role, sign_type ) ) ) {
+    FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed (role=%d sign_type=%d)", role, sign_type ));
+  }
+
+  switch( sign_type ) {
+  case FD_KEYGUARD_SIGN_TYPE_ED25519: {
+    fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
+    break;
+  }
+  case FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519: {
+    uchar hash[ 32 ];
+    fd_sha256_hash( ctx->_data, sz, hash );
+    fd_ed25519_sign( ctx->out[ in_idx ].data, hash, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+    break;
+  }
+  default:
+    FD_LOG_EMERG(( "invalid sign type: %d", sign_type ));
   }
 
   fd_mcache_publish( ctx->out[ in_idx ].mcache, 128UL, ctx->out[ in_idx ].seq, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -233,13 +186,6 @@ privileged_init_sensitive( fd_topo_t *      topo,
   if( FD_UNLIKELY( madvise( (void*)fd_tile_stack0(), fd_tile_stack_sz(), MADV_DONTDUMP ) ) )
     FD_LOG_ERR(( "madvise failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 #endif
-
-  /* Prevent the stack from showing up in core dumps just in case the
-     private key somehow ends up in there. */
-  FD_TEST( fd_tile_stack0() );
-  FD_TEST( fd_tile_stack_sz() );
-  if( FD_UNLIKELY( madvise( (void*)fd_tile_stack0(), fd_tile_stack_sz(), MADV_DONTDUMP ) ) )
-    FD_LOG_ERR(( "madvise failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 static void
@@ -266,7 +212,7 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
   FD_TEST( tile->in_cnt<=MAX_IN );
   FD_TEST( tile->in_cnt==tile->out_cnt );
 
-  for( ulong i=0; i<MAX_IN; i++ ) ctx->in_role[ i ] = ULONG_MAX;
+  for( ulong i=0; i<MAX_IN; i++ ) ctx->in_role[ i ] = -1;
 
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
@@ -284,7 +230,7 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
       FD_TEST( in_link->mtu==32UL );
       FD_TEST( out_link->mtu==64UL );
     } else if( !strcmp( in_link->name, "quic_sign" ) ) {
-      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_TLS;
+      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_QUIC;
       FD_TEST( !strcmp( out_link->name, "sign_quic" ) );
       FD_TEST( in_link->mtu==130UL );
       FD_TEST( out_link->mtu==64UL );
