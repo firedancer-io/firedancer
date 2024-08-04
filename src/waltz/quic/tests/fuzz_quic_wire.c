@@ -154,7 +154,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   /* Create dummy connection */
   fd_quic_conn_id_t our_conn_id  = { .sz=8 };
   fd_quic_conn_id_t peer_conn_id = { .sz=8 };
-  uint              dst_ip_addr  = 0U;
+  uint              dst_ip_addr  = 0x01020304U;
   ushort            dst_udp_port = (ushort)0;
 
   fd_quic_conn_t * conn =
@@ -176,6 +176,13 @@ LLVMFuzzerTestOneInput( uchar const * data,
   conn->peer_sup_stream_id[ 1 ] = 32UL;
   conn->peer_sup_stream_id[ 2 ] = 32UL;
   conn->peer_sup_stream_id[ 3 ] = 32UL;
+
+  /* add to qos */
+  /* this ensures fd_quic_conn_free works properly */
+  fd_qos_entry_t * qos_entry = fd_quic_qos_query_forced( quic, dst_ip_addr );
+
+  qos_entry->value.conn_cnt++;
+
 
   if( established ) {
     conn->state = FD_QUIC_CONN_STATE_ACTIVE;

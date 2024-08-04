@@ -332,6 +332,15 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
   conn->tx_initial_max_stream_data_uni         = 0UL;
   conn->rx_initial_max_stream_data_uni         = 0UL;
 
+  if( quic->config.role == FD_QUIC_ROLE_SERVER ) {
+    /* add to qos */
+    /* this ensures fd_quic_conn_free works properly */
+    fd_qos_entry_t * qos_entry = fd_quic_qos_query_forced( quic,
+                                                           FD_QUIC_SANDBOX_PEER_IP4 );
+
+    qos_entry->value.conn_cnt++;
+  }
+
   /* TODO set a realistic packet number */
 
   return conn;
