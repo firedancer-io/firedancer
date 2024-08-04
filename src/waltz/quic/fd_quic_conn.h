@@ -9,6 +9,8 @@
 #include "templ/fd_quic_transport_params.h"
 #include "fd_quic_pkt_meta.h"
 #include "templ/fd_quic_union.h"
+#include "../qos/fd_qos.h"
+#include "fd_quic_priset.h"
 
 /* Minimum number of streams per connection */
 #define FD_QUIC_STREAM_MIN 16UL
@@ -73,6 +75,7 @@ struct fd_quic_ack {
 # define FD_QUIC_ACK_FLAGS_SENT      (1u<<0u)
 # define FD_QUIC_ACK_FLAGS_MANDATORY (1u<<1u)
 };
+
 
 struct fd_quic_conn {
   ulong              conn_idx;            /* connection index */
@@ -258,6 +261,8 @@ struct fd_quic_conn {
 
   ushort ipv4_id;           /* ipv4 id field */
 
+  uint   orig_peer_ip_addr; /* original IPv4 peer address - used by QoS */
+
   /* some scratch space for frame encoding/decoding */
   fd_quic_frame_u frame_union;
 
@@ -336,6 +341,12 @@ struct fd_quic_conn {
   /* idle timeout arguments */
   ulong                idle_timeout;
   ulong                last_activity;
+
+  /* stats for qos */
+
+  fd_quic_conn_stats_t conn_stats;             /* connection related stats */
+  fd_quic_priset_key_t priset_key;             /* matches key in priset */
+  ulong                priset_key_update_time; /* time the priset_key to be updated next */
 
   /* next connection in the free list, or in service list */
   fd_quic_conn_t *     next;

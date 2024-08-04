@@ -9,6 +9,7 @@
 #include "crypto/fd_quic_crypto_suites.h"
 #include "tls/fd_quic_tls.h"
 #include "fd_quic_stream_pool.h"
+#include "../qos/fd_qos.h"
 
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
@@ -35,6 +36,10 @@ enum {
    of an fd_quic_t. */
 
 #define FD_QUIC_MAGIC (0xdadf8cfa01cc5460UL)
+
+/* fwd declaration */
+typedef struct fd_quic_priset_node      fd_quic_priset_node_t;
+typedef struct priset_private           fd_quic_priset_t;
 
 /* events for time based processing */
 struct fd_quic_event {
@@ -118,6 +123,17 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   /* Scratch space for packet protection */
   uchar                   crypt_scratch[FD_QUIC_MTU];
+
+  fd_qos_t *              qos;
+
+  /* treap - defined locally to fd_quic.c */
+  fd_quic_priset_node_t * priset_pool;
+  fd_quic_priset_t *      priset;
+
+  /* limits for INITIAL and HANDSHAKE packets */
+  ulong                   allowed_initial;
+  ulong                   allowed_handshake;
+  ulong                   limits_last_update;
 };
 
 /* FD_QUIC_STATE_OFF is the offset of fd_quic_state_t within fd_quic_t. */

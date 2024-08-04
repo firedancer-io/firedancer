@@ -344,6 +344,9 @@ union fd_quic_metrics {
     ulong stream_active_cnt  [ 4 ]; /* number of active streams (per type) */
     ulong stream_rx_event_cnt;      /* number of stream RX events */
     ulong stream_rx_byte_cnt;       /* total stream payload bytes received */
+
+    ulong rate_limit_exceeded_initial;   /* number of packet discarded due to rate imiting */
+    ulong rate_limit_exceeded_handshake; /* number of packet discarded due to rate imiting */
   };
 };
 typedef union fd_quic_metrics fd_quic_metrics_t;
@@ -606,6 +609,17 @@ fd_quic_tx_buffered_raw( fd_quic_t * quic,
                          ushort      src_udp_port,
                          ushort      dst_udp_port,
                          int         flush );
+
+
+/* call once in a while for processing non urgent things */
+void
+fd_quic_housekeeping( fd_quic_t * quic );
+
+
+/* send a ping flag */
+void
+fd_quic_conn_send_ping( fd_quic_conn_t * conn );
+
 
 FD_PROTOTYPES_END
 
