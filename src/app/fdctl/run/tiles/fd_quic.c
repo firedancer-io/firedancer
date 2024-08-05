@@ -147,7 +147,7 @@ mux_ctx( void * scratch ) {
 static void
 legacy_stream_notify( fd_quic_ctx_t * ctx,
                       uchar *         packet,
-                      uint            packet_sz ) {
+                      ulong           packet_sz ) {
 
   fd_mux_context_t * mux = ctx->mux;
 
@@ -303,14 +303,21 @@ after_frag( void *             _ctx,
     fd_aio_send( ctx->quic_rx_aio, &pkt, 1, NULL, 1 );
   } else if( FD_LIKELY( proto==DST_PROTO_TPU_UDP ) ) {
     ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
-    if( FD_UNLIKELY( *opt_sz<network_hdr_sz ) ) {
+    if( FD_UNLIKELY( *opt_sz<=network_hdr_sz ) ) {
       /* Transaction not valid if the packet isn't large enough for the network
          headers. */
       FD_MCNT_INC( QUIC_TILE, NON_QUIC_PACKET_TOO_SMALL, 1UL );
       return;
     }
 
-    if( FD_UNLIKELY( *opt_sz-network_hdr_sz>FD_TPU_MTU ) ) {
+    ulong data_sz = *opt_sz - network_hdr_sz;
+    if( FD_UNLIKELY( data_sz<FD_TXN_MIN_SERIALIZED_SZ ) ) {
+      /* Smaller than the smallest possible transaction */
+      FD_MCNT_INC( QUIC_TILE, NON_QUIC_PACKET_TOO_SMALL, 1UL );
+      return;
+    }
+
+    if( FD_UNLIKELY( data_sz>FD_TPU_MTU ) ) {
       /* Transaction couldn't possibly be valid if it's longer than transaction
          MTU so drop it. This is not required, as the txn will fail to parse,
          but it's a nice short circuit. */
@@ -318,7 +325,7 @@ after_frag( void *             _ctx,
       return;
     }
 
-    legacy_stream_notify( ctx, ctx->buffer+network_hdr_sz, (uint)(*opt_sz - network_hdr_sz) );
+    legacy_stream_notify( ctx, ctx->buffer+network_hdr_sz, data_sz );
   }
 }
 

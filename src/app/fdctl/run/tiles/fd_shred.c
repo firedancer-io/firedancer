@@ -457,7 +457,7 @@ during_frag( void * _ctx,
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->net_in_chunk0, ctx->net_in_wmark ));
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->net_in_mem, chunk );
     ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
-    FD_TEST( hdr_sz < sz ); /* Should be ensured by the net tile */
+    FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
     fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz );
     if( FD_UNLIKELY( !shred ) ) {
       *opt_filter = 1;
