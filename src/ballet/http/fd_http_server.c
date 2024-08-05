@@ -610,6 +610,9 @@ write_conn_http( fd_http_server_t * http,
             FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: %s\r\n\r\n", conn->response.body_len, conn->response.content_type ) );
           }
           break;
+        case 400:
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 400 Bad Request\r\nContent-Length: %lu\r\nContent-Type: %s\r\n\r\n", conn->response.body_len, conn->response.content_type ) );
+          break;
         case 404:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" ) );
           break;

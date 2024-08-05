@@ -65,11 +65,11 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
 
   args->port = (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--port", NULL, 8899 );
 
-  args->params.max_connection_cnt =    (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--max-connection-cnt",    NULL, 10 );
-  args->params.max_ws_connection_cnt = (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-connection-cnt", NULL, 10 );
-  args->params.max_request_len =       (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--max-request-len",       NULL, 1<<16 );
-  args->params.max_ws_recv_frame_len = (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-recv-frame-len", NULL, 2048 );
-  args->params.max_ws_send_frame_cnt = (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-send-frame-cnt", NULL, 100 );
+  args->params.max_connection_cnt =    fd_env_strip_cmdline_ulong( argc, argv, "--max-connection-cnt",    NULL, 10 );
+  args->params.max_ws_connection_cnt = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-connection-cnt", NULL, 10 );
+  args->params.max_request_len =       fd_env_strip_cmdline_ulong( argc, argv, "--max-request-len",       NULL, 1<<16 );
+  args->params.max_ws_recv_frame_len = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-recv-frame-len", NULL, 2048 );
+  args->params.max_ws_send_frame_cnt = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-send-frame-cnt", NULL, 100 );
 }
 
 static int stopflag = 0;
