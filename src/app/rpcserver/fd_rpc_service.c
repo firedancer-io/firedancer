@@ -199,7 +199,6 @@ method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values
     if (val == NULL) {
       fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%lu}" CRLF,
                             blockstore->root, ctx->call_id);
-      fd_web_replier_done(replier);
       return 0;
     }
 
@@ -255,8 +254,6 @@ method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values
     }
     fd_textstream_sprintf(ts, "},\"id\":%lu}" CRLF, ctx->call_id);
 
-    fd_web_replier_done(replier);
-
   } FD_METHOD_SCRATCH_END;
 
   return 0;
@@ -293,7 +290,6 @@ method_getBalance(struct fd_web_replier* replier, struct json_values* values, fd
     fd_blockstore_t * blockstore = ctx->global->blockstore;
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%lu}" CRLF,
                           blockstore->root, metadata->info.lamports, ctx->call_id);
-    fd_web_replier_done(replier);
   } FD_METHOD_SCRATCH_END;
   return 0;
 }
@@ -404,7 +400,6 @@ method_getBlock(struct fd_web_replier* replier, struct json_values* values, fd_r
     return 0;
   }
   free( blk_data );
-  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -427,7 +422,6 @@ method_getBlockHeight(struct fd_web_replier* replier, struct json_values* values
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
                         glob->last_slot_notify.slot_exec.height, ctx->call_id);
-  fd_web_replier_done(replier);
   fd_readwrite_end_read( &glob->lock );
   return 0;
 }
@@ -488,7 +482,6 @@ method_getBlocks(struct fd_web_replier* replier, struct json_values* values, fd_
   }
   fd_textstream_sprintf(ts, "],\"id\":%lu}" CRLF, ctx->call_id);
 
-  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -543,7 +536,6 @@ method_getBlocksWithLimit(struct fd_web_replier* replier, struct json_values* va
   }
   fd_textstream_sprintf(ts, "],\"id\":%lu}" CRLF, ctx->call_id);
 
-  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -577,7 +569,6 @@ method_getBlockTime(struct fd_web_replier* replier, struct json_values* values, 
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%ld,\"id\":%lu}" CRLF,
                         meta->ts/(long)1e9,
                         ctx->call_id);
-  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -615,7 +606,6 @@ method_getEpochInfo(struct fd_web_replier* replier, struct json_values* values, 
                           slots_per_epoch,
                           slot_bank->transaction_count,
                           ctx->call_id);
-    fd_web_replier_done(replier);
     fd_readwrite_end_read( &ctx->global->lock );
   } FD_METHOD_SCRATCH_END;
   return 0;
@@ -638,7 +628,6 @@ method_getEpochSchedule(struct fd_web_replier* replier, struct json_values* valu
     epoch_bank->epoch_schedule.slots_per_epoch,
     (epoch_bank->epoch_schedule.warmup ? "true" : "false"),
     ctx->call_id);
-    fd_web_replier_done(replier);
     fd_readwrite_end_read( &ctx->global->lock );
   } FD_METHOD_SCRATCH_END;
   return 0;
@@ -663,7 +652,6 @@ method_getFirstAvailableBlock(struct fd_web_replier* replier, struct json_values
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
                         blockstore->root, ctx->call_id);
-  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -680,7 +668,6 @@ method_getGenesisHash(struct fd_web_replier* replier, struct json_values* values
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":\"");
     fd_textstream_encode_base58(ts, epoch_bank->genesis_hash.uc, sizeof(fd_pubkey_t));
     fd_textstream_sprintf(ts, "\",\"id\":%lu}" CRLF, ctx->call_id);
-    fd_web_replier_done(replier);
     fd_readwrite_end_read( &ctx->global->lock );
   } FD_METHOD_SCRATCH_END;
   return 0;
@@ -692,7 +679,6 @@ method_getHealth(struct fd_web_replier* replier, struct json_values* values, fd_
   (void)values;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":\"ok\",\"id\":%lu}" CRLF, ctx->call_id);
-  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -717,7 +703,6 @@ method_getIdentity(struct fd_web_replier* replier, struct json_values* values, f
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"identity\":\"");
   fd_textstream_encode_base58(ts, &glob->last_slot_notify.slot_exec.identity, sizeof(fd_pubkey_t));
   fd_textstream_sprintf(ts, "\"},\"id\":%lu}" CRLF, ctx->call_id);
-  fd_web_replier_done(replier);
   fd_readwrite_end_read( &glob->lock );
   return 0;
 }
@@ -786,7 +771,6 @@ method_getLatestBlockhash(struct fd_web_replier* replier, struct json_values* va
   fd_textstream_encode_base58(ts, &glob->last_slot_notify.slot_exec.block_hash, sizeof(fd_hash_t));
   fd_textstream_sprintf(ts, "\",\"lastValidBlockHeight\":%lu}},\"id\":%lu}" CRLF,
                         glob->last_slot_notify.slot_exec.height, ctx->call_id);
-  fd_web_replier_done(replier);
   fd_readwrite_end_read( &glob->lock );
   return 0;
 }
@@ -820,7 +804,6 @@ method_getMaxShredInsertSlot(struct fd_web_replier* replier, struct json_values*
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
                         blockstore->root, ctx->call_id);
-  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -845,7 +828,6 @@ method_getMinimumBalanceForRentExemption(struct fd_web_replier* replier, struct 
     fd_textstream_t * ts = fd_web_replier_textstream(replier);
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
                           min_balance, ctx->call_id);
-    fd_web_replier_done(replier);
     fd_readwrite_end_read( &ctx->global->lock );
   } FD_METHOD_SCRATCH_END;
   return 0;
@@ -921,7 +903,6 @@ method_getMultipleAccounts(struct fd_web_replier* replier, struct json_values* v
     }
 
     fd_textstream_sprintf(ts, "]},\"id\":%lu}" CRLF, ctx->call_id);
-    fd_web_replier_done(replier);
   } FD_METHOD_SCRATCH_END;
   return 0;
 }
@@ -1007,7 +988,6 @@ method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* 
   }
 
   fd_textstream_sprintf(ts, "]},\"id\":%lu}" CRLF, ctx->call_id);
-  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -1022,7 +1002,6 @@ method_getSlot(struct fd_web_replier* replier, struct json_values* values, fd_rp
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
                         glob->last_slot_notify.slot_exec.slot, ctx->call_id);
-  fd_web_replier_done(replier);
   fd_readwrite_end_read( &glob->lock );
   return 0;
 }
@@ -1199,7 +1178,6 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
   uchar key[FD_ED25519_SIG_SZ];
   if ( fd_base58_decode_64( sig, key) == NULL ) {
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%lu}" CRLF, ctx->call_id);
-    fd_web_replier_done(replier);
     return 0;
   }
   fd_blockstore_txn_map_t elem;
@@ -1210,7 +1188,6 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
   if( fd_blockstore_txn_query_volatile( blockstore, key, &elem, &blk_ts, &blk_flags, txn_data_raw ) ||
       ( blk_flags & need_blk_flags ) == (uchar)0 ) {
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%lu}" CRLF, ctx->call_id);
-    fd_web_replier_done(replier);
     return 0;
   }
 
@@ -1229,7 +1206,6 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
   }
   fd_textstream_sprintf(ts, "},\"id\":%lu}" CRLF, ctx->call_id);
 
-  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -1252,7 +1228,6 @@ method_getVersion(struct fd_web_replier* replier, struct json_values* values, fd
   /* TODO Where does feature-set come from? */
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"feature-set\":666,\"solana-core\":\"" FIREDANCER_VERSION "\"},\"id\":%lu}" CRLF,
                         ctx->call_id);
-  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -1306,7 +1281,6 @@ method_getVoteAccounts(struct fd_web_replier* replier, struct json_values* value
     }
 
     fd_textstream_sprintf(ts, "],\"delinquent\":[]},\"id\":%lu}" CRLF, ctx->call_id);
-    fd_web_replier_done(replier);
     fd_readwrite_end_read( &ctx->global->lock );
   } FD_METHOD_SCRATCH_END;
   return 0;
@@ -1630,11 +1604,10 @@ fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* 
     "</html>";
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_append(ts, DOC, strlen(DOC));
-  fd_web_replier_done(replier);
 }
 
 static int
-ws_method_accountSubscribe(fd_websocket_ctx_t * wsctx, struct json_values * values, fd_rpc_ctx_t * ctx, fd_textstream_t * ts) {
+ws_method_accountSubscribe(ulong conn_id, struct json_values * values, fd_rpc_ctx_t * ctx, fd_textstream_t * ts) {
   FD_METHOD_SCRATCH_BEGIN( 11<<20 ) {
     // Path to argument
     static const uint PATH[3] = {
@@ -1645,7 +1618,7 @@ ws_method_accountSubscribe(fd_websocket_ctx_t * wsctx, struct json_values * valu
     ulong arg_sz = 0;
     const void* arg = json_get_value(values, PATH, 3, &arg_sz);
     if (arg == NULL) {
-      fd_web_ws_error(wsctx, "getAccountInfo requires a string as first parameter");
+      fd_web_ws_error(&ctx->global->ws, conn_id, "getAccountInfo requires a string as first parameter");
       return 0;
     }
     fd_pubkey_t acct;
@@ -1669,7 +1642,7 @@ ws_method_accountSubscribe(fd_websocket_ctx_t * wsctx, struct json_values * valu
     else if (MATCH_STRING(enc_str, enc_str_sz, "jsonParsed"))
       enc = FD_ENC_JSON;
     else {
-      fd_web_ws_error(wsctx, "invalid data encoding %s", (const char*)enc_str);
+      fd_web_ws_error(&ctx->global->ws, conn_id, "invalid data encoding %s", (const char*)enc_str);
       return 0;
     }
 
@@ -1693,7 +1666,7 @@ ws_method_accountSubscribe(fd_websocket_ctx_t * wsctx, struct json_values * valu
     const void* off_ptr = json_get_value(values, PATH4, 5, &off_sz);
     if (len_ptr && off_ptr) {
       if (enc == FD_ENC_JSON) {
-        fd_web_ws_error(wsctx, "cannot use jsonParsed encoding with slice");
+        fd_web_ws_error(&ctx->global->ws, conn_id, "cannot use jsonParsed encoding with slice");
         return 0;
       }
     }
@@ -1702,11 +1675,11 @@ ws_method_accountSubscribe(fd_websocket_ctx_t * wsctx, struct json_values * valu
     fd_readwrite_start_write( &subs->lock );
     if( subs->sub_cnt >= FD_WS_MAX_SUBS ) {
       fd_readwrite_end_write( &subs->lock );
-      fd_web_ws_error(wsctx, "too many subscriptions");
+      fd_web_ws_error(&ctx->global->ws, conn_id, "too many subscriptions");
       return 0;
     }
     struct fd_ws_subscription * sub = &subs->sub_list[ subs->sub_cnt++ ];
-    sub->socket = wsctx;
+    sub->conn_id = conn_id;
     sub->meth_id = KEYW_WS_METHOD_ACCOUNTSUBSCRIBE;
     sub->call_id = ctx->call_id;
     ulong subid = sub->subsc_id = ++(subs->last_subsc_id);
@@ -1727,7 +1700,7 @@ ws_method_accountSubscribe(fd_websocket_ctx_t * wsctx, struct json_values * valu
 static int
 ws_method_accountSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg, struct fd_ws_subscription * sub, fd_textstream_t * ts) {
   FD_METHOD_SCRATCH_BEGIN( 11<<20 ) {
-    fd_websocket_ctx_t * wsctx = sub->socket;
+    ulong conn_id = sub->conn_id;
 
     ulong val_sz;
     void * val = read_account_with_xid(ctx, &sub->acct_subscribe.acct, &msg->acct_saved.funk_xid, fd_scratch_virtual(), &val_sz);
@@ -1741,7 +1714,7 @@ ws_method_accountSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * ms
                           msg->acct_saved.funk_xid.ul[0]);
     const char * err = fd_account_to_json( ts, sub->acct_subscribe.acct, sub->acct_subscribe.enc, val, val_sz, sub->acct_subscribe.off, sub->acct_subscribe.len );
     if( err ) {
-      fd_web_ws_error(wsctx, "%s", err);
+      fd_web_ws_error(&ctx->global->ws, conn_id, "%s", err);
       return 0;
     }
     fd_textstream_sprintf(ts, "},\"subscription\":%lu}}" CRLF, sub->subsc_id);
@@ -1751,17 +1724,17 @@ ws_method_accountSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * ms
 }
 
 static int
-ws_method_slotSubscribe(fd_websocket_ctx_t * wsctx, struct json_values * values, fd_rpc_ctx_t * ctx, fd_textstream_t * ts) {
+ws_method_slotSubscribe(ulong conn_id, struct json_values * values, fd_rpc_ctx_t * ctx, fd_textstream_t * ts) {
   (void)values;
   fd_rpc_global_ctx_t * subs = ctx->global;
   fd_readwrite_start_write( &subs->lock );
   if( subs->sub_cnt >= FD_WS_MAX_SUBS ) {
     fd_readwrite_end_write( &subs->lock );
-    fd_web_ws_error(wsctx, "too many subscriptions");
+    fd_web_ws_error(&ctx->global->ws, conn_id, "too many subscriptions");
     return 0;
   }
   struct fd_ws_subscription * sub = &subs->sub_list[ subs->sub_cnt++ ];
-  sub->socket = wsctx;
+  sub->conn_id = conn_id;
   sub->meth_id = KEYW_WS_METHOD_SLOTSUBSCRIBE;
   sub->call_id = ctx->call_id;
   ulong subid = sub->subsc_id = ++(subs->last_subsc_id);
@@ -1785,7 +1758,7 @@ ws_method_slotSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg, 
 }
 
 int
-fd_webserver_ws_subscribe(struct json_values* values, fd_websocket_ctx_t * wsctx, void * cb_arg) {
+fd_webserver_ws_subscribe(struct json_values* values, ulong conn_id, void * cb_arg) {
   fd_rpc_ctx_t ctx = *( fd_rpc_ctx_t *)cb_arg;
 
   static const uint PATH[2] = {
@@ -1795,11 +1768,11 @@ fd_webserver_ws_subscribe(struct json_values* values, fd_websocket_ctx_t * wsctx
   ulong arg_sz = 0;
   const void* arg = json_get_value(values, PATH, 2, &arg_sz);
   if (arg == NULL) {
-    fd_web_ws_error( wsctx, "missing jsonrpc member" );
+    fd_web_ws_error( &ctx.global->ws, conn_id, "missing jsonrpc member" );
     return 0;
   }
   if (!MATCH_STRING(arg, arg_sz, "2.0")) {
-    fd_web_ws_error( wsctx, "jsonrpc value must be 2.0" );
+    fd_web_ws_error( &ctx.global->ws, conn_id, "jsonrpc value must be 2.0" );
     return 0;
   }
 
@@ -1810,7 +1783,7 @@ fd_webserver_ws_subscribe(struct json_values* values, fd_websocket_ctx_t * wsctx
   arg_sz = 0;
   arg = json_get_value(values, PATH3, 2, &arg_sz);
   if (arg == NULL) {
-    fd_web_ws_error( wsctx, "missing id member" );
+    fd_web_ws_error( &ctx.global->ws, conn_id, "missing id member" );
     return 0;
   }
   ctx.call_id = *(long*)arg;
@@ -1822,7 +1795,7 @@ fd_webserver_ws_subscribe(struct json_values* values, fd_websocket_ctx_t * wsctx
   arg_sz = 0;
   arg = json_get_value(values, PATH2, 2, &arg_sz);
   if (arg == NULL) {
-    fd_web_ws_error( wsctx, "missing method member" );
+    fd_web_ws_error( &ctx.global->ws, conn_id, "missing method member" );
     return 0;
   }
   long meth_id = fd_webserver_json_keyword((const char*)arg, arg_sz);
@@ -1832,15 +1805,15 @@ fd_webserver_ws_subscribe(struct json_values* values, fd_websocket_ctx_t * wsctx
 
   switch (meth_id) {
   case KEYW_WS_METHOD_ACCOUNTSUBSCRIBE:
-    if (ws_method_accountSubscribe(wsctx, values, &ctx, &ts)) {
-      fd_web_ws_reply( wsctx, &ts );
+    if (ws_method_accountSubscribe(conn_id, values, &ctx, &ts)) {
+      fd_web_ws_reply( &ctx.global->ws, conn_id, &ts );
       fd_textstream_destroy(&ts);
       return 1;
     }
     return 0;
   case KEYW_WS_METHOD_SLOTSUBSCRIBE:
-    if (ws_method_slotSubscribe(wsctx, values, &ctx, &ts)) {
-      fd_web_ws_reply( wsctx, &ts );
+    if (ws_method_slotSubscribe(conn_id, values, &ctx, &ts)) {
+      fd_web_ws_reply( &ctx.global->ws, conn_id, &ts );
       fd_textstream_destroy(&ts);
       return 1;
     }
@@ -1848,7 +1821,7 @@ fd_webserver_ws_subscribe(struct json_values* values, fd_websocket_ctx_t * wsctx
   }
 
   fd_textstream_destroy(&ts);
-  fd_web_ws_error( wsctx, "unknown websocket method: %s", (const char*)arg );
+  fd_web_ws_error( &ctx.global->ws, conn_id, "unknown websocket method: %s", (const char*)arg );
   return 0;
 }
 
@@ -1864,8 +1837,8 @@ fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
   gctx->funk = args->funk;
   gctx->blockstore = args->blockstore;
 
-  FD_LOG_NOTICE(( "starting web server with %lu threads on port %u", args->num_threads, (uint)args->port ));
-  if (fd_webserver_start(args->num_threads, args->port, args->ws_port, &gctx->ws, ctx))
+  FD_LOG_NOTICE(( "starting web server on port %u", (uint)args->port ));
+  if (fd_webserver_start(args->port, args->params, &gctx->ws, ctx))
     FD_LOG_ERR(("fd_webserver_start failed"));
 
   *ctx_p = ctx;
@@ -1882,16 +1855,16 @@ fd_rpc_stop_service(fd_rpc_ctx_t * ctx) {
 
 void
 fd_rpc_ws_poll(fd_rpc_ctx_t * ctx) {
-  fd_webserver_ws_poll(&ctx->global->ws);
+  fd_webserver_poll(&ctx->global->ws);
 }
 
 void
-fd_webserver_ws_closed(fd_websocket_ctx_t * wsctx, void * cb_arg) {
+fd_webserver_ws_closed(ulong conn_id, void * cb_arg) {
   fd_rpc_ctx_t * ctx = ( fd_rpc_ctx_t *)cb_arg;
   fd_rpc_global_ctx_t * subs = ctx->global;
   fd_readwrite_start_write( &subs->lock );
   for( ulong i = 0; i < subs->sub_cnt; ++i ) {
-    if( subs->sub_list[i].socket == wsctx ) {
+    if( subs->sub_list[i].conn_id == conn_id ) {
       fd_memcpy( &subs->sub_list[i], &subs->sub_list[--(subs->sub_cnt)], sizeof(struct fd_ws_subscription) );
       --i;
     }
@@ -1927,7 +1900,7 @@ fd_rpc_replay_notify(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
             fd_pubkey_eq( id, &sub->acct_subscribe.acct ) ) {
           fd_textstream_clear( &ts );
           if( ws_method_accountSubscribe_update( ctx, msg, sub, &ts ) )
-            fd_web_ws_reply( sub->socket, &ts );
+            fd_web_ws_reply( &ctx->global->ws, sub->conn_id, &ts );
         }
       }
     }
@@ -1943,7 +1916,7 @@ fd_rpc_replay_notify(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
       if( sub->meth_id == KEYW_WS_METHOD_SLOTSUBSCRIBE ) {
         fd_textstream_clear( &ts );
         if( ws_method_slotSubscribe_update( ctx, msg, sub, &ts ) )
-          fd_web_ws_reply( sub->socket, &ts );
+          fd_web_ws_reply( &ctx->global->ws, sub->conn_id, &ts );
       }
     }
 
