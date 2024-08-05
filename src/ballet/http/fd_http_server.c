@@ -324,7 +324,7 @@ read_conn_http( fd_http_server_t * http,
       if( FD_LIKELY( headers[ i ].name_len==14UL && !strncasecmp( headers[ i ].name, "Content-Length", 14UL ) ) ) {
         for( ulong j=0UL; j<headers[ i ].value_len; j++ ) {
           char c = headers[ i ].value[ j ];
-          if( c <= '0' || c >= '9' ) {
+          if( c < '0' || c > '9' ) {
             content_len = 0;
             break;
           }
