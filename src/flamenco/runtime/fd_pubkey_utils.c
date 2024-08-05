@@ -40,6 +40,7 @@ int
 fd_pubkey_derive_pda( fd_pubkey_t const * program_id, 
                       ulong               seeds_cnt, 
                       uchar **            seeds, 
+                      ulong *             seed_szs,
                       uchar *             bump_seed, 
                       fd_pubkey_t *       out ) {
 
@@ -49,14 +50,14 @@ fd_pubkey_derive_pda( fd_pubkey_t const * program_id,
   /* TODO: This does not contain size checks for the seed as checked in
      https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/sdk/program/src/pubkey.rs#L586-L588 */
                       
-  fd_sha256_t sha;
+  fd_sha256_t sha = {0};
   fd_sha256_init( &sha );
   for ( ulong i=0UL; i<seeds_cnt; i++ ) {
     uchar * seed = *(seeds + i);
     if( FD_UNLIKELY( !seed ) ) {
       break;
     }
-    fd_sha256_append( &sha, seed, 32UL );
+    fd_sha256_append( &sha, seed, seed_szs[i] );
   }
     
   if( bump_seed ) {
@@ -82,6 +83,7 @@ int
 fd_pubkey_try_find_program_address( fd_pubkey_t const * program_id, 
                                     ulong               seeds_cnt, 
                                     uchar **            seeds, 
+                                    ulong *             seed_szs,
                                     fd_pubkey_t *       out,
                                     uchar *             out_bump_seed ) {
   uchar bump_seed[ 1UL ];
@@ -89,7 +91,7 @@ fd_pubkey_try_find_program_address( fd_pubkey_t const * program_id,
     bump_seed[ 0UL ] = (uchar)(255UL - i);
 
     fd_pubkey_t derived[ 1UL ];
-    int err = fd_pubkey_derive_pda( program_id, seeds_cnt, seeds, bump_seed, derived );
+    int err = fd_pubkey_derive_pda( program_id, seeds_cnt, seeds, seed_szs, bump_seed, derived );
     if( err==FD_PUBKEY_SUCCESS ) {
       /* Stop looking if we have found a valid PDA */
       fd_memcpy( out, derived, sizeof(fd_pubkey_t) );

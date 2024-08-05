@@ -712,9 +712,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       fd_pubkey_t derived_address[ 1UL ];
       uchar * seeds[ 1UL ];
-      seeds[ 0UL ] = (uchar *)new_program_id;
+      seeds[ 0UL ]    = (uchar *)new_program_id;
+      ulong seed_sz   = sizeof(fd_pubkey_t);
       uchar bump_seed = 0;
-      err = fd_pubkey_try_find_program_address( program_id, 1UL, seeds, derived_address, &bump_seed );
+      err = fd_pubkey_try_find_program_address( program_id, 1UL, seeds, &seed_sz, derived_address, &bump_seed );
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_WARNING(( "Failed to derive program address" ));
         return err;
@@ -765,7 +766,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* caller_program_id == program_id */
       fd_pubkey_t signers[ 1UL ];
-      err = fd_pubkey_derive_pda( program_id, 1UL, seeds, &bump_seed, signers );
+      err = fd_pubkey_derive_pda( program_id, 1UL, seeds, &seed_sz, &bump_seed, signers );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
