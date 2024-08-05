@@ -196,6 +196,7 @@ fd_blockstore_new( void * shmem,
   blockstore->seed             = seed;
 
   blockstore->root = 0;
+  blockstore->min  = 0;
 
   blockstore->shred_max        = shred_max;
   blockstore->shred_pool_gaddr = fd_wksp_gaddr_fast( wksp, shred_pool );
@@ -581,33 +582,33 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong root ) {
       }
     }
 
-    /* Unlink slot from its parent. */
+    if ( !fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_FINALIZED ) ) {
+      /* Unlink slot from its parent only if it is not published. */
 
-    fd_block_map_t * parent_block_map_entry =
+      fd_block_map_t * parent_block_map_entry =
         fd_blockstore_block_map_query( blockstore, block_map_entry->parent_slot );
-    if( FD_LIKELY( parent_block_map_entry ) ) {
-      for( ulong i = 0; i < parent_block_map_entry->child_slot_cnt; i++ ) {
-        if( FD_LIKELY( parent_block_map_entry->child_slots[i] == slot ) ) {
-          parent_block_map_entry->child_slots[i] =
+      if( FD_LIKELY( parent_block_map_entry ) ) {
+        for( ulong i = 0; i < parent_block_map_entry->child_slot_cnt; i++ ) {
+          if( FD_LIKELY( parent_block_map_entry->child_slots[i] == slot ) ) {
+            parent_block_map_entry->child_slots[i] =
               parent_block_map_entry->child_slots[--parent_block_map_entry->child_slot_cnt];
+          }
         }
       }
+
+      /* Unset the preparing bit. This is safe, because we know replay
+         will not process any slots earlier than the root fseq, and
+         fd_blockstore_publish is only run after the root fseq is updated
+         (to a later slot). */
+
+      block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_PREPARING );
+
+      /* Remove the slot only if it is not published. */
+
+      int rc = fd_blockstore_slot_remove( blockstore, slot );
+      if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) return rc;
+      prune_cnt++;
     }
-
-    /* Unset the preparing bit. This is safe, because we know replay
-       will not process any slots earlier than the root fseq, and
-       fd_blockstore_publish is only run after the root fseq is updated
-       (to a later slot). */
-
-    block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_PREPARING );
-
-    /* Remove the slot. */
-
-    int rc = fd_blockstore_slot_remove( blockstore, slot );
-    if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) {
-      return rc;
-    }
-    prune_cnt++;
   }
 
   for( ulong i=blockstore->root+1; i<root; i++ ) {
@@ -810,10 +811,27 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
   /* Update shred's associated slot meta */
 
   ulong slot = shred->slot;
-  fd_block_map_t * block_map_entry =
-      fd_block_map_query( fd_blockstore_block_map( blockstore ), &slot, NULL );
+  fd_block_map_t * block_map = fd_blockstore_block_map( blockstore );
+  fd_block_map_t * block_map_entry = fd_block_map_query( block_map, &slot, NULL );
   if( FD_UNLIKELY( !block_map_entry ) ) {
-    block_map_entry = fd_block_map_insert( fd_blockstore_block_map( blockstore ), &slot );
+    /* If block_map is full, try to remove blockstore->min */
+    if ( FD_UNLIKELY( fd_block_map_key_cnt( block_map ) == fd_block_map_key_max( block_map ) ) ) {
+      if ( FD_UNLIKELY( blockstore->min == blockstore->root ) ) {
+        return FD_BLOCKSTORE_ERR_SLOT_FULL;
+      }
+
+      fd_block_map_t * earliest = fd_block_map_query( block_map, &blockstore->min, NULL );
+      /* There should be a linear history from earliest to blockstore->root, so that earliest should have just one child */
+      FD_TEST( earliest->child_slot_cnt == 1 );
+      ulong next_earliest = earliest->child_slots[0];
+      int rc = fd_blockstore_slot_remove( blockstore, blockstore->min );
+      if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) return rc;
+      blockstore->min = next_earliest;
+      FD_LOG_INFO(( "Succeed in removing min(%lu) for inserting slot%lu", blockstore->min, slot ));
+    }
+
+    /* Try to insert slot into block_map */
+    block_map_entry = fd_block_map_insert( block_map, &slot );
     if( FD_UNLIKELY( !block_map_entry ) ) return FD_BLOCKSTORE_ERR_SLOT_FULL;
 
     /* Initialize the block_map_entry. Note some fields are initialized
@@ -1259,6 +1277,7 @@ fd_blockstore_t *
 fd_blockstore_init( fd_blockstore_t * blockstore, fd_slot_bank_t const * slot_bank ) {
   ulong root                       = slot_bank->slot;
   blockstore->root                 = root;
+  blockstore->min                  = root;
   fd_block_map_t * block_map_entry = fd_block_map_insert( fd_blockstore_block_map( blockstore ),
                                                           &root );
 

@@ -268,6 +268,7 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
   /* Slot metadata */
 
   ulong root; /* the current root slot */
+  ulong min;  /* the earliest slot that is kept in the blockstore before root */
 
   /* Internal data structures */
 
