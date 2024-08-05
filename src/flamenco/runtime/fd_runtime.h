@@ -188,6 +188,17 @@ fd_runtime_prepare_txns( fd_exec_slot_ctx_t * slot_ctx,
                          ulong txn_cnt );
 
 int
+fd_runtime_prepare_txns_phase1( fd_exec_slot_ctx_t * slot_ctx,
+                         fd_execute_txn_task_info_t * task_info,
+                         fd_txn_p_t * txns,
+                         ulong txn_cnt );
+
+int
+fd_runtime_prepare_txns_phase3( fd_exec_slot_ctx_t * slot_ctx,
+                                fd_execute_txn_task_info_t * task_info,
+                                ulong txn_cnt );
+
+int
 fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                fd_capture_ctx_t * capture_ctx,
                                fd_txn_p_t * txns,
