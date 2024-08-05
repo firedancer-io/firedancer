@@ -1881,6 +1881,13 @@ fd_rpc_stop_service(fd_rpc_ctx_t * ctx) {
   FD_LOG_NOTICE(( "stopping web server" ));
   if (fd_webserver_stop(&ctx->global->ws))
     FD_LOG_ERR(("fd_webserver_stop failed"));
+  if( ctx->global->epoch_bank != NULL ) {
+    fd_bincode_destroy_ctx_t binctx;
+    binctx.valloc = fd_libc_alloc_virtual();
+    fd_epoch_bank_destroy( ctx->global->epoch_bank, &binctx );
+    free( ctx->global->epoch_bank );
+    ctx->global->epoch_bank = NULL;
+  }
   free(ctx->global);
   free(ctx);
 }
