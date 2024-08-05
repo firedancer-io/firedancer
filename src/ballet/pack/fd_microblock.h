@@ -51,8 +51,9 @@ typedef struct fd_entry_batch_header fd_entry_batch_header_t;
 struct fd_txn_p {
   uchar payload[FD_TPU_MTU];
   ulong payload_sz;
-  ulong meta;
-  uint  flags; /* Populated by pack.  A combination of the bitfields FD_TXN_P_FLAGS_* defined above */
+  uint  requested_cus; /* Populated by pack. Bank does not read this. */
+  uint  executed_cus;  /* Populated by bank */
+  uint  flags; /* Populated by pack, bank.  A combination of the bitfields FD_TXN_P_FLAGS_* defined above */
   /* union {
     This would be ideal but doesn't work because of the flexible array member
     uchar _[FD_TXN_MAX_SZ];

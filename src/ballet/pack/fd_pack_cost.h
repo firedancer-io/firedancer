@@ -107,21 +107,42 @@ static const ulong FD_PACK_TYPICAL_VOTE_COST = ( FD_PACK_COST_PER_SIGNATURE     
 
 #undef VOTE_PROG_COST
 
-/* Computes the total cost for the specified transaction and whether the
-   transaction is a Simple Vote transaction.  On success, returns the
-   cost, which is in [1020, FD_PACK_MAX_COST] and sets the value pointed to by
-   is_simple_vote to nonzero/zero depending on if it is a simple vote
-   transaction.  On failure, returns 0 and does not modify the value
-   pointed to by is_simple_vote. */
+
+/* Computes the total cost and a few related properties for the
+   specified transaction.  On success, returns the cost, which is in
+   [1020, FD_PACK_MAX_TXN_COST] and sets or clears the
+   FD_TXN_P_FLAG_IS_SIMPLE_VOTE bit of the value pointed to by flags to
+   indicate whether the transaction is a simple vote or not.
+
+   Additionally:
+   If opt_execution_cost is non-null, on success it will contain the
+   execution cost (BPF execution cost + built-in execution cost).  This
+   value is in [0, the returned value).
+   If opt_fee is non-null, on success it will contain the priority fee,
+   measured in lamports (i.e. the part of the fee that excludes the
+   per-signature fee). This value is in [0, ULONG_MAX].
+   If opt_precompile_sig_cnt is non-null, on success it will contain the
+   total number of signatures in precompile instructions, namely Keccak
+   and Ed25519 signature verification programs. This value is in [0,
+   256*64].  Note that this does not do full parsing of the precompile
+   instruction, and it may be malformed.
+
+   On failure, returns 0 and does not modify the value pointed to by
+   flags, opt_execution_cost, opt_fee, or opt_precompile_sig_cnt. */
 static inline ulong
 fd_pack_compute_cost( fd_txn_p_t * txnp,
-                      uint       * flags ) {
+                      uint       * flags,
+                      ulong      * opt_execution_cost,
+                      ulong      * opt_fee,
+                      ulong      * opt_precompile_sig_cnt ) {
   fd_txn_t * txn = TXN(txnp);
 
 #define ROW(x) fd_pack_builtin_tbl + MAP_PERFECT_HASH_PP( x )
 
-  fd_pack_builtin_prog_cost_t const * compute_budget_row = ROW( COMPUTE_BUDGET_PROG_ID );
-  fd_pack_builtin_prog_cost_t const * vote_row           = ROW( VOTE_PROG_ID           );
+  fd_pack_builtin_prog_cost_t const * compute_budget_row     = ROW( COMPUTE_BUDGET_PROG_ID );
+  fd_pack_builtin_prog_cost_t const * vote_row               = ROW( VOTE_PROG_ID           );
+  fd_pack_builtin_prog_cost_t const * ed25519_precompile_row = ROW( ED25519_SV_PROG_ID     );
+  fd_pack_builtin_prog_cost_t const * keccak_precompile_row  = ROW( KECCAK_SECP_PROG_ID    );
 #undef ROW
 
   /* We need to be mindful of overflow here, but it's not terrible.
@@ -131,10 +152,11 @@ fd_pack_compute_cost( fd_txn_p_t * txnp,
   ulong signature_cost = FD_PACK_COST_PER_SIGNATURE      * fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_SIGNER   );
   ulong writable_cost  = FD_PACK_COST_PER_WRITABLE_ACCT  * fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE );
 
-  ulong instr_data_sz    = 0UL; /* < FD_TPU_MTU */
-  ulong builtin_cost     = 0UL; /* <= 2370*FD_TXN_INSTR_MAX */
-  ulong non_builtin_cnt  = 0UL; /* <= FD_TXN_INSTR_MAX */
-  ulong vote_instr_cnt   = 0UL; /* <= FD_TXN_INSTR_MAX */
+  ulong instr_data_sz      = 0UL; /* < FD_TPU_MTU */
+  ulong builtin_cost       = 0UL; /* <= 2370*FD_TXN_INSTR_MAX */
+  ulong non_builtin_cnt    = 0UL; /* <= FD_TXN_INSTR_MAX */
+  ulong vote_instr_cnt     = 0UL; /* <= FD_TXN_INSTR_MAX */
+  ulong precompile_sig_cnt = 0UL; /* <= FD_TXN_INSTR_MAX * UCHAR_MAX */
   fd_acct_addr_t const * addr_base = fd_txn_get_acct_addrs( txn, txnp->payload );
 
   fd_compute_budget_program_state_t cbp[1];
@@ -154,9 +176,12 @@ fd_pack_compute_cost( fd_txn_p_t * txnp,
     builtin_cost    +=  in_tbl->cost_per_instr;
     non_builtin_cnt += !in_tbl->cost_per_instr; /* The only one with no cost is the null one */
 
-    if( FD_UNLIKELY( in_tbl==compute_budget_row ) )
+    if( FD_UNLIKELY( in_tbl==compute_budget_row ) ) {
       if( FD_UNLIKELY( 0==fd_compute_budget_program_parse( txnp->payload+txn->instr[i].data_off, txn->instr[i].data_sz, cbp ) ) )
         return 0UL;
+    } else if( FD_UNLIKELY( (in_tbl==ed25519_precompile_row) | (in_tbl==keccak_precompile_row) ) ) {
+      precompile_sig_cnt += (ulong)txnp->payload[ txn->instr[i].data_off ]; /* First byte is # of signatures */
+    }
 
     vote_instr_cnt += (ulong)(in_tbl==vote_row);
 
@@ -167,8 +192,7 @@ fd_pack_compute_cost( fd_txn_p_t * txnp,
   ulong fee[1];
   uint compute[1];
   fd_compute_budget_program_finalize( cbp, txn->instr_cnt, fee, compute );
-  /* TODO: Consider also returning the fee so we don't have to recompute
-     it later. */
+
   non_builtin_cnt = fd_ulong_min( non_builtin_cnt, FD_COMPUTE_BUDGET_MAX_CU_LIMIT/FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT );
 
   ulong non_builtin_cost = fd_ulong_if( (cbp->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU),
@@ -179,6 +203,10 @@ fd_pack_compute_cost( fd_txn_p_t * txnp,
 
   if( FD_LIKELY( (vote_instr_cnt==1UL) & (txn->instr_cnt==1UL) ) ) *flags |= FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
   else                                                             *flags &= ~FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
+
+  fd_ulong_store_if( !!opt_execution_cost,     opt_execution_cost,     builtin_cost + non_builtin_cost );
+  fd_ulong_store_if( !!opt_fee,                opt_fee,                *fee                            );
+  fd_ulong_store_if( !!opt_precompile_sig_cnt, opt_precompile_sig_cnt, precompile_sig_cnt              );
 
   /* <= FD_PACK_MAX_COST, so no overflow concerns */
   return signature_cost + writable_cost + builtin_cost + instr_data_cost + non_builtin_cost;
