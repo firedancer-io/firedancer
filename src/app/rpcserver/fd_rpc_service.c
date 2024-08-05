@@ -98,18 +98,31 @@ read_epoch_bank( fd_rpc_ctx_t * ctx, fd_valloc_t valloc, ulong * smr ) {
       fd_readwrite_end_write( &glob->lock );
       return NULL;
     }
+    uint magic = *(uint*)val;
     fd_epoch_bank_t * epoch_bank = malloc( fd_epoch_bank_footprint() );
     fd_epoch_bank_new( epoch_bank );
     fd_bincode_decode_ctx_t binctx;
-    binctx.data = val;
+    binctx.data = (uchar*)val + sizeof(uint);
     binctx.dataend = (uchar*)val + vallen;
     binctx.valloc  = fd_libc_alloc_virtual();
-    if( fd_epoch_bank_decode( epoch_bank, &binctx )!=FD_BINCODE_SUCCESS ) {
-      FD_LOG_WARNING(( "failed to decode epoch_bank" ));
-      fd_valloc_free( valloc, val );
-      free( epoch_bank );
-      fd_readwrite_end_write( &glob->lock );
-      return NULL;
+    if( magic == FD_RUNTIME_ENC_BINCODE ) {
+      if( fd_epoch_bank_decode( epoch_bank, &binctx )!=FD_BINCODE_SUCCESS ) {
+        FD_LOG_WARNING(( "failed to decode epoch_bank" ));
+        fd_valloc_free( valloc, val );
+        free( epoch_bank );
+        fd_readwrite_end_write( &glob->lock );
+        return NULL;
+      }
+    } else if( magic == FD_RUNTIME_ENC_ARCHIVE ) {
+      if( fd_epoch_bank_decode_archival( epoch_bank, &binctx )!=FD_BINCODE_SUCCESS ) {
+        FD_LOG_WARNING(( "failed to decode epoch_bank" ));
+        fd_valloc_free( valloc, val );
+        free( epoch_bank );
+        fd_readwrite_end_write( &glob->lock );
+        return NULL;
+      }
+    } else {
+      FD_LOG_ERR(("failed to read banks record: invalid magic number"));
     }
     fd_valloc_free( valloc, val );
 
@@ -129,16 +142,27 @@ read_slot_bank( fd_rpc_ctx_t * ctx, fd_valloc_t valloc ) {
     FD_LOG_WARNING(( "failed to decode slot_bank" ));
     return NULL;
   }
+  uint magic = *(uint*)val;
   fd_slot_bank_t * slot_bank = fd_valloc_malloc( valloc, fd_slot_bank_align(), fd_slot_bank_footprint() );
   fd_slot_bank_new( slot_bank );
   fd_bincode_decode_ctx_t binctx;
-  binctx.data = val;
+  binctx.data = (uchar*)val + sizeof(uint);
   binctx.dataend = (uchar*)val + vallen;
   binctx.valloc  = valloc;
-  if( fd_slot_bank_decode( slot_bank, &binctx )!=FD_BINCODE_SUCCESS ) {
-    FD_LOG_WARNING(( "failed to decode slot_bank" ));
-    fd_valloc_free( valloc, val );
-    return NULL;
+  if( magic == FD_RUNTIME_ENC_BINCODE ) {
+    if( fd_slot_bank_decode( slot_bank, &binctx )!=FD_BINCODE_SUCCESS ) {
+      FD_LOG_WARNING(( "failed to decode slot_bank" ));
+      fd_valloc_free( valloc, val );
+      return NULL;
+    }
+  } else if( magic == FD_RUNTIME_ENC_ARCHIVE ) {
+    if( fd_slot_bank_decode_archival( slot_bank, &binctx )!=FD_BINCODE_SUCCESS ) {
+      FD_LOG_WARNING(( "failed to decode slot_bank" ));
+      fd_valloc_free( valloc, val );
+      return NULL;
+    }
+  } else {
+    FD_LOG_ERR(("failed to read banks record: invalid magic number"));
   }
   fd_valloc_free( valloc, val );
   return slot_bank;
@@ -592,7 +616,15 @@ method_getEpochInfo(struct fd_web_replier* replier, struct json_values* values, 
     fd_blockstore_t * blockstore = ctx->global->blockstore;
     ulong smr;
     fd_epoch_bank_t * epoch_bank = read_epoch_bank(ctx, fd_scratch_virtual(), &smr);
+    if( epoch_bank == NULL ) {
+      fd_web_replier_error(replier, "unable to read epoch_bank");
+      return 0;
+    }
     fd_slot_bank_t * slot_bank = read_slot_bank(ctx, fd_scratch_virtual());
+    if( slot_bank == NULL ) {
+      fd_web_replier_error(replier, "unable to read slot_bank");
+      return 0;
+    }
     ulong slot_idx = 0;
     ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, smr, &slot_idx );
     ulong slots_per_epoch = fd_epoch_slot_cnt( &epoch_bank->epoch_schedule, epoch );
