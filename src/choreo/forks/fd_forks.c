@@ -201,11 +201,18 @@ slot_ctx_restore( ulong                 slot,
   FD_LOG_DEBUG( ( "Current slot %lu", slot ) );
   if( !block_hash ) FD_LOG_ERR( ( "missing block hash of slot we're trying to restore" ) );
   fd_funk_txn_xid_t xid;
-  fd_memcpy( xid.uc, block_hash, sizeof( fd_funk_txn_xid_t ) );
+  memcpy( xid.uc, block_hash, sizeof(fd_funk_txn_xid_t) );
   xid.ul[0]             = slot;
   fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
   fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, txn_map );
-  if( !txn ) FD_LOG_ERR( ( "missing txn, parent slot %lu", slot ) );
+  if( !txn ) {
+    memset( xid.uc, 0, sizeof(fd_funk_txn_xid_t) );
+    xid.ul[0]             = slot;
+    txn = fd_funk_txn_query( &xid, txn_map );
+    if( !txn ) {
+      FD_LOG_ERR( ( "missing txn, parent slot %lu", slot ) );
+    }
+  }
   fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, &id );
   if( rec == NULL ) FD_LOG_ERR( ( "failed to read banks record" ) );
   void *                  val = fd_funk_val( rec, fd_funk_wksp( funk ) );
@@ -327,7 +334,6 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
   for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( forks->frontier, forks->pool );
        !fd_fork_frontier_iter_done( iter, forks->frontier, forks->pool );
        iter = fd_fork_frontier_iter_next( iter, forks->frontier, forks->pool ) ) {
-
     fd_fork_t * fork = fd_fork_frontier_iter_ele( iter, forks->frontier, forks->pool );
 
     /* Prune any forks not in the ancestry from root.

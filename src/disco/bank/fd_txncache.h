@@ -393,6 +393,4 @@ int
 fd_txncache_is_rooted_slot( fd_txncache_t * tc,
                             ulong slot );
 
-FD_PROTOTYPES_END
-
 #endif /* HEADER_fd_src_disco_bank_txncache_h */

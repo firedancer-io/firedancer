@@ -178,6 +178,20 @@ fd_pending_slots_add( fd_pending_slots_t * pending_slots,
   fd_pending_slots_unlock( pending_slots );
 }
 
+long
+fd_pending_slots_get( fd_pending_slots_t * pending_slots,
+                      ulong                slot ) {
+  if( pending_slots->start == pending_slots->end ) {
+    return LONG_MAX;
+  } else if( slot < pending_slots->start ) {
+    return LONG_MAX;
+  } else if( slot >= pending_slots->end ) {
+    return LONG_MAX;
+  } else {
+    return pending_slots->pending[ slot & FD_PENDING_MASK ];
+  }
+}
+
 void
 fd_pending_slots_set_lo_wmark( fd_pending_slots_t * pending_slots,
                                ulong slot ) {

@@ -136,6 +136,21 @@ main( int     argc,
 # undef DATA_MAX
 # undef BATCH_MAX
 
+  /* do a benchmark on PoH-style hashing */
+  FD_LOG_NOTICE(( "Benchmarking poh" ));
+  for( ulong b=0UL; b<32UL; b++ ) hash[b] = fd_rng_uchar( rng );
+  {
+    /* warmup */
+    for( ulong rem=10UL; rem; rem-- ) fd_sha256_hash( hash, 32UL, hash );
+
+    /* for real */
+    ulong iter = 1000000UL;
+    long  dt   = -fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) fd_sha256_hash( hash, 32UL, hash );
+    dt += fd_log_wallclock();
+    float hashes_per_sec = ((float)iter * 1e-6f ) / ((float)dt * 1e-9f) ;
+    FD_LOG_NOTICE(( "~%6.3f M poh hashes / sec / core", (double)hashes_per_sec ));
+  }
   /* do a quick benchmark of sha-256 on small and large UDP payload
      packets from UDP/IP4/VLAN/Ethernet */
 

@@ -446,16 +446,13 @@ test_insert_forks( void ) {
   for( ulong i=0UL; i<1024UL; i++ ) insert( i, 0UL, i );
   for( ulong i=0UL; i<1024UL; i++ ) contains( i, 0UL, i );
   for( ulong i=0UL; i<450UL; i++ ) fd_txncache_register_root_slot( tc, i );
-  for( ulong i=0UL; i<1024UL; i++ ) contains( i, 0UL, i );
+  for( ulong i=0UL; i<150UL; i++ ) no_contains( i, 0UL, i );
+  for( ulong i=150UL; i<1024UL; i++ ) contains( i, 0UL, i );
+
 
   fd_txncache_register_root_slot( tc, 450 );
-  no_contains( 0UL, 0UL, 0UL );
-  for( ulong i=1UL; i<1024UL; i++ ) contains( i, 0UL, i );
-
-  fd_txncache_register_root_slot( tc, 451 );
-  no_contains( 0UL, 0UL, 0UL );
-  no_contains( 1UL, 0UL, 1UL );
-  for( ulong i=2UL; i<1024UL; i++ ) contains( i, 0UL, i );
+  no_contains( 150UL, 0UL, 150UL );
+  for( ulong i=151UL; i<1024UL; i++ ) contains( i, 0UL, i );
 }
 
 void
@@ -504,11 +501,12 @@ test_many_blockhashes( void ) {
     fd_txncache_register_root_slot( tc, 1024UL-1UL-i );
   }
 
-  for( ulong i=0UL; i<574UL; i++ ) {
-    no_contains( i, 0UL, i );
-  }
-  for( ulong i=574UL; i<1024UL; i++ ) {
+  for( ulong i=1023UL; i>723UL; i-- ) {
     contains( i, 0UL, i );
+  }
+
+  for( ulong i=0UL; i<=723UL; i++ ) {
+    no_contains( i, 0UL, i );
   }
 }
 

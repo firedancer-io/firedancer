@@ -308,6 +308,22 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
     if (ele) {
       ele->contact_info = *contact_info;
     }
+  } else if( fd_crds_data_is_contact_info_v2( data ) ) {
+    fd_gossip_contact_info_v2_t const * contact_info_v2 = &data->inner.contact_info_v2;
+
+    fd_gossip_contact_info_v1_t contact_info;
+    fd_gossip_contact_info_v2_to_v1( contact_info_v2, &contact_info );
+    FD_LOG_DEBUG(("contact info v2 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info.gossip.addr.inner.ip4 ), contact_info.gossip.port ));
+
+    fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, &contact_info.id, NULL );
+    if (FD_UNLIKELY(!ele &&
+                    !fd_contact_info_table_is_full(ctx->contact_info_table))) {
+      ele = fd_contact_info_table_insert(ctx->contact_info_table,
+                                         &contact_info.id);
+    }
+    if (ele) {
+      ele->contact_info = contact_info;
+    }
   }
 }
 
@@ -498,6 +514,7 @@ after_credit( void *             _ctx,
 
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
 
+    FD_LOG_INFO(( "publishing peers - tvu: %lu, repair: %lu, tpu_vote: %lu", tvu_peer_cnt, repair_peers_cnt, voter_peers_cnt ));
     if( tvu_peer_cnt>0 ) {
       *shred_dest_msg         = tvu_peer_cnt;
       ulong shred_contact_sz  = sizeof(ulong) + (tvu_peer_cnt * sizeof(fd_shred_dest_wire_t));

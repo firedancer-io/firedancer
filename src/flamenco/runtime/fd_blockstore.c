@@ -610,6 +610,14 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong root ) {
     prune_cnt++;
   }
 
+  for( ulong i=blockstore->root+1; i<root; i++ ) {
+    fd_block_map_t * map_entry = fd_blockstore_block_map_query( blockstore, i );
+    if( map_entry && !fd_blockstore_block_map_query( blockstore, map_entry->parent_slot ) ) {
+      prune_cnt++;
+      fd_blockstore_slot_remove( blockstore, i );
+    }
+  }
+
   prune_time_ns += fd_log_wallclock();
 
   FD_LOG_NOTICE( ( "[fd_blockstore_publish] new root: %lu, old root: %lu, prune cnt: %lu, took: %6.6f ms",

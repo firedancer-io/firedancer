@@ -492,18 +492,26 @@ fd_tower_reset_fork_select( fd_tower_t const * tower,
   fd_fork_frontier_t const * frontier = forks->frontier;
   fd_fork_t const *          pool     = forks->pool;
 
+  fd_fork_t const * frozen_fork = NULL;
   for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( frontier, pool );
        !fd_fork_frontier_iter_done( iter, frontier, pool );
        iter = fd_fork_frontier_iter_next( iter, frontier, pool ) ) {
     fd_fork_t const * fork = fd_fork_frontier_iter_ele_const( iter, frontier, pool );
-    if( FD_LIKELY( fd_ghost_is_descendant( ghost, fork->slot, latest_vote->slot ) ) ) return fork;
+    if( fork->frozen ) {
+      if( FD_LIKELY( fd_ghost_is_descendant( ghost, fork->slot_ctx.slot_bank.prev_slot, latest_vote->slot ) ) ) frozen_fork = fork;
+    } else {
+      if( FD_LIKELY( fd_ghost_is_descendant( ghost, fork->slot, latest_vote->slot ) ) ) return fork;
+    }
   }
 
+  if( frozen_fork ) {
+    return frozen_fork;
+  }
   /* TODO this can happen if somehow prune our last vote fork or we
      discard it due to equivocation. Both these cases are currently
      unhandled. */
 
-  FD_LOG_ERR(( "None of the frontier forks matched our last vote fork. Halting." ));
+  FD_LOG_ERR(( "None of the frontier forks matched our last vote fork (slot: %lu). Halting.", latest_vote->slot ));
 }
 
 fd_fork_t const *
@@ -644,7 +652,6 @@ fd_tower_fork_update( fd_tower_t const * tower,
                       fd_blockstore_t *  blockstore,
                       fd_ghost_t *       ghost ) {
   ulong root = tower->root; /* FIXME fseq */
-
   /* Get the parent key. Every slot except the root must have a parent. */
 
   fd_blockstore_start_read( blockstore );
@@ -667,7 +674,6 @@ fd_tower_fork_update( fd_tower_t const * tower,
     FD_LOG_ERR(( "failed to insert ghost node %lu", fork->slot ));
   }
 #endif
-
   for( fd_tower_vote_accs_iter_t iter = fd_tower_vote_accs_iter_init_rev( tower->vote_accs );
        !fd_tower_vote_accs_iter_done_rev( tower->vote_accs, iter );
        iter = fd_tower_vote_accs_iter_prev( tower->vote_accs, iter ) ) {
