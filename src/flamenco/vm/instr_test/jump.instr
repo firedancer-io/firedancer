@@ -364,19 +364,9 @@ $ op=dd dst=a src=1 off=0000                                          : vfy
 $ op=dd dst=9 src=b off=0000                                          : vfy
 
 # call_reg reg[imm] (these should fail during exec by default)
-$ op=8d dst=9 src=9 imm=0          : err 
-$ op=8d dst=9 src=9 imm=1          : err
-$ op=8d dst=9 src=9 imm=9          : err
-$ op=8d dst=9 src=9 imm=b          : vfy
-$ op=8d dst=9 src=9 imm=ffffffff   : vfy
-$ op=8d dst=9 src=9 imm=a          : err
-
-$ reject_callx_r10=1
-  op=8d dst=9 src=9 imm=a          : vfy
 $ op=8d dst=9 src=9 imm=0          : err
 $ op=8d dst=9 src=9 imm=1          : err
 $ op=8d dst=9 src=9 imm=9          : err
 $ op=8d dst=9 src=9 imm=b          : vfy
-$ op=8d dst=9 src=9 imm=fffffffff  : vfy 
-
-$ reject_callx_r10=0 
+$ op=8d dst=9 src=9 imm=ffffffff   : vfy
+$ op=8d dst=9 src=9 imm=a          : vfy

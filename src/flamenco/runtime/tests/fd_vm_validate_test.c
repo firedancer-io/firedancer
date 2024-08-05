@@ -15,16 +15,7 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t *         runner,
     return 0UL;
   }
 
-  int rej_callx_r10 = 0;
-  if( input->has_features ) {
-    for( ulong i=0UL; i < input->features.features_count; i++ ) {
-      if( input->features.features[i] == TEST_VM_REJECT_CALLX_R10_FEATURE_PREFIX ) {
-        rej_callx_r10 = 1;
-        break;
-      }
-    }
-  }
-  fd_exec_instr_ctx_t * ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual(), rej_callx_r10 );
+  fd_exec_instr_ctx_t * ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual() );
 
   FD_TEST( output_bufsz >= sizeof(fd_exec_test_validate_vm_effects_t) );
 
@@ -48,7 +39,7 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t *         runner,
       rodata_sz = vm_ctx->rodata->size;
     }
 
-    ulong * text = (ulong *) (rodata + vm_ctx->rodata_text_section_offset);    
+    ulong * text = (ulong *) (rodata + vm_ctx->rodata_text_section_offset);
     ulong text_cnt = vm_ctx->rodata_text_section_length / 8UL;
 
     fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
@@ -80,13 +71,13 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t *         runner,
     fd_valloc_free( valloc, fd_vm_delete( fd_vm_leave( vm ) ) );
 
   } while(0);
-  
+
 
   /* Run vm validate and capture result */
-  
+
   effects->success = (effects->result == FD_VM_SUCCESS);
   *output = effects;
-  
+
   test_vm_exec_instr_ctx_delete( ctx );
   return sizeof (fd_exec_test_validate_vm_effects_t);
 }

@@ -30,6 +30,7 @@ static ulong cleaned_up_features[] =
     0x8f688d4e3ab17a60,  // enable_early_verification_of_account_modifications
     0x50a615bae8ca3874,  // native_programs_consume_cu
     0x65b79c7f3e7441b3,  // require_custodian_for_locked_stake_authorize
+    0x7e787d5c6d662d23,  // reject_callx_r10
   };
 
 static ulong supported_features[] =
@@ -47,7 +48,6 @@ static ulong supported_features[] =
     0x8a8eb9085ca2bb0b,  // commission_updates_only_allowed_in_first_half_of_epoch
     0x7bc99a080444c8d9,  // allow_votes_to_directly_update_vote_state
     0x2ca5833736ba5c69,  // compact_vote_state_updates
-    0x7e787d5c6d662d23,  // reject_callx_r10
     0x0b9047b5bb9ef961,  // move_stake_and_move_lamports_ixs
   };
 
@@ -347,7 +347,7 @@ sol_compat_syscall_fixture( fd_exec_instr_test_runner_t * runner,
   return ok;
 }
 
-int 
+int
 sol_compat_validate_vm_fixture( fd_exec_instr_test_runner_t * runner,
                                 uchar const *                 in,
                                 ulong                         in_sz ) {
@@ -362,7 +362,7 @@ sol_compat_validate_vm_fixture( fd_exec_instr_test_runner_t * runner,
   void * output = NULL;
   sol_compat_execute_wrapper( runner,
                               &fixture->input,
-                              &output, 
+                              &output,
                               (exec_test_run_fn_t *)fd_exec_vm_validate_test_run );
   // Compare effects
   int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_validate_vm_effects_t_msg );
