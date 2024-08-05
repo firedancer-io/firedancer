@@ -1772,7 +1772,7 @@ fd_runtime_generate_wave( fd_execute_txn_task_info_t * task_infos,
 }
 
 /* NOTE: Don't mess with this call without updating the transaction fuzzing harness appropriately!
-   fd_exec_instr_test.c:_txn_context_create */
+   fd_exec_instr_test.c:_txn_context_create_and_exec */
 int
 fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         fd_capture_ctx_t * capture_ctx,

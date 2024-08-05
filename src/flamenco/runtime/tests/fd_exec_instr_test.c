@@ -23,6 +23,7 @@
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_clock.h"
+#include "../../../ballet/pack/fd_pack.h"
 
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
@@ -561,11 +562,10 @@ _add_compact_u16(uchar ** data, ushort to_add) {
   *data = (uchar *) encode_ctx.data;
 }
 
-static int
-_txn_context_create( fd_exec_instr_test_runner_t *      runner,
-                     fd_exec_txn_ctx_t *                txn_ctx,
-                     fd_exec_slot_ctx_t *               slot_ctx,
-                     fd_exec_test_txn_context_t const * test_ctx ) {
+static fd_execute_txn_task_info_t *
+_txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
+                              fd_exec_slot_ctx_t *               slot_ctx,
+                              fd_exec_test_txn_context_t const * test_ctx ) {
   fd_funk_t * funk = runner->funk;
 
   /* Generate unique ID for funk txn */
@@ -603,7 +603,7 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
 
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_ctx.features;
   if( !_restore_feature_flags( epoch_ctx, feature_set ) ) {
-    return 0;
+    return NULL;
   }
 
   /* Restore slot bank */
@@ -632,13 +632,13 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
      unix timestamp, which may be used by some programs we fuzz with and cause false mismatches */
   if( !slot_ctx->sysvar_cache->has_clock ) {
     FD_LOG_WARNING(( "Clock sysvar account not provided in account shared data" ));
-    return 0;
+    return NULL;
   }
 
   /* Sanity check to ensure provided slot matches clock slot */
   if( slot_ctx->sysvar_cache->val_clock->slot != test_ctx->slot_ctx.slot ) {
     FD_LOG_WARNING(( "Clock slot does not match provided slot ctx slot" ));
-    return 0;
+    return NULL;
   }
 
   /* Set slot bank variables (defaults obtained from GenesisConfig::default() in Agave) */
@@ -690,7 +690,7 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
       ( rent->exemption_threshold     >    999.0 ) |
       ( rent->lamports_per_uint8_year > UINT_MAX ) |
       ( rent->burn_percent            >      100 ) )
-    return 0;
+    return NULL;
 
   /* Blockhash queue is given in txn message. We need to populate the following three:
      - slot_ctx->slot_bank.block_hash_queue (TODO: Does more than just the last_hash need to be populated?)
@@ -842,60 +842,57 @@ _txn_context_create( fd_exec_instr_test_runner_t *      runner,
   ushort txn_raw_sz = (ushort) (txn_raw_cur_ptr - txn_raw_begin);
   if( !fd_txn_parse( txn_raw_begin, txn_raw_sz, txn_descriptor, NULL ) ) {
     FD_LOG_WARNING(("could not parse txn descriptor"));
-    return 0;
+    return NULL;
   }
 
-  /* Set up txn_raw */
-  fd_rawtxn_b_t raw_txn[1] = {{.raw = txn_raw_begin, .txn_sz = txn_raw_sz}};
-
-  /* Run txn preparation phases
+  /* Run txn preparation phases and execution
      NOTE: This should be modified accordingly if transaction setup logic changes */
-  int res = fd_execute_txn_prepare_phase1( slot_ctx, txn_ctx, txn_descriptor, raw_txn );
-  if (res != 0) {
-    FD_LOG_WARNING(("could not prepare txn (phase 1 failed)"));
-    return 0;
-  }
-
-  txn_ctx->funk_txn = funk_txn;
-
-  // fd_execute_txn_prepare_phase2 is deprecated so we use fd_runtime_prepare_txns_phase2_tpool instead
-  fd_funk_end_write( funk );
-
-  fd_txn_p_t txn[1];
+  fd_txn_p_t * txn = fd_scratch_alloc( alignof(fd_txn_p_t), sizeof(fd_txn_p_t) );
   memcpy( txn->payload, txn_raw_begin, txn_raw_sz );
   txn->payload_sz = (ulong) txn_raw_sz;
   txn->meta = 0;
-  txn->flags = 0;
+  txn->flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
   memcpy( txn->_, txn_descriptor, fd_txn_footprint( instr_count, addr_table_cnt ) );
 
-  fd_execute_txn_task_info_t task_info[1]; memset( task_info, 0, sizeof(fd_execute_txn_task_info_t) );
-  task_info->txn_ctx = txn_ctx;
+  fd_execute_txn_task_info_t * task_info = fd_scratch_alloc( alignof(fd_execute_txn_task_info_t), sizeof(fd_execute_txn_task_info_t) );
+  memset( task_info, 0, sizeof(fd_execute_txn_task_info_t) );
   task_info->txn = txn;
-  txn->flags = 2;
 
   fd_tpool_t tpool[1];
   tpool->worker_cnt = 1;
   tpool->worker_max = 1;
 
-  res = fd_runtime_prepare_txns_phase2_tpool( slot_ctx, task_info, 1, NULL, NULL, tpool, 1 );
+  int res = fd_runtime_prepare_txns_phase1( slot_ctx, task_info, txn, 1 );
+  if (res != 0) {
+    FD_LOG_WARNING(("could not prepare txn (phase 1 failed)"));
+  }
+
+  // fd_execute_txn_prepare_phase2 is deprecated so we use fd_runtime_prepare_txns_phase2_tpool instead
+  fd_funk_end_write( funk );
+  res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, task_info, 1, NULL, NULL, tpool, 1 );
   fd_funk_start_write( funk );
   if (res != 0) {
     FD_LOG_WARNING(("could not prepare txn (phase 2 failed)"));
-    return 0;
   }
-  res = fd_execute_txn_prepare_phase3( slot_ctx, txn_ctx, txn );
+  res |= fd_runtime_prepare_txns_phase3( slot_ctx, task_info, 1 );
   if (res != 0) {
     FD_LOG_WARNING(("could not prepare txn (phase 3 failed)"));
-    return 0;
   }
 
-  res = fd_execute_txn_prepare_phase4( txn_ctx );
-  if (res != 0) {
-    FD_LOG_WARNING(("could not prepare txn (phase 4 failed)"));
-    return 0;
+  // Below is a stripped-out version of fd_runtime_execute_txn_task because the Agave harness does not reclaim accounts
+  if( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
+    task_info->exec_res = -1;
+    return task_info;
   }
 
-  return 1;
+  res = fd_execute_txn_prepare_phase4( task_info->txn_ctx );
+  if( res != 0 ) {
+    FD_LOG_WARNING(("could not prepare txn"));
+  }
+  task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+
+  task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
+  return task_info;
 }
 
 static void
@@ -1389,18 +1386,19 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     /* Initialize memory */
     fd_wksp_t *           wksp          = fd_wksp_attach( "wksp" );
     fd_alloc_t *          alloc         = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
-    fd_exec_txn_ctx_t *   txn_ctx       = fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
     uchar *               slot_ctx_mem  = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
     fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
 
-    if( !_txn_context_create( runner, txn_ctx, slot_ctx, input ) ) {
+    /* Create and exec transaction */
+    fd_execute_txn_task_info_t * task_info = _txn_context_create_and_exec( runner, slot_ctx, input );
+    fd_exec_txn_ctx_t          * txn_ctx   = task_info->txn_ctx;
+    if( task_info == NULL ) {
       _txn_context_destroy( runner, txn_ctx, slot_ctx, wksp, alloc );
       return 0UL;
     }
 
-    /* Execute txn */
-    int exec_res = fd_execute_txn( txn_ctx );
-
+    int exec_res = task_info->exec_res;
+    
     /* Collect rent */
     _txn_collect_rent( txn_ctx );
 
@@ -1412,29 +1410,43 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_txn_result_t),
                                   sizeof (fd_exec_test_txn_result_t) );
     if( FD_UNLIKELY( _l > output_end ) ) {
-      _txn_context_destroy( runner, txn_ctx, slot_ctx, wksp, alloc );
-      return 0UL;
+      abort();
     }
     fd_memset( txn_result, 0, sizeof(fd_exec_test_txn_result_t) );
 
-    /* Allocate space for captured accounts */
-    ulong modified_acct_cnt  = txn_ctx->accounts_cnt;
+    /* Capture basic results fields */
+    txn_result->executed                          = task_info->txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+    txn_result->sanitization_error                = !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS );
+    txn_result->has_resulting_state               = true;
+    txn_result->resulting_state.acct_states_count = 0;
+    txn_result->rent                              = slot_ctx->slot_bank.collected_rent;
+    txn_result->is_ok                             = !exec_res;
+    txn_result->status                            = (uint32_t) -exec_res;
+    txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
+                                    PB_BYTES_ARRAY_T_ALLOCSIZE( txn_ctx->return_data.len ) );
+    if( FD_UNLIKELY( _l > output_end ) ) {
+      abort();
+    }
 
-    fd_exec_test_acct_state_t * modified_accts =
+    txn_result->return_data->size = (pb_size_t)txn_ctx->return_data.len;
+    fd_memcpy( txn_result->return_data->bytes, txn_ctx->return_data.data, txn_ctx->return_data.len );
+
+    txn_result->executed_units                 = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
+    txn_result->has_fee_details                = true;
+    txn_result->fee_details.transaction_fee    = slot_ctx->slot_bank.collected_execution_fees;
+    txn_result->fee_details.prioritization_fee = slot_ctx->slot_bank.collected_priority_fees;
+
+    /* Allocate space for captured accounts */
+    ulong modified_acct_cnt = txn_ctx->accounts_cnt;
+
+    txn_result->resulting_state.acct_states =
       FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t),
                                   sizeof (fd_exec_test_acct_state_t) * modified_acct_cnt );
     if( FD_UNLIKELY( _l > output_end ) ) {
-      _txn_context_destroy( runner, txn_ctx, slot_ctx, wksp, alloc );
-      return 0;
+      abort();
     }
-    txn_result->has_resulting_state               = true;
-    txn_result->resulting_state.acct_states       = modified_accts;
-    txn_result->resulting_state.acct_states_count = 0;
-
-    // TODO: txn_result->resulting_state->rent_debits
 
     /* Capture borrowed accounts */
-
     for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
       fd_borrowed_account_t * acc = &txn_ctx->borrowed_accounts[j];
       if( !acc->const_meta ) continue;
@@ -1454,8 +1466,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
         FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
                                     PB_BYTES_ARRAY_T_ALLOCSIZE( acc->const_meta->dlen ) );
       if( FD_UNLIKELY( _l > output_end ) ) {
-        _txn_context_destroy( runner, txn_ctx, slot_ctx, wksp, alloc );
-        return 0UL;
+        abort();
       }
       out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
       fd_memcpy( out_acct->data->bytes, acc->const_data, acc->const_meta->dlen );
@@ -1465,28 +1476,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
       memcpy( out_acct->owner, acc->const_meta->info.owner, sizeof(fd_pubkey_t) );
 
       txn_result->resulting_state.acct_states_count++;
-
-      // TODO: Figure out rent debits
     }
-
-    txn_result->executed = 1;
-    txn_result->rent = txn_ctx->slot_ctx->slot_bank.collected_rent;
-    txn_result->is_ok = !exec_res;
-    txn_result->status = (uint32_t) -exec_res;
-    txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                    PB_BYTES_ARRAY_T_ALLOCSIZE( txn_ctx->return_data.len ) );
-    if( FD_UNLIKELY( _l > output_end ) ) {
-      _txn_context_destroy( runner, txn_ctx, slot_ctx, wksp, alloc );
-      return 0UL;
-    }
-
-    txn_result->return_data->size = (pb_size_t)txn_ctx->return_data.len;
-    fd_memcpy( txn_result->return_data->bytes, txn_ctx->return_data.data, txn_ctx->return_data.len );
-
-    txn_result->executed_units = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
-    txn_result->has_fee_details = true;
-    txn_result->fee_details.transaction_fee = txn_ctx->slot_ctx->slot_bank.collected_execution_fees;
-    txn_result->fee_details.prioritization_fee = txn_ctx->slot_ctx->slot_bank.collected_priority_fees;
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
     _txn_context_destroy( runner, txn_ctx, slot_ctx, wksp, alloc );
