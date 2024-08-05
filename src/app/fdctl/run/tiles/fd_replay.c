@@ -30,6 +30,7 @@
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/metrics/generated/fd_metrics_replay.h"
 #include "../../../../choreo/fd_choreo.h"
+#include "../../../../disco/store/fd_epoch_forks.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -212,6 +213,8 @@ struct fd_replay_tile_ctx {
 
   fd_txncache_t * status_cache;
   void * bmtree;
+
+  fd_epoch_forks_t epoch_forks[1];
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -237,7 +240,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   l = FD_LAYOUT_APPEND( l, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
-  l = FD_LAYOUT_APPEND( l, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_exec_epoch_ctx_align(), MAX_EPOCH_FORKS * fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX, FD_VOTER_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_tower_align(), fd_tower_footprint() );
@@ -583,6 +586,15 @@ send_tower_sync( fd_replay_tile_ctx_t * ctx ) {
                                                   ctx->sender_out_wmark );
 }
 
+static uint
+is_epoch_boundary( fd_epoch_bank_t * epoch_bank, ulong curr_slot, ulong prev_slot ) {
+  ulong slot_idx;
+  ulong prev_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, prev_slot, &slot_idx );
+  ulong new_epoch  = fd_slot_to_epoch( &epoch_bank->epoch_schedule, curr_slot, &slot_idx );
+
+  return ( prev_epoch < new_epoch || slot_idx == 0 );
+}
+
 static void
 after_frag( void *             _ctx,
             ulong              in_idx     FD_PARAM_UNUSED,
@@ -608,6 +620,8 @@ after_frag( void *             _ctx,
   microblock_trailer->bank_idx = 0;
   microblock_trailer->bank_busy_seq = seq;
 
+  ulong epoch_ctx_idx = fd_epoch_forks_get_epoch_ctx( ctx->epoch_forks, ctx->ghost, curr_slot, &ctx->parent_slot );
+  ctx->epoch_ctx = ctx->epoch_forks->forks[ epoch_ctx_idx ].epoch_ctx;
   // ctx->curr_slot = fd_disco_replay_sig_slot( *opt_sig );
   // ctx->flags = fd_disco_replay_sig_flags( *opt_sig );
   int is_new_epoch_in_new_block = 0;
@@ -645,23 +659,31 @@ after_frag( void *             _ctx,
 
       // fork is advancing
       FD_LOG_NOTICE(( "new block execution - slot: %lu, parent_slot: %lu", curr_slot, ctx->parent_slot ));
-
+      
+      fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx.epoch_ctx );
       /* if it is an epoch boundary, push out stake weights */
       if( fork->slot_ctx.slot_bank.slot != 0 ) {
-        ulong slot_idx;
-        fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx.epoch_ctx );
-        ulong prev_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, fork->slot_ctx.slot_bank.prev_slot, &slot_idx );
-        ulong new_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, fork->slot_ctx.slot_bank.slot, &slot_idx );
-
-        if( prev_epoch < new_epoch || slot_idx == 0 ) {
-          FD_LOG_WARNING(("Epoch boundary"));
-          is_new_epoch_in_new_block = 1;
-        }
+        is_new_epoch_in_new_block = (int)is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot );
       }
 
       fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
       fork->slot_ctx.slot_bank.slot      = curr_slot;
 
+      if( is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot ) ) {
+        FD_LOG_WARNING(("Epoch boundary"));
+
+        fd_epoch_fork_elem_t * epoch_fork = NULL;
+        ulong new_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, fork->slot_ctx.slot_bank.slot, NULL );
+        uint found = fd_epoch_forks_prepare( ctx->epoch_forks, fork->slot_ctx.slot_bank.prev_slot, new_epoch, &epoch_fork );
+
+        if( FD_UNLIKELY( found ) ) {
+          fd_exec_epoch_ctx_bank_mem_clear( epoch_fork->epoch_ctx );
+        }
+        fd_exec_epoch_ctx_t * prev_epoch_ctx = fork->slot_ctx.epoch_ctx;
+
+        fd_exec_epoch_ctx_from_prev( epoch_fork->epoch_ctx, prev_epoch_ctx );
+        fork->slot_ctx.epoch_ctx = epoch_fork->epoch_ctx;
+      }
       fork->slot_ctx.status_cache        = ctx->status_cache;
       fd_funk_txn_xid_t xid = { 0 };
 
@@ -1113,6 +1135,18 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   bank_hash_cmp->total_stake         = ctx->tower->total_stake;
   bank_hash_cmp->watermark           = snapshot_slot;
 
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->epoch_ctx );
+
+  fd_epoch_fork_elem_t * curr_entry = &ctx->epoch_forks->forks[ 0 ];
+  ulong curr_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, ctx->curr_slot, NULL );
+  ulong last_slot_in_epoch = fd_ulong_sat_sub( fd_epoch_slot0( &epoch_bank->epoch_schedule, curr_epoch), 1UL );
+
+  curr_entry->parent_slot = fd_ulong_min( ctx->parent_slot, last_slot_in_epoch );
+  curr_entry->epoch = curr_epoch;
+  curr_entry->epoch_ctx = ctx->epoch_ctx;
+
+  ctx->epoch_forks->curr_epoch_idx = 0UL;
+
   FD_LOG_NOTICE( ( "snapshot slot %lu", snapshot_slot ) );
   FD_LOG_NOTICE( ( "total stake %lu", bank_hash_cmp->total_stake ) );
 }
@@ -1190,7 +1224,10 @@ during_housekeeping( void * _ctx ) {
     if( FD_LIKELY( ctx->blockstore ) ) blockstore_publish( ctx, root );
     if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, root, ctx->ghost );
     if( FD_LIKELY( ctx->funk && ctx->blockstore ) ) funk_publish( ctx, root );
-    if( FD_LIKELY( ctx->ghost ) ) fd_ghost_publish( ctx->ghost, root );
+    if( FD_LIKELY( ctx->ghost ) ) {
+      fd_epoch_forks_publish( ctx->epoch_forks, ctx->ghost, root );
+      fd_ghost_publish( ctx->ghost, root );
+    }
     ctx->publish = 0;
   }
 
@@ -1232,7 +1269,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch_fmem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   void * acc_mgr_shmem       = FD_SCRATCH_ALLOC_APPEND( l, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
   void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
-  void * epoch_ctx_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
+  void * epoch_ctx_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_epoch_ctx_align(), MAX_EPOCH_FORKS * fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
   void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX, FD_VOTER_MAX ) );
   void * tower_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
@@ -1400,6 +1437,12 @@ unprivileged_init( fd_topo_t *      topo,
       FD_LOG_ERR(( "failed to join + new status cache" ));
     }
   }
+
+  /**********************************************************************/
+  /* epoch forks                                                        */
+  /**********************************************************************/
+
+  fd_epoch_forks_new( ctx->epoch_forks, epoch_ctx_mem );
 
   /**********************************************************************/
   /* joins                                                              */
