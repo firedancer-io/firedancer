@@ -293,6 +293,17 @@ metric introduced.
   <counter name="DataPerBlockLimit" summary="The number of times pack did not pack a microblock because it reached reached the data per block limit at the start of trying to schedule a microblock" />
   <counter name="TransactionSchedule" enum="PackTxnSchedule" summary="Result of trying to consider a transaction for scheduling" />
 
+  <gauge name="CusConsumedInBlock" summary="The number of cost units consumed in the current block, or 0 if pack is not currently packing a block" />
+  <histogram name="CusScheduled" min="1000000" max="192000000">
+    <summary>The number of cost units scheduled for each block pack produced.  This can be higher than the block limit because of returned CUs.</summary>
+  </histogram>
+  <histogram name="CusRebated" min="1000000" max="192000000">
+    <!-- Note: The switch from cost units to compute units here is deliberate.  Of the various types of cost units, only compute units can be rebated. -->
+    <summary>The number of compute units rebated for each block pack produced.  Compute units are rebated when a transaction fails prior to execution or requests more compute units than it uses.</summary>
+  </histogram>
+  <histogram name="CusNet" min="1000000" max="48000000">
+    <summary>The net number of cost units (scheduled - rebated) in each block pack produced.</summary>
+  </histogram>
 
   <counter name="DeleteMissed" summary="Count of attempts to delete a transaction that wasn't found" />
   <counter name="DeleteHit" summary="Count of attempts to delete a transaction that was found and deleted" />
