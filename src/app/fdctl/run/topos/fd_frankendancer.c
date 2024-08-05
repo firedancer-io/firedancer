@@ -8,6 +8,13 @@
 #include <sys/sysinfo.h>
 
 void
+fd_topob_tile_out2( fd_topo_t *  topo,
+                   char const * tile_name,
+                   ulong        tile_kind_id,
+                   char const * link_name,
+                   ulong        link_kind_id );
+                   
+void
 fd_topo_frankendancer( config_t * config ) { 
   ulong net_tile_cnt    = config->layout.net_tile_count;
   ulong quic_tile_cnt   = config->layout.quic_tile_count;
@@ -31,6 +38,8 @@ fd_topo_frankendancer( config_t * config ) {
   fd_topob_wksp( topo, "shred_store"  );
   fd_topob_wksp( topo, "stake_out"    );
   fd_topob_wksp( topo, "metric_in"    );
+  fd_topob_wksp( topo, "plugin_in"    );
+  fd_topob_wksp( topo, "plugin_out"   );
 
   fd_topob_wksp( topo, "quic_sign"    );
   fd_topob_wksp( topo, "sign_quic"    );
@@ -47,7 +56,8 @@ fd_topo_frankendancer( config_t * config ) {
   fd_topob_wksp( topo, "shred"        );
   fd_topob_wksp( topo, "store"        );
   fd_topob_wksp( topo, "sign"         );
-  fd_topob_wksp( topo, "metric"       );
+  fd_topob_wksp( topo, "http"         );
+  fd_topob_wksp( topo, "plugin"       );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
@@ -74,10 +84,17 @@ fd_topo_frankendancer( config_t * config ) {
   /* See long comment in fd_shred.c for an explanation about the size of this dcache. */
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_store",  "shred_store",  0,        16384UL,                                  4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
 
+  /* Signing tile links, special because they aren't managed by the mux but are a
+     synchronous request/response protocol. */
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_sign",    "quic_sign",    0,        128UL,                                    130UL,                  1UL );
   FOR(quic_tile_cnt)   fd_topob_link( topo, "sign_quic",    "sign_quic",    0,        128UL,                                    64UL,                   1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_sign",   "shred_sign",   0,        128UL,                                    32UL,                   1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "sign_shred",   "sign_shred",   0,        128UL,                                    64UL,                   1UL );
+
+  /* Plugin event notifications to plugin tile. */
+  /**/                 fd_topob_link( topo, "plugin_out",   "plugin_out",   0,        128UL,                                    8UL+40200UL*(58UL+12UL*34UL), 1UL );
+  /**/                 fd_topob_link( topo, "replay_plugi", "plugin_in",    0,        128UL,                                    8UL,                    1UL );
+  /**/                 fd_topob_link( topo, "gossip_plugi", "plugin_in",    0,        128UL,                                    8UL+40200UL*(58UL+12UL*34UL), 1UL );
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX; /* Unassigned tiles will be floating. */
@@ -104,7 +121,8 @@ fd_topo_frankendancer( config_t * config ) {
   FOR(shred_tile_cnt)  fd_topob_tile( topo, "shred",   "shred",   "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "shred_store",  i   );
   /**/                 fd_topob_tile( topo, "store",   "store",   "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1,       NULL,           0UL );
   /**/                 fd_topob_tile( topo, "sign",    "sign",    "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
-  /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
+  /**/                 fd_topob_tile( topo, "http",    "http",    "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       NULL,           0UL );
+  /**/                 fd_topob_tile( topo, "plugin",  "plugin",  "metric_in", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,       "plugin_out",   0UL );
 
   if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
     FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
@@ -172,10 +190,10 @@ fd_topo_frankendancer( config_t * config ) {
     /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_quic",      i                                                  );
   }
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
-    /**/               fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "shred_sign",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-    /**/               fd_topob_tile_out( topo, "shred",  i,                          "shred_sign",     i                                                    );
-    /**/               fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "sign_shred",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
-    /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_shred",     i                                                    );
+    /**/               fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "shred_sign",     i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    /**/               fd_topob_tile_out( topo, "shred",  i,                          "shred_sign",     i                                                  );
+    /**/               fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "sign_shred",     i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_shred",     i                                                  );
   }
 
   /* PoH tile represents the Agave address space, so it's
@@ -184,6 +202,13 @@ fd_topo_frankendancer( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "gossip_dedup", 0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "stake_out",    0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "crds_shred",   0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "replay_plugi", 0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "gossip_plugi", 0UL                                                  );
+
+  /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "replay_plugi", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "gossip_plugi", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in(  topo, "http",   0UL,           "metric_in", "plugin_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /* There is a special fseq that sits between the pack, bank, and poh
      tiles to indicate when the bank/poh tiles are done processing a
@@ -293,8 +318,13 @@ fd_topo_frankendancer( config_t * config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
       strncpy( tile->sign.identity_key_path, config->consensus.identity_path, sizeof(tile->sign.identity_key_path) );
 
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) {
-      tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "http" ) ) ) {
+      tile->http.gui_listen_port = config->tiles.http.gui_listen_port;
+      tile->http.prometheus_listen_port = config->tiles.http.prometheus_listen_port;
+      strncpy( tile->http.cluster, config->cluster, sizeof(tile->http.cluster) );
+      strncpy( tile->http.identity_key_path, config->consensus.identity_path, sizeof(tile->http.identity_key_path) );
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "plugin" ) ) ) {
 
     } else {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));

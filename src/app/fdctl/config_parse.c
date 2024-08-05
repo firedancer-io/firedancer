@@ -302,7 +302,8 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   tiles.shred.max_pending_shred_sets               );
   CFG_POP      ( ushort, tiles.shred.shred_listen_port                    );
 
-  CFG_POP      ( ushort, tiles.metric.prometheus_listen_port              );
+  CFG_POP      ( ushort, tiles.http.gui_listen_port                       );
+  CFG_POP      ( ushort, tiles.http.prometheus_listen_port                );
 
   CFG_POP      ( bool,   development.sandbox                              );
   CFG_POP      ( bool,   development.no_clone                             );
@@ -445,7 +446,8 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO( tiles.shred.max_pending_shred_sets );
   CFG_HAS_NON_ZERO( tiles.shred.shred_listen_port );
 
-  CFG_HAS_NON_ZERO( tiles.metric.prometheus_listen_port );
+  CFG_HAS_NON_ZERO( tiles.http.gui_listen_port );
+  CFG_HAS_NON_ZERO( tiles.http.prometheus_listen_port );
 
   CFG_HAS_NON_EMPTY( development.topology );
 
