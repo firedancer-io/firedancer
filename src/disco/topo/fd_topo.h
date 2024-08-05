@@ -197,8 +197,12 @@ typedef struct {
     } sign;
 
     struct {
+      ushort gui_listen_port;
       ushort prometheus_listen_port;
-    } metric;
+
+      char   cluster[ 32 ];
+      char   identity_key_path[ PATH_MAX ];
+    } http;
 
     struct {
       ushort send_to_port;
