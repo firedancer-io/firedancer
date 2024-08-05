@@ -1796,16 +1796,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
   effects->stack->size = (uint)FD_VM_STACK_MAX;
   fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
-
-  if( input_data_sz ) {
-    effects->inputdata = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( input_data_sz ) );
-    effects->inputdata->size = (uint)input_data_sz;
-    fd_memcpy( effects->inputdata->bytes, (const void*)vm->input_mem_regions[0].haddr, input_data_sz );
-  } else {
-    effects->inputdata = NULL;
-  }
-
+  
   if( vm->rodata_sz ) {
     effects->rodata = FD_SCRATCH_ALLOC_APPEND(
       l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );
@@ -1813,6 +1804,24 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     fd_memcpy( effects->rodata->bytes, vm->rodata, rodata_sz );
   } else {
     effects->rodata = NULL;
+  }
+
+  /* Flatten input data regions into a single region.
+    
+     FIXME: Have SyscallEffects store repeated InputDataRegions instead 
+     for more granularity. May need to regenerate fixtures/test-vectors. */
+  ulong input_regions_total_sz = 0;
+  for ( ulong i=0; i<vm->input_mem_regions_cnt; i++ ) {
+    input_regions_total_sz += vm->input_mem_regions[i].region_sz;
+  }
+  effects->inputdata = FD_SCRATCH_ALLOC_APPEND(
+    l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( input_regions_total_sz ) );
+  
+  effects->inputdata->size = (uint)input_regions_total_sz;
+  uchar * inputdata_ptr = effects->inputdata->bytes;
+  for ( ulong i=0; i<vm->input_mem_regions_cnt; i++ ) {
+    fd_memcpy( inputdata_ptr, (void *) vm->input_mem_regions[i].haddr, vm->input_mem_regions[i].region_sz );
+    inputdata_ptr += vm->input_mem_regions[i].region_sz;
   }
 
   effects->frame_count = vm->frame_cnt;
