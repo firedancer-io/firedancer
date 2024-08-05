@@ -44,7 +44,8 @@ struct fd_feature_id {
   ulong        index;          /* index of feature in fd_features_t */
   fd_pubkey_t  id;             /* pubkey of feature */
   char const * name;           /* feature name cstr */
-  uint         cleaned_up;      /* cleaned_up cluster version for feature */
+  uint         cleaned_up;     /* cleaned_up cluster version for feature */
+  uchar        reverted;       /* if the feature was reverted */
 };
 typedef struct fd_feature_id fd_feature_id_t;
 
