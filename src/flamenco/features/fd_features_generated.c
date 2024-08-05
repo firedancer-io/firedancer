@@ -333,7 +333,8 @@ fd_feature_id_t const ids[] = {
     .id         = {"\x09\x1d\x90\xf1\x7c\x23\x03\x02\xed\xea\x26\xcc\xf4\x7f\xfa\xeb\xef\x7e\x27\x9f\x24\x13\x11\xef\x36\x3a\x3a\x45\x04\x05\xd7\x27"},
                   /* capRxUrBjNkkCpjrJxPGfPaWijB7q3JoDfsWXAnt46r */
     .name       = "cap_accounts_data_len",
-    .cleaned_up = 1180 },
+    .cleaned_up = 1180,
+    .reverted   = 1 },
 
   { .index      = offsetof(fd_features_t, max_tx_account_locks)>>3,
     .id         = {"\xa6\x31\x3c\x36\xed\x67\x8f\x7e\xef\xc9\x44\x42\xce\x35\x41\x3c\x52\xba\x5b\xac\x0f\x39\x32\x63\x68\xae\x73\xed\x85\x07\xc1\x9b"},
@@ -368,7 +369,8 @@ fd_feature_id_t const ids[] = {
   { .index      = offsetof(fd_features_t, stake_redelegate_instruction)>>3,
     .id         = {"\x13\x8c\xc9\x8d\x70\xc1\x6f\xd5\xd7\x6b\xb7\x3b\xbe\x7d\x24\x10\xb9\x97\x59\xf3\xc7\xf6\x2d\x3e\xf1\x91\x44\x64\x85\x5b\xc4\xa3"},
                   /* 2KKG3C6RBnxQo9jVVrbzsoSh41TDXLK7gBc9gduyxSzW */
-    .name       = "stake_redelegate_instruction" },
+    .name       = "stake_redelegate_instruction",
+    .reverted   = 1 },
 
   { .index      = offsetof(fd_features_t, vote_withdraw_authority_may_change_authorized_voter)>>3,
     .id         = {"\x8d\x0a\x1d\xa1\x3d\x86\x7a\x31\x73\x4d\xc2\x6f\xbd\x80\x15\x55\x52\x82\x02\xd2\x57\x22\x82\x78\x99\xc6\xfe\x95\xf3\x51\x7f\x7d"},
@@ -614,7 +616,8 @@ fd_feature_id_t const ids[] = {
     .id         = {"\x0c\x8c\x43\xcc\xfb\xd3\x99\x67\xa0\x32\x30\xa0\x84\x7b\xfb\x91\xed\xe2\x57\x36\xcb\xaf\xc0\x6a\x1c\x7a\x87\x88\xf5\x81\xbb\x39"},
                   /* qywiJyZmqTKspFg2LeuUHqcA5nNvBgobqb9UprywS9N */
     .name       = "cap_accounts_data_size_per_block",
-    .cleaned_up = 1180 },
+    .cleaned_up = 1180,
+    .reverted   = 1 },
 
   { .index      = offsetof(fd_features_t, preserve_rent_epoch_for_rent_exempt_accounts)>>3,
     .id         = {"\xf1\xd6\xf1\xbf\x8e\x54\x39\x44\x3d\x29\x52\xb0\xc4\x04\x6d\xf4\x2f\x03\xeb\x95\xc3\x13\xbc\xad\x6c\x1b\x91\x0d\xe3\xbd\x7c\x82"},
@@ -789,13 +792,15 @@ fd_feature_id_t const ids[] = {
     .id         = {"\x69\x08\x18\x1d\x4f\xdb\x4a\x78\x97\x2f\x1b\x4f\x94\xdf\x81\x2b\x60\x4d\x43\xf8\x92\x98\xa4\xdd\x93\xba\x48\xb5\xac\xb8\x3b\xe0"},
                   /* 84zy5N23Q9vTZuLc9h1HWUtyM9yCFV2SCmyP9W9C3yHZ */
     .name       = "drop_merkle_shreds",
-    .cleaned_up = 1180 },
+    .cleaned_up = 1180,
+    .reverted   = 1 },
 
   { .index      = offsetof(fd_features_t, keep_merkle_shreds)>>3,
     .id         = {"\xfc\x2b\xba\x88\xd2\xa1\xeb\x71\x75\xdf\x3f\x39\x29\x20\x96\x3b\xfe\xc6\x90\x82\xc6\xbb\xc4\x44\xe3\xde\x9b\x5f\xcc\xbc\xb9\xfe"},
                   /* HyNQzc7TMNmRhpVHXqDGjpsHzeQie82mDQXSF9hj7nAH */
     .name       = "keep_merkle_shreds",
-    .cleaned_up = 1180 },
+    .cleaned_up = 1180,
+    .reverted   = 1 },
 
   { .index      = offsetof(fd_features_t, move_serialized_len_ptr_in_cpi)>>3,
     .id         = {"\x59\xf8\x35\x62\xdd\x14\x3d\x82\x30\xdc\x4b\x24\x59\xa9\xa8\xa2\xd6\x12\x67\x7c\x1b\x86\x51\xfd\x02\x1d\x47\x6b\xff\xef\x9b\xca"},
@@ -976,7 +981,8 @@ fd_feature_id_t const ids[] = {
     .id         = {"\x6c\x03\x23\xfe\xae\x55\x9b\x6b\x0f\xa5\x65\xc1\x18\x46\x40\xe3\x6a\x92\x67\xe8\x05\xc2\x7d\x8b\x88\x1b\x5e\xca\xa3\xaf\x6e\x77"},
                   /* 8GdovDzVwWU5edz2G697bbB7GZjrUc6aQZLWyNNAtHdg */
     .name       = "programify_feature_gate_program",
-    .cleaned_up = 1180 },
+    .cleaned_up = 1180,
+    .reverted   = 1 },
 
   { .index      = offsetof(fd_features_t, update_hashes_per_tick2)>>3,
     .id         = {"\xc8\xc8\x3f\xaf\x32\xd0\x79\xe7\xc9\x8b\x45\x2f\x6c\x6c\xa4\xaf\xeb\x86\xdd\x45\xc7\x5d\xa9\xf3\x0d\x91\xab\x70\x0d\xdc\x41\x23"},
@@ -1053,7 +1059,8 @@ fd_feature_id_t const ids[] = {
     .id         = {"\x0b\x0a\xa6\x6d\xae\x07\x63\x9b\x6d\x90\xe0\xf3\x1d\xba\x64\x52\xba\x3d\xc3\x44\x31\x30\xdf\x7e\xab\xd4\x1e\xd3\xab\x4d\x33\x47"},
                   /* k6uR1J9VtKJnTukBV2Eo15BEy434MBg8bT6hHQgmU8v */
     .name       = "deprecate_executable_meta_update_in_bpf_loader",
-    .cleaned_up = 1180 },
+    .cleaned_up = 1180,
+    .reverted   = 1 },
 
   { .index      = offsetof(fd_features_t, enable_zk_proof_from_account)>>3,
     .id         = {"\x0e\xcb\x88\xd6\xe1\xd4\x23\xf4\x20\x62\xde\xc9\x60\x6c\x5a\x68\xc5\x9e\xcd\x3a\x97\x46\xbd\x14\xc5\x00\x9e\x46\x52\x19\x0c\xd9"},

@@ -82,6 +82,8 @@ fd_feature_id_t const ids[] = {{""",
         )
         if x.get("cleaned_up"):
             print(f",\n    .cleaned_up = {x.get('cleaned_up')}", file=body, end="")
+        if x.get("reverted"):
+            print(f",\n    .reverted   = {x.get('reverted')}", file=body, end="")
         print(" },\n", file=body)
     print(
         f"""  {{ .index = ULONG_MAX }}

@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include "../../vm/fd_vm.h"
 #include "fd_vm_validate_test.h"
+#include "../../features/fd_features.h"
 
 /* This file defines stable APIs for compatibility testing.
 
@@ -25,32 +26,6 @@ typedef struct {
 } sol_compat_features_t;
 
 static sol_compat_features_t features;
-static ulong cleaned_up_features[] =
-  { 0xd924059c5749c4c1,  // secp256k1_program_enabled
-    0x8f688d4e3ab17a60,  // enable_early_verification_of_account_modifications
-    0x50a615bae8ca3874,  // native_programs_consume_cu
-    0x65b79c7f3e7441b3,  // require_custodian_for_locked_stake_authorize
-  };
-
-static ulong supported_features[] =
-  { 0xe8f97382b03240a1,  // system_transfer_zero_check
-    0x10a1e092dd7f1573,  // dedupe_config_program_signers
-    0xfba69c4970d7ad9d,  // vote_stake_checked_instructions
-    0x65b79c7f3e7441b3,  // require_custodian_for_locked_stake_authorize
-    0x74b022574093eeec,  // reduce_stake_warmup_cooldown
-    0x6d22c4ce75df6f0b,  // stake_merge_with_unmatched_credits_observed
-    0x4b241cb4c6f3b3b2,  // require_rent_exempt_split_destination
-    0x74326f811fd7d861,  // vote_state_add_vote_latency
-    0x86fa44f01141c71a,  // timely_vote_credits
-    0xe9d32123513c4d0d,  // timely_vote_credits
-    0x5795654d01457757,  // vote_authorize_with_seed
-    0x8a8eb9085ca2bb0b,  // commission_updates_only_allowed_in_first_half_of_epoch
-    0x7bc99a080444c8d9,  // allow_votes_to_directly_update_vote_state
-    0x2ca5833736ba5c69,  // compact_vote_state_updates
-    0x7e787d5c6d662d23,  // reject_callx_r10
-    0x0b9047b5bb9ef961,  // move_stake_and_move_lamports_ixs
-  };
-
 static       uchar *     smem;
 static const ulong       smax = 1UL<<30;
 static       fd_wksp_t * wksp = NULL;
@@ -82,17 +57,28 @@ sol_compat_wksp_init( void ) {
   smem = malloc( smax );  /* 1 GiB */
   assert( smem );
 
-  features.struct_size           = sizeof(sol_compat_features_t);
-  features.cleaned_up_features    = cleaned_up_features;
-  features.cleaned_up_feature_cnt = sizeof(cleaned_up_features)/sizeof(ulong);
-  features.supported_features    = supported_features;
-  features.supported_feature_cnt = sizeof(supported_features)/sizeof(ulong);
+  features.struct_size         = sizeof(sol_compat_features_t);
+  features.cleaned_up_features = malloc( FD_FEATURE_ID_CNT * sizeof(ulong) );
+  features.supported_features  = malloc( FD_FEATURE_ID_CNT * sizeof(ulong) );
+
+  for( const fd_feature_id_t * current_feature = fd_feature_iter_init(); !fd_feature_iter_done( current_feature ); current_feature = fd_feature_iter_next( current_feature ) ) {
+    // Skip reverted features
+    if( current_feature->reverted ) continue;
+  
+    if( current_feature->cleaned_up ) {
+      memcpy( &features.cleaned_up_features[features.cleaned_up_feature_cnt++], &current_feature->id, sizeof(ulong) );
+    } else {
+      memcpy( &features.supported_features[features.supported_feature_cnt++], &current_feature->id, sizeof(ulong) );
+    }
+  }
 }
 
 void
 sol_compat_fini( void ) {
   fd_wksp_delete_anonymous( wksp );
   free( smem );
+  free( features.cleaned_up_features );
+  free( features.supported_features );
   wksp = NULL;
   smem = NULL;
 }
