@@ -682,7 +682,7 @@ int fd_runtime_block_prepare(void const *buf,
 
 // TODO: this function doesnt do anything!
 int
-fd_runtime_block_verify_ticks( fd_block_info_t const * block_info, 
+fd_runtime_block_verify_ticks( fd_block_info_t const * block_info,
                                ulong                   tick_height,
                                ulong                   max_tick_height ) {
   (void)tick_height; (void)max_tick_height;
@@ -1017,13 +1017,13 @@ fd_runtime_status_cache_check( ulong slot,
   return is_recent_blockhash || fd_txncache_is_rooted_slot( slot_ctx->status_cache, slot );
 }
 
-static int 
+static int
 is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash_queue,
                             fd_hash_t const *             blockhash,
                             ulong                         max_age ) {
   fd_hash_hash_age_pair_t_mapnode_t key;
   fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
-  
+
   fd_hash_hash_age_pair_t_mapnode_t * hash_age = fd_hash_hash_age_pair_t_map_find( block_hash_queue->ages_pool, block_hash_queue->ages_root, &key );
   if( hash_age==NULL ) {
     // FD_LOG_WARNING(( "txn with missing recent blockhash - blockhash: %32J", blockhash->uc ));
@@ -1039,10 +1039,9 @@ is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash_queue,
 int
 fd_runtime_verify_txn_signatures_tpool( fd_execute_txn_task_info_t * task_info,
                                         ulong txn_cnt,
-                                        fd_tpool_t * tpool,
-                                        ulong max_workers ) {
+                                        fd_tpool_t * tpool ) {
   int res = 0;
-  fd_tpool_exec_all_rrobin( tpool, 0, max_workers, fd_txn_sigverify_task, task_info, NULL, NULL, 1, 0, txn_cnt );
+  fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_txn_sigverify_task, task_info, NULL, NULL, 1, 0, txn_cnt );
   for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
     if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
       res |= FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
@@ -1058,8 +1057,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                       ulong txn_cnt,
                                       int ( * query_func )( ulong slot, void * ctx ),
                                       void * query_arg,
-                                      fd_tpool_t * tpool,
-                                      ulong max_workers ) {
+                                      fd_tpool_t * tpool ) {
   int res = 0;
   FD_SCRATCH_SCOPE_BEGIN  {
     ulong fee_payer_accs_cnt = 0;
@@ -1125,7 +1123,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
       fee_payer_accs_cnt++;
     }
 
-    fd_tpool_exec_all_rrobin( tpool, 0, max_workers, fd_collect_fee_task, collect_fee_task_infos, NULL, NULL, 1, 0, fee_payer_accs_cnt );
+    fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_collect_fee_task, collect_fee_task_infos, NULL, NULL, 1, 0, fee_payer_accs_cnt );
 
     for (ulong fee_payer_idx = 0; fee_payer_idx < fee_payer_accs_cnt; fee_payer_idx++) {
       fd_collect_fee_task_info_t * collect_fee_task_info = &collect_fee_task_infos[fee_payer_idx];
@@ -1139,7 +1137,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
       slot_ctx->slot_bank.collected_priority_fees += collect_fee_task_info->priority_fee;
     }
 
-    int err = fd_acc_mgr_save_many_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, fee_payer_accs, fee_payer_accs_cnt, tpool, max_workers );
+    int err = fd_acc_mgr_save_many_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, fee_payer_accs, fee_payer_accs_cnt, tpool );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "fd_acc_mgr_save_many failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
       return -1;
@@ -1199,14 +1197,13 @@ fd_runtime_prepare_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
                          fd_execute_txn_task_info_t * task_info,
                          fd_txn_p_t * txns,
                          ulong txn_cnt,
-                         fd_tpool_t * tpool,
-                         ulong max_workers ) {
+                         fd_tpool_t * tpool ) {
   int res = fd_runtime_prepare_txns_phase1( slot_ctx, task_info, txns, txn_cnt );
   if( res != 0 ) {
     return res;
   }
 
-  res = fd_runtime_prepare_txns_phase2_tpool( slot_ctx, task_info, txn_cnt, NULL, NULL, tpool, max_workers );
+  res = fd_runtime_prepare_txns_phase2_tpool( slot_ctx, task_info, txn_cnt, NULL, NULL, tpool );
   if( res != 0 ) {
     return res;
   }
@@ -1367,8 +1364,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                 fd_capture_ctx_t * capture_ctx,
                                 fd_execute_txn_task_info_t * task_info,
                                 ulong txn_cnt,
-                                fd_tpool_t * tpool,
-                                ulong max_workers ) {
+                                fd_tpool_t * tpool ) {
   FD_SCRATCH_SCOPE_BEGIN {
     ulong accounts_to_save_cnt = 0;
 
@@ -1554,8 +1550,8 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
           }
 
           /* https://github.com/anza-xyz/agave/blob/ab04ff8fae8c708d495c5b8d59f3ba354be291d7/accounts-db/src/blockhash_queue.rs#L109-L111 */
-          /* In agave, is_hash_index_valid checks if last_hash_index - hash_index <= max_age where max_age = 150 using the blockhash queue. 
-             This means that the last 151 blockhashes are valid according to this check because when the value last_hash_index is equal to hash_index, 
+          /* In agave, is_hash_index_valid checks if last_hash_index - hash_index <= max_age where max_age = 150 using the blockhash queue.
+             This means that the last 151 blockhashes are valid according to this check because when the value last_hash_index is equal to hash_index,
              we are looking are the "first" most recent blockhash */
           if( max_hash_idx-cur_blockhash_idx<=FD_RECENT_BLOCKHASHES_MAX_ENTRIES ) { /* This intentionally age of 151 and NOT 150 */
             skip_hash = 1;
@@ -1586,7 +1582,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     // TODO: we need to use the txn ctx funk_txn, valloc, etc.
-    int err = fd_acc_mgr_save_many_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, accounts_to_save, accounts_to_save_cnt, tpool, max_workers );
+    int err = fd_acc_mgr_save_many_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, accounts_to_save, accounts_to_save_cnt, tpool );
     if( err != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_ERR(( "failed to save edits to accounts" ));
       return -1;
@@ -1638,8 +1634,7 @@ fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                fd_txn_p_t * txns,
                                ulong txn_cnt,
                                fd_execute_txn_task_info_t * task_infos,
-                               fd_tpool_t * tpool,
-                               ulong max_workers ) {
+                               fd_tpool_t * tpool ) {
   for (ulong i = 0; i < txn_cnt; i++) {
     if ( !(txns[i].flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) {
       continue;
@@ -1657,7 +1652,7 @@ fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
   }
 
-  int res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, task_infos, txn_cnt, tpool, max_workers );
+  int res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, task_infos, txn_cnt, tpool );
   if( res != 0 ) {
     return res;
   }
@@ -1780,8 +1775,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         ulong txn_cnt,
                                         int ( * query_func )( ulong slot, void * ctx ),
                                         void * query_arg,
-                                        fd_tpool_t * tpool,
-                                        ulong max_workers ) {
+                                        fd_tpool_t * tpool ) {
   FD_SCRATCH_SCOPE_BEGIN {
     bool dump_txn = capture_ctx && slot_ctx->slot_bank.slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_txn_to_pb;
 
@@ -1831,12 +1825,12 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
         }
       }
 
-      res |= fd_runtime_verify_txn_signatures_tpool( wave_task_infos, wave_task_infos_cnt, tpool, max_workers );
+      res |= fd_runtime_verify_txn_signatures_tpool( wave_task_infos, wave_task_infos_cnt, tpool );
       if( res != 0 ) {
         FD_LOG_DEBUG(("Fail signature verification"));
       }
 
-      res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, query_func, query_arg, tpool, max_workers );
+      res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, query_func, query_arg, tpool );
       if( res != 0 ) {
         FD_LOG_DEBUG(("Fail prep 2"));
       }
@@ -1846,8 +1840,8 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
         FD_LOG_DEBUG(("Fail prep 3"));
       }
 
-      fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_runtime_execute_txn_task, wave_task_infos, NULL, NULL, 1, 0, wave_task_infos_cnt );
-      int finalize_res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, wave_task_infos, wave_task_infos_cnt, tpool, max_workers );
+      fd_tpool_exec_all_taskq( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_runtime_execute_txn_task, wave_task_infos, NULL, NULL, 1, 0, wave_task_infos_cnt );
+      int finalize_res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, wave_task_infos, wave_task_infos_cnt, tpool );
       if( finalize_res != 0 ) {
         FD_LOG_ERR(("Fail finalize"));
       }
@@ -2059,8 +2053,7 @@ int
 fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_capture_ctx_t * capture_ctx,
                                          fd_block_info_t const * block_info,
-                                         fd_tpool_t * tpool,
-                                         ulong max_workers ) {
+                                         fd_tpool_t * tpool ) {
   fd_funk_start_write( slot_ctx->acc_mgr->funk );
 
   fd_sysvar_slot_history_update(slot_ctx);
@@ -2076,7 +2069,7 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
     return result;
   }
 
-  result = fd_update_hash_bank_tpool(slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, block_info->signature_cnt, tpool, max_workers);
+  result = fd_update_hash_bank_tpool(slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, block_info->signature_cnt, tpool );
   if( result != FD_EXECUTOR_INSTR_SUCCESS ) {
     FD_LOG_WARNING(("hashing bank failed"));
     fd_funk_end_write( slot_ctx->acc_mgr->funk );
@@ -2179,8 +2172,7 @@ int fd_runtime_block_execute(fd_exec_slot_ctx_t *slot_ctx,
 int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
                                        fd_capture_ctx_t * capture_ctx,
                                        fd_block_info_t const * block_info,
-                                       fd_tpool_t * tpool,
-                                       ulong max_workers ) {
+                                       fd_tpool_t * tpool ) {
   FD_SCRATCH_SCOPE_BEGIN {
     if ( capture_ctx != NULL && capture_ctx->capture ) {
       fd_solcap_writer_set_slot( capture_ctx->capture, slot_ctx->slot_bank.slot );
@@ -2198,13 +2190,13 @@ int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_runtime_block_collect_txns( block_info, txn_ptrs );
 
-    res = fd_runtime_execute_txns_in_waves_tpool( slot_ctx, capture_ctx, txn_ptrs, txn_cnt, NULL, NULL, tpool, max_workers );
+    res = fd_runtime_execute_txns_in_waves_tpool( slot_ctx, capture_ctx, txn_ptrs, txn_cnt, NULL, NULL, tpool );
     if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
       return res;
     }
 
     long block_finalize_time = -fd_log_wallclock();
-    res = fd_runtime_block_execute_finalize_tpool( slot_ctx, capture_ctx, block_info, tpool, max_workers );
+    res = fd_runtime_block_execute_finalize_tpool( slot_ctx, capture_ctx, block_info, tpool );
     if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
       return res;
     }
@@ -2379,9 +2371,8 @@ fd_runtime_poh_verify_wide_task( void *tpool,
 int
 fd_runtime_poh_verify_tpool( fd_poh_verification_info_t *poh_verification_info,
                              ulong poh_verification_info_cnt,
-                             fd_tpool_t * tpool,
-                             ulong max_workers ) {
-  fd_tpool_exec_all_rrobin(tpool, 0, max_workers, fd_runtime_poh_verify_wide_task, poh_verification_info, NULL, NULL, 1, 0, poh_verification_info_cnt);
+                             fd_tpool_t * tpool ) {
+  fd_tpool_exec_all_rrobin(tpool, 0, fd_tpool_worker_cnt( tpool ), fd_runtime_poh_verify_wide_task, poh_verification_info, NULL, NULL, 1, 0, poh_verification_info_cnt);
 
   for (ulong i = 0; i < poh_verification_info_cnt; i++) {
     if (poh_verification_info[i].success != 0)
@@ -2397,8 +2388,7 @@ int fd_runtime_block_verify_tpool(fd_block_info_t const *block_info,
                                   fd_hash_t const *in_poh_hash,
                                   fd_hash_t *out_poh_hash,
                                   fd_valloc_t valloc,
-                                  fd_tpool_t *tpool,
-                                  ulong max_workers) {
+                                  fd_tpool_t *tpool) {
   long block_verify_time = -fd_log_wallclock();
 
   fd_hash_t tmp_in_poh_hash = *in_poh_hash;
@@ -2407,7 +2397,7 @@ int fd_runtime_block_verify_tpool(fd_block_info_t const *block_info,
                                                                        alignof(fd_poh_verification_info_t),
                                                                        poh_verification_info_cnt * sizeof(fd_poh_verification_info_t));
   fd_runtime_block_verify_info_collect(block_info, &tmp_in_poh_hash, poh_verification_info);
-  int result = fd_runtime_poh_verify_tpool(poh_verification_info, poh_verification_info_cnt, tpool, max_workers);
+  int result = fd_runtime_poh_verify_tpool(poh_verification_info, poh_verification_info_cnt, tpool );
   fd_memcpy(out_poh_hash->hash, poh_verification_info[poh_verification_info_cnt - 1].microblock_info->microblock_hdr.hash, sizeof(fd_hash_t));
   fd_valloc_free(valloc, poh_verification_info);
 
@@ -2671,7 +2661,6 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
                                 void const *block,
                                 ulong blocklen,
                                 fd_tpool_t *tpool,
-                                ulong max_workers,
                                 ulong scheduler,
                                 ulong * txn_cnt ) {
   (void)scheduler;
@@ -2708,10 +2697,10 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
   fd_blockstore_end_read(slot_ctx->blockstore);
 
   if( FD_RUNTIME_EXECUTE_SUCCESS == ret ) {
-    ret = fd_runtime_block_verify_tpool(&block_info, &slot_ctx->slot_bank.poh, &slot_ctx->slot_bank.poh, slot_ctx->valloc, tpool, max_workers);
+    ret = fd_runtime_block_verify_tpool(&block_info, &slot_ctx->slot_bank.poh, &slot_ctx->slot_bank.poh, slot_ctx->valloc, tpool );
   }
   if( FD_RUNTIME_EXECUTE_SUCCESS == ret ) {
-    ret = fd_runtime_block_execute_tpool_v2(slot_ctx, capture_ctx, &block_info, tpool, max_workers);
+    ret = fd_runtime_block_execute_tpool_v2(slot_ctx, capture_ctx, &block_info, tpool );
   }
 
   fd_runtime_block_destroy( slot_ctx->valloc, &block_info );

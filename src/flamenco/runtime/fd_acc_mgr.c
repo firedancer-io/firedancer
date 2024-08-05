@@ -370,8 +370,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
                             fd_funk_txn_t *         txn,
                             fd_borrowed_account_t * * accounts,
                             ulong accounts_cnt,
-                            fd_tpool_t * tpool,
-                            ulong max_workers ) {
+                            fd_tpool_t * tpool ) {
   FD_SCRATCH_SCOPE_BEGIN {
     fd_funk_t *        funk = acc_mgr->funk;
     fd_wksp_t * wksp = fd_funk_wksp( funk );
@@ -379,7 +378,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
 
     ulong batch_cnt = fd_ulong_min(
       fd_funk_rec_map_private_list_cnt( fd_funk_rec_map_key_max( rec_map ) ),
-      fd_ulong_pow2_up( max_workers )
+      fd_ulong_pow2_up( fd_tpool_worker_cnt( tpool ) )
     );
     ulong batch_mask = (batch_cnt - 1UL);
 
@@ -428,7 +427,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
         fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
 
       /* This check is to prevent a seg fault in the case where an account with
-         null data tries to get saved. This notably happens if firedancer is 
+         null data tries to get saved. This notably happens if firedancer is
          attemping to execute a bad block. This should NEVER happen in the case
          of a proper replay. */
       if( FD_UNLIKELY( !account->const_meta ) ) {
@@ -447,7 +446,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
     };
 
     /* Save accounts in a thread pool */
-    fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_acc_mgr_save_task, task_infos, &task_args, NULL, 1, 0, batch_cnt );
+    fd_tpool_exec_all_taskq( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_acc_mgr_save_task, task_infos, &task_args, NULL, 1, 0, batch_cnt );
 
     fd_funk_end_write( funk );
 

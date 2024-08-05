@@ -104,8 +104,7 @@ fd_runtime_block_verify_tpool( fd_block_info_t const * block_info,
                                fd_hash_t const * in_poh_hash,
                                fd_hash_t * out_poh_hash,
                                fd_valloc_t valloc,
-                               fd_tpool_t * tpool,
-                               ulong max_workers );
+                               fd_tpool_t * tpool );
 
 int
 fd_runtime_block_prepare( void const * buf,
@@ -123,7 +122,6 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              const void * block,
                              ulong blocklen,
                              fd_tpool_t * tpool,
-                             ulong max_workers,
                              ulong scheduler,
                              ulong * txn_cnt );
 
@@ -134,8 +132,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         ulong txn_cnt,
                                         int ( * query_func )( ulong slot, void * ctx ),
                                         void * query_arg,
-                                        fd_tpool_t * tpool,
-                                        ulong max_workers );
+                                        fd_tpool_t * tpool );
 
 void
 fd_runtime_calculate_fee ( fd_exec_txn_ctx_t * txn_ctx,
@@ -178,8 +175,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                       ulong txn_cnt,
                                       int ( * query_func )( ulong slot, void * ctx ),
                                       void * query_arg,
-                                      fd_tpool_t * tpool,
-                                      ulong max_workers );
+                                      fd_tpool_t * tpool );
 
 int
 fd_runtime_prepare_txns( fd_exec_slot_ctx_t * slot_ctx,
@@ -204,15 +200,13 @@ fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                fd_txn_p_t * txns,
                                ulong txn_cnt,
                                fd_execute_txn_task_info_t * task_infos,
-                               fd_tpool_t * tpool,
-                               ulong max_workers );
+                               fd_tpool_t * tpool );
 
 int
 fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_capture_ctx_t * capture_ctx,
                                          fd_block_info_t const * block_info,
-                                         fd_tpool_t * tpool,
-                                         ulong max_workers );
+                                         fd_tpool_t * tpool );
 
 int
 fd_runtime_collect_rent_account( fd_exec_slot_ctx_t * slot_ctx,
