@@ -1822,7 +1822,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     
     effects->inputdata->size = (uint)input_regions_total_sz;
     uchar * inputdata_ptr = effects->inputdata->bytes;
-    for ( ulong i=0; i<vm->input_mem_regions_cnt; i++ ) {
+    for( ulong i=0; i<vm->input_mem_regions_cnt; i++ ) {
       fd_memcpy( inputdata_ptr, (void *) vm->input_mem_regions[i].haddr, vm->input_mem_regions[i].region_sz );
       inputdata_ptr += vm->input_mem_regions[i].region_sz;
     }
