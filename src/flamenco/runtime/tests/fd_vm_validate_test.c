@@ -177,6 +177,16 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
   //   goto error;
   // }
 
+  /* Turn input into a single memory region */
+  fd_vm_input_region_t input_region = {
+    .vaddr_offset = 0UL,
+    .haddr        = (ulong)input_data,
+    .region_sz    = (uint)input_data_sz,
+    .is_writable  = 1U,
+    .pubkey       = NULL
+  };
+
+
   // if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
   //   goto error;
   // }
@@ -216,8 +226,8 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
     input->vm_ctx.entry_pc,
     calldests,
     syscalls,
-    input_data,
-    input_data_sz,
+    &input_region,
+    1,
     NULL, /* trace */
     NULL /* sha */
   );
