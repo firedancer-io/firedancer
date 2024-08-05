@@ -708,7 +708,7 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx,
               return err;
             }
           } else if( view_acc->const_meta->dlen != pre_len || 
-                     memcmp( post_data, view_acc->data, pre_len ) ) {
+                     memcmp( post_data, view_acc->const_data, pre_len ) ) {
             return err;
           }
         }
