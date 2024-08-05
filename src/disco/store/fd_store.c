@@ -226,7 +226,6 @@ fd_store_shred_insert( fd_store_t * store,
   if( FD_UNLIKELY( rc < FD_BLOCKSTORE_OK ) ) {
     FD_LOG_ERR( ( "failed to insert shred. reason: %d", rc ) );
   } else if ( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
-    FD_LOG_WARNING(("BLOCK COMPLETE"));
     fd_store_add_pending( store, shred->slot, (long)5e6, 0, 1 );
   } else {
     fd_store_add_pending( store, shred->slot, FD_REPAIR_BACKOFF_TIME, 0, 0 );

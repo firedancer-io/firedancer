@@ -38,6 +38,7 @@ name = \"fd1test\"
     affinity = \"1-37\"
     bank_tile_count = 1
     verify_tile_count = 16
+    shred_tile_count = 1
 [gossip]
     port = 8700
 [tiles]
@@ -51,13 +52,14 @@ name = \"fd1test\"
         repair_serve_listen_port = 8702
     [tiles.replay]
         capture = \"fddev.solcap\"
+        blockstore_publish = true
         blockstore_checkpt = \"fddev-blockstore.checkpt\"
         snapshot = \"$FULL_SNAPSHOT\"
         tpool_thread_count = 8
         funk_sz_gb = 32
         funk_rec_max = 10000000
         funk_txn_max = 1024
-        cluster_version = 1180
+        cluster_version = 2000
 [log]
     path = \"fddev.log\"
     level_stderr = \"INFO\"
