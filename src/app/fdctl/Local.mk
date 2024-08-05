@@ -21,7 +21,8 @@ $(call make-fuzz-test,fuzz_fdctl_config,fuzz_fdctl_config,fd_fdctl fd_ballet fd_
 
 # fdctl tiles
 $(call add-objs,run/tiles/fd_net,fd_fdctl)
-$(call add-objs,run/tiles/fd_metric,fd_fdctl)
+$(call add-objs,run/tiles/fd_http,fd_fdctl)
+$(call add-objs,run/tiles/fd_plugin,fd_fdctl)
 $(call add-objs,run/tiles/fd_netmux,fd_fdctl)
 $(call add-objs,run/tiles/fd_dedup,fd_fdctl)
 $(call add-objs,run/tiles/fd_pack,fd_fdctl)
@@ -50,16 +51,17 @@ $(call make-unit-test,test_config_parse,test_config_parse,fd_fdctl fd_ballet fd_
 
 $(OBJDIR)/obj/app/fdctl/configure/xdp.o: src/waltz/xdp/fd_xdp_redirect_prog.o
 $(OBJDIR)/obj/app/fdctl/config_parse.o: src/app/fdctl/config/default.toml
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_http.o: book/public/fire.svg src/app/fdctl/run/tiles/index.html
 
 $(OBJDIR)/obj/app/fdctl/run/run.o: src/app/fdctl/run/generated/main_seccomp.h src/app/fdctl/run/generated/pidns_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_dedup.o: src/app/fdctl/run/tiles/generated/dedup_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_net.o: src/app/fdctl/run/tiles/generated/net_seccomp.h
-$(OBJDIR)/obj/app/fdctl/run/tiles/fd_netmux.o: src/app/fdctl/run/tiles/generated/netmux_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_pack.o: src/app/fdctl/run/tiles/generated/pack_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_quic.o: src/app/fdctl/run/tiles/generated/quic_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_shred.o: src/app/fdctl/run/tiles/generated/shred_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_verify.o: src/app/fdctl/run/tiles/generated/verify_seccomp.h
-$(OBJDIR)/obj/app/fdctl/run/tiles/fd_metric.o: src/app/fdctl/run/tiles/generated/metric_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_http.o: src/app/fdctl/run/tiles/generated/http_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_plugin.o: src/app/fdctl/run/tiles/generated/plugin_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_sign.o: src/app/fdctl/run/tiles/generated/sign_seccomp.h
 
 check-agave-hash:

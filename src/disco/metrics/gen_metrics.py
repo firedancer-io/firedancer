@@ -134,8 +134,10 @@ if __name__ == '__main__':
     (enums, metrics) = parse_metrics(xml_data)
     os.makedirs('generated', exist_ok=True)  # Ensure the directory exists
 
+    tiles = sorted(list(set([x.tile for x in metrics if x.tile != 'all'])))
+
     max_offset = 0
-    for tile in ['all', 'quic', 'dedup', 'pack', 'bank', 'poh', 'store', 'shred']:
+    for tile in ['all'] + tiles:
         tile_metrics = [x for x in metrics if x.tile == tile]
         max_offset = max(max_offset, sum([OFFSETS[x.type] for x in metrics if x.tile == 'all' or x.tile == tile]))
 
@@ -145,6 +147,9 @@ if __name__ == '__main__':
 
             if tile == 'all':
                 offset = 0
+                for tile2 in tiles:
+                    f.write('#include "fd_metrics_{}.h"\n'.format(tile2))
+                f.write("\n")
             else:
                 # Tiles have their tile specific metrics placed after the 'all' section
                 offset = sum([OFFSETS[x.type] for x in metrics if x.tile == 'all' and not x.link])
@@ -222,3 +227,26 @@ if __name__ == '__main__':
     with open('generated/fd_metrics_all.h', 'a') as f:
         # Kind of a hack for now.  Different tiles should get a different size.
         f.write(f'\n#define FD_METRICS_TOTAL_SZ (8UL*{max_offset}UL)\n')
+
+        f.write(f'\n#define FD_METRICS_TILE_KIND_CNT {len(tiles)}\n')
+        f.write(f'extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];\n')
+        f.write(f'extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];\n')
+        f.write(f'extern const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT];\n')
+
+    with open('generated/fd_metrics_all.c', 'a') as f:
+        f.write(f'const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT] = {{\n')
+        for tile in tiles:
+            f.write(f'    "{tile}",\n')
+        f.write('};\n')
+
+        f.write(f'const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT] = {{\n')
+        for tile in tiles:
+            f.write(f'    FD_METRICS_{tile.upper()}_TOTAL,\n')
+        f.write('};\n')
+
+        f.write(f'const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT] = {{\n')
+        for tile in tiles:
+            f.write(f'    FD_METRICS_{tile.upper()},\n')
+        f.write('};\n')
+
+    print(f'Generated {len(metrics)} metrics for {len(tiles)} tiles')

@@ -46,7 +46,7 @@ run_cmd_perm( args_t *         args,
     fd_caps_check_capability( caps, NAME, CAP_SETGID,                  "call `setresgid(2)` to switch gid" );
   if( FD_UNLIKELY( config->development.netns.enabled ) )
     fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,               "call `setns(2)` to enter a network namespace" );
-  if( FD_UNLIKELY( config->tiles.metric.prometheus_listen_port<1024 ) )
+  if( FD_UNLIKELY( config->tiles.http.gui_listen_port<1024 || config->tiles.http.prometheus_listen_port<1024 ) )
     fd_caps_check_capability( caps, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
 }
 
