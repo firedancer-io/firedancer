@@ -3,6 +3,7 @@
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../disco/keyguard/fd_keyguard.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/rng/fd_rng.h"
 #include <string.h>
@@ -643,7 +644,7 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
   /* Sign it */
 
-  (*glob->sign_fun)(glob->sign_arg, ping->signature.uc, pre_image, FD_PING_PRE_IMAGE_SZ);
+  (*glob->sign_fun)( glob->sign_arg, ping->signature.uc, pre_image, FD_PING_PRE_IMAGE_SZ, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 );
 
   fd_gossip_send( glob, key, &gmsg );
 }
@@ -679,7 +680,7 @@ fd_gossip_handle_ping( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   fd_sha256_hash( pre_image, FD_PING_PRE_IMAGE_SZ, &pong->token );
 
   /* Sign it */
-  (*glob->sign_fun)(glob->sign_arg, pong->signature.uc, pre_image, FD_PING_PRE_IMAGE_SZ);
+  (*glob->sign_fun)( glob->sign_arg, pong->signature.uc, pre_image, FD_PING_PRE_IMAGE_SZ, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 );
 
   fd_gossip_send(glob, from, &gmsg);
 }
@@ -752,7 +753,7 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
     return;
   }
 
-  (*glob->sign_fun)(glob->sign_arg, crd->signature.uc, buf, (ulong)((uchar*)ctx.data - buf));
+  (*glob->sign_fun)( glob->sign_arg, crd->signature.uc, buf, (ulong)((uchar*)ctx.data - buf), FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
 /* Convert a hash to a bloom filter bit position */
@@ -1753,7 +1754,7 @@ fd_gossip_make_prune( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       return;
     }
 
-    (*glob->sign_fun)(glob->sign_arg, prune_msg->data.signature.uc, buf, (ulong)((uchar*)ctx.data - buf));
+    (*glob->sign_fun)( glob->sign_arg, prune_msg->data.signature.uc, buf, (ulong)((uchar*)ctx.data - buf), FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
     fd_gossip_send(glob, &peerval->key, &gmsg);
   }

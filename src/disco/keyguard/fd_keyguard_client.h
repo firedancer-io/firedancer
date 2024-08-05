@@ -6,7 +6,7 @@
 
    For maximum security, the caller should ensure a few things before
    using,
-   
+
     (a) The request mcache and data region are placed in a shared memory
         map that is accessible exclusively to the calling tile, and the
         keyguard tile.  The keyguard tile should map the memory as read
@@ -22,7 +22,7 @@
 
     (d) Each input/output mcache correspond to a single role, and the
         keyguard tile verifies that all incoming requests are
-        specifically formatted for that role. */        
+        specifically formatted for that role. */
 
 #include "../fd_disco_base.h"
 
@@ -60,27 +60,30 @@ fd_keyguard_client_delete( void * shclient ) { return shclient; }
 
 /* fd_keyguard_client_sign sends a remote signing request to the signing
     server, and blocks (spins) until the response is received.
-    
+
     Signing is treated as infallible, and there are no error codes or
     results. If the remote signer is stuck or not running, this function
     will not timeout and instead hangs forever waiting for a response.
     This is currently by design.
-    
+
     sign_data should be a pointer to a buffer, with length sign_data_len
     that will be signed.  The data should correspond to one of the
     roles described in fd_keyguard.h.  If the remote signing tile
     receives a malformed signing request, or one for a role that does
     not correspond to the role assigned to the receiving mcache, it
     will abort the whole program with a critical error.
-    
+
     The response, a 64 byte signature, will be written into the signature
-    buffer, which must be at least this size. */
+    buffer, which must be at least this size.
+
+    sign_type is in FD_KEYGUARD_SIGN_TYPE_{...}. */
 
 void
 fd_keyguard_client_sign( fd_keyguard_client_t * client,
                          uchar *                signature,
                          uchar const *          sign_data,
-                         ulong                  sign_data_len );
+                         ulong                  sign_data_len,
+                         int                    sign_type );
 
 FD_PROTOTYPES_END
 

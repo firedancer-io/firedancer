@@ -40,7 +40,7 @@ typedef ulong (*fd_repair_serv_get_parent_fun)( ulong slot, void * arg );
 typedef void (*fd_repair_send_packet_fun)( uchar const * msg, size_t msglen, fd_repair_peer_addr_t const * addr, void * arg );
 
 /* Callback signing */
-typedef void (*fd_repair_sign_fun)( void * ctx, uchar * sig, uchar const * buffer, ulong len );
+typedef void (*fd_repair_sign_fun)( void * ctx, uchar * sig, uchar const * buffer, ulong len, int sign_type );
 
 /* Callback for when a request fails. Echoes back the request parameters. */
 typedef void (*fd_repair_shred_deliver_fail_fun)( fd_pubkey_t const * id, ulong slot, uint shred_index, void * arg, int reason );

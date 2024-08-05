@@ -19,61 +19,62 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_ROLE_VOTER   (0)  /* vote transaction sender */
 #define FD_KEYGUARD_ROLE_GOSSIP  (1)  /* gossip participant */
 #define FD_KEYGUARD_ROLE_LEADER  (2)  /* block producer (shreds) */
-#define FD_KEYGUARD_ROLE_TLS     (3)  /* TLS peer (certificate verify) */
-#define FD_KEYGUARD_ROLE_X509_CA (4)  /* self-signed cert CA */
-#define FD_KEYGUARD_ROLE_REPAIR  (5)
+#define FD_KEYGUARD_ROLE_QUIC    (3)  /* QUIC tile */
+#define FD_KEYGUARD_ROLE_REPAIR  (4)  /* Repair tile */
+#define FD_KEYGUARD_ROLE_CNT     (5)  /* number of known roles */
+
+/* Payload types ******************************************************/
+
+#define FD_KEYGUARD_PAYLOAD_LG_TXN    (0)  /* Solana transaction message (e.g. vote) */
+#define FD_KEYGUARD_PAYLOAD_LG_GOSSIP (1)  /* Gossip CrdsData */
+#define FD_KEYGUARD_PAYLOAD_LG_PRUNE  (2)  /* Gossip PruneData */
+#define FD_KEYGUARD_PAYLOAD_LG_SHRED  (3)  /* Solana legacy or merkle shred */
+#define FD_KEYGUARD_PAYLOAD_LG_TLS_CV (4)  /* TLS 1.3 certificate verify payload */
+#define FD_KEYGUARD_PAYLOAD_LG_REPAIR (6)  /* RepairProtocol */
+#define FD_KEYGUARD_PAYLOAD_LG_PING   (7)  /* Gossip/Repair ping protocol */
+
+#define FD_KEYGUARD_PAYLOAD_TXN    (1UL<<FD_KEYGUARD_PAYLOAD_LG_TXN   )
+#define FD_KEYGUARD_PAYLOAD_GOSSIP (1UL<<FD_KEYGUARD_PAYLOAD_LG_GOSSIP)
+#define FD_KEYGUARD_PAYLOAD_PRUNE  (1UL<<FD_KEYGUARD_PAYLOAD_LG_PRUNE )
+#define FD_KEYGUARD_PAYLOAD_SHRED  (1UL<<FD_KEYGUARD_PAYLOAD_LG_SHRED )
+#define FD_KEYGUARD_PAYLOAD_TLS_CV (1UL<<FD_KEYGUARD_PAYLOAD_LG_TLS_CV)
+#define FD_KEYGUARD_PAYLOAD_REPAIR (1UL<<FD_KEYGUARD_PAYLOAD_LG_REPAIR)
+#define FD_KEYGUARD_PAYLOAD_PING   (1UL<<FD_KEYGUARD_PAYLOAD_LG_PING  )
+
+/* Sign types *********************************************************/
+
+#define FD_KEYGUARD_SIGN_TYPE_ED25519        (0)  /* ed25519_sign(input) */
+#define FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 (1)  /* ed25519_sign(sha256(data)) */
 
 /* Type confusion/ambiguity checks ************************************/
 
-/* fd_keyguard_payload_matches_{...} returns 1 if the byte array
-   [data,data+sz) could match a signing payload of a given type (false
-   positives allowed). Returns 0 if the byte array cannot possibly be a
-   valid message of this type.  Any two of these functions below
-   returning 1 for the same payload indicates a security issue (fake
-   signing). Possible types are:
+/* fd_keyguard_payload_match returns a bitwise OR of
+   FD_KEYGUARD_PAYLOAD_{...}.
 
-     txn_msg:     Solana transaction message (e.g. vote)
-     gossip_msg:  Solana gossip over UDP message payload
-     shred:       Solana legacy or merkle shred
-     tls_cv:      TLS 1.3 certificate verify payload
-     x509_csr:    X.509 certificate signing request */
+   [data,data+sz) is the payload that is requested to be signed.
 
-FD_FN_PURE int fd_keyguard_payload_matches_txn_msg   ( uchar const * data, ulong sz );
-FD_FN_PURE int fd_keyguard_payload_matches_gossip_msg( uchar const * data, ulong sz );
-FD_FN_PURE int fd_keyguard_payload_matches_shred     ( uchar const * data, ulong sz );
-FD_FN_PURE int fd_keyguard_payload_matches_tls_cv    ( uchar const * data, ulong sz );
-FD_FN_PURE int fd_keyguard_payload_matches_x509_csr  ( uchar const * data, ulong sz );
-FD_FN_PURE int fd_keyguard_payload_matches_ping_msg  ( uchar const * data, ulong sz );
+   sign_type is in FD_KEYGUARD_SIGN_TYPE_{...}.
 
-/* fd_keyguard_payload_check_ambiguous returns 1 if the given byte array
-   could be susceptible to fake signing (false positives allowed).  This
-   happens when the payload could be interpreted as more than one type
-   of message.  Otherwise, returns 0.
+   Returns 0 if none matched.  fd_ulong_popcnt(return value) is 1 if the
+   payload is unambiguously of a single type. */
 
-   For all inputs with sz<=2048UL, is guaranteed to return 0.
-   This property was verified via CBMC in fd_keyguard_ambiguity_proof. */
-
-static inline FD_FN_PURE int
-fd_keyguard_payload_check_ambiguous( uchar const * data,
-                                     ulong         sz ) {
-  int match_cnt =
-      ( !!fd_keyguard_payload_matches_txn_msg   ( data, sz ) )
-    + ( !!fd_keyguard_payload_matches_gossip_msg( data, sz ) )
-    + ( !!fd_keyguard_payload_matches_shred     ( data, sz ) )
-    + ( !!fd_keyguard_payload_matches_tls_cv    ( data, sz ) )
-    + ( !!fd_keyguard_payload_matches_x509_csr  ( data, sz ) );
-  return match_cnt>1;
-}
+FD_FN_PURE ulong
+fd_keyguard_payload_match( uchar const * data,
+                           ulong         sz,
+                           int           sign_type );
 
 /* Authorization ******************************************************/
+
+struct fd_keyguard_authority {
+  uchar identity_pubkey[32];
+};
+
+typedef struct fd_keyguard_authority fd_keyguard_authority_t;
 
 /* fd_keyguard_payload_authorize decides whether the keyguard accepts
    a signing request.
 
-   [data,data+sz) is the payload of the signing request (the "message"
-   in the Ed25519 signature scheme).  The data pointer and sz are
-   assumed to be a valid memory region in the local address space.
-   The content of this range is untrusted.
+   [data,data+sz) is the payload that is requested to be signed.
 
    role is one of FD_KEYGUARD_ROLE_{...}.  It is assumed that the origin
    of the request was previously authorized for the given role.
@@ -83,10 +84,12 @@ fd_keyguard_payload_check_ambiguous( uchar const * data,
    This function is more restrictive than the respective
    fd_keyguard_payload_matches functions. */
 
-FD_FN_PURE int
-fd_keyguard_payload_authorize( uchar const * data,
-                               ulong         sz,
-                               int           role );
+int
+fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
+                               uchar const *                   data,
+                               ulong                           sz,
+                               int                             role,
+                               int                             sign_type );
 
 FD_PROTOTYPES_END
 

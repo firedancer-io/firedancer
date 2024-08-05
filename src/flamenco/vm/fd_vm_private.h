@@ -174,7 +174,7 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
    [haddr,haddr+sz).  On success, returns haddr and every byte in the
    haddr range is a valid address.  On failure, returns sentinel and
    there was at least one byte in the virtual address range that did not
-   have a corresponding byte inthe host address range.
+   have a corresponding byte in the host address range.
 
    IMPORTANT SAFETY TIP!  When sz==0, the return value currently is
    arbitrary.  This is often fine as there should be no
@@ -242,9 +242,9 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
      enabled, then there is only 1 memory region which spans the input region. */
   ulong region_idx = fd_vm_get_input_mem_region_idx( vm, offset );
 
-  uint bytes_left          = (uint)sz;
-  uint bytes_in_cur_region = fd_uint_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
-                                              (uint)fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
+  ulong bytes_left          = sz;
+  ulong bytes_in_cur_region = fd_ulong_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
+                                                fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
 
   if( FD_UNLIKELY( write && vm->input_mem_regions[ region_idx ].is_writable==0U ) ) {
     return sentinel; /* Illegal write */
@@ -257,7 +257,7 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
     if( FD_UNLIKELY( write && vm->input_mem_regions[ region_idx ].is_writable==0U ) ) {
       return sentinel; /* Illegal write */
     }
-    bytes_left = fd_uint_sat_sub( bytes_left, bytes_in_cur_region );
+    bytes_left = fd_ulong_sat_sub( bytes_left, bytes_in_cur_region );
 
     region_idx += 1U;
 
@@ -270,6 +270,7 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
   ulong adjusted_haddr = vm->input_mem_regions[ region_idx ].haddr + offset - vm->input_mem_regions[ region_idx ].vaddr_offset;
   return adjusted_haddr; 
 }
+
 
 static inline ulong
 fd_vm_mem_haddr( fd_vm_t const *    vm,

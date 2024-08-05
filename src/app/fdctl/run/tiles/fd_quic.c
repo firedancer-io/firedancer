@@ -3,6 +3,7 @@
 #include "generated/quic_seccomp.h"
 #include "../../../../disco/metrics/generated/fd_metrics_quic.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
+#include "../../../../disco/keyguard/fd_keyguard.h"
 #include "../../../../waltz/quic/fd_quic.h"
 #include "../../../../waltz/xdp/fd_xsk_aio.h"
 #include "../../../../waltz/xdp/fd_xsk.h"
@@ -555,7 +556,7 @@ static void
 fd_quic_tls_cv_signer( void *        signer_ctx,
                        uchar         signature[ static 64 ],
                        uchar const   payload[ static 130] ) {
-  fd_keyguard_client_sign( signer_ctx, signature, payload, 130UL );
+  fd_keyguard_client_sign( signer_ctx, signature, payload, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
 static void

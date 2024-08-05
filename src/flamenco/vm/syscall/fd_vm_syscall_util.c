@@ -285,7 +285,7 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
      The most serious issue is that there is nothing to stop VM code
      making a decision based on the _location_ of the returned
      allocation.  If different validator implementations use different
-     allocator algorithms, though each implemementation would behave
+     allocator algorithms, though each implementation would behave
      functionally correct in isolation, the VM code that uses it would
      actually break consensus.
 
@@ -312,7 +312,7 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
      uses malloc/free style dynamic allocation is inherently broken.  So
      this syscall should have never existed in the first place ... it
      just feeds the trolls.  The above is just additional implementation
-     horror because people consistent think malloc/free is much simplier
+     horror because people consistent think malloc/free is much simpler
      than it actually is.  This is also an example of how quickly
      mistakes fossilize and become a thorn-in-the-side forever.
 

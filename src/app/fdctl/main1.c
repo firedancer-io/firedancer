@@ -82,7 +82,7 @@ should_colorize( void ) {
 static void
 initialize_numa_assignments( fd_topo_t * topo ) {
   /* Assign workspaces to NUMA nodes.  The heuristic here is pretty
-     simple for now: workspacess go on the NUMA node of the first
+     simple for now: workspaces go on the NUMA node of the first
      tile which maps the largest object in the workspace. */
 
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
@@ -159,7 +159,7 @@ fdctl_boot( int *        pargc,
   char * thread = "";
   if( FD_UNLIKELY( config_fd >= 0 ) ) {
     copy_config_from_fd( config_fd, config );
-    /* tick_per_ns needs to be synchronized across procesess so that they
+    /* tick_per_ns needs to be synchronized across processes so that they
        can coordinate on metrics measurement. */
     fd_tempo_set_tick_per_ns( config->tick_per_ns_mu, config->tick_per_ns_sigma );
   } else {

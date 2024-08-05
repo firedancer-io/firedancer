@@ -1,6 +1,6 @@
 /* Gossip tile runs the gossip networking protcol for a Firedancer node. */
 
-#define _GNU_SOURCE 
+#define _GNU_SOURCE
 
 #include "../../../../disco/tiles.h"
 
@@ -54,7 +54,7 @@ fd_pubkey_eq( fd_pubkey_t const * key1, fd_pubkey_t const * key2 ) {
 
 static ulong
 fd_pubkey_hash( fd_pubkey_t const * key, ulong seed ) {
-  return fd_hash( seed, key->key, sizeof(fd_pubkey_t) ); 
+  return fd_hash( seed, key->key, sizeof(fd_pubkey_t) );
 }
 
 static void
@@ -131,7 +131,7 @@ struct fd_gossip_tile_ctx {
   fd_gossip_peer_addr_t tpu_my_addr;
   fd_gossip_peer_addr_t tpu_vote_my_addr;
   ushort                gossip_listen_port;
-  
+
   fd_wksp_t *     net_in_mem;
   ulong           net_in_chunk;
   ulong           net_in_wmark;
@@ -216,9 +216,9 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
   ulong packet_sz = payload_sz + sizeof(fd_net_hdrs_t);
   fd_memcpy( packet+sizeof(fd_net_hdrs_t), payload, payload_sz );
   hdr->udp->net_len   = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
-  hdr->udp->check = fd_ip4_udp_check( *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->saddr_c ), 
-                                      *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->daddr_c ), 
-                                      (fd_udp_hdr_t const *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->udp ), 
+  hdr->udp->check = fd_ip4_udp_check( *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->saddr_c ),
+                                      *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->daddr_c ),
+                                      (fd_udp_hdr_t const *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->udp ),
                                       packet + sizeof(fd_net_hdrs_t) );
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -227,10 +227,10 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 }
 
-static void 
-gossip_send_packet( uchar const * msg, 
-                    size_t msglen, 
-                    fd_gossip_peer_addr_t const * addr, 
+static void
+gossip_send_packet( uchar const * msg,
+                    size_t msglen,
+                    fd_gossip_peer_addr_t const * addr,
                     void * arg ) {
 ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
@@ -289,7 +289,7 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
     ulong vote_txn_sz    = gossip_vote->txn.raw_sz;
     memcpy( vote_txn_msg, gossip_vote->txn.raw, vote_txn_sz );
 
-    ulong sig = 1UL; 
+    ulong sig = 1UL;
     fd_mcache_publish( ctx->dedup_out_mcache, ctx->dedup_out_depth, ctx->dedup_out_seq, sig, ctx->dedup_out_chunk,
       vote_txn_sz, 0UL, 0, 0 );
     ctx->dedup_out_seq   = fd_seq_inc( ctx->dedup_out_seq, 1UL );
@@ -315,14 +315,15 @@ void
 gossip_signer( void *        signer_ctx,
                uchar         signature[ static 64 ],
                uchar const * buffer,
-               ulong         len ) {
+               ulong         len,
+               int           sign_type ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)signer_ctx;
-  fd_keyguard_client_sign( ctx->keyguard_client, signature, buffer, len );
+  fd_keyguard_client_sign( ctx->keyguard_client, signature, buffer, len, sign_type );
 }
 
 static void
 before_frag( void * _ctx        FD_PARAM_UNUSED,
-             ulong  in_idx      FD_PARAM_UNUSED, 
+             ulong  in_idx      FD_PARAM_UNUSED,
              ulong  seq         FD_PARAM_UNUSED,
              ulong  sig,
              int *  opt_filter ) {
@@ -624,7 +625,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* Gossip set up */
   ctx->gossip = fd_gossip_join( fd_gossip_new( ctx->gossip, ctx->gossip_seed ) );
 
-  FD_LOG_NOTICE(( "gossip my addr - addr: " FD_IP4_ADDR_FMT ":%u", 
+  FD_LOG_NOTICE(( "gossip my addr - addr: " FD_IP4_ADDR_FMT ":%u",
     FD_IP4_ADDR_FMT_ARGS( ctx->gossip_my_addr.addr ), fd_ushort_bswap( ctx->gossip_my_addr.port ) ));
   ctx->gossip_config.my_addr       = ctx->gossip_my_addr;
   ctx->gossip_config.my_version = (fd_gossip_version_v2_t){
@@ -676,7 +677,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_in_mem    = topo->workspaces[ topo->objs[ netmux_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->net_in_chunk  = fd_disco_compact_chunk0( ctx->net_in_mem );
   ctx->net_in_wmark  = fd_disco_compact_wmark( ctx->net_in_mem, netmux_link->mtu );
-  
+
   fd_topo_link_t * replay_in = &topo->links[ tile->in_link_id[ VOTER_IN_IDX ] ];
   ctx->replay_in_mem    = topo->workspaces[ topo->objs[ replay_in->dcache_obj_id ].wksp_id ].wksp;
   ctx->replay_in_chunk0 = fd_dcache_compact_chunk0( ctx->replay_in_mem, replay_in->dcache );

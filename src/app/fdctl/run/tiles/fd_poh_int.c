@@ -350,7 +350,7 @@ during_frag( void * _ctx,
        the accounts right after we execute and commit the results to the
        accounts database.  It has to happen before because otherwise
        there's a race where the bank releases the accounts, they get
-       reuused in another bank, and that bank sends to PoH and gets its
+       reused in another bank, and that bank sends to PoH and gets its
        microblock pulled first -- so the bank commit and poh mixin order
        is not the same.  Ideally we would resolve this a bit more
        cleverly and without holding the account locks this much longer. */

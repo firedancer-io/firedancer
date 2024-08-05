@@ -1,4 +1,4 @@
-/* Sender tile signs and sends transactions to the current leader. Currently 
+/* Sender tile signs and sends transactions to the current leader. Currently
    only supports transactions which require one signature. */
 
 #define _GNU_SOURCE
@@ -28,6 +28,7 @@
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/store/fd_store.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
+#include "../../../../disco/keyguard/fd_keyguard.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../flamenco/runtime/fd_runtime.h"
 #include "../../../../disco/fd_disco.h"
@@ -60,7 +61,7 @@ struct fd_sender_tile_ctx {
   fd_wksp_t * stake_in_mem;
   ulong       stake_in_chunk0;
   ulong       stake_in_wmark;
- 
+
   ulong       contact_in_idx;
   fd_wksp_t * contact_in_mem;
   ulong       contact_in_chunk0;
@@ -112,7 +113,7 @@ struct fd_sender_tile_ctx {
   ulong                sign_in_idx;
   ulong                sign_out_idx;
   fd_keyguard_client_t keyguard_client[ 1 ];
-  
+
 };
 typedef struct fd_sender_tile_ctx fd_sender_tile_ctx_t;
 
@@ -266,7 +267,7 @@ during_frag( void * _ctx,
     if( FD_UNLIKELY( chunk<ctx->contact_in_chunk0 || chunk>ctx->contact_in_wmark ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->contact_in_chunk0, ctx->contact_in_wmark ));
     }
-    
+
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->contact_in_mem, chunk );
     handle_new_cluster_contact_info( ctx, dcache_entry, sz );
   }
@@ -305,12 +306,12 @@ after_frag( void *             _ctx,
 
   if( FD_UNLIKELY( in_idx==ctx->replay_in_idx ) ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)fd_type_pun(ctx->txn_buf);
-    
+
     /* sign the txn */
     uchar * signature = txn->payload + TXN(txn)->signature_off;
     uchar * message   = txn->payload + TXN(txn)->message_off;
     ulong message_sz  = txn->payload_sz - TXN(txn)->message_off;
-    fd_keyguard_client_sign( ctx->keyguard_client, signature, message, message_sz );
+    fd_keyguard_client_sign( ctx->keyguard_client, signature, message, message_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
     uchar * msg_to_gossip = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
     memcpy( msg_to_gossip, txn->payload, txn->payload_sz );
@@ -371,7 +372,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() ), ctx->identity_key ) );
   void * scratch_smem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
   void * scratch_fmem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
-  
+
   /* scratch space attach */
   fd_scratch_attach( scratch_smem, scratch_fmem, SCRATCH_MAX, SCRATCH_DEPTH );
 
@@ -380,7 +381,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->tpu_serve_addr.addr = tile->sender.ip_addr;
   ctx->tpu_serve_addr.port = fd_ushort_bswap( tile->sender.tpu_listen_port );
-  fd_net_create_packet_header_template( ctx->packet_hdr, FD_TXN_MTU, ctx->tpu_serve_addr.addr, ctx->src_mac_addr, 
+  fd_net_create_packet_header_template( ctx->packet_hdr, FD_TXN_MTU, ctx->tpu_serve_addr.addr, ctx->src_mac_addr,
       ctx->tpu_serve_addr.port );
 
   ulong poh_slot_obj_id = fd_pod_query_ulong( topo->props, "poh_slot", ULONG_MAX );
@@ -449,7 +450,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, net_out_link->dcache );
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out_link->dcache, net_out_link->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
-  
+
 
   /* Set up keyguard(s) */
   ctx->sign_in_idx  = fd_topo_find_tile_in_link( topo, tile, "sign_voter", 0 );

@@ -3,7 +3,7 @@
    here are templated and will be instantiated for both the C and Rust CPI ABIs.
 
    The only difference between the C and Rust CPI syscalls is the ABI data layout
-   of the paramaters to these calls - all the logic is identical. As such, we have
+   of the parameters to these calls - all the logic is identical. As such, we have
    defined a series of macros to abstract away the ABI differences from the CPI implementation.
 
    The entry-point for these syscalls is VM_SYSCALL_CPI_ENTRYPOINT.
@@ -19,7 +19,7 @@
    to populate a fd_instr_info_t struct. This struct can then be given to the
    FD runtime for execution.
    
-Paramaters:
+Parameters:
 - vm: handle to the vm
 - cpi_instr: instruction to execute laid out in the CPI ABI format (Rust or C)
 - cpi_acc_metas: list of account metas, again in the CPI ABI format
@@ -79,7 +79,7 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
         }
 
         /* The parent flag(s) for is writable/signer is checked in
-           fd_vm_prepare_instruction. Signer privlege is allowed iff the account 
+           fd_vm_prepare_instruction. Signer privilege is allowed iff the account
            is a signer in the caller or if it is a derived signer. */
         if( VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( cpi_acct_meta ) ) {
           out_instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
