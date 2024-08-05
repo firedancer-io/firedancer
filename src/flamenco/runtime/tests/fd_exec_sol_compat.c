@@ -25,6 +25,11 @@ typedef struct {
   ulong   supported_feature_cnt;
 } sol_compat_features_t;
 
+typedef struct {
+  uint16_t validator_type;
+} sol_compat_metadata_t;
+
+static sol_compat_metadata_t metadata = { .validator_type = 1 /* Firedancer */ };
 static sol_compat_features_t features;
 static       uchar *     smem;
 static const ulong       smax = 1UL<<30;
@@ -93,6 +98,16 @@ sol_compat_check_wksp_usage( void ) {
   }
 }
 
+sol_compat_features_t const *
+sol_compat_get_features_v1( void ) {
+  return &features;
+}
+
+sol_compat_metadata_t const *
+sol_compat_get_metadata_v1( void ) {
+  return &metadata;
+}
+
 fd_exec_instr_test_runner_t *
 sol_compat_setup_scratch_and_runner( void * fmem ) {
   // Setup scratch
@@ -152,8 +167,7 @@ sol_compat_execute_wrapper( fd_exec_instr_test_runner_t * runner,
                             void * input,
                             void ** output,
                             exec_test_run_fn_t * exec_test_run_fn ) {
-  // fd_scratch_push();
-  do {
+  FD_SCRATCH_SCOPE_BEGIN {
     ulong out_bufsz = 100000000;  /* 100 MB */
     void * out0 = fd_scratch_prepare( 1UL );
     assert( out_bufsz < fd_scratch_free() );
@@ -163,8 +177,7 @@ sol_compat_execute_wrapper( fd_exec_instr_test_runner_t * runner,
       *output = NULL;
       break;
     }
-  } while(0);
-  // fd_scratch_pop();
+  } FD_SCRATCH_SCOPE_END;
 }
 
 /*
@@ -484,10 +497,6 @@ sol_compat_elf_loader_v1( uchar *       out,
   return ok;
 }
 
-sol_compat_features_t const *
-sol_compat_get_features_v1( void ) {
-  return &features;
-}
 
 int
 sol_compat_vm_syscall_execute_v1( uchar *       out,
@@ -530,7 +539,7 @@ int
 sol_compat_vm_validate_v1(  uchar *       out,
                             ulong *       out_sz,
                             uchar const * in,
-                            ulong         in_sz) {
+                            ulong         in_sz ) {
   // Setup
   ulong fmem[ 64 ];
   fd_exec_instr_test_runner_t * runner = sol_compat_setup_scratch_and_runner( fmem );
@@ -561,4 +570,15 @@ sol_compat_vm_validate_v1(  uchar *       out,
   sol_compat_check_wksp_usage();
 
   return ok;
+}
+
+/* We still need a separate entrypoint since other harnesses (namely sfuzz-agave) 
+   do something other than wrap their vm_syscall equivalent */
+int
+sol_compat_vm_cpi_syscall_v1( uchar *       out,
+                              ulong *       out_sz,
+                              uchar const * in,
+                              ulong         in_sz ) {
+  /* Just a wrapper to vm_syscall_execute_v1 */
+  return sol_compat_vm_syscall_execute_v1( out, out_sz, in, in_sz );
 }

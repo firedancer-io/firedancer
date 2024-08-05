@@ -240,7 +240,7 @@ _instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Initial variables */
   txn_ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
-  txn_ctx->heap_size = FD_VM_HEAP_SIZE;
+  txn_ctx->heap_size                       = fd_ulong_max( txn_ctx->heap_size, FD_VM_HEAP_SIZE ); /* FIXME: bound this to FD_VM_HEAP_MAX?*/
 
   /* Set up epoch context */
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
@@ -520,6 +520,9 @@ _instr_context_create( fd_exec_instr_test_runner_t *        runner,
     acc_idx_seen[index] = 1;
   }
   info->acct_cnt = (uchar)test_ctx->instr_accounts_count;
+
+  //  FIXME: Specifically for CPI syscalls, flag guard this?
+  fd_instr_info_sum_account_lamports( info, &info->starting_lamports_h, &info->starting_lamports_l );
 
   /* This function is used to create context both for instructions and for syscalls,
      however some of the remaining checks are only relevant for program instructions. */
@@ -1643,7 +1646,10 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   /* Create execution context */
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t ctx[1];
-  if( !_instr_context_create( runner, ctx, input_instr_ctx, alloc, true ) )
+  // Skip extra checks for non-CPI syscalls
+  bool skip_extra_checks = strncmp( (const char *)input->syscall_invocation.function_name.bytes, "sol_invoke_signed", 17 );
+
+  if( !_instr_context_create( runner, ctx, input_instr_ctx, alloc, skip_extra_checks ) )
     goto error;
   fd_valloc_t valloc = fd_scratch_virtual();
 
@@ -1778,7 +1784,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
 
   /* Capture the effects */
   effects->error = -syscall_err;
-  effects->r0 = vm->reg[0];
+  effects->r0 = syscall_err ? 0 : vm->reg[0]; // Save only on success
   effects->cu_avail = (ulong)vm->cu;
 
   effects->heap = FD_SCRATCH_ALLOC_APPEND(
