@@ -1807,3 +1807,15 @@ error:
   _instr_context_destroy( runner, ctx, wksp, alloc );
   return 0;
 }
+
+/* Stubs fd_execute_instr for binaries compiled with 
+   `-Xlinker --wrap=fd_execute_instr` */
+int
+__wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
+                         fd_instr_info_t *   instr_info )
+{
+    (void)(txn_ctx);
+    (void)(instr_info);
+    FD_LOG_WARNING(( "fd_execute_instr is disabled" ));
+    return FD_EXECUTOR_INSTR_SUCCESS;
+}
