@@ -19,6 +19,9 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
 
   /* Deserialize the Config Program instruction data, which consists only of the ConfigKeys
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L21 */
+  if( FD_UNLIKELY( ctx.instr->data==NULL ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
 
   fd_bincode_decode_ctx_t decode =
     { .valloc  = fd_scratch_virtual(),

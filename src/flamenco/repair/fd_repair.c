@@ -27,6 +27,8 @@
 #define FD_STAKE_WEIGHTS_MAX (1<<14)
 /* Max number of validator clients that we ping */
 #define FD_REPAIR_PINGED_MAX (1<<14)
+/* Sha256 pre-image size for pings */
+#define FD_PING_PRE_IMAGE_SZ (48UL)
 
 /* Test if two hash values are equal */
 static int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
@@ -433,17 +435,7 @@ fd_repair_sign_and_send( fd_repair_t *           glob,
      0                4 */
 
   fd_signature_t sig;
-  if( glob->sign_fun ) {
-    (*glob->sign_fun)( glob->sign_arg, sig.uc, buf, buflen, FD_KEYGUARD_SIGN_TYPE_ED25519 );
-  } else {
-    fd_sha512_t sha[1];
-    fd_ed25519_sign( /* sig */ sig.uc,
-                     /* msg */ buf,
-                     /* sz  */ buflen,
-                     /* public_key  */ glob->public_key->key,
-                     /* private_key */ glob->private_key,
-                     sha );
-  }
+  (*glob->sign_fun)( glob->sign_arg, sig.uc, buf, buflen, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
   /* Reintroduce the signature */
 
@@ -599,24 +591,15 @@ fd_repair_recv_ping(fd_repair_t * glob, fd_gossip_ping_t const * ping, fd_gossip
   fd_hash_copy( &pong->from, glob->public_key );
 
   /* Generate response hash token */
-  fd_sha256_t sha[1];
-  fd_sha256_init( sha );
-  fd_sha256_append( sha, "SOLANA_PING_PONG", 16UL );
-  fd_sha256_append( sha, ping->token.uc,     32UL );
-  fd_sha256_fini( sha, pong->token.uc );
+  uchar pre_image[FD_PING_PRE_IMAGE_SZ];
+  memcpy( pre_image, "SOLANA_PING_PONG", 16UL );
+  memcpy( pre_image+16UL, ping->token.uc, 32UL);
+
+  /* Generate response hash token */
+  fd_sha256_hash( pre_image, FD_PING_PRE_IMAGE_SZ, &pong->token );
 
   /* Sign it */
-  if( glob->sign_fun ) {
-    (*glob->sign_fun)( glob->sign_arg, pong->signature.uc, pong->token.uc, 32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
-  } else {
-    fd_sha512_t sha2[1];
-    fd_ed25519_sign( /* sig */ pong->signature.uc,
-                     /* msg */ pong->token.uc,
-                     /* sz  */ 32UL,
-                     /* public_key  */ glob->public_key->key,
-                     /* private_key */ glob->private_key,
-                     sha2 );
-  }
+  (*glob->sign_fun)( glob->sign_arg, pong->signature.uc, pre_image, FD_PING_PRE_IMAGE_SZ, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 );
 
   fd_bincode_encode_ctx_t ctx;
   uchar buf[1024];
@@ -1035,21 +1018,16 @@ fd_repair_send_ping(fd_repair_t * glob, fd_gossip_peer_addr_t const * addr, fd_p
   fd_repair_response_new_disc( &gmsg, fd_repair_response_enum_ping );
   fd_gossip_ping_t * ping = &gmsg.inner.ping;
   fd_hash_copy( &ping->from, glob->public_key );
-  for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); ++i )
-    ping->token.ul[i] = val->token.ul[i] = fd_rng_ulong(glob->rng);
+  for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); i++ )
+    val->token.ul[i] = fd_rng_ulong(glob->rng);
 
-  if( glob->sign_fun ) {
-    (*glob->sign_fun)( glob->sign_arg, ping->signature.uc, ping->token.uc, 32UL, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 );
-  } else {
-    /* FIXME wrong signature for pings */
-    fd_sha512_t sha[1];
-    fd_ed25519_sign( /* sig */ ping->signature.uc,
-                     /* msg */ ping->token.uc,
-                     /* sz  */ 32UL,
-                     /* public_key  */ glob->public_key->key,
-                     /* private_key */ glob->private_key,
-                     sha );
-  }
+  uchar pre_image[FD_PING_PRE_IMAGE_SZ];
+  memcpy( pre_image, "SOLANA_PING_PONG", 16UL );
+  memcpy( pre_image+16UL, val->token.uc, 32UL );
+
+  fd_sha256_hash( pre_image, FD_PING_PRE_IMAGE_SZ, &ping->token );
+
+  (*glob->sign_fun)( glob->sign_arg, ping->signature.uc, pre_image, FD_PING_PRE_IMAGE_SZ, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 );
 
   fd_bincode_encode_ctx_t ctx;
   uchar buf[1024];
@@ -1068,10 +1046,17 @@ fd_repair_recv_pong(fd_repair_t * glob, fd_gossip_ping_t const * pong, fd_gossip
     return;
 
   /* Verify response hash token */
+  uchar pre_image[FD_PING_PRE_IMAGE_SZ];
+  memcpy( pre_image, "SOLANA_PING_PONG", 16UL );
+  memcpy( pre_image+16UL, val->token.uc, 32UL );
+
+  fd_hash_t pre_image_hash;
+  fd_sha256_hash( pre_image, FD_PING_PRE_IMAGE_SZ, pre_image_hash.uc );
+
   fd_sha256_t sha[1];
   fd_sha256_init( sha );
   fd_sha256_append( sha, "SOLANA_PING_PONG", 16UL );
-  fd_sha256_append( sha, val->token.uc,     32UL );
+  fd_sha256_append( sha, pre_image_hash.uc,  32UL );
   fd_hash_t golden;
   fd_sha256_fini( sha, golden.uc );
 

@@ -1265,11 +1265,13 @@ fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
 }
 
 ulong
-fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
-                        fd_exec_test_instr_context_t const * input,
-                        fd_exec_test_instr_effects_t **      output,
-                        void *                               output_buf,
-                        ulong                                output_bufsz ) {
+fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
+                        void const *                  input_,
+                        void **                       output_,
+                        void *                        output_buf,
+                        ulong                         output_bufsz ) {
+  fd_exec_test_instr_context_t const * input  = fd_type_pun_const( input_ );
+  fd_exec_test_instr_effects_t **      output = fd_type_pun( output_ );
   fd_wksp_t *  wksp  = fd_wksp_attach( "wksp" );
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
 
@@ -1375,11 +1377,14 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
 }
 
 ulong
-fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner only contains funk instance, so we can borrow instr test runner
-                      fd_exec_test_txn_context_t const *   input,
-                      fd_exec_test_txn_result_t **         output,
-                      void *                               output_buf,
-                      ulong                                output_bufsz ) {
+fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only contains funk instance, so we can borrow instr test runner
+                      void const *                  input_,
+                      void **                       output_,
+                      void *                        output_buf,
+                      ulong                         output_bufsz ) {
+  fd_exec_test_txn_context_t const * input  = fd_type_pun_const( input_ );
+  fd_exec_test_txn_result_t **       output = fd_type_pun( output_ );
+
   FD_SCRATCH_SCOPE_BEGIN {
     /* Initialize memory */
     fd_wksp_t *           wksp          = fd_wksp_attach( "wksp" );
@@ -1494,10 +1499,13 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
 
 ulong
 fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * runner,
-                               fd_exec_test_elf_loader_ctx_t const * input,
-                               fd_exec_test_elf_loader_effects_t **  output,
-                               void *                                output_buf,
-                               ulong                                 output_bufsz ){
+                               void const *                  input_,
+                               void **                       output_,
+                               void *                        output_buf,
+                               ulong                         output_bufsz ) {
+  fd_exec_test_elf_loader_ctx_t const * input  = fd_type_pun_const( input_ );
+  fd_exec_test_elf_loader_effects_t **  output = fd_type_pun( output_ );
+
   fd_sbpf_elf_info_t info;
   fd_valloc_t valloc = fd_scratch_virtual();
 
@@ -1606,11 +1614,13 @@ fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * run
 }
 
 ulong
-fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
-                             fd_exec_test_syscall_context_t const * input,
-                             fd_exec_test_syscall_effects_t **      output,
-                             void *                                 output_buf,
-                             ulong                                  output_bufsz ) {
+fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
+                             void const *                  input_,
+                             void **                       output_,
+                             void *                        output_buf,
+                             ulong                         output_bufsz ) {
+  fd_exec_test_syscall_context_t const * input =  fd_type_pun_const( input_ );
+  fd_exec_test_syscall_effects_t **      output = fd_type_pun( output_ );
   fd_wksp_t *  wksp  = fd_wksp_attach( "wksp" );
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
 
@@ -1756,18 +1766,18 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
   effects->cu_avail = (ulong)vm->cu;
 
   effects->heap = FD_SCRATCH_ALLOC_APPEND(
-    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
+    l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
   effects->heap->size = (uint)vm->heap_max;
   fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
 
   effects->stack = FD_SCRATCH_ALLOC_APPEND(
-    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
+    l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
   effects->stack->size = (uint)FD_VM_STACK_MAX;
   fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
 
   // if( input_data_sz ) {
   //   effects->inputdata = FD_SCRATCH_ALLOC_APPEND(
-  //     l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( input_data_sz ) );
+  //     l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( input_data_sz ) );
   //   effects->inputdata->size = (uint)input_data_sz;
   //   fd_memcpy( effects->inputdata->bytes, vm->input, input_data_sz );
   // } else {

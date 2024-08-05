@@ -17,7 +17,6 @@
   } while(0);
 
 #define FD_RUNTIME_LOG_APPEND( ctx, log ) do { \
-  FD_LOG_NOTICE(( log ));                      \
   } while(0);
 
 /* FD_ZKSDK_INSTR_{...} identify ZK ElGamal Proof Program instructions.

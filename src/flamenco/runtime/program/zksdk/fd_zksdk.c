@@ -170,7 +170,7 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L50-L61
          Note: it doesn't look like the ref code can throw any error. */
-      uint proof_data_offset = *((uint *)(&instr_data[1]));
+      uint proof_data_offset = fd_uint_load_4_fast(&instr_data[1]);
 
       /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L62-L65 */
       if( proof_data_offset+proof_data_sz > proof_data_acc->meta->dlen ) {

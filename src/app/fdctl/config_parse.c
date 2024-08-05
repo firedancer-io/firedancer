@@ -234,6 +234,7 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( cstr,   consensus.identity_path                          );
   CFG_POP      ( cstr,   consensus.vote_account_path                      );
+  CFG_POP_ARRAY( cstr,   consensus.authorized_voter_paths                 );
   CFG_POP      ( bool,   consensus.snapshot_fetch                         );
   CFG_POP      ( bool,   consensus.genesis_fetch                          );
   CFG_POP      ( bool,   consensus.poh_speed_test                         );

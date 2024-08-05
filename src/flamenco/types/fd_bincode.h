@@ -206,6 +206,9 @@ static inline int
 fd_bincode_compact_u16_decode( ushort *                  self,
                                fd_bincode_decode_ctx_t * ctx ) {
   const uchar * ptr = (const uchar*) ctx->data;
+  if( FD_UNLIKELY( ptr==NULL ) ) {
+    return FD_BINCODE_ERR_UNDERFLOW;
+  }
 
   if( FD_LIKELY( (void *) (ptr + 1) <= ctx->dataend && !(0x80U & ptr[0]) ) ) {
     *self = (ushort)ptr[0];

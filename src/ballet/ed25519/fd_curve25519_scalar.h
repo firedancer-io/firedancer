@@ -56,10 +56,10 @@ fd_curve25519_scalar_reduce( uchar       out[ 32 ],
 
 static inline uchar const *
 fd_curve25519_scalar_validate( uchar const s[ 32 ] ) {
-  ulong s0 = *(ulong *)(&s[  0 ]);
-  ulong s1 = *(ulong *)(&s[  8 ]);
-  ulong s2 = *(ulong *)(&s[ 16 ]);
-  ulong s3 = *(ulong *)(&s[ 24 ]);
+  ulong s0 = fd_ulong_load_8_fast( s      );
+  ulong s1 = fd_ulong_load_8_fast( s +  8 );
+  ulong s2 = fd_ulong_load_8_fast( s + 16 );
+  ulong s3 = fd_ulong_load_8_fast( s + 24 );
   ulong l0 = *(ulong *)(&fd_curve25519_scalar_minus_one[  0 ]);
   ulong l1 = *(ulong *)(&fd_curve25519_scalar_minus_one[  8 ]);
   ulong l2 = *(ulong *)(&fd_curve25519_scalar_minus_one[ 16 ]);

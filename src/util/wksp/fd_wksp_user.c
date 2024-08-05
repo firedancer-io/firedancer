@@ -363,7 +363,9 @@ fd_wksp_free( fd_wksp_t * wksp,
 
   fd_wksp_private_unlock( wksp );
 
-  if( FD_UNLIKELY( i>=part_max ) ) FD_LOG_WARNING(( "gaddr does not appear to be a current wksp allocation" ));
+  if( FD_UNLIKELY( i>=part_max && i!=FD_WKSP_PRIVATE_PINFO_IDX_NULL ) ) {
+    FD_LOG_WARNING(( "gaddr does not appear to be a current wksp allocation" ));
+  }
 }
 
 ulong

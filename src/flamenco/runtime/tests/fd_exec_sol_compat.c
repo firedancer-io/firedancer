@@ -266,7 +266,7 @@ sol_compat_instr_fixture( fd_exec_instr_test_runner_t * runner,
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, (exec_test_run_fn_t *)fd_exec_instr_test_run );
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_instr_test_run );
 
   // Compare effects
   int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_instr_effects_t_msg );
@@ -290,7 +290,7 @@ sol_compat_precompile_fixture( fd_exec_instr_test_runner_t * runner,
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, (exec_test_run_fn_t *)fd_exec_instr_test_run );
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_instr_test_run );
 
   // Compare effects
   int ok = sol_compat_cmp_success_fail_only( output, &fixture->output );
@@ -314,7 +314,7 @@ sol_compat_elf_loader_fixture( fd_exec_instr_test_runner_t * runner,
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, (exec_test_run_fn_t *)fd_sbpf_program_load_test_run );
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_sbpf_program_load_test_run );
 
   // Compare effects
   int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_elf_loader_effects_t_msg );
@@ -337,7 +337,7 @@ sol_compat_syscall_fixture( fd_exec_instr_test_runner_t * runner,
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, (exec_test_run_fn_t *)fd_exec_vm_syscall_test_run );
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_vm_syscall_test_run );
 
   // Compare effects
   int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_syscall_effects_t_msg );
@@ -360,10 +360,8 @@ sol_compat_validate_vm_fixture( fd_exec_instr_test_runner_t * runner,
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner,
-                              &fixture->input,
-                              &output, 
-                              (exec_test_run_fn_t *)fd_exec_vm_validate_test_run );
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_vm_validate_test_run );
+
   // Compare effects
   int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_validate_vm_effects_t_msg );
 
@@ -395,7 +393,7 @@ sol_compat_instr_execute_v1( uchar *       out,
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, input, &output, (exec_test_run_fn_t *)fd_exec_instr_test_run );
+  sol_compat_execute_wrapper( runner, input, &output, fd_exec_instr_test_run );
 
   // Encode effects
   int ok = 0;
@@ -432,7 +430,7 @@ sol_compat_txn_execute_v1( uchar *       out,
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, input, &output, (exec_test_run_fn_t *)fd_exec_txn_test_run );
+  sol_compat_execute_wrapper( runner, input, &output, fd_exec_txn_test_run );
 
   // Encode effects
   int ok = 0;
@@ -472,7 +470,7 @@ sol_compat_elf_loader_v1( uchar *       out,
     void * out0 = fd_scratch_prepare( 1UL );
     assert( out_bufsz < fd_scratch_free() );
     fd_scratch_publish( (void *)( (ulong)out0 + out_bufsz ) );
-    ulong out_used = fd_sbpf_program_load_test_run( NULL, input, &output, out0, out_bufsz );
+    ulong out_used = fd_sbpf_program_load_test_run( NULL, fd_type_pun_const( input ), fd_type_pun( &output ), out0, out_bufsz );
     if( FD_UNLIKELY( !out_used ) ) {
       output = NULL;
       break;
@@ -524,7 +522,7 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, input, &output, (exec_test_run_fn_t *)fd_exec_vm_syscall_test_run );
+  sol_compat_execute_wrapper( runner, input, &output, fd_exec_vm_syscall_test_run );
 
   // Encode effects
   int ok = 0;
@@ -561,7 +559,7 @@ sol_compat_vm_validate_v1(  uchar *       out,
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, input, &output, (exec_test_run_fn_t *)fd_exec_vm_validate_test_run );
+  sol_compat_execute_wrapper( runner, input, &output, fd_exec_vm_validate_test_run );
 
   // Encode effects
   int ok = 0;

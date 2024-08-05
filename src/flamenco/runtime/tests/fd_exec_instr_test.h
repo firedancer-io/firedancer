@@ -70,21 +70,21 @@ fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
    for failure.  Reasons for failure include insufficient output_bufsz. */
 
 ulong
-fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
-                        fd_exec_test_instr_context_t const * input,
-                        fd_exec_test_instr_effects_t **      output,
-                        void *                               output_buf,
-                        ulong                                output_bufsz );
+fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
+                        void const *                  input_,
+                        void **                       output_,
+                        void *                        output_buf,
+                        ulong                         output_bufsz );
 
 /*
    Similar to above, but executes a txn given txn context (input)
 */
 ulong
-fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner only contains funk instance, so we can borrow instr test runner
-                      fd_exec_test_txn_context_t const *   input,
-                      fd_exec_test_txn_result_t **         output,
-                      void *                               output_buf,
-                      ulong                                output_bufsz );
+fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only contains funk instance, so we can borrow instr test runner
+                      void const *                  input_,
+                      void **                       output_,
+                      void *                        output_buf,
+                      ulong                         output_bufsz );
 
 /* Loads an ELF binary (in input->elf.data()). 
    output_buf points to a memory region of output_bufsz bytes where the
@@ -96,18 +96,18 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t *        runner, // Runner onl
    but output is incomplete/undefined.
    */
 ulong
-fd_sbpf_program_load_test_run( fd_exec_instr_test_runner_t *         runner,
-                               fd_exec_test_elf_loader_ctx_t const * input,
-                               fd_exec_test_elf_loader_effects_t **  output,
-                               void *                                output_buf,
-                               ulong                                 output_bufsz );
+fd_sbpf_program_load_test_run( fd_exec_instr_test_runner_t * runner,
+                               void const *                  input_,
+                               void **                       output_,
+                               void *                        output_buf,
+                               ulong                         output_bufsz );
 
 ulong
-fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
-                             fd_exec_test_syscall_context_t const * input,
-                             fd_exec_test_syscall_effects_t **      output,
-                             void *                                 output_buf,
-                             ulong                                  output_bufsz );
+fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
+                             void const *                  input_,
+                             void **                       output_,
+                             void *                        output_buf,
+                             ulong                         output_bufsz );
 
 
 FD_PROTOTYPES_END

@@ -1050,6 +1050,9 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t _ctx ) {
   fd_exec_instr_ctx_t * ctx = &_ctx;
   uchar const * instr_data    = ctx->instr->data;
   ulong         instr_data_sz = ctx->instr->data_sz;
+  if( FD_UNLIKELY( instr_data==NULL ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
 
   FD_SCRATCH_SCOPE_BEGIN {
 

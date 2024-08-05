@@ -31,7 +31,7 @@ main( int argc, char **argv ) {
   fd_ip_arp_entry_t * arp_table     = fd_ip_arp_table_get( ip );
   ulong               arp_table_sz  = ip->cur_num_arp_entries;
 
-  FD_LOG_NOTICE(( "ARP table:" ));
+  puts( "ARP table:" );
   for( ulong j = 0L; j < arp_table_sz; ++j ) {
     fd_ip_arp_entry_t * arp_entry = arp_table + j;
 
@@ -43,7 +43,7 @@ main( int argc, char **argv ) {
                    (((IP)>>010) & 0xffU), \
                    (((IP)>>000) & 0xffU)
 
-    FD_LOG_NOTICE(( "  " IP_FMT "  %02x:%02x:%02x:%02x:%02x:%02x  %2u  %x",
+    printf( "  " IP_FMT "  %02x:%02x:%02x:%02x:%02x:%02x  %2u  %x\n",
           IP_VAR(arp_table[j].dst_ip_addr),
           arp_table[j].mac_addr[0],
           arp_table[j].mac_addr[1],
@@ -52,7 +52,7 @@ main( int argc, char **argv ) {
           arp_table[j].mac_addr[4],
           arp_table[j].mac_addr[5],
           arp_table[j].ifindex,
-          arp_table[j].flags ));
+          arp_table[j].flags );
   }
 
   /* fetch the route table */
@@ -61,20 +61,20 @@ main( int argc, char **argv ) {
   fd_ip_route_entry_t * route_table     = fd_ip_route_table_get( ip );
   ulong                 route_table_sz  = ip->cur_num_route_entries;
 
-  FD_LOG_NOTICE(( "Routing table:" ));
+  puts( "Routing table:" );
   for( ulong j = 0L; j < route_table_sz; ++j ) {
     fd_ip_route_entry_t * route_entry = route_table + j;
 
     if( route_entry->flags == 0 ) break;
 
-    FD_LOG_NOTICE(( "  " IP_FMT "  " IP_FMT "  " IP_FMT "  %2u  " IP_FMT "  %2u  %x",
+    printf( "  " IP_FMT "  " IP_FMT "  " IP_FMT "  %2u  " IP_FMT "  %2u  %x\n",
           IP_VAR(route_table[j].nh_ip_addr),
           IP_VAR(route_table[j].dst_ip_addr),
           IP_VAR(route_table[j].dst_netmask),
           route_table[j].dst_netmask_sz,
           IP_VAR(route_table[j].src_ip_addr),
           route_table[j].oif,
-          route_table[j].flags ));
+          route_table[j].flags );
   }
 
   fd_ip_leave( ip );

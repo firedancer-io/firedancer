@@ -5,12 +5,15 @@
 #include "../../vm/test_vm_util.h"
 
 ulong
-fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t *         runner,
-                              fd_exec_test_full_vm_context_t const *input,
-                              fd_exec_test_validate_vm_effects_t ** output,
-                              void *                                output_buf,
-                              ulong                                 output_bufsz ) {
+fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
+                              void const *                  input_,
+                              void **                       output_,
+                              void *                        output_buf,
+                              ulong                         output_bufsz ) {
   (void) runner; /* unused, for wrapper compat */
+  fd_exec_test_full_vm_context_t const * input  = fd_type_pun_const( input_ );
+  fd_exec_test_validate_vm_effects_t **  output = fd_type_pun( output_ );
+
   if( FD_UNLIKELY( !input->has_vm_ctx ) ) {
     return 0UL;
   }

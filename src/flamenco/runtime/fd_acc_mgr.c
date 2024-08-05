@@ -176,9 +176,6 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
 
   fd_funk_rec_key_t id   = fd_acc_funk_key( pubkey );
 
-  if (((pubkey->ul[0] == 0) & (pubkey->ul[1] == 0) & (pubkey->ul[2] == 0) & (pubkey->ul[3] == 0)))
-    FD_LOG_WARNING(( "null pubkey (system program?) is being modified" ));
-
 //#ifdef VLOG
 //  ulong rec_cnt = 0;
 //  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );

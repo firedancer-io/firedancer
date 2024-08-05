@@ -63,11 +63,11 @@ main( int     argc,
   /* TODO switch to leap API and set up a thread pool once available */
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 4UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 65536, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
 
   ulong   scratch_fmem[ 64UL ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
   uchar * scratch_smem = malloc( 1 << 30 ); // 1 GB
-  fd_scratch_attach( scratch_smem, scratch_fmem, 1UL<<31, 64UL );
+  fd_scratch_attach( scratch_smem, scratch_fmem, 1UL<<30, 64UL );
 
   // Setup usage tracking
   fd_wksp_usage_t usage[1];
