@@ -864,7 +864,6 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_txn_p_t * txn = fd_scratch_alloc( alignof(fd_txn_p_t), sizeof(fd_txn_p_t) );
   memcpy( txn->payload, txn_raw_begin, txn_raw_sz );
   txn->payload_sz = (ulong) txn_raw_sz;
-  txn->meta = 0;
   txn->flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
   memcpy( txn->_, txn_descriptor, fd_txn_footprint( instr_count, addr_table_cnt ) );
 
