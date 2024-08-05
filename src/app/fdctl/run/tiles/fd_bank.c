@@ -97,7 +97,7 @@ before_frag( void * _ctx,
 }
 
 extern void * fd_ext_bank_pre_balance_info( void const * bank, void * txns, ulong txn_cnt );
-extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_load_results, int * out_executing_results, int * out_executed_results );
+extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_load_results, int * out_executing_results, int * out_executed_results, uint * out_consumed_cus );
 extern void   fd_ext_bank_commit_txns( void const * bank, void const * txns, ulong txn_cnt , void * load_and_execute_output, void * pre_balance_info );
 extern void   fd_ext_bank_release_thunks( void * load_and_execute_output );
 extern void   fd_ext_bank_release_pre_balance_info( void * pre_balance_info );
@@ -198,9 +198,10 @@ after_frag( void *             _ctx,
 
   /* Just because a transaction was executed doesn't mean it succeeded,
      but all executed transactions get committed. */
-  int load_results[ MAX_TXN_PER_MICROBLOCK ] = {0};
-  int executing_results[ MAX_TXN_PER_MICROBLOCK ] = {0};
-  int executed_results[ MAX_TXN_PER_MICROBLOCK ] = {0};
+  int  load_results     [ MAX_TXN_PER_MICROBLOCK ] = { 0  };
+  int  executing_results[ MAX_TXN_PER_MICROBLOCK ] = { 0  };
+  int  executed_results [ MAX_TXN_PER_MICROBLOCK ] = { 0  };
+  uint consumed_cus     [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
 
   void * pre_balance_info = fd_ext_bank_pre_balance_info( ctx->_bank, ctx->txn_abi_mem, sanitized_txn_cnt );
 
@@ -209,11 +210,14 @@ after_frag( void *             _ctx,
                                                                       sanitized_txn_cnt,
                                                                       load_results,
                                                                       executing_results,
-                                                                      executed_results );
+                                                                      executed_results,
+                                                                      consumed_cus     );
 
   ulong sanitized_idx = 0UL;
   for( ulong i=0; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
+
+    txn->executed_cus  = 0UL; /* Assume failure, set below if success */
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
 
     sanitized_idx++;
@@ -224,7 +228,8 @@ after_frag( void *             _ctx,
     if( FD_UNLIKELY( executing_results[ sanitized_idx-1 ] ) ) continue;
 
     ctx->metrics.txn_executed[ executed_results[ sanitized_idx-1 ] ]++;
-    txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+    txn->flags        |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+    txn->executed_cus  = consumed_cus[ sanitized_idx-1UL ];
   }
 
   /* Commit must succeed so no failure path.  This function takes
