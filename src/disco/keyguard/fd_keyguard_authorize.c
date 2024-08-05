@@ -58,7 +58,7 @@ fd_keyguard_authorize_repair( fd_keyguard_authority_t const * authority,
                               int                             sign_type ) {
 
   if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
-  if( sz<144 ) return 0;
+  if( sz<80 ) return 0;
 
   uint          discriminant = fd_uint_load_4( data );
   uchar const * sender       = data+4;
