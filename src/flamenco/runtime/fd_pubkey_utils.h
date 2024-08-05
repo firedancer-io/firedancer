@@ -30,7 +30,8 @@ fd_pubkey_create_with_seed( fd_exec_instr_ctx_t const * ctx,
 int
 fd_pubkey_derive_pda( fd_pubkey_t const * program_id, 
                       ulong               seeds_cnt, 
-                      uchar **            seeds, 
+                      uchar **            seeds,
+                      ulong *             seed_szs,
                       uchar *             bump_seed, 
                       fd_pubkey_t *       out );
 
@@ -46,6 +47,7 @@ int
 fd_pubkey_try_find_program_address( fd_pubkey_t const * program_id, 
                                     ulong               seeds_cnt, 
                                     uchar **            seeds,
+                                    ulong *             seed_szs,
                                     fd_pubkey_t *       out,
                                     uchar *             out_bump_seed );
 
