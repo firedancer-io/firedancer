@@ -206,7 +206,7 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
     vm,
     instr_ctx,
     FD_VM_HEAP_MAX,
-    input->instr_ctx.cu_avail, /* FIXME: check if instr_ctx is set */
+    input->has_instr_ctx ? input->instr_ctx.cu_avail : 0,
     rodata,
     rodata_sz,
     (ulong *) rodata, /* text*, same as rodata */
