@@ -75,13 +75,13 @@ struct fd_ledger_args {
   char const *          checkpt_path;            /* path to dump funk wksp checkpoints during execution*/
   ulong                 checkpt_freq;            /* how often funk wksp checkpoints will be dumped (defaults to never) */
   int                   checkpt_mismatch;        /* determine if a funk wksp checkpoint should be dumped on a mismatch*/
-  
+
   int                   dump_insn_to_pb;         /* instruction dumping: should insns be dumped */
   int                   dump_txn_to_pb;          /* txn dumping: should txns be dumped */
   ulong                 dump_proto_start_slot;   /* instruction / txn dumping: what slot to start dumping*/
   char const *          dump_proto_sig_filter;   /* instruction / txn dumping: specify txn sig to dump at */
   char const *          dump_proto_output_dir;   /* instruction / txn dumping: output directory for protobuf messages */
-  
+
   int                   verify_funk;             /* verify funk before execution starts */
   uint                  verify_acc_hash;         /* verify account hash from the snapshot */
   uint                  check_acc_hash;          /* check account hash by reconstructing with data */
@@ -100,7 +100,6 @@ struct fd_ledger_args {
   fd_exec_slot_ctx_t *  slot_ctx;                /* slot_ctx */
   fd_exec_epoch_ctx_t * epoch_ctx;               /* epoch_ctx */
   fd_tpool_t *          tpool;                   /* thread pool for execution */
-  ulong                 max_workers;             /* max number of workers for thread pool */
   uchar                 tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
   #ifdef _ENABLE_LTHASH
   char const *      lthash;
@@ -135,7 +134,6 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
     }
   }
   ledger_args->tpool       = tpool;
-  ledger_args->max_workers = tcnt;
   return 0;
 }
 
@@ -224,7 +222,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
                                           val,
                                           sz,
                                           ledger_args->tpool,
-                                          ledger_args->max_workers,
                                           1,
                                           &blk_txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
     txn_cnt += blk_txn_cnt;

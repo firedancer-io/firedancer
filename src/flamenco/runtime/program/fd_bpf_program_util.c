@@ -220,8 +220,7 @@ fd_bpf_scan_task( void * tpool,
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                                       fd_funk_txn_t *      funk_txn,
-                                                      fd_tpool_t *         tpool,
-                                                      ulong                max_workers ) {
+                                                      fd_tpool_t *         tpool ) {
   long elapsed_ns = -fd_log_wallclock();
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
   ulong cached_cnt = 0;
@@ -256,7 +255,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
         rec_cnt++;
       }
 
-      fd_tpool_exec_all_block( tpool, 0, max_workers, fd_bpf_scan_task, recs, slot_ctx, is_bpf_program, 1, 0, rec_cnt );
+      fd_tpool_exec_all_block( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_bpf_scan_task, recs, slot_ctx, is_bpf_program, 1, 0, rec_cnt );
 
       for( ulong i = 0; i<rec_cnt; i++ ) {
         if( !is_bpf_program[ i ] ) {

@@ -420,8 +420,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
                            fd_capture_ctx_t *   capture_ctx,
                            fd_hash_t *          hash,
                            ulong                signature_cnt,
-                           fd_tpool_t *         tpool,
-                           ulong                max_workers ) {
+                           fd_tpool_t *         tpool ) {
   fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
   fd_funk_t *     funk    = acc_mgr->funk;
   fd_funk_txn_t * txn     = slot_ctx->funk_txn;
@@ -436,7 +435,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
   ulong dirty_key_cnt = 0;
 
   /* Find accounts which have changed */
-  fd_tpool_exec_all_rrobin( tpool, 0, max_workers, fd_account_hash_task, task_infos, NULL, NULL, 1, 0, task_infos_sz );
+  fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_account_hash_task, task_infos, NULL, NULL, 1, 0, task_infos_sz );
 
   for( ulong i = 0; i < task_infos_sz; i++ ) {
     fd_accounts_hash_task_info_t * task_info = &task_infos[i];
@@ -537,8 +536,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
 int
 fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_tpool_t *         tpool,
-                         ulong                max_workers ) {
+                         fd_tpool_t *         tpool ) {
 
   // fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
   // fd_funk_txn_t * txn     = slot_ctx->funk_txn;
@@ -553,7 +551,7 @@ fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
   ulong dirty_key_cnt = 0;
 
   /* Find accounts which have changed */
-  fd_tpool_exec_all_rrobin( tpool, 0, max_workers, fd_account_hash_task, task_infos, NULL, NULL, 1, 0, task_infos_sz );
+  fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_account_hash_task, task_infos, NULL, NULL, 1, 0, task_infos_sz );
 
   for( ulong i = 0; i < task_infos_sz; i++ ) {
     fd_accounts_hash_task_info_t * task_info = &task_infos[i];

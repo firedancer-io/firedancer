@@ -880,7 +880,8 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   // fd_execute_txn_prepare_phase2 is deprecated so we use fd_runtime_prepare_txns_phase2_tpool instead
   fd_funk_end_write( funk );
-  res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, task_info, 1, NULL, NULL, tpool, 1 );
+  res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, task_info, 1, NULL, NULL, tpool );
+
   fd_funk_start_write( funk );
   if (res != 0) {
     FD_LOG_WARNING(("could not prepare txn (phase 2 failed)"));
@@ -1410,7 +1411,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     fd_exec_txn_ctx_t          * txn_ctx   = task_info->txn_ctx;
 
     int exec_res = task_info->exec_res;
-    
+
     /* Collect rent */
     _txn_collect_rent( txn_ctx );
 
