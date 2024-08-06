@@ -210,6 +210,13 @@ jsonb_bool(jsonb_t * jsonb, char const * key, int val) {
 }
 
 
+/* acquired_txns_leftover is a snapshot value at the beginning of a
+   leader slot.
+   buffered_txns is a point-in-time gauge value.
+   Everything else comes from cumulative counters and we should take
+   delats.
+   acquired_txns has a base value of acquired_txns_leftover plus the
+   deltas of everything else. */
 struct fd_gui_txn_info {
   ulong acquired_txns;
   ulong acquired_txns_leftover;
@@ -217,15 +224,20 @@ struct fd_gui_txn_info {
   ulong acquired_txns_nonquic;
   ulong acquired_txns_gossip;
   ulong dropped_txns;
-  ulong dropped_txns_quic_failed;
+  ulong dropped_txns_net_overrun;
+  ulong dropped_txns_net_invalid;
+  ulong dropped_txns_quic_overrun;
+  ulong dropped_txns_quic_reasm;
   ulong dropped_txns_verify_overrun;
-  ulong dropped_txns_verify_failed;
-  ulong dropped_txns_dedup_failed;
-  ulong dropped_txns_pack_overrun;
+  ulong dropped_txns_verify_drop;
+  ulong dropped_txns_dedup_drop;
+  ulong dropped_txns_pack_nonleader;
   ulong dropped_txns_pack_invalid;
-  ulong dropped_txns_bank_overrun;
-  ulong dropped_txns_fee_payer;
-  ulong dropped_txns_lookup_table;
+  ulong dropped_txns_pack_priority;
+  ulong dropped_txns_bank_invalid;
+  ulong executed_txns_failure;
+  ulong executed_txns_success;
+  ulong buffered_txns;
 };
 
 typedef struct fd_gui_txn_info fd_gui_txn_info_t;
@@ -234,6 +246,8 @@ struct fd_gui {
   fd_http_server_t * server;
 
   fd_alloc_t * alloc;
+
+  fd_topo_t * topo;
 
   struct {
     char const * version;        
@@ -245,7 +259,9 @@ struct fd_gui {
     ulong slot_completed;
     ulong slot_estimated;
 
-    fd_gui_txn_info_t txn_info;
+    fd_gui_txn_info_t txn_info_prev[ 1 ]; /* Cumulative/Sampled */
+    fd_gui_txn_info_t txn_info_this[ 1 ]; /* Cumulative/Sampled */
+    fd_gui_txn_info_t txn_info_json[ 1 ]; /* Delta/Computed */
     long              last_txn_ts;
   } summary;
 
@@ -299,14 +315,15 @@ fd_gui_new( void *             shmem,
             fd_alloc_t *       alloc,
             char const *       version,
             char const *       cluster,
-            char const *       identity_key_base58 );
+            char const *       identity_key_base58,
+            fd_topo_t *        topo );
 
 fd_gui_t *
 fd_gui_join( void * shmem );
 
 void
-fd_gui_ws_open( fd_gui_t * gui,
-                ulong      conn_id );
+fd_gui_ws_open( fd_gui_t *  gui,
+                ulong       conn_id );
 
 void
 fd_gui_plugin_message( fd_gui_t *    gui,
@@ -315,8 +332,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
                        ulong         msg_len );
 
 void
-fd_gui_poll( fd_gui_t *  gui,
-             fd_topo_t * topo );
+fd_gui_poll( fd_gui_t * gui );
 
 FD_PROTOTYPES_END
 

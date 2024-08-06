@@ -202,9 +202,11 @@ metric introduced.
     <counter name="ReassemblyAppend" enum="TpuReasm" summary="Result of fragment reassembly for a QUIC transaction." />
     <counter name="ReassemblyPublish" enum="TpuReasm" summary="Result of publishing reassmbled fragment for a QUIC transaction." />
 
-    <counter name="ReassemblyNotifyAttempted" summary="Cumulative count of reassembly slot notified." />
+    <counter name="ReassemblyNotifyAttempted" summary="Cumulative count of reassembly slots notified." />
     <counter name="ReassemblyNotifyClobbered" summary="Reassembly slot was clobbered before it was notified." />
-    <counter name="ReassemblyNotifyOkay" summary="Cumulative count of reassembly slot notified." />
+    <counter name="ReassemblyNotifyOkay" summary="Cumulative count of reassembly slots successfully notified." />
+    <counter name="LegacyNotifyAttempted" summary="Cumulative count of non-QUIC transactions notified." />
+    <counter name="LegacyNotifyOkay" summary="Cumulative count of non-QUIC transactions successfully notified." />
 
     <counter name="QuicPacketTooSmall" summary="Count of packets received on the QUIC port that were too small to be a valid IP packet." />
 
