@@ -88,7 +88,7 @@ before_credit( void *             _ctx,
   fd_http_ctx_t * ctx = (fd_http_ctx_t *)_ctx;
   fd_http_server_poll( ctx->gui_server );
   fd_http_server_poll( ctx->metrics_server );
-  fd_gui_poll( ctx->gui, ctx->topo );
+  fd_gui_poll( ctx->gui );
 }
 
 static inline void
@@ -266,7 +266,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%d.%d.%d", FD_VERSION_MAJOR, FD_VERSION_MINOR, FD_VERSION_PATCH ) );
 
   ctx->topo    = topo;
-  ctx->gui     = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, alloc, ctx->version_string, tile->http.cluster, ctx->identity_key_str ) );
+  ctx->gui     = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, alloc, ctx->version_string, tile->http.cluster, ctx->identity_key_str, ctx->topo ) );
   FD_TEST( ctx->gui );
 
   fd_topo_link_t * link = &topo->links[ tile->in_link_id[ 0 ] ];

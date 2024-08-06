@@ -7,5 +7,6 @@
 #define FD_PLUGIN_MSG_SLOT_ESTIMATED                (3UL)
 #define FD_PLUGIN_MSG_GOSSIP_UPDATE                 (4UL)
 #define FD_PLUGIN_MSG_LEADER_SCHEDULE               (5UL)
+#define FD_PLUGIN_MSG_BECAME_LEADER                 (6UL)
 
 #endif /* HEADER_fd_src_disco_plugin_fd_plugin_h */

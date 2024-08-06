@@ -149,6 +149,7 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
                       uchar *         packet,
                       uint            packet_sz ) {
 
+  FD_MCNT_INC( QUIC_TILE, LEGACY_NOTIFY_ATTEMPTED, 1UL );
   fd_mux_context_t * mux = ctx->mux;
 
   uint                  tsorig = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
@@ -166,6 +167,7 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
   ctx->metrics.legacy_reasm_publish[ pub_err ]++;
   if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return;
 
+  FD_MCNT_INC( QUIC_TILE, LEGACY_NOTIFY_OKAY, 1UL );
   fd_mux_advance( mux );
 }
 
