@@ -947,29 +947,30 @@ _txn_context_destroy( fd_exec_instr_test_runner_t * runner,
                       fd_exec_slot_ctx_t *          slot_ctx,
                       fd_wksp_t *                   wksp,
                       fd_alloc_t *                  alloc ) {
-  if( !txn_ctx ) return; // This shouldn't be false
   if( !slot_ctx ) return; // This shouldn't be false either
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
 
   // Free any allocated borrowed account data
-  for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
-    fd_borrowed_account_t * acc = &txn_ctx->borrowed_accounts[i];
-    void * borrowed_account_mem = fd_borrowed_account_destroy( acc );
-    fd_wksp_t * belongs_to_wksp = fd_wksp_containing( borrowed_account_mem );
-    if( belongs_to_wksp ) {
-      fd_wksp_free_laddr( borrowed_account_mem );
+  if( txn_ctx ) {
+    for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
+      fd_borrowed_account_t * acc = &txn_ctx->borrowed_accounts[i];
+      void * borrowed_account_mem = fd_borrowed_account_destroy( acc );
+      fd_wksp_t * belongs_to_wksp = fd_wksp_containing( borrowed_account_mem );
+      if( belongs_to_wksp ) {
+        fd_wksp_free_laddr( borrowed_account_mem );
+      }
     }
-  }
 
-  // Free instr info pool (since its also wksp-allocated)
-  if( txn_ctx->instr_info_pool ) {
-    void * instr_info_mem = fd_instr_info_pool_delete( fd_instr_info_pool_leave( txn_ctx->instr_info_pool ) );
-    fd_wksp_t * belongs_to_wksp = fd_wksp_containing( instr_info_mem );
+    // Free instr info pool (since its also wksp-allocated)
+    if( txn_ctx->instr_info_pool ) {
+      void * instr_info_mem = fd_instr_info_pool_delete( fd_instr_info_pool_leave( txn_ctx->instr_info_pool ) );
+      fd_wksp_t * belongs_to_wksp = fd_wksp_containing( instr_info_mem );
 
-    // Only free instr info mem if it was wksp-allocated
-    if( belongs_to_wksp ) {
-      fd_wksp_free_laddr( instr_info_mem );
+      // Only free instr info mem if it was wksp-allocated
+      if( belongs_to_wksp ) {
+        fd_wksp_free_laddr( instr_info_mem );
+      }
     }
   }
 
@@ -1391,11 +1392,11 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
     /* Create and exec transaction */
     fd_execute_txn_task_info_t * task_info = _txn_context_create_and_exec( runner, slot_ctx, input );
-    fd_exec_txn_ctx_t          * txn_ctx   = task_info->txn_ctx;
     if( task_info == NULL ) {
-      _txn_context_destroy( runner, txn_ctx, slot_ctx, wksp, alloc );
+      _txn_context_destroy( runner, NULL, slot_ctx, wksp, alloc );
       return 0UL;
     }
+    fd_exec_txn_ctx_t          * txn_ctx   = task_info->txn_ctx;
 
     int exec_res = task_info->exec_res;
     
@@ -1417,11 +1418,25 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     /* Capture basic results fields */
     txn_result->executed                          = task_info->txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     txn_result->sanitization_error                = !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS );
-    txn_result->has_resulting_state               = true;
+    txn_result->has_resulting_state               = false;
     txn_result->resulting_state.acct_states_count = 0;
     txn_result->rent                              = slot_ctx->slot_bank.collected_rent;
     txn_result->is_ok                             = !exec_res;
     txn_result->status                            = (uint32_t) -exec_res;
+    txn_result->executed_units                    = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
+    txn_result->has_fee_details                   = true;
+    txn_result->fee_details.transaction_fee       = slot_ctx->slot_bank.collected_execution_fees;
+    txn_result->fee_details.prioritization_fee    = slot_ctx->slot_bank.collected_priority_fees;
+
+    if( txn_result->sanitization_error ) {
+      ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+      _txn_context_destroy( runner, txn_ctx, slot_ctx, wksp, alloc );
+
+      *output = txn_result;
+      return actual_end - (ulong)output_buf;
+    }
+
+    txn_result->has_resulting_state = true;
     txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
                                     PB_BYTES_ARRAY_T_ALLOCSIZE( txn_ctx->return_data.len ) );
     if( FD_UNLIKELY( _l > output_end ) ) {
@@ -1430,11 +1445,6 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
     txn_result->return_data->size = (pb_size_t)txn_ctx->return_data.len;
     fd_memcpy( txn_result->return_data->bytes, txn_ctx->return_data.data, txn_ctx->return_data.len );
-
-    txn_result->executed_units                 = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
-    txn_result->has_fee_details                = true;
-    txn_result->fee_details.transaction_fee    = slot_ctx->slot_bank.collected_execution_fees;
-    txn_result->fee_details.prioritization_fee = slot_ctx->slot_bank.collected_priority_fees;
 
     /* Allocate space for captured accounts */
     ulong modified_acct_cnt = txn_ctx->accounts_cnt;
