@@ -447,7 +447,7 @@ fd_gossip_contact_info_v2_find_proto_ident( fd_gossip_contact_info_v2_t const * 
   ushort port = 0;
   for( ulong i = 0UL; i<contact_info->sockets_len; i++ ) {
     fd_gossip_socket_entry_t const * socket_entry = &contact_info->sockets[ i ];
-    port += socket_entry->offset;
+    port = (ushort)( port + socket_entry->offset );
     if( socket_entry->key==proto_ident ) {
       if( socket_entry->index>=contact_info->addrs_len) {
         continue;
@@ -1382,7 +1382,7 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
     if (ele != NULL) {
       fd_value_table_remove( glob->values, &glob->last_contact_info_v2_key );
     }
-   
+
     ele = fd_value_table_query(glob->values, &glob->last_node_instance_key, NULL);
     if (ele != NULL) {
       fd_value_table_remove( glob->values, &glob->last_node_instance_key );
@@ -1414,14 +1414,14 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
     ushort last_port = 0;
     uchar cnt = 0;
     for(;;) {
-      fd_gossip_ip_addr_t * min_addr = NULL; 
+      fd_gossip_ip_addr_t * min_addr = NULL;
       ushort min_port = USHORT_MAX;
       uchar min_key = 0;
-      
+
       ushort gossip_port = glob->my_contact_info.gossip.port;
       ushort tvu_port = glob->my_contact_info.tvu.port;
       ushort tpu_port = glob->my_contact_info.tpu.port;
-      ushort tpu_quic_port = glob->my_contact_info.tpu.port + 6;
+      ushort tpu_quic_port = (ushort)( glob->my_contact_info.tpu.port + 6 );
       ushort tpu_vote_port = glob->my_contact_info.tpu_vote.port;
       if( gossip_port > 0 && gossip_port > last_port && gossip_port < min_port ) {
         min_key = FD_GOSSIP_SOCKET_TAG_GOSSIP;
@@ -1441,7 +1441,7 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
       if( tpu_quic_port > 0 && tpu_quic_port > last_port && tpu_quic_port < min_port ) {
         min_key = FD_GOSSIP_SOCKET_TAG_TPU_QUIC;
         min_addr = &glob->my_contact_info.tpu.addr;
-        min_port = glob->my_contact_info.tpu.port + 6;
+        min_port = (ushort)( glob->my_contact_info.tpu.port + 6 );
       }
       if( tpu_vote_port > 0 && tpu_vote_port > last_port && tpu_vote_port < min_port ) {
         min_key = FD_GOSSIP_SOCKET_TAG_TPU_VOTE;
@@ -1451,14 +1451,14 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
       if( min_port==USHORT_MAX ) {
         break;
       }
-      
+
       ci->addrs[ cnt ] = *min_addr;
       ci->sockets[ cnt ].index = 0;
-      ci->sockets[ cnt ].offset = min_port - last_port;
+      ci->sockets[ cnt ].offset = (ushort)( min_port - last_port );
       ci->sockets[ cnt ].key = min_key;
       cnt++;
       last_port = min_port;
-      
+
       if( min_key ==FD_GOSSIP_SOCKET_TAG_TPU) {
         ci->addrs[ cnt ] = *min_addr;
         ci->sockets[ cnt ].index = 0;
