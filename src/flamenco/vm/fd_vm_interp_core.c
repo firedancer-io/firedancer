@@ -840,7 +840,7 @@ sigsegv:     FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGSEGV;   got
 sigcost:     /* ic current */    cu = 0UL;        err = FD_VM_ERR_SIGCOST;   goto interp_halt;
 sigsyscall:  /* ic current */    /* cu current */ /* err current */          goto interp_halt;
 sigfpe:      FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGFPE;    goto interp_halt;
-sigexit:     FD_VM_INTERP_FAULT; /* cu current */ /* err current */         goto interp_halt;
+sigexit:     FD_VM_INTERP_FAULT; /* cu current */ /* err current */          goto interp_halt;
 
 #undef FD_VM_INTERP_FAULT
 

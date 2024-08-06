@@ -143,17 +143,15 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
     return 0UL;
   }
 
+do{
   /* Setup regions */
-
+  if ( !input->vm_ctx.rodata ) {
+    break;
+  }
   uchar * rodata = input->vm_ctx.rodata->bytes;
   ulong rodata_sz = input->vm_ctx.rodata->size;
 
-  /* FIXME: syscall_invocation can be optional... */
-  uchar * stack = input->syscall_invocation.stack_prefix->bytes;
-  ulong stack_sz = fd_ulong_min(input->syscall_invocation.stack_prefix->size, FD_VM_STACK_MAX);
-
-  uchar * heap = input->syscall_invocation.heap_prefix->bytes;
-  ulong heap_sz = fd_ulong_min(input->syscall_invocation.heap_prefix->size, FD_VM_HEAP_MAX);
+  
 
   /* Concatenate the input data regions into the flat input memory region */
   ulong input_data_sz = 0;
@@ -174,9 +172,9 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
     input_data_ptr += array->size;
   }
 
-  // if( input_data_ptr != (input_data + input_data_sz) ) {
-  //   goto error;
-  // }
+  if( input_data_ptr != (input_data + input_data_sz) ) {
+    break;
+  }
 
   /* Turn input into a single memory region */
   fd_vm_input_region_t input_region = {
@@ -188,9 +186,9 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
   };
 
 
-  // if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
-  //   goto error;
-  // }
+  if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
+    break;
+  }
 
   /* Setup calldests from call_whitelist */
   ulong * calldests = (ulong *) input->vm_ctx.call_whitelist->bytes;
@@ -227,11 +225,19 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
     input->vm_ctx.entry_pc,
     calldests,
     syscalls,
-    &input_region,
-    1,
     NULL, /* trace */
-    NULL /* sha */
+    NULL, /* sha */
+    &input_region,
+    1UL,
+    NULL, /* vm_acc_region_meta*/
+    0 /* is deprecated */
   );
+
+  // Validate the vm
+  if ( !fd_vm_validate( vm ) ) {
+    effects->error = -1;
+    break;
+  }
 
   // Override some execution state values from the interp fuzzer input
   // This is so we can test if the interp mutates any of these erroneously
@@ -251,15 +257,20 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
   vm->check_align = input->vm_ctx.check_align;
   vm->check_size = input->vm_ctx.check_size;
 
-  if ( stack ) {
+  if( input->syscall_invocation.stack_prefix ) {
+    uchar * stack = input->syscall_invocation.stack_prefix->bytes;
+    ulong stack_sz = fd_ulong_min(input->syscall_invocation.stack_prefix->size, FD_VM_STACK_MAX);
     fd_memcpy( vm->stack, stack, stack_sz );
   }
-  if ( heap ) {
+
+  if( input->syscall_invocation.heap_prefix ) {
+    uchar * heap = input->syscall_invocation.heap_prefix->bytes;
+    ulong heap_sz = fd_ulong_min(input->syscall_invocation.heap_prefix->size, FD_VM_HEAP_MAX);
     fd_memcpy( vm->heap, heap, heap_sz );
   }
 
   /* Run vm */
-  effects->error = fd_vm_exec_notrace( vm );
+  effects->error = -fd_vm_exec_notrace( vm );
 
   /* Capture outputs */
   effects->cu_avail = vm->cu;
@@ -281,6 +292,7 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
   effects->inputdata = NULL;
   /* skip logs since syscalls are stubbed */
   effects->log = NULL;
+} while(0);
 
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   *output = effects;
