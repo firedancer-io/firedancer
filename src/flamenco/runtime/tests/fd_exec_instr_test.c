@@ -175,6 +175,11 @@ _load_account( fd_borrowed_account_t *           acc,
   acc->meta->dlen            = size;
   memcpy( acc->meta->info.owner, state->owner, sizeof(fd_pubkey_t) );
 
+  /* make the account read-only by default */
+  acc->meta = NULL;
+  acc->data = NULL;
+  acc->rec  = NULL;
+
   return 1;
 }
 
@@ -502,6 +507,12 @@ _instr_context_create( fd_exec_instr_test_runner_t *        runner,
     info->acct_flags       [j] = (uchar)flags;
     memcpy( info->acct_pubkeys[j].uc, acc->pubkey, sizeof(fd_pubkey_t) );
     info->acct_txn_idxs[j]     = (uchar) index;
+
+    if( test_ctx->instr_accounts[j].is_writable ) {
+      acc->meta = (void *)acc->const_meta;
+      acc->data = (void *)acc->const_data;
+      acc->rec  = (void *)acc->const_rec;
+    }
 
     if (acc_idx_seen[index]) {
       info->is_duplicate[j] = 1;
