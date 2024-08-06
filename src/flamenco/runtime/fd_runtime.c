@@ -1037,6 +1037,22 @@ is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash_queue,
 }
 
 int
+fd_runtime_verify_txn_signatures_tpool( fd_execute_txn_task_info_t * task_info,
+                                        ulong txn_cnt,
+                                        fd_tpool_t * tpool,
+                                        ulong max_workers ) {
+  int res = 0;
+  fd_tpool_exec_all_rrobin( tpool, 0, max_workers, fd_txn_sigverify_task, task_info, NULL, NULL, 1, 0, txn_cnt );
+  for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
+    if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
+      res |= FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
+      break;
+    }
+  }
+  return res;
+}
+
+int
 fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                       fd_execute_txn_task_info_t * task_info,
                                       ulong txn_cnt,
@@ -1046,14 +1062,6 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                       ulong max_workers ) {
   int res = 0;
   FD_SCRATCH_SCOPE_BEGIN  {
-    fd_tpool_exec_all_rrobin( tpool, 0, max_workers, fd_txn_sigverify_task, task_info, NULL, NULL, 1, 0, txn_cnt );
-    for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
-      if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
-        res |= FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
-        break;
-      }
-    }
-
     ulong fee_payer_accs_cnt = 0;
     ulong * fee_payer_idxs = fd_scratch_alloc( sizeof(ulong), txn_cnt * sizeof(ulong) );
     fd_borrowed_account_t * * fee_payer_accs = fd_scratch_alloc( FD_BORROWED_ACCOUNT_ALIGN, txn_cnt * FD_BORROWED_ACCOUNT_FOOTPRINT );
@@ -1821,6 +1829,11 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
         for( ulong i = 0; i < wave_task_infos_cnt; ++i ) {
           dump_txn_to_protobuf( wave_task_infos[i].txn_ctx );
         }
+      }
+
+      res |= fd_runtime_verify_txn_signatures_tpool( wave_task_infos, wave_task_infos_cnt, tpool, max_workers );
+      if( res != 0 ) {
+        FD_LOG_DEBUG(("Fail signature verification"));
       }
 
       res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, query_func, query_arg, tpool, max_workers );

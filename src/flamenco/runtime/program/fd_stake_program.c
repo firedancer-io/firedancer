@@ -1865,12 +1865,12 @@ move_stake_or_lamports_shared_checks( fd_exec_instr_ctx_t const *   invoke_conte
 
     // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L163
     if( FD_UNLIKELY( !memcmp( &source_account->pubkey, &destination_account->pubkey, sizeof(fd_pubkey_t) ) ) )
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 
     // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L168
     if( FD_UNLIKELY( !fd_instr_acc_is_writable( invoke_context->instr, source_account->pubkey ) ||
                      !fd_instr_acc_is_writable( invoke_context->instr, destination_account->pubkey ) ) )
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+        return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 
     // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L173
     if( lamports==0 )
