@@ -697,7 +697,7 @@ maybe_write_pong( fd_http_server_t * http,
   /* No need to pong if ....
 
       Client has not sent a ping */
-  if( FD_LIKELY( conn->pong_state==FD_HTTP_SERVER_PONG_STATE_NONE ) )                               return 0;
+  if( FD_LIKELY( conn->pong_state==FD_HTTP_SERVER_PONG_STATE_NONE ) )       return 0;
   /*  We are in the middle of writing a data frame */
   if( FD_LIKELY( conn->send_frame_cnt && conn->send_frame_bytes_written ) ) return 0;
 
@@ -714,7 +714,7 @@ maybe_write_pong( fd_http_server_t * http,
 
   long sz = write( http->pollfds[ conn_idx ].fd, frame+conn->pong_bytes_written, 2UL+conn->pong_data_len-conn->pong_bytes_written );
   if( FD_UNLIKELY( -1==sz && (errno==EAGAIN || errno==EINTR) ) ) return 1; /* No data was written, continue. */
-  else if( FD_UNLIKELY( -1==sz && (errno==EPIPE || errno==ECONNRESET) ) ) {
+  else if( FD_UNLIKELY( -1==sz && (errno==EPIPE || errno==ECONNRESET || errno==EBADF) ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
     return 1;
   }
