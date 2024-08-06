@@ -10,6 +10,9 @@
 #include "fd_quic_pkt_meta.h"
 #include "templ/fd_quic_union.h"
 
+/* Minimum number of streams per connection */
+#define FD_QUIC_STREAM_MIN 16UL
+
 #define FD_QUIC_CONN_STATE_INVALID            0 /* dead object / freed */
 #define FD_QUIC_CONN_STATE_HANDSHAKE          1 /* currently doing handshaking with peer */
 #define FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE 2 /* handshake complete, confirming with peer */
@@ -236,6 +239,9 @@ struct fd_quic_conn {
              0x01 Server-Initiated, Bidirectional
              0x02 Client-Initiated, Unidirectional
              0x03 Server-Initiated, Unidirectional */
+
+  ulong rx_max_streams_unidir_ackd; /* value of MAX_STREAMS acked for UNIDIR */
+  ulong rx_max_streams_bidir_ackd;  /* value of MAX_STREAMS acked for BIDIR */
 
   fd_quic_stream_map_t *  stream_map;           /* map stream_id -> stream */
 
