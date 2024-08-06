@@ -31,6 +31,8 @@ void fd_web_replier_done(struct fd_web_replier* replier);
 
 int fd_webserver_ws_subscribe(struct json_values* values, ulong conn_id, void * cb_arg);
 
+void fd_webserver_ws_closed(ulong conn_id, void * cb_arg);
+
 void fd_web_ws_reply( fd_webserver_t * ws, ulong conn_id, fd_textstream_t * ts);
 
 void fd_web_replier_error( struct fd_web_replier* replier, const char* format, ... )

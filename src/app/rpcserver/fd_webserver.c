@@ -197,9 +197,9 @@ ws_open( ulong connection_id, void * ctx ) {
 
 static void
 ws_close( ulong connection_id, int reason, void * ctx ) {
-  (void)connection_id;
   (void)reason;
-  (void)ctx;
+  fd_webserver_t * ws = (fd_webserver_t *)ctx;
+  fd_webserver_ws_closed( connection_id, ws->cb_arg );
 }
 
 static void
