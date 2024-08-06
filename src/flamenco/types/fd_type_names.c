@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 210
+#define FD_TYPE_NAME_COUNT 215
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_pubkey",
@@ -31,7 +31,10 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_stake_weights",
  "fd_delegation",
  "fd_delegation_pair",
+ "fd_stake",
+ "fd_stake_pair",
  "fd_stakes",
+ "fd_stakes_stake",
  "fd_bank_incremental_snapshot_persistence",
  "fd_node_vote_accounts",
  "fd_pubkey_node_vote_accounts_pair",
@@ -53,6 +56,9 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_start_block_height_and_rewards",
  "fd_serializable_epoch_reward_status",
  "fd_solana_accounts_db_fields",
+ "fd_epoch_stakes_current",
+ "fd_versioned_epoch_stakes",
+ "fd_versioned_epoch_stakes_pair",
  "fd_solana_manifest",
  "fd_rust_duration",
  "fd_poh_config",
@@ -130,7 +136,6 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_lockup_args",
  "fd_stake_instruction",
  "fd_stake_meta",
- "fd_stake",
  "fd_stake_flags",
  "fd_stake_state_v2_initialized",
  "fd_stake_state_v2_stake",
