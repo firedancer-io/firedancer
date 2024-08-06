@@ -71,11 +71,12 @@ FD_STATIC_ASSERT( sizeof( fd_secp256k1_signature_offsets_t )==SECP256K1_SIGNATUR
    We handle the special case of index==0xFFFF as in Ed25519.
    We handle errors as in Secp256k1. */
 static inline int
-fd_precompile_get_instr_data( fd_exec_instr_ctx_t ctx,
-                              ushort              index,
-                              ushort              offset,
-                              ushort              sz,
-                              uchar const **      res ) {
+fd_precompile_get_instr_data( fd_exec_txn_ctx_t *     txn_ctx,
+                              fd_txn_instr_t const *  cur_instr,
+                              ushort                  index,
+                              ushort                  offset,
+                              ushort                  sz,
+                              uchar const **          res ) {
   uchar const * data;
   ulong         data_sz;
   /* The special value index==USHORT_MAX means current instruction.
@@ -87,17 +88,17 @@ fd_precompile_get_instr_data( fd_exec_instr_ctx_t ctx,
   if( index==USHORT_MAX ) {
 
     /* Use current instruction data */
-    data    = ctx.instr->data;
-    data_sz = ctx.instr->data_sz;
+    data    = fd_txn_get_instr_data( cur_instr, txn_ctx->_txn_raw->raw );
+    data_sz = cur_instr->data_sz;
 
   } else {
 
-    fd_txn_t const * txn_descriptor = ctx.txn_ctx->txn_descriptor;
+    fd_txn_t const * txn_descriptor = txn_ctx->txn_descriptor;
     if( FD_UNLIKELY( index >= txn_descriptor->instr_cnt ) )
       return FD_EXECUTOR_PRECOMPILE_ERR_DATA_OFFSET;
 
     fd_txn_instr_t const * instr = &txn_descriptor->instr[index];
-    data    = (uchar const *)ctx.txn_ctx->_txn_raw->raw + instr->data_off;
+    data    = fd_txn_get_instr_data( instr, txn_ctx->_txn_raw->raw );
     data_sz = instr->data_sz;
 
   }
@@ -114,10 +115,11 @@ fd_precompile_get_instr_data( fd_exec_instr_ctx_t ctx,
 */
 
 int
-fd_precompile_ed25519_verify( fd_exec_instr_ctx_t ctx ) {
+fd_precompile_ed25519_verify( fd_exec_txn_ctx_t *    txn_ctx,
+                              fd_txn_instr_t const * instr ) {
 
-  uchar const * data    = ctx.instr->data;
-  ulong         data_sz = ctx.instr->data_sz;
+  uchar const * data    = fd_txn_get_instr_data( instr, txn_ctx->_txn_raw->raw );
+  ulong         data_sz = instr->data_sz;
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/ed25519_instruction.rs#L90-L96
      note: this part is really silly and in fact in leaves out the edge case [0, 0].
@@ -156,7 +158,8 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/ed25519_instruction.rs#L114-L121 */
     uchar const * sig = NULL;
-    int err = fd_precompile_get_instr_data( ctx,
+    int err = fd_precompile_get_instr_data( txn_ctx,
+                                            instr,
                                             sigoffs->sig_instr_idx,
                                             sigoffs->sig_offset,
                                             SIGNATURE_SERIALIZED_SIZE,
@@ -169,7 +172,8 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/ed25519_instruction.rs#L126-L133 */
     uchar const * pubkey = NULL;
-    err = fd_precompile_get_instr_data( ctx,
+    err = fd_precompile_get_instr_data( txn_ctx,
+                                        instr,
                                         sigoffs->pubkey_instr_idx,
                                         sigoffs->pubkey_offset,
                                         ED25519_PUBKEY_SERIALIZED_SIZE,
@@ -183,7 +187,8 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t ctx ) {
     /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/ed25519_instruction.rs#L138-L145 */
     uchar const * msg = NULL;
     ushort msg_sz = sigoffs->msg_data_sz;
-    err = fd_precompile_get_instr_data( ctx,
+    err = fd_precompile_get_instr_data( txn_ctx,
+                                        instr,
                                         sigoffs->msg_instr_idx,
                                         sigoffs->msg_offset,
                                         msg_sz,
@@ -205,9 +210,11 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t ctx ) {
 */
 
 int
-fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t ctx ) {
-  uchar const * data    = ctx.instr->data;
-  ulong         data_sz = ctx.instr->data_sz;
+fd_precompile_secp256k1_verify( fd_exec_txn_ctx_t *    txn_ctx,
+                                fd_txn_instr_t const * instr ) {
+
+  uchar const * data    = fd_txn_get_instr_data( instr, txn_ctx->_txn_raw->raw );
+  ulong         data_sz = instr->data_sz;
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/secp256k1_instruction.rs#L934-L947
      see comment in ed25519, here the special case is [0] instead of [0, 0] */
@@ -241,7 +248,8 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t ctx ) {
        Note: for whatever reason, Agave returns InvalidInstructionDataSize instead of InvalidDataOffsets.
        We just return the err as is. */
     uchar const * sig = NULL;
-    int err = fd_precompile_get_instr_data( ctx,
+    int err = fd_precompile_get_instr_data( txn_ctx,
+                                            instr,
                                             sigoffs->sig_instr_idx,
                                             sigoffs->sig_offset,
                                             SIGNATURE_SERIALIZED_SIZE + 1, /* extra byte is recovery id */
@@ -255,7 +263,8 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/secp256k1_instruction.rs#L983-L989 */
     uchar const * eth_address = NULL;
-    err = fd_precompile_get_instr_data( ctx,
+    err = fd_precompile_get_instr_data( txn_ctx,
+                                        instr,
                                         sigoffs->pubkey_instr_idx,
                                         sigoffs->pubkey_offset,
                                         SECP256K1_PUBKEY_SERIALIZED_SIZE,
@@ -265,7 +274,8 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t ctx ) {
     /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/secp256k1_instruction.rs#L991-L997 */
     uchar const * msg = NULL;
     ushort msg_sz = sigoffs->msg_data_sz;
-    err = fd_precompile_get_instr_data( ctx,
+    err = fd_precompile_get_instr_data( txn_ctx,
+                                        instr,
                                         sigoffs->msg_instr_idx,
                                         sigoffs->msg_offset,
                                         msg_sz,
