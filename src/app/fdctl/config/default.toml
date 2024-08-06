@@ -827,7 +827,8 @@ dynamic_port_range = "8900-9000"
         # reserved, so every connection can be used.  This means that
         # this value must be at least as high as the value of
         # `max_concurrent_connections` above.
-        stream_pool_cnt = 4096
+        #stream_pool_cnt = 4096
+        stream_pool_cnt = 16384
 
         # Controls how much transactions coming in via TPU can be
         # reassembled at the same time.  Reassembly is required for user
