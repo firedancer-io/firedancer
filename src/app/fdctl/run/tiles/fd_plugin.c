@@ -85,17 +85,29 @@ after_frag( void *             _ctx,
 
   ulong sig;
   switch( in_idx ) {
+    /* replay_plugin */
     case 0UL: {
       FD_TEST( *opt_sig==FD_PLUGIN_MSG_SLOT_ROOTED || *opt_sig==FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED || *opt_sig==FD_PLUGIN_MSG_SLOT_COMPLETED );
       sig = *opt_sig;
       break;
     }
+    /* gossip_plugin */
     case 1UL: {
       FD_TEST( *opt_sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || *opt_sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE || *opt_sig==FD_PLUGIN_MSG_VALIDATOR_INFO );
       sig = *opt_sig;
       break;
     }
+    /* stake_out */
     case 2UL: sig = FD_PLUGIN_MSG_LEADER_SCHEDULE; FD_LOG_NOTICE(( "sending leader schedule" )); break;
+    /* poh_pack */
+    case 3UL:
+      if( fd_disco_poh_sig_pkt_type( *opt_sig )!=POH_PKT_TYPE_BECAME_LEADER ) {
+        /* Not interested in stamped microblocks, only leader updates. */
+        *opt_filter = 1;
+        return;
+      }
+      sig = FD_PLUGIN_MSG_BECAME_LEADER;
+      break;
     default: FD_LOG_ERR(( "bad in_idx" ));
   }
 
