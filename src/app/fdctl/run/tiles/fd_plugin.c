@@ -3,6 +3,7 @@
 #include "generated/plugin_seccomp.h"
 
 #include "../../../../disco/plugin/fd_plugin.h"
+#include "../../../../flamenco/types/fd_types.h"
 
 typedef struct {
   fd_wksp_t * mem;
@@ -13,7 +14,7 @@ typedef struct {
 typedef struct {
   fd_plugin_in_ctx_t in[ 64UL ];
 
-  uchar buf[ 4096 ] __attribute__((aligned(8)));
+  uchar buf[ 8UL+40200UL*(58UL+12UL*34UL) ] __attribute__((aligned(8)));
 
   fd_wksp_t * out_mem;
   ulong       out_chunk0;
@@ -55,7 +56,11 @@ during_frag( void * _ctx,
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
   ulong * dst = (ulong *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-  fd_memcpy( dst, src, sz );
+
+  ulong _sz = sz;
+  if( FD_UNLIKELY( in_idx==1UL ) ) _sz = 8UL + 40200UL*(58UL+12UL*34UL);
+  else if( FD_UNLIKELY( in_idx==2UL ) ) _sz = 40UL + 40200UL*40UL; /* ... todo... sigh, sz is not correct since it's too big */
+  fd_memcpy( dst, src, _sz );
 }
 
 static inline void
@@ -80,14 +85,26 @@ after_frag( void *             _ctx,
 
   ulong sig;
   switch( in_idx ) {
-    case 0UL: sig = *opt_sig; break;
-    case 1UL: sig = *opt_sig; break;
+    case 0UL: {
+      FD_TEST( *opt_sig==FD_PLUGIN_MSG_SLOT_ROOTED || *opt_sig==FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED || *opt_sig==FD_PLUGIN_MSG_SLOT_COMPLETED );
+      sig = *opt_sig;
+      break;
+    }
+    case 1UL: {
+      FD_TEST( *opt_sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || *opt_sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE || *opt_sig==FD_PLUGIN_MSG_VALIDATOR_INFO );
+      sig = *opt_sig;
+      break;
+    }
     case 2UL: sig = FD_PLUGIN_MSG_LEADER_SCHEDULE; FD_LOG_NOTICE(( "sending leader schedule" )); break;
     default: FD_LOG_ERR(( "bad in_idx" ));
   }
 
+  ulong _sz = *opt_sz;
+  if( FD_UNLIKELY( in_idx==1UL ) ) _sz = 8UL + 40200UL*(58UL+12UL*34UL);
+  else if( FD_UNLIKELY( in_idx==2UL ) ) _sz = 40UL + 40200UL*40UL; /* ... todo... sigh, sz is not correct since it's too big */
+
   fd_mux_publish( mux, sig, ctx->out_chunk, *opt_sz, 0UL, 0UL, 0UL );
-  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
+  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, _sz, ctx->out_chunk0, ctx->out_wmark );
 }
 
 static void

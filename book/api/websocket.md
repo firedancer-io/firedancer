@@ -1,3 +1,7 @@
+---
+outline: deep
+---
+
 # Firedancer WebSocket API
 Firedancer provides an optional [HTTP
 websockets](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API)
@@ -34,7 +38,7 @@ file.
 The API is split into various topics which will be streamed to any and
 all connected clients.
 
-### Keeping Up
+## Keeping Up
 The server does not drop information, slow down, or stop publishing the
 stream of information if the client cannot keep up. A client that is
 reading too slow and cannot keep up with incoming data stream will have
@@ -253,18 +257,26 @@ epoch is speculatively known as soon as `end_slot` in epoch T-2 is
 compelted, rather than rooted, but no speculative epoch information is
 published until the epoch is finalized by rooting the slot.
 
-### gossip
-Information about validator peers from the gossip network. Gossip
-information is self reported by other nodes, and except for the identity
-of the node, the data is not validated nor checked for correctness. A
-peer node can report arbitrary or corrupt data for any value in the
-gossip object, although they must be in posession of the private key for
-the reported identity.
+### peers
+Information about validator peers from the cluster. Peer data is sourced
+from gossip, the accounts database, and the on-chain configuration
+program. All peer information is authenticated meaning it can only be
+reported from the holder of the private key, however not all peer data
+is validated or checked for correctness. In particular, data from the
+gossip network and the config program is self reported by the validator
+and could be empty, corrupt, filled with garbage, or malicious.
 
-#### `gossip.update`
+Peer information is keyed by the validator identity key. Multiple vote
+accounts could in theory use the same identity keypair, although it is
+not likely. Not all identities reported will have gossip data, a vote
+account, or validator information published to the config program, but
+all identities will have at least one of these fields reported. Once an
+identity is no longer in these three data sources, it will be removed.
+
+#### `peers.update`
 | frequency   | type   | example     |
 |-------------|--------|-------------|
-| Once + 5s   | `GossipUpdate` | below |
+| Once + 5s   | `PeerUpdate` | below |
 
 ::: details Example
 
@@ -272,17 +284,36 @@ the reported identity.
 {
     "update": [
         {
-            "identity": "Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF",
-            "version": "1.18.15",
-            "feature_set": 4215500110,
-            "wallclock": 0,
-            "shred_version": 0,
-            "sockets": {
-                "gossip": "93.119.195.160:8001",
-                "tpu": "192.64.85.26:8000",
-                // ... other sockets ...
+            "identity_pubkey": "Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF",
+            "gossip": {
+                "version": "1.18.15",
+                "feature_set": 4215500110,
+                "wallclock": 0,
+                "shred_version": 0,
+                "sockets": {
+                    "gossip": "93.119.195.160:8001",
+                    "tpu": "192.64.85.26:8000",
+                    // ... other sockets ...
+                }
+            },
+            "vote": [
+                {
+                    "vote_pubkey": "8ri9HeWZv4Dcf4BD46pVPjmefzJLpbtfdAtyxyeG4enL",
+                    "activated_stake": 5812,
+                    "last_vote": 281795801,
+                    "root_slot": 281795770,
+                    "epoch_credits": 5917,
+                    "commission": 5,
+                    "delinquent": false
+                }
+            ],
+            "info": {
+                "name": "ExampleStake Firedancer 🔥💃",
+                "details": "A longer description of the validator, perhaps describing the team behind it or how the node is operated",
+                "website": "https://github.com/firedancer-io/firedancer",
+                "icon_url": "https://firedancer-io.github.io/firedancer/fire.svg"
             }
-        },
+        }
     ],
     "remove": [
         { "identity": "8ri9HeWZv4Dcf4BD46pVPjmefzJLpbtfdAtyxyeG4enL" }
@@ -292,22 +323,47 @@ the reported identity.
 
 :::
 
-**`GossipPeerUpdate`**
-| Field      | Type   | Description
-|------------|--------|------------
-| identity | `string` | Identity public key of the validator, encoded in base58. This is authenticated and the gossip node must have been in posession of the private key to publish gossip data as this identity |
+**`PeerUpdateGossip`**
+| Field       | Type     | Description
+|-------------|----------|------------
 | wallclock | `number` | Not entirely sure yet TODO |
 | shred_version | `number` | A `u16` representing the shred version the validator is configured to use. The shred version is changed when the cluster restarts, and is used to make sure the validator is talking to nodes that have participated in the same cluster restart |
 | version | `string\|null` | Software version being advertised by the validator. Might be `null` if the validator is not gossiping a version, or we have received the contact information but not the version yet. The version string, if not null, will always be formatted like `major`.`minor`.`patch` where `major`, `minor`, and `patch` are `u16`s |
 | feature_set | `number\|null` | First four bytes of the `FeatureSet` hash interpreted as a little endian `u32`. Might be `null` if the validator is not gossiping a feature set, or we have received the contact information but not the feature set yet |
 | sockets | `[key: string]: string` | A dictionary of sockets that are advertised by the validator. `key` will be one of `gossip`, `repair`, `rpc`, `rpc_pubsub`, `serve_repair`, `serve_repair_quic`, `tpu`, `tpu_forwards`, `tpu_forwards_quic`, `tpu_quic`, `tpu_vote`, `tvu`, or `tvu_forwards`. The value is an address like `<addr>:<port>`: the location to send traffic to for this validator with the given protocol. Address might be either an IPv4 or an IPv6 address |
 
-**`GossipPeerRemove`**
+**`PeerUpdateVoteAccount`**
+| Field       | Type     | Description
+|-------------|----------|------------
+| vote_pubkey | `string` | The public key of vote account, encoded in base58 |
+| activated_stake | `number` | The amount of stake in lamports that is activated on this vote account for the current epoch. Warming up or cooling down stake that was delegating during this epoch is not included |
+| last_vote | `number\|null` | The last vote by the vote account that was landed on chain, as seen by this validator. If the vote account has not yet landed any votes on the chain this will be `null` |
+| root_slot | `number\|null` | The last slot that was rooted by the vote account, based on the vote history. If the vote account has not yet rooted any slots this will be `null` |
+| epoch_credits | `number` | The number of credits earned by the vote account during the current epoch |
+| delinquent | `boolean` | Whether the vote account is delinquent or not. A vote account is considered delinquent if it has not had a vote land on chain for any of the last 127 (inclusive) confirmed slots, according to this validator. If there have been less than 128 confirmed slots on the chain (it is a new chain), a validator is considered delinquent only if it has not voted yet at all |
+
+**`PeerUpdateInfo`**
+| Field       | Type     | Description
+|-------------|----------|------------
+| name        | `string\|null` | Self reported name of the validator, could be any string or null if there is no name set |
+| details     | `string\|null` | Self reported detailed description of the validator, could be any string or null if there is no details set |
+| website     | `string\|null` | Self reported website of the validator, could be any string and need not be a valid URI, or could be null if there is no website set |
+| icon_url    | `string\|null` | Self reported URL of the validator icon, could be any string and need not be a valid URI, or could be null if there is no icon URI set |
+
+**`PeerUpdate`**
+| Field      | Type   | Description
+|------------|--------|------------
+| identity | `string` | Identity public key of the validator, encoded in base58 |
+| gossip | `PeerUpdateGossip\|null` | Information reported for the validator identity over the gossip network. This is authenticated and the gossip node must have been in possession of the private key to publish gossip data as this identity. Gossip information is not validated or checked for correctness and could be set to any values by the peer |
+| vote | `PeerUpdateVoteAccount[]` | Information about the vote account(s) associated with this identity key, if there are any. It is extremely unusual for multiple vote accounts to report the same identity key. Vote account information like stake and commission is derived from the accounts on chain and cannot be corrupt, invalid, or incorrect |
+| info | `PeerUpdateInfo\|null` | If the validator has published self reported identifying information to the chain. This is authenticated and the operator must have been in possession of the private key to publish info as this identity. Information is not validated or checked for correctness and could be set to any values by the peer |
+
+**`PeerRemove`**
 | Field    | Type   | Description
 |----------|--------|------------
-| identity | `string` | Identity public key of the validator, encoded in base58.
+| identity | `string` | Identity public key of the validator, encoded in base58 |
 
-**`GossipUpdate`**
+**`PeersUpdate`**
 | Field      | Type   | Description
 |------------|--------|------------
 | add    | `GossipPeerUpdate[]` | List of peer validators that were added since the last update, or all of the peers for the first update after connecting |
