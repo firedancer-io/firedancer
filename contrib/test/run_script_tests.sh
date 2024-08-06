@@ -64,6 +64,36 @@ fi
 
 wait
 
+# Runs fddev bench, sleeps for a maximum of 60
+# seconds and kills it
+$BIN/fddev bench > $LOG_PATH/fddev_bench 2>&1 &
+count=0
+while [ $count -le 6 ]; do
+  count=$(( count+1 ))
+  sleep 10
+  $BIN/fddev ready >> $LOG_PATH/fddev_bench 2>&1 && break
+done
+# FIXME: find the correct pid to send the kill signal to
+# as killing whatever is returned by $! is not enough.
+while true; do
+  pid=$(sudo ps -ef | grep "fddev bench" | grep -v "grep" | head -n1 | awk '{print $2}')
+  if [[ ! -z $pid ]] > /dev/null; then
+    kill -9 $pid
+    sleep 1
+  else
+    break
+  fi
+done
+# Check the logs to find txn rates, but ignore the first value
+IFS=$'\n' read -r -d '' -a TXNS < <(grep "txn/s" $LOG_PATH/fddev_bench | awk '{print $(NF-1)}')
+for txn in ${TXNS[@]:1}; do
+  if [[ $txn -lt 60000 ]]; then
+    echo >> $LOG_PATH/fddev_bench
+    echo FAIL >> $LOG_PATH/fddev_bench
+    break
+  fi
+done
+
 for f in `ls $LOG_PATH`; do
   echo $f: `tail -n 2 $LOG_PATH/$f | grep -v "^Log"`
 done

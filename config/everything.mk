@@ -417,7 +417,7 @@ ppp: $(DEPFILES:.d=.i)
 
 endif
 
-run-script-test: bin unit-test
+run-script-test: bin unit-test fddev
 	mkdir -p "$(OBJDIR)/cov/raw" && \
 OBJDIR=$(OBJDIR) \
 MACHINE=$(MACHINE) \
