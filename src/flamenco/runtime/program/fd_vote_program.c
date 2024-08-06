@@ -2400,15 +2400,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
     fd_rent_t const * rent = fd_sysvar_from_instr_acct_rent( &ctx, 1UL, &rc );
     if( FD_UNLIKELY( !rent ) ) return rc;
 
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L71
-    fd_borrowed_account_t * vote_acc = NULL;
-    do {
-      int err = fd_instr_borrowed_account_view_idx( &ctx, 0UL, &vote_acc );
-      if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d)", err ));
-    } while(0);
-
-    if( FD_UNLIKELY( vote_acc->const_meta->info.lamports <
-                     fd_rent_exempt_minimum_balance2( rent, vote_acc->const_meta->dlen ) ) )
+    if( FD_UNLIKELY( me->const_meta->info.lamports <
+                     fd_rent_exempt_minimum_balance2( rent, me->const_meta->dlen ) ) )
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L76
@@ -2791,30 +2784,25 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
    * - Feature gated, but live on mainnet.
    */
   case fd_vote_instruction_enum_authorize_checked: {
-    if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx.slot_ctx, vote_stake_checked_instructions ) ) ) {
-      if( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) ) {
-        rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-        break;
-      }
-
-      // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L236
-      fd_pubkey_t const * voter_pubkey = &ctx.instr->acct_pubkeys[3];
-
-      // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L239
-      if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx.instr, 3 ) ) ) {
-        rc = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-        break;
-      }
-
-      // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L242
-      fd_sol_sysvar_clock_t const * clock = fd_sysvar_from_instr_acct_clock( &ctx, 1, &rc );
-      if( FD_UNLIKELY( !clock ) ) return rc;
-
-      rc = authorize( 0, me, voter_pubkey, instruction.inner.authorize_checked, signers, clock, &ctx );
-    } else {
-      rc = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    if( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) ) {
+      rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      break;
     }
 
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L236
+    fd_pubkey_t const * voter_pubkey = &ctx.instr->acct_pubkeys[3];
+
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L239
+    if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx.instr, 3 ) ) ) {
+      rc = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      break;
+    }
+
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L242
+    fd_sol_sysvar_clock_t const * clock = fd_sysvar_from_instr_acct_clock( &ctx, 1, &rc );
+    if( FD_UNLIKELY( !clock ) ) return rc;
+
+    rc = authorize( 0, me, voter_pubkey, instruction.inner.authorize_checked, signers, clock, &ctx );
     break;
   }
 
