@@ -444,7 +444,7 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
     for( ulong i=0UL; i<sz; i++ ) {
       if( FD_UNLIKELY( !dst_bytes_in_cur_region ) ) {
         /* Go to next one */
-        if( FD_UNLIKELY( dst_region_idx++>=vm->input_mem_regions_cnt ) ) {
+        if( FD_UNLIKELY( ++dst_region_idx>=vm->input_mem_regions_cnt ) ) {
           *_ret = 1;
           return FD_VM_ERR_ABORT;
         }
@@ -457,7 +457,7 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
       }
       if( FD_UNLIKELY( !src_bytes_in_cur_region ) ) {
         /* Go to next one */
-        if( FD_UNLIKELY( src_region_idx++>=vm->input_mem_regions_cnt ) ) {
+        if( FD_UNLIKELY( ++src_region_idx>=vm->input_mem_regions_cnt ) ) {
           *_ret = 1;
           return FD_VM_ERR_ABORT;
         }
@@ -721,7 +721,7 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
     for( ulong i=0UL; i<sz; i++ ) {
       if( FD_UNLIKELY( !dst_bytes_in_cur_region ) ) {
         /* Go to next one */
-        if( FD_UNLIKELY( dst_region_idx++>=vm->input_mem_regions_cnt ) ) {
+        if( FD_UNLIKELY( ++dst_region_idx>=vm->input_mem_regions_cnt ) ) {
           *_ret = 1;
           return FD_VM_ERR_ABORT;
         }
@@ -734,7 +734,7 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
       }
       if( FD_UNLIKELY( !src_bytes_in_cur_region ) ) {
         /* Go to next one */
-        if( FD_UNLIKELY( src_region_idx++>=vm->input_mem_regions_cnt ) ) {
+        if( FD_UNLIKELY( ++src_region_idx>=vm->input_mem_regions_cnt ) ) {
           *_ret = 1;
           return FD_VM_ERR_ABORT;
         }
