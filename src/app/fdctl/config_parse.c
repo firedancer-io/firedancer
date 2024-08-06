@@ -288,7 +288,6 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   tiles.quic.stream_pool_cnt                       );
   CFG_POP      ( uint,   tiles.quic.max_concurrent_handshakes             );
   CFG_POP      ( uint,   tiles.quic.max_inflight_quic_packets             );
-  CFG_POP      ( uint,   tiles.quic.tx_buf_size                           );
   CFG_POP      ( uint,   tiles.quic.idle_timeout_millis                   );
   CFG_POP      ( bool,   tiles.quic.retry                                 );
 
@@ -433,7 +432,6 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO( tiles.quic.txn_reassembly_count );
   CFG_HAS_NON_ZERO( tiles.quic.max_concurrent_handshakes );
   CFG_HAS_NON_ZERO( tiles.quic.max_inflight_quic_packets );
-  CFG_HAS_NON_ZERO( tiles.quic.tx_buf_size );
   CFG_HAS_NON_ZERO( tiles.quic.idle_timeout_millis );
 
   CFG_HAS_NON_ZERO( tiles.verify.receive_buffer_size );

@@ -298,7 +298,7 @@ populate_quic_limits( fd_quic_limits_t * limits ) {
   limits->conn_id_sparsity = 4.0;
   limits->stream_sparsity = 2.0;
   limits->inflight_pkt_cnt = 1500;
-  limits->tx_buf_sz = 1<<12;
+  limits->tx_buf_sz = fd_ulong_pow2_up( FD_TXN_MTU );
   limits->stream_pool_cnt = 1<<16;
 }
 
