@@ -26,7 +26,6 @@ fd_gui_new( void *             shmem,
             char const *       identity_key_base58,
             fd_topo_t *        topo ) {
   fd_gui_t * gui = (fd_gui_t *)shmem;
-  FD_LOG_NOTICE(( "%s", __func__ ));
 
   gui->server              = server;
   gui->alloc               = alloc;
@@ -45,6 +44,12 @@ fd_gui_new( void *             shmem,
   fd_memset( gui->summary.txn_info_this, 0, sizeof(gui->summary.txn_info_this[ 0 ]) );
   fd_memset( gui->summary.txn_info_json, 0, sizeof(gui->summary.txn_info_json[ 0 ]) );
   gui->summary.last_txn_ts = fd_log_wallclock();
+
+  gui->summary.net_tile_count = fd_topo_tile_name_cnt( gui->topo, "net" );
+  gui->summary.quic_tile_count = fd_topo_tile_name_cnt( gui->topo, "quic" );
+  gui->summary.verify_tile_count = fd_topo_tile_name_cnt( gui->topo, "verify" );
+  gui->summary.bank_tile_count = fd_topo_tile_name_cnt( gui->topo, "bank" );
+  gui->summary.shred_tile_count = fd_topo_tile_name_cnt( gui->topo, "shred" );
 
   gui->epoch.max_known_epoch = 1UL;
   fd_stake_weight_t dummy_stakes[1] = {{ .key = {{0}}, .stake = 1UL }};
@@ -261,15 +266,14 @@ fd_gui_topology_to_json( fd_gui_t * gui,
   fd_gui_topic_key_to_json_init( jsonb, "summary", "topology" );
   jsonb_open_obj( jsonb, "value" );
   jsonb_open_obj( jsonb, "tile_counts" );
-  config_t * config = gui->topo->config;
-  jsonb_ulong( jsonb, "Networking", config->layout.net_tile_count );
-  jsonb_ulong( jsonb, "QUIC", config->layout.quic_tile_count );
-  jsonb_ulong( jsonb, "Verify", config->layout.verify_tile_count );
+  jsonb_ulong( jsonb, "Networking", gui->summary.net_tile_count );
+  jsonb_ulong( jsonb, "QUIC", gui->summary.quic_tile_count );
+  jsonb_ulong( jsonb, "Verify", gui->summary.verify_tile_count );
   jsonb_ulong( jsonb, "Dedup", 1UL );
   jsonb_ulong( jsonb, "Pack", 1UL );
-  jsonb_ulong( jsonb, "Bank", config->layout.bank_tile_count );
+  jsonb_ulong( jsonb, "Bank", gui->summary.bank_tile_count );
   jsonb_ulong( jsonb, "PoH", 1UL );
-  jsonb_ulong( jsonb, "Shred", config->layout.shred_tile_count );
+  jsonb_ulong( jsonb, "Shred", gui->summary.shred_tile_count );
   jsonb_close_obj( jsonb );
   jsonb_close_obj( jsonb );
   fd_gui_topic_key_to_json_fini( jsonb );
@@ -299,7 +303,6 @@ fd_gui_ws_open( fd_gui_t *  gui,
                 ulong       conn_id ) {
 
   jsonb_t * jsonb = gui->jsonb;
-  FD_LOG_NOTICE(( "%s", __func__ ));
 
   fd_gui_version_to_json( gui, jsonb );
   fd_gui_jsonb_send( gui, jsonb, conn_id );
@@ -342,12 +345,11 @@ fd_gui_sample_counters( fd_gui_t * gui, long ts ) {
   gui->summary.last_txn_ts = ts;
 
   fd_topo_t * topo      = gui->topo;
-  config_t * config     = gui->topo->config;
   fd_gui_txn_info_t * txn_info = gui->summary.txn_info_this;
-  ulong net_tile_cnt    = config->layout.net_tile_count;
-  ulong quic_tile_cnt   = config->layout.quic_tile_count;
-  ulong verify_tile_cnt = config->layout.verify_tile_count;
-  ulong bank_tile_cnt   = config->layout.bank_tile_count;
+  ulong net_tile_cnt    = gui->summary.net_tile_count;
+  ulong quic_tile_cnt   = gui->summary.quic_tile_count;
+  ulong verify_tile_cnt = gui->summary.verify_tile_count;
+  ulong bank_tile_cnt   = gui->summary.bank_tile_count;
 
 #define FOR(cnt)  for( ulong i=0UL; i<cnt; i++ )
 #define FORj(cnt) for( ulong j=0UL; j<cnt; j++ )
@@ -1129,7 +1131,6 @@ fd_gui_plugin_message( fd_gui_t *    gui,
                        ulong         msg_len ) {
   (void)msg_len;
   jsonb_t * jsonb = gui->jsonb;
-  FD_LOG_NOTICE(( "%s", __func__ ));
 
   switch( plugin_msg ) {
     case FD_PLUGIN_MSG_SLOT_ROOTED:

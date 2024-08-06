@@ -263,6 +263,12 @@ struct fd_gui {
     fd_gui_txn_info_t txn_info_this[ 1 ]; /* Cumulative/Sampled */
     fd_gui_txn_info_t txn_info_json[ 1 ]; /* Delta/Computed */
     long              last_txn_ts;
+
+    ulong net_tile_count;
+    ulong quic_tile_count;
+    ulong verify_tile_count;
+    ulong bank_tile_count;
+    ulong shred_tile_count;
   } summary;
 
   struct {
