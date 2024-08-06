@@ -100,6 +100,9 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   fd_vote_account_cache_t * vote_accounts_map;           /* Cache of bank's deserialized vote accounts to support fork choice */
   fd_vote_account_cache_entry_t * vote_accounts_pool;    /* Memory pool for deserialized vote account cache */
   ulong                 accounts_resize_delta;           /* Transaction level tracking for account resizing */
+  fd_hash_t             blake_txn_msg_hash;              /* Hash of raw transaction message used by the status cache */
+  ulong                 execution_fee;                   /* Execution fee paid by the fee payer in the transaction */
+  ulong                 priority_fee;                    /* Priority fee paid by the fee payer in the transaction */
 
   uchar dirty_vote_acc  : 1;  /* 1 if this transaction maybe modified a vote account */
   uchar dirty_stake_acc : 1;  /* 1 if this transaction maybe modified a stake account */

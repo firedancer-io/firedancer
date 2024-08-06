@@ -25,6 +25,20 @@ typedef int (* fd_exec_instr_fn_t)( fd_exec_instr_ctx_t ctx );
 fd_exec_instr_fn_t
 fd_executor_lookup_native_program(  fd_pubkey_t const * program_id );
 
+/* TODO:FIXME: add documentation here */
+
+int
+fd_validate_fee_payer( fd_borrowed_account_t * account, fd_rent_t const * rent, ulong fee );
+
+int
+fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx );
+
+int
+fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx );
+
+int
+fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx );
+
 /* fd_execute_instr creates a new fd_exec_instr_ctx_t and performs
    instruction processing.  Does fd_scratch allocations.  Returns an
    error code in FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}.
@@ -45,9 +59,6 @@ fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
                                fd_txn_t const * txn_descriptor,
                                fd_rawtxn_b_t const * txn_raw );
 
-int
-fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
-                               fd_exec_txn_ctx_t * txn_ctx );
 int
 fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t *  slot_ctx,
                                fd_exec_txn_ctx_t * txn_ctx,
@@ -85,6 +96,9 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
 void
 fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
 
+int
+fd_executor_is_system_nonce_account( fd_borrowed_account_t * account );
+
 /*
   Validate the txn after execution for violations of various lamport balance and size rules
  */
@@ -101,12 +115,16 @@ fd_txn_set_exempt_rent_epoch_max( fd_exec_txn_ctx_t * txn_ctx,
                                   void const *        addr );
 
 int
-fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_borrowed_account_t const * rec,
-                         ulong                fee );
+fd_executor_collect_fee( fd_borrowed_account_t const * rec,
+                         ulong                         fee );
 
 void
 fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx );
+
+int
+fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash_queue,
+                                        fd_hash_t const *             blockhash,
+                                        ulong                         max_age );
 
 /* fd_io_strerror converts an FD_EXECUTOR_INSTR_ERR_{...} code into a
    human readable cstr.  The lifetime of the returned pointer is
@@ -117,7 +135,7 @@ FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );
 
 int
-fd_executor_check_txn_accounts( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_check_txn_data_sz( fd_exec_txn_ctx_t * txn_ctx );
 
 static inline int
 fd_exec_consume_cus( fd_exec_txn_ctx_t * txn_ctx,

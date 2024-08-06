@@ -88,13 +88,17 @@ int
 fd_txn_borrowed_account_view_idx( fd_exec_txn_ctx_t * ctx,
                                   uchar idx,
                                   fd_borrowed_account_t * *  account ) {
-  if( idx >= ctx->accounts_cnt ) {
+  if( FD_UNLIKELY( idx>=ctx->accounts_cnt ) ) {
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
-  // TODO: check if readable???
   fd_borrowed_account_t * txn_account = &ctx->borrowed_accounts[idx];
   *account = txn_account;
+
+  if( FD_UNLIKELY( !fd_acc_exists( txn_account->const_meta ) ) ) {
+    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  }
+
   return FD_ACC_MGR_SUCCESS;
 }
 
@@ -108,8 +112,9 @@ fd_txn_borrowed_account_view( fd_exec_txn_ctx_t * ctx,
       fd_borrowed_account_t * txn_account = &ctx->borrowed_accounts[i];
       *account = txn_account;
 
-      if( FD_UNLIKELY( !fd_acc_exists( txn_account->const_meta ) ) )
+      if( FD_UNLIKELY( !fd_acc_exists( txn_account->const_meta ) ) ) {
         return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+      }
 
       return FD_ACC_MGR_SUCCESS;
     }
