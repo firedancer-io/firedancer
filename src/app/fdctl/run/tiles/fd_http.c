@@ -37,7 +37,7 @@ typedef struct {
   fd_topo_t * topo;
 
   fd_gui_t * gui;
-  uchar      buf[ 8UL+40200UL*38UL ];
+  uchar      buf[ 8UL+40200UL*(58UL+12UL*34UL) ] __attribute__((aligned(8)));
 
   fd_http_server_t * gui_server;
 
@@ -107,6 +107,11 @@ during_frag( void * _ctx,
   fd_http_ctx_t * ctx = (fd_http_ctx_t *)_ctx;
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in_mem, chunk );
+
+   /* ... todo... sigh, sz is not correct since it's too big */
+  if( sig==4UL || sig==5UL || sig==7UL ) sz = 8UL + 40200UL*(58UL+12UL*34UL);
+  else if( sig==6UL ) sz = 40UL + 40200UL*40UL;
+
   fd_memcpy( ctx->buf, src, sz );
 }
 

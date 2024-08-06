@@ -8,5 +8,6 @@
 #define FD_PLUGIN_MSG_GOSSIP_UPDATE                 (4UL)
 #define FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE           (5UL)
 #define FD_PLUGIN_MSG_LEADER_SCHEDULE               (6UL)
+#define FD_PLUGIN_MSG_VALIDATOR_INFO                (7UL)
 
 #endif /* HEADER_fd_src_disco_plugin_fd_plugin_h */
