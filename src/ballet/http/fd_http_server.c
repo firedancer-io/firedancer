@@ -488,6 +488,28 @@ read_conn_ws( fd_http_server_t * http,
 
   if( FD_UNLIKELY( conn->recv_bytes_read<frame_len ) ) return; /* Need more data to read the full frame */
 
+  /* Unmask the data */
+
+  int is_fin_set = conn->recv_bytes[ conn->recv_bytes_parsed+0UL ] & 0x80;
+
+  uchar * mask    = conn->recv_bytes+conn->recv_bytes_parsed+1UL+len_bytes;
+  uchar maskcopy[4];
+  maskcopy[0] = mask[0];
+  maskcopy[1] = mask[1];
+  maskcopy[2] = mask[2];
+  maskcopy[3] = mask[3];
+  uchar * payload = conn->recv_bytes+conn->recv_bytes_parsed+header_len;
+  for( ulong i=0UL; i<payload_len; i++ ) conn->recv_bytes[ conn->recv_bytes_parsed+i ] = payload[ i ] ^ maskcopy[ i % 4 ];
+
+  /* Check if this is a complete message */
+
+  if( FD_UNLIKELY( !is_fin_set ) ) {
+    conn->recv_started_msg   = 1;
+    conn->recv_bytes_read   -= frame_len;
+    conn->recv_bytes_parsed += payload_len;
+    return; /* Not a complete message yet */
+  }
+
   /* Frame is complete, process it */
 
   if( FD_UNLIKELY( opcode==0x8 ) ) {
@@ -498,7 +520,7 @@ read_conn_ws( fd_http_server_t * http,
     if( FD_LIKELY( conn->pong_state!=FD_HTTP_SERVER_PONG_STATE_WAITING ) ) {
       conn->pong_state    = FD_HTTP_SERVER_PONG_STATE_WAITING;
       conn->pong_data_len = payload_len;
-      memcpy( conn->pong_data, conn->recv_bytes+conn->recv_bytes_parsed+header_len, payload_len );
+      memcpy( conn->pong_data, conn->recv_bytes+conn->recv_bytes_parsed, payload_len );
     }
     if( FD_UNLIKELY( conn->recv_bytes_read-frame_len ) ) {
       memmove( conn->recv_bytes, conn->recv_bytes+conn->recv_bytes_parsed+frame_len, conn->recv_bytes_read-frame_len );
@@ -525,28 +547,6 @@ read_conn_ws( fd_http_server_t * http,
   if( FD_UNLIKELY( !conn->recv_started_msg && opcode!=0x1 ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE );
     return;
-  }
-
-  /* Data frame, process it */
-
-  int is_fin_set = conn->recv_bytes[ conn->recv_bytes_parsed+0UL ] & 0x80;
-
-  uchar * mask    = conn->recv_bytes+conn->recv_bytes_parsed+1UL+len_bytes;
-  uchar maskcopy[4];
-  maskcopy[0] = mask[0];
-  maskcopy[1] = mask[1];
-  maskcopy[2] = mask[2];
-  maskcopy[3] = mask[3];
-  uchar * payload = conn->recv_bytes+conn->recv_bytes_parsed+header_len;
-  for( ulong i=0UL; i<payload_len; i++ ) conn->recv_bytes[ conn->recv_bytes_parsed+i ] = payload[ i ] ^ maskcopy[ i % 4 ];
-
-  /* Check if this is a complete message */
-
-  if( FD_UNLIKELY( !is_fin_set ) ) {
-    conn->recv_started_msg   = 1;
-    conn->recv_bytes_read   -= frame_len;
-    conn->recv_bytes_parsed += payload_len;
-    return; /* Not a complete message yet */
   }
 
   /* Complete message, process it */
