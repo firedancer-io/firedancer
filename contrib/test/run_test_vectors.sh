@@ -28,7 +28,7 @@ else
 fi
 
 LOG=$LOG_PATH/test_exec_syscall
-cat contrib/test/syscall-fixtures.list | xargs ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+xargs -a contrib/test/syscall-fixtures.list ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
 LOG=$LOG_PATH/test_exec_precompiles
 cat contrib/test/precompile-fixtures.list | xargs ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG

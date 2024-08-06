@@ -64,7 +64,7 @@ sol_compat_wksp_init( void ) {
   for( const fd_feature_id_t * current_feature = fd_feature_iter_init(); !fd_feature_iter_done( current_feature ); current_feature = fd_feature_iter_next( current_feature ) ) {
     // Skip reverted features
     if( current_feature->reverted ) continue;
-  
+
     if( current_feature->cleaned_up ) {
       memcpy( &features.cleaned_up_features[features.cleaned_up_feature_cnt++], &current_feature->id, sizeof(ulong) );
     } else {
@@ -171,6 +171,36 @@ sol_compat_execute_wrapper( fd_exec_instr_test_runner_t * runner,
  * fixtures
  */
 
+static void
+hexdiff( uchar const * a, uchar const * b, ulong sz ) {
+  FD_LOG_NOTICE(( "    DIFF:  ACTUAL                  | EXPECTED" ));
+  ulong sz_fast = fd_ulong_align_dn( sz, 8UL );
+  ulong off;
+  for( off=0UL; off<sz_fast; off+=8UL, a+=8, b+=8, sz-=8UL ) {
+    int has_diff = fd_ulong_load_8( a ) != fd_ulong_load_8( b );
+    if( has_diff ) {
+      FD_LOG_NOTICE(( "  %06lx:  %02x %02x %02x %02x %02x %02x %02x %02x | %02x %02x %02x %02x %02x %02x %02x %02x", off,
+                      a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7],
+                      b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7] ));
+    }
+  }
+  if( 0!=fd_memeq( a, b, sz ) ) {
+    char str[60];
+    char * p = fd_cstr_init( str );
+    p = fd_cstr_append_printf( p, "\t%06lx: ", off );
+    for( ulong i=0; i<sz; i++ ) {
+      p = fd_cstr_append_printf( p, " %02x", a[i] );
+    }
+    p = fd_cstr_append_text( p, "                     ", (8-sz)*3 );
+    p = fd_cstr_append_cstr( p, " |" );
+    for( ulong i=0; i<sz; i++ ) {
+      p = fd_cstr_append_printf( p, " %02x", b[i] );
+    }
+    fd_cstr_fini( p );
+    FD_LOG_NOTICE(( "%s", str ));
+  }
+}
+
 int
 sol_compat_cmp_binary_strict( void const * effects,
                               void const * expected,
@@ -201,6 +231,7 @@ sol_compat_cmp_binary_strict( void const * effects,
   }
   if( !fd_memeq( out, exp, out_sz ) ) {
     FD_LOG_WARNING(( "Binary cmp failed: different values." ));
+    hexdiff( out, exp, out_sz );
     return 0;
   }
 
@@ -333,7 +364,7 @@ sol_compat_syscall_fixture( fd_exec_instr_test_runner_t * runner,
   return ok;
 }
 
-int 
+int
 sol_compat_validate_vm_fixture( fd_exec_instr_test_runner_t * runner,
                                 uchar const *                 in,
                                 ulong                         in_sz ) {
