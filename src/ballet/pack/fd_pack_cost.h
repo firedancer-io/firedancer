@@ -195,7 +195,7 @@ fd_pack_compute_cost( fd_txn_p_t * txnp,
 
   non_builtin_cnt = fd_ulong_min( non_builtin_cnt, FD_COMPUTE_BUDGET_MAX_CU_LIMIT/FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT );
 
-  ulong non_builtin_cost = fd_ulong_if( (cbp->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU),
+  ulong non_builtin_cost = fd_ulong_if( (cbp->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU) && (non_builtin_cnt>0UL),
                                         (ulong)*compute,
                                         non_builtin_cnt*FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT
                                        ); /* <= FD_COMPUTE_BUDGET_MAX_CU_LIMIT */
