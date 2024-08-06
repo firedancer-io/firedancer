@@ -213,6 +213,7 @@ static void
 close_conn( fd_http_server_t * http,
             ulong              conn_idx,
             int                reason ) {
+  if( http->pollfds[ conn_idx ].fd == -1 ) return;
 #ifdef FD_HTTP_SERVER_DEBUG
   FD_LOG_NOTICE(( "Closing connection %lu (fd=%d) (%d-%s)", conn_idx, http->pollfds[ conn_idx ].fd, reason, fd_http_server_connection_close_reason_str( reason ) ));
 #endif
