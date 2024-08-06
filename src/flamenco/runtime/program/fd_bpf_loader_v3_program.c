@@ -913,6 +913,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
       if( FD_UNLIKELY( !fd_instr_acc_is_writable( instr_ctx->instr, program->pubkey ) ) ) {
         FD_LOG_WARNING(( "Program account not writeable" ));
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
       if( FD_UNLIKELY( memcmp( &program->const_meta->info.owner, program_id, sizeof(fd_pubkey_t) ) ) ) {
         FD_LOG_WARNING(( "Program account not owned by loader" ));

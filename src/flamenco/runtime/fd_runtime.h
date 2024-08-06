@@ -130,8 +130,6 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         fd_capture_ctx_t * capture_ctx,
                                         fd_txn_p_t * txns,
                                         ulong txn_cnt,
-                                        int ( * query_func )( ulong slot, void * ctx ),
-                                        void * query_arg,
                                         fd_tpool_t * tpool );
 
 void
@@ -173,8 +171,6 @@ int
 fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                       fd_execute_txn_task_info_t * task_info,
                                       ulong txn_cnt,
-                                      int ( * query_func )( ulong slot, void * ctx ),
-                                      void * query_arg,
                                       fd_tpool_t * tpool );
 
 int
@@ -193,14 +189,6 @@ int
 fd_runtime_prepare_txns_phase3( fd_exec_slot_ctx_t * slot_ctx,
                                 fd_execute_txn_task_info_t * task_info,
                                 ulong txn_cnt );
-
-int
-fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
-                               fd_capture_ctx_t * capture_ctx,
-                               fd_txn_p_t * txns,
-                               ulong txn_cnt,
-                               fd_execute_txn_task_info_t * task_infos,
-                               fd_tpool_t * tpool );
 
 int
 fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
