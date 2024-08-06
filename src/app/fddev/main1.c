@@ -162,10 +162,10 @@ fddev_main( int     argc,
   fdctl_boot( &argc, &argv, &config, log_path );
 
   /* load configuration and command line parsing */
-  if( FD_UNLIKELY( config.is_live_cluster ) )
-    FD_LOG_ERR(( "The `fddev` command is for development and test environments but your "
-                 "configuration targets a live cluster. Use `fdctl` if this is a "
-                 "production environment" ));
+  // if( FD_UNLIKELY( config.is_live_cluster ) )
+  //   FD_LOG_ERR(( "The `fddev` command is for development and test environments but your "
+  //                "configuration targets a live cluster. Use `fdctl` if this is a "
+  //                "production environment" ));
 
   int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
   int no_clone = fd_env_strip_cmdline_contains( &argc, &argv, "--no-clone" );

@@ -23,7 +23,6 @@ struct fd_gui_gossip_peer {
     int    has_commit;
     uint   commit;
 
-    int    has_feature_set;
     uint   feature_set;
   } version;
 
@@ -31,6 +30,27 @@ struct fd_gui_gossip_peer {
     uint   ipv4;
     ushort port;
   } sockets[ 12 ];
+};
+
+struct fd_gui_vote_account {
+  fd_pubkey_t pubkey[ 1 ];
+  fd_pubkey_t vote_account[ 1 ];
+
+  ulong       activated_stake;
+  ulong       last_vote;
+  ulong       root_slot;
+  ulong       epoch_credits;
+  uchar       commission;
+  int         delinquent;
+};
+
+struct fd_gui_validator_info {
+  fd_pubkey_t pubkey[ 1 ];
+
+  char name[ 64 ];
+  char website[ 128 ];
+  char details[ 256 ];
+  char icon_uri[ 128 ];
 };
 
 struct jsonb {
@@ -157,7 +177,33 @@ jsonb_str(jsonb_t * jsonb, char const * key, char const * val) {
     ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "\"%s\":", key);
     jsonb->cur_sz += tmp_len;
   }
-  ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "\"%s\",", val);
+  if( !val ) {
+    ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "null,");
+  } else {
+    ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "\"%s\",", val);
+    if( ret ) {
+      // escape quotemark, reverse solidus, and control chars U+0000 through U+001F, just replace with a space
+      for( ulong i=jsonb->cur_sz+1UL; i<jsonb->cur_sz+tmp_len-2UL; i++ ) {
+        if( jsonb->buf[ i ] < 0x20 || jsonb->buf[ i ] == '"' || jsonb->buf[ i ] == '\\' ) {
+          jsonb->buf[ i ] = ' ';
+        }
+      }
+    }
+  }
+  jsonb->cur_sz += tmp_len;
+
+  return ret ? JSONB_OK : JSONB_ERR;
+}
+
+static FD_FN_UNUSED ulong
+jsonb_bool(jsonb_t * jsonb, char const * key, int val) {
+  ulong tmp_len;
+  int ret = 1;
+  if ( key != NULL ) {
+    ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "\"%s\":", key);
+    jsonb->cur_sz += tmp_len;
+  }
+  ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "%s,", val ? "true" : "false");
   jsonb->cur_sz += tmp_len;
 
   return ret ? JSONB_OK : JSONB_ERR;
@@ -222,7 +268,17 @@ struct fd_gui {
     struct fd_gui_gossip_peer peers[ 40200 ];
   } gossip;
 
-#define FD_GUI_JSON_BUF_SIZE (4096UL * 512UL)
+  struct {
+    ulong                      vote_account_cnt;
+    struct fd_gui_vote_account vote_accounts[ 40200 ];
+  } vote_account;
+
+  struct {
+    ulong info_cnt;
+    struct fd_gui_validator_info info[ 40200 ];
+  } validator_info;
+
+#define FD_GUI_JSON_BUF_SIZE (8192UL * 1024UL)
   jsonb_t jsonb[ 1 ];
   char    json_buf[ FD_GUI_JSON_BUF_SIZE ];
 };
