@@ -51,6 +51,10 @@ fd_gui_new( void *             shmem,
   gui->summary.bank_tile_count = fd_topo_tile_name_cnt( gui->topo, "bank" );
   gui->summary.shred_tile_count = fd_topo_tile_name_cnt( gui->topo, "shred" );
 
+  fd_memset( gui->summary.tile_info, 0, sizeof(gui->summary.tile_info) );
+  gui->summary.tile_info_sample_cnt = 0;
+  gui->summary.last_tile_info_ts = fd_log_wallclock();
+
   gui->epoch.max_known_epoch = 1UL;
   fd_stake_weight_t dummy_stakes[1] = {{ .key = {{0}}, .stake = 1UL }};
   for( ulong i = 0UL; i < FD_GUI_NUM_EPOCHS; i++ ) {
@@ -76,6 +80,9 @@ fd_gui_join( void * shmem ) {
   return (fd_gui_t *)shmem;
 }
 
+
+#define FOR(cnt)  for( ulong i=0UL; i<(cnt); i++ )
+#define FORj(cnt) for( ulong j=0UL; j<(cnt); j++ )
 
 static void
 fd_gui_topic_key_to_json_init( jsonb_t    * jsonb,
@@ -201,6 +208,107 @@ fd_gui_txn_info_summary_to_json( fd_gui_t * gui,
                                  jsonb_t  * jsonb) {
   fd_gui_topic_key_to_json_init( jsonb, "summary", "upcoming_slot_txn_info" );
   fd_gui_txn_info_to_json_no_init( gui, jsonb );
+  fd_gui_topic_key_to_json_fini( jsonb );
+}
+
+static void
+jsonb_pct( jsonb_t * jsonb,
+           ulong     num_now,
+           ulong     num_then,
+           double    lhopital_num,
+           ulong     den_now,
+           ulong     den_then,
+           double    lhopital_den ) {
+  if( FD_UNLIKELY( (num_now<num_then)                              |
+                   (den_now<den_then)                              |
+                   !((0.<=lhopital_num) && (lhopital_num<=DBL_MAX)) |
+                   !((0.< lhopital_den) && (lhopital_den<=DBL_MAX)) ) ) {
+    FD_LOG_ERR(( "invalid pct" ));
+  }
+
+  double pct = 100.*(((double)(num_now - num_then) + lhopital_num) / ((double)(den_now - den_then) + lhopital_den));
+
+  if( FD_UNLIKELY( !((0.<=pct) && (pct<=DBL_MAX)) ) ) {
+    FD_LOG_ERR(( "overflow pct" ));
+  }
+
+  jsonb_double( jsonb, NULL, pct );
+}
+
+static ulong
+tile_total_ticks( fd_gui_tile_info_t * tile_info ) {
+  return tile_info->housekeeping_ticks +
+         tile_info->backpressure_ticks +
+         tile_info->caught_up_ticks +
+         tile_info->overrun_polling_ticks +
+         tile_info->overrun_reading_ticks +
+         tile_info->filter_before_frag_ticks +
+         tile_info->filter_after_frag_ticks +
+         tile_info->finish_ticks;
+}
+
+static void
+fd_gui_tile_info_to_json_do_tile( fd_gui_t * gui,
+                                  jsonb_t  * jsonb,
+                                  char *     tile_name ) {
+  jsonb_open_arr( jsonb, "idle" );
+  fd_topo_t * topo      = gui->topo;
+  FOR( topo->tile_cnt ) {
+    if ( !strcmp( topo->tiles[ i ].name, tile_name ) ) {
+      fd_gui_tile_info_t * prv = gui->summary.tile_info + ( 2 * i + ( gui->summary.tile_info_sample_cnt % 2 ));
+      fd_gui_tile_info_t * cur = gui->summary.tile_info + ( 2 * i + ( ( gui->summary.tile_info_sample_cnt + 1 ) % 2 ));
+      // jsonb_pct( jsonb, cur->housekeeping_ticks,       prv->housekeeping_ticks,       0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+      // jsonb_pct( jsonb, cur->backpressure_ticks,       prv->backpressure_ticks,       0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+      jsonb_pct( jsonb, cur->caught_up_ticks,          prv->caught_up_ticks,          0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+      // jsonb_pct( jsonb, cur->overrun_polling_ticks,    prv->overrun_polling_ticks,    0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+      // jsonb_pct( jsonb, cur->overrun_reading_ticks,    prv->overrun_reading_ticks,    0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+      // jsonb_pct( jsonb, cur->filter_before_frag_ticks, prv->filter_before_frag_ticks, 0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+      // jsonb_pct( jsonb, cur->filter_after_frag_ticks , prv->filter_after_frag_ticks,  0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+      // jsonb_pct( jsonb, cur->finish_ticks,             prv->finish_ticks,             0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+    }
+  }
+  jsonb_close_arr( jsonb );
+}
+
+static void
+fd_gui_tile_info_to_json( fd_gui_t * gui,
+                          jsonb_t  * jsonb) {
+  fd_gui_topic_key_to_json_init( jsonb, "summary", "tile_info" );
+  jsonb_open_obj( jsonb, "value" );
+
+  jsonb_open_obj( jsonb, "Networking" );
+  fd_gui_tile_info_to_json_do_tile( gui, jsonb, "net" );
+  jsonb_close_obj( jsonb );
+
+  jsonb_open_obj( jsonb, "QUIC" );
+  fd_gui_tile_info_to_json_do_tile( gui, jsonb, "quic" );
+  jsonb_close_obj( jsonb );
+
+  jsonb_open_obj( jsonb, "Verify" );
+  fd_gui_tile_info_to_json_do_tile( gui, jsonb, "verify" );
+  jsonb_close_obj( jsonb );
+
+  jsonb_open_obj( jsonb, "Dedup" );
+  fd_gui_tile_info_to_json_do_tile( gui, jsonb, "dedup" );
+  jsonb_close_obj( jsonb );
+
+  jsonb_open_obj( jsonb, "Pack" );
+  fd_gui_tile_info_to_json_do_tile( gui, jsonb, "pack" );
+  jsonb_close_obj( jsonb );
+
+  jsonb_open_obj( jsonb, "Bank" );
+  fd_gui_tile_info_to_json_do_tile( gui, jsonb, "bank" );
+  jsonb_close_obj( jsonb );
+
+  jsonb_open_obj( jsonb, "PoH" );
+  fd_gui_tile_info_to_json_do_tile( gui, jsonb, "poh" );
+  jsonb_close_obj( jsonb );
+
+  jsonb_open_obj( jsonb, "Shred" );
+  fd_gui_tile_info_to_json_do_tile( gui, jsonb, "shred" );
+  jsonb_close_obj( jsonb );
+
+  jsonb_close_obj( jsonb );
   fd_gui_topic_key_to_json_fini( jsonb );
 }
 
@@ -350,9 +458,6 @@ fd_gui_sample_counters( fd_gui_t * gui, long ts ) {
   ulong quic_tile_cnt   = gui->summary.quic_tile_count;
   ulong verify_tile_cnt = gui->summary.verify_tile_count;
   ulong bank_tile_cnt   = gui->summary.bank_tile_count;
-
-#define FOR(cnt)  for( ulong i=0UL; i<cnt; i++ )
-#define FORj(cnt) for( ulong j=0UL; j<cnt; j++ )
 
   ulong bank_exec = 0UL;
   ulong bank_exec_success = 0UL;
@@ -508,6 +613,29 @@ fd_gui_sample_counters( fd_gui_t * gui, long ts ) {
   }
 }
 
+static void
+fd_gui_sample_tiles( fd_gui_t * gui, long ts ) {
+  gui->summary.last_tile_info_ts = ts;
+
+  fd_topo_t * topo      = gui->topo;
+  FOR( topo->tile_cnt ) {
+    fd_gui_tile_info_t * tile_info = gui->summary.tile_info + ( 2 * i + ( gui->summary.tile_info_sample_cnt % 2 ));
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    fd_metrics_register( tile->metrics );
+
+    tile_info->housekeeping_ticks       = FD_MHIST_SUM( STEM, LOOP_HOUSEKEEPING_DURATION_SECONDS );
+    tile_info->backpressure_ticks       = FD_MHIST_SUM( STEM, LOOP_BACKPRESSURE_DURATION_SECONDS );
+    tile_info->caught_up_ticks          = FD_MHIST_SUM( STEM, LOOP_CAUGHT_UP_DURATION_SECONDS );
+    tile_info->overrun_polling_ticks    = FD_MHIST_SUM( STEM, LOOP_OVERRUN_POLLING_DURATION_SECONDS );
+    tile_info->overrun_reading_ticks    = FD_MHIST_SUM( STEM, LOOP_OVERRUN_READING_DURATION_SECONDS );
+    tile_info->filter_before_frag_ticks = FD_MHIST_SUM( STEM, LOOP_FILTER_BEFORE_FRAGMENT_DURATION_SECONDS );
+    tile_info->filter_after_frag_ticks  = FD_MHIST_SUM( STEM, LOOP_FILTER_AFTER_FRAGMENT_DURATION_SECONDS );
+    tile_info->finish_ticks             = FD_MHIST_SUM( STEM, LOOP_FINISH_DURATION_SECONDS );
+  }
+
+  gui->summary.tile_info_sample_cnt++;
+}
+
 void
 fd_gui_poll( fd_gui_t * gui ) {
   // static long last = 0;
@@ -515,14 +643,22 @@ fd_gui_poll( fd_gui_t * gui ) {
   // FD_LOG_NOTICE(( "%lu nanos since we last polled", current - last ));
   // last = current;
   /* Has 100 millis passed since we last collected info? */
-  if( current - gui->summary.last_txn_ts <= 100000000 ) return;
+  if( current - gui->summary.last_txn_ts > 100000000 ) {
+    /* Recalculate and publish. */
+    fd_gui_sample_counters( gui, current );
+    fd_gui_txn_info_summary_to_json( gui, gui->jsonb );
+    fd_gui_jsonb_broadcast( gui, gui->jsonb );
+    // long done = fd_log_wallclock();
+    // FD_LOG_NOTICE(( "fd_gui_poll took %ld nanos", done - current ));
+  }
 
-  /* Recalculate and publish. */
-  fd_gui_sample_counters( gui, current );
-  fd_gui_txn_info_summary_to_json( gui, gui->jsonb );
-  fd_gui_jsonb_broadcast( gui, gui->jsonb );
-  // long done = fd_log_wallclock();
-  // FD_LOG_NOTICE(( "fd_gui_poll took %ld nanos", done - current ));
+  current = fd_log_wallclock();
+  if( current - gui->summary.last_tile_info_ts > 100000000 ) {
+    /* Recalculate and publish. */
+    fd_gui_sample_tiles( gui, current );
+    fd_gui_tile_info_to_json( gui, gui->jsonb );
+    fd_gui_jsonb_broadcast( gui, gui->jsonb );
+  }
 }
 
 static int

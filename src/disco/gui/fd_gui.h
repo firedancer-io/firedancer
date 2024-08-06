@@ -170,6 +170,20 @@ jsonb_ulong(jsonb_t * jsonb, char const * key, ulong val) {
 }
 
 static FD_FN_UNUSED ulong
+jsonb_double(jsonb_t * jsonb, char const * key, double val) {
+  ulong tmp_len;
+  int ret = 1;
+  if ( key != NULL ) {
+    ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "\"%s\":", key);
+    jsonb->cur_sz += tmp_len;
+  }
+  ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "%.2f,", val);
+  jsonb->cur_sz += tmp_len;
+
+  return ret ? JSONB_OK : JSONB_ERR;
+}
+
+static FD_FN_UNUSED ulong
 jsonb_str(jsonb_t * jsonb, char const * key, char const * val) {
   ulong tmp_len;
   int ret = 1;
@@ -242,6 +256,19 @@ struct fd_gui_txn_info {
 
 typedef struct fd_gui_txn_info fd_gui_txn_info_t;
 
+struct fd_gui_tile_info {
+  ulong housekeeping_ticks;
+  ulong backpressure_ticks;
+  ulong caught_up_ticks;
+  ulong overrun_polling_ticks;
+  ulong overrun_reading_ticks;
+  ulong filter_before_frag_ticks;
+  ulong filter_after_frag_ticks;
+  ulong finish_ticks;
+};
+
+typedef struct fd_gui_tile_info fd_gui_tile_info_t;
+
 struct fd_gui {
   fd_http_server_t * server;
 
@@ -269,6 +296,10 @@ struct fd_gui {
     ulong verify_tile_count;
     ulong bank_tile_count;
     ulong shred_tile_count;
+
+    fd_gui_tile_info_t tile_info[ FD_TOPO_MAX_TILES * 2 ];
+    ulong tile_info_sample_cnt;
+    long  last_tile_info_ts;
   } summary;
 
   struct {

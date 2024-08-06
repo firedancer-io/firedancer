@@ -185,6 +185,65 @@ the client can calculate it from the stream of new slot data.
 
 ::: details Example
 
+```json
+{
+    "topic":"summary",
+    "key":"upcoming_slot_txn_info",
+    "value":{
+        "acquired_txns":66893,
+        "acquired_txns_leftover":0,
+        "acquired_txns_quic":66767,
+        "acquired_txns_nonquic":1,
+        "acquired_txns_gossip":2,
+        "dropped_txns":49091,
+        "dropped_txns_net":{
+            "count":0,
+            "breakdown":{
+                "net_overrun":0,
+                "net_invalid":0
+            }
+        },
+        "dropped_txns_quic":{
+            "count":0,
+            "breakdown":{
+                "quic_overrun":0,
+                "quic_reasm":0
+            }
+        },
+        "dropped_txns_verify":{
+            "count":49152,
+            "breakdown":{
+                "verify_overrun":49152,
+                "verify_drop":0
+            }
+        },
+        "dropped_txns_dedup":{
+            "count":1,
+            "breakdown":{
+                "dedup_drop":1
+            }
+        },
+        "dropped_txns_pack":{
+            "count":0,
+            "breakdown":{
+                "pack_nonleader":0,
+                "pack_invalid":0,
+                "pack_priority":0
+            }
+        },
+        "dropped_txns_bank":{
+            "count":0,
+            "breakdown":{
+                "bank_invalid":0
+            }
+        },
+        "executed_txns_failure":0,
+        "executed_txns_success":27993,
+        "buffered_txns":3
+    }
+}
+```
+
 :::
 
 The number of transactions of that have been acquired or dropped in the
@@ -220,6 +279,81 @@ leader slot completes and begin counting up again.
 
 On establishing connection we send the tile topology of the running
 Firedancer.
+
+#### `summary.tile_info`
+| frequency    | type     | example     |
+|--------------|----------|-------------|
+| Once + 100ms | `TileInfo` | below     |
+
+::: details Example
+
+```json
+{
+    "topic":"summary",
+    "key":"tile_info",
+    "value":{
+        "Networking":{
+            "idle":[
+                44.97
+            ]
+        },
+        "QUIC":{
+            "idle":[
+                90.86
+            ]
+        },
+        "Verify":{
+            "idle":[
+                0.00,
+                0.00,
+                0.00,
+                0.00
+            ]
+        },
+        "Dedup":{
+            "idle":[
+                98.85
+            ]
+        },
+        "Pack":{
+            "idle":[
+                95.51
+            ]
+        },
+        "Bank":{
+            "idle":[
+                35.40,
+                98.65
+            ]
+        },
+        "PoH":{
+            "idle":[
+                98.23
+            ]
+        },
+        "Shred":{
+            "idle":[
+                97.43,
+                97.47
+            ]
+        }
+    }
+}
+```
+
+:::
+
+**`TileInfo`**
+| Field      | Type    | Description
+|------------|---------|------------
+| Networking | `{"idle": number[]}` | Per-tile idleness percentage since the last sample.
+| QUIC       | `{"idle": number[]}` | Per-tile idleness percentage since the last sample.
+| Verify     | `{"idle": number[]}` | Per-tile idleness percentage since the last sample.
+| Dedup      | `{"idle": number[]}` | Per-tile idleness percentage since the last sample.
+| Pack       | `{"idle": number[]}` | Per-tile idleness percentage since the last sample.
+| Bank       | `{"idle": number[]}` | Per-tile idleness percentage since the last sample.
+| PoH        | `{"idle": number[]}` | Per-tile idleness percentage since the last sample.
+| Shred      | `{"idle": number[]}` | Per-tile idleness percentage since the last sample.
 
 ### epoch
 Information about an epoch. Epochs are never modified once they have
