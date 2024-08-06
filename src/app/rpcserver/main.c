@@ -92,11 +92,7 @@ int main( int argc, char ** argv ) {
     FD_LOG_ERR(( "sigaction(SIGTERM) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) )
     FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  struct sigaction sa2 = {
-    .sa_handler = SIG_IGN,
-    .sa_flags   = 0,
-  };
-  sigaction( SIGPIPE, &sa2, NULL );
+  signal( SIGPIPE, SIG_IGN );
 
   fd_rpc_ctx_t * ctx = NULL;
   fd_rpc_start_service( &args, &ctx );
