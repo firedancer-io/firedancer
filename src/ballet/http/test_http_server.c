@@ -2,6 +2,7 @@
 #include "fd_http_server.h"
 #include <malloc.h>
 #include <signal.h>
+#include <stdlib.h>
 #include <sys/time.h>
 
 static volatile int stopflag = 0;
@@ -104,7 +105,7 @@ ws_send_all( fd_http_server_t * server, struct conn_list * conns ) {
 }
 
 static void
-ws_sent( ulong connection_id, fd_http_server_ws_frame_t * frame, void * ctx ) {
+ws_done( ulong connection_id, fd_http_server_ws_frame_t * frame, void * ctx ) {
   FD_LOG_NOTICE(( "WS SENT id=%lu ctx=%lx", connection_id, (ulong)ctx ));
   free((uchar*)frame->data);
 }
@@ -131,7 +132,7 @@ main( int     argc,
     .ws_open = ws_open,
     .ws_close = ws_close,
     .ws_message = ws_message,
-    .ws_sent = ws_sent
+    .ws_done = ws_done
   };
 
   void* server_mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );

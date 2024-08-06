@@ -93,6 +93,7 @@ fd_http_server_new( void *                     shmem,
   http->max_request_len       = params.max_request_len;
   http->max_ws_recv_frame_len = params.max_ws_recv_frame_len;
   http->max_ws_send_frame_cnt = params.max_ws_send_frame_cnt;
+  http->so_sndbuf_len         = params.so_sndbuf_len;
 
   for( ulong i=0UL; i<params.max_connection_cnt; i++ ) {
     http->pollfds[ i ].fd = -1;
@@ -204,8 +205,6 @@ fd_http_server_listen( fd_http_server_t * http,
   http->socket_fd = sockfd;
   http->pollfds[ http->max_conns+http->max_ws_conns ].fd = http->socket_fd;
 
-  FD_LOG_NOTICE(( "listening to port %hu", port ));
-
   return http;
 }
 
@@ -213,7 +212,7 @@ static void
 close_conn( fd_http_server_t * http,
             ulong              conn_idx,
             int                reason ) {
-  if( http->pollfds[ conn_idx ].fd == -1 ) return;
+  FD_TEST( http->pollfds[ conn_idx ].fd != -1 );
 #ifdef FD_HTTP_SERVER_DEBUG
   FD_LOG_NOTICE(( "Closing connection %lu (fd=%d) (%d-%s)", conn_idx, http->pollfds[ conn_idx ].fd, reason, fd_http_server_connection_close_reason_str( reason ) ));
 #endif
@@ -228,7 +227,7 @@ close_conn( fd_http_server_t * http,
     struct fd_http_server_ws_connection * conn = &http->ws_conns[ conn_idx-http->max_conns ];
     while( conn->send_frame_cnt ) {
       fd_http_server_ws_frame_t * frame = &conn->send_frames[ conn->send_frame_idx ];
-      if( FD_LIKELY( http->callbacks.ws_sent ) ) http->callbacks.ws_sent( conn_idx-http->max_conns, frame, http->callback_ctx );
+      if( FD_LIKELY( http->callbacks.ws_done ) ) http->callbacks.ws_done( conn_idx-http->max_conns, frame, http->callback_ctx );
       conn->send_frame_idx   = (conn->send_frame_idx+1UL) % http->max_ws_send_frame_cnt;
       conn->send_frame_cnt--;
     }
@@ -258,9 +257,11 @@ accept_conns( fd_http_server_t * http ) {
     memset( &http->conns[ http->conn_id ].response, 0, sizeof(fd_http_server_response_t) );
     http->conn_id = (http->conn_id+1UL) % http->max_conns;
 
-    int optval = 2<<20;
-    if( setsockopt( fd, SOL_SOCKET, SO_SNDBUF, (char *)&optval, sizeof(int) ) < 0 ) {
-      FD_LOG_ERR(( "setsockopt failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    if( http->so_sndbuf_len ) {
+      int optval = (int)http->so_sndbuf_len;
+      if( setsockopt( fd, SOL_SOCKET, SO_SNDBUF, (char *)&optval, sizeof(int) ) < 0 ) {
+        FD_LOG_ERR(( "setsockopt failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      }
     }
 
 #ifdef FD_HTTP_SERVER_DEBUG
@@ -502,15 +503,6 @@ read_conn_ws( fd_http_server_t * http,
   uchar * payload = conn->recv_bytes+conn->recv_bytes_parsed+header_len;
   for( ulong i=0UL; i<payload_len; i++ ) conn->recv_bytes[ conn->recv_bytes_parsed+i ] = payload[ i ] ^ maskcopy[ i % 4 ];
 
-  /* Check if this is a complete message */
-
-  if( FD_UNLIKELY( !is_fin_set ) ) {
-    conn->recv_started_msg   = 1;
-    conn->recv_bytes_read   -= frame_len;
-    conn->recv_bytes_parsed += payload_len;
-    return; /* Not a complete message yet */
-  }
-
   /* Frame is complete, process it */
 
   if( FD_UNLIKELY( opcode==0x8 ) ) {
@@ -548,6 +540,15 @@ read_conn_ws( fd_http_server_t * http,
   if( FD_UNLIKELY( !conn->recv_started_msg && opcode!=0x1 ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE );
     return;
+  }
+
+  /* Check if this is a complete message */
+
+  if( FD_UNLIKELY( !is_fin_set ) ) {
+    conn->recv_started_msg   = 1;
+    conn->recv_bytes_read   -= frame_len;
+    conn->recv_bytes_parsed += payload_len;
+    return; /* Not a complete message yet */
   }
 
   /* Complete message, process it */
@@ -715,7 +716,7 @@ maybe_write_pong( fd_http_server_t * http,
 
   long sz = write( http->pollfds[ conn_idx ].fd, frame+conn->pong_bytes_written, 2UL+conn->pong_data_len-conn->pong_bytes_written );
   if( FD_UNLIKELY( -1==sz && (errno==EAGAIN || errno==EINTR) ) ) return 1; /* No data was written, continue. */
-  else if( FD_UNLIKELY( -1==sz && (errno==EPIPE || errno==ECONNRESET || errno==EBADF) ) ) {
+  else if( FD_UNLIKELY( -1==sz && (errno==EPIPE || errno==ECONNRESET ) ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
     return 1;
   }
@@ -795,7 +796,7 @@ write_conn_ws( fd_http_server_t * http,
       conn->send_frame_bytes_written += (ulong)sz;
       if( FD_UNLIKELY( conn->send_frame_bytes_written==frame->data_len ) ) {
 
-        if( FD_LIKELY( http->callbacks.ws_sent ) ) http->callbacks.ws_sent( conn_idx-http->max_conns, frame, http->callback_ctx );
+        if( FD_LIKELY( http->callbacks.ws_done ) ) http->callbacks.ws_done( conn_idx-http->max_conns, frame, http->callback_ctx );
 
         conn->send_frame_state = FD_HTTP_SERVER_SEND_FRAME_STATE_HEADER;
         conn->send_frame_idx   = (conn->send_frame_idx+1UL) % http->max_ws_send_frame_cnt;

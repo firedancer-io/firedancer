@@ -270,7 +270,7 @@ void fd_web_ws_reply( fd_webserver_t * ws, ulong conn_id, fd_textstream_t * ts) 
 }
 
 static void
-ws_sent( ulong connection_id, fd_http_server_ws_frame_t * frame, void * ctx ) {
+ws_done( ulong connection_id, fd_http_server_ws_frame_t * frame, void * ctx ) {
   (void)connection_id;
   (void)ctx ;
   if( frame->data ) {
@@ -289,7 +289,7 @@ int fd_webserver_start( ushort portno, fd_http_server_params_t params, fd_webser
     .ws_open = ws_open,
     .ws_close = ws_close,
     .ws_message = ws_message,
-    .ws_sent = ws_sent
+    .ws_done = ws_done
   };
 
   void* server_mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );

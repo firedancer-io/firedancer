@@ -42,6 +42,7 @@ struct fd_http_server_params {
   ulong max_request_len;       /* Maximum total length of an HTTP request, including the terminating \r\n\r\n. */
   ulong max_ws_recv_frame_len; /* Maximum size of an incoming websocket frame from the client.  Must be >= max_request_len. */
   ulong max_ws_send_frame_cnt; /* Maximum number of outgoing websocket frames that can be queued before the client is disconnected. */
+  ulong so_sndbuf_len;         /* Size of kernel send buffer, 0 for default */
 };
 typedef struct fd_http_server_params fd_http_server_params_t;
 
@@ -103,7 +104,7 @@ struct fd_http_server_callbacks {
 
   void                      ( * ws_open      )( ulong connection_id, void * ctx );
   void                      ( * ws_close     )( ulong connection_id, int reason, void * ctx );
-  void                      ( * ws_sent      )( ulong connection_id, fd_http_server_ws_frame_t * frame, void * ctx );
+  void                      ( * ws_done      )( ulong connection_id, fd_http_server_ws_frame_t * frame, void * ctx );
   void                      ( * ws_message   )( ulong connection_id, uchar const * data, ulong data_len, void * ctx );
 };
 
@@ -164,6 +165,7 @@ struct __attribute__((aligned(FD_HTTP_SERVER_ALIGN))) fd_http_server_private {
   ulong max_request_len;
   ulong max_ws_recv_frame_len;
   ulong max_ws_send_frame_cnt;
+  ulong so_sndbuf_len;
 
   ulong conn_id;
   ulong ws_conn_id;
