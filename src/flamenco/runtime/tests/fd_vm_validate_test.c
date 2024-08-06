@@ -138,6 +138,7 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
   fd_exec_test_syscall_effects_t * effects =
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_syscall_effects_t),
                                 sizeof (fd_exec_test_syscall_effects_t) );
+  fd_memset( effects, 0, sizeof (fd_exec_test_syscall_effects_t) );
   if( FD_UNLIKELY( _l > output_end ) ) {
     return 0UL;
   }
@@ -149,8 +150,6 @@ do{
   }
   uchar * rodata = input->vm_ctx.rodata->bytes;
   ulong rodata_sz = input->vm_ctx.rodata->size;
-
-  
 
   /* Concatenate the input data regions into the flat input memory region */
   ulong input_data_sz = 0;
@@ -233,7 +232,7 @@ do{
   );
 
   // Validate the vm
-  if ( !fd_vm_validate( vm ) ) {
+  if ( fd_vm_validate( vm ) != FD_VM_SUCCESS ) {
     effects->error = -1;
     break;
   }
@@ -269,7 +268,8 @@ do{
   }
 
   /* Run vm */
-  effects->error = -fd_vm_exec_notrace( vm );
+  // effects->error = -fd_vm_exec_notrace( vm );
+  effects->error = fd_vm_exec_notrace( vm ) == FD_VM_SUCCESS ? 0 : 1; // TODO: return value once mapped
 
   /* Capture outputs */
   effects->cu_avail = vm->cu;
