@@ -2400,15 +2400,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
     fd_rent_t const * rent = fd_sysvar_from_instr_acct_rent( &ctx, 1UL, &rc );
     if( FD_UNLIKELY( !rent ) ) return rc;
 
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L71
-    fd_borrowed_account_t * vote_acc = NULL;
-    do {
-      int err = fd_instr_borrowed_account_view_idx( &ctx, 0UL, &vote_acc );
-      if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d)", err ));
-    } while(0);
-
-    if( FD_UNLIKELY( vote_acc->const_meta->info.lamports <
-                     fd_rent_exempt_minimum_balance2( rent, vote_acc->const_meta->dlen ) ) )
+    if( FD_UNLIKELY( me->const_meta->info.lamports <
+                     fd_rent_exempt_minimum_balance2( rent, me->const_meta->dlen ) ) )
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L76
