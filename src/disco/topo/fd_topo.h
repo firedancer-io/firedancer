@@ -151,7 +151,6 @@ typedef struct {
       ulong  max_concurrent_connections;
       ulong  max_concurrent_handshakes;
       ulong  max_inflight_quic_packets;
-      ulong  tx_buf_size;
       ulong  max_concurrent_streams_per_connection;
       ulong  stream_pool_cnt;
       uint   ip_addr;

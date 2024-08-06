@@ -101,7 +101,7 @@ quic_limits( fd_topo_tile_t const * tile ) {
     .conn_id_cnt                                   = FD_QUIC_MAX_CONN_ID_PER_CONN,
     .conn_id_sparsity                              = FD_QUIC_DEFAULT_SPARSITY,
     .inflight_pkt_cnt                              = tile->quic.max_inflight_quic_packets,
-    .tx_buf_sz                                     = tile->quic.tx_buf_size,
+    .tx_buf_sz                                     = 0,
     .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] = 0,
     .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] = 0,
     .stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT  ] = tile->quic.max_concurrent_streams_per_connection,

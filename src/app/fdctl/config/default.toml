@@ -786,10 +786,6 @@ dynamic_port_range = "8900-9000"
         # sense to increase.
         max_inflight_quic_packets = 1000
 
-        # TODO: This should be removed.  We never transmit stream data
-        # so this should be unused.
-        tx_buf_size = 4096
-
         # QUIC has a concept of an idle connection, one where neither
         # the client nor the server has sent any packet to the other for
         # a period of time.  Once this timeout is reached the connection
