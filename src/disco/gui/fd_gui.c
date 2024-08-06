@@ -26,6 +26,7 @@ fd_gui_new( void *             shmem,
             char const *       identity_key_base58,
             fd_topo_t *        topo ) {
   fd_gui_t * gui = (fd_gui_t *)shmem;
+  FD_LOG_NOTICE(( "%s", __func__ ));
 
   gui->server              = server;
   gui->alloc               = alloc;
@@ -298,6 +299,7 @@ fd_gui_ws_open( fd_gui_t *  gui,
                 ulong       conn_id ) {
 
   jsonb_t * jsonb = gui->jsonb;
+  FD_LOG_NOTICE(( "%s", __func__ ));
 
   fd_gui_version_to_json( gui, jsonb );
   fd_gui_jsonb_send( gui, jsonb, conn_id );
@@ -511,7 +513,7 @@ fd_gui_poll( fd_gui_t * gui ) {
   // FD_LOG_NOTICE(( "%lu nanos since we last polled", current - last ));
   // last = current;
   /* Has 100 millis passed since we last collected info? */
-  if( current - gui->summary.last_txn_ts <= 1000000 ) return;
+  if( current - gui->summary.last_txn_ts <= 100000000 ) return;
 
   /* Recalculate and publish. */
   fd_gui_sample_counters( gui, current );
@@ -1127,6 +1129,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
                        ulong         msg_len ) {
   (void)msg_len;
   jsonb_t * jsonb = gui->jsonb;
+  FD_LOG_NOTICE(( "%s", __func__ ));
 
   switch( plugin_msg ) {
     case FD_PLUGIN_MSG_SLOT_ROOTED:
