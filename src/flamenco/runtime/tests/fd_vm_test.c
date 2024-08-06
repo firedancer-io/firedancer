@@ -152,38 +152,23 @@ do{
   uchar * rodata = input->vm_ctx.rodata->bytes;
   ulong rodata_sz = input->vm_ctx.rodata->size;
 
-  /* Concatenate the input data regions into the flat input memory region */
-  ulong input_data_sz = 0;
-  for ( ulong i=0; i<input->vm_ctx.input_data_regions_count; i++ ) {
-    if( !input->vm_ctx.input_data_regions[i].content ) {
+  /* Load input data regions */
+  fd_vm_input_region_t * input_regions = fd_valloc_malloc( valloc, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
+  ulong input_data_offset = 0UL;
+  for( ulong i=0; i<input->vm_ctx.input_data_regions_count; i++ ) {
+    fd_exec_test_input_data_region_t const * region = &input->vm_ctx.input_data_regions[i];
+    pb_bytes_array_t * array = region->content;
+    if( !array ) {
       continue;
     }
-    input_data_sz += input->vm_ctx.input_data_regions[i].content->size;
-  }
-  uchar * input_data = fd_valloc_malloc( valloc, alignof(uchar), input_data_sz );
-  uchar * input_data_ptr = input_data;
-  for ( ulong i=0; i<input->vm_ctx.input_data_regions_count; i++ ) {
-    pb_bytes_array_t * array = input->vm_ctx.input_data_regions[i].content;
-    if( !input->vm_ctx.input_data_regions[i].content ) {
-      continue;
-    }
-    fd_memcpy( input_data_ptr, array->bytes, array->size );
-    input_data_ptr += array->size;
-  }
+    input_regions[i].vaddr_offset = input_data_offset;
+    input_regions[i].haddr = (ulong)array->bytes; // TODO: Check if lifetime is an issue
+    input_regions[i].region_sz = array->size;
+    input_regions[i].is_writable = region->is_writable;
+    input_regions[i].pubkey = NULL;
 
-  if( input_data_ptr != (input_data + input_data_sz) ) {
-    break;
+    input_data_offset += array->size;
   }
-
-  /* Turn input into a single memory region */
-  fd_vm_input_region_t input_region = {
-    .vaddr_offset = 0UL,
-    .haddr        = (ulong)input_data,
-    .region_sz    = (uint)input_data_sz,
-    .is_writable  = 1U,
-    .pubkey       = NULL
-  };
-
 
   if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
     break;
@@ -226,8 +211,8 @@ do{
     syscalls,
     NULL, /* trace */
     NULL, /* sha */
-    &input_region,
-    1UL,
+    input_regions,
+    input->vm_ctx.input_data_regions_count,
     NULL, /* vm_acc_region_meta*/
     0 /* is deprecated */
   );
