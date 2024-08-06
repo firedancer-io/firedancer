@@ -154,7 +154,6 @@ typedef struct {
       ulong  max_concurrent_connections;
       ulong  max_concurrent_handshakes;
       ulong  max_inflight_quic_packets;
-      ulong  tx_buf_size;
       ulong  max_concurrent_streams_per_connection;
       ulong  stream_pool_cnt;
       uint   ip_addr;
@@ -272,7 +271,7 @@ typedef struct {
       ushort  repair_serve_listen_port;
 
       /* non-config */
-      
+
       uint    ip_addr;
       uchar   src_mac_addr[ 6 ];
       char    identity_key_path[ PATH_MAX ];
@@ -293,7 +292,7 @@ typedef struct {
       ushort  tpu_listen_port;
 
       /* non-config */
-      
+
       uint    ip_addr;
       uchar   src_mac_addr[ 6 ];
       char  identity_key_path[ PATH_MAX ];
