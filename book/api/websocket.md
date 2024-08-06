@@ -193,6 +193,34 @@ but have not completed it, this includes transactions acquired and
 dropped during the leader slot. The values are reset to zero when the
 leader slot completes and begin counting up again.
 
+#### `summary.topology`
+| frequency | type       | example |
+|-----------|------------|---------|
+| Once      | `Topology` | below   |
+
+::: details Example
+
+```json
+{
+    "tile_counts": {
+        "Verify": 5,
+        "Dedup": 1,
+        "Pack": 1
+        // ... etc. ...
+    }
+}
+```
+
+:::
+
+**`Topology`**
+| Field       | Type    | Description
+|-------------|---------|------------
+| tile_counts | `{string: number}` | Maps tile name/type to the number of running tiles of this type.
+
+On establishing connection we send the tile topology of the running
+Firedancer.
+
 ### epoch
 Information about an epoch. Epochs are never modified once they have
 been determined, so the topic only publishes a continuous stream of new
@@ -408,34 +436,40 @@ for a slot looks like:
 | Field      | Type           | Description |
 |------------|----------------|-------------|
 | count      | `number`                             | The total number of transactions that were dropped.
-| breakdown  | `{key(string): value(number)}\|null` | A breakdown of various causes of transaction drops.  This detailed breakdown may or may not be available.  The values in this breakdown, if available, should sum up to the total count above.  We currently supply the following keys.  The keys are subject to change.
+| breakdown  | `{key(string): value(number)}`       | A breakdown of various causes of transaction drops.  The values in this breakdown, if available, should sum up to the total count above.  We currently supply the following keys.  The keys are subject to change.
 
 | Field            | Description |
 |------------------|-------------|
+| "net_overrun"    | Transactions were dropped because the net tile couldn't keep up.  It is technically unclear how many transactions would have been produced by the packets that net couldn't process in time.  So for the purpose of this counter, we pretend that each overrun fragment corresponds to one transaction.  Overruns of the net tile shouldn't happen a lot, if at all, and this makes it abundantly clear when it does happen.  Pay attention to per-tile utilization stats for more evidence of whether the net tile is keeping up with incoming traffic.
+| "net_invalid"    | Transactions were dropped because the net tile decided that the network packet was invalid.  It is technically unclear how many transactions would have been produced by the packets that net dropped.  So for the purpose of this counter, we pretend that each overrun fragment corresponds to one transaction.  This makes it abundantly clear if we are receiving invalid packets.
 | "quic_overrun"   | Transactions were dropped because the quic tile couldn't keep up and were overrun by the net tile.  It is technically unclear how many transactions would have been produced by the fragments from net that were overrun.  So for the purpose of this counter, we pretend that each overrun fragment corresponds to one transaction.  Overruns of the quic tile shouldn't happen a lot, if at all, and this makes it abundantly clear when it does happen.  Pay attention to per-tile utilization stats for more evidence of whether the quic tile is keeping up with the net tile.
 | "quic_reasm"     | Transactions were dropped because the quic tile failed to reassemble a full transaction out of a stream.
 | "verify_overrun" | Transactions were dropped because the system could not verify incoming transactions quickly enough, and a verify tile was overrun.  This could be because the verify tiles themselves couldn't keep up.  It could also be due to backpressure from downstream tiles.  The link between the quic tile and the verify tile is unreliable and is allowed to be overrun, whereas the downstream links after the verify tile are reliable and backpressures.
-| "verify_drop"    | Transactions were dropped because the quic tile failed to reassemble a full transaction out of a stream.
+| "verify_drop"    | Transactions were dropped because signature verification failed or because of verify's simple dedup.
+| "dedup_drop"     | Transactions were dropped because they were a duplicate of another recently received transaction.
+| "pack_nonleader" | Transactions were dropped because the pack buffer was filled prior to becoming leader, and we had to start dropping transactions.
+| "pack_invalid"   | Transactions were dropped because pack determined they would never execute.  Reasons can include the transaction expired, requested too many compute units, or was too large to fit in a block.
+| "pack_priority"  | Transactions were dropped because the system could not execute incoming transactions quickly enough, and pack had to drop lower priority transactions.
+| "bank_invalid"   | Transactions were dropped and didn't make their way into the block.
 
 **`SlotTxnInfo`**
 | Field      | Type           | Description |
 |------------|----------------|-------------|
-| acquired_txns               | `number` | The total number of transactions that were acquired since the end of our prior leader slot, until the end of this leader slot. Transactions can be acquired for many reasons, which are given individually below.
-| acquired_txns_leftover      | `number` | The transactions were received during or prior to an earlier leader slot, but weren't executed yet so they stayed available to execute in this slot.
-| acquired_txns_quic          | `number` | A transaction stream was received via QUIC.  The stream does not have to successfully complete.  Streams that fail to complete are counted by dropped_txns_quic_dropped.  A single stream, if successful, produces a single transaction.
-| acquired_txns_nonquic       | `number` | A transaction stream was received via regular UDP.
-| acquired_txns_gossip        | `number` | A gossipped vote transaction was received from a gossip peer.
-| dropped_txns                | `number` | The total number of transactions that were dropped from the end of our prior leader slot, until the end of this leader slot. Transactions can be dropped for many reasons, which are given individually below.
-| dropped_txns_quic_dropped   | `number` | Transactions were dropped due to the quic tile.
-| dropped_txns_verify_overrun | `number` | 
-| dropped_txns_verify_dropped | `number` | Count of transactions that were dropped because signature verification failed or because of verify's simple dedup.
-| dropped_txns_dedup_dropped  | `number` | Count of transactions that were dropped because they were a duplicate of another recently received transaction.
-| dropped_txns_pack_dropped   | `number` | Count of transactions that were dropped because the pack buffer was filled prior to becoming leader, and we had to start dropping lower priority transactions.
-| dropped_txns_pack_dropped   | `number` | Count of transactions that were dropped because the pack buffer was filled prior to becoming leader, and we had to start dropping lower priority transactions.
-| dropped_txns_pack_invalid   | `number` | Count of transactions that were dropped because pack determined they would never execute. Reasons can include the transaction expired, requested too many compute units, or was too large to fit in a block.
-| dropped_txns_bank_overrun   | `number` | Count of transactions that were dropped because the system could not execute incoming transactions quickly enough, and pack was overrun while it was trying to execute transactions.
-| dropped_txns_fee_payer      | `number` | Count of transactions that were dropped because the fee payer did not have enough balance.
-| dropped_txns_lookup_table   | `number` | Count of transactions that were dropped because there was an error loading an account lookup table.
+| acquired_txns               | `number`    | The total number of transactions that were acquired since the end of our prior leader slot, until the end of this leader slot. Transactions can be acquired for many reasons, which are given individually below.
+| acquired_txns_leftover      | `number`    | The transactions were received during or prior to an earlier leader slot, but weren't executed yet so they stayed available to execute in this slot.  This value is sampled and hence changes only at the ending boundary of our leader slots, and stays constant otherwise.
+| acquired_txns_quic          | `number`    | A transaction stream was received via QUIC.  The stream does not have to successfully complete.  Streams that fail to complete are counted by dropped_txns_quic_dropped.  A single stream, if successful, produces a single transaction.
+| acquired_txns_nonquic       | `number`    | A transaction stream was received via regular UDP.
+| acquired_txns_gossip        | `number`    | A gossipped vote transaction was received from a gossip peer.
+| dropped_txns                | `number`    | The total number of transactions that were dropped from the end of our prior leader slot, until the end of this leader slot. Transactions can be dropped for many reasons, which are given individually below.
+| dropped_txns_net            | `DropInfo`  | Transactions were dropped due to the net tile.
+| dropped_txns_quic           | `DropInfo`  | Transactions were dropped due to the quic tile.
+| dropped_txns_verify         | `DropInfo`  | Transactions were dropped due to the verify tile.
+| dropped_txns_dedup          | `DropInfo`  | Transactions were dropped due to the dedup tile.
+| dropped_txns_pack           | `DropInfo`  | Transactions were dropped due to the pack tile.
+| dropped_txns_bank           | `DropInfo`  | Transactions were dropped due to the bank tile.
+| executed_txns_failure       | `number`    | Transactions made their way into the block but execution failed.
+| executed_txns_success       | `number`    | Transactions made their way into the block and execution succeeded.
+| buffered_txns               | `number`    | Transactions currently buffered.  Roughly, `acquired_txns = dropped_txns + executed_txns_failure + executed_txns_success + buffered_txns`.
 
 **`SlotPublish`**
 | Field      | Type      | Description |
