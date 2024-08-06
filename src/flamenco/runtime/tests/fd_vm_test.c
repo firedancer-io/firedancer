@@ -240,8 +240,9 @@ do{
 
   // Override some execution state values from the interp fuzzer input
   // This is so we can test if the interp mutates any of these erroneously
+  // Those that are not overridden are because they are set in fd_vm_setup_state_for_execution
   vm->reg[0] = input->vm_ctx.r0;
-  vm->reg[1] = input->vm_ctx.r1;
+  // vm->reg[1] = input->vm_ctx.r1;
   vm->reg[2] = input->vm_ctx.r2;
   vm->reg[3] = input->vm_ctx.r3;
   vm->reg[4] = input->vm_ctx.r4;
@@ -250,7 +251,7 @@ do{
   vm->reg[7] = input->vm_ctx.r7;
   vm->reg[8] = input->vm_ctx.r8;
   vm->reg[9] = input->vm_ctx.r9;
-  vm->reg[10] = input->vm_ctx.r10;
+  // vm->reg[10] = input->vm_ctx.r10;
   vm->reg[11] = input->vm_ctx.r11;
 
   vm->check_align = input->vm_ctx.check_align;
