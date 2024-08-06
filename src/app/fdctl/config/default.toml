@@ -199,7 +199,7 @@ dynamic_port_range = "8900-9000"
     # field.  The account field must be one of "program-id",
     # "spl-token-owner", or "spl-token-mint".  These options are passed
     # to the Agave client with the `--account-index` argument.
-    account_indexes = []
+    account_indexes = ["program-id"]
 
     # If account indexes are enabled, exclude these keys from the index.
     # These options are passed to the Agave client with the
