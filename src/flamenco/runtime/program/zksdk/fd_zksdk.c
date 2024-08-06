@@ -62,7 +62,7 @@ fd_zksdk_process_close_context_state( fd_exec_instr_ctx_t ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L163-L166 */
     int err = 0;
-    err = fd_account_checked_add_lamports( &ctx, ACC_IDX_DEST, proof_acc->meta->info.lamports );
+    err = fd_account_checked_add_lamports( &ctx, ACC_IDX_DEST, proof_acc->const_meta->info.lamports );
     if( FD_UNLIKELY( err ) ) {
       return err;
     }
@@ -173,10 +173,10 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t ctx ) {
       uint proof_data_offset = fd_uint_load_4_fast(&instr_data[1]);
 
       /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L62-L65 */
-      if( proof_data_offset+proof_data_sz > proof_data_acc->meta->dlen ) {
+      if( proof_data_offset+proof_data_sz > proof_data_acc->const_meta->dlen ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
-      context = fd_memcpy( buffer+CTX_HEAD_SZ, &proof_data_acc->data[proof_data_offset], proof_data_sz );
+      context = fd_memcpy( buffer+CTX_HEAD_SZ, &proof_data_acc->const_data[proof_data_offset], proof_data_sz );
 
     } FD_BORROWED_ACCOUNT_DROP( proof_data_acc );
   } else {
@@ -187,7 +187,7 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t ctx ) {
     if (ctx.instr->data_sz != 1 + proof_data_sz) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
-    context = instr_data + 1;    
+    context = instr_data + 1;
   }
 
   /* Verify individual ZKP
@@ -214,21 +214,21 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t ctx ) {
     FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( &ctx, accessed_accounts, proof_context_acc ) {
 
       /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L103-L105 */
-      if( FD_UNLIKELY( !fd_memeq( proof_context_acc->meta->info.owner, &fd_solana_zk_elgamal_proof_program_id, sizeof(fd_pubkey_t) ) ) ) {
+      if( FD_UNLIKELY( !fd_memeq( proof_context_acc->const_meta->info.owner, &fd_solana_zk_elgamal_proof_program_id, sizeof(fd_pubkey_t) ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L107-L112 */
-      if( FD_UNLIKELY( proof_context_acc->meta->dlen >= CTX_HEAD_SZ && proof_context_acc->data[32] != 0 ) ) {
+      if( FD_UNLIKELY( proof_context_acc->const_meta->dlen >= CTX_HEAD_SZ && proof_context_acc->const_data[32] != 0 ) ) {
         return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
       }
 
-      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L114-L115 
+      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L114-L115
          Note: nothing to do. */
 
       /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L117-L119 */
       ulong context_data_sx = CTX_HEAD_SZ + context_sz;
-      if( FD_UNLIKELY( proof_context_acc->meta->dlen != context_data_sx ) ) {
+      if( FD_UNLIKELY( proof_context_acc->const_meta->dlen != context_data_sx ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
 
