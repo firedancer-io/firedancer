@@ -73,6 +73,15 @@
  * Set to 0 to allow connections to close on idle */
 # define FD_QUIC_PING_ENABLE 0
 
+/* FD_QUIC_MAX_STREAMS_ALWAYS  */
+/* Defines whether a MAX_STREAMS frame is sent even if it was just */
+/* sent */
+/* They take very little space, and a dropped MAX_STREAMS frame can */
+/* be very consequential */
+/* Even when set, QUIC won't send this frame if the client has ackd */
+/* the most recent value */
+# define FD_QUIC_MAX_STREAMS_ALWAYS 1
+
 
 
 /* Construction API ***************************************************/
@@ -115,6 +124,10 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   if( FD_UNLIKELY( handshake_cnt   ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( inflight_pkt_cnt==0UL ) ) return 0UL;
   if( FD_UNLIKELY( stream_pool_cnt ==0UL ) ) return 0UL;
+
+  /* Ensure we have enough streams to cover at least FD_QUIC_STREAM_MIN per */
+  /* connection */
+  if( FD_UNLIKELY( stream_pool_cnt < FD_QUIC_STREAM_MIN * conn_cnt ) ) return 0UL;
 
   if( FD_UNLIKELY( conn_id_sparsity==0.0 ) )
     conn_id_sparsity = FD_QUIC_DEFAULT_SPARSITY;
@@ -751,7 +764,7 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
   }
 
   if( conn->flags && conn->upd_pkt_number >= app_pkt_number ) {
-    enc_level = fd_quic_enc_level_appdata_id;
+    return fd_quic_enc_level_appdata_id;
   }
 
   /* nothing to send */
@@ -4181,6 +4194,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
                       .type      = FD_QUIC_PKT_META_TYPE_OTHER,
                       .flags     = FD_QUIC_CONN_FLAGS_MAX_DATA
                     };
+                pkt_meta->var[pkt_meta_var_idx].value = conn->rx_max_data;
                 pkt_meta_var_idx++;
                 pkt_meta->var_sz = (uchar)pkt_meta_var_idx; /* TODO consolidate var_sz updates */
               }
@@ -4194,49 +4208,88 @@ fd_quic_conn_tx( fd_quic_t *      quic,
              0x02 Client-Initiated, Unidirectional
              0x03 Server-Initiated, Unidirectional
              */
-          if( conn->flags & FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR ) {
+          ulong peer_initiated_unidir = 2u | !conn->server;
+          ulong peer_initiated_bidir  = 0u | !conn->server;
+
+          ulong max_streams_unidir = conn->sup_stream_id[peer_initiated_unidir] >> 2;
+          ulong max_streams_bidir  = conn->sup_stream_id[peer_initiated_bidir]  >> 2;
+
+          if( ( max_streams_unidir > conn->rx_max_streams_unidir_ackd ) &&
+                ( FD_QUIC_MAX_STREAMS_ALWAYS ||
+                  ( ( conn->flags & FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR ) &&
+                    pkt_meta_var_idx < FD_QUIC_PKT_META_VAR_MAX ) ) ) {
             /* send max streams frame */
-            ulong stream_type_idx = 2u | !conn->server;
-            frame.max_streams.stream_type = 1;
-            frame.max_streams.max_streams = conn->sup_stream_id[stream_type_idx] >> 2;
 
-            /* attempt to write into buffer */
-            frame_sz = fd_quic_encode_max_streams_frame( payload_ptr,
-                                                         (ulong)( payload_end - payload_ptr ),
-                                                         &frame.max_streams );
-            if( FD_LIKELY( frame_sz != FD_QUIC_PARSE_FAIL ) ) {
-              /* successful? then update payload_ptr and tot_frame_sz */
-              payload_ptr  += frame_sz;
-              tot_frame_sz += frame_sz;
+            if( FD_LIKELY( max_streams_unidir > conn->rx_max_streams_unidir_ackd ) ) {
 
-              /* set flag on pkt meta */
-              pkt_meta->flags |= FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR;
-              pkt_meta->expiry = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
+              frame.max_streams.stream_type = 1;
+              frame.max_streams.max_streams = max_streams_unidir;
 
-              conn->upd_pkt_number = pkt_number;
+              /* attempt to write into buffer */
+              frame_sz = fd_quic_encode_max_streams_frame( payload_ptr,
+                                                           (ulong)( payload_end - payload_ptr ),
+                                                           &frame.max_streams );
+              if( FD_LIKELY( frame_sz != FD_QUIC_PARSE_FAIL ) ) {
+                /* successful? then update payload_ptr and tot_frame_sz */
+                payload_ptr  += frame_sz;
+                tot_frame_sz += frame_sz;
+
+                /* set flag on pkt meta */
+                pkt_meta->flags |= FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR;
+                pkt_meta->expiry = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
+
+                conn->upd_pkt_number = pkt_number;
+
+                /* add max_data to pkt_meta->var */
+                pkt_meta->var[pkt_meta_var_idx].key = (fd_quic_pkt_meta_key_t){
+                                                        .type      = FD_QUIC_PKT_META_TYPE_OTHER,
+                                                        .flags     = FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR
+                                                      };
+                pkt_meta->var[pkt_meta_var_idx].value = frame.max_streams.max_streams;
+                pkt_meta_var_idx++;
+                pkt_meta->var_sz = (uchar)pkt_meta_var_idx; /* TODO consolidate var_sz updates */
+              }
+            } else {
+              conn->flags &= ~FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR;
             }
           }
 
-          if( conn->flags & FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR ) {
+          if( ( max_streams_bidir > conn->rx_max_streams_bidir_ackd ) &&
+                ( FD_QUIC_MAX_STREAMS_ALWAYS ||
+                  ( ( conn->flags & FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR ) &&
+                    pkt_meta_var_idx < FD_QUIC_PKT_META_VAR_MAX ) ) ) {
             /* send max streams frame */
-            ulong stream_type_idx = 0u | !conn->server;
-            frame.max_streams.stream_type = 0;
-            frame.max_streams.max_streams = conn->sup_stream_id[stream_type_idx] >> 2;
 
-            /* attempt to write into buffer */
-            frame_sz = fd_quic_encode_max_streams_frame( payload_ptr,
-                                                         (ulong)( payload_end - payload_ptr ),
-                                                         &frame.max_streams );
-            if( FD_LIKELY( frame_sz != FD_QUIC_PARSE_FAIL ) ) {
-              /* successful? then update payload_ptr and tot_frame_sz */
-              payload_ptr  += frame_sz;
-              tot_frame_sz += frame_sz;
+            if( FD_LIKELY( max_streams_bidir > conn->rx_max_streams_bidir_ackd ) ) {
+              frame.max_streams.stream_type = 0;
+              frame.max_streams.max_streams = max_streams_bidir;
 
-              /* set flag on pkt meta */
-              pkt_meta->flags |= FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR;
-              pkt_meta->expiry = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
+              /* attempt to write into buffer */
+              frame_sz = fd_quic_encode_max_streams_frame( payload_ptr,
+                                                           (ulong)( payload_end - payload_ptr ),
+                                                           &frame.max_streams );
+              if( FD_LIKELY( frame_sz != FD_QUIC_PARSE_FAIL ) ) {
+                /* successful? then update payload_ptr and tot_frame_sz */
+                payload_ptr  += frame_sz;
+                tot_frame_sz += frame_sz;
 
-              conn->upd_pkt_number = pkt_number;
+                /* set flag on pkt meta */
+                pkt_meta->flags |= FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR;
+                pkt_meta->expiry = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
+
+                conn->upd_pkt_number = pkt_number;
+
+                /* add max_data to pkt_meta->var */
+                pkt_meta->var[pkt_meta_var_idx].key = (fd_quic_pkt_meta_key_t){
+                                                        .type      = FD_QUIC_PKT_META_TYPE_OTHER,
+                                                        .flags     = FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR
+                                                      };
+                pkt_meta->var[pkt_meta_var_idx].value = frame.max_streams.max_streams;
+                pkt_meta_var_idx++;
+                pkt_meta->var_sz = (uchar)pkt_meta_var_idx; /* TODO consolidate var_sz updates */
+              }
+            } else {
+              conn->flags &= ~FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR;
             }
           }
 
@@ -4612,6 +4665,14 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     /* did we send handshake-done? */
     if( pkt_meta->flags & FD_QUIC_PKT_META_FLAGS_HS_DONE ) {
       conn->handshake_done_send = 0;
+    }
+
+    if( pkt_meta->flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR ) {
+      pkt_meta->flags &= ~FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR;
+    }
+
+    if( pkt_meta->flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR ) {
+      pkt_meta->flags &= ~FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR;
     }
 
     /* add to sent list */
@@ -5128,6 +5189,9 @@ fd_quic_conn_create( fd_quic_t *               quic,
   for( ulong j = 0; j < 4; ++j ) conn->max_concur_streams[j] = 0; /* set below via set_max_streams          */
   for( ulong j = 0; j < 4; ++j ) conn->cur_stream_cnt[j]     = 0;
 
+  conn->rx_max_streams_unidir_ackd = 0;
+  conn->rx_max_streams_bidir_ackd  = 0;
+
   /* points to free tx space */
   conn->tx_ptr = conn->tx_buf;
   conn->tx_sz  = sizeof( conn->tx_buf );
@@ -5507,14 +5571,28 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
       }
     }
     if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR ) {
-      /* set the data to go out on the next packet */
-      conn->flags          |= FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR;
-      conn->upd_pkt_number  = FD_QUIC_PKT_NUM_PENDING;
+      /* do we still need to send? */
+      /* get required value */
+      ulong peer_initiated_unidir = 2u | !conn->server;
+      ulong max_streams_unidir = conn->sup_stream_id[peer_initiated_unidir] >> 2;
+
+      if( max_streams_unidir > conn->rx_max_streams_unidir_ackd ) {
+        /* set the data to go out on the next packet */
+        conn->flags          |= FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR;
+        conn->upd_pkt_number  = FD_QUIC_PKT_NUM_PENDING;
+      }
     }
     if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR  ) {
-      /* set the data to go out on the next packet */
-      conn->flags          |= FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR;
-      conn->upd_pkt_number  = FD_QUIC_PKT_NUM_PENDING;
+      /* do we still need to send? */
+      /* get required value */
+      ulong peer_initiated_bidir  = 0u | !conn->server;
+      ulong max_streams_bidir = conn->sup_stream_id[peer_initiated_bidir] >> 2;
+
+      if( max_streams_bidir > conn->rx_max_streams_bidir_ackd ) {
+        /* set the data to go out on the next packet */
+        conn->flags          |= FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR;
+        conn->upd_pkt_number  = FD_QUIC_PKT_NUM_PENDING;
+      }
     }
     if( flags & FD_QUIC_PKT_META_FLAGS_ACK                ) {
       /* iterate thru the acks */
@@ -5669,6 +5747,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
       if( pkt_meta->var[j].key.type  == FD_QUIC_PKT_META_TYPE_OTHER &&
           pkt_meta->var[j].key.flags == FD_QUIC_PKT_META_FLAGS_MAX_DATA ) {
         max_data_ackd = pkt_meta->var[j].value;
+        break;
       }
     }
 
@@ -5692,11 +5771,61 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR ) {
-    conn->flags &= ~FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR;
+    ulong var_sz = pkt_meta->var_sz;
+
+    /* find the value ackd */
+    ulong max_streams_bidir_ackd = 0UL;
+    for( ulong j = 0UL; j < var_sz; ++j ) {
+      if( pkt_meta->var[j].key.type  == FD_QUIC_PKT_META_TYPE_OTHER &&
+          pkt_meta->var[j].key.flags == FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR ) {
+        max_streams_bidir_ackd = pkt_meta->var[j].value;
+        break;
+      }
+    }
+
+    /* ack can only increase max_streams_bidir_ackd */
+    max_streams_bidir_ackd = fd_ulong_max( max_streams_bidir_ackd, conn->rx_max_streams_bidir_ackd );
+
+    /* get required value */
+    ulong peer_initiated_bidir = 0u | !conn->server;
+    ulong max_streams_bidir = conn->sup_stream_id[peer_initiated_bidir] >> 2;
+
+    /* clear flag only if acked value == current value */
+    if( FD_LIKELY( max_streams_bidir_ackd == max_streams_bidir ) ) {
+      conn->flags &= ~FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR;
+    }
+
+    /* set the ackd value */
+    conn->rx_max_streams_bidir_ackd = max_streams_bidir_ackd;
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR ) {
-    conn->flags &= ~FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR;
+    ulong var_sz = pkt_meta->var_sz;
+
+    /* find the value ackd */
+    ulong max_streams_unidir_ackd = 0UL;
+    for( ulong j = 0UL; j < var_sz; ++j ) {
+      if( pkt_meta->var[j].key.type  == FD_QUIC_PKT_META_TYPE_OTHER &&
+          pkt_meta->var[j].key.flags == FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR ) {
+        max_streams_unidir_ackd = pkt_meta->var[j].value;
+        break;
+      }
+    }
+
+    /* ack can only increase max_streams_unidir_ackd */
+    max_streams_unidir_ackd = fd_ulong_max( max_streams_unidir_ackd, conn->rx_max_streams_unidir_ackd );
+
+    /* get required value */
+    ulong peer_initiated_unidir = 2u | !conn->server;
+    ulong max_streams_unidir = conn->sup_stream_id[peer_initiated_unidir] >> 2;
+
+    /* clear flag only if acked value == current value */
+    if( FD_LIKELY( max_streams_unidir_ackd == max_streams_unidir ) ) {
+      conn->flags &= ~FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR;
+    }
+
+    /* set the ackd value */
+    conn->rx_max_streams_unidir_ackd = max_streams_unidir_ackd;
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA ) {
@@ -6907,13 +7036,12 @@ fd_quic_assign_streams( fd_quic_t * quic ) {
   fd_quic_stream_pool_t * stream_pool = state->stream_pool;
   fd_rng_t *              rng         = fd_rng_join( state->_rng );
 
-  /* we want to reserve 1 stream for each connection */
-  /* TODO could add a config for larger reservations */
-  /* to avoid complete starvation */
+  /* we want to reserve FD_QUIC_STREAM_MIN streams for each connection */
   ulong unused_conns      = state->free_conns;
+  ulong reserved_streams  = unused_conns * FD_QUIC_STREAM_MIN;
   ulong stream_pool_avail = fd_quic_stream_pool_avail( stream_pool );
-  ulong avail_streams     = stream_pool_avail > unused_conns ?
-                            stream_pool_avail - unused_conns :
+  ulong avail_streams     = stream_pool_avail > reserved_streams ?
+                            stream_pool_avail - reserved_streams :
                             0UL;
 
   while( FD_LIKELY( avail_streams > 0UL ) ) {
