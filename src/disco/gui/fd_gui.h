@@ -4,6 +4,7 @@
 #include "../fd_disco_base.h"
 
 #include "../../ballet/http/fd_http_server.h"
+#include "../../ballet/http/fd_hcache.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 
@@ -53,177 +54,6 @@ struct fd_gui_validator_info {
   char icon_uri[ 128 ];
 };
 
-struct jsonb {
-    char * buf;
-    ulong  buf_sz;
-    /* There is a NULL terminator, but this count doesn't include it. */
-    ulong  cur_sz;
-};
-
-typedef struct jsonb jsonb_t;
-
-
-#define JSONB_OK   (0UL)
-#define JSONB_ERR  (1UL)
-
-static FD_FN_UNUSED ulong
-jsonb_new(jsonb_t * jsonb, void * buf, ulong sz) {
-  FD_LOG_NOTICE(( "jsonb->buf_sz %lu", sz ));
-  jsonb->buf_sz = sz;
-  jsonb->cur_sz = 0;
-  jsonb->buf = buf;
-  return JSONB_OK;
-}
-
-static FD_FN_UNUSED ulong
-jsonb_init(jsonb_t * jsonb) {
-  jsonb->cur_sz = 0;
-  jsonb->buf[0] = '\0';
-  return JSONB_OK;
-}
-
-/* UB if !(cur_sz > 0) */
-static FD_FN_UNUSED ulong
-jsonb_fini(jsonb_t * jsonb) {
-  if ( jsonb->buf[jsonb->cur_sz - 1] == ',' ) {
-    jsonb->cur_sz--;
-    jsonb->buf[jsonb->cur_sz] = '\0';
-  }
-  //TODO check matching parens
-  return JSONB_OK;
-}
-
-// static FD_FN_UNUSED ulong
-// jsonb_del(jsonb_t * jsonb) {
-//   (void)jsonb;
-//   return JSONB_OK;
-// }
-
-static FD_FN_UNUSED ulong
-jsonb_open_obj(jsonb_t * jsonb, char const * key) {
-  ulong tmp_len;
-  int ret = 1;
-  if ( key != NULL ) {
-    ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "\"%s\":", key);
-    jsonb->cur_sz += tmp_len;
-  }
-  ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "{");
-  jsonb->cur_sz += tmp_len;
-
-  return ret ? JSONB_OK : JSONB_ERR;
-}
-
-static FD_FN_UNUSED ulong
-jsonb_close_obj(jsonb_t * jsonb) {
-  ulong tmp_len;
-  int ret = 1;
-  if ( jsonb->buf[jsonb->cur_sz - 1] == ',' ) {
-    jsonb->cur_sz--;
-    jsonb->buf[jsonb->cur_sz] = '\0';
-  }
-  ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "},");
-  jsonb->cur_sz += tmp_len;
-
-  return ret ? JSONB_OK : JSONB_ERR;
-}
-
-static FD_FN_UNUSED ulong
-jsonb_open_arr(jsonb_t * jsonb, char const * key) {
-  ulong tmp_len;
-  int ret = 1;
-  if ( key != NULL ) {
-    ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "\"%s\":", key);
-    jsonb->cur_sz += tmp_len;
-  }
-  ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "[");
-  jsonb->cur_sz += tmp_len;
-
-  return ret ? JSONB_OK : JSONB_ERR;
-}
-
-static FD_FN_UNUSED ulong
-jsonb_close_arr(jsonb_t * jsonb) {
-  ulong tmp_len;
-  int ret = 1;
-  if ( jsonb->buf[jsonb->cur_sz - 1] == ',' ) {
-    jsonb->cur_sz--;
-    jsonb->buf[jsonb->cur_sz] = '\0';
-  }
-  ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "],");
-  jsonb->cur_sz += tmp_len;
-
-  return ret ? JSONB_OK : JSONB_ERR;
-}
-
-static FD_FN_UNUSED ulong
-jsonb_ulong(jsonb_t * jsonb, char const * key, ulong val) {
-  ulong tmp_len;
-  int ret = 1;
-  if ( key != NULL ) {
-    ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "\"%s\":", key);
-    jsonb->cur_sz += tmp_len;
-  }
-  ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "%lu,", val);
-  jsonb->cur_sz += tmp_len;
-
-  return ret ? JSONB_OK : JSONB_ERR;
-}
-
-static FD_FN_UNUSED ulong
-jsonb_double(jsonb_t * jsonb, char const * key, double val) {
-  ulong tmp_len;
-  int ret = 1;
-  if ( key != NULL ) {
-    ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "\"%s\":", key);
-    jsonb->cur_sz += tmp_len;
-  }
-  ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "%.2f,", val);
-  jsonb->cur_sz += tmp_len;
-
-  return ret ? JSONB_OK : JSONB_ERR;
-}
-
-static FD_FN_UNUSED ulong
-jsonb_str(jsonb_t * jsonb, char const * key, char const * val) {
-  ulong tmp_len;
-  int ret = 1;
-  if ( key != NULL ) {
-    ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "\"%s\":", key);
-    jsonb->cur_sz += tmp_len;
-  }
-  if( !val ) {
-    ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "null,");
-  } else {
-    ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "\"%s\",", val);
-    if( ret ) {
-      // escape quotemark, reverse solidus, and control chars U+0000 through U+001F, just replace with a space
-      for( ulong i=jsonb->cur_sz+1UL; i<jsonb->cur_sz+tmp_len-2UL; i++ ) {
-        if( jsonb->buf[ i ] < 0x20 || jsonb->buf[ i ] == '"' || jsonb->buf[ i ] == '\\' ) {
-          jsonb->buf[ i ] = ' ';
-        }
-      }
-    }
-  }
-  jsonb->cur_sz += tmp_len;
-
-  return ret ? JSONB_OK : JSONB_ERR;
-}
-
-static FD_FN_UNUSED ulong
-jsonb_bool(jsonb_t * jsonb, char const * key, int val) {
-  ulong tmp_len;
-  int ret = 1;
-  if ( key != NULL ) {
-    ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "\"%s\":", key);
-    jsonb->cur_sz += tmp_len;
-  }
-  ret = ret && fd_cstr_printf_check(jsonb->buf + jsonb->cur_sz, jsonb->buf_sz - jsonb->cur_sz, &tmp_len, "%s,", val ? "true" : "false");
-  jsonb->cur_sz += tmp_len;
-
-  return ret ? JSONB_OK : JSONB_ERR;
-}
-
-
 /* acquired_txns_leftover is a snapshot value at the beginning of a
    leader slot.
    buffered_txns is a point-in-time gauge value.
@@ -270,11 +100,11 @@ struct fd_gui_tile_info {
 typedef struct fd_gui_tile_info fd_gui_tile_info_t;
 
 struct fd_gui {
-  fd_http_server_t * server;
-
-  fd_alloc_t * alloc;
+  fd_hcache_t * hcache;
 
   fd_topo_t * topo;
+
+  long next_sample_100millis;
 
   struct {
     char const * version;        
@@ -289,7 +119,6 @@ struct fd_gui {
     fd_gui_txn_info_t txn_info_prev[ 1 ]; /* Cumulative/Sampled */
     fd_gui_txn_info_t txn_info_this[ 1 ]; /* Cumulative/Sampled */
     fd_gui_txn_info_t txn_info_json[ 1 ]; /* Delta/Computed */
-    long              last_txn_ts;
 
     ulong net_tile_count;
     ulong quic_tile_count;
@@ -330,10 +159,6 @@ struct fd_gui {
     ulong info_cnt;
     struct fd_gui_validator_info info[ 40200 ];
   } validator_info;
-
-#define FD_GUI_JSON_BUF_SIZE (8192UL * 1024UL)
-  jsonb_t jsonb[ 1 ];
-  char    json_buf[ FD_GUI_JSON_BUF_SIZE ];
 };
 
 typedef struct fd_gui fd_gui_t;
@@ -347,13 +172,12 @@ FD_FN_CONST ulong
 fd_gui_footprint( void );
 
 void *
-fd_gui_new( void *             shmem,
-            fd_http_server_t * server,
-            fd_alloc_t *       alloc,
-            char const *       version,
-            char const *       cluster,
-            char const *       identity_key_base58,
-            fd_topo_t *        topo );
+fd_gui_new( void *        shmem,
+            fd_hcache_t * hcache,
+            char const *  version,
+            char const *  cluster,
+            char const *  identity_key_base58,
+            fd_topo_t *   topo );
 
 fd_gui_t *
 fd_gui_join( void * shmem );
