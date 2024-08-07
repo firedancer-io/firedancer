@@ -152,7 +152,7 @@ sol_compat_execute_wrapper( fd_exec_instr_test_runner_t * runner,
                             void * input,
                             void ** output,
                             exec_test_run_fn_t * exec_test_run_fn ) {
-  // fd_scratch_push();
+  fd_scratch_push();
   do {
     ulong out_bufsz = 100000000;  /* 100 MB */
     void * out0 = fd_scratch_prepare( 1UL );
@@ -164,7 +164,7 @@ sol_compat_execute_wrapper( fd_exec_instr_test_runner_t * runner,
       break;
     }
   } while(0);
-  // fd_scratch_pop();
+  fd_scratch_pop();
 }
 
 /*
@@ -555,6 +555,43 @@ sol_compat_vm_validate_v1(  uchar *       out,
 
   // cleanup
   pb_release( &fd_exec_test_full_vm_context_t_msg, input );
+  sol_compat_cleanup_scratch_and_runner( runner );
+
+  // Check wksp usage is 0
+  sol_compat_check_wksp_usage();
+
+  return ok;
+}
+
+int
+sol_compat_vm_interp_v1( uchar *       out,
+                         ulong *       out_sz,
+                         uchar const * in,
+                         ulong         in_sz ) {
+  // Setup
+  ulong fmem[ 64 ];
+  fd_exec_instr_test_runner_t * runner = sol_compat_setup_scratch_and_runner( fmem );
+
+  // Decode context
+  fd_exec_test_syscall_context_t input[1] = {0};
+  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_syscall_context_t_msg );
+  if ( res==NULL ) {
+    sol_compat_cleanup_scratch_and_runner( runner );
+    return 0;
+  }
+
+  // Execute
+  void * output = NULL;
+  sol_compat_execute_wrapper( NULL, input, &output, (exec_test_run_fn_t *)fd_exec_vm_interp_test_run );
+
+  // Encode effects
+  int ok = 0;
+  if( output ) {
+    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_syscall_effects_t_msg );
+  }
+
+  // Cleanup
+  pb_release( &fd_exec_test_syscall_context_t_msg, input );
   sol_compat_cleanup_scratch_and_runner( runner );
 
   // Check wksp usage is 0
