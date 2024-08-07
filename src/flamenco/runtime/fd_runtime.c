@@ -70,8 +70,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
   memset(slot_ctx->slot_bank.banks_hash.hash, 0, FD_SHA256_HASH_SZ);
 
   slot_ctx->slot_bank.fee_rate_governor = genesis_block->fee_rate_governor;
-  slot_ctx->slot_bank.lamports_per_signature = 5000UL;
-  slot_ctx->prev_lamports_per_signature = 5000UL;
+  slot_ctx->slot_bank.lamports_per_signature = 0UL;
+  slot_ctx->prev_lamports_per_signature = 0UL;
 
   fd_poh_config_t *poh = &genesis_block->poh_config;
   fd_exec_epoch_ctx_t * epoch_ctx = slot_ctx->epoch_ctx;
@@ -100,14 +100,14 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
   fd_block_block_hash_entry_t *elem = deq_fd_block_block_hash_entry_t_push_head_nocopy(hashes);
   fd_block_block_hash_entry_new(elem);
   fd_memcpy(elem->blockhash.hash, genesis_hash, FD_SHA256_HASH_SZ);
-  elem->fee_calculator.lamports_per_signature = 0;
+  elem->fee_calculator.lamports_per_signature = 0UL;
 
   slot_ctx->slot_bank.block_hash_queue.ages_root = NULL;
   slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( slot_ctx->valloc, 400 );
   fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( slot_ctx->slot_bank.block_hash_queue.ages_pool );
   node->elem = (fd_hash_hash_age_pair_t){
     .key = *genesis_hash,
-    .val = (fd_hash_age_t){ .hash_index = 0, .fee_calculator = (fd_fee_calculator_t){.lamports_per_signature = 5000}, .timestamp = (ulong)fd_log_wallclock() }
+    .val = (fd_hash_age_t){ .hash_index = 0, .fee_calculator = (fd_fee_calculator_t){.lamports_per_signature = 0UL}, .timestamp = (ulong)fd_log_wallclock() }
   };
   fd_hash_hash_age_pair_t_map_insert( slot_ctx->slot_bank.block_hash_queue.ages_pool, &slot_ctx->slot_bank.block_hash_queue.ages_root, node );
   slot_ctx->slot_bank.block_hash_queue.last_hash_index = 0;
@@ -132,53 +132,51 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
 
   fd_acc_lamports_t capitalization = 0UL;
 
-  for (ulong i = 0UL; i < genesis_block->accounts_len; i++)
-  {
+  for (ulong i = 0UL; i < genesis_block->accounts_len; i++) {
     fd_pubkey_account_pair_t const *acc = &genesis_block->accounts[i];
     capitalization = fd_ulong_sat_add(capitalization, acc->account.lamports);
 
-    if (0 == memcmp(acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)))
-    {
+    if (0 == memcmp(acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t))) {
       /* Vote Program Account */
 
       fd_vote_accounts_pair_t_mapnode_t *node =
           fd_vote_accounts_pair_t_map_acquire(vacc_pool);
       FD_TEST(node);
 
-    fd_vote_block_timestamp_t last_timestamp;
-    fd_pubkey_t node_pubkey;
-    FD_SCRATCH_SCOPE_BEGIN {
-      /* Deserialize content */
-      fd_vote_state_versioned_t vs[1];
-      fd_bincode_decode_ctx_t decode =
-          { .data    = acc->account.data,
-            .dataend = acc->account.data + acc->account.data_len,
-            .valloc  = fd_scratch_virtual() };
-      int decode_err = fd_vote_state_versioned_decode( vs, &decode );
-      if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "fd_vote_state_versioned_decode failed (%d)", decode_err ));
-        return;
-      }
+      fd_vote_block_timestamp_t last_timestamp;
+      fd_pubkey_t node_pubkey;
+      FD_SCRATCH_SCOPE_BEGIN {
+        /* Deserialize content */
+        fd_vote_state_versioned_t vs[1];
+        fd_bincode_decode_ctx_t decode =
+            { .data    = acc->account.data,
+              .dataend = acc->account.data + acc->account.data_len,
+              .valloc  = fd_scratch_virtual() };
+        int decode_err = fd_vote_state_versioned_decode( vs, &decode );
+        if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
+          FD_LOG_WARNING(( "fd_vote_state_versioned_decode failed (%d)", decode_err ));
+          return;
+        }
 
-      switch( vs->discriminant )
-      {
-      case fd_vote_state_versioned_enum_current:
-        last_timestamp = vs->inner.current.last_timestamp;
-        node_pubkey    = vs->inner.current.node_pubkey;
-        break;
-      case fd_vote_state_versioned_enum_v0_23_5:
-        last_timestamp = vs->inner.v0_23_5.last_timestamp;
-        node_pubkey    = vs->inner.v0_23_5.node_pubkey;
-        break;
-      case fd_vote_state_versioned_enum_v1_14_11:
-        last_timestamp = vs->inner.v1_14_11.last_timestamp;
-        node_pubkey    = vs->inner.v1_14_11.node_pubkey;
-        break;
-      default:
-        __builtin_unreachable();
-      }
+        switch( vs->discriminant )
+        {
+        case fd_vote_state_versioned_enum_current:
+          last_timestamp = vs->inner.current.last_timestamp;
+          node_pubkey    = vs->inner.current.node_pubkey;
+          break;
+        case fd_vote_state_versioned_enum_v0_23_5:
+          last_timestamp = vs->inner.v0_23_5.last_timestamp;
+          node_pubkey    = vs->inner.v0_23_5.node_pubkey;
+          break;
+        case fd_vote_state_versioned_enum_v1_14_11:
+          last_timestamp = vs->inner.v1_14_11.last_timestamp;
+          node_pubkey    = vs->inner.v1_14_11.node_pubkey;
+          break;
+        default:
+          __builtin_unreachable();
+        }
 
-    } FD_SCRATCH_SCOPE_END;
+      } FD_SCRATCH_SCOPE_END;
 
       fd_memcpy(node->elem.key.key, acc->key.key, sizeof(fd_pubkey_t));
       node->elem.stake = acc->account.lamports;
@@ -196,19 +194,10 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
       FD_LOG_INFO(("Adding genesis vote account: key=%32J stake=%lu",
                    node->elem.key.key,
                    node->elem.stake));
-    }
-    else if (0 == memcmp(acc->account.owner.key, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t)))
-    {
+    } else if (0 == memcmp(acc->account.owner.key, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t))) {
       /* stake program account */
       fd_stake_state_v2_t stake_state = {0};
 
-      fd_bincode_decode_ctx_t decode = {.data = acc->account.data,
-                                        .dataend = acc->account.data + acc->account.data_len,
-                                        .valloc = slot_ctx->valloc};
-      // TODO
-      (void)decode;
-#if 1
-      // FIXME broken borrowed account
       fd_account_meta_t meta = {.dlen = acc->account.data_len};
       fd_borrowed_account_t stake_account = {
           .const_data = acc->account.data,
@@ -216,56 +205,28 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
           .data = acc->account.data,
           .meta = &meta};
       FD_TEST(fd_stake_get_state(&stake_account, &slot_ctx->valloc, &stake_state) == 0);
-#else
-      FD_TEST(fd_stake_get_state(acc, &slot_ctx->valloc, &stake_state) == 1);
-#endif
-
+      if( stake_state.inner.stake.stake.delegation.stake == 0 ) continue;
       fd_delegation_pair_t_mapnode_t query_node;
       fd_memcpy(&query_node.elem.account, acc->key.key, sizeof(fd_pubkey_t));
       fd_delegation_pair_t_mapnode_t *node = fd_delegation_pair_t_map_find(sacc_pool, sacc_root, &query_node);
 
-      fd_vote_accounts_pair_t_mapnode_t query_voter;
-      fd_pubkey_t *voter_pubkey = &stake_state.inner.stake.stake.delegation.voter_pubkey;
-      fd_memcpy(&query_voter.elem.key, voter_pubkey, sizeof(fd_pubkey_t));
-      fd_vote_accounts_pair_t_mapnode_t *voter = fd_vote_accounts_pair_t_map_find(vacc_pool, vacc_root, &query_voter);
-
-      if (node == NULL)
-      {
+      if (node == NULL) {
         node = fd_delegation_pair_t_map_acquire(sacc_pool);
         fd_memcpy(&node->elem.account, acc->key.key, sizeof(fd_pubkey_t));
         fd_memcpy(&node->elem.delegation, &stake_state.inner.stake.stake.delegation, sizeof(fd_delegation_t));
-        if (voter != NULL)
-          voter->elem.stake = fd_ulong_sat_add(voter->elem.stake, stake_state.inner.stake.stake.delegation.stake);
         fd_delegation_pair_t_map_insert(sacc_pool, &sacc_root, node);
-      }
-      else
-      {
-        if (memcmp(&node->elem.delegation.voter_pubkey, voter_pubkey, sizeof(fd_pubkey_t)) != 0 || node->elem.delegation.stake != stake_state.inner.stake.stake.delegation.stake)
-        {
-          // add stake to the new voter account
-          if (voter != NULL)
-            voter->elem.stake = fd_ulong_sat_add(voter->elem.stake, stake_state.inner.stake.stake.delegation.stake);
-
-          // remove stake from the old voter account
-          fd_memcpy(&query_voter.elem.key, &node->elem.delegation.voter_pubkey, sizeof(fd_pubkey_t));
-          voter = fd_vote_accounts_pair_t_map_find(vacc_pool, vacc_root, &query_voter);
-          if (voter != NULL)
-            voter->elem.stake = fd_ulong_sat_sub(voter->elem.stake, node->elem.delegation.stake);
-        }
+      } else {
         fd_memcpy(&node->elem.account, acc->key.key, sizeof(fd_pubkey_t));
         fd_memcpy(&node->elem.delegation, &stake_state.inner.stake.stake.delegation, sizeof(fd_delegation_t));
       }
-    }
-    else if (0 == memcmp(acc->account.owner.key, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t)))
-    {
+    } else if (0 == memcmp(acc->account.owner.key, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t))) {
       /* Feature Account */
 
       /* Scan list of feature IDs to resolve address => feature offset */
       fd_feature_id_t const *found = NULL;
       for (fd_feature_id_t const *id = fd_feature_iter_init();
            !fd_feature_iter_done(id);
-           id = fd_feature_iter_next(id))
-      {
+           id = fd_feature_iter_next(id)) {
         if (0 == memcmp(acc->key.key, id->id.key, sizeof(fd_pubkey_t)))
         {
           found = id;
@@ -273,11 +234,9 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
         }
       }
 
-      if (found)
-      {
+      if (found) {
         /* Load feature activation */
-        FD_SCRATCH_SCOPE_BEGIN
-        {
+        FD_SCRATCH_SCOPE_BEGIN {
           fd_bincode_decode_ctx_t decode = {.data = acc->account.data,
                                             .dataend = acc->account.data + acc->account.data_len,
                                             .valloc = fd_scratch_virtual()};
@@ -291,31 +250,45 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
             FD_LOG_DEBUG(( "Feature %32J not activated (genesis)", acc->key.key, feature.activated_at ));
             fd_features_set( &slot_ctx->epoch_ctx->features, found, ULONG_MAX);
           }
-        }
-        FD_SCRATCH_SCOPE_END;
+        } FD_SCRATCH_SCOPE_END;
       }
     }
   }
-  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool;
-  vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );  /* FIXME remove magic constant */
+
+  slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );  /* FIXME remove magic constant */
   slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = NULL;
-  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = slot_ctx->slot_bank.epoch_stakes.vote_accounts_root;
+
+  fd_vote_accounts_pair_t_mapnode_t * next_pool = fd_exec_epoch_ctx_next_epoch_stakes_join( slot_ctx->epoch_ctx );
+  fd_vote_accounts_pair_t_mapnode_t * next_root = NULL;
 
   for( fd_vote_accounts_pair_t_mapnode_t *n = fd_vote_accounts_pair_t_map_minimum( vacc_pool, vacc_root );
         n;
         n = fd_vote_accounts_pair_t_map_successor( vacc_pool, n )) {
-    fd_vote_accounts_pair_t_mapnode_t * e = fd_vote_accounts_pair_t_map_acquire( vote_accounts_pool );
+    fd_vote_accounts_pair_t_mapnode_t * e = fd_vote_accounts_pair_t_map_acquire( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool );
     fd_memcpy( &e->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
-    fd_vote_accounts_pair_t_map_insert( vote_accounts_pool, &vote_accounts_root, e );
+    fd_vote_accounts_pair_t_map_insert( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool, &slot_ctx->slot_bank.epoch_stakes.vote_accounts_root, e );
+
+    fd_vote_accounts_pair_t_mapnode_t * next_e = fd_vote_accounts_pair_t_map_acquire( next_pool );
+    fd_memcpy( &next_e->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+    fd_vote_accounts_pair_t_map_insert( next_pool, &next_root, next_e );
   }
-  slot_ctx->slot_bank.epoch_stakes = (fd_vote_accounts_t){
-      .vote_accounts_pool = vote_accounts_pool,
-      .vote_accounts_root = vote_accounts_root,
-  };
+
+  for( fd_delegation_pair_t_mapnode_t *n = fd_delegation_pair_t_map_minimum( sacc_pool, sacc_root );
+        n;
+        n = fd_delegation_pair_t_map_successor( sacc_pool, n )) {
+    fd_vote_accounts_pair_t_mapnode_t query_voter;
+    fd_pubkey_t *voter_pubkey = &n->elem.delegation.voter_pubkey;
+    fd_memcpy(&query_voter.elem.key, voter_pubkey, sizeof(fd_pubkey_t));
+
+    fd_vote_accounts_pair_t_mapnode_t *voter = fd_vote_accounts_pair_t_map_find(vacc_pool, vacc_root, &query_voter);
+
+    if (voter != NULL)
+          voter->elem.stake = fd_ulong_sat_add(voter->elem.stake, n->elem.delegation.stake);
+  }
 
   epoch_bank->next_epoch_stakes = (fd_vote_accounts_t){
-    .vote_accounts_pool = vacc_pool,
-    .vote_accounts_root = vacc_root,
+    .vote_accounts_pool = next_pool,
+    .vote_accounts_root = next_root,
   };
 
   /* Initializes the stakes cache in the Bank structure. */
@@ -330,6 +303,11 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
       .stake_history = (fd_stake_history_t){.pool = stake_history_pool, .treap = stake_history_treap}};
 
   slot_ctx->slot_bank.capitalization = capitalization;
+
+  slot_ctx->slot_bank.timestamp_votes.votes_pool =
+        fd_clock_timestamp_vote_t_map_alloc( slot_ctx->valloc, 10000 ); /* FIXME: remove magic constant */
+  slot_ctx->slot_bank.timestamp_votes.votes_root = NULL;
+
 }
 
 void fd_runtime_init_program(fd_exec_slot_ctx_t *slot_ctx)
@@ -339,7 +317,9 @@ void fd_runtime_init_program(fd_exec_slot_ctx_t *slot_ctx)
   fd_sysvar_slot_history_init(slot_ctx);
   //  fd_sysvar_slot_hashes_init( slot_ctx );
   fd_sysvar_epoch_schedule_init(slot_ctx);
-  fd_sysvar_fees_init(slot_ctx);
+  // if( !FD_FEATURE_ACTIVE(slot_ctx, disable_fees_sysvar) ) {
+  //   fd_sysvar_fees_init(slot_ctx);
+  // }
   fd_sysvar_rent_init(slot_ctx);
   fd_sysvar_stake_history_init(slot_ctx);
   fd_sysvar_last_restart_slot_init(slot_ctx);
@@ -1841,8 +1821,8 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx ) {
   clock_update_time += fd_log_wallclock();
   double clock_update_time_ms = (double)clock_update_time * 1e-6;
   FD_LOG_INFO(( "clock updated - slot: %lu, elapsed: %6.6f ms", slot_ctx->slot_bank.slot, clock_update_time_ms ));
-  if (!FD_FEATURE_ACTIVE(slot_ctx, disable_fees_sysvar))
-    fd_sysvar_fees_update(slot_ctx);
+  // if (!FD_FEATURE_ACTIVE(slot_ctx, disable_fees_sysvar))
+  //   fd_sysvar_fees_update(slot_ctx);
   // It has to go into the current txn previous info but is not in slot 0
   if (slot_ctx->slot_bank.slot != 0)
     fd_sysvar_slot_hashes_update(slot_ctx);
@@ -3132,10 +3112,20 @@ fd_runtime_collect_rent( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong slot0 = slot_ctx->slot_bank.prev_slot;
   ulong slot1 = slot_ctx->slot_bank.slot;
 
-  /* TODO For whatever reason, when replaying from genesis, our slot0 is
-     ULONG_MAX */
-  if (slot0 == ULONG_MAX)
-    slot0 = 0UL;
+  /* For genesis, we collect rent for slot 0. */
+  if (slot1 == 0) {
+    ulong s = slot1;
+    ulong off;
+    ulong epoch = fd_slot_to_epoch(schedule, s, &off);
+
+    /* FIXME: This will not necessarily support warmup_epochs */
+    ulong num_partitions = fd_runtime_num_rent_partitions( slot_ctx, s );
+    /* Reconstruct rent lists if the number of slots per epoch changes */
+    fd_acc_mgr_set_slots_per_epoch( slot_ctx, num_partitions );
+    fd_runtime_collect_rent_for_slot( slot_ctx, fd_runtime_get_rent_partition( slot_ctx, s ), epoch );
+    return;
+  }
+
   FD_TEST(slot0 <= slot1);
 
   for( ulong s = slot0 + 1; s <= slot1; ++s ) {
@@ -3377,8 +3367,8 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_sysvar_recent_hashes_update(slot_ctx);
 
-  if( !FD_FEATURE_ACTIVE(slot_ctx, disable_fees_sysvar) )
-    fd_sysvar_fees_update(slot_ctx);
+  // if( !FD_FEATURE_ACTIVE(slot_ctx, disable_fees_sysvar) )
+  //   fd_sysvar_fees_update(slot_ctx);
 
   ulong fees = fd_ulong_sat_add (slot_ctx->slot_bank.collected_execution_fees, slot_ctx->slot_bank.collected_priority_fees );
   if( FD_LIKELY ((fees > 0))) {
@@ -3812,6 +3802,37 @@ int fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
+int
+fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx, fd_capture_ctx_t * capture_ctx ) {
+  ulong hashcnt_per_slot = slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick * slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot;
+  while(hashcnt_per_slot--) {
+    fd_sha256_hash( slot_ctx->slot_bank.poh.uc, 32UL, slot_ctx->slot_bank.poh.uc );
+  }
+
+  slot_ctx->slot_bank.collected_execution_fees = 0;
+  slot_ctx->slot_bank.collected_priority_fees = 0;
+  slot_ctx->slot_bank.collected_rent = 0;
+  slot_ctx->signature_cnt = 0;
+
+  fd_sysvar_slot_history_update(slot_ctx);
+
+  fd_runtime_freeze( slot_ctx );
+
+  FD_LOG_WARNING(( "fd_runtime_freeze: capitalization %ld ", slot_ctx->slot_bank.capitalization));
+
+  /* sort and update bank hash */
+  int result = fd_update_hash_bank( slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, slot_ctx->signature_cnt );
+  if (result != FD_EXECUTOR_INSTR_SUCCESS) {
+    FD_LOG_ERR(("Failed to update bank hash with error=%d", result));
+  }
+
+  FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_epoch_bank( slot_ctx ) );
+
+  FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_slot_bank( slot_ctx ) );
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
 void
 fd_runtime_read_genesis( fd_exec_slot_ctx_t* slot_ctx,
                         char const         * genesis_filepath,
@@ -3828,35 +3849,46 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t* slot_ctx,
   if( FD_UNLIKELY( fd < 0 ) ) {
     FD_LOG_ERR(("cannot open %s : %s", genesis_filepath, strerror(errno)));
   }
-  uchar * buf = malloc((ulong) sbuf.st_size);  /* TODO Make this a scratch alloc */
-  ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
-  close(fd);
 
   fd_genesis_solana_t genesis_block;
   fd_genesis_solana_new(&genesis_block);
-  fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = buf,
-    .dataend = buf + n,
-    .valloc  = slot_ctx->valloc,
-  };
-  if( fd_genesis_solana_decode(&genesis_block, &decode_ctx) )
-    FD_LOG_ERR(("fd_genesis_solana_decode failed"));
-
-  // The hash is generated from the raw data... don't mess with this..
   fd_hash_t genesis_hash;
-  fd_sha256_hash( buf, (ulong)n, genesis_hash.uc );
+
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  
+  FD_SCRATCH_SCOPE_BEGIN {
+    uchar * buf = fd_scratch_alloc(1UL, (ulong) sbuf.st_size);  /* TODO Make this a scratch alloc */
+    ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
+    close(fd);
+
+    
+    fd_bincode_decode_ctx_t decode_ctx = {
+      .data    = buf,
+      .dataend = buf + n,
+      .valloc  = slot_ctx->valloc,
+    };
+    if( fd_genesis_solana_decode(&genesis_block, &decode_ctx) )
+      FD_LOG_ERR(("fd_genesis_solana_decode failed"));
+
+    // The hash is generated from the raw data... don't mess with this..
+    fd_sha256_hash( buf, (ulong)n, genesis_hash.uc );
+
+  } FD_SCRATCH_SCOPE_END;
+
   fd_memcpy( epoch_bank->genesis_hash.uc, genesis_hash.uc, 32U );
   epoch_bank->cluster_type = genesis_block.cluster_type;
-
-  free(buf);
 
   fd_funk_start_write( slot_ctx->acc_mgr->funk );
 
   if ( !is_snapshot ) {
     fd_runtime_init_bank_from_genesis( slot_ctx, &genesis_block, &genesis_hash );
 
+    fd_features_restore( slot_ctx );
+
     fd_runtime_init_program( slot_ctx );
+
+    fd_runtime_update_leaders(slot_ctx, slot_ctx->slot_bank.slot);
+    FD_LOG_WARNING(("Updated leader %32J", slot_ctx->leader->uc));
 
     FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block.accounts_len));
 
@@ -3893,17 +3925,19 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t* slot_ctx,
       fd_write_builtin_bogus_account( slot_ctx, a->pubkey.uc, (const char *) a->string, a->string_len );
     }
 
-    /* sort and update bank hash */
-    int result = fd_update_hash_bank( slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, slot_ctx->signature_cnt );
-    if (result != FD_EXECUTOR_INSTR_SUCCESS) {
-      FD_LOG_ERR(("Failed to update bank hash with error=%d", result));
-    }
-
     slot_ctx->slot_bank.slot = 0UL;
-  }
-  FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_epoch_bank( slot_ctx ) );
 
-  FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_slot_bank( slot_ctx ) );
+    int err = fd_runtime_process_genesis_block( slot_ctx, capture_ctx );
+    if( FD_UNLIKELY( err  ) ) {
+      FD_LOG_ERR(( "Genesis slot 0 execute failed with error %d", err ));
+    } 
+  }
+
+  slot_ctx->slot_bank.stake_account_keys.stake_accounts_root = NULL;
+  slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool = fd_stake_accounts_pair_t_map_alloc(slot_ctx->valloc, 100000);
+
+  slot_ctx->slot_bank.vote_account_keys.vote_accounts_root = NULL;
+  slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc(slot_ctx->valloc, 100000);
 
   fd_funk_end_write( slot_ctx->acc_mgr->funk );
 

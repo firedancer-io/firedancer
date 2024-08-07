@@ -27,6 +27,7 @@ static long
 timestamp_from_genesis( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   /* TODO: maybe make types of timestamps the same throughout the runtime codebase. as Solana uses a signed representation */
+  FD_LOG_WARNING(("slot %lu", slot_ctx->slot_bank.slot));
   return (long)( epoch_bank->genesis_creation_time + ( ( slot_ctx->slot_bank.slot * epoch_bank->ns_per_slot ) / NS_IN_S ) );
 }
 
@@ -124,8 +125,9 @@ estimate_timestamp( fd_exec_slot_ctx_t * slot_ctx ) {
   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L13 */
 
   fd_clock_timestamp_vote_t_mapnode_t * votes = slot_ctx->slot_bank.timestamp_votes.votes_root;
-  if ( NULL == votes )
+  if ( NULL == votes ) {
     return timestamp_from_genesis( slot_ctx );
+  }
 
   /* TODO: actually take the stake-weighted median. For now, just use the root node. */
   fd_clock_timestamp_vote_t * head = &votes->elem;
@@ -204,106 +206,47 @@ fd_calculate_stake_weighted_timestamp(
     n = fd_vote_accounts_pair_t_map_successor(vote_acc_pool, n)
   ) {
 
-  // for (
-  //   fd_clock_timestamp_vote_t_mapnode_t * n = fd_clock_timestamp_vote_t_map_minimum(timestamp_votes_pool, timestamp_votes_root);
-  //   n;
-  //   n = fd_clock_timestamp_vote_t_map_successor(timestamp_votes_pool, n)
-  // ) {
     /* get timestamp */
     fd_pubkey_t const * vote_pubkey = &n->elem.key;
-    fd_clock_timestamp_vote_t_mapnode_t query_vote_acc_node;
-    query_vote_acc_node.elem.pubkey = *vote_pubkey;
-    fd_clock_timestamp_vote_t_mapnode_t * vote_acc_node = fd_clock_timestamp_vote_t_map_find(timestamp_votes_pool, timestamp_votes_root, &query_vote_acc_node);
-    if( vote_acc_node == NULL ) {
-      // FD_LOG_WARNING(("no vote acc: %32J", vote_pubkey->key));
+    
+    if( timestamp_votes_pool == NULL ) {
       continue;
-    }
-    // FD_BORROWED_ACCOUNT_DECL(acc);
-    // int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, vote_pubkey, acc);
-    // FD_TEST( err == 0 );
-    // fd_bincode_decode_ctx_t decode_ctx = {
-    //   .data    = acc->const_data,
-    //   .dataend = acc->const_data + acc->const_meta->dlen,
-    //   .valloc  = fd_scratch_virtual(),
-    // };
-    // ulong vote_timestamp = 0UL;
-    // ulong vote_slot = 0UL;
-
-    // uint discriminant = 0;
-    // err = fd_bincode_uint32_decode(&discriminant, &decode_ctx);
-    // if ( FD_UNLIKELY(err) ) {
-    //   FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
-    // }
-    // void const * enum_inner_start = decode_ctx.data;
-    // ulong last_timestamp_off = 0;
-    // if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( &vote_state, &decode ) ) )
-    //   FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
-    // switch (discriminant) {
-    //   case fd_vote_state_versioned_enum_current: {
-    //     fd_vote_state_off_t off;
-    //     int err = fd_vote_state_decode_offsets( &off, &decode_ctx );
-    //     if( FD_UNLIKELY(err) ) {
-    //       FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
-    //     }
-    //     last_timestamp_off = off.last_timestamp_off;
-    //     break;
-    //   }
-    //   case fd_vote_state_versioned_enum_v1_14_11: {
-    //     fd_vote_state_1_14_11_off_t off;
-    //     int err = fd_vote_state_1_14_11_decode_offsets( &off, &decode_ctx );
-    //     if( FD_UNLIKELY(err) ) {
-    //       FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
-    //     }
-    //     last_timestamp_off = off.last_timestamp_off;
-    //     break;
-    //   }
-    //   case fd_vote_state_versioned_enum_v0_23_5: {
-    //      fd_vote_state_0_23_5_off_t off;
-    //     int err = fd_vote_state_0_23_5_decode_offsets( &off, &decode_ctx );
-    //     if( FD_UNLIKELY(err) ) {
-    //       FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
-    //     }
-    //     last_timestamp_off = off.last_timestamp_off;
-    //     break;
-    //   }
-    //   default:
-    //     __builtin_unreachable();
-    // }
-
-    // fd_vote_block_timestamp_t last_timestamp;
-    // decode_ctx.data = (uchar const *)enum_inner_start + last_timestamp_off;
-    // err = fd_vote_block_timestamp_decode( &last_timestamp, &decode_ctx );
-    // if( FD_UNLIKELY(err) ) {
-    //   FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
-    // }
-
-    ulong vote_timestamp = (ulong)vote_acc_node->elem.timestamp;
-    ulong vote_slot = vote_acc_node->elem.slot;
-    // if( last_timestamp.slot != vote_slot || last_timestamp.timestamp != vote_timestamp ) {
-    //   FD_LOG_WARNING(("clock %32J %lu %lu, %lu %lu", vote_pubkey, vote_slot, last_timestamp.slot, vote_timestamp, last_timestamp.timestamp));
-    // }
-
-    ulong slot_delta = fd_ulong_sat_sub(slot_ctx->slot_bank.slot, vote_slot);
-    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-    if (slot_delta > epoch_bank->epoch_schedule.slots_per_epoch) {
-      continue;
-    }
-
-    ulong offset = fd_ulong_sat_mul(slot_duration, slot_delta);
-    long estimate = (long)vote_timestamp + (long)(offset / NS_IN_S);
-    /* get stake */
-    total_stake += n->elem.stake;
-    ulong treap_idx = stake_ts_treap_idx_query( treap, estimate, pool );
-    if ( FD_LIKELY( treap_idx < ULONG_MAX ) ) {
-      pool[ treap_idx ].stake += n->elem.stake;
     } else {
-      if( 0 == stake_ts_pool_free( pool ) ) {
-        FD_LOG_ERR(( "stake_ts_pool is empty" ));
+      fd_clock_timestamp_vote_t_mapnode_t query_vote_acc_node;
+      query_vote_acc_node.elem.pubkey = *vote_pubkey;
+      fd_clock_timestamp_vote_t_mapnode_t * vote_acc_node = fd_clock_timestamp_vote_t_map_find(timestamp_votes_pool, timestamp_votes_root, &query_vote_acc_node);
+      ulong vote_timestamp;
+      ulong vote_slot;
+      if( vote_acc_node == NULL ) {
+        vote_timestamp = (ulong)n->elem.value.last_timestamp_ts;
+        vote_slot = n->elem.value.last_timestamp_slot;
+      } else {
+        vote_timestamp = (ulong)vote_acc_node->elem.timestamp;
+        vote_slot = vote_acc_node->elem.slot;
       }
-      ulong idx = stake_ts_pool_idx_acquire( pool );
-      pool[ idx ].timestamp = estimate;
-      pool[ idx ].stake = n->elem.stake;
-      stake_ts_treap_idx_insert( treap, idx, pool );
+
+      ulong slot_delta = fd_ulong_sat_sub(slot_ctx->slot_bank.slot, vote_slot);
+      fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+      if (slot_delta > epoch_bank->epoch_schedule.slots_per_epoch) {
+        continue;
+      }
+
+      ulong offset = fd_ulong_sat_mul(slot_duration, slot_delta);
+      long estimate = (long)vote_timestamp + (long)(offset / NS_IN_S);
+      /* get stake */
+      total_stake += n->elem.stake;
+      ulong treap_idx = stake_ts_treap_idx_query( treap, estimate, pool );
+      if ( FD_LIKELY( treap_idx < ULONG_MAX ) ) {
+        pool[ treap_idx ].stake += n->elem.stake;
+      } else {
+        if( 0 == stake_ts_pool_free( pool ) ) {
+          FD_LOG_ERR(( "stake_ts_pool is empty" ));
+        }
+        ulong idx = stake_ts_pool_idx_acquire( pool );
+        pool[ idx ].timestamp = estimate;
+        pool[ idx ].stake = n->elem.stake;
+        stake_ts_treap_idx_insert( treap, idx, pool );
+      }
     }
   }
 
@@ -319,7 +262,6 @@ fd_calculate_stake_weighted_timestamp(
        iter = stake_ts_treap_fwd_iter_next( iter, pool ) ) {
     ulong idx = stake_ts_treap_fwd_iter_idx( iter );
     stake_accumulator = fd_ulong_sat_add(stake_accumulator, pool[ idx ].stake);
-    // FD_LOG_WARNING(("Ts %ld Elem stake %lu Curr stake %lu Total stake cmp %lu", pool[ idx ].timestamp, pool[ idx ].stake, stake_accumulator, total_stake/2));
     if (stake_accumulator > (total_stake / 2)) {
       *result_timestamp = pool[ idx ].timestamp;
       break;
