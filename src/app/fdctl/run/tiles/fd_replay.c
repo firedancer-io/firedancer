@@ -6,7 +6,7 @@
 #include "../../../../disco/shred/fd_shred_dest.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../flamenco/fd_flamenco.h"
-#include "../../../../disco/bank/fd_txncache.h"
+#include "../../../../flamenco/runtime/fd_txncache.h"
 #include "../../../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
 #include "../../../../flamenco/runtime/context/fd_exec_slot_ctx.h"

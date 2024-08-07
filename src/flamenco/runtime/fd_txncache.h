@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_disco_bank_txncache_h
-#define HEADER_fd_src_disco_bank_txncache_h
+#ifndef HEADER_fd_src_flamenco_runtime_txncache_h
+#define HEADER_fd_src_flamenco_runtime_txncache_h
 
 /* A txn cache is a concurrent map for saving the result (status) of
    transactions that have executed.  In addition to supporting fast
@@ -36,7 +36,7 @@
 
      - The transactions to be queried are stored in a structure that
        looks like a
-       
+
          hash_map<blockhash, hash_map<txnhash, vec<(slot, status)>>>
 
        The top level hash_map is a probed hash map, and the txnhash map
@@ -78,7 +78,7 @@
        the blockhash to the pool, and then mark the space in the
        hash_map as empty.  This is fast since there are at most 4,800
        pages to restore and restoration is a simple memcpy.
-      
+
      - Another structure is required to support serialization of
        snapshots from the cache.  Serialization must produce a binary
        structure that encodes essentially:
@@ -132,8 +132,7 @@
        rooted, at which point nothing could be being inserted into it
        and the txn_count will be finalized. */
 
-#include "fd_rwlock.h"
-#include "../fd_disco_base.h"
+#include "../fd_flamenco_base.h"
 
 #define FD_TXNCACHE_ALIGN (128UL)
 
@@ -143,7 +142,7 @@
    it out.  This must be at least 150, otherwise we could forget about
    transactions for blockhashes that are still valid to use, and let
    duplicate transactions make it into a produced block.
-   
+
    Beyond 150, any value is valid.  The value used here, 300 comes from
    Agave, and corresponds to roughly 2 minutes of history assuming there
    are no forks, with an extra 12.8 seconds of history for slots that
@@ -164,7 +163,7 @@
    for an epoch transition to occur successfully to the next one, so
    assuming every slot is unconfirmed for some reason, and the prior
    epoch was rooted at the first slot in the epoch, and the next epoch
-   is rooted at the last slot, there could be 
+   is rooted at the last slot, there could be
 
       432,000 + 432,000 - 31 = 863,969
 
@@ -286,7 +285,7 @@ fd_txncache_delete( void * shtc );
    although transactions in the root may or may not still be present.
    Transaction status is removed once all roots referencing the
    blockhash of the transaction are removed from the txn cache.
-   
+
    This is neither cheap or expensive, it will pause all insertion and
    query operations but only momentarily until any old slots can be
    purged from the cache. */
@@ -302,7 +301,7 @@ fd_txncache_register_root_slot( fd_txncache_t * tc,
    max_root_slots results.  If there are less than max_root_slots slots
    in the cache, the front part of out_slots will be filled in, and all
    the remaining slots will be set to ULONG_MAX.
-   
+
    This is a fast operation, but it will lock the whole structure and
    cause a temporary pause in insert and query operations. */
 
@@ -395,4 +394,4 @@ fd_txncache_is_rooted_slot( fd_txncache_t * tc,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_disco_bank_txncache_h */
+#endif /* HEADER_fd_src_flamenco_runtime_txncache_h */
