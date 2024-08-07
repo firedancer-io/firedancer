@@ -1,5 +1,7 @@
 #!/bin/bash -f
 
+set -e
+
 # Pull the latest code
 cd $FD_NIGHTLY_REPO_DIR
 git checkout $FD_NIGHTLY_BRANCH
@@ -13,7 +15,8 @@ PKG_CONFIG_PATH=/usr/lib64/pkgconfig:$PKG_CONFIG_PATH
 
 make distclean && make clean
 ./deps.sh nuke
-echo "y" | ./deps.sh +dev
+FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh +dev fetch check install
+source ~/.cargo/env
 make -j
 
 # Run the tests
