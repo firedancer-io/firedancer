@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <poll.h>
+#include <stdlib.h>
 #include <strings.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -16,26 +17,38 @@
 FD_FN_CONST char const *
 fd_http_server_connection_close_reason_str( int reason ) {
   switch( reason ) {
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_OK:                         return "success";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED:                    return "EVICTED-Connection was evicted to make room for a new one";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_EXPECTED_EOF:               return "EXPECTED_EOF-Client continued to send data when we expected no more";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET:                 return "PEER_RESET-Connection was reset by peer";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST:              return "LARGE_REQUEST-Request body was too large";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST:                return "BAD_REQUEST-Request was malformed";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD:             return "UNKNOWN_METHOD-Request method was not recognized";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_PATH_TOO_LONG:              return "PATH_TOO_LONG-Request path was too long";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_KEY:                 return "WS_BAD_KEY-Malformed Sec-WebSocket-Key header field";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNEXPECTED_VERSION:      return "WS_UNEXPECTED_VERSION-Unexpected Sec-Websocket-Version field";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_KEY_HEADER:      return "WS_MISSING_KEY_HEADER-Missing Sec-WebSocket-Key header field";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_VERSION_HEADER:  return "WS_MISSING_VERSION_HEADER-Missing Sec-WebSocket-Version header field";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_MASK:                return "WS_BAD_MASK-Got frame from client without mask flag set";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNKNOWN_OPCODE:          return "WS_UNKNOWN_OPCODE-Unknown opcode in websocket frame";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_OVERSIZE_FRAME:          return "WS_OVERSIZE_FRAME-Websocket frame was too large";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW:         return "WS_CLIENT_TOO_SLOW-Client was too slow to keep up with sender";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_UPGRADE:         return "WS_MISSING_UPGRADE-Missing Upgrade header field";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_CONT_OPCODE:    return "WS_EXPECTED_CONT_OPCODE-Expected continuation opcode in websocket frame";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE:    return "WS_EXPECTED_TEXT_OPCODE-Expected text opcode in websocket frame";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CONTROL_FRAME_TOO_LARGE: return "WS_CONTROL_FRAME_TOO_LARGE-Websocket control frame was too large";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_OK:                           return "success";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED:                      return "EVICTED-Connection was evicted to make room for a new one";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_EXPECTED_EOF:                 return "EXPECTED_EOF-Client continued to send data when we expected no more";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET:                   return "PEER_RESET-Connection was reset by peer";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST:                return "LARGE_REQUEST-Request body was too large";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST:                  return "BAD_REQUEST-Request was malformed";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_MISSING_CONENT_LENGTH_HEADER: return "MISSING_CONENT_LENGTH_HEADER-Missing Content-Length header field";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD:               return "UNKNOWN_METHOD-Request method was not recognized";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_PATH_TOO_LONG:                return "PATH_TOO_LONG-Request path was too long";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_KEY:                   return "WS_BAD_KEY-Malformed Sec-WebSocket-Key header field";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNEXPECTED_VERSION:        return "WS_UNEXPECTED_VERSION-Unexpected Sec-Websocket-Version field";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_KEY_HEADER:        return "WS_MISSING_KEY_HEADER-Missing Sec-WebSocket-Key header field";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_VERSION_HEADER:    return "WS_MISSING_VERSION_HEADER-Missing Sec-WebSocket-Version header field";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_MASK:                  return "WS_BAD_MASK-Got frame from client without mask flag set";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNKNOWN_OPCODE:            return "WS_UNKNOWN_OPCODE-Unknown opcode in websocket frame";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_OVERSIZE_FRAME:            return "WS_OVERSIZE_FRAME-Websocket frame was too large";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW:           return "WS_CLIENT_TOO_SLOW-Client was too slow to keep up with sender";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_UPGRADE:           return "WS_MISSING_UPGRADE-Missing Upgrade header field";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_CONT_OPCODE:      return "WS_EXPECTED_CONT_OPCODE-Expected continuation opcode in websocket frame";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE:      return "WS_EXPECTED_TEXT_OPCODE-Expected text opcode in websocket frame";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CONTROL_FRAME_TOO_LARGE:   return "WS_CONTROL_FRAME_TOO_LARGE-Websocket control frame was too large";
+    default: break;
+  }
+
+  return "unknown";
+}
+
+FD_FN_CONST char const *
+fd_http_server_method_str( uchar method ) {
+  switch( method ) {
+    case FD_HTTP_SERVER_METHOD_GET:  return "GET";
+    case FD_HTTP_SERVER_METHOD_POST: return "POST";
     default: break;
   }
 
@@ -48,32 +61,23 @@ fd_http_server_align( void ) {
 }
 
 FD_FN_CONST ulong
-fd_http_server_footprint( ulong max_connection_cnt,
-                          ulong max_ws_connection_cnt,
-                          ulong max_request_len,
-                          ulong max_ws_recv_frame_len,
-                          ulong max_ws_send_frame_cnt ) {
+fd_http_server_footprint( fd_http_server_params_t params ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_private ),       sizeof( fd_http_server_t )                                                           );
-  l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_connection ),    max_connection_cnt*sizeof( struct fd_http_server_connection )                        );
-  l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_ws_connection ), max_ws_connection_cnt*sizeof( struct fd_http_server_ws_connection )                  );
-  l = FD_LAYOUT_APPEND( l, alignof( struct pollfd ),                       (max_connection_cnt+max_ws_connection_cnt+1UL)*sizeof( struct pollfd )               );
-  l = FD_LAYOUT_APPEND( l, 1UL,                                            max_request_len*max_connection_cnt                                                   );
-  l = FD_LAYOUT_APPEND( l, 1UL,                                            max_ws_recv_frame_len*max_ws_connection_cnt                                          );
-  l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_ws_frame ),      max_ws_send_frame_cnt*max_ws_connection_cnt*sizeof( struct fd_http_server_ws_frame ) );
+  l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_connection ),    params.max_connection_cnt*sizeof( struct fd_http_server_connection )                        );
+  l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_ws_connection ), params.max_ws_connection_cnt*sizeof( struct fd_http_server_ws_connection )                  );
+  l = FD_LAYOUT_APPEND( l, alignof( struct pollfd ),                       (params.max_connection_cnt+params.max_ws_connection_cnt+1UL)*sizeof( struct pollfd )               );
+  l = FD_LAYOUT_APPEND( l, 1UL,                                            params.max_request_len*params.max_connection_cnt                                                   );
+  l = FD_LAYOUT_APPEND( l, 1UL,                                            params.max_ws_recv_frame_len*params.max_ws_connection_cnt                                          );
+  l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_ws_frame ),      params.max_ws_send_frame_cnt*params.max_ws_connection_cnt*sizeof( struct fd_http_server_ws_frame ) );
   return FD_LAYOUT_FINI( l, fd_http_server_align() );
 }
 
 void *
 fd_http_server_new( void *                     shmem,
-                    ulong                      max_connection_cnt,
-                    ulong                      max_ws_connection_cnt,
-                    ulong                      max_request_len,
-                    ulong                      max_ws_recv_frame_len,
-                    ulong                      max_ws_send_frame_cnt,
+                    fd_http_server_params_t    params,
                     fd_http_server_callbacks_t callbacks,
                     void *                     callback_ctx ) {
-
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -85,43 +89,43 @@ fd_http_server_new( void *                     shmem,
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_http_server_t * http = FD_SCRATCH_ALLOC_APPEND( l,  FD_HTTP_SERVER_ALIGN,                         sizeof(fd_http_server_t)                                               );
-  http->conns             = FD_SCRATCH_ALLOC_APPEND( l,  alignof(struct fd_http_server_connection),    max_connection_cnt*sizeof(struct fd_http_server_connection)            );
-  http->ws_conns          = FD_SCRATCH_ALLOC_APPEND( l,  alignof(struct fd_http_server_ws_connection), max_ws_connection_cnt*sizeof(struct fd_http_server_ws_connection)      );
-  http->pollfds           = FD_SCRATCH_ALLOC_APPEND( l,  alignof(struct pollfd),                       (max_connection_cnt+max_ws_connection_cnt+1UL)*sizeof( struct pollfd ) );
-  char * _request_bytes   = FD_SCRATCH_ALLOC_APPEND( l,  1UL,                                          max_request_len*max_connection_cnt                                     );
-  uchar * _ws_recv_bytes  = FD_SCRATCH_ALLOC_APPEND( l,  1UL,                                          max_ws_recv_frame_len*max_ws_connection_cnt                            );
-  struct fd_http_server_ws_frame * _ws_send_frames = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct fd_http_server_ws_frame), max_ws_send_frame_cnt*max_ws_connection_cnt*sizeof(struct fd_http_server_ws_frame) );
+  fd_http_server_t * http = FD_SCRATCH_ALLOC_APPEND( l,  FD_HTTP_SERVER_ALIGN,                         sizeof(fd_http_server_t)                                                             );
+  http->conns             = FD_SCRATCH_ALLOC_APPEND( l,  alignof(struct fd_http_server_connection),    params.max_connection_cnt*sizeof(struct fd_http_server_connection)                   );
+  http->ws_conns          = FD_SCRATCH_ALLOC_APPEND( l,  alignof(struct fd_http_server_ws_connection), params.max_ws_connection_cnt*sizeof(struct fd_http_server_ws_connection)             );
+  http->pollfds           = FD_SCRATCH_ALLOC_APPEND( l,  alignof(struct pollfd),                       (params.max_connection_cnt+params.max_ws_connection_cnt+1UL)*sizeof( struct pollfd ) );
+  char * _request_bytes   = FD_SCRATCH_ALLOC_APPEND( l,  1UL,                                          params.max_request_len*params.max_connection_cnt                                     );
+  uchar * _ws_recv_bytes  = FD_SCRATCH_ALLOC_APPEND( l,  1UL,                                          params.max_ws_recv_frame_len*params.max_ws_connection_cnt                            );
+  struct fd_http_server_ws_frame * _ws_send_frames = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct fd_http_server_ws_frame), params.max_ws_send_frame_cnt*params.max_ws_connection_cnt*sizeof(struct fd_http_server_ws_frame) );
 
   http->callbacks             = callbacks;
   http->callback_ctx          = callback_ctx;
   http->conn_id               = 0UL;
   http->ws_conn_id            = 0UL;
-  http->max_conns             = max_connection_cnt;
-  http->max_ws_conns          = max_ws_connection_cnt;
-  http->max_request_len       = max_request_len;
-  http->max_ws_recv_frame_len = max_ws_recv_frame_len;
-  http->max_ws_send_frame_cnt = max_ws_send_frame_cnt;
+  http->max_conns             = params.max_connection_cnt;
+  http->max_ws_conns          = params.max_ws_connection_cnt;
+  http->max_request_len       = params.max_request_len;
+  http->max_ws_recv_frame_len = params.max_ws_recv_frame_len;
+  http->max_ws_send_frame_cnt = params.max_ws_send_frame_cnt;
 
-  for( ulong i=0UL; i<max_connection_cnt; i++ ) {
+  for( ulong i=0UL; i<params.max_connection_cnt; i++ ) {
     http->pollfds[ i ].fd = -1;
     http->pollfds[ i ].events = POLLIN | POLLOUT;
     http->conns[ i ] = (struct fd_http_server_connection){
-      .request_bytes = _request_bytes+i*max_request_len,
+      .request_bytes = _request_bytes+i*params.max_request_len,
     };
   }
 
-  for( ulong i=0UL; i<max_ws_connection_cnt; i++ ) {
-    http->pollfds[ max_connection_cnt+i ].fd = -1;
-    http->pollfds[ max_connection_cnt+i ].events = POLLIN | POLLOUT;
+  for( ulong i=0UL; i<params.max_ws_connection_cnt; i++ ) {
+    http->pollfds[ params.max_connection_cnt+i ].fd = -1;
+    http->pollfds[ params.max_connection_cnt+i ].events = POLLIN | POLLOUT;
     http->ws_conns[ i ] = (struct fd_http_server_ws_connection){
-      .recv_bytes = _ws_recv_bytes+i*max_ws_recv_frame_len,
-      .send_frames = _ws_send_frames+i*max_ws_send_frame_cnt,
+      .recv_bytes = _ws_recv_bytes+i*params.max_ws_recv_frame_len,
+      .send_frames = _ws_send_frames+i*params.max_ws_send_frame_cnt,
     };
   }
 
-  http->pollfds[ max_connection_cnt+max_ws_connection_cnt ].fd     = -1;
-  http->pollfds[ max_connection_cnt+max_ws_connection_cnt ].events = POLLIN | POLLOUT;
+  http->pollfds[ params.max_connection_cnt+params.max_ws_connection_cnt ].fd     = -1;
+  http->pollfds[ params.max_connection_cnt+params.max_ws_connection_cnt ].events = POLLIN | POLLOUT;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( http->magic ) = FD_HTTP_SERVER_MAGIC;
@@ -200,7 +204,7 @@ fd_http_server_listen( fd_http_server_t * http,
   int optval = 1;
   if( FD_UNLIKELY( -1==setsockopt( sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof( optval ) ) ) )
     FD_LOG_ERR(( "setsockopt failed (%i-%s)", errno, strerror( errno ) ));
-  
+
   struct sockaddr_in addr = {
     .sin_family      = AF_INET,
     .sin_port        = fd_ushort_bswap( port ),
@@ -220,6 +224,7 @@ static void
 close_conn( fd_http_server_t * http,
             ulong              conn_idx,
             int                reason ) {
+  FD_TEST( http->pollfds[ conn_idx ].fd!=-1 );
 #ifdef FD_HTTP_SERVER_DEBUG
   FD_LOG_NOTICE(( "Closing connection %lu (fd=%d) (%d-%s)", conn_idx, http->pollfds[ conn_idx ].fd, reason, fd_http_server_connection_close_reason_str( reason ) ));
 #endif
@@ -230,6 +235,20 @@ close_conn( fd_http_server_t * http,
   } else {
     if( FD_LIKELY( http->callbacks.ws_close ) ) http->callbacks.ws_close( conn_idx-http->max_conns, reason, http->callback_ctx );
   }
+}
+
+void
+fd_http_server_close( fd_http_server_t * http,
+                      ulong              conn_id,
+                      int                reason ) {
+  close_conn( http, conn_id, reason );
+}
+
+void
+fd_http_server_ws_close( fd_http_server_t * http,
+                         ulong              ws_conn_id,
+                         int                reason ) {
+  close_conn( http, http->max_conns+ws_conn_id, reason );
 }
 
 static void
@@ -251,6 +270,16 @@ accept_conns( fd_http_server_t * http ) {
     http->conns[ http->conn_id ].state                  = FD_HTTP_SERVER_CONNECTION_STATE_READING;
     http->conns[ http->conn_id ].request_bytes_read     = 0UL;
     http->conns[ http->conn_id ].response_bytes_written = 0UL;
+
+    http->conns[ http->conn_id ].response.body_len          = 0UL;
+    http->conns[ http->conn_id ].response.content_type      = NULL;
+    http->conns[ http->conn_id ].response.upgrade_websocket = 0;
+    http->conns[ http->conn_id ].response.status            = 400;
+
+    if( FD_UNLIKELY( http->callbacks.open ) ) {
+      http->callbacks.open( http->conn_id, fd, http->callback_ctx );
+    }
+
     http->conn_id = (http->conn_id+1UL) % http->max_conns;
 
 #ifdef FD_HTTP_SERVER_DEBUG
@@ -304,9 +333,52 @@ read_conn_http( fd_http_server_t * http,
     return;
   }
 
-  if( FD_UNLIKELY( method_len!=3UL || strncmp( method, "GET", method_len ) ) ) {
+  uchar method_enum = UCHAR_MAX;
+  if( FD_LIKELY( method_len==3UL && !strncmp( method, "GET", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_GET;
+  else if( FD_LIKELY( method_len==4UL && !strncmp( method, "POST", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_POST;
+
+  if( FD_UNLIKELY( method_enum==UCHAR_MAX ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD );
     return;
+  }
+
+  ulong content_len = 0UL;
+  if( FD_UNLIKELY( method_enum==FD_HTTP_SERVER_METHOD_POST ) ) {
+    char const * content_length = NULL;
+    for( ulong i=0UL; i<num_headers; i++ ) {
+      if( FD_LIKELY( headers[ i ].name_len==14UL && !strncasecmp( headers[ i ].name, "Content-Length", 14UL ) ) ) {
+        content_length = headers[ i ].value;
+        break;
+      }
+    }
+
+    if( FD_UNLIKELY( !content_length ) ) {
+      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_MISSING_CONENT_LENGTH_HEADER );
+      return;
+    }
+
+    errno = 0;
+    content_len = strtoul( content_length, NULL, 10 );
+    if( FD_UNLIKELY( content_len==ULONG_MAX && errno==ERANGE) ) {
+      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_MISSING_CONENT_LENGTH_HEADER );
+      return;
+    }
+
+    if( FD_UNLIKELY( conn->request_bytes_read<(ulong)result+content_len ) ) {
+      return; /* Request still partial, wait for more data */
+    }
+  }
+
+  char content_type_nul_terminated[ 128 ] = {0};
+  for( ulong i=0UL; i<num_headers; i++ ) {
+    if( FD_LIKELY( headers[ i ].name_len==12UL && !strncasecmp( headers[ i ].name, "Content-Type", 12UL ) ) ) {
+      if( FD_UNLIKELY( headers[ i ].value_len>(sizeof(content_type_nul_terminated)-1UL) ) ) {
+        close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+        return;
+      }
+      memcpy( content_type_nul_terminated, headers[ i ].value, headers[ i ].value_len );
+      break;
+    }
   }
 
   char path_nul_terminated[ 128 ] = {0};
@@ -367,9 +439,34 @@ read_conn_http( fd_http_server_t * http,
   }
 
   conn->state    = FD_HTTP_SERVER_CONNECTION_STATE_WRITING_HEADER;
-  conn->response = http->callbacks.request( conn_idx, path_nul_terminated, http->callback_ctx );
+
+  fd_http_server_request_t request = {
+    .connection_id             = conn_idx,
+
+    .method                    = method_enum,
+    .path                      = path_nul_terminated,
+
+    .ctx                       = http->callback_ctx,
+
+    .headers.content_type      = content_type_nul_terminated,
+    .headers.upgrade_websocket = conn->upgrade_websocket,
+  };
+
+  switch( method_enum ) {
+    case FD_HTTP_SERVER_METHOD_POST: {
+      request.post.body     = (uchar*)conn->request_bytes+result;
+      request.post.body_len = content_len;
+    } break;
+    default: break;
+  }
+
+  fd_http_server_response_t response = http->callbacks.request( &request );
+  if( FD_LIKELY( http->pollfds[ conn_idx ].fd==-1 ) ) return; /* Connection was closed by callback */
+
+  conn->response = response;
+
 #ifdef FD_HTTP_SERVER_DEBUG
-  FD_LOG_NOTICE(( "Received request \"%s\" from %lu (fd=%d) response code %lu", path_nul_terminated, conn_idx, http->pollfds[ conn_idx ].fd, conn->response.status ));
+  FD_LOG_NOTICE(( "Received %s request \"%s\" from %lu (fd=%d) response code %lu", fd_http_server_method_str( method_enum ), path_nul_terminated, conn_idx, http->pollfds[ conn_idx ].fd, conn->response.status ));
 #endif
 }
 
@@ -435,6 +532,16 @@ read_conn_ws( fd_http_server_t * http,
 
   if( FD_UNLIKELY( conn->recv_bytes_read<frame_len ) ) return; /* Need more data to read the full frame */
 
+  /* Data frame, process it */
+
+  int is_fin_set = conn->recv_bytes[ conn->recv_bytes_parsed+0UL ] & 0x80;
+
+  uchar * mask    = conn->recv_bytes+conn->recv_bytes_parsed+1UL+len_bytes;
+  uchar   mask_copy[ 4 ] = { mask[ 0 ], mask[ 1 ], mask[ 2 ], mask[ 3 ] }; /* Bytes will be overwritten by the memmove below */
+
+  uchar * payload = conn->recv_bytes+conn->recv_bytes_parsed+header_len;
+  for( ulong i=0UL; i<payload_len; i++ ) conn->recv_bytes[ conn->recv_bytes_parsed+i ] = payload[ i ] ^ mask_copy[ i % 4 ];
+
   /* Frame is complete, process it */
 
   if( FD_UNLIKELY( opcode==0x8 ) ) {
@@ -445,7 +552,7 @@ read_conn_ws( fd_http_server_t * http,
     if( FD_LIKELY( conn->pong_state!=FD_HTTP_SERVER_PONG_STATE_WAITING ) ) {
       conn->pong_state    = FD_HTTP_SERVER_PONG_STATE_WAITING;
       conn->pong_data_len = payload_len;
-      memcpy( conn->pong_data, conn->recv_bytes+conn->recv_bytes_parsed+header_len, payload_len );
+      memcpy( conn->pong_data, conn->recv_bytes+conn->recv_bytes_parsed, payload_len );
     }
     if( FD_UNLIKELY( conn->recv_bytes_read-frame_len ) ) {
       memmove( conn->recv_bytes, conn->recv_bytes+conn->recv_bytes_parsed+frame_len, conn->recv_bytes_read-frame_len );
@@ -472,14 +579,6 @@ read_conn_ws( fd_http_server_t * http,
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE );
     return;
   }
-
-  /* Data frame, process it */
-
-  int is_fin_set = conn->recv_bytes[ conn->recv_bytes_parsed+0UL ] & 0x80;
-
-  uchar * mask    = conn->recv_bytes+conn->recv_bytes_parsed+1UL+len_bytes;
-  uchar * payload = conn->recv_bytes+conn->recv_bytes_parsed+header_len;
-  for( ulong i=0UL; i<payload_len; i++ ) conn->recv_bytes[ conn->recv_bytes_parsed+i ] = payload[ i ] ^ mask[ i % 4 ];
 
   /* Check if this is a complete message */
 
@@ -550,6 +649,9 @@ write_conn_http( fd_http_server_t * http,
             FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: %s\r\n\r\n", conn->response.body_len, conn->response.content_type ) );
           }
           break;
+        case 400:
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 400 Bad Request\r\nContent-Length: %lu\r\nContent-Type: %s\r\n\r\n", conn->response.body_len, conn->response.content_type ) );
+          break;
         case 404:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" ) );
           break;
@@ -586,7 +688,7 @@ write_conn_http( fd_http_server_t * http,
         if( FD_UNLIKELY( conn->response.upgrade_websocket ) ) {
           int fd = http->pollfds[ conn_idx ].fd;
           http->pollfds[ conn_idx ].fd = -1;
-          
+
           /* Just evict oldest ws connection if it's still alive, they
              were too slow. */
           ulong ws_conn_id = http->ws_conn_id;
@@ -632,9 +734,9 @@ maybe_write_pong( fd_http_server_t * http,
   struct fd_http_server_ws_connection * conn = &http->ws_conns[ conn_idx-http->max_conns ];
 
   /* No need to pong if ....
-    
+
       Client has not sent a ping */
-  if( FD_LIKELY( conn->pong_state==FD_HTTP_SERVER_PONG_STATE_NONE ) )                               return 0;
+  if( FD_LIKELY( conn->pong_state==FD_HTTP_SERVER_PONG_STATE_NONE ) )       return 0;
   /*  We are in the middle of writing a data frame */
   if( FD_LIKELY( conn->send_frame_cnt && conn->send_frame_bytes_written ) ) return 0;
 
@@ -739,31 +841,26 @@ write_conn_ws( fd_http_server_t * http,
 
 void
 fd_http_server_ws_send( fd_http_server_t * http,
-                        ulong              connection_id,
-                        uchar const *      data,
-                        ulong              data_len ) {
-  struct fd_http_server_ws_connection * conn = &http->ws_conns[ connection_id ];
-  
+                        ulong              ws_conn_id,
+                        fd_http_server_ws_frame_t frame ) {
+  struct fd_http_server_ws_connection * conn = &http->ws_conns[ ws_conn_id ];
+
   if( FD_UNLIKELY( conn->send_frame_cnt==http->max_ws_send_frame_cnt ) ) {
-    close_conn( http, connection_id+http->max_conns, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW );
+    close_conn( http, ws_conn_id+http->max_conns, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW );
     return;
   }
 
-  fd_http_server_ws_frame_t * frame = &conn->send_frames[ (conn->send_frame_idx+conn->send_frame_cnt) % http->max_ws_send_frame_cnt ];
-  frame->data_len = data_len;
-  frame->data     = data;
-
+  conn->send_frames[ (conn->send_frame_idx+conn->send_frame_cnt) % http->max_ws_send_frame_cnt ] = frame;
   conn->send_frame_cnt++;
 }
 
 void
-fd_http_server_ws_broadcast( fd_http_server_t * http,
-                             uchar const *      data,
-                             ulong              data_len ) {
+fd_http_server_ws_broadcast( fd_http_server_t *        http,
+                             fd_http_server_ws_frame_t frame ) {
   for( ulong i=0UL; i<http->max_ws_conns; i++ ) {
     if( FD_LIKELY( http->pollfds[ http->max_conns+i ].fd==-1 ) ) continue;
 
-    fd_http_server_ws_send( http, i, data, data_len );
+    fd_http_server_ws_send( http, i, frame );
   }
 }
 
@@ -788,6 +885,7 @@ fd_http_server_poll( fd_http_server_t * http ) {
       accept_conns( http );
     } else {
       if( FD_LIKELY( http->pollfds[ i ].revents & POLLIN  ) ) read_conn(  http, i );
+      if( FD_UNLIKELY( -1==http->pollfds[ i ].fd ) ) continue;
       if( FD_LIKELY( http->pollfds[ i ].revents & POLLOUT ) ) write_conn( http, i );
       /* No need to handle POLLHUP, read() will return 0 soon enough. */
     }
