@@ -74,6 +74,8 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
 int
 fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx,
                   fd_tpool_t * tpool,
+                  ulong node_start,
+                  ulong node_end,
                   fd_hash_t * accounts_hash,
                   ulong do_hash_verify );
 
