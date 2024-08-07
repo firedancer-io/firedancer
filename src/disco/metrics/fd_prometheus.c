@@ -2,17 +2,11 @@
 
 #include "../topo/fd_topo.h"
 
+#include "../../ballet/http/fd_hcache.h"
+
 #define PRINT_LINK_IN  (0)
 #define PRINT_LINK_OUT (1)
 #define PRINT_TILE     (2)
-
-#define PRINT( ... ) (__extension__({                                       \
-    ulong len;                                                              \
-    int result = fd_cstr_printf_check( *out, *out_len, &len, __VA_ARGS__ ); \
-    if( FD_UNLIKELY( !result ) ) return -1;                                 \
-    *out += len; *out_len -= len;                                           \
-    len;                                                                    \
-  }))
 
 static ulong
 find_producer_out_idx( fd_topo_t const *      topo,
@@ -43,17 +37,16 @@ find_producer_out_idx( fd_topo_t const *      topo,
   return ULONG_MAX;
 }
 
-static int
+static void
 prometheus_print1( fd_topo_t const *         topo,
-                   char **                   out,
-                   ulong *                   out_len,
+                   fd_hcache_t *             hcache,
                    char const *              tile_name,
                    ulong                     metrics_cnt,
                    fd_metrics_meta_t const * metrics,
                    int                       print_mode ) {
-  for( ulong i=0; i<metrics_cnt; i++ ) {
+  for( ulong i=0UL; i<metrics_cnt; i++ ) {
     fd_metrics_meta_t const * metric = &metrics[ i ];
-    PRINT( "# HELP %s %s\n# TYPE %s %s\n", metric->name, metric->desc, metric->name, fd_metrics_meta_type_str( metric ) );
+    fd_hcache_printf( hcache, "# HELP %s %s\n# TYPE %s %s\n", metric->name, metric->desc, metric->name, fd_metrics_meta_type_str( metric ) );
 
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t const * tile = &topo->tiles[ j ];
@@ -62,13 +55,13 @@ prometheus_print1( fd_topo_t const *         topo,
       if( FD_LIKELY( metric->type==FD_METRICS_TYPE_COUNTER || metric->type==FD_METRICS_TYPE_GAUGE ) ) {
         if( FD_LIKELY( print_mode==PRINT_TILE ) ) {
           ulong value = *(fd_metrics_tile( tile->metrics ) + metric->offset);
-          PRINT( "%s{kind=\"%s\",kind_id=\"%lu\"} %lu\n", metric->name, tile->name, tile->kind_id, value );
+          fd_hcache_printf( hcache, "%s{kind=\"%s\",kind_id=\"%lu\"} %lu\n", metric->name, tile->name, tile->kind_id, value );
         } else {
           if( FD_LIKELY( print_mode==PRINT_LINK_IN ) ) {
             for( ulong k=0; k<tile->in_cnt; k++ ) {
               fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ k ] ];
               ulong value = *(fd_metrics_link_in( tile->metrics, k ) + metric->offset );
-              PRINT( "%s{kind=\"%s\",kind_id=\"%lu\",link_kind=\"%s\",link_kind_id=\"%lu\"} %lu\n", metric->name, tile->name, tile->kind_id, link->name, link->kind_id, value );
+              fd_hcache_printf( hcache, "%s{kind=\"%s\",kind_id=\"%lu\",link_kind=\"%s\",link_kind_id=\"%lu\"} %lu\n", metric->name, tile->name, tile->kind_id, link->name, link->kind_id, value );
             }
           } else if( FD_LIKELY( print_mode==PRINT_LINK_OUT ) ) {
             for( ulong k=0; k<tile->in_cnt; k++ ) {
@@ -86,7 +79,7 @@ prometheus_print1( fd_topo_t const *         topo,
               ulong producer_out_idx = find_producer_out_idx( topo, producer, tile, k );
               ulong value = *(fd_metrics_link_out( producer->metrics, producer_out_idx ) + metric->offset );
 
-              PRINT( "%s{kind=\"%s\",kind_id=\"%lu\",link_kind=\"%s\",link_kind_id=\"%lu\"} %lu\n", metric->name, tile->name, tile->kind_id, link->name, link->kind_id, value );
+              fd_hcache_printf( hcache, "%s{kind=\"%s\",kind_id=\"%lu\",link_kind=\"%s\",link_kind_id=\"%lu\"} %lu\n", metric->name, tile->name, tile->kind_id, link->name, link->kind_id, value );
             }
           }
         }
@@ -118,7 +111,7 @@ prometheus_print1( fd_topo_t const *         topo,
           }
 
           FD_TEST( fd_cstr_printf_check( value_str, sizeof( value_str ), NULL, "%lu", value ));
-          PRINT( "%s_bucket{kind=\"%s\",kind_id=\"%lu\",le=\"%s\"} %s\n", metric->name, tile->name, tile->kind_id, le, value_str );
+          fd_hcache_printf( hcache, "%s_bucket{kind=\"%s\",kind_id=\"%lu\",le=\"%s\"} %s\n", metric->name, tile->name, tile->kind_id, le, value_str );
         }
 
         char sum_str[ 64 ];
@@ -129,37 +122,26 @@ prometheus_print1( fd_topo_t const *         topo,
           FD_TEST( fd_cstr_printf_check( sum_str, sizeof( sum_str ), NULL, "%lu", *(fd_metrics_tile( tile->metrics ) + metric->offset + FD_HISTF_BUCKET_CNT) ));
         }
 
-        PRINT( "%s_sum{kind=\"%s\",kind_id=\"%lu\"} %s\n", metric->name, tile->name, tile->kind_id, sum_str );
-        PRINT( "%s_count{kind=\"%s\",kind_id=\"%lu\"} %s\n", metric->name, tile->name, tile->kind_id, value_str );
+        fd_hcache_printf( hcache, "%s_sum{kind=\"%s\",kind_id=\"%lu\"} %s\n", metric->name, tile->name, tile->kind_id, sum_str );
+        fd_hcache_printf( hcache, "%s_count{kind=\"%s\",kind_id=\"%lu\"} %s\n", metric->name, tile->name, tile->kind_id, value_str );
       }
     }
 
-    if( FD_LIKELY( i!=metrics_cnt-1 ) ) PRINT( "\n" );
+    if( FD_LIKELY( i!=metrics_cnt-1 ) ) fd_hcache_printf( hcache, "\n" );
   }
-
-  return 0;
 }
 
-int
+void
 fd_prometheus_format( fd_topo_t const * topo,
-                      char *            _out,
-                      ulong *           out_len ) {
-  char ** out = &_out;
-
-  int result = prometheus_print1( topo, out, out_len, NULL, FD_METRICS_ALL_TOTAL, FD_METRICS_ALL, PRINT_TILE );
-  if( FD_UNLIKELY( result<0 ) ) return result;
-  PRINT( "\n" );
-  result = prometheus_print1( topo, out, out_len, NULL, FD_METRICS_ALL_LINK_IN_TOTAL, FD_METRICS_ALL_LINK_IN, PRINT_LINK_IN );
-  if( FD_UNLIKELY( result<0 ) ) return result;
-  PRINT( "\n" );
-  result = prometheus_print1( topo, out, out_len, NULL, FD_METRICS_ALL_LINK_OUT_TOTAL, FD_METRICS_ALL_LINK_OUT, PRINT_LINK_OUT );
-  if( FD_UNLIKELY( result<0 ) ) return result;
+                      fd_hcache_t *     hcache ) {
+  prometheus_print1( topo, hcache, NULL, FD_METRICS_ALL_TOTAL, FD_METRICS_ALL, PRINT_TILE );
+  fd_hcache_printf( hcache, "\n" );
+  prometheus_print1( topo, hcache, NULL, FD_METRICS_ALL_LINK_IN_TOTAL, FD_METRICS_ALL_LINK_IN, PRINT_LINK_IN );
+  fd_hcache_printf( hcache, "\n" );
+  prometheus_print1( topo, hcache, NULL, FD_METRICS_ALL_LINK_OUT_TOTAL, FD_METRICS_ALL_LINK_OUT, PRINT_LINK_OUT );
 
   for( ulong i=0UL; i<FD_METRICS_TILE_KIND_CNT; i++ ) {
-    PRINT( "\n" );
-    result = prometheus_print1( topo, out, out_len, FD_METRICS_TILE_KIND_NAMES[ i ], FD_METRICS_TILE_KIND_SIZES[ i ], FD_METRICS_TILE_KIND_METRICS[ i ], PRINT_TILE );
-    if( FD_UNLIKELY( result<0 ) ) return result;
+    fd_hcache_printf( hcache, "\n" );
+    prometheus_print1( topo, hcache, FD_METRICS_TILE_KIND_NAMES[ i ], FD_METRICS_TILE_KIND_SIZES[ i ], FD_METRICS_TILE_KIND_METRICS[ i ], PRINT_TILE );
   }
-
-  return 0;
 }

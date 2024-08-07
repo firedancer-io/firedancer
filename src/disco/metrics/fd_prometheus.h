@@ -4,13 +4,13 @@
 #include "../fd_disco_base.h"
 
 #include "../topo/fd_topo.h"
+#include "../../ballet/http/fd_hcache.h"
 
 FD_PROTOTYPES_BEGIN
 
-int
+void
 fd_prometheus_format( fd_topo_t const * topo,
-                      char *            out,
-                      ulong *           out_len );
+                      fd_hcache_t *     hcache );
 
 FD_PROTOTYPES_END
 
