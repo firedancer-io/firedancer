@@ -659,8 +659,9 @@ calculate_stake_vote_rewards(
     fd_calculate_stake_vote_rewards_result_t * result
 ) {
     fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-    ulong rewards_max_count = fd_delegation_pair_t_map_size( 
-        epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root );
+    ulong rewards_max_count = fd_ulong_sat_add( 
+        fd_delegation_pair_t_map_size( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root ),
+        fd_stake_accounts_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root ) );
 
     /* Create the stake rewards pool and dlist. The pool will be destoyed after the stake rewards have been distributed. */
     result->stake_reward_calculation.pool = fd_stake_reward_pool_join(
@@ -699,7 +700,9 @@ calculate_stake_vote_rewards(
     }
 
     /* Loop over all the stake accounts in the slot bank pool */
-    for ( fd_stake_accounts_pair_t_mapnode_t const * n = fd_stake_accounts_pair_t_map_minimum_const( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
+    for ( fd_stake_accounts_pair_t_mapnode_t const * n = 
+        fd_stake_accounts_pair_t_map_minimum_const( 
+            slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
          n;
          n = fd_stake_accounts_pair_t_map_successor_const( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, n) ) {
 
