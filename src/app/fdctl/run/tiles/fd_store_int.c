@@ -44,7 +44,7 @@
 #define REPLAY_OUT_IDX  1
 
 /* TODO: Determine/justify optimal number of repair requests */
-#define MAX_REPAIR_REQS  (32768UL)
+#define MAX_REPAIR_REQS  ( (ulong)USHORT_MAX / sizeof(fd_repair_request_t) )
 
 #define SCRATCH_SMAX     (256UL << 21UL)
 #define SCRATCH_SDEPTH   (128UL)
@@ -247,7 +247,6 @@ after_frag( void *             _ctx,
   FD_TEST( ctx->s34_buffer->shred_cnt>0UL );
 
   if( FD_UNLIKELY( ctx->is_trusted ) ) { 
-    FD_LOG_WARNING(("IS TRUSTED: %lu", ctx->s34_buffer->pkts[ 0 ].shred.slot ));
     /* this slot is coming from our leader pipeline */
     fd_trusted_slots_add( ctx->trusted_slots, ctx->s34_buffer->pkts[ 0 ].shred.slot );
   }
@@ -486,8 +485,9 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
     ulong repair_req_sig = 50UL;
     ulong repair_req_sz = repair_req_cnt * sizeof(fd_repair_request_t);
+    FD_TEST( repair_req_sz<=USHORT_MAX );
     fd_mcache_publish( ctx->repair_req_out_mcache, ctx->repair_req_out_depth, ctx->repair_req_out_seq, repair_req_sig, ctx->repair_req_out_chunk,
-      repair_req_cnt, 0UL, tsorig, tspub );
+      repair_req_sz, 0UL, tsorig, tspub );
     ctx->repair_req_out_seq   = fd_seq_inc( ctx->repair_req_out_seq, 1UL );
     ctx->repair_req_out_chunk = fd_dcache_compact_next( ctx->repair_req_out_chunk, repair_req_sz, ctx->repair_req_out_chunk0, ctx->repair_req_out_wmark );
   }
