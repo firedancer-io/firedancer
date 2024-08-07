@@ -1436,7 +1436,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     txn_result->is_ok                             = !exec_res;
     txn_result->status                            = (uint32_t) -exec_res;
     txn_result->executed_units                    = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
-    txn_result->has_fee_details                   = true;
+    txn_result->has_fee_details                   = false;
     txn_result->fee_details.transaction_fee       = slot_ctx->slot_bank.collected_execution_fees;
     txn_result->fee_details.prioritization_fee    = slot_ctx->slot_bank.collected_priority_fees;
 
@@ -1447,6 +1447,10 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
       *output = txn_result;
       return actual_end - (ulong)output_buf;
     }
+
+    txn_result->has_fee_details                = true;
+    txn_result->fee_details.transaction_fee    = slot_ctx->slot_bank.collected_execution_fees;
+    txn_result->fee_details.prioritization_fee = slot_ctx->slot_bank.collected_priority_fees;
 
     txn_result->has_resulting_state = true;
     txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
