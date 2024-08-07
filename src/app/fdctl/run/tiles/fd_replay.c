@@ -700,7 +700,7 @@ after_frag( void *             _ctx,
       fd_funk_end_write( ctx->funk );
 
       int res = fd_runtime_block_execute_prepare( &fork->slot_ctx );
-      FD_LOG_WARNING(("Current leader: %32J", fork->slot_ctx.leader->uc));
+      FD_LOG_NOTICE(("Current leader: %32J", fork->slot_ctx.leader->uc));
       if( is_new_epoch_in_new_block ) {
         publish_stake_weights( ctx, mux, &fork->slot_ctx );
       }
@@ -800,7 +800,7 @@ after_frag( void *             _ctx,
         msg->type = FD_REPLAY_SLOT_TYPE;
         msg->slot_exec.slot = curr_slot;
         msg->slot_exec.parent = ctx->parent_slot;
-        msg->slot_exec.root = ctx->blockstore->root;
+        msg->slot_exec.root = ctx->blockstore->smr;
         msg->slot_exec.height = ( block_map_entry ? block_map_entry->height : 0UL );
         memcpy( &msg->slot_exec.bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
         memcpy( &msg->slot_exec.block_hash, &ctx->blockhash, sizeof( fd_hash_t ) );
@@ -818,7 +818,7 @@ after_frag( void *             _ctx,
       if( FD_LIKELY( block_ ) ) {
         block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
         FD_COMPILER_MFENCE();
-        block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_PREPARING );
+        block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
         memcpy( &block_map_entry->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
       }
 
@@ -1180,7 +1180,7 @@ after_credit( void *             _ctx,
     }
 
     if ( ctx->blockstore != NULL ) {
-      FD_LOG_WARNING(( "INIT BLOCKSTORE" ));
+      FD_LOG_NOTICE(( "INIT BLOCKSTORE" ));
       /* Init slot_ctx */
 
       fd_exec_slot_ctx_t slot_ctx = { 0 };

@@ -23,6 +23,7 @@
 #define FD_VOTER_MAX          (1 << 12UL) /* the maximum # of unique voters ie. node pubkeys. */
 #define FD_EQV_SAFE           (0.52)
 #define FD_OPT_CONF           (2.0 / 3.0)
+#define FD_SMR_PCT            FD_OPT_CONF
 #define FD_SLOT_HASH_CMP(a,b) (fd_int_if(((a)->slot)<((b)->slot),-1,fd_int_if(((a)->slot)>((b)->slot),1),memcmp((a),(b),sizeof(fd_slot_hash_t))))
 #define FD_SLOT_HASH_EQ(a,b)  ((((a)->slot)==((b)->slot)) & !(memcmp(((a)->hash.uc),((b)->hash.uc),sizeof(fd_hash_t))))
 /* clang-format on */

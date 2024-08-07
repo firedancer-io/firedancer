@@ -2721,7 +2721,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
   slot_ctx->slot_bank.transaction_count += block_info.txn_cnt;
 
   /* progress to next slot next time */
-  slot_ctx->blockstore->root++;
+  slot_ctx->blockstore->smr++;
 
   fd_funk_start_write( slot_ctx->acc_mgr->funk );
   fd_runtime_save_slot_bank( slot_ctx );

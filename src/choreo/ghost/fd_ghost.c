@@ -265,14 +265,17 @@ fd_ghost_head( fd_ghost_t const * ghost ) {
   return head;
 }
 
-void
+fd_ghost_node_t const *
 fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey, ulong stake ) {
-
   FD_LOG_DEBUG(( "[%s] slot %lu, pubkey %32J, stake %lu", __func__, slot, pubkey, stake ));
 
-  /* Ignore votes for slots older than the current root. */
-
-  if( FD_UNLIKELY( slot < ghost->root->slot ) ) return;
+#if FD_GHOST_USE_HANDHOLDING
+  if( FD_UNLIKELY( slot < ghost->root->slot ) ) {
+    FD_LOG_ERR( ( "caller must only insert vote slots >= ghost root. vote: %lu, root: %lu",
+                  slot,
+                  ghost->root->slot ) );
+  }
+#endif
 
   fd_ghost_node_t * node = fd_ghost_node_map_ele_query( ghost->node_map,
                                                         &slot,
@@ -309,7 +312,7 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey
        that the vote slot < the latest vote slot we have saved for that
        validator. */
 
-    if( FD_UNLIKELY( slot <= latest_vote->slot ) ) return;
+    if( FD_UNLIKELY( slot <= latest_vote->slot ) ) return node;
 
     fd_ghost_node_t * node = fd_ghost_node_map_ele_query( ghost->node_map,
                                                           &latest_vote->slot,
@@ -382,44 +385,40 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey
   FD_LOG_DEBUG(( "[ghost] adding (%32J, %lu, %lu)", pubkey, stake, latest_vote->slot ));
   int cf = __builtin_uaddl_overflow( node->stake, latest_vote->stake, &node->stake );
   if( FD_UNLIKELY( cf ) ) {
-    FD_LOG_WARNING(( "[%s] add overflow. node->stake %lu latest_vote->stake %lu",
-                      __func__,
-                      node->stake,
-                      latest_vote->stake ));
-    __asm__( "int $3" );
+    FD_LOG_ERR(( "[%s] add overflow. node->stake %lu latest_vote->stake %lu",
+                 __func__,
+                 node->stake,
+                 latest_vote->stake ));
   }
   fd_ghost_node_t * ancestor = node;
   while( ancestor->parent ) {
     int cf = __builtin_uaddl_overflow( ancestor->weight, latest_vote->stake, &ancestor->weight );
-    if( FD_UNLIKELY( ancestor->weight == ULONG_MAX ) ) {
-      FD_LOG_ERR(( "overflow" ));
-    }
     if( FD_UNLIKELY( cf ) ) {
-      FD_LOG_WARNING(( "[%s] add overflow. ancestor->weight %lu latest_vote->stake %lu",
-                        __func__,
-                        ancestor->weight,
-                        latest_vote->stake ));
-      __asm__( "int $3" );
+      FD_LOG_ERR(( "[%s] add overflow. ancestor->weight %lu latest_vote->stake %lu",
+                   __func__,
+                   ancestor->weight,
+                   latest_vote->stake ));
     }
     ancestor = ancestor->parent;
   }
 
 #if FD_GHOST_USE_HANDHOLDING
   if( FD_UNLIKELY( node->stake > ghost->total_stake ) ) {
-    FD_LOG_WARNING(
-        ( "[fd_ghost_replay_vote_upsert] invariant violation. node->stake > total stake."
-          "slot: %lu, "
-          "node->stake %lu, "
-          "ghost->total_stake %lu",
-          slot,
-          node->stake,
-          ghost->total_stake ) );
-    __asm__( "int $3" );
+    FD_LOG_ERR(( "[%s] invariant violation. node->stake > total stake."
+                 "slot: %lu, "
+                 "node->stake %lu, "
+                 "ghost->total_stake %lu",
+                 __func__,
+                 slot,
+                 node->stake,
+                 ghost->total_stake ));
   }
 #endif
+
+  return node;
 }
 
-void
+fd_ghost_node_t const *
 fd_ghost_gossip_vote( FD_PARAM_UNUSED fd_ghost_t *        ghost,
                       FD_PARAM_UNUSED ulong               slot,
                       FD_PARAM_UNUSED fd_pubkey_t const * pubkey,
@@ -427,7 +426,41 @@ fd_ghost_gossip_vote( FD_PARAM_UNUSED fd_ghost_t *        ghost,
   FD_LOG_ERR(( "unimplemented" ));
 }
 
-fd_ghost_node_t *
+fd_ghost_node_t const *
+fd_ghost_rooted_vote( fd_ghost_t * ghost, ulong root, fd_pubkey_t const * pubkey, ulong stake ) {
+  FD_LOG_DEBUG(( "[%s] root %lu, pubkey %32J, stake %lu", __func__, root, pubkey, stake ));
+
+#if FD_GHOST_USE_HANDHOLDING
+  if( FD_UNLIKELY( root < ghost->root->slot ) ) {
+    FD_LOG_ERR( ( "caller must only insert vote slots >= ghost root. vote: %lu, root: %lu",
+                  root,
+                  ghost->root->slot ) );
+  }
+#endif
+
+  /* It is invariant that the voter's root is found in ghost (as long as
+     voter's root >= our root ). This is because voter's root is sourced
+     from their vote state, so it must be on the fork we're replaying
+     and we must have already inserted their root slot into ghost. */
+
+  fd_ghost_node_t * node = fd_ghost_node_map_ele_query( ghost->node_map,
+                                                        &root,
+                                                        NULL,
+                                                        ghost->node_pool );
+
+#if FD_GHOST_USE_HANDHOLDING
+  if( FD_UNLIKELY( !node ) ) {
+    FD_LOG_ERR(( "[%s] invariant violation. missing voter %32J's root %lu.", __func__, pubkey, root ));
+  }
+#endif
+
+  /* Add to the rooted stake. */
+
+  node->rooted_stake += stake;
+  return node;
+}
+
+fd_ghost_node_t const *
 fd_ghost_publish( fd_ghost_t * ghost, ulong slot ) {
 
 #if FD_GHOST_USE_HANDHOLDING
@@ -445,7 +478,10 @@ fd_ghost_publish( fd_ghost_t * ghost, ulong slot ) {
   }
 #endif
 
-  fd_ghost_node_t * root = fd_ghost_query( ghost, slot );
+  fd_ghost_node_t * root = fd_ghost_node_map_ele_query( ghost->node_map,
+                                                        &slot,
+                                                        NULL,
+                                                        ghost->node_pool );
 
 #if FD_GHOST_USE_HANDHOLDING
   if( FD_UNLIKELY( !root ) ) {
@@ -520,8 +556,8 @@ fd_ghost_publish( fd_ghost_t * ghost, ulong slot ) {
 
 fd_ghost_node_t const *
 fd_ghost_gca( fd_ghost_t const * ghost, ulong slot1, ulong slot2 ) {
-  fd_ghost_node_t const * node1 = fd_ghost_query_const( ghost, slot1 );
-  fd_ghost_node_t const * node2 = fd_ghost_query_const( ghost, slot2 );
+  fd_ghost_node_t const * node1 = fd_ghost_query( ghost, slot1 );
+  fd_ghost_node_t const * node2 = fd_ghost_query( ghost, slot2 );
 
 #if FD_GHOST_USE_HANDHOLDING
   if( FD_UNLIKELY( !node1 ) ) {
@@ -551,7 +587,7 @@ fd_ghost_gca( fd_ghost_t const * ghost, ulong slot1, ulong slot2 ) {
 
 int
 fd_ghost_is_descendant( fd_ghost_t const * ghost, ulong slot, ulong ancestor_slot ) {
-  fd_ghost_node_t const * ancestor = fd_ghost_query_const( ghost, slot );
+  fd_ghost_node_t const * ancestor = fd_ghost_query( ghost, slot );
 #if FD_GHOST_USE_HANDHOLDING
 
   if( FD_UNLIKELY( ancestor_slot < ghost->root->slot ) ) {
@@ -617,7 +653,7 @@ print( fd_ghost_node_t const * node, int space, const char * prefix, ulong total
 
 void
 fd_ghost_slot_print( fd_ghost_t * ghost, ulong slot, ulong depth ) {
-  fd_ghost_node_t const * node = fd_ghost_query_const( ghost, slot );
+  fd_ghost_node_t const * node = fd_ghost_query( ghost, slot );
   if( FD_UNLIKELY( !node ) ) {
     FD_LOG_WARNING(( "[fd_ghost_print_node] NULL node." ));
     return;

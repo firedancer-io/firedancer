@@ -6,6 +6,12 @@
   parent_slots[i] = p;                                                                             \
   fd_ghost_insert( ghost, slots[i], parent_slots[i] );
 
+
+fd_ghost_node_t *
+query_mut( fd_ghost_t * ghost, ulong slot ) {
+  return fd_ghost_node_map_ele_query( ghost->node_map, &slot, NULL, ghost->node_pool );
+}
+
 /*
          slot 0
            |
@@ -104,7 +110,7 @@ test_ghost_publish_left( fd_wksp_t * wksp ) {
 
   ulong key3 = 3;
   fd_ghost_replay_vote( ghost, key3, &pk1, 1 );
-  fd_ghost_node_t * node2 = fd_ghost_query( ghost, key2 );
+  fd_ghost_node_t const * node2 = fd_ghost_query( ghost, key2 );
   FD_TEST( node2 );
 
   fd_ghost_print( ghost );
@@ -166,7 +172,7 @@ test_ghost_publish_right( fd_wksp_t * wksp ) {
 
   ulong key3 = 3;
   fd_ghost_replay_vote( ghost, key3, &pk1, 1 );
-  fd_ghost_node_t * node3 = fd_ghost_query( ghost, key3 );
+  fd_ghost_node_t const * node3 = fd_ghost_query( ghost, key3 );
   FD_TEST( node3 );
 
   fd_ghost_print( ghost );
@@ -261,20 +267,23 @@ test_ghost_print( fd_wksp_t * wksp ) {
   INSERT( 268538760, 268538759 );
   INSERT( 268538761, 268538758 );
 
-  ulong             query = 268538758;
-  fd_ghost_node_t * node  = fd_ghost_query( ghost, query );
-  node->weight            = 32;
+  fd_ghost_node_t * node;
+  ulong             query;
+
+  query        = 268538758;
+  node         = query_mut( ghost, query );
+  node->weight = 32;
 
   query        = 268538759;
-  node         = fd_ghost_query( ghost, query );
+  node         = query_mut( ghost, query );
   node->weight = 8;
 
   query        = 268538760;
-  node         = fd_ghost_query( ghost, query );
+  node         = query_mut( ghost, query );
   node->weight = 9;
 
   query        = 268538761;
-  node         = fd_ghost_query( ghost, query );
+  node         = query_mut( ghost, query );
   node->weight = 10;
 
   fd_ghost_slot_print( ghost, query, 8 );
