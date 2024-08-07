@@ -3954,28 +3954,34 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t* slot_ctx,
   if( FD_UNLIKELY( fd < 0 ) ) {
     FD_LOG_ERR(("cannot open %s : %s", genesis_filepath, strerror(errno)));
   }
-  uchar * buf = malloc((ulong) sbuf.st_size);  /* TODO Make this a scratch alloc */
-  ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
-  close(fd);
 
   fd_genesis_solana_t genesis_block;
   fd_genesis_solana_new(&genesis_block);
-  fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = buf,
-    .dataend = buf + n,
-    .valloc  = slot_ctx->valloc,
-  };
-  if( fd_genesis_solana_decode(&genesis_block, &decode_ctx) )
-    FD_LOG_ERR(("fd_genesis_solana_decode failed"));
-
-  // The hash is generated from the raw data... don't mess with this..
   fd_hash_t genesis_hash;
-  fd_sha256_hash( buf, (ulong)n, genesis_hash.uc );
+
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  
+  FD_SCRATCH_SCOPE_BEGIN {
+    uchar * buf = fd_scratch_alloc(1UL, (ulong) sbuf.st_size);  /* TODO Make this a scratch alloc */
+    ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
+    close(fd);
+
+    
+    fd_bincode_decode_ctx_t decode_ctx = {
+      .data    = buf,
+      .dataend = buf + n,
+      .valloc  = slot_ctx->valloc,
+    };
+    if( fd_genesis_solana_decode(&genesis_block, &decode_ctx) )
+      FD_LOG_ERR(("fd_genesis_solana_decode failed"));
+
+    // The hash is generated from the raw data... don't mess with this..
+    fd_sha256_hash( buf, (ulong)n, genesis_hash.uc );
+
+  } FD_SCRATCH_SCOPE_END;
+
   fd_memcpy( epoch_bank->genesis_hash.uc, genesis_hash.uc, 32U );
   epoch_bank->cluster_type = genesis_block.cluster_type;
-
-  free(buf);
 
   fd_funk_start_write( slot_ctx->acc_mgr->funk );
 
