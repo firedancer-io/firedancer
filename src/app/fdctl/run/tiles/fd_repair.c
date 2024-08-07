@@ -209,7 +209,7 @@ handle_new_repair_requests( fd_repair_tile_ctx_t * ctx,
                             ulong                  buf_sz ) {
 
   fd_repair_request_t const * repair_reqs = (fd_repair_request_t const *) buf;
-  ulong repair_req_cnt = buf_sz;
+  ulong repair_req_cnt = buf_sz / sizeof(fd_repair_request_t);
 
   for( ulong i=0UL; i<repair_req_cnt; i++ ) {
     fd_repair_request_t const * repair_req = &repair_reqs[i];
@@ -344,7 +344,7 @@ during_frag( void * _ctx,
     }
 
     dcache_entry = fd_chunk_to_laddr_const( ctx->repair_req_in_mem, chunk );
-    dcache_entry_sz = sz * sizeof(fd_repair_request_t);
+    dcache_entry_sz = sz;
   } else if ( FD_LIKELY( in_idx == NET_IN_IDX ) ) {
     if( FD_UNLIKELY( chunk<ctx->net_in_chunk0 || chunk>ctx->net_in_wmark || sz>FD_NET_MTU ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->net_in_chunk0, ctx->net_in_wmark ));

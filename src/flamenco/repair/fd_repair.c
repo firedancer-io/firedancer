@@ -482,7 +482,7 @@ fd_repair_send_requests( fd_repair_t * glob ) {
     if ( NULL == ele )
       continue;
 
-    if(j == 400U) break;
+    if(j == 16U) break;
     ++j;
 
     /* Track statistics */

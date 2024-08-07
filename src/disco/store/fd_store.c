@@ -314,16 +314,16 @@ fd_store_slot_repair( fd_store_t * store,
                       ulong slot,
                       fd_repair_request_t * out_repair_reqs,
                       ulong out_repair_reqs_sz ) {
+  if( out_repair_reqs_sz==0UL ) {
+    return 0UL;
+  }
+
   ulong repair_req_cnt = 0;
   fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( store->blockstore, slot );
 
   if( FD_LIKELY( !block_map_entry ) ) {
     /* We haven't received any shreds for this slot yet */
 
-    if( repair_req_cnt >= out_repair_reqs_sz ) { 
-      FD_LOG_WARNING(( "too many repair requests" ));
-      __asm__("int $3");
-    } 
     fd_repair_request_t * repair_req = &out_repair_reqs[repair_req_cnt++];
     repair_req->shred_index = 0;
     repair_req->slot = slot;
@@ -336,13 +336,15 @@ fd_store_slot_repair( fd_store_t * store,
     /* We don't know the last index yet */
     if( FD_UNLIKELY( complete_idx == UINT_MAX ) ) {
       complete_idx = block_map_entry->received_idx - 1;
-      if( repair_req_cnt >= out_repair_reqs_sz ) { 
-        FD_LOG_ERR(( "too many repair requests" ));
-      }
       fd_repair_request_t * repair_req = &out_repair_reqs[repair_req_cnt++];
       repair_req->shred_index = complete_idx;
       repair_req->slot = slot;
       repair_req->type = FD_REPAIR_REQ_TYPE_NEED_HIGHEST_WINDOW_INDEX;
+    }
+
+    if( repair_req_cnt==out_repair_reqs_sz ) {
+      FD_LOG_INFO( ( "[repair] MAX need %lu [%lu, %lu], sent %lu requests", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt ) );
+      return repair_req_cnt;
     }
 
     /* First make sure we are ready to execute this block soon. Look for an ancestor that was executed. */
@@ -359,25 +361,26 @@ fd_store_slot_repair( fd_store_t * store,
     }
 
     if( !good ) {
-      // fd_store_add_pending( store, slot, FD_REPAIR_BACKOFF_TIME, 0, 0 );
       return repair_req_cnt;
     }
     
     /* Fill in what's missing */
     for( uint i = block_map_entry->consumed_idx + 1; i <= complete_idx; i++ ) {
       if( fd_buf_shred_query( store->blockstore, slot, i ) != NULL ) continue;
-      if( repair_req_cnt >= out_repair_reqs_sz ) { 
-        FD_LOG_ERR(( "too many repair requests" ));
-      }
+     
       fd_repair_request_t * repair_req = &out_repair_reqs[repair_req_cnt++];
       repair_req->shred_index = i;
       repair_req->slot = slot;
       repair_req->type = FD_REPAIR_REQ_TYPE_NEED_WINDOW_INDEX;
+
+      if( repair_req_cnt == out_repair_reqs_sz ) { 
+        FD_LOG_INFO( ( "[repair] MAX need %lu [%lu, %lu], sent %lu requests", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt ) );
+        return repair_req_cnt;
+      }
     }
     if( repair_req_cnt ) {
       FD_LOG_INFO( ( "[repair] need %lu [%lu, %lu], sent %lu requests", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt ) );
     }
   }
-  // fd_store_add_pending( store, slot, FD_REPAIR_BACKOFF_TIME, 1, 0 );
   return repair_req_cnt;
 }
