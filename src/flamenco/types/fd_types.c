@@ -7453,18 +7453,18 @@ ulong fd_solana_accounts_db_fields_size( fd_solana_accounts_db_fields_t const * 
   return size;
 }
 
-int fd_epoch_stakes_current_decode( fd_epoch_stakes_current_t * self, fd_bincode_decode_ctx_t * ctx ) {
+int fd_versioned_epoch_stakes_current_decode( fd_versioned_epoch_stakes_current_t * self, fd_bincode_decode_ctx_t * ctx ) {
   void const * data = ctx->data;
-  int err = fd_epoch_stakes_current_decode_preflight( ctx );
+  int err = fd_versioned_epoch_stakes_current_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   ctx->data = data;
   if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    fd_epoch_stakes_current_new( self );
+    fd_versioned_epoch_stakes_current_new( self );
   }
-  fd_epoch_stakes_current_decode_unsafe( self, ctx );
+  fd_versioned_epoch_stakes_current_decode_unsafe( self, ctx );
   return FD_BINCODE_SUCCESS;
 }
-int fd_epoch_stakes_current_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+int fd_versioned_epoch_stakes_current_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   int err;
   err = fd_stakes_stake_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -7490,7 +7490,7 @@ int fd_epoch_stakes_current_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   }
   return FD_BINCODE_SUCCESS;
 }
-void fd_epoch_stakes_current_decode_unsafe( fd_epoch_stakes_current_t * self, fd_bincode_decode_ctx_t * ctx ) {
+void fd_versioned_epoch_stakes_current_decode_unsafe( fd_versioned_epoch_stakes_current_t * self, fd_bincode_decode_ctx_t * ctx ) {
   fd_stakes_stake_decode_unsafe( &self->stakes, ctx );
   fd_bincode_uint64_decode_unsafe( &self->total_stake, ctx );
   fd_bincode_uint64_decode_unsafe( &self->node_id_to_vote_accounts_len, ctx );
@@ -7512,7 +7512,7 @@ void fd_epoch_stakes_current_decode_unsafe( fd_epoch_stakes_current_t * self, fd
   } else
     self->epoch_authorized_voters = NULL;
 }
-int fd_epoch_stakes_current_encode( fd_epoch_stakes_current_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+int fd_versioned_epoch_stakes_current_encode( fd_versioned_epoch_stakes_current_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_stakes_stake_encode( &self->stakes, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -7536,7 +7536,7 @@ int fd_epoch_stakes_current_encode( fd_epoch_stakes_current_t const * self, fd_b
   }
   return FD_BINCODE_SUCCESS;
 }
-int fd_epoch_stakes_current_decode_offsets( fd_epoch_stakes_current_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+int fd_versioned_epoch_stakes_current_decode_offsets( fd_versioned_epoch_stakes_current_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
   uchar const * data = ctx->data;
   int err;
   self->stakes_off = (uint)( (ulong)ctx->data - (ulong)data );
@@ -7567,11 +7567,11 @@ int fd_epoch_stakes_current_decode_offsets( fd_epoch_stakes_current_off_t * self
   }
   return FD_BINCODE_SUCCESS;
 }
-void fd_epoch_stakes_current_new(fd_epoch_stakes_current_t * self) {
-  fd_memset( self, 0, sizeof(fd_epoch_stakes_current_t) );
+void fd_versioned_epoch_stakes_current_new(fd_versioned_epoch_stakes_current_t * self) {
+  fd_memset( self, 0, sizeof(fd_versioned_epoch_stakes_current_t) );
   fd_stakes_stake_new( &self->stakes );
 }
-void fd_epoch_stakes_current_destroy( fd_epoch_stakes_current_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+void fd_versioned_epoch_stakes_current_destroy( fd_versioned_epoch_stakes_current_t * self, fd_bincode_destroy_ctx_t * ctx ) {
   fd_stakes_stake_destroy( &self->stakes, ctx );
   if( self->node_id_to_vote_accounts ) {
     for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ )
@@ -7587,11 +7587,11 @@ void fd_epoch_stakes_current_destroy( fd_epoch_stakes_current_t * self, fd_binco
   }
 }
 
-ulong fd_epoch_stakes_current_footprint( void ){ return FD_EPOCH_STAKES_CURRENT_FOOTPRINT; }
-ulong fd_epoch_stakes_current_align( void ){ return FD_EPOCH_STAKES_CURRENT_ALIGN; }
+ulong fd_versioned_epoch_stakes_current_footprint( void ){ return FD_VERSIONED_EPOCH_STAKES_CURRENT_FOOTPRINT; }
+ulong fd_versioned_epoch_stakes_current_align( void ){ return FD_VERSIONED_EPOCH_STAKES_CURRENT_ALIGN; }
 
-void fd_epoch_stakes_current_walk( void * w, fd_epoch_stakes_current_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_epoch_stakes_current", level++ );
+void fd_versioned_epoch_stakes_current_walk( void * w, fd_versioned_epoch_stakes_current_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_versioned_epoch_stakes_current", level++ );
   fd_stakes_stake_walk( w, &self->stakes, fun, "stakes", level );
   fun( w, &self->total_stake, "total_stake", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   if( self->node_id_to_vote_accounts_len ) {
@@ -7606,9 +7606,9 @@ void fd_epoch_stakes_current_walk( void * w, fd_epoch_stakes_current_t const * s
       fd_pubkey_pubkey_pair_walk(w, self->epoch_authorized_voters + i, fun, "pubkey_pubkey_pair", level );
     fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "epoch_authorized_voters", level-- );
   }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_epoch_stakes_current", level-- );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_versioned_epoch_stakes_current", level-- );
 }
-ulong fd_epoch_stakes_current_size( fd_epoch_stakes_current_t const * self ) {
+ulong fd_versioned_epoch_stakes_current_size( fd_versioned_epoch_stakes_current_t const * self ) {
   ulong size = 0;
   size += fd_stakes_stake_size( &self->stakes );
   size += sizeof(ulong);
@@ -7633,7 +7633,7 @@ int fd_versioned_epoch_stakes_inner_decode_preflight( uint discriminant, fd_binc
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_epoch_stakes_current_decode_preflight( ctx );
+    err = fd_versioned_epoch_stakes_current_decode_preflight( ctx );
     if( FD_UNLIKELY( err ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
@@ -7643,7 +7643,7 @@ int fd_versioned_epoch_stakes_inner_decode_preflight( uint discriminant, fd_binc
 void fd_versioned_epoch_stakes_inner_decode_unsafe( fd_versioned_epoch_stakes_inner_t * self, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
   switch (discriminant) {
   case 0: {
-    fd_epoch_stakes_current_decode_unsafe( &self->Current, ctx );
+    fd_versioned_epoch_stakes_current_decode_unsafe( &self->Current, ctx );
     break;
   }
   }
@@ -7672,7 +7672,7 @@ void fd_versioned_epoch_stakes_decode_unsafe( fd_versioned_epoch_stakes_t * self
 void fd_versioned_epoch_stakes_inner_new( fd_versioned_epoch_stakes_inner_t * self, uint discriminant ) {
   switch( discriminant ) {
   case 0: {
-    fd_epoch_stakes_current_new( &self->Current );
+    fd_versioned_epoch_stakes_current_new( &self->Current );
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -7689,7 +7689,7 @@ void fd_versioned_epoch_stakes_new( fd_versioned_epoch_stakes_t * self ) {
 void fd_versioned_epoch_stakes_inner_destroy( fd_versioned_epoch_stakes_inner_t * self, uint discriminant, fd_bincode_destroy_ctx_t * ctx ) {
   switch( discriminant ) {
   case 0: {
-    fd_epoch_stakes_current_destroy( &self->Current, ctx );
+    fd_versioned_epoch_stakes_current_destroy( &self->Current, ctx );
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
@@ -7706,7 +7706,7 @@ void fd_versioned_epoch_stakes_walk( void * w, fd_versioned_epoch_stakes_t const
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_versioned_epoch_stakes", level++);
   switch( self->discriminant ) {
   case 0: {
-    fd_epoch_stakes_current_walk( w, &self->inner.Current, fun, "Current", level );
+    fd_versioned_epoch_stakes_current_walk( w, &self->inner.Current, fun, "Current", level );
     break;
   }
   }
@@ -7717,7 +7717,7 @@ ulong fd_versioned_epoch_stakes_size( fd_versioned_epoch_stakes_t const * self )
   size += sizeof(uint);
   switch (self->discriminant) {
   case 0: {
-    size += fd_epoch_stakes_current_size( &self->inner.Current );
+    size += fd_versioned_epoch_stakes_current_size( &self->inner.Current );
     break;
   }
   }
@@ -7728,7 +7728,7 @@ int fd_versioned_epoch_stakes_inner_encode( fd_versioned_epoch_stakes_inner_t co
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_epoch_stakes_current_encode( &self->Current, ctx );
+    err = fd_versioned_epoch_stakes_current_encode( &self->Current, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
