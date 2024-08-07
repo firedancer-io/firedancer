@@ -30,7 +30,7 @@ jsonp_close_object( fd_gui_t * gui ) {
 static void
 jsonp_open_array( fd_gui_t *   gui,
                   char const * key ) {
-  if( FD_LIKELY( key ) ) fd_hcache_printf( gui->hcache, "\"%s\":[" );
+  if( FD_LIKELY( key ) ) fd_hcache_printf( gui->hcache, "\"%s\":[", key );
   else                   fd_hcache_printf( gui->hcache, "[" );
 }
 
@@ -43,9 +43,9 @@ jsonp_close_array( fd_gui_t * gui ) {
 static void
 jsonp_ulong( fd_gui_t *   gui,
              char const * key,
-             ulong        vallue ) {
-  if( FD_LIKELY( key ) ) fd_hcache_printf( gui->hcache, "\"%s\":%lu,", key, vallue );
-  else                   fd_hcache_printf( gui->hcache, "%lu,", vallue );
+             ulong        value ) {
+  if( FD_LIKELY( key ) ) fd_hcache_printf( gui->hcache, "\"%s\":%lu,", key, value );
+  else                   fd_hcache_printf( gui->hcache, "%lu,", value );
 }
 
 static void 
