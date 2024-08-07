@@ -6,6 +6,5 @@
 #include "ghost/fd_ghost.h"
 #include "tower/fd_tower.h"
 #include "voter/fd_voter.h"
-#include "trusted_slots/fd_trusted_slots.h"
 
 #endif /* HEADER_fd_src_choreo_fd_choreo_h */

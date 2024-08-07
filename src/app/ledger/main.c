@@ -10,7 +10,6 @@
 #include <strings.h>
 #include "../../choreo/fd_choreo.h"
 #include "../../disco/fd_disco.h"
-#include "../../disco/bank/fd_txncache.h"
 #include "../../util/fd_util.h"
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/nanopb/pb_decode.h"
@@ -20,6 +19,7 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_account.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
+#include "../../flamenco/runtime/fd_txncache.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/types/fd_solana_block.pb.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"

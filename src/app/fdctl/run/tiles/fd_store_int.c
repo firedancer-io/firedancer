@@ -11,6 +11,7 @@
 #include "../../../../flamenco/fd_flamenco.h"
 #include "../../../../util/fd_util.h"
 #include "../../../../choreo/fd_choreo.h"
+#include "../../../../disco/store/fd_trusted_slots.h"
 
 #include <fcntl.h>
 #include <unistd.h>

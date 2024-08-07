@@ -38,3 +38,12 @@ ifdef FD_HAS_ROCKSDB
 $(call add-hdrs,fd_rocksdb.h)
 $(call add-objs,fd_rocksdb,fd_flamenco)
 endif
+
+ifdef FD_HAS_ATOMIC
+$(call add-hdrs,fd_txncache.h)
+$(call add-objs,fd_txncache,fd_flamenco)
+ifdef FD_HAS_HOSTED
+$(call make-unit-test,test_txncache,test_txncache,fd_flamenco fd_util)
+$(call run-unit-test,test_txncache,)
+endif
+endif
