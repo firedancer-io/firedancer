@@ -485,7 +485,21 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
     dirty_entry->rec = task_info->rec;
     dirty_entry->hash = (fd_hash_t const *)acc_rec->meta->hash;
 
-
+    FD_LOG_DEBUG(( "fd_acc_mgr_update_hash: %32J "
+        "slot: %ld "
+        "lamports: %ld  "
+        "owner: %32J  "
+        "executable: %s,  "
+        "rent_epoch: %ld, "
+        "data_len: %ld",
+        acc_key,
+        slot_ctx->slot_bank.slot,
+        acc_rec->meta->info.lamports,
+        acc_rec->meta->info.owner,
+        acc_rec->meta->info.executable ? "true" : "false",
+        acc_rec->meta->info.rent_epoch,
+        acc_rec->meta->dlen ));
+    
     if( capture_ctx != NULL && capture_ctx->capture != NULL ) {
       fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn, task_info->acc_pubkey, &task_info->rec, &err);
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
@@ -656,6 +670,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
        rec = fd_funk_txn_next_rec( funk, rec ) ) {
 
     if( !fd_funk_key_is_acc( rec->pair.key  ) ) continue;
+    if( !fd_funk_rec_is_modified( funk, rec ) ) continue;
 
     rec_cnt++;
   }
@@ -732,7 +747,6 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     acc_rec->meta->slot = slot_ctx->slot_bank.slot;
 
     // /* Logging ... */
-#ifdef VLOG
     FD_LOG_DEBUG(( "fd_acc_mgr_update_hash: %32J "
         "slot: %ld "
         "lamports: %ld  "
@@ -747,7 +761,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
         acc_rec->meta->info.executable ? "true" : "false",
         acc_rec->meta->info.rent_epoch,
         acc_rec->meta->dlen ));
-#endif
+
 
     /* Add account to "dirty keys" list, which will be added to the
        bank hash. */

@@ -32,6 +32,8 @@ fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx,
   fd_memcpy( rec->meta->info.owner, fd_solana_native_loader_id.key, 32 );
   memcpy( rec->data, data, sz );
 
+  slot_ctx->slot_bank.capitalization++;
+
   // err = fd_acc_mgr_commit( acc_mgr, rec, slot_ctx );
   FD_TEST( !err );
 }

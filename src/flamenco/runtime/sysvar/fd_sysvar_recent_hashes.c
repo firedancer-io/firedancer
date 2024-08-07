@@ -28,7 +28,7 @@ void fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t* slot_ctx ) {
   ulong sz = fd_recent_block_hashes_size(&slot_ctx->slot_bank.recent_block_hashes);
   if (sz < FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE)
     sz = FD_RECENT_BLOCKHASHES_ACCOUNT_MAX_SIZE;
-  uchar enc[ sz ];
+  uchar * enc = fd_alloca(1, sz);
   fd_memset(enc, 0, sz);
   fd_bincode_encode_ctx_t ctx;
   ctx.data = enc;
@@ -72,8 +72,6 @@ register_blockhash( fd_exec_slot_ctx_t* slot_ctx, fd_hash_t const * hash ) {
 }
 
 void fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t* slot_ctx ) {
-  if (slot_ctx->slot_bank.slot == 0)  // we already set this... as part of boot
-    return;
 
   fd_block_block_hash_entry_t * hashes = slot_ctx->slot_bank.recent_block_hashes.hashes;
   fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };

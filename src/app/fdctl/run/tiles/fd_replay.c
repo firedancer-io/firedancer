@@ -1051,7 +1051,6 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
     FD_MCNT_SET( REPLAY, SNAPSHOT_STATUS_INCREMENTAL_BEGIN, 1 );
     fd_snapshot_load( incremental, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL );
     FD_MCNT_SET( REPLAY, SNAPSHOT_STATUS_INCREMENTAL_END, 1 );
-    ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
   }
 
   fd_runtime_update_leaders( ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot );
@@ -1060,8 +1059,6 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
   fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx, ctx->slot_ctx->funk_txn, ctx->tpool );
   fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
-
-  ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
 
   fd_blockstore_start_write( ctx->slot_ctx->blockstore );
   fd_blockstore_init( ctx->slot_ctx->blockstore, &ctx->slot_ctx->slot_bank );
@@ -1073,6 +1070,33 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   /* Do not modify order! */
 
   ulong snapshot_slot = ctx->slot_ctx->slot_bank.slot;
+  if( FD_UNLIKELY( !snapshot_slot ) ) {
+    ctx->slot_ctx->slot_bank.prev_slot = 0UL;
+    ctx->slot_ctx->slot_bank.slot = 1UL;
+
+    ulong hashcnt_per_slot = ctx->slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick * ctx->slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot;
+    while(hashcnt_per_slot--) {
+      fd_sha256_hash( ctx->slot_ctx->slot_bank.poh.uc, 32UL, ctx->slot_ctx->slot_bank.poh.uc );
+    }
+
+    FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx ) == 0 );
+    fd_block_info_t info = {.signature_cnt = 0 };
+    FD_TEST( fd_runtime_block_execute_finalize_tpool( ctx->slot_ctx, NULL, &info, ctx->tpool ) == 0 );
+
+    ctx->slot_ctx->slot_bank.prev_slot = 0UL;
+    ctx->slot_ctx->slot_bank.slot = 1UL;
+    snapshot_slot = 1UL;
+
+    FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
+    fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
+    fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx, ctx->slot_ctx->funk_txn, ctx->tpool );
+    fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
+    FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
+
+    fd_blockstore_start_write( ctx->slot_ctx->blockstore );
+    fd_blockstore_init( ctx->slot_ctx->blockstore, &ctx->slot_ctx->slot_bank );
+    fd_blockstore_end_write( ctx->slot_ctx->blockstore );
+  }
   fd_fseq_update( ctx->smr, snapshot_slot );
 
   ctx->curr_slot     = snapshot_slot;
@@ -1099,16 +1123,22 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   bank_hash_cmp->total_stake         = ctx->tower->total_stake;
   bank_hash_cmp->watermark           = snapshot_slot;
 
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->epoch_ctx );
-
   fd_epoch_fork_elem_t * curr_entry = &ctx->epoch_forks->forks[ 0 ];
-  ulong curr_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, ctx->curr_slot, NULL );
-  ulong last_slot_in_epoch = fd_ulong_sat_sub( fd_epoch_slot0( &epoch_bank->epoch_schedule, curr_epoch), 1UL );
 
-  curr_entry->parent_slot = fd_ulong_min( ctx->parent_slot, last_slot_in_epoch );
-  curr_entry->epoch = curr_epoch;
+  if( strlen(ctx->genesis) > 0 ) {
+    curr_entry->parent_slot = 0UL;
+    curr_entry->epoch       = 0UL;
+  } else {
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->epoch_ctx );
+
+    ulong curr_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, ctx->curr_slot, NULL );
+    ulong last_slot_in_epoch = fd_ulong_sat_sub( fd_epoch_slot0( &epoch_bank->epoch_schedule, curr_epoch), 1UL );
+
+    curr_entry->parent_slot = fd_ulong_min( ctx->parent_slot, last_slot_in_epoch );
+    curr_entry->epoch = curr_epoch;
+  }
+
   curr_entry->epoch_ctx = ctx->epoch_ctx;
-
   ctx->epoch_forks->curr_epoch_idx = 0UL;
 
   FD_LOG_NOTICE( ( "snapshot slot %lu", snapshot_slot ) );
@@ -1160,8 +1190,8 @@ after_credit( void *             _ctx,
           read_snapshot( ctx, ctx->snapshot, ctx->incremental );
         }
 
-        fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot, NULL );
-
+        fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot, ctx->capture_ctx );
+        ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
         init_after_snapshot( ctx );
 
         publish_stake_weights( ctx, mux_ctx, ctx->slot_ctx );
