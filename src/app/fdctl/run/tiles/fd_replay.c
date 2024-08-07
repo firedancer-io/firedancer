@@ -6,7 +6,7 @@
 #include "../../../../disco/shred/fd_shred_dest.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../flamenco/fd_flamenco.h"
-#include "../../../../disco/bank/fd_txncache.h"
+#include "../../../../flamenco/runtime/fd_txncache.h"
 #include "../../../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
 #include "../../../../flamenco/runtime/context/fd_exec_slot_ctx.h"
@@ -190,7 +190,7 @@ struct fd_replay_tile_ctx {
   fd_hash_t blockhash;
   ulong     flags;
   ulong     txn_cnt;
-  
+
   /* Other metadata */
 
   ulong funk_seed;
@@ -491,7 +491,7 @@ blockstore_publish( fd_replay_tile_ctx_t * ctx, ulong root ) {
 
 static void
 funk_publish( fd_replay_tile_ctx_t * ctx, ulong root ) {
-  
+
   fd_blockstore_start_read( ctx->blockstore );
   fd_hash_t const * root_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, root );
   fd_funk_txn_xid_t xid;
@@ -596,7 +596,7 @@ after_frag( void *             _ctx,
             fd_mux_context_t * mux ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
   ulong curr_slot = ctx->curr_slot;
-  ulong flags     = ctx->flags; 
+  ulong flags     = ctx->flags;
   if ( FD_UNLIKELY( curr_slot < ctx->tower->root ) ) {
     FD_LOG_WARNING(( "ignoring replay of slot %lu. earlier than our root %lu.", curr_slot, ctx->tower->root ));
     return;
@@ -822,7 +822,7 @@ after_frag( void *             _ctx,
       fd_fork_t const * reset_fork = fd_tower_reset_fork_select( ctx->tower, ctx->forks, ctx->ghost );
       if( reset_fork->frozen ) {
         FD_LOG_WARNING(("RESET FORK FROZEN: %lu", reset_fork->slot ));
-        fd_fork_t * new_reset_fork = fd_forks_prepare( ctx->forks, reset_fork->slot_ctx.slot_bank.prev_slot, ctx->acc_mgr, 
+        fd_fork_t * new_reset_fork = fd_forks_prepare( ctx->forks, reset_fork->slot_ctx.slot_bank.prev_slot, ctx->acc_mgr,
             ctx->blockstore, ctx->epoch_ctx, ctx->funk, ctx->valloc );
         new_reset_fork->frozen = 0;
         reset_fork = new_reset_fork;

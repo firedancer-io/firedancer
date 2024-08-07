@@ -10,7 +10,6 @@
 #include <strings.h>
 #include "../../choreo/fd_choreo.h"
 #include "../../disco/fd_disco.h"
-#include "../../disco/bank/fd_txncache.h"
 #include "../../util/fd_util.h"
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/nanopb/pb_decode.h"
@@ -20,6 +19,7 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_account.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
+#include "../../flamenco/runtime/fd_txncache.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/types/fd_solana_block.pb.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
@@ -75,13 +75,13 @@ struct fd_ledger_args {
   char const *          checkpt_path;            /* path to dump funk wksp checkpoints during execution*/
   ulong                 checkpt_freq;            /* how often funk wksp checkpoints will be dumped (defaults to never) */
   int                   checkpt_mismatch;        /* determine if a funk wksp checkpoint should be dumped on a mismatch*/
-  
+
   int                   dump_insn_to_pb;         /* instruction dumping: should insns be dumped */
   int                   dump_txn_to_pb;          /* txn dumping: should txns be dumped */
   ulong                 dump_proto_start_slot;   /* instruction / txn dumping: what slot to start dumping*/
   char const *          dump_proto_sig_filter;   /* instruction / txn dumping: specify txn sig to dump at */
   char const *          dump_proto_output_dir;   /* instruction / txn dumping: output directory for protobuf messages */
-  
+
   int                   verify_funk;             /* verify funk before execution starts */
   uint                  verify_acc_hash;         /* verify account hash from the snapshot */
   uint                  check_acc_hash;          /* check account hash by reconstructing with data */

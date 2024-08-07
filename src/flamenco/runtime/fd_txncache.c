@@ -1,5 +1,5 @@
 #include "fd_txncache.h"
-
+#include "../fd_rwlock.h"
 
 #define SORT_NAME        sort_slot_ascend
 #define SORT_KEY_T       ulong
@@ -480,7 +480,7 @@ fd_txncache_purge_slot( fd_txncache_t * tc,
     purged_cnt++;
   }
   ulong avg_distance = (not_purged_cnt==0) ? ULONG_MAX : (sum_distance/not_purged_cnt);
-  FD_LOG_INFO(( "not purging cnt - purge_slot: %lu, purged_cnt: %lu, not_purged_cnt: %lu, empty_entry_cnt: %lu, tombstone_entry_cnt: %lu, max_distance: %lu, avg_distance: %lu", 
+  FD_LOG_INFO(( "not purging cnt - purge_slot: %lu, purged_cnt: %lu, not_purged_cnt: %lu, empty_entry_cnt: %lu, tombstone_entry_cnt: %lu, max_distance: %lu, avg_distance: %lu",
       slot, purged_cnt, not_purged_cnt, empty_entry_cnt, tombstone_entry_cnt, max_distance, avg_distance ));
   fd_txncache_private_slotcache_t * slotcache = fd_txncache_get_slotcache( tc );
   for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
@@ -554,7 +554,7 @@ fd_txncache_find_blockhash( fd_txncache_t const *               tc,
           *out_blockcache = &tc_blockcache[ first_tombstone ];
           return FD_TXNCACHE_FIND_FOUNDEMPTY;
         }
-        
+
         probed_entries[ hash%tc->live_slots_max ]++;
       }
       *out_blockcache = blockcache;
@@ -765,7 +765,7 @@ fd_txncache_insert_txn( fd_txncache_t *                        tc,
     ushort txnpage_free = txnpage->free;
     if( FD_UNLIKELY( !txnpage_free ) ) return 0;
     if( FD_UNLIKELY( FD_ATOMIC_CAS( &txnpage->free, txnpage_free, txnpage_free-1UL )!=txnpage_free ) ) continue;
-  
+
     ulong txn_idx = FD_TXNCACHE_TXNS_PER_PAGE-txnpage_free;
     ulong txnhash_offset = blockcache->txnhash_offset;
     ulong txnhash = FD_LOAD( ulong, txn->txnhash+txnhash_offset );

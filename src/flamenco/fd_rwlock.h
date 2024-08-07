@@ -1,10 +1,9 @@
-#ifndef HEADER_fd_src_disco_bank_rwlock_h
-#define HEADER_fd_src_disco_bank_rwlock_h
+#ifndef HEADER_fd_src_flamenco_rwlock_h
+#define HEADER_fd_src_flamenco_rwlock_h
 
 /* A very simple read-write spin lock. */
 
-#include "../fd_disco_base.h"
-#include "../../util/fd_util_base.h"
+#include "../util/fd_util_base.h"
 
 struct fd_rwlock {
   ushort value; /* Bits 0..16 are
@@ -66,4 +65,4 @@ fd_rwlock_unread( fd_rwlock_t * lock ) {
 # endif
 }
 
-#endif /* HEADER_fd_src_disco_bank_rwlock_h */
+#endif /* HEADER_fd_src_flamenco_rwlock_h */
