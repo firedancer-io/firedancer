@@ -129,7 +129,7 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                 fd_topob_link( topo, "crds_shred",   "crds_shred",   0,        128UL,                                    8UL  + 40200UL * 38UL,         1UL );
   /**/                 fd_topob_link( topo, "gossip_repai", "gossip_repai", 0,        128UL,                                    40200UL * 38UL, 1UL );
   /**/                 fd_topob_link( topo, "gossip_voter", "gossip_voter", 0,        128UL,                                    40200UL * 38UL, 1UL );
-  
+
   /**/                 fd_topob_link( topo, "gossip_net",   "net_gossip",   0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
   /**/                 fd_topob_link( topo, "voter_net",    "net_voter",    0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
   /**/                 fd_topob_link( topo, "voter_dedup",  "voter_dedup",  0,        128UL,                                    FD_TPU_DCACHE_MTU,             1UL );
@@ -198,11 +198,11 @@ fd_topo_firedancer( config_t * _config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );
 
   /* Create a txncache to be used by replay. */
-  fd_topo_obj_t * txncache_obj = fd_topob_obj_concrete( topo, 
-                                                        "txncache", 
-                                                        "tcache", 
-                                                        fd_txncache_align(), 
-                                                        fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT), 
+  fd_topo_obj_t * txncache_obj = fd_topob_obj_concrete( topo,
+                                                        "txncache",
+                                                        "tcache",
+                                                        fd_txncache_align(),
+                                                        fd_txncache_footprint(FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS, FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS, MAX_CACHE_TXNS_PER_SLOT),
                                                         0 );
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
@@ -264,7 +264,7 @@ fd_topo_firedancer( config_t * _config ) {
   FOR(net_tile_cnt) for( ulong j=0UL; j<shred_tile_cnt; j++ )
                        fd_topob_tile_in(  topo, "net",     i,            "metric_in", "shred_net",    j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",     i,                         "net_shred",    i                                                  );
-  
+
   FOR(net_tile_cnt) for( ulong j=0UL; j<quic_tile_cnt; j++ )
                        fd_topob_tile_in(  topo, "net",     i,            "metric_in", "quic_net",     j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(quic_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
@@ -361,13 +361,13 @@ fd_topo_firedancer( config_t * _config ) {
   /**/                 fd_topob_tile_in(  topo, "pohi",  0UL,            "metric_in", "pack_replay",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
                        fd_topob_tile_out( topo, "pohi",   0UL,                        "poh_pack",      0UL                                                );
                        fd_topob_tile_out( topo, "pohi",   0UL,                        "poh_replay",    0UL                                                );
-  
+
   /**/                 fd_topob_tile_in(  topo, "sign",     0UL,          "metric_in", "repair_sign",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "repair",   0UL,                       "repair_sign",  0UL                                                  );
   /**/                 fd_topob_tile_in(  topo, "repair",   0UL,          "metric_in", "sign_repair",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_out( topo, "sign",     0UL,                       "sign_repair",  0UL                                                  );
 
- 
+
   /* Hacky: Reserve a ulong to allow net0 to pass its PID to its neighbors */
   fd_topo_obj_t * net0_pid_obj = fd_topob_obj( topo, "fseq", "net" );
   for( ulong i=0UL; i<net_tile_cnt; i++ ) {
@@ -409,7 +409,6 @@ fd_topo_firedancer( config_t * _config ) {
       tile->quic.max_concurrent_connections     = config->tiles.quic.max_concurrent_connections;
       tile->quic.max_concurrent_handshakes      = config->tiles.quic.max_concurrent_handshakes;
       tile->quic.max_inflight_quic_packets      = config->tiles.quic.max_inflight_quic_packets;
-      tile->quic.tx_buf_size                    = config->tiles.quic.tx_buf_size;
       tile->quic.ip_addr                        = config->tiles.net.ip_addr;
       tile->quic.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
       tile->quic.idle_timeout_millis            = config->tiles.quic.idle_timeout_millis;

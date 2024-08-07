@@ -172,7 +172,6 @@ struct fd_replay_tile_ctx {
 
   uchar        tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
   fd_tpool_t * tpool;
-  ulong        max_workers;
 
   /* Depends on store_int and is polled in after_credit */
 
@@ -190,7 +189,7 @@ struct fd_replay_tile_ctx {
   fd_hash_t blockhash;
   ulong     flags;
   ulong     txn_cnt;
-  
+
   /* Other metadata */
 
   ulong funk_seed;
@@ -491,7 +490,7 @@ blockstore_publish( fd_replay_tile_ctx_t * ctx, ulong root ) {
 
 static void
 funk_publish( fd_replay_tile_ctx_t * ctx, ulong root ) {
-  
+
   fd_blockstore_start_read( ctx->blockstore );
   fd_hash_t const * root_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, root );
   fd_funk_txn_xid_t xid;
@@ -596,7 +595,7 @@ after_frag( void *             _ctx,
             fd_mux_context_t * mux ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
   ulong curr_slot = ctx->curr_slot;
-  ulong flags     = ctx->flags; 
+  ulong flags     = ctx->flags;
   if ( FD_UNLIKELY( curr_slot < ctx->tower->root ) ) {
     FD_LOG_WARNING(( "ignoring replay of slot %lu. earlier than our root %lu.", curr_slot, ctx->tower->root ));
     return;
@@ -710,7 +709,7 @@ after_frag( void *             _ctx,
                                                     txns, txn_cnt,
                                                     status_check_tower,
                                                     &status_check_ctx,
-                                                    ctx->tpool, ctx->max_workers );
+                                                    ctx->tpool );
     } FD_SCRATCH_SCOPE_END;
 
     execute_time_ns += fd_log_wallclock();
@@ -731,7 +730,7 @@ after_frag( void *             _ctx,
       fd_block_info_t block_info[1];
       block_info->signature_cnt = fork->slot_ctx.signature_cnt;
       long finalize_time_ns = -fd_log_wallclock();
-      int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, ctx->tpool, ctx->max_workers );
+      int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, ctx->tpool );
       finalize_time_ns += fd_log_wallclock();
       FD_LOG_DEBUG(("TIMING: finalize_time - slot: %lu, elapsed: %6.6f ms", curr_slot, (double)finalize_time_ns * 1e-6));
 
@@ -822,7 +821,7 @@ after_frag( void *             _ctx,
       fd_fork_t const * reset_fork = fd_tower_reset_fork_select( ctx->tower, ctx->forks, ctx->ghost );
       if( reset_fork->frozen ) {
         FD_LOG_WARNING(("RESET FORK FROZEN: %lu", reset_fork->slot ));
-        fd_fork_t * new_reset_fork = fd_forks_prepare( ctx->forks, reset_fork->slot_ctx.slot_bank.prev_slot, ctx->acc_mgr, 
+        fd_fork_t * new_reset_fork = fd_forks_prepare( ctx->forks, reset_fork->slot_ctx.slot_bank.prev_slot, ctx->acc_mgr,
             ctx->blockstore, ctx->epoch_ctx, ctx->funk, ctx->valloc );
         new_reset_fork->frozen = 0;
         reset_fork = new_reset_fork;
@@ -1073,7 +1072,7 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
   fd_runtime_update_leaders( ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot );
   FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
   fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
-  fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx, ctx->slot_ctx->funk_txn, ctx->tpool, ctx->max_workers );
+  fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx, ctx->slot_ctx->funk_txn, ctx->tpool );
   fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
@@ -1434,23 +1433,19 @@ unprivileged_init( fd_topo_t *      topo,
   /* tpool                                                              */
   /**********************************************************************/
 
-  ctx->max_workers = tile->replay.tpool_thread_count;
-  if( FD_LIKELY( ctx->max_workers > 1 ) ) {
-    tpool_boot( topo, ctx->max_workers );
+  if( FD_LIKELY( tile->replay.tpool_thread_count > 1 ) ) {
+    tpool_boot( topo, tile->replay.tpool_thread_count );
   }
-  ctx->tpool = fd_tpool_init( ctx->tpool_mem, ctx->max_workers );
+  ctx->tpool = fd_tpool_init( ctx->tpool_mem, tile->replay.tpool_thread_count );
 
-  if( FD_LIKELY( ctx->max_workers > 1 ) ) {
+  if( FD_LIKELY( tile->replay.tpool_thread_count > 1 ) ) {
     /* start the tpool workers */
-    for( ulong i =1; i<ctx->max_workers; i++ ) {
+    for( ulong i =1; i<tile->replay.tpool_thread_count; i++ ) {
       if( fd_tpool_worker_push( ctx->tpool, i, (uchar *)tpool_worker_mem + TPOOL_WORKER_MEM_SZ*(i - 1U), TPOOL_WORKER_MEM_SZ ) == NULL ) {
         FD_LOG_ERR(( "failed to launch worker" ));
       }
     }
   }
-
-  ctx->tpool = ctx->tpool;
-  ctx->max_workers = ctx->max_workers;
 
   if( ctx->tpool == NULL ) {
     FD_LOG_ERR(("failed to create thread pool"));

@@ -15,7 +15,8 @@ fd_bn254_g1_compress( uchar       out[32],
   if( FD_UNLIKELY( !fd_bn254_g1_frombytes_internal( p, in ) ) ) {
     return NULL;
   }
-  int is_inf = fd_bn254_g1_is_zero( p );
+  int is_inf   = fd_bn254_g1_is_zero( p );
+  int flag_inf = in[32] & FLAG_INF;
 
   /* Serialize compressed point:
      https://github.com/arkworks-rs/algebra/blob/v0.4.2/ec/src/models/short_weierstrass/mod.rs#L122
@@ -26,12 +27,12 @@ fd_bn254_g1_compress( uchar       out[32],
   if( FD_UNLIKELY( is_inf ) ) {
     fd_memset( out, 0, 32 );
     /* The infinity flag in the result is set iff the infinity flag is set in the Y coordinate */
-    out[0] = (uchar)( out[0] | ( in[32] & FLAG_INF ) );
+    out[0] = (uchar)( out[0] | flag_inf );
     return out;
   }
 
   int is_neg = fd_bn254_fp_is_neg_nm( &p->Y );
-  fd_memcpy( out, in, 32 );
+  memmove( out, in, 32 );
   if( is_neg ) {
     out[0] = (uchar)( out[0] | FLAG_NEG );
   }
@@ -77,7 +78,7 @@ fd_bn254_g1_decompress( uchar       out[64],
     fd_bn254_fp_neg_nm( y, y );
   }
 
-  fd_memcpy( out, in, 32 ); out[0] &= FLAG_MASK;
+  memmove( out, in, 32 ); out[0] &= FLAG_MASK;
   fd_bn254_fp_tobytes_be_nm( &out[32], y );
   /* no flags */
   return out;
@@ -90,21 +91,22 @@ fd_bn254_g2_compress( uchar       out[64],
   if( FD_UNLIKELY( !fd_bn254_g2_frombytes_internal( p, in ) ) ) {
     return NULL;
   }
-  int is_inf = fd_bn254_g2_is_zero( p );
+  int is_inf   = fd_bn254_g2_is_zero( p );
+  int flag_inf = in[64] & FLAG_INF;
 
   /* Serialize compressed point */
 
   if( FD_UNLIKELY( is_inf ) ) {
     fd_memset( out, 0, 64 );
     /* The infinity flag in the result is set iff the infinity flag is set in the Y coordinate */
-    out[0] = (uchar)( out[0] | ( in[64] & FLAG_INF ) );
+    out[0] = (uchar)( out[0] | flag_inf );
     return out;
   }
 
   /* Serialize x coordinate. The flags are on the 2nd element.
      https://github.com/arkworks-rs/algebra/blob/v0.4.2/ff/src/fields/models/quadratic_extension.rs#L700-L702 */
   int is_neg = fd_bn254_fp2_is_neg_nm( &p->Y );
-  fd_memcpy( out, in, 64 );
+  memmove( out, in, 64 );
   if( is_neg ) {
     out[0] = (uchar)( out[0] | FLAG_NEG );
   }
@@ -149,7 +151,7 @@ fd_bn254_g2_decompress( uchar       out[128],
     fd_bn254_fp2_neg_nm( y, y );
   }
 
-  fd_memcpy( out, in, 64 ); out[0] &= FLAG_MASK;
+  memmove( out, in, 64 ); out[0] &= FLAG_MASK;
   fd_bn254_fp2_tobytes_be_nm( &out[64], y );
   /* no flags */
   return out;

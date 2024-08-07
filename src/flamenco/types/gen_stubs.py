@@ -411,6 +411,7 @@ class VectorMember:
         self.name = json["name"]
         self.element = json["element"]
         self.compact = ("modifier" in json and json["modifier"] == "compact")
+        self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
 
     def metaTag(self):
         return "FD_ARCHIVE_META_VECTOR"

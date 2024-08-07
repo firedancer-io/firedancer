@@ -318,6 +318,23 @@
       ]
     },
     {
+      "name": "stake",
+      "type": "struct",
+      "fields": [
+        { "name": "delegation", "type": "delegation" },
+        { "name": "credits_observed", "type": "ulong" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L539"
+    },
+    {
+      "name": "stake_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "account", "type": "pubkey" },
+        { "name": "stake", "type": "stake" }
+      ]
+    },
+    {
       "name": "stakes",
       "type": "struct",
       "fields": [
@@ -327,7 +344,19 @@
         { "name": "epoch", "type": "ulong" },
         { "name": "stake_history", "type": "stake_history" }
       ],
-      "comment": "https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L147"
+      "comment": "https://github.com/anza-xyz/agave/blob/beb3f582f784a96e59e06ef8f34e855258bcd98c/runtime/src/stakes.rs#L202"
+    },
+    {
+      "name": "stakes_stake",
+      "type": "struct",
+      "fields": [
+        { "name": "vote_accounts", "type": "vote_accounts" },
+        { "name": "stake_delegations", "type": "map", "element": "stake_pair", "key": "account" },
+        { "name": "unused", "type": "ulong" },
+        { "name": "epoch", "type": "ulong" },
+        { "name": "stake_history", "type": "stake_history" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/beb3f582f784a96e59e06ef8f34e855258bcd98c/runtime/src/stakes.rs#L202"
     },
     {
       "name": "bank_incremental_snapshot_persistence",
@@ -551,6 +580,31 @@
       "comment": "Accounts DB related fields in a snapshot"
     },
     {
+      "name": "epoch_stakes_current",
+      "type": "struct",
+      "fields": [
+        { "name": "stakes", "type": "stakes_stake" },
+        { "name": "total_stake", "type": "ulong" },
+        { "name": "node_id_to_vote_accounts", "type": "vector", "element": "pubkey_node_vote_accounts_pair" },
+        { "name": "epoch_authorized_voters", "type": "vector", "element": "pubkey_pubkey_pair" }
+      ]
+    },
+    {
+      "name": "versioned_epoch_stakes",
+      "type": "enum",
+      "variants": [
+          { "name": "Current", "type": "epoch_stakes_current"}
+      ]
+    },
+    {
+      "name": "versioned_epoch_stakes_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "epoch", "type": "ulong" },
+        { "name": "val", "type": "versioned_epoch_stakes" }
+      ]
+    },
+    {
       "name": "solana_manifest",
       "type": "struct",
       "alignment": "16",
@@ -560,7 +614,7 @@
         { "name": "lamports_per_signature",                "type": "ulong" },
         { "name": "bank_incremental_snapshot_persistence", "type": "option", "element": "bank_incremental_snapshot_persistence", "ignore_underflow": true },
         { "name": "epoch_account_hash",                    "type": "option", "element": "hash",                                  "ignore_underflow": true },
-        { "name": "epoch_reward_status",                   "type": "option", "element": "serializable_epoch_reward_status",      "ignore_underflow": true }
+        { "name": "versioned_epoch_stakes",                "type": "vector", "element": "versioned_epoch_stakes_pair",           "ignore_underflow": true }
       ]
     },
     {
@@ -1420,15 +1474,6 @@
         { "name": "lockup", "type": "stake_lockup" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L248"
-    },
-    {
-      "name": "stake",
-      "type": "struct",
-      "fields": [
-        { "name": "delegation", "type": "delegation" },
-        { "name": "credits_observed", "type": "ulong" }
-      ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L539"
     },
     {
       "name": "stake_flags",

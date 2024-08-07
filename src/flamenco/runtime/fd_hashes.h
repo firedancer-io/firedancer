@@ -24,13 +24,11 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
                            fd_capture_ctx_t *   capture_ctx,
                            fd_hash_t *          hash,
                            ulong                signature_cnt,
-                           fd_tpool_t *         tpool,
-                           ulong                max_workers );
+                           fd_tpool_t *         tpool );
 
 int
 fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_tpool_t *         tpool,
-                         ulong                max_workers );
+                         fd_tpool_t *         tpool );
 /* fd_hash_account_v0 is the legacy method to compute the account
    hash.  It includes the following content:
     - lamports

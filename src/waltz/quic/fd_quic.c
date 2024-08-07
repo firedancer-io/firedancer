@@ -114,7 +114,6 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   if( FD_UNLIKELY( conn_cnt        ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( handshake_cnt   ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( inflight_pkt_cnt==0UL ) ) return 0UL;
-  if( FD_UNLIKELY( tx_buf_sz       ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( stream_pool_cnt ==0UL ) ) return 0UL;
 
   if( FD_UNLIKELY( conn_id_sparsity==0.0 ) )
@@ -211,8 +210,7 @@ fd_quic_new( void * mem,
 
   if( FD_UNLIKELY( ( limits->conn_cnt        ==0UL )
                  | ( limits->handshake_cnt   ==0UL )
-                 | ( limits->inflight_pkt_cnt==0UL )
-                 | ( limits->tx_buf_sz       ==0UL ) ) ) {
+                 | ( limits->inflight_pkt_cnt==0UL ) ) ) {
     FD_LOG_WARNING(( "invalid limits" ));
     return NULL;
   }
@@ -6337,11 +6335,6 @@ fd_quic_frame_handle_stream_frame(
     fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_FLOW_CONTROL_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
-
-  /* TODO pass the fin bit to the user here? */
-  /* or provide in API */
-
-  /* TODO if fin bit set, store the final size */
 
   /* determine whether any of these bytes were already received
      or whether these bytes are out of order */

@@ -248,8 +248,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *           acc_mgr,
                             fd_funk_txn_t *          txn,
                             fd_borrowed_account_t ** accounts,
                             ulong                    accounts_cnt,
-                            fd_tpool_t *             tpool,
-                            ulong                    max_workers );
+                            fd_tpool_t *             tpool );
 
 void
 fd_acc_mgr_lock( fd_acc_mgr_t * acc_mgr );
