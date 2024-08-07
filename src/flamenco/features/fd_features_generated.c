@@ -917,7 +917,8 @@ fd_feature_id_t const ids[] = {
   { .index      = offsetof(fd_features_t, vote_state_add_vote_latency)>>3,
     .id         = {"\x61\xd8\xd7\x1f\x81\x6f\x32\x74\x56\x37\x18\x3c\x8b\x7e\x6e\xaa\x28\x71\xb5\x22\x61\x11\xb0\x39\x6d\xb6\x4f\xad\x75\xad\x77\xc4"},
                   /* 7axKe5BTYBDD87ftzWbk5DfzWMGyRvqmWTduuo22Yaqy */
-    .name       = "vote_state_add_vote_latency" },
+    .name       = "vote_state_add_vote_latency",
+    .cleaned_up = 2010 },
 
   { .index      = offsetof(fd_features_t, checked_arithmetic_in_fee_validation)>>3,
     .id         = {"\x41\x3c\x10\x0e\x1d\x39\xd7\x2b\xbe\x35\xa2\xa1\xcb\xff\x4f\xe1\x7d\x4d\x55\xd0\x45\x4d\xf0\x5f\x58\xa4\x96\x7c\xed\x08\x34\x55"},
@@ -1012,7 +1013,8 @@ fd_feature_id_t const ids[] = {
   { .index      = offsetof(fd_features_t, validate_fee_collector_account)>>3,
     .id         = {"\x0c\x42\x9f\xae\x63\x29\x2c\x8c\xaa\x94\x19\xe1\xf6\xb4\xd9\x16\x5e\x43\xb4\xc7\xb1\x1f\xe0\x9d\x01\xd9\x0a\xc5\x1c\x70\x7f\x14"},
                   /* prpFrMtgNmzaNzkPJg9o753fVvbHKqNrNTm76foJ2wm */
-    .name       = "validate_fee_collector_account" },
+    .name       = "validate_fee_collector_account",
+    .cleaned_up = 2010 },
 
   { .index      = offsetof(fd_features_t, enable_zk_transfer_with_fee)>>3,
     .id         = {"\x0e\xcb\x24\x6c\x6b\x32\x42\xcd\x46\xc6\x8d\x16\xca\xd0\x06\xed\x41\x5e\x9f\xc4\x36\x71\x70\xdc\xf6\x59\x14\x25\x3e\x4c\xaa\x12"},
