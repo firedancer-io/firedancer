@@ -1791,15 +1791,23 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   effects->stack->size = (uint)FD_VM_STACK_MAX;
   fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
 
-  // if( input_data_sz ) {
-  //   effects->inputdata = FD_SCRATCH_ALLOC_APPEND(
-  //     l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( input_data_sz ) );
-  //   effects->inputdata->size = (uint)input_data_sz;
-  //   fd_memcpy( effects->inputdata->bytes, vm->input, input_data_sz );
-  // } else {
-  //   effects->inputdata = NULL;
-  // }
-  effects->inputdata = NULL;
+  if( input_data_sz ) {
+    effects->inputdata = FD_SCRATCH_ALLOC_APPEND(
+      l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( input_data_sz ) );
+    effects->inputdata->size = (uint)input_data_sz;
+    fd_memcpy( effects->inputdata->bytes, (const void*)vm->input_mem_regions[0].haddr, input_data_sz );
+  } else {
+    effects->inputdata = NULL;
+  }
+
+  if( vm->rodata_sz ) {
+    effects->rodata = FD_SCRATCH_ALLOC_APPEND(
+      l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );
+    effects->rodata->size = (uint)rodata_sz;
+    fd_memcpy( effects->rodata->bytes, vm->rodata, rodata_sz );
+  } else {
+    effects->rodata = NULL;
+  }
 
   effects->frame_count = vm->frame_cnt;
 
