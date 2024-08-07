@@ -3,6 +3,7 @@
 #include "fd_runtime.h"
 #include "fd_account.h"
 #include "context/fd_capture_ctx.h"
+#include "context/fd_tpool_runtime_ctx.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "../capture/fd_solcap_writer.h"
 #include "../../ballet/base58/fd_base58.h"
@@ -416,11 +417,11 @@ fd_collect_modified_accounts( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 int
-fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
-                           fd_capture_ctx_t *   capture_ctx,
-                           fd_hash_t *          hash,
-                           ulong                signature_cnt,
-                           fd_tpool_t *         tpool ) {
+fd_update_hash_bank_tpool( fd_exec_slot_ctx_t *     slot_ctx,
+                           fd_capture_ctx_t *       capture_ctx,
+                           fd_hash_t *              hash,
+                           ulong                    signature_cnt,
+                           fd_tpool_runtime_ctx_t * tpool ) {
   fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
   fd_funk_t *     funk    = acc_mgr->funk;
   fd_funk_txn_t * txn     = slot_ctx->funk_txn;
@@ -435,7 +436,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
   ulong dirty_key_cnt = 0;
 
   /* Find accounts which have changed */
-  fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_account_hash_task, task_infos, NULL, NULL, 1, 0, task_infos_sz );
+  fd_tpool_exec_all_rrobin( tpool->tpool, 0, fd_tpool_ctx_worker_cnt( tpool ), fd_account_hash_task, task_infos, NULL, NULL, 1, 0, task_infos_sz );
 
   for( ulong i = 0; i < task_infos_sz; i++ ) {
     fd_accounts_hash_task_info_t * task_info = &task_infos[i];
@@ -535,8 +536,8 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 int
-fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_tpool_t *         tpool ) {
+fd_print_account_hashes( fd_exec_slot_ctx_t    * slot_ctx,
+                         fd_tpool_runtime_ctx_t *tpool ) {
 
   // fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
   // fd_funk_txn_t * txn     = slot_ctx->funk_txn;
@@ -551,7 +552,7 @@ fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
   ulong dirty_key_cnt = 0;
 
   /* Find accounts which have changed */
-  fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_account_hash_task, task_infos, NULL, NULL, 1, 0, task_infos_sz );
+  fd_tpool_exec_all_rrobin( tpool->tpool, 0, fd_tpool_ctx_worker_cnt( tpool ), fd_account_hash_task, task_infos, NULL, NULL, 1, 0, task_infos_sz );
 
   for( ulong i = 0; i < task_infos_sz; i++ ) {
     fd_accounts_hash_task_info_t * task_info = &task_infos[i];
@@ -787,7 +788,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   if (slot_ctx->slot_bank.slot >= epoch_bank->eah_start_slot) {
     if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
-      fd_accounts_hash(slot_ctx, NULL, &slot_ctx->slot_bank.epoch_account_hash, 0);
+      fd_accounts_hash(slot_ctx, NULL, 0, &slot_ctx->slot_bank.epoch_account_hash, 0);
       epoch_bank->eah_start_slot = ULONG_MAX;
     }
   }
@@ -981,10 +982,23 @@ fd_accounts_sorted_subrange_task( void *tpool,
 }
 
 int
-fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t * accounts_hash, ulong do_hash_verify ) {
-  FD_LOG_NOTICE(("accounts_hash start with do_hash_verify=%s", (void *)do_hash_verify ? "true" : "false" ));
+fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_runtime_ctx_t * tpool, ulong bg_threads, fd_hash_t * accounts_hash, ulong do_hash_verify ) {
+  ulong tpool_start = 0;
+  ulong tpool_end = 0;
 
-  if( tpool == NULL || fd_tpool_worker_cnt( tpool ) <= 1U ) {
+  if (tpool != NULL) {
+    if (bg_threads) {
+      tpool_start = fd_tpool_ctx_worker_cnt( tpool );
+      tpool_end = tpool_start + tpool->bg_threads;
+    } else {
+      tpool_start = 0;
+      tpool_end = fd_tpool_ctx_worker_cnt( tpool );
+    }
+  }
+
+  FD_LOG_NOTICE(("accounts_hash start with do_hash_verify=%s  tpool_start=%d  tpool_end=%d", (void *)do_hash_verify ? "true" : "false" , tpool_start, tpool_end));
+
+  if( tpool == NULL || (tpool_end - tpool_start) <= 1U ) {
     ulong                   num_pairs = 0;
     fd_pubkey_hash_pair_t * pairs = fd_accounts_sorted_subrange( slot_ctx, 0, 1, do_hash_verify, &num_pairs );
     FD_TEST(NULL != pairs);
@@ -993,7 +1007,7 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t *
     fd_valloc_free( slot_ctx->valloc, pairs );
 
   } else {
-    ulong num_lists = fd_tpool_worker_cnt( tpool );
+    ulong num_lists = tpool_end - tpool_start;
     FD_LOG_NOTICE(( "launching %lu hash tasks", num_lists ));
     fd_pubkey_hash_pair_list_t lists[num_lists];
     fd_subrange_task_info_t task_info = {
@@ -1001,7 +1015,7 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t *
       .do_hash_verify = do_hash_verify,
       .num_lists = num_lists,
       .lists = lists };
-    fd_tpool_exec_all_rrobin( tpool, 0, num_lists, fd_accounts_sorted_subrange_task, &task_info, NULL, NULL, 1, 0, num_lists );
+    fd_tpool_exec_all_rrobin( tpool->tpool, tpool_start, tpool_end, fd_accounts_sorted_subrange_task, &task_info, NULL, NULL, 1, 0, num_lists );
     fd_hash_account_deltas( lists, num_lists, accounts_hash, slot_ctx );
     for( ulong i = 0; i < num_lists; ++i ) {
       fd_valloc_free( slot_ctx->valloc, lists[i].pairs );
@@ -1094,13 +1108,13 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_ha
 }
 
 int
-fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t * accounts_hash, uint check_hash ) {
+fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_runtime_ctx_t * tpool, fd_hash_t * accounts_hash, uint check_hash ) {
   if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
     if (fd_should_snapshot_include_epoch_accounts_hash (slot_ctx)) {
       FD_LOG_NOTICE(( "snapshot is including epoch account hash" ));
       fd_sha256_t h;
       fd_hash_t hash;
-      fd_accounts_hash(slot_ctx, tpool, &hash, check_hash );
+      fd_accounts_hash(slot_ctx, tpool, 0, &hash, check_hash );
 
       fd_sha256_init( &h );
       fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );
@@ -1110,7 +1124,7 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t *
       return 0;
     }
   }
-  return fd_accounts_hash(slot_ctx, tpool, accounts_hash, check_hash );
+  return fd_accounts_hash(slot_ctx, tpool, 0, accounts_hash, check_hash );
 }
 
 #ifdef _ENABLE_LTHASH

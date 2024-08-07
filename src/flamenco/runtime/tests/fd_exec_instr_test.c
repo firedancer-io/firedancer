@@ -13,6 +13,7 @@
 #include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
+#include "../context/fd_tpool_runtime_ctx.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
 #include "../../../funk/fd_funk.h"
 #include "../../../util/bits/fd_float.h"
@@ -869,13 +870,18 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   tpool->worker_cnt = 1;
   tpool->worker_max = 1;
 
+  fd_tpool_runtime_ctx_t tpool_ctx[1];
+  tpool_ctx->tpool = tpool;
+  tpool_ctx->threads = 1;
+  tpool_ctx->bg_threads = 0;
+
   int res = fd_runtime_prepare_txns_phase1( slot_ctx, task_info, txn, 1 );
   (void)res;
   // if (res != 0) {
   //   return task_info;
   // }
 
-  res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, task_info, 1, tpool );
+  res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, task_info, 1, tpool_ctx );
   // if (res != 0) {
   //   return task_info;
   // }
@@ -1768,7 +1774,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
   effects->stack->size = (uint)FD_VM_STACK_MAX;
   fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
-  
+
   if( vm->rodata_sz ) {
     effects->rodata = FD_SCRATCH_ALLOC_APPEND(
       l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );
@@ -1776,6 +1782,28 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     fd_memcpy( effects->rodata->bytes, vm->rodata, rodata_sz );
   } else {
     effects->rodata = NULL;
+  }
+
+  /* Flatten input data regions into a single region.
+
+     FIXME: Have SyscallEffects store repeated InputDataRegions instead
+     for more granularity. May need to regenerate fixtures/test-vectors. */
+  ulong input_regions_total_sz = 0;
+  for( ulong i=0; i<vm->input_mem_regions_cnt; i++ ) {
+    input_regions_total_sz += vm->input_mem_regions[i].region_sz;
+  }
+  if( input_regions_total_sz == 0 ) {
+    effects->inputdata = NULL;
+  } else {
+    effects->inputdata = FD_SCRATCH_ALLOC_APPEND(
+      l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( input_regions_total_sz ) );
+
+    effects->inputdata->size = (uint)input_regions_total_sz;
+    uchar * inputdata_ptr = effects->inputdata->bytes;
+    for( ulong i=0; i<vm->input_mem_regions_cnt; i++ ) {
+      fd_memcpy( inputdata_ptr, (void *) vm->input_mem_regions[i].haddr, vm->input_mem_regions[i].region_sz );
+      inputdata_ptr += vm->input_mem_regions[i].region_sz;
+    }
   }
 
   effects->frame_count = vm->frame_cnt;
@@ -1796,7 +1824,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
                                                         vm->input_mem_regions_cnt,
                                                         &effects->input_data_regions,
                                                         &effects->input_data_regions_count,
-                                                        (void *)tmp_end, 
+                                                        (void *)tmp_end,
                                                         fd_ulong_sat_sub( output_end, tmp_end ) );
 
   /* Return the effects */
@@ -1811,7 +1839,7 @@ error:
   return 0;
 }
 
-/* Stubs fd_execute_instr for binaries compiled with 
+/* Stubs fd_execute_instr for binaries compiled with
    `-Xlinker --wrap=fd_execute_instr` */
 int
 __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,

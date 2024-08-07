@@ -10,6 +10,7 @@
 #include "../../../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
 #include "../../../../flamenco/runtime/context/fd_exec_slot_ctx.h"
+#include "../../../../flamenco/runtime/context/fd_tpool_runtime_ctx.h"
 #include "../../../../flamenco/runtime/fd_borrowed_account.h"
 #include "../../../../flamenco/runtime/fd_executor.h"
 #include "../../../../flamenco/runtime/fd_hashes.h"
@@ -168,11 +169,7 @@ struct fd_replay_tile_ctx {
   fd_tower_t *          tower;
   fd_voter_t *          voter;
   fd_bank_hash_cmp_t *  bank_hash_cmp;
-
-  /* Tpool */
-
-  uchar        tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
-  fd_tpool_t * tpool;
+  fd_tpool_runtime_ctx_t * tpool_runtime_ctx;
 
   /* Depends on store_int and is polled in after_credit */
 
@@ -246,7 +243,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_voter_align(), fd_voter_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
-  l = FD_LAYOUT_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->replay.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
+  l = FD_LAYOUT_APPEND( l, fd_tpool_runtime_ctx_align(), fd_tpool_runtime_ctx_footprint ( tile->replay.tpool_thread_count ) );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -639,7 +636,7 @@ after_frag( void *             _ctx,
 
       // fork is advancing
       FD_LOG_NOTICE(( "new block execution - slot: %lu, parent_slot: %lu", curr_slot, ctx->parent_slot ));
-      
+
       fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx.epoch_ctx );
       /* if it is an epoch boundary, push out stake weights */
       if( fork->slot_ctx.slot_bank.slot != 0 ) {
@@ -704,7 +701,7 @@ after_frag( void *             _ctx,
       fd_sysvar_slot_history_read( &fork->slot_ctx, fd_scratch_virtual(), fork->slot_ctx.slot_history );
       res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx, ctx->capture_ctx,
                                                     txns, txn_cnt,
-                                                    ctx->tpool );
+                                                    ctx->tpool_runtime_ctx );
     } FD_SCRATCH_SCOPE_END;
 
     execute_time_ns += fd_log_wallclock();
@@ -725,7 +722,7 @@ after_frag( void *             _ctx,
       fd_block_info_t block_info[1];
       block_info->signature_cnt = fork->slot_ctx.signature_cnt;
       long finalize_time_ns = -fd_log_wallclock();
-      int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, ctx->tpool );
+      int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, ctx->tpool_runtime_ctx );
       finalize_time_ns += fd_log_wallclock();
       FD_LOG_DEBUG(("TIMING: finalize_time - slot: %lu, elapsed: %6.6f ms", curr_slot, (double)finalize_time_ns * 1e-6));
 
@@ -1041,7 +1038,7 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
   const char * snapshot = snapshotfile;
   if( strncmp( snapshot, "wksp:", 5 ) != 0 ) {
     FD_MCNT_SET( REPLAY, SNAPSHOT_STATUS_SNAPSHOT_BEGIN, 1 );
-    fd_snapshot_load( snapshot, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_FULL );
+    fd_snapshot_load( snapshot, ctx->slot_ctx, ctx->tpool_runtime_ctx, false, false, FD_SNAPSHOT_TYPE_FULL );
     FD_MCNT_SET( REPLAY, SNAPSHOT_STATUS_SNAPSHOT_END, 1 );
   } else {
     fd_runtime_recover_banks( ctx->slot_ctx, 0, 1 );
@@ -1051,7 +1048,7 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
 
   if( strlen( incremental ) > 0 ) {
     FD_MCNT_SET( REPLAY, SNAPSHOT_STATUS_INCREMENTAL_BEGIN, 1 );
-    fd_snapshot_load( incremental, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL );
+    fd_snapshot_load( incremental, ctx->slot_ctx, ctx->tpool_runtime_ctx, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL );
     FD_MCNT_SET( REPLAY, SNAPSHOT_STATUS_INCREMENTAL_END, 1 );
     ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
   }
@@ -1059,7 +1056,7 @@ read_snapshot( void * _ctx, char const * snapshotfile, char const * incremental 
   fd_runtime_update_leaders( ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot );
   FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
   fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
-  fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx, ctx->slot_ctx->funk_txn, ctx->tpool );
+  fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx, ctx->slot_ctx->funk_txn, ctx->tpool_runtime_ctx->tpool );
   fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
@@ -1189,7 +1186,7 @@ during_housekeeping( void * _ctx ) {
 
   /* Use the blockstore's saved SMR to detect whether the smr has
      changed.
-     
+
      TODO refactor this to a variable on the replay tile ctx. */
 
   if( FD_UNLIKELY( !ctx->blockstore ) ) return;
@@ -1255,7 +1252,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * voter_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_voter_align(), fd_voter_footprint() );
   void * bank_hash_cmp_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   ctx->bmtree                = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,           FD_BMTREE_COMMIT_FOOTPRINT(0)      );
-  void * tpool_worker_mem    = FD_SCRATCH_ALLOC_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->replay.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
+  void * tpool_ctx_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_tpool_runtime_ctx_align(), fd_tpool_runtime_ctx_footprint ( tile->replay.tpool_thread_count ) );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem != ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {
@@ -1454,24 +1451,13 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
   /* tpool                                                              */
   /**********************************************************************/
-
   if( FD_LIKELY( tile->replay.tpool_thread_count > 1 ) ) {
     tpool_boot( topo, tile->replay.tpool_thread_count );
   }
-  ctx->tpool = fd_tpool_init( ctx->tpool_mem, tile->replay.tpool_thread_count );
 
-  if( FD_LIKELY( tile->replay.tpool_thread_count > 1 ) ) {
-    /* start the tpool workers */
-    for( ulong i =1; i<tile->replay.tpool_thread_count; i++ ) {
-      if( fd_tpool_worker_push( ctx->tpool, i, (uchar *)tpool_worker_mem + TPOOL_WORKER_MEM_SZ*(i - 1U), TPOOL_WORKER_MEM_SZ ) == NULL ) {
-        FD_LOG_ERR(( "failed to launch worker" ));
-      }
-    }
-  }
+  ctx->tpool_runtime_ctx = fd_tpool_runtime_ctx_new( tpool_ctx_mem, tile->replay.tpool_thread_count, 1 );
 
-  if( ctx->tpool == NULL ) {
-    FD_LOG_ERR(("failed to create thread pool"));
-  }
+  fd_tpool_runtime_ctx_init( ctx->slot_ctx,  ctx->tpool_runtime_ctx );
 
   /**********************************************************************/
   /* capture                                                            */

@@ -27,12 +27,12 @@ FD_PROTOTYPES_BEGIN
    snapshot_type is one of FD_SNAPSHOT_TYPE_{...}. */
 
 void
-fd_snapshot_load( const char *         source_cstr,
-                  fd_exec_slot_ctx_t * slot_ctx,
-                  fd_tpool_t *         tpool,
-                  uint                 verify_hash,
-                  uint                 check_hash,
-                  int                  snapshot_type );
+fd_snapshot_load( const char *             source_cstr,
+                  fd_exec_slot_ctx_t     * slot_ctx,
+                  fd_tpool_runtime_ctx_t * tpool,
+                  uint                     verify_hash,
+                  uint                     check_hash,
+                  int                      snapshot_type );
 
 FD_PROTOTYPES_END
 

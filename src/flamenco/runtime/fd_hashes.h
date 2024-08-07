@@ -20,15 +20,15 @@ int fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
                          fd_hash_t * hash,
                          ulong signature_cnt );
 int
-fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
-                           fd_capture_ctx_t *   capture_ctx,
-                           fd_hash_t *          hash,
-                           ulong                signature_cnt,
-                           fd_tpool_t *         tpool );
+fd_update_hash_bank_tpool( fd_exec_slot_ctx_t *     slot_ctx,
+                           fd_capture_ctx_t *       capture_ctx,
+                           fd_hash_t *              hash,
+                           ulong                    signature_cnt,
+                           fd_tpool_runtime_ctx_t * tpool );
 
 int
-fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_tpool_t *         tpool );
+fd_print_account_hashes( fd_exec_slot_ctx_t    *  slot_ctx,
+                         fd_tpool_runtime_ctx_t * tpool );
 /* fd_hash_account_v0 is the legacy method to compute the account
    hash.  It includes the following content:
     - lamports
@@ -72,10 +72,11 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
 
 /* Generate a complete accounts_hash of the entire account database. */
 int
-fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx,
-                  fd_tpool_t * tpool,
-                  fd_hash_t * accounts_hash,
-                  ulong do_hash_verify );
+fd_accounts_hash( fd_exec_slot_ctx_t     * slot_ctx,
+                  fd_tpool_runtime_ctx_t * tpool,
+                  ulong                    bg_threads,
+                  fd_hash_t              * accounts_hash,
+                  ulong                    do_hash_verify );
 
 /* Special version for verifying incremental snapshot */
 int
@@ -86,10 +87,10 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
 
 /* Generate a non-incremental hash of the entire account database, including epoch bank hash. */
 int
-fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
-                  fd_tpool_t * tpool,
-                  fd_hash_t * accounts_hash,
-                  uint check_hash );
+fd_snapshot_hash( fd_exec_slot_ctx_t     * slot_ctx,
+                  fd_tpool_runtime_ctx_t * tpool,
+                  fd_hash_t              * accounts_hash,
+                  uint                     check_hash );
 
 int
 fd_accounts_init_lthash( fd_exec_slot_ctx_t * slot_ctx );

@@ -122,12 +122,12 @@ load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
 
 
 void
-fd_snapshot_load( const char *         snapshotfile,
-                  fd_exec_slot_ctx_t * slot_ctx,
-                  fd_tpool_t *         tpool,
-                  uint                 verify_hash,
-                  uint                 check_hash,
-                  int                  snapshot_type ) {
+fd_snapshot_load( const char *             snapshotfile,
+                  fd_exec_slot_ctx_t     * slot_ctx,
+                  fd_tpool_runtime_ctx_t * tpool,
+                  uint                     verify_hash,
+                  uint                     check_hash,
+                  int                      snapshot_type ) {
 
   switch (snapshot_type) {
   case FD_SNAPSHOT_TYPE_UNSPECIFIED:

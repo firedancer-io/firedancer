@@ -23,6 +23,9 @@
 
 /* Forward declarations */
 
+struct fd_tpool_runtime_ctx;
+typedef struct fd_tpool_runtime_ctx fd_tpool_runtime_ctx_t;
+
 struct fd_exec_epoch_ctx;
 typedef struct fd_exec_epoch_ctx fd_exec_epoch_ctx_t;
 

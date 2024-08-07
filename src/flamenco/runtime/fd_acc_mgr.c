@@ -2,6 +2,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"
+#include "context/fd_tpool_runtime_ctx.h"
 #include "fd_rent_lists.h"
 #include "fd_rocksdb.h"
 #include "sysvar/fd_sysvar_rent.h"
@@ -370,7 +371,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
                             fd_funk_txn_t *         txn,
                             fd_borrowed_account_t * * accounts,
                             ulong accounts_cnt,
-                            fd_tpool_t * tpool ) {
+                            fd_tpool_runtime_ctx_t * tpool ) {
   FD_SCRATCH_SCOPE_BEGIN {
     fd_funk_t *        funk = acc_mgr->funk;
     fd_wksp_t * wksp = fd_funk_wksp( funk );
@@ -378,7 +379,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
 
     ulong batch_cnt = fd_ulong_min(
       fd_funk_rec_map_private_list_cnt( fd_funk_rec_map_key_max( rec_map ) ),
-      fd_ulong_pow2_up( fd_tpool_worker_cnt( tpool ) )
+      fd_ulong_pow2_up( fd_tpool_ctx_worker_cnt( tpool ) )
     );
     ulong batch_mask = (batch_cnt - 1UL);
 
@@ -446,7 +447,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
     };
 
     /* Save accounts in a thread pool */
-    fd_tpool_exec_all_taskq( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_acc_mgr_save_task, task_infos, &task_args, NULL, 1, 0, batch_cnt );
+    fd_tpool_exec_all_taskq( tpool->tpool, 0, fd_tpool_ctx_worker_cnt( tpool ), fd_acc_mgr_save_task, task_infos, &task_args, NULL, 1, 0, batch_cnt );
 
     fd_funk_end_write( funk );
 

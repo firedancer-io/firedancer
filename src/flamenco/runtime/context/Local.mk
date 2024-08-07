@@ -1,4 +1,7 @@
 ifdef FD_HAS_INT128
+$(call add-hdrs,fd_tpool_runtime_ctx.h)
+$(call add-objs,fd_tpool_runtime_ctx,fd_flamenco)
+
 $(call add-hdrs,fd_exec_epoch_ctx.h)
 $(call add-objs,fd_exec_epoch_ctx,fd_flamenco)
 
