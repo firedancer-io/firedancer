@@ -283,8 +283,6 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     fd_memset( &stakes1->stakes.vote_accounts, 0, sizeof(fd_vote_accounts_t) );
   } while(0);
 
-  /* FIXME: handle epoch reward status and serialization */
-
   // TODO Backup to database
   //int result = fd_runtime_save_epoch_bank(slot_ctx);
   //if( result != FD_EXECUTOR_INSTR_SUCCESS ) {
@@ -398,8 +396,5 @@ fd_exec_slot_ctx_free( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_slot_hashes_destroy( slot_ctx->sysvar_cache_old.slot_hashes, &ctx );
 
   /* leader points to a caller-allocated leader schedule */
-
-  /* FIXME: clean this up */
-  // fd_stake_rewards_vector_destroy( slot_ctx->epoch_reward_status.stake_rewards_by_partition );
   fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( slot_ctx ) );
 }
