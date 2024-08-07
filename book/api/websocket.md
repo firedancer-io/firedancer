@@ -478,7 +478,7 @@ identity is no longer in these three data sources, it will be removed.
         }
     ],
     "remove": [
-        { "identity": "8ri9HeWZv4Dcf4BD46pVPjmefzJLpbtfdAtyxyeG4enL" }
+        { "identity_pubkey": "8ri9HeWZv4Dcf4BD46pVPjmefzJLpbtfdAtyxyeG4enL" }
     ]
 }
 ```
