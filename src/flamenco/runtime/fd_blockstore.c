@@ -191,31 +191,33 @@ fd_blockstore_new( void * shmem,
 
   fd_memset( blockstore, 0, fd_blockstore_footprint() );
 
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( blockstore->magic ) = FD_BLOCKSTORE_MAGIC;
+  FD_COMPILER_MFENCE();
   blockstore->blockstore_gaddr = fd_wksp_gaddr_fast( wksp, blockstore );
   blockstore->wksp_tag         = wksp_tag;
   blockstore->seed             = seed;
 
-  blockstore->root = 0;
+  FD_COMPILER_MFENCE();
+  fd_readwrite_new( &blockstore->lock );
+  FD_COMPILER_MFENCE();
+
+  blockstore->smr              = 0;
+  blockstore->min              = 0;
+  blockstore->max              = 0;
 
   blockstore->shred_max        = shred_max;
   blockstore->shred_pool_gaddr = fd_wksp_gaddr_fast( wksp, shred_pool );
   blockstore->shred_map_gaddr  = fd_wksp_gaddr_fast( wksp, shred_map );
 
-  blockstore->slot_map_gaddr = fd_wksp_gaddr_fast( wksp, block_map );
-
+  blockstore->slot_max         = slot_max;
+  blockstore->slot_map_gaddr   = fd_wksp_gaddr_fast( wksp, block_map );
   blockstore->slot_deque_gaddr = fd_wksp_gaddr_fast( wksp, slot_deque );
 
-  blockstore->slot_max           = slot_max;
+  blockstore->lg_txn_max       = lg_txn_max;
+  blockstore->txn_map_gaddr    = fd_wksp_gaddr_fast( wksp, txn_map );
 
-  blockstore->lg_txn_max    = lg_txn_max;
-  blockstore->txn_map_gaddr = fd_wksp_gaddr_fast( wksp, txn_map );
-
-  blockstore->alloc_gaddr = fd_wksp_gaddr_fast( wksp, alloc );
-
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( blockstore->magic ) = FD_BLOCKSTORE_MAGIC;
-  fd_readwrite_new( &blockstore->lock );
-  FD_COMPILER_MFENCE();
+  blockstore->alloc_gaddr      = fd_wksp_gaddr_fast( wksp, alloc );
 
   return (void *)blockstore;
 
@@ -301,7 +303,7 @@ fd_blockstore_delete( void * shblockstore ) {
 
   ulong * q = fd_wksp_laddr_fast( wksp, blockstore->slot_deque_gaddr );
   fd_blockstore_slot_deque_remove_all( q );
-  fd_blockstore_slot_deque_push_tail( q, blockstore->root );
+  fd_blockstore_slot_deque_push_tail( q, blockstore->smr );
   while( !fd_blockstore_slot_deque_empty( q ) ) {
     ulong curr = fd_blockstore_slot_deque_pop_head( q );
 
@@ -465,13 +467,45 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
 /* Remove a slot from blockstore */
 int
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
-  FD_LOG_DEBUG( ( "[fd_blockstore_slot_remove] slot %lu", slot ) );
+  FD_LOG_DEBUG(( "[fd_blockstore_slot_remove] slot %lu", slot ));
   fd_block_map_t * block_map_entry = fd_block_map_remove( fd_blockstore_block_map( blockstore ), &slot );
   if( FD_UNLIKELY( !block_map_entry ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
 
-  /* Short-circuit if there's no block. */
+  if( FD_UNLIKELY( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) {
+    FD_LOG_ERR(( "[fd_blockstore_slot_remove] attempted to remove slot %lu that is still replaying.", slot ));
+  }
 
-  if( FD_LIKELY( block_map_entry->block_gaddr == 0 ) ) return FD_BLOCKSTORE_OK;
+  /* Unlink slot from its parent only if it is not published. */
+
+  fd_block_map_t * parent_block_map_entry =
+      fd_blockstore_block_map_query( blockstore, block_map_entry->parent_slot );
+  if( FD_LIKELY( parent_block_map_entry ) ) {
+    for( ulong i = 0; i < parent_block_map_entry->child_slot_cnt; i++ ) {
+      if( FD_LIKELY( parent_block_map_entry->child_slots[i] == slot ) ) {
+        parent_block_map_entry->child_slots[i] =
+            parent_block_map_entry->child_slots[--parent_block_map_entry->child_slot_cnt];
+      }
+    }
+  }
+
+  if( FD_LIKELY( block_map_entry->block_gaddr == 0 ) ) {
+
+    /* Remove buf_shreds if there's no block yet (we haven't received all shreds). */
+
+    fd_buf_shred_map_t * map  = fd_blockstore_buf_shred_map( blockstore );
+    fd_buf_shred_t *     pool = fd_blockstore_buf_shred_pool( blockstore );
+    for( uint idx = 0; idx < block_map_entry->received_idx; idx++ ) {
+      fd_shred_key_t key = { .slot = slot, .idx = idx };
+      fd_buf_shred_t * buf_shred = fd_buf_shred_map_ele_remove( map, &key, NULL, pool );
+      if ( FD_LIKELY( buf_shred ) ) {
+        fd_buf_shred_pool_ele_release( pool, buf_shred );
+      }
+    }
+
+    /* Return because there are no allocations without a block. */
+
+    return FD_BLOCKSTORE_OK;
+  }
 
   /* Remove all the allocations relating to a block. */
 
@@ -484,7 +518,10 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   /* DO THIS FIRST FOR THREAD SAFETY */
   FD_COMPILER_MFENCE();
   block_map_entry->block_gaddr = 0;
-  if( FD_LIKELY( !( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_PREPARING ) ) ) ) {
+
+  /* It is not safe to remove a preparing block. */
+
+  if( FD_LIKELY( !( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) ) {
     uchar *              data = fd_wksp_laddr_fast( wksp, block->data_gaddr );
     fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, block->txns_gaddr );
     for( ulong j = 0; j < block->txns_cnt; ++j ) {
@@ -546,15 +583,15 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong root ) {
 
   /* If trying to re-publish current root, return an error. */
 
-  if( FD_UNLIKELY( root == blockstore->root ) ) {
-    FD_LOG_WARNING(("[fd_blockstore_publish] attempting to re-publish current blockstore root %lu", blockstore->root ));
+  if( FD_UNLIKELY( root == blockstore->smr ) ) {
+    FD_LOG_WARNING(("[fd_blockstore_publish] attempting to re-publish current blockstore root %lu", blockstore->smr ));
     return FD_BLOCKSTORE_ERR_UNKNOWN;
   }
 
   /* If trying to publish a root older than current, return an error. */
 
-  if( FD_UNLIKELY( root < blockstore->root ) ) {
-    FD_LOG_WARNING(( "[fd_blockstore_publish] attempting to publish a root older than the current root. new: %lu, curr: %lu", root, blockstore->root ));
+  if( FD_UNLIKELY( root < blockstore->smr ) ) {
+    FD_LOG_WARNING(( "[fd_blockstore_publish] attempting to publish a root older than the current root. new: %lu, curr: %lu", root, blockstore->smr ));
     return FD_BLOCKSTORE_ERR_UNKNOWN;
   }
 
@@ -564,7 +601,7 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong root ) {
 
   /* Push the root onto the queue. */
 
-  fd_blockstore_slot_deque_push_tail( q, blockstore->root );
+  fd_blockstore_slot_deque_push_tail( q, blockstore->smr );
 
   /* Conduct a BFS, stopping the search at the new root. */
 
@@ -581,36 +618,17 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong root ) {
       }
     }
 
-    /* Unlink slot from its parent. */
+    if( !fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_FINALIZED ) ) {
 
-    fd_block_map_t * parent_block_map_entry =
-        fd_blockstore_block_map_query( blockstore, block_map_entry->parent_slot );
-    if( FD_LIKELY( parent_block_map_entry ) ) {
-      for( ulong i = 0; i < parent_block_map_entry->child_slot_cnt; i++ ) {
-        if( FD_LIKELY( parent_block_map_entry->child_slots[i] == slot ) ) {
-          parent_block_map_entry->child_slots[i] =
-              parent_block_map_entry->child_slots[--parent_block_map_entry->child_slot_cnt];
-        }
-      }
+      /* Remove the slot only if it is not finalized. */
+
+      int rc = fd_blockstore_slot_remove( blockstore, slot );
+      if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) return rc;
+      prune_cnt++;
     }
-
-    /* Unset the preparing bit. This is safe, because we know replay
-       will not process any slots earlier than the root fseq, and
-       fd_blockstore_publish is only run after the root fseq is updated
-       (to a later slot). */
-
-    block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_PREPARING );
-
-    /* Remove the slot. */
-
-    int rc = fd_blockstore_slot_remove( blockstore, slot );
-    if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) {
-      return rc;
-    }
-    prune_cnt++;
   }
 
-  for( ulong i=blockstore->root+1; i<root; i++ ) {
+  for( ulong i=blockstore->smr+1; i<root; i++ ) {
     fd_block_map_t * map_entry = fd_blockstore_block_map_query( blockstore, i );
     if( map_entry && !fd_blockstore_block_map_query( blockstore, map_entry->parent_slot ) ) {
       prune_cnt++;
@@ -622,11 +640,11 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong root ) {
 
   FD_LOG_NOTICE( ( "[fd_blockstore_publish] new root: %lu, old root: %lu, prune cnt: %lu, took: %6.6f ms",
                    root,
-                   blockstore->root,
+                   blockstore->smr,
                    prune_cnt,
                    (double)prune_time_ns * 1e-6 ) );
 
-  blockstore->root = root;
+  blockstore->smr = root;
 
   return FD_BLOCKSTORE_OK;
 }
@@ -721,10 +739,10 @@ fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
                       fd_shred_payload_sz( shred ) ) );
 
     off += fd_shred_payload_sz( shred );
-    fd_buf_shred_t * ele;
-    while( FD_UNLIKELY(
-        ele = fd_buf_shred_map_ele_remove( shred_map, &key, NULL, shred_pool ) ) )
+    fd_buf_shred_t * ele = NULL;
+    while( FD_UNLIKELY( ele = fd_buf_shred_map_ele_remove( shred_map, &key, NULL, shred_pool ) ) ) {
       fd_buf_shred_pool_ele_release( shred_pool, ele );
+    }
   }
 
   /* deshredder error handling */
@@ -785,35 +803,76 @@ fail_deshred:
 
 int
 fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
+
   /* Check if we already have this shred */
+
   fd_buf_shred_t *     shred_pool = fd_blockstore_buf_shred_pool( blockstore );
   fd_buf_shred_map_t * shred_map  = fd_blockstore_buf_shred_map( blockstore );
-  fd_shred_key_t              shred_key  = { .slot = shred->slot, .idx = shred->idx };
-  for( const fd_buf_shred_t * query =
-           fd_buf_shred_map_ele_query_const( shred_map, &shred_key, NULL, shred_pool );
-       query;
-       query = fd_buf_shred_map_ele_next_const( query, NULL, shred_pool ) ) {
-    if( memcmp( &query->raw, shred, fd_shred_sz( shred ) ) == 0 ) return FD_BLOCKSTORE_OK;
+  fd_shred_key_t       shred_key  = { .slot = shred->slot, .idx = shred->idx };
+  fd_buf_shred_t const * shred_   = fd_buf_shred_map_ele_query_const( shred_map, &shred_key, NULL, shred_pool );
+  if( FD_UNLIKELY( shred_ ) ) {
+
+    /* Check if we're seeing a different payload for the same shred key,
+       which indicates equivocation. */
+
+    if( FD_UNLIKELY( fd_shred_payload_sz( &shred_->hdr ) != fd_shred_payload_sz( shred ) ) ) {
+      FD_LOG_ERR(( "equivocating shred detected %lu %u. halting.", shred->slot, shred->idx ));
+    }
+
+    if( FD_UNLIKELY( 0 != memcmp( fd_shred_data_payload( &shred_->hdr ), fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) ) ) ) {
+      FD_LOG_ERR(( "equivocating shred detected %lu %u. halting.", shred->slot, shred->idx ));
+    }
+
+    /* Short-circuit if we already have the shred. */
+
+    return FD_BLOCKSTORE_OK;
   }
 
   /* Insert the shred */
 
   if( FD_UNLIKELY( !fd_buf_shred_pool_free( shred_pool ) ) ) {
-    return FD_BLOCKSTORE_ERR_SHRED_FULL;
+    FD_LOG_ERR(( "shred pool is full. halting." ));
   }
   fd_buf_shred_t * ele = fd_buf_shred_pool_ele_acquire( shred_pool ); /* always non-NULL */
-  ele->key                    = shred_key;
-  ele->hdr                    = *shred;
+  ele->key             = shred_key;
+  ele->hdr             = *shred;
   fd_memcpy( &ele->raw, shred, fd_shred_sz( shred ) );
   fd_buf_shred_map_ele_insert( shred_map, ele, shred_pool ); /* always non-NULL */
 
   /* Update shred's associated slot meta */
 
   ulong slot = shred->slot;
-  fd_block_map_t * block_map_entry =
-      fd_block_map_query( fd_blockstore_block_map( blockstore ), &slot, NULL );
+  fd_block_map_t * block_map = fd_blockstore_block_map( blockstore );
+  fd_block_map_t * block_map_entry = fd_block_map_query( block_map, &slot, NULL );
   if( FD_UNLIKELY( !block_map_entry ) ) {
-    block_map_entry = fd_block_map_insert( fd_blockstore_block_map( blockstore ), &slot );
+
+    /* If block_map is full, try to evict blockstore->min. */
+
+    if( FD_UNLIKELY( fd_block_map_key_cnt( block_map ) == fd_block_map_key_max( block_map ) ) ) {
+      fd_block_map_t * block_map = fd_blockstore_block_map( blockstore );
+      if( FD_UNLIKELY( blockstore->min == blockstore->smr ) ) {
+        FD_LOG_ERR(( "blockstore is full but min equals smr %lu. halting.", blockstore->min ));
+      }
+
+      fd_block_map_t * min = fd_block_map_query( block_map, &blockstore->min, NULL );
+
+      if( FD_UNLIKELY( min->child_slot_cnt > 1 ) ) {
+        FD_LOG_ERR( ( "blockstore->min %lu before blockstore->smr %lu has %lu forks, expected only one",
+                      blockstore->min,
+                      blockstore->smr,
+                      min->child_slot_cnt ) );
+      }
+
+      blockstore->min = min->child_slots[0];
+      int rc          = fd_blockstore_slot_remove( blockstore, blockstore->min );
+      if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) {
+        FD_LOG_ERR( ( "issue evicting blockstore->min %d.", rc ) );
+      };
+    }
+
+    /* Try to insert slot into block_map */
+
+    block_map_entry = fd_block_map_insert( block_map, &slot );
     if( FD_UNLIKELY( !block_map_entry ) ) return FD_BLOCKSTORE_ERR_SLOT_FULL;
 
     /* Initialize the block_map_entry. Note some fields are initialized
@@ -822,15 +881,11 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
 
     block_map_entry->slot = block_map_entry->slot;
 
-    /* Ancestry */
-
     block_map_entry->parent_slot = shred->slot - shred->data.parent_off;
     memset( block_map_entry->child_slots,
             UCHAR_MAX,
             FD_BLOCKSTORE_CHILD_SLOT_MAX * sizeof( ulong ) );
     block_map_entry->child_slot_cnt = 0;
-
-    /* Metadata */
 
     block_map_entry->height         = 0;
     block_map_entry->block_hash     = ( fd_hash_t ){ 0 };
@@ -839,15 +894,11 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
     block_map_entry->ts             = 0;
     block_map_entry->reference_tick = (uchar)( (int)shred->data.flags &
                                                (int)FD_SHRED_DATA_REF_TICK_MASK );
-    /* Windowing */
-
     block_map_entry->consumed_idx   = UINT_MAX;
     block_map_entry->received_idx   = 0;
     block_map_entry->complete_idx   = UINT_MAX;
 
-    /* Block */
-
-    block_map_entry->block_gaddr = 0;
+    block_map_entry->block_gaddr    = 0;
   }
 
   FD_LOG_DEBUG( ( "slot_meta->consumed_idx: %u, shred->slot: %lu, slot_meta->received_idx: %u, "
@@ -1218,7 +1269,7 @@ fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore ) {
 
   ulong * q = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), blockstore->slot_deque_gaddr );
   fd_blockstore_slot_deque_remove_all( q );
-  fd_blockstore_slot_deque_push_tail( q, blockstore->root );
+  fd_blockstore_slot_deque_push_tail( q, blockstore->smr );
   while( !fd_blockstore_slot_deque_empty( q ) ) {
     ulong curr = fd_blockstore_slot_deque_pop_head( q );
 
@@ -1257,37 +1308,39 @@ fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore ) {
 
 fd_blockstore_t *
 fd_blockstore_init( fd_blockstore_t * blockstore, fd_slot_bank_t const * slot_bank ) {
-  ulong root                       = slot_bank->slot;
-  blockstore->root                 = root;
+  ulong slot                       = slot_bank->slot;
+
+  blockstore->smr                  = slot;
+  blockstore->min                  = slot;
+  blockstore->max                  = slot;
   fd_block_map_t * block_map_entry = fd_block_map_insert( fd_blockstore_block_map( blockstore ),
-                                                          &root );
+                                                          &slot );
 
-  /* Ancestry */
-
-  block_map_entry->parent_slot = slot_bank->prev_slot;
+  block_map_entry->parent_slot     = slot_bank->prev_slot;
   memset( block_map_entry->child_slots, UCHAR_MAX, FD_BLOCKSTORE_CHILD_SLOT_MAX * sizeof( ulong ) );
+  block_map_entry->child_slot_cnt  = 0;
 
-  /* Metadata */
+  block_map_entry->height          = slot_bank->block_height;
+  block_map_entry->bank_hash       = slot_bank->banks_hash;
+  block_map_entry->flags           = fd_uchar_set_bit(
+                                     fd_uchar_set_bit(
+                                     fd_uchar_set_bit( block_map_entry->flags,
+                                       FD_BLOCK_FLAG_PROCESSED ),
+                                       FD_BLOCK_FLAG_CONFIRMED ),
+                                       FD_BLOCK_FLAG_FINALIZED );
+  block_map_entry->reference_tick  = 0;
+  block_map_entry->ts              = 0;
 
-  block_map_entry->bank_hash = slot_bank->banks_hash;
-  /* clang-format off */
-  block_map_entry->flags     = fd_uchar_set_bit(
-                               fd_uchar_set_bit(
-                               fd_uchar_set_bit( block_map_entry->flags,
-                                 FD_BLOCK_FLAG_PROCESSED ),
-                                 FD_BLOCK_FLAG_CONFIRMED ),
-                                 FD_BLOCK_FLAG_FINALIZED );
-  block_map_entry->ts         = 0;
-  block_map_entry->reference_tick = 0;
-  /* clang-format on */
+  block_map_entry->consumed_idx    = 0;
+  block_map_entry->received_idx    = 0;
+  block_map_entry->complete_idx    = 0;
 
-  /* Windowing */
+  /* This creates an empty allocation for a block, to "facade" that we
+     have this particular block (even though we don't).  This is useful
+     to avoid special-casing various blockstore APIs.
 
-  block_map_entry->consumed_idx            = 0;
-  block_map_entry->received_idx            = 0;
-  block_map_entry->complete_idx            = 0;
-
-  /* Fake the block corresponding to slot_bank. */
+     This should only ever be done for the snapshot slot, after booting
+     up from the snapshot. */
 
   fd_block_t * block = fd_alloc_malloc( fd_blockstore_alloc( blockstore ),
                                         alignof( fd_block_t ),

@@ -310,7 +310,7 @@ fd_tower_switch_check( fd_tower_t const * tower,
      child of GCA.  So we do not count it towards the stake of the
      different forks. */
 
-  fd_ghost_node_t const * gca_child = fd_ghost_query_const( ghost, latest_vote->slot );
+  fd_ghost_node_t const * gca_child = fd_ghost_query( ghost, latest_vote->slot );
   while( gca_child->parent != gca ) {
     gca_child = gca_child->parent;
   }
@@ -651,7 +651,7 @@ fd_tower_fork_update( fd_tower_t const * tower,
                       fd_acc_mgr_t *     acc_mgr,
                       fd_blockstore_t *  blockstore,
                       fd_ghost_t *       ghost ) {
-  ulong root = tower->root; /* FIXME fseq */
+
   /* Get the parent key. Every slot except the root must have a parent. */
 
   fd_blockstore_start_read( blockstore );
@@ -708,14 +708,53 @@ fd_tower_fork_update( fd_tower_t const * tower,
 
       ulong vote_slot = deq_fd_landed_vote_t_peek_tail_const( landed_votes )->lockout.slot;
 
-      /* Ignore votes for slots < root. This guards the ghost invariant
-         that the vote slot must be present in the ghost tree. */
+      if( FD_UNLIKELY( vote_slot < ghost->root->slot ) ) continue;
 
-      if( FD_UNLIKELY( vote_slot < root ) ) continue;
+      /* Only process votes for slots >= root. Ghost requires vote slot
+         to already exist in the ghost tree. */
 
-      /* Upsert the vote into ghost. */
+      if( FD_UNLIKELY( vote_slot >= ghost->root->slot ) ) {
+        fd_ghost_node_t const * node = fd_ghost_replay_vote( ghost, vote_slot, &vote_state->node_pubkey, vote_acc->stake );
 
-      fd_ghost_replay_vote( ghost, vote_slot, &vote_state->node_pubkey, vote_acc->stake );
+        /* Check if it has crossed the optimistic confirmation threshold. */
+
+        fd_blockstore_start_write( blockstore );
+        fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, vote_slot );
+        int confirmed = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
+        if( FD_UNLIKELY( !confirmed ) ) {
+          double pct = (double)node->stake / (double)ghost->total_stake;
+          if( FD_UNLIKELY( pct > FD_OPT_CONF ) ) {
+            FD_LOG_NOTICE( ( "confirming %lu", block_map_entry->slot ) );
+            block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
+          }
+        }
+        fd_blockstore_end_write( blockstore );
+      }
+
+      /* Check if this voter's root >= ghost root. We can't process
+         other voters' roots that precede the ghost root. */
+
+      if( FD_UNLIKELY( vote_state->root_slot >= ghost->root->slot ) ) {
+        fd_ghost_node_t const * node = fd_ghost_rooted_vote( ghost, vote_state->root_slot, &vote_state->node_pubkey, vote_acc->stake );
+
+        /* Check if it has crossed finalized threshold. */
+
+        fd_blockstore_start_write( blockstore );
+        fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, vote_state->root_slot );
+        int finalized = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_FINALIZED );
+        if( FD_UNLIKELY( !finalized ) ) {
+          double pct = (double)node->rooted_stake / (double)ghost->total_stake;
+          if( FD_UNLIKELY( pct > FD_SMR_PCT ) ) {
+            FD_LOG_NOTICE( ( "finalizing %lu", block_map_entry->slot ) );
+            fd_block_map_t * ancestor = block_map_entry;
+            while( ancestor ) {
+              ancestor->flags = fd_uchar_set_bit( ancestor->flags, FD_BLOCK_FLAG_FINALIZED );
+              ancestor        = fd_blockstore_block_map_query( blockstore, ancestor->parent_slot );
+            }
+          }
+        }
+        fd_blockstore_end_write( blockstore );
+      }
     }
     FD_SCRATCH_SCOPE_END;
   }
