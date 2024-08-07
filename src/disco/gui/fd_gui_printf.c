@@ -196,7 +196,7 @@ void
 fd_gui_printf_topology( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "topology" );
     jsonp_open_object( gui, "value" );
-      jsonp_open_array( gui, "tile_counts" );
+      jsonp_open_object( gui, "tile_counts" );
         jsonp_ulong( gui, "net",    gui->summary.net_tile_count );
         jsonp_ulong( gui, "quic",   gui->summary.quic_tile_count );
         jsonp_ulong( gui, "verify", gui->summary.verify_tile_count );
@@ -205,7 +205,7 @@ fd_gui_printf_topology( fd_gui_t * gui ) {
         jsonp_ulong( gui, "bank",   gui->summary.bank_tile_count );
         jsonp_ulong( gui, "poh",    1UL );
         jsonp_ulong( gui, "shred",  gui->summary.shred_tile_count );
-      jsonp_close_array( gui );
+      jsonp_close_object( gui );
     jsonp_close_object( gui );
   jsonp_close_envelope( gui );
 }
