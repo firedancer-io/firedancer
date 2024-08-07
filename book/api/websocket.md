@@ -187,59 +187,59 @@ the client can calculate it from the stream of new slot data.
 
 ```json
 {
-    "topic":"summary",
-    "key":"upcoming_slot_txn_info",
-    "value":{
-        "acquired_txns":66893,
-        "acquired_txns_leftover":0,
-        "acquired_txns_quic":66767,
-        "acquired_txns_nonquic":1,
-        "acquired_txns_gossip":2,
-        "dropped_txns":49091,
-        "dropped_txns_net":{
-            "count":0,
-            "breakdown":{
-                "net_overrun":0,
-                "net_invalid":0
+    "topic": "summary",
+    "key": "upcoming_slot_txn_info",
+    "value": {
+        "acquired_txns": 66893,
+        "acquired_txns_leftover": 0,
+        "acquired_txns_quic": 66767,
+        "acquired_txns_nonquic": 1,
+        "acquired_txns_gossip": 2,
+        "dropped_txns": 49091,
+        "dropped_txns_net": {
+            "count": 0,
+            "breakdown": {
+                "net_overrun": 0,
+                "net_invalid": 0
             }
         },
-        "dropped_txns_quic":{
-            "count":0,
-            "breakdown":{
-                "quic_overrun":0,
-                "quic_reasm":0
+        "dropped_txns_quic": {
+            "count": 0,
+            "breakdown": {
+                "quic_overrun": 0,
+                "quic_reasm": 0
             }
         },
-        "dropped_txns_verify":{
-            "count":49152,
-            "breakdown":{
-                "verify_overrun":49152,
-                "verify_drop":0
+        "dropped_txns_verify": {
+            "count": 49152,
+            "breakdown": {
+                "verify_overrun": 49152,
+                "verify_drop": 0
             }
         },
-        "dropped_txns_dedup":{
-            "count":1,
-            "breakdown":{
-                "dedup_drop":1
+        "dropped_txns_dedup": {
+            "count": 1,
+            "breakdown": {
+                "dedup_drop": 1
             }
         },
-        "dropped_txns_pack":{
-            "count":0,
-            "breakdown":{
-                "pack_nonleader":0,
-                "pack_invalid":0,
-                "pack_priority":0
+        "dropped_txns_pack": {
+            "count": 0,
+            "breakdown": {
+                "pack_nonleader": 0,
+                "pack_invalid": 0,
+                "pack_priority": 0
             }
         },
-        "dropped_txns_bank":{
-            "count":0,
-            "breakdown":{
-                "bank_invalid":0
+        "dropped_txns_bank": {
+            "count": 0,
+            "breakdown": {
+                "bank_invalid": 0
             }
         },
-        "executed_txns_failure":0,
-        "executed_txns_success":27993,
-        "buffered_txns":3
+        "executed_txns_failure": 0,
+        "executed_txns_success": 27993,
+        "buffered_txns": 3
     }
 }
 ```
@@ -261,11 +261,19 @@ leader slot completes and begin counting up again.
 
 ```json
 {
-    "tile_counts": {
-        "Verify": 5,
-        "Dedup": 1,
-        "Pack": 1
-        // ... etc. ...
+    "topic": "summary",
+    "key": "topology",
+    "value": {
+        "tile_counts": {
+            "net": 1,
+            "quic": 1,
+            "verify": 4,
+            "dedup": 1,
+            "pack": 1,
+            "bank": 2,
+            "poh": 1,
+            "shred": 2
+        }
     }
 }
 ```
@@ -289,50 +297,50 @@ Firedancer.
 
 ```json
 {
-    "topic":"summary",
-    "key":"tile_info",
-    "value":{
-        "Networking":{
-            "idle":[
+    "topic": "summary",
+    "key": "tile_info",
+    "value": {
+        "net": {
+            "idle": [
                 44.97
             ]
         },
-        "QUIC":{
-            "idle":[
+        "quic": {
+            "idle": [
                 90.86
             ]
         },
-        "Verify":{
-            "idle":[
+        "verify": {
+            "idle": [
                 0.00,
                 0.00,
                 0.00,
                 0.00
             ]
         },
-        "Dedup":{
-            "idle":[
+        "dedup": {
+            "idle": [
                 98.85
             ]
         },
-        "Pack":{
-            "idle":[
+        "pack": {
+            "idle": [
                 95.51
             ]
         },
-        "Bank":{
-            "idle":[
-                35.40,
+        "bank": {
+            "idle": [
+                35.4,
                 98.65
             ]
         },
-        "PoH":{
-            "idle":[
+        "poh": {
+            "idle": [
                 98.23
             ]
         },
-        "Shred":{
-            "idle":[
+        "shred": {
+            "idle": [
                 97.43,
                 97.47
             ]
