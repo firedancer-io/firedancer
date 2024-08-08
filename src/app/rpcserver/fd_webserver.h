@@ -13,7 +13,7 @@ struct fd_webserver {
   ulong              upload_data_size;
   unsigned int       status_code;
   ulong              quick_size;
-#define FD_WEBSERVER_QUICK_MAX 1U<<14U
+#define FD_WEBSERVER_QUICK_MAX (1U<<14U)
   char               quick_buf[FD_WEBSERVER_QUICK_MAX];
 };
 typedef struct fd_webserver fd_webserver_t;
@@ -49,10 +49,6 @@ void fd_web_ws_simple_error( fd_webserver_t * ws, ulong conn_id, const char* tex
 int fd_web_reply_append( fd_webserver_t * ws,
                          const char *     text,
                          ulong            text_sz );
-
-int fd_web_reply_encode_utf8( fd_webserver_t * ws,
-                              const uint *     chars,
-                              ulong            chars_sz );
 
 int fd_web_reply_encode_base58( fd_webserver_t * ws,
                                 const void *     data,
