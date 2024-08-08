@@ -318,6 +318,16 @@ fd_store_slot_repair( fd_store_t * store,
     return 0UL;
   }
 
+  fd_repair_backoff_t * backoff = fd_repair_backoff_map_query( store->repair_backoff_map, slot, NULL );
+  if( FD_LIKELY( backoff!=NULL ) ) {
+    if( store->now<( backoff->last_repair_time+FD_REPAIR_BACKOFF_TIME ) ) {
+      return 0UL;
+    }
+  } else {
+    backoff = fd_repair_backoff_map_insert( store->repair_backoff_map, slot );
+  }
+  backoff->last_repair_time = store->now;
+
   ulong repair_req_cnt = 0;
   fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( store->blockstore, slot );
 
