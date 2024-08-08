@@ -17,6 +17,7 @@ struct fd_rpcserver_args {
   fd_frag_meta_t *  rep_notify;
   ushort            port;
   fd_http_server_params_t params;
+  ulong             hcache_size;
 };
 typedef struct fd_rpcserver_args fd_rpcserver_args_t;
 

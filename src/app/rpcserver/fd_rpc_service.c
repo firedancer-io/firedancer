@@ -1903,7 +1903,7 @@ fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
   gctx->blockstore = args->blockstore;
 
   FD_LOG_NOTICE(( "starting web server on port %u", (uint)args->port ));
-  if (fd_webserver_start(args->port, args->params, &gctx->ws, ctx))
+  if (fd_webserver_start(args->port, args->params, args->hcache_size, &gctx->ws, ctx))
     FD_LOG_ERR(("fd_webserver_start failed"));
 
   *ctx_p = ctx;

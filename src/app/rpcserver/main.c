@@ -70,6 +70,8 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   args->params.max_request_len =       fd_env_strip_cmdline_ulong( argc, argv, "--max-request-len",       NULL, 1<<16 );
   args->params.max_ws_recv_frame_len = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-recv-frame-len", NULL, 2048 );
   args->params.max_ws_send_frame_cnt = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-send-frame-cnt", NULL, 100 );
+
+  args->hcache_size = fd_env_strip_cmdline_ulong( argc, argv, "--max-send-buf", NULL, 100U<<20U );
 }
 
 static int stopflag = 0;

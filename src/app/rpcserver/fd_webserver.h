@@ -9,13 +9,16 @@ struct fd_webserver {
   fd_http_server_t * server;
   fd_hcache_t *      hcache;
   void *             cb_arg;
-#define FD_WEBSERVER_QUICK_MAX 1U<<16U
-  ulong              quick_len;
+  const uchar *      upload_data;
+  ulong              upload_data_size;
+  unsigned int       status_code;
+  ulong              quick_size;
+#define FD_WEBSERVER_QUICK_MAX 1U<<14U
   char               quick_buf[FD_WEBSERVER_QUICK_MAX];
 };
 typedef struct fd_webserver fd_webserver_t;
 
-int fd_webserver_start(ushort portno, fd_http_server_params_t params, fd_webserver_t * ws, void * cb_arg );
+int fd_webserver_start(ushort portno, fd_http_server_params_t params, ulong hcache_size, fd_webserver_t * ws, void * cb_arg );
 
 int fd_webserver_stop(fd_webserver_t * ws);
 
