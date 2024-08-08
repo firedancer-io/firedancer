@@ -145,6 +145,12 @@ fd_hcache_memcpy( fd_hcache_t * hcache,
                   uchar const * data,
                   ulong         data_len );
 
+/* fd_hcache_reset clears the pending response data. This is used if we
+   change our mind in mid-response (e.g. there is an unexpected error) */
+
+void
+fd_hcache_reset( fd_hcache_t * hcache );
+
 /* fd_hcache_snap_response takes the current contents of the hcache and
    returns it as data which can be sent as an HTTP response body.  The
    hcache is reset to start preparing the next message.  Assumes hcache
@@ -155,7 +161,7 @@ fd_hcache_memcpy( fd_hcache_t * hcache,
    of the buffer.  If the buffer is not being used to send a response
    to any connected HTTP client, it could be overwritten by the next
    snap and become no longer valid.
-   
+
    Returns NULL on failure if the hcache is in an error state because
    the message being snapped exceeds the entire hcache data size. */
 
