@@ -75,6 +75,8 @@ void fd_web_simple_error( fd_webserver_t * ws, const char* text, uint text_size 
 "</body>" CRLF
 "</html>" CRLF;
 
+  fd_hcache_reset(ws->hcache);
+  ws->quick_size = 0;
   fd_hcache_memcpy(ws->hcache, (const uchar*)DOC1, strlen(DOC1));
   fd_hcache_memcpy(ws->hcache, (const uchar*)text, text_size);
   fd_hcache_memcpy(ws->hcache, (const uchar*)DOC2, strlen(DOC2));
@@ -125,6 +127,7 @@ request( fd_http_server_request_t const * request ) {
     ws->upload_data_size = request->post.body_len;
     ws->status_code = 200; // OK
     ws->quick_size = 0;
+    fd_hcache_reset( ws->hcache );
 
     if( strcmp(request->path, "/") != 0 ) {
       fd_web_error( ws, "POST path must be \"/\"" );
@@ -196,6 +199,8 @@ ws_message( ulong conn_id, uchar const * data, ulong data_len, void * ctx ) {
   path.len = 0;
   int ret = json_values_parse(&lex, &values, &path);
   if (ret) {
+    ws->quick_size = 0;
+    fd_hcache_reset( ws->hcache );
     json_values_printout(&values);
     ret = fd_webserver_ws_subscribe(&values, conn_id, ws->cb_arg);
   } else {
@@ -222,6 +227,8 @@ void fd_web_ws_simple_error( fd_webserver_t * ws, ulong conn_id, const char* tex
 "</body>" CRLF
 "</html>" CRLF;
 
+  fd_hcache_reset(ws->hcache);
+  ws->quick_size = 0;
   fd_hcache_memcpy(ws->hcache, (const uchar*)DOC1, strlen(DOC1));
   fd_hcache_memcpy(ws->hcache, (const uchar*)text, text_size);
   fd_hcache_memcpy(ws->hcache, (const uchar*)DOC2, strlen(DOC2));
