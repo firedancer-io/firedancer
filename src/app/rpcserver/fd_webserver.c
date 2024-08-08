@@ -421,8 +421,8 @@ fd_web_reply_sprintf( fd_webserver_t * ws, const char* format, ... ) {
   va_start(ap, format);
   int r = vsnprintf(buf, remain, format, ap);
   va_end(ap);
-  if( r < 0 ) return -1;
-  if( (uint)r <= remain ) {
+  if( FD_UNLIKELY( r < 0 ) ) return -1;
+  if( FD_LIKELY( (uint)r <= remain ) ) {
     ws->quick_size += (uint)r;
     return 0;
   }
