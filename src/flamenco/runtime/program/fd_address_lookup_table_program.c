@@ -450,7 +450,7 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   fd_addrlut_t lut[1];
   int err = fd_addrlut_deserialize( lut, lut_data, lut_data_sz );
   if( FD_UNLIKELY( err ) ) { 
-    return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+    return err;
   }
 
   fd_address_lookup_table_t * state = &lut->state.inner.lookup_table;
