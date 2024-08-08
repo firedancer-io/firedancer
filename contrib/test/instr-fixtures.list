@@ -2847,6 +2847,12 @@ dump/test-vectors/instr/fixtures/stake/crash-69a7d999158549209b2a9aecc8535c4e465
 dump/test-vectors/instr/fixtures/stake/crash-7c91a7f6fd2fae3516bea36d344110d9e2bda7ff.fix
 dump/test-vectors/instr/fixtures/stake/crash-f706da836efde5073bea149eb5a7d7f4d711fbd2.fix
 
+dump/test-vectors/instr/fixtures/address-lookup-table/crash-1f3cff85b351a070fa572e17f61439fff44d4eda.fix
+dump/test-vectors/instr/fixtures/address-lookup-table/crash-f2e925185043128e1cda0e21f2ab338321383ee4.fix
+dump/test-vectors/instr/fixtures/address-lookup-table/f461825b6d5b8bba2595cd695df1067f33b1eb85_11412.fix
+dump/test-vectors/instr/fixtures/address-lookup-table/f461825b6d5b8bba2595cd695df1067f33b1eb85_11463.fix
+dump/test-vectors/instr/fixtures/address-lookup-table/f461825b6d5b8bba2595cd695df1067f33b1eb85_11602.fix
+
 dump/test-vectors/instr/fixtures/unknown/03c92eaac494266cc79290767cbedb30204ef027.fix
 dump/test-vectors/instr/fixtures/unknown/20244993cd573625d1b3a7fbb014e49d6eaef50b.fix
 dump/test-vectors/instr/fixtures/unknown/21c6858e0596980f4fafbe31b7eccc3139f4974f.fix
@@ -2877,7 +2883,6 @@ dump/test-vectors/instr/fixtures/unknown/dd289303fa6a44b0c1eddf9681fe551ab23bebd
 
 dump/test-vectors/instr/fixtures/bpf-loader-v3-programs/4c3874406b6bc014434a6b08cfd7ce957005c299.fix
 dump/test-vectors/instr/fixtures/bpf-loader-v3-programs/crash-61560dca014f17632760e7915b271cfba4fdb121.fix
-dump/test-vectors/instr/fixtures/address-lookup-table/crash-1f3cff85b351a070fa572e17f61439fff44d4eda.fix
 dump/test-vectors/instr/fixtures/bpf-loader-v3/84b8ae94c85eccaf6504d8d247c18d4ad9276d8e.fix
 
 dump/test-vectors/instr/fixtures/system/0019a144e54e30d6ffbae9c32c065fc3b492ba82.fix
