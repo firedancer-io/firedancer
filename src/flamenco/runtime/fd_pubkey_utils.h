@@ -8,10 +8,12 @@
 #define MAX_SEED_LEN (32UL)
 
 /* TODO: firedancer pubkey errors don't map to agave's implementation */
-#define FD_PUBKEY_ERR_MAX_SEED_LEN_EXCEEDED (-1)
-#define FD_PUBKEY_ERR_INVALID_SEEDS         (-2)
-#define FD_PUBKEY_ERR_NO_PDA_FOUND          (-3)
-#define FD_PUBKEY_SUCCESS                   (0 )
+#define FD_PUBKEY_SUCCESS                   (0)
+
+/* Custom error codes */
+#define FD_PUBKEY_ERR_MAX_SEED_LEN_EXCEEDED (0U)
+#define FD_PUBKEY_ERR_INVALID_SEEDS         (1U)
+#define FD_PUBKEY_ERR_ILLEGAL_OWNER         (2U)
 
 FD_PROTOTYPES_BEGIN
 
@@ -28,14 +30,15 @@ fd_pubkey_create_with_seed( fd_exec_instr_ctx_t const * ctx,
    TODO: Potentially replace with shared function in fd_vm_syscall_pda.c */
 
 int
-fd_pubkey_derive_pda( fd_pubkey_t const * program_id, 
-                      ulong               seeds_cnt, 
-                      uchar **            seeds,
-                      ulong *             seed_szs,
-                      uchar *             bump_seed, 
-                      fd_pubkey_t *       out );
+fd_pubkey_derive_pda( fd_exec_instr_ctx_t const * ctx,
+                      fd_pubkey_t const *         program_id, 
+                      ulong                       seeds_cnt, 
+                      uchar **                    seeds, 
+                      ulong *                     seed_szs,
+                      uchar *                     bump_seed, 
+                      fd_pubkey_t *               out );
 
-/* fd_pubkey_try_find_program_address mirrors the vm syscall function 
+/* fd_pubkey_find_program_address mirrors the vm syscall function 
    fd_vm_syscall_sol_try_find_program_address and creates a valid
    program derived address searching for a valid ed25519 curve point by
    iterating through 255 possible bump seeds. If any of the possible addresses
@@ -44,12 +47,13 @@ fd_pubkey_derive_pda( fd_pubkey_t const * program_id,
    TODO: Potentially replace with shared function in fd_vm_syscall_pda.c */
 
 int
-fd_pubkey_try_find_program_address( fd_pubkey_t const * program_id, 
-                                    ulong               seeds_cnt, 
-                                    uchar **            seeds,
-                                    ulong *             seed_szs,
-                                    fd_pubkey_t *       out,
-                                    uchar *             out_bump_seed );
+fd_pubkey_find_program_address( fd_exec_instr_ctx_t const * ctx,
+                                fd_pubkey_t const *         program_id, 
+                                ulong                       seeds_cnt, 
+                                uchar **                    seeds,
+                                ulong *                     seed_szs,
+                                fd_pubkey_t *               out,
+                                uchar *                     out_bump_seed );
 
 
 FD_PROTOTYPES_END
