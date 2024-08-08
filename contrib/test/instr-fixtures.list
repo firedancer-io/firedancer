@@ -2852,6 +2852,7 @@ dump/test-vectors/instr/fixtures/address-lookup-table/crash-f2e925185043128e1cda
 dump/test-vectors/instr/fixtures/address-lookup-table/f461825b6d5b8bba2595cd695df1067f33b1eb85_11412.fix
 dump/test-vectors/instr/fixtures/address-lookup-table/f461825b6d5b8bba2595cd695df1067f33b1eb85_11463.fix
 dump/test-vectors/instr/fixtures/address-lookup-table/f461825b6d5b8bba2595cd695df1067f33b1eb85_11602.fix
+dump/test-vectors/instr/fixtures/address-lookup-table/crash-3a1871a7a6c5bfbf761d9b5d493342f3be10dcbd.fix
 
 dump/test-vectors/instr/fixtures/unknown/03c92eaac494266cc79290767cbedb30204ef027.fix
 dump/test-vectors/instr/fixtures/unknown/20244993cd573625d1b3a7fbb014e49d6eaef50b.fix
