@@ -44,7 +44,6 @@ void fd_web_error( fd_webserver_t * ws, const char* format, ... ) {
   char text[4096];
   va_list ap;
   va_start(ap, format);
-  /* Would be nice to vsnprintf directly into the textstream, but that's messy */
   int x = vsnprintf(text, sizeof(text), format, ap);
   va_end(ap);
   fd_web_simple_error(ws, text, (uint)x);
@@ -54,7 +53,6 @@ void fd_web_ws_error( fd_webserver_t * ws, ulong conn_id, const char* format, ..
   char text[4096];
   va_list ap;
   va_start(ap, format);
-  /* Would be nice to vsnprintf directly into the textstream, but that's messy */
   int x = vsnprintf(text, sizeof(text), format, ap);
   va_end(ap);
   fd_web_ws_simple_error(ws, conn_id, text, (uint)x);

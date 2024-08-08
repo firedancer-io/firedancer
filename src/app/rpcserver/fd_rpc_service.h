@@ -5,7 +5,6 @@
 #include "../../funk/fd_funk.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../tango/mcache/fd_mcache.h"
-#include "../../util/textstream/fd_textstream.h"
 #include "../fdctl/run/tiles/fd_replay_notif.h"
 #include "../../ballet/http/fd_http_server.h"
 #include "fd_block_to_json.h"
