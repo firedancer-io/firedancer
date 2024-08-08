@@ -2110,10 +2110,9 @@ move_lamports(fd_exec_instr_ctx_t const * ctx,
   ulong source_free_lamports;
   switch( source_merge_kind.discriminant ) {
     case merge_kind_fully_active: {
-      source_free_lamports = fd_ulong_sat_sub( source_account->const_meta->info.lamports,
-                                                fd_ulong_sat_sub( 
-                                                  source_merge_kind.inner.fully_active.stake.delegation.stake,
-                                                  source_merge_kind.inner.fully_active.meta.rent_exempt_reserve ) );
+      source_free_lamports = fd_ulong_sat_sub( fd_ulong_sat_sub( source_account->const_meta->info.lamports,
+                                                                 source_merge_kind.inner.fully_active.stake.delegation.stake ),
+                                                source_merge_kind.inner.fully_active.meta.rent_exempt_reserve );
       
       break;
     }
