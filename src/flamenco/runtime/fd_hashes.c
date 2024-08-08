@@ -982,7 +982,7 @@ fd_accounts_sorted_subrange_task( void *tpool,
 
 int
 fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, ulong tpool_start, ulong tpool_end, fd_hash_t * accounts_hash, ulong do_hash_verify ) {
-  FD_LOG_NOTICE(("accounts_hash start with do_hash_verify=%s  tpool_start=%d  tpool_end=%dd", (void *)do_hash_verify ? "true" : "false" , tpool_start, tpool_end));
+  FD_LOG_NOTICE(("accounts_hash start with do_hash_verify=%s  tpool_start=%d  tpool_end=%d", (void *)do_hash_verify ? "true" : "false" , tpool_start, tpool_end));
 
   if( tpool == NULL || (tpool_end - tpool_start) <= 1U ) {
     ulong                   num_pairs = 0;

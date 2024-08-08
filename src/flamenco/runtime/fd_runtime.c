@@ -2611,6 +2611,22 @@ fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
   }
 }
 
+void
+fd_bg_account_hash(void * _tpool,
+                    ulong  t0,     ulong t1,
+                    void * args,
+                    void * reduce, ulong stride,
+                    ulong  l0,     ulong l1,
+                    ulong  m0,     ulong m1,
+                    ulong  n0,     ulong n1 ) {
+  (void) t0; (void) t1; (void) args; (void) reduce; (void) stride; (void) l0; (void) l1; (void) m0; (void) m1; (void) n0; (void) n1;
+  fd_exec_slot_ctx_t * slot_ctx = (fd_exec_slot_ctx_t *) args;
+  fd_tpool_t * tpool = (fd_tpool_t *) _tpool;
+
+  fd_accounts_hash( slot_ctx, tpool, tpool->worker_cnt, tpool->worker_cnt + 1,  &slot_ctx->slot_bank.epoch_account_hash, 0 );
+  tpool->worker_cnt += 1;
+}
+
 static int
 fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
                              fd_capture_ctx_t * capture_ctx,
@@ -2637,7 +2653,14 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
       if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
         fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
         if (txn->xid.ul[0] >= epoch_bank->eah_start_slot) {
-          fd_accounts_hash( slot_ctx, tpool, 0, fd_tpool_worker_cnt( tpool ),  &slot_ctx->slot_bank.epoch_account_hash, 0 );
+          // Lets revisit these constants once this works...
+          fd_memset(&slot_ctx->slot_bank.epoch_account_hash, 0, sizeof(slot_ctx->slot_bank.epoch_account_hash));
+          if (tpool->worker_cnt < 2) {
+            fd_accounts_hash( slot_ctx, tpool, 0, fd_tpool_worker_cnt( tpool ),  &slot_ctx->slot_bank.epoch_account_hash, 0 );
+          } else {
+            tpool->worker_cnt -= 1;
+            fd_tpool_exec(tpool, tpool->worker_cnt, fd_bg_account_hash, tpool, 0, 0, slot_ctx, 0, 0, 0, 0, 0, 0, 0, 0);
+          }
           epoch_bank->eah_start_slot = ULONG_MAX;
         }
       }
