@@ -1578,11 +1578,11 @@ update_commission( ulong                       vote_acct_idx,
   int enforce_commission_update_rule = 1;
   if (FD_FEATURE_ACTIVE( ctx->slot_ctx, allow_commission_decrease_at_any_time )) {
     rc = get_state( vote_account, scratch_valloc, &vote_state_versioned );
-    if( FD_UNLIKELY( rc ) ) return rc;
-    convert_to_current( &vote_state_versioned, scratch_valloc );
-    vote_state = &vote_state_versioned.inner.current;
-
-    enforce_commission_update_rule = commission > vote_state->commission;
+    if ( FD_LIKELY( rc==FD_EXECUTOR_INSTR_SUCCESS ) ) {
+      convert_to_current( &vote_state_versioned, scratch_valloc );
+      vote_state = &vote_state_versioned.inner.current;
+      enforce_commission_update_rule = commission > vote_state->commission;
+    }
   }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L940
