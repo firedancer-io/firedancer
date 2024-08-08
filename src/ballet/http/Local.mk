@@ -1,5 +1,5 @@
-$(call add-hdrs,picohttpparser.h fd_sha1.h)
-$(call add-objs,fd_http_server fd_picohttpparser fd_sha1,fd_ballet)
+$(call add-hdrs,fd_http_server.h fd_hcache.h picohttpparser.h fd_sha1.h)
+$(call add-objs,fd_http_server fd_hcache fd_picohttpparser fd_sha1,fd_ballet)
 
 # Apply local patch to picohttpparser then compile to get the object
 src/ballet/http/fd_picohttpparser.c: src/ballet/http/picohttpparser.c src/ballet/http/fd_picohttpparser.patch
