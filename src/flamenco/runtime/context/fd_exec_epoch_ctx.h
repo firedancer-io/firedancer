@@ -123,6 +123,9 @@ fd_exec_epoch_ctx_leaders( fd_exec_epoch_ctx_t * ctx ) {
   return (fd_epoch_leaders_t *)((uchar *)ctx + ctx->layout.leaders_off);
 }
 
+void
+fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self, fd_exec_epoch_ctx_t * prev );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_context_fd_exec_epoch_ctx_h */

@@ -57,6 +57,9 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
    https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/src/transaction_context.rs#L647 */
 
 #define FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( _ctx, _idx, _account ) do {   \
+  if( FD_UNLIKELY( _idx>=(_ctx)->instr->acct_cnt ) ) {                    \
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;                     \
+  }                                                                       \
   fd_borrowed_account_t * _account = NULL;                                \
   int _err = fd_instr_borrowed_account_view_idx( _ctx, _idx, &_account ); \
   if( FD_UNLIKELY( _err != FD_ACC_MGR_SUCCESS ) ) {                       \

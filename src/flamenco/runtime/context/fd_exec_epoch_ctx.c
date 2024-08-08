@@ -187,41 +187,41 @@ fd_exec_epoch_ctx_epoch_bank_delete( fd_exec_epoch_ctx_t * epoch_ctx ) {
 void
 fd_exec_epoch_ctx_bank_mem_clear( fd_exec_epoch_ctx_t * epoch_ctx ) {
   fd_epoch_bank_t * const epoch_bank = &epoch_ctx->epoch_bank;
-{
-  fd_vote_accounts_pair_t_mapnode_t * old_pool = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
-  fd_vote_accounts_pair_t_mapnode_t * old_root = epoch_bank->stakes.vote_accounts.vote_accounts_root;
-  fd_vote_accounts_pair_t_map_release_tree( old_pool, old_root );
-}
-{
-  fd_delegation_pair_t_mapnode_t * old_pool = epoch_bank->stakes.stake_delegations_pool;
-  fd_delegation_pair_t_mapnode_t * old_root = epoch_bank->stakes.stake_delegations_root;
-  fd_delegation_pair_t_map_release_tree( old_pool, old_root );
-}
-{
-  fd_stake_history_entry_t * old_pool  = epoch_bank->stakes.stake_history.pool;
-  fd_stake_history_treap_t * old_treap = epoch_bank->stakes.stake_history.treap;
+  {
+    fd_vote_accounts_pair_t_mapnode_t * old_pool = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
+    fd_vote_accounts_pair_t_mapnode_t * old_root = epoch_bank->stakes.vote_accounts.vote_accounts_root;
+    fd_vote_accounts_pair_t_map_release_tree( old_pool, old_root );
+  }
+  {
+    fd_delegation_pair_t_mapnode_t * old_pool = epoch_bank->stakes.stake_delegations_pool;
+    fd_delegation_pair_t_mapnode_t * old_root = epoch_bank->stakes.stake_delegations_root;
+    fd_delegation_pair_t_map_release_tree( old_pool, old_root );
+  }
+  {
+    fd_stake_history_entry_t * old_pool  = epoch_bank->stakes.stake_history.pool;
+    fd_stake_history_treap_t * old_treap = epoch_bank->stakes.stake_history.treap;
 
-  if ( old_pool && old_treap ) {
-    ulong elem_cnt = 0UL;
-    ulong keys[FD_SYSVAR_STAKE_HISTORY_CAP] = {0};
-    for( fd_stake_history_treap_fwd_iter_t iter = fd_stake_history_treap_fwd_iter_init( old_treap, old_pool );
-        !fd_stake_history_treap_fwd_iter_done( iter );
-        iter = fd_stake_history_treap_fwd_iter_next( iter, old_pool ) ) {
-      fd_stake_history_entry_t const * ele = fd_stake_history_treap_fwd_iter_ele_const( iter, old_pool );
-      keys[elem_cnt++] = ele->epoch;
-    }
-    for (ulong i=0UL; i<elem_cnt; i++) {
-      fd_stake_history_entry_t * ele = fd_stake_history_treap_ele_query( old_treap, keys[i], old_pool );
-      old_treap = fd_stake_history_treap_ele_remove( old_treap, ele, old_pool );
-      fd_stake_history_pool_ele_release( old_pool, ele );
+    if ( old_pool && old_treap ) {
+      ulong elem_cnt = 0UL;
+      ulong keys[FD_SYSVAR_STAKE_HISTORY_CAP] = {0};
+      for( fd_stake_history_treap_fwd_iter_t iter = fd_stake_history_treap_fwd_iter_init( old_treap, old_pool );
+          !fd_stake_history_treap_fwd_iter_done( iter );
+          iter = fd_stake_history_treap_fwd_iter_next( iter, old_pool ) ) {
+        fd_stake_history_entry_t const * ele = fd_stake_history_treap_fwd_iter_ele_const( iter, old_pool );
+        keys[elem_cnt++] = ele->epoch;
+      }
+      for (ulong i=0UL; i<elem_cnt; i++) {
+        fd_stake_history_entry_t * ele = fd_stake_history_treap_ele_query( old_treap, keys[i], old_pool );
+        old_treap = fd_stake_history_treap_ele_remove( old_treap, ele, old_pool );
+        fd_stake_history_pool_ele_release( old_pool, ele );
+      }
     }
   }
-}
-{
-  fd_vote_accounts_pair_t_mapnode_t * old_pool = epoch_bank->next_epoch_stakes.vote_accounts_pool;
-  fd_vote_accounts_pair_t_mapnode_t * old_root = epoch_bank->next_epoch_stakes.vote_accounts_root;
-  fd_vote_accounts_pair_t_map_release_tree( old_pool, old_root );
-}
+  {
+    fd_vote_accounts_pair_t_mapnode_t * old_pool = epoch_bank->next_epoch_stakes.vote_accounts_pool;
+    fd_vote_accounts_pair_t_mapnode_t * old_root = epoch_bank->next_epoch_stakes.vote_accounts_root;
+    fd_vote_accounts_pair_t_map_release_tree( old_pool, old_root );
+  }
 }
 
 fd_epoch_bank_t *
@@ -240,16 +240,44 @@ fd_exec_epoch_ctx_bank_mem_setup( fd_exec_epoch_ctx_t * self ) {
 
   epoch_bank->stakes.vote_accounts.vote_accounts_pool =
     fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( stake_votes_mem,         layout->vote_acc_max        ) );
+
   epoch_bank->stakes.stake_delegations_pool =
     fd_delegation_pair_t_map_join   ( fd_delegation_pair_t_map_new   ( stake_delegations_mem,   layout->vote_acc_max        ) );
+
   epoch_bank->stakes.stake_history.treap =
     fd_stake_history_treap_join     ( fd_stake_history_treap_new     ( stake_history_treap_mem, FD_SYSVAR_STAKE_HISTORY_CAP ) );
   epoch_bank->stakes.stake_history.pool =
     fd_stake_history_pool_join      ( fd_stake_history_pool_new      ( stake_history_pool_mem,  FD_SYSVAR_STAKE_HISTORY_CAP ) );
+
   epoch_bank->next_epoch_stakes.vote_accounts_pool =
     fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( next_epoch_stakes_mem,   layout->vote_acc_max        ) );
+
   //TODO support separate epoch leaders new and init
   //fd_epoch_leaders_new           ( leaders_mem,             MAX_PUB_CNT, MAX_SLOTS_CNT );
 
   return epoch_bank;
+}
+
+void
+fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self, fd_exec_epoch_ctx_t * prev ) {
+  fd_memcpy( &self->features, &prev->features, sizeof(fd_features_t) );
+  self->bank_hash_cmp = prev->bank_hash_cmp;
+
+  fd_epoch_bank_t * old_epoch_bank = fd_exec_epoch_ctx_epoch_bank( prev );
+  fd_epoch_bank_t * new_epoch_bank = fd_exec_epoch_ctx_bank_mem_setup( self );
+
+  FD_SCRATCH_SCOPE_BEGIN {
+
+    ulong sz = fd_epoch_bank_size( old_epoch_bank );
+    uchar * buf = fd_scratch_alloc( fd_epoch_bank_align(), sz );
+
+    fd_bincode_encode_ctx_t encode = {.data = buf, .dataend = buf + sz };
+    fd_epoch_bank_encode( old_epoch_bank, &encode );
+
+    fd_bincode_decode_ctx_t decode = {.data = buf, .dataend = buf + sz, .valloc = fd_null_alloc_virtual() };
+    fd_epoch_bank_decode( new_epoch_bank, &decode);
+
+    sz = fd_ulong_align_up( fd_epoch_leaders_footprint( MAX_PUB_CNT, MAX_SLOTS_CNT ), fd_epoch_leaders_align() );
+    fd_memcpy( fd_exec_epoch_ctx_leaders( self ), fd_exec_epoch_ctx_leaders( prev ), sz );
+  } FD_SCRATCH_SCOPE_END;
 }
