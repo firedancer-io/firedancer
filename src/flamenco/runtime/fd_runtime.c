@@ -2624,7 +2624,10 @@ fd_bg_account_hash(void * _tpool,
   fd_tpool_t * tpool = (fd_tpool_t *) _tpool;
 
   fd_accounts_hash( slot_ctx, tpool, tpool->worker_cnt, tpool->worker_cnt + 1,  &slot_ctx->slot_bank.epoch_account_hash, 0 );
+
+  // Maybe we need to set a flag and have this done in the main thread?
   tpool->worker_cnt += 1;
+  slot_ctx->epoch_ctx->constipate_root = 0;
 }
 
 static int
@@ -2641,7 +2644,16 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
       FD_LOG_DEBUG(("publishing %32J (slot %ld)", &txn->xid, txn->xid.ul[0]));
 
       fd_funk_start_write(funk);
-      ulong publish_err = fd_funk_txn_publish(funk, txn, 1);
+      ulong publish_err = 0;
+      // todo: this publish_err thing is bs...
+      if (slot_ctx->epoch_ctx->constipate_root) {
+        if (fd_funk_txn_parent(txn, txnmap) != NULL) {
+          if ( fd_funk_txn_publish_into_parent(funk, txn, 1) == FD_FUNK_SUCCESS)
+            publish_err = 1;
+        } else
+          publish_err = 1;
+      } else
+        publish_err = fd_funk_txn_publish(funk, txn, 1);
       if (publish_err == 0) {
         FD_LOG_ERR(("publish err"));
         return -1;
@@ -2659,6 +2671,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
             fd_accounts_hash( slot_ctx, tpool, 0, fd_tpool_worker_cnt( tpool ),  &slot_ctx->slot_bank.epoch_account_hash, 0 );
           } else {
             tpool->worker_cnt -= 1;
+            slot_ctx->epoch_ctx->constipate_root = 1;
             fd_tpool_exec(tpool, tpool->worker_cnt, fd_bg_account_hash, tpool, 0, 0, slot_ctx, 0, 0, 0, 0, 0, 0, 0, 0);
           }
           epoch_bank->eah_start_slot = ULONG_MAX;
