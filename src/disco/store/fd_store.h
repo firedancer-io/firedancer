@@ -18,8 +18,7 @@
 
 struct fd_repair_backoff {
   ulong slot;
-  long  initial_delay;
-  long  last_backoff;
+  long last_repair_time;
 };
 typedef struct fd_repair_backoff fd_repair_backoff_t;
 static const fd_acct_addr_t chkdup_null_addr = {{ 0 }};
