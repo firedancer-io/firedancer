@@ -982,11 +982,9 @@ fd_accounts_sorted_subrange_task( void *tpool,
 
 int
 fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, ulong tpool_start, ulong tpool_end, fd_hash_t * accounts_hash, ulong do_hash_verify ) {
-  (void) tpool_start;
-  (void) tpool_end;
-  FD_LOG_NOTICE(("accounts_hash start with do_hash_verify=%s", (void *)do_hash_verify ? "true" : "false" ));
+  FD_LOG_NOTICE(("accounts_hash start with do_hash_verify=%s  tpool_start=%d  tpool_end=%dd", (void *)do_hash_verify ? "true" : "false" , tpool_start, tpool_end));
 
-  if( tpool == NULL || fd_tpool_worker_cnt( tpool ) <= 1U ) {
+  if( tpool == NULL || (tpool_end - tpool_start) <= 1U ) {
     ulong                   num_pairs = 0;
     fd_pubkey_hash_pair_t * pairs = fd_accounts_sorted_subrange( slot_ctx, 0, 1, do_hash_verify, &num_pairs );
     FD_TEST(NULL != pairs);
@@ -995,7 +993,7 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, ulong tpool
     fd_valloc_free( slot_ctx->valloc, pairs );
 
   } else {
-    ulong num_lists = fd_tpool_worker_cnt( tpool );
+    ulong num_lists = tpool_end - tpool_start;
     FD_LOG_NOTICE(( "launching %lu hash tasks", num_lists ));
     fd_pubkey_hash_pair_list_t lists[num_lists];
     fd_subrange_task_info_t task_info = {
@@ -1003,7 +1001,7 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, ulong tpool
       .do_hash_verify = do_hash_verify,
       .num_lists = num_lists,
       .lists = lists };
-    fd_tpool_exec_all_rrobin( tpool, 0, num_lists, fd_accounts_sorted_subrange_task, &task_info, NULL, NULL, 1, 0, num_lists );
+    fd_tpool_exec_all_rrobin( tpool, tpool_start, tpool_end, fd_accounts_sorted_subrange_task, &task_info, NULL, NULL, 1, 0, num_lists );
     fd_hash_account_deltas( lists, num_lists, accounts_hash, slot_ctx );
     for( ulong i = 0; i < num_lists; ++i ) {
       fd_valloc_free( slot_ctx->valloc, lists[i].pairs );
