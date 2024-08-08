@@ -427,7 +427,7 @@ fd_web_reply_sprintf( fd_webserver_t * ws, const char* format, ... ) {
   int r = vsnprintf(buf, remain, format, ap);
   va_end(ap);
   if( FD_UNLIKELY( r < 0 ) ) return -1;
-  if( FD_LIKELY( (uint)r <= remain ) ) {
+  if( FD_LIKELY( (uint)r < remain ) ) {
     ws->quick_size += (uint)r;
     return 0;
   }
@@ -437,7 +437,7 @@ fd_web_reply_sprintf( fd_webserver_t * ws, const char* format, ... ) {
   va_start(ap, format);
   r = vsnprintf(buf, FD_WEBSERVER_QUICK_MAX, format, ap);
   va_end(ap);
-  if( r < 0 || (uint)r > FD_WEBSERVER_QUICK_MAX ) return -1;
+  if( r < 0 || (uint)r >= FD_WEBSERVER_QUICK_MAX ) return -1;
   ws->quick_size = (uint)r;
   return 0;
 }
