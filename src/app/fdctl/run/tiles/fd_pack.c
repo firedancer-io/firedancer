@@ -14,9 +14,9 @@
    multiple microblocks can execute in parallel, if they don't
    write to the same accounts. */
 
-#define DEDUP_IN_IDX (0UL)
-#define POH_IN_IDX   (1UL)
-#define TOTAL_IN_IDX (2UL)
+#define DEDUP_IN_IDX     (0UL)
+#define POH_IN_IDX       (1UL)
+#define BANK_BASE_IN_IDX (2UL)
 
 #define MAX_SLOTS_PER_EPOCH          432000UL
 
@@ -65,7 +65,7 @@ FD_IMPORT( wait_duration, "src/ballet/pack/pack_delay.bin", ulong, 6, "" );
    very next slot, it can still take some time to transition.  This is
    because the bank has to be finalized, a hash calculated, and various
    other things done in the replay stage to create the new child bank.
-   
+
    During that time, pack cannot send transactions to banks so it needs
    to be able to buffer.  Typically, these so called "leader
    transitions" are short (<15 millis), so a low value here would
@@ -181,6 +181,10 @@ typedef struct {
     long metric_state_begin;
     long metric_timing[ 16 ];
   };
+
+  /* Used between during_frag and after_frag */
+  ulong pending_rebate_cnt;
+  fd_txn_p_t pending_rebate[ MAX_TXN_PER_MICROBLOCK ]; /* indexed [0, pending_rebate_cnt) */
 } fd_pack_ctx_t;
 
 
@@ -503,6 +507,21 @@ during_frag( void * _ctx,
     return;
   }
 
+  if( FD_UNLIKELY( in_idx>=BANK_BASE_IN_IDX ) ) {
+    if( FD_UNLIKELY( fd_disco_poh_sig_slot( sig )!=ctx->leader_slot ) ) {
+      /* For a previous slot */
+      *opt_filter = 1;
+      return;
+    }
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<sizeof(fd_microblock_trailer_t)
+          || sz>sizeof(fd_microblock_trailer_t)+sizeof(fd_txn_p_t)*MAX_TXN_PER_MICROBLOCK ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+    ctx->pending_rebate_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
+    fd_memcpy( ctx->pending_rebate, dcache_entry, sz-sizeof(fd_microblock_trailer_t) );
+    return;
+  }
+
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_DCACHE_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
@@ -574,6 +593,9 @@ after_frag( void *             _ctx,
   if( FD_UNLIKELY( in_idx==POH_IN_IDX ) ) {
     ctx->slot_end_ns = ctx->_slot_end_ns;
     fd_pack_set_block_limits( ctx->pack, ctx->slot_max_microblocks, ctx->slot_max_data );
+  } else if( FD_UNLIKELY( in_idx>=BANK_BASE_IN_IDX ) ) {
+    fd_pack_rebate_cus( ctx->pack, ctx->pending_rebate, ctx->pending_rebate_cnt );
+    ctx->pending_rebate_cnt = 0UL;
   } else {
     /* Normal transaction case */
     if( FD_LIKELY( !ctx->insert_to_extra ) ) {
@@ -594,7 +616,7 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  if( FD_UNLIKELY( tile->in_cnt!=TOTAL_IN_IDX ||
+  if( FD_UNLIKELY( tile->in_cnt!=BANK_BASE_IN_IDX+tile->pack.bank_tile_count ||
                    strcmp( topo->links[ tile->in_link_id[ DEDUP_IN_IDX ] ].name, "dedup_pack" ) ||
                    strcmp( topo->links[ tile->in_link_id[ POH_IN_IDX   ] ].name, "poh_pack"   ) ) ) {
     FD_LOG_ERR(( "pack tile has none or unexpected input links %lu %s %s",
@@ -602,6 +624,13 @@ unprivileged_init( fd_topo_t *      topo,
                  tile->in_cnt>=1 ? topo->links[ tile->in_link_id[ 0 ] ].name : "NULL",
                  tile->in_cnt>=2 ? topo->links[ tile->in_link_id[ 1 ] ].name : "NULL" ));
   }
+  for( ulong i=0UL; i<tile->pack.bank_tile_count; i++ ) {
+    if( FD_UNLIKELY( strcmp( topo->links[ tile->in_link_id[ i+BANK_BASE_IN_IDX ] ].name, "bank_poh" ) ) ) {
+      FD_LOG_ERR(( "pack tile listening to unexpected link %lu %s", i+BANK_BASE_IN_IDX,
+            topo->links[ tile->in_link_id[ i+BANK_BASE_IN_IDX ] ].name ));
+    }
+  }
+  if( FD_UNLIKELY( tile->in_cnt>32UL ) ) FD_LOG_ERR(( "Too many bank tiles" ));
 
   ulong out_cnt = fd_topo_link_consumer_cnt( topo, &topo->links[ tile->out_link_id_primary ] );
 
