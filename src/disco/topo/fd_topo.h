@@ -229,6 +229,7 @@ typedef struct {
       uchar src_mac_addr[ 6 ];
       int   vote;
       char  vote_account_path[ PATH_MAX ];
+      ulong bank_tile_count;
     } replay;
 
     struct {

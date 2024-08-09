@@ -254,7 +254,7 @@ after_frag( void *             _ctx,
   for( ulong i = 0; i < ctx->s34_buffer->shred_cnt; i++ ) {
     fd_shred_t * shred = &ctx->s34_buffer->pkts[i].shred;
     // TODO: these checks are not great as they assume a lot about the distance of shreds.
-    if( FD_UNLIKELY( (long)(ctx->store->pending_slots->end - shred->slot) > (long)FD_PENDING_MAX ) ) {
+    if( FD_UNLIKELY( (long)(ctx->store->pending_slots->end - shred->slot) > (long)(FD_PENDING_MAX/2UL) )) {
       FD_LOG_WARNING(("received shred %lu that would overrun pending queue. skipping.", shred->slot));
       continue;
     }
@@ -300,21 +300,6 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
                             ulong slot ) {
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_repair_request_t * repair_reqs = fd_chunk_to_laddr( ctx->repair_req_out_mem, ctx->repair_req_out_chunk );
-  fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, slot );
-
-  fd_pubkey_t const * slot_leader = NULL;
-  if( FD_LIKELY( !ctx->sim ) ) {
-    if( FD_UNLIKELY( !lsched ) ) {
-    // FD_LOG_WARNING(("Get leader schedule for slot %lu failed", slot));
-      return;
-    }
-
-    slot_leader = fd_epoch_leaders_get( lsched, slot );
-    if( FD_UNLIKELY( !slot_leader ) ) {
-      FD_LOG_WARNING(( "Epoch leaders get fails" ));
-      return;
-    }
-  }
   /* We are leader at this slot and the slot is newer than turbine! */
   // FIXME: I dont think that this `ctx->store->curr_turbine_slot >= slot`
   // check works on fork switches to lower slot numbers. Use a given fork height
@@ -383,7 +368,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
     fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, slot );
     if( block == NULL ) {
-      FD_LOG_ERR(( "could not find block" ));
+      FD_LOG_ERR(( "could not find block - slot: %lu", slot ));
     }
 
     fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
@@ -431,6 +416,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       if( FD_UNLIKELY( fd_trusted_slots_find( ctx->trusted_slots, slot ) ) ) {
         /* if is caught up and is leader */
         replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
+        FD_LOG_INFO(( "packed block prepared - slot: %lu, mblks: %lu %lu, blockhash: %32J, txn_cnt: %lu, tick_cnt: %lu, shred_cnt: %lu, data_sz: %lu", slot, block->micros_cnt, block_info.microblock_cnt, block_hash->uc, block_info.txn_cnt, tick_cnt, block->shreds_cnt, block->data_sz ));
       } else {
         fd_txn_p_t * txns = fd_type_pun( out_buf );
         FD_LOG_DEBUG(( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
@@ -470,7 +456,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
         } else {
           replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
         }
-        FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %32J, txn_cnt: %lu, tick_cnt: %lu", slot, block_info.microblock_cnt, block_hash->uc, txn_cnt, tick_cnt ));
+        FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %32J, txn_cnt: %lu, tick_cnt: %lu, shred_cnt: %lu", slot, block_info.microblock_cnt, block_hash->uc, txn_cnt, tick_cnt, block->shreds_cnt ));
       }
 
       out_buf += sizeof(ulong);

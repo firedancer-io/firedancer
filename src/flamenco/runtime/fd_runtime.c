@@ -46,6 +46,7 @@
 #include "../vm/fd_vm.h"
 #include "fd_blockstore.h"
 #include "../../ballet/pack/fd_pack.h"
+#include "../fd_rwlock.h"
 
 #include <stdio.h>
 #include <ctype.h>
@@ -752,6 +753,7 @@ fd_runtime_execute_txn_task(void *tpool,
 
   task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
   if( task_info->exec_res != 0 ) {
+    FD_LOG_WARNING(("EXEC FAILED: %d %u %32J", task_info->exec_res, task_info->txn_ctx->custom_err, task_info->txn_ctx->failed_instr->instr->program_id_pubkey.uc ));
     return;
   }
   fd_txn_reclaim_accounts( task_info->txn_ctx );

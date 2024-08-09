@@ -35,7 +35,7 @@ test_false_positive_rate( float      expected,
   ulong const iters = 1000000UL;
   ulong false_positives = 0UL;
   fd_acct_addr_t l0[128];
-  fd_acct_addr_t l1[128];
+  fd_acct_addr_t l1[128] = { 0 };
 
   fd_chkdup_t _mem[1];
   fd_chkdup_t * chkdup = fd_chkdup_join( fd_chkdup_new( _mem, rng ) );
@@ -100,7 +100,7 @@ test_null( checker    f,
   }
   FD_LOG_NOTICE(( "Had %lu false positives out of 136", false_positive_count ));
 
-
+ 
   fd_chkdup_delete( fd_chkdup_leave( chkdup ) );
 
   return 1;

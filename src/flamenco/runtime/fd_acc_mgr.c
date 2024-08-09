@@ -5,6 +5,7 @@
 #include "fd_rent_lists.h"
 #include "fd_rocksdb.h"
 #include "sysvar/fd_sysvar_rent.h"
+#include "fd_system_ids.h"
 #include <assert.h>
 
 #pragma GCC diagnostic ignored "-Wformat"
@@ -131,7 +132,10 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
                  fd_funk_txn_t const *   txn,
                  fd_pubkey_t const *     pubkey,
                  fd_borrowed_account_t * account) {
-
+  if( fd_pubkey_is_builtin_program( pubkey )
+      || memcmp(pubkey->uc, fd_solana_compute_budget_program_id.uc, sizeof(fd_pubkey_t))==0 ) {
+    txn = NULL;
+  }
   int err = FD_ACC_MGR_SUCCESS;
   fd_account_meta_t const * meta = fd_acc_mgr_view_raw( acc_mgr, txn, pubkey, &account->const_rec, &err );
   if (FD_UNLIKELY( !fd_acc_exists( meta ) ) ) {
@@ -446,7 +450,8 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
     };
 
     /* Save accounts in a thread pool */
-    fd_tpool_exec_all_taskq( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_acc_mgr_save_task, task_infos, &task_args, NULL, 1, 0, batch_cnt );
+
+    fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_acc_mgr_save_task, task_infos, &task_args, NULL, 1, 0, batch_cnt );
 
     fd_funk_end_write( funk );
 

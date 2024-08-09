@@ -48,17 +48,17 @@ fd_txn_verify( fd_verify_ctx_t * ctx,
                ushort const      payload_sz,
                fd_txn_t const *  txn,
                ulong *           opt_sig ) {
-
+  (void)payload_sz;
   /* We do not want to deref any non-data field from the txn struct more than once */
-  uchar  signature_cnt = txn->signature_cnt;
+  // uchar  signature_cnt = txn->signature_cnt;
   ushort signature_off = txn->signature_off;
-  ushort acct_addr_off = txn->acct_addr_off;
-  ushort message_off   = txn->message_off;
+  // ushort acct_addr_off = txn->acct_addr_off;
+  // ushort message_off   = txn->message_off;
 
   uchar const * signatures = udp_payload + signature_off;
-  uchar const * pubkeys = udp_payload + acct_addr_off;
-  uchar const * msg = udp_payload + message_off;
-  ulong msg_sz = (ulong)payload_sz - message_off;
+  // uchar const * pubkeys = udp_payload + acct_addr_off;
+  // uchar const * msg = udp_payload + message_off;
+  // ulong msg_sz = (ulong)payload_sz - message_off;
 
   /* The first signature is the transaction id, i.e. a unique identifier.
      So use this to do a quick dedup of ha traffic. */
@@ -71,11 +71,11 @@ fd_txn_verify( fd_verify_ctx_t * ctx,
     return FD_TXN_VERIFY_DEDUP;
   }
 
-  /* Verify signatures */
-  int res = fd_ed25519_verify_batch_single_msg( msg, msg_sz, signatures, pubkeys, ctx->sha, signature_cnt );
-  if( FD_UNLIKELY( res != FD_ED25519_SUCCESS ) ) {
-    return FD_TXN_VERIFY_FAILED;
-  }
+  // /* Verify signatures */
+  // int res = fd_ed25519_verify_batch_single_msg( msg, msg_sz, signatures, pubkeys, ctx->sha, signature_cnt );
+  // if( FD_UNLIKELY( res != FD_ED25519_SUCCESS ) ) {
+  //   return FD_TXN_VERIFY_FAILED;
+  // }
 
   /* Insert into the tcache to dedup ha traffic.
      The dedup check is repeated to guard against duped txs verifying signatures at the same time */

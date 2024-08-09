@@ -314,7 +314,8 @@ during_frag( void * _ctx,
        microblock pulled first -- so the bank commit and poh mixin order
        is not the same.  Ideally we would resolve this a bit more
        cleverly and without holding the account locks this much longer. */
-    fd_fseq_update( ctx->bank_busy[ ctx->_microblock_trailer->bank_idx ], ctx->_microblock_trailer->bank_busy_seq );
+    // FD_LOG_WARNING(("MBLK3 %lu %lu", fd_disco_replay_sig_slot( sig ), ctx->_microblock_trailer->bank_busy_seq));
+    // fd_fseq_update( ctx->bank_busy[ ctx->_microblock_trailer->bank_idx ], ctx->_microblock_trailer->bank_busy_seq );
 
     *opt_filter = is_frag_for_prior_leader_slot;
   }

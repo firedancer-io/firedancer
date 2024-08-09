@@ -16,6 +16,9 @@
 #define MAP_MEMOIZE           1
 #include "../util/tmpl/fd_map_giant.c"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 FD_FN_PURE ulong
 fd_funk_rec_map_list_idx( fd_funk_rec_t const * join,
                           fd_funk_xid_key_pair_t const * key ) {
@@ -51,7 +54,7 @@ fd_funk_rec_query_global( fd_funk_t *               funk,
   fd_wksp_t * wksp = fd_funk_wksp( funk );
 
   fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
-
+  // ulong cnt = 0UL;
   if( txn ) { /* Query txn and its in-prep ancestors */
 
     fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
@@ -67,13 +70,19 @@ fd_funk_rec_query_global( fd_funk_t *               funk,
     do {
       fd_funk_xid_key_pair_t pair[1]; fd_funk_xid_key_pair_init( pair, fd_funk_txn_xid( txn ), key );
       fd_funk_rec_t const * rec = fd_funk_rec_map_query_const( rec_map, pair, NULL );
-      if( FD_LIKELY( rec ) ) return rec;
+      // cnt++;
+    if( FD_LIKELY( rec ) ) {
+        // FD_LOG_INFO(("YELLO1 %lu %32J", cnt, key->uc));
+        return rec;
+      }
       txn = fd_funk_txn_parent( (fd_funk_txn_t *)txn, txn_map );
     } while( FD_UNLIKELY( txn ) );
 
   }
 
+  // cnt++;
   /* Query the last published transaction */
+  // FD_LOG_INFO(("YELLO1 %lu %32J", cnt, key->uc));
 
   fd_funk_xid_key_pair_t pair[1]; fd_funk_xid_key_pair_init( pair, fd_funk_root( funk ), key );
   return fd_funk_rec_map_query_const( rec_map, pair, NULL );

@@ -365,7 +365,7 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
 #define MAX_MICROS ( 16 << 10 )
   fd_block_micro_t micros[MAX_MICROS];
   ulong            micros_cnt = 0;
-#define MAX_TXNS ( 1 << 18 )
+#define MAX_TXNS ( 1 << 17 )
   fd_block_txn_ref_t txns[MAX_TXNS];
   ulong              txns_cnt = 0;
 
