@@ -79,7 +79,7 @@ fuzz_bmtree( fd_bmtree_node_t const * leafs,
   /* tree has the expected amount of leafs */
   assert( leaf_cnt == fd_bmtree_commit_leaf_cnt( tree ) );
 
-  /* commmit to the tree */
+  /* commit to the tree */
   uchar * root_1 = fd_bmtree_commit_fini( tree );
   assert( root_1 );
 

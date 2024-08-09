@@ -11,11 +11,11 @@
    format is as follows: 
    
    [ account 1 metadata, account 1 data, account 2 metadata, account 2 data, ...,
-     acccount N metadata, account N data, instruction info. ]
+     account N metadata, account N data, instruction info. ]
 
   This format by no means comprehensive, but it should give an idea of how 
   the input region is laid out. When direct mapping is not enabled, the input
-  region is stored as a single contigious buffer. This buffer in the host 
+  region is stored as a single contiguous buffer. This buffer in the host
   address space is then mapped to the VM virtual address space (the range 
   starting with 0x400...). This means to serialize into the input region, we
   need to copy in the account metadata and account data into the buffer for
@@ -40,7 +40,7 @@
 /* Add a new memory region to represent the input region. All of the memory
    regions here have sorted virtual addresses. These regions may or may not
    correspond to an account's data region. If it corresponds to metadata,
-   the pubkey for the rgion will be NULL. */
+   the pubkey for the region will be NULL. */
 static void
 new_input_mem_region( fd_vm_input_region_t * input_mem_regions,
                       uint *                 input_mem_regions_cnt,
@@ -64,7 +64,7 @@ new_input_mem_region( fd_vm_input_region_t * input_mem_regions,
 /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L93-L130 */
 /* This function handles casing for direct mapping being enabled as well as if
    the alignment is being stored. In the case where direct mapping is not 
-   enabled, we copy in the account data and a 10KiB buffer into the input reigon.
+   enabled, we copy in the account data and a 10KiB buffer into the input region.
    These both go into the same memory buffer. However, when direct mapping is
    enabled, the account data and resizing buffers are represented by two
    different memory regions. In both cases, padding is used to maintain 8 byte
@@ -108,7 +108,7 @@ write_account( fd_exec_instr_ctx_t *     instr_ctx,
     uint is_writable = (uint)(fd_account_can_data_be_changed( instr_ctx->instr, instr_acc_idx, &err ) && !err);
 
     /* Update the mapping from instruction account index to memory region index.
-       This is an optimization to avoid redunant lookups to find accounts. */
+       This is an optimization to avoid redundant lookups to find accounts. */
     acc_region_metas[instr_acc_idx] = (fd_vm_acc_region_meta_t){ .region_idx          = *input_mem_regions_cnt, 
                                                                  .has_data_region     = !!account->const_meta->dlen,
                                                                  .has_resizing_region = (uchar)is_aligned };
