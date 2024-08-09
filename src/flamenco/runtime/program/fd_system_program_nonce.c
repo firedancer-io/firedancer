@@ -1006,7 +1006,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t const * txn_ctx ) {
   fd_bincode_decode_ctx_t decode = {
     .data    = durable_nonce_rec->const_data,
     .dataend = durable_nonce_rec->const_data + durable_nonce_rec->const_meta->dlen,
-    .valloc  = txn_ctx->valloc
+    .valloc  = fd_scratch_virtual()
   };
 
   fd_nonce_state_versions_t state = {0};
