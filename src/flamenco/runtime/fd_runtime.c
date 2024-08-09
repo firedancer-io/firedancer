@@ -2717,6 +2717,7 @@ fd_runtime_collect_rent_account( fd_exec_slot_ctx_t *  slot_ctx,
   }
 
   if( info->executable ) {
+    info->rent_epoch = ULONG_MAX;
     return 0;
   }
 
