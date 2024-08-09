@@ -1018,7 +1018,7 @@ fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t * slot_ctx,
   txn_ctx->funk_txn = parent_txn;
 
   if (FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, apply_cost_tracker_during_replay ) ) {
-    ulong est_cost = fd_pack_compute_cost( txn, &txn->flags );
+    ulong est_cost = fd_pack_compute_cost( txn, &txn->flags, NULL, NULL, NULL );
     if( slot_ctx->total_compute_units_requested + est_cost <= MAX_COMPUTE_UNITS_PER_BLOCK ) {
       slot_ctx->total_compute_units_requested += est_cost;
     } else {

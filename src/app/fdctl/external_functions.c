@@ -5,7 +5,7 @@ extern void fd_ext_validator_main( const char ** args FD_PARAM_UNUSED ) {}
 extern void fd_ext_genesis_main( const char ** args FD_PARAM_UNUSED ) {}
 
 extern void * fd_ext_bank_pre_balance_info( void const * bank FD_PARAM_UNUSED, void * txns FD_PARAM_UNUSED, ulong txn_cnt FD_PARAM_UNUSED ) { return NULL; }
-extern void * fd_ext_bank_load_and_execute_txns( void const * bank FD_PARAM_UNUSED, void * txns FD_PARAM_UNUSED, ulong txn_cnt FD_PARAM_UNUSED, int * out_load_results FD_PARAM_UNUSED, int * out_executing_results FD_PARAM_UNUSED, int * out_executed_results FD_PARAM_UNUSED ) { return NULL; }
+extern void * fd_ext_bank_load_and_execute_txns( void const * bank FD_PARAM_UNUSED, void * txns FD_PARAM_UNUSED, ulong txn_cnt FD_PARAM_UNUSED, int * out_load_results FD_PARAM_UNUSED, int * out_executing_results FD_PARAM_UNUSED, int * out_executed_results FD_PARAM_UNUSED, uint * out_consumed_cus FD_PARAM_UNUSED ) { return NULL; }
 extern void fd_ext_bank_acquire( void const * bank FD_PARAM_UNUSED ) {}
 extern void fd_ext_bank_release( void const * bank FD_PARAM_UNUSED ) {}
 extern void fd_ext_bank_release_thunks( void * load_and_execute_output FD_PARAM_UNUSED ) {}

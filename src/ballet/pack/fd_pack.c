@@ -403,6 +403,12 @@ struct fd_pack_private {
 
   fd_histf_t txn_per_microblock [ 1 ];
   fd_histf_t vote_per_microblock[ 1 ];
+
+  fd_histf_t scheduled_cus_per_block[ 1 ];
+  fd_histf_t rebated_cus_per_block  [ 1 ];
+  fd_histf_t net_cus_per_block      [ 1 ];
+  ulong      cumulative_rebated_cus;
+
   /* bitset_avail: a stack of which bits are not currently reserved and
      can be used to represent an account address.
      Indexed [0, bitset_avail_cnt].  Element 0 is fixed at
@@ -497,6 +503,7 @@ fd_pack_new( void                   * mem,
   pack->cumulative_vote_cost        = 0UL;
   pack->expire_before               = 0UL;
   pack->outstanding_microblock_mask = 0UL;
+  pack->cumulative_rebated_cus      = 0UL;
 
 
   trp_pool_new(  _pool,        pack_depth+1UL );
@@ -531,6 +538,14 @@ fd_pack_new( void                   * mem,
                                            FD_MHIST_MAX( PACK, TOTAL_TRANSACTIONS_PER_MICROBLOCK_COUNT ) );
   fd_histf_new( pack->vote_per_microblock, FD_MHIST_MIN( PACK, VOTES_PER_MICROBLOCK_COUNT ),
                                            FD_MHIST_MAX( PACK, VOTES_PER_MICROBLOCK_COUNT ) );
+
+  fd_histf_new( pack->scheduled_cus_per_block, FD_MHIST_MIN( PACK, CUS_SCHEDULED ),
+                                               FD_MHIST_MAX( PACK, CUS_SCHEDULED ) );
+  fd_histf_new( pack->rebated_cus_per_block,   FD_MHIST_MIN( PACK, CUS_REBATED   ),
+                                               FD_MHIST_MAX( PACK, CUS_REBATED   ) );
+  fd_histf_new( pack->net_cus_per_block,       FD_MHIST_MIN( PACK, CUS_NET       ),
+                                               FD_MHIST_MAX( PACK, CUS_NET       ) );
+
 
   pack->bitset_avail[ 0 ] = FD_PACK_BITSET_SLOWPATH;
   for( ulong i=0UL; i<FD_PACK_BITSET_MAX; i++ ) pack->bitset_avail[ i+1UL ] = (ushort)i;
@@ -582,33 +597,28 @@ static int
 fd_pack_estimate_rewards_and_compute( fd_txn_p_t        * txnp,
                                       fd_pack_ord_txn_t * out ) {
   fd_txn_t * txn = TXN(txnp);
-  ulong sig_rewards = FD_PACK_FEE_PER_SIGNATURE * txn->signature_cnt;
+  ulong sig_rewards = FD_PACK_FEE_PER_SIGNATURE * txn->signature_cnt; /* Easily in [5000, 635000] */
 
-  ulong cost = fd_pack_compute_cost( txnp, &txnp->flags );
+  ulong execution_cus;
+  ulong adtl_rewards;
+  ulong precompile_sigs;
+  ulong cost = fd_pack_compute_cost( txnp, &txnp->flags, &execution_cus, &adtl_rewards, &precompile_sigs );
 
   if( FD_UNLIKELY( !cost ) ) return 0;
 
-  fd_compute_budget_program_state_t cb_prog_st = {0};
+  /* precompile_sigs <= 16320, so after the addition,
+     sig_rewards < 83,000,000 */
+  sig_rewards += FD_PACK_FEE_PER_SIGNATURE * precompile_sigs;
 
-  /* TODO: Refactor so that this doesn't scan all the instructions a
-     second time after scanning them in fd_pack_compute_cost. */
+  /* No fancy CU estimation in this version of pack
   for( ulong i=0UL; i<(ulong)txn->instr_cnt; i++ ) {
     uchar prog_id_idx = txn->instr[ i ].program_id;
     fd_acct_addr_t const * acct_addr = fd_txn_get_acct_addrs( txn, txnp->payload ) + (ulong)prog_id_idx;
-
-    if( FD_UNLIKELY( !memcmp( acct_addr, FD_COMPUTE_BUDGET_PROGRAM_ID, FD_TXN_ACCT_ADDR_SZ ) ) ) {
-      /* Parse the compute budget program instruction */
-      if( FD_UNLIKELY( !fd_compute_budget_program_parse( txnp->payload+txn->instr[ i ].data_off, txn->instr[ i ].data_sz, &cb_prog_st )))
-        return 0;
-    } else {
-      /* No fancy CU estimation in this version of pack */
-    }
   }
-  ulong adtl_rewards = 0UL;
-  uint  compute_max  = 0UL;
-  fd_compute_budget_program_finalize( &cb_prog_st, txn->instr_cnt, &adtl_rewards, &compute_max );
-  out->rewards     = (adtl_rewards < (UINT_MAX - sig_rewards)) ? (uint)(sig_rewards + adtl_rewards) : UINT_MAX;
-  out->compute_est = (uint)cost;
+  */
+  out->rewards            = (adtl_rewards < (UINT_MAX - sig_rewards)) ? (uint)(sig_rewards + adtl_rewards) : UINT_MAX;
+  out->compute_est        = (uint)cost;
+  out->txn->requested_cus = (uint)execution_cus;
 
   out->root = (txnp->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) ? FD_ORD_TXN_ROOT_PENDING_VOTE : FD_ORD_TXN_ROOT_PENDING;
 
@@ -978,9 +988,10 @@ fd_pack_schedule_impl( fd_pack_t  * pack,
 
     fd_memcpy( out->payload, cur->txn->payload, cur->txn->payload_sz                                           );
     fd_memcpy( TXN(out),     txn,               fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
-    out->payload_sz = cur->txn->payload_sz;
-    out->meta       = cur->txn->meta;
-    out->flags      = cur->txn->flags;
+    out->payload_sz    = cur->txn->payload_sz;
+    out->requested_cus = cur->txn->requested_cus;
+    out->executed_cus  = 0U;
+    out->flags         = cur->txn->flags;
     out++;
 
     for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
@@ -1202,6 +1213,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   /* Update metrics counters */
   FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS,      pack->pending_txn_cnt                );
   FD_MGAUGE_SET( PACK, AVAILABLE_VOTE_TRANSACTIONS, treap_ele_cnt( pack->pending_votes ) );
+  FD_MGAUGE_SET( PACK, CUS_CONSUMED_IN_BLOCK,       pack->cumulative_block_cost          );
 
   fd_histf_sample( pack->txn_per_microblock,  scheduled              );
   fd_histf_sample( pack->vote_per_microblock, status1.txns_scheduled );
@@ -1219,6 +1231,50 @@ fd_pack_set_block_limits( fd_pack_t * pack,
                           ulong       max_data_bytes_per_block ) {
   pack->lim->max_microblocks_per_block = max_microblocks_per_block;
   pack->lim->max_data_bytes_per_block  = max_data_bytes_per_block;
+}
+
+void
+fd_pack_rebate_cus( fd_pack_t        * pack,
+                    fd_txn_p_t const * txns,
+                    ulong              txn_cnt ) {
+  fd_pack_addr_use_t * writer_costs = pack->writer_costs;
+
+  ulong cumulative_vote_cost   = pack->cumulative_vote_cost;
+  ulong cumulative_block_cost  = pack->cumulative_block_cost;
+  ulong data_bytes_consumed    = pack->data_bytes_consumed;
+  ulong cumulative_rebated_cus = pack->cumulative_rebated_cus;
+
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_txn_p_t const * txn = txns+i;
+    ulong requested_cus = txn->requested_cus;
+    ulong executed_cus  = txn->executed_cus;
+    int   in_block      = !!(txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
+
+    if( FD_UNLIKELY( !in_block && executed_cus>0UL ) ) FD_LOG_ERR(( "Transaction failed execution but consumed CUs?" ));
+    if( FD_UNLIKELY( executed_cus>requested_cus    ) ) FD_LOG_ERR(( "Executed (%lu) more than requested (%lu)?", executed_cus, requested_cus ));
+    cumulative_block_cost  -= requested_cus - executed_cus;
+    cumulative_vote_cost   -= fd_ulong_if( txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, requested_cus-executed_cus, 0UL );
+    data_bytes_consumed    -= fd_ulong_if( !in_block,                                  txn->payload_sz,            0UL );
+    cumulative_rebated_cus += requested_cus - executed_cus;
+
+    fd_acct_addr_t const * acct = fd_txn_get_acct_addrs( TXN(txn), txn->payload );
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( TXN(txn), FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+        iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+
+      ulong i=fd_txn_acct_iter_idx( iter );
+
+      fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct[i], NULL );
+      if( FD_UNLIKELY( !in_wcost_table ) ) FD_LOG_ERR(( "Rebate to unknown written account" ));
+      in_wcost_table->total_cost -= requested_cus - executed_cus;
+      /* Important: Even if this is 0, don't delete it from the table so
+         that the insert order doesn't get messed up. */
+    }
+  }
+
+  pack->cumulative_vote_cost   = cumulative_vote_cost;
+  pack->cumulative_block_cost  = cumulative_block_cost;
+  pack->data_bytes_consumed    = data_bytes_consumed;
+  pack->cumulative_rebated_cus = cumulative_rebated_cus;
 }
 
 
@@ -1243,10 +1299,15 @@ fd_pack_expire_before( fd_pack_t * pack,
 
 void
 fd_pack_end_block( fd_pack_t * pack ) {
-  pack->microblock_cnt        = 0UL;
-  pack->data_bytes_consumed   = 0UL;
-  pack->cumulative_block_cost = 0UL;
-  pack->cumulative_vote_cost  = 0UL;
+  fd_histf_sample( pack->net_cus_per_block,       pack->cumulative_block_cost                                );
+  fd_histf_sample( pack->rebated_cus_per_block,   pack->cumulative_rebated_cus                               );
+  fd_histf_sample( pack->scheduled_cus_per_block, pack->cumulative_rebated_cus + pack->cumulative_block_cost );
+
+  pack->microblock_cnt         = 0UL;
+  pack->data_bytes_consumed    = 0UL;
+  pack->cumulative_block_cost  = 0UL;
+  pack->cumulative_vote_cost   = 0UL;
+  pack->cumulative_rebated_cus = 0UL;
 
   acct_uses_clear( pack->acct_in_use  );
 
@@ -1287,6 +1348,11 @@ fd_pack_end_block( fd_pack_t * pack ) {
      good place to copy them. */
   FD_MHIST_COPY( PACK, TOTAL_TRANSACTIONS_PER_MICROBLOCK_COUNT, pack->txn_per_microblock  );
   FD_MHIST_COPY( PACK, VOTES_PER_MICROBLOCK_COUNT,              pack->vote_per_microblock );
+
+  FD_MGAUGE_SET( PACK, CUS_CONSUMED_IN_BLOCK, 0UL                           );
+  FD_MHIST_COPY( PACK, CUS_SCHEDULED,         pack->scheduled_cus_per_block );
+  FD_MHIST_COPY( PACK, CUS_REBATED,           pack->rebated_cus_per_block   );
+  FD_MHIST_COPY( PACK, CUS_NET,               pack->net_cus_per_block       );
 }
 
 static void
@@ -1303,10 +1369,11 @@ release_tree( treap_t           * treap,
 
 void
 fd_pack_clear_all( fd_pack_t * pack ) {
-  pack->pending_txn_cnt       = 0UL;
-  pack->microblock_cnt        = 0UL;
-  pack->cumulative_block_cost = 0UL;
-  pack->cumulative_vote_cost  = 0UL;
+  pack->pending_txn_cnt        = 0UL;
+  pack->microblock_cnt         = 0UL;
+  pack->cumulative_block_cost  = 0UL;
+  pack->cumulative_vote_cost   = 0UL;
+  pack->cumulative_rebated_cus = 0UL;
 
   release_tree( pack->pending,         pack->pool );
   release_tree( pack->pending_votes,   pack->pool );
