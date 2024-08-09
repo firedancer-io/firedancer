@@ -12,6 +12,8 @@
 
    This creates the following API for use in the local compilation unit:
 
+     // Constructors
+
      ulong      my_deque_align    ( void               ); // required byte alignment of a deque
      ulong      my_deque_footprint( void               ); // required byte footprint of a deque with the given DEQUE_MAX
      void     * my_deque_new      ( void     * shmem   ); // format memory region into a my_deque, my_deque will be empty
@@ -31,11 +33,22 @@
 
      // Simple API
 
-     my_ele_t * my_deque_push_head   ( my_ele_t * deque, my_ele_t ele ); // push ele at the deque head, returns deque
-     my_ele_t * my_deque_push_tail   ( my_ele_t * deque, my_ele_t ele ); // push ele at the deque tail, returns deque
-     my_ele_t   my_deque_pop_head    ( my_ele_t * deque               ); // pops ele from the head of the deque, returns ele
-     my_ele_t   my_deque_pop_tail    ( my_ele_t * deque               ); // pops ele from the tail of the deque, returns ele
-     my_ele_t   my_deque_pop_idx_tail( my_ele_t * deque, ulong idx    ); // pops ele at idx, returns ele. idx in [0,cnt). shifts head <= tail
+     // IMPORTANT SAFETY TIP!  The wrap APIs discard the value popped on
+     // wrapping.  Thus, these should not be used when a my_ele_t might
+     // contain the only reference to a resource (memory, file
+     // descriptors, etc) that might need to be released after popping
+     // (e.g. use these only if my_ele_t is plain-old-data).
+
+     // IMPORTANT SAFETY TIP!  The pop_idx APIs have an O(cnt) worst
+     // case.
+
+     my_ele_t * my_deque_push_head     ( my_ele_t * deque, my_ele_t ele ); // push ele at the deque head, returns deque
+     my_ele_t * my_deque_push_tail     ( my_ele_t * deque, my_ele_t ele ); // push ele at the deque tail, returns deque
+     my_ele_t   my_deque_pop_head      ( my_ele_t * deque               ); // pops ele from the head of the deque, returns ele
+     my_ele_t   my_deque_pop_tail      ( my_ele_t * deque               ); // pops ele from the tail of the deque, returns ele
+     my_ele_t * my_deque_push_head_wrap( my_ele_t * deque, my_ele_t ele ); // push ele at the deque head (pops tail first if deque full), returns deque
+     my_ele_t * my_deque_push_tail_wrap( my_ele_t * deque, my_ele_t ele ); // push ele at the deque tail (pops head first if deque full), returns deque
+     my_ele_t   my_deque_pop_idx_tail  ( my_ele_t * deque, ulong    idx ); // pops ele at idx, returns ele. assumes idx in [0,cnt). shifts head <= tail
 
      // Advanced API for zero-copy usage
 
@@ -108,6 +121,11 @@
 #ifndef DEQUE_MAX
 #error "Define DEQUE_MAX or use fd_deque_dynamic"
 #endif
+
+/* Note: we don't support DEQUE_MAX==0 (like we do in fd_deque_dynamic)
+   because of spotty C++ for zero length array members in the current
+   implementation (though it would be possible to do so with a different
+   implementation). */
 
 #if (DEQUE_MAX)<1UL
 #error "DEQUE_MAX must be positive"
@@ -253,6 +271,52 @@ DEQUE_(pop_tail)( DEQUE_T * deque ) {
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
   hdr->end--;
   return hdr->deque[ DEQUE_(private_slot)( hdr->end ) ];
+}
+
+static inline DEQUE_T *
+DEQUE_(push_head_wrap)( DEQUE_T * deque,
+                        DEQUE_T   ele ) {
+  DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
+  ulong start = hdr->start;
+  ulong end   = hdr->end;
+
+  /* If the deque is full, pop and discard the tail.  Note that
+     DEQUE_MAX is positive.  Thus, deque can never be full and empty at
+     the same time making it always safe to pop the tail on full. */
+
+  end -= (ulong)((end-start)==((ulong)DEQUE_MAX));
+
+  /* Push the head */
+
+  start--;
+  hdr->deque[ DEQUE_(private_slot)(start) ] = ele;
+
+  hdr->start = start;
+  hdr->end   = end;
+  return deque;
+}
+
+static inline DEQUE_T *
+DEQUE_(push_tail_wrap)( DEQUE_T * deque,
+                        DEQUE_T   ele ) {
+  DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
+  ulong start = hdr->start;
+  ulong end   = hdr->end;
+
+  /* If the deque is full, pop and discard the head.  Note that
+     DEQUE_MAX is positive.  Thus, deque can never be full and empty at
+     the same time making it always safe to pop the head on full. */
+
+  start += (ulong)((end-start)==((ulong)DEQUE_MAX));
+
+  /* Push the tail */
+
+  hdr->deque[ DEQUE_(private_slot)(end) ] = ele;
+  end++;
+
+  hdr->start = start;
+  hdr->end   = end;
+  return deque;
 }
 
 static inline DEQUE_T

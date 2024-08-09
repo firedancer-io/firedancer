@@ -99,10 +99,10 @@ main( int     argc,
 
     /* Randomly pick an operation to do */
 
-    ulong r = fd_rng_ulong( rng );
-    int   op    = (int)(r & 0xfUL); r >>= 4;
-    int   val   = (int)(uint)r;     r >>= 32;
-    int   reset = !(r & 65535UL);   r >>= 16;
+    int   op    = fd_rng_int_roll( rng, 17 ); /* in [0,17) */
+    ulong r     = fd_rng_ulong( rng );
+    int   val   = (int)(uint)r;      r >>= 32;
+    int   reset = !(r & 65535UL);    r >>= 16;
 
     if( FD_UNLIKELY( reset ) ) {
       buf_start = 0UL;
@@ -217,11 +217,27 @@ main( int     argc,
       break;
     }
 
-    case 15: { /* pop index (shift tail to head) */
+    case 14: { /* pop index (shift tail to head) */
       if( FD_UNLIKELY( !buf_cnt ) ) break; /* skip when empty */
       ulong idx = fd_rng_uint_roll( rng, (uint)buf_cnt );
       val = buf_pop_idx( idx );
       FD_TEST( test_deque_pop_idx_tail( deque, idx )==val );
+      break;
+    }
+
+    case 15: { /* push_head_wrap */
+      if( FD_UNLIKELY( !max ) ) break; /* not valid on max 0 */
+      if( FD_UNLIKELY( buf_cnt>=max ) ) (void)buf_pop_tail(); /* pop when full */
+      buf_push_head( val );
+      FD_TEST( test_deque_push_head_wrap( deque, val )==deque );
+      break;
+    }
+
+    case 16: { /* push_tail_wrap */
+      if( FD_UNLIKELY( !max ) ) break; /* not valid on max 0 */
+      if( FD_UNLIKELY( buf_cnt>=max ) ) (void)buf_pop_head(); /* pop when full */
+      buf_push_tail( val );
+      FD_TEST( test_deque_push_tail_wrap( deque, val )==deque );
       break;
     }
 
@@ -234,6 +250,34 @@ main( int     argc,
     FD_TEST( test_deque_avail( deque )==(max-buf_cnt)  );
     FD_TEST( test_deque_empty( deque )==(!buf_cnt)     );
     FD_TEST( test_deque_full ( deque )==(buf_cnt==max) );
+  }
+
+  FD_TEST( test_deque_leave ( deque   )==shdeque         );
+  FD_TEST( test_deque_delete( shdeque )==(void *)scratch );
+
+  FD_LOG_NOTICE(( "Testing max==0 deque" ));
+
+  shdeque = test_deque_new ( scratch, 0UL ); FD_TEST( shdeque );
+  deque   = test_deque_join( shdeque      ); FD_TEST( deque   );
+
+  FD_TEST( test_deque_max  ( deque )==0UL );
+  FD_TEST( test_deque_cnt  ( deque )==0UL );
+  FD_TEST( test_deque_avail( deque )==0UL );
+  FD_TEST( test_deque_empty( deque )==1   );
+  FD_TEST( test_deque_full ( deque )==1   );
+
+  for( test_deque_iter_t iter=test_deque_iter_init( deque );
+       !test_deque_iter_done( deque, iter );
+       iter = test_deque_iter_next( deque, iter ) ) {
+    int never_get_here = 1;
+    FD_TEST( never_get_here );
+  }
+
+  for( test_deque_iter_t iter=test_deque_iter_init_rev( deque );
+       !test_deque_iter_done_rev( deque, iter );
+       iter = test_deque_iter_prev( deque, iter ) ) {
+    int never_get_here = 1;
+    FD_TEST( never_get_here );
   }
 
   FD_TEST( test_deque_leave ( deque   )==shdeque         );
