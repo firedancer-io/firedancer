@@ -969,7 +969,8 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t _ctx ) {
     };
     fd_addrlut_instruction_t instr[1];
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L28 */
-    if( FD_UNLIKELY( fd_addrlut_instruction_decode( instr, &decode ) != FD_BINCODE_SUCCESS ) ) {
+    if( FD_UNLIKELY( fd_addrlut_instruction_decode( instr, &decode ) ||
+                     (ulong)instr_data + 1232UL < (ulong)decode.data ) ) {
       FD_LOG_WARNING(("Failed to decode instruction"));
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
