@@ -321,8 +321,8 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
      This existing runtime policies around heap implicitly satisfy this.
 
      IMPORTANT SAFETY TIP!  The specification for Rust's align_offset
-     doesn't seem to be provide a strong guarantee that it will return
-     the minimal positive offset necessary to align pointers.  It is
+     doesn't seem to provide a strong guarantee that it will return the
+     minimal positive offset necessary to align pointers.  It is
      possible for a "conforming" Rust compiler to break consensus by
      using a different align_offset implementation that aligned pointer
      between different compilations of the Solana validator and the

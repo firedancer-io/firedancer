@@ -79,7 +79,7 @@ FD_PROTOTYPES_BEGIN
    This is meant to be used by syscall implementations and strictly
    conforms with the vm-syscall ABI interface.
 
-   Note: in Agave a sycall can return success leaving 0 available CUs.
+   Note: in Agave a syscall can return success leaving 0 available CUs.
    The instruction will fail at the next instruction (e.g., exit).
    To reproduce the same behavior, we do not return FD_VM_ERR_SIGCOST
    when cu == 0.
@@ -181,7 +181,7 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
    actual accesses to a sz==0 region.  However, this also means that
    testing return for sentinel is insufficient to tell if mapping
    failed.  That is, assuming sentinel is a location that could never
-   happen on success):
+   happen on success:
 
      sz!=0 and ret!=sentinel -> success
      sz!=0 and ret==sentinel -> failure

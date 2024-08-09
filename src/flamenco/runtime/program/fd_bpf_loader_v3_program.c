@@ -1611,7 +1611,7 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
       return err;
     }
 
-    /* Program management insturction */
+    /* Program management instruction */
     if( !memcmp( &fd_solana_native_loader_id, program_account->const_meta->info.owner, sizeof(fd_pubkey_t) ) ) {
       if( !memcmp( &fd_solana_bpf_loader_upgradeable_program_id, program_id, sizeof(fd_pubkey_t) ) ) {
         if( FD_UNLIKELY( UPGRADEABLE_LOADER_COMPUTE_UNITS>ctx.txn_ctx->compute_meter ) ) {
@@ -1662,7 +1662,7 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
       accounts that are in this state should exit with an invalid account data
       error. For programs that are recently deployed or upgraded, they should not
       be allowed to be executed for the remainder of the slot. For closed
-      accounts, they're uninitalized and shouldn't be executed as well.
+      accounts, they're uninitialized and shouldn't be executed as well.
 
       For the former case the slot that the
       program was last updated in is in the program data account.

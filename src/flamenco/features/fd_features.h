@@ -38,7 +38,7 @@
 typedef union fd_features fd_features_t;
 
 /* fd_feature_id_t maps a feature ID (account address) to the byte
-   byte offset in fd_features_t. */
+   offset in fd_features_t. */
 
 struct fd_feature_id {
   ulong        index;          /* index of feature in fd_features_t */
