@@ -64,10 +64,7 @@ main( int     argc,
     // Init runner
     fd_exec_instr_test_runner_t * runner = sol_compat_setup_scratch_and_runner( fmem );
 
-    FD_TEST( fd_scratch_frame_used()==0UL );
-    fd_scratch_push();
     fail_cnt += !run_test( runner, argv[j] );
-    fd_scratch_pop();
  
     // Free runner
     sol_compat_cleanup_scratch_and_runner( runner );
