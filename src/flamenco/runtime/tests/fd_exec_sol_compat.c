@@ -112,6 +112,8 @@ fd_exec_instr_test_runner_t *
 sol_compat_setup_scratch_and_runner( void * fmem ) {
   // Setup scratch
   fd_scratch_attach( smem, fmem, smax, 64UL );
+  /* Push frame */
+  fd_scratch_push();
 
   // Setup test runner
   void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_exec_instr_test_runner_align(), fd_exec_instr_test_runner_footprint(), WKSP_TAG );
@@ -124,6 +126,9 @@ void
 sol_compat_cleanup_scratch_and_runner( fd_exec_instr_test_runner_t * runner ) {
   /* Cleanup test runner */
   fd_wksp_free_laddr( fd_exec_instr_test_runner_delete( runner ) );
+
+  /* Pop frame */
+  fd_scratch_pop();
   /* Cleanup scratch */
   fd_scratch_detach( NULL );
 }
@@ -167,11 +172,14 @@ sol_compat_execute_wrapper( fd_exec_instr_test_runner_t * runner,
                             void * input,
                             void ** output,
                             exec_test_run_fn_t * exec_test_run_fn ) {
+  
+  assert( fd_scratch_prepare_is_safe( 1UL ) );
+  ulong out_bufsz = 100000000;  /* 100 MB */
+  void * out0 = fd_scratch_prepare( 1UL );
+  assert( out_bufsz < fd_scratch_free() );
+  fd_scratch_publish( (void *)( (ulong)out0 + out_bufsz ) );
+
   FD_SCRATCH_SCOPE_BEGIN {
-    ulong out_bufsz = 100000000;  /* 100 MB */
-    void * out0 = fd_scratch_prepare( 1UL );
-    assert( out_bufsz < fd_scratch_free() );
-    fd_scratch_publish( (void *)( (ulong)out0 + out_bufsz ) );
     ulong out_used = exec_test_run_fn( runner, input, output, out0, out_bufsz );
     if( FD_UNLIKELY( !out_used ) ) {
       *output = NULL;
