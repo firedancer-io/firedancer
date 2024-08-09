@@ -122,7 +122,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     .stream_sparsity  = 1.0,
     .inflight_pkt_cnt = 8UL,
     .tx_buf_sz        = 4096UL,
-    .stream_pool_cnt  = 16
+    .stream_pool_cnt  = 1024
   };
 
   /* Enable features depending on the last few bits.  The last bits are

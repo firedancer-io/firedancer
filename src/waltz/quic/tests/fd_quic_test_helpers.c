@@ -197,7 +197,7 @@ fd_quic_new_anonymous_small( fd_wksp_t * wksp,
     .stream_sparsity    = 4.0,
     .inflight_pkt_cnt   = 64UL,
     .tx_buf_sz          = 1UL<<15UL,
-    .stream_pool_cnt    = 16
+    .stream_pool_cnt    = 1024
   };
 
   return fd_quic_new_anonymous( wksp, &quic_limits, role, rng );

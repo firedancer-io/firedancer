@@ -142,7 +142,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
 
   /* Use unoptimized wksp memory */
 
-  ulong wksp_sz = 13107200UL;
+  ulong wksp_sz = 13107200UL * 2;
 
   uchar * mem = aligned_alloc( 4096UL, wksp_sz );
   assert( mem );
@@ -163,7 +163,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
                                         .handshake_cnt = 10,
                                         .stream_cnt = {0, 0, 10, 0},
                                         .initial_stream_cnt = {0, 0, 10, 0 },
-                                        .stream_pool_cnt = 20,
+                                        .stream_pool_cnt = 640,
                                         .inflight_pkt_cnt = 1024,
                                         .tx_buf_sz = 1 << 14};
 

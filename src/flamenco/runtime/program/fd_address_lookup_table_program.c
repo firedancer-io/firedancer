@@ -271,8 +271,8 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   ulong       seed_szs[2] = { sizeof(fd_pubkey_t), sizeof(ulong) };
   seeds[0] = (uchar *)authority_key;
   seeds[1] = (uchar *)&derivation_slot;
-  int err = fd_pubkey_try_find_program_address( &fd_solana_address_lookup_table_program_id, 
-                                                2UL, seeds, seed_szs, derived_tbl_key, (uchar*)&create->bump_seed );
+  int err = fd_pubkey_derive_pda( &fd_solana_address_lookup_table_program_id, 
+                                  2UL, seeds, seed_szs, (uchar*)&create->bump_seed, derived_tbl_key );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -450,7 +450,7 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   fd_addrlut_t lut[1];
   int err = fd_addrlut_deserialize( lut, lut_data, lut_data_sz );
   if( FD_UNLIKELY( err ) ) { 
-    return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+    return err;
   }
 
   fd_address_lookup_table_t * state = &lut->state.inner.lookup_table;

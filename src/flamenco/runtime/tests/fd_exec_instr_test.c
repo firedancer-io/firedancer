@@ -1665,11 +1665,11 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   fd_vm_syscall_register_all( syscalls, 0 );
 
   /* Pull out the memory regions */
-  if( !input->has_vm_ctx || !input->vm_ctx.rodata ) {
+  if( !input->has_vm_ctx ) {
     goto error;
   }
-  uchar * rodata = input->vm_ctx.rodata->bytes;
-  ulong rodata_sz = input->vm_ctx.rodata->size;
+  uchar * rodata = input->vm_ctx.rodata ? input->vm_ctx.rodata->bytes : NULL;
+  ulong rodata_sz = input->vm_ctx.rodata ? input->vm_ctx.rodata->size : 0UL;
 
   /* Concatenate the input data regions into the flat input memory region */
   ulong input_data_sz = 0;

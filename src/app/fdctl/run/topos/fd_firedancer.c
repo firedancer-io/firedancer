@@ -103,7 +103,7 @@ fd_topo_firedancer( config_t * _config ) {
 
   /*                                  topo, link_name,      wksp_name,      is_reasm, depth,                                    mtu,                           burst */
   FOR(net_tile_cnt)    fd_topob_link( topo, "net_gossip",   "net_gossip",   0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
-  FOR(net_tile_cnt)    fd_topob_link( topo, "net_repair",   "net_repair",   0,        16UL*config->tiles.net.send_buffer_size,  FD_NET_MTU,                    1UL );
+  FOR(net_tile_cnt)    fd_topob_link( topo, "net_repair",   "net_repair",   0,        config->tiles.net.send_buffer_size,  FD_NET_MTU,                    1UL );
   FOR(net_tile_cnt)    fd_topob_link( topo, "net_quic",     "net_quic",     0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",     "net_quic",     0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
   FOR(net_tile_cnt)    fd_topob_link( topo, "net_shred",    "net_shred",    0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );

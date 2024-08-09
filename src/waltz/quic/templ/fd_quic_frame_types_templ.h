@@ -81,14 +81,14 @@ fd_quic_frame_type_allowed( uint pkt_type, uint frame_type ) {
       [T+S] = PKT_FLAG_##F0 + PKT_FLAG_##F1 + PKT_FLAG_##F2 + PKT_FLAG_##F3,
 
   /* construct table from the frame types */
-  /* this results in a handfull of compile time constants */
+  /* this results in a handful of compile time constants */
   uchar tbl[] = {
     FD_QUIC_FRAME_TYPES(INIT,a)
   };
 
 # undef INIT
 
-  if( FD_UNLIKELY( frame_type > sizeof(tbl) / sizeof(tbl[0]) ) ) return 0;
+  if( FD_UNLIKELY( frame_type >= sizeof(tbl) / sizeof(tbl[0]) ) ) return 0;
 
   return !!(tbl[frame_type] & (1u<<pkt_type));
 }
