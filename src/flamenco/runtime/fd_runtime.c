@@ -1219,12 +1219,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
         fd_txncache_insert_t * curr_insert = &status_insert[num_cache_txns];
         curr_insert->blockhash = ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
         curr_insert->slot = slot_ctx->slot_bank.slot;
-        fd_blake3_t b3[1];
         fd_hash_t * hash = &txn_ctx->blake_txn_msg_hash;
-        fd_blake3_init( b3 );
-        fd_blake3_append( b3, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->message_off), (ulong)( txn_ctx->_txn_raw->txn_sz - txn_ctx->txn_descriptor->message_off ) );
-        fd_blake3_fini( b3, hash->uc );
-
         curr_insert->txnhash = hash->uc;
         curr_insert->result = &results[num_cache_txns];
         num_cache_txns++;
@@ -1581,10 +1576,10 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
         }
       }
 
-      res |= fd_runtime_verify_txn_signatures_tpool( wave_task_infos, wave_task_infos_cnt, tpool );
-      if( res != 0 ) {
-        FD_LOG_WARNING(("Fail signature verification"));
-      }
+      //res |= fd_runtime_verify_txn_signatures_tpool( wave_task_infos, wave_task_infos_cnt, tpool );
+      //if( res != 0 ) {
+      //  FD_LOG_WARNING(("Fail signature verification"));
+      //}
 
       res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, tpool );
       if( res != 0 ) {
