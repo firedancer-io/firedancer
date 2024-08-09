@@ -236,8 +236,8 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   ulong derivation_slot = 1UL;
 
   do {
-    fd_slot_hashes_t slot_hashes[1];
-    if( FD_UNLIKELY( !fd_sysvar_slot_hashes_read( slot_hashes, ctx->slot_ctx ) ) )
+    fd_slot_hashes_t const * slot_hashes = fd_sysvar_cache_slot_hashes( ctx->slot_ctx->sysvar_cache );
+    if( FD_UNLIKELY( !slot_hashes ) )
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L97 */
@@ -252,9 +252,6 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
         break;
       }
     }
-
-    fd_bincode_destroy_ctx_t destroy = { .valloc = ctx->slot_ctx->valloc };
-    fd_slot_hashes_destroy( slot_hashes, &destroy );
 
     if( FD_UNLIKELY( !is_recent_slot ) ) {
       /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L100-L105 */
@@ -886,17 +883,14 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L438 */
-  fd_slot_hashes_t slot_hashes[1];
-  if( FD_UNLIKELY( !fd_sysvar_slot_hashes_read( slot_hashes, ctx->slot_ctx ) ) ) { 
+  fd_slot_hashes_t const * slot_hashes = fd_sysvar_cache_slot_hashes( ctx->slot_ctx->sysvar_cache );
+  if( FD_UNLIKELY( !slot_hashes ) ) { 
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L440 */
   ulong remaining_blocks = 0UL;
   int status = fd_addrlut_status( &state->meta, clock->slot, slot_hashes, &remaining_blocks );
-
-  fd_bincode_destroy_ctx_t destroy = { .valloc = ctx->slot_ctx->valloc };
-  fd_slot_hashes_destroy( slot_hashes, &destroy );
 
   switch( status ) {
     case FD_ADDRLUT_STATUS_ACTIVATED:
