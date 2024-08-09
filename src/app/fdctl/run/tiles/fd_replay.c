@@ -461,24 +461,6 @@ struct fd_status_check_ctx {
 };
 typedef struct fd_status_check_ctx fd_status_check_ctx_t;
 
-static int
-status_check_tower(ulong slot, void * _ctx ) {
-  fd_status_check_ctx_t * ctx = (fd_status_check_ctx_t *)_ctx;
-  if( slot==ctx->current_slot ) {
-    return 1;
-  }
-
-  if( fd_txncache_is_rooted_slot( ctx->txncache, slot ) ) {
-    return 1;
-  }
-
-  if( fd_sysvar_slot_history_find_slot( ctx->slot_history, slot ) == FD_SLOT_HISTORY_SLOT_FOUND ) {
-    return 1;
-  }
-
-  return 0;
-}
-
 static void
 blockstore_publish( fd_replay_tile_ctx_t * ctx, ulong root ) {
   if( FD_UNLIKELY( ctx->blockstore_publish ) ) {
@@ -720,17 +702,10 @@ after_frag( void *             _ctx,
 
     int res = 0UL;
     FD_SCRATCH_SCOPE_BEGIN {
-      fd_slot_history_t slot_history[1];
-      fd_sysvar_slot_history_read(  &fork->slot_ctx, fd_scratch_virtual(), slot_history );
-      fd_status_check_ctx_t status_check_ctx = {
-        .txncache = fork->slot_ctx.status_cache,
-        .slot_history = slot_history,
-        .current_slot = fork->slot_ctx.slot_bank.slot,
-      };
+      /* Read slot history into slot ctx */
+      fd_sysvar_slot_history_read( &fork->slot_ctx, fd_scratch_virtual(), fork->slot_ctx.slot_history );
       res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx, ctx->capture_ctx,
                                                     txns, txn_cnt,
-                                                    status_check_tower,
-                                                    &status_check_ctx,
                                                     ctx->tpool );
     } FD_SCRATCH_SCOPE_END;
 
