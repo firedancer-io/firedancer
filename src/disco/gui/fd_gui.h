@@ -162,6 +162,8 @@ struct fd_gui {
     ulong info_cnt;
     struct fd_gui_validator_info info[ 40200 ];
   } validator_info;
+
+  char tmp_buf[ 8192 ];
 };
 
 typedef struct fd_gui fd_gui_t;
