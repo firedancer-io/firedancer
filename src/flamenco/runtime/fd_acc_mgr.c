@@ -420,7 +420,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
       if( rec == NULL ) {
         int err;
         rec = (fd_funk_rec_t *)fd_funk_rec_insert( funk, txn, &key, &err );
-        if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %s", err ));
+        if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
       }
       account->rec = rec;
       if ( acc_mgr->slots_per_epoch != 0 )
