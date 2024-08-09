@@ -137,6 +137,12 @@ typedef struct fd_exec_test_txn_result {
     bool is_ok;
     /* The transaction status (error code) */
     uint32_t status;
+    /* The instruction error, if any */
+    uint32_t instruction_error;
+    /* The instruction error index, if any */
+    uint32_t instruction_error_index;
+    /* Custom error, if any */
+    uint32_t custom_error;
     /* The return data from this transaction, if any */
     pb_bytes_array_t *return_data;
     /* Number of executed compute units */
@@ -172,7 +178,7 @@ extern "C" {
 #define FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT {0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_RENT_DEBITS_INIT_DEFAULT    {{0}, 0}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT    {0, 0}
-#define FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT     {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT}
+#define FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT     {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT}
 #define FD_EXEC_TEST_TXN_FIXTURE_INIT_DEFAULT    {false, FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT}
 #define FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO    {0, 0, 0}
 #define FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_ZERO {0, 0, NULL, NULL}
@@ -184,7 +190,7 @@ extern "C" {
 #define FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO   {0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_RENT_DEBITS_INIT_ZERO       {{0}, 0}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO       {0, 0}
-#define FD_EXEC_TEST_TXN_RESULT_INIT_ZERO        {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO}
+#define FD_EXEC_TEST_TXN_RESULT_INIT_ZERO        {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO}
 #define FD_EXEC_TEST_TXN_FIXTURE_INIT_ZERO       {false, FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_TXN_RESULT_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -229,9 +235,12 @@ extern "C" {
 #define FD_EXEC_TEST_TXN_RESULT_RENT_TAG         4
 #define FD_EXEC_TEST_TXN_RESULT_IS_OK_TAG        5
 #define FD_EXEC_TEST_TXN_RESULT_STATUS_TAG       6
-#define FD_EXEC_TEST_TXN_RESULT_RETURN_DATA_TAG  7
-#define FD_EXEC_TEST_TXN_RESULT_EXECUTED_UNITS_TAG 8
-#define FD_EXEC_TEST_TXN_RESULT_FEE_DETAILS_TAG  9
+#define FD_EXEC_TEST_TXN_RESULT_INSTRUCTION_ERROR_TAG 7
+#define FD_EXEC_TEST_TXN_RESULT_INSTRUCTION_ERROR_INDEX_TAG 8
+#define FD_EXEC_TEST_TXN_RESULT_CUSTOM_ERROR_TAG 9
+#define FD_EXEC_TEST_TXN_RESULT_RETURN_DATA_TAG  10
+#define FD_EXEC_TEST_TXN_RESULT_EXECUTED_UNITS_TAG 11
+#define FD_EXEC_TEST_TXN_RESULT_FEE_DETAILS_TAG  12
 #define FD_EXEC_TEST_TXN_FIXTURE_INPUT_TAG       1
 #define FD_EXEC_TEST_TXN_FIXTURE_OUTPUT_TAG      2
 
@@ -329,9 +338,12 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  resulting_state,   3) \
 X(a, STATIC,   SINGULAR, UINT64,   rent,              4) \
 X(a, STATIC,   SINGULAR, BOOL,     is_ok,             5) \
 X(a, STATIC,   SINGULAR, UINT32,   status,            6) \
-X(a, POINTER,  SINGULAR, BYTES,    return_data,       7) \
-X(a, STATIC,   SINGULAR, UINT64,   executed_units,    8) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  fee_details,       9)
+X(a, STATIC,   SINGULAR, UINT32,   instruction_error,   7) \
+X(a, STATIC,   SINGULAR, UINT32,   instruction_error_index,   8) \
+X(a, STATIC,   SINGULAR, UINT32,   custom_error,      9) \
+X(a, POINTER,  SINGULAR, BYTES,    return_data,      10) \
+X(a, STATIC,   SINGULAR, UINT64,   executed_units,   11) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  fee_details,      12)
 #define FD_EXEC_TEST_TXN_RESULT_CALLBACK NULL
 #define FD_EXEC_TEST_TXN_RESULT_DEFAULT NULL
 #define fd_exec_test_txn_result_t_resulting_state_MSGTYPE fd_exec_test_resulting_state_t

@@ -1408,7 +1408,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
       _txn_context_destroy( runner, NULL, slot_ctx, wksp, alloc );
       return 0UL;
     }
-    fd_exec_txn_ctx_t          * txn_ctx   = task_info->txn_ctx;
+    fd_exec_txn_ctx_t * txn_ctx   = task_info->txn_ctx;
 
     int exec_res = task_info->exec_res;
 
@@ -1435,6 +1435,9 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     txn_result->rent                              = slot_ctx->slot_bank.collected_rent;
     txn_result->is_ok                             = !exec_res;
     txn_result->status                            = (uint32_t) -exec_res;
+    txn_result->instruction_error                 = 0;
+    txn_result->instruction_error_index           = 0;
+    txn_result->custom_error                      = 0;
     txn_result->executed_units                    = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
     txn_result->has_fee_details                   = false;
     txn_result->fee_details.transaction_fee       = slot_ctx->slot_bank.collected_execution_fees;
@@ -1446,6 +1449,18 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
       *output = txn_result;
       return actual_end - (ulong)output_buf;
+    }
+
+    assert(txn_result->executed);
+
+    // At this point, the transaction has executed and if there is an error, its an instruction error
+    if (exec_res) {
+      txn_result->status = (uint32_t) -FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
+      txn_result->instruction_error = (uint32_t) -exec_res;
+      txn_result->instruction_error_index = (uint32_t) txn_ctx->instr_err_idx;
+      if (exec_res == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR) {
+        txn_result->custom_error = txn_ctx->custom_err;
+      }
     }
 
     txn_result->has_fee_details                = true;
