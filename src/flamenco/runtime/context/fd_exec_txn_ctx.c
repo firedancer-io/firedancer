@@ -153,7 +153,7 @@ fd_txn_borrowed_account_modify_idx( fd_exec_txn_ctx_t * ctx,
   }
 
   fd_borrowed_account_t * txn_account = &ctx->borrowed_accounts[idx];
-  if( min_data_sz > txn_account->meta->dlen ) {
+  if( min_data_sz > txn_account->const_meta->dlen ) {
     void * new_txn_account_data = fd_valloc_malloc( ctx->valloc, 8UL, min_data_sz );
     void * old_txn_account_data = fd_borrowed_account_resize( txn_account, new_txn_account_data, min_data_sz );
     if( old_txn_account_data != NULL ) {
