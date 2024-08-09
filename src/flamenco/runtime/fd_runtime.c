@@ -1082,6 +1082,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
         if( !is_blockhash_valid_for_age( &slot_ctx->slot_bank.block_hash_queue, blockhash, FD_RECENT_BLOCKHASHES_MAX_ENTRIES ) ) {
           // FD_LOG_WARNING(("phase 2 invalid: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
           task_info[ txn_idx ].txn->flags = 0;
+          FD_LOG_WARNING(( "blockhash not found" ));
           res |= FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
           continue;
         }
@@ -1112,6 +1113,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
       if ( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
         // FD_LOG_WARNING(("phase 2 invalid: %64J", (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ));
         task_info[ txn_idx ].txn->flags = 0;
+        FD_LOG_WARNING(( "fd_executor_check_txn_accounts failed" ));
         res |= err;
         continue;
       }
@@ -3890,9 +3892,9 @@ void fd_process_new_epoch(
            "update_epoch_stakes",
        ); */
   if ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
-    fd_begin_partitioned_rewards( slot_ctx, parent_epoch );
+    fd_begin_partitioned_rewards( slot_ctx, &slot_ctx->slot_bank.banks_hash, parent_epoch );
   } else {
-    fd_update_rewards( slot_ctx, parent_epoch );
+    fd_update_rewards( slot_ctx, &slot_ctx->slot_bank.banks_hash, parent_epoch );
   }
 
   fd_update_stake_delegations( slot_ctx );

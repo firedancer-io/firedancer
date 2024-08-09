@@ -276,7 +276,8 @@ fd_executor_check_txn_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
       validated_fee_payer = 1;
     }
 
-    if( txn_ctx->slot_ctx->epoch_reward_status.is_active && fd_txn_account_is_writable_idx( txn_ctx, (int)i )
+    if( (txn_ctx->slot_ctx->epoch_reward_status.discriminant == fd_epoch_reward_status_enum_Active)
+        && fd_txn_account_is_writable_idx( txn_ctx, (int)i )
         && memcmp( acct->const_meta->info.owner, fd_solana_stake_program_id.uc, sizeof(fd_pubkey_t))==0 ) {
       return FD_RUNTIME_TXN_ERR_PROGRAM_EXECUTION_TEMPORARILY_RESTRICTED;
     }

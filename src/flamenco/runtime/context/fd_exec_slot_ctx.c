@@ -28,6 +28,9 @@ fd_exec_slot_ctx_new( void *      mem,
   self->sysvar_cache = fd_sysvar_cache_new( fd_valloc_malloc( valloc, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() ), valloc );
   self->account_compute_table = fd_account_compute_table_join( fd_account_compute_table_new( fd_valloc_malloc( valloc, fd_account_compute_table_align(), fd_account_compute_table_footprint( 10000 ) ), 10000, 0 ) );
 
+  /* This is inactive by default */
+  self->epoch_reward_status.discriminant = fd_epoch_reward_status_enum_Inactive;
+
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_SLOT_CTX_MAGIC;
   FD_COMPILER_MFENCE();
@@ -393,7 +396,5 @@ fd_exec_slot_ctx_free( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_slot_hashes_destroy( slot_ctx->sysvar_cache_old.slot_hashes, &ctx );
 
   /* leader points to a caller-allocated leader schedule */
-
-  fd_stake_rewards_vector_destroy( slot_ctx->epoch_reward_status.stake_rewards_by_partition );
   fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( slot_ctx ) );
 }
