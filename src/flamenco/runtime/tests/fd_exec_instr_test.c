@@ -240,7 +240,7 @@ _instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Initial variables */
   txn_ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
-  txn_ctx->heap_size = FD_VM_HEAP_SIZE;
+  txn_ctx->heap_size                       = fd_ulong_max( txn_ctx->heap_size, FD_VM_HEAP_SIZE ); /* FIXME: bound this to FD_VM_HEAP_MAX?*/
 
   /* Set up epoch context */
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
@@ -520,6 +520,9 @@ _instr_context_create( fd_exec_instr_test_runner_t *        runner,
     acc_idx_seen[index] = 1;
   }
   info->acct_cnt = (uchar)test_ctx->instr_accounts_count;
+
+  //  FIXME: Specifically for CPI syscalls, flag guard this?
+  fd_instr_info_sum_account_lamports( info, &info->starting_lamports_h, &info->starting_lamports_l );
 
   /* This function is used to create context both for instructions and for syscalls,
      however some of the remaining checks are only relevant for program instructions. */
@@ -1643,7 +1646,10 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   /* Create execution context */
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t ctx[1];
-  if( !_instr_context_create( runner, ctx, input_instr_ctx, alloc, true ) )
+  // Skip extra checks for non-CPI syscalls
+  bool skip_extra_checks = strncmp( (const char *)input->syscall_invocation.function_name.bytes, "sol_invoke_signed", 17 );
+
+  if( !_instr_context_create( runner, ctx, input_instr_ctx, alloc, skip_extra_checks ) )
     goto error;
   fd_valloc_t valloc = fd_scratch_virtual();
 
@@ -1778,7 +1784,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
 
   /* Capture the effects */
   effects->error = -syscall_err;
-  effects->r0 = vm->reg[0];
+  effects->r0 = syscall_err ? 0 : vm->reg[0]; // Save only on success
   effects->cu_avail = (ulong)vm->cu;
 
   effects->heap = FD_SCRATCH_ALLOC_APPEND(
@@ -1790,16 +1796,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
   effects->stack->size = (uint)FD_VM_STACK_MAX;
   fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
-
-  if( input_data_sz ) {
-    effects->inputdata = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( input_data_sz ) );
-    effects->inputdata->size = (uint)input_data_sz;
-    fd_memcpy( effects->inputdata->bytes, (const void*)vm->input_mem_regions[0].haddr, input_data_sz );
-  } else {
-    effects->inputdata = NULL;
-  }
-
+  
   if( vm->rodata_sz ) {
     effects->rodata = FD_SCRATCH_ALLOC_APPEND(
       l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );
@@ -1807,6 +1804,28 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     fd_memcpy( effects->rodata->bytes, vm->rodata, rodata_sz );
   } else {
     effects->rodata = NULL;
+  }
+
+  /* Flatten input data regions into a single region.
+    
+     FIXME: Have SyscallEffects store repeated InputDataRegions instead 
+     for more granularity. May need to regenerate fixtures/test-vectors. */
+  ulong input_regions_total_sz = 0;
+  for( ulong i=0; i<vm->input_mem_regions_cnt; i++ ) {
+    input_regions_total_sz += vm->input_mem_regions[i].region_sz;
+  }
+  if( input_regions_total_sz == 0 ) {
+    effects->inputdata = NULL;
+  } else {
+    effects->inputdata = FD_SCRATCH_ALLOC_APPEND(
+      l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( input_regions_total_sz ) );
+    
+    effects->inputdata->size = (uint)input_regions_total_sz;
+    uchar * inputdata_ptr = effects->inputdata->bytes;
+    for( ulong i=0; i<vm->input_mem_regions_cnt; i++ ) {
+      fd_memcpy( inputdata_ptr, (void *) vm->input_mem_regions[i].haddr, vm->input_mem_regions[i].region_sz );
+      inputdata_ptr += vm->input_mem_regions[i].region_sz;
+    }
   }
 
   effects->frame_count = vm->frame_cnt;

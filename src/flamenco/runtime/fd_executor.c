@@ -489,7 +489,7 @@ dump_sorted_features( const fd_features_t * features, fd_exec_test_feature_set_t
 }
 
 static void
-dump_account_state( fd_borrowed_account_t * borrowed_account,
+dump_account_state( fd_borrowed_account_t const * borrowed_account,
                       fd_exec_test_acct_state_t * output_account ) {
     // Address
     fd_memcpy(output_account->address, borrowed_account->pubkey, sizeof(fd_pubkey_t));
@@ -515,10 +515,10 @@ dump_account_state( fd_borrowed_account_t * borrowed_account,
     output_account->has_seed_addr = false;
 }
 
-static void
-create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context,
-                                                 fd_exec_txn_ctx_t *txn_ctx,
-                                                 fd_instr_info_t *instr ) {
+void
+fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context,
+                                                 fd_exec_txn_ctx_t const *txn_ctx,
+                                                 fd_instr_info_t const *instr ) {
   /*
   NOTE: Calling this function requires the caller to have a scratch frame ready (see dump_instr_to_protobuf)
   */
@@ -546,7 +546,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   instr_context->accounts = fd_scratch_alloc(alignof(fd_exec_test_acct_state_t), (instr_context->accounts_count + num_sysvar_entries + txn_ctx->executable_cnt) * sizeof(fd_exec_test_acct_state_t));
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     // Copy account information over
-    fd_borrowed_account_t * borrowed_account = &txn_ctx->borrowed_accounts[i];
+    fd_borrowed_account_t const * borrowed_account = &txn_ctx->borrowed_accounts[i];
     fd_exec_test_acct_state_t * output_account = &instr_context->accounts[i];
     dump_account_state( borrowed_account, output_account );
   }
@@ -670,7 +670,7 @@ dump_instr_to_protobuf( fd_exec_txn_ctx_t *txn_ctx,
     }
 
     fd_exec_test_instr_context_t instr_context = FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT;
-    create_instr_context_protobuf_from_instructions( &instr_context, txn_ctx, instr );
+    fd_create_instr_context_protobuf_from_instructions( &instr_context, txn_ctx, instr );
 
     /* Output to file */
     ulong out_buf_size = 100 * 1024 * 1024;
