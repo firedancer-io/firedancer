@@ -1,9 +1,15 @@
 #ifndef HEADER_fd_src_disco_gui_fd_gui_printf_h
 #define HEADER_fd_src_disco_gui_fd_gui_printf_h
 
+#include <ctype.h>
+#include <stdio.h>
+
 #include "fd_gui_printf.h"
 
 #include "../../ballet/http/fd_hcache_private.h"
+#include "../../ballet/utf8/fd_utf8.h"
+
+#define FD_GUI_PRINTF_DEBUG 0
 
 static void
 jsonp_strip_trailing_comma( fd_gui_t * gui ) {
@@ -83,6 +89,8 @@ jsonp_pct( fd_gui_t * gui,
 static void
 jsonp_sanitize_str( fd_hcache_t * hcache,
                     ulong         start_len ) {
+  /* escape quotemark, reverse solidus, and control chars U+0000 through U+001F
+     just replace with a space */
   uchar * data = fd_hcache_private_data( hcache );
   for( ulong i=start_len; i<hcache->snap_len; i++ ) {
     if( FD_UNLIKELY( data[ hcache->snap_off+i ] < 0x20 ||
@@ -94,26 +102,61 @@ jsonp_sanitize_str( fd_hcache_t * hcache,
 }
 
 static void
+print_char_buf_to_buf_escape_hex(const char *buf, ulong buf_sz, char *out_buf, ulong out_buf_sz) {
+  /* Prints invisible chars as escaped hex codes */
+  ulong idx = 0;
+  for( ulong i = 0; i < buf_sz; ++i ) {
+    uchar c = (uchar)buf[i];
+    if( isprint( c ) ) {
+      if( idx < out_buf_sz - 1 ) {
+        out_buf[idx++] = (char)c;
+      }
+    } else {
+      if( idx < out_buf_sz - 4UL ) { // \xXX takes 4 characters
+        snprintf(out_buf + idx, out_buf_sz - idx, "\\x%02x", c);
+        idx += 4UL;
+      }
+    }
+  }
+  // Null-terminate the temporary buffer
+  if( idx < out_buf_sz ) {
+    out_buf[idx] = '\0';
+  } else {
+    out_buf[out_buf_sz - 1] = '\0';
+  }
+}
+
+static void
 jsonp_string( fd_gui_t *   gui,
               char const * key,
               char const * value ) {
+  char * val = (void *)value;
+  if( FD_LIKELY( value ) ) {
+    if( FD_UNLIKELY( !fd_utf8_verify( value, strlen( value ) ) )) {
+      val = NULL;
+#ifdef FD_GUI_PRINTF_DEBUG
+      print_char_buf_to_buf_escape_hex( value, strlen( value ), gui->tmp_buf, sizeof(gui->tmp_buf) );
+      FD_LOG_NOTICE(( "invalid utf8 for key=%s value=%s", key ? key : "", gui->tmp_buf ));
+#endif
+    }
+  }
   if( FD_LIKELY( key ) ) {
-    if( FD_LIKELY( value ) ) {
+    if( FD_LIKELY( val ) ) {
       fd_hcache_printf( gui->hcache, "\"%s\":\"", key );
       ulong start_len = gui->hcache->snap_len;
-      fd_hcache_printf( gui->hcache, "%s", value );
+      fd_hcache_printf( gui->hcache, "%s", val );
       jsonp_sanitize_str( gui->hcache, start_len );
-      fd_hcache_printf( gui->hcache, "\",", value );
+      fd_hcache_printf( gui->hcache, "\"," );
     } else {
       fd_hcache_printf( gui->hcache, "\"%s\":null,", key );
     }
   } else {
-    if( FD_LIKELY( value ) ) {
+    if( FD_LIKELY( val ) ) {
       fd_hcache_printf( gui->hcache, "\"" );
       ulong start_len = gui->hcache->snap_len;
-      fd_hcache_printf( gui->hcache, "%s", value );
+      fd_hcache_printf( gui->hcache, "%s", val );
       jsonp_sanitize_str( gui->hcache, start_len );
-      fd_hcache_printf( gui->hcache, "\",", value );
+      fd_hcache_printf( gui->hcache, "\"," );
     } else {
       fd_hcache_printf( gui->hcache, "null," );
     }
