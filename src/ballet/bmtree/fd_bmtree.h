@@ -337,8 +337,9 @@ fd_bmtree_commit_t * fd_bmtree_commit_init     ( void * mem, ulong hash_sz, ulon
 FD_FN_PURE static inline ulong fd_bmtree_commit_leaf_cnt ( fd_bmtree_commit_t const * bmt ) { return bmt->leaf_cnt; }
 
 /* fd_bmtree_depth and fd_bmtree_node_cnt respectively return the number
-   of layers and total number of nodes in a binary Merkle tree with
-   leaf_cnt leaves. */
+   of layers (counting leaf and root) and total number of nodes in a
+   binary Merkle tree with leaf_cnt leaves.  leaf_cnt in [0, ULONG_MAX].
+   */
 FD_FN_CONST ulong fd_bmtree_depth(    ulong leaf_cnt );
 FD_FN_CONST ulong fd_bmtree_node_cnt( ulong leaf_cnt );
 
@@ -386,9 +387,10 @@ fd_bmtree_get_proof( fd_bmtree_commit_t * state,
 
 /* fd_bmtree_from_proof derives the root of a Merkle tree where the
    element with hash `leaf` is the leaf_idx^th leaf and proof+hash_sz*i
-   contains its sibling at the ith level (counting from the bottom).
-   The full root hash (i.e. untruncated regardless of hash_sz) will be
-   stored in root upon return.
+   contains its sibling at the ith level (counting from the bottom, with
+   the sibling leaf being the i=0 value).  The full root hash (i.e.
+   untruncated regardless of hash_sz) will be stored in root upon
+   return.
    Does not retain any read or write interests after returning, and it
    operates independently of normal tree construction, so it neither
    starts nor ends a calc, and it can safely be done in the middle of a
@@ -406,12 +408,12 @@ fd_bmtree_get_proof( fd_bmtree_commit_t * state,
 /* TODO: Write the caching version of this */
 fd_bmtree_node_t *
 fd_bmtree_from_proof( fd_bmtree_node_t const * leaf,
-                      ulong                    leaf_idx,
+                      ulong                    leaf_idx, /* in [0, ULONG_MAX) */
                       fd_bmtree_node_t *       root,
                       uchar const *            proof,
-                      ulong                    proof_depth,
-                      ulong                    hash_sz,
-                      ulong                    prefix_sz );
+                      ulong                    proof_depth, /* in [0, 63] */
+                      ulong                    hash_sz, /* in [1, 32] */
+                      ulong                    prefix_sz /* either LONG_PREFIX_SZ or SHORT_PREFIX_SZ */ );
 
 
 /* fd_bmtree_commitp_insert_with_proof inserts a leaf at index idx in
@@ -420,7 +422,7 @@ fd_bmtree_from_proof( fd_bmtree_node_t const * leaf,
    this calc, or 0 if not.
 
    fd_bmtree_depth( idx+1 ) must be <= inclusion_proof_layer_cnt used in
-   init.
+   init.  Additionally, proof_depth<inclusion_proof_layer_cnt.
 
    Like all the other functions in this file that deal with inclusion
    proofs, the proof format is leaf to root, excluding the root, where
