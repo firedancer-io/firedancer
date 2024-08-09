@@ -978,40 +978,40 @@ fd_executor_txn_verify( fd_exec_txn_ctx_t * txn_ctx ) {
 }
 
 int
-fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t * FD_FN_UNUSED slot_ctx,
-                               fd_exec_txn_ctx_t *  FD_FN_UNUSED txn_ctx,
-                               fd_txn_p_t *         FD_FN_UNUSED txn ) {
+fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t * slot_ctx,
+                               fd_exec_txn_ctx_t *  txn_ctx,
+                               fd_txn_p_t *         txn ) {
   /* TODO: These checks should be moved to phase2. */
 
-  // if (FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, apply_cost_tracker_during_replay ) ) {
-  //   ulong est_cost = fd_pack_compute_cost( txn, &txn->flags );
-  //   if( slot_ctx->total_compute_units_requested + est_cost <= MAX_COMPUTE_UNITS_PER_BLOCK ) {
-  //     slot_ctx->total_compute_units_requested += est_cost;
-  //   } else {
-  //     return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_BLOCK_COST_LIMIT;
-  //   }
+  if (FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, apply_cost_tracker_during_replay ) ) {
+    ulong est_cost = fd_pack_compute_cost( txn, &txn->flags );
+    if( slot_ctx->total_compute_units_requested + est_cost <= MAX_COMPUTE_UNITS_PER_BLOCK ) {
+      slot_ctx->total_compute_units_requested += est_cost;
+    } else {
+      return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_BLOCK_COST_LIMIT;
+    }
 
-  //   fd_pubkey_t * tx_accs   = txn_ctx->accounts;
-  //   for( fd_txn_acct_iter_t ctrl = fd_txn_acct_iter_init( txn_ctx->txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
-  //        ctrl != fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
-  //     ulong i = fd_txn_acct_iter_idx( ctrl );
-  //     fd_pubkey_t * acct = &tx_accs[i];
-  //     if (!fd_txn_account_is_writable_idx( txn_ctx, (int)i )) {
-  //       continue;
-  //     }
-  //     fd_account_compute_elem_t * elem = fd_account_compute_table_query( slot_ctx->account_compute_table, acct, NULL );
-  //     if ( !elem ) {
-  //       elem = fd_account_compute_table_insert( slot_ctx->account_compute_table, acct );
-  //       elem->cu_consumed = 0;
-  //     }
+    fd_pubkey_t * tx_accs   = txn_ctx->accounts;
+    for( fd_txn_acct_iter_t ctrl = fd_txn_acct_iter_init( txn_ctx->txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+         ctrl != fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
+      ulong i = fd_txn_acct_iter_idx( ctrl );
+      fd_pubkey_t * acct = &tx_accs[i];
+      if (!fd_txn_account_is_writable_idx( txn_ctx, (int)i )) {
+        continue;
+      }
+      fd_account_compute_elem_t * elem = fd_account_compute_table_query( slot_ctx->account_compute_table, acct, NULL );
+      if ( !elem ) {
+        elem = fd_account_compute_table_insert( slot_ctx->account_compute_table, acct );
+        elem->cu_consumed = 0;
+      }
 
-  //     if ( elem->cu_consumed + est_cost > MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT ) {
-  //       return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_ACCOUNT_COST_LIMIT;
-  //     }
+      if ( elem->cu_consumed + est_cost > MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT ) {
+        return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_ACCOUNT_COST_LIMIT;
+      }
 
-  //     elem->cu_consumed += est_cost;
-  //   }
-  // }
+      elem->cu_consumed += est_cost;
+    }
+  }
 
   return 0;
 }
