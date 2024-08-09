@@ -1490,20 +1490,16 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   FD_SCRATCH_SCOPE_BEGIN {
     uint use_sysvar_instructions = fd_executor_txn_uses_sysvar_instructions( txn_ctx );
 
-    fd_instr_info_t * instrs[txn_ctx->txn_descriptor->instr_cnt];
+    fd_instr_info_t instrs[txn_ctx->txn_descriptor->instr_cnt];
     for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
       fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[i];
-      instrs[i] = fd_executor_acquire_instr_info_elem( txn_ctx );
-      if ( FD_UNLIKELY( instrs[i] == NULL ) ) {
-        return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
-      }
-      fd_convert_txn_instr_to_instr( txn_ctx, txn_instr, txn_ctx->borrowed_accounts, instrs[i] );
+      fd_convert_txn_instr_to_instr( txn_ctx, txn_instr, txn_ctx->borrowed_accounts, &instrs[i] );
     }
 
     int ret = 0;
 
     if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
-      ret = fd_sysvar_instructions_serialize_account( txn_ctx, (fd_instr_info_t const **)instrs, txn_ctx->txn_descriptor->instr_cnt );
+      ret = fd_sysvar_instructions_serialize_account( txn_ctx, (fd_instr_info_t const *)instrs, txn_ctx->txn_descriptor->instr_cnt );
       if( ret != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "sysvar instrutions failed to serialize" ));
         return ret;
@@ -1535,11 +1531,11 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
       if( dump_insn ) {
         // Capture the input and convert it into a Protobuf message
-        dump_instr_to_protobuf(txn_ctx, instrs[i], i);
+        dump_instr_to_protobuf(txn_ctx, &instrs[i], i);
       }
 
 
-      int exec_result = fd_execute_instr( txn_ctx, instrs[i] );
+      int exec_result = fd_execute_instr( txn_ctx, &instrs[i] );
 #ifdef VLOG
       FD_LOG_WARNING(( "fd_execute_instr result (%d) for %64J", exec_result, sig ));
 #endif
@@ -1729,18 +1725,6 @@ fd_executor_instr_strerror( int err ) {
   }
 
   return "unknown";
-}
-
-fd_instr_info_t *
-fd_executor_acquire_instr_info_elem( fd_exec_txn_ctx_t * txn_ctx ) {
-
-  if ( FD_UNLIKELY( fd_instr_info_pool_free( txn_ctx->instr_info_pool ) == 0 ) ) {
-    FD_LOG_DEBUG(( "no free elements remaining in the fd_instr_info_pool" ));
-    return NULL;
-  }
-
-  return &fd_instr_info_pool_ele_acquire( txn_ctx->instr_info_pool )->info;
-
 }
 
 // This is purely linker magic to force the inclusion of the yaml type walker so that it is

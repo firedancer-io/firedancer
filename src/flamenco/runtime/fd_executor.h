@@ -88,15 +88,6 @@ fd_execute_txn_finalize( fd_exec_txn_ctx_t * txn_ctx,
 int
 fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx );
 
-/* Returns a new fd_instr_info_t element, which will have the same lifetime as the given txn_ctx.
-
-   Returns NULL if we failed to acquire a new fd_instr_info_t element from the pool, which has
-   FD_MAX_INSTRUCTION_TRACE_LENGTH capacity. The appropiate response to this is usually
-   failing with FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED.
- */
-fd_instr_info_t *
-fd_executor_acquire_instr_info_elem( fd_exec_txn_ctx_t * txn_ctx );
-
 uint
 fd_executor_txn_uses_sysvar_instructions( fd_exec_txn_ctx_t const * txn_ctx );
 

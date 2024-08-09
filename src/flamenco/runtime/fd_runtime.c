@@ -1402,7 +1402,6 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
         slot_ctx->signature_cnt += txn_ctx->txn_descriptor->signature_cnt;
       }
 
-      fd_valloc_free( txn_ctx->valloc, fd_instr_info_pool_delete( fd_instr_info_pool_leave( txn_ctx->instr_info_pool ) ) );
       fd_valloc_free( slot_ctx->valloc, txn_ctx );
     }
 
