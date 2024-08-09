@@ -40,6 +40,10 @@ for acct in accts:
 
 good_method({ "jsonrpc":"2.0","id":1, "method":"getBlockHeight" })
 
+good_method({"jsonrpc": "2.0", "id": 1, "method": "getBlocks", "params": [slot-10, slot+10]})
+
+good_method({"jsonrpc": "2.0", "id": 1, "method": "getBlocksWithLimit", "params": [slot-10, 20]})
+
 good_method({"jsonrpc":"2.0","id":1,"method":"getBlockTime","params":[slot]})
 
 good_method({"jsonrpc":"2.0","id":1, "method":"getEpochInfo"})

@@ -553,12 +553,16 @@ method_getBlocksWithLimit(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
-  for ( ulong i = startslotn; /* FIX ME i <= blockstore->max && */ cnt < limitn; ++i ) {
+  uint skips = 0;
+  for ( ulong i = startslotn; /* FIX ME i <= blockstore->max && */ cnt < limitn && skips < 100U; ++i ) {
     fd_block_map_t meta[1];
     int ret = fd_blockstore_block_map_query_volatile(blockstore, i, meta);
     if (!ret) {
       fd_web_reply_sprintf(ws, "%s%lu", (cnt==0 ? "" : ","), i);
       ++cnt;
+      skips = 0;
+    } else {
+      ++skips;
     }
   }
   fd_web_reply_sprintf(ws, "],\"id\":%lu}" CRLF, ctx->call_id);
