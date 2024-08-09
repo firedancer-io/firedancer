@@ -1290,7 +1290,7 @@ method_getVersion(struct json_values* values, fd_rpc_ctx_t * ctx) {
 }
 
 static void
-vote_account_to_json(fd_webserver_t * ws, fd_vote_accounts_pair_t_mapnode_t * vote_node) {
+vote_account_to_json(fd_webserver_t * ws, fd_vote_accounts_pair_t_mapnode_t const * vote_node) {
   fd_web_reply_sprintf(ws, "{\"commission\":0,\"epochVoteAccount\":true,\"epochCredits\":[[1,64,0],[2,192,64]],\"nodePubkey\":\")");
   fd_web_reply_encode_base58(ws, vote_node->elem.value.owner.uc, sizeof(fd_pubkey_t));
   fd_web_reply_sprintf(ws, "\",\"lastVote\":147,\"activatedStake\":%lu,\"votePubkey\":\"",
@@ -1314,28 +1314,44 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_webserver_t * ws = &ctx->global->ws;
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"current\":[");
 
-    int needcomma = 0;
-    for ( ulong i = 0; ; ++i ) {
-      // Path to argument
-      uint path[4];
-      path[0] = (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS;
-      path[1] = (uint) ((JSON_TOKEN_LBRACKET<<16) | i);
-      path[2] = (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_VOTEPUBKEY;
-      path[3] = (JSON_TOKEN_STRING<<16);
-      ulong arg_sz = 0;
-      const void* arg = json_get_value(values, path, 4, &arg_sz);
-      if (arg == NULL)
-        // End of list
-        break;
+    uint path[4] = {
+      (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+      (uint) ((JSON_TOKEN_LBRACKET<<16) | 0),
+      (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_VOTEPUBKEY,
+      (JSON_TOKEN_STRING<<16)
+    };
+    ulong arg_sz = 0;
+    const void* arg = json_get_value(values, path, 4, &arg_sz);
+    if (arg == NULL) {
+      // No vote pub key specified
+      int needcomma = 0;
+      for( fd_vote_accounts_pair_t_mapnode_t const * n = fd_vote_accounts_pair_t_map_minimum_const( pool, root );
+           n;
+           n = fd_vote_accounts_pair_t_map_successor_const( pool, n ) ) {
+        if( needcomma ) fd_web_reply_sprintf(ws, ",");
+        vote_account_to_json(ws, n);
+        needcomma = 1;
+      }
 
-      fd_vote_accounts_pair_t_mapnode_t key  = { 0 };
-      fd_base58_decode_32((const char *)arg, key.elem.key.uc);
-      fd_vote_accounts_pair_t_mapnode_t * vote_node = fd_vote_accounts_pair_t_map_find( pool, root, &key );
-      if( vote_node == NULL ) continue;
+    } else {
+      int needcomma = 0;
+      for ( ulong i = 0; ; ++i ) {
+        // Path to argument
+        path[1] = (uint) ((JSON_TOKEN_LBRACKET<<16) | i);
+        arg = json_get_value(values, path, 4, &arg_sz);
+        if (arg == NULL)
+          // End of list
+          break;
 
-      if( needcomma ) fd_web_reply_sprintf(ws, ",");
-      vote_account_to_json(ws, vote_node);
-      needcomma = 1;
+        fd_vote_accounts_pair_t_mapnode_t key  = { 0 };
+        fd_base58_decode_32((const char *)arg, key.elem.key.uc);
+        fd_vote_accounts_pair_t_mapnode_t * vote_node = fd_vote_accounts_pair_t_map_find( pool, root, &key );
+        if( vote_node == NULL ) continue;
+
+        if( needcomma ) fd_web_reply_sprintf(ws, ",");
+        vote_account_to_json(ws, vote_node);
+        needcomma = 1;
+      }
     }
 
     fd_web_reply_sprintf(ws, "],\"delinquent\":[]},\"id\":%lu}" CRLF, ctx->call_id);

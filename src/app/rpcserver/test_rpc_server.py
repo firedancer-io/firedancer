@@ -66,4 +66,11 @@ good_method({"jsonrpc": "2.0", "id": 1, "method": "getSignatureStatuses", "param
 
 good_method({"jsonrpc":"2.0","id":1, "method":"getVersion"})
 
-good_method({"jsonrpc": "2.0", "id": 1, "method": "getVoteAccounts", "params": [ { "votePubkey": accts[0] } ] })
+res = good_method({"jsonrpc": "2.0", "id": 1, "method": "getVoteAccounts", "params": [ ] })
+votekeys = [ { "votePubkey": i['votePubkey'] } for i in res['result']['current'] ]
+
+res = good_method({"jsonrpc": "2.0", "id": 1, "method": "getVoteAccounts", "params": votekeys[:3] })
+assert len(res['result']['current']) == 3
+
+
+print('Test passed!')
