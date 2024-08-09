@@ -93,7 +93,6 @@ fd_exec_instr_test_runner_new( void * mem,
     FD_LOG_WARNING(( "fd_funk_new() failed" ));
     return NULL;
   }
-  fd_funk_start_write( funk );
 
   fd_exec_instr_test_runner_t * runner = runner_mem;
   runner->funk = funk;
@@ -163,6 +162,7 @@ _load_account( fd_borrowed_account_t *           acc,
 
   assert( acc_mgr->funk );
   assert( acc_mgr->funk->magic == FD_FUNK_MAGIC );
+  fd_funk_start_write( acc_mgr->funk );
   int err = fd_acc_mgr_modify( /* acc_mgr     */ acc_mgr,
                                /* txn         */ funk_txn,
                                /* pubkey      */ pubkey,
@@ -184,6 +184,7 @@ _load_account( fd_borrowed_account_t *           acc,
   acc->meta = NULL;
   acc->data = NULL;
   acc->rec  = NULL;
+  fd_funk_end_write( acc_mgr->funk );
 
   return 1;
 }
@@ -240,7 +241,9 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Create temporary funk transaction and scratch contexts */
 
+  fd_funk_start_write( funk );
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
+  fd_funk_end_write( funk );
   fd_scratch_push();
 
   ulong vote_acct_max = 128UL;
@@ -423,7 +426,9 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   }
 
   /* Add accounts to bpf program cache */
+  fd_funk_start_write( acc_mgr->funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
+  fd_funk_end_write( acc_mgr->funk );
 
   /* Restore sysvar cache */
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
@@ -605,7 +610,9 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Create temporary funk transaction and scratch contexts */
 
+  fd_funk_start_write( runner->funk );
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
+  fd_funk_end_write( runner->funk );
 
   ulong vote_acct_max = 128UL;
 
@@ -640,7 +647,9 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_slot_bank_new( &slot_ctx->slot_bank );
 
   /* Initialize builtin accounts */
+  fd_funk_start_write( runner->funk );
   fd_builtin_programs_init( slot_ctx );
+  fd_funk_end_write( runner->funk );
 
   /* Load account states into funk (note this is different from the account keys):
     Account state = accounts to populate Funk
@@ -656,6 +665,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
 
   /* Add accounts to bpf program cache */
+  fd_funk_start_write( runner->funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
 
   /* Default slot */
@@ -804,6 +814,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     slot_ctx->slot_bank.poh = blockhash_entry.blockhash;
     fd_sysvar_recent_hashes_update( slot_ctx );
   }
+  fd_funk_end_write( runner->funk );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   uchar * txn_raw_begin = fd_scratch_alloc( alignof(uchar), 10000 ); // max txn size is 1232 but we allocate extra for safety
@@ -930,16 +941,8 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   fd_runtime_prepare_txns_start( slot_ctx, task_info, txn, 1UL );
 
-  fd_runtime_pre_execute_check( task_info );
+  fd_runtime_prep_and_exec_txns_tpool( slot_ctx, task_info, 1UL, tpool );
 
-  if( !task_info->exec_res ) {
-    task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-    task_info->exec_res    = fd_execute_txn( task_info->txn_ctx );
-  }
-
-  slot_ctx->slot_bank.collected_execution_fees += task_info->txn_ctx->execution_fee;
-  slot_ctx->slot_bank.collected_priority_fees  += task_info->txn_ctx->priority_fee;
-  
   return task_info;
 }
 
@@ -975,7 +978,10 @@ fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
   fd_exec_slot_ctx_free( slot_ctx );
   fd_acc_mgr_delete( acc_mgr );
   fd_scratch_pop();
+
+  fd_funk_start_write( runner->funk );
   fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
+  fd_funk_end_write( runner->funk );
 
   ctx->slot_ctx = NULL;
 }
@@ -1016,7 +1022,10 @@ _txn_context_destroy( fd_exec_instr_test_runner_t * runner,
 
   fd_exec_slot_ctx_free( slot_ctx );
   fd_acc_mgr_delete( acc_mgr );
+
+  fd_funk_start_write( runner->funk );
   fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
+  fd_funk_end_write( runner->funk );
 }
 
 /* fd_exec_instr_fixture_diff_t compares a test fixture against the

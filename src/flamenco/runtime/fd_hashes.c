@@ -253,6 +253,7 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->prev_banks_hash = slot_ctx->slot_bank.banks_hash;
   slot_ctx->parent_signature_cnt = slot_ctx->signature_cnt;
   slot_ctx->prev_lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature;
+  slot_ctx->parent_transaction_count = slot_ctx->slot_bank.transaction_count;
 
   sort_pubkey_hash_pair_inplace( dirty_keys, dirty_key_cnt );
   fd_pubkey_hash_pair_list_t list1 = { .pairs = dirty_keys, .pairs_len = dirty_key_cnt };

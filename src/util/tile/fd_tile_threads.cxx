@@ -10,6 +10,7 @@
 #include <syscall.h>
 #include <sys/resource.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 
 #include "../sanitize/fd_sanitize.h"
 #include "fd_tile_private.h"
@@ -266,6 +267,10 @@ fd_tile_private_manager( void * _args ) {
   ulong  idx      = args->idx;
   void * stack    = args->stack;
   ulong  stack_sz = args->stack_sz;
+
+  char thread_name[ 20 ];
+  FD_TEST( fd_cstr_printf_check( thread_name, sizeof( thread_name ), NULL, "tile:%lu", idx ) );
+  if( FD_UNLIKELY( prctl( PR_SET_NAME, thread_name, 0, 0, 0 ) ) ) FD_LOG_ERR(( "prctl(PR_SET_NAME) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( !( (id ==fd_log_thread_id()                                       ) &
                       (idx==(id-fd_tile_private_id0)                                 ) &

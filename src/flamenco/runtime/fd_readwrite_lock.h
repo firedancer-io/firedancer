@@ -46,12 +46,13 @@ static inline void
 fd_readwrite_start_read( fd_readwrite_lock_t * lock ) {
 # if FD_HAS_THREADS
   for(;;) {
-    register int l = lock->lock;
-    if( FD_UNLIKELY( l < 0 || FD_ATOMIC_CAS( &lock->lock, l, l+1 ) != l ) ) {
-      FD_YIELD();
-      continue;
+    int l = lock->lock;
+    if( FD_UNLIKELY( l >= 0 ) ) {
+      if( FD_LIKELY( FD_ATOMIC_CAS( &lock->lock, l, l+1 ) == l ) ) {
+        return;
+      }
     }
-    break;
+    FD_SPIN_PAUSE();
   }
   FD_COMPILER_MFENCE();
 # else
@@ -64,12 +65,12 @@ fd_readwrite_end_read( fd_readwrite_lock_t * lock ) {
 # if FD_HAS_THREADS
   FD_COMPILER_MFENCE();
   for(;;) {
-    register int l = lock->lock;
+    int l = lock->lock;
     if( FD_UNLIKELY( l <= 0 ) ) {
       FD_LOG_CRIT(( "fd_readwrite_end_read called without fd_readwrite_start_read" ));
     }
     if( FD_UNLIKELY( FD_ATOMIC_CAS( &lock->lock, l, l-1 ) != l ) ) {
-      FD_YIELD();
+      FD_SPIN_PAUSE();
       continue;
     }
     break;
@@ -85,7 +86,7 @@ fd_readwrite_start_write( fd_readwrite_lock_t * lock ) {
   for(;;) {
     register int l = lock->lock;
     if( FD_UNLIKELY( l != 0 || FD_ATOMIC_CAS( &lock->lock, l, -1 ) != l ) ) {
-      FD_YIELD();
+      FD_SPIN_PAUSE();
       continue;
     }
     break;
@@ -110,7 +111,7 @@ fd_readwrite_end_write( fd_readwrite_lock_t * lock ) {
       FD_LOG_CRIT(( "fd_readwrite_end_write called without fd_readwrite_start_write" ));
     }
     if( FD_UNLIKELY( FD_ATOMIC_CAS( &lock->lock, l, 0 ) != l ) ) {
-      FD_YIELD();
+      FD_SPIN_PAUSE();
       continue;
     }
     break;
