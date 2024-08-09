@@ -296,12 +296,6 @@ _instr_context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->capture_ctx             = NULL;
   txn_ctx->vote_accounts_pool      = NULL;
   txn_ctx->accounts_resize_delta   = 0;
-
-  txn_ctx->instr_info_pool         = fd_instr_info_pool_join( fd_instr_info_pool_new(
-    fd_valloc_malloc( fd_scratch_virtual(), fd_instr_info_pool_align( ), fd_instr_info_pool_footprint( FD_MAX_INSTRUCTION_TRACE_LENGTH ) ),
-    FD_MAX_INSTRUCTION_TRACE_LENGTH
-  ) );
-
   txn_ctx->instr_trace_length      = 0;
 
   memset( txn_ctx->_txn_raw, 0, sizeof(fd_rawtxn_b_t) );
@@ -311,7 +305,7 @@ _instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Set up instruction context */
 
-  fd_instr_info_t * info = fd_executor_acquire_instr_info_elem( txn_ctx );
+  fd_instr_info_t * info = fd_valloc_malloc( fd_scratch_virtual(), 8UL, sizeof(fd_instr_info_t) );
   assert( info );
   memset( info, 0, sizeof(fd_instr_info_t) );
 
@@ -930,15 +924,6 @@ _instr_context_destroy( fd_exec_instr_test_runner_t * runner,
     }
   }
 
-  // Free instr info pool (since its also wksp-allocated)
-  if( ctx->txn_ctx->instr_info_pool ) {
-    void * instr_info_mem = fd_instr_info_pool_delete( fd_instr_info_pool_leave( ctx->txn_ctx->instr_info_pool ) );
-    fd_wksp_t * belongs_to_wksp = fd_wksp_containing( instr_info_mem );
-    if( belongs_to_wksp ) {
-      fd_wksp_free_laddr( instr_info_mem );
-    }
-  }
-
   // Free alloc
   if( alloc ) {
     fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
@@ -973,17 +958,6 @@ _txn_context_destroy( fd_exec_instr_test_runner_t * runner,
       fd_wksp_t * belongs_to_wksp = fd_wksp_containing( borrowed_account_mem );
       if( belongs_to_wksp ) {
         fd_wksp_free_laddr( borrowed_account_mem );
-      }
-    }
-
-    // Free instr info pool (since its also wksp-allocated)
-    if( txn_ctx->instr_info_pool ) {
-      void * instr_info_mem = fd_instr_info_pool_delete( fd_instr_info_pool_leave( txn_ctx->instr_info_pool ) );
-      fd_wksp_t * belongs_to_wksp = fd_wksp_containing( instr_info_mem );
-
-      // Only free instr info mem if it was wksp-allocated
-      if( belongs_to_wksp ) {
-        fd_wksp_free_laddr( instr_info_mem );
       }
     }
   }

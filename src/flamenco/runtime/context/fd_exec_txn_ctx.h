@@ -109,8 +109,6 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 
   fd_capture_ctx_t * capture_ctx;
 
-  fd_instr_info_pool_elem_t * instr_info_pool;  /* Memory pool for allocating fd_instr_info_t structs used in instruction traces */
-
   fd_exec_instr_trace_entry_t instr_trace [FD_MAX_INSTRUCTION_TRACE_LENGTH]; /* Instruction trace */
   ulong instr_trace_length;                                                  /* Number of instructions in the trace */
 };
