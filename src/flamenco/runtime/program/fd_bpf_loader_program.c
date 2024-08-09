@@ -790,7 +790,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       } FD_BORROWED_ACCOUNT_DROP( buffer );
       } FD_BORROWED_ACCOUNT_DROP( payer  );
 
-      /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L628-L642 */
+      /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L628-L642 */
       /* Pass an extra account to avoid the overly strict unblanaced instruction error */
       /* Invoke the system program to create the new account */
       fd_system_program_instruction_create_account_t create_acct;

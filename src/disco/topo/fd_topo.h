@@ -232,6 +232,7 @@ typedef struct {
       uchar src_mac_addr[ 6 ];
       int   vote;
       char  vote_account_path[ PATH_MAX ];
+      ulong bank_tile_count;
     } replay;
 
     struct {
@@ -269,6 +270,7 @@ typedef struct {
       ushort  tvu_fwd_port;
       ushort  tpu_port;
       ushort  tpu_vote_port;
+      ushort  repair_serve_port;
       ulong   expected_shred_version;
     } gossip;
 

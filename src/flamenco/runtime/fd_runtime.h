@@ -65,6 +65,17 @@ struct fd_block_txn_iter {
 
 typedef struct fd_block_txn_iter fd_block_txn_iter_t;
 
+struct fd_raw_block_txn_iter {
+  ulong remaining_microblocks;
+  ulong remaining_txns;
+  ulong curr_offset;
+  ulong data_sz;
+
+  ulong curr_txn_sz;
+};
+
+typedef struct fd_raw_block_txn_iter fd_raw_block_txn_iter_t;
+
 FD_PROTOTYPES_BEGIN
 
 ulong
@@ -285,6 +296,18 @@ fd_block_txn_iter_next( fd_block_info_t const * block_info, fd_block_txn_iter_t 
 
 fd_txn_p_t *
 fd_block_txn_iter_ele( fd_block_info_t const * block_info, fd_block_txn_iter_t iter );
+
+fd_raw_block_txn_iter_t
+fd_raw_block_txn_iter_init( uchar const * data, ulong data_sz );
+
+ulong
+fd_raw_block_txn_iter_done( fd_raw_block_txn_iter_t iter );
+
+fd_raw_block_txn_iter_t
+fd_raw_block_txn_iter_next( uchar const * data, fd_raw_block_txn_iter_t iter );
+
+void
+fd_raw_block_txn_iter_ele( uchar const * data, fd_raw_block_txn_iter_t iter, fd_txn_p_t * out_txn );
 
 FD_PROTOTYPES_END
 

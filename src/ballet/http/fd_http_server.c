@@ -789,7 +789,7 @@ write_conn_http( fd_http_server_t * http,
             FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %.*s\r\n", (int)encoded_len, sec_websocket_accept_base64 ) );
           } else {
             ulong body_len = conn->response.static_body ? conn->response.static_body_len : conn->response._body_len;
-            FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\n", body_len ) );
+            FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nConnection: close\r\n", body_len ) );
           }
           break;
         case 204: {
