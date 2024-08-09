@@ -130,9 +130,9 @@ void genchaincode(std::vector<matchnode*>& chain, unsigned prefixlen, FILE* fd) 
         for (unsigned l = 0; l < k; ++l)
           pattern |= ((unsigned long)(unsigned char)*chain[j+l]->children.begin()->second.begin())<<(l*8);
         if (k == 8)
-          fprintf(fd, "(*(unsigned long*)&keyw[%u] == 0x%lXUL)", prefixlen+j, pattern);
+          fprintf(fd, "*(unsigned long*)&keyw[%u] == 0x%lXUL", prefixlen+j, pattern);
         else
-          fprintf(fd, "((*(unsigned long*)&keyw[%u] & 0x%lXUL) == 0x%lXUL)", prefixlen+j, (1UL<<(k*8))-1, pattern);
+          fprintf(fd, "(*(unsigned long*)&keyw[%u] & 0x%lXUL) == 0x%lXUL", prefixlen+j, (1UL<<(k*8))-1, pattern);
         j += k;
       }
     }
@@ -237,7 +237,7 @@ void genmatcher(const keyword* table, const char* funname, const char* errtoken,
 }
 
 void gentest(const keyword* table, const char* funname, const char* errtoken, FILE* fd) {
-  fprintf(fd, "void test_%s() {\n", funname);
+  fprintf(fd, "void test_%s(void) {\n", funname);
   for (const keyword* i = table; i->text != NULL; ++i) {
     char scratch[1024];
     strncpy(scratch, i->text, sizeof(scratch));
