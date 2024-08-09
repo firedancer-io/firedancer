@@ -78,7 +78,8 @@ struct __attribute__((aligned(128UL))) fd_ghost_node {
 struct fd_ghost_vote {
   fd_pubkey_t    pubkey; /* validator identity, also the map key */
   ulong          next;   /* reserved for internal use by fd_pool and fd_map_chain */
-  ulong          slot;   /* slot being voted for */
+  ulong          slot;   /* latest vote slot */
+  ulong          root;   /* latest root slot */
   ulong          stake;  /* validator's stake */
 };
 typedef struct fd_ghost_vote fd_ghost_vote_t;
@@ -207,60 +208,69 @@ fd_ghost_init( fd_ghost_t * ghost, ulong root, ulong total_stake );
 
 /* Accessors */
 
-FD_FN_PURE static inline fd_ghost_node_t *
-fd_ghost_query( fd_ghost_t * ghost, ulong slot ) {
-  return fd_ghost_node_map_ele_query( ghost->node_map, &slot, NULL, ghost->node_pool );
-}
-
 FD_FN_PURE static inline fd_ghost_node_t const *
-fd_ghost_query_const( fd_ghost_t const * ghost, ulong slot ) {
+fd_ghost_query( fd_ghost_t const * ghost, ulong slot ) {
   return fd_ghost_node_map_ele_query_const( ghost->node_map, &slot, NULL, ghost->node_pool );
 }
 
 /* Operations */
 
 /* fd_ghost_node_insert inserts a new leaf node with slot as the key
-   into the ghost.  The caller promises slot is not currently in the map
-   and parent_slot is. */
+   into the ghost.  Assumes slot is not currently in ghost and
+   parent_slot already is in ghost (if handholding is enabled,
+   explicitly checks and errors).  Returns the inserted ghost node. */
 
 fd_ghost_node_t *
 fd_ghost_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot );
 
-/* fd_ghost_replay_vote adds stake amount to slot as well as its
-   ancestors.  If pubkey has previously voted, stake amount is also
-   subtracted from the previous vote slot's ancestry chain.
+/* fd_ghost_replay_vote votes for slot, adding pubkey's stake to the
+   `replay_stake` field for slot and to the `weight` field for both slot
+   and slot's ancestors.  If pubkey has previously voted, pubkey's stake
+   is also subtracted from `weight` for its previous vote slot and its
+   ancestors.
 
-   Note the propagated stake is accumulated in the separate field weight
-   on the fd_ghost_node_t.
+   Assumes slot is present in ghost (if handholding is enabled,
+   explicitly checks and errors).  Returns the ghost node keyed by slot.
 
    TODO the implementation can be made more efficient by
    short-circuiting and doing fewer traversals.  Currently this is
    bounded to O(h), where h is the height of ghost. */
 
-void
+fd_ghost_node_t const *
 fd_ghost_replay_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey, ulong stake );
 
 /* fd_ghost_gossip_vote adds stake amount to the gossip_stake field of
-   slot.  Unlike fd_ghost_replay_vote, this stake is not propagated to
-   slot's ancestors.  It is only counted towards slot itself. */
+   slot.
 
-void
+   Assumes slot is present in ghost (if handholding is enabled,
+   explicitly checks and errors).  Returns the ghost node keyed by slot.
+
+   Unlike fd_ghost_replay_vote, this stake is not propagated to
+   the weight field for slot and slot's ancestors.  It is only counted
+   towards slot itself, as gossip votes are only used for optimistic
+   confirmation and not fork choice. */
+
+fd_ghost_node_t const *
 fd_ghost_gossip_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey, ulong stake );
 
 /* fd_ghost_rooted_vote adds stake amount to the rooted_stake field of
-   slot.  Similar to fd_ghost_replay_vote, this stake is propagated to
-   slot's ancestors.  This is because rooting a slot implies rooting its
-   ancestors. */
+   slot.
 
-void
+   Assumes slot is present in ghost (if handholding is enabled,
+   explicitly checks and errors).  Returns the ghost node keyed by slot.
+
+   Note rooting a slot implies rooting its ancestor, but ghost does not
+   explicitly track this. */
+
+fd_ghost_node_t const *
 fd_ghost_rooted_vote( fd_ghost_t * ghost, ulong slot, fd_pubkey_t const * pubkey, ulong stake );
 
-/* fd_ghost_publish publishes slot as the new ghost root, promoting the
-   subtree beginning from root to the new ghost tree.  Prunes all nodes
-   not in slot's ancestry.  Assumes slot is present in ghost.  Returns
-   the new root. */
+/* fd_ghost_publish publishes slot as the new ghost root, setting the
+   subtree beginning from slot as the new ghost tree (ie. slot and all
+   its descendants).  Prunes all nodes not in slot's ancestry.  Assumes
+   slot is present in ghost.  Returns the new root. */
 
-fd_ghost_node_t *
+fd_ghost_node_t const *
 fd_ghost_publish( fd_ghost_t * ghost, ulong slot );
 
 /* Traversals */

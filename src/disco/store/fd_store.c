@@ -99,7 +99,7 @@ fd_store_slot_prepare( fd_store_t *   store,
 
 
   /* We already executed this block */
-  if( FD_UNLIKELY( block && fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_PREPARING ) ) ) {
+  if( FD_UNLIKELY( block && fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) {
     rc = FD_STORE_SLOT_PREPARE_ALREADY_EXECUTED;
     goto end;
   }
@@ -154,7 +154,7 @@ fd_store_slot_prepare( fd_store_t *   store,
   if( FD_UNLIKELY( !fd_uchar_extract_bit( parent_block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
     rc = FD_STORE_SLOT_PREPARE_NEED_PARENT_EXEC;
     // FD_LOG_WARNING(("NEED PARENT EXEC %lu %lu", slot, parent_slot));
-    if( FD_UNLIKELY( !fd_uchar_extract_bit( parent_block_map_entry->flags, FD_BLOCK_FLAG_PREPARING ) ) ) {
+    if( FD_UNLIKELY( !fd_uchar_extract_bit( parent_block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) {
       /* ... but it is not prepared */
       re_add_delays[re_adds_cnt] = (long)5e6;
       re_adds[re_adds_cnt++] = slot;
@@ -178,7 +178,7 @@ fd_store_slot_prepare( fd_store_t *   store,
   *block_sz_out = block->data_sz;
 
   /* Mark the block as prepared, and thus unsafe to remove. */
-  block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PREPARING );
+  block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
 
 end:
   /* Block data ptr remains valid outside of the rw lock for the lifetime of the block alloc. */
@@ -196,7 +196,7 @@ fd_store_shred_insert( fd_store_t * store,
 
   fd_blockstore_t * blockstore = store->blockstore;
 
-  if (shred->slot < blockstore->root) {
+  if (shred->slot < blockstore->smr) {
     return FD_BLOCKSTORE_OK;
   }
   uchar shred_type = fd_shred_type( shred->variant );

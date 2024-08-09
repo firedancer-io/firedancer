@@ -109,7 +109,6 @@ typedef struct fd_buf_shred fd_buf_shred_t;
 #define MAP_KEY_T              fd_shred_key_t
 #define MAP_KEY_EQ(k0,k1)      FD_SHRED_KEY_EQ(*k0,*k1)
 #define MAP_KEY_HASH(key,seed) (FD_SHRED_KEY_HASH(*key) ^ seed)
-#define MAP_MULTI 1
 #include "../../util/tmpl/fd_map_chain.c"
 /* clang-format on */
 
@@ -152,7 +151,7 @@ typedef struct fd_block_txn_ref fd_block_txn_ref_t;
    Other flags mainly provide useful metadata for read-only callers, eg.
    RPC. */
 
-#define FD_BLOCK_FLAG_PREPARING 0 /* xxxxxxx1 */
+#define FD_BLOCK_FLAG_REPLAYING 0 /* xxxxxxx1 */
 #define FD_BLOCK_FLAG_PROCESSED 1 /* xxxxxx1x */
 #define FD_BLOCK_FLAG_CONFIRMED 2 /* xxxxx1xx */
 #define FD_BLOCK_FLAG_FINALIZED 3 /* xxxx1xxx */
@@ -206,8 +205,8 @@ struct fd_block_map {
 
   /* Windowing */
 
-  uint consumed_idx; /* the highest shred idx of the contiguous window from idx 0. */
-  uint received_idx; /* the highest shred idx we've received. */
+  uint consumed_idx; /* the highest shred idx of the contiguous window from idx 0 (inclusive). */
+  uint received_idx; /* the highest shred idx we've received (exclusive). */
   uint complete_idx; /* the shred idx with the FD_SHRED_DATA_FLAG_SLOT_COMPLETE flag set. */
 
   /* Block */
@@ -267,7 +266,10 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
 
   /* Slot metadata */
 
-  ulong root; /* the current root slot */
+  ulong smr;  /* super-majority root */
+  ulong min;  /* minimum slot in the blockstore with a block. we retain
+                 blocks prior to the smr for serving repair and RPC. */
+  ulong max;  /* maximum slot in the blockstore with a block */
 
   /* Internal data structures */
 
