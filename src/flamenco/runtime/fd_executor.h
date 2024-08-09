@@ -84,6 +84,9 @@ fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t *  slot_ctx,
                                fd_txn_p_t * txn );
 
 int
+fd_execute_txn_prepare_finish( fd_exec_txn_ctx_t * txn_ctx );
+
+int
 fd_execute_txn_finalize( fd_exec_txn_ctx_t * txn_ctx,
                          int exec_txn_err );
 

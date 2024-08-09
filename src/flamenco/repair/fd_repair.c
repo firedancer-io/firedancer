@@ -796,7 +796,7 @@ fd_actives_shuffle( fd_repair_t * repair ) {
 
     /* select an upper bound */
     /* acceptable latency is 2 * first quartile latency  */
-    long acceptable_latency = 2L * first_quartile_latency;
+    long acceptable_latency = first_quartile_latency != LONG_MAX ? 2L * first_quartile_latency : LONG_MAX;
     for( fd_active_table_iter_t iter = fd_active_table_iter_init( repair->actives );
          !fd_active_table_iter_done( repair->actives, iter );
          iter = fd_active_table_iter_next( repair->actives, iter ) ) {
@@ -828,7 +828,7 @@ fd_actives_shuffle( fd_repair_t * repair ) {
     if( leftovers_cnt ) {
       /* Always try afew new ones */
       ulong seed = repair->actives_random_seed;
-      for( ulong i = 0; i < 64 && tot_cnt < FD_REPAIR_STICKY_MAX; ++i ) {
+      for( ulong i = 0; i < 64 && tot_cnt < FD_REPAIR_STICKY_MAX && tot_cnt < fd_active_table_key_cnt( repair->actives ); ++i ) {
         seed                                  = ( seed + 774583887101UL ) * 131UL;
         fd_active_elem_t * peer               = leftovers[seed % leftovers_cnt];
         repair->actives_sticky[tot_cnt++]     = peer->key;
@@ -1010,8 +1010,6 @@ fd_repair_send_ping(fd_repair_t * glob, fd_gossip_peer_addr_t const * addr, fd_p
   fd_repair_response_new_disc( &gmsg, fd_repair_response_enum_ping );
   fd_gossip_ping_t * ping = &gmsg.inner.ping;
   fd_hash_copy( &ping->from, glob->public_key );
-  for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); i++ )
-    val->token.ul[i] = fd_rng_ulong(glob->rng);
 
   uchar pre_image[FD_PING_PRE_IMAGE_SZ];
   memcpy( pre_image, "SOLANA_PING_PONG", 16UL );
@@ -1058,6 +1056,7 @@ fd_repair_recv_pong(fd_repair_t * glob, fd_gossip_ping_t const * pong, fd_gossip
                          /* sig */ pong->signature.uc,
                          /* public_key */ pong->from.uc,
                          sha2 )) {
+    FD_LOG_WARNING(("Failed sig verify for pong"));
     return;
   }
 
@@ -1137,6 +1136,8 @@ fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
           return 0;
         }
         val = fd_pinged_table_insert(glob->pinged, from);
+        for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); i++ )
+          val->token.ul[i] = fd_rng_ulong(glob->rng);
       }
       fd_hash_copy( &val->id, &header->sender );
       val->good = 0;
@@ -1168,7 +1169,8 @@ fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
         ulong slot = wi->slot;
         for(unsigned i = 0; i < 10; ++i) {
           slot = (*glob->serv_get_parent_fun)( slot, glob->fun_arg );
-          if( slot == FD_SLOT_NULL ) break;
+          /* We cannot serve slots <= 1 since they are empy and created at genesis. */
+          if( slot == FD_SLOT_NULL || slot <= 1UL ) break;
           long sz = (*glob->serv_get_shred_fun)( slot, UINT_MAX, buf, FD_SHRED_MAX_SZ, glob->fun_arg );
           if( sz < 0 ) continue;
           *(uint *)(buf + sz) = wi->header.nonce;

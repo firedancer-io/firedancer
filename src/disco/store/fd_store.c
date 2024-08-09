@@ -224,7 +224,6 @@ fd_store_shred_insert( fd_store_t * store,
   }
 
   fd_blockstore_start_write( blockstore );
-  /* TODO remove this check when we can handle duplicate shreds and blocks */
   if( fd_blockstore_block_query( blockstore, shred->slot ) != NULL ) {
     fd_blockstore_end_write( blockstore );
     return FD_BLOCKSTORE_OK;

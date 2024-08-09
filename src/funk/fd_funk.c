@@ -413,8 +413,12 @@ fd_funk_log_mem_usage( fd_funk_t * funk ) {
                   fd_smart_size( fd_funk_partvec_footprint(0U), tmp1, sizeof(tmp1) ) ));
 }
 
+#include "../flamenco/fd_rwlock.h"
+static fd_rwlock_t lock[ 1 ] = {0};
+
 void
 fd_funk_start_write( fd_funk_t * funk ) {
+  fd_rwlock_write( lock );
 #ifdef FD_FUNK_WKSP_PROTECT
   fd_wksp_mprotect( fd_funk_wksp( funk ), 0 );
 #endif
@@ -453,6 +457,7 @@ fd_funk_end_write( fd_funk_t * funk ) {
 #ifdef FD_FUNK_WKSP_PROTECT
   fd_wksp_mprotect( fd_funk_wksp( funk ), 1 );
 #endif
+  fd_rwlock_unwrite( lock );
 }
 
 void

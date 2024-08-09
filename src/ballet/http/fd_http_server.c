@@ -682,7 +682,7 @@ write_conn_http( fd_http_server_t * http,
             ulong encoded_len = fd_base64_encode( sec_websocket_accept_base64, sec_websocket_accept, 20 );
             FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %.*s\r\n\r\n", (int)encoded_len, sec_websocket_accept_base64 ) );
           } else {
-            FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: %s\r\n", conn->response.body_len, conn->response.content_type ) );
+            FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: %s\r\nConnection: close\r\n", conn->response.body_len, conn->response.content_type ) );
             #define HEADER "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: %s\r\n"
             if( FD_UNLIKELY( conn->response.access_control_allow_origin ) ) {
 
