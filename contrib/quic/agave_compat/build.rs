@@ -19,10 +19,14 @@ fn main() {
         "fd_waltz", // net
         "fd_tls",
         "fd_ballet", // crypto
-        "fd_util"
+        "fd_util",
     ] {
         println!("cargo:rustc-link-lib=static={}", lib);
-        println!("cargo:rerun-if-changed={}/lib{}.a", lib_path.to_str().unwrap(), lib);
+        println!(
+            "cargo:rerun-if-changed={}/lib{}.a",
+            lib_path.to_str().unwrap(),
+            lib
+        );
     }
     println!("cargo:rustc-link-lib=static=stdc++"); // fd_tile_threads.cxx
 
