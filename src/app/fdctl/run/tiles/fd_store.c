@@ -129,7 +129,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_COMPILER_MFENCE();
   FD_LOG_INFO(( "Got blockstore" ));
 
-  ctx->disable_blockstore = topo->tiles->store.disable_blockstore;
+  ctx->disable_blockstore = tile->store.disable_blockstore;
 
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
