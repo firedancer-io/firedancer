@@ -156,7 +156,7 @@ agave_boot( config_t * config ) {
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  if( FD_LIKELY( strcmp( "", config->layout.solana_labs_affinity ) ) ) {
+  if( FD_LIKELY( strcmp( "", config->layout.agave_affinity ) ) ) {
     ushort agave_cpu[ FD_TILE_MAX ];
     ulong agave_cpu_cnt = fd_tile_private_cpus_parse( config->layout.agave_affinity, agave_cpu );
     FD_CPUSET_DECL( cpu_set );
