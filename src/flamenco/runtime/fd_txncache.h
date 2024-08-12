@@ -24,11 +24,11 @@
    insertion and query from proceeding.
 
    The txn cache is both CPU and memory sensitive.  A transaction result
-   is 40 bytes, and the stored transaction hashes are 20 bytes, so
+   is 1 byte, and the stored transaction hashes are 20 bytes, so
    without any overhead just storing 150 slots of transactions in a flat
    array would require
 
-      524,288 * 150 * 60 ~ 5GiB
+      524,288 * 150 * 21 ~ 1.5GiB
 
    Of memory.  But, we can't query, insert, and remove quickly from a
    flat array.  We make a few trade-offs to achieve good performance
@@ -171,11 +171,13 @@
    bank consumes a lof of memory to store slot state, so the
    validator would crash long before this.
 
-   For now we just pick a number: 2048, and hope for the best.  This
-   would represent the network failing to root a new slot for almost
-   five minutes.
+   For now we just pick a number: 2048, based on running on mainnet.
+   We take into account that apart from the 450 recent blockhashes,
+   there are also nonce accounts used as blockhashes by transactions
+   and they contribute significantly to entries being filled up.
 
-   TODO: Hmm... need to figure out what's reasonable here. */
+   TODO: This number might be unbounded, more testing required with
+   mainnet before deciding an actual number. */
 
 #define FD_TXNCACHE_DEFAULT_MAX_LIVE_SLOTS (2048UL)
 
