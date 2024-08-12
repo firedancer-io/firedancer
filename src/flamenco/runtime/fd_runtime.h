@@ -168,7 +168,7 @@ void
 fd_runtime_cleanup_incinerator( fd_exec_slot_ctx_t * slot_ctx );
 
 int
-fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
+fd_runtime_prepare_and_execute_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                       fd_execute_txn_task_info_t * task_info,
                                       ulong txn_cnt,
                                       fd_tpool_t * tpool );
@@ -185,6 +185,8 @@ fd_runtime_prepare_txns_phase1( fd_exec_slot_ctx_t * slot_ctx,
                          fd_txn_p_t * txns,
                          ulong txn_cnt );
 
+/* This is currently not used as phase3 only contains cost tracker logic
+   which is not being used in the runtime. */
 int
 fd_runtime_prepare_txns_phase3( fd_exec_slot_ctx_t * slot_ctx,
                                 fd_execute_txn_task_info_t * task_info,

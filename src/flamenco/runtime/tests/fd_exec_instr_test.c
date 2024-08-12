@@ -869,31 +869,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   }
 
   fd_funk_end_write( funk );
-  res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, task_info, 1, tpool );
-
-  fd_funk_start_write( funk );
-  if (res != 0) {
-    FD_LOG_WARNING(("could not prepare txn (phase 2 failed)"));
-  }
-  res |= fd_runtime_prepare_txns_phase3( slot_ctx, task_info, 1 );
-  if (res != 0) {
-    FD_LOG_WARNING(("could not prepare txn (phase 3 failed)"));
-  }
-
-  // Below is a stripped-out version of fd_runtime_execute_txn_task because the Agave harness does not reclaim accounts
-  if( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
-    // At this point the transaction error code should have been propogated
-    // to task_info->exec_res
-    return task_info;
-  }
-
-  res = fd_execute_txn_prepare_phase4( task_info->txn_ctx );
-  if( res != 0 ) {
-    FD_LOG_WARNING(("could not prepare txn"));
-  }
-  task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-
-  task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
+  res |= fd_runtime_prepare_and_execute_tpool( slot_ctx, task_info, 1, tpool );
   return task_info;
 }
 

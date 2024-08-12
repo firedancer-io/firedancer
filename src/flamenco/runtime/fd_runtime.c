@@ -736,7 +736,7 @@ fd_runtime_block_destroy( fd_valloc_t valloc,
   fd_valloc_free( valloc, block_info->microblock_batch_infos );
 }
 
-static void
+static void FD_FN_UNUSED 
 fd_runtime_execute_txn_task(void *tpool,
                             ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
                             void *args FD_PARAM_UNUSED,
@@ -866,13 +866,13 @@ fd_txn_sigverify_task( void *tpool,
 }
 
 static void FD_FN_UNUSED
-fd_txn_pre_execute_checks_task( void  *tpool,
-                                ulong t0 FD_PARAM_UNUSED,      ulong t1 FD_PARAM_UNUSED,
-                                void  *args FD_PARAM_UNUSED,
-                                void  *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
-                                ulong l0 FD_PARAM_UNUSED,      ulong l1 FD_PARAM_UNUSED,
-                                ulong m0,                      ulong m1 FD_PARAM_UNUSED,
-                                ulong n0 FD_PARAM_UNUSED,      ulong n1 FD_PARAM_UNUSED ) {
+fd_txn_prep_and_exec_task( void  *tpool,
+                           ulong t0 FD_PARAM_UNUSED,      ulong t1 FD_PARAM_UNUSED,
+                           void  *args FD_PARAM_UNUSED,
+                           void  *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
+                           ulong l0 FD_PARAM_UNUSED,      ulong l1 FD_PARAM_UNUSED,
+                           ulong m0,                      ulong m1 FD_PARAM_UNUSED,
+                           ulong n0 FD_PARAM_UNUSED,      ulong n1 FD_PARAM_UNUSED ) {
 
   fd_execute_txn_task_info_t * task_info = (fd_execute_txn_task_info_t *)tpool + m0;
   fd_exec_txn_ctx_t *          txn_ctx   = task_info->txn_ctx;
@@ -944,6 +944,19 @@ fd_txn_pre_execute_checks_task( void  *tpool,
     task_info->exec_res   = err;
     return;
   }
+
+  /* TODO: This can be renamed */
+  int res = fd_execute_txn_prepare_phase4( task_info->txn_ctx );
+  if( FD_UNLIKELY( res ) ) {
+    FD_LOG_ERR(("could not prepare txn"));
+  }
+  task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+
+  task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
+  if( FD_UNLIKELY( task_info->exec_res ) ) {
+    return;
+  }
+  fd_txn_reclaim_accounts( task_info->txn_ctx );
 }
 
 /* This task could be combined with the rest of the transaction checks that
@@ -969,14 +982,14 @@ fd_runtime_verify_txn_signatures_tpool( fd_execute_txn_task_info_t * task_info,
 /* This setup phase sets up the borrowed accounts in each transaction and
    performs a series of checks on each of the transactions. */
 int
-fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t *         slot_ctx,
+fd_runtime_prepare_and_execute_tpool( fd_exec_slot_ctx_t *         slot_ctx,
                                       fd_execute_txn_task_info_t * task_info,
                                       ulong                        txn_cnt,
                                       fd_tpool_t *                 tpool ) {
   int res = 0;
   FD_SCRATCH_SCOPE_BEGIN {
 
-    fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_txn_pre_execute_checks_task, task_info, NULL, NULL, 1, 0, txn_cnt );
+    fd_tpool_exec_all_taskq( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_txn_prep_and_exec_task, task_info, NULL, NULL, 1, 0, txn_cnt );
     for( ulong txn_idx=0UL; txn_idx<txn_cnt; txn_idx++ ) {
       if( FD_UNLIKELY( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
         res |= task_info->exec_res;
@@ -1580,17 +1593,16 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
       //  FD_LOG_WARNING(("Fail signature verification"));
       //}
 
-      res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, tpool );
+      res |= fd_runtime_prepare_and_execute_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, tpool );
       if( res != 0 ) {
         FD_LOG_DEBUG(("Fail prep 2"));
       }
 
-      res |= fd_runtime_prepare_txns_phase3( slot_ctx, wave_task_infos, wave_task_infos_cnt );
-      if( res != 0 ) {
-        FD_LOG_DEBUG(("Fail prep 3"));
-      }
+      //res |= fd_runtime_prepare_txns_phase3( slot_ctx, wave_task_infos, wave_task_infos_cnt );
+      //if( res != 0 ) {
+      //  FD_LOG_DEBUG(("Fail prep 3"));
+      //}
 
-      fd_tpool_exec_all_taskq( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_runtime_execute_txn_task, wave_task_infos, NULL, NULL, 1, 0, wave_task_infos_cnt );
       int finalize_res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, wave_task_infos, wave_task_infos_cnt, tpool );
       if( finalize_res != 0 ) {
         FD_LOG_ERR(("Fail finalize"));

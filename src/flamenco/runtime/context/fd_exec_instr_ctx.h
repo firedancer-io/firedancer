@@ -60,7 +60,9 @@ fd_instr_borrowed_account_view_idx( fd_exec_instr_ctx_t const * ctx,
   }
 
   fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[idx];
-  FD_TEST( instr_account->const_meta != NULL );
+  if( FD_UNLIKELY( !instr_account->const_meta ) ) {
+    FD_LOG_ERR(("No borrowed account at index %lu", idx));
+  }
   *account = instr_account;
   return FD_ACC_MGR_SUCCESS;
 }
