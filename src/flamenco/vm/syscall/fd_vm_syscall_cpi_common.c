@@ -127,8 +127,7 @@ Paramaters:
 static int
 VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
                                       VM_SYSCALL_CPI_ACC_INFO_T const * account_info,
-                                      uchar                             instr_acc_idx,
-                                      fd_pubkey_t const *               callee_acc_pubkey ) {
+                                      uchar                             instr_acc_idx ) {
   /* Consume compute units for the account data access */
 
   /* FIXME: do we also need to consume the compute units if the account is not known? */
@@ -163,25 +162,26 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
   if( !FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) ) {
     /* Get the account data */
     /* Update the account data, if the account data can be changed */
-    int err1;
-    int err2;
     /* FIXME: double-check these permissions, especially the callee_acc_idx */
-    if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, caller_acc_data_len, &err1 ) &&
-        fd_account_can_data_be_changed2( vm->instr_ctx, callee_acc->meta, callee_acc_pubkey, &err2 ) ) {
+
+    /* Translate and get the account data */
+    uchar const * caller_acc_data = FD_VM_MEM_HADDR_LD( vm, caller_acc_data_vm_addr, 
+                                                        sizeof(ulong), caller_acc_data_len ); 
+
+    if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, caller_acc_data_len, &err ) &&
+        fd_account_can_data_be_changed( vm->instr_ctx->instr, instr_acc_idx, &err ) ) {
         /* We must ignore the errors here, as they are informational and do not mean the result is invalid. */
         /* TODO: not pass informational errors like this? */
-      err = fd_instr_borrowed_account_modify_idx( vm->instr_ctx, instr_acc_idx, caller_acc_data_len, &callee_acc );
+
+      err = fd_account_set_data_from_slice( vm->instr_ctx, instr_acc_idx, caller_acc_data, caller_acc_data_len );
       if( FD_UNLIKELY( err ) ) {
-        return 1; /* FIXME: Add the right error code here */
+        return err;
       }
-
-      /* Translate and get the account data */
-      uchar const * caller_acc_data = FD_VM_MEM_HADDR_LD( vm, caller_acc_data_vm_addr, 
-                                                          sizeof(ulong), caller_acc_data_len ); 
-
-      callee_acc->meta->dlen = caller_acc_data_len;
-      fd_memcpy( callee_acc->data, caller_acc_data, caller_acc_data_len );
+    } else if( FD_UNLIKELY( caller_acc_data_len!=callee_acc->const_meta->dlen || 
+                            memcmp( callee_acc->const_data, caller_acc_data, caller_acc_data_len ) ) ) {
+      return err;
     }
+
     int is_disable_cpi_setting_executable_and_rent_epoch_active = FD_FEATURE_ACTIVE(vm->instr_ctx->slot_ctx, disable_cpi_setting_executable_and_rent_epoch);
     if( !is_disable_cpi_setting_executable_and_rent_epoch_active &&
         fd_account_is_executable( callee_acc->meta )!=account_info->executable ) {
@@ -190,8 +190,8 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
     }
 
     uchar const * caller_acc_owner = FD_VM_MEM_HADDR_ST( vm, account_info->owner_addr, alignof(uchar), sizeof(fd_pubkey_t) );
-    if (memcmp(callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t))) {
-      fd_memcpy(callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t));
+    if( memcmp( callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t) ) ) {
+      fd_memcpy( callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t) );
     }
 
     if( !is_disable_cpi_setting_executable_and_rent_epoch_active &&
@@ -200,11 +200,11 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
       else callee_acc->meta->info.rent_epoch = account_info->rent_epoch;
     }
   } else { /* Direct mapping enabled */
-    ulong region_idx = vm->acc_region_metas[ instr_acc_idx ].region_idx;
+    ulong region_idx  = vm->acc_region_metas[ instr_acc_idx ].region_idx;
     uint original_len = vm->acc_region_metas[ instr_acc_idx ].has_data_region ? 
                         vm->input_mem_regions[ region_idx ].region_sz : 0U;
-    ulong prev_len           = callee_acc->const_meta->dlen;
-    ulong post_len           = caller_acc_data_len;
+    ulong prev_len    = callee_acc->const_meta->dlen;
+    ulong post_len    = caller_acc_data_len;
 
     int err;
     if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, post_len, &err ) &&
@@ -348,7 +348,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       found = 1;
 
       /* Update the callee account to reflect any changes the caller has made */
-      if( FD_UNLIKELY( acc_meta && VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC(vm, &account_infos[j], (uchar)instruction_accounts[i].index_in_caller, callee_account ) ) ) {
+      if( FD_UNLIKELY( acc_meta && VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC(vm, &account_infos[j], (uchar)instruction_accounts[i].index_in_caller ) ) ) {
         return 1001;
       }
     }
@@ -584,6 +584,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
                            ulong   signers_seeds_va,
                            ulong   signers_seeds_cnt,
                            ulong * _ret ) {
+
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   FD_VM_CU_UPDATE( vm, FD_VM_INVOKE_UNITS );
