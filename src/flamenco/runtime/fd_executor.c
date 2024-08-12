@@ -133,7 +133,7 @@ FD_SCRATCH_SCOPE_BEGIN {
                                          .valloc = fd_scratch_virtual() };
       fd_nonce_state_versions_t nonce_versions;
       if (fd_nonce_state_versions_decode( &nonce_versions, &decode ) != 0 ) {
-        FD_LOG_ERR(("Not a nonce account"));
+        return -1;
       }
       fd_nonce_state_t * state;;
       if ( fd_nonce_state_versions_is_current( &nonce_versions ) ) {
