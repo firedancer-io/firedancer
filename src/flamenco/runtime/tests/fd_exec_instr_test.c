@@ -707,12 +707,12 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   ulong num_blockhashes = test_ctx->blockhash_queue_count;
 
   /* Recent blockhashes init */
-  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( fd_scratch_virtual(), FD_SYSVAR_RECENT_HASHES_CAP );
+  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
 
   /* Blockhash queue init */
   slot_ctx->slot_bank.block_hash_queue.max_age   = test_ctx->max_age;
-  slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( fd_scratch_virtual(), 400 );
-  slot_ctx->slot_bank.block_hash_queue.last_hash = fd_scratch_alloc( alignof(fd_hash_t), sizeof(fd_hash_t) );
+  slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( slot_ctx->valloc, 400 );
+  slot_ctx->slot_bank.block_hash_queue.last_hash = fd_valloc_malloc( slot_ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
 
   // Save lamports per signature for most recent blockhash, if sysvar cache contains recent block hashes
   fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
