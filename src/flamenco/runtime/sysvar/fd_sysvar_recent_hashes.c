@@ -40,7 +40,8 @@ void fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t* slot_ctx ) {
 }
 
 // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L113
-void register_blockhash( fd_exec_slot_ctx_t* slot_ctx, fd_hash_t const * hash ) {
+static void
+register_blockhash( fd_exec_slot_ctx_t* slot_ctx, fd_hash_t const * hash ) {
   fd_block_hash_queue_t * queue = &slot_ctx->slot_bank.block_hash_queue;
   // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L114
   queue->last_hash_index++;
