@@ -23,10 +23,6 @@ fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx );
 void
 fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx );
 
-/* Register a blockhash in the blockhash queue */
-void
-register_blockhash( fd_exec_slot_ctx_t* slot_ctx, fd_hash_t const * hash );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_recent_hashes_h */

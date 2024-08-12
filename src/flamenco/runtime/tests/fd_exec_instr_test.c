@@ -738,14 +738,8 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
       // Recent block hashes cap is 150 (actually 151), while blockhash queue capacity is 300 (actually 301)
       fd_block_block_hash_entry_t blockhash_entry;
       memcpy( &blockhash_entry.blockhash, test_ctx->blockhash_queue[i]->bytes, sizeof(fd_hash_t) );
-      blockhash_entry.fee_calculator.lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature;
-      if( i + FD_SYSVAR_RECENT_HASHES_CAP >= num_blockhashes ) {
-        // Need to push entries to deque head so most recent blockhash is at idx 0
-        deq_fd_block_block_hash_entry_t_push_head( recent_block_hashes, blockhash_entry );
-      }
-
-      // Register blockhash in queue
-      register_blockhash( slot_ctx, &blockhash_entry.blockhash );
+      slot_ctx->slot_bank.poh = blockhash_entry.blockhash;
+      fd_sysvar_recent_hashes_update( slot_ctx );
     }
   }
 
