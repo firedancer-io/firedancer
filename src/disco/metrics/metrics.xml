@@ -123,6 +123,7 @@ metric introduced.
     <int value="35" name="ResanitizationNeeded" label="Sanitized transaction differed before/after feature activiation. Needs to be resanitized." />
     <int value="36" name="ProgramExecutionTemporarilyRestricted" label="Program execution is temporarily restricted on an account." />
     <int value="37" name="UnbalancedTransaction" label="The total balance before the transaction does not equal the total balance after the transaction." />
+    <int value="38" name="ProgramCacheHitMaxLimit" label="The total program cache size hit the maximum allowed limit." />
 </enum>
 
 <group name="Link" link="all" linkside="out">
