@@ -980,6 +980,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t *         slot_ctx,
     for( ulong txn_idx=0UL; txn_idx<txn_cnt; txn_idx++ ) {
       if( FD_UNLIKELY( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
         res |= task_info->exec_res;
+        continue;
       }
 
       /* Propogate net fees back to slot_ctx */
@@ -1538,7 +1539,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
     int res = fd_runtime_prepare_txns_phase1( slot_ctx, task_infos, txns, txn_cnt );
     if( res != 0 ) {
-      FD_LOG_WARNING(("Fail prep 1"));
+      FD_LOG_DEBUG(("Fail prep 1"));
     }
 
     ulong * incomplete_txn_idxs = fd_scratch_alloc( 8UL, txn_cnt * sizeof(ulong) );
@@ -1581,12 +1582,12 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
       res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, tpool );
       if( res != 0 ) {
-        FD_LOG_WARNING(("Fail prep 2"));
+        FD_LOG_DEBUG(("Fail prep 2"));
       }
 
       res |= fd_runtime_prepare_txns_phase3( slot_ctx, wave_task_infos, wave_task_infos_cnt );
       if( res != 0 ) {
-        FD_LOG_WARNING(("Fail prep 3"));
+        FD_LOG_DEBUG(("Fail prep 3"));
       }
 
       fd_tpool_exec_all_taskq( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_runtime_execute_txn_task, wave_task_infos, NULL, NULL, 1, 0, wave_task_infos_cnt );
