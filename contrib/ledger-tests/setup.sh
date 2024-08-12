@@ -10,7 +10,7 @@ setup_solana_conformance_repo="$REPO_ROOT/solana-conformance"
 
 setup_firedancer_branch="main"
 setup_solana_branch="master-tools"
-setup_agave_branch="ledger-gen-v200"
+setup_agave_branch="v2.0-master-tools"
 setup_solfuzz_branch="agave-v2.0"
 setup_solana_conformance_branch="main"
 
