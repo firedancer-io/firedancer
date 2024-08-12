@@ -114,13 +114,13 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
   ulong tcnt = fd_tile_cnt();
   uchar * tpool_scr_mem = NULL;
   fd_tpool_t * tpool = NULL;
-  if( tcnt > 1UL ) {
+  if( tcnt>=1UL ) {
     tpool = fd_tpool_init( ledger_args->tpool_mem, tcnt );
     if( tpool == NULL ) {
       FD_LOG_ERR(( "failed to create thread pool" ));
     }
     ulong scratch_sz = fd_scratch_smem_footprint( 256UL<<20UL );
-    tpool_scr_mem = fd_valloc_malloc( ledger_args->slot_ctx->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(tcnt-1UL) );
+    tpool_scr_mem = fd_valloc_malloc( ledger_args->slot_ctx->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(tcnt) );
     if( tpool_scr_mem == NULL ) {
       FD_LOG_ERR( ( "failed to allocate thread pool scratch space" ) );
     }
