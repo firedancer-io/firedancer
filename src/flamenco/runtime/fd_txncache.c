@@ -64,9 +64,8 @@ typedef struct fd_txncache_private_txnpage fd_txncache_private_txnpage_t;
 
 struct fd_txncache_private_blockcache {
   uchar blockhash[ 32 ]; /* The actual blockhash of these transactions. */
-  ulong max_slot;     /* The lowest slot we have seen that contains a transaction referencing this blockhash.
-                            The blockhash entry will not be purged until the lowest rooted slot is at least 150
-                            slots higher than this. */
+  ulong max_slot;        /* The max slot we have seen that contains a transaction referencing this blockhash.
+                            The blockhash entry will not be purged until the lowest rooted slot is greater than this. */
   ulong txnhash_offset;  /* To save memory, the Agave validator decided to truncate the hash of transactions stored in
                             this memory to 20 bytes rather than 32 bytes.  The bytes used are not the first 20 as you
                             might expect, but instead the first 20 starting at some random offset into the transaction
@@ -145,7 +144,11 @@ struct __attribute__((aligned(FD_TXNCACHE_ALIGN))) fd_txncache_private {
                             size 16384 to make certain allocation and deallocation operations faster
                             (just the pages are acquired/released, rather than each txn). */
 
-  ulong blockcache_pages_off;
+  ulong blockcache_pages_off; /* The pages for the blockcache entries. */
+
+  ulong probed_entries_off; /* The map of index to number of entries which oveflowed over this index.
+                               Overflow for index i is defined as every entry j > i where j should have
+                               been inserted at k < i. */
   ulong magic; /* ==FD_TXNCACHE_MAGIC */
 };
 
@@ -182,6 +185,16 @@ fd_txncache_get_txnpages_free( fd_txncache_t * tc ) {
 FD_FN_PURE static fd_txncache_private_txnpage_t *
 fd_txncache_get_txnpages( fd_txncache_t * tc ) {
   return (fd_txncache_private_txnpage_t *)( (uchar *)tc + tc->txnpages_off );
+}
+
+FD_FN_PURE static ulong *
+fd_txncache_get_probed_entries( fd_txncache_t * tc ) {
+  return (ulong *)( (uchar *)tc + tc->probed_entries_off );
+}
+
+FD_FN_PURE static ulong *
+fd_txncache_get_probed_entries_const( fd_txncache_t const * tc ) {
+  return (ulong *)( (uchar const *)tc + tc->probed_entries_off );
 }
 
 FD_FN_CONST static ushort
@@ -307,6 +320,7 @@ fd_txncache_new( void * shmem,
   void * _slotcache        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_private_slotcache_t),  max_live_slots*sizeof(fd_txncache_private_slotcache_t ) );
   void * _txnpages_free    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                             max_txnpages*sizeof(uint)                               );
   void * _txnpages         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_private_txnpage_t),    max_txnpages*sizeof(fd_txncache_private_txnpage_t)      );
+  void * _probed_entries   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                            max_live_slots*sizeof(ulong)                            );
 
   /* We calculate and store the offsets for these allocations. */
   txncache->root_slots_off       = (ulong)_root_slots - (ulong)txncache;
@@ -315,6 +329,7 @@ fd_txncache_new( void * shmem,
   txncache->txnpages_free_off    = (ulong)_txnpages_free - (ulong)txncache;
   txncache->txnpages_off         = (ulong)_txnpages - (ulong)txncache;
   txncache->blockcache_pages_off = (ulong)_blockcache_pages - (ulong)txncache;
+  txncache->probed_entries_off   = (ulong)_probed_entries - (ulong)txncache;
 
   tc->lock->value = 0;
   tc->root_slots_cnt = 0UL;
@@ -329,10 +344,11 @@ fd_txncache_new( void * shmem,
 
   fd_txncache_private_blockcache_t * blockcache = (fd_txncache_private_blockcache_t *)_blockcache;
   fd_txncache_private_slotcache_t  * slotcache  = (fd_txncache_private_slotcache_t *)_slotcache;
-
+  ulong * probed_entries = (ulong *)_probed_entries;
   for( ulong i=0UL; i<max_live_slots; i++ ) {
     blockcache[ i ].max_slot = FD_TXNCACHE_EMPTY_ENTRY;
     slotcache[ i ].slot      = FD_TXNCACHE_EMPTY_ENTRY;
+    probed_entries[ i ]      = 0UL;
   }
 
   tc->txnpages_free_cnt = max_txnpages;
@@ -414,10 +430,24 @@ static void
 fd_txncache_remove_blockcache_idx( fd_txncache_t * tc,
                                    ulong idx ) {
   fd_txncache_private_blockcache_t * blockcache = fd_txncache_get_blockcache( tc );
+  ulong * probed_entries = fd_txncache_get_probed_entries( tc );
   uint * txnpages_free = fd_txncache_get_txnpages_free( tc );
 
+  /* Check if removing this element caused there to be no overflow for a hash index. */
+  ulong hash_idx = FD_LOAD( ulong, blockcache[ idx ].blockhash )%tc->live_slots_max;
+
+  ulong j = hash_idx;
+  while( j != idx ) {
+    probed_entries[ j ]--;
+    /* If there is no overflow and the slot is a tombstone, mark it as free. */
+    if( probed_entries[ j ] == 0 && blockcache[ j ].max_slot == FD_TXNCACHE_TOMBSTONE_ENTRY ) {
+      blockcache[ j ].max_slot = FD_TXNCACHE_EMPTY_ENTRY;
+    }
+    j = (j+1)%tc->live_slots_max;
+  }
+
   /* Remove from block cache. */
-  blockcache[ idx ].max_slot = FD_TXNCACHE_TOMBSTONE_ENTRY;
+  blockcache[ idx ].max_slot = (probed_entries[ idx ] == 0 ? FD_TXNCACHE_EMPTY_ENTRY : FD_TXNCACHE_TOMBSTONE_ENTRY);
 
   /* Free pages. */
   memcpy( txnpages_free+tc->txnpages_free_cnt, blockcache[ idx ].pages, blockcache[ idx ].pages_cnt*sizeof(uint) );
@@ -448,7 +478,6 @@ fd_txncache_purge_slot( fd_txncache_t * tc,
       } else if ( blockcache[ i ].max_slot==FD_TXNCACHE_TOMBSTONE_ENTRY ) {
         tombstone_entry_cnt++;
       } else {
-        // FD_LOG_INFO(( "not purging blockcache - purge_slot: %lu, max_slot: %lu, distance: %lu, blockhash: %32J", slot, blockcache[ i ].max_slot, blockcache[ i ].max_slot-slot, blockcache[i].blockhash ));
         not_purged_cnt++;
         ulong dist = blockcache[ i ].max_slot-slot;
         max_distance = fd_ulong_max( max_distance, dist );
@@ -462,6 +491,11 @@ fd_txncache_purge_slot( fd_txncache_t * tc,
   ulong avg_distance = (not_purged_cnt==0) ? ULONG_MAX : (sum_distance/not_purged_cnt);
   FD_LOG_INFO(( "not purging cnt - purge_slot: %lu, purged_cnt: %lu, not_purged_cnt: %lu, empty_entry_cnt: %lu, tombstone_entry_cnt: %lu, max_distance: %lu, avg_distance: %lu",
       slot, purged_cnt, not_purged_cnt, empty_entry_cnt, tombstone_entry_cnt, max_distance, avg_distance ));
+
+  /* TODO: figure out how to make slotcache purging work with the max_slot purge for blockcache.
+     The blockcache and slotcache share txnpages and the aggressive purging from the blockcache
+     can lead to corruption in the slotcache. Does it make sense to generate the delta map (as
+     generated by Agave) from the blockcache when producing snapshots? TBD. */
   fd_txncache_private_slotcache_t * slotcache = fd_txncache_get_slotcache( tc );
   for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
     if( FD_LIKELY( slotcache[ i ].slot==FD_TXNCACHE_EMPTY_ENTRY || slotcache[ i ].slot==FD_TXNCACHE_TOMBSTONE_ENTRY || slotcache[ i ].slot>slot ) ) continue;
@@ -521,6 +555,7 @@ fd_txncache_find_blockhash( fd_txncache_t const *               tc,
                             fd_txncache_private_blockcache_t ** out_blockcache ) {
   ulong hash = FD_LOAD( ulong, blockhash );
   fd_txncache_private_blockcache_t * tc_blockcache = fd_txncache_get_blockcache_const( tc );
+  ulong * probed_entries = fd_txncache_get_probed_entries_const( tc );
   ulong first_tombstone = ULONG_MAX;
 
   for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
@@ -528,11 +563,9 @@ fd_txncache_find_blockhash( fd_txncache_t const *               tc,
     fd_txncache_private_blockcache_t * blockcache = &tc_blockcache[ blockcache_idx ];
 
     if( FD_UNLIKELY( blockcache->max_slot==FD_TXNCACHE_EMPTY_ENTRY ) ) {
-      if( is_insert ) {
-        if( first_tombstone != ULONG_MAX ) {
-          *out_blockcache = &tc_blockcache[ first_tombstone ];
-          return FD_TXNCACHE_FIND_FOUNDEMPTY;
-        }
+      if( first_tombstone != ULONG_MAX ) {
+        *out_blockcache = &tc_blockcache[ first_tombstone ];
+        return FD_TXNCACHE_FIND_FOUNDEMPTY;
       }
       *out_blockcache = blockcache;
       return FD_TXNCACHE_FIND_FOUNDEMPTY;
@@ -550,11 +583,23 @@ fd_txncache_find_blockhash( fd_txncache_t const *               tc,
                              (highest_slot) has been fully released by the writer. */
     if( FD_LIKELY( !memcmp( blockcache->blockhash, blockhash, 32UL ) ) ) {
       *out_blockcache = blockcache;
+      if( is_insert ) {
+        /* Undo the probed entry changes since we found the blockhash. */
+        for( ulong j=hash%tc->live_slots_max; j!=fd_ulong_min(first_tombstone, blockcache_idx); ) {
+          probed_entries[ j ]--;
+          j = (j+1)%tc->live_slots_max;
+        }
+      }
       return FD_TXNCACHE_FIND_FOUND;
+    }
+    /* If the entry we are passing is full and we haven't seen tombstones,
+       there is an overflow. */
+    if( is_insert && first_tombstone == ULONG_MAX ) {
+      probed_entries[ blockcache_idx ]++;
     }
   }
 
-  if( is_insert && first_tombstone != ULONG_MAX ) {
+  if( first_tombstone != ULONG_MAX ) {
     *out_blockcache = &tc_blockcache[ first_tombstone ];
     return FD_TXNCACHE_FIND_FOUNDEMPTY;
   }
@@ -791,12 +836,6 @@ fd_txncache_insert_batch( fd_txncache_t *              tc,
       FD_LOG_WARNING(( "no blockcache found" ));
       goto unlock_fail;
     }
-
-    // TODO: should this be enabled? Ledger tests fail immediately
-    // if( FD_UNLIKELY( blockcache->max_slot!=ULONG_MAX-2 && txns[ i ].slot>=blockcache->max_slot+150UL ) ) {
-    //   FD_LOG_WARNING(("Lowest slot %lu for slot %lu", blockcache->max_slot, txns[i].slot ));
-    //   goto unlock_fail;
-    // }
 
     fd_txncache_private_slotcache_t * slotcache;
     if( FD_UNLIKELY( !fd_txncache_ensure_slotcache( tc, txns[ i ].slot, &slotcache ) ) ) {
