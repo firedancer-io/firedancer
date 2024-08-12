@@ -23,7 +23,7 @@
   {"name":"tx_wide_compute_cap","pubkey": "5ekBxc8itEnPv4NzGJtr8BVVQLNMQuLMNQQj7pHoLNZ9","cleaned_up":1180},
   {"name":"spl_token_v2_set_authority_fix","pubkey": "FToKNBYyiF4ky9s8WsmLBXHCht17Ek7RXaLZGHzzQhJ1","cleaned_up":1180},
   {"name":"merge_nonce_error_into_system_error","pubkey": "21AWDosvp3pBamFW91KB35pNoaoZVTM7ess8nr2nt53B","cleaned_up":1180},
-  {"name":"disable_fees_sysvar","pubkey": "JAN1trEUEtZjgXYzNBYHU9DYd7GnThhXfFP7SzPXkPsG","cleaned_up":2000},
+  {"name":"disable_fees_sysvar","pubkey": "JAN1trEUEtZjgXYzNBYHU9DYd7GnThhXfFP7SzPXkPsG","cleaned_up":2002},
   {"name":"stake_merge_with_unmatched_credits_observed","pubkey": "meRgp4ArRPhD3KtCY9c5yAf2med7mBLsjKTPeVUHqBL","cleaned_up":1180},
   {"name":"zk_token_sdk_enabled","pubkey": "zk1snxsc6Fh3wsGNbbHAJNHiJoYgF29mMnTSusGx5EJ"},
   {"name":"curve25519_syscall_enabled","pubkey": "7rcw5UtqgDTBBv2EcynNfYckgdAaH1MAsCjKgXMkN7Ri"},
