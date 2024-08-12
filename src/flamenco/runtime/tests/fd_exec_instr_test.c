@@ -1665,40 +1665,27 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   uchar * rodata = input->vm_ctx.rodata ? input->vm_ctx.rodata->bytes : NULL;
   ulong rodata_sz = input->vm_ctx.rodata ? input->vm_ctx.rodata->size : 0UL;
 
-  /* Concatenate the input data regions into the flat input memory region */
-  ulong input_data_sz = 0;
-  for ( ulong i=0; i<input->vm_ctx.input_data_regions_count; i++ ) {
-    if( !input->vm_ctx.input_data_regions[i].content ) {
+  /* Load input data regions */
+  fd_vm_input_region_t * input_regions = fd_valloc_malloc( valloc, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
+  ulong input_data_offset = 0UL;
+  for( ulong i=0; i<input->vm_ctx.input_data_regions_count; i++ ) {
+    fd_exec_test_input_data_region_t const * region = &input->vm_ctx.input_data_regions[i];
+    pb_bytes_array_t * array = region->content;
+    if( !array ) {
       continue;
     }
-    input_data_sz += input->vm_ctx.input_data_regions[i].content->size;
-  }
-  uchar * input_data = fd_valloc_malloc( valloc, alignof(uchar), input_data_sz );
-  uchar * input_data_ptr = input_data;
-  for ( ulong i=0; i<input->vm_ctx.input_data_regions_count; i++ ) {
-    pb_bytes_array_t * array = input->vm_ctx.input_data_regions[i].content;
-    if( !input->vm_ctx.input_data_regions[i].content ) {
-      continue;
-    }
-    fd_memcpy( input_data_ptr, array->bytes, array->size );
-    input_data_ptr += array->size;
-  }
-  if( input_data_ptr != (input_data + input_data_sz) ) {
-    goto error;
+    input_regions[i].vaddr_offset = input_data_offset; // Follow solfuzz-agave convention instead of using region->offset
+    input_regions[i].haddr = (ulong)array->bytes;
+    input_regions[i].region_sz = array->size;
+    input_regions[i].is_writable = region->is_writable;
+    input_regions[i].pubkey = NULL;
+
+    input_data_offset += array->size;
   }
 
   if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
     goto error;
   }
-
-  /* Turn input into a single memory region */
-  fd_vm_input_region_t input_region = {
-    .vaddr_offset = 0UL,
-    .haddr        = (ulong)input_data,
-    .region_sz    = (uint)input_data_sz,
-    .is_writable  = 1U,
-    .pubkey       = NULL
-  };
 
   fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
   if ( !vm ) {
@@ -1720,8 +1707,8 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     syscalls,
     NULL, // TODO
     sha,
-    &input_region,
-    1U,
+    input_regions,
+    input->vm_ctx.input_data_regions_count,
     NULL,
     (uchar)false );
 
