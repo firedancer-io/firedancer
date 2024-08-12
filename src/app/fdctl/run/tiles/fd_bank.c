@@ -31,9 +31,9 @@ typedef struct {
     ulong slot_acquire[ 3 ];
 
     ulong txn_load_address_lookup_tables[ 6 ];
-    ulong txn_load[ 38 ];
-    ulong txn_executing[ 38 ];
-    ulong txn_executed[ 38 ];
+    ulong txn_load[ 39 ];
+    ulong txn_executing[ 39 ];
+    ulong txn_executed[ 39 ];
   } metrics;
 } fd_bank_ctx_t;
 
