@@ -34,8 +34,8 @@ run_test( fd_exec_instr_test_runner_t * runner,
 
   if( strstr( path, "/instr/" ) != NULL ) {
     ok = sol_compat_instr_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/precompile/" ) != NULL ) {
-    ok = sol_compat_precompile_fixture( runner, buf, file_sz );
+  } else if( strstr( path, "/txn/" ) != NULL ) {
+    ok = sol_compat_txn_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/elf_loader/" ) != NULL ) {
     ok = sol_compat_elf_loader_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/syscall/" ) != NULL ) {

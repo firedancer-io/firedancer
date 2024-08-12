@@ -118,7 +118,7 @@ fd_double_is_normal( double dbl ) {
   return !( is_denorm | is_inf | is_nan );
 }
 
-static void
+FD_FN_UNUSED static void
 _txn_collect_rent( fd_exec_txn_ctx_t * txn_ctx ) {
   /* Copied from fd_runtime_collect_rent. Requires some modifications from fd_runtime_collect_rent */
   fd_exec_slot_ctx_t * slot_ctx = txn_ctx->slot_ctx;
@@ -574,6 +574,7 @@ static fd_execute_txn_task_info_t *
 _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
                               fd_exec_slot_ctx_t *               slot_ctx,
                               fd_exec_test_txn_context_t const * test_ctx ) {
+  uchar empty_bytes[64] = { 0 };
   fd_funk_t * funk = runner->funk;
 
   /* Generate unique ID for funk txn */
@@ -636,21 +637,21 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   /* Add accounts to bpf program cache */
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
 
-  /* Clock MUST be provided in account state since Agave's default clock uses the current
+  /* Default slot */
+  ulong slot = test_ctx->slot_ctx.slot;
+  if( !slot ) slot = 10; // Arbitrary default > 0
+
+  /* Clock SHOULD be provided in account state since Agave's default clock uses the current
      unix timestamp, which may be used by some programs we fuzz with and cause false mismatches */
   if( !slot_ctx->sysvar_cache->has_clock ) {
-    FD_LOG_WARNING(( "Clock sysvar account not provided in account shared data" ));
-    return NULL;
-  }
-
-  /* Sanity check to ensure provided slot matches clock slot */
-  if( slot_ctx->sysvar_cache->val_clock->slot != test_ctx->slot_ctx.slot ) {
-    FD_LOG_WARNING(( "Clock slot does not match provided slot ctx slot" ));
-    return NULL;
+    //TODO: we should define exactly what's the default clock for instr and txn consistently
+    slot_ctx->sysvar_cache->has_clock = 1;
+    slot_ctx->sysvar_cache->val_clock->slot = slot;
+    slot_ctx->sysvar_cache->val_clock->unix_timestamp = 0UL;
   }
 
   /* Set slot bank variables (defaults obtained from GenesisConfig::default() in Agave) */
-  slot_ctx->slot_bank.slot                                            = test_ctx->slot_ctx.slot;
+  slot_ctx->slot_bank.slot                                            = slot;
   slot_ctx->slot_bank.prev_slot                                       = slot_ctx->slot_bank.slot - 1; // Can underflow, but its fine since it will correctly be ULONG_MAX
   slot_ctx->slot_bank.fee_rate_governor.burn_percent                  = 50;
   slot_ctx->slot_bank.fee_rate_governor.min_lamports_per_signature    = 0;
@@ -741,6 +742,14 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
       slot_ctx->slot_bank.poh = blockhash_entry.blockhash;
       fd_sysvar_recent_hashes_update( slot_ctx );
     }
+  } else {
+    // Add a default empty blockhash and use it as genesis
+    num_blockhashes = 1;
+    memcpy( &epoch_bank->genesis_hash, empty_bytes, sizeof(fd_hash_t) );
+    fd_block_block_hash_entry_t blockhash_entry;
+    memcpy( &blockhash_entry.blockhash, empty_bytes, sizeof(fd_hash_t) );
+    slot_ctx->slot_bank.poh = blockhash_entry.blockhash;
+    fd_sysvar_recent_hashes_update( slot_ctx );
   }
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
@@ -751,16 +760,18 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
      Note that although documentation interchangably refers to the signature cnt as a compact-u16
      and a u8, the max signature cnt is capped at 48 (due to txn size limits), so u8 and compact-u16
      is represented the same way anyways and can be parsed identically. */
-  uchar signature_cnt = (uchar) test_ctx->tx.signatures_count;
+  // Note: always create a valid txn with 1+ signatures, add an empty signature if none is provided
+  uchar signature_cnt = fd_uchar_max( 1, (uchar) test_ctx->tx.signatures_count );
   _add_to_data( &txn_raw_cur_ptr, &signature_cnt, sizeof(uchar) );
   for( uchar i = 0; i < signature_cnt; ++i ) {
-    _add_to_data( &txn_raw_cur_ptr, test_ctx->tx.signatures[i]->bytes, FD_TXN_SIGNATURE_SZ );
+    _add_to_data( &txn_raw_cur_ptr, test_ctx->tx.signatures && test_ctx->tx.signatures[i] ? test_ctx->tx.signatures[i]->bytes : empty_bytes, FD_TXN_SIGNATURE_SZ );
   }
 
   /* Message */
   /* For v0 transactions, the highest bit of the num_required_signatures is set, and an extra byte is used for the version.
      https://solanacookbook.com/guides/versioned-transactions.html#versioned-transactions-transactionv0 */
-  uchar num_required_signatures = (uchar) test_ctx->tx.message.header.num_required_signatures;
+  // Note: always create a valid txn with 1+ signatures
+  uchar num_required_signatures = fd_uchar_max( 1, (uchar) test_ctx->tx.message.header.num_required_signatures );
   if( !test_ctx->tx.message.is_legacy ) {
     uchar header_b0 = (uchar) 0x80UL;
     _add_to_data( &txn_raw_cur_ptr, &header_b0, sizeof(uchar) );
@@ -780,7 +791,8 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   }
 
   /* Recent blockhash (32 bytes) (https://solana.com/docs/core/transactions#recent-blockhash) */
-  _add_to_data( &txn_raw_cur_ptr, test_ctx->tx.message.recent_blockhash->bytes, sizeof(fd_hash_t) );
+  // Note: add an empty blockhash if none is provided
+  _add_to_data( &txn_raw_cur_ptr, test_ctx->tx.message.recent_blockhash ? test_ctx->tx.message.recent_blockhash->bytes : empty_bytes, sizeof(fd_hash_t) );
 
   /* Compact array of instructions (https://solana.com/docs/core/transactions#array-of-instructions) */
   // Instruction count is a compact u16
@@ -864,21 +876,20 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   tpool->worker_max = 1;
 
   int res = fd_runtime_prepare_txns_phase1( slot_ctx, task_info, txn, 1 );
-  if (res != 0) {
-    FD_LOG_WARNING(("could not prepare txn (phase 1 failed)"));
-  }
+  (void)res;
+  // if (res != 0) {
+  //   return task_info;
+  // }
 
-  fd_funk_end_write( funk );
   res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, task_info, 1, tpool );
+  // if (res != 0) {
+  //   return task_info;
+  // }
 
-  fd_funk_start_write( funk );
-  if (res != 0) {
-    FD_LOG_WARNING(("could not prepare txn (phase 2 failed)"));
-  }
   res |= fd_runtime_prepare_txns_phase3( slot_ctx, task_info, 1 );
-  if (res != 0) {
-    FD_LOG_WARNING(("could not prepare txn (phase 3 failed)"));
-  }
+  // if (res != 0) {
+  //   return task_info;
+  // }
 
   // Below is a stripped-out version of fd_runtime_execute_txn_task because the Agave harness does not reclaim accounts
   if( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
@@ -888,9 +899,9 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   }
 
   res = fd_execute_txn_prepare_phase4( task_info->txn_ctx );
-  if( res != 0 ) {
-    FD_LOG_WARNING(("could not prepare txn"));
-  }
+  // if( res != 0 ) {
+  //   return task_info;
+  // }
   task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
   task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
@@ -1383,7 +1394,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     int exec_res = task_info->exec_res;
 
     /* Collect rent */
-    _txn_collect_rent( txn_ctx );
+    //TODO: _txn_collect_rent( txn_ctx );
 
     /* Start saving txn exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );
@@ -1400,7 +1411,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     /* Capture basic results fields */
     txn_result->executed                          = task_info->txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     txn_result->sanitization_error                = !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS );
-    txn_result->has_resulting_state               = false;
+    txn_result->has_resulting_state               = true;
     txn_result->resulting_state.acct_states_count = 0;
     txn_result->rent                              = slot_ctx->slot_bank.collected_rent;
     txn_result->is_ok                             = !exec_res;
@@ -1409,11 +1420,18 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     txn_result->instruction_error_index           = 0;
     txn_result->custom_error                      = 0;
     txn_result->executed_units                    = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
-    txn_result->has_fee_details                   = false;
+    txn_result->has_fee_details                   = true;
     txn_result->fee_details.transaction_fee       = slot_ctx->slot_bank.collected_execution_fees;
     txn_result->fee_details.prioritization_fee    = slot_ctx->slot_bank.collected_priority_fees;
 
     if( txn_result->sanitization_error ) {
+      //TODO: this looks like a bug in nanopb? For some reason:
+      //      - txn_result->has_resulting_state is true when all fields are 0
+      //      - txn_result->has_fee_details is false when all fields are 0
+      //      even though solfuzz-agave sets both to None
+      //      maybe it's because resulting_state contains pointers!?
+      txn_result->has_fee_details = false;
+
       ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
       _txn_context_destroy( runner, txn_ctx, slot_ctx, wksp, alloc );
 
@@ -1433,19 +1451,16 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
       }
     }
 
-    txn_result->has_fee_details                = true;
-    txn_result->fee_details.transaction_fee    = slot_ctx->slot_bank.collected_execution_fees;
-    txn_result->fee_details.prioritization_fee = slot_ctx->slot_bank.collected_priority_fees;
+    if( txn_ctx->return_data.len > 0 ) {
+      txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
+                                      PB_BYTES_ARRAY_T_ALLOCSIZE( txn_ctx->return_data.len ) );
+      if( FD_UNLIKELY( _l > output_end ) ) {
+        abort();
+      }
 
-    txn_result->has_resulting_state = true;
-    txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                    PB_BYTES_ARRAY_T_ALLOCSIZE( txn_ctx->return_data.len ) );
-    if( FD_UNLIKELY( _l > output_end ) ) {
-      abort();
+      txn_result->return_data->size = (pb_size_t)txn_ctx->return_data.len;
+      fd_memcpy( txn_result->return_data->bytes, txn_ctx->return_data.data, txn_ctx->return_data.len );
     }
-
-    txn_result->return_data->size = (pb_size_t)txn_ctx->return_data.len;
-    fd_memcpy( txn_result->return_data->bytes, txn_ctx->return_data.data, txn_ctx->return_data.len );
 
     /* Allocate space for captured accounts */
     ulong modified_acct_cnt = txn_ctx->accounts_cnt;
@@ -1473,14 +1488,16 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
       out_acct->lamports = acc->const_meta->info.lamports;
 
-      out_acct->data =
-        FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                    PB_BYTES_ARRAY_T_ALLOCSIZE( acc->const_meta->dlen ) );
-      if( FD_UNLIKELY( _l > output_end ) ) {
-        abort();
+      if( acc->const_meta->dlen > 0 ) {
+        out_acct->data =
+          FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
+                                      PB_BYTES_ARRAY_T_ALLOCSIZE( acc->const_meta->dlen ) );
+        if( FD_UNLIKELY( _l > output_end ) ) {
+          abort();
+        }
+        out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
+        fd_memcpy( out_acct->data->bytes, acc->const_data, acc->const_meta->dlen );
       }
-      out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
-      fd_memcpy( out_acct->data->bytes, acc->const_data, acc->const_meta->dlen );
 
       out_acct->executable     = acc->const_meta->info.executable;
       out_acct->rent_epoch     = acc->const_meta->info.rent_epoch;

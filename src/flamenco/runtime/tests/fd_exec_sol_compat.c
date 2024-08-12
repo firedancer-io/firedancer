@@ -274,26 +274,26 @@ sol_compat_instr_fixture( fd_exec_instr_test_runner_t * runner,
 }
 
 int
-sol_compat_precompile_fixture( fd_exec_instr_test_runner_t * runner,
-                               uchar const *                 in,
-                               ulong                         in_sz ) {
+sol_compat_txn_fixture( fd_exec_instr_test_runner_t * runner,
+                        uchar const *                 in,
+                        ulong                         in_sz ) {
   // Decode fixture
-  fd_exec_test_instr_fixture_t fixture[1] = {0};
-  void * res = sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_instr_fixture_t_msg );
+  fd_exec_test_txn_fixture_t fixture[1] = {0};
+  void * res = sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_txn_fixture_t_msg );
   if ( res==NULL ) {
-    FD_LOG_WARNING(( "Invalid instr fixture." ));
+    FD_LOG_WARNING(( "Invalid txn fixture." ));
     return 0;
   }
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_instr_test_run );
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_txn_test_run );
 
   // Compare effects
-  int ok = sol_compat_cmp_success_fail_only( output, &fixture->output );
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_txn_result_t_msg );
 
   // Cleanup
-  pb_release( &fd_exec_test_instr_fixture_t_msg, fixture );
+  pb_release( &fd_exec_test_txn_fixture_t_msg, fixture );
   return ok;
 }
 
