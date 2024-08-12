@@ -64,12 +64,12 @@ FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_signature_t) == 64UL, "messed up size
 FD_STATIC_ASSERT( alignof(sanitized_txn_abi_signature_t) == 1UL, "messed up size" );
 
 typedef struct ABI_ALIGN(8UL) {
-  uchar * accounts;
   ulong   accounts_cap;
+  uchar * accounts;
   ulong   accounts_cnt;
 
-  uchar * data;
   ulong   data_cap;
+  uchar * data;
   ulong   data_cnt;
 
   uchar program_id_index;
@@ -88,12 +88,12 @@ FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_message_header_t) == 3UL, "messed up 
 FD_STATIC_ASSERT( alignof(sanitized_txn_abi_message_header_t) == 1UL, "messed up size" );
 
 typedef struct ABI_ALIGN(8UL) {
-  sanitized_txn_abi_pubkey_t * account_keys;
   ulong account_keys_cap;
+  sanitized_txn_abi_pubkey_t * account_keys;
   ulong account_keys_cnt;
 
-  sanitized_txn_abi_compiled_instruction_t * instructions;
   ulong instructions_cap;
+  sanitized_txn_abi_compiled_instruction_t * instructions;
   ulong instructions_cnt;
 
   uchar recent_blockhash[ 32 ];
@@ -105,8 +105,8 @@ FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_legacy_message0_t) == 88UL, "messed u
 FD_STATIC_ASSERT( alignof(sanitized_txn_abi_legacy_message0_t) == 8UL, "messed up size" );
 
 typedef struct ABI_ALIGN(8UL) {
-  uchar * is_writable_account_cache;
   ulong   is_writable_account_cache_cap;
+  uchar * is_writable_account_cache;
   ulong   is_writable_account_cache_cnt;
 
   union __attribute__((__packed__)) __attribute__((aligned(8UL))) {
@@ -125,12 +125,12 @@ FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_legacy_message1_t) == 112UL, "messed 
 FD_STATIC_ASSERT( alignof(sanitized_txn_abi_legacy_message1_t) == 8UL, "messed up size" );
 
 typedef struct ABI_ALIGN(8UL) {
-  uchar * writable_indexes;
   ulong   writable_indexes_cap;
+  uchar * writable_indexes;
   ulong   writable_indexes_cnt;
 
-  uchar * readonly_indexes;
   ulong   readonly_indexes_cap;
+  uchar * readonly_indexes;
   ulong   readonly_indexes_cnt;
 
   uchar account_key[ 32 ];
@@ -140,16 +140,16 @@ FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_v0_message_address_table_lookup_t) ==
 FD_STATIC_ASSERT( alignof(sanitized_txn_abi_v0_message_address_table_lookup_t) == 8UL, "messed up size" );
 
 typedef struct ABI_ALIGN(8UL) {
-  sanitized_txn_abi_pubkey_t * account_keys;
   ulong                        account_keys_cap;
+  sanitized_txn_abi_pubkey_t * account_keys;
   ulong                        account_keys_cnt;
 
-  sanitized_txn_abi_compiled_instruction_t * instructions;
   ulong                                      instructions_cap;
+  sanitized_txn_abi_compiled_instruction_t * instructions;
   ulong                                      instructions_cnt;
 
-  sanitized_txn_abi_v0_message_address_table_lookup_t * address_table_lookups;
   ulong                                                 address_table_lookups_cap;
+  sanitized_txn_abi_v0_message_address_table_lookup_t * address_table_lookups;
   ulong                                                 address_table_lookups_cnt;
 
   uchar recent_blockhash[ 32 ];
@@ -161,12 +161,12 @@ FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_v0_message_t) == 112UL, "messed up si
 FD_STATIC_ASSERT( alignof(sanitized_txn_abi_v0_message_t) == 8UL, "messed up size" );
 
 typedef struct ABI_ALIGN(8UL) {
-  sanitized_txn_abi_pubkey_t * writable;
   ulong                        writable_cap;
+  sanitized_txn_abi_pubkey_t * writable;
   ulong                        writable_cnt;
 
-  sanitized_txn_abi_pubkey_t * readable;
   ulong                        readable_cap;
+  sanitized_txn_abi_pubkey_t * readable;
   ulong                        readable_cnt;
 } sanitized_txn_abi_v0_loaded_addresses_t;
 
@@ -174,8 +174,8 @@ FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_v0_loaded_addresses_t) == 48UL, "mess
 FD_STATIC_ASSERT( alignof(sanitized_txn_abi_v0_loaded_addresses_t) == 8UL, "messed up size" );
 
 typedef struct ABI_ALIGN(8UL) {
-  uchar * is_writable_account_cache;
   ulong   is_writable_account_cache_cap;
+  uchar * is_writable_account_cache;
   ulong   is_writable_account_cache_cnt;
 
   union __attribute__((__packed__)) __attribute__((aligned(8UL))) {
@@ -220,8 +220,8 @@ FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_message_t, v0) == 0UL, "messed up s
 FD_STATIC_ASSERT( offsetof(sanitized_txn_abi_message_t, legacy) == 8UL, "messed up size" );
 
 struct ABI_ALIGN(8UL) fd_bank_abi_txn_private {
-  sanitized_txn_abi_signature_t * signatures;
   ulong                           signatures_cap;
+  sanitized_txn_abi_signature_t * signatures;
   ulong                           signatures_cnt;
 
   sanitized_txn_abi_message_t message;
@@ -233,7 +233,7 @@ struct ABI_ALIGN(8UL) fd_bank_abi_txn_private {
 FD_STATIC_ASSERT( sizeof(struct fd_bank_abi_txn_private) == 248UL, "messed up size" );
 FD_STATIC_ASSERT( alignof(struct fd_bank_abi_txn_private) == 8UL, "messed up size" );
 
-FD_STATIC_ASSERT( offsetof(struct fd_bank_abi_txn_private, signatures) == 0UL, "messed up size" );
+FD_STATIC_ASSERT( offsetof(struct fd_bank_abi_txn_private, signatures) == 8UL, "messed up size" );
 FD_STATIC_ASSERT( offsetof(struct fd_bank_abi_txn_private, message) == 24UL, "messed up size" );
 FD_STATIC_ASSERT( offsetof(struct fd_bank_abi_txn_private, message_hash) == 208UL, "messed up size" );
 FD_STATIC_ASSERT( offsetof(struct fd_bank_abi_txn_private, is_simple_vote_tx) == 240UL, "messed up size" );
@@ -290,7 +290,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
     sanitized_txn_abi_legacy_message1_t * legacy = &out_txn->message.legacy;
     sanitized_txn_abi_legacy_message0_t * message = &legacy->message.owned;
 
-    out_txn->message.tag = 0UL;
+    out_txn->message.tag = 9223372036854775808UL;
 
     legacy->is_writable_account_cache_cnt = txn->acct_addr_cnt;
     legacy->is_writable_account_cache_cap = txn->acct_addr_cnt;
