@@ -644,6 +644,7 @@ dump/test-vectors/instr/fixtures/stake/ceb6a9846b49e99d.bin.fix
 dump/test-vectors/instr/fixtures/stake/crash-010b8221441fd8230ae467fb442569194e91a14d.fix
 dump/test-vectors/instr/fixtures/stake/crash-0c283a4cb438981f2b6ebd4dad25af18da431bd2.fix
 dump/test-vectors/instr/fixtures/stake/crash-0ec172f13485b675d9d78fc8389cb3e168856f09.fix
+dump/test-vectors/instr/fixtures/stake/crash-1a30db62de07e2ada3b67bfadb2377e86bddaeb2.fix
 dump/test-vectors/instr/fixtures/stake/crash-11abb52e383ef3315358ec9a44c8c807defc2ad6.fix
 dump/test-vectors/instr/fixtures/stake/crash-121093607c5a8818f36a81608750c3153dae153a.fix
 dump/test-vectors/instr/fixtures/stake/crash-12c20bb2213bc7b6aa2378f2e6f0c190fcc27ec6.fix

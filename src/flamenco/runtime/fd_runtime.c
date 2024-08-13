@@ -3671,7 +3671,7 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t* slot_ctx,
 
     for( ulong i=0; i < genesis_block.native_instruction_processors_len; i++ ) {
       fd_string_pubkey_pair_t * a = &genesis_block.native_instruction_processors[i];
-      fd_write_builtin_bogus_account( slot_ctx, a->pubkey.uc, a->string, strlen(a->string) );
+      fd_write_builtin_bogus_account( slot_ctx, a->pubkey.uc, (const char *) a->string, a->string_len );
     }
 
     /* sort and update bank hash */

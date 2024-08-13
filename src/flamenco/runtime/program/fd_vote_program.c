@@ -6,7 +6,6 @@
 #include "../fd_pubkey_utils.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_rent.h"
-#include "../../../ballet/utf8/fd_utf8.h"
 
 #include <limits.h>
 #include <math.h>
@@ -2317,10 +2316,6 @@ uint vote_state_versions_is_correct_and_initialized( fd_borrowed_account_t * vot
 /* Entry point for the Vote Program                                   */
 /**********************************************************************/
 
-/* Convenience macro for fd_utf8_verify */
-
-#define VERIFY_SEED_UTF8( seed ) ( fd_utf8_verify( (char const *)(seed), (seed##_len) ) )
-
 // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L57
 int
 fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
@@ -2448,10 +2443,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
    * https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L98
    */
   case fd_vote_instruction_enum_authorize_with_seed: {
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L108
-    if( !VERIFY_SEED_UTF8( instruction.inner.authorize_with_seed.current_authority_derived_key_seed ) )
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L99
     if( FD_UNLIKELY( ctx.instr->acct_cnt < 3 ) ) {
       rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
@@ -2481,9 +2472,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
    * https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L111
    */
   case fd_vote_instruction_enum_authorize_checked_with_seed: {
-    if( !VERIFY_SEED_UTF8( instruction.inner.authorize_checked_with_seed.current_authority_derived_key_seed ) )
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-
     fd_vote_authorize_checked_with_seed_args_t const * args =
         &instruction.inner.authorize_checked_with_seed;
 
