@@ -24,3 +24,6 @@ $(call add-objs,fd_quic_stream_pool,fd_quic)
 
 $(call add-hdrs,fd_quic_stream.h)
 $(call add-objs,fd_quic_stream,fd_quic)
+
+$(call add-hdrs,fd_rollset.h)
+$(call make-unit-test,test_rollset,test_rollset,fd_util)
