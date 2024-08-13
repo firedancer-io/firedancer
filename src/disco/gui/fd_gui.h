@@ -108,8 +108,10 @@ struct fd_gui {
   fd_topo_t * topo;
 
   long next_sample_100millis;
+  long next_sample_10millis;
 
   struct {
+#define FD_GUI_NUM_EPOCHS 2UL
     char const * version;        
     char const * cluster;
     char const * identity_key_base58;
@@ -122,6 +124,9 @@ struct fd_gui {
     fd_gui_txn_info_t txn_info_prev[ 1 ]; /* Cumulative/Sampled */
     fd_gui_txn_info_t txn_info_this[ 1 ]; /* Cumulative/Sampled */
     fd_gui_txn_info_t txn_info_json[ 1 ]; /* Delta/Computed */
+    fd_gui_txn_info_t txn_info_hist[ FD_GUI_NUM_EPOCHS ][ MAX_SLOTS_CNT ]; /* Historical data */
+    ulong             txn_info_slot[ FD_GUI_NUM_EPOCHS ][ MAX_SLOTS_CNT ]; /* Which slot is the historical data for? */
+    ulong             became_leader_high_slot;
 
     ulong net_tile_count;
     ulong quic_tile_count;
@@ -135,7 +140,6 @@ struct fd_gui {
   } summary;
 
   struct {
-#define FD_GUI_NUM_EPOCHS 2UL
     struct {
       ulong epoch;
       ulong start_slot;
@@ -190,6 +194,12 @@ fd_gui_join( void * shmem );
 void
 fd_gui_ws_open( fd_gui_t *  gui,
                 ulong       conn_id );
+
+void
+fd_gui_ws_message( fd_gui_t *    gui,
+                   ulong         ws_conn_id,
+                   uchar const * data,
+                   ulong         data_len );
 
 void
 fd_gui_plugin_message( fd_gui_t *    gui,
