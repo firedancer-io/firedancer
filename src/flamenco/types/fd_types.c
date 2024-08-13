@@ -12650,7 +12650,7 @@ int fd_sysvar_epoch_rewards_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_uint8_decode_preflight( ctx );
+  err = fd_bincode_bool_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -12661,7 +12661,7 @@ void fd_sysvar_epoch_rewards_decode_unsafe( fd_sysvar_epoch_rewards_t * self, fd
   fd_bincode_uint128_decode_unsafe( &self->total_points, ctx );
   fd_bincode_uint64_decode_unsafe( &self->total_rewards, ctx );
   fd_bincode_uint64_decode_unsafe( &self->distributed_rewards, ctx );
-  fd_bincode_uint8_decode_unsafe( &self->active, ctx );
+  fd_bincode_bool_decode_unsafe( &self->active, ctx );
 }
 int fd_sysvar_epoch_rewards_encode( fd_sysvar_epoch_rewards_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
@@ -12677,7 +12677,7 @@ int fd_sysvar_epoch_rewards_encode( fd_sysvar_epoch_rewards_t const * self, fd_b
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->distributed_rewards, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint8_encode( (uchar)(self->active), ctx );
+  err = fd_bincode_bool_encode( (uchar)(self->active), ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -12703,7 +12703,7 @@ int fd_sysvar_epoch_rewards_decode_offsets( fd_sysvar_epoch_rewards_off_t * self
   err = fd_bincode_uint64_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   self->active_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_bincode_uint8_decode_preflight( ctx );
+  err = fd_bincode_bool_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -12726,7 +12726,7 @@ void fd_sysvar_epoch_rewards_walk( void * w, fd_sysvar_epoch_rewards_t const * s
   fun( w, &self->total_points, "total_points", FD_FLAMENCO_TYPE_UINT128, "uint128", level );
   fun( w, &self->total_rewards, "total_rewards", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, &self->distributed_rewards, "distributed_rewards", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  fun( w, &self->active, "active", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+  fun( w, &self->active, "active", FD_FLAMENCO_TYPE_BOOL, "bool", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_sysvar_epoch_rewards", level-- );
 }
 ulong fd_sysvar_epoch_rewards_size( fd_sysvar_epoch_rewards_t const * self ) {

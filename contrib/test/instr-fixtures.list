@@ -720,6 +720,7 @@ dump/test-vectors/instr/fixtures/stake/crash-da3d467a4ee38bde652d3ae0a449fc4cb80
 dump/test-vectors/instr/fixtures/stake/crash-db00b687b4a3bee38d27d95c242154938919dbeb.fix
 dump/test-vectors/instr/fixtures/stake/crash-db86181f95cfd87ca25923e27536dfae2079694c.fix
 dump/test-vectors/instr/fixtures/stake/crash-dd736eae7fe5506cb301b7b586a1da4311fc6587.fix
+dump/test-vectors/instr/fixtures/stake/crash-e7a4ec1de85439a91e088ffeea1898d419a16228.fix
 dump/test-vectors/instr/fixtures/stake/crash-e7cd66be85a9d8772b2155d514e2391f63ba6141.fix
 dump/test-vectors/instr/fixtures/stake/crash-e88ff1216b853bb40a7e15297de9c4a24fd8c1c4.fix
 dump/test-vectors/instr/fixtures/stake/crash-e8c57a673dcc06f5ce33641fab0e07db58b7fd88.fix
