@@ -13,6 +13,11 @@ void fd_gui_printf_epoch2( fd_gui_t * gui );
 void fd_gui_printf_txn_info_summary( fd_gui_t * gui );
 void fd_gui_printf_tile_info( fd_gui_t * gui );
 
+void fd_gui_printf_open_query_response_envelope( fd_gui_t * gui, ulong seq );
+void fd_gui_printf_close_query_response_envelope( fd_gui_t * gui );
+void fd_gui_printf_null_query_response( fd_gui_t * gui, ulong seq );
+void fd_gui_printf_txn_info_summary_this( fd_gui_t * gui, fd_gui_txn_info_t * txn_info );
+
 void fd_gui_printf_epoch( fd_gui_t * gui, ulong epoch_idx );
 
 void

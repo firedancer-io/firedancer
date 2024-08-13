@@ -172,6 +172,13 @@ jsonp_bool( fd_gui_t *   gui,
 }
 
 static void
+jsonp_null( fd_gui_t *   gui,
+            char const * key ) {
+  if( FD_LIKELY( key ) ) fd_hcache_printf( gui->hcache, "\"%s\": null,", key );
+  else                   fd_hcache_printf( gui->hcache, "null," );
+}
+
+static void
 jsonp_open_envelope( fd_gui_t *   gui,
                      char const * topic,
                      char const * key ) {
@@ -182,6 +189,31 @@ jsonp_open_envelope( fd_gui_t *   gui,
 
 static void
 jsonp_close_envelope( fd_gui_t * gui ) {
+  jsonp_close_object( gui );
+  jsonp_strip_trailing_comma( gui );
+}
+
+void
+fd_gui_printf_open_query_response_envelope( fd_gui_t * gui,
+                                            ulong      seq ) {
+  jsonp_open_object( gui, NULL );
+  jsonp_ulong( gui, "seq", seq );
+  jsonp_open_array( gui, "response" );
+}
+
+void
+fd_gui_printf_close_query_response_envelope( fd_gui_t * gui ) {
+  jsonp_close_array( gui );
+  jsonp_close_object( gui );
+  jsonp_strip_trailing_comma( gui );
+}
+
+void
+fd_gui_printf_null_query_response( fd_gui_t * gui,
+                                   ulong      seq ) {
+  jsonp_open_object( gui, NULL );
+  jsonp_ulong( gui, "seq", seq );
+  jsonp_null( gui, "response" );
   jsonp_close_object( gui );
   jsonp_strip_trailing_comma( gui );
 }
@@ -294,9 +326,8 @@ fd_gui_printf_epoch2( fd_gui_t * gui ) {
 }
 
 void
-fd_gui_printf_txn_info_summary( fd_gui_t * gui ) {
-  fd_gui_txn_info_t * txn_info = gui->summary.txn_info_json;
-
+fd_gui_printf_txn_info_summary_this( fd_gui_t *          gui,
+                                     fd_gui_txn_info_t * txn_info ) {
   jsonp_open_envelope( gui, "summary", "upcoming_slot_txn_info" );
     jsonp_open_object( gui, "value" );
       jsonp_ulong( gui, "acquired_txns",          txn_info->acquired_txns );
@@ -359,6 +390,11 @@ fd_gui_printf_txn_info_summary( fd_gui_t * gui ) {
       jsonp_ulong( gui, "buffered_txns", txn_info->buffered_txns );
     jsonp_close_object( gui );
   jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_txn_info_summary( fd_gui_t * gui ) {
+  fd_gui_printf_txn_info_summary_this( gui, gui->summary.txn_info_json );
 }
 
 static ulong
