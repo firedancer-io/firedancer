@@ -27,7 +27,6 @@ dump/test-vectors/instr/fixtures/bpf-loader-v2/instr-114UoRkQnXdqtqhLDfypuSbAxXv
 dump/test-vectors/instr/fixtures/bpf-loader-v2/instr-114UoRkQnXdqtqsviQZF9bN7YKoNA5NLnjnCSvfVCibdek9v5qWCSLW83H5yx4NiA4hDr2xpcArSLpP2Aqjc7F-1268.fix
 dump/test-vectors/instr/fixtures/bpf-loader-v3-programs/4c3874406b6bc014434a6b08cfd7ce957005c299.fix
 dump/test-vectors/instr/fixtures/bpf-loader-v3-programs/crash-61560dca014f17632760e7915b271cfba4fdb121.fix
-dump/test-vectors/instr/fixtures/bpf-loader-v3/asan-91901b5e0f48e1e59d1e4f620354f01fb6cefa3f.fix
 dump/test-vectors/instr/fixtures/bpf-loader/0732b78f6e65637a.bin.fix
 dump/test-vectors/instr/fixtures/bpf-loader/11a9c773abf6946e.bin.fix
 dump/test-vectors/instr/fixtures/bpf-loader/17cc2a4cb4e52b6b.bin.fix
@@ -2902,7 +2901,6 @@ dump/test-vectors/instr/fixtures/unknown/dd289303fa6a44b0c1eddf9681fe551ab23bebd
 
 dump/test-vectors/instr/fixtures/bpf-loader-v3-programs/4c3874406b6bc014434a6b08cfd7ce957005c299.fix
 dump/test-vectors/instr/fixtures/bpf-loader-v3-programs/crash-61560dca014f17632760e7915b271cfba4fdb121.fix
-dump/test-vectors/instr/fixtures/bpf-loader-v3/84b8ae94c85eccaf6504d8d247c18d4ad9276d8e.fix
 
 dump/test-vectors/instr/fixtures/system/0019a144e54e30d6ffbae9c32c065fc3b492ba82.fix
 dump/test-vectors/instr/fixtures/system/0024ea7d93954f2bfbee6b799f55be4c7d3f6925.fix
@@ -15290,3 +15288,7 @@ dump/test-vectors/instr/fixtures/address-lookup-table/ff676e420ca50852bf66408b30
 dump/test-vectors/instr/fixtures/address-lookup-table/ff69d8a5681bf6c005c7388b8855474fd7dcb420_2789718.fix
 dump/test-vectors/instr/fixtures/address-lookup-table/ff6a865059aac0ffcba7fd6e1fbc8827d54e452c_2789718.fix
 dump/test-vectors/instr/fixtures/address-lookup-table/ffcaacd28181455e05bbd94ca9a7819d750ee25f_2789718.fix
+
+dump/test-vectors/instr/fixtures/bpf-loader-v3/asan-91901b5e0f48e1e59d1e4f620354f01fb6cefa3f.fix
+dump/test-vectors/instr/fixtures/bpf-loader-v3/84b8ae94c85eccaf6504d8d247c18d4ad9276d8e.fix
+dump/test-vectors/instr/fixtures/bpf-loader-v3/8e4c4ee5587139615ce74a674b881f06ff284dc5_3220910.fix   
