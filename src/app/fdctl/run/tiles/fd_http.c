@@ -232,13 +232,6 @@ gui_ws_message( ulong              conn_id,
 
   (void)data;
   (void)data_len;
-
-  FD_LOG_WARNING(( "message: %s", (char*)data ));
-  fd_http_server_ws_frame_t frame = {
-    .data     = (uchar const *)"pong",
-    .data_len = 4UL,
-  };
-  fd_http_server_ws_send( ctx->gui_server, conn_id, frame );
 }
 
 static void
@@ -296,7 +289,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->metrics_hcache = fd_hcache_join( fd_hcache_new( _metrics_hcache, ctx->metrics_server, 32UL<<20UL ) );
   FD_TEST( ctx->metrics_hcache );
 
-  FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%d.%d.%d", FD_VERSION_MAJOR, FD_VERSION_MINOR, FD_VERSION_PATCH ) );
+  FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%d.%d.%d", FDCTL_MAJOR_VERSION, FDCTL_MINOR_VERSION, FDCTL_PATCH_VERSION ) );
 
   ctx->topo = topo;
   ctx->gui  = fd_gui_join( fd_gui_new( _gui, gui_hcache, ctx->version_string, tile->http.cluster, ctx->identity_key_str, ctx->topo ) );

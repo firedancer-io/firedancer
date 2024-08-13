@@ -738,7 +738,7 @@ maybe_write_pong( fd_http_server_t * http,
       Client has not sent a ping */
   if( FD_LIKELY( conn->pong_state==FD_HTTP_SERVER_PONG_STATE_NONE ) )       return 0;
   /*  We are in the middle of writing a data frame */
-  if( FD_LIKELY( conn->send_frame_cnt && conn->send_frame_bytes_written ) ) return 0;
+  if( FD_LIKELY( conn->send_frame_cnt && (conn->send_frame_state=FD_HTTP_SERVER_SEND_FRAME_STATE_DATA || conn->send_frame_bytes_written ) ) ) return 0;
 
   /* Otherwise, we need to pong */
   if( FD_LIKELY( conn->pong_state==FD_HTTP_SERVER_PONG_STATE_WAITING ) ) {
