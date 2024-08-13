@@ -1188,8 +1188,10 @@ _diff_effects( fd_exec_instr_fixture_diff_t * check ) {
              (ulong) data_sz, ctx->txn_ctx->return_data.len );
   }
   else if (data_sz > 0 ) {
-    check->has_diff = memcmp( expected->return_data->bytes, ctx->txn_ctx->return_data.data, expected->return_data->size );
-    REPORT( WARNING, "return data mismatch" );
+    if( memcmp( expected->return_data->bytes, ctx->txn_ctx->return_data.data, expected->return_data->size ) ) {
+      check->has_diff = 1;
+      REPORT( WARNING, "return data mismatch" );
+    }
   }
 
   /* TODO: Capture account side effects outside of the access list by
