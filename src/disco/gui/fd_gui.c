@@ -621,6 +621,9 @@ fd_gui_plugin_message( fd_gui_t *    gui,
                        ulong         msg_len ) {
   (void)msg_len;
 
+  FD_LOG_NOTICE(( "Start handling" ));
+  long current = fd_log_wallclock();
+
   switch( plugin_msg ) {
     case FD_PLUGIN_MSG_SLOT_ROOTED:
       gui->summary.slot_rooted = *(ulong const *)msg;
@@ -636,6 +639,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       gui->summary.slot_completed = *(ulong const *)msg;
       fd_gui_printf_completed_slot( gui );
       fd_hcache_snap_ws_broadcast( gui->hcache );
+      FD_LOG_NOTICE(( "broadcast slot %lu", gui->summary.slot_completed ));
       break;
     case FD_PLUGIN_MSG_SLOT_ESTIMATED:
       gui->summary.slot_estimated = *(ulong const *)msg;
@@ -700,4 +704,6 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       FD_LOG_ERR(( "Unhandled plugin msg: %lu", plugin_msg ));
       break;
   }
+
+  FD_LOG_NOTICE(( "plugin_msg %lu handled in %lu nanos", plugin_msg, fd_log_wallclock() - current ));
 }

@@ -8,7 +8,7 @@ scratch_directory = "/dev/shm/fd1"
     ]
 
 [consensus]
-    identity_path = "/home/yufzhou/.firedancer/fd1/identity.json"
+    identity_path = "/home/{user}/.firedancer/fd1/identity.json"
     expected_genesis_hash = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
     known_validators = [
         "5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on", 
