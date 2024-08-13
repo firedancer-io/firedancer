@@ -3,7 +3,6 @@
 
 #include "../../../util/bits/fd_sat.h"
 #include "../../../util/bits/fd_uwide.h"
-#include "../../../ballet/utf8/fd_utf8.h"
 #include "../fd_account.h"
 #include "../fd_executor.h"
 #include "../fd_pubkey_utils.h"
@@ -2440,9 +2439,6 @@ get_stake_account( fd_exec_instr_ctx_t const * ctx,
 /* Public API                                                         */
 /**********************************************************************/
 
-/* Convenience macro for fd_utf8_verify of seed arguments */
-#define VERIFY_SEED_UTF8( seed ) ( fd_utf8_verify( (char const *)(seed), (seed##_len) ) )
-
 int
 fd_stake_program_execute( fd_exec_instr_ctx_t ctx ) {
   do {
@@ -2572,8 +2568,6 @@ fd_stake_program_execute( fd_exec_instr_ctx_t ctx ) {
    */
   case fd_stake_instruction_enum_authorize_with_seed: {
     fd_authorize_with_seed_args_t args = instruction->inner.authorize_with_seed;
-    if( FD_UNLIKELY( !VERIFY_SEED_UTF8( args.authority_seed ) ) )
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L108
     fd_borrowed_account_t * me = NULL;
@@ -2901,8 +2895,6 @@ fd_stake_program_execute( fd_exec_instr_ctx_t ctx ) {
   case fd_stake_instruction_enum_authorize_checked_with_seed: {
     fd_authorize_checked_with_seed_args_t const * args =
         &instruction->inner.authorize_checked_with_seed;
-    if( FD_UNLIKELY( !VERIFY_SEED_UTF8( args->authority_seed ) ) )
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L273
     fd_borrowed_account_t * me = NULL;

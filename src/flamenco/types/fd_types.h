@@ -3,6 +3,7 @@
 #define HEADER_FD_RUNTIME_TYPES
 
 #include "fd_bincode.h"
+#include "../../ballet/utf8/fd_utf8.h"
 #include "fd_types_custom.h"
 #define FD_ACCOUNT_META_MAGIC 9823
 
@@ -360,6 +361,7 @@ typedef struct fd_stake_history_off fd_stake_history_off_t;
 #define FD_STAKE_HISTORY_OFF_FOOTPRINT sizeof(fd_stake_history_off_t)
 #define FD_STAKE_HISTORY_OFF_ALIGN (8UL)
 
+/* https://github.com/anza-xyz/agave/blob/6ac4fe32e28d8ceb4085072b61fa0c6cb09baac1/sdk/src/account.rs#L37 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_solana_account {
   ulong lamports;
@@ -1309,7 +1311,8 @@ typedef struct fd_poh_config_off fd_poh_config_off_t;
 
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_string_pubkey_pair {
-  char* string;
+  ulong string_len;
+  uchar* string;
   fd_pubkey_t pubkey;
 };
 typedef struct fd_string_pubkey_pair fd_string_pubkey_pair_t;
@@ -2292,7 +2295,8 @@ typedef struct fd_stake_config_off fd_stake_config_off_t;
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_feature_entry {
   fd_pubkey_t pubkey;
-  char* description;
+  ulong description_len;
+  uchar* description;
   ulong since_slot;
 };
 typedef struct fd_feature_entry fd_feature_entry_t;

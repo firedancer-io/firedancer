@@ -8,7 +8,6 @@
 #include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
-#include "../../../ballet/utf8/fd_utf8.h"
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L42-L68
 
@@ -529,10 +528,6 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                  
   return 0;
 }
 
-/* Convenience macro for fd_utf8_verify */
-
-#define VERIFY_SEED_UTF8( seed ) ( fd_utf8_verify( (char const *)(seed), (seed##_len) ) )
-
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L405-L422
 
    Matches Solana Labs system_processor SystemInstruction::TransferWithSeed { ... } => { ... } */
@@ -636,8 +631,6 @@ fd_system_program_execute( fd_exec_instr_ctx_t ctx ) {
     break;
   }
   case fd_system_program_instruction_enum_create_account_with_seed: {
-    if( !VERIFY_SEED_UTF8( instruction.inner.create_account_with_seed.seed ) )
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     result = fd_system_program_exec_create_account_with_seed(
         &ctx, &instruction.inner.create_account_with_seed );
     break;
@@ -667,24 +660,18 @@ fd_system_program_execute( fd_exec_instr_ctx_t ctx ) {
   }
   case fd_system_program_instruction_enum_allocate_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L525
-    if( !VERIFY_SEED_UTF8( instruction.inner.allocate_with_seed.seed ) )
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     result = fd_system_program_exec_allocate_with_seed(
         &ctx, &instruction.inner.allocate_with_seed );
     break;
   }
   case fd_system_program_instruction_enum_assign_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L545
-    if( !VERIFY_SEED_UTF8( instruction.inner.assign_with_seed.seed ) )
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     result = fd_system_program_exec_assign_with_seed(
         &ctx, &instruction.inner.assign_with_seed );
     break;
   }
   case fd_system_program_instruction_enum_transfer_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L412
-    if( !VERIFY_SEED_UTF8( instruction.inner.transfer_with_seed.from_seed ) )
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     result = fd_system_program_exec_transfer_with_seed(
         &ctx, &instruction.inner.transfer_with_seed );
     break;

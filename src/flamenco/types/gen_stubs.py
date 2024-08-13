@@ -585,6 +585,30 @@ class VectorMember:
         print('  }', file=body)
 
 
+class StringMember(VectorMember):
+    def __init__(self, container, json):
+        self.name = json["name"]
+        self.element = "uchar"
+        self.compact = False
+        self.ignore_underflow = False
+
+    def emitDecodePreflight(self, archival):
+        atag = ('_archival' if archival else '')
+        print(f'  ulong {self.name}_len;', file=body)
+        print(f'  err = fd_bincode_uint64_decode( &{self.name}_len, ctx );', file=body)
+        print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print(f'  if( {self.name}_len ) {{', file=body)
+        el = f'{namespace}_{self.element}'
+        el = el.upper()
+
+        print(f'    err = fd_bincode_bytes_decode_preflight( {self.name}_len, ctx );', file=body)
+        print(f'    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print(f'    err = !fd_utf8_verify( (char const *) ctx->data - {self.name}_len, {self.name}_len );', file=body)
+        print(f'    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+
+        print('  }', file=body)
+
+
 class DequeMember:
     def __init__(self, container, json):
         self.name = json["name"]
@@ -1569,6 +1593,7 @@ class ArrayMember:
 
 memberTypeMap = {
     "vector" :    VectorMember,
+    "string" :    StringMember,
     "deque" :     DequeMember,
     "array" :     ArrayMember,
     "option" :    OptionMember,

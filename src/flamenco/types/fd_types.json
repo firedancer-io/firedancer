@@ -3,6 +3,7 @@
   "name": "fd_runtime_types",
   "extra_header": [
       "#include \"fd_bincode.h\"",
+      "#include \"../../ballet/utf8/fd_utf8.h\"",
       "#include \"fd_types_custom.h\"",
       "#define FD_ACCOUNT_META_MAGIC 9823"
   ],
@@ -189,7 +190,8 @@
         { "name": "owner", "type": "pubkey" },
         { "name": "executable", "type": "uchar" },
         { "name": "rent_epoch", "type": "ulong" }
-      ]
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/6ac4fe32e28d8ceb4085072b61fa0c6cb09baac1/sdk/src/account.rs#L37"
     },
     {
       "name": "solana_account_stored_meta",
@@ -592,7 +594,7 @@
       "name": "string_pubkey_pair",
       "type": "struct",
       "fields": [
-        { "name": "string", "type": "char*" },
+        { "name": "string", "type": "string" },
         { "name": "pubkey", "type": "pubkey" }
       ]
     },
@@ -1004,7 +1006,7 @@
       "type": "struct",
       "fields": [
         { "name": "pubkey", "type": "pubkey" },
-        { "name": "description", "type": "char*" },
+        { "name": "description", "type": "string" },
         { "name": "since_slot", "type": "ulong" }
       ]
     },
@@ -1177,7 +1179,7 @@
       "fields": [
         { "name": "authorization_type", "type": "vote_authorize" },
         { "name": "current_authority_derived_key_owner", "type": "pubkey" },
-        { "name": "current_authority_derived_key_seed", "type": "vector", "element": "uchar" },
+        { "name": "current_authority_derived_key_seed", "type": "string" },
         { "name": "new_authority", "type": "pubkey" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L244"
@@ -1188,7 +1190,7 @@
       "fields": [
         { "name": "authorization_type", "type": "vote_authorize" },
         { "name": "current_authority_derived_key_owner", "type": "pubkey" },
-        { "name": "current_authority_derived_key_seed", "type": "vector", "element": "uchar" }
+        { "name": "current_authority_derived_key_seed", "type": "string" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L252"
     },
@@ -1230,7 +1232,7 @@
       "type": "struct",
       "fields": [
         { "name": "base", "type": "pubkey" },
-        { "name": "seed", "type": "vector", "element": "uchar" },
+        { "name": "seed", "type": "string" },
         { "name": "lamports", "type": "ulong" },
         { "name": "space", "type": "ulong" },
         { "name": "owner", "type": "pubkey" }
@@ -1242,7 +1244,7 @@
       "type": "struct",
       "fields": [
         { "name": "base", "type": "pubkey" },
-        { "name": "seed", "type": "vector", "element": "uchar" },
+        { "name": "seed", "type": "string" },
         { "name": "space", "type": "ulong" },
         { "name": "owner", "type": "pubkey" }
       ],
@@ -1253,7 +1255,7 @@
       "type": "struct",
       "fields": [
         { "name": "base", "type": "pubkey" },
-        { "name": "seed", "type": "vector", "element": "uchar" },
+        { "name": "seed", "type": "string" },
         { "name": "owner", "type": "pubkey" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L288"
@@ -1263,7 +1265,7 @@
       "type": "struct",
       "fields": [
         { "name": "lamports", "type": "ulong" },
-        { "name": "from_seed", "type": "vector", "element": "uchar" },
+        { "name": "from_seed", "type": "string" },
         { "name": "from_owner", "type": "pubkey" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L288"
@@ -1366,7 +1368,7 @@
       "fields": [
         { "name": "new_authorized_pubkey", "type": "pubkey" },
         { "name": "stake_authorize", "type": "stake_authorize" },
-        { "name": "authority_seed", "type": "vector", "element": "uchar" },
+        { "name": "authority_seed", "type": "string" },
         { "name": "authority_owner", "type": "pubkey" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L241"
@@ -1376,7 +1378,7 @@
       "type": "struct",
       "fields": [
         { "name": "stake_authorize", "type": "stake_authorize" },
-        { "name": "authority_seed", "type": "vector", "element": "uchar" },
+        { "name": "authority_seed", "type": "string" },
         { "name": "authority_owner", "type": "pubkey" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L249"
