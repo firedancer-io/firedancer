@@ -400,6 +400,31 @@
       ]
     },
     {
+      "name": "versioned_epoch_stakes_current",
+      "type": "struct",
+      "fields": [
+        { "name": "stakes", "type": "stakes_stake" },
+        { "name": "total_stake", "type": "ulong" },
+        { "name": "node_id_to_vote_accounts", "type": "vector", "element": "pubkey_node_vote_accounts_pair" },
+        { "name": "epoch_authorized_voters", "type": "vector", "element": "pubkey_pubkey_pair" }
+      ]
+    },
+    {
+      "name": "versioned_epoch_stakes",
+      "type": "enum",
+      "variants": [
+          { "name": "Current", "type": "versioned_epoch_stakes_current"}
+      ]
+    },
+    {
+      "name": "versioned_epoch_stakes_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "epoch", "type": "ulong" },
+        { "name": "val", "type": "versioned_epoch_stakes" }
+      ]
+    },
+    {
       "name": "pubkey_u64_pair",
       "type": "struct",
       "fields": [
@@ -523,31 +548,6 @@
         { "name": "historical_roots_with_hash", "type": "vector", "element": "slot_map_pair" }
       ],
       "comment": "Accounts DB related fields in a snapshot"
-    },
-    {
-      "name": "epoch_stakes_current",
-      "type": "struct",
-      "fields": [
-        { "name": "stakes", "type": "stakes_stake" },
-        { "name": "total_stake", "type": "ulong" },
-        { "name": "node_id_to_vote_accounts", "type": "vector", "element": "pubkey_node_vote_accounts_pair" },
-        { "name": "epoch_authorized_voters", "type": "vector", "element": "pubkey_pubkey_pair" }
-      ]
-    },
-    {
-      "name": "versioned_epoch_stakes",
-      "type": "enum",
-      "variants": [
-          { "name": "Current", "type": "epoch_stakes_current"}
-      ]
-    },
-    {
-      "name": "versioned_epoch_stakes_pair",
-      "type": "struct",
-      "fields": [
-        { "name": "epoch", "type": "ulong" },
-        { "name": "val", "type": "versioned_epoch_stakes" }
-      ]
     },
     {
       "name": "reward_info",

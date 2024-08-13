@@ -172,7 +172,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   fd_memcpy(&slot_bank->banks_hash, &oldbank->hash, sizeof(oldbank->hash));
   fd_memcpy(&slot_bank->fee_rate_governor, &oldbank->fee_rate_governor, sizeof(oldbank->fee_rate_governor));
   slot_bank->lamports_per_signature = oldbank->fee_calculator.lamports_per_signature;
-  slot_ctx->prev_lamports_per_signature = oldbank->fee_calculator.lamports_per_signature;
+  slot_ctx->prev_lamports_per_signature = manifest->lamports_per_signature;
   if( oldbank->hashes_per_tick )
     epoch_bank->hashes_per_tick = *oldbank->hashes_per_tick;
   else
@@ -245,42 +245,93 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_bank->slot, NULL );
 
     /* Find EpochStakes object matching epoch */
-    fd_epoch_epoch_stakes_pair_t * epochs  = oldbank->epoch_stakes;
-    fd_epoch_stakes_t *            stakes0 = NULL;  /* current */
-    fd_epoch_stakes_t *            stakes1 = NULL;  /* next */
-    for( ulong i=0UL; i < manifest->bank.epoch_stakes_len; i++ ) {
-      if( epochs[i].key == epoch )
-        stakes0 = &epochs[i].value;
-      if( epochs[i].key == epoch+1UL )
-        stakes1 = &epochs[i].value;
+    if ( manifest->versioned_epoch_stakes_len > 0) {
+      fd_versioned_epoch_stakes_pair_t * epochs  = manifest->versioned_epoch_stakes;
+      fd_stakes_stake_t *                stakes0 = NULL;  /* current */
+      fd_stakes_stake_t *                stakes1 = NULL;  /* next */
+      for( ulong i=0UL; i < manifest->versioned_epoch_stakes_len; i++ ) {
+        if( epochs[i].epoch == epoch ) {
+          switch ( epochs[i].val.discriminant ) {
+            case fd_versioned_epoch_stakes_enum_Current:
+              stakes0 = &epochs[i].val.inner.Current.stakes;
+              break;
+            default:
+              FD_LOG_ERR(( "unexpected fd_versioned_epoch_stakes type" ));
+          }
+        }
+        if( epochs[i].epoch == epoch+1UL ) {
+          switch ( epochs[i].val.discriminant ) {
+            case fd_versioned_epoch_stakes_enum_Current:
+              stakes1 = &epochs[i].val.inner.Current.stakes;
+              break;
+            default:
+              FD_LOG_ERR(( "unexpected fd_versioned_epoch_stakes type" ));
+          }
+        }
+      }
+
+      if( FD_UNLIKELY( (!stakes0) | (!stakes1) ) ) {
+        FD_LOG_WARNING(( "snapshot missing EpochStakes for epochs %lu and/or %lu", epoch, epoch+1UL ));
+        return 0;
+      }
+
+      slot_bank->epoch_stakes = stakes0->vote_accounts;
+      fd_memset( &stakes0->vote_accounts, 0, sizeof(fd_vote_accounts_t) );
+
+      fd_vote_accounts_pair_t_mapnode_t * pool = stakes1->vote_accounts.vote_accounts_pool;
+      fd_vote_accounts_pair_t_mapnode_t * root = stakes1->vote_accounts.vote_accounts_root;
+
+      fd_vote_accounts_pair_t_map_release_tree( epoch_bank->next_epoch_stakes.vote_accounts_pool, epoch_bank->next_epoch_stakes.vote_accounts_root );
+
+      epoch_bank->next_epoch_stakes.vote_accounts_pool = fd_exec_epoch_ctx_next_epoch_stakes_join( slot_ctx->epoch_ctx );
+      epoch_bank->next_epoch_stakes.vote_accounts_root = NULL;
+
+      for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(pool, root); n; n = fd_vote_accounts_pair_t_map_successor(pool, n) ) {
+        fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire( epoch_bank->next_epoch_stakes.vote_accounts_pool );
+        fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+        fd_vote_accounts_pair_t_map_insert( epoch_bank->next_epoch_stakes.vote_accounts_pool, &epoch_bank->next_epoch_stakes.vote_accounts_root, elem );
+      }
+      fd_memset( &stakes1->vote_accounts, 0, sizeof(fd_vote_accounts_t) );
     }
-    if( FD_UNLIKELY( (!stakes0) | (!stakes1) ) ) {
-      FD_LOG_WARNING(( "snapshot missing EpochStakes for epochs %lu and/or %lu", epoch, epoch+1UL ));
-      return 0;
+
+    if ( manifest->bank.epoch_stakes_len > 0 ) {
+      fd_epoch_epoch_stakes_pair_t * epochs  = oldbank->epoch_stakes;
+      fd_epoch_stakes_t *            stakes0 = NULL;  /* current */
+      fd_epoch_stakes_t *            stakes1 = NULL;  /* next */
+      for( ulong i=0UL; i < manifest->bank.epoch_stakes_len; i++ ) {
+        if( epochs[i].key == epoch )
+          stakes0 = &epochs[i].value;
+        if( epochs[i].key == epoch+1UL )
+          stakes1 = &epochs[i].value;
+      }
+      if( FD_UNLIKELY( (!stakes0) | (!stakes1) ) ) {
+        FD_LOG_WARNING(( "snapshot missing EpochStakes for epochs %lu and/or %lu", epoch, epoch+1UL ));
+        return 0;
+      }
+
+      /* Move current EpochStakes */
+      slot_bank->epoch_stakes = stakes0->stakes.vote_accounts;
+      fd_memset( &stakes0->stakes.vote_accounts, 0, sizeof(fd_vote_accounts_t) );
+
+      /* Move next EpochStakes
+        TODO Can we derive this instead of trusting the snapshot? */
+
+      fd_vote_accounts_pair_t_mapnode_t * pool = stakes1->stakes.vote_accounts.vote_accounts_pool;
+      fd_vote_accounts_pair_t_mapnode_t * root = stakes1->stakes.vote_accounts.vote_accounts_root;
+
+      // Delete all nodes from existing
+      fd_vote_accounts_pair_t_map_release_tree( epoch_bank->next_epoch_stakes.vote_accounts_pool, epoch_bank->next_epoch_stakes.vote_accounts_root );
+
+      epoch_bank->next_epoch_stakes.vote_accounts_pool = fd_exec_epoch_ctx_next_epoch_stakes_join( slot_ctx->epoch_ctx );
+      epoch_bank->next_epoch_stakes.vote_accounts_root = NULL;
+
+      for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(pool, root); n; n = fd_vote_accounts_pair_t_map_successor(pool, n) ) {
+        fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire( epoch_bank->next_epoch_stakes.vote_accounts_pool );
+        fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+        fd_vote_accounts_pair_t_map_insert( epoch_bank->next_epoch_stakes.vote_accounts_pool, &epoch_bank->next_epoch_stakes.vote_accounts_root, elem );
+      }
+      fd_memset( &stakes1->stakes.vote_accounts, 0, sizeof(fd_vote_accounts_t) );
     }
-
-    /* Move current EpochStakes */
-    slot_bank->epoch_stakes = stakes0->stakes.vote_accounts;
-    fd_memset( &stakes0->stakes.vote_accounts, 0, sizeof(fd_vote_accounts_t) );
-
-    /* Move next EpochStakes
-       TODO Can we derive this instead of trusting the snapshot? */
-
-    fd_vote_accounts_pair_t_mapnode_t * pool = stakes1->stakes.vote_accounts.vote_accounts_pool;
-    fd_vote_accounts_pair_t_mapnode_t * root = stakes1->stakes.vote_accounts.vote_accounts_root;
-
-    // Delete all nodes from existing
-    fd_vote_accounts_pair_t_map_release_tree( epoch_bank->next_epoch_stakes.vote_accounts_pool, epoch_bank->next_epoch_stakes.vote_accounts_root );
-
-    epoch_bank->next_epoch_stakes.vote_accounts_pool = fd_exec_epoch_ctx_next_epoch_stakes_join( slot_ctx->epoch_ctx );
-    epoch_bank->next_epoch_stakes.vote_accounts_root = NULL;
-
-    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(pool, root); n; n = fd_vote_accounts_pair_t_map_successor(pool, n) ) {
-      fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire( epoch_bank->next_epoch_stakes.vote_accounts_pool );
-      fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
-      fd_vote_accounts_pair_t_map_insert( epoch_bank->next_epoch_stakes.vote_accounts_pool, &epoch_bank->next_epoch_stakes.vote_accounts_root, elem );
-    }
-    fd_memset( &stakes1->stakes.vote_accounts, 0, sizeof(fd_vote_accounts_t) );
   } while(0);
 
   // TODO Backup to database

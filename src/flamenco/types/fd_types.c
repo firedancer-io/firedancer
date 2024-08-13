@@ -5279,6 +5279,360 @@ ulong fd_epoch_epoch_stakes_pair_size( fd_epoch_epoch_stakes_pair_t const * self
   return size;
 }
 
+int fd_versioned_epoch_stakes_current_decode( fd_versioned_epoch_stakes_current_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_versioned_epoch_stakes_current_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_versioned_epoch_stakes_current_new( self );
+  }
+  fd_versioned_epoch_stakes_current_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_versioned_epoch_stakes_current_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_stakes_stake_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ulong node_id_to_vote_accounts_len;
+  err = fd_bincode_uint64_decode( &node_id_to_vote_accounts_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( node_id_to_vote_accounts_len ) {
+    for( ulong i=0; i < node_id_to_vote_accounts_len; i++ ) {
+      err = fd_pubkey_node_vote_accounts_pair_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  ulong epoch_authorized_voters_len;
+  err = fd_bincode_uint64_decode( &epoch_authorized_voters_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( epoch_authorized_voters_len ) {
+    for( ulong i=0; i < epoch_authorized_voters_len; i++ ) {
+      err = fd_pubkey_pubkey_pair_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_versioned_epoch_stakes_current_decode_unsafe( fd_versioned_epoch_stakes_current_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_stakes_stake_decode_unsafe( &self->stakes, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->total_stake, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->node_id_to_vote_accounts_len, ctx );
+  if( self->node_id_to_vote_accounts_len ) {
+    self->node_id_to_vote_accounts = (fd_pubkey_node_vote_accounts_pair_t *)fd_valloc_malloc( ctx->valloc, FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_ALIGN, FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT*self->node_id_to_vote_accounts_len );
+    for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ ) {
+      fd_pubkey_node_vote_accounts_pair_new( self->node_id_to_vote_accounts + i );
+      fd_pubkey_node_vote_accounts_pair_decode_unsafe( self->node_id_to_vote_accounts + i, ctx );
+    }
+  } else
+    self->node_id_to_vote_accounts = NULL;
+  fd_bincode_uint64_decode_unsafe( &self->epoch_authorized_voters_len, ctx );
+  if( self->epoch_authorized_voters_len ) {
+    self->epoch_authorized_voters = (fd_pubkey_pubkey_pair_t *)fd_valloc_malloc( ctx->valloc, FD_PUBKEY_PUBKEY_PAIR_ALIGN, FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT*self->epoch_authorized_voters_len );
+    for( ulong i=0; i < self->epoch_authorized_voters_len; i++ ) {
+      fd_pubkey_pubkey_pair_new( self->epoch_authorized_voters + i );
+      fd_pubkey_pubkey_pair_decode_unsafe( self->epoch_authorized_voters + i, ctx );
+    }
+  } else
+    self->epoch_authorized_voters = NULL;
+}
+int fd_versioned_epoch_stakes_current_encode( fd_versioned_epoch_stakes_current_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_stakes_stake_encode( &self->stakes, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->total_stake, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->node_id_to_vote_accounts_len, ctx );
+  if( FD_UNLIKELY(err) ) return err;
+  if( self->node_id_to_vote_accounts_len ) {
+    for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ ) {
+      err = fd_pubkey_node_vote_accounts_pair_encode( self->node_id_to_vote_accounts + i, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  err = fd_bincode_uint64_encode( self->epoch_authorized_voters_len, ctx );
+  if( FD_UNLIKELY(err) ) return err;
+  if( self->epoch_authorized_voters_len ) {
+    for( ulong i=0; i < self->epoch_authorized_voters_len; i++ ) {
+      err = fd_pubkey_pubkey_pair_encode( self->epoch_authorized_voters + i, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_versioned_epoch_stakes_current_decode_offsets( fd_versioned_epoch_stakes_current_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->stakes_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_stakes_stake_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->total_stake_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  self->node_id_to_vote_accounts_off = (uint)( (ulong)ctx->data - (ulong)data );
+  ulong node_id_to_vote_accounts_len;
+  err = fd_bincode_uint64_decode( &node_id_to_vote_accounts_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( node_id_to_vote_accounts_len ) {
+    for( ulong i=0; i < node_id_to_vote_accounts_len; i++ ) {
+      err = fd_pubkey_node_vote_accounts_pair_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  self->epoch_authorized_voters_off = (uint)( (ulong)ctx->data - (ulong)data );
+  ulong epoch_authorized_voters_len;
+  err = fd_bincode_uint64_decode( &epoch_authorized_voters_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( epoch_authorized_voters_len ) {
+    for( ulong i=0; i < epoch_authorized_voters_len; i++ ) {
+      err = fd_pubkey_pubkey_pair_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_versioned_epoch_stakes_current_new(fd_versioned_epoch_stakes_current_t * self) {
+  fd_memset( self, 0, sizeof(fd_versioned_epoch_stakes_current_t) );
+  fd_stakes_stake_new( &self->stakes );
+}
+void fd_versioned_epoch_stakes_current_destroy( fd_versioned_epoch_stakes_current_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_stakes_stake_destroy( &self->stakes, ctx );
+  if( self->node_id_to_vote_accounts ) {
+    for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ )
+      fd_pubkey_node_vote_accounts_pair_destroy( self->node_id_to_vote_accounts + i, ctx );
+    fd_valloc_free( ctx->valloc, self->node_id_to_vote_accounts );
+    self->node_id_to_vote_accounts = NULL;
+  }
+  if( self->epoch_authorized_voters ) {
+    for( ulong i=0; i < self->epoch_authorized_voters_len; i++ )
+      fd_pubkey_pubkey_pair_destroy( self->epoch_authorized_voters + i, ctx );
+    fd_valloc_free( ctx->valloc, self->epoch_authorized_voters );
+    self->epoch_authorized_voters = NULL;
+  }
+}
+
+ulong fd_versioned_epoch_stakes_current_footprint( void ){ return FD_VERSIONED_EPOCH_STAKES_CURRENT_FOOTPRINT; }
+ulong fd_versioned_epoch_stakes_current_align( void ){ return FD_VERSIONED_EPOCH_STAKES_CURRENT_ALIGN; }
+
+void fd_versioned_epoch_stakes_current_walk( void * w, fd_versioned_epoch_stakes_current_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_versioned_epoch_stakes_current", level++ );
+  fd_stakes_stake_walk( w, &self->stakes, fun, "stakes", level );
+  fun( w, &self->total_stake, "total_stake", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  if( self->node_id_to_vote_accounts_len ) {
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "node_id_to_vote_accounts", level++ );
+    for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ )
+      fd_pubkey_node_vote_accounts_pair_walk(w, self->node_id_to_vote_accounts + i, fun, "pubkey_node_vote_accounts_pair", level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "node_id_to_vote_accounts", level-- );
+  }
+  if( self->epoch_authorized_voters_len ) {
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "epoch_authorized_voters", level++ );
+    for( ulong i=0; i < self->epoch_authorized_voters_len; i++ )
+      fd_pubkey_pubkey_pair_walk(w, self->epoch_authorized_voters + i, fun, "pubkey_pubkey_pair", level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "epoch_authorized_voters", level-- );
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_versioned_epoch_stakes_current", level-- );
+}
+ulong fd_versioned_epoch_stakes_current_size( fd_versioned_epoch_stakes_current_t const * self ) {
+  ulong size = 0;
+  size += fd_stakes_stake_size( &self->stakes );
+  size += sizeof(ulong);
+  do {
+    size += sizeof(ulong);
+    for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ )
+      size += fd_pubkey_node_vote_accounts_pair_size( self->node_id_to_vote_accounts + i );
+  } while(0);
+  do {
+    size += sizeof(ulong);
+    for( ulong i=0; i < self->epoch_authorized_voters_len; i++ )
+      size += fd_pubkey_pubkey_pair_size( self->epoch_authorized_voters + i );
+  } while(0);
+  return size;
+}
+
+FD_FN_PURE uchar fd_versioned_epoch_stakes_is_Current(fd_versioned_epoch_stakes_t const * self) {
+  return self->discriminant == 0;
+}
+void fd_versioned_epoch_stakes_inner_new( fd_versioned_epoch_stakes_inner_t * self, uint discriminant );
+int fd_versioned_epoch_stakes_inner_decode_preflight( uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_versioned_epoch_stakes_current_decode_preflight( ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+void fd_versioned_epoch_stakes_inner_decode_unsafe( fd_versioned_epoch_stakes_inner_t * self, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  switch (discriminant) {
+  case 0: {
+    fd_versioned_epoch_stakes_current_decode_unsafe( &self->Current, ctx );
+    break;
+  }
+  }
+}
+int fd_versioned_epoch_stakes_decode( fd_versioned_epoch_stakes_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_versioned_epoch_stakes_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_versioned_epoch_stakes_new( self );
+  }
+  fd_versioned_epoch_stakes_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_versioned_epoch_stakes_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  uint discriminant = 0;
+  int err = fd_bincode_uint32_decode( &discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_versioned_epoch_stakes_inner_decode_preflight( discriminant, ctx );
+}
+void fd_versioned_epoch_stakes_decode_unsafe( fd_versioned_epoch_stakes_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
+  fd_versioned_epoch_stakes_inner_decode_unsafe( &self->inner, self->discriminant, ctx );
+}
+void fd_versioned_epoch_stakes_inner_new( fd_versioned_epoch_stakes_inner_t * self, uint discriminant ) {
+  switch( discriminant ) {
+  case 0: {
+    fd_versioned_epoch_stakes_current_new( &self->Current );
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_versioned_epoch_stakes_new_disc( fd_versioned_epoch_stakes_t * self, uint discriminant ) {
+  self->discriminant = discriminant;
+  fd_versioned_epoch_stakes_inner_new( &self->inner, self->discriminant );
+}
+void fd_versioned_epoch_stakes_new( fd_versioned_epoch_stakes_t * self ) {
+  fd_memset( self, 0, sizeof(fd_versioned_epoch_stakes_t) );
+  fd_versioned_epoch_stakes_new_disc( self, UINT_MAX );
+}
+void fd_versioned_epoch_stakes_inner_destroy( fd_versioned_epoch_stakes_inner_t * self, uint discriminant, fd_bincode_destroy_ctx_t * ctx ) {
+  switch( discriminant ) {
+  case 0: {
+    fd_versioned_epoch_stakes_current_destroy( &self->Current, ctx );
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_versioned_epoch_stakes_destroy( fd_versioned_epoch_stakes_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_versioned_epoch_stakes_inner_destroy( &self->inner, self->discriminant, ctx );
+}
+
+ulong fd_versioned_epoch_stakes_footprint( void ){ return FD_VERSIONED_EPOCH_STAKES_FOOTPRINT; }
+ulong fd_versioned_epoch_stakes_align( void ){ return FD_VERSIONED_EPOCH_STAKES_ALIGN; }
+
+void fd_versioned_epoch_stakes_walk( void * w, fd_versioned_epoch_stakes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_versioned_epoch_stakes", level++);
+  switch( self->discriminant ) {
+  case 0: {
+    fd_versioned_epoch_stakes_current_walk( w, &self->inner.Current, fun, "Current", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_versioned_epoch_stakes", level-- );
+}
+ulong fd_versioned_epoch_stakes_size( fd_versioned_epoch_stakes_t const * self ) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 0: {
+    size += fd_versioned_epoch_stakes_current_size( &self->inner.Current );
+    break;
+  }
+  }
+  return size;
+}
+
+int fd_versioned_epoch_stakes_inner_encode( fd_versioned_epoch_stakes_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_versioned_epoch_stakes_current_encode( &self->Current, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_versioned_epoch_stakes_encode( fd_versioned_epoch_stakes_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err = fd_bincode_uint32_encode( self->discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_versioned_epoch_stakes_inner_encode( &self->inner, self->discriminant, ctx );
+}
+
+int fd_versioned_epoch_stakes_pair_decode( fd_versioned_epoch_stakes_pair_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_versioned_epoch_stakes_pair_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_versioned_epoch_stakes_pair_new( self );
+  }
+  fd_versioned_epoch_stakes_pair_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_versioned_epoch_stakes_pair_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_versioned_epoch_stakes_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_versioned_epoch_stakes_pair_decode_unsafe( fd_versioned_epoch_stakes_pair_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint64_decode_unsafe( &self->epoch, ctx );
+  fd_versioned_epoch_stakes_decode_unsafe( &self->val, ctx );
+}
+int fd_versioned_epoch_stakes_pair_encode( fd_versioned_epoch_stakes_pair_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->epoch, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_versioned_epoch_stakes_encode( &self->val, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_versioned_epoch_stakes_pair_decode_offsets( fd_versioned_epoch_stakes_pair_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->epoch_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  self->val_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_versioned_epoch_stakes_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_versioned_epoch_stakes_pair_new(fd_versioned_epoch_stakes_pair_t * self) {
+  fd_memset( self, 0, sizeof(fd_versioned_epoch_stakes_pair_t) );
+  fd_versioned_epoch_stakes_new( &self->val );
+}
+void fd_versioned_epoch_stakes_pair_destroy( fd_versioned_epoch_stakes_pair_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_versioned_epoch_stakes_destroy( &self->val, ctx );
+}
+
+ulong fd_versioned_epoch_stakes_pair_footprint( void ){ return FD_VERSIONED_EPOCH_STAKES_PAIR_FOOTPRINT; }
+ulong fd_versioned_epoch_stakes_pair_align( void ){ return FD_VERSIONED_EPOCH_STAKES_PAIR_ALIGN; }
+
+void fd_versioned_epoch_stakes_pair_walk( void * w, fd_versioned_epoch_stakes_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_versioned_epoch_stakes_pair", level++ );
+  fun( w, &self->epoch, "epoch", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fd_versioned_epoch_stakes_walk( w, &self->val, fun, "val", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_versioned_epoch_stakes_pair", level-- );
+}
+ulong fd_versioned_epoch_stakes_pair_size( fd_versioned_epoch_stakes_pair_t const * self ) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += fd_versioned_epoch_stakes_size( &self->val );
+  return size;
+}
+
 int fd_pubkey_u64_pair_decode( fd_pubkey_u64_pair_t * self, fd_bincode_decode_ctx_t * ctx ) {
   void const * data = ctx->data;
   int err = fd_pubkey_u64_pair_decode_preflight( ctx );
@@ -6828,360 +7182,6 @@ ulong fd_solana_accounts_db_fields_size( fd_solana_accounts_db_fields_t const * 
     for( ulong i=0; i < self->historical_roots_with_hash_len; i++ )
       size += fd_slot_map_pair_size( self->historical_roots_with_hash + i );
   } while(0);
-  return size;
-}
-
-int fd_epoch_stakes_current_decode( fd_epoch_stakes_current_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  void const * data = ctx->data;
-  int err = fd_epoch_stakes_current_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  ctx->data = data;
-  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    fd_epoch_stakes_current_new( self );
-  }
-  fd_epoch_stakes_current_decode_unsafe( self, ctx );
-  return FD_BINCODE_SUCCESS;
-}
-int fd_epoch_stakes_current_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
-  int err;
-  err = fd_stakes_stake_decode_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  ulong node_id_to_vote_accounts_len;
-  err = fd_bincode_uint64_decode( &node_id_to_vote_accounts_len, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  if( node_id_to_vote_accounts_len ) {
-    for( ulong i=0; i < node_id_to_vote_accounts_len; i++ ) {
-      err = fd_pubkey_node_vote_accounts_pair_decode_preflight( ctx );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    }
-  }
-  ulong epoch_authorized_voters_len;
-  err = fd_bincode_uint64_decode( &epoch_authorized_voters_len, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  if( epoch_authorized_voters_len ) {
-    for( ulong i=0; i < epoch_authorized_voters_len; i++ ) {
-      err = fd_pubkey_pubkey_pair_decode_preflight( ctx );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    }
-  }
-  return FD_BINCODE_SUCCESS;
-}
-void fd_epoch_stakes_current_decode_unsafe( fd_epoch_stakes_current_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  fd_stakes_stake_decode_unsafe( &self->stakes, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->total_stake, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->node_id_to_vote_accounts_len, ctx );
-  if( self->node_id_to_vote_accounts_len ) {
-    self->node_id_to_vote_accounts = (fd_pubkey_node_vote_accounts_pair_t *)fd_valloc_malloc( ctx->valloc, FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_ALIGN, FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT*self->node_id_to_vote_accounts_len );
-    for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ ) {
-      fd_pubkey_node_vote_accounts_pair_new( self->node_id_to_vote_accounts + i );
-      fd_pubkey_node_vote_accounts_pair_decode_unsafe( self->node_id_to_vote_accounts + i, ctx );
-    }
-  } else
-    self->node_id_to_vote_accounts = NULL;
-  fd_bincode_uint64_decode_unsafe( &self->epoch_authorized_voters_len, ctx );
-  if( self->epoch_authorized_voters_len ) {
-    self->epoch_authorized_voters = (fd_pubkey_pubkey_pair_t *)fd_valloc_malloc( ctx->valloc, FD_PUBKEY_PUBKEY_PAIR_ALIGN, FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT*self->epoch_authorized_voters_len );
-    for( ulong i=0; i < self->epoch_authorized_voters_len; i++ ) {
-      fd_pubkey_pubkey_pair_new( self->epoch_authorized_voters + i );
-      fd_pubkey_pubkey_pair_decode_unsafe( self->epoch_authorized_voters + i, ctx );
-    }
-  } else
-    self->epoch_authorized_voters = NULL;
-}
-int fd_epoch_stakes_current_encode( fd_epoch_stakes_current_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_stakes_stake_encode( &self->stakes, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->total_stake, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->node_id_to_vote_accounts_len, ctx );
-  if( FD_UNLIKELY(err) ) return err;
-  if( self->node_id_to_vote_accounts_len ) {
-    for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ ) {
-      err = fd_pubkey_node_vote_accounts_pair_encode( self->node_id_to_vote_accounts + i, ctx );
-      if( FD_UNLIKELY( err ) ) return err;
-    }
-  }
-  err = fd_bincode_uint64_encode( self->epoch_authorized_voters_len, ctx );
-  if( FD_UNLIKELY(err) ) return err;
-  if( self->epoch_authorized_voters_len ) {
-    for( ulong i=0; i < self->epoch_authorized_voters_len; i++ ) {
-      err = fd_pubkey_pubkey_pair_encode( self->epoch_authorized_voters + i, ctx );
-      if( FD_UNLIKELY( err ) ) return err;
-    }
-  }
-  return FD_BINCODE_SUCCESS;
-}
-int fd_epoch_stakes_current_decode_offsets( fd_epoch_stakes_current_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  uchar const * data = ctx->data;
-  int err;
-  self->stakes_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_stakes_stake_decode_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  self->total_stake_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_bincode_uint64_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  self->node_id_to_vote_accounts_off = (uint)( (ulong)ctx->data - (ulong)data );
-  ulong node_id_to_vote_accounts_len;
-  err = fd_bincode_uint64_decode( &node_id_to_vote_accounts_len, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  if( node_id_to_vote_accounts_len ) {
-    for( ulong i=0; i < node_id_to_vote_accounts_len; i++ ) {
-      err = fd_pubkey_node_vote_accounts_pair_decode_preflight( ctx );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    }
-  }
-  self->epoch_authorized_voters_off = (uint)( (ulong)ctx->data - (ulong)data );
-  ulong epoch_authorized_voters_len;
-  err = fd_bincode_uint64_decode( &epoch_authorized_voters_len, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  if( epoch_authorized_voters_len ) {
-    for( ulong i=0; i < epoch_authorized_voters_len; i++ ) {
-      err = fd_pubkey_pubkey_pair_decode_preflight( ctx );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    }
-  }
-  return FD_BINCODE_SUCCESS;
-}
-void fd_epoch_stakes_current_new(fd_epoch_stakes_current_t * self) {
-  fd_memset( self, 0, sizeof(fd_epoch_stakes_current_t) );
-  fd_stakes_stake_new( &self->stakes );
-}
-void fd_epoch_stakes_current_destroy( fd_epoch_stakes_current_t * self, fd_bincode_destroy_ctx_t * ctx ) {
-  fd_stakes_stake_destroy( &self->stakes, ctx );
-  if( self->node_id_to_vote_accounts ) {
-    for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ )
-      fd_pubkey_node_vote_accounts_pair_destroy( self->node_id_to_vote_accounts + i, ctx );
-    fd_valloc_free( ctx->valloc, self->node_id_to_vote_accounts );
-    self->node_id_to_vote_accounts = NULL;
-  }
-  if( self->epoch_authorized_voters ) {
-    for( ulong i=0; i < self->epoch_authorized_voters_len; i++ )
-      fd_pubkey_pubkey_pair_destroy( self->epoch_authorized_voters + i, ctx );
-    fd_valloc_free( ctx->valloc, self->epoch_authorized_voters );
-    self->epoch_authorized_voters = NULL;
-  }
-}
-
-ulong fd_epoch_stakes_current_footprint( void ){ return FD_EPOCH_STAKES_CURRENT_FOOTPRINT; }
-ulong fd_epoch_stakes_current_align( void ){ return FD_EPOCH_STAKES_CURRENT_ALIGN; }
-
-void fd_epoch_stakes_current_walk( void * w, fd_epoch_stakes_current_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_epoch_stakes_current", level++ );
-  fd_stakes_stake_walk( w, &self->stakes, fun, "stakes", level );
-  fun( w, &self->total_stake, "total_stake", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  if( self->node_id_to_vote_accounts_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "node_id_to_vote_accounts", level++ );
-    for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ )
-      fd_pubkey_node_vote_accounts_pair_walk(w, self->node_id_to_vote_accounts + i, fun, "pubkey_node_vote_accounts_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "node_id_to_vote_accounts", level-- );
-  }
-  if( self->epoch_authorized_voters_len ) {
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "epoch_authorized_voters", level++ );
-    for( ulong i=0; i < self->epoch_authorized_voters_len; i++ )
-      fd_pubkey_pubkey_pair_walk(w, self->epoch_authorized_voters + i, fun, "pubkey_pubkey_pair", level );
-    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "epoch_authorized_voters", level-- );
-  }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_epoch_stakes_current", level-- );
-}
-ulong fd_epoch_stakes_current_size( fd_epoch_stakes_current_t const * self ) {
-  ulong size = 0;
-  size += fd_stakes_stake_size( &self->stakes );
-  size += sizeof(ulong);
-  do {
-    size += sizeof(ulong);
-    for( ulong i=0; i < self->node_id_to_vote_accounts_len; i++ )
-      size += fd_pubkey_node_vote_accounts_pair_size( self->node_id_to_vote_accounts + i );
-  } while(0);
-  do {
-    size += sizeof(ulong);
-    for( ulong i=0; i < self->epoch_authorized_voters_len; i++ )
-      size += fd_pubkey_pubkey_pair_size( self->epoch_authorized_voters + i );
-  } while(0);
-  return size;
-}
-
-FD_FN_PURE uchar fd_versioned_epoch_stakes_is_Current(fd_versioned_epoch_stakes_t const * self) {
-  return self->discriminant == 0;
-}
-void fd_versioned_epoch_stakes_inner_new( fd_versioned_epoch_stakes_inner_t * self, uint discriminant );
-int fd_versioned_epoch_stakes_inner_decode_preflight( uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
-  int err;
-  switch (discriminant) {
-  case 0: {
-    err = fd_epoch_stakes_current_decode_preflight( ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    return FD_BINCODE_SUCCESS;
-  }
-  default: return FD_BINCODE_ERR_ENCODING;
-  }
-}
-void fd_versioned_epoch_stakes_inner_decode_unsafe( fd_versioned_epoch_stakes_inner_t * self, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
-  switch (discriminant) {
-  case 0: {
-    fd_epoch_stakes_current_decode_unsafe( &self->Current, ctx );
-    break;
-  }
-  }
-}
-int fd_versioned_epoch_stakes_decode( fd_versioned_epoch_stakes_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  void const * data = ctx->data;
-  int err = fd_versioned_epoch_stakes_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  ctx->data = data;
-  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    fd_versioned_epoch_stakes_new( self );
-  }
-  fd_versioned_epoch_stakes_decode_unsafe( self, ctx );
-  return FD_BINCODE_SUCCESS;
-}
-int fd_versioned_epoch_stakes_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
-  uint discriminant = 0;
-  int err = fd_bincode_uint32_decode( &discriminant, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return fd_versioned_epoch_stakes_inner_decode_preflight( discriminant, ctx );
-}
-void fd_versioned_epoch_stakes_decode_unsafe( fd_versioned_epoch_stakes_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
-  fd_versioned_epoch_stakes_inner_decode_unsafe( &self->inner, self->discriminant, ctx );
-}
-void fd_versioned_epoch_stakes_inner_new( fd_versioned_epoch_stakes_inner_t * self, uint discriminant ) {
-  switch( discriminant ) {
-  case 0: {
-    fd_epoch_stakes_current_new( &self->Current );
-    break;
-  }
-  default: break; // FD_LOG_ERR(( "unhandled type"));
-  }
-}
-void fd_versioned_epoch_stakes_new_disc( fd_versioned_epoch_stakes_t * self, uint discriminant ) {
-  self->discriminant = discriminant;
-  fd_versioned_epoch_stakes_inner_new( &self->inner, self->discriminant );
-}
-void fd_versioned_epoch_stakes_new( fd_versioned_epoch_stakes_t * self ) {
-  fd_memset( self, 0, sizeof(fd_versioned_epoch_stakes_t) );
-  fd_versioned_epoch_stakes_new_disc( self, UINT_MAX );
-}
-void fd_versioned_epoch_stakes_inner_destroy( fd_versioned_epoch_stakes_inner_t * self, uint discriminant, fd_bincode_destroy_ctx_t * ctx ) {
-  switch( discriminant ) {
-  case 0: {
-    fd_epoch_stakes_current_destroy( &self->Current, ctx );
-    break;
-  }
-  default: break; // FD_LOG_ERR(( "unhandled type" ));
-  }
-}
-void fd_versioned_epoch_stakes_destroy( fd_versioned_epoch_stakes_t * self, fd_bincode_destroy_ctx_t * ctx ) {
-  fd_versioned_epoch_stakes_inner_destroy( &self->inner, self->discriminant, ctx );
-}
-
-ulong fd_versioned_epoch_stakes_footprint( void ){ return FD_VERSIONED_EPOCH_STAKES_FOOTPRINT; }
-ulong fd_versioned_epoch_stakes_align( void ){ return FD_VERSIONED_EPOCH_STAKES_ALIGN; }
-
-void fd_versioned_epoch_stakes_walk( void * w, fd_versioned_epoch_stakes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_versioned_epoch_stakes", level++);
-  switch( self->discriminant ) {
-  case 0: {
-    fd_epoch_stakes_current_walk( w, &self->inner.Current, fun, "Current", level );
-    break;
-  }
-  }
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_versioned_epoch_stakes", level-- );
-}
-ulong fd_versioned_epoch_stakes_size( fd_versioned_epoch_stakes_t const * self ) {
-  ulong size = 0;
-  size += sizeof(uint);
-  switch (self->discriminant) {
-  case 0: {
-    size += fd_epoch_stakes_current_size( &self->inner.Current );
-    break;
-  }
-  }
-  return size;
-}
-
-int fd_versioned_epoch_stakes_inner_encode( fd_versioned_epoch_stakes_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  switch (discriminant) {
-  case 0: {
-    err = fd_epoch_stakes_current_encode( &self->Current, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    break;
-  }
-  }
-  return FD_BINCODE_SUCCESS;
-}
-int fd_versioned_epoch_stakes_encode( fd_versioned_epoch_stakes_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err = fd_bincode_uint32_encode( self->discriminant, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return fd_versioned_epoch_stakes_inner_encode( &self->inner, self->discriminant, ctx );
-}
-
-int fd_versioned_epoch_stakes_pair_decode( fd_versioned_epoch_stakes_pair_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  void const * data = ctx->data;
-  int err = fd_versioned_epoch_stakes_pair_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  ctx->data = data;
-  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    fd_versioned_epoch_stakes_pair_new( self );
-  }
-  fd_versioned_epoch_stakes_pair_decode_unsafe( self, ctx );
-  return FD_BINCODE_SUCCESS;
-}
-int fd_versioned_epoch_stakes_pair_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint64_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_versioned_epoch_stakes_decode_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-void fd_versioned_epoch_stakes_pair_decode_unsafe( fd_versioned_epoch_stakes_pair_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  fd_bincode_uint64_decode_unsafe( &self->epoch, ctx );
-  fd_versioned_epoch_stakes_decode_unsafe( &self->val, ctx );
-}
-int fd_versioned_epoch_stakes_pair_encode( fd_versioned_epoch_stakes_pair_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint64_encode( self->epoch, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_versioned_epoch_stakes_encode( &self->val, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-int fd_versioned_epoch_stakes_pair_decode_offsets( fd_versioned_epoch_stakes_pair_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  uchar const * data = ctx->data;
-  int err;
-  self->epoch_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_bincode_uint64_decode_preflight( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  self->val_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_versioned_epoch_stakes_decode_preflight( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-void fd_versioned_epoch_stakes_pair_new(fd_versioned_epoch_stakes_pair_t * self) {
-  fd_memset( self, 0, sizeof(fd_versioned_epoch_stakes_pair_t) );
-  fd_versioned_epoch_stakes_new( &self->val );
-}
-void fd_versioned_epoch_stakes_pair_destroy( fd_versioned_epoch_stakes_pair_t * self, fd_bincode_destroy_ctx_t * ctx ) {
-  fd_versioned_epoch_stakes_destroy( &self->val, ctx );
-}
-
-ulong fd_versioned_epoch_stakes_pair_footprint( void ){ return FD_VERSIONED_EPOCH_STAKES_PAIR_FOOTPRINT; }
-ulong fd_versioned_epoch_stakes_pair_align( void ){ return FD_VERSIONED_EPOCH_STAKES_PAIR_ALIGN; }
-
-void fd_versioned_epoch_stakes_pair_walk( void * w, fd_versioned_epoch_stakes_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_versioned_epoch_stakes_pair", level++ );
-  fun( w, &self->epoch, "epoch", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  fd_versioned_epoch_stakes_walk( w, &self->val, fun, "val", level );
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_versioned_epoch_stakes_pair", level-- );
-}
-ulong fd_versioned_epoch_stakes_pair_size( fd_versioned_epoch_stakes_pair_t const * self ) {
-  ulong size = 0;
-  size += sizeof(ulong);
-  size += fd_versioned_epoch_stakes_size( &self->val );
   return size;
 }
 
