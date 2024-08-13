@@ -978,7 +978,7 @@
         { "name": "total_points", "type": "uint128" },
         { "name": "total_rewards", "type": "ulong" },
         { "name": "distributed_rewards", "type": "ulong" },
-        { "name": "active", "type": "uchar" }
+        { "name": "active", "type": "bool" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/epoch_rewards.rs#L14"
     },
