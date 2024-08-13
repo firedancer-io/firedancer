@@ -55,15 +55,8 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
         if( acct_meta->is_writable ) {
           instr_info.acct_flags[j] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
         }
-        if( acct_meta->is_signer && fd_instr_acc_is_signer_idx( ctx->instr, k ) ) {
+        if( acct_meta->is_signer ) {
           instr_info.acct_flags[j] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-        } else {
-          for( ulong k = 0; k < signers_cnt; k++ ) {
-            if( memcmp( &signers[k], &acct_meta->pubkey, sizeof( fd_pubkey_t ) ) == 0 ) {
-              instr_info.acct_flags[j] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-              break;
-            }
-          }
         }
         break;
       }
