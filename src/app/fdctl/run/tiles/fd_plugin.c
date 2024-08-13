@@ -107,7 +107,16 @@ after_frag( void *             _ctx,
         *opt_filter = 1;
         return;
       }
-      sig = FD_PLUGIN_MSG_BECAME_LEADER;
+      sig = fd_plugin_sig( fd_disco_poh_sig_slot( *opt_sig ), FD_PLUGIN_MSG_BECAME_LEADER );
+      break;
+    /* pack_bank */
+    case 4UL:
+      if( fd_disco_poh_sig_pkt_type( *opt_sig )!=POH_PKT_TYPE_DONE_PACKING ) {
+        /* Not interested in microblocks, only done packing. */
+        *opt_filter = 1;
+        return;
+      }
+      sig = fd_plugin_sig( fd_disco_poh_sig_slot( *opt_sig ), FD_PLUGIN_MSG_DONE_PACKING );
       break;
     default: FD_LOG_ERR(( "bad in_idx" ));
   }

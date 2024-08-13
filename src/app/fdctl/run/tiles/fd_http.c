@@ -229,9 +229,7 @@ gui_ws_message( ulong              conn_id,
                 ulong              data_len,
                 void *             _ctx ) {
   fd_http_ctx_t * ctx = (fd_http_ctx_t *)_ctx;
-
-  (void)data;
-  (void)data_len;
+  fd_gui_ws_message( ctx->gui, conn_id, data, data_len );
 }
 
 static void
@@ -289,7 +287,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->metrics_hcache = fd_hcache_join( fd_hcache_new( _metrics_hcache, ctx->metrics_server, 32UL<<20UL ) );
   FD_TEST( ctx->metrics_hcache );
 
-  FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%d.%d.%d", FDCTL_MAJOR_VERSION, FDCTL_MINOR_VERSION, FDCTL_PATCH_VERSION ) );
+  FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%lu.%lu.%lu", FDCTL_MAJOR_VERSION, FDCTL_MINOR_VERSION, FDCTL_PATCH_VERSION ) );
 
   ctx->topo = topo;
   ctx->gui  = fd_gui_join( fd_gui_new( _gui, gui_hcache, ctx->version_string, tile->http.cluster, ctx->identity_key_str, ctx->topo ) );

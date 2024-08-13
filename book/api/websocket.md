@@ -252,6 +252,97 @@ but have not completed it, this includes transactions acquired and
 dropped during the leader slot. The values are reset to zero when the
 leader slot completes and begin counting up again.
 
+##### On-demand query
+
+::: details Example query
+
+```json
+{
+    "seq": 32,
+    "query": "txn_info",
+    "args": [
+        20
+    ]
+}
+```
+
+:::
+
+::: details Example response
+
+```json
+{
+    "seq": 32,
+    "response": [
+        {
+            "topic": "summary",
+            "key": "upcoming_slot_txn_info",
+            "value": {
+                "acquired_txns": 66586,
+                "acquired_txns_leftover": 0,
+                "acquired_txns_quic": 66580,
+                "acquired_txns_nonquic": 1,
+                "acquired_txns_gossip": 2,
+                "dropped_txns": 12280,
+                "dropped_txns_net": {
+                    "count": 0,
+                    "breakdown": {
+                        "net_overrun": 0,
+                        "net_invalid": 0
+                    }
+                },
+                "dropped_txns_quic": {
+                    "count": 0,
+                    "breakdown": {
+                        "quic_overrun": 0,
+                        "quic_reasm": 0
+                    }
+                },
+                "dropped_txns_verify": {
+                    "count": 12288,
+                    "breakdown": {
+                        "verify_overrun": 12288,
+                        "verify_drop": 0
+                    }
+                },
+                "dropped_txns_dedup": {
+                    "count": 2,
+                    "breakdown": {
+                        "dedup_drop": 2
+                    }
+                },
+                "dropped_txns_pack": {
+                    "count": 0,
+                    "breakdown": {
+                        "pack_nonleader": 0,
+                        "pack_invalid": 0,
+                        "pack_priority": 0
+                    }
+                },
+                "dropped_txns_bank": {
+                    "count": 0,
+                    "breakdown": {
+                        "bank_invalid": 0
+                    }
+                },
+                "executed_txns_failure": 0,
+                "executed_txns_success": 28074,
+                "buffered_txns": 4
+            }
+        }
+    ]
+}
+```
+
+:::
+
+Requests are sent as JSON messages over the websocket connection.
+`seq` is simply an integer identifier that ties response to request.
+`query` is a string that specifies the data being queried.
+`args` is an array of input arguments.  For a `txn_info` query, it should contain exactly one integer, specifying the slot number.
+When the query is invalid, the client will either get no response at all if the backend cannot extract a `seq` number, or, in the case that the backend manages to extract a `seq` number, a response JSON that has the corresponding `seq` and a `null` `response` field rather than an array.
+If successful, `response` will be an array containing JSON objects that conform to the same layout as the live stream data.
+
 #### `summary.topology`
 | frequency | type       | example |
 |-----------|------------|---------|
