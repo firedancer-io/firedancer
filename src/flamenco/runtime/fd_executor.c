@@ -753,6 +753,10 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       .stack_height = txn_ctx->instr_stack_sz,
     };
 
+    if( FD_UNLIKELY( txn_ctx->instr_trace_length>=FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
+      return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
+    }
+
     // defense in depth
     if( instr->program_id >= txn_ctx->txn_descriptor->acct_addr_cnt + txn_ctx->txn_descriptor->addr_table_adtl_cnt ) {
       FD_LOG_WARNING(( "INVALID PROGRAM ID, RUNTIME BUG!!!" ));
@@ -766,12 +770,14 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     fd_pubkey_t const * program_id = &txn_accs[ instr->program_id ];
     fd_exec_instr_fn_t  native_prog_fn = fd_executor_lookup_native_program( program_id );
 
-    /* TODO:FIXME: this is a hack because the programs should've been verified already
-       if we reach this point that means the transaction was succesfful */
+    /* TODO: this is a hack because the programs should've been verified already
+       if we reach this point that means the transaction was succesful. */
     if( !memcmp( program_id, fd_solana_ed25519_sig_verify_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      txn_ctx->instr_stack_sz--;
       return 0;
     }
     if( !memcmp( program_id, fd_solana_keccak_secp_256k_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+      txn_ctx->instr_stack_sz--;
       return 0;
     }
 
@@ -1490,6 +1496,9 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   FD_SCRATCH_SCOPE_BEGIN {
     uint use_sysvar_instructions = fd_executor_txn_uses_sysvar_instructions( txn_ctx );
 
+    /* TODO: Ideally these would be allocated from within the txn_ctx but then
+       we would need to maintain a seperate count for the instr_infos in order
+       that they were allocated. */
     fd_instr_info_t instrs[txn_ctx->txn_descriptor->instr_cnt];
     for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
       fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[i];

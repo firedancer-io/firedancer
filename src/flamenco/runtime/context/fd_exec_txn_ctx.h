@@ -109,8 +109,8 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 
   fd_capture_ctx_t * capture_ctx;
 
-  fd_exec_instr_trace_entry_t instr_trace [FD_MAX_INSTRUCTION_TRACE_LENGTH]; /* Instruction trace */
-  ulong instr_trace_length;                                                  /* Number of instructions in the trace */
+  fd_exec_instr_trace_entry_t instr_trace[FD_MAX_INSTRUCTION_TRACE_LENGTH]; /* Instruction trace */
+  ulong                       instr_trace_length;                           /* Number of instructions in the trace */
 };
 
 #define FD_EXEC_TXN_CTX_ALIGN     (alignof(fd_exec_txn_ctx_t))

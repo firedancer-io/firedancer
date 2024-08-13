@@ -16,8 +16,8 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
 
-  for ( ulong i = 0; i < ctx->txn_ctx->accounts_cnt; i++ ) {
-    if ( memcmp( fd_solana_system_program_id.key, ctx->txn_ctx->accounts[i].key, sizeof(fd_pubkey_t) ) == 0 ) {
+  for( ulong i = 0UL; i < ctx->txn_ctx->accounts_cnt; i++ ) {
+    if( !memcmp( fd_solana_system_program_id.key, ctx->txn_ctx->accounts[i].key, sizeof(fd_pubkey_t) ) ) {
       instr_info.program_id = (uchar)i;
       break;
     }

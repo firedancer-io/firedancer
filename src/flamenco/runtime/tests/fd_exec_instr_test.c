@@ -975,6 +975,10 @@ _txn_context_destroy( fd_exec_instr_test_runner_t * runner,
   // Detach from workspace
   fd_wksp_detach( wksp );
 
+  if( txn_ctx ) {
+    fd_wksp_free_laddr( fd_exec_txn_ctx_delete( fd_exec_txn_ctx_leave( txn_ctx ) ) );
+  }
+
   fd_exec_slot_ctx_free( slot_ctx );
   fd_acc_mgr_delete( acc_mgr );
   fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
