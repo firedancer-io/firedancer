@@ -76,5 +76,25 @@ votekeys = [ { "votePubkey": i['votePubkey'] } for i in res['result']['current']
 res = good_method({"jsonrpc": "2.0", "id": 1, "method": "getVoteAccounts", "params": votekeys[:3] })
 assert len(res['result']['current']) == 3
 
+async def hello():
+    async with websockets.connect(url.replace('http:','ws:')) as websocket:
+        for a in accts:
+            arg = { "jsonrpc": "2.0", "id": 1, "method": "accountSubscribe", "params": [ a, { "encoding": "base64", "commitment": "finalized" } ] }
+            print(arg)
+            await websocket.send(json.dumps(arg))
+            await asyncio.sleep(1)
+        arg = { "jsonrpc": "2.0", "id": 1, "method": "slotSubscribe" }
+        print(arg)
+        await websocket.send(json.dumps(arg))
+        await asyncio.sleep(1)
+
+        cnt = 0
+        while cnt < 50:
+            print(json.loads(await websocket.recv()))
+            cnt = cnt+1
+
+        await websocket.close()
+
+asyncio.get_event_loop().run_until_complete(hello())
 
 print('Test passed!')
