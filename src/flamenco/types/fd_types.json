@@ -188,7 +188,7 @@
         { "name": "lamports", "type": "ulong" },
         { "name": "data", "type": "vector", "element": "uchar" },
         { "name": "owner", "type": "pubkey" },
-        { "name": "executable", "type": "uchar" },
+        { "name": "executable", "type": "bool" },
         { "name": "rent_epoch", "type": "ulong" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/6ac4fe32e28d8ceb4085072b61fa0c6cb09baac1/sdk/src/account.rs#L37"

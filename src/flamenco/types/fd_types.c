@@ -2695,7 +2695,7 @@ int fd_solana_account_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   }
   err = fd_bincode_bytes_decode_preflight( 32, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint8_decode_preflight( ctx );
+  err = fd_bincode_bool_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -2710,7 +2710,7 @@ void fd_solana_account_decode_unsafe( fd_solana_account_t * self, fd_bincode_dec
   } else
     self->data = NULL;
   fd_pubkey_decode_unsafe( &self->owner, ctx );
-  fd_bincode_uint8_decode_unsafe( &self->executable, ctx );
+  fd_bincode_bool_decode_unsafe( &self->executable, ctx );
   fd_bincode_uint64_decode_unsafe( &self->rent_epoch, ctx );
 }
 int fd_solana_account_encode( fd_solana_account_t const * self, fd_bincode_encode_ctx_t * ctx ) {
@@ -2725,7 +2725,7 @@ int fd_solana_account_encode( fd_solana_account_t const * self, fd_bincode_encod
   }
   err = fd_pubkey_encode( &self->owner, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint8_encode( (uchar)(self->executable), ctx );
+  err = fd_bincode_bool_encode( (uchar)(self->executable), ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->rent_epoch, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -2749,7 +2749,7 @@ int fd_solana_account_decode_offsets( fd_solana_account_off_t * self, fd_bincode
   err = fd_bincode_bytes_decode_preflight( 32, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   self->executable_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_bincode_uint8_decode_preflight( ctx );
+  err = fd_bincode_bool_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   self->rent_epoch_off = (uint)( (ulong)ctx->data - (ulong)data );
   err = fd_bincode_uint64_decode_preflight( ctx );
@@ -2776,7 +2776,7 @@ void fd_solana_account_walk( void * w, fd_solana_account_t const * self, fd_type
   fun( w, &self->lamports, "lamports", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun(w, self->data, "data", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   fd_pubkey_walk( w, &self->owner, fun, "owner", level );
-  fun( w, &self->executable, "executable", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+  fun( w, &self->executable, "executable", FD_FLAMENCO_TYPE_BOOL, "bool", level );
   fun( w, &self->rent_epoch, "rent_epoch", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_solana_account", level-- );
 }
