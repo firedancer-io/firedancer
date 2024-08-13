@@ -691,7 +691,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       programdata_len    = fd_ulong_sat_add( PROGRAMDATA_METADATA_SIZE,
                                              instruction.inner.deploy_with_max_data_len.max_data_len );
 
-      if( FD_UNLIKELY( buffer->const_meta->dlen<BUFFER_METADATA_SIZE || buffer->const_meta->dlen==0UL ) ) {
+      if( FD_UNLIKELY( buffer->const_meta->dlen<BUFFER_METADATA_SIZE || buffer_data_len==0UL ) ) {
         FD_LOG_WARNING(( "Buffer account too small" ));
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
@@ -970,7 +970,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       buffer_lamports    = buffer->const_meta->info.lamports;
       buffer_data_offset = BUFFER_METADATA_SIZE;
       buffer_data_len    = fd_ulong_sat_sub( buffer->const_meta->dlen, buffer_data_offset );
-      if( FD_UNLIKELY( buffer->const_meta->dlen<BUFFER_METADATA_SIZE || buffer->const_meta->dlen==0UL ) ) {
+      if( FD_UNLIKELY( buffer->const_meta->dlen<BUFFER_METADATA_SIZE || buffer_data_len==0UL ) ) {
         FD_LOG_WARNING(( "Buffer account too small" ));
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
