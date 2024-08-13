@@ -287,6 +287,11 @@ long fd_webserver_json_keyword(const char* keyw, unsigned long keyw_sz) {
         }
       }
       break;
+    case 'm':
+      if (*(unsigned long*)&keyw[1] == 0x7865746E6F436E69UL && (*(unsigned long*)&keyw[9] & 0xFFFFFFFFFFUL) == 0x746F6C5374UL) {
+        return KEYW_JSON_MINCONTEXTSLOT; // "minContextSlot"
+      }
+      break;
     case 'r':
       if (*(unsigned long*)&keyw[1] == 0x6941747365757165UL && (*(unsigned long*)&keyw[9] & 0xFFFFFFFFFFUL) == 0x706F726472UL) {
         return KEYW_RPCMETHOD_REQUESTAIRDROP; // "requestAirdrop"
@@ -734,6 +739,7 @@ const char* un_fd_webserver_json_keyword(long id) {
   case KEYW_JSON_LENGTH: return "length";
   case KEYW_JSON_LIMIT: return "limit";
   case KEYW_JSON_MAXSUPPORTEDTRANSACTIONVERSION: return "maxSupportedTransactionVersion";
+  case KEYW_JSON_MINCONTEXTSLOT: return "minContextSlot";
   case KEYW_JSON_MEMCMP: return "memcmp";
   case KEYW_JSON_MINT: return "mint";
   case KEYW_JSON_OFFSET: return "offset";

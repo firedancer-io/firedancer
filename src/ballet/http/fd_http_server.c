@@ -12,7 +12,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#define FD_HTTP_SERVER_DEBUG 1
+// #define FD_HTTP_SERVER_DEBUG 1
 
 FD_FN_CONST char const *
 fd_http_server_connection_close_reason_str( int reason ) {
@@ -540,6 +540,10 @@ read_conn_ws( fd_http_server_t * http,
 
   uchar * payload = conn->recv_bytes+conn->recv_bytes_parsed+header_len;
   for( ulong i=0UL; i<payload_len; i++ ) conn->recv_bytes[ conn->recv_bytes_parsed+i ] = payload[ i ] ^ mask_copy[ i % 4 ];
+
+#ifdef FD_HTTP_SERVER_DEBUG
+  FD_LOG_NOTICE(( "received frame connection=%lu opcode=%d length=%lu fin=%d", conn_idx, opcode, frame_len, is_fin_set ));
+#endif
 
   /* Frame is complete, process it */
 

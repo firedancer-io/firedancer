@@ -28,7 +28,7 @@ json_parse_root(fd_webserver_t * ws, json_lex_state_t* lex) {
   struct json_path path;
   path.len = 0;
   if (json_values_parse(lex, &values, &path)) {
-    json_values_printout(&values);
+    // json_values_printout(&values);
     fd_webserver_method_generic(&values, ws->cb_arg);
   } else {
     ulong sz;
@@ -201,7 +201,7 @@ ws_message( ulong conn_id, uchar const * data, ulong data_len, void * ctx ) {
   if (ret) {
     ws->quick_size = 0;
     fd_hcache_reset( ws->hcache );
-    json_values_printout(&values);
+    // json_values_printout(&values);
     ret = fd_webserver_ws_subscribe(&values, conn_id, ws->cb_arg);
   } else {
     ulong sz;

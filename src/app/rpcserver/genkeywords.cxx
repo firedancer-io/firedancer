@@ -11,8 +11,6 @@
 struct keyword {
     // Text being matched
     const char* text;
-    // True if match is case insensitive
-    bool insensitive;
     // Output token
     const char* token;
 };
@@ -33,9 +31,7 @@ void genmatchnode(matchnode* node, const char* prefix, int textlen, const keywor
   for (const keyword* i = table; i->text != NULL; ++i) {
     if ((int)strlen(i->text) != textlen)
       continue;
-    if (i->insensitive ?
-        (strncasecmp(prefix, i->text, prefixlen) == 0) :
-        (strncmp(prefix, i->text, prefixlen) == 0)) {
+    if (strncmp(prefix, i->text, prefixlen) == 0) {
       if (prefixlen == textlen) {
         if (outtoken != NULL) {
           fprintf(stderr, "output token %s is redundant with %s\n", outtoken, i->token);
@@ -46,12 +42,6 @@ void genmatchnode(matchnode* node, const char* prefix, int textlen, const keywor
       } else {
         char c = i->text[prefixlen];
         nexts[c].push_back(i);
-        if (i->insensitive) {
-          if (c >= 'a' && c <='z')
-            nexts[c + ('A' - 'a')].push_back(i);
-          else if (c >= 'A' && c <='Z')
-            nexts[c + ('a' - 'A')].push_back(i);
-        }
       }
     }
   }
@@ -243,20 +233,6 @@ void gentest(const keyword* table, const char* funname, const char* errtoken, FI
     strncpy(scratch, i->text, sizeof(scratch));
     fprintf(fd, "  assert(%s(\"%s\\0\\0\\0\\0\\0\\0\\0\", %lu) == %s);\n",
             funname, scratch, strlen(scratch), i->token);
-    if (i->insensitive) {
-      for (char* p = scratch; *p != '\0'; ++p) {
-        if (*p >= 'a' && *p <= 'z')
-          *p += 'A' - 'a';
-      }
-      fprintf(fd, "  assert(%s(\"%s\\0\\0\\0\\0\\0\\0\\0\", %lu) == %s);\n",
-              funname, scratch, strlen(scratch), i->token);
-      for (char* p = scratch; *p != '\0'; ++p) {
-        if (*p >= 'A' && *p <= 'Z')
-          *p += 'a' - 'A';
-      }
-      fprintf(fd, "  assert(%s(\"%s\\0\\0\\0\\0\\0\\0\\0\", %lu) == %s);\n",
-              funname, scratch, strlen(scratch), i->token);
-    }
     auto textlen = strlen(i->text);
     strncpy(scratch, i->text, sizeof(scratch));
     scratch[textlen] = 'x';
@@ -285,130 +261,58 @@ void gentest(const keyword* table, const char* funname, const char* errtoken, FI
 }
 
 int main(int argc, char** argv) {
-  static const keyword json_table[] = {
-    { "jsonrpc", false, "KEYW_JSON_JSONRPC" },
-    { "id", false, "KEYW_JSON_ID" },
-    { "method", false, "KEYW_JSON_METHOD" },
-    { "params", false, "KEYW_JSON_PARAMS" },
+  FILE * fd = fopen("keywords.txt", "r");
+  char buf[1<<16];
+  ssize_t buflen = fread(buf, 1, sizeof(buf)-1, fd);
+  fclose(fd);
+  buf[buflen] = '\0';
 
-    { "bytes", false, "KEYW_JSON_BYTES" },
-    { "commitment", false, "KEYW_JSON_COMMITMENT" },
-    { "dataSize", false, "KEYW_JSON_DATASIZE" },
-    { "dataSlice", false, "KEYW_JSON_DATASLICE" },
-    { "encoding", false, "KEYW_JSON_ENCODING" },
-    { "epoch", false, "KEYW_JSON_EPOCH" },
-    { "filters", false, "KEYW_JSON_FILTERS" },
-    { "identity", false, "KEYW_JSON_IDENTITY" },
-    { "length", false, "KEYW_JSON_LENGTH" },
-    { "limit", false, "KEYW_JSON_LIMIT" },
-    { "maxSupportedTransactionVersion", false, "KEYW_JSON_MAXSUPPORTEDTRANSACTIONVERSION" },
-    { "memcmp", false, "KEYW_JSON_MEMCMP" },
-    { "mint", false, "KEYW_JSON_MINT" },
-    { "offset", false, "KEYW_JSON_OFFSET" },
-    { "programId", false, "KEYW_JSON_PROGRAMID" },
-    { "rewards", false, "KEYW_JSON_REWARDS" },
-    { "searchTransactionHistory", false, "KEYW_JSON_SEARCHTRANSACTIONHISTORY" },
-    { "transactionDetails", false, "KEYW_JSON_TRANSACTIONDETAILS" },
-    { "votePubkey", false, "KEYW_JSON_VOTEPUBKEY" },
+  keyword keyw_table[256];
+  uint i = 0;
+  for( char * p = buf; i < 255U && p < buf+buflen; ) {
+    uint j = 0;
+    for(;;) {
+      if( p == buf+buflen ) {
+        break;
+      } if( *p == '\n' ) {
+        *(p++) = '\0';
+        break;
+      } else if( *p == ' ' ||  *p == '\t' ||  *p == '\r' ) {
+        *(p++) = '\0';
+      } else {
+        if( p == buf || p[-1] == '\0' ) {
+          switch( j++ ) {
+          case 0: keyw_table[i].text = p;  break;
+          case 1: keyw_table[i].token = p; break;
+          }
+        }
+        p++;
+      }
+    }
+    if( j == 0 )
+      continue;
+    else if( j != 2 ) {
+      fprintf(stderr, "each line in keywords.txt must be a keyword followed by a token name\n");
+      return -1;
+    }
+    i++;
+  }
+  keyw_table[i].text = NULL;
+  keyw_table[i].token = NULL;
 
-    { "getAccountInfo", false, "KEYW_RPCMETHOD_GETACCOUNTINFO" },
-    { "getBalance", false, "KEYW_RPCMETHOD_GETBALANCE" },
-    { "getBlock", false, "KEYW_RPCMETHOD_GETBLOCK" },
-    { "getBlockCommitment", false, "KEYW_RPCMETHOD_GETBLOCKCOMMITMENT" },
-    { "getBlockHeight", false, "KEYW_RPCMETHOD_GETBLOCKHEIGHT" },
-    { "getBlockProduction", false, "KEYW_RPCMETHOD_GETBLOCKPRODUCTION" },
-    { "getBlocks", false, "KEYW_RPCMETHOD_GETBLOCKS" },
-    { "getBlocksWithLimit", false, "KEYW_RPCMETHOD_GETBLOCKSWITHLIMIT" },
-    { "getBlockTime", false, "KEYW_RPCMETHOD_GETBLOCKTIME" },
-    { "getClusterNodes", false, "KEYW_RPCMETHOD_GETCLUSTERNODES" },
-    { "getConfirmedBlock", false, "KEYW_RPCMETHOD_GETCONFIRMEDBLOCK" },
-    { "getConfirmedBlocks", false, "KEYW_RPCMETHOD_GETCONFIRMEDBLOCKS" },
-    { "getConfirmedBlocksWithLimit", false, "KEYW_RPCMETHOD_GETCONFIRMEDBLOCKSWITHLIMIT" },
-    { "getConfirmedSignaturesForAddress2", false, "KEYW_RPCMETHOD_GETCONFIRMEDSIGNATURESFORADDRESS2" },
-    { "getConfirmedTransaction", false, "KEYW_RPCMETHOD_GETCONFIRMEDTRANSACTION" },
-    { "getEpochInfo", false, "KEYW_RPCMETHOD_GETEPOCHINFO" },
-    { "getEpochSchedule", false, "KEYW_RPCMETHOD_GETEPOCHSCHEDULE" },
-    { "getFeeCalculatorForBlockhash", false, "KEYW_RPCMETHOD_GETFEECALCULATORFORBLOCKHASH" },
-    { "getFeeForMessage", false, "KEYW_RPCMETHOD_GETFEEFORMESSAGE" },
-    { "getFeeRateGovernor", false, "KEYW_RPCMETHOD_GETFEERATEGOVERNOR" },
-    { "getFees", false, "KEYW_RPCMETHOD_GETFEES" },
-    { "getFirstAvailableBlock", false, "KEYW_RPCMETHOD_GETFIRSTAVAILABLEBLOCK" },
-    { "getGenesisHash", false, "KEYW_RPCMETHOD_GETGENESISHASH" },
-    { "getHealth", false, "KEYW_RPCMETHOD_GETHEALTH" },
-    { "getHighestSnapshotSlot", false, "KEYW_RPCMETHOD_GETHIGHESTSNAPSHOTSLOT" },
-    { "getIdentity", false, "KEYW_RPCMETHOD_GETIDENTITY" },
-    { "getInflationGovernor", false, "KEYW_RPCMETHOD_GETINFLATIONGOVERNOR" },
-    { "getInflationRate", false, "KEYW_RPCMETHOD_GETINFLATIONRATE" },
-    { "getInflationReward", false, "KEYW_RPCMETHOD_GETINFLATIONREWARD" },
-    { "getLargestAccounts", false, "KEYW_RPCMETHOD_GETLARGESTACCOUNTS" },
-    { "getLatestBlockhash", false, "KEYW_RPCMETHOD_GETLATESTBLOCKHASH" },
-    { "getLeaderSchedule", false, "KEYW_RPCMETHOD_GETLEADERSCHEDULE" },
-    { "getMaxRetransmitSlot", false, "KEYW_RPCMETHOD_GETMAXRETRANSMITSLOT" },
-    { "getMaxShredInsertSlot", false, "KEYW_RPCMETHOD_GETMAXSHREDINSERTSLOT" },
-    { "getMinimumBalanceForRentExemption", false, "KEYW_RPCMETHOD_GETMINIMUMBALANCEFORRENTEXEMPTION" },
-    { "getMultipleAccounts", false, "KEYW_RPCMETHOD_GETMULTIPLEACCOUNTS" },
-    { "getProgramAccounts", false, "KEYW_RPCMETHOD_GETPROGRAMACCOUNTS" },
-    { "getRecentBlockhash", false, "KEYW_RPCMETHOD_GETRECENTBLOCKHASH" },
-    { "getRecentPerformanceSamples", false, "KEYW_RPCMETHOD_GETRECENTPERFORMANCESAMPLES" },
-    { "getRecentPrioritizationFees", false, "KEYW_RPCMETHOD_GETRECENTPRIORITIZATIONFEES" },
-    { "getSignaturesForAddress", false, "KEYW_RPCMETHOD_GETSIGNATURESFORADDRESS" },
-    { "getSignatureStatuses", false, "KEYW_RPCMETHOD_GETSIGNATURESTATUSES" },
-    { "getSlot", false, "KEYW_RPCMETHOD_GETSLOT" },
-    { "getSlotLeader", false, "KEYW_RPCMETHOD_GETSLOTLEADER" },
-    { "getSlotLeaders", false, "KEYW_RPCMETHOD_GETSLOTLEADERS" },
-    { "getSnapshotSlot", false, "KEYW_RPCMETHOD_GETSNAPSHOTSLOT" },
-    { "getStakeActivation", false, "KEYW_RPCMETHOD_GETSTAKEACTIVATION" },
-    { "getStakeMinimumDelegation", false, "KEYW_RPCMETHOD_GETSTAKEMINIMUMDELEGATION" },
-    { "getSupply", false, "KEYW_RPCMETHOD_GETSUPPLY" },
-    { "getTokenAccountBalance", false, "KEYW_RPCMETHOD_GETTOKENACCOUNTBALANCE" },
-    { "getTokenAccountsByDelegate", false, "KEYW_RPCMETHOD_GETTOKENACCOUNTSBYDELEGATE" },
-    { "getTokenAccountsByOwner", false, "KEYW_RPCMETHOD_GETTOKENACCOUNTSBYOWNER" },
-    { "getTokenLargestAccounts", false, "KEYW_RPCMETHOD_GETTOKENLARGESTACCOUNTS" },
-    { "getTokenSupply", false, "KEYW_RPCMETHOD_GETTOKENSUPPLY" },
-    { "getTransaction", false, "KEYW_RPCMETHOD_GETTRANSACTION" },
-    { "getTransactionCount", false, "KEYW_RPCMETHOD_GETTRANSACTIONCOUNT" },
-    { "getVersion", false, "KEYW_RPCMETHOD_GETVERSION" },
-    { "getVoteAccounts", false, "KEYW_RPCMETHOD_GETVOTEACCOUNTS" },
-    { "isBlockhashValid", false, "KEYW_RPCMETHOD_ISBLOCKHASHVALID" },
-    { "minimumLedgerSlot", false, "KEYW_RPCMETHOD_MINIMUMLEDGERSLOT" },
-    { "requestAirdrop", false, "KEYW_RPCMETHOD_REQUESTAIRDROP" },
-    { "sendTransaction", false, "KEYW_RPCMETHOD_SENDTRANSACTION" },
-    { "simulateTransaction", false, "KEYW_RPCMETHOD_SIMULATETRANSACTION" },
-
-    { "accountSubscribe", false, "KEYW_WS_METHOD_ACCOUNTSUBSCRIBE" },
-    { "accountUnsubscribe", false, "KEYW_WS_METHOD_ACCOUNTUNSUBSCRIBE" },
-    { "blockSubscribe", false, "KEYW_WS_METHOD_BLOCKSUBSCRIBE" },
-    { "blockUnsubscribe", false, "KEYW_WS_METHOD_BLOCKUNSUBSCRIBE" },
-    { "logsSubscribe", false, "KEYW_WS_METHOD_LOGSSUBSCRIBE" },
-    { "logsUnsubscribe", false, "KEYW_WS_METHOD_LOGSUNSUBSCRIBE" },
-    { "programSubscribe", false, "KEYW_WS_METHOD_PROGRAMSUBSCRIBE" },
-    { "programUnsubscribe", false, "KEYW_WS_METHOD_PROGRAMUNSUBSCRIBE" },
-    { "rootSubscribe", false, "KEYW_WS_METHOD_ROOTSUBSCRIBE" },
-    { "rootUnsubscribe", false, "KEYW_WS_METHOD_ROOTUNSUBSCRIBE" },
-    { "signatureSubscribe", false, "KEYW_WS_METHOD_SIGNATURESUBSCRIBE" },
-    { "signatureUnsubscribe", false, "KEYW_WS_METHOD_SIGNATUREUNSUBSCRIBE" },
-    { "slotSubscribe", false, "KEYW_WS_METHOD_SLOTSUBSCRIBE" },
-    { "slotUnsubscribe", false, "KEYW_WS_METHOD_SLOTUNSUBSCRIBE" },
-    { "slotsUpdatesSubscribe", false, "KEYW_WS_METHOD_SLOTSUPDATESSUBSCRIBE" },
-    { "slotsUpdatesUnsubscribe", false, "KEYW_WS_METHOD_SLOTSUPDATESUNSUBSCRIBE" },
-    { "voteSubscribe", false, "KEYW_WS_METHOD_VOTESUBSCRIBE" },
-    { "voteUnsubscribe", false, "KEYW_WS_METHOD_VOTEUNSUBSCRIBE" },
-
-    { NULL, false, NULL }
-  };
-  FILE* fd = fopen("keywords.h", "w");
+  fd = fopen("keywords.h", "w");
   fprintf(fd, "// This file is generated by genkeywords.cxx. DO NOT EDIT DIRECTLY!\n");
-  genmacros(json_table, "fd_webserver_json_keyword", "KEYW_UNKNOWN", fd);
+  genmacros(keyw_table, "fd_webserver_json_keyword", "KEYW_UNKNOWN", fd);
   fclose(fd);
 
   fd = fopen("keywords.c", "w");
   fprintf(fd, "// This file is generated by genkeywords.cxx. DO NOT EDIT DIRECTLY!\n");
   fprintf(fd, "#include \"keywords.h\"\n");
-  genmatcher(json_table, "fd_webserver_json_keyword", "KEYW_UNKNOWN", fd);
+  genmatcher(keyw_table, "fd_webserver_json_keyword", "KEYW_UNKNOWN", fd);
   fclose(fd);
 
   fd = fopen("test_keywords.h", "w");
-  gentest(json_table, "fd_webserver_json_keyword", "KEYW_UNKNOWN", fd);
+  gentest(keyw_table, "fd_webserver_json_keyword", "KEYW_UNKNOWN", fd);
   fclose(fd);
 
   return 0;
