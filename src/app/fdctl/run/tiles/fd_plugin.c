@@ -88,6 +88,7 @@ after_frag( void *             _ctx,
     /* replay_plugin */
     case 0UL: {
       FD_TEST( *opt_sig==FD_PLUGIN_MSG_SLOT_ROOTED || *opt_sig==FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED || *opt_sig==FD_PLUGIN_MSG_SLOT_COMPLETED );
+      if( *opt_sig==FD_PLUGIN_MSG_SLOT_COMPLETED ) FD_LOG_NOTICE(( "slot completed" ));
       sig = *opt_sig;
       break;
     }
