@@ -10,6 +10,7 @@
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
 #include "../../vm/fd_vm.h"
+#include "../fd_executor.h"
 #include "fd_bpf_loader_serialization.h"
 #include "fd_bpf_program_util.h"
 #include "fd_native_cpi.h"
@@ -1615,26 +1616,26 @@ fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
     /* Program management instruction */
     if( !memcmp( &fd_solana_native_loader_id, program_account->const_meta->info.owner, sizeof(fd_pubkey_t) ) ) {
       if( !memcmp( &fd_solana_bpf_loader_upgradeable_program_id, program_id, sizeof(fd_pubkey_t) ) ) {
-        if( FD_UNLIKELY( UPGRADEABLE_LOADER_COMPUTE_UNITS>ctx.txn_ctx->compute_meter ) ) {
+        int err = fd_exec_consume_cus( ctx.txn_ctx, UPGRADEABLE_LOADER_COMPUTE_UNITS );
+        if( FD_UNLIKELY( err ) ) {
           FD_LOG_WARNING(( "Insufficient compute units for upgradeable loader" ));
-          return FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED;
+          return err;
         }
-        ctx.txn_ctx->compute_meter = fd_ulong_sat_sub( ctx.txn_ctx->compute_meter, UPGRADEABLE_LOADER_COMPUTE_UNITS );
         return process_loader_upgradeable_instruction( &ctx );
       } else if( !memcmp( &fd_solana_bpf_loader_program_id, program_id, sizeof(fd_pubkey_t) ) ) {
-        if( FD_UNLIKELY( DEFAULT_LOADER_COMPUTE_UNITS>ctx.txn_ctx->compute_meter ) ) {
+        int err = fd_exec_consume_cus( ctx.txn_ctx, DEFAULT_LOADER_COMPUTE_UNITS );
+        if( FD_UNLIKELY( err ) ) {
           FD_LOG_WARNING(( "Insufficient compute units for upgradeable loader" ));
-          return FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED;
+          return err;
         }
-        ctx.txn_ctx->compute_meter = fd_ulong_sat_sub( ctx.txn_ctx->compute_meter, DEFAULT_LOADER_COMPUTE_UNITS );
         FD_LOG_WARNING(( "BPF loader management instructions are no longer supported" ));
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       } else if( !memcmp( &fd_solana_bpf_loader_deprecated_program_id, program_id, sizeof(fd_pubkey_t) ) ) {
-        if( FD_UNLIKELY( DEPRECATED_LOADER_COMPUTE_UNITS>ctx.txn_ctx->compute_meter ) ) {
+        int err = fd_exec_consume_cus( ctx.txn_ctx, DEPRECATED_LOADER_COMPUTE_UNITS );
+        if( FD_UNLIKELY( err ) ) {
           FD_LOG_WARNING(( "Insufficient compute units for upgradeable loader" ));
-          return FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED;
+          return err;
         }
-        ctx.txn_ctx->compute_meter = fd_ulong_sat_sub( ctx.txn_ctx->compute_meter, DEPRECATED_LOADER_COMPUTE_UNITS );
         FD_LOG_WARNING(( "Deprecated loader is no longer supported" ));
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       } else {
