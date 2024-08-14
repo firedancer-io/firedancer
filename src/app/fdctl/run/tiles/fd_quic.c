@@ -13,14 +13,11 @@
 #include <linux/unistd.h>
 #include <sys/random.h>
 
-/* fd_quic provides a QUIC server tile.
+/* fd_quic provides a TPU server tile.
 
-   This tile handles all incoming QUIC traffic.  Supported protocols
-   currently include TPU/QUIC (transactions).
-
-   At present, TPU is the only protocol deployed on QUIC.  It allows
-   clients to send transactions to block producers (this tile).    In QUIC, this
-   can occur in as little as a single packet (and an ACK by the server).
+   This tile handles incoming transactions that clients request to be
+   included in blocks.  Supported protocols currently include TPU/UDP
+   and TPU/QUIC.
 
    The fd_quic tile acts as a plain old Tango producer writing to a cnc
    and an mcache.  The tile will defragment multi-packet TPU streams
@@ -30,9 +27,8 @@
 
    QUIC tiles don't service network devices directly, but rely on
    packets being received by net tiles and forwarded on via. a mux
-   (multiplexer).  An arbitrary number of QUIC tiles can be run, and
-   these will round-robin packets from the networking queues based on
-   the source IP address. */
+   (multiplexer).  An arbitrary number of QUIC tiles can be run.  Each
+   UDP flow must stick to one QUIC tile. */
 
 typedef struct {
   fd_tpu_reasm_t * reasm;
@@ -83,22 +79,9 @@ quic_limits( fd_topo_tile_t const * tile ) {
     .conn_cnt                                      = tile->quic.max_concurrent_connections,
     .handshake_cnt                                 = tile->quic.max_concurrent_handshakes,
 
-    /* While in TCP a connection is identified by (Source IP, Source
-       Port, Dest IP, Dest Port) in QUIC a connection is uniquely
-       identified by a connection ID. Because this isn't dependent on
-       network identifiers, it allows connection migration and
-       continuity across network changes. It can also offer enhanced
-       privacy by obfuscating the client IP address and prevent
-       connection-linking by observers.
-
-       Additional connection IDs are simply aliases back to the same
-       connection, and can be created and retired during a connection by
-       either endpoint. This configuration determines how many different
-       connection IDs the connection may have simultaneously.
-
-       Currently this option must be hard coded to
-       FD_QUIC_MAX_CONN_ID_PER_CONN because it cannot exceed a buffer
-       size determined by that constant. */
+    /* fd_quic will not issue nor use any new connection IDs after
+       completing a handshake.  Connection migration is not supported
+       either. */
     .conn_id_cnt                                   = FD_QUIC_MAX_CONN_ID_PER_CONN,
     .conn_id_sparsity                              = FD_QUIC_DEFAULT_SPARSITY,
     .inflight_pkt_cnt                              = tile->quic.max_inflight_quic_packets,
@@ -137,8 +120,7 @@ mux_ctx( void * scratch ) {
   return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_quic_ctx_t ) );
 }
 
-/* legacy_stream_notify is called when a non-QUIC transaction is
-   received, that is, a regular unencrypted UDP packet transaction.  For
+/* legacy_stream_notify is called for transactions sent via TPU/UDP. For
    now both QUIC and non-QUIC transactions are accepted, with traffic
    type determined by port.
 
