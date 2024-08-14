@@ -251,15 +251,43 @@ fd_http_server_ws_close( fd_http_server_t * http,
   close_conn( http, http->max_conns+ws_conn_id, reason );
 }
 
+static int
+fd_http_server_is_net_err( int err ) {
+  /* These are network errors that generally means that the socket is
+     no longer usable.
+     For accept() we should just retry accepting new connections
+     because these are passed througuh to accept() from the new socket.
+     For a socket() we are trying to read/write we would just close()
+     it. */
+  if( FD_LIKELY( ENETDOWN==err || EPROTO==err || ENOPROTOOPT==err || EHOSTDOWN==err ||
+                 ENONET==err || EHOSTUNREACH==err || EOPNOTSUPP==err || ENETUNREACH==err ||
+                 ENOSR==err || ESOCKTNOSUPPORT==err || EPROTONOSUPPORT==err || ETIMEDOUT==err ||
+                 ENETRESET == err || ECONNABORTED == err || ECONNRESET==err || EPIPE==err ) ) {
+    // TODO replace this with fd_map_perfect
+    return 1;
+  }
+  return 0;
+}
+
+static int
+fd_http_server_is_transient_err( int err ) {
+  /* These are transient errors that generally means that there's
+     nothing to do at this point, and we should just come back and
+     retry later. */
+  if( FD_LIKELY( EAGAIN==err || EWOULDBLOCK==err || EINTR==err ) ) {
+    return 1;
+  }
+  return 0;
+}
+
 static void
 accept_conns( fd_http_server_t * http ) {
   for(;;) {
     int fd = accept( http->socket_fd, NULL, NULL );
 
     if( FD_UNLIKELY( -1==fd ) ) {
-      if( FD_LIKELY( EAGAIN==errno ) ) break;
-      else if( FD_LIKELY( ENETDOWN==errno || EPROTO==errno || ENOPROTOOPT==errno || EHOSTDOWN==errno ||
-                          ENONET==errno || EHOSTUNREACH==errno || EOPNOTSUPP==errno || ENETUNREACH==errno ) ) continue;
+      if( FD_LIKELY( fd_http_server_is_transient_err( errno ) ) ) break;
+      else if( FD_LIKELY( fd_http_server_is_net_err( errno ) ) ) continue;
       else FD_LOG_ERR(( "accept failed (%i-%s)", errno, strerror( errno ) ));
     }
 
@@ -299,8 +327,8 @@ read_conn_http( fd_http_server_t * http,
   }
 
   long sz = read( http->pollfds[ conn_idx ].fd, conn->request_bytes+conn->request_bytes_read, http->max_request_len-conn->request_bytes_read );
-  if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return; /* No data to read, continue. */
-  else if( FD_UNLIKELY( !sz || (-1==sz && errno==ECONNRESET) ) ) {
+  if( FD_UNLIKELY( -1==sz && fd_http_server_is_transient_err( errno ) ) ) return; /* No data to read, continue. */
+  else if( FD_UNLIKELY( !sz || (-1==sz && fd_http_server_is_net_err( errno )) ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
     return;
   }
@@ -476,8 +504,8 @@ read_conn_ws( fd_http_server_t * http,
   struct fd_http_server_ws_connection * conn = &http->ws_conns[ conn_idx-http->max_conns ];
 
   long sz = read( http->pollfds[ conn_idx ].fd, conn->recv_bytes+conn->recv_bytes_parsed+conn->recv_bytes_read, http->max_ws_recv_frame_len-conn->recv_bytes_parsed-conn->recv_bytes_read );
-  if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return; /* No data to read, continue. */
-  else if( FD_UNLIKELY( !sz || (-1==sz && errno==ECONNRESET) ) ) {
+  if( FD_UNLIKELY( -1==sz && fd_http_server_is_transient_err( errno ) ) ) return; /* No data to read, continue. */
+  else if( FD_UNLIKELY( !sz || (-1==sz && fd_http_server_is_net_err( errno )) ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
     return;
   }
@@ -674,8 +702,8 @@ write_conn_http( fd_http_server_t * http,
   }
 
   long sz = write( http->pollfds[ conn_idx ].fd, response+conn->response_bytes_written, response_len-conn->response_bytes_written );
-  if( FD_UNLIKELY( -1==sz && (errno==EAGAIN || errno==EINTR) ) ) return; /* No data was written, continue. */
-  if( FD_UNLIKELY( -1==sz && (errno==EPIPE || errno==ECONNRESET) ) ) {
+  if( FD_UNLIKELY( -1==sz && fd_http_server_is_transient_err( errno ) ) ) return; /* No data was written, continue. */
+  if( FD_UNLIKELY( -1==sz && fd_http_server_is_net_err( errno ) ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
     return;
   }
@@ -752,8 +780,8 @@ maybe_write_pong( fd_http_server_t * http,
   fd_memcpy( frame+2UL, conn->pong_data, conn->pong_data_len );
 
   long sz = write( http->pollfds[ conn_idx ].fd, frame+conn->pong_bytes_written, 2UL+conn->pong_data_len-conn->pong_bytes_written );
-  if( FD_UNLIKELY( -1==sz && (errno==EAGAIN || errno==EINTR) ) ) return 1; /* No data was written, continue. */
-  else if( FD_UNLIKELY( -1==sz && (errno==EPIPE || errno==ECONNRESET) ) ) {
+  if( FD_UNLIKELY( -1==sz && fd_http_server_is_transient_err( errno ) ) ) return 1; /* No data was written, continue. */
+  else if( FD_UNLIKELY( -1==sz && fd_http_server_is_net_err( errno ) ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
     return 1;
   }
@@ -804,8 +832,8 @@ write_conn_ws( fd_http_server_t * http,
       }
 
       long sz = write( http->pollfds[ conn_idx ].fd, header+conn->send_frame_bytes_written, header_len-conn->send_frame_bytes_written );
-      if( FD_UNLIKELY( -1==sz && (errno==EAGAIN || errno==EINTR) ) ) return; /* No data was written, continue. */
-      else if( FD_UNLIKELY( -1==sz && (errno==EPIPE || errno==ECONNRESET) ) ) {
+      if( FD_UNLIKELY( -1==sz && fd_http_server_is_transient_err( errno ) ) ) return; /* No data was written, continue. */
+      else if( FD_UNLIKELY( -1==sz && fd_http_server_is_net_err( errno ) ) ) {
         close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
         return;
       }
@@ -820,8 +848,8 @@ write_conn_ws( fd_http_server_t * http,
     }
     case FD_HTTP_SERVER_SEND_FRAME_STATE_DATA: {
       long sz = write( http->pollfds[ conn_idx ].fd, frame->data+conn->send_frame_bytes_written, frame->data_len-conn->send_frame_bytes_written );
-      if( FD_UNLIKELY( -1==sz && (errno==EAGAIN || errno==EINTR) ) ) return; /* No data was written, continue. */
-      else if( FD_UNLIKELY( -1==sz && (errno==EPIPE || errno==ECONNRESET) ) ) {
+      if( FD_UNLIKELY( -1==sz && fd_http_server_is_transient_err( errno ) ) ) return; /* No data was written, continue. */
+      else if( FD_UNLIKELY( -1==sz && fd_http_server_is_net_err( errno ) ) ) {
         close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
         return;
       }
