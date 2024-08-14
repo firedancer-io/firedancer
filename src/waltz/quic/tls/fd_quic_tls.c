@@ -100,7 +100,7 @@ fd_quic_tls_footprint( ulong handshake_cnt ) {
 static void
 fd_quic_tls_init( fd_tls_t *    tls,
                   fd_tls_sign_t signer,
-                  uchar const   cert_private_key[ static 32 ] );
+                  uchar const   cert_public_key[ static 32 ] );
 
 fd_quic_tls_t *
 fd_quic_tls_new( void *              mem,
