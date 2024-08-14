@@ -97,6 +97,7 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_epoch1,
     fd_gui_printf_epoch2,
     fd_gui_printf_txn_info_summary,
+    fd_gui_printf_peers_all,
   };
 
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);
