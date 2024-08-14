@@ -266,10 +266,11 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
 
   /* Slot metadata */
 
-  ulong smr;  /* super-majority root */
   ulong min;  /* minimum slot in the blockstore with a block. we retain
-                 blocks prior to the smr for serving repair and RPC. */
+                 blocks prior to the smr to serve repair and RPC */
   ulong max;  /* maximum slot in the blockstore with a block */
+  ulong hcs;  /* highest-confirmed slot */
+  ulong smr;  /* super-majority root. DO NOT MODIFY DIRECTLY, instead use fd_blockstore_publish */
 
   /* Internal data structures */
 
@@ -277,9 +278,9 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
   ulong shred_pool_gaddr; /* pool of temporary shreds */
   ulong shred_map_gaddr;  /* map of (slot, shred_idx)->shred */
 
-  ulong slot_max;           /* maximum # of blocks. */
+  ulong slot_max;           /* maximum # of blocks */
   ulong slot_map_gaddr;     /* map of slot->(slot_meta, block) */
-  ulong slot_deque_gaddr;   /* deque of slots (ulongs). used to traverse blockstore ancestry. */
+  ulong slot_deque_gaddr;   /* deque of slots (ulongs) used to traverse blockstore ancestry */
 
   int   lg_txn_max;
   ulong txn_map_gaddr;

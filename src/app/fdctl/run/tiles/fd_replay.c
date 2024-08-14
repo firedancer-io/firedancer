@@ -202,11 +202,10 @@ struct fd_replay_tile_ctx {
   ulong * first_turbine;
 
   ulong * bank_busy;
-  ulong * root_slot;
-  ulong * poh_slot;
+  ulong * smr;  /* super-majority root slot */
+  ulong * poh;  /* proof-of-history slot */
   uint poh_init_done;
 
-  int         publish;
   int         vote;
   fd_pubkey_t validator_identity_pubkey[ 1 ];
   fd_pubkey_t vote_acct_addr[ 1 ];
@@ -462,56 +461,55 @@ struct fd_status_check_ctx {
 typedef struct fd_status_check_ctx fd_status_check_ctx_t;
 
 static void
-blockstore_publish( fd_replay_tile_ctx_t * ctx, ulong root ) {
-  if( FD_UNLIKELY( ctx->blockstore_publish ) ) {
+blockstore_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
+  if( FD_LIKELY( ctx->blockstore_publish ) ) {
     fd_blockstore_start_write( ctx->blockstore );
-    int rc = fd_blockstore_publish( ctx->blockstore, root );
+    int rc = fd_blockstore_publish( ctx->blockstore, smr );
     if( rc != FD_BLOCKSTORE_OK ) {
-      FD_LOG_WARNING( ( "err %d when publishing blockstore", rc ) );
+      FD_LOG_WARNING(( "err %d when publishing blockstore", rc ));
     }
     fd_blockstore_end_write( ctx->blockstore );
   }
 }
 
 static void
-funk_publish( fd_replay_tile_ctx_t * ctx, ulong root ) {
-
+funk_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
   fd_blockstore_start_read( ctx->blockstore );
-  fd_hash_t const * root_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, root );
+  fd_hash_t const * root_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, smr );
   fd_funk_txn_xid_t xid;
   memcpy( xid.uc, root_block_hash, sizeof( fd_funk_txn_xid_t ) );
   fd_blockstore_end_read( ctx->blockstore );
 
-  xid.ul[0]                = root;
+  xid.ul[0]                = smr;
   fd_funk_txn_t * txn_map  = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
   fd_funk_txn_t * root_txn = fd_funk_txn_query( &xid, txn_map );
   if( root_txn==NULL ) {
     memset( xid.uc, 0, sizeof( fd_funk_txn_xid_t ) );
-    xid.ul[0] = root;
+    xid.ul[0] = smr;
     root_txn = fd_funk_txn_query( &xid, txn_map );
   }
 
   fd_funk_start_write( ctx->funk );
   ulong rc = fd_funk_txn_publish( ctx->funk, root_txn, 1 );
   if( FD_UNLIKELY( !rc ) ) {
-    FD_LOG_ERR(( "failed to funk publish slot %lu", root ));
+    FD_LOG_ERR(( "failed to funk publish slot %lu", smr ));
   }
   fd_funk_end_write( ctx->funk );
 
   if( FD_LIKELY( ctx->slot_ctx->status_cache ) ) {
-    fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, root );
+    fd_txncache_register_root_slot( ctx->slot_ctx->status_cache, smr );
   }
 
   if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx->slot_ctx, epoch_accounts_hash ) ) ) {
     fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
-    if( root >= epoch_bank->eah_start_slot ) {
+    if( smr >= epoch_bank->eah_start_slot ) {
       fd_accounts_hash( ctx->slot_ctx, ctx->tpool, &ctx->slot_ctx->slot_bank.epoch_account_hash, 0 );
       epoch_bank->eah_start_slot = FD_SLOT_NULL;
     }
   }
 
   if( FD_UNLIKELY( ctx->capture_ctx ) ) {
-    fd_runtime_checkpt( ctx->capture_ctx, ctx->slot_ctx, root );
+    fd_runtime_checkpt( ctx->capture_ctx, ctx->slot_ctx, smr );
   }
 }
 
@@ -852,8 +850,7 @@ after_frag( void *             _ctx,
                        fd_tower_vote_accs_cnt( ctx->tower->vote_accs ),
                        fd_ghost_head( ctx->ghost )->slot ) );
 
-      ulong poh_slot = fd_fseq_query( ctx->poh_slot );
-      if( FD_UNLIKELY( ctx->vote && poh_slot == ULONG_MAX ) ) {
+      if( FD_UNLIKELY( ctx->vote && fd_fseq_query( ctx->poh ) == ULONG_MAX ) ) {
 
         /* Only proceed with voting if we're caught up. */
 
@@ -871,24 +868,18 @@ after_frag( void *             _ctx,
 
             /* Publish tower and get the new root. */
 
-            ulong tower_root = fd_tower_publish( ctx->tower );
+            ulong root = fd_tower_publish( ctx->tower );
+            FD_LOG_NOTICE(( "new tower root: %lu", root ));
 
-            /* It is possible for the tower root to be earlier than than
-               the root in other structures (blockstore, forks, ghost).
+            /* Note that our local tower root is not used to publish our
+               fork-aware structures eg. blockstore, forks, ghost.
 
-               One reason is while starting up, the tower will be loaded
+               Instead the SMR is used.  The main reason to avoid using
+               tower root is while starting up, the tower will be loaded
                from the vote account state (the "cluster tower") which
                might have an earlier root slot than the snapshot slot.
                The other structures are initialized to the snapshot
-               slot.
-
-               So don't publish other structures until tower is rooted
-               past the snapshot slot. */
-
-            if( FD_LIKELY( tower_root > fd_fseq_query( ctx->root_slot ) ) ) {
-              fd_fseq_update( ctx->root_slot, tower_root );
-              ctx->publish = 1;
-            }
+               slot. */
           }
 
           /* Send our updated tower to the cluster. */
@@ -1085,7 +1076,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   /* Do not modify order! */
 
   ulong snapshot_slot = ctx->slot_ctx->slot_bank.slot;
-  fd_fseq_update( ctx->root_slot, snapshot_slot );
+  fd_fseq_update( ctx->smr, snapshot_slot );
 
   ctx->curr_slot     = snapshot_slot;
   ctx->parent_slot   = ctx->slot_ctx->slot_bank.prev_slot;
@@ -1102,7 +1093,8 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
                  &ctx->voter->vote_acc_addr,
                  ctx->acc_mgr,
                  ctx->epoch_ctx,
-                 snapshot_fork );
+                 snapshot_fork,
+                 ctx->smr );
   fd_ghost_init( ctx->ghost, snapshot_slot, ctx->tower->total_stake );
   fd_tower_print( ctx->tower );
 
@@ -1193,17 +1185,30 @@ during_housekeeping( void * _ctx ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
   fd_mcache_seq_update( ctx->poh_out_sync, ctx->poh_out_seq );
 
-  if ( FD_UNLIKELY( ctx->publish ) ) {
-    ulong root = fd_fseq_query( ctx->root_slot );
-    if( FD_UNLIKELY( root == ULONG_MAX ) ) return;
-    if( FD_LIKELY( ctx->blockstore ) ) blockstore_publish( ctx, root );
-    if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, root, ctx->ghost );
-    if( FD_LIKELY( ctx->funk && ctx->blockstore ) ) funk_publish( ctx, root );
-    if( FD_LIKELY( ctx->ghost ) ) {
-      fd_epoch_forks_publish( ctx->epoch_forks, ctx->ghost, root );
-      fd_ghost_publish( ctx->ghost, root );
-    }
-    ctx->publish = 0;
+  ulong smr = fd_fseq_query( ctx->smr );
+  if( FD_UNLIKELY( smr == ULONG_MAX ) ) return;
+
+  /* Use the blockstore's saved SMR to detect whether the smr has
+     changed.
+     
+     TODO refactor this to a variable on the replay tile ctx. */
+
+  if( FD_UNLIKELY( !ctx->blockstore ) ) return;
+  fd_blockstore_start_read( ctx->blockstore );
+  if( FD_UNLIKELY( ctx->blockstore->smr > smr ) ) {
+    FD_LOG_ERR( ( "invariant violation. fseq SMR should always be monotonically increasing and "
+                  ">= fork-aware data structures SMR. fseq SMR %lu, blockstore SMR %lu",
+                  smr,
+                  ctx->blockstore->smr ) );
+  }
+  fd_blockstore_end_read( ctx->blockstore );
+  if( FD_LIKELY( ctx->blockstore->smr == smr ) ) return;
+  if( FD_LIKELY( ctx->blockstore ) ) blockstore_publish( ctx, smr );
+  if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, smr, ctx->ghost );
+  if( FD_LIKELY( ctx->funk && ctx->blockstore ) ) funk_publish( ctx, smr );
+  if( FD_LIKELY( ctx->ghost ) ) {
+    fd_epoch_forks_publish( ctx->epoch_forks, ctx->ghost, smr );
+    fd_ghost_publish( ctx->ghost, smr );
   }
 
   // fd_mcache_seq_update( ctx->store_out_sync, ctx->store_out_seq );
@@ -1295,9 +1300,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
   FD_TEST( root_slot_obj_id!=ULONG_MAX );
-  ctx->root_slot = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
-  if( FD_UNLIKELY( !ctx->root_slot ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
-  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->root_slot ) );
+  ctx->smr = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
+  if( FD_UNLIKELY( !ctx->smr ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
+  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->smr ) );
 
   /**********************************************************************/
   /* poh_slot fseq                                                     */
@@ -1305,7 +1310,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong poh_slot_obj_id = fd_pod_query_ulong( topo->props, "poh_slot", ULONG_MAX );
   FD_TEST( poh_slot_obj_id!=ULONG_MAX );
-  ctx->poh_slot = fd_fseq_join( fd_topo_obj_laddr( topo, poh_slot_obj_id ) );
+  ctx->poh = fd_fseq_join( fd_topo_obj_laddr( topo, poh_slot_obj_id ) );
 
   /**********************************************************************/
   /* TOML paths                                                         */
