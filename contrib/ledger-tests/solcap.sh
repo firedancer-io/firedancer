@@ -25,6 +25,7 @@ build/native/gcc/bin/fd_ledger --cmd replay \
                                --rocksdb $solcap_rocksdb_path \
                                --index-max $INDEX_MAX \
                                --end-slot $solcap_end_slot \
+                               --cluster-version $FIREDANCER_CLUSTER_VERSION \
                                --funk-only 1 \
                                --txn-max 100 \
                                --page-cnt $PAGES \

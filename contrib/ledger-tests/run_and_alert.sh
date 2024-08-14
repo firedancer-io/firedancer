@@ -11,7 +11,7 @@
 # Description: Absolute directory path pointing to the Firedancer repository.
 # Example: `/home/fd_user/firedancer`
 
-# 3. SOLANA_DIR
+# 3. SOLANA_BUILD_DIR
 # Description: Absolute directory path for the Solana build. This is where the Solana binaries are located after being built.
 # Example: `/home/fd_user/solana/target/release/`
 
@@ -51,10 +51,20 @@ rm -rf $LEDGER_MIN_DIR && mkdir $LEDGER_MIN_DIR
 
 # -----------------------------------------------------------------------------
 # Setup
+cd $AGAVE_DIR
+# git stash
+git pull
+git checkout $AGAVE_TAG
+cargo clean
+cargo build --release --package agave-ledger-tool
+SOLANA_BUILD_DIR=$AGAVE_DIR/target/release
+
 START_TIME=$(date +%s)
 
 cd $FIREDANCER_DIR
+git pull
 rm -rf $NETWORK-*.tar.gz
+# git stash
 git checkout $REPO_BRANCH
 git pull origin $REPO_BRANCH
 
@@ -86,6 +96,7 @@ prlimit --pid=$$ --memlock=unlimited
 
 gcloud auth activate-service-account --key-file=$GCLOUD_KEY_FILE
 
+curl -X POST -H 'Content-type: application/json' --data "{\"text\":\"STARTING RUN: \nNetwork: \`$NETWORK\` \nCommit: \`$GIT_COMMIT\` \nAgave Tag: \`$AGAVE_TAG\` \nFiredancer Cluster Version: \`$FIREDANCER_CLUSTER_VERSION\`\"}" $SLACK_WEBHOOK_URL
 # -----------------------------------------------------------------------------
 # Run
 
@@ -117,7 +128,7 @@ alert_success() {
     curl -X POST -H 'Content-type: application/json' --data "{\"text\":\"Network: $NETWORK \nEpoch: $epoch \nCommit: $GIT_COMMIT \nPatches: $PATCH_FILES \nAlert: $alert_message \nSlots Replayed: $replay_slots_before_success \nReplay Time: $replay_time's \"}" $SLACK_WEBHOOK_URL
 }
 
-cd $FIREDANCER_DIR/contrib/ledger-tests
+cd $FIREDANCER_DIR/ 
 
 if [[ "$NETWORK" == "mainnet" ]]; then
     $FIREDANCER_DIR/contrib/ledger-tests/ledger_conformance.sh all \
@@ -125,16 +136,18 @@ if [[ "$NETWORK" == "mainnet" ]]; then
         --repetitions multiple \
         --ledger $LEDGER_DIR \
         --ledger-min $LEDGER_MIN_DIR \
-        --solana-build-dir $SOLANA_DIR \
+        --solana-build-dir $SOLANA_BUILD_DIR \
         --firedancer-root-dir $FIREDANCER_DIR \
         --upload $UPLOAD_URL &>$LOG_FILE &
 elif [[ "$NETWORK" == "testnet" ]]; then
     $FIREDANCER_DIR/contrib/ledger-tests/ledger_conformance.sh all \
         --network testnet \
-        --repetitions once \
+        --repetitions multiple \
+        --gigantic-pages $TESTNET_PAGES \
+        --index-max $TESTNET_INDEX_MAX \
         --ledger $LEDGER_DIR \
         --ledger-min $LEDGER_MIN_DIR \
-        --solana-build-dir $SOLANA_DIR \
+        --solana-build-dir $SOLANA_BUILD_DIR \
         --firedancer-root-dir $FIREDANCER_DIR \
         --upload $UPLOAD_URL &>$LOG_FILE &
 fi

@@ -35,6 +35,7 @@ replay_output=$(build/native/gcc/bin/fd_ledger --cmd replay \
                                                 --rocksdb dump/$rep_ledger_min_basename/rocksdb \
                                                 --index-max $INDEX_MAX \
                                                 --end-slot $END_SLOT \
+                                                --cluster-version $FIREDANCER_CLUSTER_VERSION \
                                                 --funk-only 1 \
                                                 --txn-max 100 \
                                                 --page-cnt $rep_page_cnt \
