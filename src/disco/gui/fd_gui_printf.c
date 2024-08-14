@@ -134,7 +134,7 @@ jsonp_string( fd_gui_t *   gui,
   if( FD_LIKELY( value ) ) {
     if( FD_UNLIKELY( !fd_utf8_verify( value, strlen( value ) ) )) {
       val = NULL;
-#ifdef FD_GUI_PRINTF_DEBUG
+#if FD_GUI_PRINTF_DEBUG
       print_char_buf_to_buf_escape_hex( value, strlen( value ), gui->tmp_buf, sizeof(gui->tmp_buf) );
       FD_LOG_NOTICE(( "invalid utf8 for key=%s value=%s", key ? key : "", gui->tmp_buf ));
 #endif
