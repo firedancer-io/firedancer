@@ -163,8 +163,7 @@ main( int     argc,
     .vaddr_offset = 0UL,
     .haddr        = (ulong)input_data,
     .region_sz    = (uint)input_data_sz,
-    .is_writable  = 1U,
-    .pubkey       = NULL
+    .is_writable  = 1U
   };
   fd_vm_input_region_t * mem_regions    = &input_region;
   ulong                  mem_region_cnt = 1UL;

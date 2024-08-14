@@ -185,8 +185,7 @@ cmd_trace( char const * bin_path,
     .vaddr_offset = 0UL,
     .haddr        = (ulong)input,
     .region_sz    = (uint)input_sz,
-    .is_writable  = 1U,
-    .pubkey       = NULL
+    .is_writable  = 1U
   };
 
 
@@ -258,8 +257,7 @@ cmd_run( char const * bin_path,
     .vaddr_offset = 0UL,
     .haddr        = (ulong)input,
     .region_sz    = (uint)input_sz,
-    .is_writable  = 1U,
-    .pubkey       = NULL
+    .is_writable  = 1U
   };
 
   fd_sha256_t _sha[1];

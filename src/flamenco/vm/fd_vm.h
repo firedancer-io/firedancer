@@ -26,8 +26,6 @@ struct __attribute__((aligned(8UL))) fd_vm_input_region {
    ulong         haddr;        /* Host address corresponding to the start of the mem region. */
    uint          region_sz;    /* Size of the memory region. */
    uint          is_writable;  /* If the region can be written to or is read-only */
-   fd_pubkey_t * pubkey;       /* NULL if the region doesn't correspond to an accounts
-                                  data region or its resizing region */
 };
 typedef struct fd_vm_input_region fd_vm_input_region_t;
 

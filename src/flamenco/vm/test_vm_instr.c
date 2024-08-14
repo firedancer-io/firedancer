@@ -410,7 +410,6 @@ run_input( test_input_t const * input,
       .haddr        = (ulong)input_copy,
       .region_sz    = (uint)input->input_sz,
       .is_writable  = 1U,
-      .pubkey       = NULL
     };
   } else {
     for( uint i=0; i<input->region_boundary_cnt; ++i ) {
@@ -423,7 +422,6 @@ run_input( test_input_t const * input,
         .haddr        = (ulong)input_copy + cur_offset,
         .region_sz    = input->region_boundary[i] - (uint)cur_offset,
         .is_writable  = 1U,
-        .pubkey       = NULL
       };
     }
   }
