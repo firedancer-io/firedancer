@@ -281,10 +281,9 @@ fd_quic_cb_conn_final( fd_quic_t *      quic,
 
 static inline void
 fd_quic_cb_stream_new( fd_quic_t *        quic,
-                       fd_quic_stream_t * stream,
-                       int                stream_type ) {
+                       fd_quic_stream_t * stream ) {
   if( FD_UNLIKELY( !quic->cb.stream_new ) ) return;
-  quic->cb.stream_new( stream, quic->cb.quic_ctx, stream_type );
+  quic->cb.stream_new( stream, quic->cb.quic_ctx );
 
   /* update metrics */
   ulong stream_id = stream->stream_id;

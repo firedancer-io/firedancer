@@ -358,9 +358,7 @@ quic_conn_new( fd_quic_conn_t * conn,
 
 static void
 quic_stream_new( fd_quic_stream_t * stream,
-                 void *             _ctx,
-                 int                type ) {
-  (void)type; /* TODO reject bidi streams? */
+                 void *             _ctx ) {
 
   /* Load QUIC state */
 

@@ -222,12 +222,10 @@ handshake_complete( fd_quic_conn_t * conn,
 
 static void
 quic_stream_new( fd_quic_stream_t * stream,
-                 void *             _ctx,
-                 int                type ) {
+                 void *             _ctx ) {
   /* we don't expect the server to initiate streams */
   (void)stream;
   (void)_ctx;
-  (void)type;
 }
 
 /* quic_stream_receive is called back by the QUIC engine when any stream
