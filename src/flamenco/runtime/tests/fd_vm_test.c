@@ -1,4 +1,4 @@
-#include "fd_vm_validate_test.h"
+#include "fd_vm_test.h"
 #include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"

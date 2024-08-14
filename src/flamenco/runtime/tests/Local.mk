@@ -3,8 +3,8 @@ $(call add-objs,generated/context.pb generated/elf.pb generated/invoke.pb genera
 
 ifdef FD_HAS_INT128
 ifdef FD_HAS_SECP256K1
-$(call add-hdrs,fd_exec_instr_test.h fd_vm_validate_test.h)
-$(call add-objs,fd_exec_instr_test fd_vm_validate_test,fd_flamenco)
+$(call add-hdrs,fd_exec_instr_test.h fd_vm_test.h)
+$(call add-objs,fd_exec_instr_test fd_vm_test,fd_flamenco)
 $(call add-objs,fd_exec_sol_compat,fd_flamenco)
 
 $(call make-unit-test,test_exec_instr,test_exec_instr,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS))
