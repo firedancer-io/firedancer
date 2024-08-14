@@ -52,6 +52,9 @@ const fd_pubkey_t fd_solana_zk_elgamal_proof_program_id       = { .uc = { ZK_EL_
                                           PERFECT_HASH( (a08 | (a09<<8) | (a10<<16) | (a11<<24)) )
 #define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_4( (uchar const *)ptr->uc + 8UL ) )
 
+/* https://github.com/anza-xyz/agave/blob/9efdd74b1b65ecfd85b0db8ad341c6bd4faddfef/sdk/program/src/sysvar/mod.rs#L102-L123 
+   It's important to note that the SYSVAR_PROG_ID is specifically not included 
+   in the is_sysvar_id check. */
 #define MAP_PERFECT_0   ( SYSVAR_RECENT_BLKHASH_ID ),
 #define MAP_PERFECT_1   ( SYSVAR_CLOCK_ID          ),
 #define MAP_PERFECT_2   ( SYSVAR_SLOT_HIST_ID      ),
@@ -61,9 +64,8 @@ const fd_pubkey_t fd_solana_zk_elgamal_proof_program_id       = { .uc = { ZK_EL_
 #define MAP_PERFECT_6   ( SYSVAR_FEES_ID           ),
 #define MAP_PERFECT_7   ( SYSVAR_RENT_ID           ),
 #define MAP_PERFECT_8   ( SYSVAR_STAKE_HIST_ID     ),
-#define MAP_PERFECT_9   ( SYSVAR_PROG_ID           ),
-#define MAP_PERFECT_10  ( SYSVAR_LAST_RESTART_ID   ),
-#define MAP_PERFECT_11  ( SYSVAR_INSTRUCTIONS_ID   ),
+#define MAP_PERFECT_9   ( SYSVAR_LAST_RESTART_ID   ),
+#define MAP_PERFECT_10  ( SYSVAR_INSTRUCTIONS_ID   ),
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -117,6 +119,7 @@ const fd_pubkey_t fd_solana_zk_elgamal_proof_program_id       = { .uc = { ZK_EL_
 #define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_4( (uchar const *)ptr->uc + 8UL ) )
 
 
+/* The sysvar program id and incinerator is intentionally not included. */
 #define MAP_PERFECT_0   ( SYSVAR_RECENT_BLKHASH_ID ),
 #define MAP_PERFECT_1   ( SYSVAR_CLOCK_ID          ),
 #define MAP_PERFECT_2   ( SYSVAR_SLOT_HIST_ID      ),
@@ -126,20 +129,18 @@ const fd_pubkey_t fd_solana_zk_elgamal_proof_program_id       = { .uc = { ZK_EL_
 #define MAP_PERFECT_6   ( SYSVAR_FEES_ID           ),
 #define MAP_PERFECT_7   ( SYSVAR_RENT_ID           ),
 #define MAP_PERFECT_8   ( SYSVAR_STAKE_HIST_ID     ),
-#define MAP_PERFECT_9   ( SYSVAR_PROG_ID           ),
-#define MAP_PERFECT_10  ( SYSVAR_LAST_RESTART_ID   ),
-#define MAP_PERFECT_11  ( SYSVAR_INSTRUCTIONS_ID   ),
-#define MAP_PERFECT_12  ( SYSVAR_INCINERATOR_ID   ),
+#define MAP_PERFECT_9   ( SYSVAR_LAST_RESTART_ID   ),
+#define MAP_PERFECT_10  ( SYSVAR_INSTRUCTIONS_ID   ),
 
-#define MAP_PERFECT_13  ( NATIVE_LOADER_ID        ),
-#define MAP_PERFECT_14  ( FEATURE_ID              ),
-#define MAP_PERFECT_15  ( CONFIG_PROG_ID          ),
-#define MAP_PERFECT_16  ( STAKE_CONFIG_PROG_ID    ),
-#define MAP_PERFECT_17  ( SYS_PROG_ID             ),
-#define MAP_PERFECT_18  ( VOTE_PROG_ID            ),
-#define MAP_PERFECT_19  ( BPF_LOADER_1_PROG_ID    ),
-#define MAP_PERFECT_20  ( BPF_LOADER_2_PROG_ID    ),
-#define MAP_PERFECT_21  ( BPF_UPGRADEABLE_PROG_ID ),
+#define MAP_PERFECT_11  ( NATIVE_LOADER_ID        ),
+#define MAP_PERFECT_12  ( FEATURE_ID              ),
+#define MAP_PERFECT_13  ( CONFIG_PROG_ID          ),
+#define MAP_PERFECT_14  ( STAKE_CONFIG_PROG_ID    ),
+#define MAP_PERFECT_15  ( SYS_PROG_ID             ),
+#define MAP_PERFECT_16  ( VOTE_PROG_ID            ),
+#define MAP_PERFECT_17  ( BPF_LOADER_1_PROG_ID    ),
+#define MAP_PERFECT_18  ( BPF_LOADER_2_PROG_ID    ),
+#define MAP_PERFECT_19  ( BPF_UPGRADEABLE_PROG_ID ),
 #include "../../util/tmpl/fd_map_perfect.c"
 
 int fd_pubkey_is_sysvar_id        ( fd_pubkey_t const * acct ) { return fd_pubkey_sysvar_tbl_contains( acct );              }
