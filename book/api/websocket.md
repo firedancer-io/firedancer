@@ -190,6 +190,7 @@ the client can calculate it from the stream of new slot data.
     "topic": "summary",
     "key": "upcoming_slot_txn_info",
     "value": {
+        "slot": 18446744073709551615,
         "acquired_txns": 66893,
         "acquired_txns_leftover": 0,
         "acquired_txns_quic": 66767,
@@ -250,7 +251,8 @@ The number of transactions of that have been acquired or dropped in the
 lead up to our next leader slot. If we are currently in a leader slot
 but have not completed it, this includes transactions acquired and
 dropped during the leader slot. The values are reset to zero when the
-leader slot completes and begin counting up again.
+leader slot completes and begin counting up again.  The slot number is
+always ULONG_MAX (18446744073709551615) for live txn_info.
 
 ##### On-demand query
 
@@ -272,65 +274,61 @@ leader slot completes and begin counting up again.
 
 ```json
 {
-    "seq": 32,
-    "response": [
-        {
-            "topic": "summary",
-            "key": "upcoming_slot_txn_info",
-            "value": {
-                "acquired_txns": 66586,
-                "acquired_txns_leftover": 0,
-                "acquired_txns_quic": 66580,
-                "acquired_txns_nonquic": 1,
-                "acquired_txns_gossip": 2,
-                "dropped_txns": 12280,
-                "dropped_txns_net": {
-                    "count": 0,
-                    "breakdown": {
-                        "net_overrun": 0,
-                        "net_invalid": 0
-                    }
-                },
-                "dropped_txns_quic": {
-                    "count": 0,
-                    "breakdown": {
-                        "quic_overrun": 0,
-                        "quic_reasm": 0
-                    }
-                },
-                "dropped_txns_verify": {
-                    "count": 12288,
-                    "breakdown": {
-                        "verify_overrun": 12288,
-                        "verify_drop": 0
-                    }
-                },
-                "dropped_txns_dedup": {
-                    "count": 2,
-                    "breakdown": {
-                        "dedup_drop": 2
-                    }
-                },
-                "dropped_txns_pack": {
-                    "count": 0,
-                    "breakdown": {
-                        "pack_nonleader": 0,
-                        "pack_invalid": 0,
-                        "pack_priority": 0
-                    }
-                },
-                "dropped_txns_bank": {
-                    "count": 0,
-                    "breakdown": {
-                        "bank_invalid": 0
-                    }
-                },
-                "executed_txns_failure": 0,
-                "executed_txns_success": 28074,
-                "buffered_txns": 4
+    "topic": "summary",
+    "key": "upcoming_slot_txn_info",
+    "value": {
+        "slot": 20,
+        "acquired_txns": 66586,
+        "acquired_txns_leftover": 0,
+        "acquired_txns_quic": 66580,
+        "acquired_txns_nonquic": 1,
+        "acquired_txns_gossip": 2,
+        "dropped_txns": 12280,
+        "dropped_txns_net": {
+            "count": 0,
+            "breakdown": {
+                "net_overrun": 0,
+                "net_invalid": 0
             }
-        }
-    ]
+        },
+        "dropped_txns_quic": {
+            "count": 0,
+            "breakdown": {
+                "quic_overrun": 0,
+                "quic_reasm": 0
+            }
+        },
+        "dropped_txns_verify": {
+            "count": 12288,
+            "breakdown": {
+                "verify_overrun": 12288,
+                "verify_drop": 0
+            }
+        },
+        "dropped_txns_dedup": {
+            "count": 2,
+            "breakdown": {
+                "dedup_drop": 2
+            }
+        },
+        "dropped_txns_pack": {
+            "count": 0,
+            "breakdown": {
+                "pack_nonleader": 0,
+                "pack_invalid": 0,
+                "pack_priority": 0
+            }
+        },
+        "dropped_txns_bank": {
+            "count": 0,
+            "breakdown": {
+                "bank_invalid": 0
+            }
+        },
+        "executed_txns_failure": 0,
+        "executed_txns_success": 28074,
+        "buffered_txns": 4
+    }
 }
 ```
 
@@ -688,6 +686,7 @@ for a slot looks like:
 **`SlotTxnInfo`**
 | Field      | Type           | Description |
 |------------|----------------|-------------|
+| slot                        | `number`    | Slot number. 
 | acquired_txns               | `number`    | The total number of transactions that were acquired since the end of our prior leader slot, until the end of this leader slot. Transactions can be acquired for many reasons, which are given individually below.
 | acquired_txns_leftover      | `number`    | The transactions were received during or prior to an earlier leader slot, but weren't executed yet so they stayed available to execute in this slot.  This value is sampled and hence changes only at the ending boundary of our leader slots, and stays constant otherwise.
 | acquired_txns_quic          | `number`    | A transaction stream was received via QUIC.  The stream does not have to successfully complete.  Streams that fail to complete are counted by dropped_txns_quic_dropped.  A single stream, if successful, produces a single transaction.
