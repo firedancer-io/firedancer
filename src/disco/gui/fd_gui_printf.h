@@ -46,3 +46,5 @@ fd_gui_printf_peers_validator_info_update( fd_gui_t *          gui,
                                            ulong               removed_cnt,
                                            ulong const *       added,
                                            ulong               added_cnt );
+
+void fd_gui_printf_peers_all( fd_gui_t * gui );
