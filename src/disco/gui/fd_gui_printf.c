@@ -327,9 +327,11 @@ fd_gui_printf_epoch2( fd_gui_t * gui ) {
 
 void
 fd_gui_printf_txn_info_summary_this( fd_gui_t *          gui,
-                                     fd_gui_txn_info_t * txn_info ) {
+                                     fd_gui_txn_info_t * txn_info,
+                                     ulong               slot ) {
   jsonp_open_envelope( gui, "summary", "upcoming_slot_txn_info" );
     jsonp_open_object( gui, "value" );
+      jsonp_ulong( gui, "slot",                   slot );
       jsonp_ulong( gui, "acquired_txns",          txn_info->acquired_txns );
       jsonp_ulong( gui, "acquired_txns_leftover", txn_info->acquired_txns_leftover );
       jsonp_ulong( gui, "acquired_txns_quic",     txn_info->acquired_txns_quic );
@@ -394,7 +396,7 @@ fd_gui_printf_txn_info_summary_this( fd_gui_t *          gui,
 
 void
 fd_gui_printf_txn_info_summary( fd_gui_t * gui ) {
-  fd_gui_printf_txn_info_summary_this( gui, gui->summary.txn_info_json );
+  fd_gui_printf_txn_info_summary_this( gui, gui->summary.txn_info_json, ULONG_MAX );
 }
 
 static ulong
