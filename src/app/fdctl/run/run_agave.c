@@ -215,7 +215,7 @@ agave_main( void * args ) {
 
 void
 run_agave_cmd_fn( args_t *         args,
-                   config_t * const config ) {
+                  config_t * const config ) {
   (void)args;
 
   fd_log_thread_set( "agave" );
