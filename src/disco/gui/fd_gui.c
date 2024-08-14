@@ -673,39 +673,35 @@ fd_gui_ws_message( fd_gui_t *    gui,
 
   const cJSON * node = cJSON_GetObjectItemCaseSensitive( json, "seq" );
   if( FD_UNLIKELY( !cJSON_IsNumber( node ) ) ) {
-    goto GUI_WS_MESSAGE_OK_OR_NO_SEQ;
+    goto GUI_WS_MESSAGE_CLEANUP;
   }
   ulong seq = node->valueulong;
+  (void)seq;
   node = cJSON_GetObjectItemCaseSensitive( json, "query" );
   if( FD_UNLIKELY( !cJSON_IsString( node ) || node->valuestring==NULL ) ) {
-    goto GUI_WS_MESSAGE_ERR_HAS_SEQ;
+    goto GUI_WS_MESSAGE_CLEANUP;
   }
 
   if( !strncmp( node->valuestring, "txn_info", strlen( "txn_info" ) ) ) {
     node = cJSON_GetObjectItemCaseSensitive( json, "args" );
     if( FD_UNLIKELY( !cJSON_IsArray( node ) || cJSON_GetArraySize( node )!=1 ) ) {
-      goto GUI_WS_MESSAGE_ERR_HAS_SEQ;
+      goto GUI_WS_MESSAGE_CLEANUP;
     }
     node = cJSON_GetArrayItem( node, 0 );
     if( FD_UNLIKELY( !cJSON_IsNumber( node ) ) ) {
-      goto GUI_WS_MESSAGE_ERR_HAS_SEQ;
+      goto GUI_WS_MESSAGE_CLEANUP;
     }
     ulong slot = node->valueulong;
     fd_gui_txn_info_t * txn_info = fd_gui_get_txn_info_for_slot( gui, slot );
     if( txn_info ) {
-      fd_gui_printf_open_query_response_envelope( gui, seq );
-      fd_gui_printf_txn_info_summary_this( gui, txn_info );
-      fd_gui_printf_close_query_response_envelope( gui );
+      fd_gui_printf_txn_info_summary_this( gui, txn_info, slot );
       FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
       // FD_LOG_NOTICE(( "txn_info slot=%lu queried and replied", slot ));
-      goto GUI_WS_MESSAGE_OK_OR_NO_SEQ;
+      goto GUI_WS_MESSAGE_CLEANUP;
     }
   }
 
-GUI_WS_MESSAGE_ERR_HAS_SEQ:
-  fd_gui_printf_null_query_response( gui, seq );
-  FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
-GUI_WS_MESSAGE_OK_OR_NO_SEQ:
+GUI_WS_MESSAGE_CLEANUP:
   cJSON_Delete( json );
   return;
 }
