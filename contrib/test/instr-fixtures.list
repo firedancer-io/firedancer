@@ -9865,6 +9865,7 @@ dump/test-vectors/instr/fixtures/vote/e3b602db62d5217770e822d3cafb4c636cac0622_3
 dump/test-vectors/instr/fixtures/vote/e3de8830fd09b87761891d48136285985da2c978_3157971.fix
 dump/test-vectors/instr/fixtures/vote/e4004f99ac869a1fb8dc2260a62613ba71b42e66_3157971.fix
 dump/test-vectors/instr/fixtures/vote/e404058d6c43563dcaaa6733da2ff199214a0532_3157971.fix
+dump/test-vectors/instr/fixtures/vote/e404660532ea0074dec1c268554dc3717782e5bd_3467489.fix
 dump/test-vectors/instr/fixtures/vote/e420034a664b32affbf4a8f7e77e8bbdd608d411_3157971.fix
 dump/test-vectors/instr/fixtures/vote/e4a15f52359da0c3ba1ba44100b21047e53cf5a9_3157971.fix
 dump/test-vectors/instr/fixtures/vote/e4ae8b00bd7b6cd7a2f5fd496fa9740f3bf11f3f_3157971.fix
