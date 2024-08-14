@@ -65,8 +65,8 @@ fd_tls_transcript_load( fd_tls_transcript_t const * script,
                         fd_sha256_t *               sha ) {
   memcpy( sha->buf,   script->buf, 64UL );
   memcpy( sha->state, script->sha, 32UL );
-  sha->bit_cnt  = (ulong)( script->len * 8U  );
-  sha->buf_used = (uint )( script->len % 64U );
+  sha->bit_cnt = (ulong)( script->len ) * 8UL;
+  sha->buf_used = (uint)( script->len % 64U );
 }
 
 FD_PROTOTYPES_END
@@ -113,7 +113,7 @@ FD_PROTOTYPES_END
 
        At this point, the server has responded with all messages up to
        server Finished and is waiting for the client to respond with
-       with client Finished (and optionally, a certificate).
+       client Finished (and optionally, a certificate).
 
    State data contains:
 
@@ -146,7 +146,7 @@ typedef struct fd_tls_estate_srv fd_tls_estate_srv_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_tls_estate_srv_new initializes a estate object for an incoming
+/* fd_tls_estate_srv_new initializes an estate object for an incoming
    conn.  mem points to a memory region suitable for storing an
    fd_tls_estate_srv_t.  Returns cast of mem, which will be initialized
    to state FD_TLS_HS_START. */
