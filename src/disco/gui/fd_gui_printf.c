@@ -101,7 +101,7 @@ jsonp_sanitize_str( fd_hcache_t * hcache,
   }
 }
 
-static void
+FD_FN_UNUSED static void
 print_char_buf_to_buf_escape_hex(const char *buf, ulong buf_sz, char *out_buf, ulong out_buf_sz) {
   /* Prints invisible chars as escaped hex codes */
   ulong idx = 0;
