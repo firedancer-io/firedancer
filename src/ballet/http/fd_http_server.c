@@ -711,7 +711,7 @@ write_conn_http( fd_http_server_t * http,
             http->ws_conns[ ws_conn_id ].recv_bytes_read = conn->request_bytes_read-conn->request_bytes_len;
           }
 
-#ifdef FD_HTTP_SERVER_DEBUG
+#if FD_HTTP_SERVER_DEBUG
           FD_LOG_WARNING(( "Upgraded connection %lu (fd=%d) to websocket connection %lu", conn_idx, fd, ws_conn_id ));
 #endif
 
