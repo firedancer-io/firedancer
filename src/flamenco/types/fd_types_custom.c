@@ -91,7 +91,26 @@ int fd_tower_sync_decode( fd_tower_sync_t * self, fd_bincode_decode_ctx_t * ctx 
 }
 
 int fd_tower_sync_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
-  return fd_compact_tower_sync_decode_preflight( ctx );
+  FD_SCRATCH_SCOPE_BEGIN {
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L1054-L1060
+    fd_compact_tower_sync_t compact_tower_sync[1];
+    fd_bincode_decode_ctx_t decode_ctx = { .data = ctx->data, .dataend = ctx->dataend, .valloc = fd_scratch_virtual() };
+    // Try to decode compact_tower_sync to check that lockout offsets don't cause an overflow
+    int err = fd_compact_tower_sync_decode( compact_tower_sync, &decode_ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L1061
+    ulong root = compact_tower_sync->root != ULONG_MAX ? compact_tower_sync->root : 0;
+    for (deq_fd_lockout_offset_t_iter_t iter = deq_fd_lockout_offset_t_iter_init( compact_tower_sync->lockout_offsets );
+                                              !deq_fd_lockout_offset_t_iter_done( compact_tower_sync->lockout_offsets, iter );
+                                        iter = deq_fd_lockout_offset_t_iter_next( compact_tower_sync->lockout_offsets, iter )) {
+      const fd_lockout_offset_t * lockout_offset = deq_fd_lockout_offset_t_iter_ele_const( compact_tower_sync->lockout_offsets, iter );
+      // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L1066
+      err = __builtin_uaddl_overflow( root, lockout_offset->offset, &root );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+    return FD_BINCODE_SUCCESS;
+  } FD_SCRATCH_SCOPE_END;
 }
 
 void fd_tower_sync_decode_unsafe( fd_tower_sync_t * self, fd_bincode_decode_ctx_t * ctx ) {
