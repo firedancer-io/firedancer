@@ -15,12 +15,13 @@
 
   */
 
-#include "../flamenco/fd_flamenco_base.h"
+#include "../flamenco/fd_flamenco.h"
 #include "../flamenco/types/fd_types.h"
+#include "../tango/fd_tango.h"
 
 /* clang-format off */
-#define FD_BLOCK_MAX          (1 << 16UL) /* the maximum # of blocks we support holding at once. must be >=512. */
-#define FD_VOTER_MAX          (1 << 12UL) /* the maximum # of unique voters ie. node pubkeys. */
+#define FD_BLOCK_MAX          (1UL << 12UL) /* the maximum # of blocks we support holding at once. must be >=512. */
+#define FD_VOTER_MAX          (1UL << 12UL) /* the maximum # of unique voters ie. node pubkeys. */
 #define FD_EQV_SAFE           (0.52)
 #define FD_OPT_CONF           (2.0 / 3.0)
 #define FD_SMR_PCT            FD_OPT_CONF

@@ -198,7 +198,8 @@ fd_tower_init( fd_tower_t *                tower,
                fd_pubkey_t const *         vote_acc_addr,
                fd_acc_mgr_t *              acc_mgr,
                fd_exec_epoch_ctx_t const * epoch_ctx,
-               fd_fork_t const *           fork ) {
+               fd_fork_t const *           fork,
+               ulong *                     smr ) {
 
   if( FD_UNLIKELY( !tower ) ) {
     FD_LOG_WARNING(( "NULL tower" ));
@@ -230,6 +231,10 @@ fd_tower_init( fd_tower_t *                tower,
   /* Init vote_accs and total_stake. */
 
   fd_tower_epoch_update( tower, epoch_ctx );
+
+  /* Init the smr. */
+
+  tower->smr = smr;
 
   return;
 }
@@ -726,6 +731,7 @@ fd_tower_fork_update( fd_tower_t const * tower,
           if( FD_UNLIKELY( pct > FD_OPT_CONF ) ) {
             FD_LOG_NOTICE( ( "confirming %lu", block_map_entry->slot ) );
             block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
+            blockstore->hcs = fd_ulong_max( blockstore->hcs, block_map_entry->slot );
           }
         }
         fd_blockstore_end_write( blockstore );
@@ -745,12 +751,21 @@ fd_tower_fork_update( fd_tower_t const * tower,
         if( FD_UNLIKELY( !finalized ) ) {
           double pct = (double)node->rooted_stake / (double)ghost->total_stake;
           if( FD_UNLIKELY( pct > FD_SMR_PCT ) ) {
-            FD_LOG_NOTICE( ( "finalizing %lu", block_map_entry->slot ) );
+            ulong smr = block_map_entry->slot;
+            FD_LOG_NOTICE(( "finalizing %lu", block_map_entry->slot ));
             fd_block_map_t * ancestor = block_map_entry;
             while( ancestor ) {
               ancestor->flags = fd_uchar_set_bit( ancestor->flags, FD_BLOCK_FLAG_FINALIZED );
               ancestor        = fd_blockstore_block_map_query( blockstore, ancestor->parent_slot );
             }
+#if FD_TOWER_USE_HANDHOLDING
+            if( FD_UNLIKELY( smr <= fd_fseq_query( tower->smr ) ) ) {
+              FD_LOG_ERR(( "invariant violation. newly observed SMR %lu <= existing fseq SMR %lu.",
+                           smr,
+                           fd_fseq_query( tower->smr ) ));
+            }
+#endif
+            fd_fseq_update( tower->smr, smr );
           }
         }
         fd_blockstore_end_write( blockstore );

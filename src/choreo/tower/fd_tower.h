@@ -366,16 +366,14 @@ typedef struct fd_tower_vote_acc fd_tower_vote_acc_t;
 /* clang-format off */
 struct __attribute__((aligned(128UL))) fd_tower {
 
-  /* The votes currently in our tower, ordered from latest to earliest
+  /* The votes currently in the tower, ordered from latest to earliest
      vote slot (lowest to highest confirmation count). */
 
   fd_tower_vote_t * votes;
 
-  /* The root is a non-NULL pointer to an fseq that always contains a
-     valid root slot.  The root is initialized to 0 if loading from
-     genesis, snapshot slot otherwise.
-
-     Do not read or modify outside the fseq API. */
+  /* The root is the most recent vote in the tower to reach max lockout
+     (ie. confirmation count 32).  It is no longer present in the tower
+     votes themselves. */
 
   ulong root; /* FIXME wire with fseq */
 
@@ -389,6 +387,13 @@ struct __attribute__((aligned(128UL))) fd_tower {
   /* Total amount of stake in the current epoch. */
 
   ulong total_stake;
+
+  /* smr is a non-NULL pointer to an fseq that always contains the
+     highest observed smr.  This value is initialized by replay tile.
+
+     Do not read or modify outside the fseq API. */
+
+  ulong * smr;
 };
 typedef struct fd_tower fd_tower_t;
 
@@ -459,7 +464,8 @@ fd_tower_init( fd_tower_t *                tower,
                fd_pubkey_t const *         vote_acc_addr,
                fd_acc_mgr_t *              acc_mgr,
                fd_exec_epoch_ctx_t const * epoch_ctx,
-               fd_fork_t const *           fork );
+               fd_fork_t const *           fork,
+               ulong *                     smr );
 
 /* fd_tower_lockout_check checks if we are locked out from voting for
    fork.  Returns 1 if we can vote for fork without violating lockout, 0
