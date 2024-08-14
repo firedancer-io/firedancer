@@ -753,10 +753,6 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       .stack_height = txn_ctx->instr_stack_sz,
     };
 
-    if( FD_UNLIKELY( txn_ctx->instr_trace_length>=FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
-      return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
-    }
-
     // defense in depth
     if( instr->program_id >= txn_ctx->txn_descriptor->acct_addr_cnt + txn_ctx->txn_descriptor->addr_table_adtl_cnt ) {
       FD_LOG_WARNING(( "INVALID PROGRAM ID, RUNTIME BUG!!!" ));
@@ -1496,19 +1492,20 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   FD_SCRATCH_SCOPE_BEGIN {
     uint use_sysvar_instructions = fd_executor_txn_uses_sysvar_instructions( txn_ctx );
 
-    /* TODO: Ideally these would be allocated from within the txn_ctx but then
-       we would need to maintain a seperate count for the instr_infos in order
-       that they were allocated. */
-    fd_instr_info_t instrs[txn_ctx->txn_descriptor->instr_cnt];
-    for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
+    for( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
       fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[i];
-      fd_convert_txn_instr_to_instr( txn_ctx, txn_instr, txn_ctx->borrowed_accounts, &instrs[i] );
+      fd_convert_txn_instr_to_instr( txn_ctx, txn_instr, txn_ctx->borrowed_accounts, &txn_ctx->instr_infos[i] );
+    }
+
+    txn_ctx->instr_info_cnt = txn_ctx->txn_descriptor->instr_cnt;
+    if( FD_UNLIKELY( txn_ctx->instr_info_cnt>=FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
+      return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
     }
 
     int ret = 0;
 
     if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
-      ret = fd_sysvar_instructions_serialize_account( txn_ctx, (fd_instr_info_t const *)instrs, txn_ctx->txn_descriptor->instr_cnt );
+      ret = fd_sysvar_instructions_serialize_account( txn_ctx, (fd_instr_info_t const *)txn_ctx->instr_infos, txn_ctx->txn_descriptor->instr_cnt );
       if( ret != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "sysvar instrutions failed to serialize" ));
         return ret;
@@ -1525,9 +1522,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
     for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
 #ifdef VLOG
-      if( txn_ctx->slot_ctx->slot_bank.slot == 273231330 ) {
-        FD_LOG_WARNING(("Start of transaction for %d for %64J", i, sig));
-      }
+      FD_LOG_WARNING(("Start of transaction for %d for %64J", i, sig));
 #endif
 
       if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
@@ -1540,11 +1535,11 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
       if( dump_insn ) {
         // Capture the input and convert it into a Protobuf message
-        dump_instr_to_protobuf(txn_ctx, &instrs[i], i);
+        dump_instr_to_protobuf(txn_ctx, &txn_ctx->instr_infos[i], i);
       }
 
 
-      int exec_result = fd_execute_instr( txn_ctx, &instrs[i] );
+      int exec_result = fd_execute_instr( txn_ctx, &txn_ctx->instr_infos[i] );
 #ifdef VLOG
       FD_LOG_WARNING(( "fd_execute_instr result (%d) for %64J", exec_result, sig ));
 #endif

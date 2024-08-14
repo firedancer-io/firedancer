@@ -79,14 +79,18 @@ write_account( fd_exec_instr_ctx_t *     instr_ctx,
                fd_vm_acc_region_meta_t * acc_region_metas,
                int                       is_aligned,
                int                       copy_account_data ) {
+
+  uchar const * data = account ? account->const_data       : NULL;
+  ulong         dlen = account ? account->const_meta->dlen : 0UL;
+
   if( copy_account_data ) {
     /* Copy the account data into input region buffer */
-    fd_memcpy( *serialized_params, account->const_data, account->const_meta->dlen );
-    *serialized_params += account->const_meta->dlen;
+    fd_memcpy( *serialized_params, data, dlen );
+    *serialized_params += dlen;
 
     if( FD_LIKELY( is_aligned ) ) {
       /* Zero out padding bytes and max permitted data increase */
-      ulong align_offset = fd_ulong_align_up( account->const_meta->dlen, FD_BPF_ALIGN_OF_U128 ) - account->const_meta->dlen;
+      ulong align_offset = fd_ulong_align_up( dlen, FD_BPF_ALIGN_OF_U128 ) - dlen;
       fd_memset( *serialized_params, 0, MAX_PERMITTED_DATA_INCREASE + align_offset );
       *serialized_params += MAX_PERMITTED_DATA_INCREASE + align_offset;
     }
@@ -108,11 +112,11 @@ write_account( fd_exec_instr_ctx_t *     instr_ctx,
     /* Update the mapping from instruction account index to memory region index.
        This is an optimization to avoid redundant lookups to find accounts. */
     acc_region_metas[instr_acc_idx] = (fd_vm_acc_region_meta_t){ .region_idx          = *input_mem_regions_cnt, 
-                                                                 .has_data_region     = !!account->const_meta->dlen,
+                                                                 .has_data_region     = !!dlen,
                                                                  .has_resizing_region = (uchar)is_aligned };
     
-    if( account->const_meta->dlen ) {
-      new_input_mem_region( input_mem_regions, input_mem_regions_cnt, account->const_data, account->const_meta->dlen, is_writable );
+    if( dlen ) {
+      new_input_mem_region( input_mem_regions, input_mem_regions_cnt, data, dlen, is_writable );
     }
 
     if( FD_LIKELY( is_aligned ) ) {
@@ -125,7 +129,7 @@ write_account( fd_exec_instr_ctx_t *     instr_ctx,
          We add the max permitted resizing limit along with 8 bytes of padding
          to the serialization buffer. However, the padding bytes are used to
          maintain alignment in the VM virtual address space. */
-      ulong align_offset = fd_ulong_align_up( account->const_meta->dlen, FD_BPF_ALIGN_OF_U128 ) - account->const_meta->dlen;
+      ulong align_offset = fd_ulong_align_up( dlen, FD_BPF_ALIGN_OF_U128 ) - dlen;
 
       fd_memset( *serialized_params, 0, MAX_PERMITTED_DATA_INCREASE + FD_BPF_ALIGN_OF_U128 );
 
