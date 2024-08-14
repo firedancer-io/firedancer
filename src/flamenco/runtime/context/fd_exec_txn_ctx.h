@@ -48,19 +48,6 @@ struct fd_exec_instr_trace_entry {
 };
 typedef struct fd_exec_instr_trace_entry fd_exec_instr_trace_entry_t;
 
-#define FD_EXEC_INSTR_TRACE_ENTRY_ALIGN (8UL)
-#define FD_EXEC_INSTR_TRACE_ENTRY_SIZE  (16UL)
-
-struct fd_instr_info_pool_elem {
-  ulong next;
-  fd_instr_info_t info;
-};
-typedef struct fd_instr_info_pool_elem fd_instr_info_pool_elem_t;
-
-#define POOL_NAME fd_instr_info_pool
-#define POOL_T fd_instr_info_pool_elem_t
-#include "../../../util/tmpl/fd_pool.c"
-
 /* https://github.com/anza-xyz/agave/blob/0d34a1a160129c4293dac248e14231e9e773b4ce/program-runtime/src/compute_budget.rs#L139 */
 #define FD_MAX_INSTRUCTION_TRACE_LENGTH (64UL)
 
@@ -108,6 +95,17 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   uchar dirty_stake_acc : 1;  /* 1 if this transaction maybe modified a stake account */
 
   fd_capture_ctx_t * capture_ctx;
+
+  /* The instr_infos for the entire transaction are allocated at the start of
+     the transaction. However, this must preserve a different counter because
+     the top level instructions must get set up at once. The instruction 
+     error check on a maximum instruction size can be done on the
+     instr_info_cnt instead of the instr_trace_length because it is a proxy
+     for the trace_length: the instr_info_cnt gets incremented faster than
+     the instr_trace_length because it counts all of the top level instructions
+     first. */
+  fd_instr_info_t             instr_infos[FD_MAX_INSTRUCTION_TRACE_LENGTH];
+  ulong                       instr_info_cnt;
 
   fd_exec_instr_trace_entry_t instr_trace[FD_MAX_INSTRUCTION_TRACE_LENGTH]; /* Instruction trace */
   ulong                       instr_trace_length;                           /* Number of instructions in the trace */

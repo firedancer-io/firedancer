@@ -95,7 +95,7 @@ fd_instr_borrowed_account_view( fd_exec_instr_ctx_t * ctx,
       fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[i];
       *account = instr_account;
 
-      if (FD_UNLIKELY(!fd_acc_exists(instr_account->const_meta))) {
+      if( FD_UNLIKELY( !instr_account || !fd_acc_exists( instr_account->const_meta ) ) ) {
         return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
       }
 

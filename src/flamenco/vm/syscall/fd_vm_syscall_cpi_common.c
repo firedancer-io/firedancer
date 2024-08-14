@@ -57,9 +57,11 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
     VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_meta = &cpi_acct_metas[i];
     uchar const * pubkey = VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, cpi_acct_meta );
 
+    int account_found = 0;
     for( ulong j=0UL; j<vm->instr_ctx->txn_ctx->accounts_cnt; j++ ) {
-      if( !memcmp( pubkey, &txn_accs[j], sizeof( fd_pubkey_t ) ) ) {
-        /* TODO: error if not found, if flags are wrong */
+      if( !memcmp( pubkey, &txn_accs[j], sizeof(fd_pubkey_t) ) ) {
+        account_found = 1;
+        /* TODO: error if flags are wrong */
         memcpy( out_instr->acct_pubkeys[i].uc, pubkey, sizeof( fd_pubkey_t ) );
         out_instr->acct_txn_idxs[i]     = (uchar)j;
         out_instr->acct_flags[i]        = 0;
@@ -91,6 +93,9 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
 
         break;
       }
+    }
+    if( FD_UNLIKELY( !account_found ) ) {
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
   }
 
@@ -646,15 +651,21 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Create the instruction to execute (in the input format the FD runtime expects) from
      the translated CPI ABI inputs. */
-  fd_instr_info_t instruction_to_execute;
-  err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, &instruction_to_execute );
+  fd_instr_info_t * instruction_to_execute = &vm->instr_ctx->txn_ctx->instr_infos[ vm->instr_ctx->txn_ctx->instr_info_cnt ];
+
+  vm->instr_ctx->txn_ctx->instr_info_cnt++;
+  if( FD_UNLIKELY( vm->instr_ctx->txn_ctx->instr_info_cnt>=FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
+     return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;;
+  }
+
+  err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, instruction_to_execute );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Prepare the instruction for execution in the runtime. This is required by the runtime
      before we can pass an instruction to the executor. */
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
-  err = fd_vm_prepare_instruction( vm->instr_ctx->instr, &instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
+  err = fd_vm_prepare_instruction( vm->instr_ctx->instr, instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Update the callee accounts with any changes made by the caller prior to this CPI execution */
@@ -681,7 +692,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   vm->instr_ctx->txn_ctx->compute_meter = vm->cu;
 
   /* Execute the CPI instruction in the runtime */
-  int err_exec = fd_execute_instr( vm->instr_ctx->txn_ctx, &instruction_to_execute );
+  int err_exec = fd_execute_instr( vm->instr_ctx->txn_ctx, instruction_to_execute );
   ulong instr_exec_res = (ulong)err_exec;
 
   /* Set the CU meter to the instruction context's transaction context's compute meter,
@@ -742,7 +753,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
       caller_lamports_l != vm->instr_ctx->instr->starting_lamports_l ) {
     return FD_VM_ERR_INSTR_ERR;
   }
-  
+
   return FD_VM_SUCCESS;
 }
 
