@@ -7,7 +7,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include "../../vm/fd_vm.h"
-#include "fd_vm_validate_test.h"
+#include "fd_vm_test.h"
 #include "../../features/fd_features.h"
 
 /* This file defines stable APIs for compatibility testing.
