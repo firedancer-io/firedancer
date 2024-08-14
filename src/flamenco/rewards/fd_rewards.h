@@ -14,6 +14,7 @@ FD_PROTOTYPES_BEGIN
 
 void
 fd_update_rewards( fd_exec_slot_ctx_t * slot_ctx,
+                   const fd_hash_t *    parent_blockhash,
                    ulong                parent_epoch );
 
 void
@@ -24,8 +25,7 @@ fd_begin_partitioned_rewards(
 
 void
 fd_rewards_recalculate_partitioned_rewards(
-    fd_exec_slot_ctx_t * slot_ctx,
-    const fd_hash_t * parent_blockhash
+    fd_exec_slot_ctx_t * slot_ctx
 );
 
 void

@@ -860,6 +860,8 @@ calculate_rewards_for_partitioning(
         &validator_result->calculate_stake_vote_rewards_result.stake_reward_calculation,
         parent_blockhash,
         &result->stake_rewards_by_partition );
+    result->stake_rewards_by_partition.total_stake_rewards_lamports = 
+        validator_result->calculate_stake_vote_rewards_result.stake_reward_calculation.total_stake_rewards_lamports;
 
     result->vote_reward_map_pool = validator_result->calculate_stake_vote_rewards_result.vote_reward_map_pool;
     result->vote_reward_map_root = validator_result->calculate_stake_vote_rewards_result.vote_reward_map_root;
@@ -1082,6 +1084,7 @@ fd_distribute_partitioned_epoch_rewards(
 void
 fd_update_rewards(
     fd_exec_slot_ctx_t * slot_ctx,
+    const fd_hash_t *    parent_blockhash,
     ulong                parent_epoch
 ) {
 
@@ -1090,7 +1093,7 @@ fd_update_rewards(
     calculate_rewards_and_distribute_vote_rewards(
         slot_ctx,
         parent_epoch,
-        &slot_ctx->slot_bank.banks_hash, /* We know this is not correct, but for the non-partitioned case this doesn't matter */
+        parent_blockhash,
         rewards_result
     );
 
@@ -1150,8 +1153,7 @@ fd_begin_partitioned_rewards(
     https://github.com/anza-xyz/agave/blob/2316fea4c0852e59c071f72d72db020017ffd7d0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L536 */
 void
 fd_rewards_recalculate_partitioned_rewards(
-    fd_exec_slot_ctx_t * slot_ctx,
-    const fd_hash_t * parent_blockhash
+    fd_exec_slot_ctx_t * slot_ctx
 ) {
     fd_sysvar_epoch_rewards_t epoch_rewards[1];
     if ( FD_UNLIKELY( fd_sysvar_epoch_rewards_read( epoch_rewards, slot_ctx ) == NULL ) ) {
@@ -1199,7 +1201,7 @@ fd_rewards_recalculate_partitioned_rewards(
         hash_rewards_into_partitions(
             slot_ctx,
             &calculate_stake_vote_rewards_result->stake_reward_calculation,
-            parent_blockhash,
+            &epoch_rewards->parent_blockhash,
             stake_rewards_by_partition );
 
         /* Update the epoch reward status with the newly re-calculated partitions. */
