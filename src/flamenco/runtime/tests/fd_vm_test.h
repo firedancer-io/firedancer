@@ -24,6 +24,18 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
                               void *                        output_buf,
                               ulong                         output_bufsz );
 
+/* Populates a (caller-initialized) `fd_vm_input_region_t` array from an array of 
+   `fd_exec_test_input_data_region`s. Caller must guarantee lifetime of the actual
+   region(s). 
+   
+   Empty regions are skipped, so we return the true size of the populated array. */
+uint
+setup_vm_input_regions( fd_vm_input_region_t *                   input,
+                       fd_exec_test_input_data_region_t const * test_input,
+                       ulong                                    test_input_count );
+
+
+
 FD_PROTOTYPES_END
 
 #endif
