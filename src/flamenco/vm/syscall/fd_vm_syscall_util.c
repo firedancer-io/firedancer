@@ -405,12 +405,17 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
     if( dst_region==4UL ) {
       dst_region_idx          = fd_vm_get_input_mem_region_idx( vm, dst_offset );
       dst_haddr               = (uchar*)(vm->input_mem_regions[ dst_region_idx ].haddr + dst_offset - vm->input_mem_regions[ dst_region_idx ].vaddr_offset);
-      dst_bytes_in_cur_region = fd_ulong_min( sz, vm->input_mem_regions[ dst_region_idx ].region_sz - 
-                                                  ((ulong)dst_haddr - vm->input_mem_regions[ dst_region_idx ].haddr) );
+      dst_bytes_in_cur_region = fd_ulong_min( sz, fd_ulong_sat_sub( vm->input_mem_regions[ dst_region_idx ].region_sz, 
+                                                                    ((ulong)dst_haddr - vm->input_mem_regions[ dst_region_idx ].haddr) ) );
       if( FD_UNLIKELY( !vm->input_mem_regions[ dst_region_idx ].is_writable ) ) {
         *_ret = 1;
         return FD_VM_ERR_ABORT;
       }
+      if( FD_UNLIKELY( dst_region_idx+1UL==vm->input_mem_regions_cnt && dst_bytes_in_cur_region<sz ) ) {
+        *_ret = 1;
+        return FD_VM_ERR_ABORT;
+      }
+
     } else {
       dst_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_ST( vm, dst_vaddr, 1UL, sz );
     }
@@ -423,8 +428,13 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
     if( src_region==4UL ) {
       src_region_idx          = fd_vm_get_input_mem_region_idx( vm, src_offset );
       src_haddr               = (uchar*)(vm->input_mem_regions[ src_region_idx ].haddr + src_offset - vm->input_mem_regions[ src_region_idx ].vaddr_offset);
-      src_bytes_in_cur_region = fd_ulong_min( sz, vm->input_mem_regions[ src_region_idx ].region_sz - 
-                                                  ((ulong)src_haddr - vm->input_mem_regions[ src_region_idx ].haddr) );
+      src_bytes_in_cur_region = fd_ulong_min( sz, fd_ulong_sat_sub( vm->input_mem_regions[ src_region_idx ].region_sz, 
+                                                                    ((ulong)src_haddr - vm->input_mem_regions[ src_region_idx ].haddr) ) );
+      if( FD_UNLIKELY( src_region_idx+1UL==vm->input_mem_regions_cnt && src_bytes_in_cur_region<sz ) ) {
+        *_ret = 1;
+        return FD_VM_ERR_ABORT;
+      }
+
     } else {
       src_haddr           = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, 1UL, sz );
     }
@@ -532,8 +542,12 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
     if( m0_region==4UL ) {
       m0_region_idx          = fd_vm_get_input_mem_region_idx( vm, m0_offset );
       m0_haddr               = (uchar*)(vm->input_mem_regions[ m0_region_idx ].haddr + m0_offset - vm->input_mem_regions[ m0_region_idx ].vaddr_offset);
-      m0_bytes_in_cur_region = fd_ulong_min( sz, vm->input_mem_regions[ m0_region_idx ].region_sz - 
-                                                  ((ulong)m0_haddr - vm->input_mem_regions[ m0_region_idx ].haddr) );
+      m0_bytes_in_cur_region = fd_ulong_min( sz, fd_ulong_sat_sub( vm->input_mem_regions[ m0_region_idx ].region_sz,
+                                                                   ((ulong)m0_haddr - vm->input_mem_regions[ m0_region_idx ].haddr) ) );
+      if( FD_UNLIKELY( m0_region_idx+1UL==vm->input_mem_regions_cnt && m0_bytes_in_cur_region<sz ) ) {
+        *_ret = 1;
+        return FD_VM_ERR_ABORT;
+      }
     } else {
       m0_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, m0_vaddr, 1UL, sz );
     }
@@ -546,8 +560,12 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
     if( m1_region==4UL ) {
       m1_region_idx          = fd_vm_get_input_mem_region_idx( vm, m1_offset );
       m1_haddr               = (uchar*)(vm->input_mem_regions[ m1_region_idx ].haddr + m1_offset - vm->input_mem_regions[ m1_region_idx ].vaddr_offset);
-      m1_bytes_in_cur_region = fd_ulong_min( sz, vm->input_mem_regions[ m1_region_idx ].region_sz - 
-                                                  ((ulong)m1_haddr - vm->input_mem_regions[ m1_region_idx ].haddr) );
+      m1_bytes_in_cur_region = fd_ulong_min( sz, fd_ulong_sat_sub( vm->input_mem_regions[ m1_region_idx ].region_sz,
+                                                                   ((ulong)m1_haddr - vm->input_mem_regions[ m1_region_idx ].haddr) ) );
+      if( FD_UNLIKELY( m1_region_idx+1UL==vm->input_mem_regions_cnt && m1_bytes_in_cur_region<sz ) ) {
+        *_ret = 1;
+        return FD_VM_ERR_ABORT;
+      }
     } else {
       m1_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, m1_vaddr, 1UL, sz );
     }
@@ -682,12 +700,17 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
     if( dst_region==4UL ) {
       dst_region_idx          = fd_vm_get_input_mem_region_idx( vm, dst_offset );
       dst_haddr               = (uchar*)(vm->input_mem_regions[ dst_region_idx ].haddr + dst_offset - vm->input_mem_regions[ dst_region_idx ].vaddr_offset);
-      dst_bytes_in_cur_region = fd_ulong_min( sz, vm->input_mem_regions[ dst_region_idx ].region_sz - 
-                                                  ((ulong)dst_haddr - vm->input_mem_regions[ dst_region_idx ].haddr) );
+      dst_bytes_in_cur_region = fd_ulong_min( sz, fd_ulong_sat_sub( vm->input_mem_regions[ dst_region_idx ].region_sz,
+                                                                    ((ulong)dst_haddr - vm->input_mem_regions[ dst_region_idx ].haddr) ) );
       if( FD_UNLIKELY( !vm->input_mem_regions[ dst_region_idx ].is_writable ) ) {
         *_ret = 1;
         return FD_VM_ERR_ABORT;
       }
+      if( FD_UNLIKELY( dst_region_idx+1UL==vm->input_mem_regions_cnt && dst_bytes_in_cur_region<sz ) ) {
+        *_ret = 1;
+        return FD_VM_ERR_ABORT;
+      }
+
     } else {
       dst_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_ST( vm, dst_vaddr, 1UL, sz );
     }
@@ -700,8 +723,13 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
     if( src_region==4UL ) {
       src_region_idx          = fd_vm_get_input_mem_region_idx( vm, src_offset );
       src_haddr               = (uchar*)(vm->input_mem_regions[ src_region_idx ].haddr + src_offset - vm->input_mem_regions[ src_region_idx ].vaddr_offset);
-      src_bytes_in_cur_region = fd_ulong_min( sz, vm->input_mem_regions[ src_region_idx ].region_sz - 
-                                                  ((ulong)src_haddr - vm->input_mem_regions[ src_region_idx ].haddr) );
+      src_bytes_in_cur_region = fd_ulong_min( sz, fd_ulong_sat_sub( vm->input_mem_regions[ src_region_idx ].region_sz,
+                                                                    ((ulong)src_haddr - vm->input_mem_regions[ src_region_idx ].haddr) ) );
+
+      if( FD_UNLIKELY( src_region_idx+1UL==vm->input_mem_regions_cnt && src_bytes_in_cur_region<sz ) ) {
+        *_ret = 1;
+        return FD_VM_ERR_ABORT;
+      }
     } else {
       src_haddr           = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, 1UL, sz );
     }
