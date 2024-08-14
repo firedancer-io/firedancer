@@ -3078,17 +3078,6 @@ fd_quic_tls_cb_peer_params( void *        context,
   conn->tx_initial_max_stream_data_bidi_local  = peer_tp->initial_max_stream_data_bidi_local;
   conn->tx_initial_max_stream_data_bidi_remote = peer_tp->initial_max_stream_data_bidi_remote;
 
-  if( conn->server ) {
-    conn->peer_sup_stream_id[0x01] = ( (ulong)peer_tp->initial_max_streams_bidi << 2UL ) + 0x01;
-    /* 0x03 server-initiated, unidirectional */
-    conn->peer_sup_stream_id[0x03] = ( (ulong)peer_tp->initial_max_streams_uni  << 2UL ) + 0x03;
-  } else {
-    /* 0x00 client-initiated, bidirectional */
-    conn->peer_sup_stream_id[0x00] = ( (ulong)peer_tp->initial_max_streams_bidi << 2UL ) + 0x00;
-    /* 0x02 client-initiated, unidirectional */
-    conn->peer_sup_stream_id[0x02] = ( (ulong)peer_tp->initial_max_streams_uni  << 2UL ) + 0x02;
-  }
-
   if( !conn->server ) {
     /* verify retry_src_conn_id */
     uint retry_src_conn_id_sz = conn->retry_src_conn_id.sz;
