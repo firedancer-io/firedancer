@@ -150,7 +150,7 @@ do{
     break;
   }
   uchar * rodata = input->vm_ctx.rodata->bytes;
-  ulong rodata_sz = input->vm_ctx.rodata->size;
+  ulong   rodata_sz = input->vm_ctx.rodata->size;
 
   /* Load input data regions */
   fd_vm_input_region_t * input_regions     = fd_valloc_malloc( valloc, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
@@ -212,31 +212,31 @@ do{
   // Override some execution state values from the interp fuzzer input
   // This is so we can test if the interp mutates any of these erroneously
   // Those that are not overridden are because they are set in fd_vm_setup_state_for_execution
-  vm->reg[0] = input->vm_ctx.r0;
-  // vm->reg[1] = input->vm_ctx.r1;
-  vm->reg[2] = input->vm_ctx.r2;
-  vm->reg[3] = input->vm_ctx.r3;
-  vm->reg[4] = input->vm_ctx.r4;
-  vm->reg[5] = input->vm_ctx.r5;
-  vm->reg[6] = input->vm_ctx.r6;
-  vm->reg[7] = input->vm_ctx.r7;
-  vm->reg[8] = input->vm_ctx.r8;
-  vm->reg[9] = input->vm_ctx.r9;
+  vm->reg[0]  = input->vm_ctx.r0;
+  // vm->reg[1]  = input->vm_ctx.r1;
+  vm->reg[2]  = input->vm_ctx.r2;
+  vm->reg[3]  = input->vm_ctx.r3;
+  vm->reg[4]  = input->vm_ctx.r4;
+  vm->reg[5]  = input->vm_ctx.r5;
+  vm->reg[6]  = input->vm_ctx.r6;
+  vm->reg[7]  = input->vm_ctx.r7;
+  vm->reg[8]  = input->vm_ctx.r8;
+  vm->reg[9]  = input->vm_ctx.r9;
   // vm->reg[10] = input->vm_ctx.r10;
   vm->reg[11] = input->vm_ctx.r11;
 
   vm->check_align = input->vm_ctx.check_align;
-  vm->check_size = input->vm_ctx.check_size;
+  vm->check_size  = input->vm_ctx.check_size;
 
   if( input->syscall_invocation.stack_prefix ) {
-    uchar * stack = input->syscall_invocation.stack_prefix->bytes;
-    ulong stack_sz = fd_ulong_min(input->syscall_invocation.stack_prefix->size, FD_VM_STACK_MAX);
+    uchar * stack    = input->syscall_invocation.stack_prefix->bytes;
+    ulong   stack_sz = fd_ulong_min(input->syscall_invocation.stack_prefix->size, FD_VM_STACK_MAX);
     fd_memcpy( vm->stack, stack, stack_sz );
   }
 
   if( input->syscall_invocation.heap_prefix ) {
-    uchar * heap = input->syscall_invocation.heap_prefix->bytes;
-    ulong heap_sz = fd_ulong_min(input->syscall_invocation.heap_prefix->size, FD_VM_HEAP_MAX);
+    uchar * heap    = input->syscall_invocation.heap_prefix->bytes;
+    ulong   heap_sz = fd_ulong_min(input->syscall_invocation.heap_prefix->size, FD_VM_HEAP_MAX);
     fd_memcpy( vm->heap, heap, heap_sz );
   }
 
@@ -245,17 +245,17 @@ do{
   effects->error = fd_vm_exec_notrace( vm ) == FD_VM_SUCCESS ? 0 : 1; // TODO: return value once mapped
 
   /* Capture outputs */
-  effects->cu_avail = vm->cu;
+  effects->cu_avail    = vm->cu;
   effects->frame_count = vm->frame_cnt;
-  effects->r0 = effects->error ? 0 : vm->reg[0]; /* Only capture r0 if no error */
-  effects->pc = vm->pc;
+  effects->r0          = effects->error ? 0 : vm->reg[0]; /* Only capture r0 if no error */
+  effects->pc          = vm->pc;
 
-  effects->heap = FD_SCRATCH_ALLOC_APPEND(
+  effects->heap       = FD_SCRATCH_ALLOC_APPEND(
     l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
   effects->heap->size = (uint)vm->heap_max;
   fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
 
-  effects->stack = FD_SCRATCH_ALLOC_APPEND(
+  effects->stack       = FD_SCRATCH_ALLOC_APPEND(
     l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
   effects->stack->size = (uint)FD_VM_STACK_MAX;
   fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
@@ -263,16 +263,16 @@ do{
   /* Capture input data regions */
   if( vm->input_mem_regions_cnt ) {
     effects->inputdata_regions_count = vm->input_mem_regions_cnt;
-    effects->inputdata_regions = FD_SCRATCH_ALLOC_APPEND(
+    effects->inputdata_regions       = FD_SCRATCH_ALLOC_APPEND(
       l, alignof(fd_exec_test_input_data_region_t),
       sizeof(fd_exec_test_input_data_region_t) * vm->input_mem_regions_cnt );
     for( ulong i=0; i < vm->input_mem_regions_cnt; i++ ) {
       fd_exec_test_input_data_region_t * region = &effects->inputdata_regions[i];
       region->is_writable = vm->input_mem_regions[i].is_writable;
-      region->offset = vm->input_mem_regions[i].vaddr_offset;
+      region->offset      = vm->input_mem_regions[i].vaddr_offset;
 
       if( vm->input_mem_regions[i].region_sz ) {
-        region->content = FD_SCRATCH_ALLOC_APPEND(
+        region->content       = FD_SCRATCH_ALLOC_APPEND(
           l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->input_mem_regions[i].region_sz ) );
         region->content->size = (uint)vm->input_mem_regions[i].region_sz;
         fd_memcpy( region->content->bytes, (uchar *)vm->input_mem_regions[i].haddr, vm->input_mem_regions[i].region_sz );
