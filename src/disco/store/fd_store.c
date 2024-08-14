@@ -20,14 +20,14 @@ fd_store_new( void * mem, ulong lo_wmark_slot ) {
   store->root = FD_SLOT_NULL;
   fd_repair_backoff_map_new( store->repair_backoff_map );
   store->pending_slots = fd_pending_slots_new( (uchar *)mem + fd_store_footprint(), lo_wmark_slot );
-  if( FD_UNLIKELY( !store->pending_slots ) ) {    
+  if( FD_UNLIKELY( !store->pending_slots ) ) {
     return NULL;
   }
 
   return mem;
 }
 
-fd_store_t * 
+fd_store_t *
 fd_store_join( void * store ) {
   if( FD_UNLIKELY( !store ) ) {
     FD_LOG_WARNING( ( "NULL store" ) );
@@ -42,7 +42,7 @@ fd_store_join( void * store ) {
   fd_store_t * store_ = (fd_store_t *)store;
   fd_repair_backoff_map_join( store_->repair_backoff_map );
   store_->pending_slots = fd_pending_slots_join( store_->pending_slots );
-  if( FD_UNLIKELY( !store_->pending_slots ) ) {    
+  if( FD_UNLIKELY( !store_->pending_slots ) ) {
     return NULL;
   }
 
@@ -202,11 +202,11 @@ fd_store_shred_insert( fd_store_t * store,
   uchar shred_type = fd_shred_type( shred->variant );
   // FD_LOG_INFO(("is chained: %u", fd_shred_is_chained(shred_type) ));
   if( shred_type != FD_SHRED_TYPE_LEGACY_DATA
-      && shred_type != FD_SHRED_TYPE_MERKLE_DATA 
+      && shred_type != FD_SHRED_TYPE_MERKLE_DATA
       && shred_type != FD_SHRED_TYPE_MERKLE_DATA_CHAINED
       && shred_type != FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED ) {
     return FD_BLOCKSTORE_OK;
-  } 
+  }
 
   if( store->root!=FD_SLOT_NULL && shred->slot<store->root ) {
     FD_LOG_WARNING(( "shred slot is behind root, dropping shred - root: %lu, shred_slot: %lu", store->root, shred->slot ));
@@ -229,6 +229,13 @@ fd_store_shred_insert( fd_store_t * store,
     fd_store_add_pending( store, shred->slot, (long)5e6, 0, 1 );
   } else {
     fd_store_add_pending( store, shred->slot, FD_REPAIR_BACKOFF_TIME, 0, 0 );
+    fd_repair_backoff_t * backoff = fd_repair_backoff_map_query( store->repair_backoff_map, shred->slot, NULL );
+    if( FD_LIKELY( backoff==NULL ) ) {
+      /* new backoff entry */
+      backoff = fd_repair_backoff_map_insert( store->repair_backoff_map, shred->slot );
+    }
+    backoff->last_backoff_duration = FD_REPAIR_BACKOFF_TIME / 2L;
+    backoff->last_repair_time = store->now;
   }
   return rc;
 }
@@ -281,14 +288,14 @@ fd_store_add_pending( fd_store_t * store,
   //   backoff->last_backoff = delay;
   // } else if( should_backoff ) {
   //   ulong backoff->last_backoff + (backoff->last_backoff>>3);
-  //   backoff->last_backoff = 
+  //   backoff->last_backoff =
   //   delay = backoff->last_backoff;
   // } else {
   //   delay = backoff->last_backoff;
   // }
   // if( should_backoff ) FD_LOG_INFO(("PENDING %lu %d %lu %ld", slot, should_backoff, delay/1000000, (existing_when-store->now)/1000000L));
   if( store->root!=FD_SLOT_NULL && slot<store->root) {
-    FD_LOG_WARNING(( "slot is older than root, skipping adding slot to pending queue - root: %lu, slot: %lu", 
+    FD_LOG_WARNING(( "slot is older than root, skipping adding slot to pending queue - root: %lu, slot: %lu",
         store->root, slot ));
     return;
   }
@@ -296,7 +303,7 @@ fd_store_add_pending( fd_store_t * store,
 }
 
 void
-fd_store_set_root( fd_store_t * store, 
+fd_store_set_root( fd_store_t * store,
                    ulong        root ) {
   store->root = root;
   fd_pending_slots_set_lo_wmark( store->pending_slots, root );
@@ -320,11 +327,13 @@ fd_store_slot_repair( fd_store_t * store,
 
   fd_repair_backoff_t * backoff = fd_repair_backoff_map_query( store->repair_backoff_map, slot, NULL );
   if( FD_LIKELY( backoff!=NULL ) ) {
-    if( store->now<( backoff->last_repair_time+FD_REPAIR_BACKOFF_TIME ) ) {
+    if( store->now<( backoff->last_repair_time+backoff->last_backoff_duration ) ) {
       return 0UL;
     }
   } else {
+    /* new backoff entry */
     backoff = fd_repair_backoff_map_insert( store->repair_backoff_map, slot );
+    backoff->last_backoff_duration = FD_REPAIR_BACKOFF_TIME / 2L;
   }
   backoff->last_repair_time = store->now;
 
@@ -353,19 +362,21 @@ fd_store_slot_repair( fd_store_t * store,
     }
 
     if( repair_req_cnt==out_repair_reqs_sz ) {
-      FD_LOG_INFO( ( "[repair] MAX need %lu [%lu, %lu], sent %lu requests", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt ) );
+      backoff->last_backoff_duration *= 2L;
+      FD_LOG_INFO( ( "[repair] MAX need %lu [%lu, %lu], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
       return repair_req_cnt;
     }
 
     /* First make sure we are ready to execute this block soon. Look for an ancestor that was executed. */
     ulong anc_slot = slot;
     int good = 0;
-    for( uint i = 0; i < 10; ++i ) {
+    for( uint i = 0; i < 6; ++i ) {
       anc_slot  = fd_blockstore_parent_slot_query( store->blockstore, anc_slot );
       fd_block_t * anc_block = fd_blockstore_block_query( store->blockstore, anc_slot );
       fd_block_map_t * anc_block_map_entry = fd_blockstore_block_map_query( store->blockstore, anc_slot );
       if( anc_block && fd_uchar_extract_bit( anc_block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) {
         good = 1;
+        out_repair_reqs_sz /= (i>>1)+1U; /* Slow roll blocks that are further out */
         break;
       }
     }
@@ -373,23 +384,25 @@ fd_store_slot_repair( fd_store_t * store,
     if( !good ) {
       return repair_req_cnt;
     }
-    
+
     /* Fill in what's missing */
     for( uint i = block_map_entry->consumed_idx + 1; i <= complete_idx; i++ ) {
       if( fd_buf_shred_query( store->blockstore, slot, i ) != NULL ) continue;
-     
+
       fd_repair_request_t * repair_req = &out_repair_reqs[repair_req_cnt++];
       repair_req->shred_index = i;
       repair_req->slot = slot;
       repair_req->type = FD_REPAIR_REQ_TYPE_NEED_WINDOW_INDEX;
 
-      if( repair_req_cnt == out_repair_reqs_sz ) { 
-        FD_LOG_INFO( ( "[repair] MAX need %lu [%lu, %lu], sent %lu requests", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt ) );
+      if( repair_req_cnt == out_repair_reqs_sz ) {
+        backoff->last_backoff_duration *= 2L;
+        FD_LOG_INFO( ( "[repair] MAX need %lu [%lu, %lu], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
         return repair_req_cnt;
       }
     }
     if( repair_req_cnt ) {
-      FD_LOG_INFO( ( "[repair] need %lu [%lu, %lu], sent %lu requests", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt ) );
+      backoff->last_backoff_duration *= 2L;
+      FD_LOG_INFO( ( "[repair] need %lu [%lu, %lu], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
     }
   }
   return repair_req_cnt;

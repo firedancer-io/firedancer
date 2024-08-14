@@ -247,7 +247,7 @@ after_frag( void *             _ctx,
   /* everything else is shred */
   FD_TEST( ctx->s34_buffer->shred_cnt>0UL );
 
-  if( FD_UNLIKELY( ctx->is_trusted ) ) { 
+  if( FD_UNLIKELY( ctx->is_trusted ) ) {
     /* this slot is coming from our leader pipeline */
     fd_trusted_slots_add( ctx->trusted_slots, ctx->s34_buffer->pkts[ 0 ].shred.slot );
   }
@@ -259,7 +259,7 @@ after_frag( void *             _ctx,
       continue;
     }
 
-    if( FD_UNLIKELY( (long)(ctx->store->curr_turbine_slot - shred->slot) > 100 ) ) {
+    if( FD_UNLIKELY( (long)(ctx->store->curr_turbine_slot - shred->slot) > 500 ) ) {
       FD_LOG_WARNING(("received shred with slot %lu that would overrun pending queue. skipping.", shred->slot));
       continue;
     }
