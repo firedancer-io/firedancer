@@ -14,7 +14,7 @@ src/app/fdctl/version.h: src/app/fdctl/version.mk
 	echo "#define FDCTL_PATCH_VERSION $(FIREDANCER_VERSION_PATCH)UL" >> $@
 $(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
 
-.PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool rust solana check-solana-hash
+.PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool rust solana check-agave-hash
 
 # fdctl core
 $(call add-objs,main1 config config_parse caps utility keys ready mem spy help version,fd_fdctl)
