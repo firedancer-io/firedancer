@@ -578,6 +578,4 @@ fd_topo_firedancer( config_t * _config ) {
     ulong footprint = fd_wksp_footprint( part_max, data_max );
     wksp->page_cnt = footprint / page_sz;
   }
-
-  config->topo = *topo;
 }

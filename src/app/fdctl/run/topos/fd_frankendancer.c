@@ -302,5 +302,4 @@ fd_topo_frankendancer( config_t * config ) {
   }
 
   fd_topob_finish( topo, fdctl_obj_align, fdctl_obj_footprint, fdctl_obj_loose );
-  config->topo = *topo;
 }

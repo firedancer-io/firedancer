@@ -127,10 +127,11 @@ create_clone_stack( void ) {
 static int
 execve_agave( int config_memfd,
                     int pipefd ) {
-  if( FD_UNLIKELY( -1==fcntl( pipefd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   pid_t child = fork();
   if( FD_UNLIKELY( -1==child ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( !child ) ) {
+    if( FD_UNLIKELY( -1==fcntl( pipefd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
     char _current_executable_path[ PATH_MAX ];
     current_executable_path( _current_executable_path );
 
@@ -148,7 +149,6 @@ execve_agave( int config_memfd,
 
     if( FD_UNLIKELY( -1==execve( _current_executable_path, args, envp ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
-    if( FD_UNLIKELY( -1==fcntl( pipefd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     return child;
   }
   return 0;
@@ -182,11 +182,12 @@ execve_tile( fd_topo_tile_t * tile,
     }
   }
 
-  /* Clear CLOEXEC on the side of the pipe we want to pass to the tile. */
-  if( FD_UNLIKELY( -1==fcntl( pipefd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   pid_t child = fork();
   if( FD_UNLIKELY( -1==child ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( !child ) ) {
+    /* Clear CLOEXEC on the side of the pipe we want to pass to the tile. */
+    if( FD_UNLIKELY( -1==fcntl( pipefd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
     char _current_executable_path[ PATH_MAX ];
     current_executable_path( _current_executable_path );
 
@@ -197,7 +198,6 @@ execve_tile( fd_topo_tile_t * tile,
     char * args[ 9 ] = { _current_executable_path, "run1", tile->name, kind_id, "--pipe-fd", pipe_fd, "--config-fd", config_fd, NULL };
     if( FD_UNLIKELY( -1==execve( _current_executable_path, args, NULL ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
-    if( FD_UNLIKELY( -1==fcntl( pipefd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     return child;
   }
   return 0;
@@ -322,10 +322,9 @@ main_pid_namespace( void * _args ) {
     } else if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
       FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with signal %d (%s)\n", i, child_names[ i ], WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
       exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
-    }
-    if( FD_UNLIKELY( WEXITSTATUS( wstatus ) ) ) {
+    } else if( FD_UNLIKELY( WEXITSTATUS( wstatus ) ) ) {
       FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with code %d\n", i, child_names[ i ], WEXITSTATUS( wstatus ) ));
-      exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
+      exit_group( WEXITSTATUS( wstatus ) );
     }
   }
 
@@ -337,37 +336,32 @@ main_pid_namespace( void * _args ) {
      terminate all other children bringing all of our processes down as
      a group.  The parent process will also die if this process dies,
      due to getting SIGHUP on the pipe. */
-  while( 1 ) {
-    if( FD_UNLIKELY( -1==poll( fds, 1+child_cnt, -1 ) ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==poll( fds, 1+child_cnt, -1 ) ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    for( ulong i=0; i<1+child_cnt; i++ ) {
-      if( FD_UNLIKELY( fds[ i ].revents ) ) {
-        /* Must have been POLLHUP, POLLERR and POLLNVAL are not possible. */
-        if( FD_UNLIKELY( i==child_cnt ) ) {
-          /* Parent process died, probably SIGINT, exit gracefully. */
-          exit_group( 0 );
-        }
+  for( ulong i=0; i<1+child_cnt; i++ ) {
+    if( FD_UNLIKELY( fds[ i ].revents ) ) {
+      /* Must have been POLLHUP, POLLERR and POLLNVAL are not possible. */
+      if( FD_UNLIKELY( i==child_cnt ) ) {
+	/* Parent process died, probably SIGINT, exit gracefully. */
+	exit_group( 0 );
+      }
 
-        char * tile_name = child_names[ i ];
-        ulong  tile_id = config->topo.tiles[ i ].kind_id;
+      char * tile_name = child_names[ i ];
+      ulong  tile_id = config->topo.tiles[ i ].kind_id;
 
-        /* Child process died, reap it to figure out exit code. */
-        int wstatus;
-        int exited_pid = wait4( -1, &wstatus, (int)__WALL | (int)WNOHANG, NULL );
-        if( FD_UNLIKELY( -1==exited_pid ) ) {
-          FD_LOG_ERR(( "pidns wait4() failed (%i-%s) %lu %hu", errno, fd_io_strerror( errno ), i, fds[i].revents ));
-        } else if( FD_UNLIKELY( !exited_pid ) ) {
-          /* Spurious wakeup, no child actually dead yet. */
-          continue;
-        }
+      /* Child process died, reap it to figure out exit code. */
+      int wstatus;
+      int exited_pid = wait4( -1, &wstatus, (int)__WALL, NULL );
+      if( FD_UNLIKELY( -1==exited_pid ) ) {
+	FD_LOG_ERR(( "pidns wait4() failed (%i-%s) %lu %hu", errno, fd_io_strerror( errno ), i, fds[i].revents ));
+      }
 
-        if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-          FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with signal %d (%s)", tile_name, tile_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
-          exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
-        } else {
-          FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with code %d", tile_name, tile_id, WEXITSTATUS( wstatus ) ));
-          exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
-        }
+      if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
+	FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with signal %d (%s)", tile_name, tile_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+	exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+      } else {
+	FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with code %d", tile_name, tile_id, WEXITSTATUS( wstatus ) ));
+	exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
       }
     }
   }
