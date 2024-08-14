@@ -18,9 +18,9 @@
 
 int
 fd_quic_tls_sendmsg( void const * handshake,
-                     void const * record,
-                     ulong        record_sz,
-                     uint         encryption_level,
+                     void const * data,
+                     ulong        data_sz,
+                     uint         enc_level,
                      int          flush );
 
 /* fd_quic_tls_secrets is called by fd_tls when new encryption keys
@@ -32,7 +32,7 @@ void
 fd_quic_tls_secrets( void const * handshake,
                      void const * recv_secret,
                      void const * send_secret,
-                     uint         encryption_level );
+                     uint         enc_level );
 
 /* fd_quic_tls_rand is the RNG provided to fd_tls.  Note: This is
    a layering violation ... The user should pass the CSPRNG handle to

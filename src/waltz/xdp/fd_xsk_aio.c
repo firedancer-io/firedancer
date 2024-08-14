@@ -8,8 +8,8 @@
 /* Forward declarations */
 static int
 fd_xsk_aio_send( void *                    ctx,
-                 fd_aio_pkt_info_t const * batch,
-                 ulong                     batch_cnt,
+                 fd_aio_pkt_info_t const * pkt,
+                 ulong                     pkt_cnt,
                  ulong *                   opt_batch_idx,
                  int                       flush );
 
