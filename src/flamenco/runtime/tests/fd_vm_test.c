@@ -93,3 +93,28 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
   test_vm_exec_instr_ctx_delete( ctx );
   return sizeof (fd_exec_test_validate_vm_effects_t);
 }
+
+
+uint
+setup_vm_input_regions( fd_vm_input_region_t *                   input,
+                        fd_exec_test_input_data_region_t const * test_input,
+                        ulong                                    test_input_count ) {
+  ulong offset = 0UL;
+  uint input_idx = 0UL;
+  for( ulong i=0; i<test_input_count; i++ ) {
+    fd_exec_test_input_data_region_t const * region = &test_input[i];
+    pb_bytes_array_t * array = region->content;
+    if( !array ) {
+      continue; /* skip empty regions https://github.com/anza-xyz/agave/blob/3072c1a72b2edbfa470ca869f1ea891dfb6517f2/programs/bpf_loader/src/serialization.rs#L136 */
+    }
+
+    input[input_idx].vaddr_offset     = offset;
+    input[input_idx].haddr            = (ulong)array->bytes;
+    input[input_idx].region_sz        = array->size;
+    input[input_idx].is_writable      = region->is_writable;
+
+    input_idx++;
+    offset += array->size;
+  }
+  return input_idx; /* return the number of populated regions */
+}
