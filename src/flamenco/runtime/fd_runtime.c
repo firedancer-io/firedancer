@@ -3542,11 +3542,12 @@ void fd_process_new_epoch(
 
   /* Distribute rewards */
   fd_hash_t const * parent_blockhash = fd_blockstore_block_hash_query( 
-    slot_ctx->blockstore, fd_ulong_sat_sub( slot_ctx->slot_bank.slot, 1UL ) );
+    slot_ctx->blockstore,
+    fd_blockstore_parent_slot_query( slot_ctx->blockstore, slot_ctx->slot_bank.slot ) );
   if ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
     fd_begin_partitioned_rewards( slot_ctx, parent_blockhash, parent_epoch );
   } else {
-    fd_update_rewards( slot_ctx, parent_epoch );
+    fd_update_rewards( slot_ctx, parent_blockhash, parent_epoch );
   }
 
   refresh_vote_accounts( slot_ctx, history );
