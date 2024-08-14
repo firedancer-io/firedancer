@@ -93,7 +93,6 @@ struct fd_quic_pkt_meta {
        FD_QUIC_PKT_META_FLAGS_MAX_DATA            max_data frame
        FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA     max_stream_data frame
        FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR  max_streams frame (unidir)
-       FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR   max_streams frame (bidir)
        FD_QUIC_PKT_META_FLAGS_ACK                 acknowledgement
        FD_QUIC_PKT_META_FLAGS_CLOSE               close frame
        FD_QUIC_PKT_META_FLAGS_KEY_UPDATE          indicates key update was in effect

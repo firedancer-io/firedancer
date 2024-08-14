@@ -241,7 +241,6 @@ struct fd_quic_conn {
              0x03 Server-Initiated, Unidirectional */
 
   ulong rx_max_streams_unidir_ackd; /* value of MAX_STREAMS acked for UNIDIR */
-  ulong rx_max_streams_bidir_ackd;  /* value of MAX_STREAMS acked for BIDIR */
 
   fd_quic_stream_map_t *  stream_map;           /* map stream_id -> stream */
 
@@ -307,7 +306,6 @@ struct fd_quic_conn {
 # define FD_QUIC_CONN_FLAGS_MAX_DATA           (1u<<0u)
 # define FD_QUIC_CONN_FLAGS_CLOSE_SENT         (1u<<1u)
 # define FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR (1u<<2u)
-# define FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR  (1u<<3u)
 # define FD_QUIC_CONN_FLAGS_PING               (1u<<4u)
 # define FD_QUIC_CONN_FLAGS_PING_SENT          (1u<<5u)
 
@@ -315,11 +313,7 @@ struct fd_quic_conn {
 
   /* max stream data per stream type */
   ulong                tx_initial_max_stream_data_uni;
-  ulong                tx_initial_max_stream_data_bidi_local;
-  ulong                tx_initial_max_stream_data_bidi_remote;
   ulong                rx_initial_max_stream_data_uni;
-  ulong                rx_initial_max_stream_data_bidi_local;
-  ulong                rx_initial_max_stream_data_bidi_remote;
 
   /* last tx packet num with max_data frame referring to this stream
      set to next_pkt_number to indicate a new max_data frame should be sent

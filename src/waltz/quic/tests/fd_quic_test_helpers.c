@@ -48,10 +48,9 @@ fd_quic_test_cb_conn_final( fd_quic_conn_t * conn,
 
 static void
 fd_quic_test_cb_stream_new( fd_quic_stream_t * stream,
-                            void *             quic_ctx,
-                            int                stream_type ) {
-  FD_LOG_DEBUG(( "cb_stream_new(stream=%lu, quic_ctx=%p, stream_type=%#x)",
-                 stream->stream_id, (void *)quic_ctx, stream_type ));
+                            void *             quic_ctx ) {
+  FD_LOG_DEBUG(( "cb_stream_new(stream=%lu, quic_ctx=%p)",
+                 stream->stream_id, (void *)quic_ctx ));
 }
 
 static void
