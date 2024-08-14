@@ -18,6 +18,7 @@
 
 struct fd_repair_backoff {
   ulong slot;
+  long last_backoff_duration;
   long last_repair_time;
 };
 typedef struct fd_repair_backoff fd_repair_backoff_t;
