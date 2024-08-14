@@ -171,8 +171,7 @@ main( int     argc,
     .vaddr_offset = 0UL,
     .haddr        = (ulong)input_data,
     .region_sz    = (uint)input_data_sz,
-    .is_writable  = 1U,
-    .pubkey       = NULL
+    .is_writable  = 1U
   };
   fd_vm_input_region_t * mem_regions    = &input_region;
   ulong                  mem_region_cnt = 1UL;
@@ -213,11 +212,11 @@ main( int     argc,
 #if DASM_VERSION != 10300
 #error "Version mismatch between DynASM and included encoding engine"
 #endif
-#line 205 "fd_vm_jitproto.dasc"
+#line 204 "fd_vm_jitproto.dasc"
   //| .section code
 #define DASM_SECTION_CODE	0
 #define DASM_MAXSECTION		1
-#line 206 "fd_vm_jitproto.dasc"
+#line 205 "fd_vm_jitproto.dasc"
   dasm_init( &d, DASM_MAXSECTION );
 
   //| .globals lbl_
@@ -228,7 +227,7 @@ enum {
   lbl_overrun,
   lbl__MAX
 };
-#line 209 "fd_vm_jitproto.dasc"
+#line 208 "fd_vm_jitproto.dasc"
   void * labels[ lbl__MAX ];
   dasm_setupglobal( &d, labels, lbl__MAX );
 
@@ -283,7 +282,7 @@ static const unsigned char actions[930] = {
   91,65,92,65,93,65,94,65,95,201,195,255
 };
 
-#line 216 "fd_vm_jitproto.dasc"
+#line 215 "fd_vm_jitproto.dasc"
   dasm_setup( &d, actions );
 
   dasm_State ** Dst = &d;
@@ -342,7 +341,7 @@ static const unsigned char actions[930] = {
 
   //| .code
   dasm_put(Dst, 0);
-#line 273 "fd_vm_jitproto.dasc"
+#line 272 "fd_vm_jitproto.dasc"
 
   /* Exception handlers */
 
@@ -351,13 +350,13 @@ static const unsigned char actions[930] = {
   //| mov rax, 999
   //| jmp ->leave
   dasm_put(Dst, 2);
-#line 280 "fd_vm_jitproto.dasc"
+#line 279 "fd_vm_jitproto.dasc"
 
   /* Start translating user code */
 
   //|->main:
   dasm_put(Dst, 16);
-#line 284 "fd_vm_jitproto.dasc"
+#line 283 "fd_vm_jitproto.dasc"
 
   /* SysV function prologue */
 
@@ -369,7 +368,7 @@ static const unsigned char actions[930] = {
   //| push r12
   //| push rbx
   dasm_put(Dst, 19);
-#line 294 "fd_vm_jitproto.dasc"
+#line 293 "fd_vm_jitproto.dasc"
 
   /* Remember the VM pointer */
 
@@ -377,7 +376,7 @@ static const unsigned char actions[930] = {
   //| .type aVm, fd_vm_t, rbx
 #define Dt1(_V) (int)(ptrdiff_t)&(((fd_vm_t *)0)_V)
   dasm_put(Dst, 33, (unsigned int)((ulong)vm), (unsigned int)(((ulong)vm)>>32));
-#line 299 "fd_vm_jitproto.dasc"
+#line 298 "fd_vm_jitproto.dasc"
 
   /* Restore register context */
 
@@ -393,7 +392,7 @@ static const unsigned char actions[930] = {
   //| mov bpf_r9,  aVm->reg[ 9]
   //| mov bpf_r10, aVm->reg[10]
   dasm_put(Dst, 38, Dt1(->reg[ 0]), Dt1(->reg[ 1]), Dt1(->reg[ 2]), Dt1(->reg[ 3]), Dt1(->reg[ 4]), Dt1(->reg[ 5]), Dt1(->reg[ 6]), Dt1(->reg[ 7]), Dt1(->reg[ 8]), Dt1(->reg[ 9]), Dt1(->reg[10]));
-#line 313 "fd_vm_jitproto.dasc"
+#line 312 "fd_vm_jitproto.dasc"
 
   ulong * const text_start = prog->text;
   ulong *       text_end   = prog->text + prog->text_cnt;
@@ -435,7 +434,7 @@ static const unsigned char actions[930] = {
     next_label = bpf_label_off + (int)( text_end - text_start );
     //|=>next_label:
     dasm_put(Dst, 83, next_label);
-#line 353 "fd_vm_jitproto.dasc"
+#line 352 "fd_vm_jitproto.dasc"
 
     /* Translate instruction */
 
@@ -446,31 +445,31 @@ static const unsigned char actions[930] = {
     case 0x04:  /* FD_SBPF_OP_ADD_IMM */
       //| add dst32, imm
       dasm_put(Dst, 85, (x86_dst), imm);
-#line 362 "fd_vm_jitproto.dasc"
+#line 361 "fd_vm_jitproto.dasc"
       break;
 
     case 0x05:  /* FD_SBPF_OP_JA */
       //| jmp =>jmp_dst_lbl
       dasm_put(Dst, 91, jmp_dst_lbl);
-#line 366 "fd_vm_jitproto.dasc"
+#line 365 "fd_vm_jitproto.dasc"
       break;
 
     case 0x07:  /* FD_SBPF_OP_ADD64_IMM */
       //| add dst64, imm
       dasm_put(Dst, 95, (x86_dst), imm);
-#line 370 "fd_vm_jitproto.dasc"
+#line 369 "fd_vm_jitproto.dasc"
       break;
 
     case 0x0c:  /* FD_SBPF_OP_ADD_REG */
       //| add dst32, src32
       dasm_put(Dst, 102, (x86_src), (x86_dst));
-#line 374 "fd_vm_jitproto.dasc"
+#line 373 "fd_vm_jitproto.dasc"
       break;
 
     case 0x0f:  /* FD_SBPF_OP_ADD64_REG */
       //| add dst64, src64
       dasm_put(Dst, 109, (x86_src), (x86_dst));
-#line 378 "fd_vm_jitproto.dasc"
+#line 377 "fd_vm_jitproto.dasc"
       break;
 
     /* 0x10 - 0x1f ******************************************************/
@@ -478,20 +477,20 @@ static const unsigned char actions[930] = {
     case 0x14:  /* FD_SBPF_OP_SUB_IMM */
       //| sub dst32, imm
       dasm_put(Dst, 117, (x86_dst), imm);
-#line 384 "fd_vm_jitproto.dasc"
+#line 383 "fd_vm_jitproto.dasc"
       break;
 
     case 0x15:  /* FD_SBPF_OP_JEQ_IMM */
       //| cmp dst64, imm
       //| je =>jmp_dst_lbl
       dasm_put(Dst, 123, (x86_dst), imm, jmp_dst_lbl);
-#line 389 "fd_vm_jitproto.dasc"
+#line 388 "fd_vm_jitproto.dasc"
       break;
 
     case 0x17:  /* FD_SBPF_OP_SUB64_IMM */
       //| sub dst64, imm
       dasm_put(Dst, 134, (x86_dst), imm);
-#line 393 "fd_vm_jitproto.dasc"
+#line 392 "fd_vm_jitproto.dasc"
       break;
 
     case 0x18:  /* FD_SBPF_OP_LDQ */
@@ -499,26 +498,26 @@ static const unsigned char actions[930] = {
       imm |= ( (ulong)fd_vm_instr_imm( *cur ) << 32 );
       //| mov dst64, imm
       dasm_put(Dst, 141, (x86_dst), imm);
-#line 399 "fd_vm_jitproto.dasc"
+#line 398 "fd_vm_jitproto.dasc"
       break;
 
     case 0x1c:  /* FD_SBPF_OP_SUB_REG */
       //| sub dst32, src32
       dasm_put(Dst, 148, (x86_src), (x86_dst));
-#line 403 "fd_vm_jitproto.dasc"
+#line 402 "fd_vm_jitproto.dasc"
       break;
 
     case 0x1d:  /* FD_SBPF_OP_JEQ_REG */
       //| cmp dst64, src64
       //| je =>jmp_dst_lbl
       dasm_put(Dst, 155, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 408 "fd_vm_jitproto.dasc"
+#line 407 "fd_vm_jitproto.dasc"
       break;
 
     case 0x1f:  /* FD_SBPF_OP_SUB64_REG */
       //| sub dst64, src64
       dasm_put(Dst, 166, (x86_src), (x86_dst));
-#line 412 "fd_vm_jitproto.dasc"
+#line 411 "fd_vm_jitproto.dasc"
       break;
 
     /* 0x20 - 0x2f ******************************************************/
@@ -527,40 +526,40 @@ static const unsigned char actions[930] = {
       /* TODO strength reduction? */
       //| imul dst32, imm
       dasm_put(Dst, 174, (x86_dst), (x86_dst), imm);
-#line 419 "fd_vm_jitproto.dasc"
+#line 418 "fd_vm_jitproto.dasc"
       break;
 
     case 0x25:  /* FD_SBPF_OP_JGT_IMM */
       //| cmp dst64, imm
       //| ja =>jmp_dst_lbl
       dasm_put(Dst, 182, (x86_dst), imm, jmp_dst_lbl);
-#line 424 "fd_vm_jitproto.dasc"
+#line 423 "fd_vm_jitproto.dasc"
       break;
 
     case 0x27:  /* FD_SBPF_OP_MUL64_IMM */
       /* TODO strength reduction? */
       //| imul dst64, imm
       dasm_put(Dst, 193, (x86_dst), (x86_dst), imm);
-#line 429 "fd_vm_jitproto.dasc"
+#line 428 "fd_vm_jitproto.dasc"
       break;
 
     case 0x2c:  /* FD_SBPF_OP_MUL_REG */
       //| imul dst32, src32
       dasm_put(Dst, 202, (x86_dst), (x86_src));
-#line 433 "fd_vm_jitproto.dasc"
+#line 432 "fd_vm_jitproto.dasc"
       break;
 
     case 0x2d:  /* FD_SBPF_OP_JGT_REG */
       //| cmp dst64, src64
       //| ja =>jmp_dst_lbl
       dasm_put(Dst, 210, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 438 "fd_vm_jitproto.dasc"
+#line 437 "fd_vm_jitproto.dasc"
       break;
 
     case 0x2f:  /* FD_SBPF_OP_MUL64_REG */
       //| imul dst64, src64
       dasm_put(Dst, 221, (x86_dst), (x86_src));
-#line 442 "fd_vm_jitproto.dasc"
+#line 441 "fd_vm_jitproto.dasc"
       break;
 
     /* 0x30 - 0x3f ******************************************************/
@@ -569,7 +568,7 @@ static const unsigned char actions[930] = {
       if( FD_UNLIKELY( imm==0 ) ) {
         //| jmp ->sigfpe
         dasm_put(Dst, 230);
-#line 449 "fd_vm_jitproto.dasc"
+#line 448 "fd_vm_jitproto.dasc"
         break;
       }
       //| xchg eax, dst32
@@ -578,21 +577,21 @@ static const unsigned char actions[930] = {
       //| div edi
       //| xchg eax, dst32
       dasm_put(Dst, 235, (x86_dst), imm, (x86_dst));
-#line 456 "fd_vm_jitproto.dasc"
+#line 455 "fd_vm_jitproto.dasc"
       break;
 
     case 0x35:  /* FD_SBPF_OP_JGE_IMM */
       //| cmp dst64, imm
       //| jae =>jmp_dst_lbl
       dasm_put(Dst, 250, (x86_dst), imm, jmp_dst_lbl);
-#line 461 "fd_vm_jitproto.dasc"
+#line 460 "fd_vm_jitproto.dasc"
       break;
 
     case 0x37:  /* FD_SBPF_OP_DIV64_IMM */
       if( FD_UNLIKELY( imm==0 ) ) {
         //| jmp ->sigfpe
         dasm_put(Dst, 230);
-#line 466 "fd_vm_jitproto.dasc"
+#line 465 "fd_vm_jitproto.dasc"
         break;
       }
       //| xchg rax, dst64
@@ -601,18 +600,18 @@ static const unsigned char actions[930] = {
       //| div rdi
       //| xchg rax, dst64
       dasm_put(Dst, 261, (x86_dst), imm, (x86_dst));
-#line 473 "fd_vm_jitproto.dasc"
+#line 472 "fd_vm_jitproto.dasc"
       break;
 
     case 0x3c:  /* FD_SBPF_OP_DIV_REG */
       //| test src32, src32
       //| jz ->sigfpe
       dasm_put(Dst, 281, (x86_src), (x86_src));
-#line 478 "fd_vm_jitproto.dasc"
+#line 477 "fd_vm_jitproto.dasc"
       if( x86_dst==x86_src ) {
         //| mov dst32, 1
         dasm_put(Dst, 292, (x86_dst));
-#line 480 "fd_vm_jitproto.dasc"
+#line 479 "fd_vm_jitproto.dasc"
         break;
       }
       //| xchg eax, dst32
@@ -620,25 +619,25 @@ static const unsigned char actions[930] = {
       //| div src32
       //| xchg eax, dst32
       dasm_put(Dst, 300, (x86_dst), (x86_src), (x86_dst));
-#line 486 "fd_vm_jitproto.dasc"
+#line 485 "fd_vm_jitproto.dasc"
       break;
 
     case 0x3d:  /* FD_SBPF_OP_JGE_REG */
       //| cmp dst64, src64
       //| jae =>jmp_dst_lbl
       dasm_put(Dst, 315, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 491 "fd_vm_jitproto.dasc"
+#line 490 "fd_vm_jitproto.dasc"
       break;
 
     case 0x3f:  /* FD_SBPF_OP_DIV64_REG */
       //| test src64, src64
       //| jz ->sigfpe
       dasm_put(Dst, 326, (x86_src), (x86_src));
-#line 496 "fd_vm_jitproto.dasc"
+#line 495 "fd_vm_jitproto.dasc"
       if( x86_dst==x86_src ) {
         //| mov dst32, 1
         dasm_put(Dst, 292, (x86_dst));
-#line 498 "fd_vm_jitproto.dasc"
+#line 497 "fd_vm_jitproto.dasc"
         break;
       }
       //| xchg rax, dst64
@@ -646,7 +645,7 @@ static const unsigned char actions[930] = {
       //| div src64
       //| xchg rax, dst64
       dasm_put(Dst, 338, (x86_dst), (x86_src), (x86_dst));
-#line 504 "fd_vm_jitproto.dasc"
+#line 503 "fd_vm_jitproto.dasc"
       break;
 
     /* 0x40 - 0x4f ******************************************************/
@@ -654,39 +653,39 @@ static const unsigned char actions[930] = {
     case 0x44:  /* FD_SBPF_OP_OR_IMM */
       //| or dst32, imm
       dasm_put(Dst, 356, (x86_dst), imm);
-#line 510 "fd_vm_jitproto.dasc"
+#line 509 "fd_vm_jitproto.dasc"
       break;
 
     case 0x45:  /* FD_SBPF_OP_JSET_IMM */
       //| test dst64, imm
       //| jnz =>jmp_dst_lbl
       dasm_put(Dst, 362, (x86_dst), imm, jmp_dst_lbl);
-#line 515 "fd_vm_jitproto.dasc"
+#line 514 "fd_vm_jitproto.dasc"
       break;
 
     case 0x47:  /* FD_SBPF_OP_OR64_IMM */
       //| or dst64, imm
       dasm_put(Dst, 373, (x86_dst), imm);
-#line 519 "fd_vm_jitproto.dasc"
+#line 518 "fd_vm_jitproto.dasc"
       break;
 
     case 0x4c:  /* FD_SBPF_OP_OR_REG */
       //| or dst32, src32
       dasm_put(Dst, 380, (x86_src), (x86_dst));
-#line 523 "fd_vm_jitproto.dasc"
+#line 522 "fd_vm_jitproto.dasc"
       break;
 
     case 0x4d:  /* FD_SBPF_OP_JSET_REG */
       //| test dst64, src64
       //| jnz =>jmp_dst_lbl
       dasm_put(Dst, 387, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 528 "fd_vm_jitproto.dasc"
+#line 527 "fd_vm_jitproto.dasc"
       break;
 
     case 0x4f:  /* FD_SBPF_OP_OR64_REG */
       //| or dst64, src64
       dasm_put(Dst, 398, (x86_src), (x86_dst));
-#line 532 "fd_vm_jitproto.dasc"
+#line 531 "fd_vm_jitproto.dasc"
       break;
 
     /* 0x50 - 0x5f ******************************************************/
@@ -694,39 +693,39 @@ static const unsigned char actions[930] = {
     case 0x54:  /* FD_SBPF_OP_AND_IMM */
       //| and dst32, imm
       dasm_put(Dst, 406, (x86_dst), imm);
-#line 538 "fd_vm_jitproto.dasc"
+#line 537 "fd_vm_jitproto.dasc"
       break;
 
     case 0x55:  /* FD_SBPF_OP_JNE_IMM */
       //| cmp dst64, imm
       //| jne =>jmp_dst_lbl
       dasm_put(Dst, 412, (x86_dst), imm, jmp_dst_lbl);
-#line 543 "fd_vm_jitproto.dasc"
+#line 542 "fd_vm_jitproto.dasc"
       break;
 
     case 0x57:  /* FD_SBPF_OP_AND64_IMM */
       //| and dst64, imm
       dasm_put(Dst, 423, (x86_dst), imm);
-#line 547 "fd_vm_jitproto.dasc"
+#line 546 "fd_vm_jitproto.dasc"
       break;
 
     case 0x5c:  /* FD_SBPF_OP_AND_REG */
       //| and dst32, src32
       dasm_put(Dst, 430, (x86_src), (x86_dst));
-#line 551 "fd_vm_jitproto.dasc"
+#line 550 "fd_vm_jitproto.dasc"
       break;
 
     case 0x5d:  /* FD_SBPF_OP_JNE_REG */
       //| cmp dst64, src64
       //| jne =>jmp_dst_lbl
       dasm_put(Dst, 437, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 556 "fd_vm_jitproto.dasc"
+#line 555 "fd_vm_jitproto.dasc"
       break;
 
     case 0x5f:  /* FD_SBPF_OP_AND64_REG */
       //| and dst64, src64
       dasm_put(Dst, 448, (x86_src), (x86_dst));
-#line 560 "fd_vm_jitproto.dasc"
+#line 559 "fd_vm_jitproto.dasc"
       break;
 
     /* 0x60 - 0x6f ******************************************************/
@@ -734,59 +733,59 @@ static const unsigned char actions[930] = {
     case 0x61:  /* FD_SBPF_OP_LDXW */
       //| lea rdi, [src64+offset]
       dasm_put(Dst, 456, (x86_src), offset);
-#line 566 "fd_vm_jitproto.dasc"
+#line 565 "fd_vm_jitproto.dasc"
       // TODO translate
       // TODO check align
       //| mov dst32, [rdi]
       dasm_put(Dst, 464, (x86_dst));
-#line 569 "fd_vm_jitproto.dasc"
+#line 568 "fd_vm_jitproto.dasc"
       break;
 
     case 0x62:  /* FD_SBPF_OP_STW */
       //| lea rdi, [dst64+offset]
       dasm_put(Dst, 456, (x86_dst), offset);
-#line 573 "fd_vm_jitproto.dasc"
+#line 572 "fd_vm_jitproto.dasc"
       // TODO translate
       // TODO check align
       //| mov dword [rdi], imm
       dasm_put(Dst, 469, imm);
-#line 576 "fd_vm_jitproto.dasc"
+#line 575 "fd_vm_jitproto.dasc"
       break;
 
     case 0x63:  /* FD_SBPF_OP_STXW */
       //| lea rdi, [dst64+offset]
       dasm_put(Dst, 456, (x86_dst), offset);
-#line 580 "fd_vm_jitproto.dasc"
+#line 579 "fd_vm_jitproto.dasc"
       // TODO translate
       // TODO check align
       //| mov [rdi], src32
       dasm_put(Dst, 473, (x86_src));
-#line 583 "fd_vm_jitproto.dasc"
+#line 582 "fd_vm_jitproto.dasc"
       break;
 
     case 0x64:  /* FD_SBPF_OP_LSH_IMM */
       //| shl dst32, imm
       dasm_put(Dst, 478, (x86_dst), imm);
-#line 587 "fd_vm_jitproto.dasc"
+#line 586 "fd_vm_jitproto.dasc"
       break;
 
     case 0x65:  /* FD_SBPF_OP_JSGT_IMM */
       //| cmp dst64, imm
       //| jg =>jmp_dst_lbl
       dasm_put(Dst, 484, (x86_dst), imm, jmp_dst_lbl);
-#line 592 "fd_vm_jitproto.dasc"
+#line 591 "fd_vm_jitproto.dasc"
       break;
 
     case 0x67:  /* FD_SBPF_OP_LSH64_IMM */
       //| shl dst64, imm
       dasm_put(Dst, 495, (x86_dst), imm);
-#line 596 "fd_vm_jitproto.dasc"
+#line 595 "fd_vm_jitproto.dasc"
       break;
 
     case 0x69:  /* FD_SBPF_OP_LDXH */
       //| lea rdi, [src64+offset]
       dasm_put(Dst, 456, (x86_src), offset);
-#line 600 "fd_vm_jitproto.dasc"
+#line 599 "fd_vm_jitproto.dasc"
       // TODO translate
       // TODO check align
       break;
@@ -794,44 +793,44 @@ static const unsigned char actions[930] = {
     case 0x6a:  /* FD_SBPF_OP_STH */
       //| lea rdi, [dst64+offset]
       dasm_put(Dst, 456, (x86_dst), offset);
-#line 606 "fd_vm_jitproto.dasc"
+#line 605 "fd_vm_jitproto.dasc"
       // TODO translate
       // TODO check align
       //| mov word [rdi], imm
       dasm_put(Dst, 502, imm);
-#line 609 "fd_vm_jitproto.dasc"
+#line 608 "fd_vm_jitproto.dasc"
       break;
 
     case 0x6b:  /* FD_SBPF_OP_STXH */
       //| lea rdi, [dst64+offset]
       dasm_put(Dst, 456, (x86_dst), offset);
-#line 613 "fd_vm_jitproto.dasc"
+#line 612 "fd_vm_jitproto.dasc"
       // TODO translate
       // TODO check align
       //| mov [rdi], src32
       dasm_put(Dst, 473, (x86_src));
-#line 616 "fd_vm_jitproto.dasc"
+#line 615 "fd_vm_jitproto.dasc"
       break;
 
     case 0x6c:  /* FD_SBPF_OP_LSH_REG */
       //| mov cl, src8
       //| shl dst32, cl
       dasm_put(Dst, 507, (x86_src), (x86_dst));
-#line 621 "fd_vm_jitproto.dasc"
+#line 620 "fd_vm_jitproto.dasc"
       break;
 
     case 0x6d:  /* FD_SBPF_OP_JSGT_REG */
       //| cmp dst64, src64
       //| jg =>jmp_dst_lbl
       dasm_put(Dst, 516, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 626 "fd_vm_jitproto.dasc"
+#line 625 "fd_vm_jitproto.dasc"
       break;
 
     case 0x6f:  /* FD_SBPF_OP_LSH64_REG */
       //| mov cl, src8
       //| shl dst64, cl
       dasm_put(Dst, 527, (x86_src), (x86_dst));
-#line 631 "fd_vm_jitproto.dasc"
+#line 630 "fd_vm_jitproto.dasc"
       break;
 
     /* 0x70 - 0x7f ******************************************************/
@@ -839,111 +838,111 @@ static const unsigned char actions[930] = {
     case 0x71:  /* FD_SBPF_OP_LDXB */
       //| lea rdi, [src64+offset]
       dasm_put(Dst, 456, (x86_src), offset);
-#line 637 "fd_vm_jitproto.dasc"
+#line 636 "fd_vm_jitproto.dasc"
       // TODO translate
       // TODO check align
       /* TODO is there a better way to zero upper and mov byte? */
       //| xor dst32, dst32
       //| mov Rb(x86_dst), [rdi]
       dasm_put(Dst, 537, (x86_dst), (x86_dst), (x86_dst));
-#line 642 "fd_vm_jitproto.dasc"
+#line 641 "fd_vm_jitproto.dasc"
       break;
 
     case 0x72:  /* FD_SBPF_OP_STB */
       //| lea rdi, [src64+offset]
       dasm_put(Dst, 456, (x86_src), offset);
-#line 646 "fd_vm_jitproto.dasc"
+#line 645 "fd_vm_jitproto.dasc"
       // TODO translate
       // TODO check align
       //| mov byte [rdi], imm
       dasm_put(Dst, 548, imm);
-#line 649 "fd_vm_jitproto.dasc"
+#line 648 "fd_vm_jitproto.dasc"
       break;
 
     case 0x73:  /* FD_SBPF_OP_STXB */
       //| lea rdi, [dst64+offset]
       dasm_put(Dst, 456, (x86_dst), offset);
-#line 653 "fd_vm_jitproto.dasc"
+#line 652 "fd_vm_jitproto.dasc"
       // TODO translate
       // TODO check align
       //| mov byte [rdi], Rb(x86_src)
       dasm_put(Dst, 552, (x86_src));
-#line 656 "fd_vm_jitproto.dasc"
+#line 655 "fd_vm_jitproto.dasc"
       break;
 
     case 0x74:  /* FD_SBPF_OP_RSH_IMM */
       //| shr dst32, imm
       dasm_put(Dst, 557, (x86_dst), imm);
-#line 660 "fd_vm_jitproto.dasc"
+#line 659 "fd_vm_jitproto.dasc"
       break;
 
     case 0x75:  /* FD_SBPF_OP_JSGE_IMM */
       //| cmp dst64, imm
       //| jge =>jmp_dst_lbl
       dasm_put(Dst, 563, (x86_dst), imm, jmp_dst_lbl);
-#line 665 "fd_vm_jitproto.dasc"
+#line 664 "fd_vm_jitproto.dasc"
       break;
 
     case 0x77:  /* FD_SBPF_OP_RSH64_IMM */
       //| shr dst64, imm
       dasm_put(Dst, 574, (x86_dst), imm);
-#line 669 "fd_vm_jitproto.dasc"
+#line 668 "fd_vm_jitproto.dasc"
       break;
 
     case 0x79:  /* FD_SBPF_OP_LDXQ */
       //| lea rdi, [src64+offset]
       dasm_put(Dst, 456, (x86_src), offset);
-#line 673 "fd_vm_jitproto.dasc"
+#line 672 "fd_vm_jitproto.dasc"
       // TODO translate
       // TODO check align
       //| mov dst64, [rdi]
       dasm_put(Dst, 581, (x86_dst));
-#line 676 "fd_vm_jitproto.dasc"
+#line 675 "fd_vm_jitproto.dasc"
       /* TODO need to skip ahead another instruction */
       break;
 
     case 0x7a:  /* FD_SBPF_OP_STQ */
       //| lea rdi, [dst64+offset]
       dasm_put(Dst, 456, (x86_dst), offset);
-#line 681 "fd_vm_jitproto.dasc"
+#line 680 "fd_vm_jitproto.dasc"
       // TODO translate
       // TODO check align
       //| mov rax, imm
       //| mov [rdi], rax
       dasm_put(Dst, 587, imm);
-#line 685 "fd_vm_jitproto.dasc"
+#line 684 "fd_vm_jitproto.dasc"
       break;
 
     case 0x7b:  /* FD_SBPF_OP_STXQ */
       //| lea rdi, [dst64+offset]
       dasm_put(Dst, 456, (x86_dst), offset);
-#line 689 "fd_vm_jitproto.dasc"
+#line 688 "fd_vm_jitproto.dasc"
       // TODO translate
       // TODO check align
       //| mov [rdi], src64
       dasm_put(Dst, 595, (x86_src));
-#line 692 "fd_vm_jitproto.dasc"
+#line 691 "fd_vm_jitproto.dasc"
       break;
 
     case 0x7c:  /* FD_SBPF_OP_RSH_REG */
       //| mov cl, src8
       //| shr dst32, cl
       dasm_put(Dst, 601, (x86_src), (x86_dst));
-#line 697 "fd_vm_jitproto.dasc"
+#line 696 "fd_vm_jitproto.dasc"
       break;
 
     case 0x7d:  /* FD_SBPF_OP_JSGE_REG */
       //| cmp dst64, src64
       //| jge =>jmp_dst_lbl
       dasm_put(Dst, 610, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 702 "fd_vm_jitproto.dasc"
+#line 701 "fd_vm_jitproto.dasc"
       break;
 
     case 0x7f:  /* FD_SBPF_OP_RSH64_REG */
       //| mov cl, src8
       //| shr dst64, cl
       dasm_put(Dst, 621, (x86_src), (x86_dst));
-#line 707 "fd_vm_jitproto.dasc"
+#line 706 "fd_vm_jitproto.dasc"
       break;
 
     /* 0x80-0x8f ********************************************************/
@@ -951,7 +950,7 @@ static const unsigned char actions[930] = {
     case 0x84:  /* FD_SBPF_OP_NEG */
       //| neg dst32
       dasm_put(Dst, 631, (x86_dst));
-#line 713 "fd_vm_jitproto.dasc"
+#line 712 "fd_vm_jitproto.dasc"
       break;
 
     case 0x85:  /* FD_SBPF_OP_CALL_IMM */
@@ -961,7 +960,7 @@ static const unsigned char actions[930] = {
     case 0x87:  /* FD_SBPF_OP_NEG64 */
       //| neg dst64
       dasm_put(Dst, 637, (x86_dst));
-#line 721 "fd_vm_jitproto.dasc"
+#line 720 "fd_vm_jitproto.dasc"
       break;
 
     case 0x8d:  /* FD_SBPF_OP_CALL_REG */
@@ -974,7 +973,7 @@ static const unsigned char actions[930] = {
       if( FD_UNLIKELY( imm==0 ) ) {
         //| jmp ->sigfpe
         dasm_put(Dst, 230);
-#line 732 "fd_vm_jitproto.dasc"
+#line 731 "fd_vm_jitproto.dasc"
         break;
       }
       //| xchg eax, dst32
@@ -983,20 +982,20 @@ static const unsigned char actions[930] = {
       //| div edi
       //| xchg edx, dst32
       dasm_put(Dst, 644, (x86_dst), imm, (x86_dst));
-#line 739 "fd_vm_jitproto.dasc"
+#line 738 "fd_vm_jitproto.dasc"
       break;
 
     case 0x95:  /* FD_SBPF_OP_EXIT */
       //| jmp ->leave
       dasm_put(Dst, 11);
-#line 743 "fd_vm_jitproto.dasc"
+#line 742 "fd_vm_jitproto.dasc"
       break;
 
     case 0x97:  /* FD_SBPF_OP_MOD64_IMM */
       if( FD_UNLIKELY( imm==0 ) ) {
         //| jmp ->sigfpe
         dasm_put(Dst, 230);
-#line 748 "fd_vm_jitproto.dasc"
+#line 747 "fd_vm_jitproto.dasc"
         break;
       }
       //| xchg rax, dst64
@@ -1005,18 +1004,18 @@ static const unsigned char actions[930] = {
       //| div rdi
       //| xchg rax, dst64
       dasm_put(Dst, 261, (x86_dst), imm, (x86_dst));
-#line 755 "fd_vm_jitproto.dasc"
+#line 754 "fd_vm_jitproto.dasc"
       break;
 
     case 0x9c:  /* FD_SBPF_OP_MOD_REG */
       //| test src32, src32
       //| jz ->sigfpe
       dasm_put(Dst, 281, (x86_src), (x86_src));
-#line 760 "fd_vm_jitproto.dasc"
+#line 759 "fd_vm_jitproto.dasc"
       if( x86_dst==x86_src ) {
         //| mov dst32, 0
         dasm_put(Dst, 660, (x86_dst));
-#line 762 "fd_vm_jitproto.dasc"
+#line 761 "fd_vm_jitproto.dasc"
         break;
       }
       //| xchg eax, dst32
@@ -1024,18 +1023,18 @@ static const unsigned char actions[930] = {
       //| div src32
       //| xchg edx, dst32
       dasm_put(Dst, 668, (x86_dst), (x86_src), (x86_dst));
-#line 768 "fd_vm_jitproto.dasc"
+#line 767 "fd_vm_jitproto.dasc"
       break;
 
     case 0x9f:  /* FD_SBPF_OP_MOD64_REG */
       //| test src64, src64
       //| jz ->sigfpe
       dasm_put(Dst, 326, (x86_src), (x86_src));
-#line 773 "fd_vm_jitproto.dasc"
+#line 772 "fd_vm_jitproto.dasc"
       if( x86_dst==x86_src ) {
         //| mov dst32, 0
         dasm_put(Dst, 660, (x86_dst));
-#line 775 "fd_vm_jitproto.dasc"
+#line 774 "fd_vm_jitproto.dasc"
         break;
       }
       //| xchg rax, dst64
@@ -1043,7 +1042,7 @@ static const unsigned char actions[930] = {
       //| div src64
       //| xchg rdx, dst64
       dasm_put(Dst, 684, (x86_dst), (x86_src), (x86_dst));
-#line 781 "fd_vm_jitproto.dasc"
+#line 780 "fd_vm_jitproto.dasc"
       break;
 
     /* 0xa0 - 0xaf ******************************************************/
@@ -1051,40 +1050,40 @@ static const unsigned char actions[930] = {
     case 0xa4:  /* FD_SBPF_OP_XOR_IMM */
       //| xor dst32, imm
       dasm_put(Dst, 703, (x86_dst), imm);
-#line 787 "fd_vm_jitproto.dasc"
+#line 786 "fd_vm_jitproto.dasc"
       break;
 
     case 0xa5:  /* FD_SBPF_OP_JLT_IMM */
       //| cmp dst64, imm
       //| jb =>jmp_dst_lbl
       dasm_put(Dst, 710, (x86_dst), imm, jmp_dst_lbl);
-#line 792 "fd_vm_jitproto.dasc"
+#line 791 "fd_vm_jitproto.dasc"
       break;
 
     case 0xa7:  /* FD_SBPF_OP_XOR64_IMM */
       // TODO sign extension
       //| xor dst64, imm
       dasm_put(Dst, 721, (x86_dst), imm);
-#line 797 "fd_vm_jitproto.dasc"
+#line 796 "fd_vm_jitproto.dasc"
       break;
 
     case 0xac:  /* FD_SBPF_OP_XOR_REG */
       //| xor dst32, src32
       dasm_put(Dst, 729, (x86_src), (x86_dst));
-#line 801 "fd_vm_jitproto.dasc"
+#line 800 "fd_vm_jitproto.dasc"
       break;
 
     case 0xad:  /* FD_SBPF_OP_JLT_REG */
       //| cmp dst64, src64
       //| jb =>jmp_dst_lbl
       dasm_put(Dst, 736, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 806 "fd_vm_jitproto.dasc"
+#line 805 "fd_vm_jitproto.dasc"
       break;
 
     case 0xaf:  /* FD_SBPF_OP_XOR64_REG */
       //| xor dst64, src64
       dasm_put(Dst, 747, (x86_src), (x86_dst));
-#line 810 "fd_vm_jitproto.dasc"
+#line 809 "fd_vm_jitproto.dasc"
       break;
 
     /* 0xb0 - 0xbf ******************************************************/
@@ -1092,39 +1091,39 @@ static const unsigned char actions[930] = {
     case 0xb4:  /* FD_SBPF_OP_MOV_IMM */
       //| mov dst32, imm
       dasm_put(Dst, 755, (x86_dst), imm);
-#line 816 "fd_vm_jitproto.dasc"
+#line 815 "fd_vm_jitproto.dasc"
       break;
 
     case 0xb5:  /* FD_SBPF_OP_JLE_IMM */
       //| cmp dst64, imm
       //| jbe =>jmp_dst_lbl
       dasm_put(Dst, 760, (x86_dst), imm, jmp_dst_lbl);
-#line 821 "fd_vm_jitproto.dasc"
+#line 820 "fd_vm_jitproto.dasc"
       break;
 
     case 0xb7:  /* FD_SBPF_OP_MOV64_IMM */
       //| mov dst64, imm
       dasm_put(Dst, 141, (x86_dst), imm);
-#line 825 "fd_vm_jitproto.dasc"
+#line 824 "fd_vm_jitproto.dasc"
       break;
 
     case 0xbc:  /* FD_SBPF_OP_MOV_REG */
       //| mov dst32, src32
       dasm_put(Dst, 771, (x86_src), (x86_dst));
-#line 829 "fd_vm_jitproto.dasc"
+#line 828 "fd_vm_jitproto.dasc"
       break;
 
     case 0xbd:  /* FD_SBPF_OP_JLE_REG */
       //| cmp dst64, src64
       //| jbe =>jmp_dst_lbl
       dasm_put(Dst, 778, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 834 "fd_vm_jitproto.dasc"
+#line 833 "fd_vm_jitproto.dasc"
       break;
 
     case 0xbf:  /* FD_SBPF_OP_MOV64_REG */
       //| mov dst64, src64
       dasm_put(Dst, 789, (x86_src), (x86_dst));
-#line 838 "fd_vm_jitproto.dasc"
+#line 837 "fd_vm_jitproto.dasc"
       break;
 
     /* 0xc0 - 0xcf ******************************************************/
@@ -1132,41 +1131,41 @@ static const unsigned char actions[930] = {
     case 0xc4:  /* FD_SBPF_OP_ARSH_IMM */
       //| sar dst32, imm
       dasm_put(Dst, 797, (x86_dst), imm);
-#line 844 "fd_vm_jitproto.dasc"
+#line 843 "fd_vm_jitproto.dasc"
       break;
 
     case 0xc5:  /* FD_SBPF_OP_JSLT_IMM */
       //| cmp dst64, imm
       //| jl =>jmp_dst_lbl
       dasm_put(Dst, 804, (x86_dst), imm, jmp_dst_lbl);
-#line 849 "fd_vm_jitproto.dasc"
+#line 848 "fd_vm_jitproto.dasc"
       break;
 
     case 0xc7:  /* FD_SBPF_OP_ARSH64_IMM */
       //| sar dst64, imm
       dasm_put(Dst, 815, (x86_dst), imm);
-#line 853 "fd_vm_jitproto.dasc"
+#line 852 "fd_vm_jitproto.dasc"
       break;
 
     case 0xcc:  /* FD_SBPF_OP_ARSH_REG */
       //| mov cl, src8
       //| sar dst32, cl
       dasm_put(Dst, 823, (x86_src), (x86_dst));
-#line 858 "fd_vm_jitproto.dasc"
+#line 857 "fd_vm_jitproto.dasc"
       break;
 
     case 0xcd:  /* FD_SBPF_OP_JSLT_REG */
       //| cmp dst64, src64
       //| jl =>jmp_dst_lbl
       dasm_put(Dst, 833, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 863 "fd_vm_jitproto.dasc"
+#line 862 "fd_vm_jitproto.dasc"
       break;
 
     case 0xcf:  /* FD_SBPF_OP_ARSH64_REG */
       //| mov cl, src8
       //| sar dst64, cl
       dasm_put(Dst, 844, (x86_src), (x86_dst));
-#line 868 "fd_vm_jitproto.dasc"
+#line 867 "fd_vm_jitproto.dasc"
       break;
 
     /* 0xd0 - 0xdf ******************************************************/
@@ -1179,7 +1178,7 @@ static const unsigned char actions[930] = {
       //| cmp dst64, imm
       //| jle =>jmp_dst_lbl
       dasm_put(Dst, 855, (x86_dst), imm, jmp_dst_lbl);
-#line 879 "fd_vm_jitproto.dasc"
+#line 878 "fd_vm_jitproto.dasc"
       break;
 
     case 0xdc:  /* FD_SBPF_OP_END_BE */
@@ -1188,17 +1187,17 @@ static const unsigned char actions[930] = {
         //| movzx dst32, Rw(x86_dst)
         //| ror Rw(x86_dst), 8
         dasm_put(Dst, 866, (x86_dst), (x86_dst), (x86_dst));
-#line 886 "fd_vm_jitproto.dasc"
+#line 885 "fd_vm_jitproto.dasc"
         break;
       case 32U:
         //| bswap dst32
         dasm_put(Dst, 880, (x86_dst));
-#line 889 "fd_vm_jitproto.dasc"
+#line 888 "fd_vm_jitproto.dasc"
         break;
       case 64U:
         //| bswap dst64
         dasm_put(Dst, 885, (x86_dst));
-#line 892 "fd_vm_jitproto.dasc"
+#line 891 "fd_vm_jitproto.dasc"
         break;
       default:
         break;
@@ -1210,7 +1209,7 @@ static const unsigned char actions[930] = {
       //| cmp dst64, src64
       //| jle =>jmp_dst_lbl
       dasm_put(Dst, 891, (x86_src), (x86_dst), jmp_dst_lbl);
-#line 902 "fd_vm_jitproto.dasc"
+#line 901 "fd_vm_jitproto.dasc"
       break;
 
     default:
@@ -1228,7 +1227,7 @@ static const unsigned char actions[930] = {
   //| mov rax, 999
   //| jmp ->leave
   dasm_put(Dst, 902);
-#line 918 "fd_vm_jitproto.dasc"
+#line 917 "fd_vm_jitproto.dasc"
 
   //|->leave:
   //| pop rbx
@@ -1239,7 +1238,7 @@ static const unsigned char actions[930] = {
   //| leave
   //| ret
   dasm_put(Dst, 916);
-#line 927 "fd_vm_jitproto.dasc"
+#line 926 "fd_vm_jitproto.dasc"
 
   /* Finish genearting code */
 

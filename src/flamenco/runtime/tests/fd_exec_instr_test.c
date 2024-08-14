@@ -1695,7 +1695,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     input_regions[i].haddr = (ulong)array->bytes;
     input_regions[i].region_sz = array->size;
     input_regions[i].is_writable = region->is_writable;
-    input_regions[i].pubkey = NULL;
 
     input_data_offset += array->size;
   }

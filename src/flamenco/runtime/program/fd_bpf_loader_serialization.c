@@ -46,8 +46,7 @@ new_input_mem_region( fd_vm_input_region_t * input_mem_regions,
                       uint *                 input_mem_regions_cnt,
                       const uchar *          buffer,
                       ulong                  region_sz,
-                      uint                   is_writable,
-                      fd_pubkey_t * const    pubkey ) {
+                      uint                   is_writable ) {
 
   /* The start vaddr of the new region should be equal to start of the previous
      region added to its size. */
@@ -57,7 +56,6 @@ new_input_mem_region( fd_vm_input_region_t * input_mem_regions,
   input_mem_regions[ *input_mem_regions_cnt ].haddr        = (ulong)buffer;
   input_mem_regions[ *input_mem_regions_cnt ].region_sz    = (uint)region_sz;
   input_mem_regions[ *input_mem_regions_cnt ].vaddr_offset = vaddr_offset;
-  input_mem_regions[ *input_mem_regions_cnt ].pubkey       = pubkey;
   (*input_mem_regions_cnt)++;
 }
 
@@ -100,7 +98,7 @@ write_account( fd_exec_instr_ctx_t *     instr_ctx,
     /* TODO: This region always has length of 96 and this can be set as a constant. */
 
     ulong region_sz = (ulong)(*serialized_params) - (ulong)(*serialized_params_start);
-    new_input_mem_region( input_mem_regions, input_mem_regions_cnt, *serialized_params_start, region_sz, 1, NULL );
+    new_input_mem_region( input_mem_regions, input_mem_regions_cnt, *serialized_params_start, region_sz, 1L );
 
     /* Next, push the region for the account data if there is account data. We 
        intentionally omit copy on write as a region type. */
@@ -114,7 +112,7 @@ write_account( fd_exec_instr_ctx_t *     instr_ctx,
                                                                  .has_resizing_region = (uchar)is_aligned };
     
     if( account->const_meta->dlen ) {
-      new_input_mem_region( input_mem_regions, input_mem_regions_cnt, account->const_data, account->const_meta->dlen, is_writable, account->pubkey );
+      new_input_mem_region( input_mem_regions, input_mem_regions_cnt, account->const_data, account->const_meta->dlen, is_writable );
     }
 
     if( FD_LIKELY( is_aligned ) ) {
@@ -134,7 +132,7 @@ write_account( fd_exec_instr_ctx_t *     instr_ctx,
       /* Leave a gap for alignment */
       uchar * region_buffer = *serialized_params + (FD_BPF_ALIGN_OF_U128 - align_offset);
       ulong   region_sz     = MAX_PERMITTED_DATA_INCREASE + align_offset;
-      new_input_mem_region( input_mem_regions, input_mem_regions_cnt, region_buffer, region_sz, is_writable, account->pubkey );
+      new_input_mem_region( input_mem_regions, input_mem_regions_cnt, region_buffer, region_sz, is_writable );
 
       *serialized_params += MAX_PERMITTED_DATA_INCREASE + FD_BPF_ALIGN_OF_U128;
     }
@@ -336,7 +334,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t       ctx,
 
   /* Write out the final region. */
   new_input_mem_region( input_mem_regions, input_mem_regions_cnt, curr_serialized_params_start, 
-                        (ulong)(serialized_params - curr_serialized_params_start), 1, NULL );
+                        (ulong)(serialized_params - curr_serialized_params_start), 1 );
 
   *sz = serialized_size;
 
@@ -647,7 +645,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t       ctx,
   *sz = serialized_size;
 
   new_input_mem_region( input_mem_regions, input_mem_regions_cnt, curr_serialized_params_start,
-              (ulong)(serialized_params - curr_serialized_params_start), 1, NULL );
+              (ulong)(serialized_params - curr_serialized_params_start), 1 );
 
   return serialized_params_start;
 }
