@@ -30,7 +30,6 @@ $(call make-unit-test,test_quic_server,test_quic_server,            fd_quic fd_t
 $(call make-unit-test,test_quic_txns,  test_quic_txns,              fd_quic fd_tls fd_ballet fd_waltz fd_util)
 
 $(call make-unit-test,test_quic_frames,test_frames,fd_quic fd_util)
-# $(call make-unit-test,test_quic_flow_control,test_quic_flow_control,fd_quic fd_ballet fd_waltz fd_util)
 $(call make-unit-test,test_quic_retry_unit,test_quic_retry_unit,fd_quic fd_ballet fd_waltz fd_util)
 $(call make-unit-test,test_quic_retry_integration,test_quic_retry_integration,fd_quic fd_tls fd_ballet fd_waltz fd_util)
 $(call make-unit-test,test_quic_arp_server,arp/test_quic_arp_server,fd_quic fd_tls fd_ballet fd_waltz fd_util)
@@ -44,5 +43,4 @@ $(call make-fuzz-test,fuzz_quic_wire,fuzz_quic_wire,fd_quic fd_tls fd_ballet fd_
 endif
 
 $(call run-unit-test,test_quic_frames)
-# $(call run-unit-test,test_quic_flow_control)
 endif

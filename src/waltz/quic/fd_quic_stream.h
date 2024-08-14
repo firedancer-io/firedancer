@@ -45,14 +45,12 @@ struct fd_quic_stream {
   uint stream_flags;   /* flags representing elements that require action */
 # define FD_QUIC_STREAM_FLAGS_TX_FIN          (1u<<0u)
 # define FD_QUIC_STREAM_FLAGS_RX_FIN          (1u<<1u)
-# define FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA (1u<<2u)
 # define FD_QUIC_STREAM_FLAGS_UNSENT          (1u<<3u)
 # define FD_QUIC_STREAM_FLAGS_DEAD            (1u<<4u)
 
 # define FD_QUIC_STREAM_FLAGS_ACTION                   \
            ( FD_QUIC_STREAM_FLAGS_TX_FIN           |   \
              FD_QUIC_STREAM_FLAGS_RX_FIN           |   \
-             FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA  |   \
              FD_QUIC_STREAM_FLAGS_UNSENT           )
 
 # define FD_QUIC_STREAM_ACTION(stream) \
@@ -91,9 +89,6 @@ struct fd_quic_stream {
   ulong  tx_last_byte;       /* the index of the last byte of the stream
                                 valid only if FD_QUIC_STREAM_FLAGS_TX_FIN set */
 
-  ulong  rx_max_stream_data; /* the limit on the number of bytes we allow the peer to
-                                  send to us */
-  ulong  rx_max_stream_data_ackd;
                              /* the largest acked value of rx_max_stream_data */
   ulong  rx_tot_data;        /* the total number of bytes received on this stream */
 
@@ -236,16 +231,6 @@ fd_quic_stream_set_context( fd_quic_stream_t * stream, void * context );
      context     the user defined context associated with the stream */
 void *
 fd_quic_stream_get_context( fd_quic_stream_t * stream );
-
-/* set rx max stream data
-
-   This allows the peer to send more data on this stream
-
-   args
-     stream               the stream to change
-     rx_max_stream_data   the new max_stream_data to set on the stream */
-void
-fd_quic_stream_set_rx_max_stream_data( fd_quic_stream_t * stream, ulong rx_max_stream_data );
 
 
 /* set stream connection
