@@ -346,7 +346,6 @@ fd_quic_stream_init( fd_quic_stream_t * stream ) {
   stream->tx_tot_data        = 0;
   stream->tx_last_byte       = 0;
 
-  stream->rx_max_stream_data = 0;
   stream->rx_tot_data        = 0;
 
   stream->upd_pkt_number     = 0;
@@ -957,11 +956,6 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
                                      conn->tx_initial_max_stream_data_bidi_local,
                                      conn->tx_initial_max_stream_data_uni );
 
-  /* probably we should add rx_buf */
-  stream->rx_max_stream_data = fd_ulong_if( dirtype == FD_QUIC_TYPE_BIDIR,
-                                     conn->rx_initial_max_stream_data_bidi_local,
-                                     0ul );
-
   /* set state depending on stream type */
   stream->state = fd_uint_if( dirtype == FD_QUIC_TYPE_UNIDIR,
                               FD_QUIC_STREAM_STATE_RX_FIN,
@@ -1116,11 +1110,6 @@ fd_quic_stream_fin( fd_quic_stream_t * stream ) {
 void
 fd_quic_conn_set_rx_max_data( fd_quic_conn_t * conn, ulong rx_max_data ) {
   conn->rx_max_data = rx_max_data;
-}
-
-void
-fd_quic_stream_set_rx_max_stream_data( fd_quic_stream_t * stream, ulong rx_max_stream_data ) {
-  stream->rx_max_stream_data = rx_max_stream_data;
 }
 
 /* packet processing */
@@ -4431,49 +4420,6 @@ fd_quic_conn_tx( fd_quic_t *      quic,
                 }
               }
 
-              /* if we need to send a max_data frame, and we have space to
-               * track it in pkt_meta */
-              if( ( cur_stream->stream_flags & FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA )
-                  && pkt_meta_var_idx < FD_QUIC_PKT_META_VAR_MAX ) {
-                /* send max_stream_data frame */
-                frame.max_stream_data.stream_id       = cur_stream->stream_id;
-                frame.max_stream_data.max_stream_data = cur_stream->rx_max_stream_data;
-
-                /* attempt to write into buffer */
-                frame_sz = fd_quic_encode_max_stream_data( payload_ptr,
-                                                           (ulong)( payload_end - payload_ptr ),
-                                                           &frame.max_stream_data );
-                if( FD_LIKELY( frame_sz != FD_QUIC_PARSE_FAIL ) ) {
-                  /* successful? then update payload_ptr and tot_frame_sz */
-                  payload_ptr  += frame_sz;
-                  tot_frame_sz += frame_sz;
-
-                  /* and set actual pkt_number on the stream */
-                  cur_stream->upd_pkt_number = pkt_number;
-
-                  /* set flag on pkt meta */
-                  pkt_meta->flags           |= FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA;
-                  pkt_meta->expiry           = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
-
-                  /* add max_data to pkt_meta->var */
-                  pkt_meta->var[pkt_meta_var_idx].key =
-                                                FD_QUIC_PKT_META_KEY(
-                                                  FD_QUIC_PKT_META_TYPE_MAX_STREAM_DATA,
-                                                  0,
-                                                  cur_stream->stream_id );
-                  pkt_meta->var[pkt_meta_var_idx].value = frame.max_stream_data.max_stream_data;
-                  pkt_meta_var_idx++;
-                  pkt_meta->var_sz = (uchar)pkt_meta_var_idx; /* TODO consolidate var_sz updates */
-
-                  /* remove flag from cur_stream */
-                  cur_stream->stream_flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
-                  if( !FD_QUIC_STREAM_ACTION( cur_stream ) ) {
-                    /* remove cur_stream from action list */
-                    FD_QUIC_STREAM_LIST_REMOVE( cur_stream );
-                    FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->used_streams, cur_stream );
-                  }
-                }
-              }
             }
 
             cur_stream = nxt_stream;
@@ -5538,38 +5484,6 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
       conn->flags         |= FD_QUIC_CONN_FLAGS_PING_SENT;
       conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
     }
-    if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA    ) {
-      /* iterate thru the variable section of the pkt_meta
-       * and set the max_stream_data to resend for each
-       * appropriate entry */
-      ulong var_sz = pkt_meta->var_sz;
-      for( ulong j = 0UL; j < var_sz; ++j ) {
-        if( pkt_meta->var[j].key.type  == FD_QUIC_PKT_META_TYPE_MAX_STREAM_DATA ) {
-          ulong stream_id = FD_QUIC_PKT_META_STREAM_ID( pkt_meta->var[j].key );
-
-          /* find the stream */
-          fd_quic_stream_t *     stream       = NULL;
-          fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
-          if( FD_LIKELY( stream_entry &&
-                ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) == 0 ) ) {
-            stream = stream_entry->stream;
-
-            /* do we have something to send? */
-            if( stream->rx_max_stream_data > stream->rx_max_stream_data_ackd ) {
-              if( FD_LIKELY( stream->stream_flags & FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA ) ) {
-                if( !FD_QUIC_STREAM_ACTION( stream ) ) {
-                  /* add to list */
-                  FD_QUIC_STREAM_LIST_REMOVE( stream );
-                  FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
-                }
-                stream->stream_flags  |= FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
-                stream->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
-              }
-            }
-          }
-        }
-      }
-    }
     if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR ) {
       /* do we still need to send? */
       /* get required value */
@@ -5826,44 +5740,6 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 
     /* set the ackd value */
     conn->rx_max_streams_unidir_ackd = max_streams_unidir_ackd;
-  }
-
-  if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA ) {
-    ulong var_sz = pkt_meta->var_sz;
-    for( ulong j = 0UL; j < var_sz; ++j ) {
-      fd_quic_pkt_meta_var_t * var = &pkt_meta->var[j];
-
-      if( var->key.type == FD_QUIC_PKT_META_TYPE_MAX_STREAM_DATA ) {
-        /* find stream */
-        ulong                  stream_id            = FD_QUIC_PKT_META_STREAM_ID( pkt_meta->var[j].key );
-        ulong                  max_stream_data_ackd = pkt_meta->var[j].value;
-        fd_quic_stream_t *     stream               = NULL;
-        fd_quic_stream_map_t * stream_entry         = fd_quic_stream_map_query(
-                                                        conn->stream_map,
-                                                        stream_id,
-                                                        NULL );
-        if( FD_LIKELY( stream_entry &&
-              ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) == 0 ) ) {
-          stream = stream_entry->stream;
-
-          /* set ackd value */
-          stream->rx_max_stream_data_ackd = fd_ulong_max(
-              stream->rx_max_stream_data_ackd,
-              max_stream_data_ackd );
-
-          /* clear flag, remove from list if necessary */
-          if( FD_LIKELY( stream->stream_flags & FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA ) ) {
-            stream->stream_flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
-            if( !FD_QUIC_STREAM_ACTION( stream ) ) {
-              /* remove from list */
-              FD_QUIC_STREAM_LIST_REMOVE( stream );
-              FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->used_streams, stream );
-            }
-          }
-
-        }
-      }
-    }
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_STREAM ) {
@@ -6450,7 +6326,6 @@ fd_quic_frame_handle_stream_frame(
     stream->tx_tot_data        = 0;
     stream->tx_last_byte       = 0;
 
-    stream->rx_max_stream_data = context.quic->config.initial_rx_max_stream_data;
     stream->rx_tot_data        = 0;
 
     stream->upd_pkt_number     = 0;
@@ -6460,7 +6335,7 @@ fd_quic_frame_handle_stream_frame(
 
   /* A receiver MUST close the connection with an error of type FLOW_CONTROL_ERROR if the sender
      violates the advertised connection or stream data limits */
-  if( FD_UNLIKELY( stream->rx_max_stream_data < offset + data_sz ) ) {
+  if( FD_UNLIKELY( context.quic->config.initial_rx_max_stream_data < offset + data_sz ) ) {
     fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_FLOW_CONTROL_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
@@ -6502,9 +6377,6 @@ fd_quic_frame_handle_stream_frame(
     conn->flags         |= FD_QUIC_CONN_FLAGS_MAX_DATA;
     conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
 
-    /* increase max_stream_data */
-    stream->rx_max_stream_data += delivered;
-
     /* ensure we ack the packet, and send any max data or max stream data
        frames */
     fd_quic_reschedule_conn( context.conn, 0 );
@@ -6531,8 +6403,6 @@ fd_quic_frame_handle_stream_frame(
       FD_QUIC_STREAM_LIST_REMOVE( stream );
       FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
     }
-
-    stream->stream_flags |= FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
   } else {
     if( offset > exp_offset ) {
       /* TODO technically "future" out of order bytes should be counted,
@@ -7130,19 +7000,13 @@ fd_quic_assign_stream( fd_quic_conn_t * conn, ulong stream_type, fd_quic_stream_
                                    ? conn->tx_initial_max_stream_data_bidi_local
                                    : 0UL;
 
-  /* probably we should add rx_buf */
-  stream->rx_max_stream_data = ( dirtype == FD_QUIC_TYPE_BIDIR )
-                                   ? conn->rx_initial_max_stream_data_bidi_local
-                                   : conn->rx_initial_max_stream_data_uni;
-
   /* send a max data update to allow data on this stream */
-  conn->rx_max_data   += stream->rx_max_stream_data;
+  conn->rx_max_data   += conn->quic->config.initial_rx_max_stream_data;
   conn->flags         |= FD_QUIC_CONN_FLAGS_MAX_DATA;
   conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
 
   /* set state depending on stream type */
-  stream->state        = FD_QUIC_STREAM_STATE_UNUSED;
-  stream->stream_flags = FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
+  stream->state = FD_QUIC_STREAM_STATE_UNUSED;
 
   /* update metrics */
   metrics->stream_opened_cnt[ next_stream_id&0x3 ]++;
