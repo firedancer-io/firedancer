@@ -297,6 +297,7 @@ _instr_context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->capture_ctx             = NULL;
   txn_ctx->vote_accounts_pool      = NULL;
   txn_ctx->accounts_resize_delta   = 0;
+  txn_ctx->instr_info_cnt          = 0;
   txn_ctx->instr_trace_length      = 0;
 
   memset( txn_ctx->_txn_raw, 0, sizeof(fd_rawtxn_b_t) );
