@@ -320,7 +320,7 @@ fd_blockstore_delete( void * shblockstore ) {
       }
     }
 
-    rc = fd_blockstore_slot_remove( blockstore, curr );
+    fd_blockstore_slot_remove( blockstore, curr );
     if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) {
       FD_LOG_ERR( ( "[fd_blockstore_remove] failed to remove slot %lu", curr ) );
     }
@@ -465,14 +465,16 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
 }
 
 /* Remove a slot from blockstore */
-int
+void
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
-  FD_LOG_DEBUG(( "[fd_blockstore_slot_remove] slot %lu", slot ));
+  FD_LOG_NOTICE(( "[%s] slot %lu", __func__, slot ));
   fd_block_map_t * block_map_entry = fd_block_map_remove( fd_blockstore_block_map( blockstore ), &slot );
-  if( FD_UNLIKELY( !block_map_entry ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+  if( FD_UNLIKELY( !block_map_entry ) ) return;
+
+  /* It is not safe to remove a replaying block. */
 
   if( FD_UNLIKELY( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) {
-    FD_LOG_ERR(( "[fd_blockstore_slot_remove] attempted to remove slot %lu that is still replaying.", slot ));
+    FD_LOG_WARNING(( "[%s] slot %lu has replay in progress. not removing.", __func__, slot ));
   }
 
   /* Unlink slot from its parent only if it is not published. */
@@ -488,6 +490,10 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
     }
   }
 
+  /* block_gaddr 0 indicates it hasn't received all shreds yet.
+  
+     TODO refactor to use FD_BLOCK_FLAG_COMPLETED. */
+
   if( FD_LIKELY( block_map_entry->block_gaddr == 0 ) ) {
 
     /* Remove buf_shreds if there's no block yet (we haven't received all shreds). */
@@ -502,9 +508,9 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
       }
     }
 
-    /* Return because there are no allocations without a block. */
+    /* Return early because there are no allocations without a block. */
 
-    return FD_BLOCKSTORE_OK;
+    return;
   }
 
   /* Remove all the allocations relating to a block. */
@@ -519,31 +525,23 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   FD_COMPILER_MFENCE();
   block_map_entry->block_gaddr = 0;
 
-  /* It is not safe to remove a preparing block. */
-
-  if( FD_LIKELY( !( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) ) {
-    uchar *              data = fd_wksp_laddr_fast( wksp, block->data_gaddr );
-    fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, block->txns_gaddr );
-    for( ulong j = 0; j < block->txns_cnt; ++j ) {
-      fd_blockstore_txn_key_t sig;
-      fd_memcpy( &sig, data + txns[j].id_off, sizeof( sig ) );
-      fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, &sig, NULL );
-      if( FD_LIKELY( txn_map_entry ) ) {
-        if( txn_map_entry->meta_gaddr && txn_map_entry->meta_owned ) {
-          fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, txn_map_entry->meta_gaddr ) );
-        }
-        fd_blockstore_txn_map_remove( txn_map, &sig );
+  uchar *              data = fd_wksp_laddr_fast( wksp, block->data_gaddr );
+  fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, block->txns_gaddr );
+  for( ulong j = 0; j < block->txns_cnt; ++j ) {
+    fd_blockstore_txn_key_t sig;
+    fd_memcpy( &sig, data + txns[j].id_off, sizeof( sig ) );
+    fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, &sig, NULL );
+    if( FD_LIKELY( txn_map_entry ) ) {
+      if( txn_map_entry->meta_gaddr && txn_map_entry->meta_owned ) {
+        fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, txn_map_entry->meta_gaddr ) );
       }
+      fd_blockstore_txn_map_remove( txn_map, &sig );
     }
-    if( block->micros_gaddr )
-      fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, block->micros_gaddr ) );
-    if( block->txns_gaddr ) fd_alloc_free( alloc, txns );
-    fd_alloc_free( alloc, block );
-  } else {
-    FD_LOG_WARNING( ( "[fd_blockstore_slot_remove] unable to remove preparing slot %lu", slot ) );
-    return FD_BLOCKSTORE_ERR_UNKNOWN;
   }
-  return FD_BLOCKSTORE_OK;
+  if( block->micros_gaddr ) fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, block->micros_gaddr ) );
+  if( block->txns_gaddr ) fd_alloc_free( alloc, txns );
+  fd_alloc_free( alloc, block );
+  return;
 }
 
 /* Remove all the unassembled shreds for a slot */
@@ -622,8 +620,8 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong smr ) {
 
       /* Remove the slot only if it is not finalized. */
 
-      int rc = fd_blockstore_slot_remove( blockstore, slot );
-      if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) return rc;
+      FD_LOG_NOTICE(( "[%s] pruning slot %lu", __func__, slot ));
+      fd_blockstore_slot_remove( blockstore, slot );
       prune_cnt++;
     }
   }
@@ -641,16 +639,11 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong smr ) {
   return FD_BLOCKSTORE_OK;
 }
 
-/* Deshred and construct a block once we've received all shreds for a slot. */
+/* Deshred into a block once we've received all shreds for a slot. */
+
 static int
-fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
-
-  if( FD_UNLIKELY( fd_block_map_key_cnt( fd_blockstore_block_map( blockstore ) ) ==
-                   fd_block_map_key_max( fd_blockstore_block_map( blockstore ) ) ) ) {
-    return FD_BLOCKSTORE_ERR_SLOT_FULL;
-  }
-
-  FD_LOG_DEBUG( ( "[fd_blockstore_deshred] slot %lu", slot ) );
+deshred( fd_blockstore_t * blockstore, ulong slot ) {
+  FD_LOG_DEBUG(( "[%s] slot %lu", __func__, slot ));
 
   fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, slot );
   FD_TEST( block_map_entry->block_gaddr == 0 ); /* FIXME duplicate blocks are not supported */
@@ -665,15 +658,9 @@ fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
   ulong shred_cnt = block_map_entry->complete_idx + 1;
   for( uint idx = 0; idx < shred_cnt; idx++ ) {
     fd_shred_key_t key = { .slot = slot, .idx = idx };
-    // explicitly query the shred map here because the payload should immediately follow the header
-    fd_buf_shred_t const * query = fd_buf_shred_map_ele_query_const( shred_map,
-                                                                     &key,
-                                                                     NULL,
-                                                                     shred_pool );
-
+    fd_buf_shred_t const * query = fd_buf_shred_map_ele_query_const( shred_map, &key, NULL, shred_pool );
     if( FD_UNLIKELY( !query ) ) {
-      FD_LOG_WARNING( ( "missing shred while deshredding." ) );
-      return FD_BLOCKSTORE_OK;
+      FD_LOG_ERR(( "[%s] missing shred slot: %lu idx: %u while deshredding", __func__, slot, idx ));
     }
     block_sz += fd_shred_payload_sz( &query->hdr );
   }
@@ -761,6 +748,9 @@ fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
                                                                 micros[block->micros_cnt - 1].off );
     memcpy( &block_map_entry->block_hash, last_micro->hash, sizeof( fd_hash_t ) );
 
+    block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_SHREDDING );
+    block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_COMPLETED );
+
     return FD_BLOCKSTORE_OK;
   case FD_SHRED_EBATCH:
   case FD_SHRED_EPIPE:
@@ -791,6 +781,7 @@ fail_deshred:
 
 int
 fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
+  FD_LOG_DEBUG(( "[%s] slot %lu idx %u", __func__, shred->slot, shred->idx ));
 
   /* Check this shred > SMR. We ignore shreds before the SMR because by
      it is invariant that we must have a connected, linear chain for the
@@ -842,28 +833,18 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
   fd_block_map_t * block_map_entry = fd_block_map_query( block_map, &slot, NULL );
   if( FD_UNLIKELY( !block_map_entry ) ) {
 
-    /* If block_map is full, try to evict blockstore->min. */
-
     if( FD_UNLIKELY( fd_block_map_key_cnt( block_map ) == fd_block_map_key_max( block_map ) ) ) {
-      fd_block_map_t * block_map = fd_blockstore_block_map( blockstore );
+
       if( FD_UNLIKELY( blockstore->min == blockstore->smr ) ) {
-        FD_LOG_ERR(( "blockstore is full but min %lu equals smr %lu. halting.", blockstore->min, blockstore->smr ));
+        FD_LOG_ERR(( "[%s] blockstore->min %lu is smr %lu. unable to evict full blockstore.", __func__, blockstore->min, blockstore->smr ));
       }
 
-      fd_block_map_t * min = fd_block_map_query( block_map, &blockstore->min, NULL );
+      /* If block_map is full, evict everything through the SMR. */
 
-      if( FD_UNLIKELY( min->child_slot_cnt > 1 ) ) {
-        FD_LOG_ERR( ( "blockstore->min %lu before blockstore->smr %lu has %lu forks, expected only one",
-                      blockstore->min,
-                      blockstore->smr,
-                      min->child_slot_cnt ) );
+      for( ulong slot = blockstore->min; slot < blockstore->smr; slot++ ) {
+        FD_LOG_NOTICE(("[%s] evicting slot %lu", __func__, slot ));
+        fd_blockstore_slot_remove( blockstore, slot );
       }
-
-      blockstore->min = min->child_slots[0];
-      int rc          = fd_blockstore_slot_remove( blockstore, min->slot );
-      if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) {
-        FD_LOG_ERR( ( "issue evicting blockstore->min %d.", rc ) );
-      };
     }
 
     /* Try to insert slot into block_map */
@@ -886,7 +867,7 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
     block_map_entry->height         = 0;
     block_map_entry->block_hash     = ( fd_hash_t ){ 0 };
     block_map_entry->bank_hash      = ( fd_hash_t ){ 0 };
-    block_map_entry->flags          = 0;
+    block_map_entry->flags          = fd_uchar_set_bit( 0, FD_BLOCK_FLAG_SHREDDING );
     block_map_entry->ts             = 0;
     block_map_entry->reference_tick = (uchar)( (int)shred->data.flags &
                                                (int)FD_SHRED_DATA_REF_TICK_MASK );
@@ -945,7 +926,7 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
   /* Received all shreds, so try to assemble a block. */
   FD_LOG_DEBUG( ( "received all shreds for slot %lu - now building a block", shred->slot ) );
 
-  int rc = fd_blockstore_deshred( blockstore, shred->slot );
+  int rc = deshred( blockstore, shred->slot );
   switch( rc ) {
   case FD_BLOCKSTORE_OK:
     return FD_BLOCKSTORE_OK_SLOT_COMPLETE;
@@ -1322,8 +1303,12 @@ fd_blockstore_init( fd_blockstore_t * blockstore, fd_slot_bank_t const * slot_ba
   block_map_entry->bank_hash       = slot_bank->banks_hash;
   block_map_entry->flags           = fd_uchar_set_bit(
                                      fd_uchar_set_bit(
+                                     fd_uchar_set_bit(
+                                     fd_uchar_set_bit(
                                      fd_uchar_set_bit( block_map_entry->flags,
+                                       FD_BLOCK_FLAG_COMPLETED ),
                                        FD_BLOCK_FLAG_PROCESSED ),
+                                       FD_BLOCK_FLAG_EQVOCSAFE ),
                                        FD_BLOCK_FLAG_CONFIRMED ),
                                        FD_BLOCK_FLAG_FINALIZED );
   block_map_entry->reference_tick  = 0;

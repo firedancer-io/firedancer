@@ -790,7 +790,6 @@ after_frag( void *             _ctx,
 
       if( FD_LIKELY( block_ ) ) {
         block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
-        FD_COMPILER_MFENCE();
         block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
         memcpy( &block_map_entry->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
       }
