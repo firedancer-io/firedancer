@@ -20,9 +20,9 @@
 /* Max number of validators that can be actively queried */
 #define FD_ACTIVE_KEY_MAX (1<<12)
 /* Max number of pending shred requests */
-#define FD_NEEDED_KEY_MAX (1<<18)
+#define FD_NEEDED_KEY_MAX (1<<20)
 /* Max number of sticky repair peers */
-#define FD_REPAIR_STICKY_MAX   1024
+#define FD_REPAIR_STICKY_MAX   128
 /* Max number of validator identities in stake weights */
 #define FD_STAKE_WEIGHTS_MAX (1<<14)
 /* Max number of validator clients that we ping */
@@ -30,7 +30,7 @@
 /* Sha256 pre-image size for pings */
 #define FD_PING_PRE_IMAGE_SZ (48UL)
 /* Number of peers to send requests to. */
-#define FD_REPAIR_NUM_NEEDED_PEERS (8)
+#define FD_REPAIR_NUM_NEEDED_PEERS (4)
 
 /* Test if two hash values are equal */
 static int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
@@ -104,13 +104,14 @@ struct fd_dupdetect_key {
   enum fd_needed_elem_type type;
   ulong slot;
   uint shred_index;
-  uint req_cnt;
 };
 typedef struct fd_dupdetect_key fd_dupdetect_key_t;
 
 struct fd_dupdetect_elem {
   fd_dupdetect_key_t key;
-  ulong next;
+  long               last_send_time;
+  uint               req_cnt;
+  ulong              next;
 };
 typedef struct fd_dupdetect_elem fd_dupdetect_elem_t;
 
@@ -454,7 +455,7 @@ fd_repair_sign_and_send( fd_repair_t *           glob,
 static void
 fd_repair_send_requests( fd_repair_t * glob ) {
   /* Garbage collect old requests */
-  long expire = glob->now - (long)1000e6; /* 1 seconds */
+  long expire = glob->now - (long)5000e6; /* 1 seconds */
   fd_repair_nonce_t n;
   for ( n = glob->oldest_nonce; n != glob->next_nonce; ++n ) {
     fd_needed_elem_t * ele = fd_needed_table_query( glob->needed, &n, NULL );
@@ -464,7 +465,7 @@ fd_repair_send_requests( fd_repair_t * glob ) {
       break;
     // (*glob->deliver_fail_fun)( &ele->key, ele->slot, ele->shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_TIMEOUT );
     fd_dupdetect_elem_t * dup = fd_dupdetect_table_query( glob->dupdetect, &ele->dupkey, NULL );
-    if( dup && --dup->key.req_cnt == 0) {
+    if( dup && --dup->req_cnt == 0) {
       fd_dupdetect_table_remove( glob->dupdetect, &ele->dupkey );
     }
     fd_needed_table_remove( glob->needed, &n );
@@ -482,7 +483,7 @@ fd_repair_send_requests( fd_repair_t * glob ) {
     if ( NULL == ele )
       continue;
 
-    if(j == 16U) break;
+    if(j == 128U) break;
     ++j;
 
     /* Track statistics */
@@ -491,7 +492,7 @@ fd_repair_send_requests( fd_repair_t * glob ) {
     fd_active_elem_t * active = fd_active_table_query( glob->actives, &ele->id, NULL );
     if ( active == NULL) {
       fd_dupdetect_elem_t * dup = fd_dupdetect_table_query( glob->dupdetect, &ele->dupkey, NULL );
-      if( dup && --dup->key.req_cnt == 0) {
+      if( dup && --dup->req_cnt == 0) {
         fd_dupdetect_table_remove( glob->dupdetect, &ele->dupkey );
       }
       fd_needed_table_remove( glob->needed, &n );
@@ -703,8 +704,8 @@ is_good_peer( fd_active_elem_t * val ) {
   if( val->avg_reqs > 10U && val->avg_reps == 0U )  return -1;         /* Bad, no response after 10 requests */
   if( val->avg_reqs < 20U ) return 0;                                  /* Not sure yet, good enough for now */
   if( (float)val->avg_reps < 0.01f*((float)val->avg_reqs) ) return -1; /* Very bad */
-  if( (float)val->avg_reps < 0.5f*((float)val->avg_reqs) ) return 0;   /* 80%, Good but not great */
-  if( (float)val->avg_lat > 0.3e9f*((float)val->avg_reps) ) return 0;  /* 300ms, Good but not great */
+  if( (float)val->avg_reps < 0.8f*((float)val->avg_reqs) ) return 0;   /* 80%, Good but not great */
+  if( (float)val->avg_lat > 2500e9f*((float)val->avg_reps) ) return 0;  /* 300ms, Good but not great */
   return 1;                                                            /* Great! */
 }
 
@@ -838,12 +839,13 @@ fd_actives_shuffle( fd_repair_t * repair ) {
     repair->actives_sticky_cnt = tot_cnt;
 
     FD_LOG_NOTICE(
-        ( "selected %lu (previously: %lu) peers for repair (best was %lu, good was %lu, leftovers was %lu)",
+        ( "selected %lu (previously: %lu) peers for repair (best was %lu, good was %lu, leftovers was %lu) (nonce_diff: %lu)",
           tot_cnt,
           prev_sticky_cnt,
           best_cnt,
           good_cnt,
-          leftovers_cnt ) );
+          leftovers_cnt,
+          repair->next_nonce - repair->current_nonce ) );
   }
   FD_SCRATCH_SCOPE_END;
 }
@@ -891,12 +893,18 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
     return -1;
   };
 
-  fd_dupdetect_key_t dupkey = { .type = (enum fd_needed_elem_type)type, .slot = slot, .shred_index = shred_index, .req_cnt = peer_cnt };
-  if( fd_dupdetect_table_query( glob->dupdetect, &dupkey, NULL ) != NULL ) {
+  fd_dupdetect_key_t dupkey = { .type = (enum fd_needed_elem_type)type, .slot = slot, .shred_index = shred_index };
+  fd_dupdetect_elem_t * dupelem = fd_dupdetect_table_query( glob->dupdetect, &dupkey, NULL );
+  if( dupelem == NULL ) {
+    dupelem = fd_dupdetect_table_insert( glob->dupdetect, &dupkey );
+    dupelem->last_send_time = 0L;
+  } else if( ( dupelem->last_send_time+(long)200e6 )<glob->now ) {
     fd_repair_unlock( glob );
     return 0;
   }
-  fd_dupdetect_table_insert( glob->dupdetect, &dupkey );
+
+  dupelem->last_send_time = glob->now;
+  dupelem->req_cnt = peer_cnt;
 
   if (fd_needed_table_is_full(glob->needed)) {
     fd_repair_unlock( glob );
