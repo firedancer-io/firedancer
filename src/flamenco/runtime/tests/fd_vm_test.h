@@ -34,7 +34,13 @@ setup_vm_input_regions( fd_vm_input_region_t *                   input,
                        fd_exec_test_input_data_region_t const * test_input,
                        ulong                                    test_input_count );
 
-
+ulong
+load_from_vm_input_regions( fd_vm_input_region_t const *        input,
+                            uint                                input_count,
+                            fd_exec_test_input_data_region_t ** output,
+                            pb_size_t *                         output_count,
+                            void *                              output_buf,
+                            ulong                               output_bufsz );
 
 FD_PROTOTYPES_END
 
