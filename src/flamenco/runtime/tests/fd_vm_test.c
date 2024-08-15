@@ -361,29 +361,3 @@ load_from_vm_input_regions( fd_vm_input_region_t const *        input,
   ulong end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   return end - (ulong)output_buf; /* return the number of bytes written */
 }
-
-
-uint
-setup_vm_input_regions( fd_vm_input_region_t *                   input,
-                        fd_exec_test_input_data_region_t const * test_input,
-                        ulong                                    test_input_count ) {
-  ulong offset = 0UL;
-  uint input_idx = 0UL;
-  for( ulong i=0; i<test_input_count; i++ ) {
-    fd_exec_test_input_data_region_t const * region = &test_input[i];
-    pb_bytes_array_t * array = region->content;
-    if( !array ) {
-      continue; /* skip empty regions https://github.com/anza-xyz/agave/blob/3072c1a72b2edbfa470ca869f1ea891dfb6517f2/programs/bpf_loader/src/serialization.rs#L136 */
-    }
-
-    input[input_idx].vaddr_offset     = offset;
-    input[input_idx].haddr            = (ulong)array->bytes;
-    input[input_idx].region_sz        = array->size;
-    input[input_idx].is_writable      = region->is_writable;
-    input[input_idx].pubkey           = NULL;
-
-    input_idx++;
-    offset += array->size;
-  }
-  return input_idx; /* return the number of populated regions */
-}
