@@ -92,12 +92,14 @@ typedef struct fd_exec_test_syscall_effects {
     /* Memory regions */
     pb_bytes_array_t *heap;
     pb_bytes_array_t *stack;
-    pb_bytes_array_t *inputdata;
+    pb_bytes_array_t *inputdata; /* deprecated, use input_data_regions */
     /* Current number of stack frames pushed */
     uint64_t frame_count;
     /* Syscall log */
     pb_bytes_array_t *log;
     pb_bytes_array_t *rodata;
+    pb_size_t input_data_regions_count;
+    struct fd_exec_test_input_data_region *input_data_regions;
 } fd_exec_test_syscall_effects_t;
 
 /* A syscall processing test fixture. */
@@ -142,7 +144,7 @@ extern "C" {
 #define FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT     {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT {{0, {0}}, NULL, NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT}
-#define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL}
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, NULL}
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT}
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_DEFAULT {0, 0}
@@ -151,7 +153,7 @@ extern "C" {
 #define FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO        {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO {{0, {0}}, NULL, NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO}
-#define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO   {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL}
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO   {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, NULL}
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_ZERO   {false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO}
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_ZERO {0, 0}
@@ -195,6 +197,7 @@ extern "C" {
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_FRAME_COUNT_TAG 7
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_LOG_TAG     8
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_RODATA_TAG  9
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_INPUT_DATA_REGIONS_TAG 11
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INPUT_TAG   1
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_OUTPUT_TAG  2
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_VM_CTX_TAG  1
@@ -262,9 +265,11 @@ X(a, POINTER,  SINGULAR, BYTES,    stack,             5) \
 X(a, POINTER,  SINGULAR, BYTES,    inputdata,         6) \
 X(a, STATIC,   SINGULAR, UINT64,   frame_count,       7) \
 X(a, POINTER,  SINGULAR, BYTES,    log,               8) \
-X(a, POINTER,  SINGULAR, BYTES,    rodata,            9)
+X(a, POINTER,  SINGULAR, BYTES,    rodata,            9) \
+X(a, POINTER,  REPEATED, MESSAGE,  input_data_regions,  11)
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_CALLBACK NULL
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_DEFAULT NULL
+#define fd_exec_test_syscall_effects_t_input_data_regions_MSGTYPE fd_exec_test_input_data_region_t
 
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  input,             1) \
