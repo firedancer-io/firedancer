@@ -222,6 +222,7 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
   txn_ctx->instr_err_idx   = INT_MAX;
   txn_ctx->capture_ctx     = NULL;
 
+  txn_ctx->instr_info_cnt     = 0;
   txn_ctx->instr_trace_length = 0;
 }
 
