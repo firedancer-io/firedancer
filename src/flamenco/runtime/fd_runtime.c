@@ -28,7 +28,7 @@
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
 #include "program/fd_bpf_program_util.h"
-#include "program/fd_bpf_loader_v3_program.h"
+#include "program/fd_bpf_loader_program.h"
 #include "program/fd_compute_budget_program.h"
 
 #include "sysvar/fd_sysvar_clock.h"

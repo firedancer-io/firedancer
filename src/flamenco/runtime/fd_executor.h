@@ -33,7 +33,7 @@ typedef int (* fd_exec_instr_fn_t)( fd_exec_instr_ctx_t ctx );
    is not a recognized native program. */
 
 fd_exec_instr_fn_t
-fd_executor_lookup_native_program(  fd_pubkey_t const * program_id );
+fd_executor_lookup_native_program( fd_borrowed_account_t const * account );
 
 /* TODO:FIXME: add documentation here */
 
