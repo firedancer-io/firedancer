@@ -1785,28 +1785,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     effects->rodata = NULL;
   }
 
-  /* Flatten input data regions into a single region.
-    
-     FIXME: Have SyscallEffects store repeated InputDataRegions instead 
-     for more granularity. May need to regenerate fixtures/test-vectors. */
-  ulong input_regions_total_sz = 0;
-  for( ulong i=0; i<vm->input_mem_regions_cnt; i++ ) {
-    input_regions_total_sz += vm->input_mem_regions[i].region_sz;
-  }
-  if( input_regions_total_sz == 0 ) {
-    effects->inputdata = NULL;
-  } else {
-    effects->inputdata = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( input_regions_total_sz ) );
-    
-    effects->inputdata->size = (uint)input_regions_total_sz;
-    uchar * inputdata_ptr = effects->inputdata->bytes;
-    for( ulong i=0; i<vm->input_mem_regions_cnt; i++ ) {
-      fd_memcpy( inputdata_ptr, (void *) vm->input_mem_regions[i].haddr, vm->input_mem_regions[i].region_sz );
-      inputdata_ptr += vm->input_mem_regions[i].region_sz;
-    }
-  }
-
   effects->frame_count = vm->frame_cnt;
 
   if( vm->log_sz ) {
@@ -1818,8 +1796,18 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     effects->log = NULL;
   }
 
+  /* Capture input regions */
+  effects->inputdata = NULL; /* Deprecated, using input_data_regions instead */
+  ulong tmp_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong input_regions_size = load_from_vm_input_regions( vm->input_mem_regions,
+                                                        vm->input_mem_regions_cnt,
+                                                        &effects->input_data_regions,
+                                                        &effects->input_data_regions_count,
+                                                        (void *)tmp_end, 
+                                                        fd_ulong_sat_sub( output_end, tmp_end ) );
+
   /* Return the effects */
-  ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong actual_end = tmp_end + input_regions_size;
   _instr_context_destroy( runner, ctx, wksp, alloc );
 
   *output = effects;
