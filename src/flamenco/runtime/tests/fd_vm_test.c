@@ -118,3 +118,47 @@ setup_vm_input_regions( fd_vm_input_region_t *                   input,
   }
   return input_idx; /* return the number of populated regions */
 }
+
+
+ulong
+load_from_vm_input_regions( fd_vm_input_region_t const *        input,
+                            uint                                input_count,
+                            fd_exec_test_input_data_region_t ** output,
+                            pb_size_t *                         output_count,
+                            void *                              output_buf,
+                            ulong                               output_bufsz ) {
+  /* pre-flight checks on output buffer size*/
+  ulong input_regions_total_sz = 0;
+  for( ulong i=0; i<input_count; i++ ) {
+    input_regions_total_sz += input[i].region_sz;
+  }
+
+  if( FD_UNLIKELY(   input_regions_total_sz == 0
+                  || output_bufsz < input_regions_total_sz ) ) {
+    *output = NULL;
+    *output_count = 0;
+    return 0;
+  }
+
+  FD_SCRATCH_ALLOC_INIT( l, output_buf );
+  *output = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_input_data_region_t),
+                                      input_count * sizeof (fd_exec_test_input_data_region_t) );
+  FD_TEST( *output );
+  *output_count = input_count;
+
+  for( ulong i=0; i<input_count; i++ ) {
+    fd_vm_input_region_t const * vm_region = &input[i];
+    fd_exec_test_input_data_region_t * out_region = &(*output)[i];
+    out_region->is_writable = vm_region->is_writable;
+    out_region->offset = vm_region->vaddr_offset;
+
+    out_region->content = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
+                                               PB_BYTES_ARRAY_T_ALLOCSIZE(vm_region->region_sz) );
+    FD_TEST( out_region->content );
+    out_region->content->size = vm_region->region_sz;
+    fd_memcpy( out_region->content->bytes, (void *)vm_region->haddr, vm_region->region_sz );
+  }
+
+  ulong end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  return end - (ulong)output_buf; /* return the number of bytes written */
+}
