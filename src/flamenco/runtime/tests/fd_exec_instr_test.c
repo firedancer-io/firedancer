@@ -7,7 +7,7 @@
 #include "../fd_account.h"
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
-#include "../program/fd_bpf_loader_v3_program.h"
+#include "../program/fd_bpf_loader_program.h"
 #include "../program/fd_bpf_program_util.h"
 #include "../program/fd_builtin_programs.h"
 #include "../context/fd_exec_epoch_ctx.h"
@@ -534,14 +534,6 @@ _instr_context_create( fd_exec_instr_test_runner_t *        runner,
     }
     if( !found_program_id ) {
       REPORT( NOTICE, "Unable to find program_id in accounts" );
-      return 0;
-    }
-
-    /* For native programs, check that the owner is the native loader */
-    fd_pubkey_t * const program_id = &txn_ctx->accounts[info->program_id];
-    fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( program_id );
-    if( native_prog_fn && 0 != memcmp( test_ctx->accounts[info->program_id].owner, &fd_solana_native_loader_id, sizeof(fd_pubkey_t) ) ) {
-      REPORT( NOTICE, "Native program owner is not NativeLoader" );
       return 0;
     }
   }

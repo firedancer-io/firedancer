@@ -11,9 +11,7 @@
 #include "fd_system_ids.h"
 #include "fd_account.h"
 #include "program/fd_address_lookup_table_program.h"
-#include "program/fd_bpf_loader_v1_program.h"
-#include "program/fd_bpf_loader_v2_program.h"
-#include "program/fd_bpf_loader_v3_program.h"
+#include "program/fd_bpf_loader_program.h"
 #include "program/fd_compute_budget_program.h"
 #include "program/fd_config_program.h"
 #include "program/fd_precompiles.h"
@@ -47,40 +45,37 @@
 #define MAX_COMPUTE_UNITS_PER_BLOCK                (48000000UL)
 #define MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT (12000000UL)
 
+/* https://github.com/anza-xyz/agave/blob/9efdd74b1b65ecfd85b0db8ad341c6bd4faddfef/program-runtime/src/invoke_context.rs#L461-L488 */
 fd_exec_instr_fn_t
-fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
-  /* TODO: replace with proper lookup table */
-  if ( !memcmp( pubkey, fd_solana_vote_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+fd_executor_lookup_native_program( fd_borrowed_account_t const * prog_acc ) {
+  fd_pubkey_t const * pubkey        = prog_acc->pubkey;
+  fd_pubkey_t const * owner         = (fd_pubkey_t const *)prog_acc->const_meta->info.owner;
+  fd_pubkey_t const * lookup_pubkey = !memcmp( owner, fd_solana_native_loader_id.key, sizeof( fd_pubkey_t ) ) ? pubkey : owner;
+
+  /* TODO: use a proper lookup table */
+  if ( !memcmp( lookup_pubkey, fd_solana_vote_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_vote_program_execute;
-  } else if ( !memcmp( pubkey, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+  } else if ( !memcmp( lookup_pubkey, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_system_program_execute;
-  } else if ( !memcmp( pubkey, fd_solana_config_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+  } else if ( !memcmp( lookup_pubkey, fd_solana_config_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_config_program_execute;
-  } else if ( !memcmp( pubkey, fd_solana_stake_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+  } else if ( !memcmp( lookup_pubkey, fd_solana_stake_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_stake_program_execute;
-  } else if ( !memcmp( pubkey, fd_solana_bpf_loader_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_bpf_loader_v2_program_execute;
-  } else if ( !memcmp( pubkey, fd_solana_bpf_loader_deprecated_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_bpf_loader_v1_program_execute;
-  } else if ( !memcmp( pubkey, fd_solana_compute_budget_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+  } else if ( !memcmp( lookup_pubkey, fd_solana_compute_budget_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_compute_budget_program_execute;
-  } else if( !memcmp( pubkey, fd_solana_address_lookup_table_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+  } else if( !memcmp( lookup_pubkey, fd_solana_address_lookup_table_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_address_lookup_table_program_execute;
-  } else if( !memcmp( pubkey, fd_solana_zk_elgamal_proof_program_id.key, sizeof( fd_pubkey_t ) ) ) {
+  } else if( !memcmp( lookup_pubkey, fd_solana_zk_elgamal_proof_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_zk_elgamal_proof_program_execute;
+  } else if( !memcmp( lookup_pubkey, fd_solana_bpf_loader_deprecated_program_id.key, sizeof( fd_pubkey_t ))) {
+    return fd_bpf_loader_program_execute;
+  } else if( !memcmp( lookup_pubkey, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    return fd_bpf_loader_program_execute;
+  } else if( !memcmp( lookup_pubkey, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    return fd_bpf_loader_program_execute;
   } else {
-    return NULL; /* FIXME */
+    return NULL;
   }
-}
-
-int
-fd_executor_lookup_program( fd_exec_slot_ctx_t * slot_ctx,
-                            fd_pubkey_t const * pubkey ) {
-  if( fd_bpf_loader_v3_is_executable( slot_ctx, pubkey )==0 ) {
-    return 0;
-  }
-
-  return -1;
 }
 
 /* Returns 1 if the sysvar instruction is used, 0 otherwise */
@@ -763,8 +758,8 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       return exec_result;
     }
 
-    fd_pubkey_t const * program_id = &txn_accs[ instr->program_id ];
-    fd_exec_instr_fn_t  native_prog_fn = fd_executor_lookup_native_program( program_id );
+    fd_exec_instr_fn_t  native_prog_fn = fd_executor_lookup_native_program( &txn_ctx->borrowed_accounts[ instr->program_id ] );
+    fd_pubkey_t const * program_id     = &txn_accs[ instr->program_id ];
 
     /* TODO: this is a hack because the programs should've been verified already
        if we reach this point that means the transaction was succesful. */
@@ -781,16 +776,9 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
     if( native_prog_fn != NULL ) {
       exec_result = native_prog_fn( *ctx );
-    } else if( fd_bpf_loader_v3_is_executable( ctx->slot_ctx, program_id )==0 ||
-               !memcmp( program_id, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-      exec_result = fd_bpf_loader_v3_program_execute( *ctx );
-    } else if( fd_bpf_loader_v2_is_executable( ctx->slot_ctx, program_id )==0 ) {
-      exec_result = fd_bpf_loader_v2_user_execute( *ctx );
     } else {
       exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
-
-    // FD_LOG_NOTICE(("COMPUTE METER END %lu %lu %lu %64J", before_instr_cus - txn_ctx->compute_meter, txn_ctx->compute_meter, txn_ctx->compute_unit_limit, sig ));
 
     if( exec_result == FD_EXECUTOR_INSTR_SUCCESS ) {
       ulong ending_lamports_h = 0UL;
@@ -801,7 +789,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
         return err;
       }
 
-      if( ending_lamports_l != starting_lamports_l || ending_lamports_h != starting_lamports_h ) {
+      if( FD_UNLIKELY( ending_lamports_l != starting_lamports_l || ending_lamports_h != starting_lamports_h ) ) {
         exec_result = FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
       }
 
@@ -817,12 +805,10 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     }
 
 #ifdef VLOG
-  if ( 257035230 == ctx->slot_ctx->slot_bank.slot ) {
-    if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, instr->program_id_pubkey.uc ));
-    } else {
-      FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, instr->program_id_pubkey.uc ));
-    }
+  if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+    FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, instr->program_id_pubkey.uc ));
+  } else {
+    FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, instr->program_id_pubkey.uc ));
   }
 #endif
 
