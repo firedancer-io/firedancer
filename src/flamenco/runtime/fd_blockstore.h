@@ -151,10 +151,14 @@ typedef struct fd_block_txn_ref fd_block_txn_ref_t;
    Other flags mainly provide useful metadata for read-only callers, eg.
    RPC. */
 
-#define FD_BLOCK_FLAG_REPLAYING 0 /* xxxxxxx1 */
-#define FD_BLOCK_FLAG_PROCESSED 1 /* xxxxxx1x */
-#define FD_BLOCK_FLAG_CONFIRMED 2 /* xxxxx1xx */
-#define FD_BLOCK_FLAG_FINALIZED 3 /* xxxx1xxx */
+#define FD_BLOCK_FLAG_SHREDDING 0 /* xxxxxxx1 still receiving shreds */
+#define FD_BLOCK_FLAG_COMPLETED 1 /* xxxxxx1x received all shreds (DATA_COMPLETE) */
+#define FD_BLOCK_FLAG_REPLAYING 2 /* xxxxx1xx replay in progress (DO NOT REMOVE) */
+#define FD_BLOCK_FLAG_PROCESSED 3 /* xxxx1xxx successfully replayed the block */
+#define FD_BLOCK_FLAG_EQVOCSAFE 4 /* xxxx1xxx 52% of cluster has voted on this (slot, bank hash) */
+#define FD_BLOCK_FLAG_CONFIRMED 5 /* xxx1xxxx 2/3 of cluster has voted on this (slot, bank hash) */
+#define FD_BLOCK_FLAG_FINALIZED 6 /* xx1xxxxx 2/3 of cluster has rooted this slot */
+#define FD_BLOCK_FLAG_DEADBLOCK 7 /* x1xxxxxx failed to replay the block */
 
 /* Remaining bits [4, 8) are reserved.
 
@@ -423,6 +427,11 @@ fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_block_t * block
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->data_gaddr );
 }
 
+FD_FN_PURE static inline ulong
+fd_blockstore_block_cnt( fd_blockstore_t * blockstore ) {
+  return blockstore->max - blockstore->min + 1;
+}
+
 /* Operations */
 
 /* Insert shred into the blockstore, fast O(1).  Fail if this shred is already in the blockstore or
@@ -530,7 +539,7 @@ int
 fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore, uchar const sig[static FD_ED25519_SIG_SZ], fd_blockstore_txn_map_t * txn_out, long * blk_ts, uchar * blk_flags, uchar txn_data_out[FD_TXN_MTU] );
 
 /* Remove slot from blockstore, including all relevant internal structures. */
-int
+void
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot );
 
 /* Remove all the unassembled shreds for a slot */
