@@ -3518,8 +3518,8 @@ void fd_process_new_epoch(
   (void)epoch;
 
   // activate feature flags
-  fd_features_restore( slot_ctx );
   fd_features_activate( slot_ctx );
+  fd_features_restore( slot_ctx );
 
   // Change the speed of the poh clock
   if (FD_FEATURE_ACTIVE(slot_ctx, update_hashes_per_tick6))
