@@ -98,6 +98,7 @@ int fd_tower_sync_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
     // Try to decode compact_tower_sync to check that lockout offsets don't cause an overflow
     int err = fd_compact_tower_sync_decode( compact_tower_sync, &decode_ctx );
     if( FD_UNLIKELY( err ) ) return err;
+    ctx->data = decode_ctx.data;
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L1061
     ulong root = compact_tower_sync->root != ULONG_MAX ? compact_tower_sync->root : 0;
