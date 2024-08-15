@@ -254,12 +254,12 @@ after_frag( void *             _ctx,
   for( ulong i = 0; i < ctx->s34_buffer->shred_cnt; i++ ) {
     fd_shred_t * shred = &ctx->s34_buffer->pkts[i].shred;
     // TODO: these checks are not great as they assume a lot about the distance of shreds.
-    if( FD_UNLIKELY( (long)(ctx->store->pending_slots->end - shred->slot) > (long)FD_PENDING_MAX ) ) {
+    if( FD_UNLIKELY( (long)(ctx->store->pending_slots->end - shred->slot) > (long)1024 ) ) {
       FD_LOG_WARNING(("received shred %lu that would overrun pending queue. skipping.", shred->slot));
       continue;
     }
 
-    if( FD_UNLIKELY( (long)(ctx->store->curr_turbine_slot - shred->slot) > 500 ) ) {
+    if( FD_UNLIKELY( (long)(ctx->store->curr_turbine_slot - shred->slot) > (long)1024 ) ) {
       FD_LOG_WARNING(("received shred with slot %lu that would overrun pending queue. skipping.", shred->slot));
       continue;
     }
@@ -336,6 +336,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
     case FD_STORE_SLOT_PREPARE_CONTINUE: {
       ulong root = fd_fseq_query( ctx->root_slot_fseq );
       if( root!=ULONG_MAX ) {
+        FD_LOG_WARNING(("CONTINUE: %lu", root));
         fd_store_set_root( ctx->store, root );
       }
       ctx->store->now = fd_log_wallclock();

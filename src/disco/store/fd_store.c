@@ -233,9 +233,13 @@ fd_store_shred_insert( fd_store_t * store,
     if( FD_LIKELY( backoff==NULL ) ) {
       /* new backoff entry */
       backoff = fd_repair_backoff_map_insert( store->repair_backoff_map, shred->slot );
+      backoff->last_backoff_duration = FD_REPAIR_BACKOFF_TIME;
+      backoff->last_repair_time = store->now;
+    } else if( ( backoff->last_repair_time+backoff->last_backoff_duration )
+        >( store->now + FD_REPAIR_BACKOFF_TIME ) ) {
+      backoff->last_backoff_duration = FD_REPAIR_BACKOFF_TIME;
+      backoff->last_repair_time = store->now;
     }
-    backoff->last_backoff_duration = FD_REPAIR_BACKOFF_TIME / 2L;
-    backoff->last_repair_time = store->now;
   }
   return rc;
 }
@@ -333,7 +337,7 @@ fd_store_slot_repair( fd_store_t * store,
   } else {
     /* new backoff entry */
     backoff = fd_repair_backoff_map_insert( store->repair_backoff_map, slot );
-    backoff->last_backoff_duration = FD_REPAIR_BACKOFF_TIME / 2L;
+    backoff->last_backoff_duration = FD_REPAIR_BACKOFF_TIME;
   }
   backoff->last_repair_time = store->now;
 
@@ -362,7 +366,7 @@ fd_store_slot_repair( fd_store_t * store,
     }
 
     if( repair_req_cnt==out_repair_reqs_sz ) {
-      backoff->last_backoff_duration *= 2L;
+      backoff->last_backoff_duration += backoff->last_backoff_duration>>2;
       FD_LOG_INFO( ( "[repair] MAX need %lu [%lu, %lu], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
       return repair_req_cnt;
     }
@@ -395,13 +399,13 @@ fd_store_slot_repair( fd_store_t * store,
       repair_req->type = FD_REPAIR_REQ_TYPE_NEED_WINDOW_INDEX;
 
       if( repair_req_cnt == out_repair_reqs_sz ) {
-        backoff->last_backoff_duration *= 2L;
+        backoff->last_backoff_duration += backoff->last_backoff_duration>>2;
         FD_LOG_INFO( ( "[repair] MAX need %lu [%lu, %lu], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
         return repair_req_cnt;
       }
     }
     if( repair_req_cnt ) {
-      backoff->last_backoff_duration *= 2L;
+      backoff->last_backoff_duration += backoff->last_backoff_duration>>2;
       FD_LOG_INFO( ( "[repair] need %lu [%lu, %lu], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
     }
   }

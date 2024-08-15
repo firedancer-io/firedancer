@@ -617,7 +617,6 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong smr ) {
     }
 
     if( !fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_FINALIZED ) ) {
-
       /* Remove the slot only if it is not finalized. */
 
       FD_LOG_NOTICE(( "[%s] pruning slot %lu", __func__, slot ));
@@ -628,10 +627,11 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, ulong smr ) {
 
   prune_time_ns += fd_log_wallclock();
 
-  FD_LOG_NOTICE( ( "[fd_blockstore_publish] new root: %lu, old root: %lu, prune cnt: %lu, took: %6.6f ms",
+  FD_LOG_NOTICE( ( "[fd_blockstore_publish] new root: %lu, old root: %lu, prune cnt: %lu, block cnt: %lu, took: %6.6f ms",
                    smr,
                    blockstore->smr,
                    prune_cnt,
+                   fd_block_map_key_cnt( fd_blockstore_block_map( blockstore ) ),
                    (double)prune_time_ns * 1e-6 ) );
 
   blockstore->smr = smr;
