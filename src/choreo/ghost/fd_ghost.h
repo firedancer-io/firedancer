@@ -215,10 +215,11 @@ fd_ghost_query( fd_ghost_t const * ghost, ulong slot ) {
 
 /* Operations */
 
-/* fd_ghost_node_insert inserts a new leaf node with slot as the key
-   into the ghost.  Assumes slot is not currently in ghost and
-   parent_slot already is in ghost (if handholding is enabled,
-   explicitly checks and errors).  Returns the inserted ghost node. */
+/* fd_ghost_node_insert inserts a new node with slot as the key into the
+   ghost.  Assumes slot >= ghost->smr, slot is not already in ghost,
+   parent_slot is already in ghost, and the node pool has a free element
+   (if handholding is enabled, explicitly checks and errors).  Returns
+   the inserted ghost node. */
 
 fd_ghost_node_t *
 fd_ghost_insert( fd_ghost_t * ghost, ulong slot, ulong parent_slot );

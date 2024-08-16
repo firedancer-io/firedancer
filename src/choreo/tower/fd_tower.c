@@ -730,7 +730,7 @@ fd_tower_fork_update( fd_tower_t const * tower,
         if( FD_UNLIKELY( !eqvocsafe ) ) {
           double pct = (double)node->stake / (double)ghost->total_stake;
           if( FD_UNLIKELY( pct > FD_EQVOCSAFE_PCT ) ) {
-            FD_LOG_NOTICE( ( "confirming %lu", block_map_entry->slot ) );
+            FD_LOG_NOTICE( ( "equivocation safe %lu", block_map_entry->slot ) );
             block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
             blockstore->hcs = fd_ulong_max( blockstore->hcs, block_map_entry->slot );
           }
