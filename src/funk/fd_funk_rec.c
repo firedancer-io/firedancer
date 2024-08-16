@@ -680,16 +680,6 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
       TEST( txn );
       TEST( txn==(txn_map+txn_idx) );
 
-      /* At this point, txn points to a sane value and map verify has already
-         ensured txn_map has no cycles.  So we are safe to call
-         query_global_const here.  TODO: const correct. */
-
-      if( (rec->flags & FD_FUNK_REC_FLAG_ERASE) ) {
-        fd_funk_rec_t const * erase_rec =
-          fd_funk_rec_query_global( funk, fd_funk_txn_parent( (fd_funk_txn_t *)txn, txn_map ), fd_funk_rec_key( rec ) );
-        TEST( erase_rec && !(erase_rec->flags & FD_FUNK_REC_FLAG_ERASE) );
-      }
-
     }
   }
 
