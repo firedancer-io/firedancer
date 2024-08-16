@@ -680,7 +680,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       if( FD_UNLIKELY( program->const_meta->info.lamports<fd_rent_exempt_minimum_balance( instr_ctx->slot_ctx,
                                                                                           program->const_meta->dlen ) ) ) {
         FD_LOG_WARNING(( "Program account not rent-exempt" ));
-        return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
+        return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
       }
       new_program_id = program->pubkey;
 
