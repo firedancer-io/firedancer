@@ -260,30 +260,19 @@ do{
   effects->stack->size = (uint)FD_VM_STACK_MAX;
   fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
 
-  /* Capture input data regions */
-  if( vm->input_mem_regions_cnt ) {
-    effects->inputdata_regions_count = vm->input_mem_regions_cnt;
-    effects->inputdata_regions       = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(fd_exec_test_input_data_region_t),
-      sizeof(fd_exec_test_input_data_region_t) * vm->input_mem_regions_cnt );
-    for( ulong i=0; i < vm->input_mem_regions_cnt; i++ ) {
-      fd_exec_test_input_data_region_t * region = &effects->inputdata_regions[i];
-      region->is_writable = vm->input_mem_regions[i].is_writable;
-      region->offset      = vm->input_mem_regions[i].vaddr_offset;
-
-      if( vm->input_mem_regions[i].region_sz ) {
-        region->content       = FD_SCRATCH_ALLOC_APPEND(
-          l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->input_mem_regions[i].region_sz ) );
-        region->content->size = (uint)vm->input_mem_regions[i].region_sz;
-        fd_memcpy( region->content->bytes, (uchar *)vm->input_mem_regions[i].haddr, vm->input_mem_regions[i].region_sz );
-      } else {
-        region->content = NULL;
-      }
-    }
-  }
-
   /* skip logs since syscalls are stubbed */
   effects->log = NULL;
+
+  /* Capture input data regions */
+  ulong tmp_end = FD_SCRATCH_ALLOC_FINI(l, 1UL);
+  ulong input_data_regions_size = load_from_vm_input_regions( vm->input_mem_regions,
+                                                              vm->input_mem_regions_cnt,
+                                                              &effects->input_data_regions,
+                                                              &effects->input_data_regions_count,
+                                                              (void *) tmp_end,
+                                                              fd_ulong_sat_sub( output_end, tmp_end) );
+  FD_SCRATCH_ALLOC_APPEND( l, 1UL, input_data_regions_size );
+
 } while(0);
 
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
