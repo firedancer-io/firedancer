@@ -284,10 +284,12 @@ fd_executor_check_txn_data_sz( fd_exec_txn_ctx_t * txn_ctx ) {
   ushort instr_cnt = txn_ctx->txn_descriptor->instr_cnt;
   for( ushort i=0; i<instr_cnt; i++ ) {
     fd_txn_instr_t  const * instr       = &txn_ctx->txn_descriptor->instr[i];
+
+    // https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L384-L386
     fd_borrowed_account_t * program_acc = NULL;
     int err = fd_txn_borrowed_account_view_idx( txn_ctx, instr->program_id, &program_acc );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-      return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
+      return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
     }
   }
 
