@@ -789,7 +789,7 @@ fd_runtime_prepare_txns_phase1( fd_exec_slot_ctx_t *         slot_ctx,
     fd_txn_p_t * txn = &txns[txn_idx];
 
     /* Allocate/setup transaction context and task infos */
-    task_info[txn_idx].txn_ctx      = fd_valloc_malloc( slot_ctx->valloc, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
+    task_info[txn_idx].txn_ctx      = fd_valloc_malloc( fd_scratch_virtual(), FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
     fd_exec_txn_ctx_t * txn_ctx     = task_info[txn_idx].txn_ctx;
     task_info[txn_idx].exec_res     = -1;
     task_info[txn_idx].txn          = txn;
@@ -1403,7 +1403,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
         slot_ctx->signature_cnt += txn_ctx->txn_descriptor->signature_cnt;
       }
 
-      fd_valloc_free( slot_ctx->valloc, txn_ctx );
+      fd_valloc_free( fd_scratch_virtual(), txn_ctx );
     }
 
     return 0;
