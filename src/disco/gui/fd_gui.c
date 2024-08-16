@@ -713,8 +713,8 @@ fd_gui_plugin_message( fd_gui_t *    gui,
                        ulong         msg_len ) {
   (void)msg_len;
 
-  FD_LOG_NOTICE(( "Start handling" ));
-  long current = fd_log_wallclock();
+  //FD_LOG_NOTICE(( "Start handling" ));
+  //long current = fd_log_wallclock();
 
   ulong msg_type = fd_plugin_sig_msg_type( plugin_msg );
   ulong slot     = fd_plugin_sig_slot( plugin_msg );
@@ -824,5 +824,5 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       break;
   }
 
-  FD_LOG_NOTICE(( "plugin_msg 0x%lx handled in %lu nanos", plugin_msg, fd_log_wallclock() - current ));
+  //FD_LOG_NOTICE(( "plugin_msg 0x%lx handled in %lu nanos", plugin_msg, fd_log_wallclock() - current ));
 }
