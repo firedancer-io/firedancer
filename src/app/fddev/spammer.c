@@ -45,6 +45,10 @@ spammer_cmd_args( int *    pargc,
   args->spammer.accounts    = fd_env_strip_cmdline_ulong ( pargc, pargv, "--num-accounts", NULL,    0 );
   args->spammer.connections = fd_env_strip_cmdline_ulong ( pargc, pargv, "--connections",  "-c",    0 );
 
+  args->spammer.transaction_mode    = fd_env_strip_cmdline_int  ( pargc, pargv, "--transaction-mode",    NULL, 0    );
+  args->spammer.contending_fraction = fd_env_strip_cmdline_float( pargc, pargv, "--contending-fraction", NULL, 0.0f );
+  args->spammer.cu_price_spread     = fd_env_strip_cmdline_float( pargc, pargv, "--cu-price-spread",     NULL, 0.0f );
+
   fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( args->spammer.affinity ), affinity, sizeof( args->spammer.affinity )-1UL ) );
 
   args->spammer.tpu_ip = 0;
@@ -103,6 +107,9 @@ spammer_cmd_fn( args_t *         args,
                   args->spammer.benchg,
                   args->spammer.benchs,
                   args->spammer.accounts,
+                  args->spammer.transaction_mode,
+                  args->spammer.contending_fraction,
+                  args->spammer.cu_price_spread,
                   args->spammer.connections,
                   args->spammer.tpu_port,
                   args->spammer.tpu_ip,

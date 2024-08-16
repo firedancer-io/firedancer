@@ -85,6 +85,9 @@ typedef union {
     ulong   benchg;
     ulong   benchs;
     int     no_quic;
+    int     transaction_mode;
+    float   contending_fraction;
+    float   cu_price_spread;
   } spammer;
 } args_t;
 

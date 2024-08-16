@@ -60,6 +60,9 @@ add_bench_topo( fd_topo_t  * topo,
                 ulong        benchg_tile_cnt,
                 ulong        benchs_tile_cnt,
                 ulong        accounts_cnt,
+                int          transaction_mode,
+                float        contending_fraction,
+                float        cu_price_spread,
                 ulong        conn_cnt,
                 ushort       send_to_port,
                 uint         send_to_ip_addr,
@@ -71,6 +74,9 @@ add_bench_topo( fd_topo_t  * topo,
   (void)benchg_tile_cnt;
   (void)benchs_tile_cnt;
   (void)accounts_cnt;
+  (void)transaction_mode;
+  (void)contending_fraction;
+  (void)cu_price_spread;
   (void)conn_cnt;
   (void)send_to_port;
   (void)send_to_ip_addr;

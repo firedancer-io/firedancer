@@ -245,6 +245,9 @@ typedef struct {
 
     struct {
       ulong accounts_cnt;
+      int   mode;
+      float contending_fraction;
+      float cu_price_spread;
     } benchg;
 
     /* Firedancer-only tile configs */

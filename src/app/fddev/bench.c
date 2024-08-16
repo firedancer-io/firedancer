@@ -65,6 +65,9 @@ add_bench_topo( fd_topo_t  * topo,
                 ulong        benchg_tile_cnt,
                 ulong        benchs_tile_cnt,
                 ulong        accounts_cnt,
+                int          transaction_mode,
+                float        contending_fraction,
+                float        cu_price_spread,
                 ulong        conn_cnt,
                 ushort       send_to_port,
                 uint         send_to_ip_addr,
@@ -94,7 +97,10 @@ add_bench_topo( fd_topo_t  * topo,
   bencho->bencho.rpc_ip_addr = rpc_ip_addr;
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) {
     fd_topo_tile_t * benchg = fd_topob_tile( topo, "benchg", "bench", "bench", "bench", tile_to_cpu[ i+1UL ], 0, "benchg_s", i );
-    benchg->benchg.accounts_cnt = accounts_cnt;
+    benchg->benchg.accounts_cnt        = accounts_cnt;
+    benchg->benchg.mode                = transaction_mode;
+    benchg->benchg.contending_fraction = contending_fraction;
+    benchg->benchg.cu_price_spread     = cu_price_spread;
   }
   for( ulong i=0UL; i<benchs_tile_cnt; i++ ) {
     fd_topo_tile_t * benchs = fd_topob_tile( topo, "benchs", "bench", "bench", "bench", tile_to_cpu[ benchg_tile_cnt+1UL+i ], 0, NULL, 0 );
@@ -133,6 +139,7 @@ bench_cmd_fn( args_t *         args,
                   config->development.bench.benchg_tile_count,
                   config->development.bench.benchs_tile_count,
                   config->development.genesis.fund_initial_accounts,
+                  0, 0.0f, 0.0f,
                   config->layout.quic_tile_count,
                   dest_port,
                   config->tiles.net.ip_addr,
