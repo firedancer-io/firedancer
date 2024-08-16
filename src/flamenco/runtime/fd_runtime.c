@@ -991,6 +991,7 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     return -1;
   }
 
+  /* NOTE: This intentionally does not have sigverify */
 
   fd_pre_execute_check( task_info );
   if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
@@ -998,16 +999,15 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     return -1;
   }
 
-
   /* execute */
   res = fd_execute_txn_prepare_phase4( task_info->txn_ctx );
-  if( res != 0 ) {
+  if( FD_UNLIKELY( res!=0 ) ) {
     FD_LOG_ERR(("could not prepare txn"));
   }
   task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
   task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
 
-  if( task_info->exec_res == 0 ) {
+  if( task_info->exec_res==0 ) {
     fd_txn_reclaim_accounts( task_info->txn_ctx );
   }
   
@@ -1224,7 +1224,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   int                 exec_txn_err = task_info->exec_res;
 
   fd_funk_txn_t * prune_txn = NULL;
-  if ( capture_ctx != NULL && capture_ctx->pruned_funk != NULL ) {
+  if( capture_ctx != NULL && capture_ctx->pruned_funk != NULL ) {
     fd_funk_txn_xid_t prune_xid;
     fd_memset( &prune_xid, 0x42, sizeof(fd_funk_txn_xid_t) );
     fd_funk_txn_t * txn_map = fd_funk_txn_map( capture_ctx->pruned_funk, fd_funk_wksp( capture_ctx->pruned_funk ) );
@@ -1232,15 +1232,31 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   }
 
   /* Add all involved records to pruned funk */
-  if ( capture_ctx != NULL && capture_ctx->pruned_funk != NULL ) {
+  if( capture_ctx != NULL && capture_ctx->pruned_funk != NULL ) {
     fd_funk_start_write( capture_ctx->pruned_funk );
     fd_runtime_copy_accounts_to_pruned_funk( capture_ctx->pruned_funk, prune_txn, slot_ctx, txn_ctx );
     fd_funk_end_write( capture_ctx->pruned_funk );
   }
 
   /* For ledgers that contain txn status, decode and write out for solcap */
-  if ( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns ) {
+  if( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns ) {
     fd_runtime_write_transaction_status( capture_ctx, slot_ctx, txn_ctx, exec_txn_err );
+  }
+
+  if( slot_ctx->status_cache ) {
+    fd_txncache_insert_t * status_insert = fd_scratch_alloc( alignof(fd_txncache_insert_t), sizeof(fd_txncache_insert_t) );
+    uchar *                results       = fd_scratch_alloc( alignof(uchar), sizeof(uchar) );
+
+    results[0] = exec_txn_err == 0 ? 1 : 0;
+    fd_txncache_insert_t * curr_insert = &status_insert[0];
+    curr_insert->blockhash = ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
+    curr_insert->slot = slot_ctx->slot_bank.slot;
+    fd_hash_t * hash = &txn_ctx->blake_txn_msg_hash;
+    curr_insert->txnhash = hash->uc;
+    curr_insert->result = &results[0];
+    if( !fd_txncache_insert_batch( slot_ctx->status_cache, status_insert, 1UL ) ) {
+      FD_LOG_WARNING(("Status cache is full, this should not be possible"));
+    }
   }
 
   if( FD_UNLIKELY( exec_txn_err ) ) {
@@ -1695,20 +1711,16 @@ fd_runtime_execute_pack_txns( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_execute_txn_task_info_t * task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
 
-    for( ulong i = 0; i < txn_cnt; i++ ) {
+    for( ulong i=0UL; i<txn_cnt; i++ ) {
       txns[i].flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     }
 
-    int res = 0;
     for( ulong i=0UL; i<txn_cnt; i++ ) {
-      res |= fd_runtime_prepare_execute_finalize_txn( slot_ctx, capture_ctx, &txns[i], &task_infos[i] );
-      if( res != 0 ) {
-        FD_LOG_DEBUG(("Fail prep 2"));
-      }
+      fd_runtime_prepare_execute_finalize_txn( slot_ctx, capture_ctx, &txns[i], &task_infos[i] );
     }
     slot_ctx->slot_bank.transaction_count += txn_cnt;
 
-    return res;
+    return 0;
   } FD_SCRATCH_SCOPE_END;
 
 }
@@ -2035,6 +2047,11 @@ int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
     fd_txn_p_t * txn_ptrs = fd_scratch_alloc( alignof(fd_txn_p_t), txn_cnt * sizeof(fd_txn_p_t) );
 
     fd_runtime_block_collect_txns( block_info, txn_ptrs );
+
+    //res = fd_runtime_execute_pack_txns( slot_ctx, capture_ctx, txn_ptrs, txn_cnt );
+    //if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
+    //  return res;
+    //}
 
     res = fd_runtime_execute_txns_in_waves_tpool( slot_ctx, capture_ctx, txn_ptrs, txn_cnt, tpool );
     if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
