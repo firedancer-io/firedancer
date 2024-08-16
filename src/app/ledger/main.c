@@ -576,8 +576,8 @@ parse_rocksdb_list( fd_ledger_args_t * args,
 void
 init_scratch( fd_wksp_t * wksp ) {
   #define FD_SCRATCH_TAG (421UL)
-  ulong  smax   = 1UL << 31UL; /* 2 GiB */
-  ulong  sdepth = 2048UL;       /* 2048 scratch frames */
+  ulong  smax   = 1UL << 33UL; /* 8 GiB */
+  ulong  sdepth = 2048UL;      /* 2048 scratch frames */
   void * smem   = fd_wksp_alloc_laddr( wksp, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax   ), FD_SCRATCH_TAG );
   void * fmem   = fd_wksp_alloc_laddr( wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ), FD_SCRATCH_TAG );
   #undef FD_SCRATCH_TAG
