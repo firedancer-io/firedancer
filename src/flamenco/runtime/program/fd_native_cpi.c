@@ -13,7 +13,7 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
                                                   ulong signers_cnt ) {
   fd_instr_info_t * instr_info = &ctx->txn_ctx->instr_infos[ ctx->txn_ctx->instr_info_cnt ];
   ctx->txn_ctx->instr_info_cnt++;
-  if( FD_UNLIKELY( ctx->txn_ctx->instr_info_cnt>=FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
+  if( FD_UNLIKELY( ctx->txn_ctx->instr_info_cnt>FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
     return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
   }
 

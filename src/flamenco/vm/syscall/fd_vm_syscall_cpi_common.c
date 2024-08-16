@@ -654,7 +654,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   fd_instr_info_t * instruction_to_execute = &vm->instr_ctx->txn_ctx->instr_infos[ vm->instr_ctx->txn_ctx->instr_info_cnt ];
 
   vm->instr_ctx->txn_ctx->instr_info_cnt++;
-  if( FD_UNLIKELY( vm->instr_ctx->txn_ctx->instr_info_cnt>=FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
+  if( FD_UNLIKELY( vm->instr_ctx->txn_ctx->instr_info_cnt>FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
      return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;;
   }
 
