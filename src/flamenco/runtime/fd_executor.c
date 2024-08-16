@@ -1484,7 +1484,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     }
 
     txn_ctx->instr_info_cnt = txn_ctx->txn_descriptor->instr_cnt;
-    if( FD_UNLIKELY( txn_ctx->instr_info_cnt>=FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
+    if( FD_UNLIKELY( txn_ctx->instr_info_cnt>FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
       return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
     }
 
