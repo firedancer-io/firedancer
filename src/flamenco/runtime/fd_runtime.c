@@ -736,7 +736,7 @@ fd_runtime_block_destroy( fd_valloc_t valloc,
   fd_valloc_free( valloc, block_info->microblock_batch_infos );
 }
 
-static void
+static void FD_FN_UNUSED
 fd_runtime_execute_txn_task(void *tpool,
                             ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
                             void *args FD_PARAM_UNUSED,
@@ -865,16 +865,8 @@ fd_txn_sigverify_task( void *tpool,
 
 }
 
-static void FD_FN_UNUSED
-fd_txn_pre_execute_checks_task( void  *tpool,
-                                ulong t0 FD_PARAM_UNUSED,      ulong t1 FD_PARAM_UNUSED,
-                                void  *args FD_PARAM_UNUSED,
-                                void  *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
-                                ulong l0 FD_PARAM_UNUSED,      ulong l1 FD_PARAM_UNUSED,
-                                ulong m0,                      ulong m1 FD_PARAM_UNUSED,
-                                ulong n0 FD_PARAM_UNUSED,      ulong n1 FD_PARAM_UNUSED ) {
-
-  fd_execute_txn_task_info_t * task_info = (fd_execute_txn_task_info_t *)tpool + m0;
+void
+fd_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
   fd_exec_txn_ctx_t *          txn_ctx   = task_info->txn_ctx;
 
   fd_funk_txn_t * parent_txn = txn_ctx->slot_ctx->funk_txn;
@@ -946,6 +938,19 @@ fd_txn_pre_execute_checks_task( void  *tpool,
   }
 }
 
+static void FD_FN_UNUSED
+fd_txn_pre_execute_checks_task( void  *tpool,
+                                ulong t0 FD_PARAM_UNUSED,      ulong t1 FD_PARAM_UNUSED,
+                                void  *args FD_PARAM_UNUSED,
+                                void  *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
+                                ulong l0 FD_PARAM_UNUSED,      ulong l1 FD_PARAM_UNUSED,
+                                ulong m0,                      ulong m1 FD_PARAM_UNUSED,
+                                ulong n0 FD_PARAM_UNUSED,      ulong n1 FD_PARAM_UNUSED ) {
+
+  fd_execute_txn_task_info_t * task_info = (fd_execute_txn_task_info_t *)tpool + m0;
+  fd_pre_execute_check( task_info );
+}
+
 /* This task could be combined with the rest of the transaction checks that
    exist in fd_runtime_prepare_txns_phase2_tpool, but creates a lot more
    complexity to make the transaction fuzzer work. */
@@ -962,6 +967,55 @@ fd_runtime_verify_txn_signatures_tpool( fd_execute_txn_task_info_t * task_info,
       break;
     }
   }
+  return res;
+}
+
+int
+fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
+                                         fd_capture_ctx_t *           capture_ctx,
+                                         fd_txn_p_t *                 txn,
+                                         fd_execute_txn_task_info_t * task_info ) {
+  int res = 0;
+
+  task_info->txn_ctx              = fd_valloc_malloc( fd_scratch_virtual(), FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
+  fd_exec_txn_ctx_t * txn_ctx     = task_info->txn_ctx;
+  task_info->exec_res             = -1;
+  task_info->txn                  = txn;
+  fd_txn_t const * txn_descriptor = (fd_txn_t const *) txn->_;
+
+  fd_rawtxn_b_t raw_txn = { .raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
+
+  res = fd_execute_txn_prepare_phase1( slot_ctx, txn_ctx, txn_descriptor, &raw_txn );
+  if( FD_UNLIKELY( res ) ) {
+    txn->flags = 0U;
+    return -1;
+  }
+
+
+  fd_pre_execute_check( task_info );
+  if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
+    res  = task_info->exec_res;
+    return -1;
+  }
+
+
+  /* execute */
+  res = fd_execute_txn_prepare_phase4( task_info->txn_ctx );
+  if( res != 0 ) {
+    FD_LOG_ERR(("could not prepare txn"));
+  }
+  task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+  task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
+
+  if( task_info->exec_res == 0 ) {
+    fd_txn_reclaim_accounts( task_info->txn_ctx );
+  }
+  
+  slot_ctx->slot_bank.collected_execution_fees += task_info->txn_ctx->execution_fee;
+  slot_ctx->slot_bank.collected_priority_fees  += task_info->txn_ctx->priority_fee;
+
+  fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info );
+
   return res;
 }
 
@@ -1159,6 +1213,121 @@ fd_runtime_write_transaction_status( fd_capture_ctx_t * capture_ctx,
       fd_solcap_write_transaction2( capture_ctx->capture, &txn );
     }
   }
+}
+
+int
+fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
+                         fd_capture_ctx_t *           capture_ctx,
+                         fd_execute_txn_task_info_t * task_info ) {
+
+  fd_exec_txn_ctx_t * txn_ctx      = task_info->txn_ctx;
+  int                 exec_txn_err = task_info->exec_res;
+
+  fd_funk_txn_t * prune_txn = NULL;
+  if ( capture_ctx != NULL && capture_ctx->pruned_funk != NULL ) {
+    fd_funk_txn_xid_t prune_xid;
+    fd_memset( &prune_xid, 0x42, sizeof(fd_funk_txn_xid_t) );
+    fd_funk_txn_t * txn_map = fd_funk_txn_map( capture_ctx->pruned_funk, fd_funk_wksp( capture_ctx->pruned_funk ) );
+    prune_txn = fd_funk_txn_query( &prune_xid, txn_map );
+  }
+
+  /* Add all involved records to pruned funk */
+  if ( capture_ctx != NULL && capture_ctx->pruned_funk != NULL ) {
+    fd_funk_start_write( capture_ctx->pruned_funk );
+    fd_runtime_copy_accounts_to_pruned_funk( capture_ctx->pruned_funk, prune_txn, slot_ctx, txn_ctx );
+    fd_funk_end_write( capture_ctx->pruned_funk );
+  }
+
+  /* For ledgers that contain txn status, decode and write out for solcap */
+  if ( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns ) {
+    fd_runtime_write_transaction_status( capture_ctx, slot_ctx, txn_ctx, exec_txn_err );
+  }
+
+  if( FD_UNLIKELY( exec_txn_err ) ) {
+
+    /* Reset lamports to after fee for borrowed account then save */
+    txn_ctx->borrowed_accounts[0].meta->info.lamports = txn_ctx->borrowed_accounts[0].starting_lamports;
+    fd_funk_start_write( slot_ctx->acc_mgr->funk );
+    fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->borrowed_accounts[0] );
+    fd_funk_end_write( slot_ctx->acc_mgr->funk );
+
+    for( ulong i=1UL; i<txn_ctx->accounts_cnt; i++ ) {
+      if( txn_ctx->nonce_accounts[i] ) {
+        ushort                recent_blockhash_off = txn_ctx->txn_descriptor->recent_blockhash_off;
+        fd_hash_t *           recent_blockhash     = (fd_hash_t *)((uchar *)txn_ctx->_txn_raw->raw + recent_blockhash_off);
+        fd_block_hash_queue_t queue                = slot_ctx->slot_bank.block_hash_queue;
+        ulong                 queue_sz             = fd_hash_hash_age_pair_t_map_size( queue.ages_pool, queue.ages_root );
+        if( FD_UNLIKELY( !queue_sz ) ) {
+          FD_LOG_ERR(( "Blockhash queue is empty" ));
+        }
+
+        if( !fd_executor_is_blockhash_valid_for_age( &queue, recent_blockhash, FD_RECENT_BLOCKHASHES_MAX_ENTRIES ) ) {
+          fd_funk_start_write( slot_ctx->acc_mgr->funk );
+          fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->borrowed_accounts[i] );
+          fd_funk_end_write( slot_ctx->acc_mgr->funk );
+        }
+      }
+    }
+  } else {
+
+    int dirty_vote_acc  = txn_ctx->dirty_vote_acc;
+    int dirty_stake_acc = txn_ctx->dirty_stake_acc;
+
+    for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
+      if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
+        continue;
+      }
+
+      fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
+
+      if( dirty_vote_acc && 0==memcmp( acc_rec->const_meta->info.owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
+        fd_vote_store_account( slot_ctx, acc_rec );
+        FD_SCRATCH_SCOPE_BEGIN {
+          fd_vote_state_versioned_t vsv[1];
+          fd_bincode_decode_ctx_t decode_vsv =
+            { .data    = acc_rec->const_data,
+              .dataend = acc_rec->const_data + acc_rec->const_meta->dlen,
+              .valloc  = fd_scratch_virtual() };
+
+          int err = fd_vote_state_versioned_decode( vsv, &decode_vsv );
+          if( err ) break; /* out of scratch scope */
+
+          fd_vote_block_timestamp_t const * ts = NULL;
+          switch( vsv->discriminant ) {
+          case fd_vote_state_versioned_enum_v0_23_5:
+            ts = &vsv->inner.v0_23_5.last_timestamp;
+            break;
+          case fd_vote_state_versioned_enum_v1_14_11:
+            ts = &vsv->inner.v1_14_11.last_timestamp;
+            break;
+          case fd_vote_state_versioned_enum_current:
+            ts = &vsv->inner.current.last_timestamp;
+            break;
+          default:
+            __builtin_unreachable();
+          }
+
+          fd_vote_record_timestamp_vote_with_slot( slot_ctx, acc_rec->pubkey, ts->timestamp, ts->slot );
+        }
+        FD_SCRATCH_SCOPE_END;
+      }
+
+      if( dirty_stake_acc && 0==memcmp( acc_rec->const_meta->info.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
+        // TODO: does this correctly handle stake account close?
+        fd_store_stake_delegation( slot_ctx, acc_rec );
+      }
+
+      if( txn_ctx->unknown_accounts[i] ) {
+        memset( acc_rec->meta->hash, 0xFF, sizeof(fd_hash_t) );
+        fd_txn_set_exempt_rent_epoch_max( txn_ctx, &txn_ctx->accounts[i] );
+      }
+
+      fd_funk_start_write( slot_ctx->acc_mgr->funk );
+      fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->borrowed_accounts[i] );
+      fd_funk_end_write( slot_ctx->acc_mgr->funk );
+    }
+  }
+  return 0;
 }
 
 int
@@ -1514,6 +1683,34 @@ fd_runtime_generate_wave( fd_execute_txn_task_info_t * task_infos,
     *_incomplete_accounts_cnt = prev_accounts_cnt - accounts_in_wave;
     *_wave_task_infos_cnt = wave_task_infos_cnt;
   } FD_SCRATCH_SCOPE_END;
+}
+
+int
+fd_runtime_execute_pack_txns( fd_exec_slot_ctx_t * slot_ctx,
+                              fd_capture_ctx_t *   capture_ctx,
+                              fd_txn_p_t *         txns, 
+                              ulong                txn_cnt ) {
+
+  FD_SCRATCH_SCOPE_BEGIN {
+
+    fd_execute_txn_task_info_t * task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
+
+    for( ulong i = 0; i < txn_cnt; i++ ) {
+      txns[i].flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+    }
+
+    int res = 0;
+    for( ulong i=0UL; i<txn_cnt; i++ ) {
+      res |= fd_runtime_prepare_execute_finalize_txn( slot_ctx, capture_ctx, &txns[i], &task_infos[i] );
+      if( res != 0 ) {
+        FD_LOG_DEBUG(("Fail prep 2"));
+      }
+    }
+    slot_ctx->slot_bank.transaction_count += txn_cnt;
+
+    return res;
+  } FD_SCRATCH_SCOPE_END;
+
 }
 
 /* NOTE: Don't mess with this call without updating the transaction fuzzing harness appropriately!

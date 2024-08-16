@@ -467,7 +467,7 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
 /* Remove a slot from blockstore */
 void
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
-  FD_LOG_NOTICE(( "[%s] slot %lu", __func__, slot ));
+  FD_LOG_DEBUG(( "[%s] slot %lu", __func__, slot ));
   fd_block_map_t * block_map_entry = fd_block_map_remove( fd_blockstore_block_map( blockstore ), &slot );
   if( FD_UNLIKELY( !block_map_entry ) ) return;
 
