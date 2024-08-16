@@ -184,6 +184,24 @@ _load_account( fd_borrowed_account_t *           acc,
   return 1;
 }
 
+static int
+_load_txn_account( fd_borrowed_account_t *           acc,
+                   fd_acc_mgr_t *                    acc_mgr,
+                   fd_funk_txn_t *                   funk_txn,
+                   fd_exec_test_acct_state_t const * state ) {
+  // In the Agave transaction fuzzing harness, accounts with 0 lamports are not saved in the accounts db.
+  // When they are fetched for transactions, the fields of the account are 0-set.
+  fd_exec_test_acct_state_t account_state_to_save = FD_EXEC_TEST_ACCT_STATE_INIT_ZERO;
+  memcpy( account_state_to_save.address, state->address, sizeof(fd_pubkey_t) );
+  
+  // Restore the account state if it has lamports
+  if( state->lamports ) {
+    account_state_to_save = *state;
+  }
+
+  return _load_account( acc, acc_mgr, funk_txn, &account_state_to_save );
+}
+
 int
 _restore_feature_flags( fd_exec_epoch_ctx_t *              epoch_ctx,
                         fd_exec_test_feature_set_t const * feature_set ) {
@@ -619,10 +637,10 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     Account state = accounts to populate Funk
     Account keys = account keys that the transaction needs */
   for( ulong i = 0; i < test_ctx->tx.message.account_shared_data_count; i++ ) {
-    // Load the accounts into the account manager
-    // Borrowed accounts get reset anyways - we just need to load the account somewhere
+    /* Load the accounts into the account manager
+       Borrowed accounts get reset anyways - we just need to load the account somewhere */
     FD_BORROWED_ACCOUNT_DECL(acc);
-    _load_account( acc, acc_mgr, funk_txn, &test_ctx->tx.message.account_shared_data[i] );
+    _load_txn_account( acc, acc_mgr, funk_txn, &test_ctx->tx.message.account_shared_data[i] );
   }
 
   /* Restore sysvar cache */
