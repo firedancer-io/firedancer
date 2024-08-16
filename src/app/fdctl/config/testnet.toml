@@ -1,4 +1,4 @@
-scratch_directory = "/dev/shm/fd1"
+scratch_directory = "/data/fd1"
 
 [gossip]
     entrypoints = [
@@ -8,7 +8,8 @@ scratch_directory = "/dev/shm/fd1"
     ]
 
 [consensus]
-    identity_path = "/home/{user}/.firedancer/fd1/identity.json"
+    identity_path = "/home/{user}/keys/fd-identity-keypair.json"
+    vote_account_path = "/home/{user}/keys/fd-vote-keypair.json"
     expected_genesis_hash = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
     known_validators = [
         "5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on", 
@@ -22,3 +23,7 @@ scratch_directory = "/dev/shm/fd1"
     port = 8899
     full_api = true
     private = true
+
+[layout]
+    affinity = "1-31"
+    solana_labs_affinity = "32-63"
