@@ -835,8 +835,7 @@ after_frag( void *             _ctx,
         FD_LOG_DEBUG(( "NOT publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", curr_slot, ctx->parent_slot, flags ));
       }
 
-      fd_ghost_slot_print( ctx->ghost, child->slot, 12 );
-      // fd_ghost_print( ctx->ghost );
+      fd_ghost_print( ctx->ghost );
       fd_tower_print( ctx->tower );
       fd_fork_t const * vote_fork = fd_tower_vote_fork_select( ctx->tower,
                                                                ctx->forks,
