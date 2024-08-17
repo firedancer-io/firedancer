@@ -317,9 +317,9 @@ void fd_runtime_init_program(fd_exec_slot_ctx_t *slot_ctx)
   fd_sysvar_slot_history_init(slot_ctx);
   //  fd_sysvar_slot_hashes_init( slot_ctx );
   fd_sysvar_epoch_schedule_init(slot_ctx);
-  // if( !FD_FEATURE_ACTIVE(slot_ctx, disable_fees_sysvar) ) {
-  //   fd_sysvar_fees_init(slot_ctx);
-  // }
+  if( !FD_FEATURE_ACTIVE(slot_ctx, disable_fees_sysvar) ) {
+    fd_sysvar_fees_init(slot_ctx);
+  }
   fd_sysvar_rent_init(slot_ctx);
   fd_sysvar_stake_history_init(slot_ctx);
   fd_sysvar_last_restart_slot_init(slot_ctx);
@@ -1821,8 +1821,8 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx ) {
   clock_update_time += fd_log_wallclock();
   double clock_update_time_ms = (double)clock_update_time * 1e-6;
   FD_LOG_INFO(( "clock updated - slot: %lu, elapsed: %6.6f ms", slot_ctx->slot_bank.slot, clock_update_time_ms ));
-  // if (!FD_FEATURE_ACTIVE(slot_ctx, disable_fees_sysvar))
-  //   fd_sysvar_fees_update(slot_ctx);
+  if (!FD_FEATURE_ACTIVE(slot_ctx, disable_fees_sysvar))
+    fd_sysvar_fees_update(slot_ctx);
   // It has to go into the current txn previous info but is not in slot 0
   if (slot_ctx->slot_bank.slot != 0)
     fd_sysvar_slot_hashes_update(slot_ctx);
@@ -3367,8 +3367,8 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_sysvar_recent_hashes_update(slot_ctx);
 
-  // if( !FD_FEATURE_ACTIVE(slot_ctx, disable_fees_sysvar) )
-  //   fd_sysvar_fees_update(slot_ctx);
+  if( !FD_FEATURE_ACTIVE(slot_ctx, disable_fees_sysvar) )
+    fd_sysvar_fees_update(slot_ctx);
 
   ulong fees = fd_ulong_sat_add (slot_ctx->slot_bank.collected_execution_fees, slot_ctx->slot_bank.collected_priority_fees );
   if( FD_LIKELY ((fees > 0))) {
@@ -3818,8 +3818,6 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx, fd_capture_ctx_
 
   fd_runtime_freeze( slot_ctx );
 
-  FD_LOG_WARNING(( "fd_runtime_freeze: capitalization %ld ", slot_ctx->slot_bank.capitalization));
-
   /* sort and update bank hash */
   int result = fd_update_hash_bank( slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, slot_ctx->signature_cnt );
   if (result != FD_EXECUTOR_INSTR_SUCCESS) {
@@ -3883,12 +3881,7 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t* slot_ctx,
   if ( !is_snapshot ) {
     fd_runtime_init_bank_from_genesis( slot_ctx, &genesis_block, &genesis_hash );
 
-    fd_features_restore( slot_ctx );
-
     fd_runtime_init_program( slot_ctx );
-
-    fd_runtime_update_leaders(slot_ctx, slot_ctx->slot_bank.slot);
-    FD_LOG_WARNING(("Updated leader %32J", slot_ctx->leader->uc));
 
     FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block.accounts_len));
 
@@ -3924,6 +3917,8 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t* slot_ctx,
       fd_string_pubkey_pair_t * a = &genesis_block.native_instruction_processors[i];
       fd_write_builtin_bogus_account( slot_ctx, a->pubkey.uc, (const char *) a->string, a->string_len );
     }
+
+    fd_features_restore( slot_ctx );
 
     slot_ctx->slot_bank.slot = 0UL;
 

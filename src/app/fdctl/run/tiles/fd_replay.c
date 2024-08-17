@@ -1071,6 +1071,9 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
   ulong snapshot_slot = ctx->slot_ctx->slot_bank.slot;
   if( FD_UNLIKELY( !snapshot_slot ) ) {
+    fd_runtime_update_leaders(ctx->slot_ctx, ctx->slot_ctx->slot_bank.slot);
+    FD_LOG_WARNING(("Updated leader %32J", ctx->slot_ctx->leader->uc));
+
     ctx->slot_ctx->slot_bank.prev_slot = 0UL;
     ctx->slot_ctx->slot_bank.slot = 1UL;
 
