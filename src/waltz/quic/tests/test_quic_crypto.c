@@ -123,6 +123,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
   /*   initial_secret = HKDF-Extract(initial_salt, */
   /*                                 client_dst_connection_id) */
 
@@ -340,6 +342,63 @@ main( int     argc,
 
   fd_quic_crypto_ctx_fini( &crypto_ctx );
 
+  /* do a quick benchmark of QUIC header + payload protection on small
+     and large packets from UDP/IP4/VLAN/Ethernet */
+
+  static ulong const bench_sz[2] = { 64UL, 1472UL };
+
+  uchar buf1[ 1472 ] __attribute__((aligned(128)));
+  uchar buf2[ 1472 ] __attribute__((aligned(128)));
+  for( ulong b=0UL; b<1472UL; b++ ) buf1[b] = fd_rng_uchar( rng );
+  for( ulong b=0UL; b<1472UL; b++ ) buf2[b] = fd_rng_uchar( rng );
+
+  FD_LOG_NOTICE(( "Benchmarking header+payload decrypt" ));
+  for( ulong idx=0U; idx<2UL; idx++ ) {
+    ulong sz = bench_sz[ idx ];
+
+    /* warmup */
+    for( ulong rem=10UL; rem; rem-- ) {
+      fd_quic_crypto_decrypt_hdr( buf2, sz, 0,       &client_keys );
+      fd_quic_crypto_decrypt    ( buf2, sz, 0, 1234, &client_keys );
+    }
+
+    /* for real */
+    ulong iter = 1000000UL;
+    long  dt   = -fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      fd_quic_crypto_decrypt_hdr( buf2, sz, 0,       &client_keys );
+      fd_quic_crypto_decrypt    ( buf2, sz, 0, 1234, &client_keys );
+    }
+    dt += fd_log_wallclock();
+    float gbps = ((float)(8UL*(70UL+sz)*iter)) / ((float)dt);
+    FD_LOG_NOTICE(( "~%6.3f Gbps Ethernet equiv throughput / core (sz %4lu)", (double)gbps, sz ));
+  } while(0);
+
+  FD_LOG_NOTICE(( "Benchmarking header+payload encrypt" ));
+  for( ulong idx=0U; idx<2UL; idx++ ) {
+    ulong const out_sz = bench_sz[ idx ];
+    ulong const hdr_sz = 22UL;
+    ulong const sz     = out_sz - FD_QUIC_CRYPTO_TAG_SZ - hdr_sz;
+
+    /* warmup */
+    for( ulong rem=10UL; rem; rem-- ) {
+      ulong out_sz_ = out_sz;
+      fd_quic_crypto_encrypt( buf2, &out_sz_, hdr, hdr_sz, buf1, sz, &client_keys, &client_keys, 1234 );
+    }
+
+    /* for real */
+    ulong iter = 1000000UL;
+    long  dt   = -fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      ulong out_sz_ = out_sz;
+      fd_quic_crypto_encrypt( buf2, &out_sz_, hdr, hdr_sz, buf1, sz, &client_keys, &client_keys, 1234 );
+    }
+    dt += fd_log_wallclock();
+    float gbps = ((float)(8UL*(70UL+out_sz)*iter)) / ((float)dt);
+    FD_LOG_NOTICE(( "~%6.3f Gbps Ethernet equiv throughput / core (sz %4lu)", (double)gbps, out_sz ));
+  } while(0);
+
+  fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
