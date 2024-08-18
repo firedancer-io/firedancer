@@ -288,7 +288,7 @@ decrypt_packet( uchar * const data,
 
   /* Decrypt the packet */
 
-  int decrypt_res = fd_quic_crypto_decrypt_hdr( data, size, pkt_num_pnoff, suite, keys );
+  int decrypt_res = fd_quic_crypto_decrypt_hdr( data, size, pkt_num_pnoff, keys );
   if( decrypt_res != FD_QUIC_SUCCESS ) return 0UL;
 
   uint  pkt_number_sz = ( (uint)data[0] & 0x03U ) + 1U;
@@ -299,7 +299,7 @@ decrypt_packet( uchar * const data,
   decrypt_res =
     fd_quic_crypto_decrypt( data,           size,
                             pkt_num_pnoff,  pkt_number,
-                            suite,          keys );
+                            keys );
   if( decrypt_res != FD_QUIC_SUCCESS ) return 0UL;
 
   return fd_ulong_min( total_len + FD_QUIC_CRYPTO_TAG_SZ, size );
@@ -374,7 +374,7 @@ encrypt_packet( uchar * const data,
     fd_quic_crypto_encrypt( out, &out_sz,
                             hdr, hdr_sz,
                             pay, pay_sz,
-                            suite, keys, keys,
+                            keys, keys,
                             pkt_number );
   if( encrypt_res != FD_QUIC_SUCCESS )
     return size;

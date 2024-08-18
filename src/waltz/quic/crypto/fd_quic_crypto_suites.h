@@ -341,7 +341,6 @@ fd_quic_gen_new_keys(
     hdr_sz    the size of the input header
     pkt       the input plain text payload
     pkt_sz    the size of the input payload
-    suite     the encryption suite to use
     keys      the keys to use
    */
 int
@@ -352,7 +351,6 @@ fd_quic_crypto_encrypt(
     ulong                          const hdr_sz,
     uchar const *                  const pkt,
     ulong                          const pkt_sz,
-    fd_quic_crypto_suite_t const * const suite,
     fd_quic_crypto_keys_t const *  const pkt_keys,
     fd_quic_crypto_keys_t const *  const hp_keys,
     ulong                          const pkt_number );
@@ -377,7 +375,6 @@ fd_quic_crypto_encrypt(
      buf_sz             the size of the QUIC packet
      pkt_number_off     the offset of the packet number within the cipher text
                         this must be determined from unprotected header data
-     suite              which particular cipher suite the packet was protected with
      keys               the keys needed to decrypt */
 
 int
@@ -386,7 +383,6 @@ fd_quic_crypto_decrypt(
     ulong                          buf_sz,
     ulong                          pkt_number_off,
     ulong                          pkt_number,
-    fd_quic_crypto_suite_t const * suite,
     fd_quic_crypto_keys_t const *  keys );
 
 
@@ -410,7 +406,6 @@ fd_quic_crypto_decrypt(
      buf_sz             size of the QUIC packet
      pkt_number_off     the offset of the packet number within the cipher text
                         this must be determined from unprotected header data
-     suite              which particular cipher suite the packet was protected with
      keys               the keys needed to decrypt */
 
 int
@@ -418,7 +413,6 @@ fd_quic_crypto_decrypt_hdr(
     uchar *                        buf,
     ulong                          buf_sz,
     ulong                          pkt_number_off,
-    fd_quic_crypto_suite_t const * suite,
     fd_quic_crypto_keys_t const *  keys );
 
 
