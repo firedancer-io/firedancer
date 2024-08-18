@@ -193,21 +193,21 @@ main( int     argc,
 
   /* compare output of fd_quic_gen_secrets to expected */
   FD_TEST( 0==memcmp( secrets.initial_secret, expected_initial_secret, sizeof( expected_initial_secret ) ) );
-  FD_LOG_NOTICE(( "fd_quic_gen_secrets: initial_secret PASSED" ));
+  FD_LOG_INFO(( "fd_quic_gen_secrets: initial_secret PASSED" ));
 
   FD_LOG_DEBUG(( "client initial secret: "
                  FD_LOG_HEX16_FMT FD_LOG_HEX16_FMT,
                  FD_LOG_HEX16_FMT_ARGS( secrets.secret[0][0]    ),
                  FD_LOG_HEX16_FMT_ARGS( secrets.secret[0][0]+16 ) ));
   FD_TEST( 0==memcmp( secrets.secret[0][0], expected_client_initial_secret, sizeof( expected_client_initial_secret ) ) );
-  FD_LOG_NOTICE(( "fd_quic_gen_secrets: client_initial_secret PASSED" ));
+  FD_LOG_INFO(( "fd_quic_gen_secrets: client_initial_secret PASSED" ));
 
   FD_LOG_DEBUG(( "server initial secret: "
                  FD_LOG_HEX16_FMT FD_LOG_HEX16_FMT,
                  FD_LOG_HEX16_FMT_ARGS( secrets.secret[0][1]    ),
                  FD_LOG_HEX16_FMT_ARGS( secrets.secret[0][1]+16 ) ));
   FD_TEST( 0==memcmp( secrets.secret[0][1], expected_server_initial_secret, sizeof( expected_server_initial_secret ) ) );
-  FD_LOG_NOTICE(( "fd_quic_gen_secrets: server_initial_secret PASSED" ));
+  FD_LOG_INFO(( "fd_quic_gen_secrets: server_initial_secret PASSED" ));
 
   fd_quic_crypto_keys_t client_keys = {0};
   if( fd_quic_gen_keys(
@@ -242,21 +242,20 @@ main( int     argc,
                                    hdr_sz,
                                    pkt,
                                    pkt_sz,
-                                   suite,
                                    &client_keys,
                                    &client_keys,
                                    pkt_number )==FD_QUIC_SUCCESS );
 
   uchar const * cipher_text = cipher_text_;
 
-  FD_LOG_NOTICE(( "fd_quic_crypto_encrypt output %ld bytes", (long int)cipher_text_sz ));
+  FD_LOG_INFO(( "fd_quic_crypto_encrypt output %ld bytes", (long int)cipher_text_sz ));
 
   FD_LOG_HEXDUMP_INFO(( "plain_text",  test_client_initial, test_client_initial_sz ));
   FD_LOG_HEXDUMP_INFO(( "cipher_text", cipher_text,         cipher_text_sz         ));
 
   uchar revert[4096];
 
-  FD_LOG_NOTICE(( "revert cipher_text_sz: %lu", cipher_text_sz ));
+  FD_LOG_INFO(( "revert cipher_text_sz: %lu", cipher_text_sz ));
 
   ulong const pn_offset = 18; /* from example in rfc */
 
@@ -264,7 +263,6 @@ main( int     argc,
   FD_TEST( fd_quic_crypto_decrypt_hdr(
         revert, cipher_text_sz,
         pn_offset,
-        suite,
         &client_keys ) == FD_QUIC_SUCCESS );
 
   uchar revert_partial[4096];  /* only header decrypted */
@@ -274,7 +272,6 @@ main( int     argc,
   FD_TEST( fd_quic_crypto_decrypt(
         revert, cipher_text_sz,
         pn_offset, pkt_number,
-        suite,
         &client_keys ) == FD_QUIC_SUCCESS );
 
   ulong revert_sz = cipher_text_sz - FD_QUIC_CRYPTO_TAG_SZ;
@@ -287,14 +284,13 @@ main( int     argc,
   FD_TEST( 0==memcmp( revert, hdr, hdr_sz ) );
   FD_TEST( 0==memcmp( revert + hdr_sz, test_client_initial, test_client_initial_sz ) );
 
-  FD_LOG_NOTICE(( "decrypted packet matches original packet" ));
+  FD_LOG_INFO(( "decrypted packet matches original packet" ));
 
   /* Undersz header */
   fd_memcpy( revert, cipher_text, cipher_text_sz );
   FD_TEST( fd_quic_crypto_decrypt_hdr(
         revert, FD_QUIC_CRYPTO_TAG_SZ-1UL,
         pn_offset,
-        suite,
         &client_keys ) == FD_QUIC_FAILED );
 
   /* Overflowing packet number offset */
@@ -302,7 +298,6 @@ main( int     argc,
   FD_TEST( fd_quic_crypto_decrypt_hdr(
         revert, cipher_text_sz,
         ULONG_MAX,
-        suite,
         &client_keys ) == FD_QUIC_FAILED );
 
   /* Packet number cut off */
@@ -310,7 +305,6 @@ main( int     argc,
   FD_TEST( fd_quic_crypto_decrypt_hdr(
         revert, pn_offset + 3,
         pn_offset,
-        suite,
         &client_keys ) == FD_QUIC_FAILED );
 
   /* Sample out of bounds */
@@ -318,7 +312,6 @@ main( int     argc,
   FD_TEST( fd_quic_crypto_decrypt_hdr(
         revert, pn_offset + 19,
         pn_offset,
-        suite,
         &client_keys ) == FD_QUIC_FAILED );
 
   /* Corrupt the ciphertext */
@@ -327,7 +320,6 @@ main( int     argc,
   FD_TEST( fd_quic_crypto_decrypt(
         revert, cipher_text_sz,
         pn_offset, pkt_number,
-        suite,
         &client_keys ) == FD_QUIC_FAILED );
 
   /* Output buffer size exactly as large as output */
@@ -336,7 +328,6 @@ main( int     argc,
   FD_TEST( fd_quic_crypto_decrypt(
         revert, cipher_text_sz,
         pn_offset, pkt_number,
-        suite,
         &client_keys ) == FD_QUIC_SUCCESS );
 
   /* Overflowing packet number offset */
@@ -345,7 +336,6 @@ main( int     argc,
   FD_TEST( fd_quic_crypto_decrypt(
         revert, cipher_text_sz,
         ULONG_MAX, pkt_number,
-        suite,
         &client_keys ) == FD_QUIC_FAILED );
 
   fd_quic_crypto_ctx_fini( &crypto_ctx );

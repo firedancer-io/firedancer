@@ -1589,7 +1589,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     if( FD_UNLIKELY(
           fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
                                       pn_offset,
-                                      suite,
                                       &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) ) {
       /* As this is an INITIAL packet, change the status to DEAD, and allow
          it to be reaped */
@@ -1628,7 +1627,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           fd_quic_crypto_decrypt( cur_ptr, tot_sz,
                                   pn_offset,
                                   pkt_number,
-                                  suite,
                                   &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) ) {
       FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
       quic->metrics.conn_err_tls_fail_cnt++;
@@ -1770,7 +1768,6 @@ fd_quic_handle_v1_handshake(
   if( FD_UNLIKELY(
         fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
                                     pn_offset,
-                                    suite,
                                     &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) ) {
     quic->metrics.conn_err_tls_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
@@ -1800,7 +1797,6 @@ fd_quic_handle_v1_handshake(
         fd_quic_crypto_decrypt( cur_ptr, tot_sz,
                                 pn_offset,
                                 pkt_number,
-                                suite,
                                 &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) ) {
     /* remove connection from map, and insert into free list */
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
@@ -1998,7 +1994,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
     if( FD_UNLIKELY(
           fd_quic_crypto_decrypt_hdr( cur_ptr, tot_sz,
                                       pn_offset,
-                                      suite,
                                       &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) ) {
       FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
       quic->metrics.conn_err_tls_fail_cnt++;
@@ -2085,7 +2080,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
           fd_quic_crypto_decrypt( cur_ptr, tot_sz,
                                   pn_offset,
                                   pkt_number,
-                                  suite,
                                   keys ) != FD_QUIC_SUCCESS ) ) {
       /* remove connection from map, and insert into free list */
       FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
@@ -4474,8 +4468,6 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     uchar * pay            = hdr + hdr_sz;
     ulong   pay_sz         = quic_pkt_sz - hdr_sz;
 
-    fd_quic_crypto_suite_t const * suite = conn->suites[enc_level];
-
     int server = conn->server;
 
     fd_quic_crypto_keys_t * hp_keys  = &conn->keys[enc_level][server];
@@ -4485,7 +4477,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     pkt_meta->flags |= key_phase_flags;
 
     if( FD_UNLIKELY( fd_quic_crypto_encrypt( conn->tx_ptr, &cipher_text_sz, hdr, hdr_sz,
-          pay, pay_sz, suite, pkt_keys, hp_keys, pkt_number ) != FD_QUIC_SUCCESS ) ) {
+          pay, pay_sz, pkt_keys, hp_keys, pkt_number ) != FD_QUIC_SUCCESS ) ) {
       FD_LOG_WARNING(( "fd_quic_crypto_encrypt failed" ));
 
       /* reschedule, since some data was unable to be sent */

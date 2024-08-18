@@ -381,12 +381,10 @@ fd_quic_crypto_encrypt(
     ulong                          const hdr_sz,
     uchar const *                  const pkt,
     ulong                          const pkt_sz,
-    fd_quic_crypto_suite_t const * const suite,
     fd_quic_crypto_keys_t const *  const pkt_keys,
     fd_quic_crypto_keys_t const *  const hp_keys,
     ulong                          const pkt_number ) {
 
-  (void)suite;
 
   /* ensure we have enough space in the output buffer
      most space used by cipher:
@@ -476,10 +474,7 @@ fd_quic_crypto_decrypt(
     ulong                          buf_sz,
     ulong                          pkt_number_off,
     ulong                          pkt_number,
-    fd_quic_crypto_suite_t const * suite,
     fd_quic_crypto_keys_t const *  keys ) {
-
-  (void)suite;
 
   if( FD_UNLIKELY( ( pkt_number_off >= buf_sz      ) |
                    ( buf_sz < FD_QUIC_SHORTEST_PKT ) ) ) {
@@ -547,10 +542,7 @@ fd_quic_crypto_decrypt_hdr(
     uchar *                        buf,
     ulong                          buf_sz,
     ulong                          pkt_number_off,
-    fd_quic_crypto_suite_t const * suite,
     fd_quic_crypto_keys_t const *  keys ) {
-
-  (void)suite;
 
   /* bounds checks */
   if( FD_UNLIKELY( ( buf_sz < FD_QUIC_CRYPTO_TAG_SZ ) |
