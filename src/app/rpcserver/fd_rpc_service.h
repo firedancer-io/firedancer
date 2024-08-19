@@ -8,6 +8,8 @@
 #include "../fdctl/run/tiles/fd_replay_notif.h"
 #include "../../ballet/http/fd_http_server.h"
 #include "fd_block_to_json.h"
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 struct fd_rpcserver_args {
   fd_funk_t *       funk;
@@ -17,6 +19,7 @@ struct fd_rpcserver_args {
   ushort            port;
   fd_http_server_params_t params;
   ulong             hcache_size;
+  struct sockaddr_in tpu_addr;
 };
 typedef struct fd_rpcserver_args fd_rpcserver_args_t;
 

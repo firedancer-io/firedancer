@@ -86,14 +86,14 @@ long fd_webserver_json_keyword(const char* keyw, unsigned long keyw_sz) {
     case 'g':
       if ((*(unsigned long*)&keyw[1] & 0xFFFFUL) == 0x7465UL) {
         switch (keyw[3]) {
-        case 'F':
-          if ((*(unsigned long*)&keyw[4] & 0xFFFFFFUL) == 0x736565UL) {
-            return KEYW_RPCMETHOD_GETFEES; // "getFees"
-          }
-          break;
         case 'S':
           if ((*(unsigned long*)&keyw[4] & 0xFFFFFFUL) == 0x746F6CUL) {
             return KEYW_RPCMETHOD_GETSLOT; // "getSlot"
+          }
+          break;
+        case 'F':
+          if ((*(unsigned long*)&keyw[4] & 0xFFFFFFUL) == 0x736565UL) {
+            return KEYW_RPCMETHOD_GETFEES; // "getFees"
           }
           break;
         }
@@ -183,6 +183,11 @@ long fd_webserver_json_keyword(const char* keyw, unsigned long keyw_sz) {
         }
       }
       break;
+    case 'm':
+      if (*(unsigned long*)&keyw[1] == 0x6569727465527861UL && keyw[9] == 's') {
+        return KEYW_JSON_MAXRETRIES; // "maxRetries"
+      }
+      break;
     case 'v':
       if (*(unsigned long*)&keyw[1] == 0x656B62755065746FUL && keyw[9] == 'y') {
         return KEYW_JSON_VOTEPUBKEY; // "votePubkey"
@@ -229,8 +234,17 @@ long fd_webserver_json_keyword(const char* keyw, unsigned long keyw_sz) {
       }
       break;
     case 's':
-      if (*(unsigned long*)&keyw[1] == 0x6373627553746F6CUL && (*(unsigned long*)&keyw[9] & 0xFFFFFFFFUL) == 0x65626972UL) {
-        return KEYW_WS_METHOD_SLOTSUBSCRIBE; // "slotSubscribe"
+      switch (keyw[1]) {
+      case 'k':
+        if (*(unsigned long*)&keyw[2] == 0x696C666572507069UL && (*(unsigned long*)&keyw[10] & 0xFFFFFFUL) == 0x746867UL) {
+          return KEYW_SKIPPREFLIGHT; // "skipPreflight"
+        }
+        break;
+      case 'l':
+        if (*(unsigned long*)&keyw[2] == 0x726373627553746FUL && (*(unsigned long*)&keyw[10] & 0xFFFFFFUL) == 0x656269UL) {
+          return KEYW_WS_METHOD_SLOTSUBSCRIBE; // "slotSubscribe"
+        }
+        break;
       }
       break;
     case 'v':
@@ -328,8 +342,17 @@ long fd_webserver_json_keyword(const char* keyw, unsigned long keyw_sz) {
       }
       break;
     case 'r':
-      if (*(unsigned long*)&keyw[1] == 0x6275736E55746F6FUL && (*(unsigned long*)&keyw[9] & 0xFFFFFFFFFFFFUL) == 0x656269726373UL) {
-        return KEYW_WS_METHOD_ROOTUNSUBSCRIBE; // "rootUnsubscribe"
+      switch (keyw[1]) {
+      case 'e':
+        if (*(unsigned long*)&keyw[2] == 0x636F6C42746E6563UL && (*(unsigned long*)&keyw[10] & 0xFFFFFFFFFFUL) == 0x687361686BUL) {
+          return KEYW_JSON_RECENTBLOCKHASH; // "recentBlockhash"
+        }
+        break;
+      case 'o':
+        if (*(unsigned long*)&keyw[2] == 0x736275736E55746FUL && (*(unsigned long*)&keyw[10] & 0xFFFFFFFFFFUL) == 0x6562697263UL) {
+          return KEYW_WS_METHOD_ROOTUNSUBSCRIBE; // "rootUnsubscribe"
+        }
+        break;
       }
       break;
     case 's':
@@ -538,6 +561,11 @@ long fd_webserver_json_keyword(const char* keyw, unsigned long keyw_sz) {
         }
       }
       break;
+    case 'p':
+      if (*(unsigned long*)&keyw[1] == 0x746867696C666572UL && *(unsigned long*)&keyw[9] == 0x656D74696D6D6F43UL && (*(unsigned long*)&keyw[17] & 0xFFFFUL) == 0x746EUL) {
+        return KEYS_PREFLIGHTCOMMITMENT; // "preflightCommitment"
+      }
+      break;
     case 's':
       if (*(unsigned long*)&keyw[1] == 0x546574616C756D69UL && *(unsigned long*)&keyw[9] == 0x69746361736E6172UL && (*(unsigned long*)&keyw[17] & 0xFFFFUL) == 0x6E6FUL) {
         return KEYW_RPCMETHOD_SIMULATETRANSACTION; // "simulateTransaction"
@@ -739,13 +767,17 @@ const char* un_fd_webserver_json_keyword(long id) {
   case KEYW_JSON_LENGTH: return "length";
   case KEYW_JSON_LIMIT: return "limit";
   case KEYW_JSON_MAXSUPPORTEDTRANSACTIONVERSION: return "maxSupportedTransactionVersion";
+  case KEYW_JSON_MAXRETRIES: return "maxRetries";
   case KEYW_JSON_MINCONTEXTSLOT: return "minContextSlot";
   case KEYW_JSON_MEMCMP: return "memcmp";
   case KEYW_JSON_MINT: return "mint";
   case KEYW_JSON_OFFSET: return "offset";
+  case KEYS_PREFLIGHTCOMMITMENT: return "preflightCommitment";
   case KEYW_JSON_PROGRAMID: return "programId";
+  case KEYW_JSON_RECENTBLOCKHASH: return "recentBlockhash";
   case KEYW_JSON_REWARDS: return "rewards";
   case KEYW_JSON_SEARCHTRANSACTIONHISTORY: return "searchTransactionHistory";
+  case KEYW_SKIPPREFLIGHT: return "skipPreflight";
   case KEYW_JSON_TRANSACTIONDETAILS: return "transactionDetails";
   case KEYW_JSON_VOTEPUBKEY: return "votePubkey";
   case KEYW_RPCMETHOD_GETACCOUNTINFO: return "getAccountInfo";

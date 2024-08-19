@@ -2,9 +2,15 @@
 #include <signal.h>
 #include <errno.h>
 #include <unistd.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include "../../util/wksp/fd_wksp_private.h"
 #include "../../disco/topo/fd_topo.h"
 #include "fd_rpc_service.h"
+
+extern int inet_aton (const char *__cp, struct in_addr *__inp) __THROW;
 
 /*
 static void usage( char const * progname ) {
@@ -72,6 +78,25 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   args->params.max_ws_send_frame_cnt = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-send-frame-cnt", NULL, 100 );
 
   args->hcache_size = fd_env_strip_cmdline_ulong( argc, argv, "--max-send-buf", NULL, 100U<<20U );
+
+  const char * tpu_host = fd_env_strip_cmdline_cstr ( argc, argv, "--local-tpu-host", NULL, "127.0.0.1" );
+  ulong tpu_port = fd_env_strip_cmdline_ulong( argc, argv, "--local-tpu-port", NULL, 9001U );
+  memset( &args->tpu_addr, 0, sizeof(args->tpu_addr) );
+  args->tpu_addr.sin_family = AF_INET;
+  if( !inet_aton( tpu_host, &args->tpu_addr.sin_addr ) ) {
+    struct hostent * hent = gethostbyname( tpu_host );
+    if( hent == NULL ) {
+      FD_LOG_WARNING(( "unable to resolve tpu host %s", tpu_host ));
+      exit(-1);
+    }
+    args->tpu_addr.sin_addr.s_addr = ( (struct in_addr *)hent->h_addr_list[0] )->s_addr;
+  }
+  if( tpu_port < 1024 || tpu_port > (int)USHORT_MAX ) {
+    FD_LOG_ERR(( "invalid tpu port number" ));
+    exit(-1);
+  }
+  args->tpu_addr.sin_port = htons( (ushort)tpu_port );
+  FD_LOG_NOTICE(( "using tpu %s:%u", inet_ntoa( args->tpu_addr.sin_addr ), (uint)ntohs( args->tpu_addr.sin_port ) ));
 }
 
 static int stopflag = 0;

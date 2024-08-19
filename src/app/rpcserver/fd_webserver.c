@@ -136,6 +136,12 @@ request( fd_http_server_request_t const * request ) {
       fd_web_error( ws, "content type must be \"application/json\"" );
 
     } else {
+#ifdef FD_RPC_VERBOSE
+      fwrite("post:\n\n", 1, 6, stdout);
+      fwrite(request->post.body, 1, request->post.body_len, stdout);
+      fwrite("\n\n", 1, 2, stdout);
+      fflush(stdout);
+#endif
       json_lex_state_t lex;
       json_lex_state_new(&lex, (const char*)request->post.body, request->post.body_len);
       json_parse_root(ws, &lex);
@@ -146,6 +152,12 @@ request( fd_http_server_request_t const * request ) {
     ulong body_len     = body_len;
     uchar const * body = fd_hcache_snap_response( ws->hcache, &body_len );
     FD_TEST( body );
+#ifdef FD_RPC_VERBOSE
+    fwrite("response:\n\n", 1, 10, stdout);
+    fwrite(body, 1, body_len, stdout);
+    fwrite("\n\n", 1, 2, stdout);
+    fflush(stdout);
+#endif
     fd_http_server_response_t response = {
       .status            = ws->status_code,
       .upgrade_websocket = 0,
@@ -189,6 +201,13 @@ ws_close( ulong connection_id, int reason, void * ctx ) {
 
 static void
 ws_message( ulong conn_id, uchar const * data, ulong data_len, void * ctx ) {
+#ifdef FD_RPC_VERBOSE
+  fwrite("message:\n\n", 1, 9, stdout);
+  fwrite(data, 1, data_len, stdout);
+  fwrite("\n\n", 1, 2, stdout);
+  fflush(stdout);
+#endif
+
   fd_webserver_t * ws = (fd_webserver_t *)ctx;
 
   json_lex_state_t lex;

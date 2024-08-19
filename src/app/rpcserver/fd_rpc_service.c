@@ -1,6 +1,7 @@
 #include "fd_rpc_service.h"
 #include "fd_methods.h"
 #include "fd_webserver.h"
+#include "base_enc.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/types/fd_solana_block.pb.h"
 #include "../../flamenco/runtime/fd_runtime.h"
@@ -8,7 +9,11 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../ballet/base64/fd_base64.h"
 #include "keywords.h"
+#include <errno.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 #define CRLF "\r\n"
 #define MATCH_STRING(_text_,_text_sz_,_str_) (_text_sz_ == sizeof(_str_)-1 && memcmp(_text_, _str_, sizeof(_str_)-1) == 0)
@@ -41,6 +46,8 @@ struct fd_rpc_global_ctx {
   fd_epoch_bank_t * epoch_bank;
   ulong epoch_bank_epoch;
   fd_replay_notif_msg_t last_slot_notify;
+  int tpu_socket;
+  struct sockaddr_in tpu_addr;
 };
 typedef struct fd_rpc_global_ctx fd_rpc_global_ctx_t;
 
@@ -308,7 +315,8 @@ method_getBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
     ulong val_sz;
     void * val = read_account(ctx, &acct, fd_scratch_virtual(), &val_sz);
     if (val == NULL) {
-      fd_web_error(ws, "failed to load account data for %s", (const char*)arg);
+      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":0},\"id\":%lu}" CRLF,
+                         ctx->global->last_slot_notify.slot_exec.slot, ctx->call_id);
       return 0;
     }
     fd_account_meta_t * metadata = (fd_account_meta_t *)val;
@@ -671,10 +679,34 @@ method_getEpochSchedule(struct json_values* values, fd_rpc_ctx_t * ctx) {
 // Implementation of the "getFeeForMessage" methods
 static int
 method_getFeeForMessage(struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
   fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getFeeForMessage is not implemented");
+  static const uint PATH[3] = {
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+    (JSON_TOKEN_LBRACKET<<16) | 0,
+    (JSON_TOKEN_STRING<<16)
+  };
+  ulong arg_sz = 0;
+  const void* arg = json_get_value(values, PATH, 3, &arg_sz);
+  if (arg == NULL) {
+    fd_web_error(ws, "getFeeForMessage requires a string as first parameter");
+    return 0;
+  }
+  if( FD_BASE64_DEC_SZ(arg_sz) > FD_TXN_MTU ) {
+    fd_web_error(ws, "message too large");
+    return 0;
+  }
+  uchar data[FD_TXN_MTU];
+  long res = fd_base64_decode( data, (const char*)arg, arg_sz );
+  if( res < 0 ) {
+    fd_web_error(ws, "failed to decode base64 data");
+    return 0;
+  }
+  ulong data_sz = (ulong)res;
+  // TODO: implement this
+  (void)data;
+  (void)data_sz;
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":5000},\"id\":%lu}" CRLF,
+                       ctx->global->last_slot_notify.slot_exec.slot, ctx->call_id);
   return 0;
 }
 
@@ -1391,10 +1423,80 @@ method_requestAirdrop(struct json_values* values, fd_rpc_ctx_t * ctx) {
 // Implementation of the "sendTransaction" methods
 static int
 method_sendTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
   fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "sendTransaction is not implemented");
+  static const uint ENCPATH[4] = {
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+    (JSON_TOKEN_LBRACKET<<16) | 1,
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_ENCODING,
+    (JSON_TOKEN_STRING<<16)
+  };
+  ulong enc_str_sz = 0;
+  const void* enc_str = json_get_value(values, ENCPATH, 4, &enc_str_sz);
+  fd_rpc_encoding_t enc;
+  if (enc_str == NULL || MATCH_STRING(enc_str, enc_str_sz, "base58"))
+    enc = FD_ENC_BASE58;
+  else if (MATCH_STRING(enc_str, enc_str_sz, "base64"))
+    enc = FD_ENC_BASE64;
+  else {
+    fd_web_error(ws, "invalid data encoding %s", (const char*)enc_str);
+    return 0;
+  }
+
+  static const uint DATAPATH[3] = {
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+    (JSON_TOKEN_LBRACKET<<16) | 0,
+    (JSON_TOKEN_STRING<<16)
+  };
+  ulong arg_sz = 0;
+  const void* arg = json_get_value(values, DATAPATH, 3, &arg_sz);
+  if (arg == NULL) {
+    fd_web_error(ws, "sendTransaction requires a string as first parameter");
+    return 0;
+  }
+
+  uchar data[FD_TXN_MTU];
+  ulong data_sz = FD_TXN_MTU;
+  if( enc == FD_ENC_BASE58 ) {
+    if( b58tobin( data, &data_sz, (const char*)arg, arg_sz ) ) {
+      fd_web_error(ws, "failed to decode base58 data");
+      return 0;
+    }
+  } else {
+    FD_TEST( enc == FD_ENC_BASE64 );
+    if( FD_BASE64_DEC_SZ( arg_sz ) > FD_TXN_MTU ) {
+      fd_web_error(ws, "failed to decode base64 data");
+      return 0;
+    }
+    long res = fd_base64_decode( data, (const char*)arg, arg_sz );
+    if( res < 0 ) {
+      fd_web_error(ws, "failed to decode base64 data");
+      return 0;
+    }
+    data_sz = (ulong)res;
+  }
+
+  FD_LOG_NOTICE(( "received transaction of size %lu", data_sz ));
+
+  uchar txn_out[FD_TXN_MAX_SZ];
+  ulong pay_sz = 0;
+  ulong txn_sz = fd_txn_parse_core(data, data_sz, txn_out, NULL, &pay_sz);
+  if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ ) {
+    fd_web_error(ws, "failed to parse transaction");
+    return 0;
+  }
+
+  if( sendto( ctx->global->tpu_socket, data, data_sz, 0,
+              (const struct sockaddr*)fd_type_pun_const(&ctx->global->tpu_addr), sizeof(ctx->global->tpu_addr) ) < 0 ) {
+    fd_web_error(ws, "failed to send transaction data");
+    return 0;
+  }
+
+  fd_txn_t * txn = (fd_txn_t *)txn_out;
+  fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)(data + txn->signature_off);
+  char buf64[FD_BASE58_ENCODED_64_SZ];
+  fd_base58_encode_64((const uchar*)sigs, NULL, buf64);
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":%lu}" CRLF, buf64, ctx->call_id);
+
   return 0;
 }
 
@@ -1915,6 +2017,18 @@ fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
   ctx->global = gctx;
   gctx->funk = args->funk;
   gctx->blockstore = args->blockstore;
+
+  gctx->tpu_socket = socket(AF_INET, SOCK_DGRAM, 0);
+  if( gctx->tpu_socket == -1 ) {
+    FD_LOG_ERR(( "socket failed (%i-%s)", errno, strerror( errno ) ));
+  }
+  struct sockaddr_in addrLocal;
+  memset( &addrLocal, 0, sizeof(addrLocal) );
+  addrLocal.sin_family = AF_INET;
+  if( bind(gctx->tpu_socket, (const struct sockaddr*)fd_type_pun_const(&addrLocal), sizeof(addrLocal)) == -1 ) {
+    FD_LOG_ERR(( "bind failed (%i-%s)", errno, strerror( errno ) ));
+  }
+  memcpy( &gctx->tpu_addr, &args->tpu_addr, sizeof(struct sockaddr_in) );
 
   FD_LOG_NOTICE(( "starting web server on port %u", (uint)args->port ));
   if (fd_webserver_start(args->port, args->params, args->hcache_size, &gctx->ws, ctx))
