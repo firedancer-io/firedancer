@@ -5,9 +5,9 @@
 /* Generates a minimal instruction context to supply to fd_vm_t.
    For now, we just need to setup feature flags. */
 fd_exec_instr_ctx_t *
-test_vm_minimal_exec_instr_ctx( 
+test_vm_minimal_exec_instr_ctx(
     fd_valloc_t valloc,
-    bool reject_callx_r10 ) {
+    int         reject_callx_r10 ) {
 
   void * _ctx = fd_exec_instr_ctx_new( fd_valloc_malloc( valloc, FD_EXEC_INSTR_CTX_ALIGN, FD_EXEC_INSTR_CTX_FOOTPRINT ) );
 
@@ -49,7 +49,7 @@ test_vm_minimal_exec_instr_ctx(
 void
 test_vm_exec_instr_ctx_delete(
     fd_exec_instr_ctx_t * ctx ) {
-  
+
   fd_valloc_t valloc = ctx->valloc;
   fd_exec_slot_ctx_t  * slot_ctx  = ctx->slot_ctx;
   fd_exec_epoch_ctx_t * epoch_ctx = slot_ctx->epoch_ctx;

@@ -176,7 +176,7 @@ int
 deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                 uchar * const         programdata,
                 ulong                 programdata_size ) {
-  bool deploy_mode = true;
+  int deploy_mode = 1;
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_scratch_alloc( fd_sbpf_syscalls_align(),
                                                                           fd_sbpf_syscalls_footprint() ) );
   if( FD_UNLIKELY( !syscalls ) ) {
@@ -406,12 +406,12 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
 
   uchar * input = NULL;
   if( FD_UNLIKELY( is_deprecated ) ) {
-    input = fd_bpf_loader_input_serialize_unaligned( *instr_ctx, &input_sz, pre_lens, 
-                                                     input_mem_regions, &input_mem_regions_cnt, 
+    input = fd_bpf_loader_input_serialize_unaligned( *instr_ctx, &input_sz, pre_lens,
+                                                     input_mem_regions, &input_mem_regions_cnt,
                                                      acc_region_metas, !direct_mapping );
   } else {
-    input = fd_bpf_loader_input_serialize_aligned( *instr_ctx, &input_sz, pre_lens, 
-                                                   input_mem_regions, &input_mem_regions_cnt, 
+    input = fd_bpf_loader_input_serialize_aligned( *instr_ctx, &input_sz, pre_lens,
+                                                   input_mem_regions, &input_mem_regions_cnt,
                                                    acc_region_metas, !direct_mapping );
   }
 
@@ -444,7 +444,7 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
     /* calldests             */ prog->calldests,
     /* syscalls              */ syscalls,
     /* trace                 */ NULL,
-    /* sha                   */ sha, 
+    /* sha                   */ sha,
     /* input_mem_regions     */ input_mem_regions,
     /* input_mem_regions_cnt */ input_mem_regions_cnt,
     /* acc_region_metas      */ acc_region_metas,

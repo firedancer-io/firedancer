@@ -45,7 +45,7 @@ struct test_input {
   ushort        off;
   ulong         imm;
   ulong         reg[REG_CNT];
-  bool          reject_callx_r10;
+  int           reject_callx_r10;
   uint          region_boundary[16]; /* This can be changed */
   uint          region_boundary_cnt;
 };
@@ -329,7 +329,7 @@ parse_token( test_parser_t *  p,
   } else if( 0==strncmp( word, "reject_callx_r10", word_len ) ) {
 
     parse_assign_sep( p );
-    p->input.reject_callx_r10 = parse_hex_int( p );
+    p->input.reject_callx_r10 = !!parse_hex_int( p );
 
   } else {
 
@@ -403,7 +403,7 @@ run_input( test_input_t const * input,
 
   /* Turn input into a single memory region */
   fd_vm_input_region_t input_region[32];
-  
+
   if( !input->region_boundary_cnt ) {
     input_region[0] = (fd_vm_input_region_t){
       .vaddr_offset = 0UL,

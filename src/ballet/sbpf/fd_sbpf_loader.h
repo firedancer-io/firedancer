@@ -11,7 +11,6 @@
 
 #include "../../util/fd_util_base.h"
 #include "../elf/fd_elf64.h"
-#include <stdbool.h>
 
 /* Error types ********************************************************/
 
@@ -141,9 +140,9 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_sbpf_elf_peek partially parses the given ELF file in memory region
    [bin,bin+bin_sz)  Populates `info`.  Returns `info` on success.  On
-   failure, returns NULL. 
-   
-   elf_deploy_checks: The Agave ELF loader introduced additional checks 
+   failure, returns NULL.
+
+   elf_deploy_checks: The Agave ELF loader introduced additional checks
    that would fail on (certain) existing mainnet programs. Since it is
    impossible to retroactively enforce these checks on already deployed programs,
    a guard flag is used to enable these checks only when deploying programs. */
@@ -152,7 +151,7 @@ fd_sbpf_elf_info_t *
 fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
                   void const *         bin,
                   ulong                bin_sz,
-                  bool                 elf_deploy_checks );
+                  int                  elf_deploy_checks );
 
 /* fd_sbpf_program_{align,footprint} return the alignment and size
    requirements of the memory region backing the fd_sbpf_program_t
@@ -169,7 +168,7 @@ fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info );
    elf_info may be deallocated on return.
 
    rodata is the read-only segment buffer that the program is configured
-   against and must be valid for the lifetime of the program object. It 
+   against and must be valid for the lifetime of the program object. It
    should also meet the alignment requirements of the program object.
    */
 
@@ -204,7 +203,7 @@ fd_sbpf_program_new( void *                     prog_mem,
      reject_broken_elfs: elf_deploy_checks
 
    For documentation on these config params, see:
-   https://github.com/solana-labs/rbpf/blob/v0.3.0/src/vm.rs#L198 
+   https://github.com/solana-labs/rbpf/blob/v0.3.0/src/vm.rs#L198
 
    Solana/Agave equivalent:
    https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L361
@@ -215,7 +214,7 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
                       void const *         bin,
                       ulong                bin_sz,
                       fd_sbpf_syscalls_t * syscalls,
-                      bool                 elf_deploy_checks );
+                      int                  elf_deploy_checks );
 
 /* fd_sbpf_program_delete destroys the program object and unformats the
    memory regions holding it. */

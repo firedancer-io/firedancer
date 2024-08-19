@@ -93,7 +93,7 @@ fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
 
   /* Validate ELF magic */
   REQUIRE( ( fd_uint_load_4( ehdr->e_ident )==0x464c457fU          )
-  /* Validate file type/target identification 
+  /* Validate file type/target identification
      Solana/Agave performs header checks across two places:
       - Elf64::parse https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf_parser/mod.rs#L108
       - Executable::validate https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L518
@@ -184,7 +184,7 @@ check_cstr( uchar const * bin,
   return len<max ? cstr : NULL;
 }
 
-/* fd_sbpf_load_shdrs walks the program header table.  Remembers info
+/* fd_sbpf_load_phdrs walks the program header table.  Remembers info
    along the way, and performs various validations.
 
    Assumes that ...
@@ -242,7 +242,7 @@ static int
 fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
                     fd_sbpf_elf_t const * elf,
                     ulong                 elf_sz,
-                    bool                  elf_deploy_checks ) {
+                    int                   elf_deploy_checks ) {
 
   /* File Header */
   ulong const eh_offset = 0UL;
@@ -317,7 +317,7 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
       REQUIRE( (sh_offset>=pht_offend) | (sh_offend<=pht_offset) ); /* overlaps program header table */
       REQUIRE( (sh_offset>=sht_offend) | (sh_offend<=sht_offset) ); /* overlaps section header table */
 
-      /* Ordering and overlap check 
+      /* Ordering and overlap check
          https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf_parser/mod.rs#L177
       */
       REQUIRE( sh_offset >= min_sh_offset );
@@ -467,7 +467,7 @@ static int
 _fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
                    void const *         bin,
                    ulong                elf_sz,
-                   bool                 elf_deploy_checks) {
+                   int                  elf_deploy_checks ) {
 
   /* ELFs must have a file header */
   REQUIRE( elf_sz>sizeof(fd_elf64_ehdr) );
@@ -514,7 +514,7 @@ fd_sbpf_elf_info_t *
 fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
                   void const *         bin,
                   ulong                elf_sz,
-                  bool                 elf_deploy_checks ) {
+                  int                  elf_deploy_checks ) {
   return (_fd_sbpf_elf_peek( info, bin, elf_sz, elf_deploy_checks ) == 0) ? info : NULL;
 }
 
@@ -573,7 +573,7 @@ fd_sbpf_program_new( void *                     prog_mem,
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong) rodata, FD_SBPF_PROG_RODATA_ALIGN ) ) ){
     FD_LOG_WARNING(( "rodata is not 8-byte aligned" ));
     return NULL;
-  } 
+  }
 
   /* Initialize program struct */
 
@@ -633,7 +633,7 @@ struct fd_sbpf_loader {
   uint dynsym_off;  /* File offset of .dynsym section (0=missing) */
   uint dynsym_cnt;  /* Symbol count */
 
-  bool elf_deploy_checks;
+  int elf_deploy_checks;
 };
 typedef struct fd_sbpf_loader fd_sbpf_loader_t;
 
@@ -1215,7 +1215,7 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
                       void const *         _bin,
                       ulong                elf_sz,
                       fd_sbpf_syscalls_t * syscalls,
-                      bool                 elf_deploy_checks ) {
+                      int                  elf_deploy_checks ) {
   fd_sbpf_loader_seterr( 0, 0 );
 
   int err;
@@ -1245,7 +1245,7 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
   /* Load dynamic section */
   if( FD_UNLIKELY( (err=fd_sbpf_load_dynamic( &loader, elf, elf_sz ))!=0 ) )
     return err;
-  
+
   /* Register entrypoint to calldests. */
   fd_sbpf_calldests_insert( prog->calldests, prog->entry_pc );
 
