@@ -440,9 +440,9 @@ fd_tower_threshold_check( fd_tower_t const * tower,
 }
 
 fd_fork_t const *
-fd_tower_best_fork_select( FD_PARAM_UNUSED fd_tower_t const * tower,
-                           fd_forks_t const *                 forks,
-                           fd_ghost_t const *                 ghost ) {
+fd_tower_best_fork( FD_PARAM_UNUSED fd_tower_t const * tower,
+                    fd_forks_t const *                 forks,
+                    fd_ghost_t const *                 ghost ) {
   fd_ghost_node_t const * head = fd_ghost_head( ghost );
 
   /* Search for the fork head in the frontier. */
@@ -464,81 +464,108 @@ fd_tower_best_fork_select( FD_PARAM_UNUSED fd_tower_t const * tower,
   return best;
 }
 
-/* is_stale checks whether the latest vote slot is earlier than the
-   ghost root. This indicates we just started up, as we restore the
-   tower using the vote account state in funk, but can't do the same for
-   slot ancestry information for ghost.
-
-   So for a brief period, our tower and ghost will be out-of-sync until
-   their respective root slots line up.
-
-   We assume that if our tower is stale, we can safely vote on or reset
-   to the best fork without violating lockout. */
-
-static int
-is_stale( fd_tower_t const * tower, fd_ghost_t const * ghost ) {
-  return fd_tower_votes_peek_tail_const( tower->votes )->slot < ghost->root->slot;
-}
-
 fd_fork_t const *
-fd_tower_reset_fork_select( fd_tower_t const * tower,
-                            fd_forks_t const * forks,
-                            fd_ghost_t const * ghost ) {
+fd_tower_reset_fork( fd_tower_t const * tower,
+                     fd_forks_t const * forks,
+                     fd_ghost_t const * ghost ) {
+
+  /* If the tower is empty (we haven't voted or every vote was expired),
+     we simply reset to the best fork. */
+
+  if( FD_UNLIKELY( fd_tower_votes_empty( tower->votes ) ) ) {
+    return fd_tower_best_fork( tower, forks, ghost );
+  }
 
   fd_tower_vote_t const * latest_vote = fd_tower_votes_peek_tail_const( tower->votes );
 
-  if( FD_UNLIKELY( fd_tower_votes_empty( tower->votes ) || is_stale( tower, ghost ) ) ) {
-    return fd_tower_best_fork_select( tower, forks, ghost );
-  }
+  /* Consider the 2 cases when our latest vote slot does not descend
+     from ghost root / SMR (see also top-level documentation in
+     fd_tower.h):
 
-  /* TODO this is O(n) in # of forks (frontier ele cnt). is that a
-     problem? */
+     1. If we are stuck on a minority fork, we know that we cannot
+        sensibly build a block based on our last vote because we know a
+        supermajority of the cluster has rooted a different fork.  So we
+        simply build off the best fork.
+
+     2. If our latest vote slot is older than SMR, we know we don't have
+        ancestry information about our latest vote slot anymore, so we
+        similarly build off the best fork. */
+
+  if( FD_UNLIKELY( !fd_ghost_is_descendant( ghost, latest_vote->slot, ghost->root->slot ) ) ) {
+    return fd_tower_best_fork( tower, forks, ghost );
+  }
 
   fd_fork_frontier_t const * frontier = forks->frontier;
   fd_fork_t const *          pool     = forks->pool;
 
-  fd_fork_t const * frozen_fork = NULL;
   for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( frontier, pool );
        !fd_fork_frontier_iter_done( iter, frontier, pool );
        iter = fd_fork_frontier_iter_next( iter, frontier, pool ) ) {
     fd_fork_t const * fork = fd_fork_frontier_iter_ele_const( iter, frontier, pool );
-    if( fork->frozen ) {
-      if( FD_LIKELY( fd_ghost_is_descendant( ghost, fork->slot_ctx.slot_bank.prev_slot, latest_vote->slot ) ) ) frozen_fork = fork;
-    } else {
-      if( FD_LIKELY( fd_ghost_is_descendant( ghost, fork->slot, latest_vote->slot ) ) ) return fork;
-    }
+    ulong slot = fd_ulong_if( fork->lock, fork->slot_ctx.slot_bank.prev_slot, fork->slot );
+    if( FD_LIKELY( fd_ghost_is_descendant( ghost, slot, latest_vote->slot ) ) ) return fork;
   }
 
-  if( frozen_fork ) {
-    return frozen_fork;
-  }
-  /* TODO this can happen if somehow prune our last vote fork or we
-     discard it due to equivocation. Both these cases are currently
-     unhandled. */
+  /* If we've reached here, we're in a bad state. Log some diagnostics. */
 
-  FD_LOG_ERR(( "None of the frontier forks matched our last vote fork (slot: %lu). Halting.", latest_vote->slot ));
+  for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( frontier, pool );
+       !fd_fork_frontier_iter_done( iter, frontier, pool );
+       iter = fd_fork_frontier_iter_next( iter, frontier, pool ) ) {
+    fd_fork_t const * fork = fd_fork_frontier_iter_ele_const( iter, frontier, pool );
+    ulong slot = fd_ulong_if( fork->lock, fork->slot_ctx.slot_bank.prev_slot, fork->slot );
+
+    FD_LOG_NOTICE(( "\n\nfork lock? %d\nfork slot %lu\nfork prev slot %lu\nlatest vote slot %lu\n"
+                    "descendant slot %lu\ndescends? %d",
+                    fork->lock,
+                    fork->slot,
+                    fork->slot_ctx.slot_bank.prev_slot,
+                    latest_vote->slot,
+                    slot,
+                    fd_ghost_is_descendant( ghost, slot, latest_vote->slot ) ));
+  }
+
+  FD_LOG_ERR(( "invariant violation: could not find our latest vote slot in frontier even though there is a valid ancestry in ghost." ));
 }
 
 fd_fork_t const *
-fd_tower_vote_fork_select( fd_tower_t *       tower,
-                           fd_forks_t const * forks,
-                           fd_acc_mgr_t *     acc_mgr,
-                           fd_ghost_t const * ghost ) {
+fd_tower_vote_fork( fd_tower_t *       tower,
+                    fd_forks_t const * forks,
+                    fd_acc_mgr_t *     acc_mgr,
+                    fd_ghost_t const * ghost ) {
 
   fd_fork_t const * vote_fork = NULL;
 
-  fd_fork_t const * best = fd_tower_best_fork_select( tower, forks, ghost );
+  fd_fork_t const * best = fd_tower_best_fork( tower, forks, ghost );
 
-  if( FD_UNLIKELY( fd_tower_votes_empty( tower->votes ) || is_stale( tower, ghost ) ) ) {
-    return fd_tower_best_fork_select( tower, forks, ghost );
+  /* If the tower is empty (we haven't voted or every vote was expired),
+     we simply vote for the best fork. */
+
+  if( FD_UNLIKELY( fd_tower_votes_empty( tower->votes ) ) ) {
+    return best;
   }
 
   fd_tower_vote_t const * latest_vote = fd_tower_votes_peek_tail_const( tower->votes );
 
-  /* Optimize for when there is just one fork (most of the time). */
+  /* Consider the 2 cases when our latest vote slot does not descend
+     from ghost root / SMR (see also top-level documentation in
+     fd_tower.h):
 
-  if( FD_LIKELY( !latest_vote ||
-                 fd_ghost_is_descendant( ghost, best->slot, latest_vote->slot ) ) ) {
+     1. If we are stuck on a minority fork, we know the cluster has
+        rooted a fork that isn't our current vote fork, and we don't
+        have ancestry information to determine lockout or switch
+        percentage, so we switch and vote for the current best.
+
+     2. If our latest vote slot is older than SMR, we know we don't have
+        ancestry information to determine whether we're locked out or
+        can switch, so we similarly build off the best fork. */
+
+  if( FD_UNLIKELY( !fd_ghost_is_descendant( ghost, latest_vote->slot, ghost->root->slot ) ) ) {
+    return fd_tower_best_fork( tower, forks, ghost );
+  }
+
+  /* Optimize for when there is just one fork (most of the time), which means best fork. */
+
+  if( FD_LIKELY( fd_ghost_is_descendant( ghost, best->slot, latest_vote->slot ) ) ) {
 
     /* The best fork is on the same fork and we can vote for
        best_fork->slot if we pass the threshold check. */

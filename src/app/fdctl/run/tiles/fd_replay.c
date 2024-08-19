@@ -611,7 +611,7 @@ after_frag( void *             _ctx,
 
     fd_fork_t * parent_fork = fd_fork_frontier_ele_query(
           ctx->forks->frontier, &ctx->parent_slot, NULL, ctx->forks->pool );
-    if( FD_UNLIKELY ( parent_fork && parent_fork->frozen ) ) {
+    if( FD_UNLIKELY ( parent_fork && parent_fork->lock ) ) {
       FD_LOG_ERR(
           ( "parent slot is frozen in frontier. cannot execute. slot: %lu, parent_slot: %lu",
             curr_slot,
@@ -633,7 +633,7 @@ after_frag( void *             _ctx,
         FD_LOG_ERR( ( "invariant violation: child slot %lu was already in the frontier", curr_slot ) );
       }
       fd_fork_frontier_ele_insert( ctx->forks->frontier, child, ctx->forks->pool );
-      fork->frozen = 1;
+      fork->lock = 1;
       FD_TEST( fork == child );
 
       // fork is advancing
@@ -795,7 +795,7 @@ after_frag( void *             _ctx,
 
       fd_blockstore_end_write( ctx->blockstore );
 
-      fork->frozen = 0;
+      fork->lock = 0;
       // Remove slot ctx from frontier once block is finalized
       fd_fork_t * child = fd_fork_frontier_ele_remove( ctx->forks->frontier, &fork->slot, NULL, ctx->forks->pool );
       child->slot = curr_slot;
@@ -811,12 +811,13 @@ after_frag( void *             _ctx,
       fd_tower_fork_update( ctx->tower, fork, ctx->acc_mgr, ctx->blockstore, ctx->ghost );
 
       /* Check which fork to reset to for pack. */
-      fd_fork_t const * reset_fork = fd_tower_reset_fork_select( ctx->tower, ctx->forks, ctx->ghost );
-      if( reset_fork->frozen ) {
+
+      fd_fork_t const * reset_fork = fd_tower_reset_fork( ctx->tower, ctx->forks, ctx->ghost );
+      if( reset_fork->lock ) {
         FD_LOG_WARNING(("RESET FORK FROZEN: %lu", reset_fork->slot ));
         fd_fork_t * new_reset_fork = fd_forks_prepare( ctx->forks, reset_fork->slot_ctx.slot_bank.prev_slot, ctx->acc_mgr,
             ctx->blockstore, ctx->epoch_ctx, ctx->funk, ctx->valloc );
-        new_reset_fork->frozen = 0;
+        new_reset_fork->lock = 0;
         reset_fork = new_reset_fork;
       }
 
@@ -834,12 +835,13 @@ after_frag( void *             _ctx,
         FD_LOG_DEBUG(( "NOT publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", curr_slot, ctx->parent_slot, flags ));
       }
 
+      fd_forks_print( ctx->forks );
       fd_ghost_print( ctx->ghost );
       fd_tower_print( ctx->tower );
-      fd_fork_t const * vote_fork = fd_tower_vote_fork_select( ctx->tower,
-                                                               ctx->forks,
-                                                               ctx->acc_mgr,
-                                                               ctx->ghost );
+      fd_fork_t const * vote_fork = fd_tower_vote_fork( ctx->tower,
+                                                        ctx->forks,
+                                                        ctx->acc_mgr,
+                                                        ctx->ghost );
 
       FD_LOG_NOTICE( ( "\n\n[Fork Selection]\n"
                        "# of vote accounts: %lu\n"

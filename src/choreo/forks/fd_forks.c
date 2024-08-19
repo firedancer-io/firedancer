@@ -13,18 +13,18 @@ void *
 fd_forks_new( void * shmem, ulong max, ulong seed ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
-    FD_LOG_WARNING( ( "NULL mem" ) );
+    FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
   }
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_forks_align() ) ) ) {
-    FD_LOG_WARNING( ( "misaligned mem" ) );
+    FD_LOG_WARNING(( "misaligned mem" ));
     return NULL;
   }
 
   ulong footprint = fd_forks_footprint( max );
   if( FD_UNLIKELY( !footprint ) ) {
-    FD_LOG_WARNING( ( "bad mem" ) );
+    FD_LOG_WARNING(( "bad mem" ));
     return NULL;
   }
 
@@ -49,12 +49,12 @@ fd_forks_t *
 fd_forks_join( void * shforks ) {
 
   if( FD_UNLIKELY( !shforks ) ) {
-    FD_LOG_WARNING( ( "NULL forks" ) );
+    FD_LOG_WARNING(( "NULL forks" ));
     return NULL;
   }
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shforks, fd_forks_align() ) ) ) {
-    FD_LOG_WARNING( ( "misaligned forks" ) );
+    FD_LOG_WARNING(( "misaligned forks" ));
     return NULL;
   }
 
@@ -80,7 +80,7 @@ void *
 fd_forks_leave( fd_forks_t const * forks ) {
 
   if( FD_UNLIKELY( !forks ) ) {
-    FD_LOG_WARNING( ( "NULL forks" ) );
+    FD_LOG_WARNING(( "NULL forks" ));
     return NULL;
   }
 
@@ -91,12 +91,12 @@ void *
 fd_forks_delete( void * forks ) {
 
   if( FD_UNLIKELY( !forks ) ) {
-    FD_LOG_WARNING( ( "NULL forks" ) );
+    FD_LOG_WARNING(( "NULL forks" ));
     return NULL;
   }
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)forks, fd_forks_align() ) ) ) {
-    FD_LOG_WARNING( ( "misaligned forks" ) );
+    FD_LOG_WARNING(( "misaligned forks" ));
     return NULL;
   }
 
@@ -107,24 +107,24 @@ fd_fork_t *
 fd_forks_init( fd_forks_t * forks, fd_exec_slot_ctx_t const * slot_ctx ) {
 
   if( FD_UNLIKELY( !forks ) ) {
-    FD_LOG_WARNING( ( "NULL forks" ) );
+    FD_LOG_WARNING(( "NULL forks" ));
     return NULL;
   }
 
   if( FD_UNLIKELY( !slot_ctx ) ) {
-    FD_LOG_WARNING( ( "NULL slot_ctx" ) );
+    FD_LOG_WARNING(( "NULL slot_ctx" ));
     return NULL;
   }
 
   fd_fork_t * fork = fd_fork_pool_ele_acquire( forks->pool );
   fork->slot       = slot_ctx->slot_bank.slot;
   fork->prev       = fd_fork_pool_idx_null( forks->pool );
+  fork->lock       = 0;
   fork->slot_ctx   = *slot_ctx; /* this shallow copy is only safe if
                                    the lifetimes of slot_ctx's pointers
                                    are as long as fork */
-  fork->frozen = 0;
   if( FD_UNLIKELY( !fd_fork_frontier_ele_insert( forks->frontier, fork, forks->pool ) ) ) {
-    FD_LOG_WARNING( ( "Failed to insert fork into frontier" ) );
+    FD_LOG_WARNING(( "Failed to insert fork into frontier" ));
   }
 
   return fork;
@@ -166,8 +166,7 @@ fd_forks_query_const( fd_forks_t const * forks, ulong slot ) {
 //   FD_TEST( fork == child );
 
 //   // fork is advancing
-//   FD_LOG_DEBUG( ( "new block execution - slot: %lu, parent_slot: %lu", curr_slot, parent_slot )
-//   );
+//   FD_LOG_DEBUG(( "new block execution - slot: %lu, parent_slot: %lu", curr_slot, parent_slot ));
 
 //   fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
 //   fork->slot_ctx.slot_bank.slot      = curr_slot;
@@ -175,7 +174,7 @@ fd_forks_query_const( fd_forks_t const * forks, ulong slot ) {
 //   fork->slot_ctx.status_cache = status_cache;
 //   fd_funk_txn_xid_t xid;
 
-//   fd_memcpy( xid.uc, blockhash.uc, sizeof( fd_funk_txn_xid_t ) );
+//   fd_memcpy( xid.uc, blockhash.uc, sizeof( fd_funk_txn_xid_t));
 //   xid.ul[0] = fork->slot_ctx.slot_bank.slot;
 //   /* push a new transaction on the stack */
 //   fd_funk_start_write( funk );
@@ -184,7 +183,7 @@ fd_forks_query_const( fd_forks_t const * forks, ulong slot ) {
 
 //   int res = fd_runtime_publish_old_txns( &fork->slot_ctx, capture_ctx );
 //   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
-//     FD_LOG_ERR( ( "txn publishing failed" ) );
+//     FD_LOG_ERR(( "txn publishing failed" ));
 //   }
 // }
 
@@ -198,8 +197,8 @@ slot_ctx_restore( ulong                 slot,
                   fd_exec_slot_ctx_t *  slot_ctx_out ) {
   fd_funk_txn_t *   txn_map    = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
   fd_hash_t const * block_hash = fd_blockstore_block_hash_query( blockstore, slot );
-  FD_LOG_DEBUG( ( "Current slot %lu", slot ) );
-  if( !block_hash ) FD_LOG_ERR( ( "missing block hash of slot we're trying to restore" ) );
+  FD_LOG_DEBUG(( "Current slot %lu", slot ));
+  if( !block_hash ) FD_LOG_ERR(( "missing block hash of slot we're trying to restore" ));
   fd_funk_txn_xid_t xid;
   memcpy( xid.uc, block_hash, sizeof(fd_funk_txn_xid_t) );
   xid.ul[0]             = slot;
@@ -210,12 +209,12 @@ slot_ctx_restore( ulong                 slot,
     xid.ul[0]             = slot;
     txn = fd_funk_txn_query( &xid, txn_map );
     if( !txn ) {
-      FD_LOG_ERR( ( "missing txn, parent slot %lu", slot ) );
+      FD_LOG_ERR(( "missing txn, parent slot %lu", slot ));
     }
   }
   fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, &id );
-  if( rec == NULL ) FD_LOG_ERR( ( "failed to read banks record" ) );
-  void *                  val = fd_funk_val( rec, fd_funk_wksp( funk ) );
+  if( rec == NULL ) FD_LOG_ERR(( "failed to read banks record" ));
+  void * val = fd_funk_val( rec, fd_funk_wksp( funk ) );
 
   uint magic = *(uint*)val;
 
@@ -243,7 +242,7 @@ slot_ctx_restore( ulong                 slot,
   } else if( magic == FD_RUNTIME_ENC_ARCHIVE ) {
     FD_TEST( fd_slot_bank_decode_archival( &slot_ctx_out->slot_bank, &decode_ctx )==FD_BINCODE_SUCCESS );
   } else {
-    FD_LOG_ERR(("failed to read banks record: invalid magic number"));
+    FD_LOG_ERR(( "failed to read banks record: invalid magic number" ));
   }
   FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx_out ) );
   slot_ctx_out->leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx_out->epoch_ctx ),
@@ -255,10 +254,10 @@ slot_ctx_restore( ulong                 slot,
   // signature_cnt, account_delta_hash, prev_banks_hash are used for the banks
   // hash calculation and not needed when restoring parent
 
-  FD_LOG_NOTICE( ( "recovered slot_bank for slot=%lu banks_hash=%32J poh_hash %32J",
+  FD_LOG_NOTICE(( "recovered slot_bank for slot=%lu banks_hash=%32J poh_hash %32J",
                    slot_ctx_out->slot_bank.slot,
                    slot_ctx_out->slot_bank.banks_hash.hash,
-                   slot_ctx_out->slot_bank.poh.hash ) );
+                   slot_ctx_out->slot_bank.poh.hash ));
 
   /* Prepare bank for next slot */
   slot_ctx_out->slot_bank.slot                     = slot;
@@ -285,7 +284,7 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
   fd_block_t * block = fd_blockstore_block_query( blockstore, parent_slot );
   if( FD_UNLIKELY( !block ) ) {
-    FD_LOG_WARNING( ( "fd_forks_prepare missing parent_slot %lu", parent_slot ) );
+    FD_LOG_WARNING(( "fd_forks_prepare missing parent_slot %lu", parent_slot ));
   }
 
   /* Query for parent_slot in the frontier. */
@@ -304,14 +303,14 @@ fd_forks_prepare( fd_forks_t const *    forks,
     fork         = fd_fork_pool_ele_acquire( forks->pool );
     fork->prev   = fd_fork_pool_idx_null( forks->pool );
     fork->slot   = parent_slot;
-    fork->frozen = 1;
+    fork->lock = 1;
 
     /* Format and join the slot_ctx */
 
     fd_exec_slot_ctx_t * slot_ctx =
         fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx, valloc ) );
     if( FD_UNLIKELY( !slot_ctx ) ) {
-      FD_LOG_ERR( ( "failed to new and join slot_ctx" ) );
+      FD_LOG_ERR(( "failed to new and join slot_ctx" ));
     }
 
     /* Restore and decode w/ funk */
@@ -341,8 +340,8 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
        Optimize for unlikely because there is usually just one fork. */
 
     int stale = fork->slot < slot || !fd_ghost_is_descendant( ghost, fork->slot, slot );
-    if( FD_UNLIKELY( !fork->frozen && stale ) ) {
-      FD_LOG_NOTICE( ( "adding %lu to prune. root %lu", fork->slot, slot ) );
+    if( FD_UNLIKELY( !fork->lock && stale ) ) {
+      FD_LOG_NOTICE(( "adding %lu to prune. root %lu", fork->slot, slot ));
       if( FD_LIKELY( !curr ) ) {
         tail = fork;
         curr = fork;
@@ -354,17 +353,20 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
   }
 
   while( FD_UNLIKELY( tail ) ) {
-    fd_fork_t * fork = fd_fork_frontier_ele_query( forks->frontier, &tail->slot, NULL, forks->pool );
-    if( fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( &fork->slot_ctx ) )==NULL ) {
+    fd_fork_t * fork = fd_fork_frontier_ele_query( forks->frontier,
+                                                   &tail->slot,
+                                                   NULL,
+                                                   forks->pool );
+    if( FD_UNLIKELY( !fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( &fork->slot_ctx ) ) ) ) {
       FD_LOG_ERR(( "could not delete fork slot ctx" ));
     }
     ulong remove = fd_fork_frontier_idx_remove( forks->frontier,
                                                 &tail->slot,
-                                                ULONG_MAX,
+                                                fd_fork_pool_idx_null( forks->pool ),
                                                 forks->pool );
 #if FD_FORKS_USE_HANDHOLDING
-    if( FD_UNLIKELY( remove == ULONG_MAX ) ) {
-      FD_LOG_ERR( ( "failed to remove fork we added to prune." ) );
+    if( FD_UNLIKELY( remove == fd_fork_pool_idx_null( forks->pool ) ) ) {
+      FD_LOG_ERR(( "failed to remove fork we added to prune." ));
     }
 #endif
 
