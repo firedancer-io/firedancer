@@ -35,7 +35,7 @@
 /* this limits the amount of time spent in process */
 #define FD_QOS_MAX_QUEUED 64UL
 
-/* Max nuimber of connections per IP address */
+/* Max number of connections per IP address */
 /* TODO put into config file */
 #define FD_QOS_MAX_CONN_CNT 32UL
 
