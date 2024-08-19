@@ -24,16 +24,21 @@ fd_gui_new( void *        shmem,
             fd_hcache_t * hcache,
             char const *  version,
             char const *  cluster,
-            char const *  identity_key_base58,
+            uchar const * identity_key,
             fd_topo_t *   topo ) {
   fd_gui_t * gui = (fd_gui_t *)shmem;
+
+  gui->summary.startup_time_nanos = fd_log_wallclock();
 
   gui->hcache = hcache;
   gui->topo   = topo;
 
+  memcpy( gui->summary.identity_key->uc, identity_key, 32UL );
+  fd_base58_encode_32( identity_key, NULL, gui->summary.identity_key_base58 );
+  gui->summary.identity_key_base58[ FD_BASE58_ENCODED_32_SZ-1UL ] = '\0';
+
   gui->summary.version             = version;
   gui->summary.cluster             = cluster;
-  gui->summary.identity_key_base58 = identity_key_base58;
 
   gui->summary.slot_rooted                   = 0UL;
   gui->summary.slot_optimistically_confirmed = 0UL;
@@ -74,6 +79,10 @@ fd_gui_new( void *        shmem,
   gui->vote_account.vote_account_cnt = 0UL;
   gui->validator_info.info_cnt       = 0UL;
 
+  for( ulong i=0UL; i<864000UL; i++ ) {
+    gui->slots.data[ i ]->slot = ULONG_MAX;
+  }
+
   return gui;
 }
 
@@ -89,6 +98,7 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_version,
     fd_gui_printf_cluster,
     fd_gui_printf_identity_key,
+    fd_gui_printf_uptime_nanos,
     fd_gui_printf_root_slot,
     fd_gui_printf_optimistically_confirmed_slot,
     fd_gui_printf_completed_slot,
@@ -706,6 +716,153 @@ GUI_WS_MESSAGE_CLEANUP:
   return;
 }
 
+static void
+fd_gui_clear_slot( fd_gui_t * gui,
+                   ulong      _slot ) {
+  fd_gui_slot_t * slot = gui->slots.data[ _slot % 864000UL ];
+
+  int mine = 0;
+  for( ulong i=0UL; i<2UL; i++) {
+    if( FD_LIKELY( _slot>=gui->epoch.epochs[ i ].start_slot && _slot<=gui->epoch.epochs[ i ].end_slot ) ) {
+      fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( gui->epoch.epochs[ i ].lsched, _slot );
+      mine = !memcmp( slot_leader->uc, gui->summary.identity_key->uc, 32UL );
+      break;
+    }
+  }
+
+  slot->slot           = _slot;
+  slot->mine           = mine;
+  slot->skipped        = 1;
+  slot->level          = FD_GUI_SLOT_LEVEL_INCOMPLETE;
+  slot->total_txn_cnt  = ULONG_MAX;
+  slot->vote_txn_cnt   = ULONG_MAX;
+  slot->failed_txn_cnt = ULONG_MAX;
+  slot->compute_units  = ULONG_MAX;
+  slot->fees           = ULONG_MAX;
+}
+
+static void
+fd_gui_handle_reset_slot( fd_gui_t * gui,
+                          ulong *    parents ) {
+
+  ulong cnt = parents[ 0 ];
+  for( ulong i=1UL; i<=cnt; i++ ) {
+    ulong parent_slot = parents[ i ];
+    fd_gui_slot_t * slot = gui->slots.data[ parent_slot % 864000UL ];
+    
+    if( FD_UNLIKELY( slot->slot!=parent_slot ) ) fd_gui_clear_slot( gui, parent_slot );
+
+    /* We reached a slot that was already marked as not skipped, so all
+       the parents of it must be marked correctly too, no more changes
+       needed. */
+    if( FD_LIKELY( !slot->skipped ) ) break;
+
+    /* Slot was previously skipped but now it's in the active fork, send
+       an update reflecting this. */
+    slot->skipped = 0;
+
+    fd_gui_printf_slot( gui, parent_slot );
+    FD_TEST( !fd_hcache_snap_ws_broadcast( gui->hcache ) );
+  }
+
+  if( FD_LIKELY( parents[ 1 ]>gui->summary.slot_completed ) ) {
+    gui->summary.slot_completed = parents[ 1 ];
+    fd_gui_printf_completed_slot( gui );
+    FD_TEST( !fd_hcache_snap_ws_broadcast( gui->hcache ) );
+  }
+}
+
+static void
+fd_gui_handle_completed_slot( fd_gui_t * gui,
+                              ulong *    msg ) {
+  ulong _slot = msg[ 0 ];
+  ulong total_txn_count = msg[ 1 ];
+  ulong nonvote_txn_count = msg[ 2 ];
+  ulong failed_txn_count = msg[ 3 ];
+  ulong compute_units = msg[ 4 ];
+  ulong fees = msg[ 5 ];
+
+  fd_gui_slot_t * slot = gui->slots.data[ _slot % 864000UL ];
+  if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot );
+
+  slot->completed_time = fd_log_wallclock();
+  slot->level          = FD_GUI_SLOT_LEVEL_COMPLETED;
+  slot->total_txn_cnt  = total_txn_count;
+  slot->vote_txn_cnt   = total_txn_count - nonvote_txn_count;
+  slot->failed_txn_cnt = failed_txn_count;
+  slot->compute_units  = compute_units;
+  slot->fees           = fees;
+
+  fd_gui_printf_slot( gui, _slot );
+  fd_hcache_snap_ws_broadcast( gui->hcache );
+}
+
+static void
+fd_gui_handle_rooted_slot( fd_gui_t * gui,
+                           ulong *    msg ) {
+  ulong _slot = msg[ 0 ];
+
+  for( ulong i=0UL; i<864000UL; i++ ) {
+    ulong parent = (_slot+(864000UL-i))%864000UL;
+
+    fd_gui_slot_t * slot = gui->slots.data[ parent ];
+    if( FD_LIKELY( slot->slot==ULONG_MAX || slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
+
+    slot->level = FD_GUI_SLOT_LEVEL_ROOTED;
+    fd_gui_printf_slot( gui, _slot );
+    fd_hcache_snap_ws_broadcast( gui->hcache );
+  }
+
+  ulong total_txn_cnt  = 0UL;
+  ulong vote_txn_cnt   = 0UL;
+  ulong failed_txn_cnt = 0UL;
+
+  ulong last_total_txn_cnt  = 0UL;
+  ulong last_vote_txn_cnt   = 0UL;
+  ulong last_failed_txn_cnt = 0UL;
+  long  last_time_nanos     = 0L;
+
+  for( ulong i=0UL; i<150UL; i++ ) {
+    ulong parent = (_slot+(864000UL-i))%864000UL;
+
+    fd_gui_slot_t * slot = gui->slots.data[ parent ];
+    if( FD_LIKELY( slot->slot==ULONG_MAX ) ) break;
+
+    if( FD_LIKELY( !slot->skipped ) ) {
+      total_txn_cnt  += slot->total_txn_cnt;
+      vote_txn_cnt   += slot->vote_txn_cnt;
+      failed_txn_cnt += slot->failed_txn_cnt;
+
+      last_total_txn_cnt  = slot->total_txn_cnt;
+      last_vote_txn_cnt   = slot->vote_txn_cnt;
+      last_failed_txn_cnt = slot->failed_txn_cnt;
+      last_time_nanos     = slot->completed_time;
+    }
+  }
+
+  total_txn_cnt -= last_total_txn_cnt;
+  vote_txn_cnt  -= last_vote_txn_cnt;
+  failed_txn_cnt -= last_failed_txn_cnt;
+
+  long now = fd_log_wallclock();
+  gui->summary.estimated_tps        = (total_txn_cnt *1000000000UL)/(ulong)(now-last_time_nanos);
+  gui->summary.estimated_vote_tps   = (vote_txn_cnt  *1000000000UL)/(ulong)(now-last_time_nanos);
+  gui->summary.estimated_failed_tps = (failed_txn_cnt*1000000000UL)/(ulong)(now-last_time_nanos);
+
+  fd_gui_printf_estimated_tps( gui );
+  fd_hcache_snap_ws_broadcast( gui->hcache );
+  fd_gui_printf_estimated_vote_tps( gui );
+  fd_hcache_snap_ws_broadcast( gui->hcache );
+  fd_gui_printf_estimated_nonvote_tps( gui );
+  fd_hcache_snap_ws_broadcast( gui->hcache );
+  fd_gui_printf_estimated_failed_tps( gui );
+  fd_hcache_snap_ws_broadcast( gui->hcache );
+
+  gui->summary.slot_rooted = _slot;
+  fd_gui_printf_root_slot( gui );
+  fd_hcache_snap_ws_broadcast( gui->hcache );
+}
+
 void
 fd_gui_plugin_message( fd_gui_t *    gui,
                        ulong         plugin_msg,
@@ -720,9 +877,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
   ulong slot     = fd_plugin_sig_slot( plugin_msg );
   switch( msg_type ) {
     case FD_PLUGIN_MSG_SLOT_ROOTED:
-      gui->summary.slot_rooted = *(ulong const *)msg;
-      fd_gui_printf_root_slot( gui );
-      fd_hcache_snap_ws_broadcast( gui->hcache );
+      fd_gui_handle_rooted_slot( gui, (ulong *)msg );
       break;
     case FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED:
       gui->summary.slot_optimistically_confirmed = *(ulong const *)msg;
@@ -730,10 +885,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       fd_hcache_snap_ws_broadcast( gui->hcache );
       break;
     case FD_PLUGIN_MSG_SLOT_COMPLETED:
-      gui->summary.slot_completed = *(ulong const *)msg;
-      fd_gui_printf_completed_slot( gui );
-      fd_hcache_snap_ws_broadcast( gui->hcache );
-      FD_LOG_NOTICE(( "broadcast slot %lu", gui->summary.slot_completed ));
+      fd_gui_handle_completed_slot( gui, (ulong *)msg );
       break;
     case FD_PLUGIN_MSG_SLOT_ESTIMATED:
       gui->summary.slot_estimated = *(ulong const *)msg;
@@ -817,6 +969,10 @@ fd_gui_plugin_message( fd_gui_t *    gui,
     }
     case FD_PLUGIN_MSG_VALIDATOR_INFO: {
       fd_gui_handle_validator_info_update( gui, msg );
+      break;
+    }
+    case FD_PLUGIN_MSG_SLOT_RESET: {
+      fd_gui_handle_reset_slot( gui, (ulong *)msg );
       break;
     }
     default:

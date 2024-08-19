@@ -240,6 +240,13 @@ fd_gui_printf_identity_key( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_printf_uptime_nanos( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "uptime_nanos" );
+    jsonp_ulong( gui, "value", (ulong)(fd_log_wallclock() - gui->summary.startup_time_nanos ) );
+  jsonp_close_envelope( gui );
+}
+
+void
 fd_gui_printf_root_slot( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "root_slot" );
     jsonp_ulong( gui, "value", gui->summary.slot_rooted );
@@ -397,6 +404,34 @@ fd_gui_printf_txn_info_summary_this( fd_gui_t *          gui,
 void
 fd_gui_printf_txn_info_summary( fd_gui_t * gui ) {
   fd_gui_printf_txn_info_summary_this( gui, gui->summary.txn_info_json, ULONG_MAX );
+}
+
+void
+fd_gui_printf_estimated_tps( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "estimated_tps" );
+    jsonp_ulong( gui, "value", gui->summary.estimated_tps );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_estimated_vote_tps( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "estimated_vote_tps" );
+    jsonp_ulong( gui, "value", gui->summary.estimated_vote_tps );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_estimated_nonvote_tps( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "estimated_nonvote_tps" );
+    jsonp_ulong( gui, "value", gui->summary.estimated_tps - gui->summary.estimated_vote_tps );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_estimated_failed_tps( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "estimated_failed_tps" );
+    jsonp_ulong( gui, "value", gui->summary.estimated_failed_tps );
+  jsonp_close_envelope( gui );
 }
 
 static ulong
@@ -775,6 +810,33 @@ fd_gui_printf_peers_all( fd_gui_t * gui ) {
       }
       jsonp_close_array( gui );
     jsonp_close_object( gui );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_slot ( fd_gui_t * gui,
+                     ulong      _slot ) {
+  fd_gui_slot_t * slot = gui->slots.data[ _slot % 864000UL ];
+
+  char const * level;
+  switch( slot->level ) {
+    case FD_GUI_SLOT_LEVEL_INCOMPLETE:               level = "incomplete"; break;
+    case FD_GUI_SLOT_LEVEL_COMPLETED:                level = "completed";  break;
+    case FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED: level = "optimistically_confirmed"; break;
+    case FD_GUI_SLOT_LEVEL_ROOTED:                   level = "rooted"; break;
+    case FD_GUI_SLOT_LEVEL_FINALIZED:                level = "finalized"; break;
+    default:                                         level = "unknown"; break;
+  }
+
+  jsonp_open_envelope( gui, "summary", "slot" );
+    jsonp_ulong( gui, "slot", _slot );
+    jsonp_bool( gui, "mine", slot->mine );
+    jsonp_bool( gui, "skipped", slot->skipped );
+    jsonp_string( gui, "level", level );
+    jsonp_ulong( gui, "transactions", slot->total_txn_cnt );
+    jsonp_ulong( gui, "vote_transactions", slot->vote_txn_cnt );
+    jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
+    jsonp_ulong( gui, "compute_units", slot->compute_units );
   jsonp_close_envelope( gui );
 }
 

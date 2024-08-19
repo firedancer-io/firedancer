@@ -74,12 +74,20 @@ All data is encoded in JSON, with a containing envelope as follows:
 ```
 
 ## Forks
-The WebSocket API does not communicate information for all forks tracked
-by the validator. Instead, only information about the currently active
-fork is represented and streamed. For example, the `completed_slot` is
-the last completed slot on the current active fork, and `slot.update`
-messages are only received for slots changing on the currently active
-fork.
+The Solana network may occasionally fork, in which case there will be
+more than one active chain. When showing information derived from the
+chain, the API will (unless specified otherwise) show information
+reflecting the current fork choice of this validator. The current fork
+choice of this validator might not be the newest, or the heaviest (most
+voted on, or most likely to be chosen) fork.
+
+For example, when showing the transactions per second (TPS) rate under
+`summary.estimated_tps`, it will be calculated using the transactions
+and block timings observed in the current fork. Similarly, the
+`completed_slot` is the last completed slot on the current fork choice.
+
+When the validator switches fork choice, certain of this information
+will be republished to make sure it reflects the new fork choice.
 
 ## Topics
 
@@ -100,9 +108,8 @@ The current version of the running validator.
 
 One of `mainnet-beta`, `devnet`, `testnet`, `pythtest`, `pythnet`, or
 `unknown`. Indicates the cluster that the validator is likely to be
-running on. If a validator is misconfigured and, for example, connects
-to multiple networks, the first (highest priority) network in the above
-list will be displayed.
+running on. The cluster is guessed by looking at the genesis hash of the
+chain and entrypoints that the validator connects to.
 
 #### `summary.identity_key`
 | frequency | type     | example        |
@@ -112,6 +119,15 @@ list will be displayed.
 The public identity key assigned to the running validator, encoded in
 base58. Firedancer does not support changing the identity key of the
 validator while it is running and this value does not change.
+
+#### `summary.uptime_nanos`
+| frequency | type     | example           |
+|-----------|----------|-------------------|
+| Once      | `number` |  `21785299176204` |
+
+The length of time in nanoseconds that the validator has been running.
+Running time is approximately measured since application startup, and
+includes time to download a snapshot and catch up to the cluster.
 
 #### `summary.root_slot`
 | frequency   | type     | example     |
@@ -134,7 +150,7 @@ Optimistic confirmation means that over two-thirds of stake have voted
 to confirm the slot, and it is unlikely (although still possible, if
 validators switch vote) to not become rooted.
 
-Although rare, the `optimistically_confirmed_slot` could decrease if the
+Although rare, the `optimistically_confirmed_slot` could decrease if a
 validator switches to another fork that does not have this slot.
 
 #### `summary.completed_slot`
@@ -161,22 +177,49 @@ slot is likely to be `1003`.
 #### `summary.estimated_tps`
 | frequency   | type     | example     |
 |-------------|----------|-------------|
-| Once + 1s   | `number` | `6048` |
+| Once + Live | `number` | `6048` |
 
 The estimated number of transactions per second the network is running
-at. This is a moving average from the prior 150 slots, or around one
-minute. For a more precise view of transactions per second, the client
-can calculate it from the stream of new slot data.
+at. This includes vote, non-vote, and failed transactions. This is a
+moving average from the prior 150 slots, or around one minute. For a
+more precise view of transactions per second, the client can calculate
+it from the stream of new slot data.
 
 #### `summary.estimated_nonvote_tps`
 | frequency   | type     | example     |
 |-------------|----------|-------------|
-| Once + 1s   | `number` | `2145` |
+| Once + Live | `number` | `2145` |
 
 The estimated number of non-vote transactions per second the network is
-running at. This is a moving average from the prior 150 slots, or around
-one minute. For a more precise view of non-vote transactions per second,
-the client can calculate it from the stream of new slot data.
+running at. The sum of the estimated vote and non-vote transactions will
+be equal to the estimated total tranasactions per second. This includes
+failed transactions. It is a moving average from the prior 150 slots, or
+around one minute. For a more precise view of non-vote transactions per
+second, the client can calculate it from the stream of new slot data.
+
+#### `summary.estimated_vote_tps`
+| frequency   | type     | example     |
+|-------------|----------|-------------|
+| Once + Live | `number` | `3903` |
+
+The estimated number of vote transactions per second the network is
+running at. The sum of the estimated vote and non-vote transactions will
+be equal to the estimated total tranasactions per second. This includes
+failed vote transactions. It is a moving average from the prior 150
+slots, or around one minute. For a more precise view of non-vote
+transactions per second, the client can calculate it from the stream of
+new slot data.
+
+#### `summary.estimated_failed_tps`
+| frequency   | type     | example     |
+|-------------|----------|-------------|
+| Once + Live | `number` | `2145` |
+
+The estimated number of failed vote and non-vote transactions per second
+the network is running at. This is a moving average from the prior 150
+slots, or around one minute. For a more precise view of non-vote
+transactions per second, the client can calculate it from the stream of
+new slot data.
 
 #### `summary.upcoming_slot_txn_info`
 | frequency   | type     | example     |
@@ -636,28 +679,77 @@ full and includes this node itself, nodes with a different
 on.
 
 ### slot
-Slots are opportunities to produce a block. Slots are not fully
-determined once they are published, and might be changed as the
-validator switches back and forth between forks. The state machine
-for a slot looks like:
+Slots are opportunities for a leader to produce a block. A slot can be
+in one of five levels, and in typical operation a slot moves through
+them in normal order, starting as `incomplete` and finishing as
+`finalized`.
 
-```text
-           unpublished
-              |   ^
-              v   |
-            completed
-              |   ^
-              v   |
-      optimistically confirmed
+**`SlotLevel`**
+| level        | description |
+|--------------|-------------|
+| `incomplete` | The slot does not exist, either because the chain has not yet reached the slot or because it is still in the process of being replayed by our validator |
+| `completed`  | The slot has been fully received and successfully replayed by our validator |
+| `optimistically_confirmed` | The slot has been finished and successfully replayed by our validator, and more than two-thirds of stake have voted to confirm the slot |
+| `rooted` | Our validator has rooted the slot and considers the slot final. This occurs when 32 subsequent slots have been built on top of it |
+| `finalized` | Our validator has rooted the slot, and more than two-thirds of stake has rooted the slot, the network considers it final |
 
-      .... ???? complete this TODO ...
+Slots are `incomplete` by default as most slots exist far in the future,
+and the `incomplete` level update is not typically published. A slot
+will only be explicitly marked as `incomplete` if it exists on the
+currently active fork, and we switch to a fork that is slower, which has
+not yet reached the slot so it no longer exists.
 
-```
+A slot that has become `rooted` or `finalized` cannot go backwards, and
+will not become `incomplete`, `completed`, or `optimistically_confirmed`
+(nor will a `finalized` slot become `rooted`), but otherwise all
+transitions are valid. An `optimistically_confirmed` slot, for example,
+could become `incomplete` if the validator switches to a fork where the
+slot has not yet been received, although it should be exceedingly rare.
+Switching from `completed` to `incomplete` is more common. Levels can
+also be skipped, for example going from `incomplete` straight to
+`optimistically_confirmed` (if we switched from a fork that was running
+behind, to the cluster majority fork including the slot).
 
-#### `slot.publish`
+In addition to a level, a slot can also be either skipped or included.
+All levels can be in either the skipped or included state, for example
+a skipped slot that is `rooted` means that the slot is skipped and
+cannot be changed. A slot in the future could be skipped, because we
+know it does not build on top of the fork we have currently selected,
+in which case it would be both `incomplete` and `skipped`.
+
+Slots are either `mine` (created by this validator), or not, in which
+case we are replaying a block from another validator. Slots that are
+`mine` contain additional information about our performance creating the
+block for that slot.
+
+Some information is only known for blocks that have been replayed
+successfully (reached the `completed` state), for example the number of
+transactions in the block. This number can still be known even if we are
+on a fork which skips that slot. It's possible that we are on a fork
+where the slot does not yet exist, a slot could be both `skipped`, and
+have a status of `incomplete`, and yet we still know a valid number of
+`transactions` in the slot. Once we know information like `transactions`
+it does not typically change, although can in extremely rare cases where
+a leader publishes two different blocks for their leader slot, and we
+initially replay one but the cluster votes on the other one.
+
+**`SlotPublish`**
+| Field      | Type      | Description |
+|------------|-----------|-------------|
+| slot       | `number`  | Identity of the slot, counting up from zero for the first slot in the chain |
+| mine       | `boolean` | True if this validator was the leader for this slot. This will never change for a slot once it has been published, and will be aligned with the epoch information |
+| skipped    | `boolean` | True if the slot was skipped. The skipped state is the state in the currently active fork of the validator. The skipped state can change if the validator switches active fork |
+| level      | `string`  | One of `incomplete`, `completed`, `optimistically_confirmed`, `rooted`, or `finalized` as described above. The state is the state in the currently active fork of this validator. The state can change normally (for example, a completed slot becoming optimisitically confirmed or rooted), or also because the validator switched forks |
+| transactions | `number\|null` | Total number of transactions (vote and non-vote) in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
+| vote_transactions | `number\|null` | Total number of vote transactions in the block. Will always be less than or equal to `transactions`. The number of non-vote transactions is given by `transactions - vote_transactions`
+| failed_transactions | `number\|null` | Total number of failed transactions (vote and non-vote) in the block. Failed transactions are those which are included in the block and were charged fees, but failed to execute successfully. This is different from dropped transations which do not pay fees and are not included in the block |
+| compute_units | `number\|null` | Total number of compute units used by the slot |
+| leader_info | `SlotTxnInfo\|null` | Detailed information about slots which we were the leader for. Will be null if the slot is not `mine` |
+
+#### `slot.update`
 | frequency   | type   | example     |
 |-------------|--------|-------------|
-| Live        | `SlotPublish` | below |
+| Live        | `SlotUpdate` | below |
 
 :::details Example
 
@@ -702,72 +794,3 @@ for a slot looks like:
 | executed_txns_failure       | `number`    | Transactions made their way into the block but execution failed.
 | executed_txns_success       | `number`    | Transactions made their way into the block and execution succeeded.
 | buffered_txns               | `number`    | Transactions currently buffered.  Roughly, `acquired_txns = dropped_txns + executed_txns_failure + executed_txns_success + buffered_txns`.
-
-**`SlotPublish`**
-| Field      | Type      | Description |
-|------------|-----------|-------------|
-| slot       | `number`  | Identity of the slot, counting up from zero for the first slot in the chain |
-| mine       | `boolean` | True if this validator was the leader for this slot. This will never change for a slot once it has been published, and will be aligned with the epoch information |
-| skipped    | `boolean` | True if the slot was skipped. The skipped state is the state in the currently active fork of the validator. The skipped state can change if the validator switches active fork, in which case an update will be published in a `slot.update` message |
-| status     | `string`  | One of `rooted`, `optimistically_confirmed`, `completed`, or `unpublished`. The state is the state in the currently active fork of the validator. The state can change normally (for example, a completed slot becoming optimisitically confirmed or rooted), or also because the validator switched forks |
-| transactions | `number` | Total number of transactions (vote and non-vote) in the block. In some cases, this will be non-zero even for skipped slots, because we might still have learned how many transactions were in the skipped slot. Sometimes though, we never receive information for a skipped slot and it will be zero |
-| vote_transactions | `number` | Total number of vote transactions in the block. Will always be less than or equal to `transactions`. The number of non-vote transactions is given by `transactions - vote_transactions`
-| failed_transactions | `number` | Total number of failed transactions (vote and non-vote) in the block. Failed transactions are those which are included in the block and were charged fees, but failed to execute successfully. This is different from dropped transations which do not pay fees and are not included in the block. In some cases, this will be non-zero even for skipped slots, because we might still have learned how many transactions were in the skipped slot. Sometimes though, we never receive information for a skipped slot and it will be zero |
-| failed_vote_transactions | `number` | Total number of failed vote transactions. Will always be less than or equal to `vote_transactions`
-| compute_units | `number` | Total number of compute units used by the slot
-| leader_info | `SlotTxnInfo\|null` | Detailed information about slots which we were the leader for. Will be null if the slot is not `mine` |
-
-Slots are published when they are first determined and the same slot
-will never be published twice (it would mean the leader produced two
-conflicting blocks, which is slashable and discarded at an earlier layer
-of the system).
-
-#### `slot.update`
-| frequency   | type   | example     |
-|-------------|--------|-------------|
-| Live        | `SlotUpdate` | below |
-
-:::details Example
-
-:::
-
-**`SlotUpdate`**
-| Field      | Type      | Description |
-|------------|-----------|-------------|
-| slot       | `number`  | Identity of the slot, counting up from zero for the first slot in the chain |
-| skipped    | `boolean` | True if the slot was skipped. The skipped state is the state in the currently active fork of the validator. The skipped state can change if the validator switches active fork, in which case an update will be published in a `slot.update` message |
-| status     | `string`  | One of `rooted`, `optimistically_confirmed`, `completed`, or `unpublished`. The state is the state in the currently active fork of the validator. The state can change normally (for example, a completed slot becoming optimisitically confirmed or rooted), or also because the validator switched forks |
-
-A slot was either completed (not confirmed) on the currently active
-fork, or it was updated and the state changed. Published immediately
-once we know information about the slot. If a slot is skipped, and we
-receive the following slot a slot_update will be published first for the
-skipped slot. When first connecting the prior 1024 prior slots will be
-published, along with up to 1024 additional leader slots prior to that.
-
-A slot can change skipped state or status, usually because it was
-optimistically confirmed or became rooted, but sometimes because the
-active fork of the valdiator was switched. The typical lifetime of a
-slot (assuming no forks occur) is that it first appears with a
-`slot_new` message, has a status of `completed` and is either skipped or
-not skipped. A few slots later, once two thirds of the network has voted
-to confirm the slot, it transitions to `optimistically_confirmed`
-status, and then once the slot becomes rooted it transitions to
-`rooted`. Once a slot is `rooted` it cannot receive any more slot
-updates.
-
-A slot might become `unpublished` if it is present on one fork, and we
-switch to a fork where the slot has not yet been completed (the fork we
-are switching to is running behind). This is different from a slot
-changing from being skipped to unskipped, which is represented by the
-`skipped` field. The `transactions`, `failed_transactions`, and other
-similar fields can change, but only between the amount if the block for
-that slot is not skipped, and zero if it is skipped. A block cannot
-change from having, for example, five transactions to having ten.
-
-Certain fields prefixed with `leader_` are information that can only be
-derived locally and will only be non-null for slots that are `mine`
-(published by this validator). These fields will never chnge with a
-`slot_update`, even if we switch to a fork that is skipping our slot.
-
-FORWARDED ??

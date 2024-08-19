@@ -87,8 +87,9 @@ after_frag( void *             _ctx,
   switch( in_idx ) {
     /* replay_plugin */
     case 0UL: {
-      FD_TEST( *opt_sig==FD_PLUGIN_MSG_SLOT_ROOTED || *opt_sig==FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED || *opt_sig==FD_PLUGIN_MSG_SLOT_COMPLETED );
+      FD_TEST( *opt_sig==FD_PLUGIN_MSG_SLOT_ROOTED || *opt_sig==FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED || *opt_sig==FD_PLUGIN_MSG_SLOT_COMPLETED || *opt_sig==FD_PLUGIN_MSG_SLOT_RESET );
       if( *opt_sig==FD_PLUGIN_MSG_SLOT_COMPLETED ) FD_LOG_NOTICE(( "slot completed" ));
+      if( *opt_sig==FD_PLUGIN_MSG_SLOT_RESET ) FD_LOG_NOTICE(( "slot reset" ));
       sig = *opt_sig;
       break;
     }
