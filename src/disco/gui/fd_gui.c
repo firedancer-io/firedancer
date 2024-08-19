@@ -40,6 +40,9 @@ fd_gui_new( void *        shmem,
   gui->summary.version             = version;
   gui->summary.cluster             = cluster;
 
+  gui->summary.balance                       = 0UL;
+  gui->summary.estimated_slot_duration_nanos = 0UL;
+
   gui->summary.slot_rooted                   = 0UL;
   gui->summary.slot_optimistically_confirmed = 0UL;
   gui->summary.slot_completed                = 0UL;
@@ -874,9 +877,11 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui,
     last_published = slot->completed_time;
   }
 
-  gui->summary.estimated_slot_duration_nanos = (ulong)(now-last_published)/(_slot-last_slot);
-  fd_gui_printf_estimated_slot_duration_nanos( gui );
-  fd_hcache_snap_ws_broadcast( gui->hcache );
+  if( FD_LIKELY( _slot!=last_slot )) {
+    gui->summary.estimated_slot_duration_nanos = (ulong)(now-last_published)/(_slot-last_slot);
+    fd_gui_printf_estimated_slot_duration_nanos( gui );
+    fd_hcache_snap_ws_broadcast( gui->hcache );
+  }
 
   gui->summary.slot_rooted = _slot;
   fd_gui_printf_root_slot( gui );

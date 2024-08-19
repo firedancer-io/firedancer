@@ -88,14 +88,12 @@ after_frag( void *             _ctx,
     /* replay_plugin */
     case 0UL: {
       FD_TEST( *opt_sig==FD_PLUGIN_MSG_SLOT_ROOTED || *opt_sig==FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED || *opt_sig==FD_PLUGIN_MSG_SLOT_COMPLETED || *opt_sig==FD_PLUGIN_MSG_SLOT_RESET );
-      if( *opt_sig==FD_PLUGIN_MSG_SLOT_COMPLETED ) FD_LOG_NOTICE(( "slot completed" ));
-      if( *opt_sig==FD_PLUGIN_MSG_SLOT_RESET ) FD_LOG_NOTICE(( "slot reset" ));
       sig = *opt_sig;
       break;
     }
     /* gossip_plugin */
     case 1UL: {
-      FD_TEST( *opt_sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || *opt_sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE || *opt_sig==FD_PLUGIN_MSG_VALIDATOR_INFO );
+      FD_TEST( *opt_sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || *opt_sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE || *opt_sig==FD_PLUGIN_MSG_VALIDATOR_INFO || *opt_sig==FD_PLUGIN_MSG_BALANCE );
       sig = *opt_sig;
       break;
     }
