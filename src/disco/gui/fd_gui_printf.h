@@ -3,6 +3,7 @@
 void fd_gui_printf_version( fd_gui_t * gui );
 void fd_gui_printf_cluster( fd_gui_t * gui );
 void fd_gui_printf_identity_key( fd_gui_t * gui );
+void fd_gui_printf_uptime_nanos( fd_gui_t * gui );
 void fd_gui_printf_root_slot( fd_gui_t * gui );
 void fd_gui_printf_optimistically_confirmed_slot( fd_gui_t * gui );
 void fd_gui_printf_completed_slot( fd_gui_t * gui );
@@ -11,6 +12,10 @@ void fd_gui_printf_topology( fd_gui_t * gui );
 void fd_gui_printf_epoch1( fd_gui_t * gui );
 void fd_gui_printf_epoch2( fd_gui_t * gui );
 void fd_gui_printf_txn_info_summary( fd_gui_t * gui );
+void fd_gui_printf_estimated_tps( fd_gui_t * gui );
+void fd_gui_printf_estimated_vote_tps( fd_gui_t * gui );
+void fd_gui_printf_estimated_nonvote_tps( fd_gui_t * gui );
+void fd_gui_printf_estimated_failed_tps( fd_gui_t * gui );
 void fd_gui_printf_tile_info( fd_gui_t * gui );
 
 void fd_gui_printf_open_query_response_envelope( fd_gui_t * gui, ulong seq );
@@ -47,4 +52,9 @@ fd_gui_printf_peers_validator_info_update( fd_gui_t *          gui,
                                            ulong const *       added,
                                            ulong               added_cnt );
 
-void fd_gui_printf_peers_all( fd_gui_t * gui );
+void
+fd_gui_printf_peers_all( fd_gui_t * gui );
+
+void
+fd_gui_printf_slot ( fd_gui_t * gui,
+                     ulong      slot );

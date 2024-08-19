@@ -61,8 +61,8 @@ typedef struct {
 
   fd_hcache_t * metrics_hcache;
 
-  char         version_string[ 16UL ];
-  char         identity_key_str[ FD_BASE58_ENCODED_32_SZ ];
+  char          version_string[ 16UL ];
+  uchar const * identity_key;
 
   fd_wksp_t * in_mem;
   ulong       in_chunk0;
@@ -261,9 +261,8 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !strcmp( tile->http.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  const uchar * identity_key = fd_keyload_load( tile->http.identity_key_path, /* pubkey only: */ 1 );
-  fd_base58_encode_32( identity_key, NULL, ctx->identity_key_str );
-  ctx->identity_key_str[ FD_BASE58_ENCODED_32_SZ-1UL ] = '\0';
+  ctx->identity_key = fd_keyload_load( tile->http.identity_key_path, /* pubkey only: */ 1 );
+
 }
 
 static void
@@ -290,7 +289,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%lu.%lu.%lu", FDCTL_MAJOR_VERSION, FDCTL_MINOR_VERSION, FDCTL_PATCH_VERSION ) );
 
   ctx->topo = topo;
-  ctx->gui  = fd_gui_join( fd_gui_new( _gui, gui_hcache, ctx->version_string, tile->http.cluster, ctx->identity_key_str, ctx->topo ) );
+  ctx->gui  = fd_gui_join( fd_gui_new( _gui, gui_hcache, ctx->version_string, tile->http.cluster, ctx->identity_key, ctx->topo ) );
   FD_TEST( ctx->gui );
 
   fd_topo_link_t * link = &topo->links[ tile->in_link_id[ 0 ] ];

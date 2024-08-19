@@ -13,6 +13,27 @@
 #define MAX_SLOTS_CNT         432000UL
 #define MAX_PUB_CNT           50000UL
 
+#define FD_GUI_SLOT_LEVEL_INCOMPLETE               (0)
+#define FD_GUI_SLOT_LEVEL_COMPLETED                (1)
+#define FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED (2)
+#define FD_GUI_SLOT_LEVEL_ROOTED                   (3)
+#define FD_GUI_SLOT_LEVEL_FINALIZED                (4)
+
+struct fd_gui_slot {
+  ulong slot;
+  long  completed_time;
+  int   mine;
+  int   skipped;
+  int   level;
+  ulong total_txn_cnt;
+  ulong vote_txn_cnt;
+  ulong failed_txn_cnt;
+  ulong compute_units;
+  ulong fees;
+};
+
+typedef struct fd_gui_slot fd_gui_slot_t;
+
 struct fd_gui_gossip_peer {
   fd_pubkey_t pubkey[ 1 ];
   ulong       wallclock;
@@ -111,15 +132,24 @@ struct fd_gui {
   long next_sample_10millis;
 
   struct {
+    fd_pubkey_t identity_key[ 1 ];
+
 #define FD_GUI_NUM_EPOCHS 2UL
     char const * version;        
     char const * cluster;
-    char const * identity_key_base58;
+
+    char identity_key_base58[ FD_BASE58_ENCODED_32_SZ+1 ];
+
+    long  startup_time_nanos;
 
     ulong slot_rooted;
     ulong slot_optimistically_confirmed;
     ulong slot_completed;
     ulong slot_estimated;
+
+    ulong estimated_tps;
+    ulong estimated_vote_tps;
+    ulong estimated_failed_tps;
 
     fd_gui_txn_info_t txn_info_prev[ 1 ]; /* Cumulative/Sampled */
     fd_gui_txn_info_t txn_info_this[ 1 ]; /* Cumulative/Sampled */
@@ -167,6 +197,10 @@ struct fd_gui {
     struct fd_gui_validator_info info[ 40200 ];
   } validator_info;
 
+  struct {
+    fd_gui_slot_t data[ 864000UL ][ 1 ];
+  } slots;
+
   char tmp_buf[ 8192 ];
 };
 
@@ -185,7 +219,7 @@ fd_gui_new( void *        shmem,
             fd_hcache_t * hcache,
             char const *  version,
             char const *  cluster,
-            char const *  identity_key_base58,
+            uchar const * identity_key,
             fd_topo_t *   topo );
 
 fd_gui_t *
