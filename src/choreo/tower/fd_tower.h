@@ -269,8 +269,8 @@
    different fork than our own. Different fork is defined by finding the
    greatest common ancestor of our last voted fork slot and the slot we
    want to switch to. Any forks descending from the greatest common
-   ancestor (which I will subsequently call the GCA) that are not our own
-   fork are counted towards the switch check stake.
+   ancestor (which I will subsequently call the GCA) that are not our
+   own fork are counted towards the switch check stake.
 
    Here we visualize the switch check:
 
@@ -303,21 +303,40 @@
    our own, so on bootstrap we simply load in our vote account state
    itself to to initialize our own local view of the tower.
 
+   *Additional Considerations*
+
    What's the difference between TowerBFT and the Vote Program?
 
-   TowerBFT runs on the sending side against our own tower ("local"
-   view). It updates the tower with votes based on the algorithm
-   detailed above. Importantly, TowerBFT has a view of all forks, and
-   the validator makes a voting decision based on all forks.
+   - TowerBFT runs on the sending side against our own tower ("local"
+     view). It updates the tower with votes based on the algorithm
+     detailed above. Importantly, TowerBFT has a view of all forks, and
+     the validator makes a voting decision based on all forks.
 
-   The Vote Program runs on the receiving side against others' towers
-   ("cluster" view). It checks that invariants about TowerBFT are
-   maintained on votes received from the cluster. These checks are
-   comparatively superficial to all the rules in tower. Furthermore,
-   given it is a native program, the Vote Program only has access to the
-   limited state programs are subject to. Specifically, it only has a
-   view of the current fork it is executing on. It can't determine
-   things like how much stake is allocated to other forks. */
+   - The Vote Program runs on the receiving side against others' towers
+     ("cluster" view). It checks that invariants about TowerBFT are
+     maintained on votes received from the cluster. These checks are
+     comparatively superficial to all the rules in tower. Furthermore,
+     given it is a native program, the Vote Program only has access to
+     the limited state programs are subject to. Specifically, it only
+     has a view of the current fork it is executing on. It can't
+     determine things like how much stake is allocated to other forks.
+
+   What happens if our tower is out of sync with the cluster
+   supermajority root (SMR)?
+
+   - We detect this by seeing that our latest vote no longer descends
+     from the SMR. Consider 2 cases:
+
+     1. We are stuck on a minority fork.  In this case, we will observe
+        that our latest vote slot > SMR, but its ancestry does not
+        connect back to the SMR.  This can happen if we get locked out
+        for a long time by voting for (and confirming) a minority fork.
+
+     2. We have a latest vote slot that is older than the SMR, meaning
+        the cluster has rooted past our latest vote.  This can happen
+        when we don't vote for a while (eg. this validator was not
+        running or we were stuck waiting for lockouts.)
+   */
 
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../fd_choreo_base.h"
@@ -598,8 +617,8 @@ fd_tower_threshold_check( fd_tower_t const * tower,
                           fd_fork_t const *  fork,
                           fd_acc_mgr_t *     acc_mgr );
 
-/* fd_tower_best_fork_select picks the best fork, where best is defined
-   as the fork head containing the highest stake-weight in its ancestry.
+/* fd_tower_best_fork picks the best fork, where best is defined as the
+   fork head containing the highest stake-weight in its ancestry.
    Returns a non-NULL fork.  Assumes forks->frontier is non-empty.  Note
    this is not necessarily the same fork as the one we vote on, as we
    might be locked out on a different fork.
@@ -607,33 +626,29 @@ fd_tower_threshold_check( fd_tower_t const * tower,
    Does not modify tower. */
 
 fd_fork_t const *
-fd_tower_best_fork_select( fd_tower_t const * tower,
-                           fd_forks_t const * forks,
-                           fd_ghost_t const * ghost );
+fd_tower_best_fork( fd_tower_t const * tower, fd_forks_t const * forks, fd_ghost_t const * ghost );
 
-/* fd_tower_reset_fork_select picks which fork to reset PoH to for our
-   next leader slot.  Returns a non-NULL fork.  Note this is not
-   necessarily the same fork as the one we vote on, as we do not always
-   vote for the fork we reset to.
+/* fd_tower_reset_fork picks which fork to reset PoH to for our next
+   leader slot.  Returns a non-NULL fork.  Note this is not necessarily
+   the same fork as the one we vote on, as we do not always vote for the
+   fork we reset to.
 
    Does not modify tower. */
 
 fd_fork_t const *
-fd_tower_reset_fork_select( fd_tower_t const * tower,
-                            fd_forks_t const * forks,
-                            fd_ghost_t const * ghost );
+fd_tower_reset_fork( fd_tower_t const * tower, fd_forks_t const * forks, fd_ghost_t const * ghost );
 
-/* fd_tower_vote_fork_select picks which frontier fork to vote on.
-   Returns NULL if we cannot vote because we are locked out, do not meet
-   switch threshold, or fail the threshold check.
+/* fd_tower_vote_fork picks which frontier fork to vote on. Returns NULL
+   if we cannot vote because we are locked out, do not meet switch
+   threshold, or fail the threshold check.
 
    Modifies the tower to record the vote slot of the fork we select. */
 
 fd_fork_t const *
-fd_tower_vote_fork_select( fd_tower_t *       tower,
-                           fd_forks_t const * forks,
-                           fd_acc_mgr_t *     acc_mgr,
-                           fd_ghost_t const * ghost );
+fd_tower_vote_fork( fd_tower_t *       tower,
+                    fd_forks_t const * forks,
+                    fd_acc_mgr_t *     acc_mgr,
+                    fd_ghost_t const * ghost );
 
 /* fd_tower_epoch_update updates the tower after with a new epoch ctx.
    This should only be called on startup and when crossing an epoch

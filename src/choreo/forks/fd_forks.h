@@ -7,7 +7,7 @@
 #include "../fd_choreo_base.h"
 #include "../ghost/fd_ghost.h"
 
-/* fd_forks_USE_HANDHOLDING:  Define this to non-zero at compile time
+/* FD_FORKS_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
 
 #ifndef FD_FORKS_USE_HANDHOLDING
@@ -15,11 +15,15 @@
 #endif
 
 struct fd_fork {
-  ulong slot;   /* the fork head and frontier key */
-  ulong next;   /* reserved for use by fd_pool and fd_map_chain */
-  ulong prev;   /* reserved for use by fd_forks_publish */
-  int   frozen; /* a frozen fork cannot be removed from the frontier. it
-                   indicates it may be actively executing. */
+  ulong slot; /* the fork head and frontier key */
+  ulong next; /* reserved for use by fd_pool and fd_map_chain */
+  ulong prev; /* reserved for use by fd_forks_publish */
+  int   lock; /* IMPORTANT SAFETY TIP! lock is a boolean indicating
+                 whether a fork's most recent block is still being
+                 actively replayed (executed) and should generally not
+                 be read or written to by downstream consumers (eg.
+                 consensus, publishing) and should definitely not be
+                 removed. */
   fd_exec_slot_ctx_t slot_ctx;
 };
 
@@ -160,5 +164,19 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
 void
 fd_forks_publish( fd_forks_t * fork, ulong root, fd_ghost_t const * ghost );
+
+/* fd_forks_print prints a forks as a list of the frontiers and number
+   of forks (pool eles acquired). */
+
+static inline void
+fd_forks_print( fd_forks_t const * forks ) {
+  FD_LOG_NOTICE( ( "\n\n[Frontier]" ) );
+  for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( forks->frontier, forks->pool );
+       !fd_fork_frontier_iter_done( iter, forks->frontier, forks->pool );
+       iter = fd_fork_frontier_iter_next( iter, forks->frontier, forks->pool ) ) {
+    printf( "%lu\n", fd_fork_frontier_iter_ele_const( iter, forks->frontier, forks->pool )->slot );
+  }
+  printf( "\n" );
+}
 
 #endif /* HEADER_fd_src_choreo_forks_fd_forks_h */
