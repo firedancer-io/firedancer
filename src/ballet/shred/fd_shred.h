@@ -190,14 +190,16 @@ struct __attribute__((packed)) fd_shred {
   /* Hash of the genesis version and historical hard forks of the current chain */
   /* 0x4d */ ushort version;
 
-  /* Index into the vector of FEC sets for this slot */
+  /* Index into the vector of FEC sets for this slot. For data shreds, fec_set_idx<=idx. */
   /* 0x4f */ uint   fec_set_idx;
 
   union {
     /* Common data shred header */
     struct __attribute__((packed)) {
       /* Slot number difference between this block and the parent block.
-         Always greater than zero. */
+         parent_off <= slot.
+         Always greater than zero, except for slot 0, in which case the
+         previous invariant forces this to be 0. */
       /* 0x53 */ ushort parent_off;
 
       /* Bit field (MSB first)
@@ -214,13 +216,14 @@ struct __attribute__((packed)) fd_shred {
 
     /* Common coding shred header */
     struct __attribute__((packed)) {
-      /* Total number of data shreds in slot */
+      /* Total number of data shreds in slot. Must be positive. */
       /* 0x53 */ ushort data_cnt;
 
-      /* Total number of coding shreds in slot */
+      /* Total number of coding shreds in slot. Must be positive. */
       /* 0x55 */ ushort code_cnt;
 
-      /* Index within the vector of coding shreds in slot */
+      /* Index within the vector of coding shreds in slot. In [0,
+         code_cnt).  Also, shred.code.idx <= shred.idx. */
       /* 0x57 */ ushort idx;
     } code;
   };
@@ -229,11 +232,13 @@ typedef struct fd_shred fd_shred_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_shred_parse: Parses and validates an untrusted shred header.
-   The provided buffer must be at least FD_SHRED_MIN_SZ bytes long.
+/* fd_shred_parse: Parses and validates an untrusted shred stored in
+   bytes buf[i] for i in [0, sz).  sz must be at least FD_SHRED_MIN_SZ
+   bytes.  Allows trailing data.
 
-   The returned pointer either equals the input pointer
-   or is NULL if the given shred is malformed. */
+   The returned pointer either equals the input pointer or is NULL if
+   the given shred is malformed or violates any invariants described
+   above. */
 FD_FN_PURE fd_shred_t const *
 fd_shred_parse( uchar const * buf,
                 ulong         sz );

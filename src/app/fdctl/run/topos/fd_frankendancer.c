@@ -283,11 +283,12 @@ fd_topo_frankendancer( config_t * config ) {
       fd_memcpy( tile->shred.src_mac_addr, config->tiles.net.mac_addr, 6 );
       strncpy( tile->shred.identity_key_path, config->consensus.identity_path, sizeof(tile->shred.identity_key_path) );
 
-      tile->shred.depth                  = topo->links[ tile->out_link_id_primary ].depth;
-      tile->shred.ip_addr                = config->tiles.net.ip_addr;
-      tile->shred.fec_resolver_depth     = config->tiles.shred.max_pending_shred_sets;
-      tile->shred.expected_shred_version = config->consensus.expected_shred_version;
-      tile->shred.shred_listen_port      = config->tiles.shred.shred_listen_port;
+      tile->shred.depth                         = topo->links[ tile->out_link_id_primary ].depth;
+      tile->shred.ip_addr                       = config->tiles.net.ip_addr;
+      tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
+      tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
+      tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
+      tile->shred.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "store" ) ) ) {
       tile->store.disable_blockstore_from_slot = config->development.bench.disable_blockstore_from_slot;
