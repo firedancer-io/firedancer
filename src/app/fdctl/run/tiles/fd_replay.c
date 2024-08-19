@@ -448,7 +448,6 @@ funk_cancel( fd_replay_tile_ctx_t * ctx, ulong mismatch_slot ) {
   xid.ul[0]                    = mismatch_slot;
   fd_funk_txn_t * txn_map      = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
   fd_funk_txn_t * mismatch_txn = fd_funk_txn_query( &xid, txn_map );
-  fd_funk_start_write( ctx->funk );
   FD_TEST( fd_funk_txn_cancel( ctx->funk, mismatch_txn, 1 ) );
   fd_funk_end_write( ctx->funk );
 }
@@ -639,7 +638,7 @@ after_frag( void *             _ctx,
 
       // fork is advancing
       FD_LOG_NOTICE(( "new block execution - slot: %lu, parent_slot: %lu", curr_slot, ctx->parent_slot ));
-      
+
       fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( fork->slot_ctx.epoch_ctx );
       /* if it is an epoch boundary, push out stake weights */
       if( fork->slot_ctx.slot_bank.slot != 0 ) {
@@ -1188,7 +1187,7 @@ during_housekeeping( void * _ctx ) {
 
   /* Use the blockstore's saved SMR to detect whether the smr has
      changed.
-     
+
      TODO refactor this to a variable on the replay tile ctx. */
 
   if( FD_UNLIKELY( !ctx->blockstore ) ) return;
