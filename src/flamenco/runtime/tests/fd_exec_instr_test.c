@@ -1696,8 +1696,12 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   ulong rodata_sz = input->vm_ctx.rodata ? input->vm_ctx.rodata->size : 0UL;
 
   /* Load input data regions */
-  fd_vm_input_region_t * input_regions       = fd_valloc_malloc( valloc, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
-  uint                   input_regions_count = setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count );
+  fd_vm_input_region_t * input_regions = NULL;
+  uint input_regions_count = 0U;
+  if( !!(input->vm_ctx.input_data_regions_count) ) {
+    input_regions       = fd_valloc_malloc( valloc, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
+    input_regions_count = setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count );
+  }
 
   if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
     goto error;
