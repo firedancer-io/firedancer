@@ -46,7 +46,7 @@ fd_stakes_accum_by_node( fd_vote_accounts_t const * in,
     /* Check if node identity was previously visited */
     fd_stake_weight_t_mapnode_t * query = fd_stake_weight_t_map_acquire( out_pool );
     FD_TEST( query );
-    query->elem.key = *node_pubkey;
+    fd_memcpy( &query->elem.key, node_pubkey, FD_PUBKEY_FOOTPRINT );
     fd_stake_weight_t_mapnode_t * node = fd_stake_weight_t_map_find( out_pool, out_root, query );
 
     if( FD_UNLIKELY( node ) ) {
