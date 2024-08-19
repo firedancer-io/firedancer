@@ -226,7 +226,7 @@ status_check_tower( ulong slot, void * _ctx ) {
 
 int
 fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
-  
+
   if( FD_UNLIKELY( !txn_ctx->slot_ctx->status_cache ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
@@ -236,7 +236,7 @@ fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_txncache_query_t curr_query;
   curr_query.blockhash = blockhash->uc;
   fd_blake3_t b3[1];
-  
+
   fd_blake3_init( b3 );
   fd_blake3_append( b3, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->message_off),(ulong)( txn_ctx->_txn_raw->txn_sz - txn_ctx->txn_descriptor->message_off ) );
   fd_blake3_fini( b3, &txn_ctx->blake_txn_msg_hash );
@@ -298,15 +298,15 @@ fd_executor_check_txn_data_sz( fd_exec_txn_ctx_t * txn_ctx ) {
     // Check for max loaded acct size
     fd_borrowed_account_t * acct = NULL;
     int err        = fd_txn_borrowed_account_view_idx( txn_ctx, (uchar)i, &acct );
-    ulong acc_size = err==FD_ACC_MGR_SUCCESS ? acct->const_meta->dlen : 0UL; 
-  
+    ulong acc_size = err==FD_ACC_MGR_SUCCESS ? acct->const_meta->dlen : 0UL;
+
     accumulated_account_size = fd_ulong_sat_add( accumulated_account_size, acc_size );
   }
 
   if( FD_UNLIKELY( accumulated_account_size>requested_loaded_accounts_data_size ) ) {
     return FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED;
   }
-  
+
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
@@ -334,10 +334,10 @@ fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* At this point, the fee payer has been validated and the fee has been
      calculated. This means that the fee can be safely subtracted from the
-     fee payer's borrowed account. However, the starting lamports of the 
-     account must be updated as well. Each instruction must have the net 
-     same (balanced) amount of lamports. This is done by comparing the 
-     borrowed accounts starting lamports and comparing it to the sum of 
+     fee payer's borrowed account. However, the starting lamports of the
+     account must be updated as well. Each instruction must have the net
+     same (balanced) amount of lamports. This is done by comparing the
+     borrowed accounts starting lamports and comparing it to the sum of
      the ending lamports. Therefore, we need to update the starting lamports
      specifically for the fee payer. */
   rec->meta->info.lamports -= total_fee;
@@ -350,7 +350,7 @@ fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx ) {
 
   txn_ctx->execution_fee = execution_fee;
   txn_ctx->priority_fee  = priority_fee;
-  
+
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
@@ -1076,7 +1076,7 @@ fd_execute_txn_finalize( fd_exec_txn_ctx_t * txn_ctx,
 
 /* Creates a TxnContext Protobuf message from a provided txn_ctx.
    - The transaction is assumed to have just finished phase 1 of preparation
-   - Caller of this function should have a scratch frame ready 
+   - Caller of this function should have a scratch frame ready
 */
 static void
 create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_msg,
@@ -1156,7 +1156,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     message->account_keys[i] = account_key;
   }
 
-  /* Transaction Context -> tx -> message -> account_shared_data 
+  /* Transaction Context -> tx -> message -> account_shared_data
      Contains:
       - Account data for regular accounts
       - Account data for LUT accounts
@@ -1165,7 +1165,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   */
   // Dump regular accounts first
   message->account_shared_data_count = 0;
-  message->account_shared_data = fd_scratch_alloc( alignof(fd_exec_test_acct_state_t), 
+  message->account_shared_data = fd_scratch_alloc( alignof(fd_exec_test_acct_state_t),
                                                    (txn_ctx->accounts_cnt * 2 + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
   for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
     FD_BORROWED_ACCOUNT_DECL(borrowed_account);
@@ -1278,7 +1278,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   if( !message->is_legacy ) {
     /* Transaction Context -> tx -> message -> address_table_lookups */
     message->address_table_lookups_count = txn_descriptor->addr_table_lookup_cnt;
-    message->address_table_lookups = fd_scratch_alloc( alignof(fd_exec_test_message_address_table_lookup_t), 
+    message->address_table_lookups = fd_scratch_alloc( alignof(fd_exec_test_message_address_table_lookup_t),
                                                        txn_descriptor->addr_table_lookup_cnt * sizeof(fd_exec_test_message_address_table_lookup_t) );
 
     /* Transaction Context -> tx -> message -> loaded_addresses */
@@ -1286,12 +1286,12 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     message->has_loaded_addresses = true;
 
     // loaded_addresses -> writable
-    message->loaded_addresses.writable = fd_scratch_alloc( alignof(pb_bytes_array_t *), 
+    message->loaded_addresses.writable = fd_scratch_alloc( alignof(pb_bytes_array_t *),
                                                            PB_BYTES_ARRAY_T_ALLOCSIZE(txn_ctx->accounts_cnt * sizeof(pb_bytes_array_t *)) );
     message->loaded_addresses.writable_count = 0;
 
     // loaded_addresses -> readonly
-    message->loaded_addresses.readonly = fd_scratch_alloc( alignof(pb_bytes_array_t *), 
+    message->loaded_addresses.readonly = fd_scratch_alloc( alignof(pb_bytes_array_t *),
                                                            PB_BYTES_ARRAY_T_ALLOCSIZE(txn_ctx->accounts_cnt * sizeof(pb_bytes_array_t *)) );
     message->loaded_addresses.readonly_count = 0;
 
@@ -1366,12 +1366,12 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   ulong max_age = slot_ctx->slot_bank.block_hash_queue.max_age;
   txn_context_msg->max_age = max_age;
 
-  /* Transaction Context -> blockhash_queue 
-     NOTE: Agave's implementation of register_hash incorrectly allows the blockhash queue to hold max_age + 1 (max 301) 
-     entries. We have this incorrect logic implemented in fd_sysvar_recent_hashes:register_blockhash and it's not a 
+  /* Transaction Context -> blockhash_queue
+     NOTE: Agave's implementation of register_hash incorrectly allows the blockhash queue to hold max_age + 1 (max 301)
+     entries. We have this incorrect logic implemented in fd_sysvar_recent_hashes:register_blockhash and it's not a
      huge issue, but something to keep in mind. */
-  pb_bytes_array_t ** output_blockhash_queue = fd_scratch_alloc( 
-                                                      alignof(pb_bytes_array_t *), 
+  pb_bytes_array_t ** output_blockhash_queue = fd_scratch_alloc(
+                                                      alignof(pb_bytes_array_t *),
                                                       PB_BYTES_ARRAY_T_ALLOCSIZE((max_age + 1) * sizeof(pb_bytes_array_t *)) );
   txn_context_msg->blockhash_queue_count = 0;
   txn_context_msg->blockhash_queue = output_blockhash_queue;
@@ -1382,7 +1382,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   for ( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
     nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
 
-    /* Get the index in the blockhash queue 
+    /* Get the index in the blockhash queue
        - Lower index = newer
        - 0 will be the most recent blockhash
        - Index range is [0, max_age] (not a typo) */
@@ -1613,7 +1613,7 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
           if (before_exempt || b->starting_lamports == 0) {
             FD_LOG_DEBUG(("Rent exempt error for %32J Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu", b->pubkey->uc, b->meta->dlen, b->starting_dlen, b->meta->info.lamports, b->starting_lamports, fd_rent_exempt_minimum_balance2( rent, b->meta->dlen), fd_rent_exempt_minimum_balance2( rent, b->starting_dlen)));
             return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
-          } else if (!before_exempt && (b->meta->dlen == b->starting_dlen) && b->meta->info.lamports <= b->starting_lamports) {
+          } else if (!before_exempt && (b->meta->dlen == b->starting_dlen)) {
             // no-op
           } else {
             FD_LOG_DEBUG(("Rent exempt error for %32J Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu", b->pubkey->uc, b->meta->dlen, b->starting_dlen, b->meta->info.lamports, b->starting_lamports, fd_rent_exempt_minimum_balance2( rent, b->meta->dlen), fd_rent_exempt_minimum_balance2( rent, b->starting_dlen)));
