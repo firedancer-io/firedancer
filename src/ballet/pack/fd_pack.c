@@ -1251,7 +1251,19 @@ fd_pack_rebate_cus( fd_pack_t        * pack,
     int   in_block      = !!(txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
 
     if( FD_UNLIKELY( !in_block && executed_cus>0UL ) ) FD_LOG_ERR(( "Transaction failed execution but consumed CUs?" ));
-    if( FD_UNLIKELY( executed_cus>requested_cus    ) ) FD_LOG_ERR(( "Executed (%lu) more than requested (%lu)?", executed_cus, requested_cus ));
+    if( FD_UNLIKELY( executed_cus>requested_cus    ) ) {
+      /* There's basically a bug in the Agave codebase right now
+         regarding the cost model for some transactions.  Some built-in
+         instructions like creating an address lookup table consume more
+         CUs than the cost model allocates for them, which is only
+         allowed because the runtime computes requested CUs differently
+         from the cost model.  Rather than implement a broken system,
+         we'll just permit the risk of slightly overpacking blocks by
+         ignoring these transactions when it comes to rebating. */
+      FD_LOG_INFO(( "Transaction executed %lu CUs but only requested %lu CUs", executed_cus, requested_cus ));
+      FD_MCNT_INC( PACK, COST_MODEL_UNDERCOUNT, 1UL );
+      continue;
+    }
     cumulative_block_cost  -= requested_cus - executed_cus;
     cumulative_vote_cost   -= fd_ulong_if( txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, requested_cus-executed_cus, 0UL );
     data_bytes_consumed    -= fd_ulong_if( !in_block,                                  txn->payload_sz,            0UL );
