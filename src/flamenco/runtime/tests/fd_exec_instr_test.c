@@ -1429,7 +1429,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     /* Capture basic results fields */
     txn_result->executed                          = task_info->txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     txn_result->sanitization_error                = !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS );
-    txn_result->has_resulting_state               = true;
+    txn_result->has_resulting_state               = false;
     txn_result->resulting_state.acct_states_count = 0;
     txn_result->rent                              = slot_ctx->slot_bank.collected_rent;
     txn_result->is_ok                             = !exec_res;
@@ -1483,6 +1483,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     /* Allocate space for captured accounts */
     ulong modified_acct_cnt = txn_ctx->accounts_cnt;
 
+    txn_result->has_resulting_state         = true;
     txn_result->resulting_state.acct_states =
       FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t),
                                   sizeof (fd_exec_test_acct_state_t) * modified_acct_cnt );
