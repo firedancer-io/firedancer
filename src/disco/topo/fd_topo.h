@@ -188,6 +188,7 @@ typedef struct {
       ulong  fec_resolver_depth;
       char   identity_key_path[ PATH_MAX ];
       ushort shred_listen_port;
+      int    larger_shred_limits_per_block;
       ulong  expected_shred_version;
     } shred;
 

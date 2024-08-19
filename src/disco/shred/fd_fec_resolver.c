@@ -133,6 +133,13 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
   fd_fec_resolver_sign_fn * signer;
   void                    * sign_ctx;
 
+  /* max_shred_idx is the exclusive upper bound for shred indices.  We
+     need to reject any shred with an index >= max_shred_idx, but we
+     also want to reject anything that is part of an FEC set where the
+     highest index of a shred in the FEC set will be >= max_shred_idx.
+     */
+  ulong max_shred_idx;
+
   /* sha512 and reedsol are used for calculations while adding a shred.
      Their state outside a call to add_shred is indeterminate. */
   fd_sha512_t   sha512[1];
@@ -187,7 +194,8 @@ fd_fec_resolver_new( void                    * shmem,
                      ulong                     complete_depth,
                      ulong                     done_depth,
                      fd_fec_set_t            * sets,
-                     ushort                    expected_shred_version ) {
+                     ushort                    expected_shred_version,
+                     ulong                     max_shred_idx ) {
   if( FD_UNLIKELY( (depth==0UL) | (partial_depth==0UL) | (complete_depth==0UL) | (done_depth==0UL) ) ) return NULL;
   if( FD_UNLIKELY( (depth>=(1UL<<62)-1UL) | (done_depth>=(1UL<<62)-1UL ) ) ) return NULL;
 
@@ -241,6 +249,7 @@ fd_fec_resolver_new( void                    * shmem,
   resolver->expected_shred_version = expected_shred_version;
   resolver->signer                 = signer;
   resolver->sign_ctx               = sign_ctx;
+  resolver->max_shred_idx          = max_shred_idx;
   return shmem;
 }
 
@@ -352,14 +361,22 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   }
 
   if( FD_UNLIKELY( shred->version!=resolver->expected_shred_version ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( shred_sz<fd_shred_sz( shred )                    ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( shred->idx>=resolver->max_shred_idx              ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
 
   int is_data_shred = fd_shred_is_data( shred_type );
 
   if( !is_data_shred ) { /* Roughly 50/50 branch */
     if( FD_UNLIKELY( (shred->code.data_cnt>FD_REEDSOL_DATA_SHREDS_MAX) | (shred->code.code_cnt>FD_REEDSOL_PARITY_SHREDS_MAX) ) )
       return FD_FEC_RESOLVER_SHRED_REJECTED;
-    if( FD_UNLIKELY( (shred->code.data_cnt==0UL) | (shred->code.code_cnt==0UL) ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+    if( FD_UNLIKELY( (shred->code.data_cnt==0UL) | (shred->code.code_cnt==0UL)                                               ) )
+      return FD_FEC_RESOLVER_SHRED_REJECTED;
+    if( FD_UNLIKELY( (ulong)shred->fec_set_idx+(ulong)shred->code.data_cnt>=resolver->max_shred_idx                          ) )
+      return FD_FEC_RESOLVER_SHRED_REJECTED;
+    if( FD_UNLIKELY( (ulong)shred->idx + (ulong)shred->code.code_cnt - (ulong)shred->code.idx>=resolver->max_shred_idx       ) )
+      return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
+
 
   /* For the purposes of the shred header, tree_depth means the number
      of nodes, counting the leaf but excluding the root.  For bmtree,
@@ -496,7 +513,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
 
   /* Copy the shred to memory the FEC resolver owns */
   uchar * dst = fd_ptr_if( is_data_shred, ctx->set->data_shreds[ in_type_idx ], ctx->set->parity_shreds[ in_type_idx ] );
-  fd_memcpy( dst, shred, shred_sz );
+  fd_memcpy( dst, shred, fd_shred_sz( shred ) );
 
   /* If the shred needs a retransmitter signature, set it */
   if( FD_UNLIKELY( fd_shred_is_resigned( shred_type ) ) ) {
