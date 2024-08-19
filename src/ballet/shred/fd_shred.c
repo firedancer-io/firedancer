@@ -68,5 +68,20 @@ fd_shred_parse( uchar const * const buf,
 
   if( FD_UNLIKELY( sz < header_sz + payload_sz + zero_padding_sz + merkle_proof_sz + previous_merkle_root_sz ) ) return NULL;
 
+  /* At this point we know all the fields exist, but we need to sanity
+     check a few fields that would make a shred illegal. */
+  if( FD_LIKELY( type & FD_SHRED_TYPEMASK_DATA ) ) {
+    if( FD_UNLIKELY( (shred->data.flags&0xC0)==0x80                              ) ) return NULL;
+    if( FD_UNLIKELY( (ulong)(shred->data.parent_off)>shred->slot                 ) ) return NULL;
+    if( FD_UNLIKELY( (shred->data.parent_off==0) & (shred->slot!=0UL)            ) ) return NULL;
+    if( FD_UNLIKELY( shred->idx<shred->fec_set_idx                               ) ) return NULL;
+  } else {
+    if( FD_UNLIKELY( shred->code.idx>=shred->code.code_cnt                       ) ) return NULL;
+    if( FD_UNLIKELY( shred->code.idx> shred->idx                                 ) ) return NULL;
+    if( FD_UNLIKELY( (shred->code.data_cnt==0)|(shred->code.code_cnt==0)         ) ) return NULL;
+    if( FD_UNLIKELY( shred->code.code_cnt>256                                    ) ) return NULL;
+    if( FD_UNLIKELY( (ulong)shred->code.data_cnt+(ulong)shred->code.code_cnt>256 ) ) return NULL; /* I don't see this check in Agave, but it seems necessary */
+  }
+
   return shred;
 }

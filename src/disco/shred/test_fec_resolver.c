@@ -31,6 +31,7 @@ uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0, 0 ) ] __attribute__((aligned(FD_
 fd_shredder_t _shredder[ 1 ];
 
 #define SHRED_VER   (ushort)6051 /* An arbitary value */
+#define MAX         (32UL*1024UL)
 
 struct signer_ctx {
   fd_sha512_t sha512[ 1 ];
@@ -114,9 +115,9 @@ test_one_batch( void ) {
 
   ulong foot = fd_fec_resolver_footprint( 4UL, 1UL, 1UL, 1UL );
   fd_fec_resolver_t *r1, *r2, *r3;
-  r1 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+0UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets,     SHRED_VER ) );
-  r2 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+1UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets+4UL, SHRED_VER ) );
-  r3 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+2UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets+8UL, SHRED_VER ) );
+  r1 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+0UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets,     SHRED_VER, MAX ) );
+  r2 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+1UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets+4UL, SHRED_VER, MAX ) );
+  r3 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+2UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets+8UL, SHRED_VER, MAX ) );
 
   fd_fec_set_t const * out_fec[1];
   fd_shred_t   const * out_shred[1];
@@ -186,7 +187,7 @@ test_interleaved( void ) {
   fd_fec_set_t const * out_fec[1];
   fd_shred_t   const * out_shred[1];
 
-  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, SHRED_VER ) );
+  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, SHRED_VER, MAX ) );
   for( ulong j=0UL; j<set0->data_shred_cnt; j++ ) {
     ADD_SHRED( resolver, set0->data_shreds[ j ], OKAY );
     ADD_SHRED( resolver, set1->data_shreds[ j ], OKAY );
@@ -232,7 +233,7 @@ test_rolloff( void ) {
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
   fd_fec_resolver_t * resolver;
-  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, SHRED_VER ) );
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, SHRED_VER, MAX ) );
   for( ulong j=0UL; j<set0->data_shred_cnt; j++ ) { ADD_SHRED( resolver, set0->data_shreds[ j ], OKAY ); }
 
   for( ulong j=0UL; j<set1->data_shred_cnt; j++ ) { ADD_SHRED( resolver, set1->data_shreds[ j ], OKAY ); }
@@ -296,7 +297,7 @@ test_new_formats( void ) {
   for( ulong i=0UL; i<4UL; i++ ) ptr = allocate_fec_set( out_sets+i, ptr );
 
   fd_fec_resolver_t * resolver;
-  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, test_signer, signer_ctx, 2UL, 1UL, 1UL, 8UL, out_sets, 1 ) );
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, test_signer, signer_ctx, 2UL, 1UL, 1UL, 8UL, out_sets, 1, MAX ) );
 
   uchar pubkey[32];
   fd_base58_decode_32( "5XDmMEZpXM2GBXNjhgRCti4qLGeFQvx4RnzWeRgfupYk", pubkey );
@@ -385,7 +386,7 @@ test_shred_version( void ) {
 
   for( ulong i=0UL; i<4UL; i++ )  ptr = allocate_fec_set( out_sets+i, ptr );
 
-  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, SHRED_VER ) );
+  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, SHRED_VER, MAX ) );
 
   fd_fec_set_t const * out_fec[1];
   fd_shred_t   const * out_shred[1];
@@ -396,6 +397,144 @@ test_shred_version( void ) {
   FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, pubkey, out_fec, out_shred ) );
 
   fd_fec_resolver_delete( fd_fec_resolver_leave( r ) );
+}
+
+static void
+fake_resign( fd_shred_t   * shred,
+             signer_ctx_t * sign_ctx ) {
+
+  uchar variant     = shred->variant;
+  uchar shred_type  = fd_shred_type( variant );
+  int is_data_shred = fd_shred_is_data( shred_type );
+  ulong in_type_idx = fd_ulong_if( is_data_shred, shred->idx - shred->fec_set_idx, shred->code.idx );
+  ulong shred_idx   = fd_ulong_if( is_data_shred, in_type_idx, in_type_idx + shred->code.data_cnt  );
+
+  ulong tree_depth           = fd_shred_merkle_cnt( variant ); /* In [0, 15] */
+  ulong reedsol_protected_sz = 1115UL + FD_SHRED_DATA_HEADER_SZ - FD_SHRED_SIGNATURE_SZ - FD_SHRED_MERKLE_NODE_SZ*tree_depth
+    - FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type )
+    - FD_SHRED_SIGNATURE_SZ  *fd_shred_is_resigned( shred_type); /* In [743, 1139] conservatively*/
+  ulong data_merkle_protected_sz   = reedsol_protected_sz + FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type );
+  ulong parity_merkle_protected_sz = reedsol_protected_sz + FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type )+0x59UL-0x40UL;
+  ulong merkle_protected_sz  = fd_ulong_if( is_data_shred, data_merkle_protected_sz, parity_merkle_protected_sz );
+
+  uchar bmtree_mem[ fd_bmtree_commit_footprint( 10UL ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
+  fd_bmtree_node_t root[1];
+  fd_bmtree_node_t leaf[1];
+  fd_bmtree_hash_leaf( leaf, (uchar const *)shred + sizeof(fd_ed25519_sig_t), merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
+  fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
+  fd_bmtree_commit_t * tree;
+  tree = fd_bmtree_commit_init( bmtree_mem, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ, 10UL );
+  int rv = fd_bmtree_commitp_insert_with_proof( tree, shred_idx, leaf, (uchar const *)proof, tree_depth, root );
+  FD_TEST( rv );
+
+  test_signer( sign_ctx, shred->signature, root->hash );
+}
+
+static void
+test_shred_reject( void ) {
+  signer_ctx_t signer_ctx[ 1 ];
+  signer_ctx_init( signer_ctx, test_private_key );
+
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, (ushort)SHRED_VER ) );
+  fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
+
+  uchar const * pubkey = test_private_key+32UL;
+
+  fd_entry_batch_meta_t meta[1];
+  fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
+  meta->parent_offset  = 1UL;
+  meta->block_complete = 1;
+
+  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 2UL, meta ) );
+
+  fd_fec_set_t _set[ 1 ];
+  fd_fec_set_t out_sets[ 4UL ];
+  uchar * ptr = fec_set_memory;
+  ptr = allocate_fec_set( _set, ptr );
+
+  for( ulong i=0UL; i<4UL; i++ )  ptr = allocate_fec_set( out_sets+i, ptr );
+
+  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, SHRED_VER, MAX ) );
+
+  fd_fec_set_t const * out_fec[1];
+  fd_shred_t   const * out_shred[1];
+
+#define SIGN_ACCEPT( shred )                                                                                        \
+  fake_resign( shred, signer_ctx );                                                                                 \
+  FD_TEST( fd_shred_parse( (uchar const *)shred, 2048UL ) );                                                        \
+  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY==fd_fec_resolver_add_shred( r, shred, 2048UL, pubkey, out_fec, out_shred ) );
+
+#define SIGN_REJECT( shred )                                                                                           \
+  fake_resign( shred, signer_ctx );                                                                                    \
+  FD_TEST( NULL==fd_shred_parse( (uchar const *)shred, 2048UL ) ||                                                     \
+           FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, pubkey, out_fec, out_shred ) );
+
+  fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set );
+  fd_shred_t * shred;
+  shred = (fd_shred_t *)fd_shred_parse( set->data_shreds[ 0 ], 2048UL );   FD_TEST( shred );
+  /* Test basic setup is working. */
+  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY==fd_fec_resolver_add_shred( r, shred, 2048UL, pubkey, out_fec, out_shred ) );
+
+  shred = (fd_shred_t *)fd_shred_parse( set->data_shreds[ 1 ], 2048UL );   FD_TEST( shred );
+  (*(uchar *)fd_shred_data_payload( shred ))++;
+  /* Data modified but signature not updated */
+  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, pubkey, out_fec, out_shred ) );
+
+  /* fake_resign fixed up the signature. */
+  SIGN_ACCEPT( shred );
+
+  shred = (fd_shred_t *)fd_shred_parse( set->data_shreds[ 2 ], 2048UL );   FD_TEST( shred );
+  shred->idx = MAX-1UL;  shred->fec_set_idx = MAX-20UL;  SIGN_ACCEPT( shred );
+  shred->idx = MAX;      shred->fec_set_idx = MAX-20UL;  SIGN_REJECT( shred );
+  shred->idx = MAX+1UL;  shred->fec_set_idx = MAX-20UL;  SIGN_REJECT( shred );
+
+  shred = (fd_shred_t *)fd_shred_parse( set->data_shreds[ 3 ], 2048UL );   FD_TEST( shred );
+  shred->data.flags = 0x80;    SIGN_REJECT( shred );/* block complete but not batch complete */
+
+  shred = (fd_shred_t *)fd_shred_parse( set->data_shreds[ 4 ], 2048UL );   FD_TEST( shred );
+  shred->data.parent_off = 2;                    SIGN_ACCEPT( shred ); /* Slot == 2 */
+  shred->data.parent_off = 0;                    SIGN_REJECT( shred );
+  shred->data.parent_off = 3;                    SIGN_REJECT( shred );
+  shred->data.parent_off = 0; shred->slot = 0UL; SIGN_ACCEPT( shred );
+  shred->data.parent_off = 1;                    SIGN_REJECT( shred );
+
+  shred = (fd_shred_t *)fd_shred_parse( set->data_shreds[ 5 ], 2048UL );   FD_TEST( shred );
+  shred->idx = 1U; shred->fec_set_idx = 1U;     SIGN_ACCEPT( shred );
+  shred->idx = 8U; shred->fec_set_idx = 1U;     SIGN_ACCEPT( shred );
+  /* The following two are so malformed that fake_resign chokes on them.
+     No matter, because shred_parse rejects them. */
+  shred->idx = 1U; shred->fec_set_idx = 8U;     FD_TEST( NULL==fd_shred_parse( (uchar const *)shred, 2048UL ) );
+  shred->idx = 7U; shred->fec_set_idx = 8U;     FD_TEST( NULL==fd_shred_parse( (uchar const *)shred, 2048UL ) );
+
+  /* Now parity shred tests */
+  shred = (fd_shred_t *)fd_shred_parse( set->parity_shreds[ 0 ], 2048UL );   FD_TEST( shred );
+  shred->idx = MAX-2UL;  shred->code.code_cnt = 1UL;  SIGN_ACCEPT( shred );
+  shred->idx = MAX;      shred->code.code_cnt = 1UL;  SIGN_REJECT( shred );
+  shred->idx = MAX+1UL;  shred->code.code_cnt = 1UL;  SIGN_REJECT( shred );
+
+  shred = (fd_shred_t *)fd_shred_parse( set->parity_shreds[ 1 ], 2048UL );   FD_TEST( shred );
+  shred->code.data_cnt =  68UL;  shred->code.code_cnt =  68UL;  SIGN_REJECT( shred );
+  shred->code.data_cnt = 256UL;  shred->code.code_cnt = 256UL;  SIGN_REJECT( shred );
+  shred->code.data_cnt =   0UL;  shred->code.code_cnt =  32UL;  SIGN_REJECT( shred );
+  shred->code.data_cnt =  32UL;  shred->code.code_cnt =   0UL;  SIGN_REJECT( shred );
+
+  shred = (fd_shred_t *)fd_shred_parse( set->parity_shreds[ 2 ], 2048UL );   FD_TEST( shred );
+  shred->fec_set_idx = 12U;                                         SIGN_ACCEPT( shred );
+  shred->fec_set_idx = MAX-3UL;  shred->code.data_cnt = 2UL;        SIGN_ACCEPT( shred );
+  shred->fec_set_idx = MAX-2UL;  shred->code.data_cnt = 3UL;        SIGN_REJECT( shred );
+  /* This one is also so malformed that fake_resign can't sign it.  The
+     Merkle tree required to sign an FEC set that large wouldn't fit. */
+  shred->fec_set_idx = UINT_MAX; shred->code.data_cnt = USHORT_MAX; FD_TEST( NULL==fd_shred_parse( (uchar const *)shred, 2048UL ) );
+
+  shred = (fd_shred_t *)fd_shred_parse( set->parity_shreds[ 3 ], 2048UL );   FD_TEST( shred );
+  shred->idx = shred->code.idx - 1U;                                      SIGN_REJECT( shred );
+  shred->idx = MAX-5UL;  shred->code.idx = 0;  shred->code.code_cnt = 4U; SIGN_ACCEPT( shred );
+  shred->idx = MAX-5UL;  shred->code.idx = 0;  shred->code.code_cnt = 5U; SIGN_REJECT( shred );
+  shred->idx = MAX-5UL;  shred->code.idx = 1;  shred->code.code_cnt = 5U; SIGN_ACCEPT( shred );
+
+  shred = (fd_shred_t *)fd_shred_parse( set->parity_shreds[ 4 ], 2048UL );   FD_TEST( shred );
+  shred->code.idx = 4; shred->code.code_cnt = 5;            SIGN_ACCEPT( shred );
+  shred->code.idx = 4; shred->code.code_cnt = 4;            SIGN_REJECT( shred );
 }
 
 
@@ -412,6 +551,7 @@ main( int     argc,
   test_rolloff();
   test_new_formats();
   test_shred_version();
+  test_shred_reject();
 
 
   FD_LOG_NOTICE(( "pass" ));
