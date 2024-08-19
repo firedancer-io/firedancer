@@ -1438,24 +1438,19 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     txn_result->instruction_error_index           = 0;
     txn_result->custom_error                      = 0;
     txn_result->executed_units                    = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
-    txn_result->has_fee_details                   = true;
-    txn_result->fee_details.transaction_fee       = slot_ctx->slot_bank.collected_execution_fees;
-    txn_result->fee_details.prioritization_fee    = slot_ctx->slot_bank.collected_priority_fees;
+    txn_result->has_fee_details                   = false;
 
     if( txn_result->sanitization_error ) {
-      //TODO: this looks like a bug in nanopb? For some reason:
-      //      - txn_result->has_resulting_state is true when all fields are 0
-      //      - txn_result->has_fee_details is false when all fields are 0
-      //      even though solfuzz-agave sets both to None
-      //      maybe it's because resulting_state contains pointers!?
-      txn_result->has_fee_details = false;
-
       ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
       _txn_context_destroy( runner, txn_ctx, slot_ctx, wksp, alloc );
 
       *output = txn_result;
       return actual_end - (ulong)output_buf;
     }
+
+    txn_result->has_fee_details                   = true;
+    txn_result->fee_details.transaction_fee       = slot_ctx->slot_bank.collected_execution_fees;
+    txn_result->fee_details.prioritization_fee    = slot_ctx->slot_bank.collected_priority_fees;
 
     assert(txn_result->executed);
 
