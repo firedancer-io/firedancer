@@ -297,7 +297,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
     }
   }
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool;
-  vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );  /* FIXME remove magic constant */
+  vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 1000000 );  /* FIXME remove magic constant */
   slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = NULL;
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = slot_ctx->slot_bank.epoch_stakes.vote_accounts_root;
 
@@ -3676,7 +3676,7 @@ FD_SCRATCH_SCOPE_BEGIN {
   slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool = fd_stake_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );
 
   slot_ctx->slot_bank.vote_account_keys.vote_accounts_root = NULL;
-  slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );
+  slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 1000000 );
 } FD_SCRATCH_SCOPE_END;
 }
 

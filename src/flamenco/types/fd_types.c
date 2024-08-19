@@ -3007,7 +3007,7 @@ void fd_vote_accounts_decode_unsafe( fd_vote_accounts_t * self, fd_bincode_decod
   ulong vote_accounts_len;
   fd_bincode_uint64_decode_unsafe( &vote_accounts_len, ctx );
   if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    self->vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( ctx->valloc, fd_ulong_max(vote_accounts_len, 10000 ) );
+    self->vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( ctx->valloc, fd_ulong_max(vote_accounts_len, 100000 ) );
     self->vote_accounts_root = NULL;
   }
   for( ulong i=0; i < vote_accounts_len; i++ ) {

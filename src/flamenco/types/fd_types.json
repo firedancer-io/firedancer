@@ -251,7 +251,7 @@
       "name": "vote_accounts",
       "type": "struct",
       "fields": [
-        { "name": "vote_accounts", "type": "map", "element": "vote_accounts_pair", "key": "key", "minalloc":10000 }
+        { "name": "vote_accounts", "type": "map", "element": "vote_accounts_pair", "key": "key", "minalloc":100000 }
       ]
     },
     {
