@@ -3761,9 +3761,7 @@ void fd_process_new_epoch(
   fd_stakes_activate_epoch( slot_ctx );
 
   /* Distribute rewards */
-  fd_hash_t const * parent_blockhash = fd_blockstore_block_hash_query( 
-    slot_ctx->blockstore,
-    fd_blockstore_parent_slot_query( slot_ctx->blockstore, slot_ctx->slot_bank.slot ) );
+  fd_hash_t const * parent_blockhash = slot_ctx->slot_bank.block_hash_queue.last_hash;
   if ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
     fd_begin_partitioned_rewards( slot_ctx, parent_blockhash, parent_epoch );
   } else {
