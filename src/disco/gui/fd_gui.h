@@ -142,6 +142,9 @@ struct fd_gui {
 
     long  startup_time_nanos;
 
+    ulong balance;
+    ulong estimated_slot_duration_nanos;
+
     ulong slot_rooted;
     ulong slot_optimistically_confirmed;
     ulong slot_completed;

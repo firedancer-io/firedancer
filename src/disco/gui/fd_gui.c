@@ -99,6 +99,8 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_cluster,
     fd_gui_printf_identity_key,
     fd_gui_printf_uptime_nanos,
+    fd_gui_printf_balance,
+    fd_gui_printf_estimated_slot_duration_nanos,
     fd_gui_printf_root_slot,
     fd_gui_printf_optimistically_confirmed_slot,
     fd_gui_printf_completed_slot,
@@ -858,8 +860,34 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui,
   fd_gui_printf_estimated_failed_tps( gui );
   fd_hcache_snap_ws_broadcast( gui->hcache );
 
+  ulong last_slot = _slot;
+  long last_published = gui->slots.data[ _slot % 864000UL ]->completed_time;
+
+  for( ulong i=0UL; i<fd_ulong_min( _slot, 750UL ); i++ ) {
+    ulong parent = _slot-i;
+
+    fd_gui_slot_t * slot = gui->slots.data[ parent ];
+    if( FD_LIKELY( slot->slot==ULONG_MAX ) ) break;
+    if( FD_UNLIKELY( slot->slot!=parent ) ) continue;
+
+    last_slot       = parent;
+    last_published = slot->completed_time;
+  }
+
+  gui->summary.estimated_slot_duration_nanos = (ulong)(now-last_published)/(_slot-last_slot);
+  fd_gui_printf_estimated_slot_duration_nanos( gui );
+  fd_hcache_snap_ws_broadcast( gui->hcache );
+
   gui->summary.slot_rooted = _slot;
   fd_gui_printf_root_slot( gui );
+  fd_hcache_snap_ws_broadcast( gui->hcache );
+}
+
+static void
+fd_gui_handle_balance_update( fd_gui_t * gui,
+                              ulong      balance ) {
+  gui->summary.balance = balance;
+  fd_gui_printf_balance( gui );
   fd_hcache_snap_ws_broadcast( gui->hcache );
 }
 
@@ -973,6 +1001,10 @@ fd_gui_plugin_message( fd_gui_t *    gui,
     }
     case FD_PLUGIN_MSG_SLOT_RESET: {
       fd_gui_handle_reset_slot( gui, (ulong *)msg );
+      break;
+    }
+    case FD_PLUGIN_MSG_BALANCE: {
+      fd_gui_handle_balance_update( gui, *(ulong *)msg );
       break;
     }
     default:
