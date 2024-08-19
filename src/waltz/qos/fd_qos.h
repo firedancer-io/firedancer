@@ -78,7 +78,7 @@ FD_FN_CONST ulong
 fd_qos_footprint( ulong entry_cnt );
 
 /* fd_new_qos creates a new fd_qos with the capacity for the given number
- * of entries and tiles. Period is the amount of time in nanoseconds between
+ * of entries. Period is the amount of time in nanoseconds between
  * updates to the global map.
  * A local cache of data is maintained by the producing tiles to keep
  * the work cheap and fast
