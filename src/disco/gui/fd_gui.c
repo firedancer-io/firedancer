@@ -869,7 +869,7 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui,
   for( ulong i=0UL; i<fd_ulong_min( _slot, 750UL ); i++ ) {
     ulong parent = _slot-i;
 
-    fd_gui_slot_t * slot = gui->slots.data[ parent ];
+    fd_gui_slot_t * slot = gui->slots.data[ parent % 864000UL ];
     if( FD_LIKELY( slot->slot==ULONG_MAX ) ) break;
     if( FD_UNLIKELY( slot->slot!=parent ) ) continue;
 
