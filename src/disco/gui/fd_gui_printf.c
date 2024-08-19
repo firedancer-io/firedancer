@@ -247,6 +247,21 @@ fd_gui_printf_uptime_nanos( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_printf_balance( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "balance" );
+    jsonp_ulong( gui, "value", gui->summary.balance );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_estimated_slot_duration_nanos( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "estimated_slot_duration_nanos" );
+    jsonp_ulong( gui, "value", gui->summary.estimated_slot_duration_nanos );
+  jsonp_close_envelope( gui );
+}
+
+
+void
 fd_gui_printf_root_slot( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "root_slot" );
     jsonp_ulong( gui, "value", gui->summary.slot_rooted );

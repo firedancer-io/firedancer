@@ -129,6 +129,14 @@ The length of time in nanoseconds that the validator has been running.
 Running time is approximately measured since application startup, and
 includes time to download a snapshot and catch up to the cluster.
 
+### `summary.balance`
+| frequency  | type     | example    |
+|------------|----------|------------|
+| Once + 60s | `number` | `21125572` |
+
+Account balance of this validators identity key in lamports. The balance
+is on the highest slot of the currently active fork of the validator.
+
 #### `summary.root_slot`
 | frequency   | type     | example     |
 |-------------|----------|-------------|
@@ -173,6 +181,16 @@ progresses forward even if the current leaders are skipping (not
 producing) their slot. For example, if the last completed slot was
 `1001` and it has been 800 milliseconds since that slot, the estimated
 slot is likely to be `1003`.
+
+#### `summary.estimated_slot_duration_nanos`
+| frequency   | type     | example     |
+|-------------|----------|-------------|
+| Once + Live | `number` | `450267129` |
+
+The estimated duration of each slot on the network. This is a moving
+average from the prior 750 slots, or around five minutes. Live here
+means the estimate is republished whenever it changes, which is when
+a new slot is confirmed on the currently active fork.
 
 #### `summary.estimated_tps`
 | frequency   | type     | example     |

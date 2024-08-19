@@ -4,6 +4,8 @@ void fd_gui_printf_version( fd_gui_t * gui );
 void fd_gui_printf_cluster( fd_gui_t * gui );
 void fd_gui_printf_identity_key( fd_gui_t * gui );
 void fd_gui_printf_uptime_nanos( fd_gui_t * gui );
+void fd_gui_printf_balance( fd_gui_t * gui );
+void fd_gui_printf_estimated_slot_duration_nanos( fd_gui_t * gui );
 void fd_gui_printf_root_slot( fd_gui_t * gui );
 void fd_gui_printf_optimistically_confirmed_slot( fd_gui_t * gui );
 void fd_gui_printf_completed_slot( fd_gui_t * gui );

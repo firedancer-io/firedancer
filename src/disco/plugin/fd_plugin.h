@@ -12,6 +12,7 @@
 #define FD_PLUGIN_MSG_BECAME_LEADER                 ( 8UL)
 #define FD_PLUGIN_MSG_DONE_PACKING                  ( 9UL)
 #define FD_PLUGIN_MSG_SLOT_RESET                    (10UL)
+#define FD_PLUGIN_MSG_BALANCE                       (11UL)
 
 FD_FN_CONST static inline ulong
 fd_plugin_sig( ulong slot,
