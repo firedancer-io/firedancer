@@ -9,6 +9,7 @@
 #include "../../vm/fd_vm.h"
 #include "fd_vm_test.h"
 #include "../../features/fd_features.h"
+#include "../fd_executor_err.h"
 
 /* This file defines stable APIs for compatibility testing.
 
@@ -169,13 +170,10 @@ sol_compat_execute_wrapper( fd_exec_instr_test_runner_t * runner,
   assert( out_bufsz < fd_scratch_free() );
   fd_scratch_publish( (void *)( (ulong)out0 + out_bufsz ) );
 
-  FD_SCRATCH_SCOPE_BEGIN {
-    ulong out_used = exec_test_run_fn( runner, input, output, out0, out_bufsz );
-    if( FD_UNLIKELY( !out_used ) ) {
-      *output = NULL;
-      break;
-    }
-  } FD_SCRATCH_SCOPE_END;
+  ulong out_used = exec_test_run_fn( runner, input, output, out0, out_bufsz );
+  if( FD_UNLIKELY( !out_used ) ) {
+    *output = NULL;
+  }
 }
 
 /*
@@ -212,6 +210,191 @@ sol_compat_cmp_binary_strict( void const * effects,
   }
   if( !fd_memeq( out, exp, out_sz ) ) {
     FD_LOG_WARNING(( "Binary cmp failed: different values." ));
+    return 0;
+  }
+
+  return 1;
+}
+
+static int
+_diff_txn_acct( fd_exec_test_acct_state_t * expected,
+                fd_exec_test_acct_state_t * actual ) {
+  /* AcctState -> address (This must hold true when calling this function!) */
+  assert( fd_memeq( expected->address, actual->address, sizeof(fd_pubkey_t) ) );
+
+  /* AcctState -> lamports */
+  if( expected->lamports != actual->lamports ) {
+    FD_LOG_WARNING(( "Lamports mismatch: expected=%lu actual=%lu", expected->lamports, actual->lamports ));
+    return 0;
+  }
+
+  /* AcctState -> data */
+  if( expected->data != NULL || actual->data != NULL ) {
+    if( expected->data == NULL ) {
+      FD_LOG_WARNING(( "Expected account data is NULL, actual is non-NULL" ));
+      return 0;
+    }
+
+    if( actual->data == NULL ) {
+      FD_LOG_WARNING(( "Expected account data is NULL, actual is non-NULL" ));
+      return 0;
+    }
+
+    if( expected->data->size != actual->data->size ) {
+      FD_LOG_WARNING(( "Account data size mismatch: expected=%u actual=%u", expected->data->size, actual->data->size ));
+      return 0;
+    }
+
+    if( !fd_memeq( expected->data->bytes, actual->data->bytes, expected->data->size ) ) {
+      FD_LOG_WARNING(( "Account data mismatch" ));
+      return 0;
+    }
+  }
+
+  /* AcctState -> executable */
+  if( expected->executable != actual->executable ) {
+    FD_LOG_WARNING(( "Executable mismatch: expected=%d actual=%d", expected->executable, actual->executable ));
+    return 0;
+  }
+
+  /* AcctState -> rent_epoch 
+     TODO: Add this check back in once rent epoch is more stable */
+  // if( expected->rent_epoch != actual->rent_epoch ) {
+  //   FD_LOG_WARNING(( "Rent epoch mismatch: expected=%lu actual=%lu", expected->rent_epoch, actual->rent_epoch ));
+  //   return 0;
+  // }
+
+  /* AcctState -> owner */
+  if( !fd_memeq( expected->owner, actual->owner, sizeof(fd_pubkey_t) ) ) {
+    char a[ FD_BASE58_ENCODED_32_SZ ];
+    char b[ FD_BASE58_ENCODED_32_SZ ];
+    FD_LOG_WARNING(( "Owner mismatch: expected=%s, actual=%s", fd_acct_addr_cstr( a, expected->owner ), fd_acct_addr_cstr( b, actual->owner ) ));
+    return 0;
+  }
+
+  return 1;
+}
+
+
+static int
+_diff_resulting_states( fd_exec_test_resulting_state_t *  expected,
+                        fd_exec_test_resulting_state_t *  actual ) {
+  // Verify that the number of accounts are the same
+  if( expected->acct_states_count != actual->acct_states_count ) {
+    FD_LOG_WARNING(( "Account states count mismatch: expected=%u actual=%u", expected->acct_states_count, actual->acct_states_count ));
+    return 0;
+  }
+
+  // Verify that the account states are the same
+  for( ulong i = 0; i < expected->acct_states_count; ++i ) {
+    for( ulong j = 0; j < actual->acct_states_count; ++j ) {
+      if( fd_memeq( expected->acct_states[i].address, actual->acct_states[j].address, sizeof(fd_pubkey_t) ) ) {
+        if( !_diff_txn_acct( &expected->acct_states[i], &actual->acct_states[j] ) ) {
+          return 0;
+        }
+      }
+    }
+  }
+
+  // TODO: resulting_state -> rent_debits, resulting_state->transaction_rent
+  return 1;
+}
+
+int
+sol_compat_cmp_txn( fd_exec_test_txn_result_t *  expected,
+                    fd_exec_test_txn_result_t *  actual ) {
+  /* TxnResult -> executed */
+  if( expected->executed != actual->executed ) {
+    FD_LOG_WARNING(( "Executed mismatch: expected=%d actual=%d", expected->executed, actual->executed ));
+    return 0;
+  }
+
+  /* TxnResult -> sanitization_error */
+  if( expected->sanitization_error != actual->sanitization_error ) {
+    FD_LOG_WARNING(( "Sanitization error mismatch: expected=%d actual=%d", expected->sanitization_error, actual->sanitization_error ));
+    return 0;
+  }
+
+  /* TxnResult -> resulting_state */
+  if( !_diff_resulting_states( &expected->resulting_state, &actual->resulting_state ) ) {
+    return 0;
+  }
+  
+  /* TxnResult -> rent */
+  if( expected->rent != actual->rent ) {
+    FD_LOG_WARNING(( "Rent mismatch: expected=%lu actual=%lu", expected->rent, actual->rent ));
+    return 0;
+  }
+
+  /* TxnResult -> is_ok */
+  if( expected->is_ok != actual->is_ok ) {
+    FD_LOG_WARNING(( "Is ok mismatch: expected=%d actual=%d", expected->is_ok, actual->is_ok ));
+    return 0;
+  }
+
+  /* TxnResult -> status */
+  if( expected->status != actual->status ) {
+    FD_LOG_WARNING(( "Status mismatch: expected=%d actual=%d", expected->status, actual->status ));
+    return 0;
+  }
+
+  /* TxnResult -> instruction_error */
+  if( expected->instruction_error != actual->instruction_error ) {
+    FD_LOG_WARNING(( "Instruction error mismatch: expected=%d actual=%d", expected->instruction_error, actual->instruction_error ));
+    return 0;
+  }
+
+  if( expected->instruction_error ) {
+    /* TxnResult -> instruction_error_index */
+    if( expected->instruction_error_index != actual->instruction_error_index ) {
+      FD_LOG_WARNING(( "Instruction error index mismatch: expected=%d actual=%d", expected->instruction_error_index, actual->instruction_error_index ));
+      return 0;
+    }
+
+    /* TxnResult -> custom_error */
+    if( expected->instruction_error == (ulong) -FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR && expected->custom_error != actual->custom_error ) {
+      FD_LOG_WARNING(( "Custom error mismatch: expected=%d actual=%d", expected->custom_error, actual->custom_error ));
+      return 0;
+    }
+  }
+
+  /* TxnResult -> return_data */
+  if( expected->return_data != NULL || actual->return_data != NULL ) {
+    if( expected->return_data == NULL ) {
+      FD_LOG_WARNING(( "Expected return data is NULL, actual is non-NULL" ));
+      return 0;
+    }
+
+    if( actual->return_data == NULL ) {
+      FD_LOG_WARNING(( "Expected return data is NULL, actual is non-NULL" ));
+      return 0;
+    }
+
+    if( expected->return_data->size != actual->return_data->size ) {
+      FD_LOG_WARNING(( "Return data size mismatch: expected=%u actual=%u", expected->return_data->size, actual->return_data->size ));
+      return 0;
+    }
+
+    if( !fd_memeq( expected->return_data->bytes, actual->return_data->bytes, expected->return_data->size ) ) {
+      FD_LOG_WARNING(( "Return data mismatch" ));
+      return 0;
+    }
+  }
+
+  /* TxnResult -> executed_units */
+  if( expected->executed_units != actual->executed_units ) {
+    FD_LOG_WARNING(( "Executed units mismatch: expected=%lu actual=%lu", expected->executed_units, actual->executed_units ));
+    return 0;
+  }
+
+  /* TxnResult -> fee_details */
+  if( expected->fee_details.transaction_fee != actual->fee_details.transaction_fee ) {
+    FD_LOG_WARNING(( "Transaction fee mismatch: expected=%lu actual=%lu", expected->fee_details.transaction_fee, actual->fee_details.transaction_fee ));
+    return 0;
+  }
+
+  if( expected->fee_details.prioritization_fee != actual->fee_details.prioritization_fee ) {
+    FD_LOG_WARNING(( "Priority fee mismatch: expected=%lu actual=%lu", expected->fee_details.prioritization_fee, actual->fee_details.prioritization_fee ));
     return 0;
   }
 
@@ -277,24 +460,27 @@ int
 sol_compat_txn_fixture( fd_exec_instr_test_runner_t * runner,
                         uchar const *                 in,
                         ulong                         in_sz ) {
-  // Decode fixture
-  fd_exec_test_txn_fixture_t fixture[1] = {0};
-  void * res = sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_txn_fixture_t_msg );
-  if ( res==NULL ) {
-    FD_LOG_WARNING(( "Invalid txn fixture." ));
-    return 0;
-  }
+  FD_SCRATCH_SCOPE_BEGIN {
+    // Decode fixture
+    fd_exec_test_txn_fixture_t fixture[1] = {0};
+    void * res = sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_txn_fixture_t_msg );
+    if ( res==NULL ) {
+      FD_LOG_WARNING(( "Invalid txn fixture." ));
+      return 0;
+    }
 
-  // Execute
-  void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_txn_test_run );
+    // Execute
+    void * output = NULL;
+    sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_txn_test_run );
 
-  // Compare effects
-  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_txn_result_t_msg );
+    // Compare effects
+    fd_exec_test_txn_result_t * effects = (fd_exec_test_txn_result_t *) output;
+    int ok = sol_compat_cmp_txn( effects, &fixture->output );
 
-  // Cleanup
-  pb_release( &fd_exec_test_txn_fixture_t_msg, fixture );
-  return ok;
+    // Cleanup
+    pb_release( &fd_exec_test_txn_fixture_t_msg, fixture );
+    return ok;
+  } FD_SCRATCH_SCOPE_END;
 }
 
 int
