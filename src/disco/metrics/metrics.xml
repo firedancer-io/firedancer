@@ -305,6 +305,7 @@ metric introduced.
   <histogram name="CusNet" min="1000000" max="48000000">
     <summary>The net number of cost units (scheduled - rebated) in each block pack produced.</summary>
   </histogram>
+  <counter name="CostModelUndercount" summary="Count of transactions that used more CUs than the cost model should have permitted them to" />
 
   <counter name="DeleteMissed" summary="Count of attempts to delete a transaction that wasn't found" />
   <counter name="DeleteHit" summary="Count of attempts to delete a transaction that was found and deleted" />
