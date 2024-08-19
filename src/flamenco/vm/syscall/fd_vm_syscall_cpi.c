@@ -17,9 +17,9 @@
 
 /* Captures the state of the VM (including the instruction context).
    Meant to be invoked at the start of the VM_SYSCALL_CPI_ENTRYPOINT like so:
-   
+
   ```
-   dump_vm_cpi_state(vm, STRINGIFY(FD_EXPAND_THEN_CONCAT2(sol_invoke_signed_, VM_SYSCALL_CPI_ABI)), 
+   dump_vm_cpi_state(vm, STRINGIFY(FD_EXPAND_THEN_CONCAT2(sol_invoke_signed_, VM_SYSCALL_CPI_ABI)),
                      instruction_va, acct_infos_va, acct_info_cnt, signers_seeds_va, signers_seeds_cnt);
   ```
 
@@ -44,9 +44,9 @@ dump_vm_cpi_state(fd_vm_t *vm,
   }
 
   fd_exec_test_syscall_context_t sys_ctx = FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO;
-  sys_ctx.has_instr_ctx = true;
-  sys_ctx.has_vm_ctx = true;
-  sys_ctx.has_syscall_invocation = true;
+  sys_ctx.has_instr_ctx = 1;
+  sys_ctx.has_vm_ctx = 1;
+  sys_ctx.has_syscall_invocation = 1;
 
   // Copy function name
   sys_ctx.syscall_invocation.function_name.size = fd_uint_min( (uint) strlen(fn_name), sizeof(sys_ctx.syscall_invocation.function_name.bytes) );
@@ -75,7 +75,7 @@ dump_vm_cpi_state(fd_vm_t *vm,
     sys_ctx.syscall_invocation.stack_prefix = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(stack_sz) );
     sys_ctx.syscall_invocation.stack_prefix->size = stack_sz;
     fd_memcpy( sys_ctx.syscall_invocation.stack_prefix->bytes, vm->stack, stack_sz );
-    
+
     sys_ctx.syscall_invocation.heap_prefix = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(vm->heap_max) );
     sys_ctx.syscall_invocation.heap_prefix->size = (pb_size_t) vm->instr_ctx->txn_ctx->heap_size;
     fd_memcpy( sys_ctx.syscall_invocation.heap_prefix->bytes, vm->heap, vm->instr_ctx->txn_ctx->heap_size );
@@ -89,8 +89,8 @@ dump_vm_cpi_state(fd_vm_t *vm,
       sys_ctx.vm_ctx.input_data_regions[i].offset = vm->input_mem_regions[i].vaddr_offset;
       sys_ctx.vm_ctx.input_data_regions[i].is_writable = vm->input_mem_regions[i].is_writable;
     }
-  
-    fd_create_instr_context_protobuf_from_instructions( &sys_ctx.instr_ctx, 
+
+    fd_create_instr_context_protobuf_from_instructions( &sys_ctx.instr_ctx,
                                                         vm->instr_ctx->txn_ctx,
                                                         vm->instr_ctx->instr );
 
@@ -103,11 +103,11 @@ dump_vm_cpi_state(fd_vm_t *vm,
       return;
     }
 
-    uchar *pb_alloc = mmap( NULL, 
-                            pb_alloc_size, 
-                            PROT_READ | PROT_WRITE, 
-                            MAP_SHARED, 
-                            fileno(f), 
+    uchar *pb_alloc = mmap( NULL,
+                            pb_alloc_size,
+                            PROT_READ | PROT_WRITE,
+                            MAP_SHARED,
+                            fileno(f),
                             0 /* offset */);
     if( pb_alloc == MAP_FAILED ) {
       FD_LOG_WARNING(( "Failed to mmap file %d", errno ));
