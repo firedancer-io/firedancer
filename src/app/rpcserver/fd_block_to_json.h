@@ -20,7 +20,7 @@ const char* fd_txn_to_json( fd_webserver_t * ws,
                             int rewards );
 
 const char* fd_block_to_json( fd_webserver_t * ws,
-                              long call_id,
+                              const char * call_id,
                               const uchar * blk_data,
                               ulong blk_sz,
                               fd_block_map_t * meta,

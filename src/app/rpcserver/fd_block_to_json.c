@@ -336,15 +336,15 @@ const char *
 }
 
 const char*
-  fd_block_to_json( fd_webserver_t * ws,
-                    long call_id,
-                    const uchar * blk_data,
-                    ulong blk_sz,
-                    fd_block_map_t * meta,
-                    fd_rpc_encoding_t encoding,
-                    long maxvers,
-                    enum fd_block_detail detail,
-                    int rewards) {
+fd_block_to_json( fd_webserver_t * ws,
+                  const char * call_id,
+                  const uchar * blk_data,
+                  ulong blk_sz,
+                  fd_block_map_t * meta,
+                  fd_rpc_encoding_t encoding,
+                  long maxvers,
+                  enum fd_block_detail detail,
+                  int rewards) {
   EMIT_SIMPLE("{\"jsonrpc\":\"2.0\",\"result\":{");
 
   char hash[50];
@@ -353,7 +353,7 @@ const char*
                        meta->height, meta->ts/(long)1e9, meta->parent_slot, hash);
 
   if( detail == FD_BLOCK_DETAIL_NONE ) {
-    fd_web_reply_sprintf(ws, "},\"id\":%lu}", call_id);
+    fd_web_reply_sprintf(ws, "},\"id\":%s}", call_id);
     return 0;
   }
 
@@ -407,7 +407,7 @@ const char*
     if ( blockoff != blk_sz )
       FD_LOG_ERR(("garbage at end of block"));
 
-    fd_web_reply_sprintf(ws, "]},\"id\":%lu}", call_id);
+    fd_web_reply_sprintf(ws, "]},\"id\":%s}", call_id);
     return NULL;
   }
 
@@ -458,7 +458,7 @@ const char*
   if ( blockoff != blk_sz )
     FD_LOG_ERR(("garbage at end of block"));
 
-  fd_web_reply_sprintf(ws, "]},\"id\":%lu}", call_id);
+  fd_web_reply_sprintf(ws, "]},\"id\":%s}", call_id);
 
   return NULL;
 }
