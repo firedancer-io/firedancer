@@ -125,11 +125,15 @@ request( fd_http_server_request_t const * request ) {
     return response;
   } else if( request->method==FD_HTTP_SERVER_METHOD_OPTIONS ) {
     fd_http_server_response_t response = {
-      .status            = 204UL,
-      .upgrade_websocket = 0,
-      .content_type      = "",
-      .body              = NULL,
-      .body_len          = 0UL,
+        .status                       = 204UL,
+        .upgrade_websocket            = 0,
+        .content_type                 = NULL,
+        .body                         = NULL,
+        .body_len                     = 0UL,
+        .access_control_allow_origin  = "*",
+        .access_control_allow_methods = "POST, GET, OPTIONS",
+        .access_control_allow_headers = "Solana-Client, Content-Type",
+        .access_control_max_age       = 86400,
     };
     return response;
   } else {
@@ -142,7 +146,7 @@ request( fd_http_server_request_t const * request ) {
     if( strcmp(request->path, "/") != 0 ) {
       fd_web_error( ws, "POST path must be \"/\"" );
 
-    } else if( strcasecmp(request->headers.content_type, "application/json") != 0 ) {
+    } else if( strncasecmp(request->headers.content_type, "application/json", 16) != 0 ) {
       fd_web_error( ws, "content type must be \"application/json\"" );
 
     } else {
@@ -169,11 +173,12 @@ request( fd_http_server_request_t const * request ) {
     fflush(stdout);
 #endif
     fd_http_server_response_t response = {
-      .status            = ws->status_code,
-      .upgrade_websocket = 0,
-      .content_type      = (ws->status_code == 200 ? "application/json" : "text/html"),
-      .body              = (const uchar*)body,
-      .body_len          = body_len,
+        .status            = ws->status_code,
+        .upgrade_websocket = 0,
+        .content_type      = ( ws->status_code == 200 ? "application/json" : "text/html" ),
+        .body              = (const uchar *)body,
+        .body_len          = body_len,
+        .access_control_allow_origin = "*",
     };
     return response;
   }

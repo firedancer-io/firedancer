@@ -5,6 +5,8 @@
 #include "../../ballet/http/fd_http_server.h"
 #include "../../ballet/http/fd_hcache.h"
 
+// #define FD_RPC_VERBOSE 1
+
 struct fd_webserver {
   fd_http_server_t * server;
   fd_hcache_t *      hcache;

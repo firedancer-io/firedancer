@@ -106,6 +106,13 @@ struct fd_http_server_response {
 
   uchar const * body;        /* Response body to send, only sent if status is 200 */
   ulong         body_len;    /* Length of the response body */
+
+  /* CORS response headers */
+
+  char const * access_control_allow_origin;
+  char const * access_control_allow_methods;
+  char const * access_control_allow_headers;
+  ulong        access_control_max_age;
 };
 
 typedef struct fd_http_server_response fd_http_server_response_t;

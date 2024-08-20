@@ -1094,7 +1094,6 @@ fd_blockstore_block_map_query_volatile( fd_blockstore_t * blockstore, ulong slot
   for(;;) {
     uint seqnum;
     if( FD_UNLIKELY( fd_readwrite_start_concur_read( &blockstore->lock, &seqnum ) ) ) continue;
-
     fd_block_map_t const * query = fd_block_map_query_safe( slot_map, &slot, NULL );
     if( FD_UNLIKELY( !query ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
     memcpy( block_map_entry_out, query, sizeof( fd_block_map_t ) );

@@ -652,12 +652,40 @@ write_conn_http( fd_http_server_t * http,
             ulong encoded_len = fd_base64_encode( sec_websocket_accept_base64, sec_websocket_accept, 20 );
             FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %.*s\r\n\r\n", (int)encoded_len, sec_websocket_accept_base64 ) );
           } else {
-            FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: %s\r\nAccess-Control-Allow-Origin: *\r\n\r\n", conn->response.body_len, conn->response.content_type ) );
+            FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: %s\r\n", conn->response.body_len, conn->response.content_type ) );
+            #define HEADER "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: %s\r\n"
+            if( FD_UNLIKELY( conn->response.access_control_allow_origin ) ) {
+
+              /* app servers implementing fd_http_server must opt-in to
+                CORS in the request callback (and should implement the
+                response to a client's OPTIONS pre-flight request) */
+              FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, HEADER "Access-Control-Allow-Origin: %s\r\n\r\n", conn->response.body_len, conn->response.content_type, conn->response.access_control_allow_origin ) );
+            } else {
+              FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, HEADER "\r\n", conn->response.body_len, conn->response.content_type ) );
+            }
           }
           break;
         case 204:
-          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Solana-Client, Content-Type\r\nAccess-Control-Max-Age: 86400\r\n\r\n" ) );
-          /* currently just for responses to OPTIONS requests*/
+          if( FD_UNLIKELY( !conn->response.access_control_allow_origin ) ) {
+            FD_LOG_ERR(( "Access-Control-Allow-Origin header must be specified by the server implementation" ));
+          }
+          if( FD_UNLIKELY( !conn->response.access_control_allow_methods ) ) {
+            FD_LOG_ERR(( "Access-Control-Allow-Methods header must be specified by the server implementation" ));
+          }
+
+          FD_TEST( fd_cstr_printf_check( header_buf,
+                                         sizeof( header_buf ),
+                                         &response_len,
+                                         "HTTP/1.1 204 No Content\r\n"
+                                         "Access-Control-Allow-Origin: %s\r\n"
+                                         "Access-Control-Allow-Methods: %s\r\n"
+                                         "Access-Control-Allow-Headers: %s\r\n"
+                                         "Access-Control-Max-Age: %lu\r\n"
+                                         "\r\n",
+                                         conn->response.access_control_allow_origin,
+                                         conn->response.access_control_allow_methods,
+                                         conn->response.access_control_allow_headers ? conn->response.access_control_allow_headers : "",
+                                         conn->response.access_control_max_age ? conn->response.access_control_max_age : 86400 ) );
           break;
         case 400:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 400 Bad Request\r\nContent-Length: %lu\r\nContent-Type: %s\r\n\r\n", conn->response.body_len, conn->response.content_type ) );
