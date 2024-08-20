@@ -52,7 +52,8 @@ fd_gui_new( void *        shmem,
   fd_memset( gui->summary.txn_info_this, 0, sizeof(gui->summary.txn_info_this[ 0 ]) );
   fd_memset( gui->summary.txn_info_json, 0, sizeof(gui->summary.txn_info_json[ 0 ]) );
   fd_memset( gui->summary.txn_info_slot, 0, sizeof(gui->summary.txn_info_slot) );
-  gui->summary.became_leader_high_slot = 0;
+  gui->summary.slot_start_high_watermark = 0;
+  gui->summary.slot_end_high_watermark   = 0;
 
   gui->next_sample_100millis = fd_log_wallclock();
   gui->next_sample_10millis  = fd_log_wallclock();
@@ -670,6 +671,7 @@ fd_gui_set_txn_info_for_slot( fd_gui_t *                gui,
     }
   }
   if( FD_LIKELY( dst_txn_info ) ) {
+    FD_LOG_NOTICE(( "setting slot %lu", slot ));
     fd_memcpy( dst_txn_info, txn_info, sizeof(*dst_txn_info) );
     *dst_slot = slot;
   }
@@ -955,15 +957,15 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       fd_hcache_snap_ws_broadcast( gui->hcache );
       break;
     }
-    case FD_PLUGIN_MSG_BECAME_LEADER: {
+    case FD_PLUGIN_MSG_SLOT_START: {
       // static long last_became = 0;
       // long current_became = fd_log_wallclock();
       // FD_LOG_NOTICE(( "%lu nanos since we last became leader txn_info_json->acquired_txns %lu", current_became - last_became, gui->summary.txn_info_json->acquired_txns ));
       // last_became = current_became;
-      if( FD_UNLIKELY( slot<gui->summary.became_leader_high_slot ) ) {
-        FD_LOG_ERR(( "unexpected leader slot regression %lu->%lu", gui->summary.became_leader_high_slot, slot ));
+      if( FD_UNLIKELY( slot<gui->summary.slot_start_high_watermark ) ) {
+        FD_LOG_ERR(( "unexpected leader slot regression %lu->%lu", gui->summary.slot_start_high_watermark, slot ));
       }
-      if( FD_UNLIKELY( gui->summary.became_leader_high_slot == 0 ) ) {
+      if( FD_UNLIKELY( gui->summary.slot_start_high_watermark == 0 ) ) {
         /* First time we became leader this instance started.
            Take a snapshot of counters. */
         fd_gui_sample_counters( gui );
@@ -972,23 +974,26 @@ fd_gui_plugin_message( fd_gui_t *    gui,
         fd_memset( txn_info, 0, sizeof(*txn_info) );
         txn_info->acquired_txns_leftover = gui->summary.txn_info_prev->buffered_txns;
       }
-      gui->summary.became_leader_high_slot = slot;
+      gui->summary.slot_start_high_watermark = slot;
       break;
     }
-    case FD_PLUGIN_MSG_DONE_PACKING: {
-      if( FD_UNLIKELY( slot<gui->summary.became_leader_high_slot ) ) {
-        FD_LOG_NOTICE(( "DONE_PACKING slot regression %lu->%lu might have been a fork switch", gui->summary.became_leader_high_slot, slot ));
-      } else if( FD_UNLIKELY( slot>gui->summary.became_leader_high_slot ) ) {
-        FD_LOG_ERR(( "DONE_PACKING came for slot %lu largest known leader slot %lu", slot, gui->summary.became_leader_high_slot ));
+    case FD_PLUGIN_MSG_SLOT_END: {
+      if( FD_UNLIKELY( slot<gui->summary.slot_start_high_watermark ) ) {
+        FD_LOG_NOTICE(( "DONE_PACKING slot regression %lu->%lu might have been a fork switch", gui->summary.slot_start_high_watermark, slot ));
+      } else if( FD_UNLIKELY( slot>gui->summary.slot_start_high_watermark ) ) {
+        FD_LOG_ERR(( "DONE_PACKING came for slot %lu largest known leader slot %lu", slot, gui->summary.slot_start_high_watermark ));
       } else {
-        fd_gui_sample_counters( gui );
-        /* Store counters for the slot we just finished. */
-        fd_gui_set_txn_info_for_slot( gui, slot, gui->summary.txn_info_json );
-        /* Initialize things for the upcoming slot. */
-        fd_gui_txn_info_t * txn_info = gui->summary.txn_info_this;
-        fd_memcpy( gui->summary.txn_info_prev, txn_info, sizeof(gui->summary.txn_info_prev[ 0 ]) );
-        fd_memset( txn_info, 0, sizeof(*txn_info) );
-        txn_info->acquired_txns_leftover = gui->summary.txn_info_prev->buffered_txns;
+        if( slot>gui->summary.slot_end_high_watermark ) {
+          gui->summary.slot_end_high_watermark = slot;
+          fd_gui_sample_counters( gui );
+          /* Store counters for the slot we just finished. */
+          fd_gui_set_txn_info_for_slot( gui, slot, gui->summary.txn_info_json );
+          /* Initialize things for the upcoming slot. */
+          fd_gui_txn_info_t * txn_info = gui->summary.txn_info_this;
+          fd_memcpy( gui->summary.txn_info_prev, txn_info, sizeof(gui->summary.txn_info_prev[ 0 ]) );
+          fd_memset( txn_info, 0, sizeof(*txn_info) );
+          txn_info->acquired_txns_leftover = gui->summary.txn_info_prev->buffered_txns;
+        }
       }
       break;
     }
