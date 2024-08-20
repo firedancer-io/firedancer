@@ -1159,7 +1159,6 @@ fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
         fd_repair_orphan_t const * wi = &protocol.inner.orphan;
         ulong slot = wi->slot;
         for(unsigned i = 0; i < 10; ++i) {
-          slot = (*glob->serv_get_parent_fun)( slot, glob->fun_arg );
           if( slot == FD_SLOT_NULL ) break;
           long sz = (*glob->serv_get_shred_fun)( slot, UINT_MAX, buf, FD_SHRED_MAX_SZ, glob->fun_arg );
           if( sz < 0 ) continue;

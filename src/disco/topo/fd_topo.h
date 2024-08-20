@@ -264,6 +264,7 @@ typedef struct {
       ushort  tvu_fwd_port;
       ushort  tpu_port;
       ushort  tpu_vote_port;
+      ushort  repair_serve_port;
       ulong   expected_shred_version;
     } gossip;
 

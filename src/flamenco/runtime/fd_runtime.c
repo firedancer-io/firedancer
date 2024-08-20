@@ -993,8 +993,21 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     fd_txn_reclaim_accounts( task_info->txn_ctx );
   }
   
-  slot_ctx->slot_bank.collected_execution_fees += task_info->txn_ctx->execution_fee;
-  slot_ctx->slot_bank.collected_priority_fees  += task_info->txn_ctx->priority_fee;
+  ulong curr = slot_ctx->slot_bank.collected_execution_fees;
+  FD_COMPILER_MFENCE();
+  while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->slot_bank.collected_execution_fees, curr, curr + task_info->txn_ctx->execution_fee ) != curr ) ) {
+    FD_SPIN_PAUSE();
+    curr = slot_ctx->slot_bank.collected_execution_fees;
+    FD_COMPILER_MFENCE();
+  }
+
+  curr = slot_ctx->slot_bank.collected_priority_fees;
+  FD_COMPILER_MFENCE();
+  while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->slot_bank.collected_priority_fees, curr, curr + task_info->txn_ctx->priority_fee ) != curr ) ) {
+    FD_SPIN_PAUSE();
+    curr = slot_ctx->slot_bank.collected_priority_fees;
+    FD_COMPILER_MFENCE();
+  }
 
   fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info );
 
@@ -1279,6 +1292,8 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
       fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
 
       if( dirty_vote_acc && 0==memcmp( acc_rec->const_meta->info.owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
+        /* lock for inserting/modifying vote accounts in slot ctx. */
+        fd_funk_start_write( slot_ctx->acc_mgr->funk );
         fd_vote_store_account( slot_ctx, acc_rec );
         FD_SCRATCH_SCOPE_BEGIN {
           fd_vote_state_versioned_t vsv[1];
@@ -1308,11 +1323,14 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
           fd_vote_record_timestamp_vote_with_slot( slot_ctx, acc_rec->pubkey, ts->timestamp, ts->slot );
         }
         FD_SCRATCH_SCOPE_END;
+        fd_funk_end_write( slot_ctx->acc_mgr->funk );
       }
 
       if( dirty_stake_acc && 0==memcmp( acc_rec->const_meta->info.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
         // TODO: does this correctly handle stake account close?
+        fd_funk_start_write( slot_ctx->acc_mgr->funk );
         fd_store_stake_delegation( slot_ctx, acc_rec );
+        fd_funk_end_write( slot_ctx->acc_mgr->funk );
       }
 
       if( txn_ctx->unknown_accounts[i] ) {
@@ -1325,6 +1343,14 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
       fd_funk_end_write( slot_ctx->acc_mgr->funk );
     }
   }
+  ulong curr = slot_ctx->signature_cnt;
+  FD_COMPILER_MFENCE();
+  while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->signature_cnt, curr, curr + 1 ) != curr ) ) {
+    FD_SPIN_PAUSE();
+    curr = slot_ctx->signature_cnt;
+    FD_COMPILER_MFENCE();
+  }
+
   return 0;
 }
 
@@ -1542,7 +1568,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
     for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
       /* Transaction was skipped due to preparation failure. */
-      if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
+      if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
         continue;
       }
 
@@ -1700,7 +1726,14 @@ fd_runtime_execute_pack_txns( fd_exec_slot_ctx_t * slot_ctx,
     for( ulong i=0UL; i<txn_cnt; i++ ) {
       fd_runtime_prepare_execute_finalize_txn( slot_ctx, capture_ctx, &txns[i], &task_infos[i] );
     }
-    slot_ctx->slot_bank.transaction_count += txn_cnt;
+
+    ulong curr_cnt = slot_ctx->slot_bank.transaction_count;
+    FD_COMPILER_MFENCE();
+    while( FD_UNLIKELY( FD_ATOMIC_CAS( &slot_ctx->slot_bank.transaction_count, curr_cnt, curr_cnt + txn_cnt ) != curr_cnt ) ) {
+      FD_SPIN_PAUSE();
+      curr_cnt = slot_ctx->slot_bank.transaction_count;
+      FD_COMPILER_MFENCE();
+    }
 
     return 0;
   } FD_SCRATCH_SCOPE_END;
