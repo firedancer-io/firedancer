@@ -123,7 +123,15 @@ request( fd_http_server_request_t const * request ) {
       .body_len          = body_len,
     };
     return response;
-
+  } else if( request->method==FD_HTTP_SERVER_METHOD_OPTIONS ) {
+    fd_http_server_response_t response = {
+      .status            = 204UL,
+      .upgrade_websocket = 0,
+      .content_type      = "",
+      .body              = NULL,
+      .body_len          = 0UL,
+    };
+    return response;
   } else {
     ws->upload_data = request->post.body;
     ws->upload_data_size = request->post.body_len;
