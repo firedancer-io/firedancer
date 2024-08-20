@@ -159,7 +159,8 @@ struct fd_gui {
     fd_gui_txn_info_t txn_info_json[ 1 ]; /* Delta/Computed */
     fd_gui_txn_info_t txn_info_hist[ FD_GUI_NUM_EPOCHS ][ MAX_SLOTS_CNT ]; /* Historical data */
     ulong             txn_info_slot[ FD_GUI_NUM_EPOCHS ][ MAX_SLOTS_CNT ]; /* Which slot is the historical data for? */
-    ulong             became_leader_high_slot;
+    ulong             slot_start_high_watermark;
+    ulong             slot_end_high_watermark;
 
     ulong net_tile_count;
     ulong quic_tile_count;
