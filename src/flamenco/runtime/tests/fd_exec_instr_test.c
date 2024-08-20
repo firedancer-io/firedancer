@@ -650,17 +650,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
 
   /* Default slot */
-  ulong slot = test_ctx->slot_ctx.slot;
-  if( !slot ) slot = 10; // Arbitrary default > 0
-
-  /* Clock SHOULD be provided in account state since Agave's default clock uses the current
-     unix timestamp, which may be used by some programs we fuzz with and cause false mismatches */
-  if( !slot_ctx->sysvar_cache->has_clock ) {
-    //TODO: we should define exactly what's the default clock for instr and txn consistently
-    slot_ctx->sysvar_cache->has_clock = 1;
-    slot_ctx->sysvar_cache->val_clock->slot = slot;
-    slot_ctx->sysvar_cache->val_clock->unix_timestamp = 0UL;
-  }
+  ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
 
   /* Set slot bank variables (defaults obtained from GenesisConfig::default() in Agave) */
   slot_ctx->slot_bank.slot                                            = slot;
@@ -698,6 +688,12 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     epoch_bank->rent = *slot_ctx->sysvar_cache->val_rent;
   }
 
+  /* Provide a default clock if not present */
+  if( !slot_ctx->sysvar_cache->has_clock ) {
+    fd_sysvar_clock_init( slot_ctx );
+  }
+
+  /* Epoch schedule and rent get set from the epoch bank */
   fd_sysvar_epoch_schedule_init( slot_ctx );
   fd_sysvar_rent_init( slot_ctx );
 
