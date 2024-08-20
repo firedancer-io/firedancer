@@ -1098,7 +1098,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     fd_solana_vote_program_id,
     fd_solana_stake_program_id,
     fd_solana_config_program_id,
-    fd_solana_zk_token_proof_program_id,
+    // fd_solana_zk_token_proof_program_id,
     fd_solana_bpf_loader_v4_program_id,
     fd_solana_address_lookup_table_program_id,
     fd_solana_bpf_loader_deprecated_program_id,
@@ -1107,7 +1107,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     fd_solana_compute_budget_program_id,
     fd_solana_keccak_secp_256k_program_id,
     fd_solana_ed25519_sig_verify_program_id,
-    // fd_solana_zk_el_gamal_program_id,
+    fd_solana_zk_elgamal_proof_program_id,
     fd_solana_ed25519_sig_verify_program_id,
     fd_solana_spl_native_mint_id,
   };
