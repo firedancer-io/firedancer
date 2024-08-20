@@ -1454,13 +1454,18 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
     assert(txn_result->executed);
 
-    // At this point, the transaction has executed and if there is an error, its an instruction error
+    /* At this point, the transaction has executed */
     if (exec_res) {
-      txn_result->status = (uint32_t) -FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
-      txn_result->instruction_error = (uint32_t) -exec_res;
-      txn_result->instruction_error_index = (uint32_t) txn_ctx->instr_err_idx;
-      if (exec_res == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR) {
-        txn_result->custom_error = txn_ctx->custom_err;
+      /* Instruction error index must be set for the txn error to be an instruction error */
+      if( txn_ctx->instr_err_idx != INT32_MAX ) {
+        txn_result->status = (uint32_t) -FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
+        txn_result->instruction_error = (uint32_t) -exec_res;
+        txn_result->instruction_error_index = (uint32_t) txn_ctx->instr_err_idx;
+        if (exec_res == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR) {
+          txn_result->custom_error = txn_ctx->custom_err;
+        }
+      } else {
+        txn_result->status = (uint32_t) -exec_res;
       }
     }
 
