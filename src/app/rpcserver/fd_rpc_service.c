@@ -23,7 +23,7 @@
 struct fd_ws_subscription {
   ulong conn_id;
   long meth_id;
-  long call_id;
+  char call_id[64];
   ulong subsc_id;
   union {
     struct {
@@ -55,7 +55,7 @@ struct fd_rpc_global_ctx {
 typedef struct fd_rpc_global_ctx fd_rpc_global_ctx_t;
 
 struct fd_rpc_ctx {
-  long call_id;
+  char call_id[64];
   fd_rpc_global_ctx_t * global;
 };
 
@@ -240,11 +240,14 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     }
 
     fd_pubkey_t acct;
-    fd_base58_decode_32((const char *)arg, acct.uc);
+    if( fd_base58_decode_32((const char *)arg, acct.uc) == NULL ) {
+      fd_web_error(ws, "invalid base58 encoding");
+      return 0;
+    }
     ulong val_sz;
     void * val = read_account(ctx, &acct, fd_scratch_virtual(), &val_sz);
     if (val == NULL) {
-      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%lu}" CRLF,
+      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%s}" CRLF,
                            ctx->global->last_slot_notify.slot_exec.slot, ctx->call_id);
       return 0;
     }
@@ -299,7 +302,7 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
       fd_web_error(ws, "%s", err);
       return 0;
     }
-    fd_web_reply_sprintf(ws, "},\"id\":%lu}" CRLF, ctx->call_id);
+    fd_web_reply_sprintf(ws, "},\"id\":%s}" CRLF, ctx->call_id);
 
   } FD_METHOD_SCRATCH_END;
 
@@ -326,16 +329,19 @@ method_getBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
     fd_pubkey_t acct;
-    fd_base58_decode_32((const char *)arg, acct.uc);
+    if( fd_base58_decode_32((const char *)arg, acct.uc) == NULL ) {
+      fd_web_error(ws, "invalid base58 encoding");
+      return 0;
+    }
     ulong val_sz;
     void * val = read_account(ctx, &acct, fd_scratch_virtual(), &val_sz);
     if (val == NULL) {
-      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":0},\"id\":%lu}" CRLF,
+      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":0},\"id\":%s}" CRLF,
                          ctx->global->last_slot_notify.slot_exec.slot, ctx->call_id);
       return 0;
     }
     fd_account_meta_t * metadata = (fd_account_meta_t *)val;
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%lu}" CRLF,
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%s}" CRLF,
                          ctx->global->last_slot_notify.slot_exec.slot, metadata->info.lamports, ctx->call_id);
   } FD_METHOD_SCRATCH_END;
   return 0;
@@ -468,7 +474,7 @@ method_getBlockHeight(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_rpc_global_ctx_t * glob = ctx->global;
   fd_readwrite_start_read( &glob->lock );
   fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
                        glob->last_slot_notify.slot_exec.height, ctx->call_id);
   fd_readwrite_end_read( &glob->lock );
   return 0;
@@ -527,7 +533,7 @@ method_getBlocks(struct json_values* values, fd_rpc_ctx_t * ctx) {
       ++cnt;
     }
   }
-  fd_web_reply_sprintf(ws, "],\"id\":%lu}" CRLF, ctx->call_id);
+  fd_web_reply_sprintf(ws, "],\"id\":%s}" CRLF, ctx->call_id);
 
   return 0;
 }
@@ -583,7 +589,7 @@ method_getBlocksWithLimit(struct json_values* values, fd_rpc_ctx_t * ctx) {
       ++skips;
     }
   }
-  fd_web_reply_sprintf(ws, "],\"id\":%lu}" CRLF, ctx->call_id);
+  fd_web_reply_sprintf(ws, "],\"id\":%s}" CRLF, ctx->call_id);
 
   return 0;
 }
@@ -615,7 +621,7 @@ method_getBlockTime(struct json_values* values, fd_rpc_ctx_t * ctx) {
     return 0;
   }
 
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%ld,\"id\":%lu}" CRLF,
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%ld,\"id\":%s}" CRLF,
                        meta->ts/(long)1e9,
                        ctx->call_id);
   return 0;
@@ -656,7 +662,7 @@ method_getEpochInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     ulong slots_per_epoch = fd_epoch_slot_cnt( &epoch_bank->epoch_schedule, epoch );
     fd_block_map_t meta[1];
     int ret = fd_blockstore_block_map_query_volatile(blockstore, smr, meta);
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%lu}" CRLF,
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%s}" CRLF,
                          smr,
                          (!ret ? meta->height : 0UL),
                          epoch,
@@ -679,7 +685,7 @@ method_getEpochSchedule(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_webserver_t * ws = &ctx->global->ws;
     ulong smr;
     fd_epoch_bank_t * epoch_bank = read_epoch_bank(ctx, fd_scratch_virtual(), &smr);
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"firstNormalEpoch\":%lu,\"firstNormalSlot\":%lu,\"leaderScheduleSlotOffset\":%lu,\"slotsPerEpoch\":%lu,\"warmup\":%s},\"id\":%lu}" CRLF,
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"firstNormalEpoch\":%lu,\"firstNormalSlot\":%lu,\"leaderScheduleSlotOffset\":%lu,\"slotsPerEpoch\":%lu,\"warmup\":%s},\"id\":%s}" CRLF,
                          epoch_bank->epoch_schedule.first_normal_epoch,
                          epoch_bank->epoch_schedule.first_normal_slot,
                          epoch_bank->epoch_schedule.leader_schedule_slot_offset,
@@ -720,7 +726,7 @@ method_getFeeForMessage(struct json_values* values, fd_rpc_ctx_t * ctx) {
   // TODO: implement this
   (void)data;
   (void)data_sz;
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":5000},\"id\":%lu}" CRLF,
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":5000},\"id\":%s}" CRLF,
                        ctx->global->last_slot_notify.slot_exec.slot, ctx->call_id);
   return 0;
 }
@@ -733,7 +739,7 @@ method_getFirstAvailableBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
   fd_blockstore_t * blockstore = ctx->global->blockstore;
   fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
                        blockstore->min, ctx->call_id);
   return 0;
 }
@@ -750,7 +756,7 @@ method_getGenesisHash(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_webserver_t * ws = &ctx->global->ws;
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":\"");
     fd_web_reply_encode_base58(ws, epoch_bank->genesis_hash.uc, sizeof(fd_pubkey_t));
-    fd_web_reply_sprintf(ws, "\",\"id\":%lu}" CRLF, ctx->call_id);
+    fd_web_reply_sprintf(ws, "\",\"id\":%s}" CRLF, ctx->call_id);
     fd_readwrite_end_read( &ctx->global->lock );
   } FD_METHOD_SCRATCH_END;
   return 0;
@@ -761,7 +767,7 @@ static int
 method_getHealth(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":\"ok\",\"id\":%lu}" CRLF, ctx->call_id);
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":\"ok\",\"id\":%s}" CRLF, ctx->call_id);
   return 0;
 }
 
@@ -786,7 +792,7 @@ method_getIdentity(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_webserver_t * ws = &ctx->global->ws;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"identity\":\"");
   fd_web_reply_encode_base58(ws, &glob->last_slot_notify.slot_exec.identity, sizeof(fd_pubkey_t));
-  fd_web_reply_sprintf(ws, "\"},\"id\":%lu}" CRLF, ctx->call_id);
+  fd_web_reply_sprintf(ws, "\"},\"id\":%s}" CRLF, ctx->call_id);
   fd_readwrite_end_read( &glob->lock );
   return 0;
 }
@@ -814,7 +820,7 @@ method_getInflationRate(struct json_values* values, fd_rpc_ctx_t * ctx) {
      fd_webserver_t * ws = &ctx->global->ws;
      fd_inflation_rates_t rates;
      calculate_inflation_rates( get_slot_ctx(ctx), &rates );
-     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"epoch\":%lu,\"foundation\":%.18f,\"total\":%.18f,\"validator\":%.18f},\"id\":%lu}" CRLF,
+     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"epoch\":%lu,\"foundation\":%.18f,\"total\":%.18f,\"validator\":%.18f},\"id\":%s}" CRLF,
      rates.epoch,
      rates.foundation,
      rates.total,
@@ -857,7 +863,7 @@ method_getLatestBlockhash(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":{\"blockhash\":\"",
                        glob->last_slot_notify.slot_exec.slot);
   fd_web_reply_encode_base58(ws, &glob->last_slot_notify.slot_exec.block_hash, sizeof(fd_hash_t));
-  fd_web_reply_sprintf(ws, "\",\"lastValidBlockHeight\":%lu}},\"id\":%lu}" CRLF,
+  fd_web_reply_sprintf(ws, "\",\"lastValidBlockHeight\":%lu}},\"id\":%s}" CRLF,
                        glob->last_slot_notify.slot_exec.height, ctx->call_id);
   fd_readwrite_end_read( &glob->lock );
   return 0;
@@ -892,7 +898,7 @@ method_getMaxShredInsertSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
   fd_blockstore_t * blockstore = ctx->global->blockstore;
   fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
                        blockstore->max, ctx->call_id);
   return 0;
 }
@@ -916,7 +922,7 @@ method_getMinimumBalanceForRentExemption(struct json_values* values, fd_rpc_ctx_
     ulong min_balance = fd_rent_exempt_minimum_balance2(&epoch_bank->rent, sizen);
 
     fd_webserver_t * ws = &ctx->global->ws;
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
                          min_balance, ctx->call_id);
     fd_readwrite_end_read( &ctx->global->lock );
   } FD_METHOD_SCRATCH_END;
@@ -973,7 +979,10 @@ method_getMultipleAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
         fd_web_reply_append(ws, ",", 1);
 
       fd_pubkey_t acct;
-      fd_base58_decode_32((const char *)arg, acct.uc);
+      if( fd_base58_decode_32((const char *)arg, acct.uc) == NULL ) {
+        fd_web_error(ws, "invalid base58 encoding");
+        return 0;
+      }
       fd_scratch_push();
       ulong val_sz;
       void * val = read_account(ctx, &acct, fd_scratch_virtual(), &val_sz);
@@ -991,7 +1000,7 @@ method_getMultipleAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
       fd_scratch_pop();
     }
 
-    fd_web_reply_sprintf(ws, "]},\"id\":%lu}" CRLF, ctx->call_id);
+    fd_web_reply_sprintf(ws, "]},\"id\":%s}" CRLF, ctx->call_id);
   } FD_METHOD_SCRATCH_END;
   return 0;
 }
@@ -1080,7 +1089,7 @@ method_getSignatureStatuses(struct json_values* values, fd_rpc_ctx_t * ctx) {
                          elem.slot, block_flags_to_confirmation_status(flags));
   }
 
-  fd_web_reply_sprintf(ws, "]},\"id\":%lu}" CRLF, ctx->call_id);
+  fd_web_reply_sprintf(ws, "]},\"id\":%s}" CRLF, ctx->call_id);
   return 0;
 }
 
@@ -1093,7 +1102,7 @@ method_getSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_rpc_global_ctx_t * glob = ctx->global;
   fd_readwrite_start_read( &glob->lock );
   fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
                        glob->last_slot_notify.slot_exec.slot, ctx->call_id);
   fd_readwrite_end_read( &glob->lock );
   return 0;
@@ -1113,7 +1122,7 @@ method_getSlotLeader(struct json_values* values, fd_rpc_ctx_t * ctx) {
      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":\"");
      fd_pubkey_t const * leader = fd_epoch_leaders_get(fd_exec_epoch_ctx_leaders( ctx->replay->epoch_ctx ), get_slot_ctx(ctx)->slot_bank.slot);
      fd_textstream_encode_base58(ts, leader->uc, sizeof(fd_pubkey_t));
-     fd_web_reply_sprintf(ws, "\",\"id\":%lu}" CRLF, ctx->call_id);
+     fd_web_reply_sprintf(ws, "\",\"id\":%s}" CRLF, ctx->call_id);
      fd_web_replier_done(replier);
   */
   return 0;
@@ -1279,7 +1288,7 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
   uchar key[FD_ED25519_SIG_SZ];
   if ( fd_base58_decode_64( sig, key) == NULL ) {
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%lu}" CRLF, ctx->call_id);
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%s}" CRLF, ctx->call_id);
     return 0;
   }
   fd_blockstore_txn_map_t elem;
@@ -1289,7 +1298,7 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_blockstore_t * blockstore = ctx->global->blockstore;
   if( fd_blockstore_txn_query_volatile( blockstore, key, &elem, &blk_ts, &blk_flags, txn_data_raw ) ||
       ( blk_flags & need_blk_flags ) == (uchar)0 ) {
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%lu}" CRLF, ctx->call_id);
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%s}" CRLF, ctx->call_id);
     return 0;
   }
 
@@ -1306,7 +1315,7 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_web_error(ws, "%s", err);
     return 0;
   }
-  fd_web_reply_sprintf(ws, "},\"id\":%lu}" CRLF, ctx->call_id);
+  fd_web_reply_sprintf(ws, "},\"id\":%s}" CRLF, ctx->call_id);
 
   return 0;
 }
@@ -1329,7 +1338,7 @@ method_getVersion(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
   fd_webserver_t * ws = &ctx->global->ws;
   /* TODO Where does feature-set come from? */
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"feature-set\":666,\"solana-core\":\"" FIREDANCER_VERSION "\"},\"id\":%lu}" CRLF,
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"feature-set\":666,\"solana-core\":\"" FIREDANCER_VERSION "\"},\"id\":%s}" CRLF,
                        ctx->call_id);
   return 0;
 }
@@ -1389,7 +1398,10 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
           break;
 
         fd_vote_accounts_pair_t_mapnode_t key  = { 0 };
-        fd_base58_decode_32((const char *)arg, key.elem.key.uc);
+        if( fd_base58_decode_32((const char *)arg, key.elem.key.uc) == NULL ) {
+          fd_web_error(ws, "invalid base58 encoding");
+          return 0;
+        }
         fd_vote_accounts_pair_t_mapnode_t * vote_node = fd_vote_accounts_pair_t_map_find( pool, root, &key );
         if( vote_node == NULL ) continue;
 
@@ -1399,7 +1411,7 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
       }
     }
 
-    fd_web_reply_sprintf(ws, "],\"delinquent\":[]},\"id\":%lu}" CRLF, ctx->call_id);
+    fd_web_reply_sprintf(ws, "],\"delinquent\":[]},\"id\":%s}" CRLF, ctx->call_id);
     fd_readwrite_end_read( &ctx->global->lock );
   } FD_METHOD_SCRATCH_END;
   return 0;
@@ -1425,7 +1437,10 @@ method_isBlockhashValid(struct json_values* values, fd_rpc_ctx_t * ctx) {
   }
 
   fd_hash_t h;
-  fd_base58_decode_32((const char *)arg, h.uc);
+  if( fd_base58_decode_32((const char *)arg, h.uc) == NULL ) {
+    fd_web_error(ws, "invalid base58 encoding");
+    return 0;
+  }
 
   int res = 0;
   for( ulong i = 0; i < MAX_RECENT_BLOCKHASHES; ++i ) {
@@ -1434,7 +1449,7 @@ method_isBlockhashValid(struct json_values* values, fd_rpc_ctx_t * ctx) {
       break;
     }
   }
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":%s},\"id\":%lu}" CRLF,
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":%s},\"id\":%s}" CRLF,
                        ctx->global->last_slot_notify.slot_exec.slot, (res ? "true" : "false"), ctx->call_id);
 
   return 0;
@@ -1535,7 +1550,7 @@ method_sendTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)(data + txn->signature_off);
   char buf64[FD_BASE58_ENCODED_64_SZ];
   fd_base58_encode_64((const uchar*)sigs, NULL, buf64);
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":%lu}" CRLF, buf64, ctx->call_id);
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":%s}" CRLF, buf64, ctx->call_id);
 
   return 0;
 }
@@ -1577,11 +1592,22 @@ fd_webserver_method_generic(struct json_values* values, void * cb_arg) {
   };
   arg_sz = 0;
   arg = json_get_value(values, PATH3, 2, &arg_sz);
-  if (arg == NULL) {
-    fd_web_error(ws, "missing id member");
-    return;
+  if (arg != NULL) {
+    snprintf(ctx.call_id, sizeof(ctx.call_id)-1, "%lu", *(long*)arg);
+  } else {
+    static const uint PATH4[2] = {
+      (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_ID,
+      (JSON_TOKEN_STRING<<16)
+    };
+    arg_sz = 0;
+    arg = json_get_value(values, PATH4, 2, &arg_sz);
+    if (arg != NULL) {
+      snprintf(ctx.call_id, sizeof(ctx.call_id)-1, "\"%s\"", (const char *)arg);
+    } else {
+      fd_web_error(ws, "missing id member");
+      return;
+    }
   }
-  ctx.call_id = *(long*)arg;
 
   static const uint PATH2[2] = {
     (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_METHOD,
@@ -1843,7 +1869,10 @@ ws_method_accountSubscribe(ulong conn_id, struct json_values * values, fd_rpc_ct
       return 0;
     }
     fd_pubkey_t acct;
-    fd_base58_decode_32((const char *)arg, acct.uc);
+    if( fd_base58_decode_32((const char *)arg, acct.uc) == NULL ) {
+      fd_web_error(ws, "invalid base58 encoding");
+      return 0;
+    }
 
     static const uint PATH2[4] = {
       (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
@@ -1902,7 +1931,7 @@ ws_method_accountSubscribe(ulong conn_id, struct json_values * values, fd_rpc_ct
     struct fd_ws_subscription * sub = &subs->sub_list[ subs->sub_cnt++ ];
     sub->conn_id = conn_id;
     sub->meth_id = KEYW_WS_METHOD_ACCOUNTSUBSCRIBE;
-    sub->call_id = ctx->call_id;
+    strncpy(sub->call_id, ctx->call_id, sizeof(sub->call_id));
     ulong subid = sub->subsc_id = ++(subs->last_subsc_id);
     sub->acct_subscribe.acct = acct;
     sub->acct_subscribe.enc = enc;
@@ -1910,7 +1939,7 @@ ws_method_accountSubscribe(ulong conn_id, struct json_values * values, fd_rpc_ct
     sub->acct_subscribe.len = (len_ptr ? *(long*)len_ptr : FD_LONG_UNSET);
     fd_readwrite_end_write( &subs->lock );
 
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
                          subid, sub->call_id);
 
   } FD_METHOD_SCRATCH_END;
@@ -1961,11 +1990,11 @@ ws_method_slotSubscribe(ulong conn_id, struct json_values * values, fd_rpc_ctx_t
   struct fd_ws_subscription * sub = &subs->sub_list[ subs->sub_cnt++ ];
   sub->conn_id = conn_id;
   sub->meth_id = KEYW_WS_METHOD_SLOTSUBSCRIBE;
-  sub->call_id = ctx->call_id;
+  strncpy(sub->call_id, ctx->call_id, sizeof(sub->call_id));
   ulong subid = sub->subsc_id = ++(subs->last_subsc_id);
   fd_readwrite_end_write( &subs->lock );
 
-  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
                        subid, sub->call_id);
 
   return 1;
@@ -2009,11 +2038,22 @@ fd_webserver_ws_subscribe(struct json_values* values, ulong conn_id, void * cb_a
   };
   arg_sz = 0;
   arg = json_get_value(values, PATH3, 2, &arg_sz);
-  if (arg == NULL) {
-    fd_web_ws_error( ws, conn_id, "missing id member" );
-    return 0;
+  if (arg != NULL) {
+    snprintf(ctx.call_id, sizeof(ctx.call_id)-1, "%lu", *(long*)arg);
+  } else {
+    static const uint PATH4[2] = {
+      (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_ID,
+      (JSON_TOKEN_STRING<<16)
+    };
+    arg_sz = 0;
+    arg = json_get_value(values, PATH4, 2, &arg_sz);
+    if (arg != NULL) {
+      snprintf(ctx.call_id, sizeof(ctx.call_id)-1, "\"%s\"", (const char *)arg);
+    } else {
+      fd_web_ws_error( ws, conn_id, "missing id member" );
+      return 0;
+    }
   }
-  ctx.call_id = *(long*)arg;
 
   static const uint PATH2[2] = {
     (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_METHOD,
