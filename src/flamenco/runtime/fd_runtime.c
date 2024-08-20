@@ -3691,21 +3691,18 @@ void fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_SCRATCH_SCOPE_BEGIN
   {
     fd_epoch_bank_t * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
-    fd_vote_accounts_t const * vaccs = &epoch_bank->stakes.vote_accounts;
-    ulong bufsz = fd_vote_accounts_size(vaccs);
-    uchar *buf = fd_scratch_alloc(1UL, bufsz);
-    fd_bincode_encode_ctx_t encode_ctx = {
-        .data = buf,
-        .dataend = (void *)((ulong)buf + bufsz)};
-    FD_TEST(fd_vote_accounts_encode(vaccs, &encode_ctx) == FD_BINCODE_SUCCESS);
 
     /* Copy epoch_ctx->epoch_bank->stakes.vote_accounts into epoch_bank->next_epoch_stakes */
-    fd_vote_accounts_pair_t_map_release_tree( epoch_bank->next_epoch_stakes.vote_accounts_pool, epoch_bank->next_epoch_stakes.vote_accounts_root );
+    fd_vote_accounts_pair_t_map_release_tree( 
+      epoch_bank->next_epoch_stakes.vote_accounts_pool,
+      epoch_bank->next_epoch_stakes.vote_accounts_root );
 
     epoch_bank->next_epoch_stakes.vote_accounts_pool = fd_exec_epoch_ctx_next_epoch_stakes_join( slot_ctx->epoch_ctx );
     epoch_bank->next_epoch_stakes.vote_accounts_root = NULL;
 
-    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum( epoch_bank->stakes.vote_accounts.vote_accounts_pool, epoch_bank->stakes.vote_accounts.vote_accounts_root ); 
+    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum( 
+      epoch_bank->stakes.vote_accounts.vote_accounts_pool,
+      epoch_bank->stakes.vote_accounts.vote_accounts_root ); 
           n;
           n = fd_vote_accounts_pair_t_map_successor( epoch_bank->stakes.vote_accounts.vote_accounts_pool, n ) ) {
       fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire( epoch_bank->next_epoch_stakes.vote_accounts_pool );
@@ -3714,15 +3711,26 @@ void fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
     }
 
     /* Copy epoch_ctx->epoch_bank->stakes.vote_accounts into slot_ctx->slot_bank.epoch_stakes */
-    fd_bincode_decode_ctx_t second_decode_ctx = {
-        .data = buf,
-        .dataend = (void const *)((ulong)buf + bufsz),
-        .valloc = slot_ctx->valloc,
-    };
+    fd_vote_accounts_pair_t_map_release_tree( 
+      slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool,
+      slot_ctx->slot_bank.epoch_stakes.vote_accounts_root );
 
-    fd_bincode_destroy_ctx_t destroy = {.valloc = slot_ctx->valloc};
-    fd_vote_accounts_destroy(&slot_ctx->slot_bank.epoch_stakes, &destroy);
-    FD_TEST(fd_vote_accounts_decode(&slot_ctx->slot_bank.epoch_stakes, &second_decode_ctx) == FD_BINCODE_SUCCESS);
+    slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = NULL;
+
+    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum( 
+      epoch_bank->stakes.vote_accounts.vote_accounts_pool,
+      epoch_bank->stakes.vote_accounts.vote_accounts_root ); 
+          n;
+          n = fd_vote_accounts_pair_t_map_successor( epoch_bank->stakes.vote_accounts.vote_accounts_pool, n ) ) {
+
+      fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire( 
+        slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool );
+      fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+      fd_vote_accounts_pair_t_map_insert( 
+        slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool,
+        &slot_ctx->slot_bank.epoch_stakes.vote_accounts_root,
+        elem );
+    }
   }
   FD_SCRATCH_SCOPE_END;
 }
