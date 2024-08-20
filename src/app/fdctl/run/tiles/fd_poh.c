@@ -1,4 +1,5 @@
 #include "tiles.h"
+#include "../../../../disco/plugin/fd_plugin.h"
 
 /* Let's say there was a computer, the "leader" computer, that acted as
    a bank.  Users could send it messages saying they wanted to deposit
@@ -382,6 +383,8 @@ typedef struct {
   ulong slot;
   ulong hashcnt;
 
+  ulong slot_start_sent;
+
   /* When we send a microblock on to the shred tile, we need to tell
      it how many hashes there have been since the last microblock, so
      this tracks the hashcnt of the last published microblock.
@@ -529,6 +532,105 @@ static fd_poh_ctx_t * fd_poh_global_ctx;
 static volatile ulong fd_poh_waiting_lock __attribute__((aligned(128UL)));
 static volatile ulong fd_poh_returned_lock __attribute__((aligned(128UL)));
 
+/* Agave also needs to write to some mcaches, so we trampoline
+   that via. the PoH tile as well. */
+
+struct poh_link {
+  fd_frag_meta_t * mcache;
+  ulong            depth;
+  ulong            tx_seq;
+
+  void *           mem;
+  void *           dcache;
+  ulong            chunk0;
+  ulong            wmark;
+  ulong            chunk;
+
+  ulong            cr_avail;
+  ulong            rx_cnt;
+  ulong *          rx_fseqs[ 32UL ];
+};
+
+typedef struct poh_link poh_link_t;
+
+poh_link_t gossip_dedup;
+poh_link_t stake_out;
+poh_link_t crds_shred;
+
+poh_link_t replay_plugin;
+poh_link_t gossip_plugin;
+poh_link_t slot_plugin;
+
+static void
+poh_link_wait_credit( poh_link_t * link ) {
+  if( FD_LIKELY( link->cr_avail ) ) return;
+
+  while( 1 ) {
+    ulong cr_query = ULONG_MAX;
+    for( ulong i=0UL; i<link->rx_cnt; i++ ) {
+      ulong const * _rx_seq = link->rx_fseqs[ i ];
+      ulong rx_seq = FD_VOLATILE_CONST( *_rx_seq );
+      ulong rx_cr_query = (ulong)fd_long_max( (long)link->depth - fd_long_max( fd_seq_diff( link->tx_seq, rx_seq ), 0L ), 0L );
+      cr_query = fd_ulong_min( rx_cr_query, cr_query );
+    }
+    if( FD_LIKELY( cr_query>0UL ) ) {
+      link->cr_avail = cr_query;
+      break;
+    }
+    FD_SPIN_PAUSE();
+  }
+}
+
+static void
+poh_link_publish( poh_link_t *  link,
+                  ulong         sig,
+                  uchar const * data,
+                  ulong         data_len ) {
+  while( FD_UNLIKELY( !FD_VOLATILE_CONST( link->mcache ) ) ) FD_SPIN_PAUSE();
+  poh_link_wait_credit( link );
+
+  uchar * dst = (uchar *)fd_chunk_to_laddr( link->mem, link->chunk );
+  fd_memcpy( dst, data, data_len );
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_mcache_publish( link->mcache, link->depth, link->tx_seq, sig, link->chunk, data_len, 0UL, 0UL, tspub );
+  link->chunk = fd_dcache_compact_next( link->chunk, data_len, link->chunk0, link->wmark );
+  link->cr_avail--;
+  link->tx_seq++;
+}
+
+static void
+poh_link_init( poh_link_t *     link,
+               fd_topo_t *      topo,
+               fd_topo_tile_t * tile,
+               ulong            out_idx ) {
+  fd_topo_link_t * topo_link = &topo->links[ tile->out_link_id[ out_idx ] ];
+  fd_topo_wksp_t * wksp = &topo->workspaces[ topo->objs[ topo_link->dcache_obj_id ].wksp_id ];
+
+  link->mem      = wksp->wksp;
+  link->depth    = fd_mcache_depth( topo_link->mcache );
+  link->tx_seq   = 0UL;
+  link->dcache   = topo_link->dcache;
+  link->chunk0   = fd_dcache_compact_chunk0( wksp->wksp, topo_link->dcache );
+  link->wmark    = fd_dcache_compact_wmark ( wksp->wksp, topo_link->dcache, topo_link->mtu );
+  link->chunk    = link->chunk0;
+  link->cr_avail = 0UL;
+  link->rx_cnt   = 0UL;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * _tile = &topo->tiles[ i ];
+    for( ulong j=0UL; j<_tile->in_cnt; j++ ) {
+      if( _tile->in_link_id[ j ]==topo_link->id && _tile->in_link_reliable[ j ] ) {
+        FD_TEST( link->rx_cnt<32UL );
+        link->rx_fseqs[ link->rx_cnt++ ] = _tile->in_link_fseq[ j ];
+        break;
+      }
+    }
+  }
+  FD_COMPILER_MFENCE();
+  link->mcache = topo_link->mcache;
+  FD_COMPILER_MFENCE();
+  FD_TEST( link->mcache );
+}
+
 /* To help show correctness, functions that might be called from
    Rust, either directly or indirectly, have this fake "attribute"
    CALLED_FROM_RUST, which is actually nothing.  Calls from Rust
@@ -612,6 +714,7 @@ fd_ext_poh_initialize( ulong         tick_duration_ns,    /* See clock comments 
 
   ctx->slot                = tick_height/ticks_per_slot;
   ctx->hashcnt             = 0UL;
+  ctx->slot_start_sent     = 0UL;
   ctx->last_slot           = ctx->slot;
   ctx->last_hashcnt        = 0UL;
   ctx->reset_slot          = ctx->slot;
@@ -882,6 +985,8 @@ next_leader_slot( fd_poh_ctx_t * ctx ) {
 static CALLED_FROM_RUST void
 no_longer_leader( fd_poh_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->current_leader_bank ) ) fd_ext_bank_release( ctx->current_leader_bank );
+
+  poh_link_publish( &slot_plugin, fd_plugin_sig( ctx->next_leader_slot, FD_PLUGIN_MSG_SLOT_END ), NULL, 0 );
   /* If we stop being leader in a slot, we can never become leader in
       that slot again, and all in-flight microblocks for that slot
       should be dropped. */
@@ -960,6 +1065,8 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
 
        The order is important here, ctx->hashcnt must be updated before
        calling no_longer_leader. */
+    /* Leader slot abandoned. */
+    FD_LOG_NOTICE(( "calling no_longer_leader(next_leader_slot=%lu)", ctx->next_leader_slot ));
     no_longer_leader( ctx );
   }
   ctx->next_leader_slot = next_leader_slot( ctx );
@@ -1063,6 +1170,10 @@ after_credit( void *             _ctx,
   fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_ctx;
 
   int is_leader = ctx->next_leader_slot!=ULONG_MAX && ctx->slot>=ctx->next_leader_slot;
+  if( FD_UNLIKELY( is_leader && ctx->slot_start_sent<ctx->slot ) ) {
+    poh_link_publish( &slot_plugin, fd_plugin_sig( ctx->slot, FD_PLUGIN_MSG_SLOT_START ), NULL, 0 );
+    ctx->slot_start_sent = ctx->slot;
+  }
   if( FD_UNLIKELY( is_leader && !ctx->current_leader_bank ) ) {
     /* If we are the leader, but we didn't yet learn what the leader
        bank object is from the replay stage, do not do any hashing.
@@ -1300,6 +1411,8 @@ after_credit( void *             _ctx,
     /* We ticked while leader and are no longer leader... transition
        the state machine. */
     FD_TEST( !max_remaining_microblocks );
+    /* Leader slot ended normally. */
+    FD_LOG_NOTICE(( "calling no_longer_leader(next_leader_slot=%lu)", ctx->next_leader_slot ));
     no_longer_leader( ctx );
     ctx->expect_sequential_leader_slot = ctx->slot;
 
@@ -1571,8 +1684,9 @@ after_frag( void *             _ctx,
     if( FD_UNLIKELY( ctx->slot>ctx->next_leader_slot ) ) {
       /* We ticked while leader and are no longer leader... transition
          the state machine. */
+      /* Leader slot ended normally dev mode. */
+      FD_LOG_NOTICE(( "calling no_longer_leader(next_leader_slot=%lu)", ctx->next_leader_slot ));
       no_longer_leader( ctx );
-      // publish_no_longer_leader( txn_count, success_txn_count );
     }
   }
 
@@ -1606,104 +1720,6 @@ void
 fd_ext_shred_set_shred_version( ulong shred_version ) {
   while( FD_UNLIKELY( !fd_shred_version ) ) FD_SPIN_PAUSE();
   *fd_shred_version = shred_version;
-}
-
-/* Agave also needs to write to some mcaches, so we trampoline
-   that via. the PoH tile as well. */
-
-struct poh_link {
-  fd_frag_meta_t * mcache;
-  ulong            depth;
-  ulong            tx_seq;
-
-  void *           mem;
-  void *           dcache;
-  ulong            chunk0;
-  ulong            wmark;
-  ulong            chunk;
-
-  ulong            cr_avail;
-  ulong            rx_cnt;
-  ulong *          rx_fseqs[ 32UL ];
-};
-
-typedef struct poh_link poh_link_t;
-
-poh_link_t gossip_dedup;
-poh_link_t stake_out;
-poh_link_t crds_shred;
-
-poh_link_t replay_plugin;
-poh_link_t gossip_plugin;
-
-static void
-poh_link_wait_credit( poh_link_t * link ) {
-  if( FD_LIKELY( link->cr_avail ) ) return;
-
-  while( 1 ) {
-    ulong cr_query = ULONG_MAX;
-    for( ulong i=0UL; i<link->rx_cnt; i++ ) {
-      ulong const * _rx_seq = link->rx_fseqs[ i ];    
-      ulong rx_seq = FD_VOLATILE_CONST( *_rx_seq );
-      ulong rx_cr_query = (ulong)fd_long_max( (long)link->depth - fd_long_max( fd_seq_diff( link->tx_seq, rx_seq ), 0L ), 0L );
-      cr_query = fd_ulong_min( rx_cr_query, cr_query );
-    }
-    if( FD_LIKELY( cr_query>0UL ) ) {
-      link->cr_avail = cr_query;
-      break;
-    }
-    FD_SPIN_PAUSE();
-  }
-}
-
-static void
-poh_link_publish( poh_link_t *  link,
-                  ulong         sig,
-                  uchar const * data,
-                  ulong         data_len ) {
-  while( FD_UNLIKELY( !FD_VOLATILE_CONST( link->mcache ) ) ) FD_SPIN_PAUSE();
-  poh_link_wait_credit( link );
-
-  uchar * dst = (uchar *)fd_chunk_to_laddr( link->mem, link->chunk );
-  fd_memcpy( dst, data, data_len );
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_mcache_publish( link->mcache, link->depth, link->tx_seq, sig, link->chunk, data_len, 0UL, 0UL, tspub );
-  link->chunk = fd_dcache_compact_next( link->chunk, data_len, link->chunk0, link->wmark );
-  link->cr_avail--;
-  link->tx_seq++;
-}
-
-static void
-poh_link_init( poh_link_t *     link,
-               fd_topo_t *      topo,
-               fd_topo_tile_t * tile,
-               ulong            out_idx ) {
-  fd_topo_link_t * topo_link = &topo->links[ tile->out_link_id[ out_idx ] ];
-  fd_topo_wksp_t * wksp = &topo->workspaces[ topo->objs[ topo_link->dcache_obj_id ].wksp_id ];
-
-  link->mem      = wksp->wksp;
-  link->depth    = fd_mcache_depth( topo_link->mcache );
-  link->tx_seq   = 0UL;
-  link->dcache   = topo_link->dcache;
-  link->chunk0   = fd_dcache_compact_chunk0( wksp->wksp, topo_link->dcache );
-  link->wmark    = fd_dcache_compact_wmark ( wksp->wksp, topo_link->dcache, topo_link->mtu );
-  link->chunk    = link->chunk0;
-  link->cr_avail = 0UL;
-  link->rx_cnt   = 0UL;
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * _tile = &topo->tiles[ i ];
-    for( ulong j=0UL; j<_tile->in_cnt; j++ ) {
-      if( _tile->in_link_id[ j ]==topo_link->id && _tile->in_link_reliable[ j ] ) {
-        FD_TEST( link->rx_cnt<32UL );
-        link->rx_fseqs[ link->rx_cnt++ ] = _tile->in_link_fseq[ j ];
-        break;
-      }
-    }
-  }
-  FD_COMPILER_MFENCE();
-  link->mcache = topo_link->mcache;
-  FD_COMPILER_MFENCE();
-  FD_TEST( link->mcache );
 }
 
 void
@@ -1786,11 +1802,12 @@ unprivileged_init( fd_topo_t *      topo,
   fd_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, poh_shred_obj_id ) );
   FD_TEST( fd_shred_version );
 
-  poh_link_init( &gossip_dedup, topo, tile, 1UL );
-  poh_link_init( &stake_out,    topo, tile, 2UL );
-  poh_link_init( &crds_shred,   topo, tile, 3UL );
+  poh_link_init( &gossip_dedup,  topo, tile, 1UL );
+  poh_link_init( &stake_out,     topo, tile, 2UL );
+  poh_link_init( &crds_shred,    topo, tile, 3UL );
   poh_link_init( &replay_plugin, topo, tile, 4UL );
   poh_link_init( &gossip_plugin, topo, tile, 5UL );
+  poh_link_init( &slot_plugin,   topo, tile, 6UL );
 
   FD_LOG_NOTICE(( "PoH waiting to be initialized by Agave client... %lu %lu", fd_poh_waiting_lock, fd_poh_returned_lock ));
   FD_VOLATILE( fd_poh_global_ctx ) = ctx;
@@ -1826,7 +1843,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->bank_in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->bank_in[i].mem, link->dcache, link->mtu );
   }
 
-  FD_TEST( tile->out_cnt==6UL );
+  FD_TEST( tile->out_cnt==7UL );
 
   ctx->stake_in.mem    = topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ ctx->stake_in_idx ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->stake_in.chunk0 = fd_dcache_compact_chunk0( ctx->stake_in.mem, topo->links[ tile->in_link_id[ ctx->stake_in_idx ] ].dcache );
