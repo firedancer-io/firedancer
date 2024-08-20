@@ -853,6 +853,31 @@ fd_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
   txn_ctx->funk_txn          = parent_txn;
   fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
 
+  int err;
+
+  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/transaction/sanitized.rs#L263-L275 
+     TODO: Agave's precompile verification is done at the slot level, before batching and executing transactions. This logic should probably
+     be moved in the future. The Agave call heirarchy looks something like this:
+            process_single_slot
+                   v
+            confirm_full_slot
+                   v
+            confirm_slot_entries --------->
+                   v                      v
+            verify_transaction      process_entries
+                   v                      v
+            verify_precompiles      process_batches
+                                          v
+                                         ...
+                                          v
+                              load_and_execute_transactions                                
+  */
+  err = fd_executor_verify_precompiles( txn_ctx );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    task_info->txn->flags = 0U;
+    task_info->exec_res   = err;
+    return;
+  }
 
   /* Duplicate Account Check */
   for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
@@ -865,16 +890,6 @@ fd_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
         return;
       }
     } 
-  }
-
-  int err;
-
-  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/transaction/sanitized.rs#L263-L275 */
-  err = fd_executor_verify_precompiles( txn_ctx );
-  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    task_info->txn->flags = 0U;
-    task_info->exec_res   = err;
-    return;
   }
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/runtime/src/bank.rs#L3529-L3554 */
