@@ -186,7 +186,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
       fd_vote_accounts_pair_t_mapnode_t * new_node = fd_vote_accounts_pair_t_map_acquire( epoch_bank->stakes.vote_accounts.vote_accounts_pool );
       FD_TEST( new_node );
       fd_memcpy( &new_node->elem, &n->elem, FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT );
-      fd_vote_accounts_pair_t_mapnode_t * inserted = fd_vote_accounts_pair_t_map_insert( 
+      fd_vote_accounts_pair_t_map_insert( 
         epoch_bank->stakes.vote_accounts.vote_accounts_pool,
         &epoch_bank->stakes.vote_accounts.vote_accounts_root,
         new_node
