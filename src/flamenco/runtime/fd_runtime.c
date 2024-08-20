@@ -2705,7 +2705,8 @@ void compute_priority_fee(fd_exec_txn_ctx_t const *txn_ctx, ulong *fee, ulong *p
   }
 }
 
-#define ACCOUNT_DATA_COST_PAGE_SIZE ((double)32 * 1024)
+// https://github.com/anza-xyz/agave/blob/2e6ca8c1f62db62c1db7f19c9962d4db43d0d550/sdk/src/fee.rs#L82
+#define ACCOUNT_DATA_COST_PAGE_SIZE fd_ulong_sat_mul(32, 1024)
 
 void
 fd_runtime_calculate_fee(fd_exec_txn_ctx_t *txn_ctx,
@@ -2719,29 +2720,6 @@ fd_runtime_calculate_fee(fd_exec_txn_ctx_t *txn_ctx,
   ulong priority = 0;
   ulong priority_fee = 0;
   compute_priority_fee(txn_ctx, &priority_fee, &priority);
-  ulong lamports_per_signature = fd_runtime_txn_lamports_per_signature(txn_ctx, txn_descriptor, txn_raw);
-
-  double BASE_CONGESTION = 5000.0;
-  double current_congestion = (BASE_CONGESTION > (double)lamports_per_signature) ? BASE_CONGESTION : (double)lamports_per_signature;
-  double congestion_multiplier = (lamports_per_signature == 0)                                                             ? 0.0
-                                 : FD_FEATURE_ACTIVE(txn_ctx->slot_ctx, remove_congestion_multiplier_from_fee_calculation) ? 1.0
-                                                                                                                           : (BASE_CONGESTION / current_congestion);
-
-  //  bool support_set_compute_unit_price_ix = false;
-  //  bool use_default_units_per_instruction = false;
-  //  bool enable_request_heap_frame_ix = true;
-
-  //        let mut compute_budget = ComputeBudget::default();
-  //        let prioritization_fee_details = compute_budget
-  //            .process_instructions(
-  //                message.program_instructions_iter(),
-  //                use_default_units_per_instruction,
-  //                support_set_compute_unit_price_ix,
-  //                enable_request_heap_frame_ix,
-  //            )
-  //            .unwrap_or_default();
-  //        let prioritization_fee = prioritization_fee_details.get_fee();
-  double prioritization_fee = (double)priority_fee;
 
   // let signature_fee = Self::get_num_signatures_in_message(message) .saturating_mul(fee_structure.lamports_per_signature);
   ulong num_signatures = txn_descriptor->signature_cnt;
@@ -2760,14 +2738,15 @@ fd_runtime_calculate_fee(fd_exec_txn_ctx_t *txn_ctx,
       num_signatures = fd_ulong_sat_add(num_signatures, (ulong)(data[0]));
     }
   }
-  double signature_fee = (double)fd_runtime_lamports_per_signature(&txn_ctx->slot_ctx->slot_bank) * (double)num_signatures;
+
+  ulong signature_fee = fd_runtime_lamports_per_signature(&txn_ctx->slot_ctx->slot_bank) * num_signatures;
 
   // TODO: as far as I can tell, this is always 0
   //
   //            let write_lock_fee = Self::get_num_write_locks_in_message(message)
   //                .saturating_mul(fee_structure.lamports_per_write_lock);
   ulong lamports_per_write_lock = 0;
-  double write_lock_fee = (double)fd_ulong_sat_mul(fd_txn_account_cnt(txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE), lamports_per_write_lock);
+  ulong write_lock_fee = fd_ulong_sat_mul(fd_txn_account_cnt(txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE), lamports_per_write_lock);
 
   // TODO: the fee_structure bin is static and default..
   //        let loaded_accounts_data_size_cost = if include_loaded_account_data_size_in_fee {
@@ -2792,27 +2771,29 @@ fd_runtime_calculate_fee(fd_exec_txn_ctx_t *txn_ctx,
   //                    .unwrap_or_default()
   //            });
 
-  double MEMORY_USAGE_COST = ((((double)txn_ctx->loaded_accounts_data_size_limit + (ACCOUNT_DATA_COST_PAGE_SIZE - 1)) / ACCOUNT_DATA_COST_PAGE_SIZE) * (double)FD_VM_HEAP_COST);
-  double loaded_accounts_data_size_cost = FD_FEATURE_ACTIVE(txn_ctx->slot_ctx, include_loaded_accounts_data_size_in_fee_calculation) ? MEMORY_USAGE_COST : 0.0;
-  double total_compute_units = loaded_accounts_data_size_cost + (double)txn_ctx->compute_unit_limit;
+  // https://github.com/anza-xyz/agave/blob/2e6ca8c1f62db62c1db7f19c9962d4db43d0d550/sdk/src/fee.rs#L116
+  ulong MEMORY_USAGE_COST = (((txn_ctx->loaded_accounts_data_size_limit + (ACCOUNT_DATA_COST_PAGE_SIZE - 1)) / ACCOUNT_DATA_COST_PAGE_SIZE) * FD_VM_HEAP_COST);
+  // https://github.com/anza-xyz/agave/blob/2e6ca8c1f62db62c1db7f19c9962d4db43d0d550/sdk/src/fee.rs#L180
+  ulong loaded_accounts_data_size_cost = FD_FEATURE_ACTIVE(txn_ctx->slot_ctx, include_loaded_accounts_data_size_in_fee_calculation) ? MEMORY_USAGE_COST : 0;
+  ulong total_compute_units = loaded_accounts_data_size_cost + txn_ctx->compute_unit_limit;
   /* unused */
   (void)total_compute_units;
-  double compute_fee = 0;
+  ulong compute_fee = 0;
 
-  double execution_fee = (signature_fee + write_lock_fee + compute_fee) * congestion_multiplier;
-  double adjusted_priority_fee = (prioritization_fee) * congestion_multiplier;
+  // https://github.com/anza-xyz/agave/blob/2e6ca8c1f62db62c1db7f19c9962d4db43d0d550/sdk/src/fee.rs#L203-L206
+  ulong execution_fee = (signature_fee + write_lock_fee + compute_fee);
 
   // FD_LOG_DEBUG(("fd_runtime_calculate_fee_compare: slot=%ld fee(%lf) = (prioritization_fee(%f) + signature_fee(%f) + write_lock_fee(%f) + compute_fee(%f)) * congestion_multiplier(%f)", txn_ctx->slot_ctx->slot_bank.slot, fee, prioritization_fee, signature_fee, write_lock_fee, compute_fee, congestion_multiplier));
 
-  if (execution_fee >= (double)ULONG_MAX)
+  if (execution_fee >= ULONG_MAX)
     *ret_execution_fee = ULONG_MAX;
   else
-    *ret_execution_fee = (ulong)execution_fee;
+    *ret_execution_fee = execution_fee;
 
-  if (adjusted_priority_fee >= (double)ULONG_MAX)
+  if (priority_fee >= ULONG_MAX)
     *ret_priority_fee = ULONG_MAX;
   else
-    *ret_priority_fee = (ulong)adjusted_priority_fee;
+    *ret_priority_fee = priority_fee;
 }
 
 /* sadness */
