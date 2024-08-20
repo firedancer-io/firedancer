@@ -273,8 +273,9 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
   ulong min;  /* minimum slot in the blockstore with a block. we retain
                  blocks prior to the smr to serve repair and RPC */
   ulong max;  /* maximum slot in the blockstore with a block */
-  ulong hcs;  /* highest-confirmed slot */
-  ulong smr;  /* super-majority root. DO NOT MODIFY DIRECTLY, instead use fd_blockstore_publish */
+  ulong lps;  /* latest processed slot */
+  ulong hcs;  /* highest confirmed slot */
+  ulong smr;  /* supermajority root. DO NOT MODIFY DIRECTLY, instead use fd_blockstore_publish */
 
   /* Internal data structures */
 

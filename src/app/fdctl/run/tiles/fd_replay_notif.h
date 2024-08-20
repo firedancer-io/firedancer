@@ -27,6 +27,7 @@ struct __attribute__((aligned(64UL))) fd_replay_notif_msg {
       fd_hash_t bank_hash;
       fd_hash_t block_hash;
       fd_pubkey_t identity;
+      ulong transaction_count;
     } slot_exec;
   };
   uint type;
