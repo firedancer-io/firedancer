@@ -8,6 +8,8 @@
 #include <stddef.h> /* for offsetof */
 #include "../../disco/metrics/fd_metrics.h"
 
+#define FD_PACK_USE_NON_TEMPORAL_MEMCPY 1
+
 /* Declare a bunch of helper structs used for pack-internal data
    structures. */
 
@@ -273,7 +275,11 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_T                 fd_pack_addr_use_t
 #define MAP_KEY_T             fd_acct_addr_t
 #define MAP_KEY_NULL          null_addr
-#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL(k, null_addr)
+#if FD_HAS_AVX
+# define MAP_KEY_INVAL(k)     _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
+#else
+# define MAP_KEY_INVAL(k)     MAP_KEY_EQUAL(k, null_addr)
+#endif
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
@@ -285,7 +291,11 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_T                 fd_pack_bitset_acct_mapping_t
 #define MAP_KEY_T             fd_acct_addr_t
 #define MAP_KEY_NULL          null_addr
-#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL(k, null_addr)
+#if FD_HAS_AVX
+# define MAP_KEY_INVAL(k)     _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
+#else
+# define MAP_KEY_INVAL(k)     MAP_KEY_EQUAL(k, null_addr)
+#endif
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
@@ -425,6 +435,8 @@ struct fd_pack_private {
 };
 
 typedef struct fd_pack_private fd_pack_t;
+
+FD_STATIC_ASSERT( offsetof(fd_pack_t, pending_txn_cnt)==FD_PACK_PENDING_TXN_CNT_OFF, txn_cnt_off );
 
 ulong
 fd_pack_footprint( ulong                    pack_depth,
@@ -619,6 +631,7 @@ fd_pack_estimate_rewards_and_compute( fd_txn_p_t        * txnp,
   out->rewards            = (adtl_rewards < (UINT_MAX - sig_rewards)) ? (uint)(sig_rewards + adtl_rewards) : UINT_MAX;
   out->compute_est        = (uint)cost;
   out->txn->requested_cus = (uint)execution_cus;
+  out->txn->executed_cus  = 0U;
 
   out->root = (txnp->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) ? FD_ORD_TXN_ROOT_PENDING_VOTE : FD_ORD_TXN_ROOT_PENDING;
 
@@ -986,12 +999,53 @@ fd_pack_schedule_impl( fd_pack_t  * pack,
     FD_PACK_BITSET_OR( bitset_rw_in_use, cur->rw_bitset );
     FD_PACK_BITSET_OR( bitset_w_in_use,  cur->w_bitset  );
 
-    fd_memcpy( out->payload, cur->txn->payload, cur->txn->payload_sz                                           );
-    fd_memcpy( TXN(out),     txn,               fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
-    out->payload_sz    = cur->txn->payload_sz;
-    out->requested_cus = cur->txn->requested_cus;
-    out->executed_cus  = 0U;
-    out->flags         = cur->txn->flags;
+    if(
+#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
+        FD_LIKELY( cur->txn->payload_sz>=1024UL )
+#else
+        0
+#endif
+      ) {
+#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
+      _mm512_stream_si512( (void*)(out->payload+   0UL), _mm512_load_epi64( cur->txn->payload+   0UL ) );
+      _mm512_stream_si512( (void*)(out->payload+  64UL), _mm512_load_epi64( cur->txn->payload+  64UL ) );
+      _mm512_stream_si512( (void*)(out->payload+ 128UL), _mm512_load_epi64( cur->txn->payload+ 128UL ) );
+      _mm512_stream_si512( (void*)(out->payload+ 192UL), _mm512_load_epi64( cur->txn->payload+ 192UL ) );
+      _mm512_stream_si512( (void*)(out->payload+ 256UL), _mm512_load_epi64( cur->txn->payload+ 256UL ) );
+      _mm512_stream_si512( (void*)(out->payload+ 320UL), _mm512_load_epi64( cur->txn->payload+ 320UL ) );
+      _mm512_stream_si512( (void*)(out->payload+ 384UL), _mm512_load_epi64( cur->txn->payload+ 384UL ) );
+      _mm512_stream_si512( (void*)(out->payload+ 448UL), _mm512_load_epi64( cur->txn->payload+ 448UL ) );
+      _mm512_stream_si512( (void*)(out->payload+ 512UL), _mm512_load_epi64( cur->txn->payload+ 512UL ) );
+      _mm512_stream_si512( (void*)(out->payload+ 576UL), _mm512_load_epi64( cur->txn->payload+ 576UL ) );
+      _mm512_stream_si512( (void*)(out->payload+ 640UL), _mm512_load_epi64( cur->txn->payload+ 640UL ) );
+      _mm512_stream_si512( (void*)(out->payload+ 704UL), _mm512_load_epi64( cur->txn->payload+ 704UL ) );
+      _mm512_stream_si512( (void*)(out->payload+ 768UL), _mm512_load_epi64( cur->txn->payload+ 768UL ) );
+      _mm512_stream_si512( (void*)(out->payload+ 832UL), _mm512_load_epi64( cur->txn->payload+ 832UL ) );
+      _mm512_stream_si512( (void*)(out->payload+ 896UL), _mm512_load_epi64( cur->txn->payload+ 896UL ) );
+      _mm512_stream_si512( (void*)(out->payload+ 960UL), _mm512_load_epi64( cur->txn->payload+ 960UL ) );
+      _mm512_stream_si512( (void*)(out->payload+1024UL), _mm512_load_epi64( cur->txn->payload+1024UL ) );
+      _mm512_stream_si512( (void*)(out->payload+1088UL), _mm512_load_epi64( cur->txn->payload+1088UL ) );
+      _mm512_stream_si512( (void*)(out->payload+1152UL), _mm512_load_epi64( cur->txn->payload+1152UL ) );
+      _mm512_stream_si512( (void*)(out->payload+1216UL), _mm512_load_epi64( cur->txn->payload+1216UL ) );
+      /* Copied out to 1280 bytes, which copies some other fields we needed to
+         copy anyway. */
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, payload_sz   )+sizeof(((fd_txn_p_t*)NULL)->payload_sz   )<=1280UL, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, requested_cus)+sizeof(((fd_txn_p_t*)NULL)->requested_cus)<=1280UL, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, executed_cus )+sizeof(((fd_txn_p_t*)NULL)->executed_cus )<=1280UL, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, flags        )+sizeof(((fd_txn_p_t*)NULL)->flags        )<=1280UL, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, _            )                                           <=1280UL, nt_memcpy );
+      const ulong offset_into_txn = 1280UL - offsetof(fd_txn_p_t, _ );
+      fd_memcpy( offset_into_txn+(uchar *)TXN(out), offset_into_txn+(uchar const *)txn,
+          fd_ulong_max( offset_into_txn, fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) )-offset_into_txn );
+#endif
+    } else {
+      fd_memcpy( out->payload, cur->txn->payload, cur->txn->payload_sz                                           );
+      fd_memcpy( TXN(out),     txn,               fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+      out->payload_sz    = cur->txn->payload_sz;
+      out->requested_cus = cur->txn->requested_cus;
+      out->executed_cus  = 0U;
+      out->flags         = cur->txn->flags;
+    }
     out++;
 
     for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
@@ -1218,10 +1272,13 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   fd_histf_sample( pack->txn_per_microblock,  scheduled              );
   fd_histf_sample( pack->vote_per_microblock, status1.txns_scheduled );
 
+#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
+  _mm_sfence();
+#endif
+
   return scheduled;
 }
 
-ulong fd_pack_avail_txn_cnt( fd_pack_t const * pack ) { return pack->pending_txn_cnt; }
 ulong fd_pack_bank_tile_cnt( fd_pack_t const * pack ) { return pack->bank_tile_cnt;   }
 
 

@@ -618,6 +618,8 @@ after_frag( void *             _ctx,
   if( FD_UNLIKELY( s34[ 3 ].shred_cnt ) )
     fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+3UL ), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
 
+  //FD_MCNT_INC( SHRED, TRANSACTIONS_COMPLETED, ctx->shredded_txn_cnt );
+
   /* Compute all the destinations for all the new shreds */
 
   fd_shred_t const * new_shreds[ FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX ];

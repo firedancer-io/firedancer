@@ -108,6 +108,10 @@ after_frag( void *             _ctx,
 
   if( FD_UNLIKELY( ctx->disable_blockstore ) ) return;
 
+  for( ulong i=0UL; i<shred34->shred_cnt; i++ ) {
+    FD_TEST( fd_shred_parse( shred34->pkts[ i ].buffer, shred34->shred_sz ) );
+    FD_TEST( shred34->pkts[ i ].shred.idx >= shred34->pkts[ i ].shred.fec_set_idx ); 
+  }
   /* No error code because this cannot fail. */
   fd_ext_blockstore_insert_shreds( fd_ext_blockstore, shred34->shred_cnt, ctx->mem+shred34->offset, shred34->shred_sz, shred34->stride, !!*opt_sig );
 

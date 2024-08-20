@@ -45,8 +45,8 @@
    consider the data shreds limit. */
 #define FD_PACK_MAX_DATA_PER_BLOCK (((32UL*1024UL-17UL)/31UL)*25871UL + 48UL)
 
-/* Optionally allow up to 128k shreds per block for benchmarking. */
-#define LARGER_MAX_DATA_PER_BLOCK  (((4UL*32UL*1024UL-17UL)/31UL)*25871UL + 48UL)
+/* Optionally allow up to 1M shreds per block for benchmarking. */
+#define LARGER_MAX_DATA_PER_BLOCK  (((32UL*32UL*1024UL-17UL)/31UL)*25871UL + 48UL)
 
 /* ---- End consensus-critical constants */
 
@@ -153,7 +153,13 @@ fd_pack_t * fd_pack_join( void * mem );
    scheduled yet. pack must be a valid local join.  The return value
    will be in [0, pack_depth). */
 
-FD_FN_PURE ulong fd_pack_avail_txn_cnt( fd_pack_t const * pack );
+/* For performance reasons, implement this here.  The offset is STATIC_ASSERTed
+   in fd_pack.c. */
+#define FD_PACK_PENDING_TXN_CNT_OFF 64
+FD_FN_PURE static inline ulong
+fd_pack_avail_txn_cnt( fd_pack_t const * pack ) {
+  return *((ulong const *)((uchar const *)pack + FD_PACK_PENDING_TXN_CNT_OFF));
+}
 
 /* fd_pack_bank_tile_cnt: returns the value of bank_tile_cnt provided in
    pack when the pack object was initialized with fd_pack_new.  pack

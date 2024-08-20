@@ -21,7 +21,7 @@
 #define MAX_SLOTS_PER_EPOCH          432000UL
 
 /* For now, produce microblocks as fast as possible. */
-#define MICROBLOCK_DURATION_NS  (0L)
+#define MICROBLOCK_DURATION_NS  (500000L)
 
 #define TRANSACTION_LIFETIME_NS (60UL*1000UL*1000UL*1000UL) /* 60s */
 
@@ -37,9 +37,35 @@
 FD_STATIC_ASSERT( (ulong)LONG_MIN+TIME_OFFSET==0UL,       time_offset );
 FD_STATIC_ASSERT( (ulong)LONG_MAX+TIME_OFFSET==ULONG_MAX, time_offset );
 
+/* Each block is limited to 32k parity shreds.  We don't want pack to
+   produce a block with so many transactions we can't shred it, but the
+   correspondance between transactions and parity shreds is somewhat
+   complicated, so we need to use conservative limits.
+
+   Except for the final batch in the block, the current version of the
+   shred tile shreds microblock batches of size (25431, 63671] bytes,
+   including the microblock headers, but excluding the microblock count.
+   The worst case size by bytes/parity shred is a 25871 byte microblock
+   batch, which produces 31 parity shreds.  The final microblock batch,
+   however, may be as bad as 48 bytes triggering the creation of 17
+   parity shreds.  This gives us a limit of floor((32k - 17)/31)*25871 +
+   48 = 27,319,824 bytes.
+
+   To get this right, the pack tile needs to add in the 48-byte
+   microblock headers for each microblock, and we also need to subtract
+   out the tick bytes, which aren't known until PoH initialization is
+   complete.
+
+   Note that the number of parity shreds in each FEC set is always at
+   least as many as the number of data shreds, so we don't need to
+   consider the data shreds limit. */
+#define FD_PACK_MAX_DATA_PER_BLOCK (((32UL*1024UL-17UL)/31UL)*25871UL + 48UL)
+
+/* Optionally allow up to 1M shreds per block for benchmarking. */
+#define LARGER_MAX_DATA_PER_BLOCK  (((32UL*32UL*1024UL-17UL)/31UL)*25871UL + 48UL)
 
 /* Optionally allow a larger limit for benchmarking */
-#define LARGER_MAX_COST_PER_BLOCK (13UL*48000000UL)
+#define LARGER_MAX_COST_PER_BLOCK (18UL*48000000UL)
 
 /* 1.5 M cost units, enough for 1 max size transaction */
 const ulong CUS_PER_MICROBLOCK = 1500000UL;
@@ -161,6 +187,7 @@ typedef struct {
   ulong    bank_cnt;
   ulong    bank_idle_bitset; /* bit i is 1 if we've observed *bank_current[i]==bank_expect[i] */
   int      poll_cursor; /* in [0, bank_cnt), the next bank to poll */
+  long     skip_cnt;
   ulong *  bank_current[ FD_PACK_PACK_MAX_OUT ];
   ulong    bank_expect[ FD_PACK_PACK_MAX_OUT  ];
   /* bank_ready_at[x] means don't check bank x until tickcount is at
@@ -281,6 +308,7 @@ after_credit( void *             _ctx,
   (void)opt_poll_in;
 
   fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
+  if( FD_UNLIKELY( (ctx->skip_cnt--)>0L ) ) return;
 
   long now = fd_tickcount();
 
@@ -407,6 +435,7 @@ after_credit( void *             _ctx,
       ctx->slot_microblock_cnt++;
 
       ctx->bank_idle_bitset = fd_ulong_pop_lsb( ctx->bank_idle_bitset );
+      ctx->skip_cnt         = (long)schedule_cnt;
     }
   }
 
@@ -419,7 +448,7 @@ after_credit( void *             _ctx,
     /* Don't start pulling from the extra storage until the available
        transaction count drops below half. */
     ulong avail_space   = (ulong)fd_long_max( 0L, (long)(ctx->max_pending_transactions>>1)-(long)fd_pack_avail_txn_cnt( ctx->pack ) );
-    ulong qty_to_insert = fd_ulong_min( extra_txn_deq_cnt( ctx->extra_txn_deq ), avail_space );
+    ulong qty_to_insert = fd_ulong_min( 10UL, fd_ulong_min( extra_txn_deq_cnt( ctx->extra_txn_deq ), avail_space ) );
     for( ulong i=0UL; i<qty_to_insert; i++ ) {
       fd_txn_p_t       * spot       = fd_pack_insert_txn_init( ctx->pack );
       fd_txn_p_t const * insert     = extra_txn_deq_peek_head( ctx->extra_txn_deq );
@@ -616,7 +645,7 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  if( FD_UNLIKELY( tile->in_cnt!=BANK_BASE_IN_IDX+tile->pack.bank_tile_count ||
+  if( FD_UNLIKELY( tile->in_cnt!=BANK_BASE_IN_IDX ||
                    strcmp( topo->links[ tile->in_link_id[ DEDUP_IN_IDX ] ].name, "dedup_pack" ) ||
                    strcmp( topo->links[ tile->in_link_id[ POH_IN_IDX   ] ].name, "poh_pack"   ) ) ) {
     FD_LOG_ERR(( "pack tile has none or unexpected input links %lu %s %s",
@@ -624,12 +653,12 @@ unprivileged_init( fd_topo_t *      topo,
                  tile->in_cnt>=1 ? topo->links[ tile->in_link_id[ 0 ] ].name : "NULL",
                  tile->in_cnt>=2 ? topo->links[ tile->in_link_id[ 1 ] ].name : "NULL" ));
   }
-  for( ulong i=0UL; i<tile->pack.bank_tile_count; i++ ) {
-    if( FD_UNLIKELY( strcmp( topo->links[ tile->in_link_id[ i+BANK_BASE_IN_IDX ] ].name, "bank_poh" ) ) ) {
-      FD_LOG_ERR(( "pack tile listening to unexpected link %lu %s", i+BANK_BASE_IN_IDX,
-            topo->links[ tile->in_link_id[ i+BANK_BASE_IN_IDX ] ].name ));
-    }
-  }
+  // for( ulong i=0UL; i<tile->pack.bank_tile_count; i++ ) {
+  //   if( FD_UNLIKELY( strcmp( topo->links[ tile->in_link_id[ i+BANK_BASE_IN_IDX ] ].name, "bank_poh" ) ) ) {
+  //     FD_LOG_ERR(( "pack tile listening to unexpected link %lu %s", i+BANK_BASE_IN_IDX,
+  //           topo->links[ tile->in_link_id[ i+BANK_BASE_IN_IDX ] ].name ));
+  //   }
+  // }
   if( FD_UNLIKELY( tile->in_cnt>32UL ) ) FD_LOG_ERR(( "Too many bank tiles" ));
 
   ulong out_cnt = fd_topo_link_consumer_cnt( topo, &topo->links[ tile->out_link_id_primary ] );
@@ -684,6 +713,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->bank_cnt         = tile->pack.bank_tile_count;
   ctx->poll_cursor      = 0;
+  ctx->skip_cnt         = 0L;
   ctx->bank_idle_bitset = fd_ulong_mask_lsb( (int)tile->pack.bank_tile_count );
   for( ulong i=0UL; i<tile->pack.bank_tile_count; i++ ) {
     ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", i );

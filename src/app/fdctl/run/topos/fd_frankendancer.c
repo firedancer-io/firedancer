@@ -62,7 +62,7 @@ fd_topo_frankendancer( config_t * config ) {
   /**/                 fd_topob_link( topo, "gossip_dedup", "gossip_dedup", 0,        2048UL,                                   FD_TPU_DCACHE_MTU,      1UL );
   /* dedup_pack is large currently because pack can encounter stalls when running at very high throughput rates that would
      otherwise cause drops. */
-  /**/                 fd_topob_link( topo, "dedup_pack",   "dedup_pack",   0,        4*65536UL,                                FD_TPU_DCACHE_MTU,      1UL );
+  /**/                 fd_topob_link( topo, "dedup_pack",   "dedup_pack",   0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
   /**/                 fd_topob_link( topo, "stake_out",    "stake_out",    0,        128UL,                                    40UL + 40200UL * 40UL,  1UL );
   /* pack_bank is shared across all banks, so if one bank stalls due to complex transactions, the buffer neeeds to be large so that
      other banks can keep proceeding. */
@@ -148,7 +148,7 @@ fd_topo_frankendancer( config_t * config ) {
   /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "poh_pack",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "bank",   i,             "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "bank_poh",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "bank_poh",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  // FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "bank_poh",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
                        fd_topob_tile_out( topo, "poh",    0UL,                        "poh_pack",     0UL                                                );

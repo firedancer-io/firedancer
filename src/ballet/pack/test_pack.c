@@ -507,7 +507,8 @@ performance_test2( void ) {
     /* Add the signer */
     *p = 's' + 0x80; fd_memcpy( p+1, &i, sizeof(ulong) ); memset( p+9, 'S', 32-9 ); p += FD_TXN_ACCT_ADDR_SZ;
 
-    payload_sz[ i ] = (ulong)(p-p_base);
+    (void)p_base;
+    payload_sz[ i ] = 1232UL;
   }
   FD_TEST( fd_pack_footprint( 1024UL, 4UL, limits )<PACK_SCRATCH_SZ );
 #define INNER_ROUNDS (FD_PACK_MAX_COST_PER_BLOCK/(1020UL * 1024UL))

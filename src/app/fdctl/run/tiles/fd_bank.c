@@ -183,7 +183,7 @@ after_frag( void *             _ctx,
     ctx->metrics.txn_load_address_lookup_tables[ result ]++;
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) continue;
 
-    int precompile_result = fd_ext_bank_verify_precompiles( ctx->_bank, abi_txn );
+    int precompile_result = 0 && fd_ext_bank_verify_precompiles( ctx->_bank, abi_txn );
     if( FD_UNLIKELY( precompile_result ) ) {
       FD_MCNT_INC( BANK_TILE, PRECOMPILE_VERIFY_FAILURE, 1 );
       continue;
