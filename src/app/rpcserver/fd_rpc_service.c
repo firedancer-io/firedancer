@@ -18,6 +18,8 @@
 #define CRLF "\r\n"
 #define MATCH_STRING(_text_,_text_sz_,_str_) (_text_sz_ == sizeof(_str_)-1 && memcmp(_text_, _str_, sizeof(_str_)-1) == 0)
 
+#define MAX_RECENT_BLOCKHASHES 300
+
 struct fd_ws_subscription {
   ulong conn_id;
   long meth_id;
@@ -48,6 +50,7 @@ struct fd_rpc_global_ctx {
   fd_replay_notif_msg_t last_slot_notify;
   int tpu_socket;
   struct sockaddr_in tpu_addr;
+  fd_hash_t recent_blockhash[MAX_RECENT_BLOCKHASHES];
 };
 typedef struct fd_rpc_global_ctx fd_rpc_global_ctx_t;
 
@@ -55,6 +58,18 @@ struct fd_rpc_ctx {
   long call_id;
   fd_rpc_global_ctx_t * global;
 };
+
+static int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
+  for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
+    if (key1->ul[i] != key2->ul[i])
+      return 0;
+  return 1;
+}
+
+static void fd_hash_copy( fd_hash_t * keyd, const fd_hash_t * keys ) {
+  for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
+    keyd->ul[i] = keys->ul[i];
+}
 
 static void *
 read_account( fd_rpc_ctx_t * ctx, fd_pubkey_t * acct, fd_valloc_t valloc, ulong * result_len ) {
@@ -1393,10 +1408,35 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
 // Implementation of the "isBlockhashValid" methods
 static int
 method_isBlockhashValid(struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "isBlockhashValid is not implemented");
+  fd_rpc_global_ctx_t * glob = ctx->global;
+  fd_webserver_t * ws = &glob->ws;
+
+  // Path to argument
+  static const uint PATH[3] = {
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+    (JSON_TOKEN_LBRACKET<<16) | 0,
+    (JSON_TOKEN_STRING<<16)
+  };
+  ulong arg_sz = 0;
+  const void* arg = json_get_value(values, PATH, 3, &arg_sz);
+  if (arg == NULL) {
+    fd_web_error(ws, "isBlockhashValid requires a string as first parameter");
+    return 0;
+  }
+
+  fd_hash_t h;
+  fd_base58_decode_32((const char *)arg, h.uc);
+
+  int res = 0;
+  for( ulong i = 0; i < MAX_RECENT_BLOCKHASHES; ++i ) {
+    if( fd_hash_eq( &glob->recent_blockhash[i], &h ) ) {
+      res = 1;
+      break;
+    }
+  }
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":%s},\"id\":%lu}" CRLF,
+                       ctx->global->last_slot_notify.slot_exec.slot, (res ? "true" : "false"), ctx->call_id);
+
   return 0;
 }
 
@@ -2078,7 +2118,9 @@ fd_rpc_replay_notify(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
 
   if( msg->type == FD_REPLAY_SLOT_TYPE ) {
     fd_readwrite_start_write( &subs->lock );
-    fd_memcpy( &ctx->global->last_slot_notify, msg, sizeof(fd_replay_notif_msg_t) );
+    fd_memcpy( &subs->last_slot_notify, msg, sizeof(fd_replay_notif_msg_t) );
+    fd_hash_t * h = &subs->recent_blockhash[msg->slot_exec.slot % MAX_RECENT_BLOCKHASHES];
+    fd_hash_copy( h, &msg->slot_exec.block_hash );
     fd_readwrite_end_write( &subs->lock );
   }
 
@@ -2096,7 +2138,7 @@ fd_rpc_replay_notify(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
         if( sub->meth_id == KEYW_WS_METHOD_ACCOUNTSUBSCRIBE &&
             fd_pubkey_eq( id, &sub->acct_subscribe.acct ) ) {
           if( ws_method_accountSubscribe_update( ctx, msg, sub ) )
-            fd_web_ws_send( &ctx->global->ws, sub->conn_id );
+            fd_web_ws_send( &subs->ws, sub->conn_id );
         }
       }
     }
@@ -2106,7 +2148,7 @@ fd_rpc_replay_notify(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * msg) {
       struct fd_ws_subscription * sub = &subs->sub_list[ j ];
       if( sub->meth_id == KEYW_WS_METHOD_SLOTSUBSCRIBE ) {
         if( ws_method_slotSubscribe_update( ctx, msg, sub ) )
-          fd_web_ws_send( &ctx->global->ws, sub->conn_id );
+          fd_web_ws_send( &subs->ws, sub->conn_id );
       }
     }
   }

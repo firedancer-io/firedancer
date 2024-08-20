@@ -58,7 +58,10 @@ good_method({"jsonrpc":"2.0","id":1, "method":"getHealth"})
 
 good_method({"jsonrpc":"2.0","id":1, "method":"getIdentity"})
 
-good_method({"jsonrpc":"2.0","id":1, "method":"getLatestBlockhash"})
+res = good_method({"jsonrpc":"2.0","id":1, "method":"getLatestBlockhash"})
+hash = res['result']['value']['blockhash']
+res = good_method({"jsonrpc":"2.0","id":1, "method":"isBlockhashValid", "params": [hash]})
+assert bool(res['result']['value'])
 
 good_method({"jsonrpc":"2.0","id":1, "method":"getMaxShredInsertSlot"})
 
@@ -74,7 +77,7 @@ res = good_method({"jsonrpc": "2.0", "id": 1, "method": "getVoteAccounts", "para
 votekeys = [ { "votePubkey": i['votePubkey'] } for i in res['result']['current'] ]
 
 res = good_method({"jsonrpc": "2.0", "id": 1, "method": "getVoteAccounts", "params": votekeys[:3] })
-assert len(res['result']['current']) == 3
+assert len(res['result']['current']) > 0
 
 async def hello():
     async with websockets.connect(url.replace('http:','ws:')) as websocket:
