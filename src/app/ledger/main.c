@@ -957,6 +957,7 @@ replay( fd_ledger_args_t * args ) {
   fd_memset( epoch_ctx_mem, 0, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   void * slot_ctx_mem = fd_wksp_alloc_laddr( args->wksp, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT, FD_EXEC_SLOT_CTX_MAGIC );
   args->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
+  fd_exec_epoch_ctx_bank_mem_clear( args->epoch_ctx );
 
   args->epoch_ctx->epoch_bank.cluster_version = args->cluster_version;
   fd_features_enable_cleaned_up( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
