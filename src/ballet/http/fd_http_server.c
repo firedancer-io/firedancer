@@ -47,8 +47,10 @@ fd_http_server_connection_close_reason_str( int reason ) {
 FD_FN_CONST char const *
 fd_http_server_method_str( uchar method ) {
   switch( method ) {
-    case FD_HTTP_SERVER_METHOD_GET:  return "GET";
-    case FD_HTTP_SERVER_METHOD_POST: return "POST";
+    case FD_HTTP_SERVER_METHOD_GET:     return "GET";
+    case FD_HTTP_SERVER_METHOD_POST:    return "POST";
+    case FD_HTTP_SERVER_METHOD_OPTIONS: return "OPTIONS";
+
     default: break;
   }
 
@@ -335,6 +337,7 @@ read_conn_http( fd_http_server_t * http,
   uchar method_enum = UCHAR_MAX;
   if( FD_LIKELY( method_len==3UL && !strncmp( method, "GET", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_GET;
   else if( FD_LIKELY( method_len==4UL && !strncmp( method, "POST", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_POST;
+  else if( FD_LIKELY( method_len==7UL && !strncmp( method, "OPTIONS", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_OPTIONS;
 
   if( FD_UNLIKELY( method_enum==UCHAR_MAX ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD );
@@ -649,8 +652,12 @@ write_conn_http( fd_http_server_t * http,
             ulong encoded_len = fd_base64_encode( sec_websocket_accept_base64, sec_websocket_accept, 20 );
             FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %.*s\r\n\r\n", (int)encoded_len, sec_websocket_accept_base64 ) );
           } else {
-            FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: %s\r\n\r\n", conn->response.body_len, conn->response.content_type ) );
+            FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\nContent-Type: %s\r\nAccess-Control-Allow-Origin: *\r\n\r\n", conn->response.body_len, conn->response.content_type ) );
           }
+          break;
+        case 204:
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Solana-Client, Content-Type\r\nAccess-Control-Max-Age: 86400\r\n\r\n" ) );
+          /* currently just for responses to OPTIONS requests*/
           break;
         case 400:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 400 Bad Request\r\nContent-Length: %lu\r\nContent-Type: %s\r\n\r\n", conn->response.body_len, conn->response.content_type ) );
