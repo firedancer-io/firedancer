@@ -34,10 +34,15 @@ vu_bcast_wide( uint u0, uint u1 ) {
   return _mm_setr_epi32( i0, i0, i1, i1 );
 }
 
-/* vu_permute returns [ i(imm_i0) i(imm_i1) i(imm_i2) i(imm_i3) ].
+/* vu_permute returns [ x(imm_i0) x(imm_i1) x(imm_i2) x(imm_i3) ].
    imm_i* should be compile time constants in 0:3. */
 
 #define vu_permute(x,imm_i0,imm_i1,imm_i2,imm_i3) _mm_shuffle_epi32( (x), _MM_SHUFFLE( (imm_i3), (imm_i2), (imm_i1), (imm_i0) ) )
+
+/* vu_permute2 returns [ a(imm_i0) a(imm_i1) b(imm_i2) b(imm_i3) ].
+   imm_i* should be compile time constants in 0:3. */
+
+#define vu_permute2(a,b,imm_i0,imm_i1,imm_i2,imm_i3) ((vu_t)_mm_shuffle_ps( (vf_t)(a), (vf_t)(b), _MM_SHUFFLE( (imm_i3), (imm_i2), (imm_i1), (imm_i0) ) ))
 
 /* Predefined constants */
 
