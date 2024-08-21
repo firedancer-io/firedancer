@@ -933,6 +933,13 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
     return;
   }
 
+  // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/transaction_processor.rs#L264
+  err = fd_executor_check_replenish_program_cache( txn_ctx );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    task_info->txn->flags = 0U;
+    task_info->exec_res   = err;
+    return;
+  }
 }
 
 void
