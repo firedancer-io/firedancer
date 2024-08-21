@@ -2,16 +2,16 @@
    Original source files:  crypto/evp/e_aes.c crypto/modes/gcm128.c */
 
 #include "fd_aes_gcm.h"
-#include "fd_aes_gcm_private.h"
-#include "fd_aes_private.h"
 
 #include <assert.h>
 
-/* TODO: Do we need to support ivlen other than 12? */
+#define fd_gcm_init  fd_gcm_init_4bit
+#define fd_gcm_gmult fd_gcm_gmult_4bit
+#define fd_gcm_ghash fd_gcm_ghash_4bit
 
 static void
-fd_aes_gcm_setiv( fd_aes_gcm_t * gcm,
-                  uchar const    iv[ static 12 ] ) {
+fd_aes_gcm_setiv( fd_aes_gcm_ref_t * gcm,
+                  uchar const        iv[ 12 ] ) {
 
   uint ctr;
   gcm->len.u[ 0 ] = 0;  /* AAD length */
@@ -36,19 +36,16 @@ fd_aes_gcm_setiv( fd_aes_gcm_t * gcm,
 }
 
 void
-fd_aes_gcm_init( fd_aes_gcm_t * gcm,
-                 uchar const *  key,
-                 ulong          key_sz,
-                 uchar const    iv[ static 12 ] ) {
+fd_aes_128_gcm_init_ref( fd_aes_gcm_ref_t * gcm,
+                         uchar const        key[ 16 ],
+                         uchar const        iv[ 12 ] ) {
 
   /* TODO: Check key size */
 
   memset( gcm, 0, sizeof(fd_aes_gcm_t) );
 
-  fd_aes_key_t * ks = &gcm->key;
-
-  ulong key_bitcnt = key_sz << 3UL;
-  fd_aes_set_encrypt_key( key, key_bitcnt, ks );
+  fd_aes_key_ref_t * ks = &gcm->key;
+  fd_aes_set_encrypt_key( key, 128, ks );
 
   fd_aes_encrypt( gcm->H.c, gcm->H.c, ks );
   gcm->H.u[ 0 ] = fd_ulong_bswap( gcm->H.u[ 0 ] );
@@ -59,9 +56,9 @@ fd_aes_gcm_init( fd_aes_gcm_t * gcm,
 }
 
 static int
-fd_gcm128_aad( fd_aes_gcm_t * aes_gcm,
-               uchar const *  aad,
-               ulong          aad_sz ) {
+fd_gcm128_aad( fd_aes_gcm_ref_t * aes_gcm,
+               uchar const *      aad,
+               ulong              aad_sz ) {
 
   ulong alen = aes_gcm->len.u[ 0 ];
 
@@ -106,10 +103,10 @@ fd_gcm128_aad( fd_aes_gcm_t * aes_gcm,
 /* TODO separate reference code and GCM128 */
 
 static int
-fd_gcm128_encrypt( fd_aes_gcm_t * ctx,
-                   uchar const *  in,
-                   uchar *        out,
-                   ulong          len ) {
+fd_gcm128_encrypt( fd_aes_gcm_ref_t * ctx,
+                   uchar const *      in,
+                   uchar *            out,
+                   ulong              len ) {
 
   uint n, ctr, mres;
   ulong i;
@@ -159,10 +156,10 @@ fd_gcm128_encrypt( fd_aes_gcm_t * ctx,
 }
 
 static int
-fd_gcm128_decrypt( fd_aes_gcm_t * ctx,
-                   uchar const *  in,
-                   uchar *        out,
-                   ulong          len ) {
+fd_gcm128_decrypt( fd_aes_gcm_ref_t * ctx,
+                   uchar const *      in,
+                   uchar *            out,
+                   ulong              len ) {
 
   uint n, ctr, mres;
   ulong i;
@@ -213,7 +210,7 @@ fd_gcm128_decrypt( fd_aes_gcm_t * ctx,
 }
 
 void
-fd_gcm128_finish( fd_aes_gcm_t * ctx ) {
+fd_gcm128_finish( fd_aes_gcm_ref_t * ctx ) {
 
   ulong alen = ctx->len.u[0] << 3;  // 176
   ulong clen = ctx->len.u[1] << 3;  // 9296
@@ -251,27 +248,17 @@ fd_gcm128_finish( fd_aes_gcm_t * ctx ) {
 }
 
 void
-fd_aes_gcm_aead_encrypt( fd_aes_gcm_t * aes_gcm,
-                         uchar *        c,
-                         uchar const *  p,
-                         ulong          sz,
-                         uchar const *  aad,
-                         ulong          aad_sz,
-                         uchar          tag[ static 16 ] ) {
+fd_aes_gcm_encrypt_ref( fd_aes_gcm_ref_t * aes_gcm,
+                        uchar *            c,
+                        uchar const *      p,
+                        ulong              sz,
+                        uchar const *      aad,
+                        ulong              aad_sz,
+                        uchar              tag[ 16 ] ) {
 
   fd_gcm128_aad( aes_gcm, aad, aad_sz );
 
   ulong bulk = 0UL;
-# if FD_HAS_AESNI
-  if( sz>=32UL ) {
-    ulong res = (16UL - aes_gcm->mres ) % 16UL;
-    assert( 0==fd_gcm128_encrypt( aes_gcm, p, c, res ) );
-    bulk = fd_aesni_gcm_encrypt_private( p+res, c+res, sz-res, &aes_gcm->key, aes_gcm->Yi.c, aes_gcm->Xi.u );
-    aes_gcm->len.u[1] += bulk;
-    bulk += res;
-  }
-# endif
-
   assert( 0==fd_gcm128_encrypt( aes_gcm, p+bulk, c+bulk, sz-bulk ) );
 
   /* CRYPTO_gcm128_tag */
@@ -280,27 +267,17 @@ fd_aes_gcm_aead_encrypt( fd_aes_gcm_t * aes_gcm,
 }
 
 int
-fd_aes_gcm_aead_decrypt( fd_aes_gcm_t * aes_gcm,
-                         uchar const *  c,
-                         uchar *        p,
-                         ulong          sz,
-                         uchar const *  aad,
-                         ulong          aad_sz,
-                         uchar const    tag[ static 16 ] ) {
+fd_aes_gcm_decrypt_ref( fd_aes_gcm_ref_t * aes_gcm,
+                        uchar const *      c,
+                        uchar *            p,
+                        ulong              sz,
+                        uchar const *      aad,
+                        ulong              aad_sz,
+                        uchar const        tag[ 16 ] ) {
 
   fd_gcm128_aad( aes_gcm, aad, aad_sz );
 
   ulong bulk = 0UL;
-# if FD_HAS_AESNI
-  if( sz>=16UL ) {
-    ulong res = (16UL - aes_gcm->mres ) % 16UL;
-    FD_TEST( 0==fd_gcm128_decrypt( aes_gcm, c, p, res ) );
-    bulk = fd_aesni_gcm_decrypt_private( c+res, p+res, sz-res, &aes_gcm->key, aes_gcm->Yi.c, aes_gcm->Xi.u );
-    aes_gcm->len.u[1] += bulk;
-    bulk += res;
-  }
-# endif
-
   assert( 0==fd_gcm128_decrypt( aes_gcm, c+bulk, p+bulk, sz-bulk ) );
 
   /* CRYPTO_gcm128_finish */

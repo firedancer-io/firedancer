@@ -41,7 +41,7 @@
 
 #include <assert.h>
 #include <stdlib.h>
-#include "fd_aes_private.h"
+#include "fd_aes_gcm_ref.h"
 
 typedef union {
   uchar b[8];
@@ -618,9 +618,9 @@ KeyExpansion( uchar const * key,
  * Expand the cipher key into the encryption key schedule.
  */
 int
-fd_aes_ref_set_encrypt_key( uchar const *  userKey,
-                            ulong const    bits,
-                            fd_aes_key_t * key ) {
+fd_aes_ref_set_encrypt_key( uchar const *      userKey,
+                            ulong const        bits,
+                            fd_aes_key_ref_t * key ) {
   ulong *rk;
 
   if (!userKey || !key)
@@ -645,10 +645,9 @@ fd_aes_ref_set_encrypt_key( uchar const *  userKey,
  * Expand the cipher key into the decryption key schedule.
  */
 int
-fd_aes_ref_set_decrypt_key( uchar const *  userKey,
-                            ulong const    bits,
-                            fd_aes_key_t * key )
-{
+fd_aes_ref_set_decrypt_key( uchar const *      userKey,
+                            ulong const        bits,
+                            fd_aes_key_ref_t * key ) {
   return fd_aes_ref_set_encrypt_key(userKey, bits, key);
 }
 
@@ -657,9 +656,9 @@ fd_aes_ref_set_decrypt_key( uchar const *  userKey,
  * in and out can overlap
  */
 void
-fd_aes_ref_encrypt_core( uchar const *        in,
-                         uchar *              out,
-                         fd_aes_key_t const * key ) {
+fd_aes_ref_encrypt_core( uchar const *            in,
+                         uchar *                  out,
+                         fd_aes_key_ref_t const * key ) {
 
   assert(in && out && key);
   ulong const * rk = (ulong *)fd_type_pun_const( key->rd_key );
@@ -672,9 +671,9 @@ fd_aes_ref_encrypt_core( uchar const *        in,
  * in and out can overlap
  */
 void
-fd_aes_ref_decrypt_core( uchar const *        in,
-                         uchar *              out,
-                         fd_aes_key_t const * key ) {
+fd_aes_ref_decrypt_core( uchar const *            in,
+                         uchar *                  out,
+                         fd_aes_key_ref_t const * key ) {
 
   assert(in && out && key);
   ulong const * rk = (ulong const *)fd_type_pun_const( key->rd_key );

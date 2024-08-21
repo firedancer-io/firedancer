@@ -54,7 +54,7 @@ fd_quic_retry_integrity_tag_sign(
     uchar          retry_integrity_tag[static FD_QUIC_RETRY_INTEGRITY_TAG_SZ]
 ) {
   fd_aes_128_gcm_init( aes_gcm, FD_QUIC_RETRY_INTEGRITY_TAG_KEY, FD_QUIC_RETRY_INTEGRITY_TAG_NONCE );
-  fd_aes_gcm_aead_encrypt( aes_gcm, NULL, NULL, 0UL, retry_pseudo_pkt, retry_pseudo_pkt_len, retry_integrity_tag );
+  fd_aes_gcm_encrypt( aes_gcm, NULL, NULL, 0UL, retry_pseudo_pkt, retry_pseudo_pkt_len, retry_integrity_tag );
 }
 
 FD_FN_PURE static inline int
@@ -65,7 +65,7 @@ fd_quic_retry_integrity_tag_verify(
     uchar const    retry_integrity_tag[static FD_QUIC_RETRY_INTEGRITY_TAG_SZ]
 ) {
   fd_aes_128_gcm_init( aes_gcm, FD_QUIC_RETRY_INTEGRITY_TAG_KEY, FD_QUIC_RETRY_INTEGRITY_TAG_NONCE );
-  int ok = fd_aes_gcm_aead_decrypt( aes_gcm, NULL, NULL, 0UL, retry_pseudo_pkt, retry_pseudo_pkt_len, retry_integrity_tag );
+  int ok = fd_aes_gcm_decrypt( aes_gcm, NULL, NULL, 0UL, retry_pseudo_pkt, retry_pseudo_pkt_len, retry_integrity_tag );
   return ok ? FD_QUIC_SUCCESS : FD_QUIC_FAILED;
 }
 
@@ -113,7 +113,7 @@ struct fd_quic_retry_token {
     fd_quic_retry_data_t data;
     uchar                data_opaque[ sizeof(fd_quic_retry_data_t) ];
   };
-  uchar mac_tag[ AES_GCM_TAG_SZ ];
+  uchar mac_tag[ FD_AES_GCM_TAG_SZ ];
 };
 
 typedef struct fd_quic_retry_token fd_quic_retry_token_t;
@@ -164,7 +164,7 @@ fd_quic_retry_token_sign( fd_quic_retry_token_t * token,
 
   void const * aad    = token->data_opaque;
   ulong        aad_sz = sizeof(fd_quic_retry_data_t);
-  fd_aes_gcm_aead_encrypt( aes_gcm, NULL, NULL, 0UL, aad, aad_sz, token->mac_tag );
+  fd_aes_gcm_encrypt( aes_gcm, NULL, NULL, 0UL, aad, aad_sz, token->mac_tag );
 }
 
 /* fd_quic_retry_token_verify checks if token->mac_tag is valid given
@@ -183,7 +183,7 @@ fd_quic_retry_token_verify( fd_quic_retry_token_t const * token,
 
   void const * aad    = token->data_opaque;
   ulong        aad_sz = sizeof(fd_quic_retry_data_t);
-  int ok = fd_aes_gcm_aead_decrypt( aes_gcm, NULL, NULL, 0UL, aad, aad_sz, token->mac_tag );
+  int ok = fd_aes_gcm_decrypt( aes_gcm, NULL, NULL, 0UL, aad, aad_sz, token->mac_tag );
   return ok ? FD_QUIC_SUCCESS : FD_QUIC_FAILED;
 }
 
