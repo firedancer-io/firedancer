@@ -1724,92 +1724,104 @@ fd_runtime_execute_pack_txns( fd_exec_slot_ctx_t * slot_ctx,
    fd_exec_instr_test.c:_txn_context_create_and_exec */
 int
 fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
-                                        fd_capture_ctx_t * capture_ctx,
-                                        fd_txn_p_t * txns,
-                                        ulong txn_cnt,
-                                        //int ( * query_func )( ulong slot, void * ctx ),
-                                        //void * query_arg,
-                                        fd_tpool_t * tpool ) {
-  FD_SCRATCH_SCOPE_BEGIN {
+                                        fd_capture_ctx_t *   capture_ctx,
+                                        fd_txn_p_t *         all_txns,
+                                        ulong                total_txn_cnt,
+                                        fd_tpool_t *         tpool ) {
     bool dump_txn = capture_ctx && slot_ctx->slot_bank.slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_txn_to_pb;
+    #define BATCH_SIZE (1024UL)
 
-    fd_execute_txn_task_info_t * task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
-    fd_execute_txn_task_info_t * wave_task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
-    ulong wave_task_infos_cnt = 0;
-
-    for( ulong i = 0; i < txn_cnt; i++ ) {
-      txns[i].flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+    for( ulong i=0UL; i<total_txn_cnt; i++ ) {
+      all_txns[i].flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     }
 
-    int res = fd_runtime_prepare_txns_phase1( slot_ctx, task_infos, txns, txn_cnt );
-    if( res != 0 ) {
-      FD_LOG_DEBUG(("Fail prep 1"));
-    }
+    ulong num_batches = total_txn_cnt/BATCH_SIZE;
+    ulong rem         = total_txn_cnt%BATCH_SIZE;
+    num_batches      += rem ? 1UL : 0UL;
 
-    ulong * incomplete_txn_idxs = fd_scratch_alloc( 8UL, txn_cnt * sizeof(ulong) );
-    ulong incomplete_txn_idxs_cnt = txn_cnt;
-    ulong incomplete_accounts_cnt = 0;
+    int res = 0;
+    for( ulong i=0UL; i<num_batches; i++ ) {
+      FD_SCRATCH_SCOPE_BEGIN {
 
-    /* Setup all txns as incomplete and set the capture context */
-    for( ulong i = 0; i < txn_cnt; i++ ) {
-      incomplete_txn_idxs[i] = i;
-      incomplete_accounts_cnt += task_infos[i].txn_ctx->accounts_cnt;
-      task_infos[i].txn_ctx->capture_ctx = capture_ctx;
-    }
+      fd_txn_p_t * txns    = all_txns + (BATCH_SIZE * i); 
+      ulong        txn_cnt = i+1UL==num_batches && rem ? rem : BATCH_SIZE;
 
-    ulong * next_incomplete_txn_idxs = fd_scratch_alloc( 8UL, txn_cnt * sizeof(ulong) );
-    ulong next_incomplete_txn_idxs_cnt = 0;
-    ulong next_incomplete_accounts_cnt = 0;
+      fd_execute_txn_task_info_t * task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
+      fd_execute_txn_task_info_t * wave_task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
+      ulong wave_task_infos_cnt = 0;
 
-    double cum_wave_time_ms = 0.0;
-    while( incomplete_txn_idxs_cnt > 0 ) {
-      long wave_time = -fd_log_wallclock();
-      fd_runtime_generate_wave( task_infos, incomplete_txn_idxs, incomplete_txn_idxs_cnt, incomplete_accounts_cnt,
-                                next_incomplete_txn_idxs, &next_incomplete_txn_idxs_cnt, &next_incomplete_accounts_cnt,
-                                wave_task_infos, &wave_task_infos_cnt );
-      ulong * temp_incomplete_txn_idxs = incomplete_txn_idxs;
-      incomplete_txn_idxs = next_incomplete_txn_idxs;
-      next_incomplete_txn_idxs = temp_incomplete_txn_idxs;
-      incomplete_txn_idxs_cnt = next_incomplete_txn_idxs_cnt;
+      res = fd_runtime_prepare_txns_phase1( slot_ctx, task_infos, txns, txn_cnt );
+      if( res != 0 ) {
+        FD_LOG_DEBUG(("Fail prep 1"));
+      }
 
-      // Dump txns in waves
-      if( dump_txn ) {
-        for( ulong i = 0; i < wave_task_infos_cnt; ++i ) {
-          dump_txn_to_protobuf( wave_task_infos[i].txn_ctx );
+      ulong * incomplete_txn_idxs = fd_scratch_alloc( 8UL, txn_cnt * sizeof(ulong) );
+      ulong incomplete_txn_idxs_cnt = txn_cnt;
+      ulong incomplete_accounts_cnt = 0;
+
+      /* Setup all txns as incomplete and set the capture context */
+      for( ulong i = 0; i < txn_cnt; i++ ) {
+        incomplete_txn_idxs[i] = i;
+        incomplete_accounts_cnt += task_infos[i].txn_ctx->accounts_cnt;
+        task_infos[i].txn_ctx->capture_ctx = capture_ctx;
+      }
+
+      ulong * next_incomplete_txn_idxs = fd_scratch_alloc( 8UL, txn_cnt * sizeof(ulong) );
+      ulong next_incomplete_txn_idxs_cnt = 0;
+      ulong next_incomplete_accounts_cnt = 0;
+
+      double cum_wave_time_ms = 0.0;
+      while( incomplete_txn_idxs_cnt > 0 ) {
+        long wave_time = -fd_log_wallclock();
+        fd_runtime_generate_wave( task_infos, incomplete_txn_idxs, incomplete_txn_idxs_cnt, incomplete_accounts_cnt,
+                                  next_incomplete_txn_idxs, &next_incomplete_txn_idxs_cnt, &next_incomplete_accounts_cnt,
+                                  wave_task_infos, &wave_task_infos_cnt );
+        ulong * temp_incomplete_txn_idxs = incomplete_txn_idxs;
+        incomplete_txn_idxs = next_incomplete_txn_idxs;
+        next_incomplete_txn_idxs = temp_incomplete_txn_idxs;
+        incomplete_txn_idxs_cnt = next_incomplete_txn_idxs_cnt;
+
+        // Dump txns in waves
+        if( dump_txn ) {
+          for( ulong i = 0; i < wave_task_infos_cnt; ++i ) {
+            dump_txn_to_protobuf( wave_task_infos[i].txn_ctx );
+          }
         }
+
+        //res |= fd_runtime_verify_txn_signatures_tpool( wave_task_infos, wave_task_infos_cnt, tpool );
+        //if( res != 0 ) {
+        //  FD_LOG_WARNING(("Fail signature verification"));
+        //}
+
+        res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, tpool );
+        if( res != 0 ) {
+          FD_LOG_DEBUG(("Fail prep 2"));
+        }
+
+        res |= fd_runtime_prepare_txns_phase3( slot_ctx, wave_task_infos, wave_task_infos_cnt );
+        if( res != 0 ) {
+          FD_LOG_DEBUG(("Fail prep 3"));
+        }
+
+        fd_tpool_exec_all_taskq( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_runtime_execute_txn_task, wave_task_infos, NULL, NULL, 1, 0, wave_task_infos_cnt );
+        int finalize_res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, wave_task_infos, wave_task_infos_cnt, tpool );
+        if( finalize_res != 0 ) {
+          FD_LOG_ERR(("Fail finalize"));
+        }
+
+        wave_time += fd_log_wallclock();
+        double wave_time_ms = (double)wave_time * 1e-6;
+        cum_wave_time_ms += wave_time_ms;
+        (void)cum_wave_time_ms;
+        // FD_LOG_INFO(( "wave executed - sz: %lu, accounts: %lu, elapsed: %6.6f ms, cum: %6.6f ms", wave_task_infos_cnt, incomplete_accounts_cnt - next_incomplete_accounts_cnt, wave_time_ms, cum_wave_time_ms ));
       }
-
-      //res |= fd_runtime_verify_txn_signatures_tpool( wave_task_infos, wave_task_infos_cnt, tpool );
-      //if( res != 0 ) {
-      //  FD_LOG_WARNING(("Fail signature verification"));
-      //}
-
-      res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, tpool );
-      if( res != 0 ) {
-        FD_LOG_DEBUG(("Fail prep 2"));
-      }
-
-      res |= fd_runtime_prepare_txns_phase3( slot_ctx, wave_task_infos, wave_task_infos_cnt );
-      if( res != 0 ) {
-        FD_LOG_DEBUG(("Fail prep 3"));
-      }
-
-      fd_tpool_exec_all_taskq( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_runtime_execute_txn_task, wave_task_infos, NULL, NULL, 1, 0, wave_task_infos_cnt );
-      int finalize_res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, wave_task_infos, wave_task_infos_cnt, tpool );
-      if( finalize_res != 0 ) {
-        FD_LOG_ERR(("Fail finalize"));
-      }
-
-      wave_time += fd_log_wallclock();
-      double wave_time_ms = (double)wave_time * 1e-6;
-      cum_wave_time_ms += wave_time_ms;
-      (void)cum_wave_time_ms;
-      // FD_LOG_INFO(( "wave executed - sz: %lu, accounts: %lu, elapsed: %6.6f ms, cum: %6.6f ms", wave_task_infos_cnt, incomplete_accounts_cnt - next_incomplete_accounts_cnt, wave_time_ms, cum_wave_time_ms ));
+      } FD_SCRATCH_SCOPE_END;
     }
-    slot_ctx->slot_bank.transaction_count += txn_cnt;
+    slot_ctx->slot_bank.transaction_count += total_txn_cnt;
+
+    #undef BATCH_SIZE
 
     return res;
-  } FD_SCRATCH_SCOPE_END;
 }
 
 // TODO: add tracking account_state hashes so that we can verify our
