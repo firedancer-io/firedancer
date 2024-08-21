@@ -95,7 +95,7 @@ fd_topo_frankendancer( config_t * config ) {
   /**/                 fd_topob_link( topo, "plugin_out",   "plugin_out",   0,        128UL,                                    8UL+40200UL*(58UL+12UL*34UL), 1UL );
   /**/                 fd_topob_link( topo, "replay_plugi", "plugin_in",    0,        128UL,                                    8UL,                    1UL );
   /**/                 fd_topob_link( topo, "gossip_plugi", "plugin_in",    0,        128UL,                                    8UL+40200UL*(58UL+12UL*34UL), 1UL );
-  /**/                 fd_topob_link( topo, "slot_plugin",  "plugin_in",    0,        128UL,                                    8UL,                    1UL );
+  /**/                 fd_topob_link( topo, "slot_plugin",  "plugin_in",    0,        128UL,                                    8UL,                    4UL );
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX; /* Unassigned tiles will be floating. */

@@ -10,8 +10,12 @@
 
 #include "../topo/fd_topo.h"
 
-#define MAX_SLOTS_CNT         432000UL
-#define MAX_PUB_CNT           50000UL
+#define FD_GUI_MAX_SLOTS_CNT_PER_EPOCH (432000UL)
+#define FD_GUI_MAX_PUB_CNT             (50000UL)
+#define FD_GUI_PER_SLOT_NANOS          (400L*1000L*1000L)
+#define FD_GUI_COUNTER_SAMPLE_NANOS    (100L*1000L*1000L)
+#define FD_GUI_TILE_SAMPLE_NANOS       (10L*1000L*1000L)
+#define FD_GUI_TILE_SAMPLE_PER_SLOT    (FD_GUI_PER_SLOT_NANOS/FD_GUI_TILE_SAMPLE_NANOS)
 
 #define FD_GUI_SLOT_LEVEL_INCOMPLETE               (0)
 #define FD_GUI_SLOT_LEVEL_COMPLETED                (1)
@@ -110,7 +114,7 @@ struct fd_gui_txn_info {
 
 typedef struct fd_gui_txn_info fd_gui_txn_info_t;
 
-struct fd_gui_tile_info {
+struct fd_gui_full_tile_info {
   ulong housekeeping_ticks;
   ulong backpressure_ticks;
   ulong caught_up_ticks;
@@ -119,6 +123,26 @@ struct fd_gui_tile_info {
   ulong filter_before_frag_ticks;
   ulong filter_after_frag_ticks;
   ulong finish_ticks;
+};
+
+typedef struct fd_gui_full_tile_info fd_gui_full_tile_info_t;
+
+FD_FN_UNUSED static ulong
+tile_total_ticks( fd_gui_full_tile_info_t * tile_info ) {
+  return tile_info->housekeeping_ticks +
+         tile_info->backpressure_ticks +
+         tile_info->caught_up_ticks +
+         tile_info->overrun_polling_ticks +
+         tile_info->overrun_reading_ticks +
+         tile_info->filter_before_frag_ticks +
+         tile_info->filter_after_frag_ticks +
+         tile_info->finish_ticks;
+}
+
+struct fd_gui_tile_info {
+  ulong caught_up_ticks;
+  ulong total_ticks;
+  long ts;
 };
 
 typedef struct fd_gui_tile_info fd_gui_tile_info_t;
@@ -157,8 +181,8 @@ struct fd_gui {
     fd_gui_txn_info_t txn_info_prev[ 1 ]; /* Cumulative/Sampled */
     fd_gui_txn_info_t txn_info_this[ 1 ]; /* Cumulative/Sampled */
     fd_gui_txn_info_t txn_info_json[ 1 ]; /* Delta/Computed */
-    fd_gui_txn_info_t txn_info_hist[ FD_GUI_NUM_EPOCHS ][ MAX_SLOTS_CNT ]; /* Historical data */
-    ulong             txn_info_slot[ FD_GUI_NUM_EPOCHS ][ MAX_SLOTS_CNT ]; /* Which slot is the historical data for? */
+    fd_gui_txn_info_t txn_info_hist[ FD_GUI_NUM_EPOCHS ][ FD_GUI_MAX_SLOTS_CNT_PER_EPOCH ]; /* Historical data */
+    ulong             txn_info_slot[ FD_GUI_NUM_EPOCHS ][ FD_GUI_MAX_SLOTS_CNT_PER_EPOCH ]; /* Which slot is the historical data for? */
     ulong             slot_start_high_watermark;
     ulong             slot_end_high_watermark;
 
@@ -168,7 +192,15 @@ struct fd_gui {
     ulong bank_tile_count;
     ulong shred_tile_count;
 
-    fd_gui_tile_info_t tile_info[ FD_TOPO_MAX_TILES * 2 ];
+    /* In a perfect world we'd have exactly x number of samples per
+       slot, but due to clock drift and whatnot, let's just allocate
+       more space for now. TODO implement proper garbage collected ring
+       buffer. */
+#define FD_GUI_MAX_TILES 64
+#define FD_GUI_TILE_SAMPLE_CNT_PER_TILE (FD_GUI_TILE_SAMPLE_PER_SLOT * FD_GUI_MAX_SLOTS_CNT_PER_EPOCH * FD_GUI_NUM_EPOCHS * 2)
+    fd_gui_tile_info_t tile_info[ FD_GUI_MAX_TILES ][ FD_GUI_TILE_SAMPLE_CNT_PER_TILE ];
+    fd_gui_tile_info_t tile_info_slot_start_end[ FD_GUI_NUM_EPOCHS ][ FD_GUI_MAX_TILES ][ FD_GUI_MAX_SLOTS_CNT_PER_EPOCH * 2 ];
+    ulong              tile_info_slot_start_end_sample_cnt[ FD_GUI_NUM_EPOCHS ][ FD_GUI_MAX_SLOTS_CNT_PER_EPOCH * 2 ];
     ulong tile_info_sample_cnt;
     long  last_tile_info_ts;
   } summary;
@@ -180,8 +212,8 @@ struct fd_gui {
       ulong end_slot;
       ulong excluded_stake;
       fd_epoch_leaders_t * lsched;
-      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_PUB_CNT, MAX_SLOTS_CNT) ];
-      fd_stake_weight_t stakes[ MAX_PUB_CNT ];
+      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(FD_GUI_MAX_PUB_CNT, FD_GUI_MAX_SLOTS_CNT_PER_EPOCH) ];
+      fd_stake_weight_t stakes[ FD_GUI_MAX_PUB_CNT ];
     } epochs[ FD_GUI_NUM_EPOCHS ];
     ulong max_known_epoch;
   } epoch;

@@ -19,6 +19,7 @@ void fd_gui_printf_estimated_vote_tps( fd_gui_t * gui );
 void fd_gui_printf_estimated_nonvote_tps( fd_gui_t * gui );
 void fd_gui_printf_estimated_failed_tps( fd_gui_t * gui );
 void fd_gui_printf_tile_info( fd_gui_t * gui );
+void fd_gui_printf_tile_info_for_slot( fd_gui_t * gui, ulong slot );
 
 void fd_gui_printf_open_query_response_envelope( fd_gui_t * gui, ulong seq );
 void fd_gui_printf_close_query_response_envelope( fd_gui_t * gui );
