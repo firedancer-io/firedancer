@@ -183,9 +183,6 @@ interp_exec:
 
   /* 0x00 - 0x0f ******************************************************/
 
-/* FIXME: MORE THINKING AROUND LDQ HANDLING HERE (see below) */
-interp_0x00: // FD_SBPF_OP_ADDL_IMM
-
   FD_VM_INTERP_INSTR_BEGIN(0x04) /* FD_SBPF_OP_ADD_IMM */
     reg[ dst ] = (ulong)(long)( (int)reg_dst + (int)imm );
   FD_VM_INTERP_INSTR_END;
@@ -223,7 +220,9 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
   FD_VM_INTERP_INSTR_BEGIN(0x18) /* FD_SBPF_OP_LDQ */ /* FIXME: MORE THINKING AROUND LDQ HANDLING HERE */
     pc++;
     ic_correction++;
-    if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigsplit; /* Note: untaken branches don't consume BTB */
+    /* Throw sigtext to be consistent with execution overrun errors. 
+       FIXME: Agave performs the LDQ before the check for text overrun. */
+    if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigtext; /* Note: untaken branches don't consume BTB */
     reg[ dst ] = (ulong)((ulong)imm | ((ulong)fd_vm_instr_imm( text[ pc ] ) << 32));
   FD_VM_INTERP_INSTR_END;
 
@@ -537,14 +536,28 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
   FD_VM_INTERP_BRANCH_BEGIN(0x85) /* FD_SBPF_OP_CALL_IMM */
 
-    /* Note we do the stack push before updating the pc.  This implies
+    fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( syscalls, imm, NULL );
+    if( FD_UNLIKELY( !syscall ) ) { /* Optimize for the syscall case */
+
+      /* Note we do the stack push before updating the pc(*). This implies
        that the call stack frame gets allocated _before_ checking if the
        call target is valid.  It would be fine to switch the order
        though such would change the precise faulting semantics of
-       sigcall and sigstack. */
+       sigcall and sigstack.
+       
+       (*)but after checking calldests, see point below. */
 
-    fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( syscalls, imm, NULL );
-    if( FD_UNLIKELY( !syscall ) ) { /* Optimize for the syscall case */
+      /* Agave's order of checks
+         (https://github.com/solana-labs/rbpf/blob/v0.8.5/src/interpreter.rs#L486):
+          1. Lookup imm hash in FunctionRegistry (calldests_test is our equivalent)
+          2. Push stack frame
+          3. Check PC
+          4. Update PC
+          
+          Following this precisely is impossible as our PC check also
+          serves as a bounds check for the calldests_test call. The following
+          is a best-effort implementation that should match the VM state
+          in all ways except error code. */
 
       /* Note the original implementation had the imm magic number
           check after the calldest check.  But fd_pchash_inverse of the
@@ -552,12 +565,22 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
           values.  So we do it first to simplify the code and clean up
           fault handling. */
 
-      FD_VM_INTERP_STACK_PUSH;
+      if( FD_UNLIKELY( imm==0x71e3cf81U ) ){
+        FD_VM_INTERP_STACK_PUSH;
+        pc = entry_pc; /* FIXME: MAGIC NUMBER */
+      } else {
+        
+        ulong target_pc = (ulong)fd_pchash_inverse( imm );
+        if( FD_UNLIKELY( target_pc>=text_cnt ) ){
+          /* ...to match state of Agave VM when faulting */
+          FD_VM_INTERP_STACK_PUSH;
+          goto sigtextbr;
+        }
 
-      if( FD_UNLIKELY( imm==0x71e3cf81U ) ) pc = entry_pc; /* FIXME: MAGIC NUMBER */
-      else {
-        pc = (ulong)fd_pchash_inverse( imm );
-        if( FD_UNLIKELY( pc>=text_cnt ) || FD_UNLIKELY( !fd_sbpf_calldests_test( calldests, pc ) ) ) goto sigcall;
+        if( FD_UNLIKELY( !fd_sbpf_calldests_test( calldests, target_pc ) ) ) goto sigcall;
+
+        FD_VM_INTERP_STACK_PUSH;
+        pc = target_pc;
       }
       pc--;
 
@@ -641,16 +664,20 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
 
     ulong region = vaddr >> 32;
     ulong align  = vaddr & 7UL;
-    pc = ((vaddr & 0xffffffffUL)/8UL) - text_word_off;
 
-    /* Note: BRANCH_END will implicitly handle a pc that fell outside
-       the text section (below via unsigned wraparoud or above) as
-       sigtext */
+    /* Agave checks jump target before updating pc
+      (https://github.com/solana-labs/rbpf/blob/v0.8.5/src/interpreter.rs#L452) */
+    ulong target_pc = ((vaddr & 0xffffffffUL)/8UL) - text_word_off; /* FIXME: Underflow case? */
+    if( FD_UNLIKELY( (target_pc>=text_cnt) 
+                   | (region != 1UL) 
+                   | (!!align) ) ) {
+      goto sigtextbr;
+    }
+
+    pc = target_pc;
 
     /* FIXME: when static_syscalls are enabled, check that the call destination is valid */
     /* FIXME: sigbus for misaligned? */
-
-    if( FD_UNLIKELY( (region!=1UL) | (!!align) ) ) goto sigcall; /* Note: untaken branches don't consume BTB */
 
     pc--;
 
@@ -663,11 +690,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x95) /* FD_SBPF_OP_EXIT */
-    if( FD_UNLIKELY( !frame_cnt ) ) {
-        pc++;
-        pc0 = pc; /* Start a new linear segment */
-        goto sigexit; /* Exit program */
-    }
+    if( FD_UNLIKELY( !frame_cnt ) ) goto sigexit; /* Exit program */
     frame_cnt--;
     reg[6]   = shadow[ frame_cnt ].r6;
     reg[7]   = shadow[ frame_cnt ].r7;
@@ -806,15 +829,20 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
   /* FIXME: sigbus/sigrdonly are mapped to sigsegv for simplicity
      currently but could be enabled if desired. */
 
+  /* Note: sigtextbr is for sigtext errors that occur on branching 
+     instructions (i.e., prefixed with FD_VM_INTERP_BRANCH_BEGIN).
+     We skip a repeat ic accumulation in FD_VM_INTERP_FAULT */
+
   /* FD_VM_INTERP_FAULT accumulates to ic and cu all non-faulting
      instructions preceeding a fault generated by a non-branching
      instruction.  When a non-branching instruction faults, pc is at the
      instruction and the number of non-branching instructions that have
      not yet been reflected in ic and cu is:
 
-       pc - pc0 - ic_correction
+       pc - pc0 - ic_correction + 1
 
-     as per the accounting described above.
+     as per the accounting described above. +1 adds the faulting instruction
+     without incrementing the pc, which is Agave's behavior for some reason. 
 
      Note that, for a sigtext caused by a branch instruction, pc0==pc
      (from the BRANCH_END) and ic_correction==0 (from the BRANCH_BEGIN)
@@ -824,23 +852,24 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
      sigsplit. */
 
 #define FD_VM_INTERP_FAULT                                          \
-  ic_correction = pc - pc0 - ic_correction;                         \
+  ic_correction = pc - pc0 - ic_correction + 1UL;                   \
   ic += ic_correction;                                              \
   if ( FD_UNLIKELY( ic_correction > cu ) ) err = FD_VM_ERR_SIGCOST; \
   cu -= fd_ulong_min( ic_correction, cu )
 
-sigtext:     FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGTEXT;   goto interp_halt;
-sigsplit:    FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGSPLIT;  goto interp_halt;
-sigcall:     /* ic current */    /* cu current */ err = FD_VM_ERR_SIGCALL;   goto interp_halt;
-sigstack:    /* ic current */    /* cu current */ err = FD_VM_ERR_SIGSTACK;  goto interp_halt;
-sigill:      FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGILL;    goto interp_halt;
-sigsegv:     FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGSEGV;   goto interp_halt;
-//sigbus:    FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGBUS;    goto interp_halt;
-//sigrdonly: FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGRDONLY; goto interp_halt;
-sigcost:     /* ic current */    cu = 0UL;        err = FD_VM_ERR_SIGCOST;   goto interp_halt;
-sigsyscall:  /* ic current */    /* cu current */ /* err current */          goto interp_halt;
-sigfpe:      FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGFPE;    goto interp_halt;
-sigexit:     FD_VM_INTERP_FAULT; /* cu current */ /* err current */         goto interp_halt;
+sigtext:     err = FD_VM_ERR_SIGTEXT;   FD_VM_INTERP_FAULT;                     goto interp_halt;
+sigtextbr:   err = FD_VM_ERR_SIGTEXT;   /* ic current */    /* cu current */    goto interp_halt;
+// sigsplit: err = FD_VM_ERR_SIGSPLIT;  FD_VM_INTERP_FAULT;                     goto interp_halt;
+sigcall:     err = FD_VM_ERR_SIGILL;    /* ic current */    /* cu current */    goto interp_halt;
+sigstack:    err = FD_VM_ERR_SIGSTACK;  /* ic current */    /* cu current */    goto interp_halt;
+sigill:      err = FD_VM_ERR_SIGILL;    FD_VM_INTERP_FAULT;                     goto interp_halt;
+sigsegv:     err = FD_VM_ERR_SIGSEGV;   FD_VM_INTERP_FAULT;                     goto interp_halt;
+//sigbus:    err = FD_VM_ERR_SIGBUS;    FD_VM_INTERP_FAULT;                     goto interp_halt;
+//sigrdonly: err = FD_VM_ERR_SIGRDONLY; FD_VM_INTERP_FAULT;                     goto interp_halt;
+sigcost:     err = FD_VM_ERR_SIGCOST;   /* ic current */    cu = 0UL;           goto interp_halt;
+sigsyscall:  /* err current */          /* ic current */    /* cu current */    goto interp_halt;
+sigfpe:      err = FD_VM_ERR_SIGFPE;    FD_VM_INTERP_FAULT;                     goto interp_halt;
+sigexit:     /* err current */          /* ic current */    /* cu current */    goto interp_halt;
 
 #undef FD_VM_INTERP_FAULT
 
