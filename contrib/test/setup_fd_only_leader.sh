@@ -30,7 +30,7 @@ _PRIMARY_INTERFACE=enp75s0f0
 PRIMARY_IP=$(ip addr show $_PRIMARY_INTERFACE | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1)
 
 echo "
-name = \"fd1test\"
+name = \"fd1\"
 [layout]
     affinity = \"1-37\"
     bank_tile_count = 1
@@ -64,6 +64,9 @@ name = \"fd1test\"
     level_flush = \"ERR\"
 [development]
     topology = \"firedancer\"
+    [development.bench]
+        larger_max_cost_per_block = true
+        larger_shred_limits_per_block = true
 [consensus]
     vote = true
     identity_path = \"validator-keypair.json\"
