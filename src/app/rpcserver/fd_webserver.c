@@ -14,6 +14,8 @@
 #include "fd_methods.h"
 #include "fd_webserver.h"
 
+#define FD_RPC_VERBOSE
+
 struct fd_websocket_ctx {
   fd_webserver_t * ws;
   ulong connection_id;
@@ -140,7 +142,7 @@ request( fd_http_server_request_t const * request ) {
     if( strcmp(request->path, "/") != 0 ) {
       fd_web_error( ws, "POST path must be \"/\"" );
 
-    } else if( strcasecmp(request->headers.content_type, "application/json") != 0 ) {
+    } else if( strncasecmp(request->headers.content_type, "application/json", 16 ) != 0 ) {
       fd_web_error( ws, "content type must be \"application/json\"" );
 
     } else {

@@ -438,11 +438,19 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
     return 0;
   }
 
+  fd_block_map_t parent_meta[1];
+  if( fd_blockstore_block_map_query_volatile( blockstore, slotn, meta ) ) {
+    fd_web_error(ws, "failed to display block for slot %lu", slotn);
+    return 0;
+  }
+
+
   const char * err = fd_block_to_json(ws,
                                       ctx->call_id,
                                       blk_data,
                                       blk_sz,
                                       meta,
+                                      parent_meta,
                                       enc,
                                       (maxvers == NULL ? 0 : *(const long*)maxvers),
                                       det,
@@ -1085,7 +1093,7 @@ method_getSignatureStatuses(struct json_values* values, fd_rpc_ctx_t * ctx) {
     }
 
     // TODO other fields
-    fd_web_reply_sprintf(ws, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"confirmationStatus\":%s}",
+    fd_web_reply_sprintf(ws, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"status\":{\"Ok\":null},\"confirmationStatus\":%s}",
                          elem.slot, block_flags_to_confirmation_status(flags));
   }
 

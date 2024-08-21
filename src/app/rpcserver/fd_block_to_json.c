@@ -233,7 +233,8 @@ const char*
     return NULL;
   }
 
-  EMIT_SIMPLE("\"transaction\":{\"message\":{\"accountKeys\":[");
+  EMIT_SIMPLE("\"meta\":null,\"transaction\":{");
+  EMIT_SIMPLE("\"message\":{\"accountKeys\":[");
 
   ushort acct_cnt = txn->acct_addr_cnt;
   const fd_pubkey_t * accts = (const fd_pubkey_t *)(raw + txn->acct_addr_off);
@@ -280,8 +281,10 @@ const char*
   }
   fd_web_reply_sprintf(ws, "]},\"version\":%s", vers);
 
+
   return NULL;
 }
+
 const char*
   fd_txn_to_json_accts( fd_webserver_t * ws,
                         fd_txn_t* txn,
@@ -341,16 +344,19 @@ fd_block_to_json( fd_webserver_t * ws,
                   const uchar * blk_data,
                   ulong blk_sz,
                   fd_block_map_t * meta,
+                  fd_block_map_t * parent_meta,
                   fd_rpc_encoding_t encoding,
                   long maxvers,
                   enum fd_block_detail detail,
                   int rewards) {
   EMIT_SIMPLE("{\"jsonrpc\":\"2.0\",\"result\":{");
 
-  char hash[50];
-  fd_base58_encode_32(meta->block_hash.uc, 0, hash);
-  fd_web_reply_sprintf(ws, "\"blockHeight\":%lu,\"blockTime\":%ld,\"parentSlot\":%lu,\"blockhash\":\"%s\"",
-                       meta->height, meta->ts/(long)1e9, meta->parent_slot, hash);
+  char hash[FD_BASE58_ENCODED_64_SZ];
+  fd_base58_encode_32( meta->block_hash.uc, 0, hash );
+  char parent_hash[FD_BASE58_ENCODED_64_SZ];
+  fd_base58_encode_32( parent_meta->block_hash.uc, 0, parent_hash );
+  fd_web_reply_sprintf(ws, "\"blockHeight\":%lu,\"blockTime\":%ld,\"parentSlot\":%lu,\"blockhash\":\"%s\",\"previousBlockhash\":\"%s\"",
+                       meta->height, meta->ts/(long)1e9, meta->parent_slot, hash, parent_hash);
 
   if( detail == FD_BLOCK_DETAIL_NONE ) {
     fd_web_reply_sprintf(ws, "},\"id\":%s}", call_id);
