@@ -497,19 +497,16 @@ _fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
 
   /* Validate file header */
   if( FD_UNLIKELY( (err=fd_sbpf_check_ehdr( &elf->ehdr, elf_sz ))!=0 ) ) {
-    FD_LOG_WARNING(("SAD 1"));
     return err;
   }
 
   /* Program headers */
   if( FD_UNLIKELY( (err=fd_sbpf_load_phdrs( info, elf,  elf_sz ))!=0 ) ) {
-    FD_LOG_WARNING(("SAD 2"));
     return err;
   }
 
   /* Section headers */
   if( FD_UNLIKELY( (err=fd_sbpf_load_shdrs( info, elf,  elf_sz, elf_deploy_checks ))!=0 ) ) {
-    FD_LOG_WARNING(("SAD 3"));
     return err;
   }
 

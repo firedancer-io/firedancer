@@ -13,6 +13,7 @@ from typing import List
 from multiprocessing.sharedctypes import SynchronizedBase
 from multiprocessing import Event, Value, Array
 
+
 import tqdm
 from pqdm.processes import pqdm
 
@@ -27,6 +28,8 @@ from solders.compute_budget import set_compute_unit_limit, set_compute_unit_pric
 from solders.pubkey import Pubkey
 from solders.signature import Signature
 from solders.message import Message
+from solders.instruction import AccountMeta, Instruction
+from solders.system_program import ID as SYS_PROGRAM_ID
 
 from spl.token.client import Token
 from spl.token.constants import TOKEN_PROGRAM_ID
@@ -39,11 +42,13 @@ from spl.token.instructions import TransferParams as SplTransferParams
 TXN_TYPE_EMPTY = 0
 TXN_TYPE_SYSTEM_TRANSFER = 1
 TXN_TYPE_TOKEN_TRANSFER = 2
+NANO_TOKEN_ID = "NanoToken1111111111111111111111111111111111"
 
 seed_file = open("../test-ledger/faucet-keypair.json", "r")
 top_seed = bytes(json.load(seed_file))
 fd_mint = Keypair.from_seed_and_derivation_path(top_seed, f"m/44'/45'/30'/99999'")
 print("fd mint address: " + str(fd_mint.pubkey()))
+config_acc = Keypair.from_seed_and_derivation_path(top_seed, f"m/44'/45'/30'/99997'")
 
 def get_recent_blockhash(rpc: str) -> Hash:
   data="{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"getLatestBlockhash\",\"params\":[{\"commitment\":\"processed\"}]}"
@@ -143,6 +148,22 @@ def send_round_of_txs(txs: List[Transaction], sock, tpus):
             sock.sendto(message, tpu)
         time.sleep(0.001)
 
+
+def fund_config_account(funder, lamports, recent_blockhash, range ):
+    tx = Transaction(recent_blockhash, None, funder.pubkey(),[set_compute_unit_price(3), set_compute_unit_limit(300_000)])
+    tx = tx.add(create_account(CreateAccountParams(from_pubkey=funder.pubkey(), to_pubkey=fd_mint.pubkey(), 
+                                                   lamports=lamports+range, space=16, owner=NANO_TOKEN_ID)))
+    data = (0).to_bytes(length=8, byte_order="little", signed=False) # 0 discrim
+    keys = [
+        AccountMeta(pubkey=config_acc.pubkey(), is_signer=False, is_writable=True ),
+        AccountMeta(pubkey=SYS_PROGRAM_ID, is_signer=False, is_writable=False ),
+        AccountMeta(pubkey=funder.pubkey(), is_singer=False, is_writable=False)
+    ]
+    insn = Instruction(account=keys, program_id=NANO_TOKEN_ID, data=data)
+    tx = tx.add(insn)
+    tx.sign( funder )
+    return tx
+
 def fund_token_account(funder, lamports, recent_blockhash, is_print, range ):
     tx = Transaction(recent_blockhash, None, funder.pubkey(),[set_compute_unit_price(3), set_compute_unit_limit(300_000)])
     tx = tx.add(create_account(CreateAccountParams(from_pubkey=funder.pubkey(), to_pubkey=fd_mint.pubkey(), 
@@ -210,6 +231,10 @@ def create_accounts(funder, rpc, num_accs, lamports, seed, sock, tpus, txn_type)
     send_round_of_txs(txs, sock, tpus)
 
     # fund_token_account( funder, lamports, get_recent_blockhash(rpc), 1, 0 )
+    if not get_account_info(rpc, config_acc.pubkey()):
+        recent_blockhash = get_recent_blockhash(rpc)
+        txs = pqdm([i for i in range(2000)], partial(fund_config_account, funder, lamports, recent_blockhash), desc="fund config", n_jobs=32)
+        send_round_of_txs(txs, sock, tpus)
 
     if not get_account_info(rpc, fd_mint.pubkey()):
         recent_blockhash = get_recent_blockhash(rpc)
@@ -238,6 +263,11 @@ def create_accounts(funder, rpc, num_accs, lamports, seed, sock, tpus, txn_type)
         if not get_account_info(rpc, fd_mint.pubkey()):
             recent_blockhash = get_recent_blockhash(rpc)
             txs = pqdm([i for i in range(2000)], partial(fund_token_account, funder, lamports, recent_blockhash, 0), desc="fund token", n_jobs=32)
+            send_round_of_txs(txs, sock, tpus)
+
+        if not get_account_info(rpc, config_acc.pubkey()):
+            recent_blockhash = get_recent_blockhash(rpc)
+            txs = pqdm([i for i in range(2000)], partial(fund_config_account, funder, lamports, recent_blockhash), desc="fund config", n_jobs=32)
             send_round_of_txs(txs, sock, tpus)
 
         time.sleep(5)
