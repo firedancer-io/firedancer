@@ -14,6 +14,7 @@
 #include <errno.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <stdarg.h>
 
 #define CRLF "\r\n"
 #define MATCH_STRING(_text_,_text_sz_,_str_) (_text_sz_ == sizeof(_str_)-1 && memcmp(_text_, _str_, sizeof(_str_)-1) == 0)
@@ -218,6 +219,29 @@ fd_method_cleanup( uchar ** smem ) {
 
 #define FD_METHOD_SCRATCH_END while(0); } while(0)
 
+static void
+fd_method_simple_error( fd_rpc_ctx_t * ctx, int errcode, const char* text ) {
+  fd_webserver_t * ws = &ctx->global->ws;
+  fd_hcache_reset(ws->hcache);
+  ws->quick_size = 0;
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"%s\"},\"id\":%s}",
+                       errcode, text, ctx->call_id );
+}
+
+static void
+fd_method_error( fd_rpc_ctx_t * ctx, int errcode, const char* format, ... )
+  __attribute__ ((format (printf, 3, 4)));
+
+static void
+fd_method_error( fd_rpc_ctx_t * ctx, int errcode, const char* format, ... ) {
+  char text[4096];
+  va_list ap;
+  va_start(ap, format);
+  vsnprintf(text, sizeof(text), format, ap);
+  va_end(ap);
+  fd_method_simple_error(ctx, errcode, text);
+}
+
 // Implementation of the "getAccountInfo" method
 // curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d '{ "jsonrpc": "2.0", "id": 1, "method": "getAccountInfo", "params": [ "21bVZhkqPJRVYDG3YpYtzHLMvkc7sa4KB7fMwGekTquG", { "encoding": "base64" } ] }'
 
@@ -235,13 +259,13 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     ulong arg_sz = 0;
     const void* arg = json_get_value(values, PATH, 3, &arg_sz);
     if (arg == NULL) {
-      fd_web_error(ws, "getAccountInfo requires a string as first parameter");
+      fd_method_error(ctx, -1, "getAccountInfo requires a string as first parameter");
       return 0;
     }
 
     fd_pubkey_t acct;
     if( fd_base58_decode_32((const char *)arg, acct.uc) == NULL ) {
-      fd_web_error(ws, "invalid base58 encoding");
+      fd_method_error(ctx, -1, "invalid base58 encoding");
       return 0;
     }
     ulong val_sz;
@@ -270,7 +294,7 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     else if (MATCH_STRING(enc_str, enc_str_sz, "jsonParsed"))
       enc = FD_ENC_JSON;
     else {
-      fd_web_error(ws, "invalid data encoding %s", (const char*)enc_str);
+      fd_method_error(ctx, -1, "invalid data encoding %s", (const char*)enc_str);
       return 0;
     }
 
@@ -299,7 +323,7 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
                          ctx->global->last_slot_notify.slot_exec.slot);
     const char * err = fd_account_to_json( ws, acct, enc, val, val_sz, off, len );
     if( err ) {
-      fd_web_error(ws, "%s", err);
+      fd_method_error(ctx, -1, "%s", err);
       return 0;
     }
     fd_web_reply_sprintf(ws, "},\"id\":%s}" CRLF, ctx->call_id);
@@ -325,12 +349,12 @@ method_getBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
     ulong arg_sz = 0;
     const void* arg = json_get_value(values, PATH, 3, &arg_sz);
     if (arg == NULL) {
-      fd_web_error(ws, "getBalance requires a string as first parameter");
+      fd_method_error(ctx, -1, "getBalance requires a string as first parameter");
       return 0;
     }
     fd_pubkey_t acct;
     if( fd_base58_decode_32((const char *)arg, acct.uc) == NULL ) {
-      fd_web_error(ws, "invalid base58 encoding");
+      fd_method_error(ctx, -1, "invalid base58 encoding");
       return 0;
     }
     ulong val_sz;
@@ -386,7 +410,7 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong slot_sz = 0;
   const void* slot = json_get_value(values, PATH_SLOT, 3, &slot_sz);
   if (slot == NULL) {
-    fd_web_error(ws, "getBlock requires a slot number as first parameter");
+    fd_method_error(ctx, -1, "getBlock requires a slot number as first parameter");
     return 0;
   }
   ulong slotn = (ulong)(*(long*)slot);
@@ -403,7 +427,7 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
   else if (MATCH_STRING(enc_str, enc_str_sz, "jsonParsed"))
     enc = FD_ENC_JSON_PARSED;
   else {
-    fd_web_error(ws, "invalid data encoding %s", (const char*)enc_str);
+    fd_method_error(ctx, -1, "invalid data encoding %s", (const char*)enc_str);
     return 0;
   }
 
@@ -422,7 +446,7 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
   else if (MATCH_STRING(det_str, det_str_sz, "none"))
     det = FD_BLOCK_DETAIL_NONE;
   else {
-    fd_web_error(ws, "invalid block detail %s", (const char*)det_str);
+    fd_method_error(ctx, -1, "invalid block detail %s", (const char*)det_str);
     return 0;
   }
 
@@ -434,7 +458,7 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_block_map_t meta[1];
   uchar * blk_data;
   if( fd_blockstore_block_data_query_volatile( blockstore, slotn, meta, fd_libc_alloc_virtual(), &blk_data, &blk_sz ) ) {
-    fd_web_error(ws, "failed to display block for slot %lu", slotn);
+    fd_method_error(ctx, -1, "failed to display block for slot %lu", slotn);
     return 0;
   }
 
@@ -449,7 +473,7 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
                                       (rewards == NULL ? 1 : *(const int*)rewards));
   if( err ) {
     free( blk_data );
-    fd_web_error(ws, "%s", err);
+    fd_method_error(ctx, -1, "%s", err);
     return 0;
   }
   free( blk_data );
@@ -461,8 +485,7 @@ static int
 method_getBlockCommitment(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getBlockCommitment is not implemented");
+  fd_method_error(ctx, -1, "getBlockCommitment is not implemented");
   return 0;
 }
 
@@ -485,8 +508,7 @@ static int
 method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getBlockProduction is not implemented");
+  fd_method_error(ctx, -1, "getBlockProduction is not implemented");
   return 0;
 }
 
@@ -504,7 +526,7 @@ method_getBlocks(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong startslot_sz = 0;
   const void* startslot = json_get_value(values, PATH_STARTSLOT, 3, &startslot_sz);
   if (startslot == NULL) {
-    fd_web_error(ws, "getBlocks requires a start slot number as first parameter");
+    fd_method_error(ctx, -1, "getBlocks requires a start slot number as first parameter");
     return 0;
   }
   ulong startslotn = (ulong)(*(long*)startslot);
@@ -552,7 +574,7 @@ method_getBlocksWithLimit(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong startslot_sz = 0;
   const void* startslot = json_get_value(values, PATH_SLOT, 3, &startslot_sz);
   if (startslot == NULL) {
-    fd_web_error(ws, "getBlocksWithLimit requires a start slot number as first parameter");
+    fd_method_error(ctx, -1, "getBlocksWithLimit requires a start slot number as first parameter");
     return 0;
   }
   ulong startslotn = (ulong)(*(long*)startslot);
@@ -564,7 +586,7 @@ method_getBlocksWithLimit(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong limit_sz = 0;
   const void* limit = json_get_value(values, PATH_LIMIT, 3, &limit_sz);
   if (limit == NULL) {
-    fd_web_error(ws, "getBlocksWithLimit requires a limit as second parameter");
+    fd_method_error(ctx, -1, "getBlocksWithLimit requires a limit as second parameter");
     return 0;
   }
   ulong limitn = (ulong)(*(long*)limit);
@@ -608,7 +630,7 @@ method_getBlockTime(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong slot_sz = 0;
   const void* slot = json_get_value(values, PATH_SLOT, 3, &slot_sz);
   if (slot == NULL) {
-    fd_web_error(ws, "getBlockTime requires a slot number as first parameter");
+    fd_method_error(ctx, -1, "getBlockTime requires a slot number as first parameter");
     return 0;
   }
   ulong slotn = (ulong)(*(long*)slot);
@@ -617,7 +639,7 @@ method_getBlockTime(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_block_map_t meta[1];
   int ret = fd_blockstore_block_map_query_volatile(blockstore, slotn, meta);
   if (ret) {
-    fd_web_error(ws, "invalid slot: %lu", slotn);
+    fd_method_error(ctx, -1, "invalid slot: %lu", slotn);
     return 0;
   }
 
@@ -632,8 +654,7 @@ static int
 method_getClusterNodes(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getClusterNodes is not implemented");
+  fd_method_error(ctx, -1, "getClusterNodes is not implemented");
   return 0;
 }
 
@@ -649,12 +670,12 @@ method_getEpochInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     ulong smr;
     fd_epoch_bank_t * epoch_bank = read_epoch_bank(ctx, fd_scratch_virtual(), &smr);
     if( epoch_bank == NULL ) {
-      fd_web_error(ws, "unable to read epoch_bank");
+      fd_method_error(ctx, -1, "unable to read epoch_bank");
       return 0;
     }
     fd_slot_bank_t * slot_bank = read_slot_bank(ctx, fd_scratch_virtual());
     if( slot_bank == NULL ) {
-      fd_web_error(ws, "unable to read slot_bank");
+      fd_method_error(ctx, -1, "unable to read slot_bank");
       return 0;
     }
     ulong slot_idx = 0;
@@ -709,17 +730,17 @@ method_getFeeForMessage(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong arg_sz = 0;
   const void* arg = json_get_value(values, PATH, 3, &arg_sz);
   if (arg == NULL) {
-    fd_web_error(ws, "getFeeForMessage requires a string as first parameter");
+    fd_method_error(ctx, -1, "getFeeForMessage requires a string as first parameter");
     return 0;
   }
   if( FD_BASE64_DEC_SZ(arg_sz) > FD_TXN_MTU ) {
-    fd_web_error(ws, "message too large");
+    fd_method_error(ctx, -1, "message too large");
     return 0;
   }
   uchar data[FD_TXN_MTU];
   long res = fd_base64_decode( data, (const char*)arg, arg_sz );
   if( res < 0 ) {
-    fd_web_error(ws, "failed to decode base64 data");
+    fd_method_error(ctx, -1, "failed to decode base64 data");
     return 0;
   }
   ulong data_sz = (ulong)res;
@@ -776,8 +797,7 @@ static int
 method_getHighestSnapshotSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getHighestSnapshotSlot is not implemented");
+  fd_method_error(ctx, -1, "getHighestSnapshotSlot is not implemented");
   return 0;
 }
 
@@ -801,8 +821,7 @@ static int
 method_getInflationGovernor(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getInflationGovernor is not implemented");
+  fd_method_error(ctx, -1, "getInflationGovernor is not implemented");
   return 0;
 }
 
@@ -813,8 +832,7 @@ static int
 method_getInflationRate(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getInflationRate is not implemented");
+  fd_method_error(ctx, -1, "getInflationRate is not implemented");
   return 0;
   /* FIXME!
      fd_webserver_t * ws = &ctx->global->ws;
@@ -836,8 +854,7 @@ static int
 method_getInflationReward(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getInflationReward is not implemented");
+  fd_method_error(ctx, -1, "getInflationReward is not implemented");
   return 0;
 }
 
@@ -846,8 +863,7 @@ static int
 method_getLargestAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getLargestAccounts is not implemented");
+  fd_method_error(ctx, -1, "getLargestAccounts is not implemented");
   return 0;
 }
 
@@ -875,8 +891,7 @@ static int
 method_getLeaderSchedule(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getLeaderSchedule is not implemented");
+  fd_method_error(ctx, -1, "getLeaderSchedule is not implemented");
   return 0;
 }
 
@@ -885,8 +900,7 @@ static int
 method_getMaxRetransmitSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getMaxRetransmitSlot is not implemented");
+  fd_method_error(ctx, -1, "getMaxRetransmitSlot is not implemented");
   return 0;
 }
 
@@ -954,7 +968,7 @@ method_getMultipleAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
     else if (MATCH_STRING(enc_str, enc_str_sz, "jsonParsed"))
       enc = FD_ENC_JSON;
     else {
-      fd_web_error(ws, "invalid data encoding %s", (const char*)enc_str);
+      fd_method_error(ctx, -1, "invalid data encoding %s", (const char*)enc_str);
       return 0;
     }
 
@@ -980,7 +994,7 @@ method_getMultipleAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
       fd_pubkey_t acct;
       if( fd_base58_decode_32((const char *)arg, acct.uc) == NULL ) {
-        fd_web_error(ws, "invalid base58 encoding");
+        fd_method_error(ctx, -1, "invalid base58 encoding");
         return 0;
       }
       fd_scratch_push();
@@ -993,7 +1007,7 @@ method_getMultipleAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
       const char * err = fd_account_to_json( ws, acct, enc, val, val_sz, FD_LONG_UNSET, FD_LONG_UNSET );
       if( err ) {
-        fd_web_error(ws, "%s", err);
+        fd_method_error(ctx, -1, "%s", err);
         return 0;
       }
 
@@ -1010,8 +1024,7 @@ static int
 method_getProgramAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getProgramAccounts is not implemented");
+  fd_method_error(ctx, -1, "getProgramAccounts is not implemented");
   return 0;
 }
 
@@ -1020,8 +1033,7 @@ static int
 method_getRecentPerformanceSamples(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getRecentPerformanceSamples is not implemented");
+  fd_method_error(ctx, -1, "getRecentPerformanceSamples is not implemented");
   return 0;
 }
 
@@ -1030,8 +1042,7 @@ static int
 method_getRecentPrioritizationFees(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getRecentPrioritizationFees is not implemented");
+  fd_method_error(ctx, -1, "getRecentPrioritizationFees is not implemented");
   return 0;
 }
 
@@ -1040,8 +1051,7 @@ static int
 method_getSignaturesForAddress(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getSignaturesForAddress is not implemented");
+  fd_method_error(ctx, -1, "getSignaturesForAddress is not implemented");
   return 0;
 }
 
@@ -1115,8 +1125,7 @@ static int
 method_getSlotLeader(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getSlotLeader is not implemented");
+  fd_method_error(ctx, -1, "getSlotLeader is not implemented");
   /* FIXME!
      fd_webserver_t * ws = &ctx->global->ws;
      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":\"");
@@ -1133,8 +1142,7 @@ static int
 method_getSlotLeaders(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getSlotLeaders is not implemented");
+  fd_method_error(ctx, -1, "getSlotLeaders is not implemented");
   return 0;
 }
 
@@ -1143,8 +1151,7 @@ static int
 method_getStakeActivation(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getStakeActivation is not implemented");
+  fd_method_error(ctx, -1, "getStakeActivation is not implemented");
   return 0;
 }
 
@@ -1153,8 +1160,7 @@ static int
 method_getStakeMinimumDelegation(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getStakeMinimumDelegation is not implemented");
+  fd_method_error(ctx, -1, "getStakeMinimumDelegation is not implemented");
   return 0;
 }
 
@@ -1164,8 +1170,7 @@ static int
 method_getSupply(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getSupply is not implemented");
+  fd_method_error(ctx, -1, "getSupply is not implemented");
   return 0;
 }
 
@@ -1174,8 +1179,7 @@ static int
 method_getTokenAccountBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getTokenAccountBalance is not implemented");
+  fd_method_error(ctx, -1, "getTokenAccountBalance is not implemented");
   return 0;
 }
 
@@ -1184,8 +1188,7 @@ static int
 method_getTokenAccountsByDelegate(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getTokenAccountsByDelegate is not implemented");
+  fd_method_error(ctx, -1, "getTokenAccountsByDelegate is not implemented");
   return 0;
 }
 
@@ -1194,8 +1197,7 @@ static int
 method_getTokenAccountsByOwner(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getTokenAccountsByOwner is not implemented");
+  fd_method_error(ctx, -1, "getTokenAccountsByOwner is not implemented");
   return 0;
 }
 
@@ -1204,8 +1206,7 @@ static int
 method_getTokenLargestAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getTokenLargestAccounts is not implemented");
+  fd_method_error(ctx, -1, "getTokenLargestAccounts is not implemented");
   return 0;
 }
 
@@ -1214,8 +1215,7 @@ static int
 method_getTokenSupply(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getTokenSupply is not implemented");
+  fd_method_error(ctx, -1, "getTokenSupply is not implemented");
   return 0;
 }
 
@@ -1251,7 +1251,7 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong sig_sz = 0;
   const void* sig = json_get_value(values, PATH_SIG, 3, &sig_sz);
   if (sig == NULL) {
-    fd_web_error(ws, "getTransaction requires a signature as first parameter");
+    fd_method_error(ctx, -1, "getTransaction requires a signature as first parameter");
     return 0;
   }
 
@@ -1268,7 +1268,7 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   else if (MATCH_STRING(enc_str, enc_str_sz, "jsonParsed"))
     enc = FD_ENC_JSON_PARSED;
   else {
-    fd_web_error(ws, "invalid data encoding %s", (const char*)enc_str);
+    fd_method_error(ctx, -1, "invalid data encoding %s", (const char*)enc_str);
     return 0;
   }
 
@@ -1282,7 +1282,7 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   else if (MATCH_STRING(commit_str, commit_str_sz, "finalized"))
     need_blk_flags = (uchar)(1U << FD_BLOCK_FLAG_FINALIZED);
   else {
-    fd_web_error(ws, "invalid commitment %s", (const char*)commit_str);
+    fd_method_error(ctx, -1, "invalid commitment %s", (const char*)commit_str);
     return 0;
   }
 
@@ -1312,7 +1312,7 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
                        ctx->global->last_slot_notify.slot_exec.slot, blk_ts/(long)1e9, elem.slot);
   const char * err = fd_txn_to_json( ws, (fd_txn_t *)txn_out, txn_data_raw, pay_sz, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
   if( err ) {
-    fd_web_error(ws, "%s", err);
+    fd_method_error(ctx, -1, "%s", err);
     return 0;
   }
   fd_web_reply_sprintf(ws, "},\"id\":%s}" CRLF, ctx->call_id);
@@ -1325,8 +1325,7 @@ static int
 method_getTransactionCount(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "getTransactionCount is not implemented");
+  fd_method_error(ctx, -1, "getTransactionCount is not implemented");
   return 0;
 }
 
@@ -1399,7 +1398,7 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
         fd_vote_accounts_pair_t_mapnode_t key  = { 0 };
         if( fd_base58_decode_32((const char *)arg, key.elem.key.uc) == NULL ) {
-          fd_web_error(ws, "invalid base58 encoding");
+          fd_method_error(ctx, -1, "invalid base58 encoding");
           return 0;
         }
         fd_vote_accounts_pair_t_mapnode_t * vote_node = fd_vote_accounts_pair_t_map_find( pool, root, &key );
@@ -1432,13 +1431,13 @@ method_isBlockhashValid(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong arg_sz = 0;
   const void* arg = json_get_value(values, PATH, 3, &arg_sz);
   if (arg == NULL) {
-    fd_web_error(ws, "isBlockhashValid requires a string as first parameter");
+    fd_method_error(ctx, -1, "isBlockhashValid requires a string as first parameter");
     return 0;
   }
 
   fd_hash_t h;
   if( fd_base58_decode_32((const char *)arg, h.uc) == NULL ) {
-    fd_web_error(ws, "invalid base58 encoding");
+    fd_method_error(ctx, -1, "invalid base58 encoding");
     return 0;
   }
 
@@ -1460,8 +1459,7 @@ static int
 method_minimumLedgerSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "minimumLedgerSlot is not implemented");
+  fd_method_error(ctx, -1, "minimumLedgerSlot is not implemented");
   return 0;
 }
 
@@ -1470,8 +1468,7 @@ static int
 method_requestAirdrop(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "requestAirdrop is not implemented");
+  fd_method_error(ctx, -1, "requestAirdrop is not implemented");
   return 0;
 }
 
@@ -1493,7 +1490,7 @@ method_sendTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   else if (MATCH_STRING(enc_str, enc_str_sz, "base64"))
     enc = FD_ENC_BASE64;
   else {
-    fd_web_error(ws, "invalid data encoding %s", (const char*)enc_str);
+    fd_method_error(ctx, -1, "invalid data encoding %s", (const char*)enc_str);
     return 0;
   }
 
@@ -1505,7 +1502,7 @@ method_sendTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong arg_sz = 0;
   const void* arg = json_get_value(values, DATAPATH, 3, &arg_sz);
   if (arg == NULL) {
-    fd_web_error(ws, "sendTransaction requires a string as first parameter");
+    fd_method_error(ctx, -1, "sendTransaction requires a string as first parameter");
     return 0;
   }
 
@@ -1513,18 +1510,18 @@ method_sendTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong data_sz = FD_TXN_MTU;
   if( enc == FD_ENC_BASE58 ) {
     if( b58tobin( data, &data_sz, (const char*)arg, arg_sz ) ) {
-      fd_web_error(ws, "failed to decode base58 data");
+      fd_method_error(ctx, -1, "failed to decode base58 data");
       return 0;
     }
   } else {
     FD_TEST( enc == FD_ENC_BASE64 );
     if( FD_BASE64_DEC_SZ( arg_sz ) > FD_TXN_MTU ) {
-      fd_web_error(ws, "failed to decode base64 data");
+      fd_method_error(ctx, -1, "failed to decode base64 data");
       return 0;
     }
     long res = fd_base64_decode( data, (const char*)arg, arg_sz );
     if( res < 0 ) {
-      fd_web_error(ws, "failed to decode base64 data");
+      fd_method_error(ctx, -1, "failed to decode base64 data");
       return 0;
     }
     data_sz = (ulong)res;
@@ -1536,13 +1533,13 @@ method_sendTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong pay_sz = 0;
   ulong txn_sz = fd_txn_parse_core(data, data_sz, txn_out, NULL, &pay_sz);
   if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ ) {
-    fd_web_error(ws, "failed to parse transaction");
+    fd_method_error(ctx, -1, "failed to parse transaction");
     return 0;
   }
 
   if( sendto( ctx->global->tpu_socket, data, data_sz, 0,
               (const struct sockaddr*)fd_type_pun_const(&ctx->global->tpu_addr), sizeof(ctx->global->tpu_addr) ) < 0 ) {
-    fd_web_error(ws, "failed to send transaction data");
+    fd_method_error(ctx, -1, "failed to send transaction data");
     return 0;
   }
 
@@ -1560,8 +1557,7 @@ static int
 method_simulateTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   (void)ctx;
-  fd_webserver_t * ws = &ctx->global->ws;
-  fd_web_error(ws, "simulateTransaction is not implemented");
+  fd_method_error(ctx, -1, "simulateTransaction is not implemented");
   return 0;
 }
 
@@ -1571,6 +1567,8 @@ fd_webserver_method_generic(struct json_values* values, void * cb_arg) {
   fd_rpc_ctx_t ctx = *( fd_rpc_ctx_t *)cb_arg;
   fd_webserver_t * ws = &ctx.global->ws;
 
+  snprintf(ctx.call_id, sizeof(ctx.call_id)-1, "null");
+
   static const uint PATH[2] = {
     (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_JSONRPC,
     (JSON_TOKEN_STRING<<16)
@@ -1578,11 +1576,11 @@ fd_webserver_method_generic(struct json_values* values, void * cb_arg) {
   ulong arg_sz = 0;
   const void* arg = json_get_value(values, PATH, 2, &arg_sz);
   if (arg == NULL) {
-    fd_web_error(ws, "missing jsonrpc member");
+    fd_method_error(&ctx, -1, "missing jsonrpc member");
     return;
   }
   if (!MATCH_STRING(arg, arg_sz, "2.0")) {
-    fd_web_error(ws, "jsonrpc value must be 2.0");
+    fd_method_error(&ctx, -1, "jsonrpc value must be 2.0");
     return;
   }
 
@@ -1604,7 +1602,7 @@ fd_webserver_method_generic(struct json_values* values, void * cb_arg) {
     if (arg != NULL) {
       snprintf(ctx.call_id, sizeof(ctx.call_id)-1, "\"%s\"", (const char *)arg);
     } else {
-      fd_web_error(ws, "missing id member");
+      fd_method_error(&ctx, -1, "missing id member");
       return;
     }
   }
@@ -1616,7 +1614,7 @@ fd_webserver_method_generic(struct json_values* values, void * cb_arg) {
   arg_sz = 0;
   arg = json_get_value(values, PATH2, 2, &arg_sz);
   if (arg == NULL) {
-    fd_web_error(ws, "missing method member");
+    fd_method_error(&ctx, -1, "missing method member");
     return;
   }
   long meth_id = fd_webserver_json_keyword((const char*)arg, arg_sz);
@@ -1835,7 +1833,7 @@ fd_webserver_method_generic(struct json_values* values, void * cb_arg) {
       return;
     break;
   default:
-    fd_web_error(ws, "unknown or unimplemented method %s", (const char*)arg);
+    fd_method_error(&ctx, -1, "unknown or unimplemented method %s", (const char*)arg);
     return;
   }
 
@@ -1870,7 +1868,7 @@ ws_method_accountSubscribe(ulong conn_id, struct json_values * values, fd_rpc_ct
     }
     fd_pubkey_t acct;
     if( fd_base58_decode_32((const char *)arg, acct.uc) == NULL ) {
-      fd_web_error(ws, "invalid base58 encoding");
+      fd_method_error(ctx, -1, "invalid base58 encoding");
       return 0;
     }
 
