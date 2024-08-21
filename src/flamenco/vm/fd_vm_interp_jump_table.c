@@ -6,7 +6,7 @@
 
 #   define OPCODE(opcode) interp_##opcode
 
-    /* 0x00 */ &&OPCODE(0x00), /* 0x01 */ &&sigill,       /* 0x02 */ &&sigill,       /* 0x03 */ &&sigill,
+    /* 0x00 */ &&sigill,       /* 0x01 */ &&sigill,       /* 0x02 */ &&sigill,       /* 0x03 */ &&sigill,
     /* 0x04 */ &&OPCODE(0x04), /* 0x05 */ &&OPCODE(0x05), /* 0x06 */ &&sigill,       /* 0x07 */ &&OPCODE(0x07),
     /* 0x08 */ &&sigill,       /* 0x09 */ &&sigill,       /* 0x0a */ &&sigill,       /* 0x0b */ &&sigill,
     /* 0x0c */ &&OPCODE(0x0c), /* 0x0d */ &&sigill,       /* 0x0e */ &&sigill,       /* 0x0f */ &&OPCODE(0x0f),
