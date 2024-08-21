@@ -4,7 +4,8 @@
 #include <assert.h>
 #include <limits.h>
 
-#include "../../../ballet/aes/fd_aes_gcm_private.h"
+#include "../../../ballet/aes/fd_aes_base.h"
+#include "../../../ballet/aes/fd_aes_gcm.h"
 
 /* FD_QUIC_CRYPTO_V1_INITIAL_SALT is the salt to the initial secret
    HKDF in QUIC v1. */
@@ -438,7 +439,7 @@ fd_quic_crypto_encrypt(
   uchar * tag         = cipher_text + pkt_sz;
   uchar * pkt_end     = tag + FD_QUIC_CRYPTO_TAG_SZ;
 
-  fd_aes_gcm_aead_encrypt( pkt_cipher, cipher_text, pkt, pkt_sz, hdr, hdr_sz, tag );
+  fd_aes_gcm_encrypt( pkt_cipher, cipher_text, pkt, pkt_sz, hdr, hdr_sz, tag );
 
   *out_sz = (ulong)( pkt_end - out );
 
@@ -523,13 +524,13 @@ fd_quic_crypto_decrypt(
   fd_aes_128_gcm_init( pkt_cipher, keys->pkt_key, nonce );
 
   int decrypt_ok =
-   fd_aes_gcm_aead_decrypt( pkt_cipher,
+   fd_aes_gcm_decrypt( pkt_cipher,
                             out /* ciphertext */, out /* plaintext */,
                             gcm_sz,      /* size of plaintext */
                             hdr, hdr_sz, /* associated data */
                             gcm_tag      /* auth tag */ );
   if( FD_UNLIKELY( !decrypt_ok ) ) {
-   FD_DEBUG( FD_LOG_WARNING(( "fd_aes_gcm_aead_decrypt failed" )) );
+   FD_DEBUG( FD_LOG_WARNING(( "fd_aes_gcm_decrypt failed" )) );
    return FD_QUIC_FAILED;
   }
 

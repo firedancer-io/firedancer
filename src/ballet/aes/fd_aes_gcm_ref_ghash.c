@@ -1,7 +1,7 @@
 /* fd_aes_gcm_ref.c was imported from the OpenSSL project circa 2023-Aug.
    Original source file:  crypto/modes/gcm128.c */
 
-#include "fd_aes_gcm_private.h"
+#include "fd_aes_gcm.h"
 
 /*
  * Copyright 2010-2022 The OpenSSL Project Authors. All Rights Reserved.

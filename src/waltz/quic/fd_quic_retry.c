@@ -4,7 +4,7 @@
 #include "fd_quic_conn_id.h"
 #include "fd_quic_enum.h"
 #include "fd_quic_private.h"
-#include "../../ballet/aes/fd_aes_gcm_private.h"
+#include "../../ballet/aes/fd_aes_gcm.h"
 #include <assert.h>
 
 FD_STATIC_ASSERT( FD_QUIC_RETRY_LOCAL_SZ==

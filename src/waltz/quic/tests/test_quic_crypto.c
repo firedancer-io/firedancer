@@ -212,18 +212,11 @@ main( int     argc,
   FD_LOG_INFO(( "fd_quic_gen_secrets: server_initial_secret PASSED" ));
 
   fd_quic_crypto_keys_t client_keys = {0};
-  if( fd_quic_gen_keys(
-        &client_keys,
-        suite,
-        expected_client_initial_secret,
-        expected_client_initial_secret_sz )
-          != FD_QUIC_SUCCESS ) {
-    FD_LOG_ERR(( "fd_quic_gen_keys failed" ));
-  }
+  FD_TEST( fd_quic_gen_keys( &client_keys, suite, expected_client_initial_secret, expected_client_initial_secret_sz )==FD_QUIC_SUCCESS );
 
-  FD_TEST( 0==memcmp( client_keys.pkt_key, expected_client_key,          sizeof( expected_client_key )         ) );
-  FD_TEST( 0==memcmp( client_keys.iv,      expected_client_quic_iv,      sizeof( expected_client_quic_iv )     ) );
-  FD_TEST( 0==memcmp( client_keys.hp_key,   expected_client_quic_hp_key, sizeof( expected_client_quic_hp_key ) ) );
+  FD_TEST( 0==memcmp( client_keys.pkt_key, expected_client_key,         sizeof( expected_client_key )         ) );
+  FD_TEST( 0==memcmp( client_keys.iv,      expected_client_quic_iv,     sizeof( expected_client_quic_iv )     ) );
+  FD_TEST( 0==memcmp( client_keys.hp_key,  expected_client_quic_hp_key, sizeof( expected_client_quic_hp_key ) ) );
 
   /* TODO compare server keys to expectation */
 
@@ -254,6 +247,11 @@ main( int     argc,
 
   FD_LOG_HEXDUMP_INFO(( "plain_text",  test_client_initial, test_client_initial_sz ));
   FD_LOG_HEXDUMP_INFO(( "cipher_text", cipher_text,         cipher_text_sz         ));
+
+  ulong j; for( j=0UL; j<test_client_encrypted_sz && cipher_text[j]==test_client_encrypted[j]; j++ );
+  if( FD_UNLIKELY( !fd_memeq( cipher_text, test_client_encrypted, test_client_encrypted_sz ) ) ) {
+    FD_LOG_ERR(( "test_client_encrypted mismatch at %#lx", j ));
+  }
 
   uchar revert[4096];
 

@@ -12,7 +12,7 @@
 #include "../templ/fd_quic_undefs.h"
 
 #include "../../../util/net/fd_ip4.h"
-#include "../../../ballet/aes/fd_aes_gcm_private.h"
+#include "../../../ballet/aes/fd_aes_gcm.h"
 
 FD_STATIC_ASSERT( sizeof(((fd_quic_initial_t *)NULL)->token)==FD_QUIC_RETRY_MAX_TOKEN_SZ, layout );
 
