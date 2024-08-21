@@ -28,6 +28,8 @@ fd_gui_new( void *        shmem,
             fd_topo_t *   topo ) {
   fd_gui_t * gui = (fd_gui_t *)shmem;
 
+  FD_TEST( topo->tile_cnt <= FD_GUI_MAX_TILES );
+
   gui->summary.startup_time_nanos = fd_log_wallclock();
 
   gui->hcache = hcache;
@@ -287,29 +289,82 @@ fd_gui_sample_counters( fd_gui_t * gui ) {
 }
 
 static void
+fd_gui_sample_tile_do_sample( fd_gui_tile_info_t * tile_info, fd_topo_tile_t * tile, long ts ) {
+  if ( FD_UNLIKELY( !tile->metrics ) ) {
+    /* bench tiles might not have been booted initially.
+       This check shouldn't be necessary if all tiles barrier after boot. */
+    return;
+  }
+  fd_metrics_register( tile->metrics );
+
+  fd_gui_full_tile_info_t full_tile_info[ 1 ];
+
+  full_tile_info->housekeeping_ticks       = FD_MHIST_SUM( STEM, LOOP_HOUSEKEEPING_DURATION_SECONDS );
+  full_tile_info->backpressure_ticks       = FD_MHIST_SUM( STEM, LOOP_BACKPRESSURE_DURATION_SECONDS );
+  full_tile_info->caught_up_ticks          = FD_MHIST_SUM( STEM, LOOP_CAUGHT_UP_DURATION_SECONDS );
+  full_tile_info->overrun_polling_ticks    = FD_MHIST_SUM( STEM, LOOP_OVERRUN_POLLING_DURATION_SECONDS );
+  full_tile_info->overrun_reading_ticks    = FD_MHIST_SUM( STEM, LOOP_OVERRUN_READING_DURATION_SECONDS );
+  full_tile_info->filter_before_frag_ticks = FD_MHIST_SUM( STEM, LOOP_FILTER_BEFORE_FRAGMENT_DURATION_SECONDS );
+  full_tile_info->filter_after_frag_ticks  = FD_MHIST_SUM( STEM, LOOP_FILTER_AFTER_FRAGMENT_DURATION_SECONDS );
+  full_tile_info->finish_ticks             = FD_MHIST_SUM( STEM, LOOP_FINISH_DURATION_SECONDS );
+  tile_info->caught_up_ticks = full_tile_info->caught_up_ticks;
+  tile_info->total_ticks     = tile_total_ticks( full_tile_info );
+  tile_info->ts              = ts;
+}
+
+static void
 fd_gui_sample_tiles( fd_gui_t * gui ) {
+  long current = fd_log_wallclock();
   for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
-    fd_gui_tile_info_t * tile_info = gui->summary.tile_info + ( 2 * i + ( gui->summary.tile_info_sample_cnt % 2 ) );
+    fd_gui_tile_info_t * tile_info = gui->summary.tile_info[ i ] + ( gui->summary.tile_info_sample_cnt % FD_GUI_TILE_SAMPLE_CNT_PER_TILE );
     fd_topo_tile_t * tile = &gui->topo->tiles[ i ];
 
-    if ( FD_UNLIKELY( !tile->metrics ) ) {
-      /* bench tiles might not have been booted initially.
-         This check shouldn't be necessary if all tiles barrier after boot. */
-      continue;
-    }
-    fd_metrics_register( tile->metrics );
-
-    tile_info->housekeeping_ticks       = FD_MHIST_SUM( STEM, LOOP_HOUSEKEEPING_DURATION_SECONDS );
-    tile_info->backpressure_ticks       = FD_MHIST_SUM( STEM, LOOP_BACKPRESSURE_DURATION_SECONDS );
-    tile_info->caught_up_ticks          = FD_MHIST_SUM( STEM, LOOP_CAUGHT_UP_DURATION_SECONDS );
-    tile_info->overrun_polling_ticks    = FD_MHIST_SUM( STEM, LOOP_OVERRUN_POLLING_DURATION_SECONDS );
-    tile_info->overrun_reading_ticks    = FD_MHIST_SUM( STEM, LOOP_OVERRUN_READING_DURATION_SECONDS );
-    tile_info->filter_before_frag_ticks = FD_MHIST_SUM( STEM, LOOP_FILTER_BEFORE_FRAGMENT_DURATION_SECONDS );
-    tile_info->filter_after_frag_ticks  = FD_MHIST_SUM( STEM, LOOP_FILTER_AFTER_FRAGMENT_DURATION_SECONDS );
-    tile_info->finish_ticks             = FD_MHIST_SUM( STEM, LOOP_FINISH_DURATION_SECONDS );
+    fd_gui_sample_tile_do_sample( tile_info, tile, current );
   }
 
   gui->summary.tile_info_sample_cnt++;
+}
+
+static void
+fd_gui_sample_tiles_slot_start( fd_gui_t * gui,
+                                ulong      slot ) {
+  long current = fd_log_wallclock();
+  for( ulong idx=0UL; idx<FD_GUI_NUM_EPOCHS; idx++ ) {
+    if( slot>=gui->epoch.epochs[ idx ].start_slot && slot<=gui->epoch.epochs[ idx ].end_slot ) {
+      /* Sample each tile. */
+      for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
+        fd_gui_tile_info_t * tile_info = &(gui->summary.tile_info_slot_start_end[ idx ][ i ][ ( slot - gui->epoch.epochs[ idx ].start_slot ) * 2 ]);
+        fd_topo_tile_t * tile = &gui->topo->tiles[ i ];
+
+        fd_gui_sample_tile_do_sample( tile_info, tile, current );
+      }
+      /* Record sample sequence number of the upcoming periodic sample.
+         This would chronologically be the first sample after slot
+         start. */
+      gui->summary.tile_info_slot_start_end_sample_cnt[ idx ][ ( slot - gui->epoch.epochs[ idx ].start_slot ) * 2 ] = gui->summary.tile_info_sample_cnt;
+    }
+  }
+}
+
+static void
+fd_gui_sample_tiles_slot_end( fd_gui_t * gui,
+                              ulong      slot ) {
+  long current = fd_log_wallclock();
+  for( ulong idx=0UL; idx<FD_GUI_NUM_EPOCHS; idx++ ) {
+    if( slot>=gui->epoch.epochs[ idx ].start_slot && slot<=gui->epoch.epochs[ idx ].end_slot ) {
+      /* Sample each tile. */
+      for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
+        fd_gui_tile_info_t * tile_info = &(gui->summary.tile_info_slot_start_end[ idx ][ i ][ ( slot - gui->epoch.epochs[ idx ].start_slot ) * 2 + 1 ]);
+        fd_topo_tile_t * tile = &gui->topo->tiles[ i ];
+
+        fd_gui_sample_tile_do_sample( tile_info, tile, current );
+      }
+      /* Record sample sequence number of the previous periodic sample.
+         This would chronologically be the last sample before slot
+         end. */
+      gui->summary.tile_info_slot_start_end_sample_cnt[ idx ][ ( slot - gui->epoch.epochs[ idx ].start_slot ) * 2 + 1 ] = gui->summary.tile_info_sample_cnt - 1;
+    }
+  }
 }
 
 void
@@ -322,7 +377,7 @@ fd_gui_poll( fd_gui_t * gui ) {
     fd_gui_printf_txn_info_summary( gui );
     fd_hcache_snap_ws_broadcast( gui->hcache );
 
-    gui->next_sample_100millis += 100L*1000L*1000L;
+    gui->next_sample_100millis += FD_GUI_COUNTER_SAMPLE_NANOS;
   }
   if( FD_LIKELY( current>gui->next_sample_10millis ) ) {
     fd_gui_sample_tiles( gui );
@@ -330,7 +385,7 @@ fd_gui_poll( fd_gui_t * gui ) {
     fd_gui_printf_tile_info( gui );
     fd_hcache_snap_ws_broadcast( gui->hcache );
 
-    gui->next_sample_10millis += 10L*1000L*1000L;
+    gui->next_sample_10millis += FD_GUI_TILE_SAMPLE_NANOS;
   }
 }
 
@@ -643,7 +698,7 @@ fd_gui_handle_validator_info_update( fd_gui_t *    gui,
   fd_hcache_snap_ws_broadcast( gui->hcache );
 }
 
-FD_FN_UNUSED static fd_gui_txn_info_t *
+static fd_gui_txn_info_t *
 fd_gui_get_txn_info_for_slot( fd_gui_t * gui,
                               ulong      slot ) {
   fd_gui_txn_info_t * dst_txn_info = NULL;
@@ -716,6 +771,20 @@ fd_gui_ws_message( fd_gui_t *    gui,
       // FD_LOG_NOTICE(( "txn_info slot=%lu queried and replied", slot ));
       goto GUI_WS_MESSAGE_CLEANUP;
     }
+  }
+  if( !strncmp( node->valuestring, "slot_info", strlen( "slot_info" ) ) ) {
+    node = cJSON_GetObjectItemCaseSensitive( json, "args" );
+    if( FD_UNLIKELY( !cJSON_IsArray( node ) || cJSON_GetArraySize( node )!=1 ) ) {
+      goto GUI_WS_MESSAGE_CLEANUP;
+    }
+    node = cJSON_GetArrayItem( node, 0 );
+    if( FD_UNLIKELY( !cJSON_IsNumber( node ) ) ) {
+      goto GUI_WS_MESSAGE_CLEANUP;
+    }
+    ulong slot = node->valueulong;
+    fd_gui_printf_tile_info_for_slot( gui, slot );
+    FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
+    goto GUI_WS_MESSAGE_CLEANUP;
   }
 
 GUI_WS_MESSAGE_CLEANUP:
@@ -934,8 +1003,9 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       ulong start_slot          = hdr[ 2 ];
       ulong slot_cnt            = hdr[ 3 ];
       ulong excluded_stake      = hdr[ 4 ];
+      FD_LOG_NOTICE(( "got FD_PLUGIN_MSG_LEADER_SCHEDULE epoch %lu staked_cnt %lu start_slot %lu slot_cnt %lu", epoch, staked_cnt, start_slot, slot_cnt ));
 
-      if( FD_UNLIKELY( staked_cnt>MAX_PUB_CNT ) ) FD_LOG_ERR(( "staked_cnt %lu too large", staked_cnt ));
+      if( FD_UNLIKELY( staked_cnt>FD_GUI_MAX_PUB_CNT ) ) FD_LOG_ERR(( "staked_cnt %lu too large", staked_cnt ));
 
       if( FD_LIKELY( epoch>gui->epoch.max_known_epoch ) ) gui->epoch.max_known_epoch = epoch;
       ulong idx = epoch % FD_GUI_NUM_EPOCHS;
@@ -962,6 +1032,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       // long current_became = fd_log_wallclock();
       // FD_LOG_NOTICE(( "%lu nanos since we last became leader txn_info_json->acquired_txns %lu", current_became - last_became, gui->summary.txn_info_json->acquired_txns ));
       // last_became = current_became;
+      // FD_LOG_NOTICE(( "received slot start %lu", slot ));
       if( FD_UNLIKELY( slot<gui->summary.slot_start_high_watermark ) ) {
         FD_LOG_ERR(( "unexpected leader slot regression %lu->%lu", gui->summary.slot_start_high_watermark, slot ));
       }
@@ -975,6 +1046,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
         txn_info->acquired_txns_leftover = gui->summary.txn_info_prev->buffered_txns;
       }
       gui->summary.slot_start_high_watermark = slot;
+      fd_gui_sample_tiles_slot_start( gui, slot );
       break;
     }
     case FD_PLUGIN_MSG_SLOT_END: {
@@ -988,6 +1060,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
           fd_gui_sample_counters( gui );
           /* Store counters for the slot we just finished. */
           fd_gui_set_txn_info_for_slot( gui, slot, gui->summary.txn_info_json );
+          fd_gui_sample_tiles_slot_end( gui, slot );
           /* Initialize things for the upcoming slot. */
           fd_gui_txn_info_t * txn_info = gui->summary.txn_info_this;
           fd_memcpy( gui->summary.txn_info_prev, txn_info, sizeof(gui->summary.txn_info_prev[ 0 ]) );
