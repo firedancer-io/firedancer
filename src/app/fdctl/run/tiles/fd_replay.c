@@ -226,8 +226,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
-  l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   l = FD_LAYOUT_APPEND( l, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, fd_exec_epoch_ctx_align(), MAX_EPOCH_FORKS * fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
@@ -240,6 +238,8 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
   l = FD_LAYOUT_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->replay.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
+  l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
+  l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -528,14 +528,8 @@ funk_publish( fd_replay_tile_ctx_t * ctx, ulong smr ) {
     root_txn = fd_funk_txn_query( &xid, txn_map );
   }
 
-  int busy = 1;
-  while( busy ) {
-    for( ulong i = 0UL; i<fd_tpool_worker_cnt( ctx->tpool ); i++ ) {
-      if( fd_tpool_worker_state( ctx->tpool, i )==FD_TPOOL_WORKER_STATE_EXEC ) {
-        busy = 0;
-        break;
-      }
-    }
+  for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
+    fd_tpool_wait( ctx->tpool, i+1 );
   }
   fd_funk_start_write( ctx->funk );
   ulong rc = fd_funk_txn_publish( ctx->funk, root_txn, 1 );
@@ -827,6 +821,9 @@ after_frag( void *             _ctx,
         fd_tpool_wait( ctx->tpool, bank_idx+1 );
         fd_tpool_exec( ctx->tpool, bank_idx+1, fd_exec_packed_txns_task, txns, txn_cnt, curr_slot, &fork->slot_ctx, ctx->capture_ctx, 0UL, flags, seq, (ulong)ctx->bank_busy[ bank_idx ], (ulong)&ctx->bank_out[ bank_idx ], (ulong)ctx->bmtree[ bank_idx ], 0UL );
       } else {
+        for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
+          fd_tpool_wait( ctx->tpool, i+1 );
+        }
         res = fd_runtime_execute_txns_in_waves_tpool( &fork->slot_ctx, ctx->capture_ctx,
                                                       txns, txn_cnt,
                                                       ctx->tpool );
@@ -854,6 +851,9 @@ after_frag( void *             _ctx,
         .valloc = fork->slot_ctx.valloc,
       };
       fd_slot_history_destroy( fork->slot_ctx.slot_history, &destroy_ctx );
+      for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
+        fd_tpool_wait( ctx->tpool, i+1 );
+      }
       int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, ctx->tpool );
       finalize_time_ns += fd_log_wallclock();
       FD_LOG_DEBUG(("TIMING: finish_time - slot: %lu, elapsed: %6.6f ms", curr_slot, (double)finalize_time_ns * 1e-6));
@@ -1305,10 +1305,10 @@ after_credit( void *             _ctx,
 static void
 during_housekeeping( void * _ctx ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
-  for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
-    fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ i ];
-    fd_mcache_seq_update( bank_out->sync, bank_out->seq );
-  }
+  // for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
+  //   fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ i ];
+  //   // fd_mcache_seq_update( bank_out->sync, bank_out->seq );
+  // }
 
   ulong smr = fd_fseq_query( ctx->smr );
   if( FD_UNLIKELY( smr == ULONG_MAX ) ) return;
@@ -1370,8 +1370,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_replay_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
   memset( ctx, 0, sizeof(fd_replay_tile_ctx_t) );
   void * alloc_shmem         = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
-  void * scratch_smem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
-  void * scratch_fmem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   void * acc_mgr_shmem       = FD_SCRATCH_ALLOC_APPEND( l, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
   void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
   void * epoch_ctx_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_epoch_ctx_align(), MAX_EPOCH_FORKS * fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
@@ -1384,6 +1382,8 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
   void * tpool_worker_mem    = FD_SCRATCH_ALLOC_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->replay.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
+  void * scratch_smem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
+  void * scratch_fmem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem != ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {
