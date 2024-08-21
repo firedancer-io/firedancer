@@ -214,6 +214,19 @@ implementations themselves.
 
 =======================================================================
 
+The high-performance AES-GCM implementation for x86 was copied from
+submissions to the Linux kernel by Eric Biggers <ebiggers@google.com>
+(ca 2024-Aug).
+
+The following files were copied and adapted to build outside of the
+Linux kernel.
+- src/ballet/aes/fd_aes_gcm_aesni.S
+- src/ballet/aes/fd_aes_gcm_avx10.S
+
+/* SPDX-License-Identifier: Apache-2.0 OR BSD-2-Clause */
+
+=======================================================================
+
 //src/util/sanitizers is a modified version of LLVM project compiler-rt
 taken ca 2023-Jan.
 
