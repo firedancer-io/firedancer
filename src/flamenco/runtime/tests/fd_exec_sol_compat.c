@@ -10,6 +10,7 @@
 #include "fd_vm_test.h"
 #include "../../features/fd_features.h"
 #include "../fd_executor_err.h"
+#include "../../fd_flamenco.h"
 
 /* This file defines stable APIs for compatibility testing.
 
@@ -43,6 +44,7 @@ sol_compat_init( void ) {
   setenv( "FD_LOG_PATH", "", 1 );
   fd_boot( &argc, &argv_ );
   fd_log_level_logfile_set(5);
+  fd_flamenco_boot( NULL, NULL );
   fd_log_level_core_set(4);  /* abort on FD_LOG_ERR */
 
   sol_compat_wksp_init();
