@@ -16,9 +16,10 @@ def good_method(arg):
 def bad_method(arg):
     print(arg)
     x = requests.post(url,json=arg)
-    res = x.content.decode('utf-8')
+    print(x.content)
+    res = json.loads(x.content)
     print(res)
-    assert res[0:5] == '<html'
+    assert res['error'] is not None
 
 bad_method({"jsonrpc":"2.0","id":1, "method":"notAMethod"})
 

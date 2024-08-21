@@ -34,7 +34,9 @@ json_parse_root(fd_webserver_t * ws, json_lex_state_t* lex) {
     ulong sz;
     const char* text = json_lex_get_text(lex, &sz);
     FD_LOG_WARNING(( "json parsing error: %s", text ));
-    fd_web_simple_error(ws, text, (uint)sz);
+    fd_hcache_reset(ws->hcache);
+    ws->quick_size = 0;
+    fd_hcache_printf(ws->hcache, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error: %s\"},\"id\":null}", text);
   }
 
   json_values_delete(&values);
