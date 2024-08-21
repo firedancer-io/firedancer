@@ -68,10 +68,13 @@ fd_executor_lookup_native_program( fd_borrowed_account_t const * prog_acc ) {
   } else if( !memcmp( lookup_pubkey, fd_solana_zk_elgamal_proof_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_zk_elgamal_proof_program_execute;
   } else if( !memcmp( lookup_pubkey, fd_solana_bpf_loader_deprecated_program_id.key, sizeof( fd_pubkey_t ))) {
+    FD_LOG_WARNING(("BPF"));
     return fd_bpf_loader_program_execute;
   } else if( !memcmp( lookup_pubkey, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    FD_LOG_WARNING(("BPF"));
     return fd_bpf_loader_program_execute;
   } else if( !memcmp( lookup_pubkey, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    FD_LOG_WARNING(("BPF"));
     return fd_bpf_loader_program_execute;
   } else {
     return NULL;
@@ -709,6 +712,7 @@ int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
   FD_SCRATCH_SCOPE_BEGIN {
+
     ulong max_num_instructions = FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, limit_max_instruction_trace_length ) ? FD_MAX_INSTRUCTION_TRACE_LENGTH : ULONG_MAX;
     if( txn_ctx->num_instructions >= max_num_instructions ) {
       return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
@@ -775,6 +779,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     }
 
     fd_exec_txn_ctx_reset_return_data( txn_ctx );
+
     int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
     if( native_prog_fn != NULL ) {
       exec_result = native_prog_fn( *ctx );
@@ -817,6 +822,11 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     txn_ctx->instr_stack_sz--;
 
     /* TODO: sanity before/after checks: total lamports unchanged etc */
+    if( exec_result ) {
+      FD_LOG_NOTICE(("EXEC RESULT %d", exec_result));
+    } else {
+      FD_LOG_NOTICE(("SUCCESS"));
+    }
     return exec_result;
   } FD_SCRATCH_SCOPE_END;
 }
@@ -1528,6 +1538,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
 
       int exec_result = fd_execute_instr( txn_ctx, &txn_ctx->instr_infos[i] );
+      FD_LOG_WARNING(("**************** fd_execute_instr %d", exec_result));
 #ifdef VLOG
       FD_LOG_WARNING(( "fd_execute_instr result (%d) for %64J", exec_result, sig ));
 #endif

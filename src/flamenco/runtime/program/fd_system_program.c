@@ -70,6 +70,7 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
 
   if( transfer_amount > from->const_meta->info.lamports ) {
     /* TODO Log: "Transfer: insufficient lamports {}, need {} */
+    FD_LOG_WARNING(("Transfer: insufficient lamports %lu %lu", transfer_amount, from->const_meta->info.lamports));
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_RESULT_WITH_NEGATIVE_LAMPORTS;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -111,6 +112,7 @@ fd_system_program_transfer( fd_exec_instr_ctx_t * ctx,
                             ulong                 from_acct_idx,
                             ulong                 to_acct_idx ) {
 
+  FD_LOG_WARNING(("TRANSFER TRANSFER"));
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L223-L229 */
 
   if( !FD_FEATURE_ACTIVE( ctx->slot_ctx, system_transfer_zero_check )
@@ -156,6 +158,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
   if( FD_UNLIKELY( ( account->const_meta->dlen != 0UL ) |
                    ( 0!=memcmp( account->const_meta->info.owner, fd_solana_system_program_id.uc, 32UL ) ) ) ) {
     /* TODO Log: "Allocate: account {:?} already in use" */
+    FD_LOG_WARNING(("allocate account already in use"));
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -165,6 +168,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
   if( FD_UNLIKELY( space > FD_ACC_SZ_MAX ) ) {
     /* TODO Log: "Allocate: requested {}, max allowed {}" */
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_INVALID_ACCT_DATA_LEN;
+    FD_LOG_WARNING(("ALLOCATED REQUESTED"));
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -255,6 +259,7 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
 
   if( FD_UNLIKELY( to->const_meta->info.lamports ) ) {
     /* TODO Log: "Create Account: account {:?} already in use" */
+    FD_LOG_WARNING(("ACCOUNT ALREADY IN USE"));
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -582,6 +587,7 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
                               sizeof(fd_pubkey_t) ) ) ) {
     /* TODO Log: "Transfer 'from' address {} does not match derived address {}" */
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
+    FD_LOG_WARNING(("SEED MISMATCH"));
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 

@@ -947,7 +947,10 @@ fd_txn_pre_execute_checks_task( void  *tpool,
                                 ulong m0,                      ulong m1 FD_PARAM_UNUSED,
                                 ulong n0 FD_PARAM_UNUSED,      ulong n1 FD_PARAM_UNUSED ) {
 
+            
   fd_execute_txn_task_info_t * task_info = (fd_execute_txn_task_info_t *)tpool + m0;
+  if(task_info->txn_ctx->num_instructions)
+    FD_LOG_NOTICE(("INSTRUCITON COUNT %lu", task_info->txn_ctx->num_instructions));
   fd_pre_execute_check( task_info );
 }
 
@@ -3761,9 +3764,7 @@ void fd_process_new_epoch(
   fd_stakes_activate_epoch( slot_ctx );
 
   /* Distribute rewards */
-  fd_hash_t const * parent_blockhash = fd_blockstore_block_hash_query( 
-    slot_ctx->blockstore,
-    fd_blockstore_parent_slot_query( slot_ctx->blockstore, slot_ctx->slot_bank.slot ) );
+  fd_hash_t const * parent_blockhash = slot_ctx->slot_bank.block_hash_queue.last_hash;
   if ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
     fd_begin_partitioned_rewards( slot_ctx, parent_blockhash, parent_epoch );
   } else {

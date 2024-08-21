@@ -430,6 +430,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       ulong txn_cnt = 0;
       if( FD_UNLIKELY( fd_trusted_slots_find( ctx->trusted_slots, slot ) ) ) {
         /* if is caught up and is leader */
+        FD_LOG_INFO(( "packed block prepared - slot: %lu, mblks: %lu %lu, blockhash: %32J, txn_cnt: %lu, tick_cnt: %lu, shred_cnt: %lu", slot, block->micros_cnt, block_info.microblock_cnt, block_hash->uc, block_info.txn_cnt, tick_cnt, block->shreds_cnt ));
         replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
       } else {
         fd_txn_p_t * txns = fd_type_pun( out_buf );
