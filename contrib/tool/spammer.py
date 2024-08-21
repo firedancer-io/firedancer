@@ -79,6 +79,12 @@ def nano_token():
     # create config account with enough space
     # create mint account with enough space
 
+    # config instruction
+    # accounts: config W, system program R, payer R, 
+    # ix data: 0 as u64
+    # Instruction:
+    #  program_id, accounts, ix_data
+
     pass
 
 def parse_args() -> argparse.Namespace:
