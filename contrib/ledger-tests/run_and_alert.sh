@@ -134,7 +134,9 @@ if [[ "$NETWORK" == "mainnet" ]]; then
     $FIREDANCER_DIR/contrib/ledger-tests/ledger_conformance.sh all \
         --network mainnet \
         --repetitions multiple \
-        --ledger $LEDGER_DIR \
+        --gigantic-pages $MAINNET_PAGES \
+        --index-max $MAINNET_INDEX_MAX \
+	--ledger $LEDGER_DIR \
         --ledger-min $LEDGER_MIN_DIR \
         --solana-build-dir $SOLANA_BUILD_DIR \
         --firedancer-root-dir $FIREDANCER_DIR \

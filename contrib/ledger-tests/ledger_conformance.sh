@@ -126,7 +126,7 @@ usage() {
                 --solana-build-dir -b           : Path to the solana|agave build directory. E.g. /home/fd_user/solana|agave/target/debug \n\
                 --index-max -x [Optional]       : Maximum index. Default: 600_000_000 \n\
                 --pages -p [Optional]           : Number of pages. Default: 75 \n\
-                --funk-pages -f [Optional]      : Number of funk pages. Default: 550"
+                --funk-pages -f [Optional]      : Number of funk pages. Default: 750"
 
   elif [[ $1 == "all" ]]; then
     echo -e "Usage: $0 all \n\
@@ -151,7 +151,7 @@ usage() {
                 --directory -d                  : Path to the root directory containing firedancer, solana, solfuzz-agave and solana-conformance repos. \n\
                 --index-max -x [Optional]       : Maximum index. Default: 600_000_000 \n\
                 --pages -p [Optional]           : Number of pages. Default: 75 \n\
-                --funk-pages -f [Optional]      : Number of funk pages. Default: 550"
+                --funk-pages -f [Optional]      : Number of funk pages. Default: 750"
 
   else
     echo "General Usage: $0 <command> [options]"
@@ -281,7 +281,7 @@ parse_minify_options() {
   # Defaults
   MODE="exact"
   SLOTS_IN_EPOCH=432000
-  GIGANTIC_PAGES=550
+  GIGANTIC_PAGES=750
   INDEX_MAX=600000000
 
   while true; do
@@ -411,7 +411,7 @@ parse_replay_options() {
 
   # Defaults
   UPLOAD_URL=""
-  GIGANTIC_PAGES=550
+  GIGANTIC_PAGES=750
   INDEX_MAX=600000000
   SLOTS_IN_EPOCH=432000
 
@@ -503,7 +503,7 @@ parse_solcap_options() {
   # Defaults for a full ledger
   # Typically mismatch snapshots should be minimized and require less pages
   PAGES=75
-  FUNK_PAGES=550
+  FUNK_PAGES=750
   INDEX_MAX=600000000
 
   while true; do
@@ -563,7 +563,7 @@ parse_mismatch_instr_options() {
   # Defaults for a full ledger
   # Typically mismatch snapshots should be minimized and require less pages
   PAGES=75
-  FUNK_PAGES=550
+  FUNK_PAGES=750
   INDEX_MAX=600000000
 
   while true; do
@@ -631,7 +631,7 @@ parse_all_options() {
   MODE="exact"
   SLOTS_IN_EPOCH=432000
   UPLOAD_URL=""
-  GIGANTIC_PAGES=550
+  GIGANTIC_PAGES=750
   INDEX_MAX=600000000
 
   while true; do
