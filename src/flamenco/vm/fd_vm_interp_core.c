@@ -223,7 +223,14 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
   FD_VM_INTERP_INSTR_BEGIN(0x18) /* FD_SBPF_OP_LDQ */ /* FIXME: MORE THINKING AROUND LDQ HANDLING HERE */
     pc++;
     ic_correction++;
-    if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigsplit; /* Note: untaken branches don't consume BTB */
+    /* Throw sigtext to be consistent with execution overrun errors.
+       Agave JIT/interp lets the end-of-instruction check catch this,
+       which reports ExecutionOverrun (equivalent to sigtext).
+
+       FIXME?: Agave performs the LDQ before the check for text overrun,
+       so our VM state is not consistent with Agave's (not consensus breaking).
+       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/jit.rs#L423-L433 */
+    if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigtext; /* Note: untaken branches don't consume BTB */
     reg[ dst ] = (ulong)((ulong)imm | ((ulong)fd_vm_instr_imm( text[ pc ] ) << 32));
   FD_VM_INTERP_INSTR_END;
 
@@ -829,18 +836,7 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
   if ( FD_UNLIKELY( ic_correction > cu ) ) err = FD_VM_ERR_SIGCOST; \
   cu -= fd_ulong_min( ic_correction, cu )
 
-sigtext:     FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGTEXT;   goto interp_halt;
-sigsplit:    FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGSPLIT;  goto interp_halt;
-sigcall:     /* ic current */    /* cu current */ err = FD_VM_ERR_SIGCALL;   goto interp_halt;
-sigstack:    /* ic current */    /* cu current */ err = FD_VM_ERR_SIGSTACK;  goto interp_halt;
-sigill:      FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGILL;    goto interp_halt;
-sigsegv:     FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGSEGV;   goto interp_halt;
-//sigbus:    FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGBUS;    goto interp_halt;
-//sigrdonly: FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGRDONLY; goto interp_halt;
-sigcost:     /* ic current */    cu = 0UL;        err = FD_VM_ERR_SIGCOST;   goto interp_halt;
-sigsyscall:  /* ic current */    /* cu current */ /* err current */          goto interp_halt;
-sigfpe:      FD_VM_INTERP_FAULT;                  err = FD_VM_ERR_SIGFPE;    goto interp_halt;
-sigexit:     FD_VM_INTERP_FAULT; /* cu current */ /* err current */         goto interp_halt;
+// sigsplit: err = FD_VM_ERR_SIGSPLIT;  FD_VM_INTERP_FAULT;                     goto interp_halt;
 
 #undef FD_VM_INTERP_FAULT
 
