@@ -131,25 +131,30 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     ulong program_data_len = 0;
     if( fd_bpf_loader_v3_is_executable( slot_ctx, program_pubkey ) == 0 ) {
       if( fd_bpf_get_executable_program_content_for_upgradeable_loader( slot_ctx, program_pubkey, &program_data, &program_data_len ) != 0 ) {
+        FD_LOG_WARNING(("ERR %32J", program_pubkey));
         return -1;
       }
     } else if( fd_bpf_loader_v2_is_executable( slot_ctx, program_pubkey ) == 0) {
       if( fd_bpf_get_executable_program_content_for_loader_v2( slot_ctx, program_pubkey, &program_data, &program_data_len ) != 0 ) {
+        FD_LOG_WARNING(("ERR %32J", program_pubkey));
         return -1;
       }
     } else {
+      FD_LOG_WARNING(("ERR %32J", program_pubkey));
       return -1;
     }
 
     fd_sbpf_elf_info_t elf_info;
     if( fd_sbpf_elf_peek( &elf_info, program_data, program_data_len, false ) == NULL ) {
       FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
+      FD_LOG_WARNING(("ERR %32J", program_pubkey));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
     int funk_err = FD_FUNK_SUCCESS;
     fd_funk_rec_t * rec = fd_funk_rec_write_prepare( funk, funk_txn, &id, fd_sbpf_validated_program_footprint( &elf_info ), 1, NULL, &funk_err );
     if( rec == NULL || funk_err != FD_FUNK_SUCCESS ) {
+      FD_LOG_WARNING(("ERR %32J", program_pubkey));
       return -1;
     }
 
@@ -174,6 +179,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 
     if( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) {
       FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
+      FD_LOG_WARNING(("ERR %32J", program_pubkey));
       return -1;
     }
 
@@ -335,23 +341,30 @@ fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
                                                  fd_funk_txn_t *      funk_txn,
                                                  fd_pubkey_t const *  pubkey ) {
   FD_BORROWED_ACCOUNT_DECL(exec_rec);
+  FD_LOG_NOTICE(("PUBKEY PUBKEY 000 %32J", pubkey));
+
   if( fd_acc_mgr_view( slot_ctx->acc_mgr, funk_txn, pubkey, exec_rec ) != FD_ACC_MGR_SUCCESS ) {
+    FD_LOG_WARNING(("fd_acc_mgr_view() failed"));
     return -1;
   }
 
   if( exec_rec->const_meta->info.executable != 1 ) {
+    FD_LOG_WARNING(("fd_acc_mgr_view() failed NOT EXECUTABLE"));
     return -1;
   }
 
   if( fd_bpf_loader_v3_is_executable( slot_ctx, pubkey ) == 0
     || fd_bpf_loader_v2_is_executable( slot_ctx, pubkey ) == 0 ) {
     if( fd_bpf_create_bpf_program_cache_entry( slot_ctx, pubkey ) != 0 ) {
+      FD_LOG_WARNING(("NO CACHE %32J", pubkey));
       return -1;
     }
   } else {
+    FD_LOG_WARNING(("NO EXCEC"));
     return -1;
   }
 
+  FD_LOG_NOTICE(("PUBKEY PUBKEY %32J", pubkey));
   return 0;
 }
 

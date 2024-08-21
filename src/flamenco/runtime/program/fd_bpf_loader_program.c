@@ -389,8 +389,6 @@ common_close_account( fd_pubkey_t * authority_address,
 int
 execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uchar is_deprecated ) {
 
-  FD_LOG_WARNING(("EXECUTING BPF PROGRAM"));
-
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( instr_ctx->valloc,
                                                                           fd_sbpf_syscalls_align(),
                                                                           fd_sbpf_syscalls_footprint() ) );
@@ -1643,7 +1641,6 @@ int
 fd_bpf_loader_program_execute( fd_exec_instr_ctx_t ctx ) {
   FD_SCRATCH_SCOPE_BEGIN {
 
-    FD_LOG_WARNING(("BPF BPF BPF *******************************************"));
     /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L491-L529 */
     fd_borrowed_account_t * program_account = NULL;
 

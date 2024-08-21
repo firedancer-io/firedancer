@@ -73,6 +73,13 @@ def get_account_info(rpc: str, acc: str):
     else:
         print(resp.json())
         return 1
+    
+  
+def nano_token():
+    # create config account with enough space
+    # create mint account with enough space
+
+    pass
 
 def parse_args() -> argparse.Namespace:
   parser = argparse.ArgumentParser()
@@ -148,19 +155,11 @@ def fund_token_account(funder, lamports, recent_blockhash, is_print, range ):
 
 
 def create_accounts_tx(funder, lamports, recent_blockhash, accs):
-    tx = Transaction(recent_blockhash, None, funder.pubkey(), [set_compute_unit_price(3), set_compute_unit_limit(300_000)])
+    tx = Transaction(recent_blockhash, None, funder.pubkey(), [set_compute_unit_price(1), set_compute_unit_limit(800_000)])
     for acc in accs:
-        associated_token_address = get_associated_token_address(acc.pubkey(), fd_mint.pubkey())
 
         tx = tx.add(transfer(TransferParams(from_pubkey=funder.pubkey(), to_pubkey=acc.pubkey(), lamports=lamports)))
         tx = tx.add(create_associated_token_account(payer=funder.pubkey(), owner=acc.pubkey(), mint=fd_mint.pubkey()))
-
-    tx.sign(funder) 
-    return tx
-
-def mint_to_tx(funder, lamports, recent_blockhash, accs):
-    tx = Transaction(recent_blockhash, None, funder.pubkey(), [set_compute_unit_price(3), set_compute_unit_limit(300_000)])
-    for acc in accs:
         ata = get_associated_token_address(acc.pubkey(), fd_mint.pubkey())
         tx = tx.add( mint_to( MintToParams( mint=fd_mint.pubkey(), 
                                             dest=ata, 
@@ -170,11 +169,9 @@ def mint_to_tx(funder, lamports, recent_blockhash, accs):
                                             signers=[funder.pubkey()] ) ) )
 
 
+
     tx.sign(funder) 
     return tx
-
-
-
 
 def get_balance_sufficient(lamports, rpc: str, acc):
     bal = get_balance(rpc, acc.pubkey())
@@ -194,11 +191,11 @@ def create_accounts(funder, rpc, num_accs, lamports, seed, sock, tpus, txn_type)
 
     accs = []
     for i in tqdm.trange(num_accs, desc="keypairs"):
-        acc = Keypair.from_seed_and_derivation_path(seed, f"m/44'/75'/352'/{i}'")
+        acc = Keypair.from_seed_and_derivation_path(seed, f"m/44'/75'/353'/{i}'")
         accs.append(acc)
     remaining_accs = set(accs)
 
-    chunk_size = 8
+    chunk_size = 4
     rem_accs_list = list(remaining_accs)
     acc_chunks = [rem_accs_list[i:i+chunk_size] for i in range(0, len(rem_accs_list), chunk_size) ]
 
@@ -245,18 +242,7 @@ def create_accounts(funder, rpc, num_accs, lamports, seed, sock, tpus, txn_type)
     
 
     print("DONE WITH PREVIOUS ********************")
-    # Mint to a bunch of times
-    #mint_to_tx(funder, lamports, get_recent_blockhash(rpc), accs[:5])
 
-    for _ in range(30):
-        break
-        chunk_size = 4
-        acc_chunks = [accs[i:i+chunk_size] for i in range(0, len(accs), chunk_size) ]
-        recent_blockhash = get_recent_blockhash(rpc)
-        txs = pqdm(acc_chunks, partial(mint_to_tx, funder, lamports, recent_blockhash), desc="mint to", n_jobs=32)
-        send_round_of_txs(txs, sock, tpus)
-
-    print("*****************************")
     return accs
 
 def gen_tx_empty(recent_blockhash, key, acc, cu_price):
@@ -280,8 +266,6 @@ def gen_tx_token_transfer(recent_blockhash, key, acc, cu_price):
                               owner=key.pubkey(),
                               amount=1 )
   tx = tx.add( spl_transfer(params) )
-  #tx = tx.add( transfer(TransferParams(from_pubkey=acc,to_pubkey=acc,lamports=1)) )
-
   tx.sign(key)
   return tx
 
