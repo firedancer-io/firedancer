@@ -986,7 +986,7 @@ static CALLED_FROM_RUST void
 no_longer_leader( fd_poh_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->current_leader_bank ) ) fd_ext_bank_release( ctx->current_leader_bank );
 
-  poh_link_publish( &slot_plugin, fd_plugin_sig( ctx->next_leader_slot, FD_PLUGIN_MSG_SLOT_END ), NULL, 0 );
+  poh_link_publish( &slot_plugin, fd_plugin_sig( ctx->next_leader_slot, FD_PLUGIN_MSG_SLOT_END ), (uchar *)&(ctx->next_leader_slot), 8 );
   /* If we stop being leader in a slot, we can never become leader in
       that slot again, and all in-flight microblocks for that slot
       should be dropped. */
@@ -1171,7 +1171,8 @@ after_credit( void *             _ctx,
 
   int is_leader = ctx->next_leader_slot!=ULONG_MAX && ctx->slot>=ctx->next_leader_slot;
   if( FD_UNLIKELY( is_leader && ctx->slot_start_sent<ctx->slot ) ) {
-    poh_link_publish( &slot_plugin, fd_plugin_sig( ctx->slot, FD_PLUGIN_MSG_SLOT_START ), NULL, 0 );
+    FD_LOG_INFO(( "sending slot start %lu", ctx->slot ));
+    poh_link_publish( &slot_plugin, fd_plugin_sig( ctx->slot, FD_PLUGIN_MSG_SLOT_START ), (uchar *)&(ctx->slot), 8 );
     ctx->slot_start_sent = ctx->slot;
   }
   if( FD_UNLIKELY( is_leader && !ctx->current_leader_bank ) ) {

@@ -8,6 +8,7 @@
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/metrics/fd_prometheus.h"
 #include "../../../../disco/gui/fd_gui.h"
+#include "../../../../disco/plugin/fd_plugin.h"
 #include "../../../../ballet/base58/fd_base58.h"
 #include "../../../../ballet/http/fd_http_server.h"
 #include "../../../../ballet/http/fd_hcache.h"
@@ -122,8 +123,8 @@ during_frag( void * _ctx,
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in_mem, chunk );
 
    /* ... todo... sigh, sz is not correct since it's too big */
-  if( sig==4UL || sig==5UL || sig==7UL ) sz = 8UL + 40200UL*(58UL+12UL*34UL);
-  else if( sig==6UL ) sz = 40UL + 40200UL*40UL;
+  if( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE || sig==FD_PLUGIN_MSG_VALIDATOR_INFO ) sz = 8UL + 40200UL*(58UL+12UL*34UL);
+  else if( sig==FD_PLUGIN_MSG_LEADER_SCHEDULE ) sz = 40UL + 40200UL*40UL;
 
   fd_memcpy( ctx->buf, src, sz );
 }
