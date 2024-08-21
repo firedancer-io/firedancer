@@ -169,7 +169,7 @@ do{
   fd_vm_syscall_register_all( syscalls, 0 );
 
   for( ulong i=0; i< fd_sbpf_syscalls_slot_cnt(); i++ ){
-    fd_sbpf_syscalls_t * syscall = fd_sbpf_syscalls_query( syscalls, syscalls[i].key, NULL ); // TODO: can just use syscalls[i].func directly?
+    fd_sbpf_syscalls_t * syscall = fd_sbpf_syscalls_query( syscalls, syscalls[i].key, NULL );
     if ( !syscall ) {
       continue;
     }
@@ -177,12 +177,13 @@ do{
   }
 
   /* Setup trace */
-  const uint ENABLE_TRACING = 0; // Set to 1 to enable tracing
+  const uint DUMP_TRACE = 0; // Set to 1 to dump trace to stdout
+  uint tracing_enabled = input->vm_ctx.tracing_enabled;
   fd_vm_trace_t * trace = NULL;
   ulong event_max = 1UL<<20;
   ulong event_data_max = 2048UL;
 
-  if (!!ENABLE_TRACING) {
+  if (!!tracing_enabled) {
     trace = fd_vm_trace_new( fd_valloc_malloc( valloc, fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max );
   }
 
@@ -253,9 +254,9 @@ do{
 
   /* Run vm */
   int exec_res = 0;
-  if (!!ENABLE_TRACING) {
+  if (!!tracing_enabled) {
     exec_res = fd_vm_exec_trace( vm );
-    fd_vm_trace_printf( trace, syscalls );
+    if( DUMP_TRACE ) fd_vm_trace_printf( trace, syscalls );
     fd_vm_trace_delete( fd_vm_trace_leave( trace ) );
   } else {
     exec_res = fd_vm_exec_notrace( vm );
