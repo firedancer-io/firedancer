@@ -28,19 +28,19 @@ else
 fi
 
 LOG=$LOG_PATH/test_exec_syscall
-cat contrib/test/syscall-fixtures.list | xargs ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+cat contrib/test/syscall-fixtures/*.list | xargs -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
 LOG=$LOG_PATH/test_exec_precompiles
-cat contrib/test/precompile-fixtures.list | xargs ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+cat contrib/test/precompile-fixtures/*.list | xargs -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
 zstd -df dump/test-vectors/elf_loader/fixtures/*.zst
 LOG=$LOG_PATH/test_elf_loader
-cat contrib/test/elf-loader-fixtures.list | xargs ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+cat contrib/test/elf-loader-fixtures.list | xargs -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
 LOG=$LOG_PATH/test_exec_instr
-cat contrib/test/instr-fixtures.list | xargs ./$OBJDIR/unit-test/test_exec_instr --log-path $LOG
+cat contrib/test/instr-fixtures/*.list | xargs -n 1000 ./$OBJDIR/unit-test/test_exec_instr --log-path $LOG
 
 LOG=$LOG_PATH/test_vm_validate
-xargs -a contrib/test/vm_validate-fixtures.list ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+xargs -n 1000 -a contrib/test/vm_validate-fixtures.list ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
 echo Test vectors success
