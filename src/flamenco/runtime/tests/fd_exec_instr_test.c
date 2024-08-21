@@ -14,6 +14,7 @@
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
+#include "../sysvar/fd_sysvar_epoch_rewards.h"
 #include "../../../funk/fd_funk.h"
 #include "../../../util/bits/fd_float.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
@@ -696,6 +697,18 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   /* Epoch schedule and rent get set from the epoch bank */
   fd_sysvar_epoch_schedule_init( slot_ctx );
   fd_sysvar_rent_init( slot_ctx );
+
+  /* Set the epoch rewards sysvar if partition epoch rewards feature is enabled 
+
+     TODO: The init parameters are not exactly conformant with Agave's epoch rewards sysvar. We should
+     be calling `fd_begin_partitioned_rewards` with the same parameters as Agave. However,
+     we just need the `active` field to be conformant due to a single Stake program check. 
+     THIS MAY CHANGE IN THE FUTURE. If there are other parts of transaction execution that use
+     the epoch rewards sysvar, we may need to update this.
+  */
+  if ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) && !slot_ctx->sysvar_cache->has_epoch_rewards ) {
+    fd_sysvar_epoch_rewards_init( slot_ctx, 0, 0, 0, 0, 0, (fd_hash_t *) empty_bytes);
+  }
 
   /* Restore sysvar cache (again, since we may need to provide default sysvars) */
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
