@@ -418,7 +418,7 @@ fd_gui_printf_txn_info_summary_this( fd_gui_t *          gui,
 
 void
 fd_gui_printf_txn_info_summary( fd_gui_t * gui ) {
-  fd_gui_printf_txn_info_summary_this( gui, gui->summary.txn_info_json, ULONG_MAX );
+  fd_gui_printf_txn_info_summary_this( gui, gui->summary.txn_info_json, gui->summary.next_leader_slot );
 }
 
 void
