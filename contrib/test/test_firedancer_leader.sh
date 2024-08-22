@@ -33,7 +33,7 @@ done
 FULL_SNAPSHOT=$(wget -c -nc -S --trust-server-names http://$PRIMARY_IP:8899/snapshot.tar.bz2 |& grep 'location:' | cut -d/ -f2)
 
 echo "
-name = \"fd1test\"
+name = \"fd1\"
 [layout]
     affinity = \"1-37\"
     bank_tile_count = 1
@@ -66,6 +66,7 @@ name = \"fd1test\"
     level_flush = \"ERR\"
 [development]
     topology = \"firedancer\"
+
 [consensus]
     vote = true
     identity_path = \"fd-identity-keypair.json\"
