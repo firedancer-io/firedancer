@@ -288,6 +288,11 @@ do{
   effects->stack->size = (uint)FD_VM_STACK_MAX;
   fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
 
+  effects->rodata       = FD_SCRATCH_ALLOC_APPEND(
+    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );
+  effects->rodata->size = (uint)rodata_sz;
+  fd_memcpy( effects->rodata->bytes, rodata, rodata_sz );
+
   /* Capture input data regions */
   ulong tmp_end = FD_SCRATCH_ALLOC_FINI(l, 1UL);
   ulong input_data_regions_size = load_from_vm_input_regions( vm->input_mem_regions,
