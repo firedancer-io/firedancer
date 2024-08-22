@@ -45,6 +45,30 @@ fd_exec_instr_test_runner_new( void * mem,
 void *
 fd_exec_instr_test_runner_delete( fd_exec_instr_test_runner_t * runner );
 
+/* fd_exec_test_instr_context_create takes in a test runner and InstrCtx protobuf
+   and creates an fd_exec_instr_ctx_t that can be used in runtime.
+   
+   Setting is_syscall avoids some operations/checks only relevant for 
+   program instructions.
+   
+   Should be coupled with fd_exec_test_instr_context_destroy when the instr_ctx
+   is no longer needed. */
+int
+fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
+                                   fd_exec_instr_ctx_t *                ctx,
+                                   fd_exec_test_instr_context_t const * test_ctx,
+                                   fd_alloc_t *                         alloc,
+                                   bool                                 is_syscall );
+
+/* Frees an instr_ctx created by fd_exec_test_instr_context_create */
+void
+fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
+                                    fd_exec_instr_ctx_t *         ctx,
+                                    fd_wksp_t *                   wksp,
+                                    fd_alloc_t *                  alloc );
+
+
+
 /* User API */
 
 /* fd_exec_instr_fixture_run executes the given instruction processing
