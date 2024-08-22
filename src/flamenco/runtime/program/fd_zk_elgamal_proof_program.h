@@ -11,7 +11,7 @@
 /* TODO: the following belong to a more generic header */
 
 #define FD_RUNTIME_CU_UPDATE( ctx, cost ) do {            \
-  fd_exec_instr_ctx_t * _ctx = &(ctx);                    \
+  fd_exec_instr_ctx_t * _ctx = (ctx);                     \
   int err = fd_exec_consume_cus( _ctx->txn_ctx, (cost) ); \
   if( FD_UNLIKELY( err ) ) return err;                    \
   } while(0);
@@ -56,7 +56,7 @@
 FD_PROTOTYPES_BEGIN
 
 int
-fd_executor_zk_elgamal_proof_program_execute( fd_exec_instr_ctx_t ctx );
+fd_executor_zk_elgamal_proof_program_execute( fd_exec_instr_ctx_t * ctx );
 
 FD_PROTOTYPES_END
 

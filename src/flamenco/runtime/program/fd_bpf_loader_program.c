@@ -1638,15 +1638,15 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 /* process_instruction_inner() */
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L394-L564 */
 int
-fd_bpf_loader_program_execute( fd_exec_instr_ctx_t ctx ) {
+fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   FD_SCRATCH_SCOPE_BEGIN {
     /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L491-L529 */
     fd_borrowed_account_t * program_account = NULL;
 
     /* TODO: Agave uses `get_last_program_key`, we should have equivalent semantics:
        https://github.com//anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L491-L492 */
-    fd_pubkey_t const *     program_id      = &ctx.instr->program_id_pubkey;
-    int err = fd_txn_borrowed_account_view_idx( ctx.txn_ctx, ctx.instr->program_id, &program_account );
+    fd_pubkey_t const *     program_id      = &ctx->instr->program_id_pubkey;
+    int err = fd_txn_borrowed_account_view_idx( ctx->txn_ctx, ctx->instr->program_id, &program_account );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "Borrowed account lookup failed for program account" ));
       return err;
@@ -1655,14 +1655,14 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t ctx ) {
     /* Program management instruction */
     if( FD_UNLIKELY( !memcmp( &fd_solana_native_loader_id, program_account->const_meta->info.owner, sizeof(fd_pubkey_t) ) ) ) {
       if( FD_UNLIKELY( !memcmp( &fd_solana_bpf_loader_upgradeable_program_id, program_id, sizeof(fd_pubkey_t) ) ) ) {
-        int err = fd_exec_consume_cus( ctx.txn_ctx, UPGRADEABLE_LOADER_COMPUTE_UNITS );
+        int err = fd_exec_consume_cus( ctx->txn_ctx, UPGRADEABLE_LOADER_COMPUTE_UNITS );
         if( FD_UNLIKELY( err ) ) {
           FD_LOG_WARNING(( "Insufficient compute units for upgradeable loader" ));
           return err;
         }
-        return process_loader_upgradeable_instruction( &ctx );
+        return process_loader_upgradeable_instruction( ctx );
       } else if( FD_UNLIKELY( !memcmp( &fd_solana_bpf_loader_program_id, program_id, sizeof(fd_pubkey_t) ) ) ) {
-        int err = fd_exec_consume_cus( ctx.txn_ctx, DEFAULT_LOADER_COMPUTE_UNITS );
+        int err = fd_exec_consume_cus( ctx->txn_ctx, DEFAULT_LOADER_COMPUTE_UNITS );
         if( FD_UNLIKELY( err ) ) {
           FD_LOG_WARNING(( "Insufficient compute units for upgradeable loader" ));
           return err;
@@ -1670,7 +1670,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t ctx ) {
         FD_LOG_WARNING(( "BPF loader management instructions are no longer supported" ));
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       } else if( FD_UNLIKELY( !memcmp( &fd_solana_bpf_loader_deprecated_program_id, program_id, sizeof(fd_pubkey_t) ) ) ) {
-        int err = fd_exec_consume_cus( ctx.txn_ctx, DEPRECATED_LOADER_COMPUTE_UNITS );
+        int err = fd_exec_consume_cus( ctx->txn_ctx, DEPRECATED_LOADER_COMPUTE_UNITS );
         if( FD_UNLIKELY( err ) ) {
           FD_LOG_WARNING(( "Insufficient compute units for upgradeable loader" ));
           return err;
@@ -1691,7 +1691,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t ctx ) {
     }
 
     fd_sbpf_validated_program_t * prog = NULL;
-    if( FD_UNLIKELY( fd_bpf_load_cache_entry( ctx.slot_ctx, &ctx.instr->program_id_pubkey, &prog ) ) ) {
+    if( FD_UNLIKELY( fd_bpf_load_cache_entry( ctx->slot_ctx, &ctx->instr->program_id_pubkey, &prog ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
@@ -1718,7 +1718,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t ctx ) {
       happen when the account is closed. */
 
     fd_borrowed_account_t * program_acc_view = NULL;
-    int read_result = fd_txn_borrowed_account_view_idx( ctx.txn_ctx, ctx.instr->program_id, &program_acc_view );
+    int read_result = fd_txn_borrowed_account_view_idx( ctx->txn_ctx, ctx->instr->program_id, &program_acc_view );
     if( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
@@ -1727,7 +1727,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t ctx ) {
 
     if( !memcmp( metadata->info.owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ) {
       fd_bpf_upgradeable_loader_state_t program_account_state = {0};
-      err = fd_bpf_loader_v3_program_get_state( &ctx, program_account, &program_account_state );
+      err = fd_bpf_loader_v3_program_get_state( ctx, program_account, &program_account_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         FD_LOG_WARNING(( "Bpf state read for program account failed" ));
         return err;
@@ -1735,14 +1735,14 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t ctx ) {
 
       fd_borrowed_account_t * program_data_account = NULL;
       fd_pubkey_t * programdata_pubkey = (fd_pubkey_t *)&program_account_state.inner.program.programdata_address;
-      err = fd_txn_borrowed_account_executable_view( ctx.txn_ctx, programdata_pubkey, &program_data_account );
+      err = fd_txn_borrowed_account_executable_view( ctx->txn_ctx, programdata_pubkey, &program_data_account );
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "Borrowed account lookup for program data account failed" ));
         return err;
       }
 
       fd_bpf_upgradeable_loader_state_t program_data_account_state = {0};
-      err = fd_bpf_loader_v3_program_get_state( &ctx, program_data_account, &program_data_account_state );
+      err = fd_bpf_loader_v3_program_get_state( ctx, program_data_account, &program_data_account_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         FD_LOG_WARNING(( "Bpf state read for program data account failed" ));
         return err;
@@ -1754,13 +1754,13 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t ctx ) {
       }
 
       ulong program_data_slot = program_data_account_state.inner.program_data.slot;
-      if( FD_UNLIKELY( program_data_slot>=ctx.slot_ctx->slot_bank.slot ) ) {
+      if( FD_UNLIKELY( program_data_slot>=ctx->slot_ctx->slot_bank.slot ) ) {
         /* The account was likely just deployed or upgraded. Corresponds to
           'LoadedProgramType::DelayVisibility' */
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
     }
 
-    return execute( &ctx, prog, is_deprecated );
+    return execute( ctx, prog, is_deprecated );
   } FD_SCRATCH_SCOPE_END;
 }

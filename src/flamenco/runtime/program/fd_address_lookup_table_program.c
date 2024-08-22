@@ -947,13 +947,12 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 }
 
 int
-fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t _ctx ) {
+fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
   do {
-    int err = fd_exec_consume_cus( _ctx.txn_ctx, DEFAULT_COMPUTE_UNITS );
+    int err = fd_exec_consume_cus( ctx->txn_ctx, DEFAULT_COMPUTE_UNITS );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_exec_instr_ctx_t * ctx = &_ctx;
   uchar const * instr_data    = ctx->instr->data;
   ulong         instr_data_sz = ctx->instr->data_sz;
   if( FD_UNLIKELY( instr_data==NULL ) ) {

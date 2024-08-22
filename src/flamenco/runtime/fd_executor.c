@@ -784,7 +784,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     fd_exec_txn_ctx_reset_return_data( txn_ctx );
     int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
     if( native_prog_fn != NULL ) {
-      exec_result = native_prog_fn( *ctx );
+      exec_result = native_prog_fn( ctx );
     } else {
       exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
