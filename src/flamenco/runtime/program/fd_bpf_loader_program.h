@@ -38,7 +38,7 @@ fd_bpf_loader_v3_is_executable( fd_exec_slot_ctx_t * slot_ctx,
    user-defined programs as well as executions of the program itself. */
 
 int
-fd_bpf_loader_program_execute( fd_exec_instr_ctx_t instr_ctx );
+fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * instr_ctx );
 
 /* TODO: add comment here */
 

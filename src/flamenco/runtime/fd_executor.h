@@ -26,7 +26,7 @@ fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t
 /* fd_exec_instr_fn_t processes an instruction.  Returns an error code
    in FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}. */
 
-typedef int (* fd_exec_instr_fn_t)( fd_exec_instr_ctx_t ctx );
+typedef int (* fd_exec_instr_fn_t)( fd_exec_instr_ctx_t * ctx );
 
 /* fd_executor_lookup_native_program returns the appropriate instruction
    processor for the given native program ID.  Returns NULL if given ID

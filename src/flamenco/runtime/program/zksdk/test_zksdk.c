@@ -79,18 +79,18 @@ test_pubkey_validity( FD_FN_UNUSED fd_rng_t * rng ) {
 
   // valid
   FD_TEST( fd_zksdk_instr_verify_proof_pubkey_validity( context, proof )==FD_EXECUTOR_INSTR_SUCCESS );
-  FD_TEST( fd_zksdk_process_verify_proof( ctx )==FD_EXECUTOR_INSTR_SUCCESS );
-  FD_TEST( fd_executor_zk_elgamal_proof_program_execute( ctx )==FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( fd_zksdk_process_verify_proof( &ctx )==FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( fd_executor_zk_elgamal_proof_program_execute( &ctx )==FD_EXECUTOR_INSTR_SUCCESS );
 
   // invalid proof
   tx[1 + proof_offset] ^= 0xff;
   FD_TEST( fd_zksdk_instr_verify_proof_pubkey_validity( context, proof )==FD_ZKSDK_VERIFY_PROOF_ERROR );
-  FD_TEST( fd_zksdk_process_verify_proof( ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
+  FD_TEST( fd_zksdk_process_verify_proof( &ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   tx[1 + proof_offset] ^= 0xff;
 
   // invalid data
   instr->data_sz = (ushort)(instr->data_sz - 10);
-  FD_TEST( fd_zksdk_process_verify_proof( ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
+  FD_TEST( fd_zksdk_process_verify_proof( &ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   instr->data_sz = (ushort)(instr->data_sz + 10);
 
   /* Benchmarks */

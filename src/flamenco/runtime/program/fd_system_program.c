@@ -590,14 +590,14 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
 }
 
 int
-fd_system_program_execute( fd_exec_instr_ctx_t ctx ) {
+fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
   do {
-    int err = fd_exec_consume_cus( ctx.txn_ctx, 150UL );
+    int err = fd_exec_consume_cus( ctx->txn_ctx, 150UL );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
   /* Deserialize the SystemInstruction enum */
-  uchar * data = ctx.instr->data;
+  uchar * data = ctx->instr->data;
   if( FD_UNLIKELY( data==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
@@ -605,7 +605,7 @@ fd_system_program_execute( fd_exec_instr_ctx_t ctx ) {
   fd_system_program_instruction_t instruction;
   fd_bincode_decode_ctx_t decode =
     { .data    = data,
-      .dataend = data + ctx.instr->data_sz,
+      .dataend = data + ctx->instr->data_sz,
       .valloc  = fd_scratch_virtual() };
   /* Fail if the number of bytes consumed by deserialize exceeds 1232 */
   if( fd_system_program_instruction_decode( &instruction, &decode ) ||
@@ -617,73 +617,73 @@ fd_system_program_execute( fd_exec_instr_ctx_t ctx ) {
   switch( instruction.discriminant ) {
   case fd_system_program_instruction_enum_create_account: {
     result = fd_system_program_exec_create_account(
-        &ctx, &instruction.inner.create_account );
+        ctx, &instruction.inner.create_account );
     break;
   }
   case fd_system_program_instruction_enum_assign: {
     result = fd_system_program_exec_assign(
-        &ctx, &instruction.inner.assign );
+        ctx, &instruction.inner.assign );
     break;
   }
   case fd_system_program_instruction_enum_transfer: {
     result = fd_system_program_exec_transfer(
-        &ctx, instruction.inner.transfer );
+        ctx, instruction.inner.transfer );
     break;
   }
   case fd_system_program_instruction_enum_create_account_with_seed: {
     result = fd_system_program_exec_create_account_with_seed(
-        &ctx, &instruction.inner.create_account_with_seed );
+        ctx, &instruction.inner.create_account_with_seed );
     break;
   }
   case fd_system_program_instruction_enum_advance_nonce_account: {
-    result = fd_system_program_exec_advance_nonce_account( &ctx );
+    result = fd_system_program_exec_advance_nonce_account( ctx );
     break;
   }
   case fd_system_program_instruction_enum_withdraw_nonce_account: {
     result = fd_system_program_exec_withdraw_nonce_account(
-        &ctx, instruction.inner.withdraw_nonce_account );
+        ctx, instruction.inner.withdraw_nonce_account );
     break;
   }
   case fd_system_program_instruction_enum_initialize_nonce_account: {
     result = fd_system_program_exec_initialize_nonce_account(
-        &ctx, &instruction.inner.initialize_nonce_account );
+        ctx, &instruction.inner.initialize_nonce_account );
     break;
   }
   case fd_system_program_instruction_enum_authorize_nonce_account: {
     result = fd_system_program_exec_authorize_nonce_account(
-        &ctx, &instruction.inner.authorize_nonce_account );
+        ctx, &instruction.inner.authorize_nonce_account );
     break;
   }
   case fd_system_program_instruction_enum_allocate: {
-    result = fd_system_program_exec_allocate( &ctx, instruction.inner.allocate );
+    result = fd_system_program_exec_allocate( ctx, instruction.inner.allocate );
     break;
   }
   case fd_system_program_instruction_enum_allocate_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L525
     result = fd_system_program_exec_allocate_with_seed(
-        &ctx, &instruction.inner.allocate_with_seed );
+        ctx, &instruction.inner.allocate_with_seed );
     break;
   }
   case fd_system_program_instruction_enum_assign_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L545
     result = fd_system_program_exec_assign_with_seed(
-        &ctx, &instruction.inner.assign_with_seed );
+        ctx, &instruction.inner.assign_with_seed );
     break;
   }
   case fd_system_program_instruction_enum_transfer_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L412
     result = fd_system_program_exec_transfer_with_seed(
-        &ctx, &instruction.inner.transfer_with_seed );
+        ctx, &instruction.inner.transfer_with_seed );
     break;
   }
   case fd_system_program_instruction_enum_upgrade_nonce_account: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L491
-    result = fd_system_program_exec_upgrade_nonce_account( &ctx );
+    result = fd_system_program_exec_upgrade_nonce_account( ctx );
     break;
   }
   }
 
-  fd_bincode_destroy_ctx_t destroy = { .valloc = ctx.valloc };
+  fd_bincode_destroy_ctx_t destroy = { .valloc = ctx->valloc };
   fd_system_program_instruction_destroy( &instruction, &destroy );
   return result;
 }

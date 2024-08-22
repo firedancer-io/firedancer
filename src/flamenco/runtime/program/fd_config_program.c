@@ -15,27 +15,27 @@
 /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L16 */
 
 static int
-_process_config_instr( fd_exec_instr_ctx_t ctx ) {
+_process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
 # define ACC_IDX_CONFIG ((uchar)0)
 
   /* Deserialize the Config Program instruction data, which consists only of the ConfigKeys
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L21 */
-  if( FD_UNLIKELY( ctx.instr->data==NULL ) ) {
+  if( FD_UNLIKELY( ctx->instr->data==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
   fd_bincode_decode_ctx_t decode =
-    { .valloc  = ctx.valloc,
-      .data    = ctx.instr->data,
-      .dataend = ctx.instr->data + ctx.instr->data_sz };
+    { .valloc  = ctx->valloc,
+      .data    = ctx->instr->data,
+      .dataend = ctx->instr->data + ctx->instr->data_sz };
 
   fd_config_keys_t key_list = {0};
   int decode_result = fd_config_keys_decode( &key_list, &decode );
   /* Fail if the number of bytes consumed by deserialize exceeds 1232
      (hardcoded constant by Agave limited_deserialize) */
   if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS || 
-                   (ulong)ctx.instr->data + 1232UL < (ulong)decode.data ) ) {
+                   (ulong)ctx->instr->data + 1232UL < (ulong)decode.data ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
@@ -44,13 +44,13 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
   fd_config_keys_t current_data;
   int is_config_account_signer = 0;
   fd_pubkey_t const * config_account_key = NULL;
-  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( &ctx, ACC_IDX_CONFIG, config_acc_rec ) {
+  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_CONFIG, config_acc_rec ) {
 
   config_account_key = config_acc_rec->pubkey;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L27 */
 
-  is_config_account_signer = fd_instr_acc_is_signer_idx( ctx.instr, ACC_IDX_CONFIG );
+  is_config_account_signer = fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_CONFIG );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L29-L31 */
 
@@ -61,7 +61,7 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L33-L40 */
 
   fd_bincode_decode_ctx_t config_acc_state_decode_context = {
-    .valloc  = ctx.valloc,
+    .valloc  = ctx->valloc,
     .data    = config_acc_rec->const_data,
     .dataend = config_acc_rec->const_data + config_acc_rec->const_meta->dlen,
   };
@@ -114,7 +114,7 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
       /* Intentionally don't use the scoping macro here because Anza maps the 
          error to missing required signature if the try borrow fails */
       fd_borrowed_account_t * signer_account = NULL;
-      int borrow_err = fd_instr_borrowed_account_view_idx( &ctx, (uchar)counter, &signer_account );
+      int borrow_err = fd_instr_borrowed_account_view_idx( ctx, (uchar)counter, &signer_account );
       if( FD_UNLIKELY( borrow_err!=FD_ACC_MGR_SUCCESS ) ) {
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
@@ -124,7 +124,7 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L72-L79 */
 
-      if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx.instr, (uchar)counter ) ) ) {
+      if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, (uchar)counter ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
 
@@ -165,7 +165,7 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L105-L115
 
      TODO: Agave uses a O(n log n) algorithm here */
-  if( FD_FEATURE_ACTIVE( ctx.slot_ctx, dedupe_config_program_signers ) ) {
+  if( FD_FEATURE_ACTIVE( ctx->slot_ctx, dedupe_config_program_signers ) ) {
     for( ulong i = 0; i < key_list.keys_len; i++ ) {
       for( ulong j = 0; j < key_list.keys_len; j++ ) {
         if( i == j ) continue;
@@ -186,12 +186,12 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
   /* Upgrade to writable handle
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L128-L129 */
 
-  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( &ctx, ACC_IDX_CONFIG, config_acc_rec ) {
+  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_CONFIG, config_acc_rec ) {
 
   /* Upgrade to writable handle
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L130-L133 */
 
-  if( FD_UNLIKELY( config_acc_rec->const_meta->dlen<ctx.instr->data_sz ) ) {
+  if( FD_UNLIKELY( config_acc_rec->const_meta->dlen<ctx->instr->data_sz ) ) {
     /* TODO Log: "instruction data too large" */
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
@@ -200,19 +200,19 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
 
   do {
     int err;
-    if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx.instr, 0, &err ) ) ) {
+    if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx->instr, 0, &err ) ) ) {
       return err;
     }
   } while(0);
 
   do {
-    int err = fd_instr_borrowed_account_modify_idx( &ctx, 0, config_acc_rec->const_meta->dlen, &config_acc_rec );
+    int err = fd_instr_borrowed_account_modify_idx( ctx, 0, config_acc_rec->const_meta->dlen, &config_acc_rec );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
   /* copy_from_slice */
 
-  fd_memcpy( config_acc_rec->data, ctx.instr->data, ctx.instr->data_sz );
+  fd_memcpy( config_acc_rec->data, ctx->instr->data, ctx->instr->data_sz );
 
   /* Implicitly dropped in Anza */
 
@@ -224,13 +224,13 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
 }
 
 int
-fd_config_program_execute( fd_exec_instr_ctx_t ctx ) {
+fd_config_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.27/programs/config/src/config_processor.rs#L14
      See DEFAULT_COMPUTE_UNITS */
 
   do {
-    int err = fd_exec_consume_cus( ctx.txn_ctx, 450UL );
+    int err = fd_exec_consume_cus( ctx->txn_ctx, 450UL );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 

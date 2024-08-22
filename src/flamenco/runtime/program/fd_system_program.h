@@ -20,7 +20,7 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_system_program_execute is the entrypoint for the system program */
 
-int fd_system_program_execute( fd_exec_instr_ctx_t ctx ) ;
+int fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) ;
 
 /* System program instruction handlers */
 

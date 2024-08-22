@@ -20,7 +20,7 @@ FD_PROTOTYPES_BEGIN
    a stake account may have been modified. */
 
 int
-fd_stake_program_execute( fd_exec_instr_ctx_t ctx );
+fd_stake_program_execute( fd_exec_instr_ctx_t * ctx );
 
 /* Initializes an account which holds configuration used by the stake program.
    https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/config.rs
