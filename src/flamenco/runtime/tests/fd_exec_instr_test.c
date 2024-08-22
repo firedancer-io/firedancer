@@ -1777,6 +1777,10 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
                fd_ulong_min(input->syscall_invocation.stack_prefix->size, FD_VM_STACK_MAX) );
   }
 
+  // Propogate the acc_regions_meta to the vm
+  vm->acc_region_metas = fd_valloc_malloc( valloc, alignof(fd_vm_acc_region_meta_t), sizeof(fd_vm_acc_region_meta_t) * input->vm_ctx.input_data_regions_count );
+  setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
+
   // Look up the syscall to execute
   char * syscall_name = (char *)input->syscall_invocation.function_name.bytes;
   fd_sbpf_syscalls_t const * syscall = lookup_syscall_func(syscalls, syscall_name, input->syscall_invocation.function_name.size);
@@ -1795,7 +1799,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   effects->heap = FD_SCRATCH_ALLOC_APPEND(
     l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
   effects->heap->size = (uint)vm->heap_max;
-  fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
+  fd_memcpy( effects->heap->bytes, vm->heap, fd_ulong_min(input->syscall_invocation.heap_prefix->size, vm->heap_max) );
 
   effects->stack = FD_SCRATCH_ALLOC_APPEND(
     l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
