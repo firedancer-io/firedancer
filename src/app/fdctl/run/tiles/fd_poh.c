@@ -986,13 +986,14 @@ static CALLED_FROM_RUST void
 no_longer_leader( fd_poh_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->current_leader_bank ) ) fd_ext_bank_release( ctx->current_leader_bank );
 
-  poh_link_publish( &slot_plugin, fd_plugin_sig( ctx->next_leader_slot, FD_PLUGIN_MSG_SLOT_END ), (uchar *)&(ctx->next_leader_slot), 8 );
+  ulong my_next_leader_slot = next_leader_slot( ctx );
+  poh_link_publish( &slot_plugin, fd_plugin_sig( ctx->next_leader_slot, FD_PLUGIN_MSG_SLOT_END ), (uchar *)&(my_next_leader_slot), 8 );
   /* If we stop being leader in a slot, we can never become leader in
       that slot again, and all in-flight microblocks for that slot
       should be dropped. */
   ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), ctx->slot );
   ctx->current_leader_bank = NULL;
-  ctx->next_leader_slot = next_leader_slot( ctx );
+  ctx->next_leader_slot = my_next_leader_slot;
 
   FD_COMPILER_MFENCE();
   fd_ext_poh_signal_leader_change( ctx->signal_leader_change );

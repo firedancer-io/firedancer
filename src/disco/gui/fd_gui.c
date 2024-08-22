@@ -56,6 +56,7 @@ fd_gui_new( void *        shmem,
   fd_memset( gui->summary.txn_info_slot, 0, sizeof(gui->summary.txn_info_slot) );
   gui->summary.slot_start_high_watermark = 0;
   gui->summary.slot_end_high_watermark   = 0;
+  gui->summary.next_leader_slot          = 0;
 
   gui->next_sample_100millis = fd_log_wallclock();
   gui->next_sample_10millis  = fd_log_wallclock();
@@ -289,7 +290,10 @@ fd_gui_sample_counters( fd_gui_t * gui ) {
 }
 
 static void
-fd_gui_sample_tile_do_sample( fd_gui_tile_info_t * tile_info, fd_topo_tile_t * tile, long ts ) {
+fd_gui_sample_tile_do_sample( fd_gui_t * gui,
+                              fd_gui_tile_info_t * tile_info,
+                              fd_topo_tile_t * tile,
+                              long ts ) {
   if ( FD_UNLIKELY( !tile->metrics ) ) {
     /* bench tiles might not have been booted initially.
        This check shouldn't be necessary if all tiles barrier after boot. */
@@ -310,6 +314,8 @@ fd_gui_sample_tile_do_sample( fd_gui_tile_info_t * tile_info, fd_topo_tile_t * t
   tile_info->caught_up_ticks = full_tile_info->caught_up_ticks;
   tile_info->total_ticks     = tile_total_ticks( full_tile_info );
   tile_info->ts              = ts;
+  /* Restore thread local pointers. */
+  fd_metrics_register( gui->topo->tiles[ fd_topo_find_tile( gui->topo, "http", 0 ) ].metrics );
 }
 
 static void
@@ -319,7 +325,7 @@ fd_gui_sample_tiles( fd_gui_t * gui ) {
     fd_gui_tile_info_t * tile_info = gui->summary.tile_info[ i ] + ( gui->summary.tile_info_sample_cnt % FD_GUI_TILE_SAMPLE_CNT_PER_TILE );
     fd_topo_tile_t * tile = &gui->topo->tiles[ i ];
 
-    fd_gui_sample_tile_do_sample( tile_info, tile, current );
+    fd_gui_sample_tile_do_sample( gui, tile_info, tile, current );
   }
 
   gui->summary.tile_info_sample_cnt++;
@@ -336,7 +342,7 @@ fd_gui_sample_tiles_slot_start( fd_gui_t * gui,
         fd_gui_tile_info_t * tile_info = &(gui->summary.tile_info_slot_start_end[ idx ][ i ][ ( slot - gui->epoch.epochs[ idx ].start_slot ) * 2 ]);
         fd_topo_tile_t * tile = &gui->topo->tiles[ i ];
 
-        fd_gui_sample_tile_do_sample( tile_info, tile, current );
+        fd_gui_sample_tile_do_sample( gui, tile_info, tile, current );
       }
       /* Record sample sequence number of the upcoming periodic sample.
          This would chronologically be the first sample after slot
@@ -357,7 +363,7 @@ fd_gui_sample_tiles_slot_end( fd_gui_t * gui,
         fd_gui_tile_info_t * tile_info = &(gui->summary.tile_info_slot_start_end[ idx ][ i ][ ( slot - gui->epoch.epochs[ idx ].start_slot ) * 2 + 1 ]);
         fd_topo_tile_t * tile = &gui->topo->tiles[ i ];
 
-        fd_gui_sample_tile_do_sample( tile_info, tile, current );
+        fd_gui_sample_tile_do_sample( gui, tile_info, tile, current );
       }
       /* Record sample sequence number of the previous periodic sample.
          This would chronologically be the last sample before slot
@@ -1057,6 +1063,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       } else {
         if( slot>gui->summary.slot_end_high_watermark ) {
           gui->summary.slot_end_high_watermark = slot;
+          gui->summary.next_leader_slot = *(ulong *)msg;
           fd_gui_sample_counters( gui );
           /* Store counters for the slot we just finished. */
           fd_gui_set_txn_info_for_slot( gui, slot, gui->summary.txn_info_json );

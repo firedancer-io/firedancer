@@ -185,6 +185,7 @@ struct fd_gui {
     ulong             txn_info_slot[ FD_GUI_NUM_EPOCHS ][ FD_GUI_MAX_SLOTS_CNT_PER_EPOCH ]; /* Which slot is the historical data for? */
     ulong             slot_start_high_watermark;
     ulong             slot_end_high_watermark;
+    ulong             next_leader_slot;
 
     ulong net_tile_count;
     ulong quic_tile_count;
