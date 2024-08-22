@@ -787,7 +787,7 @@ sol_compat_vm_interp_v1( uchar *       out,
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( NULL, input, &output, (exec_test_run_fn_t *)fd_exec_vm_interp_test_run );
+  sol_compat_execute_wrapper( runner, input, &output, (exec_test_run_fn_t *)fd_exec_vm_interp_test_run );
 
   // Encode effects
   int ok = 0;

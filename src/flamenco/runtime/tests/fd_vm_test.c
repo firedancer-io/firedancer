@@ -3,6 +3,7 @@
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../../vm/test_vm_util.h"
+#include "fd_exec_instr_test.h"
 
 int
 fd_vm_syscall_noop( void * _vm,
@@ -33,7 +34,7 @@ fd_exec_vm_validate_test_run( fd_exec_instr_test_runner_t * runner,
                               void **                       output_,
                               void *                        output_buf,
                               ulong                         output_bufsz ) {
-  (void) runner; /* unused, for wrapper compat */
+  (void) runner;
   fd_exec_test_full_vm_context_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_validate_vm_effects_t **  output = fd_type_pun( output_ );
 
@@ -124,10 +125,19 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
                             fd_exec_test_syscall_effects_t      **output,
                             void *                                output_buf,
                             ulong                                 output_bufsz ) {
-  (void) runner; /* unused, for wrapper compat */
+  fd_wksp_t  * wksp  = fd_wksp_attach( "wksp" );
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
+
+  /* Create execution context */
+  const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
+  fd_exec_instr_ctx_t instr_ctx[1];
+  if( !fd_exec_test_instr_context_create( runner, instr_ctx, input_instr_ctx, alloc, true /* is_syscall avoids certain checks we don't want */ ) ) {
+    fd_exec_test_instr_context_destroy( runner, instr_ctx, wksp, alloc );
+    return 0UL;
+  }
 
   if( !( input->has_vm_ctx && input->has_syscall_invocation ) ) {
-    /* FIXME: syscall_invocation can be optional... */
+    fd_exec_test_instr_context_destroy( runner, instr_ctx, wksp, alloc );
     return 0UL;
   }
 
@@ -142,6 +152,7 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
   *effects = (fd_exec_test_syscall_effects_t) FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO;
 
   if( FD_UNLIKELY( _l > output_end ) ) {
+    fd_exec_test_instr_context_destroy( runner, instr_ctx, wksp, alloc );
     return 0UL;
   }
 
@@ -190,8 +201,6 @@ do{
   /* Setup vm */
   fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
   FD_TEST( vm );
-
-  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( valloc, false /* flag not required here */);
 
   /* Override some execution state values from the interp fuzzer input
      This is so we can test if the interp (or vm setup) mutates any of 
@@ -308,9 +317,8 @@ do{
 
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   *output = effects;
+  fd_exec_test_instr_context_destroy( runner, instr_ctx, wksp, alloc );
   return actual_end - (ulong)output_buf;
-
-
 }
 
 
