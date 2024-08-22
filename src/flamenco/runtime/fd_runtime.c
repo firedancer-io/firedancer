@@ -3678,14 +3678,50 @@ FD_SCRATCH_SCOPE_BEGIN {
 } FD_SCRATCH_SCOPE_END;
 }
 
-/* Save a copy of epoch_ctx->epoch_bank->stakes.vote_accounts into epoch_ctx->epoch->bank->next_epoch_stakes,
-   to be sent out to other components for the leader schedule calculation.
-   
-   Also copy it into the slot_ctx->slot_bank.epoch_stakes.
-   
-   TODO: This means the three fields hold the same value, which doesn't change for the duration of the epoch.
-   Can we remove two? */
+/* Save a copy of epoch_ctx->epoch_bank->stakes.vote_accounts into slot_ctx->slot_bank.epoch_stakes. */
+static
 void fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
+  FD_SCRATCH_SCOPE_BEGIN
+  {
+    fd_epoch_bank_t * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
+
+    /* Copy epoch_bank->next_epoch_stakes into slot_ctx->slot_bank.epoch_stakes */
+    fd_vote_accounts_pair_t_map_release_tree( 
+      slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool,
+      slot_ctx->slot_bank.epoch_stakes.vote_accounts_root );
+    slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = NULL;
+
+    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum( 
+      epoch_bank->next_epoch_stakes.vote_accounts_pool,
+      epoch_bank->next_epoch_stakes.vote_accounts_root ); 
+          n;
+          n = fd_vote_accounts_pair_t_map_successor( epoch_bank->next_epoch_stakes.vote_accounts_pool, n ) ) {
+
+      const fd_pubkey_t null_pubkey = {{ 0 }};
+      if ( memcmp( &n->elem.key, &null_pubkey, FD_PUBKEY_FOOTPRINT ) == 0 ) {
+        continue;
+      }
+
+      fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire( 
+        slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool );
+      if ( FD_UNLIKELY( 
+          fd_vote_accounts_pair_t_map_free( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool ) == 0 ) ) {
+        FD_LOG_ERR(( "slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool full" ));
+      }
+
+      fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+      fd_vote_accounts_pair_t_map_insert( 
+        slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool,
+        &slot_ctx->slot_bank.epoch_stakes.vote_accounts_root,
+        elem );
+    }
+  }
+  FD_SCRATCH_SCOPE_END;
+}
+
+/* Copy epoch_bank->stakes.vote_accounts into epoch_bank->next_epoch_stakes. */
+static
+void fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_SCRATCH_SCOPE_BEGIN
   {
     fd_epoch_bank_t * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
@@ -3706,28 +3742,6 @@ void fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
       fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire( epoch_bank->next_epoch_stakes.vote_accounts_pool );
       fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
       fd_vote_accounts_pair_t_map_insert( epoch_bank->next_epoch_stakes.vote_accounts_pool, &epoch_bank->next_epoch_stakes.vote_accounts_root, elem );
-    }
-
-    /* Copy epoch_ctx->epoch_bank->stakes.vote_accounts into slot_ctx->slot_bank.epoch_stakes */
-    fd_vote_accounts_pair_t_map_release_tree( 
-      slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool,
-      slot_ctx->slot_bank.epoch_stakes.vote_accounts_root );
-
-    slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = NULL;
-
-    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum( 
-      epoch_bank->stakes.vote_accounts.vote_accounts_pool,
-      epoch_bank->stakes.vote_accounts.vote_accounts_root ); 
-          n;
-          n = fd_vote_accounts_pair_t_map_successor( epoch_bank->stakes.vote_accounts.vote_accounts_pool, n ) ) {
-
-      fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire( 
-        slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool );
-      fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
-      fd_vote_accounts_pair_t_map_insert( 
-        slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool,
-        &slot_ctx->slot_bank.epoch_stakes.vote_accounts_root,
-        elem );
     }
   }
   FD_SCRATCH_SCOPE_END;
@@ -3784,6 +3798,8 @@ void fd_process_new_epoch(
 
   fd_runtime_update_leaders(slot_ctx, slot_ctx->slot_bank.slot);
   FD_LOG_WARNING(("Updated leader %32J", slot_ctx->leader->uc));
+
+  fd_update_next_epoch_stakes( slot_ctx );
 
   /* Update the current epoch value */
   epoch_bank->stakes.epoch = epoch;
