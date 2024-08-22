@@ -754,7 +754,8 @@ fd_gui_ws_message( fd_gui_t *    gui,
     goto GUI_WS_MESSAGE_CLEANUP;
   }
 
-  if( !strncmp( node->valuestring, "txn_info", strlen( "txn_info" ) ) ) {
+  ulong query_key_len = strlen(node->valuestring);
+  if( !strncmp( node->valuestring, "txn_info", fd_ulong_min( query_key_len, strlen( "txn_info" ) ) ) ) {
     node = cJSON_GetObjectItemCaseSensitive( json, "args" );
     if( FD_UNLIKELY( !cJSON_IsArray( node ) || cJSON_GetArraySize( node )!=1 ) ) {
       goto GUI_WS_MESSAGE_CLEANUP;
@@ -771,8 +772,7 @@ fd_gui_ws_message( fd_gui_t *    gui,
       // FD_LOG_NOTICE(( "txn_info slot=%lu queried and replied", slot ));
       goto GUI_WS_MESSAGE_CLEANUP;
     }
-  }
-  if( !strncmp( node->valuestring, "slot_info", strlen( "slot_info" ) ) ) {
+  } else if( !strncmp( node->valuestring, "slot_info", fd_ulong_min( query_key_len, strlen( "slot_info" ) ) ) ) {
     node = cJSON_GetObjectItemCaseSensitive( json, "args" );
     if( FD_UNLIKELY( !cJSON_IsArray( node ) || cJSON_GetArraySize( node )!=1 ) ) {
       goto GUI_WS_MESSAGE_CLEANUP;
