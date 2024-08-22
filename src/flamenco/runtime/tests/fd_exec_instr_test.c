@@ -1689,7 +1689,8 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   if( FD_UNLIKELY( _l > output_end ) ) {
     goto error;
   }
-  fd_memset( effects, 0, sizeof(fd_exec_test_instr_effects_t) );
+
+  *effects = (fd_exec_test_syscall_effects_t) FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO;
 
   /* Set up the VM instance */
   fd_sha256_t _sha[1];
