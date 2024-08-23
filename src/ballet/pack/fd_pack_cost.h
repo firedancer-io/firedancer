@@ -130,12 +130,12 @@ static const ulong FD_PACK_TYPICAL_VOTE_COST = ( FD_PACK_COST_PER_SIGNATURE     
    On failure, returns 0 and does not modify the value pointed to by
    flags, opt_execution_cost, opt_fee, or opt_precompile_sig_cnt. */
 static inline ulong
-fd_pack_compute_cost( fd_txn_p_t * txnp,
-                      uint       * flags,
-                      ulong      * opt_execution_cost,
-                      ulong      * opt_fee,
-                      ulong      * opt_precompile_sig_cnt ) {
-  fd_txn_t * txn = TXN(txnp);
+fd_pack_compute_cost( fd_txn_t const * txn,
+                      uchar    const * payload,
+                      uint           * flags,
+                      ulong          * opt_execution_cost,
+                      ulong          * opt_fee,
+                      ulong          * opt_precompile_sig_cnt ) {
 
 #define ROW(x) fd_pack_builtin_tbl + MAP_PERFECT_HASH_PP( x )
 
@@ -157,7 +157,7 @@ fd_pack_compute_cost( fd_txn_p_t * txnp,
   ulong non_builtin_cnt    = 0UL; /* <= FD_TXN_INSTR_MAX */
   ulong vote_instr_cnt     = 0UL; /* <= FD_TXN_INSTR_MAX */
   ulong precompile_sig_cnt = 0UL; /* <= FD_TXN_INSTR_MAX * UCHAR_MAX */
-  fd_acct_addr_t const * addr_base = fd_txn_get_acct_addrs( txn, txnp->payload );
+  fd_acct_addr_t const * addr_base = fd_txn_get_acct_addrs( txn, payload );
 
   fd_compute_budget_program_state_t cbp[1];
   fd_compute_budget_program_init( cbp );
@@ -177,10 +177,12 @@ fd_pack_compute_cost( fd_txn_p_t * txnp,
     non_builtin_cnt += !in_tbl->cost_per_instr; /* The only one with no cost is the null one */
 
     if( FD_UNLIKELY( in_tbl==compute_budget_row ) ) {
-      if( FD_UNLIKELY( 0==fd_compute_budget_program_parse( txnp->payload+txn->instr[i].data_off, txn->instr[i].data_sz, cbp ) ) )
+      if( FD_UNLIKELY( 0==fd_compute_budget_program_parse( payload+txn->instr[i].data_off, txn->instr[i].data_sz, cbp ) ) )
         return 0UL;
     } else if( FD_UNLIKELY( (in_tbl==ed25519_precompile_row) | (in_tbl==keccak_precompile_row) ) ) {
-      precompile_sig_cnt += (ulong)txnp->payload[ txn->instr[i].data_off ]; /* First byte is # of signatures */
+      /* First byte is # of signatures.  Branchless tail reading here is
+         probably okay, but this seems safer. */
+      precompile_sig_cnt += (txn->instr[i].data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
     }
 
     vote_instr_cnt += (ulong)(in_tbl==vote_row);

@@ -637,7 +637,7 @@ fd_pack_estimate_rewards_and_compute( fd_txn_p_t        * txnp,
   ulong execution_cus;
   ulong adtl_rewards;
   ulong precompile_sigs;
-  ulong cost = fd_pack_compute_cost( txnp, &txnp->flags, &execution_cus, &adtl_rewards, &precompile_sigs );
+  ulong cost = fd_pack_compute_cost( txn, txnp->payload, &txnp->flags, &execution_cus, &adtl_rewards, &precompile_sigs );
 
   if( FD_UNLIKELY( !cost ) ) return 0;
 
