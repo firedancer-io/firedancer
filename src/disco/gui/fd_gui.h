@@ -116,9 +116,15 @@ struct fd_gui_slot {
   fd_gui_txn_waterfall_t waterfall_begin[ 1 ];
   fd_gui_txn_waterfall_t waterfall_end[ 1 ];
 
+  /* Index into periodic sample array. Inclusive.
+     Points to first sample after slot start sample. */
   ulong                  tile_timers_begin_snap_idx;
+  /* Snapshot at slot start. */
   fd_gui_tile_timers_t   tile_timers_begin[ 64 ];
+  /* Index into periodic sample array. Exclusive.
+     Points to one past last sample before slot end sample. */
   ulong                  tile_timers_end_snap_idx;
+  /* Snapshot at slot end. */
   fd_gui_tile_timers_t   tile_timers_end[ 64 ];
 };
 

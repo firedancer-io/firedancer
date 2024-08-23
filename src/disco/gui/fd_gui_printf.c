@@ -396,6 +396,7 @@ fd_gui_printf_tile_timers( fd_gui_t *                   gui,
                                 + cur[ i ].filter_before_frag_ticks
                                 + cur[ i ].filter_after_frag_ticks
                                 + cur[ i ].finish_ticks);
+    cur_total += 0.1; /* Prevent division by 0 below. */
 
     double prev_total = (double)(prev[ i ].housekeeping_ticks
                                   + prev[ i ].backpressure_ticks
@@ -776,7 +777,7 @@ fd_gui_printf_slot( fd_gui_t * gui,
     default:                                         level = "unknown"; break;
   }
 
-  jsonp_open_envelope( gui, "summary", "slot" );
+  jsonp_open_envelope( gui, "slot", "update" );
     jsonp_open_object( gui, "value" );
       jsonp_ulong( gui, "slot", _slot );
       jsonp_bool( gui, "mine", slot->mine );
@@ -796,15 +797,16 @@ fd_gui_printf_ts_tile_timers( fd_gui_t *                   gui,
                               fd_gui_tile_timers_t const * cur ) {
   jsonp_open_object( gui, NULL );
     jsonp_ulong( gui, "timestamp_nanos", 0 );
-    jsonp_open_object( gui, "tile_timers" );
+    jsonp_open_array( gui, "tile_timers" );
       fd_gui_printf_tile_timers( gui, prev, cur );
-    jsonp_close_object( gui );
+    jsonp_close_array( gui );
   jsonp_close_object( gui );
 }
 
 void
 fd_gui_printf_slot_request( fd_gui_t * gui,
-                            ulong      _slot ) {
+                            ulong      _slot,
+                            ulong      id ) {
   ulong slots_sz = sizeof(gui->slots) / sizeof(gui->slots[ 0 ]);
   fd_gui_slot_t * slot = gui->slots[ _slot % slots_sz ];
 
@@ -818,8 +820,10 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
     default:                                         level = "unknown"; break;
   }
 
-  jsonp_open_envelope( gui, "request", "slot" );
+  jsonp_open_envelope( gui, "slot", "query" );
+    jsonp_ulong( gui, "id", id );
     jsonp_open_object( gui, "value" );
+
       jsonp_open_object( gui, "publish" );
         jsonp_ulong( gui, "slot", _slot );
         jsonp_bool( gui, "mine", slot->mine );
@@ -846,7 +850,6 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
         fd_gui_printf_ts_tile_timers( gui, prev, slot->tile_timers_end );
       jsonp_close_array( gui );
 
-      jsonp_close_object( gui );
     jsonp_close_object( gui );
   jsonp_close_envelope( gui );
 }
