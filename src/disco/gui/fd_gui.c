@@ -752,12 +752,12 @@ fd_gui_request_slot( fd_gui_t *    gui,
   ulong _slot = slot_param->valueulong;
   fd_gui_slot_t const * slot = gui->slots[ _slot % slots_sz ];
   if( FD_UNLIKELY( slot->slot!=_slot ) ) {
-    fd_gui_printf_null_query_response( gui, "slot", "request", request_id );
+    fd_gui_printf_null_query_response( gui, "slot", "query", request_id );
     FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
     return 0;
   }
 
-  fd_gui_printf_slot_request( gui, _slot );
+  fd_gui_printf_slot_request( gui, _slot, request_id );
   FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
   return 0;
 }
@@ -805,7 +805,7 @@ fd_gui_ws_message( fd_gui_t *    gui,
     cJSON_Delete( json );
     return result;
   }
-  
+
   cJSON_Delete( json );
   return FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD;
 }

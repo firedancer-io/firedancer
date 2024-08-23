@@ -66,7 +66,8 @@ fd_gui_printf_slot( fd_gui_t * gui,
 
 void
 fd_gui_printf_slot_request( fd_gui_t * gui,
-                            ulong      slot );
+                            ulong      slot,
+                            ulong      id );
 
 void
 fd_gui_printf_live_tile_timers( fd_gui_t * gui );

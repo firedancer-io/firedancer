@@ -100,6 +100,15 @@ disconnected. If the client issues a well-formed request for data that
 the validator does not have (for example, an old slot), the query will
 receive a response with a value of `null`.
 
+```json
+{
+    "topic": "slot",
+    "key": "query",
+    "id": 42,
+    "value": null
+}
+```
+
 ## Forks
 The Solana network may occasionally fork, in which case there will be
 more than one active chain. When showing information derived from the
@@ -698,19 +707,237 @@ initially replay one but the cluster votes on the other one.
 {
     "topic": "slot",
     "key": "query",
-    "seq": 32,
+    "id": 32,
     "params": {
-        "slot": 285291521
+        "slot": 289245044
     }
 }
 ```
 
 ```json
 {
-    "topic": "summary",
+    "topic": "slot",
     "key": "query",
+    "id": 32,
     "value": {
-        // TODO
+        "publish": {
+            "slot": 289245044,
+            "mine": true,
+            "skipped": false,
+            "level": "rooted",
+            "transactions": 6821,
+            "vote_transactions": 6746,
+            "failed_transactions": 3703,
+            "compute_units": 0
+        },
+        "waterfall": {
+            "in": {
+                "retained": 0,
+                "quic": 28159,
+                "udp": 14323,
+                "gossip": 4659
+            },
+            "out": {
+                "quic_overrun": 0,
+                "quic_quic_invalid": 0,
+                "quic_udp_invalid": 0,
+                "verify_overrun": 0,
+                "verify_parse": 0,
+                "verify_failed": 0,
+                "verify_duplicate": 114,
+                "dedup_duplicate": 19387,
+                "pack_invalid": 0,
+                "pack_retained": 2225,
+                "pack_wait_full": 0,
+                "pack_leader_slow": 0,
+                "bank_invalid": 10253,
+                "block_success": 3101,
+                "block_fail": 3720
+            }
+        },
+        "tile_timers": [
+            {
+                "timestamp_nanos": 0,
+                "tile_timers": [
+                    {
+                        "tile": "net",
+                        "kind_id": 0,
+                        "idle": 0.58
+                    },
+                    {
+                        "tile": "quic",
+                        "kind_id": 0,
+                        "idle": 1
+                    },
+                    {
+                        "tile": "verify",
+                        "kind_id": 0,
+                        "idle": 1
+                    },
+                    {
+                        "tile": "verify",
+                        "kind_id": 1,
+                        "idle": 1
+                    },
+                    {
+                        "tile": "verify",
+                        "kind_id": 2,
+                        "idle": 1
+                    },
+                    {
+                        "tile": "verify",
+                        "kind_id": 3,
+                        "idle": 1
+                    },
+                    {
+                        "tile": "verify",
+                        "kind_id": 4,
+                        "idle": 1
+                    },
+                    {
+                        "tile": "dedup",
+                        "kind_id": 0,
+                        "idle": 1
+                    },
+                    {
+                        "tile": "pack",
+                        "kind_id": 0,
+                        "idle": 1
+                    },
+                    {
+                        "tile": "bank",
+                        "kind_id": 0,
+                        "idle": 0.99
+                    },
+                    {
+                        "tile": "bank",
+                        "kind_id": 1,
+                        "idle": 0.99
+                    },
+                    {
+                        "tile": "poh",
+                        "kind_id": 0,
+                        "idle": 0
+                    },
+                    {
+                        "tile": "shred",
+                        "kind_id": 0,
+                        "idle": 0.99
+                    },
+                    {
+                        "tile": "store",
+                        "kind_id": 0,
+                        "idle": 1
+                    },
+                    {
+                        "tile": "sign",
+                        "kind_id": 0,
+                        "idle": 1
+                    },
+                    {
+                        "tile": "plugin",
+                        "kind_id": 0,
+                        "idle": 0.48
+                    },
+                    {
+                        "tile": "http",
+                        "kind_id": 0,
+                        "idle": 0.99
+                    }
+                ]
+            },
+            {
+                "timestamp_nanos": 0,
+                "tile_timers": [
+                    {
+                        "tile": "net",
+                        "kind_id": 0,
+                        "idle": 0.56
+                    },
+                    {
+                        "tile": "quic",
+                        "kind_id": 0,
+                        "idle": 0.99
+                    },
+                    {
+                        "tile": "verify",
+                        "kind_id": 0,
+                        "idle": 0.95
+                    },
+                    {
+                        "tile": "verify",
+                        "kind_id": 1,
+                        "idle": 0.95
+                    },
+                    {
+                        "tile": "verify",
+                        "kind_id": 2,
+                        "idle": 0.95
+                    },
+                    {
+                        "tile": "verify",
+                        "kind_id": 3,
+                        "idle": 0.95
+                    },
+                    {
+                        "tile": "verify",
+                        "kind_id": 4,
+                        "idle": 0.95
+                    },
+                    {
+                        "tile": "dedup",
+                        "kind_id": 0,
+                        "idle": 0.99
+                    },
+                    {
+                        "tile": "pack",
+                        "kind_id": 0,
+                        "idle": 0.93
+                    },
+                    {
+                        "tile": "bank",
+                        "kind_id": 0,
+                        "idle": 0.64
+                    },
+                    {
+                        "tile": "bank",
+                        "kind_id": 1,
+                        "idle": 0.67
+                    },
+                    {
+                        "tile": "poh",
+                        "kind_id": 0,
+                        "idle": 0.99
+                    },
+                    {
+                        "tile": "shred",
+                        "kind_id": 0,
+                        "idle": 0.98
+                    },
+                    {
+                        "tile": "store",
+                        "kind_id": 0,
+                        "idle": 0.94
+                    },
+                    {
+                        "tile": "sign",
+                        "kind_id": 0,
+                        "idle": 0.99
+                    },
+                    {
+                        "tile": "plugin",
+                        "kind_id": 0,
+                        "idle": 0.49
+                    },
+                    {
+                        "tile": "http",
+                        "kind_id": 0,
+                        "idle": 0.99
+                    }
+                ]
+            },
+            // ... many more ...
+        ]
     }
 }
 ```
