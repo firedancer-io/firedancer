@@ -2568,6 +2568,11 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L154
    */
   case fd_vote_instruction_enum_vote_switch: {
+    if( FD_FEATURE_ACTIVE( ctx->slot_ctx, deprecate_legacy_vote_ixs ) &&
+        FD_FEATURE_ACTIVE( ctx->slot_ctx, enable_tower_sync_ix ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
+
     fd_vote_t * vote;
     if( instruction.discriminant == fd_vote_instruction_enum_vote ) {
       vote = &instruction.inner.vote;
@@ -2610,6 +2615,11 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L169
    */
   case fd_vote_instruction_enum_update_vote_state_switch: {
+    if( FD_FEATURE_ACTIVE( ctx->slot_ctx, deprecate_legacy_vote_ixs ) &&
+        FD_FEATURE_ACTIVE( ctx->slot_ctx, enable_tower_sync_ix ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
+
     fd_vote_state_update_t * vote_state_update;
     switch( instruction.discriminant ) {
     case fd_vote_instruction_enum_update_vote_state:
