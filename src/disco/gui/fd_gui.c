@@ -1056,6 +1056,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       break;
     }
     case FD_PLUGIN_MSG_SLOT_END: {
+      gui->summary.next_leader_slot = *(ulong *)msg;
       if( FD_UNLIKELY( slot<gui->summary.slot_start_high_watermark ) ) {
         FD_LOG_NOTICE(( "DONE_PACKING slot regression %lu->%lu might have been a fork switch", gui->summary.slot_start_high_watermark, slot ));
       } else if( FD_UNLIKELY( slot>gui->summary.slot_start_high_watermark ) ) {
@@ -1063,7 +1064,6 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       } else {
         if( slot>gui->summary.slot_end_high_watermark ) {
           gui->summary.slot_end_high_watermark = slot;
-          gui->summary.next_leader_slot = *(ulong *)msg;
           fd_gui_sample_counters( gui );
           /* Store counters for the slot we just finished. */
           fd_gui_set_txn_info_for_slot( gui, slot, gui->summary.txn_info_json );
