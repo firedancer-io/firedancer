@@ -462,8 +462,9 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
           *_ret = 1;
           return FD_VM_ERR_ABORT;
         }
-        dst_haddr = (uchar*)vm->input_mem_regions[ dst_region_idx ].haddr;
-        dst_idx = 0UL;
+        dst_haddr               = (uchar*)vm->input_mem_regions[ dst_region_idx ].haddr;
+        dst_bytes_in_cur_region = vm->input_mem_regions[ dst_region_idx ].region_sz;
+        dst_idx                 = 0UL;
       }
       if( FD_UNLIKELY( !src_bytes_in_cur_region ) ) {
         /* Go to next one */
@@ -471,8 +472,9 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
           *_ret = 1;
           return FD_VM_ERR_ABORT;
         }
-        src_haddr = (uchar*)vm->input_mem_regions[ src_region_idx ].haddr;
-        src_idx = 0UL;
+        src_haddr               = (uchar*)vm->input_mem_regions[ src_region_idx ].haddr;
+        src_bytes_in_cur_region = vm->input_mem_regions[ src_region_idx ].region_sz;
+        src_idx                 = 0UL;
       }
 
       dst_haddr[ dst_idx ] = src_haddr[ src_idx ];
@@ -572,7 +574,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
 
     /* Case where the operation spans multiple regions. Copy over the bytes
        from each region while iterating to the next one. */
-    /* TODO: An optimization would be to memcpy chunks at once */
+    /* TODO: An optimization would be to memcmp chunks at once */
     ulong m0_idx = 0UL;
     ulong m1_idx = 0UL;
     for( ulong i=0UL; i<sz; i++ ) {
@@ -584,6 +586,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
         }
         m0_haddr = (uchar*)vm->input_mem_regions[ m0_region_idx ].haddr;
         m0_idx = 0UL;
+        m0_bytes_in_cur_region = vm->input_mem_regions[ m0_region_idx ].region_sz;
       }
       if( FD_UNLIKELY( !m1_bytes_in_cur_region ) ) {
         /* Go to next one */
@@ -593,6 +596,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
         }
         m1_haddr = (uchar*)vm->input_mem_regions[ m1_region_idx ].haddr;
         m1_idx = 0UL;
+        m1_bytes_in_cur_region = vm->input_mem_regions[ m1_region_idx ].region_sz;
       }
 
       int i0 = (int)m0_haddr[ m0_idx ];
@@ -640,8 +644,13 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
     ulong dst_offset           = dst_vaddr & 0xffffffffUL;
     ulong region_idx           = fd_vm_get_input_mem_region_idx( vm, dst_offset );
     ulong region_offset        = dst_offset - vm->input_mem_regions[region_idx].vaddr_offset;
-    ulong bytes_left_in_region = vm->input_mem_regions[region_idx].region_sz - region_offset;
+    ulong bytes_left_in_region = fd_ulong_sat_sub(vm->input_mem_regions[region_idx].region_sz, region_offset);
     uchar * haddr              = (uchar*)(vm->input_mem_regions[region_idx].haddr + region_offset);
+
+    if( FD_UNLIKELY( !bytes_left_in_region ) ) {
+      *_ret = 1UL;
+      return FD_VM_ERR_INVAL;
+    }
 
     while( sz_left ) {
       if( FD_UNLIKELY( region_idx>=vm->input_mem_regions_cnt ) ) {
@@ -731,7 +740,7 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
         return FD_VM_ERR_ABORT;
       }
     } else {
-      src_haddr           = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, 1UL, sz );
+      src_haddr = (uchar *)FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, 1UL, sz );
     }
 
     /* Do a normal memcpy if regions do not overlap */
@@ -757,8 +766,9 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
           *_ret = 1;
           return FD_VM_ERR_ABORT;
         }
-        dst_haddr = (uchar*)vm->input_mem_regions[ dst_region_idx ].haddr;
-        dst_idx = 0UL;
+        dst_haddr               = (uchar*)vm->input_mem_regions[ dst_region_idx ].haddr;
+        dst_bytes_in_cur_region = vm->input_mem_regions[ dst_region_idx ].region_sz;
+        dst_idx                 = 0UL;
       }
       if( FD_UNLIKELY( !src_bytes_in_cur_region ) ) {
         /* Go to next one */
@@ -766,8 +776,9 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
           *_ret = 1;
           return FD_VM_ERR_ABORT;
         }
-        src_haddr = (uchar*)vm->input_mem_regions[ src_region_idx ].haddr;
-        src_idx = 0UL;
+        src_haddr               = (uchar*)vm->input_mem_regions[ src_region_idx ].haddr;
+        src_bytes_in_cur_region = vm->input_mem_regions[ src_region_idx ].region_sz;
+        src_idx                 = 0UL;
       }
 
       dst_haddr[ dst_idx ] = src_haddr[ src_idx ];
