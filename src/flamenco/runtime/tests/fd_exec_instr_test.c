@@ -1799,7 +1799,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   effects->heap = FD_SCRATCH_ALLOC_APPEND(
     l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
   effects->heap->size = (uint)vm->heap_max;
-  fd_memcpy( effects->heap->bytes, vm->heap, fd_ulong_min(input->syscall_invocation.heap_prefix->size, vm->heap_max) );
+  fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
 
   effects->stack = FD_SCRATCH_ALLOC_APPEND(
     l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
