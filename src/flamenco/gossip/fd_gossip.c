@@ -55,6 +55,8 @@
 /* Maximum number of stake weights, mirrors fd_stake_ci */
 #define MAX_STAKE_WEIGHTS (40200UL)
 
+#define MAX_PEER_PING_COUNT (10000U)
+
 /* Test if two addresses are equal */
 static int fd_gossip_peer_addr_eq( const fd_gossip_peer_addr_t * key1, const fd_gossip_peer_addr_t * key2 ) {
   FD_STATIC_ASSERT(sizeof(fd_gossip_peer_addr_t) == sizeof(ulong),"messed up size");
@@ -646,7 +648,7 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     if (val->pongtime != 0)
       /* Success */
       return;
-    if (val->pingcount++ >= 50U) {
+    if (val->pingcount++ >= MAX_PEER_PING_COUNT) {
       /* Give up. This is a bad peer. */
       fd_active_table_remove(glob->actives, key);
       fd_peer_table_remove(glob->peers, key);
