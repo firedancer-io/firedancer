@@ -63,30 +63,6 @@ jsonp_double( fd_gui_t *   gui,
 }
 
 static void
-jsonp_pct( fd_gui_t * gui,
-           ulong     num_now,
-           ulong     num_then,
-           double    lhopital_num,
-           ulong     den_now,
-           ulong     den_then,
-           double    lhopital_den ) {
-  if( FD_UNLIKELY( (num_now<num_then)                              |
-                   (den_now<den_then)                              |
-                   !((0.<=lhopital_num) && (lhopital_num<=DBL_MAX)) |
-                   !((0.< lhopital_den) && (lhopital_den<=DBL_MAX)) ) ) {
-    FD_LOG_ERR(( "invalid pct" ));
-  }
-
-  double pct = 100.*(((double)(num_now - num_then) + lhopital_num) / ((double)(den_now - den_then) + lhopital_den));
-
-  if( FD_UNLIKELY( !((0.<=pct) && (pct<=DBL_MAX)) ) ) {
-    FD_LOG_ERR(( "overflow pct" ));
-  }
-
-  jsonp_double( gui, NULL, pct );
-}
-
-static void
 jsonp_sanitize_str( fd_hcache_t * hcache,
                     ulong         start_len ) {
   /* escape quotemark, reverse solidus, and control chars U+0000 through U+001F
@@ -194,26 +170,32 @@ jsonp_close_envelope( fd_gui_t * gui ) {
 }
 
 void
-fd_gui_printf_open_query_response_envelope( fd_gui_t * gui,
-                                            ulong      seq ) {
+fd_gui_printf_open_query_response_envelope( fd_gui_t *   gui,
+                                            char const * topic,
+                                            char const * key,
+                                            ulong        id ) {
   jsonp_open_object( gui, NULL );
-  jsonp_ulong( gui, "seq", seq );
-  jsonp_open_array( gui, "response" );
+  jsonp_string( gui, "topic", topic );
+  jsonp_string( gui, "key", key );
+  jsonp_ulong( gui, "id", id );
 }
 
 void
 fd_gui_printf_close_query_response_envelope( fd_gui_t * gui ) {
-  jsonp_close_array( gui );
   jsonp_close_object( gui );
   jsonp_strip_trailing_comma( gui );
 }
 
 void
-fd_gui_printf_null_query_response( fd_gui_t * gui,
-                                   ulong      seq ) {
+fd_gui_printf_null_query_response( fd_gui_t *   gui,
+                                   char const * topic,
+                                   char const * key,
+                                   ulong        id ) {
   jsonp_open_object( gui, NULL );
-  jsonp_ulong( gui, "seq", seq );
-  jsonp_null( gui, "response" );
+    jsonp_string( gui, "topic", topic );
+    jsonp_string( gui, "key", key );
+    jsonp_ulong( gui, "id", id );
+    jsonp_null( gui, "value" );
   jsonp_close_object( gui );
   jsonp_strip_trailing_comma( gui );
 }
@@ -243,6 +225,41 @@ void
 fd_gui_printf_uptime_nanos( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "uptime_nanos" );
     jsonp_ulong( gui, "value", (ulong)(fd_log_wallclock() - gui->summary.startup_time_nanos ) );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_net_tile_count( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "net_tile_count" );
+    jsonp_ulong( gui, "value", gui->summary.net_tile_cnt );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_quic_tile_count( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "quic_tile_count" );
+    jsonp_ulong( gui, "value", gui->summary.quic_tile_cnt );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_verify_tile_count( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "verify_tile_count" );
+    jsonp_ulong( gui, "value", gui->summary.verify_tile_cnt );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_bank_tile_count( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "bank_tile_count" );
+    jsonp_ulong( gui, "value", gui->summary.bank_tile_cnt );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_shred_tile_count( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "shred_tile_count" );
+    jsonp_ulong( gui, "value", gui->summary.shred_tile_cnt );
   jsonp_close_envelope( gui );
 }
 
@@ -290,24 +307,6 @@ fd_gui_printf_estimated_slot( fd_gui_t * gui ) {
 }
 
 void
-fd_gui_printf_topology( fd_gui_t * gui ) {
-  jsonp_open_envelope( gui, "summary", "topology" );
-    jsonp_open_object( gui, "value" );
-      jsonp_open_object( gui, "tile_counts" );
-        jsonp_ulong( gui, "net",    gui->summary.net_tile_count );
-        jsonp_ulong( gui, "quic",   gui->summary.quic_tile_count );
-        jsonp_ulong( gui, "verify", gui->summary.verify_tile_count );
-        jsonp_ulong( gui, "dedup",  1UL );
-        jsonp_ulong( gui, "pack",   1UL );
-        jsonp_ulong( gui, "bank",   gui->summary.bank_tile_count );
-        jsonp_ulong( gui, "poh",    1UL );
-        jsonp_ulong( gui, "shred",  gui->summary.shred_tile_count );
-      jsonp_close_object( gui );
-    jsonp_close_object( gui );
-  jsonp_close_envelope( gui );
-}
-
-void
 fd_gui_printf_epoch( fd_gui_t * gui,
                      ulong      epoch_idx ) {
   jsonp_open_envelope( gui, "epoch", "new" );
@@ -337,88 +336,95 @@ fd_gui_printf_epoch( fd_gui_t * gui,
   jsonp_close_envelope( gui );
 }
 
-void
-fd_gui_printf_epoch1( fd_gui_t * gui ) {
-  fd_gui_printf_epoch( gui, 0UL );
+static void
+fd_gui_printf_waterfall( fd_gui_t *               gui,
+                         fd_gui_txn_waterfall_t * prev,
+                         fd_gui_txn_waterfall_t * cur ) {
+  jsonp_open_object( gui, "waterfall" );
+    jsonp_open_object( gui, "in" );
+      jsonp_ulong( gui, "retained", prev->out.pack_retained );
+      jsonp_ulong( gui, "quic",     cur->in.quic   - prev->in.quic );
+      jsonp_ulong( gui, "udp",      cur->in.udp    - prev->in.udp );
+      jsonp_ulong( gui, "gossip",   cur->in.gossip - prev->in.gossip );
+    jsonp_close_object( gui );
+
+    jsonp_open_object( gui, "out" );
+      jsonp_ulong( gui, "quic_overrun",      cur->out.quic_overrun      - prev->out.quic_overrun );
+      jsonp_ulong( gui, "quic_quic_invalid", cur->out.quic_quic_invalid - prev->out.quic_quic_invalid );
+      jsonp_ulong( gui, "quic_udp_invalid",  cur->out.quic_udp_invalid  - prev->out.quic_udp_invalid );
+      jsonp_ulong( gui, "verify_overrun",    cur->out.verify_overrun    - prev->out.verify_overrun );
+      jsonp_ulong( gui, "verify_parse",      cur->out.verify_parse      - prev->out.verify_parse );
+      jsonp_ulong( gui, "verify_failed",     cur->out.verify_failed     - prev->out.verify_failed );
+      jsonp_ulong( gui, "verify_duplicate",  cur->out.verify_duplicate  - prev->out.verify_duplicate );
+      jsonp_ulong( gui, "dedup_duplicate",   cur->out.dedup_duplicate   - prev->out.dedup_duplicate );
+      jsonp_ulong( gui, "pack_invalid",      cur->out.pack_invalid      - prev->out.pack_invalid );
+      jsonp_ulong( gui, "pack_retained",     cur->out.pack_retained     - prev->out.pack_retained );
+      jsonp_ulong( gui, "pack_wait_full",    cur->out.pack_wait_full    - prev->out.pack_wait_full );
+      jsonp_ulong( gui, "pack_leader_slow",  cur->out.pack_leader_slow  - prev->out.pack_leader_slow );
+      jsonp_ulong( gui, "bank_invalid",      cur->out.bank_invalid      - prev->out.bank_invalid );
+      jsonp_ulong( gui, "block_success",     cur->out.block_success     - prev->out.block_success );
+      jsonp_ulong( gui, "block_fail",        cur->out.block_fail        - prev->out.block_fail );
+    jsonp_close_object( gui );
+  jsonp_close_object( gui );
 }
 
 void
-fd_gui_printf_epoch2( fd_gui_t * gui ) {
-  fd_gui_printf_epoch( gui, 1UL );
-}
-
-void
-fd_gui_printf_txn_info_summary_this( fd_gui_t *          gui,
-                                     fd_gui_txn_info_t * txn_info,
-                                     ulong               slot ) {
-  jsonp_open_envelope( gui, "summary", "upcoming_slot_txn_info" );
+fd_gui_printf_live_txn_waterfall( fd_gui_t *               gui,
+                                  fd_gui_txn_waterfall_t * prev,
+                                  fd_gui_txn_waterfall_t * cur,
+                                  ulong                    next_leader_slot ) {
+  jsonp_open_envelope( gui, "summary", "live_txn_waterfall" );
     jsonp_open_object( gui, "value" );
-      jsonp_ulong( gui, "slot",                   slot );
-      jsonp_ulong( gui, "acquired_txns",          txn_info->acquired_txns );
-      jsonp_ulong( gui, "acquired_txns_leftover", txn_info->acquired_txns_leftover );
-      jsonp_ulong( gui, "acquired_txns_quic",     txn_info->acquired_txns_quic );
-      jsonp_ulong( gui, "acquired_txns_nonquic",  txn_info->acquired_txns_nonquic );
-      jsonp_ulong( gui, "acquired_txns_gossip",   txn_info->acquired_txns_gossip );
-      jsonp_ulong( gui, "dropped_txns",           txn_info->dropped_txns );
-
-      jsonp_open_object( gui, "dropped_txns_net" );
-        jsonp_ulong( gui, "count", txn_info->dropped_txns_net_overrun + txn_info->dropped_txns_net_invalid );
-        jsonp_open_object( gui, "breakdown" );
-          jsonp_ulong( gui, "net_overrun", txn_info->dropped_txns_net_overrun );
-          jsonp_ulong( gui, "net_invalid", txn_info->dropped_txns_net_invalid );
-        jsonp_close_object( gui );
-      jsonp_close_object( gui );
-
-      jsonp_open_object( gui, "dropped_txns_quic" );
-        jsonp_ulong( gui, "count", txn_info->dropped_txns_quic_overrun + txn_info->dropped_txns_quic_reasm );
-        jsonp_open_object( gui, "breakdown" );
-          jsonp_ulong( gui, "quic_overrun", txn_info->dropped_txns_quic_overrun );
-          jsonp_ulong( gui, "quic_reasm",   txn_info->dropped_txns_quic_reasm );
-        jsonp_close_object( gui );
-      jsonp_close_object( gui );
-
-      jsonp_open_object( gui, "dropped_txns_verify" );
-        jsonp_ulong( gui, "count", txn_info->dropped_txns_verify_overrun + txn_info->dropped_txns_verify_drop );
-        jsonp_open_object( gui, "breakdown" );
-          jsonp_ulong( gui, "verify_overrun", txn_info->dropped_txns_verify_overrun );
-          jsonp_ulong( gui, "verify_drop", txn_info->dropped_txns_verify_drop );
-        jsonp_close_object( gui );
-      jsonp_close_object( gui );
-
-      jsonp_open_object( gui, "dropped_txns_dedup" );
-        jsonp_ulong( gui, "count", txn_info->dropped_txns_dedup_drop );
-        jsonp_open_object( gui, "breakdown" );
-          jsonp_ulong( gui, "dedup_drop", txn_info->dropped_txns_dedup_drop );
-        jsonp_close_object( gui );
-      jsonp_close_object( gui );
-
-      jsonp_open_object( gui, "dropped_txns_pack" );
-        jsonp_ulong( gui, "count", txn_info->dropped_txns_pack_nonleader + txn_info->dropped_txns_pack_invalid + txn_info->dropped_txns_pack_priority );
-        jsonp_open_object( gui, "breakdown" );
-          jsonp_ulong( gui, "pack_nonleader", txn_info->dropped_txns_pack_nonleader );
-          jsonp_ulong( gui, "pack_invalid", txn_info->dropped_txns_pack_invalid );
-          jsonp_ulong( gui, "pack_priority", txn_info->dropped_txns_pack_priority );
-        jsonp_close_object( gui );
-      jsonp_close_object( gui );
-
-      jsonp_open_object( gui, "dropped_txns_bank" );
-        jsonp_ulong( gui, "count", txn_info->dropped_txns_bank_invalid );
-        jsonp_open_object( gui, "breakdown" );
-          jsonp_ulong( gui, "bank_invalid", txn_info->dropped_txns_bank_invalid );
-        jsonp_close_object( gui );
-      jsonp_close_object( gui );
-
-      jsonp_ulong( gui, "executed_txns_failure", txn_info->executed_txns_failure );
-      jsonp_ulong( gui, "executed_txns_success", txn_info->executed_txns_success );
-
-      jsonp_ulong( gui, "buffered_txns", txn_info->buffered_txns );
+      jsonp_ulong( gui, "next_leader_slot", next_leader_slot );
+      fd_gui_printf_waterfall( gui, prev, cur );
     jsonp_close_object( gui );
   jsonp_close_envelope( gui );
 }
 
+static void
+fd_gui_printf_tile_timers( fd_gui_t *                   gui,
+                           fd_gui_tile_timers_t const * prev,
+                           fd_gui_tile_timers_t const * cur ) {
+  for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &gui->topo->tiles[ i ];
+
+    double cur_total = (double)(cur[ i ].housekeeping_ticks
+                                + cur[ i ].backpressure_ticks
+                                + cur[ i ].caught_up_ticks
+                                + cur[ i ].overrun_polling_ticks
+                                + cur[ i ].overrun_reading_ticks
+                                + cur[ i ].filter_before_frag_ticks
+                                + cur[ i ].filter_after_frag_ticks
+                                + cur[ i ].finish_ticks);
+
+    double prev_total = (double)(prev[ i ].housekeeping_ticks
+                                  + prev[ i ].backpressure_ticks
+                                  + prev[ i ].caught_up_ticks
+                                  + prev[ i ].overrun_polling_ticks
+                                  + prev[ i ].overrun_reading_ticks
+                                  + prev[ i ].filter_before_frag_ticks
+                                  + prev[ i ].filter_after_frag_ticks
+                                  + prev[ i ].finish_ticks);
+
+    jsonp_open_object( gui, NULL );
+      jsonp_string( gui, "tile", tile->name );
+      jsonp_ulong( gui, "kind_id", tile->kind_id );
+      jsonp_double( gui, "idle", (double)(cur[ i ].caught_up_ticks - prev[ i ].caught_up_ticks) / (cur_total - prev_total) );
+    jsonp_close_object( gui );
+  }
+}
+
 void
-fd_gui_printf_txn_info_summary( fd_gui_t * gui ) {
-  fd_gui_printf_txn_info_summary_this( gui, gui->summary.txn_info_json, gui->summary.next_leader_slot );
+fd_gui_printf_live_tile_timers( fd_gui_t * gui ) {
+  ulong timers_cnt = sizeof(gui->summary.tile_timers_snap) / sizeof(gui->summary.tile_timers_snap[ 0 ]);
+
+  jsonp_open_envelope( gui, "summary", "live_tile_timers" );
+    jsonp_open_array( gui, "value" );
+      fd_gui_tile_timers_t * cur  = gui->summary.tile_timers_snap[ (gui->summary.tile_timers_snap_idx+(timers_cnt-1UL))%timers_cnt ];
+      fd_gui_tile_timers_t * prev = gui->summary.tile_timers_snap[ (gui->summary.tile_timers_snap_idx+(timers_cnt-2UL))%timers_cnt ];
+      fd_gui_printf_tile_timers( gui, prev, cur );
+    jsonp_close_array( gui );
+  jsonp_close_envelope( gui );
 }
 
 void
@@ -446,157 +452,6 @@ void
 fd_gui_printf_estimated_failed_tps( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "estimated_failed_tps" );
     jsonp_ulong( gui, "value", gui->summary.estimated_failed_tps );
-  jsonp_close_envelope( gui );
-}
-
-static void
-fd_gui_printf_tile_info1( fd_gui_t * gui,
-                          char *     tile_name ) {
-  fd_topo_t * topo      = gui->topo;
-
-  jsonp_open_array( gui, "idle" );
-    for( ulong i=0UL; i<topo->tile_cnt; i++) {
-      if ( !strcmp( topo->tiles[ i ].name, tile_name ) ) {
-        /* (sample_cnt - 2) might underflow on the first sample
-           That's fine because we zero everything so we'll just all
-           zeros for prv which is exactly what we need in this case. */
-        fd_gui_tile_info_t * prv = gui->summary.tile_info[ i ] + ( ( gui->summary.tile_info_sample_cnt - 2 ) % FD_GUI_TILE_SAMPLE_CNT_PER_TILE );
-        fd_gui_tile_info_t * cur = gui->summary.tile_info[ i ] + ( ( gui->summary.tile_info_sample_cnt - 1 ) % FD_GUI_TILE_SAMPLE_CNT_PER_TILE );
-        jsonp_pct( gui, cur->caught_up_ticks, prv->caught_up_ticks, 0., cur->total_ticks, prv->total_ticks, DBL_MIN );
-      }
-    }
-  jsonp_close_array( gui );
-}
-
-static void
-fd_gui_printf_tile_info2( fd_gui_t * gui,
-                          char *     tile_name,
-                          ulong      epoch_idx,
-                          ulong      slot ) {
-  ulong first_sample_cnt, last_sample_cnt;
-  ulong idx        = epoch_idx;
-  fd_topo_t * topo = gui->topo;
-
-  jsonp_open_array( gui, "idle" );
-    for( ulong i=0UL; i<topo->tile_cnt; i++) {
-      if ( !strcmp( topo->tiles[ i ].name, tile_name ) ) {
-        /* For each tile of this name, print a sequence of idleness values.
-           Basically, for each tile type, we end up producing an array of arrays. */
-        jsonp_open_array( gui, NULL );
-        fd_gui_tile_info_t * start_tile_info = &(gui->summary.tile_info_slot_start_end[ idx ][ i ][ ( slot - gui->epoch.epochs[ idx ].start_slot ) * 2 ]);
-        fd_gui_tile_info_t * end_tile_info   = &(gui->summary.tile_info_slot_start_end[ idx ][ i ][ ( slot - gui->epoch.epochs[ idx ].start_slot ) * 2 + 1 ]);
-        first_sample_cnt = gui->summary.tile_info_slot_start_end_sample_cnt[ idx ][ ( slot - gui->epoch.epochs[ idx ].start_slot ) * 2 ];
-        last_sample_cnt  = gui->summary.tile_info_slot_start_end_sample_cnt[ idx ][ ( slot - gui->epoch.epochs[ idx ].start_slot ) * 2 + 1 ];
-        if( FD_UNLIKELY( first_sample_cnt>last_sample_cnt ) ) {
-          FD_LOG_ERR(( "first_sample_cnt %lu should be <= last_sample_cnt %lu", first_sample_cnt, last_sample_cnt ));
-        }
-        fd_gui_tile_info_t * prv = start_tile_info;
-        while( first_sample_cnt<=last_sample_cnt ) {
-          fd_gui_tile_info_t * cur = gui->summary.tile_info[ i ] + ( ( first_sample_cnt ) % FD_GUI_TILE_SAMPLE_CNT_PER_TILE );
-          if( FD_UNLIKELY( cur->ts<prv->ts ) ) {
-            FD_LOG_ERR(( "cut->ts %ld should be >= prv->ts %ld", cur->ts, prv->ts ));
-          }
-          jsonp_pct( gui, cur->caught_up_ticks, prv->caught_up_ticks, 0., cur->total_ticks, prv->total_ticks, DBL_MIN );
-          prv = cur;
-          first_sample_cnt++;
-        }
-        fd_gui_tile_info_t * cur = end_tile_info;
-        if( FD_UNLIKELY( cur->ts<prv->ts ) ) {
-          FD_LOG_ERR(( "cut->ts %ld should be >= prv->ts %ld", cur->ts, prv->ts ));
-        }
-        jsonp_pct( gui, cur->caught_up_ticks, prv->caught_up_ticks, 0., cur->total_ticks, prv->total_ticks, DBL_MIN );
-        jsonp_close_array( gui );
-      }
-    }
-  jsonp_close_array( gui );
-}
-
-void
-fd_gui_printf_tile_info( fd_gui_t * gui ) {
-  jsonp_open_envelope( gui, "summary", "tile_info" );
-    jsonp_open_object( gui, "value" );
-      jsonp_open_object( gui, "net" );
-      fd_gui_printf_tile_info1( gui, "net" );
-      jsonp_close_object( gui );
-
-      jsonp_open_object( gui, "quic" );
-      fd_gui_printf_tile_info1( gui, "quic" );
-      jsonp_close_object( gui );
-
-      jsonp_open_object( gui, "verify" );
-      fd_gui_printf_tile_info1( gui, "verify" );
-      jsonp_close_object( gui );
-
-      jsonp_open_object( gui, "dedup" );
-      fd_gui_printf_tile_info1( gui, "dedup" );
-      jsonp_close_object( gui );
-
-      jsonp_open_object( gui, "pack" );
-      fd_gui_printf_tile_info1( gui, "pack" );
-      jsonp_close_object( gui );
-
-      jsonp_open_object( gui, "bank" );
-      fd_gui_printf_tile_info1( gui, "bank" );
-      jsonp_close_object( gui );
-
-      jsonp_open_object( gui, "poh" );
-      fd_gui_printf_tile_info1( gui, "poh" );
-      jsonp_close_object( gui );
-
-      jsonp_open_object( gui, "shred" );
-      fd_gui_printf_tile_info1( gui, "shred" );
-      jsonp_close_object( gui );
-    jsonp_close_object( gui );
-  jsonp_close_envelope( gui );
-}
-
-void
-fd_gui_printf_tile_info_for_slot( fd_gui_t * gui,
-                                  ulong      slot ) {
-  jsonp_open_envelope( gui, "summary", "slot_tile_info" );
-    jsonp_open_object( gui, "value" );
-      jsonp_ulong( gui, "slot", slot );
-      for( ulong idx=0UL; idx<FD_GUI_NUM_EPOCHS; idx++ ) {
-        FD_LOG_INFO(( "idx %lu start_slot %lu end_slot %lu", idx, gui->epoch.epochs[ idx ].start_slot, gui->epoch.epochs[ idx ].end_slot ));
-        if( FD_LIKELY( slot>=gui->epoch.epochs[ idx ].start_slot && slot<=gui->epoch.epochs[ idx ].end_slot ) ) {
-          FD_LOG_INFO(( "checking slot match %lu %lu", slot, gui->summary.txn_info_slot[ idx ][ slot - gui->epoch.epochs[ idx ].start_slot ] ));
-          if( slot==gui->summary.txn_info_slot[ idx ][ slot - gui->epoch.epochs[ idx ].start_slot ] ) {
-            /* The query slot is something that we recorded and haven't evicted. */
-            jsonp_open_object( gui, "net" );
-            fd_gui_printf_tile_info2( gui, "net", idx, slot );
-            jsonp_close_object( gui );
-
-            jsonp_open_object( gui, "quic" );
-            fd_gui_printf_tile_info2( gui, "quic", idx, slot );
-            jsonp_close_object( gui );
-
-            jsonp_open_object( gui, "verify" );
-            fd_gui_printf_tile_info2( gui, "verify", idx, slot );
-            jsonp_close_object( gui );
-
-            jsonp_open_object( gui, "dedup" );
-            fd_gui_printf_tile_info2( gui, "dedup", idx, slot );
-            jsonp_close_object( gui );
-
-            jsonp_open_object( gui, "pack" );
-            fd_gui_printf_tile_info2( gui, "pack", idx, slot );
-            jsonp_close_object( gui );
-
-            jsonp_open_object( gui, "bank" );
-            fd_gui_printf_tile_info2( gui, "bank", idx, slot );
-            jsonp_close_object( gui );
-
-            jsonp_open_object( gui, "poh" );
-            fd_gui_printf_tile_info2( gui, "poh", idx, slot );
-            jsonp_close_object( gui );
-
-            jsonp_open_object( gui, "shred" );
-            fd_gui_printf_tile_info2( gui, "shred", idx, slot );
-            jsonp_close_object( gui );
-          }
-        }
-      }
-    jsonp_close_object( gui );
   jsonp_close_envelope( gui );
 }
 
@@ -906,9 +761,10 @@ fd_gui_printf_peers_all( fd_gui_t * gui ) {
 }
 
 void
-fd_gui_printf_slot ( fd_gui_t * gui,
-                     ulong      _slot ) {
-  fd_gui_slot_t * slot = gui->slots.data[ _slot % 864000UL ];
+fd_gui_printf_slot( fd_gui_t * gui,
+                    ulong      _slot ) {
+  ulong slots_sz = sizeof(gui->slots) / sizeof(gui->slots[ 0 ]);
+  fd_gui_slot_t * slot = gui->slots[ _slot % slots_sz ];
 
   char const * level;
   switch( slot->level ) {
@@ -930,6 +786,67 @@ fd_gui_printf_slot ( fd_gui_t * gui,
       jsonp_ulong( gui, "vote_transactions", slot->vote_txn_cnt );
       jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
       jsonp_ulong( gui, "compute_units", slot->compute_units );
+    jsonp_close_object( gui );
+  jsonp_close_envelope( gui );
+}
+
+static void
+fd_gui_printf_ts_tile_timers( fd_gui_t *                   gui,
+                              fd_gui_tile_timers_t const * prev,
+                              fd_gui_tile_timers_t const * cur ) {
+  jsonp_open_object( gui, NULL );
+    jsonp_ulong( gui, "timestamp_nanos", 0 );
+    jsonp_open_object( gui, "tile_timers" );
+      fd_gui_printf_tile_timers( gui, prev, cur );
+    jsonp_close_object( gui );
+  jsonp_close_object( gui );
+}
+
+void
+fd_gui_printf_slot_request( fd_gui_t * gui,
+                            ulong      _slot ) {
+  ulong slots_sz = sizeof(gui->slots) / sizeof(gui->slots[ 0 ]);
+  fd_gui_slot_t * slot = gui->slots[ _slot % slots_sz ];
+
+  char const * level;
+  switch( slot->level ) {
+    case FD_GUI_SLOT_LEVEL_INCOMPLETE:               level = "incomplete"; break;
+    case FD_GUI_SLOT_LEVEL_COMPLETED:                level = "completed";  break;
+    case FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED: level = "optimistically_confirmed"; break;
+    case FD_GUI_SLOT_LEVEL_ROOTED:                   level = "rooted"; break;
+    case FD_GUI_SLOT_LEVEL_FINALIZED:                level = "finalized"; break;
+    default:                                         level = "unknown"; break;
+  }
+
+  jsonp_open_envelope( gui, "request", "slot" );
+    jsonp_open_object( gui, "value" );
+      jsonp_open_object( gui, "publish" );
+        jsonp_ulong( gui, "slot", _slot );
+        jsonp_bool( gui, "mine", slot->mine );
+        jsonp_bool( gui, "skipped", slot->skipped );
+        jsonp_string( gui, "level", level );
+        jsonp_ulong( gui, "transactions", slot->total_txn_cnt );
+        jsonp_ulong( gui, "vote_transactions", slot->vote_txn_cnt );
+        jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
+        jsonp_ulong( gui, "compute_units", slot->compute_units );
+      jsonp_close_object( gui );
+
+      fd_gui_printf_waterfall( gui, slot->waterfall_begin, slot->waterfall_end );
+
+      jsonp_open_array( gui, "tile_timers" );
+        fd_gui_tile_timers_t const * prev = slot->tile_timers_begin;
+
+        ulong end = fd_ulong_if( slot->tile_timers_end_snap_idx<slot->tile_timers_begin_snap_idx, slot->tile_timers_end_snap_idx+sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0]), slot->tile_timers_end_snap_idx );
+        ulong stride = (end-slot->tile_timers_begin_snap_idx) / 40UL;
+
+        for( ulong sample_snap_idx=slot->tile_timers_begin_snap_idx; sample_snap_idx<end; sample_snap_idx+=stride ) {
+          fd_gui_printf_ts_tile_timers( gui, prev, gui->summary.tile_timers_snap[ sample_snap_idx % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0])) ] );
+          prev = gui->summary.tile_timers_snap[ sample_snap_idx % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0])) ];
+        }
+        fd_gui_printf_ts_tile_timers( gui, prev, slot->tile_timers_end );
+      jsonp_close_array( gui );
+
+      jsonp_close_object( gui );
     jsonp_close_object( gui );
   jsonp_close_envelope( gui );
 }

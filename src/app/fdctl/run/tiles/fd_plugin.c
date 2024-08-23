@@ -99,11 +99,12 @@ after_frag( void *             _ctx,
     }
     /* stake_out */
     case 2UL: sig = FD_PLUGIN_MSG_LEADER_SCHEDULE; FD_LOG_NOTICE(( "sending leader schedule" )); break;
-    /* slot_plugin */
-    case 3UL:
-      FD_TEST( fd_plugin_sig_msg_type( *opt_sig )==FD_PLUGIN_MSG_SLOT_START || fd_plugin_sig_msg_type( *opt_sig )==FD_PLUGIN_MSG_SLOT_END );
+    /* poh_plugin */
+    case 3UL: {
+      FD_TEST( *opt_sig==FD_PLUGIN_MSG_SLOT_START || *opt_sig==FD_PLUGIN_MSG_SLOT_END );
       sig = *opt_sig;
       break;
+    }
     default: FD_LOG_ERR(( "bad in_idx" ));
   }
 
