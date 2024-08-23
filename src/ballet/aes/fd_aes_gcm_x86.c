@@ -20,9 +20,9 @@ expand_aes_key( fd_aes_gcm_aesni_key_t * out,
     vb_t v3 = vu_permute2( v1, v0, 0, 0, 1, 0 );      \
     vb_t v4 = vu_xor     ( v0, v3 );                  \
          v1 = vu_permute2( v3, v4, 0, 3, 0, 2 );      \
-    vb_t t5 = vu_xor     ( v4, v1 );                  \
+    vb_t v5 = vu_xor     ( v4, v1 );                  \
     vb_t v6 = vu_permute ( v2,     3, 3, 3, 3 );      \
-         v0 = vu_xor     ( t5, v6 );                  \
+         v0 = vu_xor     ( v5, v6 );                  \
     (out) = v0;                                       \
   } while(0)
   v0 = key;
