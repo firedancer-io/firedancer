@@ -56,8 +56,8 @@ echo "epoch=$epoch" >> dump/$rep_ledger_min_basename/metadata
 set +x
 echo "$replay_output"
 
-rep_mismatch_slot=$(echo "$replay_output" | grep -oP "Bank hash mismatch! slot=\K\d+")
-rep_mismatch_msg=$(echo "$replay_output" | grep -o "Bank hash mismatch!.*")
+rep_mismatch_slot=$(echo "$replay_output" | grep -oP "(PoH|Bank) hash mismatch! slot=\K\d+")
+rep_mismatch_msg=$(echo "$replay_output" | grep -oP "(PoH|Bank) hash mismatch!.*")
 rep_mismatch_ledger_basename="$NETWORK-$rep_mismatch_slot.tar.gz"
 rep_mismatch_ledger_dir="$NETWORK-$rep_mismatch_slot"
 
