@@ -1139,7 +1139,7 @@ fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t * slot_ctx,
   /* TODO: These checks should be moved to phase2. */
 
   if (FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, apply_cost_tracker_during_replay ) ) {
-    ulong est_cost = fd_pack_compute_cost( txn, &txn->flags, NULL, NULL, NULL );
+    ulong est_cost = fd_pack_compute_cost( TXN(txn), txn->payload, &txn->flags, NULL, NULL, NULL );
     if( slot_ctx->total_compute_units_requested + est_cost <= MAX_COMPUTE_UNITS_PER_BLOCK ) {
       slot_ctx->total_compute_units_requested += est_cost;
     } else {
