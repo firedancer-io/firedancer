@@ -30,8 +30,8 @@ This section lists some subcommands and their key options. For full options, run
     - `--repetitions multiple --mode exact`:
       - Replay the entire ledger in multiple iterations.
       - `--start-slot` and `--end-slot` define the absolute bounds to replay the ledger.
-      - If start_slot and end_slot are not specified (recommended), the check range is `[first_rooted(max(snap, rocksdb_min)), last_rooted(rocksdb_max)]` 
-      - The replay looks for a mismatch from `start_slot` toward `end_slot`, until it encounters a mismatch. 
+      - If start_slot and end_slot are not specified (recommended), the check range is `[first_rooted(max(snap, rocksdb_min)), last_rooted(rocksdb_max)]`
+      - The replay looks for a mismatch from `start_slot` toward `end_slot`, until it encounters a mismatch.
       - Then it would repeat the cycle, starting from the next hourly snapshot after mismatch+1. The snapshot is skipped if the first slot is not rooted.
 
 ### Examples
@@ -47,7 +47,7 @@ To fetch the latest mainnet ledger and find all bank hash mismatches:
         --solana-build-dir $PATH_TO_SOLANA_TARGET_RELEASE_DIR \
         --firedancer-root-dir $PATH_TO_FIREDANCER_ROOT_DIR \
         --gigantic-pages 750 \
-        --index-max 600000000 \
+        --index-max 700000000 \
         --upload $UPLOAD_URL
 ```
 
@@ -60,7 +60,7 @@ If you already have an existing ledger to start from at $PATH_TO_LEDGER, append 
         --ledger $PATH_TO_LEDGER \
         --ledger-min $PATH_TO_LEDGER_MIN \
         --solana-build-dir $PATH_TO_SOLANA_TARGET_RELEASE_DIR \
-        --firedancer-root-dir $PATH_TO_FIREDANCER_ROOT_DIR \                
+        --firedancer-root-dir $PATH_TO_FIREDANCER_ROOT_DIR \
         --upload $UPLOAD_URL \
         --no-fetch
 ```

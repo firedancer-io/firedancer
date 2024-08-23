@@ -282,7 +282,7 @@ parse_minify_options() {
   MODE="exact"
   SLOTS_IN_EPOCH=432000
   GIGANTIC_PAGES=750
-  INDEX_MAX=600000000
+  INDEX_MAX=700000000
 
   while true; do
     case "$1" in
@@ -412,7 +412,7 @@ parse_replay_options() {
   # Defaults
   UPLOAD_URL=""
   GIGANTIC_PAGES=750
-  INDEX_MAX=600000000
+  INDEX_MAX=700000000
   SLOTS_IN_EPOCH=432000
 
   while true; do
@@ -504,7 +504,7 @@ parse_solcap_options() {
   # Typically mismatch snapshots should be minimized and require less pages
   PAGES=75
   FUNK_PAGES=750
-  INDEX_MAX=600000000
+  INDEX_MAX=700000000
 
   while true; do
     case "$1" in
@@ -564,7 +564,7 @@ parse_mismatch_instr_options() {
   # Typically mismatch snapshots should be minimized and require less pages
   PAGES=75
   FUNK_PAGES=750
-  INDEX_MAX=600000000
+  INDEX_MAX=700000000
 
   while true; do
     case "$1" in
@@ -632,7 +632,7 @@ parse_all_options() {
   SLOTS_IN_EPOCH=432000
   UPLOAD_URL=""
   GIGANTIC_PAGES=750
-  INDEX_MAX=600000000
+  INDEX_MAX=700000000
 
   while true; do
     case "$1" in
