@@ -476,6 +476,104 @@ int fd_runtime_microblock_batch_prepare(void const *buf,
   return 0;
 }
 
+// static void dump_iter( fd_raw_block_txn_iter_t iter ) {
+//   FD_LOG_WARNING(( "Curr iter data sz %lu offset %lu num txns %lu num mblks %lu curr txn sz %lu", iter.data_sz, iter.curr_offset, iter.remaining_txns, iter.remaining_microblocks, iter.curr_txn_sz ));
+// }
+
+static fd_raw_block_txn_iter_t
+find_next_txn_in_raw_block( uchar const * data, ulong data_sz, ulong existing_offset, ulong num_microblocks ) {
+  uchar const * base = data;
+  ulong num_txns = 0UL;
+  ulong sz = (ulong)data - (ulong)base;
+  while( !num_txns && (sz < data_sz) ) {
+    while( num_microblocks == 0 && (sz < data_sz) ) {
+      num_microblocks = FD_LOAD( ulong, data );
+      data += sizeof( ulong );
+      sz = (ulong)data - (ulong)base;
+    }
+
+    fd_microblock_info_t microblock_info = {
+        .raw_microblock = data,
+        .signature_cnt = 0,
+    };
+
+    while( microblock_info.microblock_hdr.txn_cnt == 0 && num_microblocks && sz < data_sz ) {
+      ulong hdr_sz = 0;
+      memset( &microblock_info, 0UL, sizeof(fd_microblock_info_t) );
+      microblock_info.raw_microblock = data;
+      if (fd_runtime_parse_microblock_hdr(data, data_sz - sz, &microblock_info.microblock_hdr, &hdr_sz) != 0) {
+        return (fd_raw_block_txn_iter_t){
+          .data_sz = 0,
+          .curr_offset = data_sz,
+          .remaining_microblocks = 0,
+          .remaining_txns = 0,
+          .curr_txn_sz = ULONG_MAX
+        };
+      }
+      data += hdr_sz;
+      sz = (ulong)data - (ulong)base;
+      num_microblocks--;
+    }
+
+    num_txns = microblock_info.microblock_hdr.txn_cnt;
+  }
+
+  ulong curr_off = sz;
+  return (fd_raw_block_txn_iter_t){
+    .data_sz = fd_ulong_sat_sub(data_sz, curr_off),
+    .curr_offset = existing_offset + curr_off,
+    .remaining_microblocks = num_microblocks,
+    .remaining_txns = num_txns,
+    .curr_txn_sz = ULONG_MAX
+  };
+}
+
+fd_raw_block_txn_iter_t
+fd_raw_block_txn_iter_init( uchar const * data, ulong data_sz ) {
+  return find_next_txn_in_raw_block( data, data_sz, 0, 0 );
+}
+
+ulong
+fd_raw_block_txn_iter_done( fd_raw_block_txn_iter_t iter ) {
+  return iter.data_sz == 0;
+}
+
+fd_raw_block_txn_iter_t
+fd_raw_block_txn_iter_next( uchar const * data, fd_raw_block_txn_iter_t iter ) {
+  fd_txn_p_t out_txn;
+  if( iter.curr_txn_sz == ULONG_MAX ) {
+    ulong payload_sz = 0;
+    ulong txn_sz = fd_txn_parse_core( data + iter.curr_offset, fd_ulong_min( iter.data_sz, FD_TXN_MTU), TXN(&out_txn), NULL, &payload_sz );
+    if (txn_sz == 0 || txn_sz > FD_TXN_MTU) {
+      FD_LOG_ERR(("Invalid txn parse"));
+    }
+    iter.data_sz -= payload_sz;
+    iter.curr_offset += payload_sz;
+  } else {
+    iter.data_sz -= iter.curr_txn_sz;
+    iter.curr_offset += iter.curr_txn_sz;
+    iter.curr_txn_sz = ULONG_MAX;
+  }
+
+  if( --iter.remaining_txns ) {
+    return iter;
+  }
+
+  return find_next_txn_in_raw_block( data + iter.curr_offset, iter.data_sz, iter.curr_offset, iter.remaining_microblocks );
+}
+
+void
+fd_raw_block_txn_iter_ele( uchar const * data, fd_raw_block_txn_iter_t iter, fd_txn_p_t * out_txn ) {
+  ulong payload_sz = 0;
+  ulong txn_sz = fd_txn_parse_core( data + iter.curr_offset, fd_ulong_min( iter.data_sz, FD_TXN_MTU), TXN(out_txn), NULL, &payload_sz );
+  if (txn_sz == 0 || txn_sz > FD_TXN_MTU) {
+    FD_LOG_ERR(("Invalid txn parse %lu", txn_sz));
+  }
+  fd_memcpy( out_txn->payload, data + iter.curr_offset, payload_sz );
+  out_txn->payload_sz = (ushort)payload_sz;
+  iter.curr_txn_sz = payload_sz;
+}
+
 fd_microblock_txn_iter_t
 fd_microblock_txn_iter_init( fd_microblock_info_t const * microblock_info FD_PARAM_UNUSED ) {
   return 0UL;
@@ -973,6 +1071,7 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     return -1;
   }
 
+  txn_ctx->valloc = fd_scratch_virtual();
   /* NOTE: This intentionally does not have sigverify */
 
   fd_pre_execute_check( task_info );
@@ -1854,8 +1953,8 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx ) {
   long clock_update_time = -fd_log_wallclock();
   fd_sysvar_clock_update(slot_ctx);
   clock_update_time += fd_log_wallclock();
-  double clock_update_time_ms = (double)clock_update_time * 1e-6;
-  FD_LOG_INFO(( "clock updated - slot: %lu, elapsed: %6.6f ms", slot_ctx->slot_bank.slot, clock_update_time_ms ));
+  // double clock_update_time_ms = (double)clock_update_time * 1e-6;
+  // FD_LOG_INFO(( "clock updated - slot: %lu, elapsed: %6.6f ms", slot_ctx->slot_bank.slot, clock_update_time_ms ));
   if (!FD_FEATURE_ACTIVE(slot_ctx, disable_fees_sysvar))
     fd_sysvar_fees_update(slot_ctx);
   // It has to go into the current txn previous info but is not in slot 0

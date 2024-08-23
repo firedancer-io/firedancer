@@ -436,7 +436,6 @@ fd_gossip_contact_info_v2_to_v1( fd_gossip_contact_info_v2_t const * v2,
   v1->wallclock = v2->wallclock;
   fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_GOSSIP, &v1->gossip );
   fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR, &v1->serve_repair );
-  fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR, &v1->serve_repair );
   fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_TPU, &v1->tpu );
   fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_TPU_VOTE, &v1->tpu_vote );
   fd_gossip_contact_info_v2_find_proto_ident( v2, FD_GOSSIP_SOCKET_TAG_TVU, &v1->tvu );
@@ -1421,6 +1420,7 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
       uchar min_key = 0;
 
       ushort gossip_port = glob->my_contact_info.gossip.port;
+      ushort serve_repair_port = glob->my_contact_info.serve_repair.port;
       ushort tvu_port = glob->my_contact_info.tvu.port;
       ushort tpu_port = glob->my_contact_info.tpu.port;
       ushort tpu_quic_port = (ushort)( glob->my_contact_info.tpu.port + 6 );
@@ -1429,6 +1429,11 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
         min_key = FD_GOSSIP_SOCKET_TAG_GOSSIP;
         min_addr = &glob->my_contact_info.gossip.addr;
         min_port = glob->my_contact_info.gossip.port;
+      }
+      if( serve_repair_port > 0 && serve_repair_port > last_port && serve_repair_port < min_port ) {
+        min_key = FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR;
+        min_addr = &glob->my_contact_info.serve_repair.addr;
+        min_port = glob->my_contact_info.serve_repair.port;
       }
       if( tvu_port > 0 && tvu_port > last_port && tvu_port < min_port ) {
         min_key = FD_GOSSIP_SOCKET_TAG_TVU;

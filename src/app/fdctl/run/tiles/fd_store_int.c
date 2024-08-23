@@ -52,7 +52,7 @@
 
 struct fd_txn_iter {
   ulong slot;
-  fd_block_txn_iter_t iter;
+  fd_raw_block_txn_iter_t iter;
 };
 
 typedef struct fd_txn_iter fd_txn_iter_t;
@@ -352,17 +352,17 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
   if( store_slot_prepare_mode == FD_STORE_SLOT_PREPARE_CONTINUE ) {
 
-    FD_LOG_NOTICE( ( "\n\n[Store]\n"
-                     "slot:            %lu\n"
-                     "current turbine: %lu\n"
-                     "first turbine:   %lu\n"
-                     "slots behind:    %lu\n"
-                     "live:            %d\n",
-                     slot,
-                     ctx->store->curr_turbine_slot,
-                     ctx->store->first_turbine_slot,
-                     ctx->store->curr_turbine_slot - slot,
-                     ( ctx->store->curr_turbine_slot - slot ) < 5 ) );
+    // FD_LOG_NOTICE( ( "\n\n[Store]\n"
+    //                  "slot:            %lu\n"
+    //                  "current turbine: %lu\n"
+    //                  "first turbine:   %lu\n"
+    //                  "slots behind:    %lu\n"
+    //                  "live:            %d\n",
+    //                  slot,
+    //                  ctx->store->curr_turbine_slot,
+    //                  ctx->store->first_turbine_slot,
+    //                  ctx->store->curr_turbine_slot - slot,
+    //                  ( ctx->store->curr_turbine_slot - slot ) < 5 ) );
 
     uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
 
@@ -390,8 +390,6 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
     uchar * block_data = fd_blockstore_block_data_laddr( ctx->blockstore, block );
 
     FD_SCRATCH_SCOPE_BEGIN {
-      fd_block_info_t block_info;
-      fd_runtime_block_prepare( block_data, block->data_sz, fd_scratch_virtual(), &block_info );
 
       ulong caught_up = slot > ctx->store->first_turbine_slot;
       ulong behind = ctx->store->curr_turbine_slot - slot;
@@ -400,23 +398,25 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       ulong caught_up_flag = (ctx->store->curr_turbine_slot - slot)<4 ? 0UL : REPLAY_FLAG_CATCHING_UP;
       ulong replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_MICROBLOCK | caught_up_flag );
 
-      ulong tick_cnt = 0UL;
-      /* count ticks */
-      for( ulong i = 0; i<block_info.microblock_batch_cnt; i++ ) {
-        fd_microblock_batch_info_t const * microblock_batch_info = &block_info.microblock_batch_infos[i];
-        for( ulong j = 0; j<microblock_batch_info->microblock_cnt; j++ ) {
-          fd_microblock_info_t const * microblock_info = &microblock_batch_info->microblock_infos[j];
-          if( microblock_info->microblock_hdr.txn_cnt==0UL ) {
-            tick_cnt++;
-          }
-        }
-      }
+      // ulong tick_cnt = 0UL;
+      // /* count ticks */
+      // for( ulong i = 0; i<block_info.microblock_batch_cnt; i++ ) {
+      //   fd_microblock_batch_info_t const * microblock_batch_info = &block_info.microblock_batch_infos[i];
+      //   for( ulong j = 0; j<microblock_batch_info->microblock_cnt; j++ ) {
+      //     fd_microblock_info_t const * microblock_info = &microblock_batch_info->microblock_infos[j];
+      //     if( microblock_info->microblock_hdr.txn_cnt==0UL ) {
+      //       tick_cnt++;
+      //     }
+      //   }
+      // }
 
       ulong txn_cnt = 0;
       if( FD_UNLIKELY( fd_trusted_slots_find( ctx->trusted_slots, slot ) ) ) {
+        fd_block_info_t block_info;
+        FD_TEST(fd_runtime_block_prepare( block_data, block->data_sz, fd_scratch_virtual(), &block_info ) == 0);
         /* if is caught up and is leader */
         replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
-        FD_LOG_INFO(( "packed block prepared - slot: %lu, mblks: %lu %lu, blockhash: %32J, txn_cnt: %lu, tick_cnt: %lu, shred_cnt: %lu, data_sz: %lu", slot, block->micros_cnt, block_info.microblock_cnt, block_hash->uc, block_info.txn_cnt, tick_cnt, block->shreds_cnt, block->data_sz ));
+        FD_LOG_INFO(( "packed block prepared - slot: %lu, mblks: %lu %lu, blockhash: %32J, txn_cnt: %lu, shred_cnt: %lu, data_sz: %lu", slot, block->micros_cnt, block_info.microblock_cnt, block_hash->uc, block_info.txn_cnt, block->shreds_cnt, block->data_sz ));
       } else {
         fd_txn_p_t * txns = fd_type_pun( out_buf );
         FD_LOG_DEBUG(( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
@@ -431,32 +431,31 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
         FD_MGAUGE_SET( REPLAY, CAUGHT_UP, caught_up );
         FD_MGAUGE_SET( REPLAY, BEHIND, behind );
 
-        fd_block_txn_iter_t iter;
+        fd_raw_block_txn_iter_t iter;
         fd_txn_iter_t * query = fd_txn_iter_map_query( ctx->txn_iter_map, slot, NULL);
         if( FD_LIKELY( query ) ) {
           iter = query->iter;
         } else {
-          iter = fd_block_txn_iter_init( &block_info );
+          iter = fd_raw_block_txn_iter_init( block_data, block->data_sz );
         }
 
-        for( ; !fd_block_txn_iter_done( &block_info, iter ); iter = fd_block_txn_iter_next( &block_info, iter ) ) {
+        for( ; !fd_raw_block_txn_iter_done( iter ); iter = fd_raw_block_txn_iter_next( block_data, iter ) ) {
           /* TODO: remove magic number for txns per send */
           if( txn_cnt == 1024 ) break;
-          fd_txn_p_t * txn = fd_block_txn_iter_ele( &block_info, iter );
-          fd_memcpy( txns + txn_cnt, txn, sizeof(fd_txn_p_t) );
+          fd_raw_block_txn_iter_ele( block_data, iter, txns + txn_cnt );
           txn_cnt++;
         }
 
         if( FD_LIKELY( query ) )
             fd_txn_iter_map_remove( ctx->txn_iter_map, query );
 
-        if( FD_LIKELY( !fd_block_txn_iter_done( &block_info, iter ) ) ) {
+        if( FD_LIKELY( !fd_raw_block_txn_iter_done( iter ) ) ) {
           fd_txn_iter_t * insert = fd_txn_iter_map_insert( ctx->txn_iter_map, slot );
           insert->iter = iter;
         } else {
           replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
         }
-        FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %32J, txn_cnt: %lu, tick_cnt: %lu, shred_cnt: %lu", slot, block_info.microblock_cnt, block_hash->uc, txn_cnt, tick_cnt, block->shreds_cnt ));
+        // FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %32J, txn_cnt: %lu, tick_cnt: %lu, shred_cnt: %lu", slot, block_info.microblock_cnt, block_hash->uc, txn_cnt, tick_cnt, block->shreds_cnt ));
       }
 
       out_buf += sizeof(ulong);

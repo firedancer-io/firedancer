@@ -12,7 +12,7 @@ SHRED_VERSION=1234
 
 cleanup() {
   sudo killall -9 -q fddev || true
-  fddev configure fini all >/dev/null 2>&1 || true
+  sudo $FD_DIR/build/native/$CC/bin/fddev configure fini all --config $TMPDIR/fddev.toml >/dev/null 2>&1 || true
 }
 
 trap cleanup EXIT SIGINT SIGTERM
@@ -32,10 +32,10 @@ PRIMARY_IP=$(ip addr show $_PRIMARY_INTERFACE | awk '/inet / {print $2}' | cut -
 echo "
 name = \"fd1\"
 [layout]
-    affinity = \"1-37\"
+    affinity = \"1-38\"
     bank_tile_count = 1
     verify_tile_count = 16
-    shred_tile_count = 1
+    shred_tile_count = 2
 [gossip]
     port = 8700
 [tiles]

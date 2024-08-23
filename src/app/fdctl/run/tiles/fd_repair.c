@@ -372,16 +372,6 @@ after_frag( void *             _ctx,
 
   fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *)_ctx;
 
-  // Poll for blockstore
-  if ( FD_UNLIKELY( ctx->blockstore == NULL ) ) {
-    ulong tag = FD_BLOCKSTORE_MAGIC;
-    fd_wksp_tag_query_info_t info;
-    if ( fd_wksp_tag_query(ctx->blockstore_wksp, &tag, 1, &info, 1) > 0 ) {
-      void * shmem = fd_wksp_laddr_fast( ctx->blockstore_wksp, info.gaddr_lo );
-      ctx->blockstore = fd_blockstore_join( shmem );
-    }
-  }
-
   if( FD_UNLIKELY( in_idx==CONTACT_IN_IDX ) ) {
     handle_new_cluster_contact_info( ctx, ctx->buffer, *opt_sz );
     return;
@@ -421,6 +411,17 @@ after_credit( void *             _ctx,
               fd_mux_context_t * mux FD_PARAM_UNUSED,
               int *              opt_poll_in FD_PARAM_UNUSED ) {
   fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *)_ctx;
+
+  // Poll for blockstore
+  if ( FD_UNLIKELY( ctx->blockstore == NULL ) ) {
+    ulong tag = FD_BLOCKSTORE_MAGIC;
+    fd_wksp_tag_query_info_t info;
+    if ( fd_wksp_tag_query(ctx->blockstore_wksp, &tag, 1, &info, 1) > 0 ) {
+      void * shmem = fd_wksp_laddr_fast( ctx->blockstore_wksp, info.gaddr_lo );
+      ctx->blockstore = fd_blockstore_join( shmem );
+      FD_LOG_WARNING(("Blockstore at load %lu", (ulong)ctx->blockstore));
+    }
+  }
 
   fd_mcache_seq_update( ctx->net_out_sync, ctx->net_out_seq );
 
@@ -572,6 +573,8 @@ unprivileged_init( fd_topo_t *      topo,
   if( ctx->blockstore_wksp==NULL ) {
     FD_LOG_ERR(( "no blocktore workspace" ));
   }
+
+  ctx->blockstore = NULL;
 
   fd_topo_link_t * netmux_link = &topo->links[ tile->in_link_id[ 0 ] ];
 

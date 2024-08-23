@@ -20,7 +20,7 @@
 #include "../tango/fd_tango.h"
 
 /* clang-format off */
-#define FD_BLOCK_MAX          (1UL << 12UL) /* the maximum # of blocks we support holding at once. must be >=512. */
+#define FD_BLOCK_MAX          (1UL << 9UL) /* the maximum # of blocks we support holding at once. must be >=512. */
 #define FD_VOTER_MAX          (1UL << 12UL) /* the maximum # of unique voters ie. node pubkeys. */
 #define FD_EQVOCSAFE_PCT      (0.52)
 #define FD_CONFIRMED_PCT      (2.0 / 3.0)
