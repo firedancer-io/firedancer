@@ -10,6 +10,7 @@
 #include <poll.h>
 #include <stdlib.h>
 #include <strings.h>
+#include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
@@ -703,7 +704,7 @@ write_conn_http( fd_http_server_t * http,
       return;
   }
 
-  long sz = write( http->pollfds[ conn_idx ].fd, response+conn->response_bytes_written, response_len-conn->response_bytes_written );
+  long sz = send( http->pollfds[ conn_idx ].fd, response+conn->response_bytes_written, response_len-conn->response_bytes_written, MSG_NOSIGNAL );
   if( FD_UNLIKELY( -1==sz && fd_http_server_is_transient_err( errno ) ) ) return; /* No data was written, continue. */
   if( FD_UNLIKELY( -1==sz && fd_http_server_is_net_err( errno ) ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
@@ -781,7 +782,7 @@ maybe_write_pong( fd_http_server_t * http,
   frame[ 1 ] = (uchar)conn->pong_data_len;
   fd_memcpy( frame+2UL, conn->pong_data, conn->pong_data_len );
 
-  long sz = write( http->pollfds[ conn_idx ].fd, frame+conn->pong_bytes_written, 2UL+conn->pong_data_len-conn->pong_bytes_written );
+  long sz = send( http->pollfds[ conn_idx ].fd, frame+conn->pong_bytes_written, 2UL+conn->pong_data_len-conn->pong_bytes_written, MSG_NOSIGNAL );
   if( FD_UNLIKELY( -1==sz && fd_http_server_is_transient_err( errno ) ) ) return 1; /* No data was written, continue. */
   else if( FD_UNLIKELY( -1==sz && fd_http_server_is_net_err( errno ) ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
@@ -833,7 +834,7 @@ write_conn_ws( fd_http_server_t * http,
         header_len = 10UL;
       }
 
-      long sz = write( http->pollfds[ conn_idx ].fd, header+conn->send_frame_bytes_written, header_len-conn->send_frame_bytes_written );
+      long sz = send( http->pollfds[ conn_idx ].fd, header+conn->send_frame_bytes_written, header_len-conn->send_frame_bytes_written, MSG_NOSIGNAL );
       if( FD_UNLIKELY( -1==sz && fd_http_server_is_transient_err( errno ) ) ) return; /* No data was written, continue. */
       else if( FD_UNLIKELY( -1==sz && fd_http_server_is_net_err( errno ) ) ) {
         close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
@@ -849,7 +850,7 @@ write_conn_ws( fd_http_server_t * http,
       break;
     }
     case FD_HTTP_SERVER_SEND_FRAME_STATE_DATA: {
-      long sz = write( http->pollfds[ conn_idx ].fd, frame->data+conn->send_frame_bytes_written, frame->data_len-conn->send_frame_bytes_written );
+      long sz = send( http->pollfds[ conn_idx ].fd, frame->data+conn->send_frame_bytes_written, frame->data_len-conn->send_frame_bytes_written, MSG_NOSIGNAL );
       if( FD_UNLIKELY( -1==sz && fd_http_server_is_transient_err( errno ) ) ) return; /* No data was written, continue. */
       else if( FD_UNLIKELY( -1==sz && fd_http_server_is_net_err( errno ) ) ) {
         close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
