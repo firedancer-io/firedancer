@@ -315,6 +315,8 @@
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../disco/metrics/generated/fd_metrics_poh.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
+#include "../../../../app/fddev/tiles/hist.h"
+#include "../../../../ballet/pack/fd_pack_cost.h"
 
 /* When we are becoming leader, and we think the prior leader might have
    skipped their slot, we give them a grace period to finish.  In the
@@ -489,6 +491,9 @@ typedef struct {
   ulong            pack_out_chunk0;
   ulong            pack_out_wmark;
   ulong            pack_out_chunk;
+
+  ulong            hist_bins[ HIST_BINS ];
+  ulong            hist_txn_cnt;
 
   fd_histf_t begin_leader_delay[ 1 ];
   fd_histf_t first_microblock_delay[ 1 ];
@@ -889,6 +894,14 @@ no_longer_leader( fd_poh_ctx_t * ctx ) {
   FD_COMPILER_MFENCE();
   fd_ext_poh_signal_leader_change( ctx->signal_leader_change );
   FD_LOG_INFO(( "no_longer_leader(next_leader_slot=%lu)", ctx->next_leader_slot ));
+
+  char hist_buf[ 2048UL ];
+  hist_buf[ 0 ] = '\0';
+  ulong txn_cnt = draw_hist( ctx->hist_bins, HIST_BINS, hist_buf, 2048UL, HIST_HEIGHT );
+  if( FD_LIKELY( txn_cnt>0UL ) ) {
+    FD_LOG_NOTICE(( "%lu txn/block\n%s", txn_cnt, hist_buf ));
+    memset( ctx->hist_bins, '\0', HIST_BINS*sizeof(ulong) );
+  }
 }
 
 /* fd_ext_poh_reset is called by the Agave client when a slot on
@@ -1534,6 +1547,18 @@ after_frag( void *             _ctx,
   ulong executed_txn_cnt = 0UL;
   for( ulong i=0; i<txn_cnt; i++ ) { executed_txn_cnt += !!(txns[ i ].flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS); }
 
+  /* For 3.3 demo only, measure the value of the transactions. */
+  for( ulong i=0; i<txn_cnt; i++ ) { 
+    uint  flags = 0UL;
+    ulong fee   = 0UL;
+    ulong cost_units = fd_pack_compute_cost( TXN(txns+i), txns[ i ].payload, &flags, NULL, &fee, NULL );
+    float value = ((float)fee)/(float)cost_units;
+    float scale = (float)HIST_BINS/(HIST_MAX-HIST_MIN);
+    ulong bin = fd_ulong_min( (ulong)__builtin_fmaxf( (value-HIST_MIN)*scale, 0.0f ), HIST_BINS-1UL );
+    ctx->hist_bins[ bin ]++;
+    ctx->hist_txn_cnt++;
+  }
+
   /* We don't publish transactions that fail to execute.  If all the
      transactions failed to execute, the microblock would be empty,
      causing agave to think it's a tick and complain.  Instead, we just
@@ -1750,6 +1775,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->bank_cnt     = tile->in_cnt-2UL;
   ctx->stake_in_idx = tile->in_cnt-2UL;
   ctx->pack_in_idx  = tile->in_cnt-1UL;
+
+  memset( ctx->hist_bins, '\0', HIST_BINS*sizeof(ulong) );
+  ctx->hist_txn_cnt = 0UL;
 
   FD_TEST( ctx->bank_cnt<=sizeof(ctx->bank_busy)/sizeof(ctx->bank_busy[0]) );
   for( ulong i=0UL; i<ctx->bank_cnt; i++ ) {
