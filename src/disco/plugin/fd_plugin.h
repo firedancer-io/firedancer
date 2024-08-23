@@ -14,13 +14,4 @@
 #define FD_PLUGIN_MSG_SLOT_RESET                    (10UL)
 #define FD_PLUGIN_MSG_BALANCE                       (11UL)
 
-FD_FN_CONST static inline ulong
-fd_plugin_sig( ulong slot,
-               ulong msg_type ) {
-  return (slot << 8) | (msg_type & 0xFFUL);
-}
-
-FD_FN_CONST static inline ulong fd_plugin_sig_msg_type( ulong sig ) { return (sig & 0xFFUL); }
-FD_FN_CONST static inline ulong fd_plugin_sig_slot( ulong sig ) { return (sig >> 8); }
-
 #endif /* HEADER_fd_src_disco_plugin_fd_plugin_h */

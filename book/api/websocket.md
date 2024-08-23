@@ -54,10 +54,11 @@ below. The meaning of these frequencies are:
 
 | Frequency&nbsp;&nbsp;&nbsp; | Meaning |
 |-----------------------------|---------|
-| *Once*                      | The message is published only once, immediately after a connection is established. |
-| *Live*                      | The message is published live, immediately after the underlying data in the validator is changed. |
-| *1s*                        | The message is republished at regular one second intervals. |
-| *Once* + *Live*             | The message is published immediately after a connection is established, and then republished whenever the data is changed. |
+| *Once*                      | The message is published only once, immediately after a connection is established |
+| *Live*                      | The message is published live, immediately after the underlying data in the validator is changed |
+| *Request*                   | The message is published in response to a specific client request |
+| *1s*                        | The message is republished at regular one second intervals |
+| *Once* + *Live*             | The message is published immediately after a connection is established, and then republished whenever the data is changed |
 
 Most information related to the state of the validator is sent both
 `Once` when the connection is established, and then live whenever it is
@@ -72,6 +73,32 @@ All data is encoded in JSON, with a containing envelope as follows:
     "value": "mainnet-beta",
 }
 ```
+
+## Queries
+Some messages are published on-demand in response to a request, and are
+marked with a frequency of *Request*. To issue a query, send a websocket
+frame to the server with an envelope like:
+
+```json
+{
+    "topic": "slot",
+    "key": "query",
+    "id": 42,
+    "params": {
+        "slot": 285291521
+    }
+}
+```
+
+The `topic` and `key` correspond to the request method you wish to call.
+The `id` value is an unsigned integer (must fit in `u64`) that will be
+echoed back in the envelope of the response object. `params` are request
+specific parameters documented for each on-demand query.
+
+If the client issues a malformed request, it will be forcibly
+disconnected. If the client issues a well-formed request for data that
+the validator does not have (for example, an old slot), the query will
+receive a response with a value of `null`.
 
 ## Forks
 The Solana network may occasionally fork, in which case there will be
@@ -97,14 +124,14 @@ A set of high level informational fields about the validator.
 #### `summary.version`
 | frequency | type     | example         |
 |-----------|----------|-----------------|
-| Once      | `string` | `"0.106.11814"` |
+| *Once*    | `string` | `"0.106.11814"` |
 
 The current version of the running validator.
 
 #### `summary.cluster`
 | frequency | type     | example        |
 |-----------|----------|----------------|
-| Once      | `string` | `"mainnet-beta"` |
+| *Once*    | `string` | `"mainnet-beta"` |
 
 One of `mainnet-beta`, `devnet`, `testnet`, `pythtest`, `pythnet`, or
 `unknown`. Indicates the cluster that the validator is likely to be
@@ -114,7 +141,7 @@ chain and entrypoints that the validator connects to.
 #### `summary.identity_key`
 | frequency | type     | example        |
 |-----------|----------|----------------|
-| Once      | `string` | `"Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF"` |
+| *Once*    | `string` | `"Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF"` |
 
 The public identity key assigned to the running validator, encoded in
 base58. Firedancer does not support changing the identity key of the
@@ -123,24 +150,59 @@ validator while it is running and this value does not change.
 #### `summary.uptime_nanos`
 | frequency | type     | example           |
 |-----------|----------|-------------------|
-| Once      | `number` |  `21785299176204` |
+| *Once*    | `number` |  `21785299176204` |
 
 The length of time in nanoseconds that the validator has been running.
 Running time is approximately measured since application startup, and
 includes time to download a snapshot and catch up to the cluster.
 
+### `summary.net_tile_count`
+| frequency  | type     | example |
+|------------|----------|---------|
+| *Once*     | `number` | `1`     |
+
+The number of `net` tiles in the validator topology.
+
+### `summary.quic_tile_count`
+| frequency  | type     | example |
+|------------|----------|---------|
+| *Once*     | `number` | `1`     |
+
+The number of `quic` tiles in the validator topology.
+
+### `summary.verify_tile_count`
+| frequency  | type     | example |
+|------------|----------|---------|
+| *Once*     | `number` | `4`     |
+
+The number of `verify` tiles in the validator topology.
+
+### `summary.bank_tile_count`
+| frequency  | type     | example |
+|------------|----------|---------|
+| *Once*     | `number` | `2`     |
+
+The number of `bank` tiles in the validator topology.
+
+### `summary.shred_tile_count`
+| frequency  | type     | example |
+|------------|----------|---------|
+| *Once*     | `number` | `2`     |
+
+The number of `shred` tiles in the validator topology.
+
 ### `summary.balance`
-| frequency  | type     | example    |
-|------------|----------|------------|
-| Once + 60s | `number` | `21125572` |
+| frequency      | type     | example    |
+|----------------|----------|------------|
+| *Once* + *60s* | `number` | `21125572` |
 
 Account balance of this validators identity key in lamports. The balance
 is on the highest slot of the currently active fork of the validator.
 
 #### `summary.root_slot`
-| frequency   | type     | example     |
-|-------------|----------|-------------|
-| Once + Live | `number` | `275138349` |
+| frequency       | type     | example     |
+|-----------------|----------|-------------|
+| *Once* + *Live* | `number` | `275138349` |
 
 The last slot that was rooted. Rooted slots are fully confirmed and
 irreversible, and the rooted slot will never decrease as switching fork
@@ -149,9 +211,9 @@ skipped slots do not update the root slot. For example, if the root slot
 goes from `1001` to `1003` it means slot `1002` was skipped.
 
 #### `summary.optimistically_confirmed_slot`
-| frequency   | type     | example     |
-|-------------|----------|-------------|
-| Once + Live | `number` | `275138349` |
+| frequency       | type     | example     |
+|-----------------|----------|-------------|
+| *Once* + *Live* | `number` | `275138349` |
 
 The highest slot on the current fork that was optimistically confirmed.
 Optimistic confirmation means that over two-thirds of stake have voted
@@ -162,9 +224,9 @@ Although rare, the `optimistically_confirmed_slot` could decrease if a
 validator switches to another fork that does not have this slot.
 
 #### `summary.completed_slot`
-| frequency   | type     | example     |
-|-------------|----------|-------------|
-| Once + Live | `number` | `275138349` |
+| frequency       | type     | example     |
+|-----------------|----------|-------------|
+| *Once* + *Live* | `number` | `275138349` |
 
 The highest completed slot on the current fork choice of the validator.
 The completed slot may decrease if the validator is switching forks, or
@@ -172,9 +234,9 @@ could stay the same for much more than the slot production time (400
 milliseconds) if leaders are offline and not producing blocks.
 
 #### `summary.estimated_slot`
-| frequency   | type     | example     |
-|-------------|----------|-------------|
-| Once + Live | `number` | `275138349` |
+| frequency       | type     | example     |
+|-----------------|----------|-------------|
+| *Once* + *Live* | `number` | `275138349` |
 
 The estimated slot is the same as the completd slot, except it still
 progresses forward even if the current leaders are skipping (not
@@ -183,9 +245,9 @@ producing) their slot. For example, if the last completed slot was
 slot is likely to be `1003`.
 
 #### `summary.estimated_slot_duration_nanos`
-| frequency   | type     | example     |
-|-------------|----------|-------------|
-| Once + Live | `number` | `450267129` |
+| frequency       | type     | example     |
+|-----------------|----------|-------------|
+| *Once* + *Live* | `number` | `450267129` |
 
 The estimated duration of each slot on the network. This is a moving
 average from the prior 750 slots, or around five minutes. Live here
@@ -193,9 +255,9 @@ means the estimate is republished whenever it changes, which is when
 a new slot is confirmed on the currently active fork.
 
 #### `summary.estimated_tps`
-| frequency   | type     | example     |
-|-------------|----------|-------------|
-| Once + Live | `number` | `6048` |
+| frequency       | type     | example     |
+|-----------------|----------|-------------|
+| *Once* + *Live* | `number` | `6048` |
 
 The estimated number of transactions per second the network is running
 at. This includes vote, non-vote, and failed transactions. This is a
@@ -204,9 +266,9 @@ more precise view of transactions per second, the client can calculate
 it from the stream of new slot data.
 
 #### `summary.estimated_nonvote_tps`
-| frequency   | type     | example     |
-|-------------|----------|-------------|
-| Once + Live | `number` | `2145` |
+| frequency       | type     | example     |
+|-----------------|----------|-------------|
+| *Once* + *Live* | `number` | `2145` |
 
 The estimated number of non-vote transactions per second the network is
 running at. The sum of the estimated vote and non-vote transactions will
@@ -216,9 +278,9 @@ around one minute. For a more precise view of non-vote transactions per
 second, the client can calculate it from the stream of new slot data.
 
 #### `summary.estimated_vote_tps`
-| frequency   | type     | example     |
-|-------------|----------|-------------|
-| Once + Live | `number` | `3903` |
+| frequency       | type     | example     |
+|-----------------|----------|-------------|
+| *Once* + *Live* | `number` | `3903`      |
 
 The estimated number of vote transactions per second the network is
 running at. The sum of the estimated vote and non-vote transactions will
@@ -229,9 +291,9 @@ transactions per second, the client can calculate it from the stream of
 new slot data.
 
 #### `summary.estimated_failed_tps`
-| frequency   | type     | example     |
-|-------------|----------|-------------|
-| Once + Live | `number` | `2145` |
+| frequency       | type     | example |
+|-----------------|----------|---------|
+| *Once* + *Live* | `number` | `2145`  |
 
 The estimated number of failed vote and non-vote transactions per second
 the network is running at. This is a moving average from the prior 150
@@ -239,291 +301,140 @@ slots, or around one minute. For a more precise view of non-vote
 transactions per second, the client can calculate it from the stream of
 new slot data.
 
-#### `summary.upcoming_slot_txn_info`
-| frequency   | type     | example     |
-|-------------|----------|-------------|
-| Once + 100ms | `SlotTxnInfo` | below |
+#### `summary.live_txn_waterfall`
+| frequency        | type               | example |
+|------------------|--------------------|---------|
+| *Once* + *100ms* | `LiveTxnWaterfall` | below   |
 
 ::: details Example
 
 ```json
 {
     "topic": "summary",
-    "key": "upcoming_slot_txn_info",
+    "key": "live_txn_waterfall",
     "value": {
-        "slot": 18446744073709551615,
-        "acquired_txns": 66893,
-        "acquired_txns_leftover": 0,
-        "acquired_txns_quic": 66767,
-        "acquired_txns_nonquic": 1,
-        "acquired_txns_gossip": 2,
-        "dropped_txns": 49091,
-        "dropped_txns_net": {
-            "count": 0,
-            "breakdown": {
-                "net_overrun": 0,
-                "net_invalid": 0
+        "next_leader_slot": 285228774,
+        "waterfall": {
+            "in": {
+                "retained": 2014,
+                "quic": 66767,
+                "udp": 1054,
+                "gossip": 517
+            },
+            "out": {
+                "quic_overrun": 45,
+                "quic_quic_invalid": 12,
+                "quic_udp_invalid": 13,
+                "verify_overrun": 2059,
+                "verify_parse": 14,
+                "verify_failed": 4092,
+                "verify_duplicate": 128,
+                "dedup_duplicate": 87,
+                "pack_invalid": 14,
+                "pack_retained": 1985,
+                "pack_overrun": 54,
+                "pack_priority": 58422,
+                "bank_invalid": 14,
+                "block_success": 2976,
+                "block_fail": 419
             }
-        },
-        "dropped_txns_quic": {
-            "count": 0,
-            "breakdown": {
-                "quic_overrun": 0,
-                "quic_reasm": 0
-            }
-        },
-        "dropped_txns_verify": {
-            "count": 49152,
-            "breakdown": {
-                "verify_overrun": 49152,
-                "verify_drop": 0
-            }
-        },
-        "dropped_txns_dedup": {
-            "count": 1,
-            "breakdown": {
-                "dedup_drop": 1
-            }
-        },
-        "dropped_txns_pack": {
-            "count": 0,
-            "breakdown": {
-                "pack_nonleader": 0,
-                "pack_invalid": 0,
-                "pack_priority": 0
-            }
-        },
-        "dropped_txns_bank": {
-            "count": 0,
-            "breakdown": {
-                "bank_invalid": 0
-            }
-        },
-        "executed_txns_failure": 0,
-        "executed_txns_success": 27993,
-        "buffered_txns": 3
+        }
     }
 }
 ```
 
 :::
 
-The number of transactions of that have been acquired or dropped in the
-lead up to our next leader slot. If we are currently in a leader slot
-but have not completed it, this includes transactions acquired and
-dropped during the leader slot. The values are reset to zero when the
-leader slot completes and begin counting up again.  The slot number is
-always ULONG_MAX (18446744073709551615) for live txn_info.
+**`LiveTxnWaterfall`**
+| Field            | Type           | Description
+|------------------|----------------|------------
+| next_leader_slot | `number\|null` | The next leader slot that the transactions are being accumulated for |
+| waterfall        | `TxnWaterfall` | A waterfall of transactions received since the end of the previous leader slot |
 
-##### On-demand query
+A transaction waterfall describes the transactions that are received
+before and during a leader slot, and what happened to them. A typical
+waterfall is that we acquire transactions from QUIC or gossip in the
+lead up to (before) our leader slot, drop a few of them that fail to
+verify, drop a few duplicates, drop some low priority ones that won't
+fit into our block, and then successfully place some transactions into
+a block. Transactions can also be received and dropped during the leader
+slot, but it's important to note: the waterfall shows statistics for all
+transactions since the end of our last leader slot. These are
+transactions that are now eligible for palcement into the next one.
 
-::: details Example query
+The waterfall is typically useful when viewing what happened in a past
+leader slot: we want to know where transactions came from, and for what
+reasons they didn't make it into the block. For example, if we received
+100,000 transactions leading up to the slot, but only 6000 made it in,
+what happened to the other 94,000?
+
+The live waterfall is a special case: it's for the next slot of the
+validator, rather than one that is in the past. Becuase the slot hasn't
+happened yet, we know certain information: how many transactions we have
+received so far from users that we could pack into our next block, how
+many have expired, how many failed to verify, and so on, but we probably
+won't know how many made it into the block yet, as we do when looking at
+the waterfall for a block that has been published.
+
+The waterfall should generally be balanced: total transactions in and
+total transactions out will be the roughly the same, but not always
+strictly. Transactions in could be more or less than transactions out
+due to sampling jiter. When subtracting, be sure to account for
+potential underflow.
+
+#### `summary.live_tile_timers`
+| frequency        | type          | example |
+|------------------|---------------|---------|
+| *Once* + *10ms*  | `TileTimer[]` | below   |
+
+::: details Example
 
 ```json
 {
-    "seq": 32,
-    "query": "txn_info",
-    "args": [
-        20
+    "topic": "summary",
+    "key": "live_tile_timers",
+    "value": [
+        { "tile": "net", "kind_id": 0, "idle": 44.972112412 },
+        { "tile": "quic", "kind_id": 0, "idle": 90.12 },
+        { "tile": "verify", "kind_id": 0, "idle": 5.42148 },
+        { "tile": "verify", "kind_id": 1, "idle": 6.24870 },
+        { "tile": "verify", "kind_id": 2, "idle": 5.00158 },
+        { "tile": "verify", "kind_id": 3, "idle": 8.1111556 },
+        { "tile": "dedup", "kind_id": 0, "idle": 76.585 },
+        { "tile": "pack", "kind_id": 0, "idle": 44.225 },
+        { "tile": "bank", "kind_id": 0, "idle": 12.98 },
+        { "tile": "bank", "kind_id": 1, "idle": 16.2981 },
+        { "tile": "poh", "kind_id": 0, "idle": 43.857 },
+        { "tile": "shred", "kind_id": 0, "idle": 14.1 },
+        { "tile": "store", "kind_id": 0, "idle": 3.15716 },
+        { "tile": "sign", "kind_id": 0, "idle": 93.2456 },
+        { "tile": "metric", "kind_id": 0, "idle": 87.9987 }
     ]
 }
 ```
 
 :::
 
-::: details Example response
-
-```json
-{
-    "topic": "summary",
-    "key": "upcoming_slot_txn_info",
-    "value": {
-        "slot": 20,
-        "acquired_txns": 66586,
-        "acquired_txns_leftover": 0,
-        "acquired_txns_quic": 66580,
-        "acquired_txns_nonquic": 1,
-        "acquired_txns_gossip": 2,
-        "dropped_txns": 12280,
-        "dropped_txns_net": {
-            "count": 0,
-            "breakdown": {
-                "net_overrun": 0,
-                "net_invalid": 0
-            }
-        },
-        "dropped_txns_quic": {
-            "count": 0,
-            "breakdown": {
-                "quic_overrun": 0,
-                "quic_reasm": 0
-            }
-        },
-        "dropped_txns_verify": {
-            "count": 12288,
-            "breakdown": {
-                "verify_overrun": 12288,
-                "verify_drop": 0
-            }
-        },
-        "dropped_txns_dedup": {
-            "count": 2,
-            "breakdown": {
-                "dedup_drop": 2
-            }
-        },
-        "dropped_txns_pack": {
-            "count": 0,
-            "breakdown": {
-                "pack_nonleader": 0,
-                "pack_invalid": 0,
-                "pack_priority": 0
-            }
-        },
-        "dropped_txns_bank": {
-            "count": 0,
-            "breakdown": {
-                "bank_invalid": 0
-            }
-        },
-        "executed_txns_failure": 0,
-        "executed_txns_success": 28074,
-        "buffered_txns": 4
-    }
-}
-```
-
-:::
-
-Requests are sent as JSON messages over the websocket connection.
-`seq` is simply an integer identifier that ties response to request.
-`query` is a string that specifies the data being queried.
-`args` is an array of input arguments.  For a `txn_info` query, it should contain exactly one integer, specifying the slot number.
-When the query is invalid, the client will either get no response at all if the backend cannot extract a `seq` number, or, in the case that the backend manages to extract a `seq` number, a response JSON that has the corresponding `seq` and a `null` `response` field rather than an array.
-If successful, `response` will be an array containing JSON objects that conform to the same layout as the live stream data.
-
-#### `summary.topology`
-| frequency | type       | example |
-|-----------|------------|---------|
-| Once      | `Topology` | below   |
-
-::: details Example
-
-```json
-{
-    "topic": "summary",
-    "key": "topology",
-    "value": {
-        "tile_counts": {
-            "net": 1,
-            "quic": 1,
-            "verify": 4,
-            "dedup": 1,
-            "pack": 1,
-            "bank": 2,
-            "poh": 1,
-            "shred": 2
-        }
-    }
-}
-```
-
-:::
-
-**`Topology`**
-| Field       | Type    | Description
-|-------------|---------|------------
-| tile_counts | `{string: number}` | Maps tile name/type to the number of running tiles of this type.
-
-On establishing connection we send the tile topology of the running
-Firedancer.
-
-#### `summary.tile_info`
-| frequency    | type     | example     |
-|--------------|----------|-------------|
-| Once + 100ms | `TileInfo` | below     |
-
-::: details Example
-
-```json
-{
-    "topic": "summary",
-    "key": "tile_info",
-    "value": {
-        "net": {
-            "idle": [
-                44.97
-            ]
-        },
-        "quic": {
-            "idle": [
-                90.86
-            ]
-        },
-        "verify": {
-            "idle": [
-                0.00,
-                0.00,
-                0.00,
-                0.00
-            ]
-        },
-        "dedup": {
-            "idle": [
-                98.85
-            ]
-        },
-        "pack": {
-            "idle": [
-                95.51
-            ]
-        },
-        "bank": {
-            "idle": [
-                35.4,
-                98.65
-            ]
-        },
-        "poh": {
-            "idle": [
-                98.23
-            ]
-        },
-        "shred": {
-            "idle": [
-                97.43,
-                97.47
-            ]
-        }
-    }
-}
-```
-
-:::
-
-**`TileInfo`**
-| Field      | Type    | Description
-|------------|---------|------------
-| Networking | `{"idle": number[]}` | Per-tile idleness percentage since the last sample.
-| QUIC       | `{"idle": number[]}` | Per-tile idleness percentage since the last sample.
-| Verify     | `{"idle": number[]}` | Per-tile idleness percentage since the last sample.
-| Dedup      | `{"idle": number[]}` | Per-tile idleness percentage since the last sample.
-| Pack       | `{"idle": number[]}` | Per-tile idleness percentage since the last sample.
-| Bank       | `{"idle": number[]}` | Per-tile idleness percentage since the last sample.
-| PoH        | `{"idle": number[]}` | Per-tile idleness percentage since the last sample.
-| Shred      | `{"idle": number[]}` | Per-tile idleness percentage since the last sample.
+**`TileTimer`**
+| Field      | Type     | Description
+|------------|----------|------------
+| tile       | `string` | One of `net`, `quic`, `verify`, `dedup`, `pack`, `bank`, `poh`, `shred`, `store`, `sign`, or `metric` indicating what the tile kind is
+| kind_id    | `number` | A number counting up from 0 indicating the index of the tile within its kind. If there are two `verify` tiles, they will have kind_id of `0` and `1`
+| idle       | `number` | Percentage idleness of the tile during the window being sampled
 
 ### epoch
 Information about an epoch. Epochs are never modified once they have
 been determined, so the topic only publishes a continuous stream of new
 epochs as they are known. When connecting, the current and next epoch
-are known. Epochs become known one epoch in advance, and will only be
-published once they are confirmed (the prior epoch has fully rooted).
+are known, unless the validator has recently booted in which case they
+may not be known and no epochs will be sent until the snapshot is loaded.
+Epochs become known one epoch in advance, and will only be published
+once they are confirmed (the prior epoch has fully rooted).
 
 #### `epoch.new`
-| frequency   | type   | example     |
-|-------------|--------|-------------|
-| Once + Live | `EpochSchedule` | below |
+| frequency       | type            | example |
+|-----------------|-----------------|-------- |
+| *Once* + *Live* | `EpochSchedule` | below   |
 
 ::: details Example
 
@@ -594,9 +505,9 @@ all identities will have at least one of these fields reported. Once an
 identity is no longer in these three data sources, it will be removed.
 
 #### `peers.update`
-| frequency   | type   | example     |
-|-------------|--------|-------------|
-| Once + 5s   | `PeerUpdate` | below |
+| frequency      | type         | example     |
+|----------------|--------------|-------------|
+| *Once* + *60s* | `PeerUpdate` | below       |
 
 ::: details Example
 
@@ -644,9 +555,9 @@ identity is no longer in these three data sources, it will be removed.
 :::
 
 **`PeerUpdateGossip`**
-| Field       | Type     | Description
-|-------------|----------|------------
-| wallclock | `number` | Not entirely sure yet TODO |
+| Field         | Type     | Description
+|---------------|----------|------------
+| wallclock     | `number` | Not entirely sure yet TODO |
 | shred_version | `number` | A `u16` representing the shred version the validator is configured to use. The shred version is changed when the cluster restarts, and is used to make sure the validator is talking to nodes that have participated in the same cluster restart |
 | version | `string\|null` | Software version being advertised by the validator. Might be `null` if the validator is not gossiping a version, or we have received the contact information but not the version yet. The version string, if not null, will always be formatted like `major`.`minor`.`patch` where `major`, `minor`, and `patch` are `u16`s |
 | feature_set | `number\|null` | First four bytes of the `FeatureSet` hash interpreted as a little endian `u32`. Might be `null` if the validator is not gossiping a feature set, or we have received the contact information but not the feature set yet |
@@ -761,54 +672,93 @@ initially replay one but the cluster votes on the other one.
 | transactions | `number\|null` | Total number of transactions (vote and non-vote) in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
 | vote_transactions | `number\|null` | Total number of vote transactions in the block. Will always be less than or equal to `transactions`. The number of non-vote transactions is given by `transactions - vote_transactions`
 | failed_transactions | `number\|null` | Total number of failed transactions (vote and non-vote) in the block. Failed transactions are those which are included in the block and were charged fees, but failed to execute successfully. This is different from dropped transations which do not pay fees and are not included in the block |
-| compute_units | `number\|null` | Total number of compute units used by the slot |
-| leader_info | `SlotTxnInfo\|null` | Detailed information about slots which we were the leader for. Will be null if the slot is not `mine` |
+| compute_units | `number\|null`       | Total number of compute units used by the slot |
 
 #### `slot.update`
-| frequency   | type   | example     |
-|-------------|--------|-------------|
-| Live        | `SlotUpdate` | below |
+| frequency   | type          | example |
+|-------------|---------------|---------|
+| *Live*      | `SlotPublish` | below   |
 
 :::details Example
 
 :::
 
-**`DropInfo`**
-| Field      | Type           | Description |
-|------------|----------------|-------------|
-| count      | `number`                             | The total number of transactions that were dropped.
-| breakdown  | `{key(string): value(number)}`       | A breakdown of various causes of transaction drops.  The values in this breakdown, if available, should sum up to the total count above.  We currently supply the following keys.  The keys are subject to change.
+#### `slot.query`
+| frequency   | type           | example |
+|-------------|----------------|---------|
+| *Request*   | `SlotResponse` | below   |
 
-| Field            | Description |
-|------------------|-------------|
-| "net_overrun"    | Transactions were dropped because the net tile couldn't keep up.  It is technically unclear how many transactions would have been produced by the packets that net couldn't process in time.  So for the purpose of this counter, we pretend that each overrun fragment corresponds to one transaction.  Overruns of the net tile shouldn't happen a lot, if at all, and this makes it abundantly clear when it does happen.  Pay attention to per-tile utilization stats for more evidence of whether the net tile is keeping up with incoming traffic.
-| "net_invalid"    | Transactions were dropped because the net tile decided that the network packet was invalid.  It is technically unclear how many transactions would have been produced by the packets that net dropped.  So for the purpose of this counter, we pretend that each overrun fragment corresponds to one transaction.  This makes it abundantly clear if we are receiving invalid packets.
-| "quic_overrun"   | Transactions were dropped because the quic tile couldn't keep up and were overrun by the net tile.  It is technically unclear how many transactions would have been produced by the fragments from net that were overrun.  So for the purpose of this counter, we pretend that each overrun fragment corresponds to one transaction.  Overruns of the quic tile shouldn't happen a lot, if at all, and this makes it abundantly clear when it does happen.  Pay attention to per-tile utilization stats for more evidence of whether the quic tile is keeping up with the net tile.
-| "quic_reasm"     | Transactions were dropped because the quic tile failed to reassemble a full transaction out of a stream.
-| "verify_overrun" | Transactions were dropped because the system could not verify incoming transactions quickly enough, and a verify tile was overrun.  This could be because the verify tiles themselves couldn't keep up.  It could also be due to backpressure from downstream tiles.  The link between the quic tile and the verify tile is unreliable and is allowed to be overrun, whereas the downstream links after the verify tile are reliable and backpressures.
-| "verify_drop"    | Transactions were dropped because signature verification failed or because of verify's simple dedup.
-| "dedup_drop"     | Transactions were dropped because they were a duplicate of another recently received transaction.
-| "pack_nonleader" | Transactions were dropped because the pack buffer was filled prior to becoming leader, and we had to start dropping transactions.
-| "pack_invalid"   | Transactions were dropped because pack determined they would never execute.  Reasons can include the transaction expired, requested too many compute units, or was too large to fit in a block.
-| "pack_priority"  | Transactions were dropped because the system could not execute incoming transactions quickly enough, and pack had to drop lower priority transactions.
-| "bank_invalid"   | Transactions were dropped and didn't make their way into the block.
+| param | type     | description |
+|-------|----------|-------------|
+| slot  | `number` | The slot to query for information about |
 
-**`SlotTxnInfo`**
-| Field      | Type           | Description |
-|------------|----------------|-------------|
-| slot                        | `number`    | Slot number. 
-| acquired_txns               | `number`    | The total number of transactions that were acquired since the end of our prior leader slot, until the end of this leader slot. Transactions can be acquired for many reasons, which are given individually below.
-| acquired_txns_leftover      | `number`    | The transactions were received during or prior to an earlier leader slot, but weren't executed yet so they stayed available to execute in this slot.  This value is sampled and hence changes only at the ending boundary of our leader slots, and stays constant otherwise.
-| acquired_txns_quic          | `number`    | A transaction stream was received via QUIC.  The stream does not have to successfully complete.  Streams that fail to complete are counted by dropped_txns_quic_dropped.  A single stream, if successful, produces a single transaction.
-| acquired_txns_nonquic       | `number`    | A transaction stream was received via regular UDP.
-| acquired_txns_gossip        | `number`    | A gossipped vote transaction was received from a gossip peer.
-| dropped_txns                | `number`    | The total number of transactions that were dropped from the end of our prior leader slot, until the end of this leader slot. Transactions can be dropped for many reasons, which are given individually below.
-| dropped_txns_net            | `DropInfo`  | Transactions were dropped due to the net tile.
-| dropped_txns_quic           | `DropInfo`  | Transactions were dropped due to the quic tile.
-| dropped_txns_verify         | `DropInfo`  | Transactions were dropped due to the verify tile.
-| dropped_txns_dedup          | `DropInfo`  | Transactions were dropped due to the dedup tile.
-| dropped_txns_pack           | `DropInfo`  | Transactions were dropped due to the pack tile.
-| dropped_txns_bank           | `DropInfo`  | Transactions were dropped due to the bank tile.
-| executed_txns_failure       | `number`    | Transactions made their way into the block but execution failed.
-| executed_txns_success       | `number`    | Transactions made their way into the block and execution succeeded.
-| buffered_txns               | `number`    | Transactions currently buffered.  Roughly, `acquired_txns = dropped_txns + executed_txns_failure + executed_txns_success + buffered_txns`.
+::: details Example
+
+```json
+{
+    "topic": "slot",
+    "key": "query",
+    "seq": 32,
+    "params": {
+        "slot": 285291521
+    }
+}
+```
+
+```json
+{
+    "topic": "summary",
+    "key": "query",
+    "value": {
+        // TODO
+    }
+}
+```
+
+:::
+
+**`SlotResponse`**
+| Field       | Type                   | Description |
+|-------------|------------------------|-------------|
+| publish     | `SlotPublish`          | General information about the slot |
+| waterfall   | `TxnWaterfall\|null`   | If the slot is not `mine`, will be `null`. Otherwise, a waterfall showing reasons transactions were acquired since the end of the prior leader slot |
+| tile_timers | `TsTileTimers[]\|null` | If the slot is not `mine`, will be `null`. Otherwise, an array of `TsTileTimers` samples from the slot, sorted earliest to latest |
+
+**`TxnWaterfall`**
+| Field | Type              | Description |
+|-------|-------------------|-------------|
+| in    | `TxnWaterfallIn`  | Transactions received into the waterfall |
+| out   | `TxnWaterfallOut` | Transactions sent out of the waterfall |
+
+**`TxnWaterfallIn`**
+| Field    | Type     | Description |
+|----------|----------|-------------|
+| retained | `number` | Transactions were received during or prior to an earlier leader slot, but weren't executed and were retained inside the validator to potentially be included in a later slot |
+| quic     | `number` | A QUIC transaction was received. The stream does not have to successfully complete |
+| udp      | `number` | A non-QUIC UDP transaction was received |
+| gossip   | `number` | A gossipped vote transaction was received from a gossip peer |
+
+**`TxnWaterfallOut`**
+| Field             | Type     | Description |
+|-------------------|----------|-------------|
+| quic_overrun      | `number` | Transactions were dropped because the QUIC tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the fragments from net that were overrun, and this counter (along with the corresponding counter for the `in` side) assumes one tranaction per dropped packet |
+| quic_quic_invalid | `number` | Transactions were dropped because the QUIC tile decided that incoming QUIC packets were not valid. It is unclear how many transactions would have been produced by the packets that were invalid, and this counter (along with the corresponding counter for the `in` side) assumes one tranaction per invalid packet |
+| quic_udp_invalid  | `number` | Transactions were dropped because the QUIC tile decided that incoming non-QUIC (regular UDP) packets were not valid. |
+| verify_overrun    | `number` | Transactions were dropped because the verify tiles could not verify them quickly enough |
+| verify_parse      | `number` | Transactions were dropped because they were malformed and failed to parse |
+| verify_failed     | `number` | Transactions were dropped because signature verification failed |
+| verify_duplicate  | `number` | Transactions were dropped because the verify tiles determined that they had already been processed |
+| dedup_duplicate   | `number` | Transactions were dropped because the dedup tile determined that they had already been processed |
+| pack_invalid      | `number` | Transactions were dropped because pack determined they would never execute. Reasons can include the transaction expired, requested too many compute units, or was too large to fit in a block |
+| pack_retained     | `number` | Transactions were retained inside the validator memory because they were not high enough priority to make it into a prior block we produced, but have not yet expired. We might include the transactions in a future block |
+| pack_leader_slow  | `number` | Transactions were dropped while leader because the bank tiles could not execute them quickly enough, pack will drop the lowest priority transactions first |
+| pack_wait_full    | `number` | Transactions were dropped while we were waiting for our leader slot because we ran out of memory to store them. All incoming transactions are dropped without regard for the priority |
+| bank_invalid      | `number` | Transactions were dropped because a bank tile could not execute them enough to charge fees. Failed transactions can still pay fees and be included in a block, but invalid transactions do not make it to a block. Reasons can include insufficient fee payer balance, or invalid address lookup tables |
+| block_success     | `number` | Transactions made it into a block, and execution succeeded |
+| block_failure     | `number` | Transactions made it into a block, but execution failed |
+
+**`TsTileTimers`**
+| Field             | Type          | Description |
+|-------------------|---------------|-------------|
+| timestamp_nanos   | `number`      | A timestamp of when the tile timers were sampled, nanoseconds since the UNIX epoch |
+| tile_timers       | `TileTimer[]` | A list of all tile timing information at the given sample timestamp |

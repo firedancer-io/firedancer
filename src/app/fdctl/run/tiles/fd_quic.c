@@ -148,8 +148,6 @@ static void
 legacy_stream_notify( fd_quic_ctx_t * ctx,
                       uchar *         packet,
                       ulong           packet_sz ) {
-
-  FD_MCNT_INC( QUIC_TILE, LEGACY_NOTIFY_ATTEMPTED, 1UL );
   fd_mux_context_t * mux = ctx->mux;
 
   uint                  tsorig = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
@@ -167,7 +165,6 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
   ctx->metrics.legacy_reasm_publish[ pub_err ]++;
   if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return;
 
-  FD_MCNT_INC( QUIC_TILE, LEGACY_NOTIFY_OKAY, 1UL );
   fd_mux_advance( mux );
 }
 
@@ -438,9 +435,6 @@ static void
 quic_stream_notify( fd_quic_stream_t * stream,
                     void *             stream_ctx,
                     int                type ) {
-  /* Load TPU state */
-  FD_MCNT_INC( QUIC_TILE, REASSEMBLY_NOTIFY_ATTEMPTED, 1UL );
-
   fd_quic_t *           quic   = stream->conn->quic;
   fd_quic_ctx_t *       ctx    = quic->cb.quic_ctx;
   fd_tpu_reasm_t *      reasm  = ctx->reasm;
@@ -450,6 +444,7 @@ quic_stream_notify( fd_quic_stream_t * stream,
   void *                base   = ctx->verify_out_mem;
 
   if( FD_UNLIKELY( type!=FD_QUIC_NOTIFY_END ) ) {
+    FD_MCNT_INC( QUIC_TILE, REASSEMBLY_NOTIFY_ABORTED, 1UL );
     fd_tpu_reasm_cancel( reasm, slot );
     return;  /* not a successful stream close */
   }
@@ -471,10 +466,6 @@ quic_stream_notify( fd_quic_stream_t * stream,
   uint   tspub = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
   int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
   ctx->metrics.reasm_publish[ pub_err ]++;
-
-  if( FD_LIKELY( pub_err == FD_TPU_REASM_SUCCESS ) ) {
-    FD_MCNT_INC( QUIC_TILE, REASSEMBLY_NOTIFY_OKAY, 1UL );
-  }
 
   fd_mux_advance( mux );
 }

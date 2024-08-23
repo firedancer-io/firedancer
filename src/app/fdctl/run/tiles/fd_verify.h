@@ -40,6 +40,12 @@ typedef struct {
   ulong       out_chunk;
 
   ulong       hashmap_seed;
+
+  struct {
+    ulong parse_fail_cnt;
+    ulong verify_fail_cnt;
+    ulong dedup_fail_cnt;
+  } metrics;
 } fd_verify_ctx_t;
 
 static inline int

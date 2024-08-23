@@ -4,29 +4,31 @@ void fd_gui_printf_version( fd_gui_t * gui );
 void fd_gui_printf_cluster( fd_gui_t * gui );
 void fd_gui_printf_identity_key( fd_gui_t * gui );
 void fd_gui_printf_uptime_nanos( fd_gui_t * gui );
+void fd_gui_printf_net_tile_count( fd_gui_t * gui );
+void fd_gui_printf_quic_tile_count( fd_gui_t * gui );
+void fd_gui_printf_verify_tile_count( fd_gui_t * gui );
+void fd_gui_printf_bank_tile_count( fd_gui_t * gui );
+void fd_gui_printf_shred_tile_count( fd_gui_t * gui );
 void fd_gui_printf_balance( fd_gui_t * gui );
 void fd_gui_printf_estimated_slot_duration_nanos( fd_gui_t * gui );
 void fd_gui_printf_root_slot( fd_gui_t * gui );
 void fd_gui_printf_optimistically_confirmed_slot( fd_gui_t * gui );
 void fd_gui_printf_completed_slot( fd_gui_t * gui );
 void fd_gui_printf_estimated_slot( fd_gui_t * gui );
-void fd_gui_printf_topology( fd_gui_t * gui );
-void fd_gui_printf_epoch1( fd_gui_t * gui );
-void fd_gui_printf_epoch2( fd_gui_t * gui );
-void fd_gui_printf_txn_info_summary( fd_gui_t * gui );
 void fd_gui_printf_estimated_tps( fd_gui_t * gui );
 void fd_gui_printf_estimated_vote_tps( fd_gui_t * gui );
 void fd_gui_printf_estimated_nonvote_tps( fd_gui_t * gui );
 void fd_gui_printf_estimated_failed_tps( fd_gui_t * gui );
-void fd_gui_printf_tile_info( fd_gui_t * gui );
-void fd_gui_printf_tile_info_for_slot( fd_gui_t * gui, ulong slot );
 
-void fd_gui_printf_open_query_response_envelope( fd_gui_t * gui, ulong seq );
-void fd_gui_printf_close_query_response_envelope( fd_gui_t * gui );
-void fd_gui_printf_null_query_response( fd_gui_t * gui, ulong seq );
-void fd_gui_printf_txn_info_summary_this( fd_gui_t * gui, fd_gui_txn_info_t * txn_info, ulong slot );
+void
+fd_gui_printf_null_query_response( fd_gui_t *   gui,
+                                   char const * topic,
+                                   char const * key,
+                                   ulong        id );
 
-void fd_gui_printf_epoch( fd_gui_t * gui, ulong epoch_idx );
+void
+fd_gui_printf_epoch( fd_gui_t * gui,
+                     ulong      epoch_idx );
 
 void
 fd_gui_printf_peers_gossip_update( fd_gui_t *          gui,
@@ -59,5 +61,18 @@ void
 fd_gui_printf_peers_all( fd_gui_t * gui );
 
 void
-fd_gui_printf_slot ( fd_gui_t * gui,
-                     ulong      slot );
+fd_gui_printf_slot( fd_gui_t * gui,
+                    ulong      slot );
+
+void
+fd_gui_printf_slot_request( fd_gui_t * gui,
+                            ulong      slot );
+
+void
+fd_gui_printf_live_tile_timers( fd_gui_t * gui );
+
+void
+fd_gui_printf_live_txn_waterfall( fd_gui_t *               gui,
+                                  fd_gui_txn_waterfall_t * prev,
+                                  fd_gui_txn_waterfall_t * cur,
+                                  ulong                    next_leader_slot );

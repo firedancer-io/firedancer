@@ -383,8 +383,6 @@ typedef struct {
   ulong slot;
   ulong hashcnt;
 
-  ulong slot_start_sent;
-
   /* When we send a microblock on to the shred tile, we need to tell
      it how many hashes there have been since the last microblock, so
      this tracks the hashcnt of the last published microblock.
@@ -559,7 +557,7 @@ poh_link_t crds_shred;
 
 poh_link_t replay_plugin;
 poh_link_t gossip_plugin;
-poh_link_t slot_plugin;
+poh_link_t poh_plugin;
 
 static void
 poh_link_wait_credit( poh_link_t * link ) {
@@ -714,7 +712,6 @@ fd_ext_poh_initialize( ulong         tick_duration_ns,    /* See clock comments 
 
   ctx->slot                = tick_height/ticks_per_slot;
   ctx->hashcnt             = 0UL;
-  ctx->slot_start_sent     = 0UL;
   ctx->last_slot           = ctx->slot;
   ctx->last_hashcnt        = 0UL;
   ctx->reset_slot          = ctx->slot;
@@ -986,14 +983,12 @@ static CALLED_FROM_RUST void
 no_longer_leader( fd_poh_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->current_leader_bank ) ) fd_ext_bank_release( ctx->current_leader_bank );
 
-  ulong my_next_leader_slot = next_leader_slot( ctx );
-  poh_link_publish( &slot_plugin, fd_plugin_sig( ctx->next_leader_slot, FD_PLUGIN_MSG_SLOT_END ), (uchar *)&(my_next_leader_slot), 8 );
   /* If we stop being leader in a slot, we can never become leader in
       that slot again, and all in-flight microblocks for that slot
       should be dropped. */
   ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), ctx->slot );
   ctx->current_leader_bank = NULL;
-  ctx->next_leader_slot = my_next_leader_slot;
+  ctx->next_leader_slot = next_leader_slot( ctx );
 
   FD_COMPILER_MFENCE();
   fd_ext_poh_signal_leader_change( ctx->signal_leader_change );
@@ -1066,8 +1061,8 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
 
        The order is important here, ctx->hashcnt must be updated before
        calling no_longer_leader. */
-    /* Leader slot abandoned. */
-    FD_LOG_NOTICE(( "calling no_longer_leader(next_leader_slot=%lu)", ctx->next_leader_slot ));
+
+    poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_END, (uchar const *)&ctx->next_leader_slot, 8UL );
     no_longer_leader( ctx );
   }
   ctx->next_leader_slot = next_leader_slot( ctx );
@@ -1171,11 +1166,6 @@ after_credit( void *             _ctx,
   fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_ctx;
 
   int is_leader = ctx->next_leader_slot!=ULONG_MAX && ctx->slot>=ctx->next_leader_slot;
-  if( FD_UNLIKELY( is_leader && ctx->slot_start_sent<ctx->slot ) ) {
-    FD_LOG_INFO(( "sending slot start %lu", ctx->slot ));
-    poh_link_publish( &slot_plugin, fd_plugin_sig( ctx->slot, FD_PLUGIN_MSG_SLOT_START ), (uchar *)&(ctx->slot), 8 );
-    ctx->slot_start_sent = ctx->slot;
-  }
   if( FD_UNLIKELY( is_leader && !ctx->current_leader_bank ) ) {
     /* If we are the leader, but we didn't yet learn what the leader
        bank object is from the replay stage, do not do any hashing.
@@ -1413,13 +1403,19 @@ after_credit( void *             _ctx,
     /* We ticked while leader and are no longer leader... transition
        the state machine. */
     FD_TEST( !max_remaining_microblocks );
-    /* Leader slot ended normally. */
-    FD_LOG_NOTICE(( "calling no_longer_leader(next_leader_slot=%lu)", ctx->next_leader_slot ));
+    poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_END, (uchar const *)&ctx->next_leader_slot, 8UL );
+
     no_longer_leader( ctx );
     ctx->expect_sequential_leader_slot = ctx->slot;
 
     double tick_per_ns = fd_tempo_tick_per_ns( NULL );
     fd_histf_sample( ctx->slot_done_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
+  }
+
+  if( FD_UNLIKELY( !is_leader && ctx->slot>=ctx->next_leader_slot ) ) {
+    /* We ticked while not leader and are now leader... transition
+       the state machine. */
+    poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_START, (uchar const *)&ctx->next_leader_slot, 8UL );
   }
 }
 
@@ -1686,8 +1682,8 @@ after_frag( void *             _ctx,
     if( FD_UNLIKELY( ctx->slot>ctx->next_leader_slot ) ) {
       /* We ticked while leader and are no longer leader... transition
          the state machine. */
-      /* Leader slot ended normally dev mode. */
-      FD_LOG_NOTICE(( "calling no_longer_leader(next_leader_slot=%lu)", ctx->next_leader_slot ));
+      poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_END, (uchar const *)&ctx->next_leader_slot, 8UL );
+
       no_longer_leader( ctx );
     }
   }
@@ -1809,7 +1805,7 @@ unprivileged_init( fd_topo_t *      topo,
   poh_link_init( &crds_shred,    topo, tile, 3UL );
   poh_link_init( &replay_plugin, topo, tile, 4UL );
   poh_link_init( &gossip_plugin, topo, tile, 5UL );
-  poh_link_init( &slot_plugin,   topo, tile, 6UL );
+  poh_link_init( &poh_plugin,    topo, tile, 6UL );
 
   FD_LOG_NOTICE(( "PoH waiting to be initialized by Agave client... %lu %lu", fd_poh_waiting_lock, fd_poh_returned_lock ));
   FD_VOLATILE( fd_poh_global_ctx ) = ctx;

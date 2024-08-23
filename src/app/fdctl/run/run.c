@@ -85,6 +85,8 @@ parent_signal( int sig ) {
 
 static void
 install_parent_signals( void ) {
+  return;
+
   struct sigaction sa = {
     .sa_handler = parent_signal,
     .sa_flags   = 0,
