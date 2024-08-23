@@ -554,8 +554,6 @@ main( int argc, char ** argv ) {
 
 int
 fd_quic_conn_force_key_phase_change( fd_quic_conn_t * conn ) {
-  uint enc_level = 3;
-
   int sanity =  !!conn
              && conn->state         == FD_QUIC_CONN_STATE_ACTIVE
              && conn->key_phase_upd == 0;
@@ -564,41 +562,12 @@ fd_quic_conn_force_key_phase_change( fd_quic_conn_t * conn ) {
     return FD_QUIC_FAILED;
   }
 
-  fd_quic_crypto_suite_t const * suite = conn->suites[enc_level];
-
   /* generate new secrets */
-  if( FD_UNLIKELY(
-        fd_quic_gen_new_secrets( &conn->secrets, suite->hmac_fn, suite->hash_sz )
-          != FD_QUIC_SUCCESS ) ) {
-    FD_LOG_WARNING(( "Unable to generate new secrets for key update. "
-          "Aborting connection" ));
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_AEAD_LIMIT_REACHED, __LINE__ );
-    return FD_QUIC_FAILED;
-  }
+  fd_quic_gen_new_secrets( &conn->secrets );
 
   /* generate new keys */
-  if( FD_UNLIKELY( fd_quic_gen_new_keys( &conn->new_keys[0],
-                                         suite,
-                                         conn->secrets.new_secret[0],
-                                         conn->secrets.secret_sz[enc_level][0],
-                                         suite->hmac_fn, suite->hash_sz )
-        != FD_QUIC_SUCCESS ) ) {
-    /* set state to DEAD to reclaim connection */
-    FD_LOG_WARNING(( "fd_quic_gen_keys failed on client" ));
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
-    return FD_QUIC_FAILED;
-  }
-  if( FD_UNLIKELY( fd_quic_gen_new_keys( &conn->new_keys[1],
-                                         suite,
-                                         conn->secrets.new_secret[1],
-                                         conn->secrets.secret_sz[enc_level][1],
-                                         suite->hmac_fn, suite->hash_sz )
-        != FD_QUIC_SUCCESS ) ) {
-    /* set state to DEAD to reclaim connection */
-    FD_LOG_WARNING(( "fd_quic_gen_keys failed on server" ));
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
-    return FD_QUIC_FAILED;
-  }
+  fd_quic_gen_new_keys( &conn->new_keys[0], conn->secrets.new_secret[0] );
+  fd_quic_gen_new_keys( &conn->new_keys[1], conn->secrets.new_secret[1] );
 
   conn->key_phase_upd = 1;
 

@@ -514,13 +514,9 @@ fd_quic_tls_secrets( void const * handshake,
 
   fd_quic_tls_hs_t * hs = (fd_quic_tls_hs_t *)handshake;
 
-  /* TODO: For now AES-128-GCM hardcoded */
-  fd_quic_tls_secret_t secret = {
-    .suite_id     = 0x1301,
-    .enc_level    = enc_level,
-    .secret_len   = 32 };
-  fd_memcpy( secret.read_secret,  recv_secret, 32UL );
-  fd_memcpy( secret.write_secret, send_secret, 32UL );
+  fd_quic_tls_secret_t secret = { .enc_level = enc_level };
+  memcpy( secret.read_secret,  recv_secret, 32UL );
+  memcpy( secret.write_secret, send_secret, 32UL );
 
   hs->quic_tls->secret_cb( hs, hs->context, &secret );
 }

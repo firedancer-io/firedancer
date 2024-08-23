@@ -47,8 +47,8 @@ my_secrets( fd_quic_tls_hs_t *           hs,
   FD_TEST( secret );
   FD_LOG_INFO(( "callback secrets (%s, level=%u)",
                 hs->is_server ? "server" : "client", secret->enc_level ));
-  FD_LOG_HEXDUMP_INFO(( "read secret",  secret->read_secret,  secret->secret_len ));
-  FD_LOG_HEXDUMP_INFO(( "write secret", secret->write_secret, secret->secret_len ));
+  FD_LOG_HEXDUMP_INFO(( "read secret",  secret->read_secret,  FD_QUIC_SECRET_SZ ));
+  FD_LOG_HEXDUMP_INFO(( "write secret", secret->write_secret, FD_QUIC_SECRET_SZ ));
 }
 
 void

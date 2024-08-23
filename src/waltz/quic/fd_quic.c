@@ -542,10 +542,6 @@ fd_quic_init( fd_quic_t * quic ) {
     return NULL;
   }
 
-  /* Initialize crypto */
-
-  fd_quic_crypto_ctx_init( state->crypto_ctx );
-
   /* Initialize transport params */
 
   fd_quic_transport_params_t * tp = &state->transport_params;
@@ -672,7 +668,7 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
       if( !(conn->flags & FD_QUIC_CONN_FLAGS_CLOSE_SENT ) ) {
         if( conn->handshake_complete ) {
           return fd_quic_enc_level_appdata_id;
-        } else if( conn->suites[ fd_quic_enc_level_handshake_id ] ) {
+        } else if( fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_handshake_id ) ) {
           return fd_quic_enc_level_handshake_id;
         } else {
           return fd_quic_enc_level_initial_id;
@@ -845,10 +841,6 @@ fd_quic_fini( fd_quic_t * quic ) {
 
     if( conn->state ) fd_quic_conn_free( quic, conn );
   }
-
-  /* Deinit crypto */
-
-  fd_quic_crypto_ctx_fini( state->crypto_ctx );
 
   /* Deinit TLS */
 
@@ -1147,59 +1139,28 @@ fd_quic_ack_enc_level( fd_quic_conn_t * conn, uint enc_level ) {
   /* TODO */
 }
 
-int fd_quic_gen_initial_secret_and_keys(
-    fd_quic_crypto_suite_t *  suite,
+void
+fd_quic_gen_initial_secret_and_keys(
     fd_quic_conn_t *          conn,
-    fd_quic_conn_id_t const * dst_conn_id)
-{
-  /* Initial Packets
-     from rfc:
-     initial_salt = 0x38762cf7f55934b34d179ae6a4c80cadccbb7f0a */
-  uchar const * initial_salt    = FD_QUIC_CRYPTO_V1_INITIAL_SALT;
-  ulong         initial_salt_sz = FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ;
+    fd_quic_conn_id_t const * dst_conn_id ) {
 
-  if (FD_UNLIKELY(fd_quic_gen_initial_secret(
-                      &conn->secrets,
-                      initial_salt, initial_salt_sz,
-                      dst_conn_id->conn_id, dst_conn_id->sz) != FD_QUIC_SUCCESS))
-  {
-    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_initial_secret failed" )) );
-    return FD_QUIC_FAILED;
-    // goto fail_tls_hs;
-  }
+  fd_quic_gen_initial_secret(
+      &conn->secrets,
+      dst_conn_id->conn_id, dst_conn_id->sz );
 
-  if( fd_quic_gen_secrets( &conn->secrets,
-                           fd_quic_enc_level_initial_id, /* generate initial secrets */
-                           suite->hmac_fn, suite->hash_sz ) != FD_QUIC_SUCCESS ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_secrets failed" )) );
-    return FD_QUIC_FAILED;
-    // goto fail_tls_hs;
-  }
+  fd_quic_gen_secrets(
+      &conn->secrets,
+      fd_quic_enc_level_initial_id ); /* generate initial secrets */
 
   /* gen initial keys */
-  if( FD_UNLIKELY( fd_quic_gen_keys(
+  fd_quic_gen_keys(
       &conn->keys[ fd_quic_enc_level_initial_id ][ 0 ],
-      suite,
-      conn->secrets.secret   [ fd_quic_enc_level_initial_id ][ 0 ],
-      conn->secrets.secret_sz[ fd_quic_enc_level_initial_id ][ 0 ] )
-      != FD_QUIC_SUCCESS ) ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )) );
-    return FD_QUIC_FAILED;
-    // goto fail_tls_hs;
-  }
+      conn->secrets.secret[ fd_quic_enc_level_initial_id ][ 0 ] );
 
   /* gen initial keys */
-  if( FD_UNLIKELY( fd_quic_gen_keys(
+  fd_quic_gen_keys(
       &conn->keys[ fd_quic_enc_level_initial_id ][ 1 ],
-      suite,
-      conn->secrets.secret   [ fd_quic_enc_level_initial_id ][ 1 ],
-      conn->secrets.secret_sz[ fd_quic_enc_level_initial_id ][ 1 ] )
-      != FD_QUIC_SUCCESS ) ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )) );
-    // goto fail_tls_hs;
-    return FD_QUIC_FAILED;
-  }
-  return FD_QUIC_SUCCESS;
+      conn->secrets.secret   [ fd_quic_enc_level_initial_id ][ 1 ] );
 }
 
 ulong
@@ -1262,8 +1223,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
      initial secrets and keys. */
 
   uint enc_level = fd_quic_enc_level_initial_id;
-  fd_quic_crypto_suite_t * suite =
-      &state->crypto_ctx->suites[ TLS_AES_128_GCM_SHA256_ID ];
 
   /* Save the original destination conn ID for later.  In QUIC, peers
      choose their own "conn ID" (more like a peer ID) and indirectly
@@ -1556,14 +1515,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       }
       conn->tls_hs = tls_hs;
 
-      if( FD_UNLIKELY( fd_quic_gen_initial_secret_and_keys( suite, conn, conn_id ) ) == FD_QUIC_FAILED ) {
-        conn->state = FD_QUIC_CONN_STATE_DEAD;
-        fd_quic_reschedule_conn( conn, 0 );
-        quic->metrics.conn_aborted_cnt++;
-        quic->metrics.conn_err_tls_fail_cnt++;
-        FD_DEBUG( FD_LOG_WARNING(( "fd_quic_gen_initial_secret_and_keys failed" )) );
-        return FD_QUIC_PARSE_FAIL;
-      }
+      fd_quic_gen_initial_secret_and_keys( conn, conn_id );
     } else {
       /* connection may have been torn down */
       return FD_QUIC_PARSE_FAIL;
@@ -1696,11 +1648,12 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
 ulong
 fd_quic_handle_v1_handshake(
-    fd_quic_t *           quic,
-    fd_quic_conn_t *      conn,
-    fd_quic_pkt_t *       pkt,
-    uchar *               cur_ptr,
-    ulong                 cur_sz ) {
+    fd_quic_t *      quic,
+    fd_quic_conn_t * conn,
+    fd_quic_pkt_t *  pkt,
+    uchar *          cur_ptr,
+    ulong            cur_sz
+) {
   uint enc_level = fd_quic_enc_level_handshake_id;
 
   if( FD_UNLIKELY( !conn ) ) {
@@ -1739,13 +1692,7 @@ fd_quic_handle_v1_handshake(
 
   /* generate handshake secrets, keys etc */
 
-  /* fetch suite from connection - should be set via callback fd_quic_tls_cb_secret
-     from tls */
-  fd_quic_crypto_suite_t const * suite = conn->suites[enc_level];
-
-  /* check our suite has been chosen */
-  if( FD_UNLIKELY( !suite ) ) {
-    FD_LOG_WARNING(( "suite missing" ));
+  if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, (int)enc_level ) ) ) {
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -1895,19 +1842,10 @@ fd_quic_handle_v1_retry(
 
   /* Re-send the ClientHello */
   conn->hs_sent_bytes[fd_quic_enc_level_initial_id] = 0;
-  fd_quic_state_t * state = fd_quic_get_state(quic);
 
   /* Need to regenerate keys using the retry source connection id */
-  fd_quic_crypto_suite_t * suite = &state->crypto_ctx->suites[TLS_AES_128_GCM_SHA256_ID];
-  if( FD_UNLIKELY( fd_quic_gen_initial_secret_and_keys( suite, conn, &conn->retry_src_conn_id ) )
-                   == FD_QUIC_FAILED )
-  {
-    conn->state = FD_QUIC_CONN_STATE_DEAD;
-    fd_quic_reschedule_conn( conn, 0 );
-    quic->metrics.conn_aborted_cnt++;
-    quic->metrics.conn_err_tls_fail_cnt++;
-    return FD_QUIC_PARSE_FAIL;
-  }
+  fd_quic_gen_initial_secret_and_keys( conn, &conn->retry_src_conn_id );
+
   /* The token length is the remaining bytes in the retry packet after subtracting known fields. */
   conn->token_len = retry_token_sz;
   fd_memcpy( &conn->token, retry_token, conn->token_len );
@@ -1969,13 +1907,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
 
   /* generate one_rtt secrets, keys etc */
 
-  /* fetch suite from connection - should be set via callback fd_quic_tls_cb_secret
-     from tls */
-  fd_quic_crypto_suite_t const * suite = conn->suites[enc_level];
-
-  /* check our suite has been chosen */
-  if( FD_UNLIKELY( !suite ) ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "1-RTT: no decryption secrets" )) );
+  if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, (int)enc_level ) ) ) {
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -2037,37 +1969,13 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
       FD_DEBUG( FD_LOG_DEBUG(( "key update started" )); )
 
       /* generate new secrets */
-      if( fd_quic_gen_new_secrets( &conn->secrets, suite->hmac_fn, suite->hash_sz ) != FD_QUIC_SUCCESS ) {
-        FD_LOG_WARNING(( "Unable to generate new secrets for key update. "
-              "Aborting connection" ));
-        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
-        return FD_QUIC_PARSE_FAIL;
-      }
+      fd_quic_gen_new_secrets( &conn->secrets );
 
       /* generate new keys */
-      if( FD_UNLIKELY( fd_quic_gen_new_keys( &conn->new_keys[0],
-                                             suite,
-                                             conn->secrets.new_secret[0],
-                                             conn->secrets.secret_sz[enc_level][0],
-                                             suite->hmac_fn, suite->hash_sz )
-            != FD_QUIC_SUCCESS ) ) {
-        /* set state to DEAD to reclaim connection */
-        FD_LOG_WARNING(( "fd_quic_gen_keys failed on client" ));
-        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
-        return FD_QUIC_PARSE_FAIL;
-      }
-      if( FD_UNLIKELY( fd_quic_gen_new_keys( &conn->new_keys[1],
-                                             suite,
-                                             conn->secrets.new_secret[1],
-                                             conn->secrets.secret_sz[enc_level][1],
-                                             suite->hmac_fn, suite->hash_sz )
-            != FD_QUIC_SUCCESS ) ) {
-        /* set state to DEAD to reclaim connection */
-        FD_LOG_WARNING(( "fd_quic_gen_keys failed on server" ));
-        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
-        return FD_QUIC_PARSE_FAIL;
-      }
-
+      fd_quic_gen_new_keys( &conn->new_keys[0],
+                            conn->secrets.new_secret[0] );
+      fd_quic_gen_new_keys( &conn->new_keys[1],
+                            conn->secrets.new_secret[1] );
       conn->key_phase_upd = 1;
     }
 
@@ -2929,61 +2837,30 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
 
   fd_quic_conn_t *  conn   = (fd_quic_conn_t*)context;
   fd_quic_t *       quic   = conn->quic;
-  fd_quic_state_t * state  = fd_quic_get_state( quic );
   int               server = conn->server;
 
   /* look up suite */
   /* set secrets */
-  FD_TEST( secret->enc_level  <  FD_QUIC_NUM_ENC_LEVELS );
-  FD_TEST( secret->secret_len <= FD_QUIC_MAX_SECRET_SZ  );
+  FD_TEST( secret->enc_level < FD_QUIC_NUM_ENC_LEVELS );
 
   uint enc_level = secret->enc_level;
 
   fd_quic_crypto_secrets_t * crypto_secret = &conn->secrets;
 
-  uchar secret_sz = (uchar)secret->secret_len;
-  crypto_secret->secret_sz[enc_level][0] = secret_sz;
-  crypto_secret->secret_sz[enc_level][1] = secret_sz;
+  memcpy( crypto_secret->secret[enc_level][!server], secret->read_secret,  FD_QUIC_SECRET_SZ );
+  memcpy( crypto_secret->secret[enc_level][ server], secret->write_secret, FD_QUIC_SECRET_SZ );
 
-  fd_memcpy( &crypto_secret->secret[enc_level][!server][0], secret->read_secret,  secret_sz );
-  fd_memcpy( &crypto_secret->secret[enc_level][ server][0], secret->write_secret, secret_sz );
+  conn->keys_avail = fd_uint_set_bit( conn->keys_avail, (int)enc_level );
 
-  uint suite_id = secret->suite_id;
-  uchar major = (uchar)( suite_id >> 8u );
-  uchar minor = (uchar)( suite_id );
-  int suite_idx = fd_quic_crypto_lookup_suite( major, minor );
+  /* gen keys */
+  fd_quic_gen_keys(
+      &conn->keys[enc_level][0],
+      conn->secrets.secret[enc_level][0] );
 
-  if( suite_idx >= 0 ) {
-    fd_quic_crypto_suite_t const * suite = conn->suites[enc_level] = &state->crypto_ctx->suites[ suite_idx ];
-
-    /* gen keys */
-    if( fd_quic_gen_keys( &conn->keys[enc_level][0],
-                          suite,
-                          conn->secrets.secret   [ enc_level ][0],
-                          conn->secrets.secret_sz[ enc_level ][0] )
-          != FD_QUIC_SUCCESS ) {
-      /* set state to DEAD to reclaim connection */
-      conn->state = FD_QUIC_CONN_STATE_DEAD;
-      fd_quic_reschedule_conn( conn, 0 );
-      quic->metrics.conn_aborted_cnt++;
-      quic->metrics.conn_err_tls_fail_cnt++;
-    }
-
-    /* gen initial keys */
-    if( FD_UNLIKELY(
-        fd_quic_gen_keys( &conn->keys[enc_level][1],
-        suite,
-        conn->secrets.secret   [ enc_level ][1],
-        conn->secrets.secret_sz[ enc_level ][1] ) ) != FD_QUIC_SUCCESS ) {
-      /* set state to DEAD to reclaim connection */
-      conn->state = FD_QUIC_CONN_STATE_DEAD;
-      fd_quic_reschedule_conn( conn, 0 );
-      quic->metrics.conn_aborted_cnt++;
-      quic->metrics.conn_err_tls_fail_cnt++;
-      FD_LOG_WARNING(( "fd_quic_gen_keys failed on server" ));
-    }
-
-  }
+  /* gen initial keys */
+  fd_quic_gen_keys(
+      &conn->keys[enc_level][1],
+      conn->secrets.secret[enc_level][1] );
 
   /* Key logging */
 
@@ -4843,18 +4720,12 @@ fd_quic_conn_free( fd_quic_t *      quic,
       fd_memset( conn->keys[j][k].pkt_key, 0x42, sizeof( conn->keys[0][0].pkt_key ) );
       fd_memset( conn->keys[j][k].hp_key,  0x43, sizeof( conn->keys[0][0].hp_key  ) );
       fd_memset( conn->keys[j][k].iv,      0x45, sizeof( conn->keys[0][0].iv      ) );
-      conn->keys[j][k].pkt_key_sz = 0;
-      conn->keys[j][k].hp_key_sz  = 0;
-      conn->keys[j][k].iv_sz      = 0;
     }
   }
   for( ulong k = 0U; k < 2U; ++k ) {
     fd_memset( conn->new_keys[k].pkt_key, 0x42, sizeof( conn->new_keys[0].pkt_key ) );
     fd_memset( conn->new_keys[k].hp_key,  0x43, sizeof( conn->new_keys[0].hp_key  ) );
     fd_memset( conn->new_keys[k].iv,      0x45, sizeof( conn->new_keys[0].iv      ) );
-    conn->new_keys[k].pkt_key_sz = 0;
-    conn->new_keys[k].hp_key_sz  = 0;
-    conn->new_keys[k].iv_sz      = 0;
   }
 }
 
@@ -4964,15 +4835,7 @@ fd_quic_connect( fd_quic_t *  quic,
 
   conn->tls_hs = tls_hs;
 
-  fd_quic_crypto_suite_t *suite =
-          &state->crypto_ctx->suites[TLS_AES_128_GCM_SHA256_ID];
-  if (FD_UNLIKELY(fd_quic_gen_initial_secret_and_keys(suite, conn, &peer_conn_id)) == FD_QUIC_FAILED)
-  {
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_CRYPTO_BASE, __LINE__ );
-    quic->metrics.conn_err_tls_fail_cnt++;
-    quic->metrics.conn_aborted_cnt++;
-    goto fail_tls_hs;
-  }
+  fd_quic_gen_initial_secret_and_keys( conn, &peer_conn_id );
 
   fd_quic_reschedule_conn( conn, 0 );
 
@@ -5088,12 +4951,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->tx_ptr = conn->tx_buf;
   conn->tx_sz  = sizeof( conn->tx_buf );
 
-  fd_memset( &conn->suites[0], 0, sizeof( conn->suites ) );
-
-  /* rfc specifies TLS_AES_128_GCM_SHA256_ID for the suite for initial
-     secrets and keys */
-  conn->suites[ fd_quic_enc_level_initial_id ]
-   = &state->crypto_ctx->suites[ TLS_AES_128_GCM_SHA256_ID ];
+  conn->keys_avail = fd_uint_set_bit( 0U, fd_quic_enc_level_initial_id );
 
   /* initialize packet metadata */
   ulong num_pkt_meta = conn->num_pkt_meta;

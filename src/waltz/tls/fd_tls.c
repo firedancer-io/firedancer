@@ -120,9 +120,9 @@ fd_tls_estate_cli_new( void * mem ) {
 }
 
 void *
-fd_tls_hkdf_expand_label( uchar         out[ 32 ],
+fd_tls_hkdf_expand_label( uchar *       out,
                           ulong         out_sz,
-                          uchar const   secret[ static 32 ],
+                          uchar const   secret[ 32 ],
                           char const *  label,
                           ulong         label_sz,
                           uchar const * context,
