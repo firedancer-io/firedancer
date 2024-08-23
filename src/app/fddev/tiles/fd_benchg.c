@@ -2,6 +2,8 @@
 
 #include "../../../flamenco/types/fd_types_custom.h"
 #include "../../../flamenco/runtime/fd_system_ids_pp.h"
+#include "../../../ballet/pack/fd_pack_cost.h"
+#include "hist.h"
 
 #include <linux/unistd.h>
 
@@ -35,6 +37,18 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  fd_frag_meta_t * bencho_out_mcache;
+  ulong *          bencho_out_sync;
+  ulong            bencho_out_depth;
+  ulong            bencho_out_seq;
+  fd_wksp_t *      bencho_out_mem;
+  ulong            bencho_out_chunk0;
+  ulong            bencho_out_wmark;
+  ulong            bencho_out_chunk;
+
+  float hist_data[ HIST_INTERVAL ];
+  ulong hist_cnt;
 } fd_benchg_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -229,6 +243,15 @@ after_credit( void *             _ctx,
                    ctx->acct_private_keys[ sender_idx ].uc,
                    ctx->sha );
 
+  /* For the demo only, compute the transaction's value */
+  uchar _txn[FD_TXN_MAX_SZ] __attribute__((aligned(alignof(fd_txn_t))));
+  fd_txn_t * p_txn = (fd_txn_t *)_txn;
+  FD_TEST( fd_txn_parse( (uchar const *)txn, transaction_size, _txn, NULL ) );
+  uint  flags = 0UL;
+  ulong fee   = 0UL;
+  ulong cost_units = fd_pack_compute_cost( p_txn, (uchar const *)txn, &flags, NULL, &fee, NULL );
+  ctx->hist_data[ ctx->hist_cnt++ ] = ((float)fee)/(float)cost_units;
+
   fd_mux_publish( mux, 0UL, ctx->out_chunk, transaction_size, 0UL, 0UL, 0UL );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, transaction_size, ctx->out_chunk0, ctx->out_wmark );
 
@@ -243,6 +266,18 @@ after_credit( void *             _ctx,
          duplicate transactions generated. */
       ctx->lamport_idx += ctx->benchg_cnt;
     }
+  }
+
+  if( FD_UNLIKELY( ctx->hist_cnt==HIST_INTERVAL ) ) {
+    ulong * dest = fd_chunk_to_laddr( ctx->bencho_out_mem, ctx->bencho_out_chunk );
+    bin_hist( ctx->hist_data, ctx->hist_cnt, dest, HIST_BINS, HIST_MIN, HIST_MAX );
+
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_mcache_publish( ctx->bencho_out_mcache, ctx->bencho_out_depth, ctx->bencho_out_seq, ctx->benchg_idx, ctx->bencho_out_chunk,
+        HIST_BINS*sizeof(ulong), 0UL, 0UL, tspub );
+    ctx->bencho_out_seq   = fd_seq_inc( ctx->bencho_out_seq, 1UL );
+    ctx->bencho_out_chunk = fd_dcache_compact_next( ctx->bencho_out_chunk, HIST_BINS*sizeof(ulong), ctx->bencho_out_chunk0, ctx->bencho_out_wmark );
+    ctx->hist_cnt = 0UL;
   }
 }
 
@@ -307,10 +342,23 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->benchg_cnt = fd_topo_tile_name_cnt( topo, "benchg" );
   ctx->benchg_idx = tile->kind_id;
 
+  ctx->hist_cnt = 0UL;
+
   ctx->mem        = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->mem, topo->links[ tile->out_link_id_primary ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
+
+  fd_topo_link_t * bencho_out = &topo->links[ tile->out_link_id[ 0 ] ];
+
+  ctx->bencho_out_mcache = bencho_out->mcache;
+  ctx->bencho_out_sync   = fd_mcache_seq_laddr( ctx->bencho_out_mcache );
+  ctx->bencho_out_depth  = fd_mcache_depth( ctx->bencho_out_mcache );
+  ctx->bencho_out_seq    = fd_mcache_seq_query( ctx->bencho_out_sync );
+  ctx->bencho_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( bencho_out->dcache ), bencho_out->dcache );
+  ctx->bencho_out_mem    = topo->workspaces[ topo->objs[ bencho_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->bencho_out_wmark  = fd_dcache_compact_wmark ( ctx->bencho_out_mem, bencho_out->dcache, bencho_out->mtu );
+  ctx->bencho_out_chunk  = ctx->bencho_out_chunk0;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

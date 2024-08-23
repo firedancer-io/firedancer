@@ -4,6 +4,7 @@
 #include "../rpc_client/fd_rpc_client_private.h"
 
 #include "../../../util/net/fd_ip4.h"
+#include "hist.h"
 
 #include <linux/unistd.h>
 
@@ -36,6 +37,13 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  ulong hist_bins[ HIST_BINS ];
+  struct {
+    fd_wksp_t * mem;
+    ulong       chunk0;
+    ulong       wmark;
+  } in[ 64UL ];
 } fd_bencho_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -133,8 +141,16 @@ service_txn_count( fd_bencho_ctx_t * ctx ) {
       FD_LOG_ERR(( "RPC server returned error %ld", response->status ));
     
     ulong txns = response->result.transaction_count.transaction_count;
-    if( FD_LIKELY( ctx->txncount_measured1 ) )
-      FD_LOG_NOTICE(( "%lu txn/s", (ulong)((double)(txns - ctx->txncount_prev)/1.2 )));
+
+    if( FD_LIKELY( ctx->txncount_measured1 ) ) {
+      char   buffer[2048];
+      ulong generated_cnt = draw_hist( ctx->hist_bins, HIST_BINS, buffer, 2048UL, HIST_HEIGHT );
+      FD_LOG_NOTICE(( "Landed %lu txn/s, %lu txn/s generated\n%s", (ulong)((double)(txns - ctx->txncount_prev)/1.2 ),
+                                                                   (ulong)((double)generated_cnt/1.2),
+                                                                   buffer ));
+      memset( ctx->hist_bins, '\0', HIST_BINS*sizeof(ulong) );
+    }
+
     ctx->txncount_measured1 = 1;
     ctx->txncount_prev      = txns;
     ctx->txncount_nextprint += 1200L * 1000L * 1000L; /* 1.2 seconds til we print again, multiple of slot duration to prevent jitter */
@@ -158,6 +174,25 @@ after_credit( void *             _ctx,
   service_txn_count( ctx );
 }
 
+static inline void
+during_frag( void * _ctx,
+             ulong  in_idx,
+             ulong  seq,
+             ulong  sig,
+             ulong  chunk,
+             ulong  sz,
+             int *  opt_filter ) {
+  (void)seq;
+  (void)sig;
+  (void)sz;
+  (void)opt_filter;
+  fd_bencho_ctx_t * ctx = (fd_bencho_ctx_t *)_ctx;
+  ulong * in_bins = (ulong *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+  for( ulong i=0UL; i<HIST_BINS; i++ ) {
+    ctx->hist_bins[ i ] += in_bins[ i ];
+  }
+}
+
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
@@ -176,6 +211,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txncount_state     = FD_BENCHO_STATE_READY;
   ctx->txncount_measured1 = 0;
 
+  for( ulong i=0; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+
+    ctx->in[i].mem    = link_wksp->wksp;
+    ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, link->dcache );
+    ctx->in[i].wmark  = fd_dcache_compact_wmark ( ctx->in[i].mem, link->dcache, link->mtu );
+  }
+
+  memset( ctx->hist_bins, '\0', HIST_BINS*sizeof(ulong) );
+
   FD_LOG_NOTICE(( "connecting to RPC server " FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( tile->bencho.rpc_ip_addr ), tile->bencho.rpc_port ));
   FD_TEST( fd_rpc_client_join( fd_rpc_client_new( ctx->rpc, tile->bencho.rpc_ip_addr, tile->bencho.rpc_port ) ) );
 
@@ -190,6 +236,7 @@ fd_topo_run_tile_t fd_tile_bencho = {
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,
   .mux_after_credit         = after_credit,
+  .mux_during_frag          = during_frag,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,

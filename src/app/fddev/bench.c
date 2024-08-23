@@ -78,6 +78,7 @@ add_bench_topo( fd_topo_t  * topo,
   fd_topob_wksp( topo, "bench" );
   fd_topob_link( topo, "bencho_out", "bench", 0, 128UL, 64UL, 1UL );
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) fd_topob_link( topo, "benchg_s", "bench", 0, 65536UL, FD_TXN_MTU, 1UL );
+  for( ulong i=0UL; i<benchg_tile_cnt; i++ ) fd_topob_link( topo, "benchg_o", "bench", 0,   128UL,     1024UL, 1UL );
 
   ushort tile_to_cpu[ FD_TILE_MAX ];
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) tile_to_cpu[ i ] = USHORT_MAX; /* Unassigned tiles will be floating. */
@@ -101,6 +102,9 @@ add_bench_topo( fd_topo_t  * topo,
     benchg->benchg.mode                = transaction_mode;
     benchg->benchg.contending_fraction = contending_fraction;
     benchg->benchg.cu_price_spread     = cu_price_spread;
+
+    fd_topob_tile_in (  topo, "bencho",  0UL, "bench", "benchg_o", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_out(  topo, "benchg",  i,            "benchg_o", i                                     );
   }
   for( ulong i=0UL; i<benchs_tile_cnt; i++ ) {
     fd_topo_tile_t * benchs = fd_topob_tile( topo, "benchs", "bench", "bench", "bench", tile_to_cpu[ benchg_tile_cnt+1UL+i ], 0, NULL, 0 );
