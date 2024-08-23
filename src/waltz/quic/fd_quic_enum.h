@@ -85,6 +85,12 @@
    handled in the same datagram. */
 #define FD_QUIC_PKT_COALESCE_LIMIT (4)
 
+/* AES-128-GCM secret params */
+#define FD_QUIC_INITIAL_SECRET_SZ 32
+#define FD_QUIC_SECRET_SZ         32
+#define FD_QUIC_HP_SAMPLE_SZ      16
+#define FD_QUIC_NONCE_SZ          12
+
 /* FD_QUIC_RETRY_MAX_TOKEN_SZ is the max permitted Retry Token size that
    fd_quic clients will accept.  This is unfortunately not specified by
    RFC 9000. */

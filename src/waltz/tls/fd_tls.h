@@ -162,12 +162,12 @@ fd_tls_rand( fd_tls_rand_t const * rand,
 
 /* fd_tls_sign_fn_t is called by by fd_tls to request signing of a
    TLS 1.3 certificate verify payload.
-   
+
    ctx is an arbitrary pointer that is provided as a callback argument.
    sig points to a 64 byte buffer where the implementor should store the
    ed25519 signature of the payload.  Payload will point to a 130 byte
    buffer containing the TLS 1.3 CertificateVerify payload.
-   
+
    This function must not fail.  Lifetime of the payload buffer ends at
    return. */
 
@@ -423,12 +423,10 @@ fd_tls_handshake( fd_tls_t const *  tls,
      context_sz==0 || context!=NULL
      1<=out_sz    <=32
      0<=label_sz  <=64
-     0<=context_sz<=64
-
-   TODO this function should probably be in src/ballet */
+     0<=context_sz<=64 */
 
 void *
-fd_tls_hkdf_expand_label( uchar         out[ 32 ],
+fd_tls_hkdf_expand_label( uchar *       out,
                           ulong         out_sz,
                           uchar const   secret[ static 32 ],
                           char const *  label,

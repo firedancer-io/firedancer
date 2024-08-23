@@ -26,14 +26,10 @@
 
 #include <assert.h>
 
-static fd_quic_crypto_suite_t const * suite;
 static fd_quic_crypto_keys_t const    keys[1] = {{
   .pkt_key    = {0},
-  .pkt_key_sz = 32UL,
   .iv         = {0},
-  .iv_sz      = 12UL,
   .hp_key     = {0},
-  .hp_key_sz  = 32UL
 }};
 
 int
@@ -44,10 +40,6 @@ LLVMFuzzerInitialize( int *    pargc,
   atexit( fd_halt );
   fd_log_level_logfile_set(0);
   fd_log_level_stderr_set(0);
-
-  static fd_quic_crypto_ctx_t crypto_ctx[1];
-  fd_quic_crypto_ctx_init( crypto_ctx );
-  suite = &crypto_ctx->suites[ TLS_AES_128_GCM_SHA256_ID ];
   return 0;
 }
 
@@ -179,10 +171,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   if( established ) {
     conn->state = FD_QUIC_CONN_STATE_ACTIVE;
-    conn->suites[ fd_quic_enc_level_initial_id    ] = suite;
-    conn->suites[ fd_quic_enc_level_early_data_id ] = suite;
-    conn->suites[ fd_quic_enc_level_handshake_id  ] = suite;
-    conn->suites[ fd_quic_enc_level_appdata_id    ] = suite;
   }
 
   /* Calls fuzz entrypoint */

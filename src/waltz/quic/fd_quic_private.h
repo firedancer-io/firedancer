@@ -96,9 +96,6 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
                                           /* use fd_quic_conn_at_idx instead */
   ulong                   conn_sz;        /* size of one connection element */
 
-  /* crypto members */
-  fd_quic_crypto_ctx_t    crypto_ctx[1];  /* crypto context */
-
   fd_quic_pkt_meta_t *    pkt_meta;       /* records the metadata for the contents
                                              of each sent packet */
 

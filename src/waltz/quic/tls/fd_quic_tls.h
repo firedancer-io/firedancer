@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include "../fd_quic_common.h"
+#include "../fd_quic_enum.h"
 #include "../../tls/fd_tls.h"
 #include "../templ/fd_quic_transport_params.h"
 
@@ -78,11 +79,9 @@ typedef void
                                   ulong         quic_tp_sz );
 
 struct fd_quic_tls_secret {
-  uint  suite_id;
   uint  enc_level;
-  uchar read_secret [ 64 ];
-  uchar write_secret[ 64 ];
-  uchar secret_len;
+  uchar read_secret [ FD_QUIC_SECRET_SZ ];
+  uchar write_secret[ FD_QUIC_SECRET_SZ ];
 };
 
 struct fd_quic_tls_cfg {
