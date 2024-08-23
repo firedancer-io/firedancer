@@ -100,8 +100,10 @@ before_credit( void *             _ctx,
   (void)mux;
 
   fd_http_ctx_t * ctx = (fd_http_ctx_t *)_ctx;
+
   fd_http_server_poll( ctx->gui_server );
   fd_http_server_poll( ctx->metrics_server );
+
   fd_gui_poll( ctx->gui );
 }
 
@@ -225,12 +227,14 @@ gui_ws_open( ulong   conn_id,
 }
 
 static void
-gui_ws_message( ulong              conn_id,
+gui_ws_message( ulong              ws_conn_id,
                 uchar const *      data,
                 ulong              data_len,
                 void *             _ctx ) {
   fd_http_ctx_t * ctx = (fd_http_ctx_t *)_ctx;
-  fd_gui_ws_message( ctx->gui, conn_id, data, data_len );
+
+  int close = fd_gui_ws_message( ctx->gui, ws_conn_id, data, data_len );
+  if( FD_UNLIKELY( close<0 ) ) fd_http_server_ws_close( ctx->gui_server, ws_conn_id, close );
 }
 
 static void

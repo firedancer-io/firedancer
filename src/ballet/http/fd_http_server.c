@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "fd_http_server.h"
 
 #include "picohttpparser.h"
@@ -283,7 +284,7 @@ fd_http_server_is_transient_err( int err ) {
 static void
 accept_conns( fd_http_server_t * http ) {
   for(;;) {
-    int fd = accept( http->socket_fd, NULL, NULL );
+    int fd = accept4( http->socket_fd, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC );
 
     if( FD_UNLIKELY( -1==fd ) ) {
       if( FD_LIKELY( fd_http_server_is_transient_err( errno ) ) ) break;
@@ -628,6 +629,7 @@ read_conn_ws( fd_http_server_t * http,
   uchar tmp = conn->recv_bytes[ conn->recv_bytes_parsed ];
   conn->recv_bytes[ conn->recv_bytes_parsed ] = 0; /* NUL terminate */
   http->callbacks.ws_message( conn_idx-http->max_conns, conn->recv_bytes, conn->recv_bytes_parsed, http->callback_ctx );
+  if( FD_UNLIKELY( -1==http->pollfds[ conn_idx ].fd ) ) return; /* Connection was closed by callback */
   conn->recv_bytes[ conn->recv_bytes_parsed ] = tmp;
 
   conn->recv_started_msg  = 0;
