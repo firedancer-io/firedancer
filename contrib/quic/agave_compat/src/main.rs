@@ -94,7 +94,7 @@ unsafe fn agave_to_fdquic() {
 
     let (udp_sock_fd, listen_port) = new_udp_socket();
 
-    let wksp = fd_wksp_new_anonymous(4096, 1024, 0, b"test\0".as_ptr() as *const c_char, 0);
+    let wksp = fd_wksp_new_anonymous(4096, 16384, 0, b"test\0".as_ptr() as *const c_char, 0);
     assert!(!wksp.is_null(), "Failed to create workspace");
 
     let mut rng = fd_rng_t {
@@ -168,7 +168,6 @@ unsafe fn agave_to_fdquic() {
 unsafe extern "C" fn stream_new_cb(
     _stream: *mut fd_quic_stream_t,
     _ctx: *mut c_void,
-    _stream_type: i32,
 ) {
 }
 
@@ -194,7 +193,7 @@ unsafe fn agave_to_fdquic_bench() {
 
     let (udp_sock_fd, listen_port) = new_udp_socket();
 
-    let wksp = fd_wksp_new_anonymous(4096, 1024, 0, b"test\0".as_ptr() as *const c_char, 0);
+    let wksp = fd_wksp_new_anonymous(4096, 16384, 0, b"test\0".as_ptr() as *const c_char, 0);
     assert!(!wksp.is_null(), "Failed to create workspace");
 
     let mut rng = fd_rng_t {
@@ -329,7 +328,7 @@ unsafe fn fdquic_to_agave() {
         udp_socket,
         &keypair,
         agave_tx,
-        exit,
+        Arc::clone(&exit),
         1,
         Arc::new(RwLock::new(StakedNodes::default())),
         1,
@@ -344,7 +343,7 @@ unsafe fn fdquic_to_agave() {
 
     let (udp_sock_fd, client_port) = new_udp_socket();
 
-    let wksp = fd_wksp_new_anonymous(4096, 1024, 0, b"test\0".as_ptr() as *const c_char, 0);
+    let wksp = fd_wksp_new_anonymous(4096, 16384, 0, b"test\0".as_ptr() as *const c_char, 0);
     assert!(!wksp.is_null(), "Failed to create workspace");
 
     let mut rng = fd_rng_t {
@@ -385,6 +384,8 @@ unsafe fn fdquic_to_agave() {
         assert!(conn_start.elapsed() < Duration::from_secs(3));
     }
 
+    fd_halt();
+    exit.store(true, Ordering::Relaxed);
     agave_server_handle.thread.join().unwrap();
 }
 
