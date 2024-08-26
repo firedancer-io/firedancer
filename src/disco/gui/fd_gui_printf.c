@@ -396,7 +396,6 @@ fd_gui_printf_tile_timers( fd_gui_t *                   gui,
                                 + cur[ i ].filter_before_frag_ticks
                                 + cur[ i ].filter_after_frag_ticks
                                 + cur[ i ].finish_ticks);
-    cur_total += 0.0001; /* Prevent division by 0 below. */
 
     double prev_total = (double)(prev[ i ].housekeeping_ticks
                                   + prev[ i ].backpressure_ticks
@@ -407,10 +406,20 @@ fd_gui_printf_tile_timers( fd_gui_t *                   gui,
                                   + prev[ i ].filter_after_frag_ticks
                                   + prev[ i ].finish_ticks);
 
+    double idle;
+    if( FD_UNLIKELY( cur_total==prev_total ) ) {
+      /* The tile didn't sample timers since the last sample, unclear what
+         idleness should be so send -1. NaN would be better but no NaN in
+         JSON. */
+      idle = -1;
+    } else {
+      idle = (double)(cur[ i ].caught_up_ticks - prev[ i ].caught_up_ticks) / (cur_total - prev_total);
+    }
+
     jsonp_open_object( gui, NULL );
       jsonp_string( gui, "tile", tile->name );
       jsonp_ulong( gui, "kind_id", tile->kind_id );
-      jsonp_double( gui, "idle", (double)(cur[ i ].caught_up_ticks - prev[ i ].caught_up_ticks) / (cur_total - prev_total) );
+      jsonp_double( gui, "idle", idle );
     jsonp_close_object( gui );
   }
 }

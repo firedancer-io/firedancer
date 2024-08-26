@@ -429,7 +429,7 @@ potential underflow.
 |------------|----------|------------
 | tile       | `string` | One of `net`, `quic`, `verify`, `dedup`, `pack`, `bank`, `poh`, `shred`, `store`, `sign`, or `metric` indicating what the tile kind is
 | kind_id    | `number` | A number counting up from 0 indicating the index of the tile within its kind. If there are two `verify` tiles, they will have kind_id of `0` and `1`
-| idle       | `number` | Percentage idleness of the tile during the window being sampled
+| idle       | `number` | Percentage idleness of the tile during the window being sampled. A value of -1 means that no sample was made on the tile during the window, likely because the tile was context switched out by the kernel or stuck |
 
 ### epoch
 Information about an epoch. Epochs are never modified once they have
