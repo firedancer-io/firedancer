@@ -900,77 +900,54 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
 
 static void
 fd_gui_handle_reset_slot( fd_gui_t * gui,
-                          ulong *    parents ) {
-  ulong slots_sz = sizeof(gui->slots) / sizeof(gui->slots[ 0 ]);
+                          ulong *    msg ) {
+  ulong parent_cnt = msg[ 0 ];
 
-  ulong cnt = parents[ 0 ];
-  for( ulong i=1UL; i<=cnt; i++ ) {
-    ulong parent_slot = parents[ i ];
-    fd_gui_slot_t * slot = gui->slots[ parent_slot % slots_sz ];
-    
-    if( FD_UNLIKELY( slot->slot!=parent_slot ) ) fd_gui_clear_slot( gui, parent_slot );
-
-    /* We reached a slot that was already marked as not skipped, so all
-       the parents of it must be marked correctly too, no more changes
-       needed. */
-    if( FD_LIKELY( !slot->skipped ) ) break;
-
-    /* Slot was previously skipped but now it's in the active fork, send
-       an update reflecting this. */
-    slot->skipped = 0;
-
-    fd_gui_printf_slot( gui, parent_slot );
-    FD_TEST( !fd_hcache_snap_ws_broadcast( gui->hcache ) );
-  }
-
-  if( FD_LIKELY( parents[ 1 ]>gui->summary.slot_completed ) ) {
-    gui->summary.slot_completed = parents[ 1 ];
-    fd_gui_printf_completed_slot( gui );
-    FD_TEST( !fd_hcache_snap_ws_broadcast( gui->hcache ) );
-  }
-}
-
-static void
-fd_gui_handle_completed_slot( fd_gui_t * gui,
-                              ulong *    msg ) {
-  ulong _slot = msg[ 0 ];
-  ulong total_txn_count = msg[ 1 ];
-  ulong nonvote_txn_count = msg[ 2 ];
-  ulong failed_txn_count = msg[ 3 ];
-  ulong compute_units = msg[ 4 ];
-  ulong fees = msg[ 5 ];
+  ulong _slot = msg[ 1 ];
+  ulong parent_slot_idx = 0UL;
 
   ulong slots_sz = sizeof(gui->slots) / sizeof(gui->slots[ 0 ]);
-  fd_gui_slot_t * slot = gui->slots[ _slot % slots_sz ];
-  if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot );
+  for( ulong i=0UL; i<=_slot; i++ ) {
+    fd_gui_slot_t * slot = gui->slots[ (_slot-i) % slots_sz ];
 
-  slot->completed_time = fd_log_wallclock();
-  slot->level          = FD_GUI_SLOT_LEVEL_COMPLETED;
-  slot->total_txn_cnt  = total_txn_count;
-  slot->vote_txn_cnt   = total_txn_count - nonvote_txn_count;
-  slot->failed_txn_cnt = failed_txn_count;
-  slot->compute_units  = compute_units;
-  slot->fees           = fees;
+    int should_republish = 0;
+    if( FD_UNLIKELY( slot->slot==ULONG_MAX || slot->slot!=(_slot-i) ) ) {
+      fd_gui_clear_slot( gui, (_slot-i) );
+      should_republish = 1;
+    }
 
-  fd_gui_printf_slot( gui, _slot );
-  fd_hcache_snap_ws_broadcast( gui->hcache );
-}
+    /* The chain of parents may stretch into already rooted slots if
+       they haven't been squashed yet, if we reach one of them we can
+       just exit, all the information prior to the root is already
+       correct. */
 
-static void
-fd_gui_handle_rooted_slot( fd_gui_t * gui,
-                           ulong *    msg ) {
-  ulong _slot = msg[ 0 ];
+    if( FD_LIKELY( slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
 
-  ulong slots_sz = sizeof(gui->slots) / sizeof(gui->slots[ 0 ]);
-  for( ulong i=0UL; i<slots_sz; i++ ) {
-    ulong parent = (_slot+(slots_sz-i))%slots_sz;
+    if( FD_UNLIKELY( (_slot-i)!=msg[1UL+parent_slot_idx] ) ) {
+      /* We are between two parents in the rooted chain, which means
+         we were skipped. */
+      if( FD_UNLIKELY( !slot->skipped ) ) {
+        slot->skipped = 1;
+        should_republish = 1;
+      }
+    } else {
+      /* Reached the next parent... */
+      if( FD_UNLIKELY( slot->skipped ) ) {
+        slot->skipped = 0;
+        should_republish = 1;
+      }
+      parent_slot_idx++;
+    }
 
-    fd_gui_slot_t * slot = gui->slots[ parent ];
-    if( FD_LIKELY( slot->slot==ULONG_MAX || slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
+    if( FD_LIKELY( should_republish ) ) {
+      fd_gui_printf_slot( gui, _slot );
+      fd_hcache_snap_ws_broadcast( gui->hcache );
+    }
 
-    slot->level = FD_GUI_SLOT_LEVEL_ROOTED;
-    fd_gui_printf_slot( gui, _slot );
-    fd_hcache_snap_ws_broadcast( gui->hcache );
+    /* We reached the last parent in the chain, everything above this
+       must have already been rooted, so we can exit. */
+
+    if( FD_UNLIKELY( parent_slot_idx>=parent_cnt ) ) break;
   }
 
   ulong total_txn_cnt  = 0UL;
@@ -982,11 +959,13 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui,
   ulong last_failed_txn_cnt = 0UL;
   long  last_time_nanos     = 0L;
 
-  for( ulong i=0UL; i<150UL; i++ ) {
+  for( ulong i=0UL; i<=fd_ulong_min(_slot, 150UL); i++ ) {
     ulong parent = (_slot+(slots_sz-i))%slots_sz;
 
     fd_gui_slot_t * slot = gui->slots[ parent ];
-    if( FD_LIKELY( slot->slot==ULONG_MAX ) ) break;
+    if( FD_UNLIKELY( slot->slot==ULONG_MAX) ) break;
+
+    FD_TEST( slot->slot==(_slot-i) );
 
     if( FD_LIKELY( !slot->skipped ) ) {
       total_txn_cnt  += slot->total_txn_cnt;
@@ -1025,16 +1004,69 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui,
     ulong parent = _slot-i;
 
     fd_gui_slot_t * slot = gui->slots[ parent % slots_sz ];
-    if( FD_LIKELY( slot->slot==ULONG_MAX ) ) break;
-    if( FD_UNLIKELY( slot->slot!=parent ) ) continue;
+    if( FD_UNLIKELY( slot->slot==ULONG_MAX) ) break;
+    FD_TEST( slot->slot==parent );
 
-    last_slot       = parent;
+    last_slot      = parent;
     last_published = slot->completed_time;
   }
 
   if( FD_LIKELY( _slot!=last_slot )) {
+    fd_gui_slot_t * parent_slot = gui->slots[ last_slot % slots_sz ];
+
     gui->summary.estimated_slot_duration_nanos = (ulong)(now-last_published)/(_slot-last_slot);
     fd_gui_printf_estimated_slot_duration_nanos( gui );
+    fd_hcache_snap_ws_broadcast( gui->hcache );
+  }
+
+  if( FD_LIKELY( _slot>gui->summary.slot_completed ) ) {
+    gui->summary.slot_completed = _slot;
+    fd_gui_printf_completed_slot( gui );
+    FD_TEST( !fd_hcache_snap_ws_broadcast( gui->hcache ) );
+  }
+}
+
+static void
+fd_gui_handle_completed_slot( fd_gui_t * gui,
+                              ulong *    msg ) {
+  ulong _slot = msg[ 0 ];
+  ulong total_txn_count = msg[ 1 ];
+  ulong nonvote_txn_count = msg[ 2 ];
+  ulong failed_txn_count = msg[ 3 ];
+  ulong compute_units = msg[ 4 ];
+  ulong fees = msg[ 5 ];
+
+  ulong slots_sz = sizeof(gui->slots) / sizeof(gui->slots[ 0 ]);
+  fd_gui_slot_t * slot = gui->slots[ _slot % slots_sz ];
+  if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot );
+
+  slot->completed_time = fd_log_wallclock();
+  FD_TEST( slot->level<FD_GUI_SLOT_LEVEL_COMPLETED );
+  slot->level          = FD_GUI_SLOT_LEVEL_COMPLETED;
+  slot->total_txn_cnt  = total_txn_count;
+  slot->vote_txn_cnt   = total_txn_count - nonvote_txn_count;
+  slot->failed_txn_cnt = failed_txn_count;
+  slot->compute_units  = compute_units;
+  slot->fees           = fees;
+
+  fd_gui_printf_slot( gui, _slot );
+  fd_hcache_snap_ws_broadcast( gui->hcache );
+}
+
+static void
+fd_gui_handle_rooted_slot( fd_gui_t * gui,
+                           ulong *    msg ) {
+  ulong _slot = msg[ 0 ];
+
+  ulong slots_sz = sizeof(gui->slots) / sizeof(gui->slots[ 0 ]);
+  for( ulong i=0UL; i<=_slot; i++ ) {
+    fd_gui_slot_t * slot = gui->slots[ (_slot-i) % slots_sz ];
+
+    FD_TEST( slot->slot==(_slot-i) );
+    if( FD_UNLIKELY( slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
+
+    slot->level = FD_GUI_SLOT_LEVEL_ROOTED;
+    fd_gui_printf_slot( gui, _slot );
     fd_hcache_snap_ws_broadcast( gui->hcache );
   }
 

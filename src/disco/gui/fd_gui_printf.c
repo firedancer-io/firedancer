@@ -396,7 +396,7 @@ fd_gui_printf_tile_timers( fd_gui_t *                   gui,
                                 + cur[ i ].filter_before_frag_ticks
                                 + cur[ i ].filter_after_frag_ticks
                                 + cur[ i ].finish_ticks);
-    cur_total += 0.1; /* Prevent division by 0 below. */
+    cur_total += 0.0001; /* Prevent division by 0 below. */
 
     double prev_total = (double)(prev[ i ].housekeeping_ticks
                                   + prev[ i ].backpressure_ticks
