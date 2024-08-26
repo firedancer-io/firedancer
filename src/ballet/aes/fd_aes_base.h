@@ -40,6 +40,8 @@ FD_PROTOTYPES_END
 
 /* AES-NI backend internals *******************************************/
 
+#if FD_HAS_AESNI
+
 __attribute__((sysv_abi)) void
 fd_aesni_set_encrypt_key( uchar const *      user_key,
                           ulong              bits,
@@ -59,6 +61,8 @@ __attribute__((sysv_abi)) void
 fd_aesni_decrypt( uchar const *      in,
                   uchar *            out,
                   fd_aes_key_ref_t * key );
+
+#endif /* FD_HAS_AESNI */
 
 /* Backend selection **************************************************/
 

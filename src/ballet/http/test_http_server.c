@@ -3,7 +3,7 @@
 #include "fd_http_server.h"
 #include "fd_hcache.h"
 
-#include <malloc.h>
+#include <stdlib.h>
 #include <signal.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -76,7 +76,7 @@ request( fd_http_server_request_t const * request ) {
     ulong body_len     = body_len;
     uchar const * body = fd_hcache_snap_response( state->hcache, &body_len );
     FD_TEST( body );
-    
+
     fd_http_server_response_t response = {
       .status            = 200,
       .upgrade_websocket = 0,
