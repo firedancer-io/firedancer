@@ -1,15 +1,11 @@
 #include "fd_rocksdb.h"
 #include "fd_blockstore.h"
 #include "../shredcap/fd_shredcap.h"
-#include <malloc.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
 #include "../../util/bits/fd_bits.h"
-
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 char *
 fd_rocksdb_init( fd_rocksdb_t * db,
@@ -390,7 +386,7 @@ fd_rocksdb_copy_over_slot_indexed_range( fd_rocksdb_t * src,
                                          ulong          cf_idx,
                                          ulong          start_slot,
                                          ulong          end_slot ) {
-  FD_LOG_NOTICE(("fd_rocksdb_copy_over_slot_indexed_range: %d", cf_idx));
+  FD_LOG_NOTICE(( "fd_rocksdb_copy_over_slot_indexed_range: %lu", cf_idx ));
 
   if ( cf_idx == FD_ROCKSDB_CFIDX_TRANSACTION_MEMOS  ||
        cf_idx == FD_ROCKSDB_CFIDX_PROGRAM_COSTS      ||
@@ -437,7 +433,7 @@ fd_rocksdb_copy_over_txn_status_range( fd_rocksdb_t *    src,
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
 
   for ( ulong slot = start_slot; slot <= end_slot; ++slot ) {
-    FD_LOG_NOTICE(("fd_rocksdb_copy_over_txn_status_range: %d", slot));
+    FD_LOG_NOTICE(( "fd_rocksdb_copy_over_txn_status_range: %lu", slot ));
     fd_block_map_t * block_entry = fd_block_map_query( block_map, &slot, NULL );
     if( FD_LIKELY( block_entry && block_entry->block_gaddr ) ) {
       fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_entry->block_gaddr );
@@ -497,8 +493,8 @@ fd_rocksdb_insert_entry( fd_rocksdb_t * db,
   char * err = NULL;
   rocksdb_put_cf( db->db, db->wo, db->cf_handles[cf_idx],
                   key, klen, value, vlen, &err );
-  if ( FD_UNLIKELY( err != NULL ) ) {
-    FD_LOG_WARNING(("rocksdb_put_cf failed with error=%d", err));
+  if( FD_UNLIKELY( err != NULL ) ) {
+    FD_LOG_WARNING(( "rocksdb_put_cf failed with error %s", err ));
     return -1;
   }
   return 0;
@@ -674,7 +670,9 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
         fd_memcpy( &sig, data + txns[j].id_off, sizeof( sig ) );
         fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, &sig, NULL );
         if( FD_UNLIKELY( !txn_map_entry ) ) {
-          FD_LOG_WARNING(("missing transaction %64J", &sig));
+          char sig_str[ FD_BASE58_ENCODED_64_SZ ];
+          fd_base58_encode_64( fd_type_pun_const( sig.v ), NULL, sig_str );
+          FD_LOG_WARNING(( "missing transaction %s", sig_str ));
           continue;
         }
 

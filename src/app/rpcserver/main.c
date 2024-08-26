@@ -1,4 +1,6 @@
+#define _DEFAULT_SOURCE
 #include <stdio.h>
+#include <stdlib.h>
 #include <signal.h>
 #include <errno.h>
 #include <unistd.h>
@@ -9,8 +11,6 @@
 #include "../../util/wksp/fd_wksp_private.h"
 #include "../../disco/topo/fd_topo.h"
 #include "fd_rpc_service.h"
-
-extern int inet_aton (const char *__cp, struct in_addr *__inp) __THROW;
 
 /*
 static void usage( char const * progname ) {
