@@ -28,7 +28,7 @@ accept: (and (or (eq (arg 0) gui_socket_fd)
 read
 
 # server: serving pages over HTTP requires writing to connections
-write
+send
 
 # server: serving pages over HTTP requires closing connections
 close

@@ -10,7 +10,6 @@
 #include <poll.h>
 #include <stdlib.h>
 #include <strings.h>
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
@@ -515,6 +514,7 @@ read_conn_ws( fd_http_server_t * http,
 
   /* New data was read... process it */
   conn->recv_bytes_read += (ulong)sz;
+again:
   if( FD_UNLIKELY( conn->recv_bytes_read<2UL ) ) return; /* Need at least 2 bytes to determine frame length */
 
   int is_mask_set = conn->recv_bytes[ conn->recv_bytes_parsed+1UL ] & 0x80;
@@ -637,6 +637,7 @@ read_conn_ws( fd_http_server_t * http,
   conn->recv_bytes_parsed = 0UL;
   if( FD_UNLIKELY( trailing_data_len ) ) {
     memmove( conn->recv_bytes, trailing_data, trailing_data_len );
+    goto again; /* Might be another message to process */
   }
 }
 

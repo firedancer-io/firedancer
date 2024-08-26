@@ -37,8 +37,8 @@ static void populate_sock_filter_policy_http( ulong out_cnt, struct sock_filter 
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_accept, /* check_accept */ 7, 0 ),
     /* simply allow read */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_read, /* RET_ALLOW */ 15, 0 ),
-    /* simply allow write */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* RET_ALLOW */ 14, 0 ),
+    /* simply allow send */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_send, /* RET_ALLOW */ 14, 0 ),
     /* simply allow close */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_close, /* RET_ALLOW */ 13, 0 ),
     /* simply allow poll */
