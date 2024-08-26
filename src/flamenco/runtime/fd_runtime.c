@@ -912,7 +912,7 @@ fd_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
   err = fd_executor_compute_budget_program_execute_instructions( txn_ctx, txn_ctx->_txn_raw );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     task_info->txn->flags = 0U;
-    task_info->exec_res   = FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
+    task_info->exec_res   = err;
     return;
   }
 
