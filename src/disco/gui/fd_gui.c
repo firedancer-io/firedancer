@@ -340,9 +340,10 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
   fd_topo_tile_t const * dedup = &topo->tiles[ fd_topo_find_tile( topo, "dedup", 0UL ) ];
   ulong const * dedup_metrics = fd_metrics_tile( dedup->metrics );
 
-  cur->out.dedup_duplicate = 0UL;
+  ulong gossip_votes_dup = fd_metrics_link_in( dedup->metrics, 0UL )[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
+  cur->out.dedup_duplicate = gossip_votes_dup;
   for( ulong i=0UL; i<gui->summary.verify_tile_cnt; i++ ) {
-    cur->out.dedup_duplicate += fd_metrics_link_in( dedup->metrics, i )[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
+    cur->out.dedup_duplicate += fd_metrics_link_in( dedup->metrics, i+1UL )[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
   }
 
   
@@ -395,7 +396,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     }
   }
 
-  cur->in.gossip   = dedup_metrics[ MIDX( COUNTER, DEDUP, GOSSIPED_VOTES_RECEIVED ) ];
+  cur->in.gossip   = dedup_metrics[ MIDX( COUNTER, DEDUP, GOSSIPED_VOTES_RECEIVED ) ] + gossip_votes_dup;
   cur->in.quic     = cur->out.quic_quic_invalid+cur->out.quic_overrun;
   cur->in.udp      = cur->out.quic_udp_invalid;
   for( ulong i=0UL; i<gui->summary.quic_tile_cnt; i++ ) {
