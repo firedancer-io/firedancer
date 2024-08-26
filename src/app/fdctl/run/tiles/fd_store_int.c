@@ -704,7 +704,10 @@ unprivileged_init( fd_topo_t *      topo,
 
     ulong cnt = 1;
     fd_blockstore_start_write( ctx->blockstore );
-    FD_TEST( fd_block_map_remove( fd_blockstore_block_map (ctx->blockstore), &snapshot_slot ) );
+    FD_TEST( fd_block_map_map_ele_remove( fd_blockstore_block_map( ctx->blockstore ), 
+                                          &snapshot_slot,
+                                          NULL,
+                                          fd_blockstore_block_pool( ctx->blockstore ) ) );
     while( fgets( buf, sizeof( buf ), file ) ) {
       char *       endptr;
       ulong        slot  = strtoul( buf, &endptr, 10 );

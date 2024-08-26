@@ -112,10 +112,6 @@ typedef struct fd_buf_shred fd_buf_shred_t;
 #include "../../util/tmpl/fd_map_chain.c"
 /* clang-format on */
 
-#define DEQUE_NAME fd_blockstore_slot_deque
-#define DEQUE_T    ulong
-#include "../../util/tmpl/fd_deque_dynamic.c"
-
 /* A shred that has been deshredded and is part of a block (beginning at off) */
 struct fd_block_shred {
   fd_shred_t hdr; /* ptr to the data shred header */
@@ -190,7 +186,7 @@ typedef struct fd_block fd_block_t;
 
 struct fd_block_map {
   ulong slot; /* map key */
-  ulong next; /* reserved for use by fd_map_giant.c */
+  ulong next; /* reserved for use by fd_map_chain.c */
 
   /* Ancestry */
 
@@ -219,11 +215,15 @@ struct fd_block_map {
 };
 typedef struct fd_block_map fd_block_map_t;
 
+#define POOL_NAME fd_block_pool
+#define POOL_T    fd_block_map_t
+#include "../../util/tmpl/fd_pool.c"
+
 /* clang-format off */
-#define MAP_NAME         fd_block_map
-#define MAP_T            fd_block_map_t
-#define MAP_KEY          slot
-#include "../../util/tmpl/fd_map_giant.c"
+#define MAP_NAME  fd_block_map_map
+#define MAP_ELE_T fd_block_map_t
+#define MAP_KEY   slot
+#include "../../util/tmpl/fd_map_chain.c"
 /* clang-format on */
 
 struct fd_blockstore_txn_key {
@@ -283,9 +283,9 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
   ulong shred_pool_gaddr; /* pool of temporary shreds */
   ulong shred_map_gaddr;  /* map of (slot, shred_idx)->shred */
 
-  ulong slot_max;           /* maximum # of blocks */
-  ulong slot_map_gaddr;     /* map of slot->(slot_meta, block) */
-  ulong slot_deque_gaddr;   /* deque of slots (ulongs) used to traverse blockstore ancestry */
+  ulong slot_max;             /* maximum # of blocks */
+  ulong block_pool_gaddr; /* pool of slot metadata */
+  ulong block_map_gaddr;      /* map of slot->(slot_meta, block) */
 
   int   lg_txn_max;
   ulong txn_map_gaddr;
@@ -392,13 +392,19 @@ fd_blockstore_buf_shred_map( fd_blockstore_t * blockstore ) {
                                                    blockstore->shred_map_gaddr );
 }
 
+FD_FN_PURE static inline fd_block_map_t *
+fd_blockstore_block_pool( fd_blockstore_t * blockstore ) {
+  return (fd_block_map_t *)fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ),
+                                               blockstore->block_pool_gaddr );
+}
+
 /* fd_block_map returns a pointer in the caller's address space to the
    fd_block_map_t in the blockstore wksp.  Assumes blockstore is local
    join.  Lifetime of the returned pointer is that of the local join. */
-FD_FN_PURE static inline fd_block_map_t *
+FD_FN_PURE static inline fd_block_map_map_t *
 fd_blockstore_block_map( fd_blockstore_t * blockstore ) {
-  return (fd_block_map_t *)fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ),
-                                               blockstore->slot_map_gaddr );
+  return (fd_block_map_map_t *)fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ),
+                                               blockstore->block_map_gaddr );
 }
 
 /* fd_blockstore_txn_map returns a pointer in the caller's address space to the blockstore's
@@ -550,6 +556,7 @@ fd_blockstore_buffered_shreds_remove( fd_blockstore_t * blockstore, ulong slot )
 /* Set the block height. */
 void
 fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulong block_height );
+
 
 /* fd_blockstore_publish publishes root to the blockstore, pruning any
    paths that are not in root's subtree.  Removes all blocks in the

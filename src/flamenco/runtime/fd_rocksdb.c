@@ -428,13 +428,15 @@ fd_rocksdb_copy_over_txn_status_range( fd_rocksdb_t *    src,
                                        fd_blockstore_t * blockstore,
                                        ulong             start_slot,
                                        ulong             end_slot ) {
+
   /* Look up the blocks data and iterate through its transactions */
-  fd_block_map_t * block_map = fd_blockstore_block_map( blockstore );
+
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
 
   for ( ulong slot = start_slot; slot <= end_slot; ++slot ) {
-    FD_LOG_NOTICE(( "fd_rocksdb_copy_over_txn_status_range: %lu", slot ));
-    fd_block_map_t * block_entry = fd_block_map_query( block_map, &slot, NULL );
+    FD_LOG_NOTICE(("fd_rocksdb_copy_over_txn_status_range: %lu", slot));
+    
+    fd_block_map_t * block_entry = fd_blockstore_block_map_query( blockstore, slot );
     if( FD_LIKELY( block_entry && block_entry->block_gaddr ) ) {
       fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_entry->block_gaddr );
       uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
