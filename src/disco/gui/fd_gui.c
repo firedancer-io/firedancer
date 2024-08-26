@@ -1012,8 +1012,6 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   }
 
   if( FD_LIKELY( _slot!=last_slot )) {
-    fd_gui_slot_t * parent_slot = gui->slots[ last_slot % slots_sz ];
-
     gui->summary.estimated_slot_duration_nanos = (ulong)(now-last_published)/(_slot-last_slot);
     fd_gui_printf_estimated_slot_duration_nanos( gui );
     fd_hcache_snap_ws_broadcast( gui->hcache );
