@@ -519,7 +519,8 @@ fd_txn_to_json_full( fd_webserver_t * ws,
     return NULL;
   }
 
-  EMIT_SIMPLE("\"transaction\":{\"message\":{\"accountKeys\":[");
+  EMIT_SIMPLE("\"meta\":null,\"transaction\":{");
+  EMIT_SIMPLE("\"message\":{\"accountKeys\":[");
 
   ushort acct_cnt = txn->acct_addr_cnt;
   const fd_pubkey_t * accts = (const fd_pubkey_t *)(raw + txn->acct_addr_off);
@@ -565,7 +566,7 @@ fd_txn_to_json_full( fd_webserver_t * ws,
     EMIT_SIMPLE("]}");
   }
 
-  fd_web_reply_sprintf(ws, "],\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u,\"numRequiredSignatures\":%u},\"instructions\":[",
+  fd_web_reply_sprintf(ws, "],\"addressTableLookups\":[],\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u,\"numRequiredSignatures\":%u},\"instructions\":[",
                        (uint)txn->readonly_signed_cnt, (uint)txn->readonly_unsigned_cnt, (uint)txn->signature_cnt);
 
   ushort instr_cnt = txn->instr_cnt;
@@ -593,6 +594,7 @@ fd_txn_to_json_full( fd_webserver_t * ws,
   default:             vers = "\"?\"";      break;
   }
   fd_web_reply_sprintf(ws, "]},\"version\":%s", vers);
+
 
   return NULL;
 }

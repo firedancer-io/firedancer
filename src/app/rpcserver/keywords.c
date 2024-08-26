@@ -68,14 +68,14 @@ long fd_webserver_json_keyword(const char* keyw, unsigned long keyw_sz) {
   break;
   case 7:
     switch (keyw[0]) {
-    case 'j':
-      if ((*(unsigned long*)&keyw[1] & 0xFFFFFFFFFFFFUL) == 0x6370726E6F73UL) {
-        return KEYW_JSON_JSONRPC; // "jsonrpc"
-      }
-      break;
     case 'r':
       if ((*(unsigned long*)&keyw[1] & 0xFFFFFFFFFFFFUL) == 0x736472617765UL) {
         return KEYW_JSON_REWARDS; // "rewards"
+      }
+      break;
+    case 'j':
+      if ((*(unsigned long*)&keyw[1] & 0xFFFFFFFFFFFFUL) == 0x6370726E6F73UL) {
+        return KEYW_JSON_JSONRPC; // "jsonrpc"
       }
       break;
     case 'f':
@@ -86,14 +86,14 @@ long fd_webserver_json_keyword(const char* keyw, unsigned long keyw_sz) {
     case 'g':
       if ((*(unsigned long*)&keyw[1] & 0xFFFFUL) == 0x7465UL) {
         switch (keyw[3]) {
-        case 'S':
-          if ((*(unsigned long*)&keyw[4] & 0xFFFFFFUL) == 0x746F6CUL) {
-            return KEYW_RPCMETHOD_GETSLOT; // "getSlot"
-          }
-          break;
         case 'F':
           if ((*(unsigned long*)&keyw[4] & 0xFFFFFFUL) == 0x736565UL) {
             return KEYW_RPCMETHOD_GETFEES; // "getFees"
+          }
+          break;
+        case 'S':
+          if ((*(unsigned long*)&keyw[4] & 0xFFFFFFUL) == 0x746F6CUL) {
+            return KEYW_RPCMETHOD_GETSLOT; // "getSlot"
           }
           break;
         }

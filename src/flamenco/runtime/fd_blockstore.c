@@ -829,7 +829,8 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
     /* FIXME we currently cannot handle equivocating shreds. */
 
     if( FD_UNLIKELY( is_eqvoc_shred( &shred_->hdr, shred ) ) ) {
-      FD_LOG_ERR(( "equivocating shred detected %lu %u. halting.", shred->slot, shred->idx ));
+      FD_LOG_WARNING(( "equivocating shred detected %lu %u. halting.", shred->slot, shred->idx ));
+      return FD_BLOCKSTORE_OK;
     }
 
     /* Short-circuit if we already have the shred. */

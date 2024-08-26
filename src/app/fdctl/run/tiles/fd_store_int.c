@@ -233,11 +233,22 @@ after_frag( void *             _ctx,
   }
 
   if( FD_UNLIKELY( in_idx==REPAIR_IN_IDX ) ) {
-    if( fd_store_shred_insert( ctx->store, fd_type_pun_const( ctx->shred_buffer ) ) < FD_BLOCKSTORE_OK ) {
+    fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( ctx->shred_buffer );
+    if( !fd_pending_slots_check( ctx->store->pending_slots, shred->slot ) ) {
+      FD_LOG_WARNING(("received repair shred %lu that would overrun pending queue. skipping.", shred->slot));
+      return;
+    }
+
+    if( FD_UNLIKELY( (long)(ctx->store->curr_turbine_slot - shred->slot) > (long)8192 ) ) {
+      FD_LOG_WARNING(("received repair shred with slot %lu that would overrun pending queue. skipping.", shred->slot));
+      return;
+    }
+
+    if( fd_store_shred_insert( ctx->store, shred ) < FD_BLOCKSTORE_OK ) {
       FD_LOG_ERR(( "failed inserting to blockstore" ));
     } else if ( ctx->shred_cap_ctx.is_archive ) {
         uchar shred_cap_flag = FD_SHRED_CAP_FLAG_MARK_REPAIR(0);
-        if ( fd_shred_cap_archive(&ctx->shred_cap_ctx, fd_type_pun_const( ctx->shred_buffer ), shred_cap_flag) < FD_SHRED_CAP_OK ) {
+        if ( fd_shred_cap_archive(&ctx->shred_cap_ctx, shred, shred_cap_flag) < FD_SHRED_CAP_OK ) {
           FD_LOG_ERR(( "failed at archiving repair shred to file" ));
         }
     }
@@ -254,12 +265,12 @@ after_frag( void *             _ctx,
   for( ulong i = 0; i < ctx->s34_buffer->shred_cnt; i++ ) {
     fd_shred_t * shred = &ctx->s34_buffer->pkts[i].shred;
     // TODO: these checks are not great as they assume a lot about the distance of shreds.
-    if( FD_UNLIKELY( (long)(ctx->store->pending_slots->end - shred->slot) > (long)1024 ) ) {
+    if( !fd_pending_slots_check( ctx->store->pending_slots, shred->slot ) ) {
       FD_LOG_WARNING(("received shred %lu that would overrun pending queue. skipping.", shred->slot));
       continue;
     }
 
-    if( FD_UNLIKELY( (long)(ctx->store->curr_turbine_slot - shred->slot) > (long)1024 ) ) {
+    if( FD_UNLIKELY( (long)(ctx->store->curr_turbine_slot - shred->slot) > (long)8192 ) ) {
       FD_LOG_WARNING(("received shred with slot %lu that would overrun pending queue. skipping.", shred->slot));
       continue;
     }
@@ -384,7 +395,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
     fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, slot );
     if( block == NULL ) {
-      FD_LOG_ERR(( "could not find block" ));
+      FD_LOG_ERR(( "could not find block - slot: %lu", slot ));
     }
 
     fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
