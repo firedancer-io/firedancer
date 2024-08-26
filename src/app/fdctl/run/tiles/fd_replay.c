@@ -1245,7 +1245,6 @@ after_credit( void *             _ctx,
 static void
 during_housekeeping( void * _ctx ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
-  fd_mcache_seq_update( ctx->poh_out_sync, ctx->poh_out_seq );
 
   ulong smr = fd_fseq_query( ctx->smr );
   if( FD_UNLIKELY( smr == ULONG_MAX ) ) return;

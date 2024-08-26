@@ -279,15 +279,19 @@ read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot, fd_valloc_t valloc ) {
     FD_LOG_WARNING( ( "query_volatile failed" ) );
     return NULL;
   }
-  fd_funk_txn_xid_t xid;
-  memcpy( xid.uc, &block_map_entry.block_hash, sizeof( fd_funk_txn_xid_t ) );
+  fd_funk_txn_xid_t xid = { 0 };
   xid.ul[0] = slot;
-
   void * val = fd_funk_rec_query_xid_safe(funk, &recid, &xid, valloc, &vallen);
   if( FD_UNLIKELY( !val ) ) {
-    FD_LOG_WARNING(( "failed to decode slot_bank" ));
-    return NULL;
+    memcpy( xid.uc, &block_map_entry.block_hash, sizeof( fd_funk_txn_xid_t ) );
+    xid.ul[0] = slot;
+    val = fd_funk_rec_query_xid_safe(funk, &recid, &xid, valloc, &vallen);
+    if( FD_UNLIKELY( !val ) ) {
+      FD_LOG_WARNING(( "failed to decode slot_bank" ));
+      return NULL;
+    }
   }
+
   uint magic = *(uint*)val;
   fd_slot_bank_t * slot_bank = fd_valloc_malloc( valloc, fd_slot_bank_align(), fd_slot_bank_footprint() );
   fd_slot_bank_new( slot_bank );
@@ -543,6 +547,12 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_method_error(ctx, -1, "failed to display block for slot %lu", slotn);
     return 0;
   }
+
+  if( fd_blockstore_block_map_query_volatile( blockstore, slotn, meta ) ) {
+    fd_web_error(ws, "failed to display block for slot %lu", slotn);
+    return 0;
+  }
+
 
   const char * err = fd_block_to_json(ws,
                                       blockstore,
@@ -1233,7 +1243,7 @@ method_getSignatureStatuses(struct json_values* values, fd_rpc_ctx_t * ctx) {
     }
 
     // TODO other fields
-    fd_web_reply_sprintf(ws, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"confirmationStatus\":%s}",
+    fd_web_reply_sprintf(ws, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"status\":{\"Ok\":null},\"confirmationStatus\":%s}",
                          elem.slot, block_flags_to_confirmation_status(flags));
   }
 
@@ -1485,6 +1495,7 @@ method_getTransactionCount(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_slot_bank_t *      slot_bank = read_slot_bank( ctx, slot, fd_scratch_virtual() );
     if( FD_UNLIKELY( !slot_bank ) ) {
       fd_method_error( ctx, -1, "slot bank %lu not found", slot );
+      fd_readwrite_end_read( &glob->lock );
       return 0;
     }
     fd_web_reply_sprintf( ws,

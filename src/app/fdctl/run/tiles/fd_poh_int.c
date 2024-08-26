@@ -299,22 +299,10 @@ during_frag( void * _ctx,
     FD_TEST( raw_sz<=1024*USHORT_MAX );
     fd_memcpy( ctx->_txns, src, raw_sz-sizeof(fd_microblock_trailer_t) );
     fd_memcpy( ctx->_microblock_trailer, src+(sz * sizeof(fd_txn_p_t)), sizeof(fd_microblock_trailer_t) );
+    if( ctx->_microblock_trailer->bank_idx>=ctx->bank_cnt ) {
+      FD_LOG_ERR(("bad bank idx - bank_idx: %lu, bank_cnt: %lu ",  ctx->_microblock_trailer->bank_idx, ctx->bank_cnt));
+    }
     FD_TEST( ctx->_microblock_trailer->bank_idx<ctx->bank_cnt );
-
-    /* Indicate to pack tile we are done processing the transactions so
-       it can pack new microblocks using these accounts.  This has to be
-       done before filtering the frag, otherwise we would not notify
-       pack that accounts are unlocked in certain cases.
-
-       TODO: This is way too late to do this.  Ideally we would release
-       the accounts right after we execute and commit the results to the
-       accounts database.  It has to happen before because otherwise
-       there's a race where the bank releases the accounts, they get
-       reuused in another bank, and that bank sends to PoH and gets its
-       microblock pulled first -- so the bank commit and poh mixin order
-       is not the same.  Ideally we would resolve this a bit more
-       cleverly and without holding the account locks this much longer. */
-    fd_fseq_update( ctx->bank_busy[ ctx->_microblock_trailer->bank_idx ], ctx->_microblock_trailer->bank_busy_seq );
 
     *opt_filter = is_frag_for_prior_leader_slot;
   }
