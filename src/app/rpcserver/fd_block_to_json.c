@@ -133,9 +133,15 @@ void fd_inner_instructions_to_json( fd_webserver_t * ws,
   EMIT_SIMPLE("]}");
 }
 
-int fd_txn_meta_to_json( fd_webserver_t * ws,
-                         const void * meta_raw,
-                         ulong meta_raw_sz ) {
+const char*
+  fd_txn_meta_to_json( fd_webserver_t * ws,
+                       const void * meta_raw,
+                       ulong meta_raw_sz ) {
+  if( meta_raw==NULL || meta_raw_sz==0 ) {
+    EMIT_SIMPLE("\"meta\":null,");
+    return NULL;
+  }
+
   fd_solblock_TransactionStatusMeta txn_status = {0};
   pb_istream_t stream = pb_istream_from_buffer( meta_raw, meta_raw_sz );
   if( FD_UNLIKELY( !pb_decode( &stream, fd_solblock_TransactionStatusMeta_fields, &txn_status ) ) ) {
@@ -201,7 +207,7 @@ int fd_txn_meta_to_json( fd_webserver_t * ws,
 
   pb_release( fd_solblock_TransactionStatusMeta_fields, &txn_status );
 
-  return 0;
+  return NULL;
 }
 
 const char*

@@ -1445,9 +1445,19 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
     FD_LOG_ERR(("failed to parse transaction"));
 
+  void const * meta = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), elem.meta_gaddr );
+
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"blockTime\":%ld,\"slot\":%lu,",
                        ctx->global->last_slot_notify.slot_exec.slot, blk_ts/(long)1e9, elem.slot);
-  const char * err = fd_txn_to_json( ws, (fd_txn_t *)txn_out, txn_data_raw, pay_sz, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
+
+  /* Emit meta, including the case for `meta:null` */
+  const char * err = fd_txn_meta_to_json( ws, meta, elem.meta_sz );
+  if( err ) {
+    fd_method_error(ctx, -1, "%s", err);
+    return 0;
+  }
+
+  err = fd_txn_to_json( ws, (fd_txn_t *)txn_out, txn_data_raw, pay_sz, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
   if( err ) {
     fd_method_error(ctx, -1, "%s", err);
     return 0;

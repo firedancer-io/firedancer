@@ -12,6 +12,8 @@
 
    https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs */
 
+#define DEFAULT_COMPUTE_UNITS 450UL
+
 /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L16 */
 
 static int
@@ -228,11 +230,7 @@ fd_config_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.27/programs/config/src/config_processor.rs#L14
      See DEFAULT_COMPUTE_UNITS */
-
-  do {
-    int err = fd_exec_consume_cus( ctx->txn_ctx, 450UL );
-    if( FD_UNLIKELY( err ) ) return err;
-  } while(0);
+  FD_EXEC_CU_UPDATE( ctx, DEFAULT_COMPUTE_UNITS );
 
   FD_SCRATCH_SCOPE_BEGIN {
 

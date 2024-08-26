@@ -92,11 +92,6 @@ struct fd_vm {
      syscall returns, the vm will update its internal execution state
      appropriately. */
 
-  /* Note that we try to match syscall log messages with the existing
-     Solana validator byte-for-byte (as there are things out there
-     scraping log messages from the existing validator) though this is
-     not strictly required for consensus. */
-
   /* IMPORTANT SAFETY TIP!  THE BEHAVIOR OF THE SYSCALL ALLOCATOR FOR
      HEAP_SZ MUST EXACTLY MATCH THE SOLANA VALIDATOR ALLOCATOR:
 
@@ -111,7 +106,6 @@ struct fd_vm {
   ulong frame_cnt; /* The current number of stack frames pushed, in [0,frame_max] */
 
   ulong heap_sz; /* Heap size in bytes, in [0,heap_max] */
-  ulong log_sz;  /* Log message bytes buffered, [0,FD_VM_LOG_MAX] */
 
   /* VM memory */
 
@@ -186,9 +180,6 @@ struct fd_vm {
                                                                 FD_VM_STACK_FRAME_SZ region.  reg[10] gives the offset of the start of the
                                                                 current stack frame.  Aligned 8. */
   uchar                     heap  [ FD_VM_HEAP_MAX        ]; /* syscall heap, [0,heap_sz) used, [heap_sz,heap_max) free.  Aligned 8. */
-  uchar                     log   [ FD_VM_LOG_MAX + FD_VM_LOG_TAIL ]; /* syscall log, [0,log_sz) used, [log_sz,FD_VM_LOG_MAX) free.
-                                                                Aligned 8.  Includes a tail region large enough so various string
-                                                                operations can clobber to simplify a lot of string parsing code. */
 
    fd_sha256_t * sha; /* Pre-joined SHA instance. This should be re-initialised before every use. */
 
@@ -207,7 +198,7 @@ FD_PROTOTYPES_BEGIN
    integer power of 2.  FOOTPRINT is a multiple of align. 
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     (8UL     )
-#define FD_VM_FOOTPRINT (799552UL)
+#define FD_VM_FOOTPRINT (789416UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
@@ -303,8 +294,7 @@ fd_vm_setup_state_for_execution( fd_vm_t * vm ) ;
    fault, appending an execution trace if vm is attached to a trace.
 
    Since this is running from program start, this will init r1 and r10,
-   pop all stack frames, free all heap allocations and flush out all
-   buffered log messages.
+   pop all stack frames and free all heap allocations.
 
    IMPORTANT SAFETY TIP!  This currently does not zero out any other
    registers, the user stack region or the user heap.  (FIXME: SHOULD

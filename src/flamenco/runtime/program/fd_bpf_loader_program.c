@@ -483,6 +483,7 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
   vm->cu -= heap_cost_result;
 
   int exec_err = fd_vm_exec( vm );
+  instr_ctx->vm_exec = exec_err;
 
   if( FD_UNLIKELY( vm->trace ) ) {
     int err = fd_vm_trace_printf( vm->trace, vm->syscalls );
@@ -492,12 +493,17 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
     fd_valloc_free( instr_ctx->txn_ctx->valloc, fd_vm_trace_delete( fd_vm_trace_leave( vm->trace ) ) );
   }
 
+  /* Log consumed compute units and return data.
+     https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/lib.rs#L1418-L1429 */
+  fd_log_collector_program_consumed( instr_ctx, pre_insn_cus-vm->cu, pre_insn_cus );
+  if( FD_UNLIKELY( instr_ctx->txn_ctx->return_data.len ) ) {
+    fd_log_collector_program_return( instr_ctx );
+  }
+
   if( FD_UNLIKELY( exec_err!=FD_VM_SUCCESS ) ) {
     fd_valloc_free( instr_ctx->valloc, input );
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
-
-  FD_LOG_DEBUG(("Program consumed %lu of %lu compute units", pre_insn_cus-vm->cu, pre_insn_cus ));
 
   instr_ctx->txn_ctx->compute_meter = vm->cu;
 
@@ -1655,26 +1661,14 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     /* Program management instruction */
     if( FD_UNLIKELY( !memcmp( &fd_solana_native_loader_id, program_account->const_meta->info.owner, sizeof(fd_pubkey_t) ) ) ) {
       if( FD_UNLIKELY( !memcmp( &fd_solana_bpf_loader_upgradeable_program_id, program_id, sizeof(fd_pubkey_t) ) ) ) {
-        int err = fd_exec_consume_cus( ctx->txn_ctx, UPGRADEABLE_LOADER_COMPUTE_UNITS );
-        if( FD_UNLIKELY( err ) ) {
-          FD_LOG_WARNING(( "Insufficient compute units for upgradeable loader" ));
-          return err;
-        }
+        FD_EXEC_CU_UPDATE( ctx, UPGRADEABLE_LOADER_COMPUTE_UNITS );
         return process_loader_upgradeable_instruction( ctx );
       } else if( FD_UNLIKELY( !memcmp( &fd_solana_bpf_loader_program_id, program_id, sizeof(fd_pubkey_t) ) ) ) {
-        int err = fd_exec_consume_cus( ctx->txn_ctx, DEFAULT_LOADER_COMPUTE_UNITS );
-        if( FD_UNLIKELY( err ) ) {
-          FD_LOG_WARNING(( "Insufficient compute units for upgradeable loader" ));
-          return err;
-        }
+        FD_EXEC_CU_UPDATE( ctx, DEFAULT_LOADER_COMPUTE_UNITS );
         FD_LOG_WARNING(( "BPF loader management instructions are no longer supported" ));
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       } else if( FD_UNLIKELY( !memcmp( &fd_solana_bpf_loader_deprecated_program_id, program_id, sizeof(fd_pubkey_t) ) ) ) {
-        int err = fd_exec_consume_cus( ctx->txn_ctx, DEPRECATED_LOADER_COMPUTE_UNITS );
-        if( FD_UNLIKELY( err ) ) {
-          FD_LOG_WARNING(( "Insufficient compute units for upgradeable loader" ));
-          return err;
-        }
+        FD_EXEC_CU_UPDATE( ctx, DEPRECATED_LOADER_COMPUTE_UNITS );
         FD_LOG_WARNING(( "Deprecated loader is no longer supported" ));
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       } else {

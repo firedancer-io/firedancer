@@ -8,8 +8,17 @@
 #include "../../ballet/pack/fd_microblock.h"
 #include "../../ballet/poh/fd_poh.h"
 #include "../types/fd_types_yaml.h"
+#include "../log_collector/fd_log_collector.h"
 #include "tests/generated/invoke.pb.h"
 #include "tests/generated/txn.pb.h"
+
+/* FD_EXEC_CU_UPDATE consumes CUs from the current instr ctx
+   and fails in case of error. */
+#define FD_EXEC_CU_UPDATE( ctx, cost ) do {               \
+  fd_exec_instr_ctx_t * _ctx = (ctx);                     \
+  int err = fd_exec_consume_cus( _ctx->txn_ctx, (cost) ); \
+  if( FD_UNLIKELY( err ) ) return err;                    \
+  } while(0)
 
 FD_PROTOTYPES_BEGIN
 

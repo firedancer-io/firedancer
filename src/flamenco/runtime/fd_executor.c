@@ -862,6 +862,8 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       .index     = parent ? (parent->child_cnt++) : 0,
       .depth     = parent ? (parent->depth+1    ) : 0,
       .child_cnt = 0U,
+      .vm_exec   = 0,
+      .instr_exec= 0,
     };
 
     /* Add the instruction to the trace */
@@ -897,10 +899,13 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     fd_exec_txn_ctx_reset_return_data( txn_ctx );
     int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
     if( native_prog_fn != NULL ) {
+      /* Log program invokation (internally caches program_id base58) */
+      fd_log_collector_program_invoke( ctx );
       exec_result = native_prog_fn( ctx );
     } else {
       exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
+    ctx->instr_exec = exec_result;
 
     if( exec_result == FD_EXECUTOR_INSTR_SUCCESS ) {
       ulong ending_lamports_h = 0UL;
@@ -921,9 +926,20 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
           FD_LOG_ERR(( "Txn %64J: Program %32J didn't release lock (%u) on %32J with %u refcnt", fd_txn_get_signatures( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw )[0], instr->program_id_pubkey.uc, *(uint *)(instr->data), txn_ctx->borrowed_accounts[j].pubkey->uc, txn_ctx->borrowed_accounts[j].refcnt_excl ));
         }
       }
-    } else if( !txn_ctx->failed_instr ) {
-      txn_ctx->failed_instr = ctx;
-      ctx->instr_err        = (uint)( -exec_result - 1 );
+
+      /* Log success */
+      fd_log_collector_program_success( ctx );
+    } else {
+      /* FIXME: this looks very different
+         https://github.com/anza-xyz/agave/blob/v2.0.6/program-runtime/src/invoke_context.rs#L535-L549 */
+
+      if( !txn_ctx->failed_instr ) {
+        txn_ctx->failed_instr = ctx;
+        ctx->instr_err        = (uint)( -exec_result - 1 );
+      }
+
+      /* Log failure cases */
+      fd_log_collector_program_failure( ctx );
     }
 
 #ifdef VLOG
@@ -1597,6 +1613,9 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 #endif
 
     bool dump_insn = txn_ctx->capture_ctx && txn_ctx->slot_ctx->slot_bank.slot >= txn_ctx->capture_ctx->dump_proto_start_slot && txn_ctx->capture_ctx->dump_insn_to_pb;
+
+    /* Initialize log collection */
+    fd_log_collector_init( &txn_ctx->log_collector, txn_ctx->slot_ctx->enable_exec_recording );
 
     for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
 #ifdef VLOG

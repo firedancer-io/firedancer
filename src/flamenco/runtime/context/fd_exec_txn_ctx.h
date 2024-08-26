@@ -3,6 +3,7 @@
 
 #include "fd_exec_instr_ctx.h"
 #include "../../../util/fd_util_base.h"
+#include "../../log_collector/fd_log_collector_base.h"
 
 #include "../fd_borrowed_account.h"
 
@@ -109,6 +110,8 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 
   fd_exec_instr_trace_entry_t instr_trace[FD_MAX_INSTRUCTION_TRACE_LENGTH]; /* Instruction trace */
   ulong                       instr_trace_length;                           /* Number of instructions in the trace */
+
+  fd_log_collector_t          log_collector;             /* Log collector instance */
 };
 
 #define FD_EXEC_TXN_CTX_ALIGN     (alignof(fd_exec_txn_ctx_t))

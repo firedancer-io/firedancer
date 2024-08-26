@@ -948,10 +948,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
 int
 fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
-  do {
-    int err = fd_exec_consume_cus( ctx->txn_ctx, DEFAULT_COMPUTE_UNITS );
-    if( FD_UNLIKELY( err ) ) return err;
-  } while(0);
+  FD_EXEC_CU_UPDATE( ctx, DEFAULT_COMPUTE_UNITS );
 
   uchar const * instr_data    = ctx->instr->data;
   ulong         instr_data_sz = ctx->instr->data_sz;
@@ -973,7 +970,6 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
       FD_LOG_WARNING(("Failed to decode instruction"));
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
-
 
     switch( instr->discriminant ) {
     case fd_addrlut_instruction_enum_create_lut:

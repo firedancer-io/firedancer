@@ -115,12 +115,19 @@ test_vm_syscall_sol_log( char const *            test_case_name,
                          int                     expected_err,
                          uchar *                 expected_log,
                          ulong                   expected_log_sz ) {
+  fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log_collector;
+  ulong log_vec_len = fd_log_collector_debug_len( log );
+
   ulong ret = 0UL;
   int   err = fd_vm_syscall_sol_log( vm, msg_vaddr, msg_len, 0, 0, 0, &ret );
   FD_TEST( ret==expected_ret );
   FD_TEST( err==expected_err );
-  if( !ret && !err )
-    FD_TEST( fd_vm_log_sz( vm )==expected_log_sz && !memcmp( fd_vm_log( vm ), expected_log, fd_vm_log_sz( vm ) ) );
+  if( !ret && !err ) {
+    FD_TEST( fd_log_collector_debug_len( log )==log_vec_len+1 );
+    uchar const * msg; ulong msg_sz;
+    fd_log_collector_debug_get( log, log_vec_len, &msg, &msg_sz );
+    FD_TEST( msg_sz==expected_log_sz && !memcmp( msg, expected_log, msg_sz ) );
+  }
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -136,12 +143,19 @@ test_vm_syscall_sol_log_64( char const *            test_case_name,
                             int                     expected_err,
                             uchar *                 expected_log,
                             ulong                   expected_log_sz ) {
+  fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log_collector;
+  ulong log_vec_len = fd_log_collector_debug_len( log );
+
   ulong ret = 0UL;
   int   err = fd_vm_syscall_sol_log_64( vm, r1, r2, r3, r4, r5, &ret );
   FD_TEST( ret==expected_ret );
   FD_TEST( err==expected_err );
-  if( !ret && !err )
-    FD_TEST( fd_vm_log_sz( vm )==expected_log_sz && !memcmp( fd_vm_log( vm ), expected_log, fd_vm_log_sz( vm ) ) );
+  if( !ret && !err ) {
+    FD_TEST( fd_log_collector_debug_len( log )==log_vec_len+1 );
+    uchar const * msg; ulong msg_sz;
+    fd_log_collector_debug_get( log, log_vec_len, &msg, &msg_sz );
+    FD_TEST( msg_sz==expected_log_sz && !memcmp( msg, expected_log, msg_sz ) );
+  }
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -154,12 +168,19 @@ test_vm_syscall_sol_log_data( char const *            test_case_name,
                               int                     expected_err,
                               uchar *                 expected_log,
                               ulong                   expected_log_sz ) {
+  fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log_collector;
+  ulong log_vec_len = fd_log_collector_debug_len( log );
+
   ulong ret = 0UL;
   int   err = fd_vm_syscall_sol_log_data( vm, data_vaddr, data_len, 0, 0, 0, &ret );
   FD_TEST( ret==expected_ret );
   FD_TEST( err==expected_err );
-  if( !ret && !err )
-    FD_TEST( fd_vm_log_sz( vm )==expected_log_sz && !memcmp( fd_vm_log( vm ), expected_log, fd_vm_log_sz( vm ) ) );
+  if( !ret && !err ) {
+    FD_TEST( fd_log_collector_debug_len( log )==log_vec_len+1 );
+    uchar const * msg; ulong msg_sz;
+    fd_log_collector_debug_get( log, log_vec_len, &msg, &msg_sz );
+    FD_TEST( msg_sz==expected_log_sz && !memcmp( msg, expected_log, msg_sz ) );
+  }
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -637,7 +658,8 @@ main( int     argc,
                               input_mem_regions[0].haddr + 600UL,
                               200UL,
                               0UL, FD_VM_SUCCESS );
-                      
+
+
   uchar expected_log[ FD_VM_LOG_MAX ];
   ulong expected_log_sz = 0UL;
 
@@ -647,8 +669,9 @@ main( int     argc,
     expected_log_sz += _cpy_sz;                                                          \
   } while(0)
 
-  FD_TEST( fd_vm_log_reset( vm )==vm ); expected_log_sz = 0UL;
+  fd_log_collector_init( &vm->instr_ctx->txn_ctx->log_collector, 1 );
 
+  expected_log_sz = 0UL;
   APPEND( "Program log: hello world", 24UL );
   memcpy( &vm->heap[0], "hello world", 11 );
   // test for collecting logs at the heap region
@@ -661,6 +684,7 @@ main( int     argc,
                            expected_log, expected_log_sz );
 
   // test for collecting logs at the read only region
+  expected_log_sz = 0UL;
   APPEND( "Program log: ", 13UL );
   APPEND( &vm->rodata[0], 100UL );
   test_vm_syscall_sol_log( "test_vm_syscall_sol_log: log at the read only region",
@@ -672,7 +696,9 @@ main( int     argc,
                            expected_log, expected_log_sz );
 
   // test for writing logs that exceed the remaining space
+  expected_log_sz = 0UL;
   APPEND( "Program log: ", 13UL );
+  fd_memset( &vm->heap[0], 'x', FD_VM_LOG_MAX+1 );
   APPEND( &vm->heap[0], FD_VM_LOG_MAX );
   test_vm_syscall_sol_log( "test_vm_syscall_sol_log: log that exceeds the limit",
                            vm,
@@ -680,18 +706,13 @@ main( int     argc,
                            FD_VM_LOG_MAX + 1UL,
                            0,
                            0,
-                           expected_log, expected_log_sz );
-
-  // test for writing logs when there's no more space
-  test_vm_syscall_sol_log( "test_vm_syscall_sol_log: log when there's no more space",
-                           vm,
-                           FD_VM_MEM_MAP_HEAP_REGION_START,
-                           1UL,
-                           0UL, FD_VM_SUCCESS, expected_log, expected_log_sz );
+                           (uchar *)"Log truncated", 13 );
 
   // test for collecting log_64 at the heap region
 
-  FD_TEST( fd_vm_log_reset( vm )==vm ); expected_log_sz = 0UL;
+  fd_log_collector_init( &vm->instr_ctx->txn_ctx->log_collector, 1 );
+
+  expected_log_sz = 0UL;
 
   ulong r0 = fd_rng_ulong(rng);
   ulong r1 = fd_rng_ulong(rng);
@@ -709,12 +730,15 @@ main( int     argc,
 
   // test for collecting log_data at the heap region
 
-  FD_TEST( fd_vm_log_reset( vm )==vm ); expected_log_sz = 0UL;
+  fd_log_collector_init( &vm->instr_ctx->txn_ctx->log_collector, 1 );
+
+  expected_log_sz = 0UL;
 
   fd_vm_vec_t log_vec = { .addr = FD_VM_MEM_MAP_HEAP_REGION_START + 100, .len = 5UL };
   ulong data_chunk_num = 5UL;
+  memcpy( &vm->heap[100], "abcde", 5 );
   for( ulong i=0UL; i<data_chunk_num; i++ ) memcpy( &vm->heap[0] + i*sizeof(fd_vm_vec_t), &log_vec, sizeof(log_vec) );
-  APPEND( "Program data: ZGVmZ2g= ZGVmZ2g= ZGVmZ2g= ZGVmZ2g= ZGVmZ2g=", 58UL );
+  APPEND( "Program data: YWJjZGU= YWJjZGU= YWJjZGU= YWJjZGU= YWJjZGU=", 58UL );
   test_vm_syscall_sol_log_data( "test_vm_syscall_sol_log_data: log_data at the heap region",
                                 vm,
                                 FD_VM_MEM_MAP_HEAP_REGION_START,
@@ -722,27 +746,6 @@ main( int     argc,
                                 0UL, FD_VM_SUCCESS, expected_log, expected_log_sz );
 
 # undef APPEND
-
-  /* tests for fd_vm_log_append_printf()
-     Note: we're simply testing that we don't overflow the memory region.
-     We're not testing behavior like how should multiple logs be appended,
-     should we add any custom messages when truncating, etc.
-
-     fd_vm_log_append_printf( vm, "test" ); // does NOT compile
-  */
-  FD_TEST( fd_vm_log_reset( vm )==vm );
-  FD_TEST( vm->log_sz == 0UL );
-  FD_TEST( fd_vm_log_append_printf( vm, "test %d", 10 ) == vm );
-  FD_TEST( vm->log_sz == 7UL );  /* "test 10" = 7 char */
-  FD_TEST( fd_vm_log_append_printf( vm, "test %s", "hello" ) == vm );
-  FD_TEST( vm->log_sz == 17UL ); /* "test hello" += 17 char */
-  vm->log_sz = FD_VM_LOG_MAX - 2;
-  FD_TEST( vm->log_sz == FD_VM_LOG_MAX - 2 );
-  FD_TEST( fd_vm_log_append_printf( vm, "test %d", 10 ) == vm );
-  FD_TEST( vm->log_sz == FD_VM_LOG_MAX ); /* no more than FD_VM_LOG_MAX */
-  FD_TEST( fd_vm_log_append_printf( vm, "test %s", "hello" ) == vm );
-  FD_TEST( vm->log_sz == FD_VM_LOG_MAX ); /* no more than FD_VM_LOG_MAX */
-  FD_LOG_NOTICE(( "Passed test program (%s)", "fd_vm_log_append_printf" ));
 
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );
   fd_sha256_delete( fd_sha256_leave( sha ) );
