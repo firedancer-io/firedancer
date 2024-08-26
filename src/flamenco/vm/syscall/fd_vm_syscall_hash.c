@@ -36,7 +36,10 @@ fd_vm_syscall_sol_sha256( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1911-L1920 */
   if( FD_UNLIKELY( FD_VM_SHA256_MAX_SLICES < vals_len ) ) {
-    fd_vm_log_append_printf( vm, "%s Hashing %lu sequences in one syscall is over the limit %lu", "Sha256", vals_len, FD_VM_SHA256_MAX_SLICES );
+    /* Max msg_sz = 61 - 8 + 6 + 20 + 20 = 99 < 127 => we can use printf */
+    fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
+      "%s Hashing %lu sequences in one syscall is over the limit %lu",
+      "Sha256", vals_len, FD_VM_SHA256_MAX_SLICES );
     return FD_VM_ERR_INVAL; /* SyscallError::TooManySlices */
   }
 
@@ -89,7 +92,10 @@ fd_vm_syscall_sol_blake3( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1911-L1920 */
   if( FD_UNLIKELY( FD_VM_SHA256_MAX_SLICES < vals_len ) ) {
-    fd_vm_log_append_printf( vm, "%s Hashing %lu sequences in one syscall is over the limit %lu", "Blake3", vals_len, FD_VM_SHA256_MAX_SLICES );
+    /* Max msg_sz = 61 - 8 + 6 + 20 + 20 = 99 < 127 => we can use printf */
+    fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
+      "%s Hashing %lu sequences in one syscall is over the limit %lu",
+      "Blake3", vals_len, FD_VM_SHA256_MAX_SLICES );
     return FD_VM_ERR_INVAL; /* SyscallError::TooManySlices */
   }
 
@@ -142,7 +148,10 @@ fd_vm_syscall_sol_keccak256( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1911-L1920 */
   if( FD_UNLIKELY( FD_VM_SHA256_MAX_SLICES < vals_len ) ) {
-    fd_vm_log_append_printf( vm, "%s Hashing %lu sequences in one syscall is over the limit %lu", "Keccak256", vals_len, FD_VM_SHA256_MAX_SLICES );
+    /* Max msg_sz = 61 - 8 + 9 + 20 + 20 = 102 < 127 => we can use printf */
+    fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
+      "%s Hashing %lu sequences in one syscall is over the limit %lu",
+      "Keccak256", vals_len, FD_VM_SHA256_MAX_SLICES );
     return FD_VM_ERR_INVAL; /* SyscallError::TooManySlices */
   }
 

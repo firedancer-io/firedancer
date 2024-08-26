@@ -2441,10 +2441,7 @@ get_stake_account( fd_exec_instr_ctx_t const * ctx,
 
 int
 fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
-  do {
-    int err = fd_exec_consume_cus( ctx->txn_ctx, DEFAULT_COMPUTE_UNITS );
-    if( FD_UNLIKELY( err ) ) return err;
-  } while(0);
+  FD_EXEC_CU_UPDATE( ctx, DEFAULT_COMPUTE_UNITS );
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L77
   fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = {0};

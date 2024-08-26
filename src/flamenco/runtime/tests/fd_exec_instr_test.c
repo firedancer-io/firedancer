@@ -564,6 +564,8 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   ctx->valloc    = fd_scratch_virtual();
   ctx->instr     = info;
 
+  fd_log_collector_init( &ctx->txn_ctx->log_collector, 1 );
+
   return 1;
 }
 
@@ -1805,11 +1807,16 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
 
   effects->frame_count = vm->frame_cnt;
 
-  if( vm->log_sz ) {
+  fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log_collector;
+  ulong logs_len = fd_log_collector_debug_len( log );
+  if( logs_len ) {
+    FD_TEST_CUSTOM( logs_len==1, "We only support syscalls tests with at most 1 log msg" );
+    uchar const * msg; ulong msg_sz;
+    fd_log_collector_debug_get( log, 0, &msg, &msg_sz );
     effects->log = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->log_sz ) );
-    effects->log->size = (uint)vm->log_sz;
-    fd_memcpy( effects->log->bytes, vm->log, vm->log_sz );
+      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( msg_sz ) );
+    effects->log->size = (uint)msg_sz;
+    fd_memcpy( effects->log->bytes, msg, msg_sz );
   } else {
     effects->log = NULL;
   }

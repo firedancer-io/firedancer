@@ -5,6 +5,7 @@
 #include "fd_vm_cpi.h"                /* FIXME: REFINE THIS MORE */
 #include "../../runtime/fd_runtime.h" /* FIXME: REFINE THIS MORE */
 #include "../../runtime/context/fd_exec_instr_ctx.h"
+#include "../../log_collector/fd_log_collector.h"
 
 #define FD_VM_RETURN_DATA_MAX  (1024UL) /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
 /* https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L22 */

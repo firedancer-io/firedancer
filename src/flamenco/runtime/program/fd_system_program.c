@@ -62,14 +62,15 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L193-L196 */
 
   if( from->const_meta->dlen != 0UL ) {
-    /* TODO Log: "Transfer: `from` must not carry data" */
+    fd_log_collector_msg_literal( ctx, "Transfer: `from` must not carry data" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L197-L205 */
 
   if( transfer_amount > from->const_meta->info.lamports ) {
-    /* TODO Log: "Transfer: insufficient lamports {}, need {} */
+    /* Max msg_sz: 45 - 6 + 20 + 20 = 79 < 127 => we can use printf */
+    fd_log_collector_printf_dangerous_max_127( ctx, "Transfer: insufficient lamports %lu, need %lu", from->const_meta->info.lamports, transfer_amount );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_RESULT_WITH_NEGATIVE_LAMPORTS;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -121,7 +122,9 @@ fd_system_program_transfer( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L231-L241 */
 
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, from_acct_idx ) ) ) {
-    /* TODO Log: "Transfer: `from` account {} must sign" */
+    /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
+    char from_b58[ 45 ]; fd_base58_encode_32( ctx->instr->acct_pubkeys[ from_acct_idx ].uc, NULL, from_b58 );
+    fd_log_collector_printf_dangerous_max_127( ctx, "Transfer: `from` account %s must sign", from_b58 );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -591,10 +594,7 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
 
 int
 fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
-  do {
-    int err = fd_exec_consume_cus( ctx->txn_ctx, 150UL );
-    if( FD_UNLIKELY( err ) ) return err;
-  } while(0);
+  FD_EXEC_CU_UPDATE( ctx, 150UL );
 
   /* Deserialize the SystemInstruction enum */
   uchar * data = ctx->instr->data;

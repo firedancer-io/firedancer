@@ -1374,6 +1374,71 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   return 0;
 }
 
+/* fd_runtime_finalize_txns_update_blockstore_meta() updates transaction metadata
+   after execution.
+
+   Execution recording is controlled by slot_ctx->enable_exec_recording, and this
+   function does nothing if execution recording is off.  The following comments
+   only apply when execution recording is on.
+
+   Transaction metadata includes execution result (success/error), balance changes,
+   transaction logs, ...  All this info is not part of consensus but can be retrieved,
+   for instace, via RPC getTransaction.  Firedancer stores txn meta in the blockstore,
+   in the same binary format as Agave, protobuf TransactionStatusMeta. */
+void
+fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         slot_ctx,
+                                                 fd_execute_txn_task_info_t * task_info,
+                                                 ulong                        txn_cnt ) {
+  /* Nothing to do if execution recording is off */
+  if( !slot_ctx->enable_exec_recording ) {
+    return;
+  }
+
+  fd_blockstore_t * blockstore      = slot_ctx->blockstore;
+  fd_wksp_t * blockstore_wksp       = fd_blockstore_wksp( blockstore );
+  fd_alloc_t * blockstore_alloc     = fd_wksp_laddr_fast( blockstore_wksp, blockstore->alloc_gaddr );
+  fd_blockstore_txn_map_t * txn_map = fd_wksp_laddr_fast( blockstore_wksp, blockstore->txn_map_gaddr );
+
+  fd_blockstore_start_write( blockstore );
+  for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
+    fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
+    if( txn_ctx->log_collector.buf_sz ) {
+      /* Prepare metadata.
+         Note: currently we only include logs, that are already serialized in protobuf. */
+      ulong meta_sz = txn_ctx->log_collector.buf_sz;
+      void * meta_laddr = fd_alloc_malloc( blockstore_alloc, 1, meta_sz );
+      ulong  meta_gaddr = fd_wksp_gaddr_fast( blockstore_wksp, meta_laddr );
+      fd_memcpy( meta_laddr, txn_ctx->log_collector.buf, meta_sz );
+
+      /* Update the first signature (meta_owned=1) */
+      char const * sig_p = (char const *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
+      fd_blockstore_txn_key_t sig;
+      fd_memcpy( &sig, sig_p, sizeof(fd_blockstore_txn_key_t) );
+      fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, &sig, NULL );
+      if( FD_LIKELY( txn_map_entry ) ) {
+        txn_map_entry->meta_gaddr = meta_gaddr;
+        txn_map_entry->meta_sz    = meta_sz;
+        txn_map_entry->meta_owned = 1;
+      }
+
+      /* Update all other signatures (meta_owned=0) */
+      for( uchar i=1U; i<txn_ctx->txn_descriptor->signature_cnt; i++ ) {
+        sig_p += FD_ED25519_SIG_SZ;
+        fd_memcpy( &sig, sig_p, sizeof(fd_blockstore_txn_key_t) );
+        fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, &sig, NULL );
+        if( FD_LIKELY( txn_map_entry ) ) {
+          txn_map_entry->meta_gaddr = meta_gaddr;
+          txn_map_entry->meta_sz    = meta_sz;
+          txn_map_entry->meta_owned = 0;
+        }
+      }
+
+    }
+    fd_log_collector_delete( &txn_ctx->log_collector );
+  }
+  fd_blockstore_end_write( blockstore );
+}
+
 /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/accounts-db/src/accounts.rs#L700 */
 int
 fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
@@ -1417,6 +1482,9 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
         fd_runtime_copy_accounts_to_pruned_funk( capture_ctx->pruned_funk, prune_txn, slot_ctx, txn_ctx );
         fd_funk_end_write( capture_ctx->pruned_funk );
       }
+
+      /* Store transaction metadata, including logs */
+      fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, txn_cnt );
 
       /* For ledgers that contain txn status, decode and write out for solcap */
       if( FD_UNLIKELY( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns ) ) {
@@ -1767,6 +1835,8 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
         //  FD_LOG_WARNING(("Fail signature verification"));
         //}
 
+        //TODO: enable/disable execution recording according to config and before execution
+        // slot_ctx->enable_exec_recording = 1;
         res |= fd_runtime_prep_and_exec_txns_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, tpool );
         if( res != 0 ) {
           FD_LOG_DEBUG(("Fail prep 2"));

@@ -20,11 +20,21 @@ struct __attribute__((aligned(8UL))) fd_exec_instr_ctx {
   uint depth;      /* starts at 0 */
   uint index;      /* number of preceding instructions with same parent */
   uint child_cnt;  /* number of child instructions */
-  uint instr_err;
+  uint instr_err;  /* TODO: this is kind of redundant wrt instr_exec */
 
   fd_funk_txn_t * funk_txn;
   fd_acc_mgr_t *  acc_mgr;
   fd_valloc_t     valloc;
+
+  /* Most instructions log the base58 program id multiple times, so it's
+     convenient to compute it once and reuse it. */
+  char program_id_base58[ FD_BASE58_ENCODED_32_SZ ];
+
+  /* Execution results (err)
+     TODO: we store `custom_err` inside txn_ctx, so maybe we should
+     store these inside txn_ctx as well? */
+  int vm_exec;
+  int instr_exec;
 
   fd_instr_info_t const * instr;
 };

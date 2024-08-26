@@ -23,7 +23,7 @@ fd_vm_strerror( int err ) {
 
   case FD_VM_ERR_SIGTEXT:   return "SIGTEXT illegal program counter";
   case FD_VM_ERR_SIGSPLIT:  return "SIGSPLIT split multiword instruction";
-  case FD_VM_ERR_SIGCALL:   return "SIGCALL illegal call";
+  case FD_VM_ERR_SIGCALL:   return "unsupported BPF instruction";
   case FD_VM_ERR_SIGSTACK:  return "SIGSTACK call depth limit exceeded";
   case FD_VM_ERR_SIGILL:    return "SIGILL illegal instruction";
   case FD_VM_ERR_SIGSEGV:   return "SIGSEGV illegal memory address";
@@ -33,8 +33,9 @@ fd_vm_strerror( int err ) {
   case FD_VM_ERR_SIGFPE:    return "SIGFPE division by zero";
 
   /* VM syscall error codes */
+  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/mod.rs#L81 */
 
-  case FD_VM_ERR_ABORT:                        return "ABORT";                        /* FIXME: description */
+  case FD_VM_ERR_ABORT:                        return "SBF program panicked";
   case FD_VM_ERR_PANIC:                        return "PANIC";                        /* FIXME: description */
   case FD_VM_ERR_MEM_OVERLAP:                  return "MEM_OVERLAP";                  /* FIXME: description */
   case FD_VM_ERR_INSTR_ERR:                    return "INSTR_ERR";                    /* FIXME: description */
@@ -439,7 +440,8 @@ fd_vm_setup_state_for_execution( fd_vm_t * vm ) {
   vm->frame_cnt = 0UL;
 
   vm->heap_sz = 0UL;
-  vm->log_sz  = 0UL;
+
+  /* Do NOT reset logs */
 
   return FD_VM_SUCCESS;
 }

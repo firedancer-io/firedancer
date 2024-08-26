@@ -61,7 +61,6 @@ test_program_success( char *                test_case_name,
   vm->cu        = vm->entry_cu;
   vm->frame_cnt = 0UL;
   vm->heap_sz   = 0UL;
-  vm->log_sz    = 0UL;
   fd_vm_mem_cfg( vm );
 
   int err = fd_vm_validate( vm );

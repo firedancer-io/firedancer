@@ -6,9 +6,9 @@ typedef enum {
 
 enum fd_block_detail { FD_BLOCK_DETAIL_FULL, FD_BLOCK_DETAIL_ACCTS, FD_BLOCK_DETAIL_SIGS, FD_BLOCK_DETAIL_NONE };
 
-int fd_txn_meta_to_json( fd_webserver_t * ws,
-                         const void * meta_raw,
-                         ulong meta_raw_sz );
+const char* fd_txn_meta_to_json( fd_webserver_t * ws,
+                                 const void * meta_raw,
+                                 ulong meta_raw_sz );
 
 const char* fd_txn_to_json( fd_webserver_t * ws,
                             fd_txn_t* txn,
