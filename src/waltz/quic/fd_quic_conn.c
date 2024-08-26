@@ -286,20 +286,14 @@ fd_quic_conn_update_weight( fd_quic_conn_t * conn, uint dirtype ) {
 
   /* determine the weight */
   float assigned = (float)cur_stream_cnt;
-  float desired  = (float)fd_ulong_if( tgt_sup_stream_id > sup_stream_id,
-                                ( tgt_sup_stream_id - sup_stream_id ),
-                                0UL );
-  float tot      = assigned + desired;
-
-  float MAX_WEIGHT = (float)(1UL<<36UL);
-  float alpha      = logf( MAX_WEIGHT ) / tot;
-
-  /* weight is a function of desired vs assigned */
-  float weight = desired == 0.0f ? 0.0f : expf( alpha * desired );
-
-  if( conn->state != FD_QUIC_CONN_STATE_ACTIVE &&
-      conn->state != FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) {
-    weight = 0;
+  float weight   = 0.0f;
+  if (( conn->state == FD_QUIC_CONN_STATE_ACTIVE || conn->state == FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE)
+        && tgt_sup_stream_id > sup_stream_id) {
+      float desired    = (float)(tgt_sup_stream_id - sup_stream_id);
+      float tot        = assigned + desired;
+      float MAX_WEIGHT = (float)(1UL<<36UL);
+      float alpha      = logf( MAX_WEIGHT ) / tot;
+      weight = expf( alpha * desired );
   }
 
   /* set the weight in the cs_tree */
