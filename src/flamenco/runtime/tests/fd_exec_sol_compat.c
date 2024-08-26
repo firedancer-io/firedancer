@@ -3,6 +3,7 @@
 #include "../../nanopb/pb_decode.h"
 #include "generated/elf.pb.h"
 #include "generated/invoke.pb.h"
+#include "generated/shred.pb.h"
 #include "generated/vm.pb.h"
 #include <assert.h>
 #include <stdlib.h>
@@ -11,6 +12,7 @@
 #include "../../features/fd_features.h"
 #include "../fd_executor_err.h"
 #include "../../fd_flamenco.h"
+#include "../../../ballet/shred/fd_shred.h"
 
 /* This file defines stable APIs for compatibility testing.
 
@@ -790,6 +792,7 @@ sol_compat_vm_cpi_syscall_v1( uchar *       out,
   /* Just a wrapper to vm_syscall_execute_v1 */
   return sol_compat_vm_syscall_execute_v1( out, out_sz, in, in_sz );
 }
+
 int
 sol_compat_vm_interp_v1( uchar *       out,
                          ulong *       out_sz,
@@ -825,4 +828,23 @@ sol_compat_vm_interp_v1( uchar *       out,
   sol_compat_check_wksp_usage();
 
   return ok;
+}
+
+int sol_compat_shred_parse_v1( uchar *       out,
+                               ulong *       out_sz,
+                               uchar const * in,
+                               ulong         in_sz ) {
+    fd_exec_test_shred_binary_t input[1] = {0};
+    void                      * res      = sol_compat_decode( &input, in, in_sz, &fd_exec_test_shred_binary_t_msg );
+    if( FD_UNLIKELY( res==NULL ) ) {
+        return 0;
+    }
+    if( FD_UNLIKELY( input[0].data==NULL ) ) {
+        pb_release( &fd_exec_test_shred_binary_t_msg, input );
+        return 0;
+    }
+    fd_exec_test_accepts_shred_t output[1] = {0};
+    output[0].valid                        = !!fd_shred_parse( input[0].data->bytes, input[0].data->size );
+    pb_release( &fd_exec_test_shred_binary_t_msg, input );
+    return !!sol_compat_encode( out, out_sz, output, &fd_exec_test_accepts_shred_t_msg );
 }
