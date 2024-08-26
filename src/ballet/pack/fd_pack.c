@@ -823,6 +823,12 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 }
 #undef REJECT
 
+void
+fd_pack_metrics_write( fd_pack_t * pack ) {
+  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS,      pack->pending_txn_cnt                );
+  FD_MGAUGE_SET( PACK, AVAILABLE_VOTE_TRANSACTIONS, treap_ele_cnt( pack->pending_votes ) );
+}
+
 typedef struct {
   ushort clear_rw_bit;
   ushort clear_w_bit;
