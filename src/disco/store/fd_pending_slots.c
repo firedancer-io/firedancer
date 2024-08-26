@@ -133,6 +133,19 @@ fd_pending_slots_iter_next( fd_pending_slots_t * pending_slots,
   return i;
 }
 
+int
+fd_pending_slots_check( fd_pending_slots_t const * pending_slots,
+                        ulong                      slot ) {
+  if( (long)(pending_slots->end - slot) > (long)FD_PENDING_MAX ) {
+    return 0;
+  }
+  if( (long)(slot - pending_slots->start) > (long)FD_PENDING_MAX ) {
+    return 0;
+  }
+  
+  return 1;
+}
+
 void
 fd_pending_slots_add( fd_pending_slots_t * pending_slots,
                       ulong slot,
