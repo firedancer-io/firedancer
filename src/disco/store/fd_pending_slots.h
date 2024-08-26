@@ -40,6 +40,10 @@ fd_pending_slots_leave( fd_pending_slots_t const * pending_slots );
 void *
 fd_pending_slots_delete( void * pending_slots );
 
+int
+fd_pending_slots_check( fd_pending_slots_t const * pending_slots,
+                        ulong                      slot );
+
 void
 fd_pending_slots_add( fd_pending_slots_t * pending_slots,
                       ulong slot,
