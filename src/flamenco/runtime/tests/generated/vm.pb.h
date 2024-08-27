@@ -85,6 +85,9 @@ typedef struct fd_exec_test_syscall_context {
     fd_exec_test_instr_context_t instr_ctx;
     bool has_syscall_invocation;
     fd_exec_test_syscall_invocation_t syscall_invocation;
+    /* For CPI, we want to control the effects of a program invocation */
+    bool has_exec_effects;
+    fd_exec_test_instr_effects_t exec_effects;
 } fd_exec_test_syscall_context_t;
 
 /* The effects of executing a SyscallContext. */
@@ -151,7 +154,7 @@ extern "C" {
 #define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_DEFAULT {0, NULL, 0}
 #define FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT     {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0}
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT {{0, {0}}, NULL, NULL}
-#define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT}
+#define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, NULL}
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT}
@@ -160,7 +163,7 @@ extern "C" {
 #define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_ZERO {0, NULL, 0}
 #define FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO        {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0}
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO {{0, {0}}, NULL, NULL}
-#define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO}
+#define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO}
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO   {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, NULL}
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_ZERO   {false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO}
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
@@ -199,6 +202,7 @@ extern "C" {
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_VM_CTX_TAG  1
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INSTR_CTX_TAG 2
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_SYSCALL_INVOCATION_TAG 3
+#define FD_EXEC_TEST_SYSCALL_CONTEXT_EXEC_EFFECTS_TAG 4
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_ERROR_TAG   1
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_R0_TAG      2
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_CU_AVAIL_TAG 3
@@ -264,12 +268,14 @@ X(a, POINTER,  SINGULAR, BYTES,    stack_prefix,      3)
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  vm_ctx,            1) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  instr_ctx,         2) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  syscall_invocation,   3)
+X(a, STATIC,   OPTIONAL, MESSAGE,  syscall_invocation,   3) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  exec_effects,      4)
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_DEFAULT NULL
 #define fd_exec_test_syscall_context_t_vm_ctx_MSGTYPE fd_exec_test_vm_context_t
 #define fd_exec_test_syscall_context_t_instr_ctx_MSGTYPE fd_exec_test_instr_context_t
 #define fd_exec_test_syscall_context_t_syscall_invocation_MSGTYPE fd_exec_test_syscall_invocation_t
+#define fd_exec_test_syscall_context_t_exec_effects_MSGTYPE fd_exec_test_instr_effects_t
 
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, INT64,    error,             1) \
