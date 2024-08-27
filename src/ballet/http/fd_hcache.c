@@ -201,12 +201,11 @@ fd_hcache_memcpy( fd_hcache_t * hcache,
                   uchar const * data,
                   ulong         data_len ) {
   fd_hcache_reserve( hcache, data_len );
-  if( FD_UNLIKELY( hcache->snap_err ) ) {
-    return;
-  }
-  memcpy( (char *)fd_hcache_private_data( hcache ) + hcache->snap_off + hcache->snap_len,
-          data,
-          data_len );
+  if( FD_UNLIKELY( hcache->snap_err ) ) return;
+
+  fd_memcpy( (char *)fd_hcache_private_data( hcache )+hcache->snap_off+hcache->snap_len,
+             data,
+             data_len );
   hcache->snap_len += data_len;
 }
 

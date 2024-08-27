@@ -11,27 +11,27 @@
 #define FD_HTTP_SERVER_METHOD_POST    (1)
 #define FD_HTTP_SERVER_METHOD_OPTIONS (2)
 
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_OK                           (  0)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED                      ( -1)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_EXPECTED_EOF                 ( -2)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET                   ( -3)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST                ( -4)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST                  ( -5)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_MISSING_CONENT_LENGTH_HEADER ( -6)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD               ( -7)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_PATH_TOO_LONG                ( -8)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_KEY                   ( -9)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNEXPECTED_VERSION        (-10)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_KEY_HEADER        (-11)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_VERSION_HEADER    (-12)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_MASK                  (-13)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNKNOWN_OPCODE            (-14)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_OVERSIZE_FRAME            (-15)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW           (-16)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_UPGRADE           (-17)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_CONT_OPCODE      (-18)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE      (-19)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CONTROL_FRAME_TOO_LARGE   (-20)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_OK                           ( -1)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED                      ( -2)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_EXPECTED_EOF                 ( -3)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET                   ( -4)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST                ( -5)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST                  ( -6)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_MISSING_CONENT_LENGTH_HEADER ( -7)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD               ( -8)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_PATH_TOO_LONG                ( -9)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_KEY                   (-10)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNEXPECTED_VERSION        (-11)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_KEY_HEADER        (-12)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_VERSION_HEADER    (-13)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_MASK                  (-14)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNKNOWN_OPCODE            (-15)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_OVERSIZE_FRAME            (-16)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW           (-17)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_UPGRADE           (-18)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_CONT_OPCODE      (-19)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE      (-20)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CONTROL_FRAME_TOO_LARGE   (-21)
 
 /* Given a FD_HTTP_SERVER_CONNECTION_CLOSE_* reason code, a reason that
    a HTTP connection a client was closed, produce a human readable
@@ -125,14 +125,18 @@ struct fd_http_server_ws_frame {
 typedef struct fd_http_server_ws_frame fd_http_server_ws_frame_t;
 
 struct fd_http_server_callbacks {
-  /* Handle an incoming HTTP request. */
+  /* Handle an incoming HTTP request.  The callback must be provided
+     and is assumed to be non-NULL.  request is a representation of
+     the incoming HTTP request.  The callback should return a response
+     which will be sent to the client. */
 
   fd_http_server_response_t ( * request     )( fd_http_server_request_t const * request );
 
   /* Called when a regular HTTP connection is established.  Called
      immediately after the connection is accepted.  sockfd is the file
      descriptor of the socket.  ctx is the user provided context pointer
-     provided when constructing the HTTP server. */
+     provided when constructing the HTTP server.  The open callback can
+     be NULL in which case the callback will not be invoked. */
 
   void                      ( * open        )( ulong conn_id, int sockfd, void * ctx );
 
@@ -144,7 +148,8 @@ struct fd_http_server_callbacks {
      closed, instead ws_close is called.  reason is one of
      FD_HTTP_SERVER_CONNECTION_CLOSE_* indicating why the connection is
      being closed.  ctx is the user provided context pointer provided
-     when constructing the HTTP server. */
+     when constructing the HTTP server.  The close callback can be NULL
+     in which case the callback will not be invoked. */
 
   void                      ( * close       )( ulong conn_id, int reason, void * ctx );
 
