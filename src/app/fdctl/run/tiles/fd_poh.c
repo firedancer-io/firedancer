@@ -1850,7 +1850,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->bank_in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->bank_in[i].mem, link->dcache, link->mtu );
   }
 
-  FD_TEST( tile->out_cnt==7UL );
+  FD_TEST( tile->out_cnt==8UL );
 
   ctx->stake_in.mem    = topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ ctx->stake_in_idx ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->stake_in.chunk0 = fd_dcache_compact_chunk0( ctx->stake_in.mem, topo->links[ tile->in_link_id[ ctx->stake_in_idx ] ].dcache );
