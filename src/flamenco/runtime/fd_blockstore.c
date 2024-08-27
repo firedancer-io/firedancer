@@ -1,5 +1,32 @@
 #include "fd_blockstore.h"
 
+/* Check if we're seeing a different payload for the same shred key,
+   which indicates equivocation. */
+
+static int
+is_eqvoc_shred( fd_shred_t * old, fd_shred_t const * new ) {
+  if( FD_UNLIKELY( fd_shred_type( old->variant ) != fd_shred_type( new->variant ) ) ) {
+    FD_LOG_WARNING(( "[%s] shred %lu %u not both resigned", __func__, old->slot, old->idx ));
+    return 1;
+  }
+
+  if( FD_UNLIKELY( fd_shred_payload_sz( old ) != fd_shred_payload_sz( new ) ) ) {
+    FD_LOG_WARNING(( "[%s] shred %lu %u payload_sz not eq", __func__, old->slot, old->idx ));
+    return 1;
+  }
+
+  ulong memcmp_sz = fd_ulong_if( fd_shred_payload_sz( old ) > FD_SHRED_SIGNATURE_SZ &&
+                                     fd_shred_is_resigned( fd_shred_type( old->variant ) ),
+                                 fd_shred_payload_sz( old ) - FD_SHRED_SIGNATURE_SZ,
+                                 fd_shred_payload_sz( old ) );
+  if( FD_UNLIKELY( 0 != memcmp( fd_shred_data_payload( old ), fd_shred_data_payload( new ), memcmp_sz ) ) ) {
+    FD_LOG_WARNING(( "[%s] shred %lu %u payload not eq", __func__, old->slot, old->idx ));
+    return 1;
+  }
+
+  return 0;
+}
+
 ulong
 fd_blockstore_align( void ) {
   return alignof( fd_blockstore_t );
@@ -796,17 +823,12 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
   fd_buf_shred_t *     shred_pool = fd_blockstore_buf_shred_pool( blockstore );
   fd_buf_shred_map_t * shred_map  = fd_blockstore_buf_shred_map( blockstore );
   fd_shred_key_t       shred_key  = { .slot = shred->slot, .idx = shred->idx };
-  fd_buf_shred_t const * shred_   = fd_buf_shred_map_ele_query_const( shred_map, &shred_key, NULL, shred_pool );
+  fd_buf_shred_t *     shred_     = fd_buf_shred_map_ele_query( shred_map, &shred_key, NULL, shred_pool );
   if( FD_UNLIKELY( shred_ ) ) {
 
-    /* Check if we're seeing a different payload for the same shred key,
-       which indicates equivocation. */
+    /* FIXME we currently cannot handle equivocating shreds. */
 
-    if( FD_UNLIKELY( fd_shred_payload_sz( &shred_->hdr ) != fd_shred_payload_sz( shred ) ) ) {
-      FD_LOG_ERR(( "equivocating shred detected %lu %u. halting.", shred->slot, shred->idx ));
-    }
-
-    if( FD_UNLIKELY( 0 != memcmp( fd_shred_data_payload( &shred_->hdr ), fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) ) ) ) {
+    if( FD_UNLIKELY( is_eqvoc_shred( &shred_->hdr, shred ) ) ) {
       FD_LOG_ERR(( "equivocating shred detected %lu %u. halting.", shred->slot, shred->idx ));
     }
 
