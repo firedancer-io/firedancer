@@ -66,9 +66,10 @@ fd_gui_printf_slot( fd_gui_t * gui,
                     ulong      slot );
 
 void
-fd_gui_printf_slot_request( fd_gui_t * gui,
-                            ulong      slot,
-                            ulong      id );
+fd_gui_printf_slot_request( fd_gui_t *                     gui,
+                            ulong                          slot,
+                            fd_gui_txn_waterfall_t const * prev,
+                            ulong                          id );
 
 void
 fd_gui_printf_live_tile_timers( fd_gui_t * gui );
@@ -78,3 +79,9 @@ fd_gui_printf_live_txn_waterfall( fd_gui_t *               gui,
                                   fd_gui_txn_waterfall_t * prev,
                                   fd_gui_txn_waterfall_t * cur,
                                   ulong                    next_leader_slot );
+
+void
+fd_gui_printf_live_tile_prime_metric( fd_gui_t *                   gui,
+                                      fd_gui_tile_prime_metric_t * prev,
+                                      fd_gui_tile_prime_metric_t * cur,
+                                      ulong                        next_leader_slot );

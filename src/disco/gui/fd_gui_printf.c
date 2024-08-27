@@ -410,8 +410,8 @@ fd_gui_printf_epoch( fd_gui_t * gui,
 
 static void
 fd_gui_printf_waterfall( fd_gui_t *               gui,
-                         fd_gui_txn_waterfall_t * prev,
-                         fd_gui_txn_waterfall_t * cur ) {
+                         fd_gui_txn_waterfall_t const * prev,
+                         fd_gui_txn_waterfall_t const * cur ) {
   jsonp_open_object( gui, "waterfall" );
     jsonp_open_object( gui, "in" );
       jsonp_ulong( gui, "retained", prev->out.pack_retained );
@@ -449,6 +449,30 @@ fd_gui_printf_live_txn_waterfall( fd_gui_t *               gui,
     jsonp_open_object( gui, "value" );
       jsonp_ulong( gui, "next_leader_slot", next_leader_slot );
       fd_gui_printf_waterfall( gui, prev, cur );
+    jsonp_close_object( gui );
+  jsonp_close_envelope( gui );
+}
+
+static void
+fd_gui_printf_tile_prime_metric( fd_gui_t *                   gui,
+                                 fd_gui_tile_prime_metric_t * prev,
+                                 fd_gui_tile_prime_metric_t * cur ) {
+  jsonp_open_object( gui, "tile_primary_metric" );
+    jsonp_ulong( gui, "quic_conns", cur->quic_conns );
+    jsonp_ulong( gui, "net_in",     cur->net_in_bytes  - prev->net_in_bytes );
+    jsonp_ulong( gui, "net_out",    cur->net_out_bytes - prev->net_out_bytes );
+  jsonp_close_object( gui );
+}
+
+void
+fd_gui_printf_live_tile_prime_metric( fd_gui_t *                   gui,
+                                      fd_gui_tile_prime_metric_t * prev,
+                                      fd_gui_tile_prime_metric_t * cur,
+                                      ulong                        next_leader_slot ) {
+  jsonp_open_envelope( gui, "summary", "live_tile_primary_metric" );
+    jsonp_open_object( gui, "value" );
+      jsonp_ulong( gui, "next_leader_slot", next_leader_slot );
+      fd_gui_printf_tile_prime_metric( gui, prev, cur );
     jsonp_close_object( gui );
   jsonp_close_envelope( gui );
 }
@@ -885,9 +909,10 @@ fd_gui_printf_ts_tile_timers( fd_gui_t *                   gui,
 }
 
 void
-fd_gui_printf_slot_request( fd_gui_t * gui,
-                            ulong      _slot,
-                            ulong      id ) {
+fd_gui_printf_slot_request( fd_gui_t *                     gui,
+                            ulong                          _slot,
+                            fd_gui_txn_waterfall_t const * prev,
+                            ulong                          id ) {
   ulong slots_sz = sizeof(gui->slots) / sizeof(gui->slots[ 0 ]);
   fd_gui_slot_t * slot = gui->slots[ _slot % slots_sz ];
 
@@ -916,19 +941,19 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
         jsonp_ulong( gui, "compute_units", slot->compute_units );
       jsonp_close_object( gui );
 
-      fd_gui_printf_waterfall( gui, slot->waterfall_begin, slot->waterfall_end );
+      fd_gui_printf_waterfall( gui, prev, slot->waterfall_end );
 
       jsonp_open_array( gui, "tile_timers" );
-        fd_gui_tile_timers_t const * prev = slot->tile_timers_begin;
+        fd_gui_tile_timers_t const * prev_timer = slot->tile_timers_begin;
 
         ulong end = fd_ulong_if( slot->tile_timers_end_snap_idx<slot->tile_timers_begin_snap_idx, slot->tile_timers_end_snap_idx+sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0]), slot->tile_timers_end_snap_idx );
         ulong stride = (end-slot->tile_timers_begin_snap_idx) / 40UL;
 
         for( ulong sample_snap_idx=slot->tile_timers_begin_snap_idx; sample_snap_idx<end; sample_snap_idx+=stride ) {
-          fd_gui_printf_ts_tile_timers( gui, prev, gui->summary.tile_timers_snap[ sample_snap_idx % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0])) ] );
-          prev = gui->summary.tile_timers_snap[ sample_snap_idx % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0])) ];
+          fd_gui_printf_ts_tile_timers( gui, prev_timer, gui->summary.tile_timers_snap[ sample_snap_idx % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0])) ] );
+          prev_timer = gui->summary.tile_timers_snap[ sample_snap_idx % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0])) ];
         }
-        fd_gui_printf_ts_tile_timers( gui, prev, slot->tile_timers_end );
+        fd_gui_printf_ts_tile_timers( gui, prev_timer, slot->tile_timers_end );
       jsonp_close_array( gui );
 
     jsonp_close_object( gui );

@@ -113,6 +113,20 @@ struct fd_gui_tile_timers {
 
 typedef struct fd_gui_tile_timers fd_gui_tile_timers_t;
 
+struct fd_gui_tile_prime_metric {
+  ulong net_in_bytes;
+  ulong quic_conns;
+  ulong verify_drop_numerator;
+  ulong verify_drop_denominator;
+  ulong dedup_drop_numerator;
+  ulong dedup_drop_denominator;
+  double pack_fill_rate;
+  ulong bank_tps;
+  ulong net_out_bytes;
+};
+
+typedef struct fd_gui_tile_prime_metric fd_gui_tile_prime_metric_t;
+
 struct fd_gui_slot {
   ulong slot;
   long  completed_time;
@@ -125,8 +139,10 @@ struct fd_gui_slot {
   ulong compute_units;
   ulong fees;
 
-  fd_gui_txn_waterfall_t waterfall_begin[ 1 ];
   fd_gui_txn_waterfall_t waterfall_end[ 1 ];
+  ulong end_ref_slot;
+
+  fd_gui_tile_prime_metric_t tile_prime_metric_end[ 1 ];
 
   /* Index into periodic sample array. Inclusive.
      Points to first sample after slot start sample. */
@@ -186,6 +202,10 @@ struct fd_gui {
 
     fd_gui_txn_waterfall_t txn_waterfall_reference[ 1 ];
     fd_gui_txn_waterfall_t txn_waterfall_current[ 1 ];
+    ulong prev_slot_end_slot;
+
+    fd_gui_tile_prime_metric_t tile_prime_metric_ref[ 1 ];
+    fd_gui_tile_prime_metric_t tile_prime_metric_cur[ 1 ];
 
     ulong                  tile_timers_snap_idx;
     fd_gui_tile_timers_t   tile_timers_snap[ 432000UL ][ 64 ]; /* TODO: This can only store about 1 hour of samples */

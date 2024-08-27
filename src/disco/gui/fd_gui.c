@@ -79,6 +79,10 @@ fd_gui_new( void *        shmem,
 
   memset( gui->summary.txn_waterfall_reference, 0, sizeof(gui->summary.txn_waterfall_reference) );
   memset( gui->summary.txn_waterfall_current,   0, sizeof(gui->summary.txn_waterfall_current) );
+  gui->summary.prev_slot_end_slot = ULONG_MAX;
+
+  memset( gui->summary.tile_prime_metric_ref, 0, sizeof(gui->summary.tile_prime_metric_ref) );
+  memset( gui->summary.tile_prime_metric_cur, 0, sizeof(gui->summary.tile_prime_metric_cur) );
 
   memset( gui->summary.tile_timers_snap[ 0 ], 0, sizeof(gui->summary.tile_timers_snap[ 0 ]) );
   memset( gui->summary.tile_timers_snap[ 1 ], 0, sizeof(gui->summary.tile_timers_snap[ 1 ]) );
@@ -92,7 +96,10 @@ fd_gui_new( void *        shmem,
   gui->validator_info.info_cnt       = 0UL;
 
   ulong slots_sz = sizeof(gui->slots) / sizeof(gui->slots[ 0 ]);
-  for( ulong i=0UL; i<slots_sz; i++ ) gui->slots[ i ]->slot = ULONG_MAX;
+  for( ulong i=0UL; i<slots_sz; i++ ) {
+    gui->slots[ i ]->slot         = ULONG_MAX;
+    gui->slots[ i ]->end_ref_slot = ULONG_MAX;
+  }
 
   return gui;
 }
@@ -145,6 +152,12 @@ fd_gui_tile_timers_snap( fd_gui_t *             gui,
                          fd_gui_tile_timers_t * cur ) {
   for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &gui->topo->tiles[ i ];
+    if ( FD_UNLIKELY( !tile->metrics ) ) {
+      /* bench tiles might not have been booted initially.
+         This check shouldn't be necessary if all tiles barrier after boot. */
+      // TODO(FIXME) this probably isn't the right fix but it makes fddev bench work for now
+      return;
+    }
     ulong const * tile_metrics = fd_metrics_tile( tile->metrics );
 
     cur[ i ].housekeeping_ticks       = tile_metrics[ FD_HISTF_BUCKET_CNT + MIDX( HISTOGRAM, STEM, LOOP_HOUSEKEEPING_DURATION_SECONDS ) ];
@@ -414,15 +427,38 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
            kernel ring buffer by querying some network device stats... */
 }
 
+static void
+fd_gui_tile_prime_metric_snap( fd_gui_t *                   gui,
+                               fd_gui_txn_waterfall_t *     w_cur,
+                               fd_gui_tile_prime_metric_t * m_cur ) {
+  fd_topo_t * topo = gui->topo;
+  m_cur->net_in_bytes  = 0UL;
+  m_cur->net_out_bytes = 0UL;
+  m_cur->quic_conns    = 0UL;
+  for( ulong i=0UL; i<gui->summary.quic_tile_cnt; i++ ) {
+    fd_topo_tile_t const * quic = &topo->tiles[ fd_topo_find_tile( topo, "quic", i ) ];
+    ulong * quic_metrics = fd_metrics_tile( quic->metrics );
+
+    m_cur->net_in_bytes  += quic_metrics[ MIDX( COUNTER, QUIC, RECEIVED_BYTES ) ];
+    m_cur->net_out_bytes += quic_metrics[ MIDX( COUNTER, QUIC, SENT_BYTES ) ];
+    m_cur->quic_conns    += quic_metrics[ MIDX( GAUGE, QUIC, CONNECTIONS_ACTIVE ) ];
+  }
+  m_cur->dedup_drop_numerator = w_cur->out.dedup_duplicate;
+  m_cur->verify_drop_numerator = w_cur->out.verify_duplicate + w_cur->out.verify_parse + w_cur->out.verify_failed;
+}
+
 void
 fd_gui_poll( fd_gui_t * gui ) {
   long now = fd_log_wallclock();
 
   if( FD_LIKELY( now>gui->next_sample_100millis ) ) {
     fd_gui_txn_waterfall_snap( gui, gui->summary.txn_waterfall_current );
-
     fd_gui_printf_live_txn_waterfall( gui, gui->summary.txn_waterfall_reference, gui->summary.txn_waterfall_current, 0UL /* TODO: REAL NEXT LEADER SLOT */ );
     fd_hcache_snap_ws_broadcast( gui->hcache );
+
+    fd_gui_tile_prime_metric_snap( gui, gui->summary.txn_waterfall_current, gui->summary.tile_prime_metric_cur );
+    // fd_gui_printf_live_tile_prime_metric( gui, gui->summary.tile_prime_metric_ref, gui->summary.tile_prime_metric_cur, 0UL ); // TODO: REAL NEXT LEADER SLOT
+    // fd_hcache_snap_ws_broadcast( gui->hcache );
 
     gui->next_sample_100millis += 100L*1000L*1000L;
   }
@@ -759,13 +795,29 @@ fd_gui_request_slot( fd_gui_t *    gui,
 
   ulong _slot = slot_param->valueulong;
   fd_gui_slot_t const * slot = gui->slots[ _slot % slots_sz ];
-  if( FD_UNLIKELY( slot->slot!=_slot ) ) {
+  if( FD_UNLIKELY( slot->slot!=_slot || slot->slot==ULONG_MAX ) ) {
     fd_gui_printf_null_query_response( gui, "slot", "query", request_id );
     FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
     return 0;
   }
+  fd_gui_txn_waterfall_t   prev[ 1 ];
+  fd_gui_txn_waterfall_t const * prev_p = prev;
+  fd_gui_slot_t const * prev_end_slot = gui->slots[ slot->end_ref_slot % slots_sz ];
+  if( FD_UNLIKELY( slot->end_ref_slot==ULONG_MAX ) ) {
+    /* This was the first snap after boot
+       so it should reference all zeros. */
+    memset( prev, 0, sizeof(prev) );
+  } else if( FD_UNLIKELY( prev_end_slot->slot!=slot->end_ref_slot ) ) {
+    /* Our reference slot (the previous leader slot) has been
+       overwritten. */
+    fd_gui_printf_null_query_response( gui, "slot", "query", request_id );
+    FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
+    return 0;
+  } else {
+    prev_p = prev_end_slot->waterfall_end;
+  }
 
-  fd_gui_printf_slot_request( gui, _slot, request_id );
+  fd_gui_printf_slot_request( gui, _slot, prev_p, request_id );
   FD_TEST( !fd_hcache_snap_ws_send( gui->hcache, ws_conn_id ) );
   return 0;
 }
@@ -902,8 +954,11 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
      slot. */
 
   fd_gui_txn_waterfall_snap( gui, slot->waterfall_end );
+  fd_gui_tile_prime_metric_snap( gui, slot->waterfall_end, slot->tile_prime_metric_end );
+  slot->end_ref_slot = gui->summary.prev_slot_end_slot;
+  gui->summary.prev_slot_end_slot = _slot[ 0 ];
   memcpy( gui->summary.txn_waterfall_reference, slot->waterfall_end, sizeof(gui->summary.txn_waterfall_reference) );
-  memcpy( gui->summary.txn_waterfall_current,   slot->waterfall_end, sizeof(gui->summary.txn_waterfall_current) );
+  memcpy( gui->summary.tile_prime_metric_ref, slot->tile_prime_metric_end, sizeof(gui->summary.tile_prime_metric_ref) );
 }
 
 static void
@@ -1052,7 +1107,9 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
   if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot );
 
   slot->completed_time = fd_log_wallclock();
-  FD_TEST( slot->level<FD_GUI_SLOT_LEVEL_COMPLETED );
+  if( slot->level>=FD_GUI_SLOT_LEVEL_COMPLETED ) {
+    FD_LOG_ERR(( "_slot %lu we expected level to be < %d but found level=%d", _slot, FD_GUI_SLOT_LEVEL_COMPLETED, slot->level ));
+  }
   slot->level          = FD_GUI_SLOT_LEVEL_COMPLETED;
   slot->total_txn_cnt  = total_txn_count;
   slot->vote_txn_cnt   = total_txn_count - nonvote_txn_count;
