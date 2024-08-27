@@ -239,7 +239,7 @@ after_frag( void *             _ctx,
       return;
     }
 
-    if( FD_UNLIKELY( (long)(ctx->store->curr_turbine_slot - shred->slot) > (long)1024 ) ) {
+    if( FD_UNLIKELY( (long)(ctx->store->curr_turbine_slot - shred->slot) > (long)8192 ) ) {
       FD_LOG_WARNING(("received repair shred with slot %lu that would overrun pending queue. skipping.", shred->slot));
       return;
     }
@@ -270,7 +270,7 @@ after_frag( void *             _ctx,
       continue;
     }
 
-    if( FD_UNLIKELY( (long)(ctx->store->curr_turbine_slot - shred->slot) > (long)1024 ) ) {
+    if( FD_UNLIKELY( (long)(ctx->store->curr_turbine_slot - shred->slot) > (long)8192 ) ) {
       FD_LOG_WARNING(("received shred with slot %lu that would overrun pending queue. skipping.", shred->slot));
       continue;
     }
