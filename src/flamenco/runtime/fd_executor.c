@@ -928,10 +928,10 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
 /* Stuff to be done before multithreading can begin */
 int
-fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
-                               fd_exec_txn_ctx_t *   txn_ctx,
-                               fd_txn_t const *      txn_descriptor,
-                               fd_rawtxn_b_t const * txn_raw ) {
+fd_execute_txn_prepare_start( fd_exec_slot_ctx_t *  slot_ctx,
+                              fd_exec_txn_ctx_t *   txn_ctx,
+                              fd_txn_t const *      txn_descriptor,
+                              fd_rawtxn_b_t const * txn_raw ) {
   /* Init txn ctx */
   fd_exec_txn_ctx_new( txn_ctx );
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
@@ -1014,7 +1014,7 @@ fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 int
-fd_execute_txn_prepare_phase4( fd_exec_txn_ctx_t * txn_ctx ) {
+fd_execute_txn_prepare_finish( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* Update rent exempt on writable accounts if feature activated. All
      writable accounts that don't exist, will already be marked as being

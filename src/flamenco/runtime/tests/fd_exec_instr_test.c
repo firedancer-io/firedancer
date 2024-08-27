@@ -896,36 +896,23 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   tpool->worker_cnt = 1;
   tpool->worker_max = 1;
 
-  int res = fd_runtime_prepare_txns_phase1( slot_ctx, task_info, txn, 1 );
-  (void)res;
-  // if (res != 0) {
-  //   return task_info;
-  // }
+  fd_runtime_prepare_txns_start( slot_ctx, task_info, txn, 1UL );
 
-  res |= fd_runtime_prepare_txns_phase2_tpool( slot_ctx, task_info, 1, tpool );
-  // if (res != 0) {
-  //   return task_info;
-  // }
+  fd_runtime_pre_execute_check( task_info );
 
-  res |= fd_runtime_prepare_txns_phase3( slot_ctx, task_info, 1 );
-  // if (res != 0) {
-  //   return task_info;
-  // }
+  if( !task_info->exec_res ) {
+    int res = fd_execute_txn_prepare_finish( task_info->txn_ctx );
+    if( FD_UNLIKELY( res ) ) {
+      FD_LOG_ERR(("could not prepare txn"));
+    }
 
-  // Below is a stripped-out version of fd_runtime_execute_txn_task because the Agave harness does not reclaim accounts
-  if( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
-    // At this point the transaction error code should have been propogated
-    // to task_info->exec_res
-    return task_info;
+    task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+    task_info->exec_res    = fd_execute_txn( task_info->txn_ctx );
   }
 
-  res = fd_execute_txn_prepare_phase4( task_info->txn_ctx );
-  // if( res != 0 ) {
-  //   return task_info;
-  // }
-  task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-
-  task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
+  slot_ctx->slot_bank.collected_execution_fees += task_info->txn_ctx->execution_fee;
+  slot_ctx->slot_bank.collected_priority_fees  += task_info->txn_ctx->priority_fee;
+  
   return task_info;
 }
 
@@ -1461,16 +1448,14 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     txn_result->fee_details.transaction_fee       = slot_ctx->slot_bank.collected_execution_fees;
     txn_result->fee_details.prioritization_fee    = slot_ctx->slot_bank.collected_priority_fees;
 
-    assert(txn_result->executed);
-
     /* At this point, the transaction has executed */
-    if (exec_res) {
+    if( exec_res ) {
       /* Instruction error index must be set for the txn error to be an instruction error */
       if( txn_ctx->instr_err_idx != INT32_MAX ) {
         txn_result->status = (uint32_t) -FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
         txn_result->instruction_error = (uint32_t) -exec_res;
         txn_result->instruction_error_index = (uint32_t) txn_ctx->instr_err_idx;
-        if (exec_res == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR) {
+        if( exec_res == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
           txn_result->custom_error = txn_ctx->custom_err;
         }
       } else {
