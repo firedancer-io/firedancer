@@ -174,10 +174,10 @@ void
 fd_runtime_cleanup_incinerator( fd_exec_slot_ctx_t * slot_ctx );
 
 int
-fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
-                                      fd_execute_txn_task_info_t * task_info,
-                                      ulong txn_cnt,
-                                      fd_tpool_t * tpool );
+fd_runtime_prep_and_exec_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                                     fd_execute_txn_task_info_t * task_info,
+                                     ulong txn_cnt,
+                                     fd_tpool_t * tpool );
 
 int
 fd_runtime_prepare_txns( fd_exec_slot_ctx_t * slot_ctx,
@@ -186,10 +186,10 @@ fd_runtime_prepare_txns( fd_exec_slot_ctx_t * slot_ctx,
                          ulong txn_cnt );
 
 int
-fd_runtime_prepare_txns_phase1( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_execute_txn_task_info_t * task_info,
-                         fd_txn_p_t * txns,
-                         ulong txn_cnt );
+fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
+                               fd_execute_txn_task_info_t * task_info,
+                               fd_txn_p_t *                 txns,
+                               ulong                        txn_cnt );
 
 int
 fd_runtime_prepare_txns_phase3( fd_exec_slot_ctx_t * slot_ctx,
@@ -213,6 +213,12 @@ fd_runtime_collect_rent_account( fd_exec_slot_ctx_t * slot_ctx,
                                  fd_account_meta_t * acc,
                                  fd_pubkey_t const * key,
                                  ulong epoch );
+
+void
+fd_runtime_execute_txn( fd_execute_txn_task_info_t * task_info );
+
+void
+fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info );
 
 int
 fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
