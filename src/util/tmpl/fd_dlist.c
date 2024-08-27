@@ -127,6 +127,14 @@
 
      mydlist_t * mydlist_remove_all( mydlist_t * join, myele_t * pool );
 
+     // mydlist_merge_head prepends other to the head of list.
+     // mydlist_merge_tail appends other to the tail of list.
+     // Returns list.  On return, other is empty.  U.B. if list and
+     // other share an element in the pool.
+
+     mydlist_t * mydlist_merge_head( mydlist_t * list, mydlist_t * other, myele_t const * pool );
+     mydlist_t * mydlist_merge_tail( mydlist_t * list, mydlist_t * other, myele_t const * pool );
+
      // mydlist_iter_* support fast ordered forward (head to tail) and
      // reverse (tail to head) iteration over all the elements in a
      // dlist.  Example usage:
@@ -624,6 +632,54 @@ DLIST_(iter_ele_const)( DLIST_(iter_t)      iter,
                         DLIST_ELE_T const * pool ) {
   (void)join; (void)pool;
   return pool + iter;
+}
+
+static inline DLIST_(t) *
+DLIST_(merge_head)( DLIST_(t) *   list,
+                    DLIST_(t) *   other,
+                    DLIST_ELE_T * pool ) {
+
+  DLIST_(private_t) * dst = DLIST_(private)( list  );
+  DLIST_(private_t) * src = DLIST_(private)( other );
+
+  ulong head_idx    = src->head;
+  ulong merge_l_idx = src->tail;
+  ulong merge_r_idx = dst->head;
+
+  *fd_ptr_if( !DLIST_(private_idx_is_null)( merge_r_idx ), &pool[ merge_r_idx ].DLIST_PREV, &dst->tail ) =
+    DLIST_(private_cidx)( merge_l_idx );
+
+  if( !DLIST_(private_idx_is_null)( merge_l_idx ) ) {
+    pool[ merge_l_idx ].DLIST_NEXT = DLIST_(private_cidx)( merge_r_idx );
+    dst->head                      = DLIST_(private_cidx)( head_idx   );
+  }
+
+  src->head = src->tail = DLIST_(private_cidx)( DLIST_(private_idx_null)() );
+  return list;
+}
+
+static inline DLIST_(t) *
+DLIST_(merge_tail)( DLIST_(t) *   list,
+                    DLIST_(t) *   other,
+                    DLIST_ELE_T * pool ) {
+
+  DLIST_(private_t) * dst = DLIST_(private)( list  );
+  DLIST_(private_t) * src = DLIST_(private)( other );
+
+  ulong tail_idx   = src->tail;
+  ulong merge_l_idx = dst->tail;
+  ulong merge_r_idx = src->head;
+
+  *fd_ptr_if( !DLIST_(private_idx_is_null)( merge_l_idx ), &pool[ merge_l_idx ].DLIST_NEXT, &dst->head ) =
+    DLIST_(private_cidx)( merge_r_idx );
+
+  if( !DLIST_(private_idx_is_null)( merge_r_idx ) ) {
+    pool[ merge_r_idx ].DLIST_PREV = DLIST_(private_cidx)( merge_l_idx );
+    dst->tail                      = DLIST_(private_cidx)( tail_idx   );
+  }
+
+  src->head = src->tail = DLIST_(private_cidx)( DLIST_(private_idx_null)() );
+  return list;
 }
 
 FD_PROTOTYPES_END

@@ -78,6 +78,14 @@
 
      myslist_t * myslist_remove_all( myslist_t * join );
 
+     // myslist_fuse_head prepends other to the head of list.
+     // myslist_fuse_tail appends other to the tail of list.
+     // Returns list.  On return, other is empty.  U.B. if list and
+     // other share an element in the pool.
+
+     myslist_t * mylist_merge_head( myslist_t * list, myslist_t * other, myele_t const * pool );
+     myslist_t * mylist_merge_tail( myslist_t * list, myslist_t * other, myele_t const * pool );
+
      // myslist_verify returns 0 if the myslist is not obviously corrupt
      // or -1 (i.e. ERR_INVAL) otherwise (logs details).
 
