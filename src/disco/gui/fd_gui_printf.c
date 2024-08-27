@@ -291,12 +291,11 @@ fd_gui_printf_startup_progress( fd_gui_t * gui ) {
 
       if( FD_LIKELY( gui->summary.startup_progress>=FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY ) && gui->summary.startup_waiting_for_supermajority_slot!=ULONG_MAX ) {
         jsonp_ulong( gui, "waiting_for_supermajority_slot",      gui->summary.startup_waiting_for_supermajority_slot );
-        jsonp_ulong( gui, "waiting_for_supermajority_stake_pct", gui->summary.startup_waiting_for_supermajority_stake_pct );
+        jsonp_ulong( gui, "waiting_for_supermajority_stake_percent", gui->summary.startup_waiting_for_supermajority_stake_pct );
       } else {
         jsonp_null( gui, "waiting_for_supermajority_slot" );
-        jsonp_null( gui, "waiting_for_supermajority_stake_pct" );
+        jsonp_null( gui, "waiting_for_supermajority_stake_percent" );
       }
-      jsonp_ulong( gui, "snapshot_slot",                       gui->summary.startup_snapshot_slot );
     jsonp_close_object( gui );
   jsonp_close_envelope( gui );
 }
