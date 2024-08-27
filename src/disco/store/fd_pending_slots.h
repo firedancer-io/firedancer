@@ -4,7 +4,7 @@
 #include "../../util/fd_util.h"
 
 
-#define FD_PENDING_MAX      ( 1U << 14U ) /* 16 kb */
+#define FD_PENDING_MAX      ( 1U << 16U ) /* 128 kb */
 #define FD_PENDING_MASK     ( FD_PENDING_MAX - 1U )
 
 struct fd_pending_slots {

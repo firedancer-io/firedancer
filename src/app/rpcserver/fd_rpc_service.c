@@ -1238,7 +1238,7 @@ method_getSignatureStatuses(struct json_values* values, fd_rpc_ctx_t * ctx) {
     }
 
     // TODO other fields
-    fd_web_reply_sprintf(ws, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"confirmationStatus\":%s}",
+    fd_web_reply_sprintf(ws, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"status\":{\"Ok\":null},\"confirmationStatus\":%s}",
                          elem.slot, block_flags_to_confirmation_status(flags));
   }
 

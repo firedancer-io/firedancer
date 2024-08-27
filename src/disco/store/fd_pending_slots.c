@@ -136,13 +136,14 @@ fd_pending_slots_iter_next( fd_pending_slots_t * pending_slots,
 int
 fd_pending_slots_check( fd_pending_slots_t const * pending_slots,
                         ulong                      slot ) {
-  if( (long)(pending_slots->end - slot) > (long)FD_PENDING_MAX ) {
+  if( pending_slots->start == pending_slots->end ) {
+    return 1;
+  } else if( slot < pending_slots->start && (long)(pending_slots->end - slot) > (long)FD_PENDING_MAX ) {
+    return 0;
+  } else if( slot >= pending_slots->end && (long)(slot - pending_slots->start) > (long)FD_PENDING_MAX ) {
     return 0;
   }
-  if( (long)(slot - pending_slots->start) > (long)FD_PENDING_MAX ) {
-    return 0;
-  }
-  
+
   return 1;
 }
 
