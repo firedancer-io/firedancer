@@ -443,8 +443,16 @@ fd_gui_tile_prime_metric_snap( fd_gui_t *                   gui,
     m_cur->net_out_bytes += quic_metrics[ MIDX( COUNTER, QUIC, SENT_BYTES ) ];
     m_cur->quic_conns    += quic_metrics[ MIDX( GAUGE, QUIC, CONNECTIONS_ACTIVE ) ];
   }
-  m_cur->dedup_drop_numerator = w_cur->out.dedup_duplicate;
-  m_cur->verify_drop_numerator = w_cur->out.verify_duplicate + w_cur->out.verify_parse + w_cur->out.verify_failed;
+  m_cur->verify_drop_numerator   = w_cur->out.verify_duplicate +
+                                   w_cur->out.verify_parse +
+                                   w_cur->out.verify_failed;
+  m_cur->verify_drop_denominator = w_cur->in.gossip +
+                                   w_cur->in.quic +
+                                   w_cur->in.udp -
+                                   w_cur->out.verify_overrun;
+  m_cur->dedup_drop_numerator    = w_cur->out.dedup_duplicate;
+  m_cur->dedup_drop_denominator  = m_cur->verify_drop_denominator -
+                                   m_cur->verify_drop_numerator;
 }
 
 void
@@ -955,6 +963,7 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
 
   fd_gui_txn_waterfall_snap( gui, slot->waterfall_end );
   fd_gui_tile_prime_metric_snap( gui, slot->waterfall_end, slot->tile_prime_metric_end );
+  FD_LOG_NOTICE(( "slot->end_ref_slot %lu gui->summary.prev_slot_end_slot %lu _slot[ 0 ] %lu", slot->end_ref_slot, gui->summary.prev_slot_end_slot, _slot[ 0 ] ));
   slot->end_ref_slot = gui->summary.prev_slot_end_slot;
   gui->summary.prev_slot_end_slot = _slot[ 0 ];
   memcpy( gui->summary.txn_waterfall_reference, slot->waterfall_end, sizeof(gui->summary.txn_waterfall_reference) );

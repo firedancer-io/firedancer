@@ -1055,7 +1055,7 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
     }
   }
 
-  if( FD_UNLIKELY( leader_before_reset ) ) {
+  if( FD_UNLIKELY( leader_before_reset && ctx->current_leader_bank ) ) {
     /* No longer have a leader bank if we are reset. Replay stage will
        call back again to give us a new one if we should become leader
        for the reset slot.
