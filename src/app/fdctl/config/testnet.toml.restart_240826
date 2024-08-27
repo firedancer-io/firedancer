@@ -18,6 +18,9 @@ scratch_directory = "/data/fd1"
         "eoKpUABi59aT4rR9HGS3LcMecfut9x7zJyodWWP43YQ",
         "9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv",
     ]
+    wait_for_supermajority_at_slot = 289624982
+    expected_bank_hash = "EXknCC4rNBR5SyBVrUgUB3FaoGbujPMoraEjG7C49Bdk"
+    expected_shred_version = 4084
 
 [rpc]
     port = 8899

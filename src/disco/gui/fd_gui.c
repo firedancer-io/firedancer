@@ -915,7 +915,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   ulong parent_slot_idx = 0UL;
 
   ulong slots_sz = sizeof(gui->slots) / sizeof(gui->slots[ 0 ]);
-  for( ulong i=0UL; i<=_slot; i++ ) {
+  for( ulong i=0UL; i<fd_ulong_min(_slot, 864000UL); i++ ) {
     fd_gui_slot_t * slot = gui->slots[ (_slot-i) % slots_sz ];
 
     int should_republish = 0;
@@ -968,12 +968,14 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   long  last_time_nanos     = 0L;
 
   for( ulong i=0UL; i<=fd_ulong_min(_slot, 150UL); i++ ) {
-    ulong parent = (_slot+(slots_sz-i))%slots_sz;
+    ulong parent_idx = (_slot-i)%slots_sz;
 
-    fd_gui_slot_t * slot = gui->slots[ parent ];
+    fd_gui_slot_t * slot = gui->slots[ parent_idx ];
     if( FD_UNLIKELY( slot->slot==ULONG_MAX) ) break;
 
-    FD_TEST( slot->slot==(_slot-i) );
+    if( FD_UNLIKELY( slot->slot!=(_slot-i) ) ) {
+      FD_LOG_ERR(( "_slot %lu i %lu we expect _slot-i %lu got slot->slot %lu", _slot, i, _slot-i, slot->slot ));
+    }
 
     if( FD_LIKELY( !slot->skipped ) ) {
       total_txn_cnt  += slot->total_txn_cnt;
@@ -1009,13 +1011,16 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   long last_published = gui->slots[ _slot % slots_sz ]->completed_time;
 
   for( ulong i=0UL; i<fd_ulong_min( _slot, 750UL ); i++ ) {
-    ulong parent = _slot-i;
+    ulong parent_slot = _slot - i;
+    ulong parent_idx  = parent_slot % slots_sz;
 
-    fd_gui_slot_t * slot = gui->slots[ parent % slots_sz ];
+    fd_gui_slot_t * slot = gui->slots[ parent_idx ];
     if( FD_UNLIKELY( slot->slot==ULONG_MAX) ) break;
-    FD_TEST( slot->slot==parent );
+    if( FD_UNLIKELY( slot->slot!=parent_slot ) ) {
+      FD_LOG_ERR(( "_slot %lu i %lu we expect _slot-i %lu got slot->slot %lu", _slot, i, _slot-i, slot->slot ));
+    }
 
-    last_slot      = parent;
+    last_slot      = parent_slot;
     last_published = slot->completed_time;
   }
 
@@ -1065,10 +1070,14 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui,
   ulong _slot = msg[ 0 ];
 
   ulong slots_sz = sizeof(gui->slots) / sizeof(gui->slots[ 0 ]);
-  for( ulong i=0UL; i<=_slot; i++ ) {
-    fd_gui_slot_t * slot = gui->slots[ (_slot-i) % slots_sz ];
+  for( ulong i=0UL; i<fd_ulong_min(_slot, 864000UL); i++ ) {
+    ulong parent_idx = (_slot-i)%slots_sz;
+    fd_gui_slot_t * slot = gui->slots[ parent_idx ];
+    if( FD_UNLIKELY( slot->slot==ULONG_MAX) ) break;
 
-    FD_TEST( slot->slot==(_slot-i) );
+    if( FD_UNLIKELY( slot->slot!=(_slot-i) ) ) {
+      FD_LOG_ERR(( "_slot %lu i %lu we expect _slot-i %lu got slot->slot %lu", _slot, i, _slot-i, slot->slot ));
+    }
     if( FD_UNLIKELY( slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
 
     slot->level = FD_GUI_SLOT_LEVEL_ROOTED;
