@@ -755,6 +755,7 @@ fd_runtime_execute_txn_task(void *tpool,
     return;
   }
   fd_txn_reclaim_accounts( task_info->txn_ctx );
+
   // FD_LOG_WARNING(("Transaction result %d for %64J %lu %lu %lu", task_info->exec_res, (uchar *)raw_txn->raw + txn->signature_off, task_info->txn_ctx->compute_meter, task_info->txn_ctx->compute_unit_limit, task_info->txn_ctx->num_instructions));
 }
 
@@ -1341,60 +1342,58 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   return 0;
 }
 
+/* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/accounts-db/src/accounts.rs#L700 */
 int
-fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
-                                fd_capture_ctx_t * capture_ctx,
+fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
+                                fd_capture_ctx_t *           capture_ctx,
                                 fd_execute_txn_task_info_t * task_info,
-                                ulong txn_cnt,
-                                fd_tpool_t * tpool ) {
+                                ulong                        txn_cnt,
+                                fd_tpool_t *                 tpool ) {
   FD_SCRATCH_SCOPE_BEGIN {
-    ulong accounts_to_save_cnt = 0;
 
-    /* Query the prune transaction if we are pruning */
     fd_funk_txn_t * prune_txn = NULL;
-    if ( capture_ctx != NULL && capture_ctx->pruned_funk != NULL ) {
+    if( capture_ctx != NULL && capture_ctx->pruned_funk != NULL ) {
       fd_funk_txn_xid_t prune_xid;
       fd_memset( &prune_xid, 0x42, sizeof(fd_funk_txn_xid_t) );
       fd_funk_txn_t * txn_map = fd_funk_txn_map( capture_ctx->pruned_funk, fd_funk_wksp( capture_ctx->pruned_funk ) );
       prune_txn = fd_funk_txn_query( &prune_xid, txn_map );
     }
 
-    fd_txncache_insert_t * status_insert = NULL;
-    uchar * results = NULL;
-    ulong num_cache_txns = 0;
+    fd_txncache_insert_t * status_insert  = NULL;
+    uchar *                results        = NULL;
+    ulong                  num_cache_txns = 0UL;
 
-    if( slot_ctx->status_cache ) {
+    if( FD_LIKELY( slot_ctx->status_cache ) ) {
       status_insert = fd_scratch_alloc( alignof(fd_txncache_insert_t), txn_cnt * sizeof(fd_txncache_insert_t) );
-      results = fd_scratch_alloc( alignof(uchar), txn_cnt * sizeof(uchar) );
+      results       = fd_scratch_alloc( alignof(uchar), txn_cnt * sizeof(uchar) );
     }
-    /* Finalize */
-    for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
+
+    fd_borrowed_account_t * * accounts_to_save = fd_scratch_alloc( 8UL, 128UL * txn_cnt * sizeof(fd_borrowed_account_t *) );
+    ulong acc_idx = 0UL;
+    for( ulong txn_idx=0UL; txn_idx<txn_cnt; txn_idx++ ) {
       /* Transaction was skipped due to preparation failure. */
-      if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
+      if( FD_UNLIKELY( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) {
         continue;
       }
-
-      fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
-      int exec_txn_err = task_info[txn_idx].exec_res;
+      
+      fd_exec_txn_ctx_t * txn_ctx      = task_info[txn_idx].txn_ctx;
+      int                 exec_txn_err = task_info[txn_idx].exec_res;
 
       /* Add all involved records to pruned funk */
-      if ( capture_ctx != NULL && capture_ctx->pruned_funk != NULL ) {
+      if( FD_UNLIKELY( capture_ctx != NULL && capture_ctx->pruned_funk != NULL ) ) {
         fd_funk_start_write( capture_ctx->pruned_funk );
         fd_runtime_copy_accounts_to_pruned_funk( capture_ctx->pruned_funk, prune_txn, slot_ctx, txn_ctx );
         fd_funk_end_write( capture_ctx->pruned_funk );
       }
 
       /* For ledgers that contain txn status, decode and write out for solcap */
-      if ( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns ) {
+      if( FD_UNLIKELY( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns ) ) {
         fd_runtime_write_transaction_status( capture_ctx, slot_ctx, txn_ctx, exec_txn_err );
       }
 
-      for ( ulong i = 0; i < txn_ctx->accounts_cnt; i++) {
-        if( txn_ctx->nonce_accounts[i] ) {
-          accounts_to_save_cnt++;
-        }
-      }
-      if( slot_ctx->status_cache ) {
+      slot_ctx->signature_cnt += txn_ctx->txn_descriptor->signature_cnt;
+
+      if( FD_LIKELY( slot_ctx->status_cache ) ) {
         results[num_cache_txns] = exec_txn_err == 0 ? 1 : 0;
         fd_txncache_insert_t * curr_insert = &status_insert[num_cache_txns];
         curr_insert->blockhash = ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
@@ -1404,162 +1403,104 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
         curr_insert->result = &results[num_cache_txns];
         num_cache_txns++;
       }
-      if( exec_txn_err != 0 ) {
-        accounts_to_save_cnt++;
-        // fd_funk_txn_cancel( slot_ctx->acc_mgr->funk, txn_ctx->funk_txn, 0 );
-        continue;
-      }
 
-      int dirty_vote_acc  = txn_ctx->dirty_vote_acc;
-      int dirty_stake_acc = txn_ctx->dirty_stake_acc;
-
-      for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
-        fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
-
-        if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
-          continue;
-        }
-
-        if( dirty_vote_acc && 0==memcmp( acc_rec->const_meta->info.owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
-          fd_vote_store_account( slot_ctx, acc_rec );
-          FD_SCRATCH_SCOPE_BEGIN {
-            fd_vote_state_versioned_t vsv[1];
-            fd_bincode_decode_ctx_t decode_vsv =
-              { .data    = acc_rec->const_data,
-                .dataend = acc_rec->const_data + acc_rec->const_meta->dlen,
-                .valloc  = fd_scratch_virtual() };
-
-            int err = fd_vote_state_versioned_decode( vsv, &decode_vsv );
-            if( err ) break; /* out of scratch scope */
-
-            fd_vote_block_timestamp_t const * ts = NULL;
-            switch( vsv->discriminant ) {
-            case fd_vote_state_versioned_enum_v0_23_5:
-              ts = &vsv->inner.v0_23_5.last_timestamp;
-              break;
-            case fd_vote_state_versioned_enum_v1_14_11:
-              ts = &vsv->inner.v1_14_11.last_timestamp;
-              break;
-            case fd_vote_state_versioned_enum_current:
-              ts = &vsv->inner.current.last_timestamp;
-              break;
-            default:
-              __builtin_unreachable();
+      if( FD_UNLIKELY( exec_txn_err ) ) {
+        /* Save the fee_payer */
+        txn_ctx->borrowed_accounts[0].meta->info.lamports = txn_ctx->borrowed_accounts[0].starting_lamports;
+        accounts_to_save[acc_idx++] = &txn_ctx->borrowed_accounts[0];
+        for( ulong i=1UL; i<txn_ctx->accounts_cnt; i++ ) {
+          if( txn_ctx->nonce_accounts[i] ) {
+            ushort                recent_blockhash_off = txn_ctx->txn_descriptor->recent_blockhash_off;
+            fd_hash_t *           recent_blockhash     = (fd_hash_t *)((uchar *)txn_ctx->_txn_raw->raw + recent_blockhash_off);
+            fd_block_hash_queue_t queue                = slot_ctx->slot_bank.block_hash_queue;
+            ulong                 queue_sz             = fd_hash_hash_age_pair_t_map_size( queue.ages_pool, queue.ages_root );
+            if( FD_UNLIKELY( !queue_sz ) ) {
+              FD_LOG_ERR(( "Blockhash queue is empty" ));
             }
 
-            fd_vote_record_timestamp_vote_with_slot( slot_ctx, acc_rec->pubkey, ts->timestamp, ts->slot );
-          }
-          FD_SCRATCH_SCOPE_END;
-        }
-
-        if( dirty_stake_acc && 0==memcmp( acc_rec->const_meta->info.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
-          // TODO does this correctly handle stake account close?
-          fd_store_stake_delegation( slot_ctx, acc_rec );
-        }
-
-        if( txn_ctx->unknown_accounts[i] ) {
-          memset( acc_rec->meta->hash, 0xFF, sizeof(fd_hash_t) );
-          fd_txn_set_exempt_rent_epoch_max( txn_ctx, &txn_ctx->accounts[i] );
-        }
-        if( !txn_ctx->nonce_accounts[i] ) {
-          accounts_to_save_cnt++; /* Don't double count nonce accounts */
-        }
-      }
-    }
-
-    if( slot_ctx->status_cache ) {
-      if( !fd_txncache_insert_batch( slot_ctx->status_cache, status_insert, num_cache_txns ) ) {
-        FD_LOG_WARNING(("Status cache is full, this should not be possible"));
-      }
-    }
-
-    fd_borrowed_account_t * * accounts_to_save = fd_scratch_alloc( 8UL, accounts_to_save_cnt * sizeof(fd_borrowed_account_t *) );
-    ulong accounts_to_save_idx = 0;
-    for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
-      /* Transaction was skipped due to preparation failure. */
-      if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
-        continue;
-      }
-
-      fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
-      int exec_txn_err = task_info[txn_idx].exec_res;
-
-      for( ulong i = 0; i < txn_ctx->accounts_cnt; i++) {
-        /* TODO: factor this out into a separate function */
-        /* Even if a transaction fails, we still include the nonce account if it
-           was part of the transaction. However, there is an exception to this:
-           if a blockhash from the last 151 blockhashes in the blockhash queue
-           is found then we do not include the nonce account. Agave handles this
-           check before transaction execution and propogates if a nonce was valid
-           to the point where the accounts are stored after execution. Firedancer
-           instead computes this after the transaction has finished executing. */
-        if( !txn_ctx->nonce_accounts[i] ) {
-          continue;
-        }
-        int skip_hash = 0;
-
-        ushort      recent_blockhash_off = task_info[txn_idx].txn_ctx->txn_descriptor->recent_blockhash_off;
-        fd_hash_t * recent_blockhash     = (fd_hash_t *)((uchar *)task_info[txn_idx].txn_ctx->_txn_raw->raw + recent_blockhash_off);
-        if( FD_UNLIKELY( !recent_blockhash ) ) {
-          FD_LOG_ERR(( "Transaction has no recent blockhash" ));
-        }
-
-        /* If the transaction fails */
-        if( FD_UNLIKELY( exec_txn_err!=0 ) ) {
-      
-          /* https://github.com/anza-xyz/agave/blob/ab04ff8fae8c708d495c5b8d59f3ba354be291d7/runtime/src/bank.rs#L3481 */
-          fd_block_hash_queue_t queue             = slot_ctx->slot_bank.block_hash_queue;
-          ulong                 queue_sz          = fd_hash_hash_age_pair_t_map_size( queue.ages_pool, queue.ages_root );
-
-          if( FD_UNLIKELY( !queue_sz ) ) {
-            FD_LOG_ERR(( "Blockhash queue is empty" ));
-          }
-
-          if( fd_executor_is_blockhash_valid_for_age( &queue, recent_blockhash, FD_RECENT_BLOCKHASHES_MAX_ENTRIES ) ) {
-            skip_hash = 1;
-            accounts_to_save_cnt--;
+            if( !fd_executor_is_blockhash_valid_for_age( &queue, recent_blockhash, FD_RECENT_BLOCKHASHES_MAX_ENTRIES ) ) {
+              accounts_to_save[acc_idx++] = &txn_ctx->borrowed_accounts[i];
+            }
             break;
           }
         }
-        /* Only save if a hash didn't match */
-        if( !skip_hash ) {
-          fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
-          accounts_to_save[accounts_to_save_idx++] = acc_rec;
-        }
-      }
+      } else {
+        int dirty_vote_acc  = txn_ctx->dirty_vote_acc;
+        int dirty_stake_acc = txn_ctx->dirty_stake_acc;
 
-      if( exec_txn_err != 0 ) {
-        /* save the fee payer, but rollback changed lamports */
-        txn_ctx->borrowed_accounts[0].meta->info.lamports = txn_ctx->borrowed_accounts[0].starting_lamports;
-        accounts_to_save[accounts_to_save_idx++] = &txn_ctx->borrowed_accounts[0];
-        continue;
-      }
+        for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
+          if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
+            continue;
+          }
 
-      for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
-        if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
-          continue;
-        }
-        if( !txn_ctx->nonce_accounts[i] ) {
           fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
-          accounts_to_save[accounts_to_save_idx++] = acc_rec;
+
+          if( dirty_vote_acc && !memcmp( acc_rec->const_meta->info.owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
+            fd_vote_store_account( slot_ctx, acc_rec );
+            FD_SCRATCH_SCOPE_BEGIN {
+              fd_vote_state_versioned_t vsv[1];
+              fd_bincode_decode_ctx_t decode_vsv =
+                { .data    = acc_rec->const_data,
+                  .dataend = acc_rec->const_data + acc_rec->const_meta->dlen,
+                  .valloc  = fd_scratch_virtual() };
+
+              int err = fd_vote_state_versioned_decode( vsv, &decode_vsv );
+              if( err ) break; /* out of scratch scope */
+
+              fd_vote_block_timestamp_t const * ts = NULL;
+              switch( vsv->discriminant ) {
+              case fd_vote_state_versioned_enum_v0_23_5:
+                ts = &vsv->inner.v0_23_5.last_timestamp;
+                break;
+              case fd_vote_state_versioned_enum_v1_14_11:
+                ts = &vsv->inner.v1_14_11.last_timestamp;
+                break;
+              case fd_vote_state_versioned_enum_current:
+                ts = &vsv->inner.current.last_timestamp;
+                break;
+              default:
+                __builtin_unreachable();
+              }
+
+              fd_vote_record_timestamp_vote_with_slot( slot_ctx, acc_rec->pubkey, ts->timestamp, ts->slot );
+            }
+            FD_SCRATCH_SCOPE_END;
+          }
+
+          if( dirty_stake_acc && !memcmp( acc_rec->const_meta->info.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
+            // TODO: does this correctly handle stake account close?
+            fd_store_stake_delegation( slot_ctx, acc_rec );
+          }
+
+          if( txn_ctx->unknown_accounts[i] ) {
+            memset( acc_rec->meta->hash, 0xFF, sizeof(fd_hash_t) );
+            fd_txn_set_exempt_rent_epoch_max( txn_ctx, &txn_ctx->accounts[i] );
+          }
+
+          accounts_to_save[acc_idx++] = acc_rec;
         }
       }
     }
 
+    /* All the accounts have been accumulated and can be saved */
+
     // TODO: we need to use the txn ctx funk_txn, valloc, etc.
-    int err = fd_acc_mgr_save_many_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, accounts_to_save, accounts_to_save_cnt, tpool );
-    if( err != FD_ACC_MGR_SUCCESS ) {
+    int err = fd_acc_mgr_save_many_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, accounts_to_save, acc_idx, tpool );
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_ERR(( "failed to save edits to accounts" ));
       return -1;
     }
 
-    for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
-      /* Transaction was skipped due to preparation failure. */
-      if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
-        continue;
-      }
+    for( ulong txn_idx=0UL; txn_idx<txn_cnt; txn_idx++ ) {
 
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
+
+      /* Transaction was skipped due to preparation failure. */
+
+      if( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
+        fd_valloc_free( fd_scratch_virtual(), txn_ctx );
+        continue;
+      }
 
       for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
         fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
@@ -1568,25 +1509,26 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
           fd_valloc_free( txn_ctx->valloc, acc_rec_data );
         }
       }
+      
+      fd_valloc_free( fd_scratch_virtual(), txn_ctx );
+
     }
 
     fd_funk_start_write( slot_ctx->acc_mgr->funk );
-    int ret = fd_funk_txn_merge_all_children(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 1);
+    int ret = fd_funk_txn_merge_all_children( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 0 );
     fd_funk_end_write( slot_ctx->acc_mgr->funk );
-    if( ret != FD_FUNK_SUCCESS ) {
+
+    if( FD_UNLIKELY( ret!=FD_FUNK_SUCCESS ) ) {
       FD_LOG_ERR(( "failed merging funk transaction: (%i-%s) ", ret, fd_funk_strerror(ret) ));
     }
 
-    for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
-      fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
-      if( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) {
-        slot_ctx->signature_cnt += txn_ctx->txn_descriptor->signature_cnt;
+    if( FD_LIKELY( slot_ctx->status_cache ) ) {
+      if( FD_UNLIKELY( !fd_txncache_insert_batch( slot_ctx->status_cache, status_insert, num_cache_txns ) ) ) {
+        FD_LOG_WARNING(("Status cache is full, this should not be possible"));
       }
-
-      fd_valloc_free( fd_scratch_virtual(), txn_ctx );
     }
 
-    return 0;
+  return 0;
   } FD_SCRATCH_SCOPE_END;
 }
 
@@ -1798,15 +1740,15 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
           FD_LOG_DEBUG(("Fail prep 2"));
         }
 
-        res |= fd_runtime_prepare_txns_phase3( slot_ctx, wave_task_infos, wave_task_infos_cnt );
-        if( res != 0 ) {
-          FD_LOG_DEBUG(("Fail prep 3"));
-        }
+        // res |= fd_runtime_prepare_txns_phase3( slot_ctx, wave_task_infos, wave_task_infos_cnt );
+        // if( res != 0 ) {
+        //   FD_LOG_DEBUG(("Fail prep 3"));
+        // }
 
         fd_tpool_exec_all_taskq( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_runtime_execute_txn_task, wave_task_infos, NULL, NULL, 1, 0, wave_task_infos_cnt );
         int finalize_res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, wave_task_infos, wave_task_infos_cnt, tpool );
         if( finalize_res != 0 ) {
-          FD_LOG_ERR(("Fail finalize"));
+         FD_LOG_ERR(("Fail finalize"));
         }
 
         wave_time += fd_log_wallclock();
