@@ -428,6 +428,58 @@ strictly. Transactions in could be more or less than transactions out
 due to sampling jiter. When subtracting, be sure to account for
 potential underflow.
 
+#### `summary.live_tile_primary_metric`
+| frequency        | type                    | example |
+|------------------|-------------------------|---------|
+| *Once* + *100ms* | `LiveTilePrimaryMetric` | below   |
+
+::: details Example
+
+```json
+{
+    "topic": "summary",
+    "key": "live_tile_primary_metric",
+    "value": {
+        "next_leader_slot": 285228774,
+        "tile_primary_metric": {
+            "quic": 3,
+            "net_in": 37803082,
+            "net_out": 4982399,
+            "verify": 0,
+            "dedup": 0,
+            "bank": 89407,
+            "pack": 0,
+            "poh": 0,
+            "shred": 0,
+            "store": 0
+        }
+    }
+}
+```
+
+:::
+
+**`LiveTilePrimaryMetric`**
+| Field               | Type                | Description
+|---------------------|---------------------|------------
+| next_leader_slot    | `number\|null`      | The next leader slot |
+| tile_primary_metric | `TilePrimaryMetric` | Per-tile-type primary metrics since the end of the previous leader slot |
+
+**`TilePrimaryMetric`**
+| Field   | Type     | Description |
+|---------|----------|-------------|
+| net_in  | `number` | Ingress bytes per second |
+| quic    | `number` | Active QUIC connections |
+| verify  | `number` | Fraction of transactions that failed sigverify |
+| dedup   | `number` | Fraction of transactions deduplicated |
+| pack    | `number` | Fraction of pack buffer filled |
+| bank    | `number` | Execution TPS |
+| poh     | `number` | Fraction of time spent hashing |
+| shred   | `number` | Shreds processed per second |
+| store   | `number` | 50% percentile latency |
+| net_out | `number` | Egress bytes per second |
+
+
 #### `summary.live_tile_timers`
 | frequency        | type          | example |
 |------------------|---------------|---------|
@@ -792,6 +844,18 @@ initially replay one but the cluster votes on the other one.
                 "block_fail": 3720
             }
         },
+        "tile_primary_metric": {
+            "quic": 3,
+            "net_in": 37803082,
+            "net_out": 4982399,
+            "verify": 0,
+            "dedup": 0,
+            "bank": 89407,
+            "pack": 0,
+            "poh": 0,
+            "shred": 0,
+            "store": 0
+        },
         "tile_timers": [
             {
                 "timestamp_nanos": 0,
@@ -982,11 +1046,12 @@ initially replay one but the cluster votes on the other one.
 :::
 
 **`SlotResponse`**
-| Field       | Type                   | Description |
-|-------------|------------------------|-------------|
-| publish     | `SlotPublish`          | General information about the slot |
-| waterfall   | `TxnWaterfall\|null`   | If the slot is not `mine`, will be `null`. Otherwise, a waterfall showing reasons transactions were acquired since the end of the prior leader slot |
-| tile_timers | `TsTileTimers[]\|null` | If the slot is not `mine`, will be `null`. Otherwise, an array of `TsTileTimers` samples from the slot, sorted earliest to latest |
+| Field               | Type                      | Description |
+|---------------------|---------------------------|-------------|
+| publish             | `SlotPublish`             | General information about the slot |
+| waterfall           | `TxnWaterfall\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a waterfall showing reasons transactions were acquired since the end of the prior leader slot |
+| tile_primary_metric | `TilePrimaryMetric\|null` | If the slot is not `mine`, will be `null`. Otherwise, per-tile-type primary metrics since the end of the prior leader slot |
+| tile_timers         | `TsTileTimers[]\|null`    | If the slot is not `mine`, will be `null`. Otherwise, an array of `TsTileTimers` samples from the slot, sorted earliest to latest |
 
 **`TxnWaterfall`**
 | Field | Type              | Description |
