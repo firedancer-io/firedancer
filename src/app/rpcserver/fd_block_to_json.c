@@ -250,7 +250,7 @@ const char*
     fd_web_reply_sprintf(ws, "%s\"%s\"", (idx == 0 ? "" : ","), buf32);
   }
 
-  fd_web_reply_sprintf(ws, "],\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u,\"numRequiredSignatures\":%u},\"instructions\":[",
+  fd_web_reply_sprintf(ws, "],\"addressTableLookups\":[],\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u,\"numRequiredSignatures\":%u},\"instructions\":[",
                        (uint)txn->readonly_signed_cnt, (uint)txn->readonly_unsigned_cnt, (uint)txn->signature_cnt);
 
   ushort instr_cnt = txn->instr_cnt;
