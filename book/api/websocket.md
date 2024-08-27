@@ -171,7 +171,18 @@ includes time to download a snapshot and catch up to the cluster.
 | *Once* + *Live* | `StartupProgress` |  below  |
 
 Information about the validators progress in starting up. There are
-various stages of starting up.
+various stages of starting up which the validator goes through in order
+before it is ready. The phases are,
+
+| Phase                            | Description |
+|----------------------------------|-------------|
+| initializing                     | The validator has just booted and has not yet started looking for RPC services to download snapshots from |
+| searching_for_rpc                | The validator is starting up the gossip protocol to look for RPC nodes in the cluster |
+| downloading_full_snapshot        | The validator has found an RPC peer to download a full snapshot from and the download is now in progress |
+| downloading_incremental_snapshot | The validator has found an RPC peer to download an incremental snapshot from and the download is now in progress. The incremental snapshot is a smaller snapshot taken more regularly, which builds on top of a full snapshot |
+| cleaning_blockstore              | Removes stale data from the blockstore |
+| cleaning_accounts                | Removes stale data from the accounts database |
+| starting_services                | RPC, the leader TPU, the replay TVU, snapshots, and all other services are being started |
 
 ::: details Example
 
