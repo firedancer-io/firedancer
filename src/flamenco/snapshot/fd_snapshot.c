@@ -81,6 +81,7 @@ load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
     name_out->slot = slot_ctx->slot_bank.slot;
     return;
   }
+  fd_exec_epoch_ctx_bank_mem_clear( slot_ctx->epoch_ctx );
 
   fd_valloc_t     valloc   = slot_ctx->valloc;
   fd_acc_mgr_t *  acc_mgr  = slot_ctx->acc_mgr;
