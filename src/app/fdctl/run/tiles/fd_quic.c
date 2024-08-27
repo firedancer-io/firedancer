@@ -527,6 +527,12 @@ privileged_init( fd_topo_t *      topo,
   uchar const * public_key = fd_keyload_load( tile->quic.identity_key_path, 1 /* public key only */ );
   fd_memcpy( ctx->identity_public_key, public_key, 32UL );
 
+  FD_ONCE_BEGIN {
+    if( FD_UNLIKELY( !fd_rng_secure( &fd_quic_conn_id_hash_seed, sizeof(ulong) ) ) ) {
+      FD_LOG_CRIT(( "fd_rng_secure failed" ));
+    }
+  } FD_ONCE_END;
+
   /* The fd_quic implementation calls fd_log_wallclock() internally
      which itself calls clock_gettime() which on most kernels is not a
      real syscall but a virtual one in the process via. the vDSO.
