@@ -4,6 +4,7 @@ void fd_gui_printf_version( fd_gui_t * gui );
 void fd_gui_printf_cluster( fd_gui_t * gui );
 void fd_gui_printf_identity_key( fd_gui_t * gui );
 void fd_gui_printf_uptime_nanos( fd_gui_t * gui );
+void fd_gui_printf_startup_progress( fd_gui_t * gui );
 void fd_gui_printf_net_tile_count( fd_gui_t * gui );
 void fd_gui_printf_quic_tile_count( fd_gui_t * gui );
 void fd_gui_printf_verify_tile_count( fd_gui_t * gui );

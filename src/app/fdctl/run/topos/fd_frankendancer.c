@@ -96,6 +96,7 @@ fd_topo_frankendancer( config_t * config ) {
   /**/                 fd_topob_link( topo, "replay_plugi", "plugin_in",    0,        128UL,                                    8UL,                    1UL );
   /**/                 fd_topob_link( topo, "gossip_plugi", "plugin_in",    0,        128UL,                                    8UL+40200UL*(58UL+12UL*34UL), 1UL );
   /**/                 fd_topob_link( topo, "slot_plugin",  "plugin_in",    0,        128UL,                                    8UL,                    4UL );
+  /**/                 fd_topob_link( topo, "startp_plugi", "plugin_in",    0,        128UL,                                    25UL,                   1UL );
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX; /* Unassigned tiles will be floating. */
@@ -207,11 +208,13 @@ fd_topo_frankendancer( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "replay_plugi", 0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "gossip_plugi", 0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "slot_plugin",  0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "startp_plugi", 0UL                                                  );
 
   /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "replay_plugi", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "gossip_plugi", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "slot_plugin",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in(  topo, "plugin", 0UL,           "metric_in", "startp_plugi", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "http",   0UL,           "metric_in", "plugin_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /* There is a special fseq that sits between the pack, bank, and poh

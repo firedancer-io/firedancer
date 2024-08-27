@@ -13,5 +13,6 @@
 #define FD_PLUGIN_MSG_SLOT_END                      ( 9UL)
 #define FD_PLUGIN_MSG_SLOT_RESET                    (10UL)
 #define FD_PLUGIN_MSG_BALANCE                       (11UL)
+#define FD_PLUGIN_MSG_START_PROGRESS                (12UL)
 
 #endif /* HEADER_fd_src_disco_plugin_fd_plugin_h */

@@ -229,6 +229,79 @@ fd_gui_printf_uptime_nanos( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_printf_startup_progress( fd_gui_t * gui ) {
+  char const * phase;
+
+  switch( gui->summary.startup_progress ) {
+    case FD_GUI_START_PROGRESS_TYPE_INITIALIZING:
+      phase = "initializing";
+      break;
+    case FD_GUI_START_PROGRESS_TYPE_SEARCHING_FOR_RPC_SERVICE:
+      phase = "searching_for_rpc";
+      break;
+    case FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_SNAPSHOT:
+      phase = "downloading_snapshot";
+      break;
+    case FD_GUI_START_PROGRESS_TYPE_CLEANING_BLOCK_STORE:
+      phase = "cleaning_blockstore";
+      break;
+    case FD_GUI_START_PROGRESS_TYPE_CLEANING_ACCOUNTS:
+      phase = "cleaning_accounts";
+      break;
+    case FD_GUI_START_PROGRESS_TYPE_LOADING_LEDGER:
+      phase = "loading_ledger";
+      break;
+    case FD_GUI_START_PROGRESS_TYPE_PROCESSING_LEDGER:
+      phase = "processing_ledger";
+      break;
+    case FD_GUI_START_PROGRESS_TYPE_STARTING_SERVICES:
+      phase = "starting_services";
+      break;
+    case FD_GUI_START_PROGRESS_TYPE_HALTED:
+      phase = "halted";
+      break;
+    case FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY:
+      phase = "waiting_for_supermajority";
+      break;
+    case FD_GUI_START_PROGRESS_TYPE_RUNNING:
+      phase = "running";
+      break;
+    default:
+      FD_LOG_ERR(( "unknown phase %d", gui->summary.startup_progress ));
+  }
+
+  jsonp_open_envelope( gui, "summary", "startup_progress" );
+    jsonp_open_object( gui, "value" );
+      jsonp_string( gui, "phase", phase );
+      if( FD_LIKELY( gui->summary.startup_progress>=FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_SNAPSHOT) ) {
+        jsonp_ulong( gui, "snapshot_slot",             gui->summary.startup_snapshot_slot );
+        jsonp_ulong( gui, "snapshot_progress_percent", gui->summary.startup_snapshot_progress_pct );
+      } else {
+        jsonp_null( gui, "snapshot_slot" );
+        jsonp_null( gui, "snapshot_progress_percent" );
+      }
+
+      if( FD_LIKELY( gui->summary.startup_progress>=FD_GUI_START_PROGRESS_TYPE_PROCESSING_LEDGER) ) {
+        jsonp_ulong( gui, "ledger_slot",     gui->summary.startup_ledger_slot );
+        jsonp_ulong( gui, "ledger_max_slot", gui->summary.startup_ledger_max_slot );
+      } else {
+        jsonp_null( gui, "ledger_slot" );
+        jsonp_null( gui, "ledger_max_slot" );
+      }
+
+      if( FD_LIKELY( gui->summary.startup_progress>=FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY ) && gui->summary.startup_waiting_for_supermajority_slot!=ULONG_MAX ) {
+        jsonp_ulong( gui, "waiting_for_supermajority_slot",      gui->summary.startup_waiting_for_supermajority_slot );
+        jsonp_ulong( gui, "waiting_for_supermajority_stake_pct", gui->summary.startup_waiting_for_supermajority_stake_pct );
+      } else {
+        jsonp_null( gui, "waiting_for_supermajority_slot" );
+        jsonp_null( gui, "waiting_for_supermajority_stake_pct" );
+      }
+      jsonp_ulong( gui, "snapshot_slot",                       gui->summary.startup_snapshot_slot );
+    jsonp_close_object( gui );
+  jsonp_close_envelope( gui );
+}
+
+void
 fd_gui_printf_net_tile_count( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "net_tile_count" );
     jsonp_ulong( gui, "value", gui->summary.net_tile_cnt );

@@ -165,6 +165,43 @@ The length of time in nanoseconds that the validator has been running.
 Running time is approximately measured since application startup, and
 includes time to download a snapshot and catch up to the cluster.
 
+### `summary.startup_progress`
+| frequency       | type              | example |
+|-----------------|-------------------|---------|
+| *Once* + *Live* | `StartupProgress` |  below  |
+
+Information about the validators progress in starting up. There are
+various stages of starting up.
+
+::: details Example
+
+```json
+{
+    "topic": "summary",
+    "key": "startup_progress",
+    "value": {
+        "phase": "waiting_for_supermajority",
+        "snapshot_slot": 285228774,
+        "snapshot_progress_percent": 100,
+        "waiting_for_supermajority_slot": 285228775,
+        "waiting_for_supermajority_stake_percent": 43,
+    }
+}
+```
+
+:::
+
+**`StartupProgress`**
+| Field                                   | Type           | Description |
+|-----------------------------------------|----------------|-------------|
+| phase                                   | `string`       | One of `initializing`, `searching_for_rpc`, `downloading_snapshot`, `cleaning_blockstore`, `cleaning_accounts`, `loading_ledger`, `starting_services`, `halted`, `waiting_for_supermajority`, or `running` |
+| snapshot_slot                           | `number\|null` | If the phase is at least `downloading_snapshot` or later, this is the slot that is being (or was) downloaded from the snapshot provider. Otherwise it is `null` |
+| snapshot_progress_percent               | `number\|null` | If the phase is at least `downloading_snapshot` or later, this is the percentage of the snapshot that hass been downloaded from the snapshot provider. Otherwise it is `null` |
+| ledger_slot                             | `number\|null` | If the phase is at least `loading_ledger` or later, this is the current slot that we have replayed up to in the ledger. Otherwise it is `null` |
+| ledger_max_slot                         | `number\|null` | If the phase is at least `loading_ledger` or later, this is the maximum slot we need to replay up to in the ledger. Otherwise it is `null` |
+| waiting_for_supermajority_slot          | `number\|null` | If the phase is at least `waiting_for_supermajority` or later, and we are stopped waiting for supermajority, this is the slot that we are stopped at. Otherwise it is `null` |
+| waiting_for_supermajority_stake_percent | `number\|null` | If the phase is at least `waiting_for_supermajority` or later, and we are stopped waiting for supermajority, this is the percentage of stake that is currently online and gossiping to our node. Otherwise it is `null`. The validator will proceed with starting up once the stake percent reaches 80 |
+
 ### `summary.net_tile_count`
 | frequency  | type     | example |
 |------------|----------|---------|

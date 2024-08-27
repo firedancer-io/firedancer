@@ -557,6 +557,7 @@ poh_link_t crds_shred;
 
 poh_link_t replay_plugin;
 poh_link_t gossip_plugin;
+poh_link_t start_progress_plugin;
 poh_link_t poh_plugin;
 
 static void
@@ -1746,6 +1747,13 @@ fd_ext_plugin_publish_replay_stage( ulong   sig,
 }
 
 void
+fd_ext_plugin_publish_start_progress( ulong   sig,
+                                    uchar * data,
+                                    ulong   data_len ) {
+  poh_link_publish( &start_progress_plugin, sig, data, data_len );
+}
+
+void
 fd_ext_plugin_publish_periodic( ulong   sig,
                                 uchar * data,
                                 ulong   data_len ) {
@@ -1800,12 +1808,13 @@ unprivileged_init( fd_topo_t *      topo,
   fd_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, poh_shred_obj_id ) );
   FD_TEST( fd_shred_version );
 
-  poh_link_init( &gossip_dedup,  topo, tile, 1UL );
-  poh_link_init( &stake_out,     topo, tile, 2UL );
-  poh_link_init( &crds_shred,    topo, tile, 3UL );
-  poh_link_init( &replay_plugin, topo, tile, 4UL );
-  poh_link_init( &gossip_plugin, topo, tile, 5UL );
-  poh_link_init( &poh_plugin,    topo, tile, 6UL );
+  poh_link_init( &gossip_dedup,          topo, tile, 1UL );
+  poh_link_init( &stake_out,             topo, tile, 2UL );
+  poh_link_init( &crds_shred,            topo, tile, 3UL );
+  poh_link_init( &replay_plugin,         topo, tile, 4UL );
+  poh_link_init( &gossip_plugin,         topo, tile, 5UL );
+  poh_link_init( &poh_plugin,            topo, tile, 6UL );
+  poh_link_init( &start_progress_plugin, topo, tile, 7UL );
 
   FD_LOG_NOTICE(( "PoH waiting to be initialized by Agave client... %lu %lu", fd_poh_waiting_lock, fd_poh_returned_lock ));
   FD_VOLATILE( fd_poh_global_ctx ) = ctx;

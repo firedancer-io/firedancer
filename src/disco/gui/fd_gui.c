@@ -57,6 +57,8 @@ fd_gui_new( void *        shmem,
   gui->summary.version                       = version;
   gui->summary.cluster                       = cluster;
   gui->summary.startup_time_nanos            = fd_log_wallclock();
+  gui->summary.startup_progress              = FD_GUI_START_PROGRESS_TYPE_INITIALIZING;
+  gui->summary.startup_waiting_for_supermajority_slot = ULONG_MAX;
   gui->summary.balance                       = 0UL;
   gui->summary.estimated_slot_duration_nanos = 0UL;
 
@@ -108,6 +110,7 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_cluster,
     fd_gui_printf_identity_key,
     fd_gui_printf_uptime_nanos,
+    fd_gui_printf_startup_progress,
     fd_gui_printf_net_tile_count,
     fd_gui_printf_quic_tile_count,
     fd_gui_printf_verify_tile_count,
@@ -1094,6 +1097,67 @@ fd_gui_handle_balance_update( fd_gui_t * gui,
   fd_hcache_snap_ws_broadcast( gui->hcache );
 }
 
+
+
+static void
+fd_gui_handle_start_progress( fd_gui_t *    gui,
+                              uchar const * msg ) {
+  (void)gui;
+
+  uchar type = msg[0];
+
+  gui->summary.startup_progress = type;
+  switch (type) {
+    case FD_GUI_START_PROGRESS_TYPE_INITIALIZING:
+      FD_LOG_WARNING(( "progress: initializing" ));
+      break;
+    case FD_GUI_START_PROGRESS_TYPE_SEARCHING_FOR_RPC_SERVICE:
+      FD_LOG_WARNING(( "progress: searching for RPC service" ));
+      break;
+    case FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_SNAPSHOT: {
+      gui->summary.startup_snapshot_progress_pct = *(msg + 1);
+      gui->summary.startup_snapshot_slot = fd_ulong_load_8( msg + 2 );
+      FD_LOG_WARNING(( "progress: downloading snapshot: slot=%lu", gui->summary.startup_snapshot_slot ));
+      break;
+    }
+    case FD_GUI_START_PROGRESS_TYPE_CLEANING_BLOCK_STORE:
+      FD_LOG_WARNING(( "progress: cleaning block store" ));
+      break;
+    case FD_GUI_START_PROGRESS_TYPE_CLEANING_ACCOUNTS:
+      FD_LOG_WARNING(( "progress: cleaning accounts" ));
+      break;
+    case FD_GUI_START_PROGRESS_TYPE_LOADING_LEDGER:
+      FD_LOG_WARNING(( "progress: loading ledger" ));
+      break;
+    case FD_GUI_START_PROGRESS_TYPE_PROCESSING_LEDGER: {
+      gui->summary.startup_ledger_slot = fd_ulong_load_8( msg + 1 );
+      gui->summary.startup_ledger_max_slot = fd_ulong_load_8( msg + 9 );
+      FD_LOG_WARNING(( "progress: processing ledger: slot=%lu, max_slot=%lu", gui->summary.startup_ledger_slot, gui->summary.startup_ledger_max_slot ));
+      break;
+    }
+    case FD_GUI_START_PROGRESS_TYPE_STARTING_SERVICES:
+      FD_LOG_WARNING(( "progress: starting services" ));
+      break;
+    case FD_GUI_START_PROGRESS_TYPE_HALTED:
+      FD_LOG_WARNING(( "progress: halted" ));
+      break;
+    case FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY: {
+      gui->summary.startup_waiting_for_supermajority_slot = fd_ulong_load_8( msg + 1 );
+      gui->summary.startup_waiting_for_supermajority_stake_pct = fd_ulong_load_8( msg + 9 );
+      FD_LOG_WARNING(( "progress: waiting for supermajority: slot=%lu, gossip_stake_percent=%lu", gui->summary.startup_waiting_for_supermajority_slot, gui->summary.startup_waiting_for_supermajority_stake_pct ));
+      break;
+    }
+    case FD_GUI_START_PROGRESS_TYPE_RUNNING:
+      FD_LOG_WARNING(( "progress: running" ));
+      break;
+    default:
+      FD_LOG_ERR(( "progress: unknown type: %u", type ));
+  }
+
+  fd_gui_printf_startup_progress( gui );
+  fd_hcache_snap_ws_broadcast( gui->hcache );
+}
+
 void
 fd_gui_plugin_message( fd_gui_t *    gui,
                        ulong         plugin_msg,
@@ -1146,6 +1210,10 @@ fd_gui_plugin_message( fd_gui_t *    gui,
     }
     case FD_PLUGIN_MSG_BALANCE: {
       fd_gui_handle_balance_update( gui, *(ulong *)msg );
+      break;
+    }
+    case FD_PLUGIN_MSG_START_PROGRESS: {
+      fd_gui_handle_start_progress( gui, msg );
       break;
     }
     default:

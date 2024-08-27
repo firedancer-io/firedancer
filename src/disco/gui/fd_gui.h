@@ -16,6 +16,18 @@
 #define FD_GUI_SLOT_LEVEL_ROOTED                   (3)
 #define FD_GUI_SLOT_LEVEL_FINALIZED                (4)
 
+#define FD_GUI_START_PROGRESS_TYPE_INITIALIZING              ( 0)
+#define FD_GUI_START_PROGRESS_TYPE_SEARCHING_FOR_RPC_SERVICE ( 1)
+#define FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_SNAPSHOT      ( 2)
+#define FD_GUI_START_PROGRESS_TYPE_CLEANING_BLOCK_STORE      ( 3)
+#define FD_GUI_START_PROGRESS_TYPE_CLEANING_ACCOUNTS         ( 4)
+#define FD_GUI_START_PROGRESS_TYPE_LOADING_LEDGER            ( 5)
+#define FD_GUI_START_PROGRESS_TYPE_PROCESSING_LEDGER         ( 6)
+#define FD_GUI_START_PROGRESS_TYPE_STARTING_SERVICES         ( 7)
+#define FD_GUI_START_PROGRESS_TYPE_HALTED                    ( 8)
+#define FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY ( 9)
+#define FD_GUI_START_PROGRESS_TYPE_RUNNING                   (10)
+
 struct fd_gui_gossip_peer {
   fd_pubkey_t pubkey[ 1 ];
   ulong       wallclock;
@@ -146,6 +158,13 @@ struct fd_gui {
     char const * cluster;
 
     long  startup_time_nanos;
+    uchar startup_progress;
+    uchar startup_snapshot_progress_pct;
+    ulong startup_snapshot_slot;
+    ulong startup_ledger_slot;
+    ulong startup_ledger_max_slot;
+    ulong startup_waiting_for_supermajority_slot;
+    ulong startup_waiting_for_supermajority_stake_pct;
 
     ulong balance;
     ulong estimated_slot_duration_nanos;

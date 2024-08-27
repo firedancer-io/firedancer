@@ -105,6 +105,12 @@ after_frag( void *             _ctx,
       sig = *opt_sig;
       break;
     }
+    /* startp_plugi */
+    case 4UL: {
+      FD_TEST( *opt_sig==FD_PLUGIN_MSG_START_PROGRESS );
+      sig = *opt_sig;
+      break;
+    }
     default: FD_LOG_ERR(( "bad in_idx" ));
   }
 
