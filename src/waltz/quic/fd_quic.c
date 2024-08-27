@@ -493,7 +493,6 @@ fd_quic_init( fd_quic_t * quic ) {
     .max_concur_handshakes = limits->handshake_cnt,
 
     /* set up callbacks */
-    .alert_cb              = fd_quic_tls_cb_alert,
     .secret_cb             = fd_quic_tls_cb_secret,
     .handshake_complete_cb = fd_quic_tls_cb_handshake_complete,
     .peer_params_cb        = fd_quic_tls_cb_peer_params,

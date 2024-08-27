@@ -52,17 +52,6 @@ my_secrets( fd_quic_tls_hs_t *           hs,
 }
 
 void
-my_alert( fd_quic_tls_hs_t * hs,
-          void *             context,
-          int                alert ) {
-  (void)hs;
-  (void)context;
-
-  FD_LOG_INFO(( "Alert: %d-%s",  alert, fd_tls_alert_cstr( (uint)alert ) ));
-  FD_LOG_INFO(( "Reason: %d-%s", hs->hs.base.reason, fd_tls_reason_cstr( hs->hs.base.reason ) ));
-}
-
-void
 my_transport_params( void *        context,
                      uchar const * quic_tp,
                      ulong         quic_tp_sz ) {
@@ -85,7 +74,6 @@ main( int     argc,
 
   // config parameters
   fd_quic_tls_cfg_t cfg = {
-    .alert_cb              = my_alert,
     .secret_cb             = my_secrets,
     .handshake_complete_cb = my_hs_complete,
     .peer_params_cb        = my_transport_params,

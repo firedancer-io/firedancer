@@ -131,15 +131,13 @@ fd_quic_tls_new( void *              mem,
 
   fd_quic_tls_t * self = (fd_quic_tls_t *)mem;
 
-  if( FD_UNLIKELY( (!cfg->alert_cb             ) |
-                   (!cfg->secret_cb            ) |
+  if( FD_UNLIKELY( (!cfg->secret_cb            ) |
                    (!cfg->handshake_complete_cb) |
                    (!cfg->peer_params_cb       ) ) ) {
     FD_LOG_WARNING(( "Missing callbacks" ));
     return NULL;
   }
 
-  self->alert_cb              = cfg->alert_cb;
   self->secret_cb             = cfg->secret_cb;
   self->handshake_complete_cb = cfg->handshake_complete_cb;
   self->peer_params_cb        = cfg->peer_params_cb;
@@ -349,7 +347,6 @@ fd_quic_tls_provide_data( fd_quic_tls_hs_t * self,
     if( FD_UNLIKELY( res<0L ) ) {
       int alert = (int)-res;
       self->alert = (uint)alert;
-      self->quic_tls->alert_cb( self, self->context, alert );
       return FD_QUIC_TLS_FAILED;
     }
     if( FD_UNLIKELY( res==0UL ) ) {
