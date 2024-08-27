@@ -15,9 +15,6 @@
    General operation:
      // set up a quic-tls config object
      fd_quic_tls_cfg_t quic_tls_cfg = {
-       .alert_cb              = my_alert_cb,         // callback for quic-tls to alert of
-                                                     // handshake errors
-
        .secret_cb             = my_secret_cb,        // callback for communicating secrets
 
        .handshake_complete_cb = my_hs_complete,      // called when handshake is complete
@@ -53,7 +50,7 @@
 
 */
 
-/* each TLS handshake requires a number of hf_quic_tls_hs_data structures */
+/* each TLS handshake requires a number of fd_quic_tls_hs_data structures */
 #define FD_QUIC_TLS_HS_DATA_CNT 16u
 
 /* alignment of hs_data
@@ -65,11 +62,6 @@
 #define FD_QUIC_TLS_HS_DATA_SZ  (1u<<14u)
 
 /* callback function prototypes */
-
-typedef void
-(* fd_quic_tls_cb_alert_t)( fd_quic_tls_hs_t * hs,
-                            void *             context,
-                            int                alert );
 
 typedef void
 (* fd_quic_tls_cb_secret_t)( fd_quic_tls_hs_t *           hs,
@@ -95,7 +87,6 @@ struct fd_quic_tls_secret {
 
 struct fd_quic_tls_cfg {
   // callbacks ../crypto/fd_quic_crypto_suites
-  fd_quic_tls_cb_alert_t               alert_cb;
   fd_quic_tls_cb_secret_t              secret_cb;
   fd_quic_tls_cb_handshake_complete_t  handshake_complete_cb;
   fd_quic_tls_cb_peer_params_t         peer_params_cb;
@@ -124,7 +115,6 @@ struct fd_quic_tls_hs_data {
 
 struct __attribute__((aligned(128))) fd_quic_tls {
   /* callbacks */
-  fd_quic_tls_cb_alert_t               alert_cb;
   fd_quic_tls_cb_secret_t              secret_cb;
   fd_quic_tls_cb_handshake_complete_t  handshake_complete_cb;
   fd_quic_tls_cb_peer_params_t         peer_params_cb;
@@ -301,7 +291,6 @@ fd_quic_tls_pop_hs_data( fd_quic_tls_hs_t * self, uint enc_level );
    parses and handles incoming data (delivered via fd_quic_tls_provide_data)
    generates new data to send to peer
    makes callbacks for notification of the following:
-       alert_cb               a tls alert has occurred and the handshake has failed
        secret_cb              a secret is available
        handshake_complete_cb  the handshake is complete - stream handling can begin */
 int
