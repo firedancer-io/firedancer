@@ -458,9 +458,26 @@ fd_gui_printf_tile_prime_metric( fd_gui_t *                   gui,
                                  fd_gui_tile_prime_metric_t * prev,
                                  fd_gui_tile_prime_metric_t * cur ) {
   jsonp_open_object( gui, "tile_primary_metric" );
-    jsonp_ulong( gui, "quic_conns", cur->quic_conns );
-    jsonp_ulong( gui, "net_in",     cur->net_in_bytes  - prev->net_in_bytes );
-    jsonp_ulong( gui, "net_out",    cur->net_out_bytes - prev->net_out_bytes );
+    /* Connection count is a point-in-time value not a cumulative value. */
+    jsonp_ulong( gui, "quic",    cur->quic_conns );
+    jsonp_ulong( gui, "net_in",  (cur->net_in_bytes-prev->net_in_bytes)*1000000000UL/(ulong)(cur->ts_nanos-prev->ts_nanos) );
+    jsonp_ulong( gui, "net_out", (cur->net_out_bytes - prev->net_out_bytes)*1000000000UL/(ulong)(cur->ts_nanos-prev->ts_nanos) );
+    if( FD_LIKELY( cur->verify_drop_denominator>prev->verify_drop_denominator ) ) {
+      jsonp_double( gui, "verify", (double)(cur->verify_drop_numerator-prev->verify_drop_numerator)/(double)(cur->verify_drop_denominator-prev->verify_drop_denominator) );
+    } else {
+      jsonp_double( gui, "verify", -1 );
+    }
+    if( FD_LIKELY( cur->dedup_drop_denominator>prev->dedup_drop_denominator ) ) {
+      jsonp_double( gui, "dedup", (double)(cur->dedup_drop_numerator-prev->dedup_drop_numerator)/(double)(cur->dedup_drop_denominator-prev->dedup_drop_denominator) );
+    } else {
+      jsonp_double( gui, "dedup", -1 );
+    }
+    jsonp_ulong( gui, "bank", (cur->bank_txn-prev->bank_txn)*1000000000UL/(ulong)(cur->ts_nanos-prev->ts_nanos) );
+    /* pack fill rate is a point-in-time value not a cumulative value. */
+    jsonp_double( gui, "pack", (double)(cur->pack_fill_numerator)/(double)(cur->pack_fill_denominator) );
+    jsonp_double( gui, "poh", 0.0 );  //TODO
+    jsonp_double( gui, "shred", 0.0 );//TODO
+    jsonp_double( gui, "store", 0.0 );//TODO
   jsonp_close_object( gui );
 }
 
@@ -942,6 +959,8 @@ fd_gui_printf_slot_request( fd_gui_t *                     gui,
       jsonp_close_object( gui );
 
       fd_gui_printf_waterfall( gui, prev, slot->waterfall_end );
+
+      fd_gui_printf_tile_prime_metric( gui, slot->tile_prime_metric_begin, slot->tile_prime_metric_end );
 
       jsonp_open_array( gui, "tile_timers" );
         fd_gui_tile_timers_t const * prev_timer = slot->tile_timers_begin;

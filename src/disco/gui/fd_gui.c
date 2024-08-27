@@ -83,6 +83,7 @@ fd_gui_new( void *        shmem,
 
   memset( gui->summary.tile_prime_metric_ref, 0, sizeof(gui->summary.tile_prime_metric_ref) );
   memset( gui->summary.tile_prime_metric_cur, 0, sizeof(gui->summary.tile_prime_metric_cur) );
+  gui->summary.tile_prime_metric_ref[ 0 ].ts_nanos = fd_log_wallclock();
 
   memset( gui->summary.tile_timers_snap[ 0 ], 0, sizeof(gui->summary.tile_timers_snap[ 0 ]) );
   memset( gui->summary.tile_timers_snap[ 1 ], 0, sizeof(gui->summary.tile_timers_snap[ 1 ]) );
@@ -432,6 +433,9 @@ fd_gui_tile_prime_metric_snap( fd_gui_t *                   gui,
                                fd_gui_txn_waterfall_t *     w_cur,
                                fd_gui_tile_prime_metric_t * m_cur ) {
   fd_topo_t * topo = gui->topo;
+
+  m_cur->ts_nanos = fd_log_wallclock();
+
   m_cur->net_in_bytes  = 0UL;
   m_cur->net_out_bytes = 0UL;
   m_cur->quic_conns    = 0UL;
@@ -443,6 +447,7 @@ fd_gui_tile_prime_metric_snap( fd_gui_t *                   gui,
     m_cur->net_out_bytes += quic_metrics[ MIDX( COUNTER, QUIC, SENT_BYTES ) ];
     m_cur->quic_conns    += quic_metrics[ MIDX( GAUGE, QUIC, CONNECTIONS_ACTIVE ) ];
   }
+
   m_cur->verify_drop_numerator   = w_cur->out.verify_duplicate +
                                    w_cur->out.verify_parse +
                                    w_cur->out.verify_failed;
@@ -453,6 +458,13 @@ fd_gui_tile_prime_metric_snap( fd_gui_t *                   gui,
   m_cur->dedup_drop_numerator    = w_cur->out.dedup_duplicate;
   m_cur->dedup_drop_denominator  = m_cur->verify_drop_denominator -
                                    m_cur->verify_drop_numerator;
+
+  fd_topo_tile_t const * pack  = &topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ];
+  ulong const * pack_metrics   = fd_metrics_tile( pack->metrics );
+  m_cur->pack_fill_numerator   = pack_metrics[ MIDX( GAUGE, PACK, AVAILABLE_TRANSACTIONS ) ];
+  m_cur->pack_fill_denominator = pack->pack.max_pending_transactions;
+
+  m_cur->bank_txn = w_cur->out.block_fail + w_cur->out.block_success;
 }
 
 void
@@ -465,8 +477,8 @@ fd_gui_poll( fd_gui_t * gui ) {
     fd_hcache_snap_ws_broadcast( gui->hcache );
 
     fd_gui_tile_prime_metric_snap( gui, gui->summary.txn_waterfall_current, gui->summary.tile_prime_metric_cur );
-    // fd_gui_printf_live_tile_prime_metric( gui, gui->summary.tile_prime_metric_ref, gui->summary.tile_prime_metric_cur, 0UL ); // TODO: REAL NEXT LEADER SLOT
-    // fd_hcache_snap_ws_broadcast( gui->hcache );
+    fd_gui_printf_live_tile_prime_metric( gui, gui->summary.tile_prime_metric_ref, gui->summary.tile_prime_metric_cur, 0UL ); // TODO: REAL NEXT LEADER SLOT
+    fd_hcache_snap_ws_broadcast( gui->hcache );
 
     gui->next_sample_100millis += 100L*1000L*1000L;
   }
@@ -967,6 +979,7 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
   slot->end_ref_slot = gui->summary.prev_slot_end_slot;
   gui->summary.prev_slot_end_slot = _slot[ 0 ];
   memcpy( gui->summary.txn_waterfall_reference, slot->waterfall_end, sizeof(gui->summary.txn_waterfall_reference) );
+  memcpy( slot->tile_prime_metric_begin, gui->summary.tile_prime_metric_ref, sizeof(slot->tile_prime_metric_begin) );
   memcpy( gui->summary.tile_prime_metric_ref, slot->tile_prime_metric_end, sizeof(gui->summary.tile_prime_metric_ref) );
 }
 

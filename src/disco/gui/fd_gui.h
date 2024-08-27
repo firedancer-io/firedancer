@@ -120,9 +120,11 @@ struct fd_gui_tile_prime_metric {
   ulong verify_drop_denominator;
   ulong dedup_drop_numerator;
   ulong dedup_drop_denominator;
-  double pack_fill_rate;
-  ulong bank_tps;
+  ulong pack_fill_numerator;
+  ulong pack_fill_denominator;
+  ulong bank_txn;
   ulong net_out_bytes;
+  long  ts_nanos;
 };
 
 typedef struct fd_gui_tile_prime_metric fd_gui_tile_prime_metric_t;
@@ -142,6 +144,7 @@ struct fd_gui_slot {
   fd_gui_txn_waterfall_t waterfall_end[ 1 ];
   ulong end_ref_slot;
 
+  fd_gui_tile_prime_metric_t tile_prime_metric_begin[ 1 ];
   fd_gui_tile_prime_metric_t tile_prime_metric_end[ 1 ];
 
   /* Index into periodic sample array. Inclusive.
