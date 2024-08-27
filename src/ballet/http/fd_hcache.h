@@ -145,8 +145,12 @@ fd_hcache_memcpy( fd_hcache_t * hcache,
                   uchar const * data,
                   ulong         data_len );
 
-/* fd_hcache_reset clears the pending response data. This is used if we
-   change our mind in mid-response (e.g. there is an unexpected error) */
+/* fd_hcache_reset resets an in progress write to the current hcache
+   frame.  Assumes hcache is a current local join.
+   
+   The space used by the current frame is reset and becomes usable for
+   the next message.  This is useful in cases where writing procduces
+   an error and needs to be aborted. */
 
 void
 fd_hcache_reset( fd_hcache_t * hcache );

@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "fd_http_server.h"
 
 #include "picohttpparser.h"
@@ -65,9 +66,9 @@ fd_http_server_align( void ) {
 FD_FN_CONST ulong
 fd_http_server_footprint( fd_http_server_params_t params ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_private ),       sizeof( fd_http_server_t )                                                           );
-  l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_connection ),    params.max_connection_cnt*sizeof( struct fd_http_server_connection )                        );
-  l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_ws_connection ), params.max_ws_connection_cnt*sizeof( struct fd_http_server_ws_connection )                  );
+  l = FD_LAYOUT_APPEND( l, FD_HTTP_SERVER_ALIGN,                           sizeof( fd_http_server_t )                                                                         );
+  l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_connection ),    params.max_connection_cnt*sizeof( struct fd_http_server_connection )                               );
+  l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_ws_connection ), params.max_ws_connection_cnt*sizeof( struct fd_http_server_ws_connection )                         );
   l = FD_LAYOUT_APPEND( l, alignof( struct pollfd ),                       (params.max_connection_cnt+params.max_ws_connection_cnt+1UL)*sizeof( struct pollfd )               );
   l = FD_LAYOUT_APPEND( l, 1UL,                                            params.max_request_len*params.max_connection_cnt                                                   );
   l = FD_LAYOUT_APPEND( l, 1UL,                                            params.max_ws_recv_frame_len*params.max_ws_connection_cnt                                          );
@@ -252,15 +253,37 @@ fd_http_server_ws_close( fd_http_server_t * http,
   close_conn( http, http->max_conns+ws_conn_id, reason );
 }
 
+/* These are the expected network errors which just mean the connection
+   should be closed.  Any errors from an accept(2), read(2), or send(2)
+   that are not expected here will be considered fatal and terminate the
+   server. */
+    
+static inline int
+is_expected_network_error( int err ) {
+  return
+    err==ENETDOWN ||
+    err==EPROTO ||
+    err==ENOPROTOOPT ||
+    err==EHOSTDOWN ||
+    err==ENONET ||
+    err==EHOSTUNREACH ||
+    err==EOPNOTSUPP ||
+    err==ENETUNREACH ||
+    err==ETIMEDOUT ||
+    err==ENETRESET ||
+    err==ECONNABORTED ||
+    err==ECONNRESET ||
+    err==EPIPE;
+}
+
 static void
 accept_conns( fd_http_server_t * http ) {
   for(;;) {
-    int fd = accept( http->socket_fd, NULL, NULL );
+    int fd = accept4( http->socket_fd, NULL, NULL, SOCK_NONBLOCK|SOCK_CLOEXEC );
 
     if( FD_UNLIKELY( -1==fd ) ) {
       if( FD_LIKELY( EAGAIN==errno ) ) break;
-      else if( FD_LIKELY( ENETDOWN==errno || EPROTO==errno || ENOPROTOOPT==errno || EHOSTDOWN==errno ||
-                          ENONET==errno || EHOSTUNREACH==errno || EOPNOTSUPP==errno || ENETUNREACH==errno ) ) continue;
+      else if( FD_LIKELY( is_expected_network_error( errno ) ) ) continue;
       else FD_LOG_ERR(( "accept failed (%i-%s)", errno, strerror( errno ) ));
     }
 
@@ -301,7 +324,7 @@ read_conn_http( fd_http_server_t * http,
 
   long sz = read( http->pollfds[ conn_idx ].fd, conn->request_bytes+conn->request_bytes_read, http->max_request_len-conn->request_bytes_read );
   if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return; /* No data to read, continue. */
-  else if( FD_UNLIKELY( !sz || (-1==sz && errno==ECONNRESET) ) ) {
+  else if( FD_UNLIKELY( !sz || (-1==sz && is_expected_network_error( errno ) ) ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
     return;
   }
@@ -365,6 +388,14 @@ read_conn_http( fd_http_server_t * http,
       close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_MISSING_CONENT_LENGTH_HEADER );
       return;
     }
+
+    ulong total_len = (ulong)result+content_len;
+
+    if( FD_UNLIKELY( total_len<content_len ) ) { /* Overflow */
+      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
+      return;
+    }
+
 
     if( FD_UNLIKELY( conn->request_bytes_read<(ulong)result+content_len ) ) {
       return; /* Request still partial, wait for more data */
@@ -479,7 +510,7 @@ read_conn_ws( fd_http_server_t * http,
 
   long sz = read( http->pollfds[ conn_idx ].fd, conn->recv_bytes+conn->recv_bytes_parsed+conn->recv_bytes_read, http->max_ws_recv_frame_len-conn->recv_bytes_parsed-conn->recv_bytes_read );
   if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return; /* No data to read, continue. */
-  else if( FD_UNLIKELY( !sz || (-1==sz && errno==ECONNRESET) ) ) {
+  else if( FD_UNLIKELY( !sz || (-1==sz && is_expected_network_error( errno ) ) ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
     return;
   }
@@ -487,6 +518,7 @@ read_conn_ws( fd_http_server_t * http,
 
   /* New data was read... process it */
   conn->recv_bytes_read += (ulong)sz;
+again:
   if( FD_UNLIKELY( conn->recv_bytes_read<2UL ) ) return; /* Need at least 2 bytes to determine frame length */
 
   int is_mask_set = conn->recv_bytes[ conn->recv_bytes_parsed+1UL ] & 0x80;
@@ -543,10 +575,6 @@ read_conn_ws( fd_http_server_t * http,
 
   uchar * payload = conn->recv_bytes+conn->recv_bytes_parsed+header_len;
   for( ulong i=0UL; i<payload_len; i++ ) conn->recv_bytes[ conn->recv_bytes_parsed+i ] = payload[ i ] ^ mask_copy[ i % 4 ];
-
-#ifdef FD_HTTP_SERVER_DEBUG
-  FD_LOG_NOTICE(( "received frame connection=%lu opcode=%d length=%lu fin=%d", conn_idx, opcode, frame_len, is_fin_set ));
-#endif
 
   /* Frame is complete, process it */
 
@@ -606,12 +634,14 @@ read_conn_ws( fd_http_server_t * http,
   uchar tmp = conn->recv_bytes[ conn->recv_bytes_parsed ];
   conn->recv_bytes[ conn->recv_bytes_parsed ] = 0; /* NUL terminate */
   http->callbacks.ws_message( conn_idx-http->max_conns, conn->recv_bytes, conn->recv_bytes_parsed, http->callback_ctx );
+  if( FD_UNLIKELY( -1==http->pollfds[ conn_idx ].fd ) ) return; /* Connection was closed by callback */
   conn->recv_bytes[ conn->recv_bytes_parsed ] = tmp;
 
   conn->recv_started_msg  = 0;
   conn->recv_bytes_parsed = 0UL;
   if( FD_UNLIKELY( trailing_data_len ) ) {
     memmove( conn->recv_bytes, trailing_data, trailing_data_len );
+    goto again; /* Might be another message in the buffer to process */
   }
 }
 
@@ -711,9 +741,9 @@ write_conn_http( fd_http_server_t * http,
       return;
   }
 
-  long sz = write( http->pollfds[ conn_idx ].fd, response+conn->response_bytes_written, response_len-conn->response_bytes_written );
-  if( FD_UNLIKELY( -1==sz && (errno==EAGAIN || errno==EINTR) ) ) return; /* No data was written, continue. */
-  if( FD_UNLIKELY( -1==sz && (errno==EPIPE || errno==ECONNRESET) ) ) {
+  long sz = send( http->pollfds[ conn_idx ].fd, response+conn->response_bytes_written, response_len-conn->response_bytes_written, MSG_NOSIGNAL );
+  if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return; /* No data was written, continue. */
+  if( FD_UNLIKELY( -1==sz && is_expected_network_error( errno ) ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
     return;
   }
@@ -749,7 +779,7 @@ write_conn_http( fd_http_server_t * http,
             http->ws_conns[ ws_conn_id ].recv_bytes_read = conn->request_bytes_read-conn->request_bytes_len;
           }
 
-#ifdef FD_HTTP_SERVER_DEBUG
+#if FD_HTTP_SERVER_DEBUG
           FD_LOG_WARNING(( "Upgraded connection %lu (fd=%d) to websocket connection %lu", conn_idx, fd, ws_conn_id ));
 #endif
 
@@ -776,7 +806,7 @@ maybe_write_pong( fd_http_server_t * http,
       Client has not sent a ping */
   if( FD_LIKELY( conn->pong_state==FD_HTTP_SERVER_PONG_STATE_NONE ) )       return 0;
   /*  We are in the middle of writing a data frame */
-  if( FD_LIKELY( conn->send_frame_cnt && conn->send_frame_bytes_written ) ) return 0;
+  if( FD_LIKELY( conn->send_frame_cnt && (conn->send_frame_state=FD_HTTP_SERVER_SEND_FRAME_STATE_DATA || conn->send_frame_bytes_written ) ) ) return 0;
 
   /* Otherwise, we need to pong */
   if( FD_LIKELY( conn->pong_state==FD_HTTP_SERVER_PONG_STATE_WAITING ) ) {
@@ -789,9 +819,9 @@ maybe_write_pong( fd_http_server_t * http,
   frame[ 1 ] = (uchar)conn->pong_data_len;
   fd_memcpy( frame+2UL, conn->pong_data, conn->pong_data_len );
 
-  long sz = write( http->pollfds[ conn_idx ].fd, frame+conn->pong_bytes_written, 2UL+conn->pong_data_len-conn->pong_bytes_written );
-  if( FD_UNLIKELY( -1==sz && (errno==EAGAIN || errno==EINTR) ) ) return 1; /* No data was written, continue. */
-  else if( FD_UNLIKELY( -1==sz && (errno==EPIPE || errno==ECONNRESET) ) ) {
+  long sz = send( http->pollfds[ conn_idx ].fd, frame+conn->pong_bytes_written, 2UL+conn->pong_data_len-conn->pong_bytes_written, MSG_NOSIGNAL );
+  if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return 1; /* No data was written, continue. */
+  else if( FD_UNLIKELY( -1==sz && is_expected_network_error( errno ) ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
     return 1;
   }
@@ -841,9 +871,9 @@ write_conn_ws( fd_http_server_t * http,
         header_len = 10UL;
       }
 
-      long sz = write( http->pollfds[ conn_idx ].fd, header+conn->send_frame_bytes_written, header_len-conn->send_frame_bytes_written );
-      if( FD_UNLIKELY( -1==sz && (errno==EAGAIN || errno==EINTR) ) ) return; /* No data was written, continue. */
-      else if( FD_UNLIKELY( -1==sz && (errno==EPIPE || errno==ECONNRESET) ) ) {
+      long sz = send( http->pollfds[ conn_idx ].fd, header+conn->send_frame_bytes_written, header_len-conn->send_frame_bytes_written, MSG_NOSIGNAL );
+      if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return; /* No data was written, continue. */
+      else if( FD_UNLIKELY( -1==sz && is_expected_network_error( errno ) ) ) {
         close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
         return;
       }
@@ -857,9 +887,9 @@ write_conn_ws( fd_http_server_t * http,
       break;
     }
     case FD_HTTP_SERVER_SEND_FRAME_STATE_DATA: {
-      long sz = write( http->pollfds[ conn_idx ].fd, frame->data+conn->send_frame_bytes_written, frame->data_len-conn->send_frame_bytes_written );
-      if( FD_UNLIKELY( -1==sz && (errno==EAGAIN || errno==EINTR) ) ) return; /* No data was written, continue. */
-      else if( FD_UNLIKELY( -1==sz && (errno==EPIPE || errno==ECONNRESET) ) ) {
+      long sz = send( http->pollfds[ conn_idx ].fd, frame->data+conn->send_frame_bytes_written, frame->data_len-conn->send_frame_bytes_written, MSG_NOSIGNAL );
+      if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return; /* No data was written, continue. */
+      else if( FD_UNLIKELY( -1==sz && is_expected_network_error( errno ) ) ) {
         close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
         return;
       }
