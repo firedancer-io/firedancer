@@ -282,7 +282,7 @@ main( int     argc,
     ulong r = fd_rng_ulong( rng );
 
     int op  = (int)(r & 0xfUL); r >>= 4;
-    int ele = (int)(r & 1UL);   r >>= 5;
+    int ele = (int)(r & 1UL);   r >>= 1;
 
     switch( op ) {
 
