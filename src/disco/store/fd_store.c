@@ -79,6 +79,11 @@ fd_store_delete( void * store ) {
   return store;
 }
 
+void
+fd_store_expected_shred_version( fd_store_t * store, ulong expected_shred_version ) {
+  store->expected_shred_version = expected_shred_version;
+}
+
 int
 fd_store_slot_prepare( fd_store_t *   store,
                        ulong          slot,
@@ -193,6 +198,11 @@ end:
 int
 fd_store_shred_insert( fd_store_t * store,
                        fd_shred_t const * shred ) {
+
+  if( FD_UNLIKELY( store->expected_shred_version && shred->version != store->expected_shred_version ) ) {
+    FD_LOG_DEBUG(( "received shred version %lu instead of %lu", (ulong)shred->version, store->expected_shred_version ));
+    return FD_BLOCKSTORE_OK;
+  }
 
   fd_blockstore_t * blockstore = store->blockstore;
 
