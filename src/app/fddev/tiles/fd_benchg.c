@@ -213,7 +213,7 @@ after_credit( void *             _ctx,
     memcpy( txn->large._2.hardcoded_sig,    HARDCODED_SIG,    64UL );
     txn->large._2.message         = 0;
 
-    txn->large._2._padding2 = ctx->lamport_idx; /* Unique per transaction so they aren't duplicates */
+    txn->large._2._padding2 = ctx->lamport_idx * ctx->acct_cnt + ctx->sender_idx; /* Unique per transaction so they aren't duplicates */
   } else {
     FD_LOG_ERR(( "Unkown transaction mode %i", ctx->transaction_mode ));
   }
@@ -228,7 +228,7 @@ after_credit( void *             _ctx,
     txn->small._1.micro_lamports_per_cu += fd_ulong_if( is_contending, 1000000UL, 0UL ); /* +300 lamports */
     txn->small._1.micro_lamports_per_cu += cu_price_spread;
   } else if( ctx->transaction_mode==BENCHG_TRANSACTION_MODE_LARGE ) {
-    txn->large._1.micro_lamports_per_cu += fd_ulong_if( is_contending,   10000UL, 0UL ); /* +2000 lamports */
+    txn->large._1.micro_lamports_per_cu += fd_ulong_if( is_contending,   43000UL, 0UL ); /* +4 lamports/csu */
     txn->large._1.micro_lamports_per_cu += cu_price_spread;
   }
 
@@ -319,7 +319,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->acct_public_keys = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pubkey_t ), sizeof( fd_pubkey_t ) * tile->benchg.accounts_cnt );
   ctx->acct_private_keys = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pubkey_t ), sizeof( fd_pubkey_t ) * tile->benchg.accounts_cnt );
 
-  FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, 0UL, 0UL ) ) );
+  FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, (uint)tile->kind_id, 0UL ) ) );
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha ) ) );
 
   ctx->acct_cnt            = tile->benchg.accounts_cnt;
