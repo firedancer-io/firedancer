@@ -316,7 +316,7 @@ FD_FN_CONST static inline ulong DLIST_(private_idx_null)( void ) { return (ulong
 
 FD_FN_CONST static inline int DLIST_(private_idx_is_null)( ulong idx ) { return idx==(ulong)(DLIST_IDX_T)~0UL; }
 
-FD_FN_CONST static ulong DLIST_(ele_max)( void ) { return (ulong)(DLIST_IDX_T)~0UL; }
+FD_FN_CONST static inline ulong DLIST_(ele_max)( void ) { return (ulong)(DLIST_IDX_T)~0UL; }
 
 FD_FN_PURE static inline int
 DLIST_(is_empty)( DLIST_(t) const *   join,

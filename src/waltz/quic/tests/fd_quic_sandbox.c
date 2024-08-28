@@ -228,7 +228,6 @@ fd_quic_sandbox_init( fd_quic_sandbox_t * sandbox,
   quic_cfg->net.listen_udp_port   = FD_QUIC_SANDBOX_SELF_PORT;
   quic_cfg->net.ephem_udp_port.lo = FD_QUIC_SANDBOX_SELF_PORT;
   quic_cfg->net.ephem_udp_port.hi = FD_QUIC_SANDBOX_SELF_PORT + 1;
-  quic_cfg->initial_rx_max_stream_data = 512UL; /* arbitrary */
   memcpy( quic_cfg->identity_public_key, fd_quic_sandbox_self_ed25519_keypair + 32, 32 );
   memset( &quic->metrics, 0, sizeof(fd_quic_metrics_t) );
 
@@ -328,7 +327,6 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
   conn->tx_max_data      = 0UL;
   conn->tx_tot_data      = 0UL;
   conn->rx_max_data      = 0UL;
-  conn->rx_tot_data      = 0UL;
   conn->rx_max_data_ackd = 0UL;
   conn->tx_initial_max_stream_data_uni = 0UL;
 
@@ -353,6 +351,7 @@ fd_quic_sandbox_send_frame( fd_quic_sandbox_t * sandbox,
    * frame types */
   uint pkt_type = FD_QUIC_PKT_TYPE_ONE_RTT;
 
+  /* Scratch space to deserialize frame data into */
   ulong rc = fd_quic_handle_v1_frame( quic, conn, pkt_meta, pkt_type, frame_ptr, frame_sz );
   if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) return;
   if( FD_UNLIKELY( rc==0UL || rc>frame_sz ) ) {

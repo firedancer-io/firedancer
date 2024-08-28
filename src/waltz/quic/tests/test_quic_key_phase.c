@@ -137,26 +137,17 @@ extern ulong pkt_full_sz;
 uchar fail = 0;
 
 void
-my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
-  (void)stream;
-  (void)ctx;
-  (void)type;
-}
-
-void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)stream;
-  (void)fin;
-  (void)data;
-
+my_stream_receive_cb(
+    void *             cb_ctx    FD_FN_UNUSED,
+    fd_quic_conn_t *   conn      FD_FN_UNUSED,
+    ulong              stream_id,
+    uchar const *      data      FD_FN_UNUSED,
+    ulong              data_sz,
+    ulong              offset,
+    int                fin       FD_FN_UNUSED
+) {
   FD_LOG_DEBUG(( "received data from peer.  stream_id: %lu  size: %lu offset: %lu\n",
-                (ulong)stream->stream_id, data_sz, offset ));
+                (ulong)stream_id, data_sz, offset ));
 
   rcvd++;
   tot_rcvd++;
@@ -175,7 +166,7 @@ my_cb_conn_final( fd_quic_conn_t * conn,
                   void *           context ) {
   (void)context;
 
-  fd_quic_conn_t ** ppconn = (fd_quic_conn_t**)fd_quic_conn_get_context( conn );
+  fd_quic_conn_t ** ppconn = conn->context;
   if( ppconn ) {
     FD_LOG_NOTICE(( "my_cb_conn_final %p SUCCESS", (void*)*ppconn ));
     *ppconn = NULL;
@@ -238,8 +229,7 @@ client_fibre_fn( void * vp_arg ) {
   fd_quic_t * quic        = args->quic;
   fd_quic_t * server_quic = args->server_quic;
 
-  fd_quic_conn_t *   conn   = NULL;
-  fd_quic_stream_t * stream = NULL;
+  fd_quic_conn_t * conn = NULL;
 
   static uchar const buf[] = "Hello World!";
 
@@ -258,7 +248,7 @@ client_fibre_fn( void * vp_arg ) {
     FD_LOG_ERR(( "Client unable to obtain a connection. now: %lu", (ulong)now ));
   }
 
-  fd_quic_conn_set_context( conn, &conn );
+  conn->context = &conn;
 
   /* service client until connection is established */
   while( conn && conn->state != FD_QUIC_CONN_STATE_ACTIVE ) {
@@ -321,31 +311,13 @@ client_fibre_fn( void * vp_arg ) {
       }
     }
 
-    if( !stream ) {
-      stream = fd_quic_conn_new_stream( conn );
-
-      if( !stream ) {
-        continue;
-      }
-    }
-
     if( now < next_send ) continue;
 
     /* set next send time */
     next_send = now + period_ns;
 
     /* have a stream, so send */
-    int rc = fd_quic_stream_send( stream, buf, sizeof(buf), 1 /* fin */ );
-
-    if( rc == FD_QUIC_SUCCESS ) {
-      /* successful - stream will begin closing */
-
-      /* ensure new stream used for next send */
-      stream = fd_quic_conn_new_stream( conn );
-
-    } else {
-      FD_LOG_WARNING(( "CLIENT - send failed" ));
-    }
+    fd_quic_stream_uni_send( conn, buf, sizeof(buf) );
   }
 
   if( conn ) {
@@ -424,13 +396,10 @@ main( int argc, char ** argv ) {
   FD_TEST( wksp );
 
   fd_quic_limits_t const quic_limits = {
-    .conn_cnt           = 10,
-    .conn_id_cnt        = 10,
-    .handshake_cnt      = 10,
-    .rx_stream_cnt      = 10,
-    .stream_pool_cnt    = 512,
-    .inflight_pkt_cnt   = 1024,
-    .tx_buf_sz          = 1<<14
+    .conn_cnt         = 10,
+    .conn_id_cnt      = 10,
+    .handshake_cnt    = 10,
+    .inflight_pkt_cnt = 1024,
   };
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
@@ -451,13 +420,10 @@ main( int argc, char ** argv ) {
 
   client_quic->cb.conn_hs_complete = my_handshake_complete;
   client_quic->cb.stream_receive   = my_stream_receive_cb;
-  client_quic->cb.stream_notify    = my_stream_notify_cb;
   client_quic->cb.conn_final       = my_cb_conn_final;
 
   client_quic->cb.now     = test_clock;
   client_quic->cb.now_ctx = NULL;
-
-  client_quic->config.initial_rx_max_stream_data = 1<<15;
 
   fd_quic_config_t * server_config = &server_quic->config;
   server_config->idle_timeout = 5e9;
@@ -465,14 +431,11 @@ main( int argc, char ** argv ) {
 
   server_quic->cb.conn_new       = my_connection_new;
   server_quic->cb.stream_receive = my_stream_receive_cb;
-  server_quic->cb.stream_notify  = my_stream_notify_cb;
   server_quic->cb.conn_final     = my_cb_conn_final;
   server_quic->cb.tls_keylog     = my_tls_keylog;
 
   server_quic->cb.now     = test_clock;
   server_quic->cb.now_ctx = NULL;
-
-  server_quic->config.initial_rx_max_stream_data = 1<<15;
 
   /* pcap */
   FILE * pcap_file = fopen( "test_quic_drops.pcapng", "wb" );

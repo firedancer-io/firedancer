@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_waltz_quic_fd_rollset_h
+#define HEADER_fd_src_waltz_quic_fd_rollset_h
+
 /* fd_rollset.h provides a rolling bitset for 64 entries.
 
      ..11111111 01010101..01010101 00000000..
@@ -48,3 +51,5 @@ fd_rollset_query( fd_rollset_t const * rs,
   int   res  = !!(set & mask);
   return idx<min ? 1 : dist>=64 ? 0 : res;
 }
+
+#endif /* HEADER_fd_src_waltz_quic_fd_rollset_h */

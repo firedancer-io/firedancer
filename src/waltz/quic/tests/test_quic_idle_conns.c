@@ -68,35 +68,15 @@ cb_conn_final( fd_quic_conn_t * conn,
 }
 
 void
-cb_stream_new( fd_quic_stream_t * stream,
-               void *             quic_ctx ) {
-  (void)stream;
-  (void)quic_ctx;
-}
-
-void
-cb_stream_notify( fd_quic_stream_t * stream,
-                  void *             stream_ctx,
-                  int                notify_type ) {
-  (void)stream;
-  (void)stream_ctx;
-  (void)notify_type;
-}
-
-void
-cb_stream_receive( fd_quic_stream_t * stream,
-                   void *             stream_ctx,
-                   uchar const *      data,
-                   ulong              data_sz,
-                   ulong              offset,
-                   int                fin ) {
-  (void)stream;
-  (void)stream_ctx;
-  (void)data;
-  (void)data_sz;
-  (void)offset;
-  (void)fin;
-}
+cb_stream_receive(
+    void *             cb_ctx    FD_FN_UNUSED,
+    fd_quic_conn_t *   conn      FD_FN_UNUSED,
+    ulong              stream_id FD_FN_UNUSED,
+    uchar const *      data      FD_FN_UNUSED,
+    ulong              data_sz   FD_FN_UNUSED,
+    ulong              offset    FD_FN_UNUSED,
+    int                fin       FD_FN_UNUSED )
+{}
 
 ulong
 cb_now( void * context ) {
@@ -114,8 +94,6 @@ run_quic_client( fd_quic_t *         quic,
   quic->cb.conn_new         = cb_conn_new;
   quic->cb.conn_hs_complete = cb_conn_handshake_complete;
   quic->cb.conn_final       = cb_conn_final;
-  quic->cb.stream_new       = cb_stream_new;
-  quic->cb.stream_notify    = cb_stream_notify;
   quic->cb.stream_receive   = cb_stream_receive;
   quic->cb.now              = cb_now;
   quic->cb.now_ctx          = NULL;
@@ -182,11 +160,11 @@ main( int argc,
                                                  9007 );
 
   /* number of connections to maintain */
-  ulong num_conns = fd_env_strip_cmdline_ulong( &argc,
-                                                &argv,
-                                                "--num-conns",
-                                                NULL,
-                                                256 );
+  uint num_conns = fd_env_strip_cmdline_uint( &argc,
+                                              &argv,
+                                              "--num-conns",
+                                              NULL,
+                                              256 );
 
   ulong num_pages = fd_env_strip_cmdline_ulong( &argc,
                                                 &argv,
@@ -226,10 +204,7 @@ main( int argc,
      .conn_cnt           = num_conns,
      .handshake_cnt      = num_conns,
      .conn_id_cnt        = 16UL,
-     .rx_stream_cnt      = 2UL,
-     .stream_pool_cnt    = num_conns * 2,
      .inflight_pkt_cnt   = 64UL,
-     .tx_buf_sz          = 0
   };
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
   FD_TEST( quic_footprint );
@@ -259,7 +234,6 @@ main( int argc,
   client_cfg->net.ip_addr         = udpsock->listen_ip;
   client_cfg->net.ephem_udp_port.lo = (ushort)udpsock->listen_port;
   client_cfg->net.ephem_udp_port.hi = (ushort)(udpsock->listen_port + 1);
-  client_cfg->initial_rx_max_stream_data = 1<<15;
   client_cfg->idle_timeout = (ulong)10000e6;
 
   uint dst_ip = 0;

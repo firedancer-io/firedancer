@@ -84,9 +84,6 @@ quic_limits( fd_topo_tile_t const * tile ) {
        either. */
     .conn_id_cnt      = FD_QUIC_MAX_CONN_ID_PER_CONN,
     .inflight_pkt_cnt = tile->quic.max_inflight_quic_packets,
-    .tx_buf_sz        = 0,
-    .rx_stream_cnt    = tile->quic.max_concurrent_streams_per_connection,
-    .stream_pool_cnt  = tile->quic.max_concurrent_streams_per_connection * tile->quic.max_concurrent_connections,
   };
   return limits;
 }
@@ -111,7 +108,7 @@ mux_ctx( void * scratch ) {
   return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_quic_ctx_t ) );
 }
 
-/* legacy_stream_notify is called for transactions sent via TPU/UDP. For
+/* legacy_receive is called for transactions sent via TPU/UDP.  For
    now both QUIC and non-QUIC transactions are accepted, with traffic
    type determined by port.
 
@@ -119,9 +116,9 @@ mux_ctx( void * scratch ) {
    notify here means the entire packet was received. */
 
 static void
-legacy_stream_notify( fd_quic_ctx_t * ctx,
-                      uchar *         packet,
-                      ulong           packet_sz ) {
+legacy_receive( fd_quic_ctx_t * ctx,
+                uchar *         packet,
+                ulong           packet_sz ) {
 
   fd_mux_context_t * mux = ctx->mux;
 
@@ -299,7 +296,7 @@ after_frag( void *             _ctx,
       return;
     }
 
-    legacy_stream_notify( ctx, ctx->buffer+network_hdr_sz, data_sz );
+    legacy_receive( ctx, ctx->buffer+network_hdr_sz, data_sz );
   }
 }
 
@@ -322,131 +319,57 @@ quic_conn_new( fd_quic_conn_t * conn,
   conn->local_conn_id = ++ctx->conn_seq;
 }
 
-/* quic_stream_new is called back by the QUIC engine whenever an open
-   connection creates a new stream, at the time this is called, both the
-   client and server must have agreed to open the stream.  In case the
-   client has opened this stream, it is assumed that the QUIC
-   implementation has verified that the client has the necessary stream
-   quota to do so. */
-
 static void
-quic_stream_new( fd_quic_stream_t * stream,
-                 void *             _ctx ) {
+quic_stream_receive(
+    void *             cb_ctx,
+    fd_quic_conn_t *   conn,
+    ulong              stream_id,
+    uchar const *      data,
+    ulong              data_sz,
+    ulong              offset,
+    int                fin
+) {
+  fd_quic_ctx_t *       ctx      = cb_ctx;
+  fd_tpu_reasm_t *      reasm    = ctx->reasm;
+  fd_mux_context_t *    mux      = ctx->mux;
+  uint                  tsorig   = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong                 conn_id  = conn->local_conn_id;
+  fd_tpu_reasm_slot_t * slot     = conn->context;
+  fd_frag_meta_t *      mcache   = mux->mcache;
+  void *                base     = ctx->verify_out_mem;
 
-  /* Load QUIC state */
+  /* Recycle or acquire reassemble slot */
 
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
-
-  ulong conn_id   = stream->conn->local_conn_id;
-  ulong stream_id = stream->stream_id;
-
-  /* Acquire reassembly slot */
-
-  uint                  tsorig = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_tpu_reasm_slot_t * slot   = fd_tpu_reasm_prepare( ctx->reasm, tsorig );
-
-  slot->conn_id   = conn_id;
-  slot->stream_id = stream_id;
-
-  /* Wire up with QUIC stream */
-
-  stream->context = slot;
-
-  /* Wind up for next iteration */
-
-}
-
-/* quic_stream_receive is called back by the QUIC engine when any stream
-   in any connection being serviced receives new data.  Currently we
-   simply copy received data out of the xsk (network device memory) into
-   a local dcache. */
-
-static void
-quic_stream_receive( fd_quic_stream_t * stream,
-                     void *             stream_ctx,
-                     uchar const *      data,
-                     ulong              data_sz,
-                     ulong              offset,
-                     int                fin ) {
-
-  (void)fin; /* TODO instantly publish if offset==0UL && fin */
-
-  /* Load TPU state */
-
-  fd_quic_t *           quic     = stream->conn->quic;
-  fd_quic_ctx_t *       quic_ctx = quic->cb.quic_ctx;
-  fd_tpu_reasm_t *      reasm    = quic_ctx->reasm;
-  fd_tpu_reasm_slot_t * slot     = stream_ctx;
-  fd_quic_ctx_t *       ctx    = quic->cb.quic_ctx;
-
-  /* Check if reassembly slot is still valid */
-
-  ulong conn_id   = stream->conn->local_conn_id;
-  ulong stream_id = stream->stream_id;
-
-  if( FD_UNLIKELY( ( slot->conn_id   != conn_id   ) |
-                   ( slot->stream_id != stream_id ) ) ) {
-    return;  /* clobbered */
+  if( !slot ) {
+    slot = fd_tpu_reasm_prepare( reasm, tsorig );
+  } else if( ( slot->conn_id   != conn_id   ) |
+             ( slot->stream_id != stream_id ) ) {
+    fd_tpu_reasm_cancel( reasm, slot );  /* FIXME double free? */
+    slot = fd_tpu_reasm_prepare( reasm, tsorig );
   }
+  conn->context = slot;
 
-  /* Append data into chunk, we know this is valid */
+  /* Append data (frags guaranteed in order) */
 
   int add_err = fd_tpu_reasm_append( reasm, slot, data, data_sz, offset );
   ctx->metrics.reasm_append[ add_err ]++;
-}
-
-/* quic_stream_notify is called back by the QUIC implementation when a
-   stream is finished.  This could either be because it completed
-   successfully after reading valid data, or it was closed prematurely
-   for some other reason.  All streams must eventually notify.
-
-   If we see a successful QUIC stream notify, it means we have received
-   a full transaction and should publish it downstream to be verified
-   and executed. */
-
-static void
-quic_stream_notify( fd_quic_stream_t * stream,
-                    void *             stream_ctx,
-                    int                type ) {
-
-  /* Load TPU state */
-
-  fd_quic_t *           quic   = stream->conn->quic;
-  fd_quic_ctx_t *       ctx    = quic->cb.quic_ctx;
-  fd_tpu_reasm_t *      reasm  = ctx->reasm;
-  fd_tpu_reasm_slot_t * slot   = stream_ctx;
-  fd_mux_context_t *    mux    = ctx->mux;
-  fd_frag_meta_t *      mcache = mux->mcache;
-  void *                base   = ctx->verify_out_mem;
-
-  /* Check if reassembly slot is still valid */
-
-  ulong conn_id   = stream->conn->local_conn_id;
-  ulong stream_id = stream->stream_id;
-
-  if( FD_UNLIKELY( ( slot->conn_id   != conn_id   ) |
-                   ( slot->stream_id != stream_id ) ) ) {
-    FD_MCNT_INC( QUIC_TILE, REASSEMBLY_NOTIFY_CLOBBERED, 1UL );
-    return;  /* clobbered */
+  if( add_err ) {
+    conn->context = NULL;
+    return;
   }
 
-  /* Abort reassembly slot if QUIC stream closes non-gracefully */
+  /* Flush to user */
 
-  if( FD_UNLIKELY( type!=FD_QUIC_NOTIFY_END ) ) {
-    FD_MCNT_INC( QUIC_TILE, REASSEMBLY_NOTIFY_ABORTED, 1UL );
-    fd_tpu_reasm_cancel( reasm, slot );
-    return;  /* not a successful stream close */
+  if( fin ) {
+    ulong  seq     = *mux->seq;
+    uint   tspub   = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
+    int    pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
+    ctx->metrics.reasm_publish[ pub_err ]++;
+    fd_mux_advance( mux );
+    conn->context = NULL;
   }
 
-  /* Publish message */
-
-  ulong  seq   = *mux->seq;
-  uint   tspub = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
-  int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
-  ctx->metrics.reasm_publish[ pub_err ]++;
-  if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return;
-
-  fd_mux_advance( mux );
+  return;
 }
 
 static int
@@ -587,7 +510,6 @@ unprivileged_init( fd_topo_t *      topo,
   quic->config.net.ip_addr                = tile->quic.ip_addr;
   quic->config.net.listen_udp_port        = tile->quic.quic_transaction_listen_port;
   quic->config.idle_timeout               = tile->quic.idle_timeout_millis * 1000000UL;
-  quic->config.initial_rx_max_stream_data = FD_TXN_MTU;
   quic->config.retry                      = tile->quic.retry;
   fd_memcpy( quic->config.link.src_mac_addr, tile->quic.src_mac_addr, 6 );
   fd_memcpy( quic->config.identity_public_key, ctx->identity_public_key, 32UL );
@@ -598,9 +520,7 @@ unprivileged_init( fd_topo_t *      topo,
   quic->cb.conn_new         = quic_conn_new;
   quic->cb.conn_hs_complete = NULL;
   quic->cb.conn_final       = NULL;
-  quic->cb.stream_new       = quic_stream_new;
   quic->cb.stream_receive   = quic_stream_receive;
-  quic->cb.stream_notify    = quic_stream_notify;
   quic->cb.now              = quic_now;
   quic->cb.now_ctx          = NULL;
   quic->cb.quic_ctx         = ctx;

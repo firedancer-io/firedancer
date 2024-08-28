@@ -16,9 +16,9 @@ test_quic_stream_data_limit_enforcement( fd_quic_sandbox_t * sandbox,
                                          fd_rng_t *          rng ) {
 
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
-  sandbox->quic->config.initial_rx_max_stream_data = 1UL;
   fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
-  conn->rx_sup_stream_id = (2UL<<2) + FD_QUIC_STREAM_TYPE_UNI_CLIENT;
+  /* TODO */
+  //fd_quic_conn_set_max_streams( conn, 1UL );
 
   uchar buf[ 1024 ];
   fd_quic_stream_frame_t stream_frame =
@@ -49,7 +49,8 @@ test_quic_stream_limit_enforcement( fd_quic_sandbox_t * sandbox,
 
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
   fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
-  conn->rx_sup_stream_id = 0UL + FD_QUIC_STREAM_TYPE_UNI_CLIENT;
+  /* TODO */
+  //fd_quic_conn_set_max_streams( conn, 1UL );
 
   uchar buf[ 1024 ];
   fd_quic_stream_frame_t stream_frame =
@@ -91,117 +92,6 @@ test_quic_stream_concurrency( fd_quic_sandbox_t * sandbox,
     FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
   }
 
-}
-
-/* - Ensure that a high stream ID prunes low stream IDs
-   - Ensure that pruned low stream IDs are not received multiple times */
-
-static __attribute__((noinline)) void
-test_quic_stream_skip( fd_quic_sandbox_t * sandbox,
-                       fd_rng_t *          rng ) {
-
-  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
-  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
-  conn->rx_sup_stream_id = (1024UL<<2) + FD_QUIC_STREAM_TYPE_UNI_CLIENT;
-
-  /* Fill the current stream window with unfinished streams */
-  ulong window_cnt = sandbox->quic->limits.rx_stream_cnt;
-  for( ulong j=0UL; j<window_cnt; j++ ) {
-    uchar buf[ 64 ];
-    fd_quic_stream_frame_t stream_frame =
-      { .stream_id  = (j<<2) + FD_QUIC_STREAM_TYPE_UNI_CLIENT,
-        .length_opt = 1,
-        .length     = 1UL };
-    ulong sz = fd_quic_encode_stream_frame( buf, sizeof(buf), &stream_frame );
-    FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
-    buf[ sz++ ] = '0';
-    fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
-    FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
-  }
-  FD_TEST( sandbox->quic->metrics.stream_opened_cnt   == window_cnt );
-  FD_TEST( sandbox->quic->metrics.stream_closed_cnt   == 0UL        );
-  FD_TEST( sandbox->quic->metrics.stream_rx_event_cnt == window_cnt );
-  FD_TEST( sandbox->quic->metrics.stream_active_cnt   == window_cnt );
-
-  /* Send one more stream frame without a gap.  This moves the stream
-     receive window one up.  The oldest stream thereby drops below the
-     window and gets aborted. */
-  do {
-    uchar buf[ 64 ];
-    fd_quic_stream_frame_t stream_frame =
-      { .stream_id  = (window_cnt<<2) + FD_QUIC_STREAM_TYPE_UNI_CLIENT,
-        .length_opt = 1,
-        .length     = 1UL };
-    ulong sz = fd_quic_encode_stream_frame( buf, sizeof(buf), &stream_frame );
-    FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
-    buf[ sz++ ] = '0';
-    fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
-    FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
-  } while(0);
-  FD_TEST( sandbox->quic->metrics.stream_opened_cnt   == window_cnt+1UL );
-  FD_TEST( sandbox->quic->metrics.stream_closed_cnt   ==            1UL );
-  FD_TEST( sandbox->quic->metrics.stream_rx_event_cnt == window_cnt+1UL );
-  FD_TEST( sandbox->quic->metrics.stream_active_cnt   == window_cnt     );
-
-  /* Send data on a closed stream.  Frame should be ignored */
-  do {
-    uchar buf[ 64 ];
-    fd_quic_stream_frame_t stream_frame =
-      { .stream_id  = FD_QUIC_STREAM_TYPE_UNI_CLIENT,
-        .length_opt = 1,
-        .length     = 1UL,
-        .offset_opt = 1,
-        .offset     = 1UL,
-        .fin_opt    = 1 };
-    ulong sz = fd_quic_encode_stream_frame( buf, sizeof(buf), &stream_frame );
-    FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
-    buf[ sz++ ] = '0';
-    fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
-    FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
-  } while(0);
-  FD_TEST( sandbox->quic->metrics.stream_opened_cnt   == window_cnt+1UL );
-  FD_TEST( sandbox->quic->metrics.stream_closed_cnt   ==            1UL );
-  FD_TEST( sandbox->quic->metrics.stream_rx_event_cnt == window_cnt+1UL );
-  FD_TEST( sandbox->quic->metrics.stream_active_cnt   == window_cnt     );
-
-  /* Send a stream, skipping one stream ID.  This moves up the window
-     by two, dropping two streams. */
-  do {
-    uchar buf[ 64 ];
-    fd_quic_stream_frame_t stream_frame =
-      { .stream_id  = ((window_cnt+2)<<2) + FD_QUIC_STREAM_TYPE_UNI_CLIENT,
-        .length_opt = 1,
-        .length     = 1UL };
-    ulong sz = fd_quic_encode_stream_frame( buf, sizeof(buf), &stream_frame );
-    FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
-    buf[ sz++ ] = '0';
-    fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
-    FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
-  } while(0);
-  FD_TEST( sandbox->quic->metrics.stream_opened_cnt   == window_cnt+2UL );
-  FD_TEST( sandbox->quic->metrics.stream_closed_cnt   ==            3UL );
-  FD_TEST( sandbox->quic->metrics.stream_rx_event_cnt == window_cnt+2UL );
-  FD_TEST( sandbox->quic->metrics.stream_active_cnt   == window_cnt-1UL );
-
-  /* All streams should close when the connection winds down */
-  do {
-    uchar buf[ 64 ];
-    fd_quic_conn_close_1_frame_t close_frame = {0};
-    ulong sz = fd_quic_encode_conn_close_1_frame( buf, sizeof(buf), &close_frame );
-    FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
-    fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
-  } while(0);
-
-  /* Mark conn as free */
-  FD_TEST( conn->state == FD_QUIC_CONN_STATE_PEER_CLOSE );
-  fd_quic_conn_service( sandbox->quic, conn, fd_quic_now( sandbox->quic ) );
-  FD_TEST( conn->state == FD_QUIC_CONN_STATE_DEAD );
-  FD_TEST( sandbox->quic->metrics.conn_closed_cnt == 1UL );
-
-  /* Actually free conn */
-  fd_quic_conn_free( sandbox->quic, conn );
-  FD_TEST( sandbox->quic->metrics.stream_closed_cnt == window_cnt+2UL );
-  FD_TEST( sandbox->quic->metrics.stream_active_cnt == 0UL            );
 }
 
 static __attribute__((noinline)) void
@@ -283,11 +173,7 @@ main( int     argc,
     .conn_cnt         =   4UL,
     .handshake_cnt    =   1UL,
     .conn_id_cnt      =   4UL,
-    .stream_id_cnt    =   8UL,
-    .rx_stream_cnt    =   8UL,
     .inflight_pkt_cnt =   8UL,
-    .tx_buf_sz        = 512UL,
-    .stream_pool_cnt  =  32UL,
   };
 
   ulong const pkt_cnt = 128UL;
@@ -314,7 +200,6 @@ main( int     argc,
   test_quic_stream_limit_enforcement     ( sandbox, rng );
   test_quic_stream_concurrency           ( sandbox, rng );
   test_quic_stream_retransmit            ( sandbox, rng );
-  test_quic_stream_skip                  ( sandbox, rng );
   test_quic_stream_skip_long             ( sandbox, rng );
 
   /* Wind down */

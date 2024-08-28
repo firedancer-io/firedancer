@@ -1,21 +1,17 @@
 #ifndef HEADER_fd_src_waltz_quic_fd_quic_pkt_meta_h
 #define HEADER_fd_src_waltz_quic_fd_quic_pkt_meta_h
 
-#include "../../util/fd_util.h"
+/* fd_quic_pkt_meta.h declares structures to track send operations.
 
-typedef struct fd_quic_pkt_meta      fd_quic_pkt_meta_t;
-typedef struct fd_quic_range         fd_quic_range_t;
-typedef struct fd_quic_pkt_meta_list fd_quic_pkt_meta_list_t;
-typedef struct fd_quic_pkt_meta_pool fd_quic_pkt_meta_pool_t;
+   fd_quic_pkt_meta_t are generated when new QUIC packets are sent, and
+   are revisited when receiving acknowledgements or detecting timeouts.
 
-struct fd_quic_range {
-  /* offset in [ offset_lo, offset_hi ) is considered inside the range */
-  /* a zero-initialized range will be empty [0,0) */
-  ulong offset_lo;
-  ulong offset_hi;
-};
+   On timeout, fd_quic_pkt_meta_retry (fd_quic.c) looks at pkt_meta info
+   to decide what to retransmit.  On ACK, fd_quic_reclaim_pkt_meta
+   (fd_quic.c) frees resources that were retained for a potential
+   retransmit. */
 
-/* TODO convert to a union with various types of metadata overlaid */
+#include "fd_quic_common.h"
 
 /* fd_quic_pkt_meta_var used for tracking max_data, max_stream_data and
  * max_streams
@@ -90,7 +86,6 @@ struct fd_quic_pkt_meta {
        FD_QUIC_PKT_META_FLAGS_HS_DONE             handshake-done frame
        FD_QUIC_PKT_META_FLAGS_MAX_DATA            max_data frame
        FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR  max_streams frame (unidir)
-       FD_QUIC_PKT_META_FLAGS_CLOSE               close frame
        FD_QUIC_PKT_META_FLAGS_KEY_UPDATE          indicates key update was in effect
        FD_QUIC_PKT_META_FLAGS_KEY_PHASE           set only if key_phase was set in the short-header
        FD_QUIC_PKT_META_FLAGS_PING                set to send a PING frame
@@ -102,85 +97,25 @@ struct fd_quic_pkt_meta {
 # define          FD_QUIC_PKT_META_FLAGS_HS_DONE            (1u<<2u)
 # define          FD_QUIC_PKT_META_FLAGS_MAX_DATA           (1u<<3u)
 # define          FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR (1u<<5u)
-# define          FD_QUIC_PKT_META_FLAGS_CLOSE              (1u<<8u)
 # define          FD_QUIC_PKT_META_FLAGS_KEY_UPDATE         (1u<<9u)
 # define          FD_QUIC_PKT_META_FLAGS_KEY_PHASE          (1u<<10u)
 # define          FD_QUIC_PKT_META_FLAGS_PING               (1u<<11u)
   fd_quic_range_t        range;       /* range of bytes referred to by this meta */
                                       /* stream data or crypto data */
                                       /* we currently do not put both in the same packet */
-  ulong                  stream_id;   /* if this contains stream data,
-                                         the stream id, else zero */
 
   ulong                  expiry; /* time pkt_meta expires... this is the time the
                                   ack is expected by */
 
   fd_quic_pkt_meta_var_t var[FD_QUIC_PKT_META_VAR_MAX];
 
-  fd_quic_pkt_meta_t *   next;   /* next in current list */
+  uint                   next;
 };
 
+#define SLIST_NAME  fd_quic_pkt_meta_list
+#define SLIST_ELE_T fd_quic_pkt_meta_t
+#define SLIST_IDX_T uint
+#include "../../util/tmpl/fd_slist.c"
 
-struct fd_quic_pkt_meta_list {
-  fd_quic_pkt_meta_t * head;
-  fd_quic_pkt_meta_t * tail;
-};
-
-
-struct fd_quic_pkt_meta_pool {
-  fd_quic_pkt_meta_list_t free;    /* free pkt_meta */
-
-  /* one of each of these for each enc_level */
-  fd_quic_pkt_meta_list_t sent_pkt_meta[4]; /* sent pkt_meta */
-};
-
-
-
-FD_PROTOTYPES_BEGIN
-
-/* initialize pool with existing array of pkt_meta */
-void
-fd_quic_pkt_meta_pool_init( fd_quic_pkt_meta_pool_t * pool,
-                            fd_quic_pkt_meta_t * pkt_meta_array,
-                            ulong                pkt_meta_array_sz );
-
-/* pop from front of list */
-fd_quic_pkt_meta_t *
-fd_quic_pkt_meta_pop_front( fd_quic_pkt_meta_list_t * list );
-
-
-/* push onto front of list */
-void
-fd_quic_pkt_meta_push_front( fd_quic_pkt_meta_list_t * list,
-                             fd_quic_pkt_meta_t *      pkt_meta );
-
-/* push onto back of list */
-void
-fd_quic_pkt_meta_push_back( fd_quic_pkt_meta_list_t * list,
-                            fd_quic_pkt_meta_t *      pkt_meta );
-
-/* remove from list
-   requires the prior element */
-void
-fd_quic_pkt_meta_remove( fd_quic_pkt_meta_list_t * list,
-                         fd_quic_pkt_meta_t *      pkt_meta_prior,
-                         fd_quic_pkt_meta_t *      pkt_meta );
-
-
-/* allocate a pkt_meta
-   obtains a free pkt_meta from the free list, and returns it
-   returns NULL if none is available */
-fd_quic_pkt_meta_t *
-fd_quic_pkt_meta_allocate( fd_quic_pkt_meta_pool_t * pool );
-
-
-/* free a pkt_meta
-   returns a pkt_meta to the free list, ready to be allocated again */
-void
-fd_quic_pkt_meta_deallocate( fd_quic_pkt_meta_pool_t * pool,
-                             fd_quic_pkt_meta_t *      pkt_meta );
-
-FD_PROTOTYPES_END
-
-#endif // HEADER_fd_src_waltz_quic_fd_quic_pkt_meta_h
+#endif /* HEADER_fd_src_waltz_quic_fd_quic_pkt_meta_h */
 

@@ -98,8 +98,6 @@ typedef struct {
 
   ulong tx_idx;
 
-  fd_quic_stream_t * stream;
-
   fd_wksp_t * mem;
 } fd_benchs_ctx_t;
 
@@ -176,24 +174,6 @@ service_quic( fd_benchs_ctx_t * ctx ) {
   }
 }
 
-static void
-quic_stream_notify( fd_quic_stream_t * stream,
-                    void *             stream_ctx,
-                    int                type ) {
-  (void)stream;
-  (void)stream_ctx;
-  (void)type;
-
-  fd_benchs_ctx_t * ctx = (fd_benchs_ctx_t*)stream_ctx;
-  if( FD_LIKELY( ctx ) ) {
-    if( FD_LIKELY( ctx->stream == stream ) ) {
-      ctx->stream = NULL;
-    }
-  } else {
-    FD_LOG_ERR(( "quic_stream_notify - no context" ));
-  }
-}
-
 /* quic_conn_new is invoked by the QUIC engine whenever a new connection
    is being established. */
 static void
@@ -212,64 +192,6 @@ handshake_complete( fd_quic_conn_t * conn,
   FD_LOG_NOTICE(( "client handshake complete" ));
 }
 
-
-/* quic_stream_new is called back by the QUIC engine whenever an open
-   connection creates a new stream, at the time this is called, both the
-   client and server must have agreed to open the stream.  In case the
-   client has opened this stream, it is assumed that the QUIC
-   implementation has verified that the client has the necessary stream
-   quota to do so. */
-
-static void
-quic_stream_new( fd_quic_stream_t * stream,
-                 void *             _ctx ) {
-  /* we don't expect the server to initiate streams */
-  (void)stream;
-  (void)_ctx;
-}
-
-/* quic_stream_receive is called back by the QUIC engine when any stream
-   in any connection being serviced receives new data.  Currently we
-   simply copy received data out of the xsk (network device memory) into
-   a local dcache. */
-
-static void
-quic_stream_receive( fd_quic_stream_t * stream,
-                     void *             stream_ctx,
-                     uchar const *      data,
-                     ulong              data_sz,
-                     ulong              offset,
-                     int                fin ) {
-  /* we're not expecting to receive anything */
-  (void)stream;
-  (void)stream_ctx;
-  (void)data;
-  (void)data_sz;
-  (void)offset;
-  (void)fin;
-}
-
-
-static void
-quic_stream_notify( fd_quic_stream_t * stream,
-                    void *             stream_ctx,
-                    int                type );
-
-static void
-conn_final( fd_quic_conn_t * conn,
-            void *           _ctx ) {
-  (void)conn;
-
-  fd_benchs_ctx_t * ctx = (fd_benchs_ctx_t *)_ctx;
-
-  if( ctx ) {
-    ctx->quic_conn = NULL;
-    ctx->stream    = NULL;
-  }
-}
-
-
-
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return fd_ulong_max( fd_quic_align(), alignof( fd_benchs_ctx_t ) );
@@ -277,17 +199,11 @@ scratch_align( void ) {
 
 void
 populate_quic_limits( fd_quic_limits_t * limits ) {
-  //int    argc = 0;
-  //char * args[] = { NULL };
-  //char ** argv = args;
-  //fd_quic_limits_from_env( &argc, &argv, limits );
-  limits->conn_cnt = 2;
-  limits->handshake_cnt = limits->conn_cnt;
-  limits->conn_id_cnt = 16;
+  limits->conn_cnt         = 2;
+  limits->handshake_cnt    = limits->conn_cnt;
+  limits->conn_id_cnt      = 16;
   limits->inflight_pkt_cnt = 1500;
-  limits->tx_buf_sz = fd_ulong_pow2_up( FD_TXN_MTU );
-  limits->stream_pool_cnt = 1UL<<16;
-  limits->stream_id_cnt = 1UL<<16;
+  limits->tx_stream_cnt    = 1<<16;
 }
 
 void
@@ -296,7 +212,6 @@ populate_quic_config( fd_quic_config_t * config ) {
   config->service_interval = (ulong)1e6;
   config->ping_interval = (ulong)1e6;
   config->retry = 0;
-  config->initial_rx_max_stream_data = 0; /* we don't expect the server to initiate streams */
 
   config->net.ephem_udp_port.lo = 12000;
   config->net.ephem_udp_port.hi = 12100;
@@ -390,7 +305,7 @@ during_frag( void * _ctx,
          of the quic_conn pointer
          this allows the notification to NULL the value when
          a connection dies */
-      fd_quic_conn_set_context( ctx->quic_conn, ctx );
+      ctx->quic_conn->context = ctx;
 
       service_quic( ctx );
       fd_quic_service( ctx->quic );
@@ -400,42 +315,18 @@ during_frag( void * _ctx,
       return;
     }
 
-    fd_quic_stream_t * stream = ctx->stream;
-    if( FD_UNLIKELY( !stream ) ) {
-      ctx->stream = stream = fd_quic_conn_new_stream( ctx->quic_conn );
-      if( FD_LIKELY( stream ) ) {
-        fd_quic_stream_set_context( stream, ctx );
-      }
-    }
-
-    if( FD_UNLIKELY( !stream ) ) {
+    int send_err = fd_quic_stream_uni_send( ctx->quic_conn, fd_chunk_to_laddr( ctx->mem, chunk ), sz );
+    if( send_err ) {
       ctx->no_stream++;
       service_quic( ctx );
       fd_quic_service( ctx->quic );
-
-      /* conn and streams may be invalidated by fd_quic_service */
-
       return;
-    } else {
-      int fin = 1;
-      int rtn = fd_quic_stream_send( stream, fd_chunk_to_laddr( ctx->mem, chunk ), sz, fin );
-      ctx->packet_cnt++;
-
-      if( FD_LIKELY( rtn == FD_QUIC_SUCCESS ) ) {
-        /* after using, fetch a new stream */
-        ctx->stream = stream = fd_quic_conn_new_stream( ctx->quic_conn );
-        if( FD_LIKELY( stream ) ) {
-          fd_quic_stream_set_context( stream, ctx );
-        }
-      } else if( FD_UNLIKELY( rtn == 0 ) ) {
-        FD_LOG_NOTICE(( "fd_quic_stream_send returned zero" ));
-      } else {
-        /* this can happen dring handshaking */
-        if( rtn != FD_QUIC_SEND_ERR_INVAL_CONN ) {
-          FD_LOG_ERR(( "fd_quic_stream_send failed with: %d", rtn ));
-        }
-      }
     }
+    //if( send_err!=FD_QUIC_SUCCESS ) {
+    //  FD_LOG_ERR(( "fd_quic_stream_send failed with: %d", send_err ));
+    //}
+
+    ctx->packet_cnt++;
   }
 }
 
@@ -479,7 +370,6 @@ privileged_init( fd_topo_t *      topo,
     ctx->quic_rx_aio = fd_quic_get_aio_net_rx( quic );
 
     ctx->quic_conn = NULL;
-    ctx->stream    = NULL;
     ctx->tx_idx    = 0UL;
 
     /* call wallclock so glibc loads VDSO, which requires calling mmap while
@@ -576,16 +466,11 @@ unprivileged_init( fd_topo_t *      topo,
     quic->config.net.ip_addr                = quic_ip_addr;
     quic->config.net.listen_udp_port        = 42424; /* should be unused */
     quic->config.idle_timeout               = quic_idle_timeout_millis * 1000000UL;
-    quic->config.initial_rx_max_stream_data = 0;
     quic->config.retry                      = 0; /* unused on clients */
     fd_memcpy( quic->config.link.src_mac_addr, quic_src_mac_addr, 6 );
 
     quic->cb.conn_new         = quic_conn_new;
     quic->cb.conn_hs_complete = handshake_complete;
-    quic->cb.conn_final       = conn_final;
-    quic->cb.stream_new       = quic_stream_new;
-    quic->cb.stream_receive   = quic_stream_receive;
-    quic->cb.stream_notify    = quic_stream_notify;
     quic->cb.now              = quic_now;
     quic->cb.now_ctx          = NULL;
     quic->cb.quic_ctx         = ctx;

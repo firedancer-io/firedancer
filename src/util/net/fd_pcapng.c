@@ -703,6 +703,7 @@ fd_pcapng_fwrite_pkt( long         ts,
   if( FD_UNLIKELY( 1UL!=fwrite( &block.block_sz, 4UL, 1UL, file ) ) )
     return 0UL;
 
+  fflush( file );
   return 1UL;
 }
 

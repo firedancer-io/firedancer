@@ -8,11 +8,6 @@
 /* TODO move this into more reasonable place */
 #define FD_QUIC_MAX_CONN_ID_SZ 20
 
-/* max number of connection ids per connection */
-/* NOTE QUINN seems to ignore our active_connection_id_limit transport parameter */
-/*      So setting this to 16 */
-#define FD_QUIC_MAX_CONN_ID_PER_CONN 16
-
 /* Firedancer connection ids will sized thus */
 #define FD_QUIC_CONN_ID_SZ 8
 

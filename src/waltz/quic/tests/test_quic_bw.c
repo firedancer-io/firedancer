@@ -13,20 +13,16 @@ my_conn_final( fd_quic_conn_t * conn,
   conn_final_cnt++;
 }
 
-static void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)stream;
-  (void)data;
-  (void)data_sz;
-  (void)offset;
-  (void)fin;
-
+void
+my_stream_receive_cb(
+    void *             cb_ctx    FD_FN_UNUSED,
+    fd_quic_conn_t *   conn      FD_FN_UNUSED,
+    ulong              stream_id FD_FN_UNUSED,
+    uchar const *      data      FD_FN_UNUSED,
+    ulong              data_sz,
+    ulong              offset    FD_FN_UNUSED,
+    int                fin       FD_FN_UNUSED
+) {
   rx_tot_sz += data_sz;
 }
 
@@ -71,6 +67,7 @@ main( int     argc,
   char const * _page_sz  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"                   );
   ulong        page_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 2UL                          );
   ulong        numa_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx",  NULL, fd_shmem_numa_idx( cpu_idx ) );
+  float        duration  = fd_env_strip_cmdline_float( &argc, &argv, "--duration",  NULL, 10.0f                        );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
@@ -79,40 +76,36 @@ main( int     argc,
   fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  fd_quic_limits_t const quic_limits = {
-    .conn_cnt           = 1,
-    .conn_id_cnt        = 4,
-    .handshake_cnt      = 10,
-    .rx_stream_cnt      = 10,
-    .stream_pool_cnt    = 400,
-    .inflight_pkt_cnt   = 1024,
-    .tx_buf_sz          = 1<<11
+  fd_quic_limits_t const server_limits = {
+    .conn_cnt         =  1,
+    .conn_id_cnt      =  4,
+    .handshake_cnt    =  1,
+    .inflight_pkt_cnt = 32,
   };
-
-  ulong quic_footprint = fd_quic_footprint( &quic_limits );
-  FD_TEST( quic_footprint );
-  FD_LOG_NOTICE(( "QUIC footprint: %lu bytes", quic_footprint ));
-
-  FD_LOG_NOTICE(( "Creating server QUIC" ));
-  fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_SERVER, rng );
+  FD_LOG_NOTICE(( "Creating server QUIC (sz=%lu)", fd_quic_footprint( &server_limits ) ));
+  fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &server_limits, FD_QUIC_ROLE_SERVER, rng );
   FD_TEST( server_quic );
 
-  FD_LOG_NOTICE(( "Creating client QUIC" ));
-  fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT, rng );
+  fd_quic_limits_t const client_limits = {
+    .conn_cnt           = 10,
+    .conn_id_cnt        = 10,
+    .handshake_cnt      = 10,
+    .inflight_pkt_cnt   = 20000,
+    .tx_stream_cnt      = 20000,
+  };
+  FD_LOG_NOTICE(( "Creating client QUIC (sz=%lu)", fd_quic_footprint( &client_limits ) ));
+  fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &client_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );
 
   server_quic->config.role = FD_QUIC_ROLE_SERVER;
   client_quic->config.role = FD_QUIC_ROLE_CLIENT;
 
-  server_quic->cb.conn_new         = my_connection_new;
-  server_quic->cb.conn_final       = my_conn_final;
-  server_quic->cb.stream_receive   = my_stream_receive_cb;
+  server_quic->cb.conn_new       = my_connection_new;
+  server_quic->cb.conn_final     = my_conn_final;
+  server_quic->cb.stream_receive = my_stream_receive_cb;
 
   client_quic->cb.conn_hs_complete = my_handshake_complete;
   client_quic->cb.conn_final       = my_conn_final;
-
-  server_quic->config.initial_rx_max_stream_data = quic_limits.tx_buf_sz;
-  client_quic->config.initial_rx_max_stream_data = quic_limits.tx_buf_sz;
 
   FD_LOG_NOTICE(( "Creating virtual pair" ));
   fd_quic_virtual_pair_t vp;
@@ -174,31 +167,28 @@ main( int     argc,
   FD_TEST( conn_final_cnt==0 );
 
   /* try sending */
-  fd_quic_stream_t * client_stream = fd_quic_conn_new_stream( client_conn );
-  FD_TEST( client_stream );
-
   char buf[ 1232UL ] = "Hello world!\x00-   ";
-  int rc = fd_quic_stream_send( client_stream, buf, sizeof(buf), 1 );
+  int rc = fd_quic_stream_uni_send( client_conn, buf, sizeof(buf) );
   FD_LOG_INFO(( "fd_quic_stream_send returned %d", rc ));
 
   long last_ts = fd_log_wallclock();
   long rprt_ts = fd_log_wallclock() + (long)1e9;
 
   long start_ts = fd_log_wallclock();
-  long end_ts   = start_ts + (long)10e9; /* ten seconds */
+  long end_ts   = start_ts + (long)(duration * 1e9f);
   while(1) {
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
 
-    client_stream = fd_quic_conn_new_stream( client_conn );
-    if( !client_stream ) continue;
-    fd_quic_stream_send( client_stream, buf, sizeof(buf), 1 );
+    fd_quic_stream_uni_send( client_conn, buf, sizeof(buf) );
 
     long t = fd_log_wallclock();
     if( t >= rprt_ts ) {
       long dt = t - last_ts;
-      float bps = (float)rx_tot_sz / (float)dt;
-      FD_LOG_NOTICE(( "bw: %f  dt: %f  bytes: %f", (double)bps, (double)dt, (double)rx_tot_sz ));
+      FD_LOG_NOTICE(( "rate=%6.3f Gbps (%6.2f MB/s) dt=%.2f s",
+                      (double)(rx_tot_sz) * 8.0 / (double)dt,
+                      (double)(rx_tot_sz)       / (double)dt * 1000.0,
+                      (double)dt / 1e9 ));
 
       rx_tot_sz = 0;
       last_ts   = t;

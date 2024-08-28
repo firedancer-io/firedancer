@@ -42,10 +42,10 @@
 
      ulong       myslist_align    ( void );
      ulong       myslist_footprint( void );
-     void *      myslist_new      ( void *     shmem  );
-     myslist_t * myslist_join     ( void *     shlist );
+     void *      myslist_new      ( void *      shmem  );
+     myslist_t * myslist_join     ( void *      shlist );
      void *      myslist_leave    ( myslist_t * join   );
-     void *      myslist_delete   ( void *     shlist );
+     void *      myslist_delete   ( void *      shlist );
 
      // The below APIs assume join is a current local join to a slist
      // and pool is a current local join to the element storage backing
@@ -78,13 +78,38 @@
 
      myslist_t * myslist_remove_all( myslist_t * join );
 
-     // myslist_fuse_head prepends other to the head of list.
-     // myslist_fuse_tail appends other to the tail of list.
+     // myslist_merge_head prepends other to the head of list.
+     // myslist_merge_tail appends other to the tail of list.
      // Returns list.  On return, other is empty.  U.B. if list and
      // other share an element in the pool.
 
      myslist_t * mylist_merge_head( myslist_t * list, myslist_t * other, myele_t const * pool );
      myslist_t * mylist_merge_tail( myslist_t * list, myslist_t * other, myele_t const * pool );
+
+     // myslist_iter_* support fast ordered forward (head to tail)
+     // iteration over all the elements in a list.  Example usage:
+     //
+     //   for( myslist_iter_t iter = myslist_iter_fwd_init( join, pool );
+     //        !myslist_iter_done( iter, join, pool );
+     //        iter = mydlist_iter_fwd_next( iter, join, pool ) ) {
+     //     ulong ele_idx = mydlist_iter_idx( iter, join, pool );
+     //
+     //     ... process element here
+     //
+     //     ... IMPORTANT!  It is generally safe to insert elements
+     //     ... here (though they might not be covered by this
+     //     ... iteration).  It is also generally safe to remove any
+     //     ... element but the current element here (the removed
+     //     ... element might have already be iterated over).
+     //   }
+
+     struct mydlist_iter_private { ... internal use only ... };
+     typedef struct mydlist_iter_private mydlist_iter_t;
+
+     mydlist_iter_t  mydlist_iter_fwd_init(                      mydlist_t const * join, myele_t const * pool );
+     int             mydlist_iter_done    ( mydlist_iter_t iter, mydlist_t const * join, myele_t const * pool );
+     mydlist_iter_t  mydlist_iter_fwd_next( mydlist_iter_t iter, mydlist_t const * join, myele_t const * pool ); // assumes !done
+     ulong           mydlist_iter_idx     ( mydlist_iter_t iter, mydlist_t const * join, myele_t const * pool ); // assumes !done
 
      // myslist_verify returns 0 if the myslist is not obviously corrupt
      // or -1 (i.e. ERR_INVAL) otherwise (logs details).
@@ -105,6 +130,8 @@
      myslist_t * myslist_ele_push_head( myslist_t * join, myele_t * ele, myele_t * pool );
      myslist_t * myslist_ele_push_tail( myslist_t * join, myele_t * ele, myele_t * pool );
      myele_t *   myslist_ele_pop_head ( myslist_t * join,                myele_t * pool );
+
+     myele_t * mydlist_iter_ele( mydlist_iter_t iter, mydlist_t const * join, myele_t * pool );
 
    You can do this as often as you like in a compilation unit to get
    different types of lists.  Variants exist for making header
@@ -173,6 +200,8 @@ struct __attribute__((aligned(8))) SLIST_(private) {
 typedef struct SLIST_(private) SLIST_(private_t);
 
 typedef SLIST_(private_t) SLIST_(t);
+
+typedef ulong SLIST_(iter_t);
 
 FD_PROTOTYPES_BEGIN
 
@@ -274,12 +303,67 @@ SLIST_(idx_pop_head)( SLIST_(t) *   join,
   return ele_idx;
 }
 
+static inline ulong
+SLIST_(idx_remove)( SLIST_(t) *   join,
+                    ulong         idx,
+                    ulong         prior,
+                    SLIST_ELE_T * pool ) {
+  SLIST_(private_t) * list = SLIST_(private)( join );
+  if( SLIST_(private_idx_is_null)( prior ) ) {
+    return SLIST_(idx_pop_head)( join, pool );
+  }
+  ulong next_idx = SLIST_(private_idx)( pool[ idx ].SLIST_NEXT );
+  pool[ prior ].SLIST_NEXT = SLIST_(private_cidx)( next_idx );
+  if( SLIST_(private_idx_is_null)( next_idx ) ) {
+    list->tail = SLIST_(private_cidx)( prior );
+  }
+  return idx;
+}
+
 static inline SLIST_(t) *
 SLIST_(remove_all)( SLIST_(t) * join ) {
   SLIST_(private_t) * list = SLIST_(private)( join );
   list->head = SLIST_(private_cidx)( SLIST_(private_idx_null)() );
   list->tail = SLIST_(private_cidx)( SLIST_(private_idx_null)() );
   return join;
+}
+
+FD_FN_PURE static inline SLIST_(iter_t)
+SLIST_(iter_fwd_init)( SLIST_(t) const *   join,
+                       SLIST_ELE_T const * pool ) {
+  (void)pool;
+  return SLIST_(private_idx)( SLIST_(private_const)( join )->head );
+}
+
+FD_FN_PURE static inline SLIST_(iter_t)
+SLIST_(iter_rev_init)( SLIST_(t) const *   join,
+                       SLIST_ELE_T const * pool ) {
+  (void)pool;
+  return SLIST_(private_idx)( SLIST_(private_const)( join )->tail );
+}
+
+FD_FN_CONST static inline int
+SLIST_(iter_done)( SLIST_(iter_t)      iter,
+                   SLIST_(t) const *   join,
+                   SLIST_ELE_T const * pool ) {
+  (void)join; (void)pool;
+  return SLIST_(private_idx_is_null)( iter );
+}
+
+FD_FN_PURE static inline SLIST_(iter_t)
+SLIST_(iter_fwd_next)( SLIST_(iter_t)      iter,
+                       SLIST_(t) const *   join,
+                       SLIST_ELE_T const * pool ) {
+  (void)join;
+  return SLIST_(private_idx)( pool[ iter ].SLIST_NEXT );
+}
+
+FD_FN_CONST static inline ulong
+SLIST_(iter_idx)( SLIST_(iter_t)      iter,
+                  SLIST_(t) const *   join,
+                  SLIST_ELE_T const * pool ) {
+  (void)join; (void)pool;
+  return iter;
 }
 
 FD_FN_PURE static inline SLIST_ELE_T *
@@ -324,6 +408,54 @@ static inline SLIST_ELE_T *
 SLIST_(ele_pop_head)( SLIST_(t) *   join,
                       SLIST_ELE_T * pool ) {
   return pool + SLIST_(idx_pop_head)( join, pool );
+}
+
+static inline SLIST_ELE_T *
+SLIST_(ele_remove)( SLIST_(t) *   join,
+                    SLIST_ELE_T * ele,
+                    SLIST_ELE_T * prior,
+                    SLIST_ELE_T * pool ) {
+  SLIST_(private_t) * list = SLIST_(private)( join );
+  if( prior==NULL ) {
+    return SLIST_(ele_pop_head)( join, pool );
+  }
+  prior->SLIST_NEXT = ele->SLIST_NEXT;
+  if( SLIST_(private_idx_is_null)( prior->SLIST_NEXT ) ) {
+    list->tail = SLIST_(private_cidx)( (ulong)(prior-pool) );
+  }
+  return ele;
+}
+
+FD_FN_CONST static inline SLIST_ELE_T *
+SLIST_(iter_ele)( SLIST_(iter_t)    iter,
+                  SLIST_(t) const * join,
+                  SLIST_ELE_T *     pool ) {
+  (void)join; (void)pool;
+  return pool + iter;
+}
+
+static inline SLIST_(t) *
+SLIST_(merge_head)( SLIST_(t) *   list,
+                    SLIST_(t) *   other,
+                    SLIST_ELE_T * pool ) {
+
+  SLIST_(private_t) * dst = SLIST_(private)( list  );
+  SLIST_(private_t) * src = SLIST_(private)( other );
+
+  ulong head_idx    = src->head;
+  ulong merge_l_idx = src->tail;
+  ulong merge_r_idx = dst->head;
+
+  if( SLIST_(private_idx_is_null)( merge_r_idx ) ) {
+    dst->tail = SLIST_(private_cidx)( merge_l_idx );
+  }
+  if( !SLIST_(private_idx_is_null)( merge_l_idx ) ) {
+    pool[ merge_l_idx ].SLIST_NEXT = SLIST_(private_cidx)( merge_r_idx );
+    dst->head                      = SLIST_(private_cidx)( head_idx   );
+  }
+
+  src->head = src->tail = SLIST_(private_cidx)( SLIST_(private_idx_null)() );
+  return list;
 }
 
 FD_PROTOTYPES_END
@@ -471,7 +603,7 @@ SLIST_(verify)( SLIST_(t) const *   join,
 
 FD_PROTOTYPES_END
 
-#undef DLIST_IMPL_STATIC
+#undef SLIST_IMPL_STATIC
 
 #endif
 

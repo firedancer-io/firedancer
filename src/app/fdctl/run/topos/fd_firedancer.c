@@ -29,7 +29,7 @@ setup_topo_blockstore( fd_topo_t *  topo,
 
   ulong seed;
   FD_TEST( sizeof(ulong) == getrandom( &seed, sizeof(ulong), 0 ) );
-  
+
   FD_TEST( fd_pod_insertf_ulong( topo->props, 1UL,        "obj.%lu.wksp_tag",   obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, seed,       "obj.%lu.seed",       obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, shred_max,  "obj.%lu.shred_max",  obj->id ) );
@@ -64,10 +64,10 @@ static fd_topo_obj_t *
 setup_topo_txncache( fd_topo_t *  topo,
                      char const * wksp_name,
                      ulong        max_rooted_slots,
-                     ulong        max_live_slots, 
+                     ulong        max_live_slots,
                      ulong        max_txn_per_slot ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "txncache", wksp_name );
-  
+
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_rooted_slots, "obj.%lu.max_rooted_slots", obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_live_slots,   "obj.%lu.max_live_slots",   obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_txn_per_slot, "obj.%lu.max_txn_per_slot", obj->id ) );
@@ -483,7 +483,6 @@ fd_topo_initialize( config_t * config ) {
       tile->quic.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
       tile->quic.idle_timeout_millis            = config->tiles.quic.idle_timeout_millis;
       tile->quic.retry                          = config->tiles.quic.retry;
-      tile->quic.max_concurrent_streams_per_connection = config->tiles.quic.max_concurrent_streams_per_connection;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "verify" ) ) ) {
 

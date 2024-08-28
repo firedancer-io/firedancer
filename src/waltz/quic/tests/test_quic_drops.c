@@ -6,6 +6,7 @@
 #include "../../../util/fibre/fd_fibre.h"
 
 #include <stdlib.h>
+#include <stdio.h>
 
 /* number of streams to send/receive */
 #define NUM_STREAMS 1000
@@ -183,25 +184,18 @@ extern ulong pkt_full_sz;
 uchar fail = 0;
 
 void
-my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
-  (void)stream;
-  (void)ctx;
-  (void)type;
-}
-
-void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)stream;
-  (void)fin;
-
-  FD_LOG_DEBUG(( "received data from peer.  stream_id: %lu  size: %lu offset: %lu",
-                (ulong)stream->stream_id, data_sz, offset ));
+my_stream_receive_cb(
+    void *             cb_ctx,
+    fd_quic_conn_t *   conn,
+    ulong              stream_id,
+    uchar const *      data,
+    ulong              data_sz,
+    ulong              offset,
+    int                fin
+) {
+  (void)cb_ctx; (void)conn; (void)fin;
+  FD_LOG_DEBUG(( "received data from peer.  stream_id: %lu  size: %lu offset: %lu\n",
+                 stream_id, data_sz, offset ));
   FD_LOG_HEXDUMP_DEBUG(( "received data", data, data_sz ));
 
   FD_LOG_DEBUG(( "recv ok" ));
@@ -223,7 +217,7 @@ my_cb_conn_final( fd_quic_conn_t * conn,
                   void *           context ) {
   (void)context;
 
-  fd_quic_conn_t ** ppconn = (fd_quic_conn_t**)fd_quic_conn_get_context( conn );
+  fd_quic_conn_t ** ppconn = conn->context;
   if( ppconn ) {
     FD_LOG_NOTICE(( "my_cb_conn_final %p SUCCESS", (void*)*ppconn ));
     *ppconn = NULL;
@@ -280,10 +274,9 @@ client_fibre_fn( void * vp_arg ) {
   fd_quic_t * quic        = args->quic;
   fd_quic_t * server_quic = args->server_quic;
 
-  fd_quic_conn_t *   conn   = NULL;
-  fd_quic_stream_t * stream = NULL;
+  fd_quic_conn_t * conn = NULL;
 
-  uchar buf[] = "Hello World!";
+  static uchar const buf[] = "Hello World!";
 
   ulong period_ns = (ulong)1e6;
   ulong next_send = now + period_ns;
@@ -310,7 +303,7 @@ client_fibre_fn( void * vp_arg ) {
         continue;
       }
 
-      fd_quic_conn_set_context( conn, &conn );
+      conn->context = &conn;
 
       /* wait for connection handshake */
       while( conn && conn->state != FD_QUIC_CONN_STATE_ACTIVE ) {
@@ -324,89 +317,60 @@ client_fibre_fn( void * vp_arg ) {
       continue;
     }
 
-    if( !stream ) {
-      if( rcvd != sent ) {
-        fd_quic_service( quic );
-        fd_fibre_wait_until( (long)fd_quic_get_next_wakeup( quic ) );
+    ulong live = next_wakeup + (ulong)1e9;
+    for(;;) {
+      int rc = fd_quic_stream_uni_send( conn, buf, sizeof(buf) );
+      if( rc==FD_QUIC_SUCCESS ) break;
+      if( rc==FD_QUIC_SEND_ERR_QUOTA ) {
+        FD_LOG_WARNING(( "Client unable to obtain a stream. now: %lu", (ulong)now ));
 
-        continue;
-      }
-
-      stream = fd_quic_conn_new_stream( conn );
-
-      if( !stream ) {
-        if( conn->state == FD_QUIC_CONN_STATE_ACTIVE ) {
-          FD_LOG_WARNING(( "Client unable to obtain a stream. now: %lu", (ulong)now ));
-          ulong live = next_wakeup + (ulong)1e9;
-          do {
-            next_wakeup = fd_quic_get_next_wakeup( quic );
-
-            if( next_wakeup > live ) {
-              live = next_wakeup + (ulong)next_wakeup;
-              FD_LOG_WARNING(( "Client waiting for a stream time: %lu", (ulong)now ));
-            }
-
-            /* wake up at either next service or next send, whichever is sooner */
-            fd_fibre_wait_until( (long)next_wakeup );
-
-            fd_quic_service( quic );
-
-            if( !conn ) break;
-
-            stream = fd_quic_conn_new_stream( conn );
-          } while( !stream );
-          FD_LOG_WARNING(( "Client obtained a stream" ));
+        next_wakeup = fd_quic_get_next_wakeup( quic );
+        if( next_wakeup > live ) {
+          live = next_wakeup + (ulong)next_wakeup;
+          FD_LOG_WARNING(( "Client waiting for a stream time: %lu", (ulong)now ));
         }
-        next_send = now + period_ns; /* ensure we make progress */
-        continue;
+
+        /* wake up at either next service or next send, whichever is sooner */
+        fd_fibre_wait_until( (long)next_wakeup );
+
+        fd_quic_service( quic );
+
+        if( !conn ) break;
+      } else {
+        FD_LOG_ERR(( "send failed: %d", rc ));
       }
     }
 
     /* set next send time */
     next_send = now + period_ns;
 
-    /* have a stream, so send */
-    int rc = fd_quic_stream_send( stream, buf, sizeof(buf), 1 /* fin */ );
+    if( ++sent % 15 == 0 ) {
+      /* wait for last sends to complete */
+      /* TODO add callback for this */
+      ulong timeout = now + (ulong)3e6;
+      while( now < timeout ) {
+        fd_quic_service( quic );
 
-    if( rc == FD_QUIC_SUCCESS ) {
-      /* successful - stream will begin closing */
-
-      if( ++sent % 15 == 0 ) {
-        /* wait for last sends to complete */
-        /* TODO add callback for this */
-        ulong timeout = now + (ulong)3e6;
-        while( now < timeout ) {
-          fd_quic_service( quic );
-
-          /* allow server to process */
-          fd_fibre_wait_until( (long)fd_quic_get_next_wakeup( quic ) );
-        }
-
-        fd_quic_conn_close( conn, 0 );
-        sent = 0;
-
-        /* wait for connection to be reaped
-           (it's set to NULL in final callback */
-        while( conn ) {
-          fd_quic_service( quic );
-
-          /* allow server to process */
-          fd_fibre_wait_until( (long)fd_quic_get_next_wakeup( quic ) );
-        }
-
-        stream = NULL;
-
-        continue;
+        /* allow server to process */
+        fd_fibre_wait_until( (long)fd_quic_get_next_wakeup( quic ) );
       }
 
-      /* ensure new stream used for next send */
-      stream = fd_quic_conn_new_stream( conn );
+      fd_quic_conn_close( conn, 0 );
+      sent = 0;
 
-      /* TODO close logic */
+      /* wait for connection to be reaped
+          (it's set to NULL in final callback */
+      while( conn ) {
+        fd_quic_service( quic );
 
-    } else {
-      FD_LOG_WARNING(( "send failed" ));
+        /* allow server to process */
+        fd_fibre_wait_until( (long)fd_quic_get_next_wakeup( quic ) );
+      }
+
+      continue;
     }
+
+    /* TODO close logic */
   }
 
   if( conn ) {
@@ -471,26 +435,25 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  fd_quic_limits_t const quic_limits = {
+  fd_quic_limits_t const server_limits = {
+    .conn_cnt         =  1,
+    .conn_id_cnt      =  4,
+    .handshake_cnt    =  1,
+    .inflight_pkt_cnt = 32,
+  };
+  FD_LOG_NOTICE(( "Creating server QUIC (sz=%lu)", fd_quic_footprint( &server_limits ) ));
+  fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &server_limits, FD_QUIC_ROLE_SERVER, rng );
+  FD_TEST( server_quic );
+
+  fd_quic_limits_t const client_limits = {
     .conn_cnt           = 10,
     .conn_id_cnt        = 10,
     .handshake_cnt      = 10,
-    .rx_stream_cnt      = 10,
-    .stream_pool_cnt    = 512,
-    .inflight_pkt_cnt   = 1024,
-    .tx_buf_sz          = 1<<14
+    .inflight_pkt_cnt   = 128,
+    .tx_stream_cnt      = 128,
   };
-
-  ulong quic_footprint = fd_quic_footprint( &quic_limits );
-  FD_TEST( quic_footprint );
-  FD_LOG_NOTICE(( "QUIC footprint: %lu bytes", quic_footprint ));
-
-  FD_LOG_NOTICE(( "Creating server QUIC" ));
-  fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_SERVER, rng );
-  FD_TEST( server_quic );
-
-  FD_LOG_NOTICE(( "Creating client QUIC" ));
-  fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT, rng );
+  FD_LOG_NOTICE(( "Creating client QUIC (sz=%lu)", fd_quic_footprint( &client_limits ) ));
+  fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &client_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );
 
   fd_quic_config_t * client_config = &client_quic->config;
@@ -498,14 +461,10 @@ main( int argc, char ** argv ) {
   client_config->service_interval = 1e6;
 
   client_quic->cb.conn_hs_complete = my_handshake_complete;
-  client_quic->cb.stream_receive   = my_stream_receive_cb;
-  client_quic->cb.stream_notify    = my_stream_notify_cb;
   client_quic->cb.conn_final       = my_cb_conn_final;
 
   client_quic->cb.now     = test_clock;
   client_quic->cb.now_ctx = NULL;
-
-  client_quic->config.initial_rx_max_stream_data = 1<<15;
 
   fd_quic_config_t * server_config = &server_quic->config;
   server_config->idle_timeout = 5e9;
@@ -513,14 +472,11 @@ main( int argc, char ** argv ) {
 
   server_quic->cb.conn_new       = my_connection_new;
   server_quic->cb.stream_receive = my_stream_receive_cb;
-  server_quic->cb.stream_notify  = my_stream_notify_cb;
   server_quic->cb.conn_final     = my_cb_conn_final;
   server_quic->cb.tls_keylog     = my_tls_keylog;
 
   server_quic->cb.now     = test_clock;
   server_quic->cb.now_ctx = NULL;
-
-  server_quic->config.initial_rx_max_stream_data = 1<<15;
 
   /* pcap */
   FILE * pcap_file = fopen( "test_quic_drops.pcapng", "wb" );

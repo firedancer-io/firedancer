@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <net/if.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -47,29 +48,17 @@ fd_quic_test_cb_conn_final( fd_quic_conn_t * conn,
 }
 
 static void
-fd_quic_test_cb_stream_new( fd_quic_stream_t * stream,
-                            void *             quic_ctx ) {
-  FD_LOG_DEBUG(( "cb_stream_new(stream=%lu, quic_ctx=%p)",
-                 stream->stream_id, (void *)quic_ctx ));
-}
-
-static void
-fd_quic_test_cb_stream_notify( fd_quic_stream_t * stream,
-                               void *             quic_ctx,
-                               int                notify_type ) {
-  FD_LOG_DEBUG(( "cb_stream_notify(stream=%lu, quic_ctx=%p, notify_type=%d)",
-                 stream->stream_id, quic_ctx, notify_type ));
-}
-
-static void
-fd_quic_test_cb_stream_receive( fd_quic_stream_t * stream,
-                                void *             quic_ctx,
-                                uchar const *      data,
-                                ulong              data_sz,
-                                ulong              offset,
-                                int                fin ) {
-  FD_LOG_DEBUG(( "cb_stream_receive(stream=%lu, quic_ctx=%p, data=%p, data_sz=%lu, offset=%lu, fin=%d)",
-                 stream->stream_id, quic_ctx, (void const *)data, data_sz, offset, fin ));
+fd_quic_test_cb_stream_receive(
+    void *             cb_ctx,
+    fd_quic_conn_t *   conn,
+    ulong              stream_id,
+    uchar const *      data,
+    ulong              data_sz,
+    ulong              offset,
+    int                fin
+) {
+  FD_LOG_DEBUG(( "cb_stream_receive(cb_ctx=%p, conn=%p, stream_id=%lu data=%p, data_sz=%lu, offset=%lu, fin=%d)",
+                 cb_ctx, (void *)conn, stream_id, (void const *)data, data_sz, offset, fin ));
 }
 
 static void
@@ -137,15 +126,12 @@ fd_quic_config_anonymous( fd_quic_t * quic,
   /* Default settings */
   config->idle_timeout     = (ulong)200e6; /* 200ms */
   config->service_interval = (ulong) 10e6; /*  10ms */
-  config->initial_rx_max_stream_data = FD_TXN_MTU;
   strcpy( config->sni, "local" );
 
   /* Default callbacks */
   quic->cb.conn_new         = fd_quic_test_cb_conn_new;
   quic->cb.conn_hs_complete = fd_quic_test_cb_conn_handshake_complete;
   quic->cb.conn_final       = fd_quic_test_cb_conn_final;
-  quic->cb.stream_new       = fd_quic_test_cb_stream_new;
-  quic->cb.stream_notify    = fd_quic_test_cb_stream_notify;
   quic->cb.stream_receive   = fd_quic_test_cb_stream_receive;
   quic->cb.tls_keylog       = fd_quic_test_cb_tls_keylog;
   quic->cb.now              = fd_quic_test_now;
@@ -190,12 +176,9 @@ fd_quic_new_anonymous_small( fd_wksp_t * wksp,
     .conn_cnt           = 1UL,
     .handshake_cnt      = 1UL,
     .conn_id_cnt        = 4UL,
-    .rx_stream_cnt      = 1,
     .inflight_pkt_cnt   = 64UL,
-    .tx_buf_sz          = 1UL<<15UL,
-    .stream_pool_cnt    = 1024
+    .tx_stream_cnt      = 1024
   };
-
   return fd_quic_new_anonymous( wksp, &quic_limits, role, rng );
 }
 
