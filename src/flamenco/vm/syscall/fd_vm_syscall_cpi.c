@@ -15,15 +15,84 @@
 #define STRINGIFY(x) TOSTRING(x)
 #define TOSTRING(x) #x
 
+static FD_FN_UNUSED long
+dump_pb_to_file( void *pb_struct, 
+                 char const *filename,
+                 pb_msgdesc_t const *fields ) {
+  static const size_t pb_alloc_size = 100 * 1024 * 1024; // 100MB (largest so far is 19MB)
+
+  // Check if file exists
+  if( access (filename, F_OK) != -1 ) {
+    return 0L;
+  }
+
+  FILE *f = fopen(filename, "wb+");
+  if( ftruncate(fileno(f), (off_t) pb_alloc_size) != 0 ) {
+    FD_LOG_WARNING(("Failed to resize file %s", filename));
+    fclose(f);
+    return -1L;
+  }
+
+  uchar *pb_alloc = mmap( NULL,
+                          pb_alloc_size,
+                          PROT_READ | PROT_WRITE,
+                          MAP_SHARED,
+                          fileno(f),
+                          0 /* offset */);
+  
+  if( pb_alloc == MAP_FAILED ) {
+    FD_LOG_WARNING(( "Failed to mmap file %d", errno ));
+    fclose(f);
+    return -1L;
+  }
+
+  pb_ostream_t stream = pb_ostream_from_buffer( pb_alloc, pb_alloc_size );
+  if( !pb_encode( &stream, fields, pb_struct ) ) {
+    FD_LOG_WARNING(("Failed to encode protobuf to file %s", filename));
+    fclose(f);
+    return -1L;
+  }
+
+  // resize file to actual size
+  if( ftruncate( fileno(f), (off_t) stream.bytes_written ) != 0 ) {
+    FD_LOG_WARNING(( "Failed to resize file %s", filename ));
+  }
+
+  fclose(f);
+  return (long)stream.bytes_written;
+}
+
+static inline FD_FN_UNUSED void
+gen_cpi_state_filename( fd_pubkey_t const *caller_pubkey,
+                        ulong instr_sz,
+                        char *filename ) {
+  sprintf(filename, "dump/vm_cpi_state/%lu_%lu%lu_%lu.sysctx", fd_tile_id(), caller_pubkey->ul[0], caller_pubkey->ul[1], instr_sz);
+}
+
 /* Captures the state of the VM (including the instruction context).
    Meant to be invoked at the start of the VM_SYSCALL_CPI_ENTRYPOINT like so:
 
   ```
-   dump_vm_cpi_state(vm, STRINGIFY(FD_EXPAND_THEN_CONCAT2(sol_invoke_signed_, VM_SYSCALL_CPI_ABI)),
-                     instruction_va, acct_infos_va, acct_info_cnt, signers_seeds_va, signers_seeds_cnt);
+    fd_exec_test_syscall_context_t sys_ctx = FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT;
+    dump_vm_cpi_state(vm, STRINGIFY(FD_EXPAND_THEN_CONCAT2(sol_invoke_signed_, VM_SYSCALL_CPI_ABI)),
+                      instruction_va, acct_infos_va, acct_info_cnt, signers_seeds_va, signers_seeds_cnt, &sys_ctx);
+
+    // ... rest of the function till fd_execute_instr
+
+    sys_ctx.has_exec_effects = 1;
+    sys_ctx.exec_effects.modified_accounts_count = caller_accounts_to_update_len;
+    sys_ctx.exec_effects.modified_accounts = fd_scratch_alloc( 8UL, sizeof(fd_exec_test_acct_state_t) * caller_accounts_to_update_len );
+    for( ulong i=0UL; i<caller_accounts_to_update_len; i++ ){
+      dump_acct_to_state( &vm->instr_ctx->instr, callee_account_keys[i], &sys_ctx.exec_effects.modified_accounts[i] );
+      // ... rest of loop
+    }
+
+    char filename[256];
+    gen_cpi_state_filename( &vm->instr_ctx->instr->program_id_pubkey, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ), filename );
+    long bytes_written = dump_pb_to_file( &sys_ctx, filename, fd_exec_test_syscall_context_fields );
   ```
 
-  Assumes that a `vm_cp_state` directory exists in the current working directory. Generates a
+  Assumes that a `dump/vm_cpi_state` directory exists in the current working directory. Generates a
   unique dump for combination of (tile_id, caller_pubkey, instr_sz). */
 
 static FD_FN_UNUSED void
@@ -33,100 +102,83 @@ dump_vm_cpi_state(fd_vm_t *vm,
                   ulong   acct_infos_va,
                   ulong   acct_info_cnt,
                   ulong   signers_seeds_va,
-                  ulong   signers_seeds_cnt ) {
-  char filename[100];
-  fd_instr_info_t const *instr = vm->instr_ctx->instr;
-  sprintf(filename, "vm_cpi_state/%lu_%lu%lu_%lu.sysctx", fd_tile_id(), instr->program_id_pubkey.ul[0], instr->program_id_pubkey.ul[1], instr->data_sz);
+                  ulong   signers_seeds_cnt,
+                  fd_exec_test_syscall_context_t * sys_ctx ) {
 
-  // Check if file exists
-  if( access (filename, F_OK) != -1 ) {
+  sys_ctx->has_instr_ctx = 1;
+  sys_ctx->has_vm_ctx = 1;
+  sys_ctx->has_syscall_invocation = 1;
+
+  // Copy function name
+  sys_ctx->syscall_invocation.function_name.size = fd_uint_min( (uint) strlen(fn_name), sizeof(sys_ctx->syscall_invocation.function_name.bytes) );
+  fd_memcpy( sys_ctx->syscall_invocation.function_name.bytes,
+             fn_name,
+             sys_ctx->syscall_invocation.function_name.size );
+
+  // VM Ctx integral fields
+  sys_ctx->vm_ctx.r1 = instruction_va;
+  sys_ctx->vm_ctx.r2 = acct_infos_va;
+  sys_ctx->vm_ctx.r3 = acct_info_cnt;
+  sys_ctx->vm_ctx.r4 = signers_seeds_va;
+  sys_ctx->vm_ctx.r5 = signers_seeds_cnt;
+
+  sys_ctx->vm_ctx.rodata_text_section_length = vm->text_sz;
+  sys_ctx->vm_ctx.rodata_text_section_offset = vm->text_off;
+
+  sys_ctx->vm_ctx.heap_max = vm->heap_max; /* should be equiv. to txn_ctx->heap_sz */
+
+  sys_ctx->vm_ctx.rodata = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(vm->rodata_sz) );
+  sys_ctx->vm_ctx.rodata->size = (pb_size_t) vm->rodata_sz;
+  fd_memcpy( sys_ctx->vm_ctx.rodata->bytes, vm->rodata, vm->rodata_sz );
+
+  pb_size_t stack_sz = (pb_size_t) ( (vm->frame_cnt + 1)*FD_VM_STACK_GUARD_SZ*2 );
+  sys_ctx->syscall_invocation.stack_prefix = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(stack_sz) );
+  sys_ctx->syscall_invocation.stack_prefix->size = stack_sz;
+  fd_memcpy( sys_ctx->syscall_invocation.stack_prefix->bytes, vm->stack, stack_sz );
+
+  sys_ctx->syscall_invocation.heap_prefix = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(vm->heap_max) );
+  sys_ctx->syscall_invocation.heap_prefix->size = (pb_size_t) vm->instr_ctx->txn_ctx->heap_size;
+  fd_memcpy( sys_ctx->syscall_invocation.heap_prefix->bytes, vm->heap, vm->instr_ctx->txn_ctx->heap_size );
+
+  sys_ctx->vm_ctx.input_data_regions_count = vm->input_mem_regions_cnt;
+  sys_ctx->vm_ctx.input_data_regions = fd_scratch_alloc( 8UL, sizeof(fd_exec_test_input_data_region_t) * vm->input_mem_regions_cnt );
+  for( ulong i=0UL; i<vm->input_mem_regions_cnt; i++ ) {
+    sys_ctx->vm_ctx.input_data_regions[i].content = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(vm->input_mem_regions[i].region_sz) );
+    sys_ctx->vm_ctx.input_data_regions[i].content->size = (pb_size_t) vm->input_mem_regions[i].region_sz;
+    fd_memcpy( sys_ctx->vm_ctx.input_data_regions[i].content->bytes, (uchar *) vm->input_mem_regions[i].haddr, vm->input_mem_regions[i].region_sz );
+    sys_ctx->vm_ctx.input_data_regions[i].offset = vm->input_mem_regions[i].vaddr_offset;
+    sys_ctx->vm_ctx.input_data_regions[i].is_writable = vm->input_mem_regions[i].is_writable;
+  }
+
+  fd_create_instr_context_protobuf_from_instructions( &sys_ctx->instr_ctx,
+                                                      vm->instr_ctx->txn_ctx,
+                                                      vm->instr_ctx->instr );
+
+}
+
+static inline FD_FN_UNUSED void
+dump_acct_to_state( fd_instr_info_t const * instr, /* Caller instr_info */
+                    ulong idx_in_instr,
+                    fd_exec_test_acct_state_t * out_acct_st ) {
+  *out_acct_st = (fd_exec_test_acct_state_t) FD_EXEC_TEST_ACCT_STATE_INIT_ZERO;
+  fd_borrowed_account_t * acc = instr->borrowed_accounts[idx_in_instr];
+  if( FD_UNLIKELY( !acc || !fd_acc_exists( acc->const_meta ) ) ){
     return;
   }
 
-  fd_exec_test_syscall_context_t sys_ctx = FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO;
-  sys_ctx.has_instr_ctx = 1;
-  sys_ctx.has_vm_ctx = 1;
-  sys_ctx.has_syscall_invocation = 1;
+  out_acct_st->lamports = acc->const_meta->info.lamports;
+  out_acct_st->rent_epoch = acc->const_meta->info.rent_epoch;
+  out_acct_st->executable = acc->const_meta->info.executable;
+  memcpy( out_acct_st->owner, acc->const_meta->info.owner, sizeof(fd_pubkey_t) );
+  memcpy( out_acct_st->address, acc->pubkey, sizeof(fd_pubkey_t) );
 
-  // Copy function name
-  sys_ctx.syscall_invocation.function_name.size = fd_uint_min( (uint) strlen(fn_name), sizeof(sys_ctx.syscall_invocation.function_name.bytes) );
-  fd_memcpy( sys_ctx.syscall_invocation.function_name.bytes,
-             fn_name,
-             sys_ctx.syscall_invocation.function_name.size );
+  if( acc->const_meta->dlen > 0 ) {
+    out_acct_st->data = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(acc->const_meta->dlen) );
+    out_acct_st->data->size = (pb_size_t) acc->const_meta->dlen;
+    fd_memcpy( out_acct_st->data->bytes, acc->const_data, acc->const_meta->dlen );
+  }
 
-  // VM Ctx integral fields
-  sys_ctx.vm_ctx.r1 = instruction_va;
-  sys_ctx.vm_ctx.r2 = acct_infos_va;
-  sys_ctx.vm_ctx.r3 = acct_info_cnt;
-  sys_ctx.vm_ctx.r4 = signers_seeds_va;
-  sys_ctx.vm_ctx.r5 = signers_seeds_cnt;
-
-  sys_ctx.vm_ctx.rodata_text_section_length = vm->text_sz;
-  sys_ctx.vm_ctx.rodata_text_section_offset = vm->text_off;
-
-  sys_ctx.vm_ctx.heap_max = vm->heap_max; /* should be equiv. to txn_ctx->heap_sz */
-
-  FD_SCRATCH_SCOPE_BEGIN{
-    sys_ctx.vm_ctx.rodata = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(vm->rodata_sz) );
-    sys_ctx.vm_ctx.rodata->size = (pb_size_t) vm->rodata_sz;
-    fd_memcpy( sys_ctx.vm_ctx.rodata->bytes, vm->rodata, vm->rodata_sz );
-
-    pb_size_t stack_sz = (pb_size_t) ( (vm->frame_cnt + 1)*FD_VM_STACK_GUARD_SZ*2 );
-    sys_ctx.syscall_invocation.stack_prefix = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(stack_sz) );
-    sys_ctx.syscall_invocation.stack_prefix->size = stack_sz;
-    fd_memcpy( sys_ctx.syscall_invocation.stack_prefix->bytes, vm->stack, stack_sz );
-
-    sys_ctx.syscall_invocation.heap_prefix = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(vm->heap_max) );
-    sys_ctx.syscall_invocation.heap_prefix->size = (pb_size_t) vm->instr_ctx->txn_ctx->heap_size;
-    fd_memcpy( sys_ctx.syscall_invocation.heap_prefix->bytes, vm->heap, vm->instr_ctx->txn_ctx->heap_size );
-
-    sys_ctx.vm_ctx.input_data_regions_count = vm->input_mem_regions_cnt;
-    sys_ctx.vm_ctx.input_data_regions = fd_scratch_alloc( 8UL, sizeof(fd_exec_test_input_data_region_t) * vm->input_mem_regions_cnt );
-    for( ulong i=0UL; i<vm->input_mem_regions_cnt; i++ ) {
-      sys_ctx.vm_ctx.input_data_regions[i].content = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(vm->input_mem_regions[i].region_sz) );
-      sys_ctx.vm_ctx.input_data_regions[i].content->size = (pb_size_t) vm->input_mem_regions[i].region_sz;
-      fd_memcpy( sys_ctx.vm_ctx.input_data_regions[i].content->bytes, (uchar *) vm->input_mem_regions[i].haddr, vm->input_mem_regions[i].region_sz );
-      sys_ctx.vm_ctx.input_data_regions[i].offset = vm->input_mem_regions[i].vaddr_offset;
-      sys_ctx.vm_ctx.input_data_regions[i].is_writable = vm->input_mem_regions[i].is_writable;
-    }
-
-    fd_create_instr_context_protobuf_from_instructions( &sys_ctx.instr_ctx,
-                                                        vm->instr_ctx->txn_ctx,
-                                                        vm->instr_ctx->instr );
-
-    // Serialize the protobuf to file (using mmap)
-    size_t pb_alloc_size = 100 * 1024 * 1024; // 100MB (largest so far is 19MB)
-    FILE *f = fopen(filename, "wb+");
-    if( ftruncate(fileno(f), (off_t) pb_alloc_size) != 0 ) {
-      FD_LOG_WARNING(("Failed to resize file %s", filename));
-      fclose(f);
-      return;
-    }
-
-    uchar *pb_alloc = mmap( NULL,
-                            pb_alloc_size,
-                            PROT_READ | PROT_WRITE,
-                            MAP_SHARED,
-                            fileno(f),
-                            0 /* offset */);
-    if( pb_alloc == MAP_FAILED ) {
-      FD_LOG_WARNING(( "Failed to mmap file %d", errno ));
-      fclose(f);
-      return;
-    }
-
-    pb_ostream_t stream = pb_ostream_from_buffer(pb_alloc, pb_alloc_size);
-    if( !pb_encode( &stream, FD_EXEC_TEST_SYSCALL_CONTEXT_FIELDS, &sys_ctx ) ) {
-      FD_LOG_WARNING(( "Failed to encode instruction context" ));
-    }
-    // resize file to actual size
-    if( ftruncate( fileno(f), (off_t) stream.bytes_written ) != 0 ) {
-      FD_LOG_WARNING(( "Failed to resize file %s", filename ));
-    }
-
-    fclose(f);
-
-  } FD_SCRATCH_SCOPE_END;
+  return;
 }
 
 /* FIXME: ALGO EFFICIENCY */
