@@ -413,7 +413,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     }
   }
 
-  cur->in.gossip   = dedup_metrics[ MIDX( COUNTER, DEDUP, GOSSIPED_VOTES_RECEIVED ) ] + gossip_votes_dup;
+  cur->in.gossip   = dedup_metrics[ MIDX( COUNTER, DEDUP, GOSSIPED_VOTES_RECEIVED ) ];
   cur->in.quic     = cur->out.quic_quic_invalid+cur->out.quic_overrun;
   cur->in.udp      = cur->out.quic_udp_invalid;
   for( ulong i=0UL; i<gui->summary.quic_tile_cnt; i++ ) {
