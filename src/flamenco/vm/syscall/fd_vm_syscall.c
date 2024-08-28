@@ -70,7 +70,6 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
 
   REGISTER( "abort",                                 fd_vm_syscall_abort );
   REGISTER( "sol_panic_",                            fd_vm_syscall_sol_panic );
-  REGISTER( "custom_panic",                          fd_vm_syscall_sol_panic ); /* FIXME: unsure if this is entirely correct */
 
   /* As of the activation of disable_deploy_of_alloc_free_syscall, which is activated on all networks,
      programs can no longer be deployed which use the sol_alloc_free_ syscall.
@@ -108,7 +107,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
   if( FD_LIKELY( enable_last_restart_slot_syscall ) ) {
     REGISTER( "sol_get_last_restart_slot",             fd_vm_syscall_sol_get_last_restart_slot_sysvar );
   }
-  
+
   REGISTER( "sol_memcpy_",                           fd_vm_syscall_sol_memcpy );
   REGISTER( "sol_memmove_",                          fd_vm_syscall_sol_memmove );
   REGISTER( "sol_memcmp_",                           fd_vm_syscall_sol_memcmp );
