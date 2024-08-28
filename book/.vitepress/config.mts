@@ -51,6 +51,7 @@ export default defineConfig({
             { text: 'Monitoring', link: 'monitoring' },
             { text: 'Troubleshooting', link: 'troubleshooting' },
             { text: 'Frequently Asked Questions', link: 'faq' },
+            { text: 'Cluster Restart', link: 'cluster-restart' },
           ]
         }
       ] },
