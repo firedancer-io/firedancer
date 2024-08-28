@@ -96,7 +96,10 @@ prlimit --pid=$$ --memlock=unlimited
 
 gcloud auth activate-service-account --key-file=$GCLOUD_KEY_FILE
 
-curl -X POST -H 'Content-type: application/json' --data "{\"text\":\"STARTING RUN: \nNetwork: \`$NETWORK\` \nCommit: \`$GIT_COMMIT\` \nAgave Tag: \`$AGAVE_TAG\` \nFiredancer Cluster Version: \`$FIREDANCER_CLUSTER_VERSION\`\"}" $SLACK_WEBHOOK_URL
+if [[ $NOTIFY_ON_START == "true" ]]; then
+  curl -X POST -H 'Content-type: application/json' --data "{\"text\":\"STARTING RUN: \nNetwork: \`$NETWORK\` \nCommit: \`$GIT_COMMIT\` \nAgave Tag: \`$AGAVE_TAG\` \nFiredancer Cluster Version: \`$FIREDANCER_CLUSTER_VERSION\`\"}" $SLACK_WEBHOOK_URL
+fi
+
 # -----------------------------------------------------------------------------
 # Run
 
