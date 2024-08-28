@@ -198,6 +198,7 @@ check-dist-dir-changes:
 		echo "No changes in directory"; \
 	fi
 
+src/app/fdctl/run/tiles/generated/http_import_dist.c: check-dist-dir-changes
 src/app/fdctl/run/tiles/generated/http_import_dist.h: check-dist-dir-changes
 
 endif
