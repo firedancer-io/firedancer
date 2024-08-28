@@ -559,9 +559,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
   // TODO: set the lo_mark_slot to the actual snapshot slot!
   ctx->store = fd_store_join( fd_store_new( FD_SCRATCH_ALLOC_APPEND( l, fd_store_align(), fd_store_footprint() ), 1 ) );
-  if( tile->shred.expected_shred_version ) {
-    fd_store_expected_shred_version( ctx->store, tile->shred.expected_shred_version );
-  }
   ctx->repair_req_buffer = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_request_t), MAX_REPAIR_REQS * sizeof(fd_repair_request_t) );
   ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint() ), ctx->identity_key ) );
   void * smem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_SMAX ) );
@@ -609,6 +606,8 @@ unprivileged_init( fd_topo_t *      topo,
     } while( expected_shred_version==ULONG_MAX );
     FD_LOG_INFO(( "using shred version %lu", expected_shred_version ));
   }
+  FD_TEST( expected_shred_version );
+  fd_store_expected_shred_version( ctx->store, expected_shred_version );
 
   if( FD_UNLIKELY( strlen( tile->store_int.blockstore_restore ) > 0 ) ) {
     FD_LOG_NOTICE(( "starting blockstore_wksp restore %s", tile->store_int.blockstore_restore ));
