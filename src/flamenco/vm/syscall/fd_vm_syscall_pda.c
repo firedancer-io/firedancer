@@ -47,7 +47,7 @@ fd_vm_derive_pda( fd_vm_t *           vm,
     }
 
     /* If the seed length is 0, then we don't need to append anything. solana_bpf_loader_program::syscalls::translate_slice
-       returns an empty array in host space when given an empty array, which means this seed will have no affect on the PDA. */
+       returns an empty array in host space when given an empty array, which means this seed will have no effect on the PDA. */
     if ( FD_UNLIKELY( seed_sz==0 ) ) {
       continue;
     }

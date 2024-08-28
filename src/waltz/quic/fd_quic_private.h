@@ -43,7 +43,7 @@ struct fd_quic_event {
 };
 typedef struct fd_quic_event fd_quic_event_t;
 
-/* structure for a cummulative summation tree */
+/* structure for a cumulative summation tree */
 struct fd_quic_cs_tree {
   ulong cnt;
   ulong values[];
@@ -85,7 +85,7 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   fd_quic_event_t *       service_queue;  /* priority queue of connections by service time */
   fd_quic_stream_pool_t * stream_pool;    /* stream pool */
 
-  fd_quic_cs_tree_t *     cs_tree;        /* cummulative summation tree */
+  fd_quic_cs_tree_t *     cs_tree;        /* cumulative summation tree */
   fd_rng_t                _rng[1];        /* random number generator */
 
   /* need to be able to access connections by index */
@@ -383,7 +383,7 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
 /* fd_quic_conn_error sets the connection state to aborted.  This does
    not destroy the connection object.  Rather, it will eventually cause
    the connection to be freed during a later fd_quic_service call.
-   reason is a RFC 9000 QUIC error code.  error_line is a implementation
+   reason is a RFC 9000 QUIC error code.  error_line is an implementation
    defined error code for internal use (usually the source line of code
    in fd_quic.c) */
 
@@ -392,17 +392,17 @@ fd_quic_conn_error( fd_quic_conn_t * conn,
                     uint             reason,
                     uint             error_line );
 
-/* fd_quic_assign_streams attempts to distribute streams across         */
-/* connections fairly                                                   */
-/* The user sets a target number of concurrently usable streams to each */
-/* connection. Across all the connections, it is possible that this     */
-/* target cannot be reached. So we use a policy that assigns available  */
-/* streams randomly by weight, where the weight is the difference       */
-/* between the current number of valid streams and the target.          */
-/* The result is that if the targets can be fulfullied, they will be,   */
-/* otherwise, they will be distributed fairly                           */
-/* The user may terminate connections to free up streams for higher     */
-/* priority connections.                                                */
+/* fd_quic_assign_streams attempts to distribute streams across
+   connections fairly
+   The user sets a target number of concurrently usable streams to each
+   connection. Across all the connections, it is possible that this
+   target cannot be reached. So we use a policy that assigns available
+   streams randomly by weight, where the weight is the difference
+   between the current number of valid streams and the target.
+   The result is that if the targets can be fulfilled, they will be,
+   otherwise, they will be distributed fairly
+   The user may terminate connections to free up streams for higher
+   priority connections.                                                */
 void
 fd_quic_assign_streams( fd_quic_t * quic );
 
@@ -410,7 +410,7 @@ fd_quic_assign_streams( fd_quic_t * quic );
 int
 fd_quic_assign_stream( fd_quic_conn_t * conn, ulong stream_type, fd_quic_stream_t * stream );
 
-/* fd_quic_update_cs_tree updates the specified cummulative summation tree  */
+/* fd_quic_update_cs_tree updates the specified cumulative summation tree  */
 /* This tree allows a weighted random index to be selected in O(log N) time */
 /* This function updates the value in the tree with the given value and     */
 /* updates the rest of its internal state for quick queries                 */

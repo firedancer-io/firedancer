@@ -100,7 +100,7 @@ fd_keccak256_append( fd_keccak256_t * sha,
                      void const *     data,
                      ulong            sz );
 
-/* fd_keccak256_fini finishes a a keccak256 calculation.  sha and hash are
+/* fd_keccak256_fini finishes a keccak256 calculation.  sha and hash are
    assumed to be valid (i.e. sha is a local join to a keccak256 calculation
    state that has an in-progress calculation with no other concurrent
    operations that would modify the state while this is executing and

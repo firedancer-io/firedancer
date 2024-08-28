@@ -210,7 +210,7 @@ typedef union ABI_ALIGN(8UL) {
     sanitized_txn_abi_legacy_message1_t legacy;
   };
 
-  sanitized_txn_abi_v0_loaded_msg_t v0; /* No tag. First field is always non-NULL, so rustc can disciminate from legacy. */
+  sanitized_txn_abi_v0_loaded_msg_t v0; /* No tag. First field is always non-NULL, so rustc can discriminate from legacy. */
 } sanitized_txn_abi_message_t;
 
 FD_STATIC_ASSERT( sizeof(sanitized_txn_abi_message_t) == 184UL, "messed up size" );

@@ -74,7 +74,7 @@ typedef uint fd_repair_nonce_t;
 /* Active table element. This table is all validators that we are
    asking for repairs. */
 struct fd_active_elem {
-    fd_pubkey_t key;  /* Public indentifier and map key */
+    fd_pubkey_t key;  /* Public identifier and map key */
     ulong next; /* used internally by fd_map_giant */
 
     fd_repair_peer_addr_t addr;

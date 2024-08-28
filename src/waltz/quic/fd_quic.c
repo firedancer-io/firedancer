@@ -3090,7 +3090,7 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
     /* TODO buffer handshake data */
     return FD_QUIC_PARSE_FAIL;
   } else if( FD_UNLIKELY( rcv_offset + rcv_sz <= exp_offset ) ) {
-    /* the full range of bytes has already been consumed, so just fall thru */
+    /* the full range of bytes has already been consumed, so just fall through */
   } else {
     /* We have bytes that we can use */
     ulong skip = 0;
@@ -6697,7 +6697,7 @@ fd_quic_assign_streams( fd_quic_t * quic ) {
   /* target cannot be reached. So we use a policy that assigns available  */
   /* streams randomly by weight, where the weight is the difference       */
   /* between the current number of valid streams and the target.          */
-  /* The result is that if the targets can be fulfullied, they will be,   */
+  /* The result is that if the targets can be fulfilled, they will be,   */
   /* otherwise, they will be distributed fairly                           */
   /* The user may terminate connections to free up streams for higher     */
   /* priority connections.                                                */

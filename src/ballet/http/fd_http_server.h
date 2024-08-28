@@ -63,7 +63,7 @@ struct fd_http_server_request {
                                  provided to close to indicate that the connection is closed.  After a connection is closed the ID may be recycled */
 
   uchar        method;        /* One of FD_HTTP_SERVER_METHOD_* indicating what the method of the request is */
-  char const * path;          /* The NUL termoinated path component of the request.  Not sanitized and may contain arbitrary content.  Path is the full HTTP path of the request, for example
+  char const * path;          /* The NUL terminated path component of the request.  Not sanitized and may contain arbitrary content.  Path is the full HTTP path of the request, for example
                                  "/img/monkeys/gorilla.jpg" */
 
   void *       ctx;           /* The user provided context pointer passed when constructing the HTTP server */

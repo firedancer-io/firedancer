@@ -141,7 +141,7 @@ fd_zstd_dstream_reset( fd_zstd_dstream_t * dstream );
    to the next frame (reset not required).  Note that -1 may be returned
    even if *in_p<in_end because the fragment could span multiple frames.
    Returns EPROTO on error.  The caller should reset the dstream in
-   this case.  If opt_errcode!=NULL and an error occured, *opt_errcode
+   this case.  If opt_errcode!=NULL and an error occurred, *opt_errcode
    is set accordingly. */
 
 int

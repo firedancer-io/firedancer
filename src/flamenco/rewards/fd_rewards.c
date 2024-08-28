@@ -147,7 +147,7 @@ calculate_stake_points_and_credits (
     }
 
     /* If the Vote account has the same amount of credits observed as the Stake account,
-       then the Vote account hasn't earnt any credits and so there is nothing to update.
+       then the Vote account hasn't earned any credits and so there is nothing to update.
        
        https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L148 */
     if ( FD_UNLIKELY( credits_in_vote == credits_in_stake ) ) {
@@ -647,7 +647,7 @@ calculate_stake_vote_rewards_account(
    the partitions.
    - We use a single dlist to put all the stake rewards during the calculation phase.
    - We then distribute these into partitions (whose size cannot be known in advance), where each
-     partition is a seperate dlist.
+     partition is a separate dlist.
    - The dlist elements are all backed by the same pool, and allocated once.
    This approach optimizes memory usage and reduces copying.
 
@@ -665,7 +665,7 @@ calculate_stake_vote_rewards(
         fd_delegation_pair_t_map_size( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root ),
         fd_stake_accounts_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root ) );
 
-    /* Create the stake rewards pool and dlist. The pool will be destoyed after the stake rewards have been distributed. */
+    /* Create the stake rewards pool and dlist. The pool will be destroyed after the stake rewards have been distributed. */
     result->stake_reward_calculation.pool = fd_stake_reward_pool_join(
         fd_stake_reward_pool_new(
             fd_valloc_malloc( 
@@ -800,7 +800,7 @@ hash_rewards_into_partitions(
         fd_stake_reward_dlist_new( &result->partitioned_stake_rewards.partitions[ i ] );
     }
 
-    /* Iterate over all the stake rewards, moving references to them into the appropiate partitions.
+    /* Iterate over all the stake rewards, moving references to them into the appropriate partitions.
        IMPORTANT: after this, we cannot use the original stake rewards dlist anymore. */
     fd_stake_reward_dlist_iter_t next_iter;
     for ( fd_stake_reward_dlist_iter_t iter = fd_stake_reward_dlist_iter_fwd_init( 
@@ -1164,7 +1164,7 @@ fd_rewards_recalculate_partitioned_rewards(
 
     if ( FD_UNLIKELY( epoch_rewards->active ) ) {
         /* If partitioned rewards are active, the rewarded epoch is always the immediately
-           preceeding epoch.
+           preceding epoch.
            
            https://github.com/anza-xyz/agave/blob/2316fea4c0852e59c071f72d72db020017ffd7d0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L566 */
         fd_epoch_schedule_t * epoch_schedule = &fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx )->epoch_schedule;
