@@ -1287,21 +1287,6 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     message->address_table_lookups_count = txn_descriptor->addr_table_lookup_cnt;
     message->address_table_lookups = fd_scratch_alloc( alignof(fd_exec_test_message_address_table_lookup_t), 
                                                        txn_descriptor->addr_table_lookup_cnt * sizeof(fd_exec_test_message_address_table_lookup_t) );
-
-    /* Transaction Context -> tx -> message -> loaded_addresses */
-    // These are addresses resolved from address lookups (needed for Agave since ALUT resolutions happens at a higher level)
-    message->has_loaded_addresses = true;
-
-    // loaded_addresses -> writable
-    message->loaded_addresses.writable = fd_scratch_alloc( alignof(pb_bytes_array_t *), 
-                                                           PB_BYTES_ARRAY_T_ALLOCSIZE(txn_ctx->accounts_cnt * sizeof(pb_bytes_array_t *)) );
-    message->loaded_addresses.writable_count = 0;
-
-    // loaded_addresses -> readonly
-    message->loaded_addresses.readonly = fd_scratch_alloc( alignof(pb_bytes_array_t *), 
-                                                           PB_BYTES_ARRAY_T_ALLOCSIZE(txn_ctx->accounts_cnt * sizeof(pb_bytes_array_t *)) );
-    message->loaded_addresses.readonly_count = 0;
-
     for( ulong i = 0; i < txn_descriptor->addr_table_lookup_cnt; ++i ) {
       // alut -> account_key
       fd_pubkey_t * alut_key = (fd_pubkey_t *) (txn_payload + address_lookup_tables[i].addr_off);
@@ -1313,21 +1298,13 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
       if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_ERR(( "addr lut not found" ));
       }
-      fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&addr_lut_rec->const_data[56];
 
       // alut -> writable_indexes
       message->address_table_lookups[i].writable_indexes_count = address_lookup_tables[i].writable_cnt;
       message->address_table_lookups[i].writable_indexes = fd_scratch_alloc( alignof(uint32_t), address_lookup_tables[i].writable_cnt * sizeof(uint32_t) );
       uchar * writable_indexes = (uchar *) (txn_payload + address_lookup_tables[i].writable_off);
       for( ulong j = 0; j < address_lookup_tables[i].writable_cnt; ++j ) {
-        uchar account_index = writable_indexes[j];
-        message->address_table_lookups[i].writable_indexes[j] = account_index;
-
-        // Save account key in loaded addresses
-        pb_bytes_array_t * out_address = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(sizeof(fd_pubkey_t)) );
-        out_address->size = sizeof(fd_pubkey_t);
-        memcpy( out_address->bytes, &lookup_addrs[account_index], sizeof(fd_pubkey_t) );
-        message->loaded_addresses.writable[message->loaded_addresses.writable_count++] = out_address;
+        message->address_table_lookups[i].writable_indexes[j] = writable_indexes[j];
       }
 
       // alut -> readonly_indexes
@@ -1335,14 +1312,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
       message->address_table_lookups[i].readonly_indexes = fd_scratch_alloc( alignof(uint32_t), address_lookup_tables[i].readonly_cnt * sizeof(uint32_t) );
       uchar * readonly_indexes = (uchar *) (txn_payload + address_lookup_tables[i].readonly_off);
       for( ulong j = 0; j < address_lookup_tables[i].readonly_cnt; ++j ) {
-        uchar account_index = readonly_indexes[j];
-        message->address_table_lookups[i].readonly_indexes[j] = account_index;
-
-        // Save account key in loaded addresses
-        pb_bytes_array_t * out_address = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(sizeof(fd_pubkey_t)) );
-        out_address->size = sizeof(fd_pubkey_t);
-        memcpy( out_address->bytes, &lookup_addrs[account_index], sizeof(fd_pubkey_t) );
-        message->loaded_addresses.readonly[message->loaded_addresses.readonly_count++] = out_address;
+        message->address_table_lookups[i].readonly_indexes[j] = readonly_indexes[j];
       }
     }
   }
