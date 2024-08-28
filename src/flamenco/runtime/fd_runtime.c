@@ -3662,8 +3662,6 @@ FD_SCRATCH_SCOPE_BEGIN {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_stakes_t * stakes = &epoch_bank->stakes;
 
-  // TODO: do we need to update the vote accounts as well? Trying to update them breaks things
-
   // TODO: is this size correct if the same stake account is in both the slot and epoch cache? Is this possible?
   ulong stake_delegations_size = fd_delegation_pair_t_map_size(
     stakes->stake_delegations_pool, stakes->stake_delegations_root );
@@ -3768,7 +3766,7 @@ FD_SCRATCH_SCOPE_BEGIN {
 } FD_SCRATCH_SCOPE_END;
 }
 
-/* Save a copy of epoch_ctx->epoch_bank->stakes.vote_accounts into slot_ctx->slot_bank.epoch_stakes. */
+/* Replace the stakes in T-2 (slot_ctx->slot_bank.epoch_stakes) by the stakes at T-1 (epoch_bank->next_epoch_stakes) */
 static
 void fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_SCRATCH_SCOPE_BEGIN
@@ -3837,6 +3835,20 @@ void fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_SCRATCH_SCOPE_END;
 }
 
+/* Starting a new epoch.
+  New epoch:        T
+  Just ended epoch: T-1
+  Epoch before:     T-2
+
+  In this function:
+  - stakes in T-2 (slot_ctx->slot_bank.epoch_stakes) should be replaced by T-1 (epoch_bank->next_epoch_stakes)
+  - stakes at T-1 (epoch_bank->next_epoch_stakes) should be replaced by updated stakes at T (stakes->vote_accounts)
+  - leader schedule should be calculated using new T-2 stakes (slot_ctx->slot_bank.epoch_stakes)
+
+  Invariant during an epoch T:
+  epoch_bank->next_epoch_stakes    holds the stakes at T-1
+  slot_ctx->slot_bank.epoch_stakes holds the stakes at T-2
+ */
 /* process for the start of a new epoch */
 void fd_process_new_epoch(
     fd_exec_slot_ctx_t *slot_ctx,
@@ -3863,36 +3875,44 @@ void fd_process_new_epoch(
   else if (FD_FEATURE_ACTIVE(slot_ctx, update_hashes_per_tick2))
     epoch_bank->hashes_per_tick = UPDATED_HASHES_PER_TICK2;
 
-  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
-  if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
-
-  /* Updates `epoch_bank->stakes->epoch` with new epoch number,
-     and updates stake history sysvar accumulated values. */
+  /* Updates stake history sysvar accumulated values. */
   fd_stakes_activate_epoch( slot_ctx );
+
+  /* Update the stakes epoch value to the new epoch */
+  epoch_bank->stakes.epoch = epoch;
+
+  /* If appropiate, use the stakes at T-1 to generate the leader schedule instead of T-2.
+     This is due to a subtlety in how Agave's stake caches interact when loading from snapshots.
+     See the comment in fd_exec_slot_ctx_recover_. */
+  if( slot_ctx->slot_bank.has_use_preceeding_epoch_stakes && slot_ctx->slot_bank.use_preceeding_epoch_stakes == epoch ) {
+    fd_update_epoch_stakes( slot_ctx );
+  }
 
   /* Distribute rewards */
   fd_hash_t const * parent_blockhash = slot_ctx->slot_bank.block_hash_queue.last_hash;
-  if ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
+  if( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
     fd_begin_partitioned_rewards( slot_ctx, parent_blockhash, parent_epoch );
   } else {
     fd_update_rewards( slot_ctx, parent_blockhash, parent_epoch );
   }
 
-  refresh_vote_accounts( slot_ctx, history );
+  /* Updates stakes at time T */
+  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+  if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
 
+  refresh_vote_accounts( slot_ctx, history );
   fd_update_stake_delegations( slot_ctx );
 
-  fd_calculate_epoch_accounts_hash_values( slot_ctx );
-  FD_LOG_WARNING(("Leader schedule epoch %lu", fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot)));
+  /* Replace stakes at T-2 (slot_ctx->slot_bank.epoch_stakes) by stakes at T-1 (epoch_bank->next_epoch_stakes) */
   fd_update_epoch_stakes( slot_ctx );
 
-  fd_runtime_update_leaders(slot_ctx, slot_ctx->slot_bank.slot);
-  FD_LOG_WARNING(("Updated leader %32J", slot_ctx->leader->uc));
-
+  /* Replace stakes at T-1 (epoch_bank->next_epoch_stakes) by updated stakes at T (stakes->vote_accounts) */
   fd_update_next_epoch_stakes( slot_ctx );
 
-  /* Update the current epoch value */
-  epoch_bank->stakes.epoch = epoch;
+  /* Update current leaders using slot_ctx->slot_bank.epoch_stakes (new T-2 stakes) */
+  fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot );
+
+  fd_calculate_epoch_accounts_hash_values( slot_ctx );
 }
 
 /* Loads the sysvar cache. Expects acc_mgr, funk_txn, valloc to be non-NULL and valid. */
