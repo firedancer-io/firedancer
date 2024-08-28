@@ -738,6 +738,20 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   /*           ... that additional accounts from an ALT */
   if( FD_UNLIKELY( txn->addr_table_adtl_cnt>0UL                         ) ) REJECT( ADDR_LUT      );
 
+  /* If we're experiencing a lot of transaction conflicts, bias the
+     priority down based on how many references we have to each account
+     this transaction tries to write. */
+#if FD_HAS_DOUBLE
+  ulong conflict_cnt = 0UL;
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+      iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+    fd_acct_addr_t acct = accts[fd_txn_acct_iter_idx( iter )];
+    fd_pack_bitset_acct_mapping_t dummy = { 0 };
+    conflict_cnt += bitset_map_query( pack->acct_to_bitset, acct, &dummy )->ref_cnt;
+  }
+  double scale = 1+0.3*log( 1.0-(1.0/100.0)*(double)fd_ulong_min( conflict_cnt, 96UL ) );
+  ord->rewards = (uint)(scale*(double)ord->rewards);
+#endif
 
   int replaces = 0;
   if( FD_UNLIKELY( pack->pending_txn_cnt == pack->pack_depth ) ) {
