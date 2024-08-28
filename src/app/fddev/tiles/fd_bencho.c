@@ -5,6 +5,7 @@
 
 #include "../../../util/net/fd_ip4.h"
 #include "hist.h"
+#include <stdio.h>
 
 #include <linux/unistd.h>
 
@@ -143,11 +144,12 @@ service_txn_count( fd_bencho_ctx_t * ctx ) {
     ulong txns = response->result.transaction_count.transaction_count;
 
     if( FD_LIKELY( ctx->txncount_measured1 ) ) {
-      char   buffer[2048];
-      ulong generated_cnt = draw_hist( ctx->hist_bins, HIST_BINS, buffer, 2048UL, HIST_HEIGHT );
-      FD_LOG_NOTICE(( "Landed %lu txn/s, %lu txn/s generated\n%s", (ulong)((double)(txns - ctx->txncount_prev)/1.2 ),
-                                                                   (ulong)((double)generated_cnt/1.2),
-                                                                   buffer ));
+      char   buffer[4096];
+      ulong generated_cnt = draw_hist( ctx->hist_bins, HIST_BINS, buffer, 4096UL, HIST_HEIGHT );
+      printf( "Landed %7lu txn/s (%.1f Gbps), %lu txn/s generated\n%s\n", (ulong)((double)(txns - ctx->txncount_prev)/1.2 ),
+                                                                          (double)(txns-ctx->txncount_prev)/1.2*10384e-9,
+                                                                          (ulong)((double)generated_cnt/1.2),
+                                                                                  buffer );
       memset( ctx->hist_bins, '\0', HIST_BINS*sizeof(ulong) );
     }
 

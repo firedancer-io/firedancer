@@ -249,7 +249,10 @@ after_credit( void *             _ctx,
   FD_TEST( fd_txn_parse( (uchar const *)txn, transaction_size, _txn, NULL ) );
   uint  flags = 0UL;
   ulong fee   = 0UL;
-  ulong cost_units = fd_pack_compute_cost( p_txn, (uchar const *)txn, &flags, NULL, &fee, NULL );
+  ulong sigs  = 0UL;
+  ulong cost_units = fd_pack_compute_cost( p_txn, (uchar const *)txn, &flags, NULL, &fee, &sigs );
+  fee += 5000UL*(sigs+1UL);
+
   ctx->hist_data[ ctx->hist_cnt++ ] = ((float)fee)/(float)cost_units;
 
   fd_mux_publish( mux, 0UL, ctx->out_chunk, transaction_size, 0UL, 0UL, 0UL );

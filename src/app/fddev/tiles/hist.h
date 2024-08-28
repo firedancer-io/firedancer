@@ -1,9 +1,9 @@
 #ifndef HEADER_fd_src_app_fddev_tiles_hist_h
 #define HEADER_fd_src_app_fddev_tiles_hist_h
 
-#define HIST_BINS 32UL
-#define HIST_MIN  0.01f
-#define HIST_MAX  2.0f
+#define HIST_BINS 100UL
+#define HIST_MIN  0.00f
+#define HIST_MAX  20.0f
 #define HIST_INTERVAL 1024
 #define HIST_HEIGHT   30
 
@@ -57,8 +57,8 @@ draw_hist( ulong const * bins,
        We'd rather do this as integer arithmetic though.  We need some simple
        facts about floors.  Suppose y and z are non-negative real numbers and n
        is an integer.  Then y<n<=z if and only if floor(y)<n<=floor(z). */
-    ulong pound_cutoff = (ulong)( (float)val_cnt*((float)(height-h)-0.5f)/(float)height);
-    ulong dot_cutoff   = (ulong)( (float)val_cnt*((float)(height-h-1UL) )/(float)height);
+    ulong pound_cutoff = (ulong)( 0.3f*(float)val_cnt*((float)(height-h)-0.5f)/(float)height);
+    ulong dot_cutoff   = (ulong)( 0.3f*(float)val_cnt*((float)(height-h-1UL) )/(float)height);
     PRINT( "  |" );
     for( ulong bin=0UL; bin<bin_cnt; bin++ ) {
       char c = fd_char_if( pound_cutoff<bins[bin], '#', fd_char_if( dot_cutoff<bins[bin], '.', ' ' ) );
