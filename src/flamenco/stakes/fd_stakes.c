@@ -381,6 +381,12 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx) {
 
   fd_valloc_free( slot_ctx->valloc,
     fd_stake_weight_t_map_delete( fd_stake_weight_t_map_leave ( pool ) ) );
+
+  /* Refresh the sysvar cache stake history entry after updating the sysvar.
+      We need to do this here because it is used in subsequent places in the epoch boundary. */
+  fd_bincode_destroy_ctx_t sysvar_cache_destroy_ctx = { .valloc = slot_ctx->sysvar_cache->valloc };
+  fd_stake_history_destroy( slot_ctx->sysvar_cache->val_stake_history, &sysvar_cache_destroy_ctx );
+  fd_sysvar_cache_restore_stake_history( slot_ctx->sysvar_cache, slot_ctx->acc_mgr, slot_ctx->funk_txn );
 }
 
 int
