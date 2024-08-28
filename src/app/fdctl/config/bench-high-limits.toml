@@ -1,0 +1,49 @@
+# Configuration file used for benchmarking on an Intel Icelake CPU with
+# AVX512 support for the 1.4 Milestone demo.  The configuration expects
+# 80 physical cores (40 on each socket of a dual socket CPU).  In production,
+# the configuration would be different as cores do not need to be dedicated
+# to generating and sending transactions for benchmarking.
+[ledger]
+  path = "/dev/shm/{name}/ledger"
+
+[tiles.net]
+  interface = "enp75s0f0"
+
+[layout]
+  affinity = "2-78/2,1-67/2"
+  solana_labs_affinity = "69-79/2"
+  verify_tile_count = 42
+  bank_tile_count = 18
+  shred_tile_count = 4
+  quic_tile_count = 1
+
+[tiles.pack]
+  max_pending_transactions = 2048
+
+[development.genesis]
+  hashes_per_tick = 12500
+  fund_initial_accounts = 20000
+
+[development.bench]
+  benchg_tile_count = 19
+  benchs_tile_count = 3
+  affinity = "f1,0-42/2"
+  larger_max_cost_per_block = true
+  larger_shred_limits_per_block = true
+  disable_blockstore = true
+
+[rpc]
+  port = 8899
+  full_api = true
+  transaction_history = false
+  extended_tx_metadata_storage = false
+
+[log]
+  level_logfile = "DEBUG"
+
+[tiles.quic]
+  max_concurrent_connections = 32
+  max_concurrent_handshakes  = 32
+  # max_concurrent_streams_per_connection = 4096
+  stream_pool_cnt = 131072
+  max_inflight_quic_packets = 1000
