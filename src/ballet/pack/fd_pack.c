@@ -319,6 +319,19 @@ static const fd_acct_addr_t null_addr = { 0 };
                              } while( 0 )
 #include "../../util/tmpl/fd_prq.c"
 
+/* fd_pack_smallest: We want to keep track of the smallest transaction
+   in each treap.  That way, if we know the amount of space left in the
+   block is less than the smallest transaction in the heap, we can just
+   skip the heap.  Since transactions can be deleted, etc. maintaining
+   this precisely is hard, but we can maintain a conservative value
+   fairly cheaply.  Since the CU limit or the byte limit can be the one
+   that matters, we keep track of the smallest by both. */
+struct fd_pack_smallest {
+  ulong cus;
+  ulong bytes;
+};
+typedef struct fd_pack_smallest fd_pack_smallest_t;
+
 /* Finally, we can now declare the main pack data structure */
 struct fd_pack_private {
   ulong      pack_depth;
@@ -360,6 +373,13 @@ struct fd_pack_private {
      pending simple votes separately. */
   treap_t pending[1];
   treap_t pending_votes[1];
+
+  /* pending{_votes}_smallest: keep a conservative estimate of the
+     smallest transaction (by cost units and by bytes) in each heap.
+     Both CUs and bytes should be set to ULONG_MAX is the treap is
+     empty. */
+  fd_pack_smallest_t pending_smallest[1];
+  fd_pack_smallest_t pending_votes_smallest[1];
 
   /* expiration_q: At the same time that a transaction is in exactly one
      of the above treaps, it is also in the expiration queue, sorted by
@@ -527,6 +547,11 @@ fd_pack_new( void                   * mem,
 
   treap_new( (void*)pack->pending,         pack_depth );
   treap_new( (void*)pack->pending_votes,   pack_depth );
+
+  pack->pending_smallest->cus         = ULONG_MAX;
+  pack->pending_smallest->bytes       = ULONG_MAX;
+  pack->pending_votes_smallest->cus   = ULONG_MAX;
+  pack->pending_votes_smallest->bytes = ULONG_MAX;
 
   expq_new( _expq, pack_depth+1UL );
 
@@ -826,7 +851,11 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   fd_pack_expq_t temp[ 1 ] = {{ .expires_at = expires_at, .txn = ord }};
   expq_insert( pack->expiration_q, temp );
 
-  if( FD_LIKELY( ord->root == FD_ORD_TXN_ROOT_PENDING_VOTE ) ) {
+  fd_pack_smallest_t * smallest = fd_ptr_if( is_vote, &pack->pending_votes_smallest[0], pack->pending_smallest );
+  smallest->cus   = fd_ulong_min( smallest->cus,   ord->compute_est );
+  smallest->bytes = fd_ulong_min( smallest->bytes, txnp->payload_sz );
+
+  if( FD_LIKELY( is_vote ) ) {
     treap_ele_insert( pack->pending_votes, ord, pack->pool );
     return replaces ? FD_PACK_INSERT_ACCEPT_VOTE_REPLACE : FD_PACK_INSERT_ACCEPT_VOTE_ADD;
   } else {
@@ -874,13 +903,14 @@ typedef struct {
 } sched_return_t;
 
 static inline sched_return_t
-fd_pack_schedule_impl( fd_pack_t  * pack,
-                       treap_t    * sched_from,
-                       ulong        cu_limit,
-                       ulong        txn_limit,
-                       ulong        byte_limit,
-                       ulong        bank_tile,
-                       fd_txn_p_t * out ) {
+fd_pack_schedule_impl( fd_pack_t          * pack,
+                       treap_t            * sched_from,
+                       ulong                cu_limit,
+                       ulong                txn_limit,
+                       ulong                byte_limit,
+                       ulong                bank_tile,
+                       fd_pack_smallest_t * smallest_in_treap,
+                       fd_txn_p_t         * out ) {
 
   fd_pack_ord_txn_t  * pool         = pack->pool;
   fd_pack_addr_use_t * acct_in_use  = pack->acct_in_use;
@@ -912,12 +942,15 @@ fd_pack_schedule_impl( fd_pack_t  * pack,
   ulong byte_limit_c  = 0UL;
   ulong write_limit_c = 0UL;
 
-  if( FD_UNLIKELY( (cu_limit<FD_PACK_MIN_TXN_COST) | (txn_limit==0UL) | (byte_limit<FD_TXN_MIN_SERIALIZED_SZ) ) ) {
+  ulong min_cus   = ULONG_MAX;
+  ulong min_bytes = ULONG_MAX;
+
+  if( FD_UNLIKELY( (cu_limit<smallest_in_treap->cus) | (txn_limit==0UL) | (byte_limit<smallest_in_treap->bytes) ) ) {
     sched_return_t to_return = { .cus_scheduled = 0UL, .txns_scheduled = 0UL, .bytes_scheduled = 0UL };
     return to_return;
   }
 
-  treap_rev_iter_t prev;
+  treap_rev_iter_t prev = treap_idx_null();
   for( treap_rev_iter_t _cur=treap_rev_iter_init( sched_from, pool ); !treap_rev_iter_done( _cur ); _cur=prev ) {
     /* Capture next so that we can delete while we iterate. */
     prev = treap_rev_iter_next( _cur, pool );
@@ -927,6 +960,9 @@ fd_pack_schedule_impl( fd_pack_t  * pack,
 #   endif
 
     fd_pack_ord_txn_t const * cur = treap_rev_iter_ele_const( _cur, pool );
+
+    min_cus   = fd_ulong_min( min_cus,   cur->compute_est     );
+    min_bytes = fd_ulong_min( min_bytes, cur->txn->payload_sz );
 
     ulong conflicts = 0UL;
 
@@ -1108,7 +1144,7 @@ fd_pack_schedule_impl( fd_pack_t  * pack,
     trp_pool_idx_release( pool, _cur );
     pack->pending_txn_cnt--;
 
-    if( FD_UNLIKELY( (cu_limit<FD_PACK_MIN_TXN_COST) | (txn_limit==0UL) | (byte_limit<FD_TXN_MIN_SERIALIZED_SZ) ) ) break;
+    if( FD_UNLIKELY( (cu_limit<smallest_in_treap->cus) | (txn_limit==0UL) | (byte_limit<smallest_in_treap->bytes) ) ) break;
   }
 
   FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_TAKEN,      txns_scheduled );
@@ -1121,6 +1157,13 @@ fd_pack_schedule_impl( fd_pack_t  * pack,
 #if DETAILED_LOGGING
   FD_LOG_NOTICE(( "cu_limit: %lu, fast_path: %lu, slow_path: %lu", cu_limit_c, fast_path, slow_path ));
 #endif
+
+  /* If we scanned the whole treap and didn't break early, we now have a
+     better estimate of the smallest. */
+  if( FD_UNLIKELY( treap_rev_iter_done( prev ) ) ) {
+    smallest_in_treap->cus   = min_cus;
+    smallest_in_treap->bytes = min_bytes;
+  }
 
   pack->use_by_bank_cnt[bank_tile] = use_by_bank_cnt;
   FD_PACK_BITSET_COPY( pack->bitset_rw_in_use, bitset_rw_in_use );
@@ -1232,7 +1275,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   sched_return_t status, status1;
 
   /* Try to schedule non-vote transactions */
-  status = fd_pack_schedule_impl( pack, pack->pending,       cu_limit, txn_limit,          byte_limit, bank_tile, out+scheduled );
+  status = fd_pack_schedule_impl( pack, pack->pending,       cu_limit, txn_limit,          byte_limit, bank_tile, pack->pending_smallest,       out+scheduled );
 
   scheduled                   += status.txns_scheduled;            txn_limit  -= status.txns_scheduled;
   pack->cumulative_block_cost += status.cus_scheduled;             cu_limit   -= status.cus_scheduled;
@@ -1240,7 +1283,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
 
   /* Schedule vote transactions */
-  status1= fd_pack_schedule_impl( pack, pack->pending_votes, vote_cus, vote_reserved_txns, byte_limit, bank_tile, out+scheduled );
+  status1= fd_pack_schedule_impl( pack, pack->pending_votes, vote_cus, vote_reserved_txns, byte_limit, bank_tile, pack->pending_votes_smallest, out+scheduled );
 
   scheduled                   += status1.txns_scheduled;
   pack->cumulative_vote_cost  += status1.cus_scheduled;
@@ -1253,7 +1296,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
 
   /* Fill any remaining space with non-vote transactions */
-  status = fd_pack_schedule_impl( pack, pack->pending,       cu_limit, txn_limit,          byte_limit, bank_tile, out+scheduled );
+  status = fd_pack_schedule_impl( pack, pack->pending,       cu_limit, txn_limit,          byte_limit, bank_tile, pack->pending_smallest,       out+scheduled );
 
   scheduled                   += status.txns_scheduled;
   pack->cumulative_block_cost += status.cus_scheduled;
@@ -1431,6 +1474,11 @@ fd_pack_clear_all( fd_pack_t * pack ) {
   pack->cumulative_block_cost  = 0UL;
   pack->cumulative_vote_cost   = 0UL;
   pack->cumulative_rebated_cus = 0UL;
+
+  pack->pending_smallest->cus         = ULONG_MAX;
+  pack->pending_smallest->bytes       = ULONG_MAX;
+  pack->pending_votes_smallest->cus   = ULONG_MAX;
+  pack->pending_votes_smallest->bytes = ULONG_MAX;
 
   release_tree( pack->pending,         pack->pool );
   release_tree( pack->pending_votes,   pack->pool );

@@ -389,7 +389,7 @@ after_credit( void *             _ctx,
 
   /* Do I have enough transactions and/or have I waited enough time? */
   if( FD_UNLIKELY( (ulong)(now-ctx->last_successful_insert) <
-        ctx->wait_duration_ticks[ fd_ulong_min( fd_pack_avail_txn_cnt( ctx->pack ), MAX_TXN_PER_MICROBLOCK ) ] ) ) {
+        ctx->wait_duration_ticks[ fd_ulong_min( fd_pack_avail_txn_cnt( ctx->pack )/16UL, MAX_TXN_PER_MICROBLOCK ) ] ) ) {
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, 0 );
     return;
   }
@@ -436,6 +436,9 @@ after_credit( void *             _ctx,
 
       ctx->bank_idle_bitset = fd_ulong_pop_lsb( ctx->bank_idle_bitset );
       ctx->skip_cnt         = (long)schedule_cnt;
+    } else {
+      /* If there was nothing that could be scheduled, wait a bit. */
+      // ctx->skip_cnt = (fd_tickcount() - now)/300L;
     }
   }
 
