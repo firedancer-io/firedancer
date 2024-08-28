@@ -1696,6 +1696,9 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   if( !!(input->vm_ctx.input_data_regions_count) ) {
     input_regions       = fd_valloc_malloc( valloc, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
     input_regions_count = setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count );
+    if ( !input_regions_count ) {
+      goto error;
+    }
   }
 
   if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
