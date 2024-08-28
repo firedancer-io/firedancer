@@ -764,7 +764,6 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
                                fd_execute_txn_task_info_t * task_info,
                                fd_txn_p_t *                 txns,
                                ulong                        txn_cnt ) {
-  int result = 0;
   /* Loop across transactions */
   for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
     fd_txn_p_t * txn = &txns[txn_idx];
@@ -780,13 +779,13 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
 
     int res = fd_execute_txn_prepare_start( slot_ctx, txn_ctx, txn_descriptor, &raw_txn );
     if( res ) {
-      txn->flags = 0U;
-      result     = res;
-      break;
+      task_info[txn_idx].exec_res = res;
+      txn->flags                  = 0U;
+      return res;
     }
   }
 
-  return result;
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 /* fd_txn_sigverify_task and fd_txn_pre_execute_checks_task are responisble
@@ -848,6 +847,10 @@ fd_txn_sigverify_task( void *tpool,
 
 void
 fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
+  if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
+    return;
+  }
+
   fd_exec_txn_ctx_t *          txn_ctx   = task_info->txn_ctx;
 
   fd_funk_txn_t * parent_txn = txn_ctx->slot_ctx->funk_txn;

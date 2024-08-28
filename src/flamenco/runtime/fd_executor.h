@@ -91,7 +91,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx );
 uint
 fd_executor_txn_uses_sysvar_instructions( fd_exec_txn_ctx_t const * txn_ctx );
 
-void
+int
 fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
 
 void

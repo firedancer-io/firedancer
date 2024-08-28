@@ -7,6 +7,9 @@
 #define FD_ADDRLUT_STATUS_DEACTIVATING (1)
 #define FD_ADDRLUT_STATUS_DEACTIVATED  (2)
 
+/* https://github.com/firedancer-io/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L19 */
+#define FD_LOOKUP_TABLE_META_SIZE      (56)
+
 FD_PROTOTYPES_BEGIN
 
 int
