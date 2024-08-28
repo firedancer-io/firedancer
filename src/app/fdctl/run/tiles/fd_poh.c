@@ -895,9 +895,9 @@ no_longer_leader( fd_poh_ctx_t * ctx ) {
   fd_ext_poh_signal_leader_change( ctx->signal_leader_change );
   FD_LOG_INFO(( "no_longer_leader(next_leader_slot=%lu)", ctx->next_leader_slot ));
 
-  char hist_buf[ 2048UL ];
+  char hist_buf[ 4096UL ];
   hist_buf[ 0 ] = '\0';
-  ulong txn_cnt = draw_hist( ctx->hist_bins, HIST_BINS, hist_buf, 2048UL, HIST_HEIGHT );
+  ulong txn_cnt = draw_hist( ctx->hist_bins, HIST_BINS, hist_buf, 4096UL, HIST_HEIGHT );
   if( FD_LIKELY( txn_cnt>0UL ) ) {
     FD_LOG_NOTICE(( "%lu txn/block\n%s", txn_cnt, hist_buf ));
     memset( ctx->hist_bins, '\0', HIST_BINS*sizeof(ulong) );
@@ -1551,7 +1551,9 @@ after_frag( void *             _ctx,
   for( ulong i=0; i<txn_cnt; i++ ) { 
     uint  flags = 0UL;
     ulong fee   = 0UL;
-    ulong cost_units = fd_pack_compute_cost( TXN(txns+i), txns[ i ].payload, &flags, NULL, &fee, NULL );
+    ulong sigs  = 0UL;
+    ulong cost_units = fd_pack_compute_cost( TXN(txns+i), txns[ i ].payload, &flags, NULL, &fee, &sigs );
+    fee += 5000UL*(sigs+1UL);
     float value = ((float)fee)/(float)cost_units;
     float scale = (float)HIST_BINS/(HIST_MAX-HIST_MIN);
     ulong bin = fd_ulong_min( (ulong)__builtin_fmaxf( (value-HIST_MIN)*scale, 0.0f ), HIST_BINS-1UL );
