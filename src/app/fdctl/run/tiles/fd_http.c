@@ -1,5 +1,6 @@
 #include "tiles.h"
 
+#include "generated/http_import_dist.h"
 #include "generated/http_seccomp.h"
 
 #include "../../version.h"
@@ -32,24 +33,21 @@
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
 #define FD_HTTP_SERVER_GUI_SEND_BUFFER_SZ        (1024UL*1024UL*1024UL) /* 1GiB reserved for buffering GUI websockets */
 
-  const fd_http_server_params_t GUI_PARAMS = {
-    .max_connection_cnt    = FD_HTTP_SERVER_GUI_MAX_CONNS,
-    .max_ws_connection_cnt = FD_HTTP_SERVER_GUI_MAX_WS_CONNS,
-    .max_request_len       = FD_HTTP_SERVER_GUI_MAX_REQUEST_LEN,
-    .max_ws_recv_frame_len = FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN,
-    .max_ws_send_frame_cnt = FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT,
-  };
+const fd_http_server_params_t GUI_PARAMS = {
+  .max_connection_cnt    = FD_HTTP_SERVER_GUI_MAX_CONNS,
+  .max_ws_connection_cnt = FD_HTTP_SERVER_GUI_MAX_WS_CONNS,
+  .max_request_len       = FD_HTTP_SERVER_GUI_MAX_REQUEST_LEN,
+  .max_ws_recv_frame_len = FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN,
+  .max_ws_send_frame_cnt = FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT,
+};
 
-  const fd_http_server_params_t METRICS_PARAMS = {
-    .max_connection_cnt    = FD_HTTP_SERVER_METRICS_MAX_CONNS,
-    .max_ws_connection_cnt = 0UL,
-    .max_request_len       = FD_HTTP_SERVER_METRICS_MAX_REQUEST_LEN,
-    .max_ws_recv_frame_len = 0UL,
-    .max_ws_send_frame_cnt = 0UL,
-  };
-
-FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
-FD_IMPORT_BINARY( index_html, "src/app/fdctl/run/tiles/index.html" );
+const fd_http_server_params_t METRICS_PARAMS = {
+  .max_connection_cnt    = FD_HTTP_SERVER_METRICS_MAX_CONNS,
+  .max_ws_connection_cnt = 0UL,
+  .max_request_len       = FD_HTTP_SERVER_METRICS_MAX_REQUEST_LEN,
+  .max_ws_recv_frame_len = 0UL,
+  .max_ws_send_frame_cnt = 0UL,
+};
 
 typedef struct {
   fd_topo_t * topo;
@@ -190,32 +188,42 @@ gui_http_request( fd_http_server_request_t const * request ) {
     };
   }
 
-  if( FD_LIKELY( !strcmp( request->path, "/" ) ) ) {
-    return (fd_http_server_response_t){
-      .status            = 200,
-      .body              = index_html,
-      .body_len          = index_html_sz,
-      .content_type      = "text/html; charset=utf-8",
-      .upgrade_websocket = 0,
-    };
-  } else if( FD_LIKELY( !strcmp( request->path, "/favicon.svg" ) ) ) {
-    return (fd_http_server_response_t){
-      .status            = 200,
-      .body              = firedancer_svg,
-      .body_len          = firedancer_svg_sz,
-      .content_type      = "image/svg+xml",
-      .upgrade_websocket = 0,
-    };
-  } else if( FD_LIKELY( !strcmp( request->path, "/websocket" ) ) ) {
+  if( FD_LIKELY( !strcmp( request->path, "/websocket" ) ) ) {
     return (fd_http_server_response_t){
       .status            = 200,
       .upgrade_websocket = 1,
     };
-  } else {
-    return (fd_http_server_response_t){
-      .status            = 404,
-    };
   }
+
+  for( ulong i=0UL; i<sizeof(STATIC_FILES)/sizeof(STATIC_FILES[0]); i++ ) {
+    if( !strcmp( request->path, STATIC_FILES[ i ].name ) ||
+        (!strcmp( STATIC_FILES[ i ].name, "/index.html" ) && !strcmp( request->path, "/" )) ) {
+
+      char const * content_type = NULL;
+
+      char const * ext = strrchr( STATIC_FILES[ i ].name, '.' );
+      if( FD_LIKELY( ext ) ) {
+        if( !strcmp( ext, ".html" ) ) content_type = "text/html; charset=utf-8";
+        else if( !strcmp( ext, ".css" ) ) content_type = "text/css";
+        else if( !strcmp( ext, ".js" ) ) content_type = "application/javascript";
+        else if( !strcmp( ext, ".svg" ) ) content_type = "image/svg+xml";
+        else if( !strcmp( ext, ".woff" ) ) content_type = "font/woff";
+        else if( !strcmp( ext, ".woff2" ) ) content_type = "font/woff2";
+      }
+
+      return (fd_http_server_response_t){
+        .status            = 200,
+        .body              = STATIC_FILES[ i ].data,
+        .body_len          = *(STATIC_FILES[ i ].data_len),
+        .content_type      = content_type,
+        .upgrade_websocket = 0,
+      };
+    }
+  }
+
+  return (fd_http_server_response_t){
+    .status            = 404,
+  };
 }
 
 static void

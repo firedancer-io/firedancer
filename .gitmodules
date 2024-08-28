@@ -2,3 +2,6 @@
 	path = agave
 	url = https://github.com/firedancer-io/agave.git
 	branch = v1.18-fd
+[submodule "frontend"]
+	path = frontend
+	url = git@github.com:firedancer-io/firedancer-frontend.git

@@ -3,6 +3,9 @@
 bin
 unit-test
 tmp
+.last_checked
+src/app/fdctl/run/tiles/generated/http_import_dist.c
+src/app/fdctl/run/tiles/generated/http_import_dist.h
 
 genhtml/
 target/
