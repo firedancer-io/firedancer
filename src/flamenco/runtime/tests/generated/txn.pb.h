@@ -38,14 +38,6 @@ typedef struct fd_exec_test_message_address_table_lookup {
     uint32_t *readonly_indexes;
 } fd_exec_test_message_address_table_lookup_t;
 
-/* Addresses loaded with on-chain lookup tables */
-typedef struct fd_exec_test_loaded_addresses {
-    pb_size_t writable_count;
-    pb_bytes_array_t **writable;
-    pb_size_t readonly_count;
-    pb_bytes_array_t **readonly;
-} fd_exec_test_loaded_addresses_t;
-
 /* Message contains the transaction data */
 typedef struct fd_exec_test_transaction_message {
     /* Whether this is a legacy message or not */
@@ -66,9 +58,6 @@ typedef struct fd_exec_test_transaction_message {
     /* Not available in legacy message */
     pb_size_t address_table_lookups_count;
     struct fd_exec_test_message_address_table_lookup *address_table_lookups;
-    /* Not available in legacy messages */
-    bool has_loaded_addresses;
-    fd_exec_test_loaded_addresses_t loaded_addresses;
 } fd_exec_test_transaction_message_t;
 
 /* A valid verified transaction */
@@ -171,8 +160,7 @@ extern "C" {
 #define FD_EXEC_TEST_MESSAGE_HEADER_INIT_DEFAULT {0, 0, 0}
 #define FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_DEFAULT {0, 0, NULL, NULL}
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_DEFAULT {{0}, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_LOADED_ADDRESSES_INIT_DEFAULT {0, NULL, 0, NULL}
-#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_DEFAULT, 0, NULL, 0, NULL, NULL, 0, NULL, 0, NULL, false, FD_EXEC_TEST_LOADED_ADDRESSES_INIT_DEFAULT}
+#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_DEFAULT, 0, NULL, 0, NULL, NULL, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT {false, FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT, {0}, 0, 0, NULL}
 #define FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT    {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT, 0, 0, NULL, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT}
 #define FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT {0, NULL, 0, NULL, 0}
@@ -183,8 +171,7 @@ extern "C" {
 #define FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO    {0, 0, 0}
 #define FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_ZERO {0, 0, NULL, NULL}
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_ZERO {{0}, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_LOADED_ADDRESSES_INIT_ZERO  {0, NULL, 0, NULL}
-#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO, 0, NULL, 0, NULL, NULL, 0, NULL, 0, NULL, false, FD_EXEC_TEST_LOADED_ADDRESSES_INIT_ZERO}
+#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO, 0, NULL, 0, NULL, NULL, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO {false, FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO, {0}, 0, 0, NULL}
 #define FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO       {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO, 0, 0, NULL, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO}
 #define FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO   {0, NULL, 0, NULL, 0}
@@ -203,8 +190,6 @@ extern "C" {
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_ACCOUNT_KEY_TAG 1
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_WRITABLE_INDEXES_TAG 2
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_READONLY_INDEXES_TAG 3
-#define FD_EXEC_TEST_LOADED_ADDRESSES_WRITABLE_TAG 1
-#define FD_EXEC_TEST_LOADED_ADDRESSES_READONLY_TAG 2
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_IS_LEGACY_TAG 1
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_HEADER_TAG 2
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_ACCOUNT_KEYS_TAG 3
@@ -212,7 +197,6 @@ extern "C" {
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_RECENT_BLOCKHASH_TAG 5
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_INSTRUCTIONS_TAG 6
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_ADDRESS_TABLE_LOOKUPS_TAG 7
-#define FD_EXEC_TEST_TRANSACTION_MESSAGE_LOADED_ADDRESSES_TAG 8
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_MESSAGE_TAG 1
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_MESSAGE_HASH_TAG 2
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_IS_SIMPLE_VOTE_TX_TAG 3
@@ -266,12 +250,6 @@ X(a, POINTER,  REPEATED, UINT32,   readonly_indexes,   3)
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_CALLBACK NULL
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_DEFAULT NULL
 
-#define FD_EXEC_TEST_LOADED_ADDRESSES_FIELDLIST(X, a) \
-X(a, POINTER,  REPEATED, BYTES,    writable,          1) \
-X(a, POINTER,  REPEATED, BYTES,    readonly,          2)
-#define FD_EXEC_TEST_LOADED_ADDRESSES_CALLBACK NULL
-#define FD_EXEC_TEST_LOADED_ADDRESSES_DEFAULT NULL
-
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BOOL,     is_legacy,         1) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  header,            2) \
@@ -279,15 +257,13 @@ X(a, POINTER,  REPEATED, BYTES,    account_keys,      3) \
 X(a, POINTER,  REPEATED, MESSAGE,  account_shared_data,   4) \
 X(a, POINTER,  SINGULAR, BYTES,    recent_blockhash,   5) \
 X(a, POINTER,  REPEATED, MESSAGE,  instructions,      6) \
-X(a, POINTER,  REPEATED, MESSAGE,  address_table_lookups,   7) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  loaded_addresses,   8)
+X(a, POINTER,  REPEATED, MESSAGE,  address_table_lookups,   7)
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_CALLBACK NULL
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_DEFAULT NULL
 #define fd_exec_test_transaction_message_t_header_MSGTYPE fd_exec_test_message_header_t
 #define fd_exec_test_transaction_message_t_account_shared_data_MSGTYPE fd_exec_test_acct_state_t
 #define fd_exec_test_transaction_message_t_instructions_MSGTYPE fd_exec_test_compiled_instruction_t
 #define fd_exec_test_transaction_message_t_address_table_lookups_MSGTYPE fd_exec_test_message_address_table_lookup_t
-#define fd_exec_test_transaction_message_t_loaded_addresses_MSGTYPE fd_exec_test_loaded_addresses_t
 
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  message,           1) \
@@ -360,7 +336,6 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  output,            2)
 extern const pb_msgdesc_t fd_exec_test_message_header_t_msg;
 extern const pb_msgdesc_t fd_exec_test_compiled_instruction_t_msg;
 extern const pb_msgdesc_t fd_exec_test_message_address_table_lookup_t_msg;
-extern const pb_msgdesc_t fd_exec_test_loaded_addresses_t_msg;
 extern const pb_msgdesc_t fd_exec_test_transaction_message_t_msg;
 extern const pb_msgdesc_t fd_exec_test_sanitized_transaction_t_msg;
 extern const pb_msgdesc_t fd_exec_test_txn_context_t_msg;
@@ -374,7 +349,6 @@ extern const pb_msgdesc_t fd_exec_test_txn_fixture_t_msg;
 #define FD_EXEC_TEST_MESSAGE_HEADER_FIELDS &fd_exec_test_message_header_t_msg
 #define FD_EXEC_TEST_COMPILED_INSTRUCTION_FIELDS &fd_exec_test_compiled_instruction_t_msg
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_FIELDS &fd_exec_test_message_address_table_lookup_t_msg
-#define FD_EXEC_TEST_LOADED_ADDRESSES_FIELDS &fd_exec_test_loaded_addresses_t_msg
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_FIELDS &fd_exec_test_transaction_message_t_msg
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_FIELDS &fd_exec_test_sanitized_transaction_t_msg
 #define FD_EXEC_TEST_TXN_CONTEXT_FIELDS &fd_exec_test_txn_context_t_msg
@@ -387,7 +361,6 @@ extern const pb_msgdesc_t fd_exec_test_txn_fixture_t_msg;
 /* Maximum encoded size of messages (where known) */
 /* fd_exec_test_CompiledInstruction_size depends on runtime parameters */
 /* fd_exec_test_MessageAddressTableLookup_size depends on runtime parameters */
-/* fd_exec_test_LoadedAddresses_size depends on runtime parameters */
 /* fd_exec_test_TransactionMessage_size depends on runtime parameters */
 /* fd_exec_test_SanitizedTransaction_size depends on runtime parameters */
 /* fd_exec_test_TxnContext_size depends on runtime parameters */
@@ -403,7 +376,6 @@ extern const pb_msgdesc_t fd_exec_test_txn_fixture_t_msg;
 #define org_solana_sealevel_v1_MessageHeader fd_exec_test_MessageHeader
 #define org_solana_sealevel_v1_CompiledInstruction fd_exec_test_CompiledInstruction
 #define org_solana_sealevel_v1_MessageAddressTableLookup fd_exec_test_MessageAddressTableLookup
-#define org_solana_sealevel_v1_LoadedAddresses fd_exec_test_LoadedAddresses
 #define org_solana_sealevel_v1_TransactionMessage fd_exec_test_TransactionMessage
 #define org_solana_sealevel_v1_SanitizedTransaction fd_exec_test_SanitizedTransaction
 #define org_solana_sealevel_v1_TxnContext fd_exec_test_TxnContext
@@ -415,7 +387,6 @@ extern const pb_msgdesc_t fd_exec_test_txn_fixture_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_MESSAGE_HEADER_INIT_DEFAULT FD_EXEC_TEST_MESSAGE_HEADER_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_COMPILED_INSTRUCTION_INIT_DEFAULT FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_DEFAULT FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_LOADED_ADDRESSES_INIT_DEFAULT FD_EXEC_TEST_LOADED_ADDRESSES_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_TRANSACTION_MESSAGE_INIT_DEFAULT FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_SANITIZED_TRANSACTION_INIT_DEFAULT FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_TXN_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT
@@ -427,7 +398,6 @@ extern const pb_msgdesc_t fd_exec_test_txn_fixture_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_MESSAGE_HEADER_INIT_ZERO FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_COMPILED_INSTRUCTION_INIT_ZERO FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_ZERO FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_ZERO
-#define ORG_SOLANA_SEALEVEL_V1_LOADED_ADDRESSES_INIT_ZERO FD_EXEC_TEST_LOADED_ADDRESSES_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_TRANSACTION_MESSAGE_INIT_ZERO FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_SANITIZED_TRANSACTION_INIT_ZERO FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_TXN_CONTEXT_INIT_ZERO FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO
