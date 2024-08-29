@@ -1721,6 +1721,12 @@ after_frag( void *             _ctx,
       poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_END, (uchar const *)&ctx->next_leader_slot, 8UL );
 
       no_longer_leader( ctx );
+
+      if( FD_UNLIKELY( ctx->slot>=ctx->next_leader_slot ) ) {
+        /* We finished a leader slot, and are immediately leader for the
+           following slot... transition. */
+        poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_START, (uchar const *)&ctx->next_leader_slot, 8UL );
+      }
     }
   }
 
