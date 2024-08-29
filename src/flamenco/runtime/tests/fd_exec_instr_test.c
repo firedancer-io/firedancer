@@ -1718,7 +1718,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     input_regions_count = setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count );
   }
 
-  if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
+  if (input->vm_ctx.heap_max > FD_VM_HEAP_MAX) {
     goto error;
   }
 
