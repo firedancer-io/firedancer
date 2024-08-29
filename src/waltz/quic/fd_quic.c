@@ -2441,9 +2441,6 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
   /* keep end */
   uchar * orig_ptr = cur_ptr;
 
-  /* extract the dst connection id */
-  fd_quic_conn_id_t dst_conn_id = { FD_QUIC_CONN_ID_SZ, {0}, {0} }; /* initialize assuming fixed-length conn id */
-
   fd_quic_common_hdr_t common_hdr[1];
   ulong rc = fd_quic_decode_common_hdr( common_hdr, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
@@ -2462,16 +2459,34 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
       return FD_QUIC_PARSE_FAIL;
     }
 
-    dst_conn_id.sz = long_hdr->dst_conn_id_len;
-    if( FD_UNLIKELY( dst_conn_id.sz > sizeof( dst_conn_id.conn_id ) ) ) {
+    /* local copy of sz, check size */
+    ulong dst_conn_id_sz = long_hdr->dst_conn_id_len;
+    if( FD_UNLIKELY( dst_conn_id_sz > sizeof( pkt->dst_conn_id.conn_id ) ) ) {
       FD_DEBUG( FD_LOG_DEBUG(( "Oversz dst conn ID" )); )
       return FD_QUIC_PARSE_FAIL;
     }
 
-    fd_memcpy( &dst_conn_id.conn_id, &long_hdr->dst_conn_id, long_hdr->dst_conn_id_len );
+    /* dst_conn_id should match dst_conn_id on prior quic packets in dataframe */
+    /* see RFC 9000 section-12.2-4 */
+    if( FD_LIKELY( pkt->dst_conn_id.sz != 0 ) ) {
+      if( FD_UNLIKELY(  pkt->dst_conn_id.sz != dst_conn_id_sz
+                     || memcmp( pkt->dst_conn_id.conn_id,
+                                long_hdr->dst_conn_id,
+                                dst_conn_id_sz ) != 0 ) ) {
+        return FD_QUIC_PARSE_FAIL;
+      }
+      /* dst_conn_id's must match */
+    } else {
+      memset( &pkt->dst_conn_id, 0, sizeof( pkt->dst_conn_id ) );
+
+      /* store dst_conn_id and len */
+      pkt->dst_conn_id.sz = (uchar)dst_conn_id_sz;
+
+      memcpy( pkt->dst_conn_id.conn_id, long_hdr->dst_conn_id, dst_conn_id_sz );
+    }
 
     /* find connection id */
-    entry = fd_quic_conn_map_query( state->conn_map, &dst_conn_id );
+    entry = fd_quic_conn_map_query( state->conn_map, &pkt->dst_conn_id );
     conn  = entry ? entry->conn : NULL;
 
     /* encryption level matches that of TLS */
@@ -2483,7 +2498,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     /* long_packet_type is 2 bits, so only four possibilities */
     switch( common_hdr->long_packet_type ) {
       case FD_QUIC_PKTTYPE_V1_INITIAL:
-        rc = fd_quic_handle_v1_initial( quic, &conn, pkt, &dst_conn_id, cur_ptr, cur_sz );
+        rc = fd_quic_handle_v1_initial( quic, &conn, pkt, &pkt->dst_conn_id, cur_ptr, cur_sz );
         if( FD_UNLIKELY( !conn ) ) {
           /* FIXME not really a fail - Could be a retry */
           return FD_QUIC_PARSE_FAIL;
@@ -2507,7 +2522,8 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
 
   } else { /* short header */
     /* caller checks cur_sz is sufficient */
-    fd_memcpy( &dst_conn_id.conn_id, cur_ptr+1, FD_QUIC_CONN_ID_SZ );
+    fd_quic_conn_id_t dst_conn_id = { .sz = (uchar)(FD_QUIC_CONN_ID_SZ) };
+    fd_memcpy( dst_conn_id.conn_id, cur_ptr+1, FD_QUIC_CONN_ID_SZ );
 
     /* encryption level of short header packets is fd_quic_enc_level_appdata_id */
     pkt->enc_level = fd_quic_enc_level_appdata_id;
@@ -2750,8 +2766,22 @@ fd_quic_process_packet( fd_quic_t * quic,
      only one_rtt packets currently have short headers */
 
   /* extract destination connection id to look up connection */
-  fd_quic_conn_id_t dst_conn_id = { 8u, {0}, {0} }; /* our connection ids are 8 bytes */
+  fd_quic_conn_id_t dst_conn_id = { .sz = (unsigned)(FD_QUIC_CONN_ID_SZ) }; /* our connection ids are 8 bytes */
   fd_memcpy( &dst_conn_id.conn_id, cur_ptr+1, FD_QUIC_CONN_ID_SZ );
+
+  if( FD_UNLIKELY( pkt.dst_conn_id.sz != 0 ) ) {
+    /* structured this way, since pkt.dst_conn_id.sz will usually be 0 */
+    /* and we don't want to unnecessarily do memcmp */
+    /* dst_conn_id on short packets should be FD_QUIC_CONN_ID_SZ */
+    if( FD_UNLIKELY(  pkt.dst_conn_id.sz != FD_QUIC_CONN_ID_SZ
+                   || memcmp( dst_conn_id.conn_id,
+                              pkt.dst_conn_id.conn_id,
+                              FD_QUIC_CONN_ID_SZ ) != 0 ) ) {
+      /* ignore, since dst_conn_ids don't match */
+      /* see RFC 9000 section-12.2-4 */
+      return;
+    }
+  }
 
   /* find connection id */
   fd_quic_conn_entry_t * entry = fd_quic_conn_map_query( state->conn_map, &dst_conn_id );

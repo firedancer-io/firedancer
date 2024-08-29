@@ -9,6 +9,7 @@
 #include "crypto/fd_quic_crypto_suites.h"
 #include "tls/fd_quic_tls.h"
 #include "fd_quic_stream_pool.h"
+#include "fd_quic_conn_id.h"
 
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
@@ -133,7 +134,8 @@ struct fd_quic_pkt {
   uint               enc_level;   /* encryption level */
   uint               datagram_sz; /* length of the original datagram */
   uint               ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
-  uint ping;
+  uint               ping;
+  fd_quic_conn_id_t  dst_conn_id;
 # define ACK_FLAG_NOT_RQD 0
 # define ACK_FLAG_RQD     1
 # define ACK_FLAG_CANCEL  2
