@@ -1797,7 +1797,10 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
 
   /* Capture the effects */
-  effects->error = -syscall_err;
+
+  /* Ignore Lamport mismatches since Agave performs this check outside of the CPI */
+  effects->error = syscall_err == FD_VM_CPI_ERR_LAMPORTS_MISMATCH ? 0 : -syscall_err;
+
   effects->r0 = syscall_err ? 0 : vm->reg[0]; // Save only on success
   effects->cu_avail = (ulong)vm->cu;
 
