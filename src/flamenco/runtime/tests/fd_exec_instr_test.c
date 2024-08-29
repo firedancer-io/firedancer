@@ -1708,9 +1708,10 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t ctx[1];
   // Skip extra checks for non-CPI syscalls
-  bool skip_extra_checks = strncmp( (const char *)input->syscall_invocation.function_name.bytes, "sol_invoke_signed", 17 );
+  int skip_extra_checks = strncmp( (const char *)input->syscall_invocation.function_name.bytes, "sol_invoke_signed", 17 );
+  uint is_cpi = !skip_extra_checks;
 
-  if( !fd_exec_test_instr_context_create( runner, ctx, input_instr_ctx, alloc, skip_extra_checks ) )
+  if( !fd_exec_test_instr_context_create( runner, ctx, input_instr_ctx, alloc, !!skip_extra_checks ) )
     goto error;
   fd_valloc_t valloc = fd_scratch_virtual();
 
@@ -1847,7 +1848,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
       effects->error = -1;
     }
     /* Ignore Lamport mismatches since Agave performs this check outside of the CPI */
-    if( syscall_err == FD_VM_CPI_ERR_LAMPORTS_MISMATCH ) {
+    if( is_cpi && syscall_err == FD_VM_CPI_ERR_LAMPORTS_MISMATCH ) {
       effects->error = 0;
     }
   }
