@@ -38,10 +38,11 @@ clone_labs_memory_space_tiles( config_t * const config ) {
   fd_topo_run_single_process( &config->topo, 1, config->uid, config->gid, fdctl_tile_run, NULL );
 }
 
-static int _fd_ext_larger_max_cost_per_block, _fd_ext_larger_shred_limits_per_block;
+static int _fd_ext_larger_max_cost_per_block, _fd_ext_larger_shred_limits_per_block, _fd_ext_disable_status_cache;
 
 int fd_ext_larger_max_cost_per_block    ( void ) { return _fd_ext_larger_max_cost_per_block;     }
 int fd_ext_larger_shred_limits_per_block( void ) { return _fd_ext_larger_shred_limits_per_block; }
+int fd_ext_disable_status_cache         ( void ) { return _fd_ext_disable_status_cache;          }
 
 void
 agave_boot( config_t * config ) {
@@ -179,6 +180,8 @@ agave_boot( config_t * config ) {
   /* Consensus-breaking development-only CU and/or shred limit increase. */
   _fd_ext_larger_max_cost_per_block     = config->development.bench.larger_max_cost_per_block;
   _fd_ext_larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
+  /* Consensus-breaking bench-only option to disable status cache */
+  _fd_ext_disable_status_cache           = config->development.bench.disable_status_cache;
   FD_COMPILER_MFENCE();
 
   /* agave_main will exit(1) if it fails, so no return code */
