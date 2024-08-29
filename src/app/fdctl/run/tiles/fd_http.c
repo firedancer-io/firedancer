@@ -22,6 +22,8 @@
 #include <poll.h>
 #include <stdio.h>
 
+FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
+
 #define FD_HTTP_SERVER_METRICS_MAX_CONNS        8
 #define FD_HTTP_SERVER_METRICS_MAX_REQUEST_LEN  1024
 #define FD_HTTP_SERVER_METRICS_MAX_RESPONSE_LEN 16777216
@@ -192,6 +194,14 @@ gui_http_request( fd_http_server_request_t const * request ) {
     return (fd_http_server_response_t){
       .status            = 200,
       .upgrade_websocket = 1,
+    };
+  } else if( FD_LIKELY( !strcmp( request->path, "/favicon.svg" ) ) ) {
+    return (fd_http_server_response_t){
+      .status            = 200,
+      .body              = firedancer_svg,
+      .body_len          = firedancer_svg_sz,
+      .content_type      = "image/svg+xml",
+      .upgrade_websocket = 0,
     };
   }
 

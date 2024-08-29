@@ -550,6 +550,8 @@ once they are confirmed (the prior epoch has fully rooted).
 ```json
 {
     "epoch": 636,
+    "start_time_nanos": 12412481240412,
+    "ent_time_nanos": 1719910299914232,
     "start_slot": 274752000,
     "end_slot": 275183999,
     "excluded_stake_lamports": 0,
@@ -582,6 +584,8 @@ once they are confirmed (the prior epoch has fully rooted).
 | Field      | Type    | Description
 |------------|---------|------------
 | epoch      | `number` | An identity counter for each epoch, starting at zero for the first epoch and going up |
+| start_time_nanos | `number` | A UNIX timestamp, in nanoseconds, of when the epoch started. This is the time the last non-skipped block of the prior epoch finished replaying locally on this validator, if the validator was online when that happened, otherwise it is null |
+| end_time_nanos | ` number` | A UNIX timestamp, in nanoseconds, of when the epoch ended. This is the time the last non-skipped block of the epoch finished replaying locally on this validator, if the validator was online when that happened, otherwise it is null |
 | start_slot | `number` | The first slot (inclusive) in the epoch |
 | end_slot   | `number` | The last slot (inclusive) in the epoch |
 | excluded_stake_lamports | `number` | This number is almost always zero. Firedancer has a limit of 40,200 for the number of staked peer validators it can keep track of. In the unlikely event that this number is exceeded, the lowest staked peers will be forgotten, and their stake will not appear in the below lists. But is is useful to know the total stake in the epoch, so this value represents the leftover/excluded ("poisoned") amount of stake that we do not know which validator it belongs to
@@ -782,6 +786,18 @@ initially replay one but the cluster votes on the other one.
 | vote_transactions | `number\|null` | Total number of vote transactions in the block. Will always be less than or equal to `transactions`. The number of non-vote transactions is given by `transactions - vote_transactions`
 | failed_transactions | `number\|null` | Total number of failed transactions (vote and non-vote) in the block. Failed transactions are those which are included in the block and were charged fees, but failed to execute successfully. This is different from dropped transations which do not pay fees and are not included in the block |
 | compute_units | `number\|null`       | Total number of compute units used by the slot |
+
+#### `slot.skipped_history`
+| frequency | type | example |
+|-----------|------|---------|
+ *Once*     | `number[]` | `[286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027]` |
+
+A list of all of the recent leader slots of the validator which were
+skipped. Only two epochs of leader slots are tracked, and skips prior
+to this are not retrieved.
+
+The skipped slots include unrooted and unconfirmed slots of ours which
+are skipped on the currently active fork.
 
 #### `slot.update`
 | frequency   | type          | example |

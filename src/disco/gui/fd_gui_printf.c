@@ -229,6 +229,21 @@ fd_gui_printf_uptime_nanos( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_printf_skipped_history( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "skipped_history" );
+    jsonp_open_array( gui, "value" );
+      for( ulong i=0UL; i<FD_GUI_SLOTS_CNT; i++ ) {
+        ulong _slot = gui->summary.slot_completed+(FD_GUI_SLOTS_CNT-i);
+        fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+
+        if( FD_UNLIKELY( slot->slot!=_slot ) ) break;
+        if( FD_UNLIKELY( slot->skipped ) ) jsonp_ulong( gui, NULL, slot->slot );
+      }
+    jsonp_close_array( gui );
+  jsonp_close_envelope( gui );
+}
+
+void
 fd_gui_printf_startup_progress( fd_gui_t * gui ) {
   char const * phase;
 
@@ -383,10 +398,14 @@ fd_gui_printf_epoch( fd_gui_t * gui,
                      ulong      epoch_idx ) {
   jsonp_open_envelope( gui, "epoch", "new" );
     jsonp_open_object( gui, "value" );
-      jsonp_ulong( gui, "epoch",                   gui->epoch.epochs[epoch_idx].epoch );
-      jsonp_ulong( gui, "start_slot",              gui->epoch.epochs[epoch_idx].start_slot );
-      jsonp_ulong( gui, "end_slot",                gui->epoch.epochs[epoch_idx].end_slot );
-      jsonp_ulong( gui, "excluded_stake_lamports", gui->epoch.epochs[epoch_idx].excluded_stake );
+      jsonp_ulong( gui, "epoch",                   gui->epoch.epochs[ epoch_idx ].epoch );
+      if( FD_LIKELY( gui->epoch.epochs[ epoch_idx ].start_time!=LONG_MAX ) ) jsonp_ulong( gui, "start_time", (ulong)gui->epoch.epochs[ epoch_idx ].start_time );
+      else                                                                    jsonp_null( gui, "start_time" );
+      if( FD_LIKELY( gui->epoch.epochs[ epoch_idx ].end_time!=LONG_MAX ) ) jsonp_ulong( gui, "end_time", (ulong)gui->epoch.epochs[ epoch_idx ].end_time );
+      else                                                                  jsonp_null( gui, "end_time" );
+      jsonp_ulong( gui, "start_slot",              gui->epoch.epochs[ epoch_idx ].start_slot );
+      jsonp_ulong( gui, "end_slot",                gui->epoch.epochs[ epoch_idx ].end_slot );
+      jsonp_ulong( gui, "excluded_stake_lamports", gui->epoch.epochs[ epoch_idx ].excluded_stake );
       jsonp_open_array( gui, "staked_pubkeys" );
         fd_epoch_leaders_t * lsched = gui->epoch.epochs[epoch_idx].lsched;
         for( ulong i=0UL; i<lsched->pub_cnt; i++ ) {
@@ -500,6 +519,11 @@ fd_gui_printf_tile_timers( fd_gui_t *                   gui,
                            fd_gui_tile_timers_t const * cur ) {
   for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &gui->topo->tiles[ i ];
+
+    if( FD_UNLIKELY( !strncmp( tile->name, "bench", 5UL ) ) ) {
+      /* bench tiles not reported */
+      continue;
+    }
 
     double cur_total = (double)(cur[ i ].housekeeping_ticks
                                 + cur[ i ].backpressure_ticks
@@ -925,11 +949,20 @@ fd_gui_printf_ts_tile_timers( fd_gui_t *                   gui,
   jsonp_close_object( gui );
 }
 
+static fd_gui_txn_waterfall_t const *
+reference_waterfall( fd_gui_t const *      gui,
+                     fd_gui_slot_t const * slot ) {
+  if( FD_UNLIKELY( slot->prior_leader_slot==ULONG_MAX ) ) return NULL;
+
+  fd_gui_slot_t const * reference_slot = gui->slots[ slot->prior_leader_slot % FD_GUI_SLOTS_CNT ];
+  if( FD_LIKELY( reference_slot->slot==slot->prior_leader_slot ) ) return reference_slot->waterfall_end;
+  else                                                             return NULL;
+}
+
 void
-fd_gui_printf_slot_request( fd_gui_t *                     gui,
-                            ulong                          _slot,
-                            fd_gui_txn_waterfall_t const * prev,
-                            ulong                          id ) {
+fd_gui_printf_slot_request( fd_gui_t * gui,
+                            ulong      _slot,
+                            ulong      id ) {
   ulong slots_sz = sizeof(gui->slots) / sizeof(gui->slots[ 0 ]);
   fd_gui_slot_t * slot = gui->slots[ _slot % slots_sz ];
 
@@ -943,6 +976,7 @@ fd_gui_printf_slot_request( fd_gui_t *                     gui,
     default:                                         level = "unknown"; break;
   }
 
+
   jsonp_open_envelope( gui, "slot", "query" );
     jsonp_ulong( gui, "id", id );
     jsonp_open_object( gui, "value" );
@@ -952,28 +986,40 @@ fd_gui_printf_slot_request( fd_gui_t *                     gui,
         jsonp_bool( gui, "mine", slot->mine );
         jsonp_bool( gui, "skipped", slot->skipped );
         jsonp_string( gui, "level", level );
-        jsonp_ulong( gui, "transactions", slot->total_txn_cnt );
-        jsonp_ulong( gui, "vote_transactions", slot->vote_txn_cnt );
-        jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
-        jsonp_ulong( gui, "compute_units", slot->compute_units );
+        if( FD_UNLIKELY( slot->total_txn_cnt==ULONG_MAX ) ) jsonp_null( gui, "transactions" );
+        else                                                jsonp_ulong( gui, "transactions", slot->total_txn_cnt );
+        if( FD_UNLIKELY( slot->vote_txn_cnt==ULONG_MAX ) ) jsonp_null( gui, "vote_transactions" );
+        else                                               jsonp_ulong( gui, "vote_transactions", slot->vote_txn_cnt );
+        if( FD_UNLIKELY( slot->failed_txn_cnt==ULONG_MAX ) ) jsonp_null( gui, "failed_transactions" );
+        else                                                 jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
+        if( FD_UNLIKELY( slot->compute_units==ULONG_MAX ) ) jsonp_null( gui, "compute_units" );
+        else                                                jsonp_ulong( gui, "compute_units", slot->compute_units );
       jsonp_close_object( gui );
 
-      fd_gui_printf_waterfall( gui, prev, slot->waterfall_end );
+      if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_ENDED ) ) {
+        fd_gui_txn_waterfall_t const * ref = reference_waterfall( gui, slot );
+        if( FD_LIKELY( ref ) ) fd_gui_printf_waterfall( gui, ref, slot->waterfall_end );
+        else                   jsonp_null( gui, "waterfall" );
 
-      fd_gui_printf_tile_prime_metric( gui, slot->tile_prime_metric_begin, slot->tile_prime_metric_end );
+        jsonp_open_array( gui, "tile_timers" );
+          fd_gui_tile_timers_t const * prev_timer = slot->tile_timers_begin;
 
-      jsonp_open_array( gui, "tile_timers" );
-        fd_gui_tile_timers_t const * prev_timer = slot->tile_timers_begin;
+          ulong end = fd_ulong_if( slot->tile_timers_end_snap_idx<slot->tile_timers_begin_snap_idx, slot->tile_timers_end_snap_idx+sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0]), slot->tile_timers_end_snap_idx );
+          ulong stride = fd_ulong_max( 1UL, (end-slot->tile_timers_begin_snap_idx) / 40UL );
 
-        ulong end = fd_ulong_if( slot->tile_timers_end_snap_idx<slot->tile_timers_begin_snap_idx, slot->tile_timers_end_snap_idx+sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0]), slot->tile_timers_end_snap_idx );
-        ulong stride = (end-slot->tile_timers_begin_snap_idx) / 40UL;
+          for( ulong sample_snap_idx=slot->tile_timers_begin_snap_idx; sample_snap_idx<end; sample_snap_idx+=stride ) {
+            fd_gui_printf_ts_tile_timers( gui, prev_timer, gui->summary.tile_timers_snap[ sample_snap_idx % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0])) ] );
+            prev_timer = gui->summary.tile_timers_snap[ sample_snap_idx % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0])) ];
+          }
+          fd_gui_printf_ts_tile_timers( gui, prev_timer, slot->tile_timers_end );
+        jsonp_close_array( gui );
 
-        for( ulong sample_snap_idx=slot->tile_timers_begin_snap_idx; sample_snap_idx<end; sample_snap_idx+=stride ) {
-          fd_gui_printf_ts_tile_timers( gui, prev_timer, gui->summary.tile_timers_snap[ sample_snap_idx % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0])) ] );
-          prev_timer = gui->summary.tile_timers_snap[ sample_snap_idx % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0])) ];
-        }
-        fd_gui_printf_ts_tile_timers( gui, prev_timer, slot->tile_timers_end );
-      jsonp_close_array( gui );
+        fd_gui_printf_tile_prime_metric( gui, slot->tile_prime_metric_begin, slot->tile_prime_metric_end );
+      } else {
+        jsonp_null( gui, "waterfall" );
+        jsonp_null( gui, "tile_timers" );
+        jsonp_null( gui, "tile_primary_metric" );
+      }
 
     jsonp_close_object( gui );
   jsonp_close_envelope( gui );

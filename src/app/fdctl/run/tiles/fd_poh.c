@@ -1006,6 +1006,7 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
                   ulong         hashcnt_per_tick     /* The hashcnt per tick of the bank that completed */ ) {
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
 
+  ulong slot_before_reset = ctx->slot;
   int leader_before_reset = ctx->slot>=ctx->next_leader_slot;
   if( FD_UNLIKELY( leader_before_reset && ctx->current_leader_bank ) ) {
     /* If we were in the middle of a leader slot that we notified pack
@@ -1055,7 +1056,7 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
     }
   }
 
-  if( FD_UNLIKELY( leader_before_reset && ctx->current_leader_bank ) ) {
+  if( FD_UNLIKELY( leader_before_reset ) ) {
     /* No longer have a leader bank if we are reset. Replay stage will
        call back again to give us a new one if we should become leader
        for the reset slot.
@@ -1063,11 +1064,34 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
        The order is important here, ctx->hashcnt must be updated before
        calling no_longer_leader. */
 
-    poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_END, (uchar const *)&ctx->next_leader_slot, 8UL );
     no_longer_leader( ctx );
   }
   ctx->next_leader_slot = next_leader_slot( ctx );
   FD_LOG_INFO(( "fd_ext_poh_reset(slot=%lu,next_leader_slot=%lu)", ctx->reset_slot, ctx->next_leader_slot ));
+
+  if( FD_UNLIKELY( ctx->slot>=ctx->next_leader_slot ) ) {
+    /* We are leader after the reset... two cases: */
+    if( FD_LIKELY( ctx->slot==slot_before_reset ) ) {
+      /* 1. We are reset onto the same slot we are already leader on.
+            This is a common case when we have two leader slots in a
+            row, replay stage will reset us to our own slot.  No need to
+            do anything here, we already sent a SLOT_START. */
+      FD_TEST( leader_before_reset );
+    } else {
+      /* 2. We are reset onto a different slot. If we were leader
+            before, we should first end that slot, then begin the new
+            one if we are newly leader now. */
+      if( FD_LIKELY( leader_before_reset ) ) {
+        poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_END, (uchar const *)&slot_before_reset, 8UL );
+      } else {
+        poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_START, (uchar const *)&ctx->next_leader_slot, 8UL );
+      }
+    }
+  } else {
+    if( FD_UNLIKELY( leader_before_reset ) ) {
+      poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_END, (uchar const *)&slot_before_reset, 8UL );
+    }
+  }
 
   fd_ext_poh_write_unlock();
 }
@@ -1400,6 +1424,12 @@ after_credit( void *             _ctx,
     publish_tick( ctx, mux, ctx->hash, 0 );
   }
 
+  if( FD_UNLIKELY( !is_leader && ctx->slot>=ctx->next_leader_slot ) ) {
+    /* We ticked while not leader and are now leader... transition
+       the state machine. */
+    poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_START, (uchar const *)&ctx->next_leader_slot, 8UL );
+  }
+
   if( FD_UNLIKELY( is_leader && ctx->slot>ctx->next_leader_slot ) ) {
     /* We ticked while leader and are no longer leader... transition
        the state machine. */
@@ -1411,12 +1441,13 @@ after_credit( void *             _ctx,
 
     double tick_per_ns = fd_tempo_tick_per_ns( NULL );
     fd_histf_sample( ctx->slot_done_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
-  }
+    ctx->next_leader_slot = next_leader_slot( ctx );
 
-  if( FD_UNLIKELY( !is_leader && ctx->slot>=ctx->next_leader_slot ) ) {
-    /* We ticked while not leader and are now leader... transition
-       the state machine. */
-    poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_START, (uchar const *)&ctx->next_leader_slot, 8UL );
+    if( FD_UNLIKELY( ctx->slot>=ctx->next_leader_slot ) ) {
+      /* We finished a leader slot, and are immediately leader for the
+         following slot... transition. */
+      poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_START, (uchar const *)&ctx->next_leader_slot, 8UL );
+    }
   }
 }
 
@@ -1625,6 +1656,10 @@ after_frag( void *             _ctx,
 
     /* Nothing to do if we transition into being leader, since it
        will just get picked up by the regular tick loop. */
+    if( FD_UNLIKELY( !currently_leader && leader_after_frag ) ) {
+      poh_link_publish( &poh_plugin, FD_PLUGIN_MSG_SLOT_START, (uchar const *)&next_leader_slot_after_frag, 8UL );
+    }
+
     return;
   }
 

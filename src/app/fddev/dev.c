@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <sys/wait.h>
+#include <execinfo.h>
 
 #include "../../util/tile/fd_tile_private.h"
 
@@ -71,6 +72,27 @@ parent_signal( int sig ) {
 }
 
 static void
+parent_exception_signal( int sig ) {
+  if( FD_LIKELY( firedancer_pid ) ) kill( firedancer_pid, SIGINT );
+  if( FD_LIKELY( monitor_pid ) )    kill( monitor_pid, SIGKILL );
+
+  /* Same hack as in run.c, see comments there. */
+  int lock = 0;
+  fd_log_private_shared_lock = &lock;
+
+  void * btrace[128];
+  int btrace_cnt = backtrace( btrace, 128 );
+
+  FD_LOG_ERR_NOEXIT(( "Received signal %s", fd_io_strsignal( sig ) ));
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) {
+    backtrace_symbols_fd( btrace, btrace_cnt, fd_log_private_logfile_fd() );
+  }
+
+  backtrace_symbols_fd( btrace, btrace_cnt, STDERR_FILENO );
+  raise( sig );
+}
+
+static void
 install_parent_signals( void ) {
   struct sigaction sa = {
     .sa_handler = parent_signal,
@@ -80,6 +102,19 @@ install_parent_signals( void ) {
     FD_LOG_ERR(( "sigaction(SIGTERM) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) )
     FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  return;
+
+  sa = (struct sigaction){
+    .sa_handler = parent_exception_signal,
+    .sa_flags   = 0,
+  };
+
+  int signals[] = { SIGABRT,SIGALRM,SIGFPE,SIGHUP,SIGILL,SIGINT,SIGQUIT,SIGPIPE,SIGSEGV,SIGTERM,SIGUSR1,SIGUSR2,SIGBUS,SIGPOLL,SIGPROF,SIGSYS,SIGTRAP,SIGVTALRM,SIGXCPU,SIGXFSZ };
+  for( ulong i=0UL; i<sizeof(signals)/sizeof(signals[ 0 ]); i++ ) {
+    if( FD_UNLIKELY( sigaction( signals[ i ], &sa, NULL ) ) )
+      FD_LOG_ERR(( "sigaction(%s) failed (%i-%s)", fd_io_strsignal( signals[ i ] ), errno, fd_io_strerror( errno ) ));
+  }
 }
 
 

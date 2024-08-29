@@ -10,6 +10,8 @@
 
 #include "../topo/fd_topo.h"
 
+#define FD_GUI_SLOTS_CNT (864000UL)
+
 #define FD_GUI_SLOT_LEVEL_INCOMPLETE               (0)
 #define FD_GUI_SLOT_LEVEL_COMPLETED                (1)
 #define FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED (2)
@@ -129,6 +131,10 @@ struct fd_gui_tile_prime_metric {
 
 typedef struct fd_gui_tile_prime_metric fd_gui_tile_prime_metric_t;
 
+#define FD_GUI_SLOT_LEADER_UNSTARTED (0UL)
+#define FD_GUI_SLOT_LEADER_STARTED   (1UL)
+#define FD_GUI_SLOT_LEADER_ENDED     (2UL)
+
 struct fd_gui_slot {
   ulong slot;
   long  completed_time;
@@ -141,8 +147,10 @@ struct fd_gui_slot {
   ulong compute_units;
   ulong fees;
 
+  int leader_state;
+
+  ulong prior_leader_slot;
   fd_gui_txn_waterfall_t waterfall_end[ 1 ];
-  ulong end_ref_slot;
 
   fd_gui_tile_prime_metric_t tile_prime_metric_begin[ 1 ];
   fd_gui_tile_prime_metric_t tile_prime_metric_end[ 1 ];
@@ -168,6 +176,8 @@ struct fd_gui {
 
   long next_sample_100millis;
   long next_sample_10millis;
+
+  ulong debug_in_leader_slot;
 
   struct {
     fd_pubkey_t identity_key[ 1 ];
@@ -203,24 +213,26 @@ struct fd_gui {
     ulong estimated_vote_tps;
     ulong estimated_failed_tps;
 
+    ulong last_leader_slot;
     fd_gui_txn_waterfall_t txn_waterfall_reference[ 1 ];
     fd_gui_txn_waterfall_t txn_waterfall_current[ 1 ];
-    ulong prev_slot_end_slot;
 
     fd_gui_tile_prime_metric_t tile_prime_metric_ref[ 1 ];
     fd_gui_tile_prime_metric_t tile_prime_metric_cur[ 1 ];
 
-    ulong                  tile_timers_snap_idx;
-    fd_gui_tile_timers_t   tile_timers_snap[ 432000UL ][ 64 ]; /* TODO: This can only store about 1 hour of samples */
+    ulong                tile_timers_snap_idx;
+    fd_gui_tile_timers_t tile_timers_snap[ 432000UL ][ 64 ]; /* TODO: This can only store about 1 hour of samples */
   } summary;
 
-  fd_gui_slot_t slots[ 864000UL ][ 1 ];
+  fd_gui_slot_t slots[ FD_GUI_SLOTS_CNT ][ 1 ];
 
   struct {
     int has_epoch[ 2 ];
 
     struct {
       ulong epoch;
+      long start_time;
+      long end_time;
       ulong start_slot;
       ulong end_slot;
       ulong excluded_stake;

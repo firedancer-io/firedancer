@@ -66,10 +66,9 @@ fd_gui_printf_slot( fd_gui_t * gui,
                     ulong      slot );
 
 void
-fd_gui_printf_slot_request( fd_gui_t *                     gui,
-                            ulong                          slot,
-                            fd_gui_txn_waterfall_t const * prev,
-                            ulong                          id );
+fd_gui_printf_slot_request( fd_gui_t * gui,
+                            ulong      slot,
+                            ulong      id );
 
 void
 fd_gui_printf_live_tile_timers( fd_gui_t * gui );

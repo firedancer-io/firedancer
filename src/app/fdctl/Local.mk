@@ -52,6 +52,7 @@ $(call make-unit-test,test_config_parse,test_config_parse,fd_fdctl fd_ballet fd_
 
 $(OBJDIR)/obj/app/fdctl/configure/xdp.o: src/waltz/xdp/fd_xdp_redirect_prog.o
 $(OBJDIR)/obj/app/fdctl/config_parse.o: src/app/fdctl/config/default.toml
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_http.o: book/public/fire.svg
 
 $(OBJDIR)/obj/app/fdctl/run/run.o: src/app/fdctl/run/generated/main_seccomp.h src/app/fdctl/run/generated/pidns_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_dedup.o: src/app/fdctl/run/tiles/generated/dedup_seccomp.h
