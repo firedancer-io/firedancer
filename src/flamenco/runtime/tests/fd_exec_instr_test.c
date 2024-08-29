@@ -1901,12 +1901,14 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   /* Return the effects */
   ulong actual_end = tmp_end + input_regions_size;
   fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
+  cpi_exec_effects = NULL;
 
   *output = effects;
   return actual_end - (ulong)output_buf;
 
 error:
   fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
+  cpi_exec_effects = NULL;
   return 0;
 }
 
