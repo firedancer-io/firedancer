@@ -144,6 +144,11 @@ agave-ledger-tool: $(OBJDIR)/bin/agave-ledger-tool
 LAST_MODIFIED := $(shell find frontend/dist -type f -exec stat -c %Y {} + | sort -n | tail -1)
 .PHONY: check-dist-dir-changes
 check-dist-dir-changes:
+	@if [ ! -d "frontend/dist" ]; then \
+		echo "Error: Directory 'frontend/dist' does not exist. Please go to the `frontend` directory and run `npm run build`"; \
+		exit 1; \
+	fi
+
 	echo "Last modified timestamp: $(LAST_MODIFIED)"
 	$(TOUCH) .last_checked
 	@if [ -n "$(LAST_MODIFIED)" ] && [ "$(LAST_MODIFIED)" -gt "$(shell stat -c %Y .last_checked 2>/dev/null || echo 0)" ]; then \
