@@ -88,6 +88,7 @@
 #define FD_VM_CPI_ERR_INSTR_TOO_LARGE        (-41) /* detected too many account infos meta */
 #define FD_VM_CPI_ERR_INSTR_DATA_TOO_LARGE   (-42) /* detected instruction data too large */
 #define FD_VM_CPI_ERR_TOO_MANY_ACC_METAS     (-43) /* detected too many account metas */
+#define FD_VM_CPI_ERR_LAMPORTS_MISMATCH      (-44) /* detected lamports mismatch */
 
 FD_PROTOTYPES_BEGIN
 

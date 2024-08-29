@@ -680,11 +680,11 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   ulong caller_lamports_l = 0UL;
 
   err = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr, &caller_lamports_h, &caller_lamports_l );
-  if ( FD_UNLIKELY( err ) ) return FD_VM_ERR_INSTR_ERR;
+  if ( FD_UNLIKELY( err ) ) return err;
 
   if( caller_lamports_h != vm->instr_ctx->instr->starting_lamports_h || 
       caller_lamports_l != vm->instr_ctx->instr->starting_lamports_l ) {
-    return FD_VM_ERR_INSTR_ERR;
+    return FD_VM_CPI_ERR_LAMPORTS_MISMATCH;
   }
   
   /* Set the transaction compute meter to be the same as the VM's compute meter,
@@ -747,11 +747,11 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   caller_lamports_h = 0UL;
   caller_lamports_l = 0UL;
   err = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr, &caller_lamports_h, &caller_lamports_l );
-  if ( FD_UNLIKELY( err ) ) return FD_VM_ERR_INSTR_ERR;
+  if ( FD_UNLIKELY( err ) ) return err;
 
   if( caller_lamports_h != vm->instr_ctx->instr->starting_lamports_h || 
       caller_lamports_l != vm->instr_ctx->instr->starting_lamports_l ) {
-    return FD_VM_ERR_INSTR_ERR;
+    return FD_VM_CPI_ERR_LAMPORTS_MISMATCH;
   }
 
   return FD_VM_SUCCESS;
