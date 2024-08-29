@@ -1846,6 +1846,10 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
       FD_LOG_WARNING(( "TODO: syscall returns error, but exec_err not set. this is probably missing a log." ));
       effects->error = -1;
     }
+    /* Ignore Lamport mismatches since Agave performs this check outside of the CPI */
+    if( syscall_err == FD_VM_CPI_ERR_LAMPORTS_MISMATCH ) {
+      effects->error = 0;
+    }
   }
   effects->r0 = syscall_err ? 0 : vm->reg[0]; // Save only on success
   effects->cu_avail = (ulong)vm->cu;
