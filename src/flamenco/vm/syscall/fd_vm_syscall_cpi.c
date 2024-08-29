@@ -70,8 +70,9 @@ gen_cpi_state_filename( fd_pubkey_t const *caller_pubkey,
 }
 
 /* Captures the state of the VM (including the instruction context).
-   Meant to be invoked at the start of the VM_SYSCALL_CPI_ENTRYPOINT like so:
+   Use contrib/tools/dump_cpi_on_replay.sh 
 
+   Meant to be invoked at the start of the VM_SYSCALL_CPI_ENTRYPOINT like so:
   ```
     fd_exec_test_syscall_context_t sys_ctx = FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT;
     dump_vm_cpi_state(vm, STRINGIFY(FD_EXPAND_THEN_CONCAT2(sol_invoke_signed_, VM_SYSCALL_CPI_ABI)),
@@ -93,7 +94,7 @@ gen_cpi_state_filename( fd_pubkey_t const *caller_pubkey,
   ```
 
   Assumes that a `dump/vm_cpi_state` directory exists in the current working directory. Generates a
-  unique dump for combination of (tile_id, caller_pubkey, instr_sz). */
+  (sufficiently) unique dump for combination of (tile_id, caller_pubkey, instr_sz). */
 
 static FD_FN_UNUSED void
 dump_vm_cpi_state(fd_vm_t *vm,
