@@ -387,6 +387,26 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
                          uchar const *     frame_ptr,
                          ulong             frame_sz );
 
+/* fd_quic_gen_frames generates payloads for outgoing QUIC packets.
+   Generates, ACK, CONN_CLOSE, CRYPTO, HANDSHAKE_DONE, MAX_DATA,
+   MAX_STREAMS, PING, and STREAM frames.  (in that order)
+
+   The range [payload_ptr,return value) contains generated QUIC frames.
+   The largest possible range is [payload_ptr,payload_end).
+   (payload_end-payload_ptr) must be at least 128 bytes.
+
+   If no packets could be generated (due to insufficient buffer space
+   or lack of data to send) returns NULL. */
+
+uchar *
+fd_quic_gen_frames( fd_quic_conn_t *     conn,
+                    uchar *              payload_ptr,
+                    uchar *              payload_end,
+                    uint                 enc_level,
+                    fd_quic_pkt_meta_t * pkt_meta,
+                    ulong                pkt_number,
+                    ulong                now );
+
 /* fd_quic_conn_error sets the connection state to aborted.  This does
    not destroy the connection object.  Rather, it will eventually cause
    the connection to be freed during a later fd_quic_service call.
