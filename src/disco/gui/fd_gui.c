@@ -49,6 +49,7 @@ fd_gui_new( void *        shmem,
 
   gui->debug_in_leader_slot = ULONG_MAX;
 
+  gui->sample_10millis_cnt = 0UL;
   gui->next_sample_100millis = fd_log_wallclock();
   gui->next_sample_10millis  = fd_log_wallclock();
 
@@ -486,10 +487,13 @@ fd_gui_poll( fd_gui_t * gui ) {
     fd_gui_tile_timers_snap( gui, gui->summary.tile_timers_snap[ gui->summary.tile_timers_snap_idx ]);
     gui->summary.tile_timers_snap_idx = (gui->summary.tile_timers_snap_idx+1UL) % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[ 0 ]));
 
-    fd_gui_printf_live_tile_timers( gui );
-    fd_hcache_snap_ws_broadcast( gui->hcache );
+    if( FD_UNLIKELY( gui->sample_10millis_cnt && !(gui->sample_10millis_cnt%5UL) ) ) {
+      fd_gui_printf_live_tile_timers( gui );
+      fd_hcache_snap_ws_broadcast( gui->hcache );
+    }
 
     gui->next_sample_10millis += 10L*1000L*1000L;
+    gui->sample_10millis_cnt += 1UL;
   }
 }
 
@@ -993,6 +997,9 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
   memcpy( gui->summary.txn_waterfall_reference, slot->waterfall_end, sizeof(gui->summary.txn_waterfall_reference) );
   memcpy( slot->tile_prime_metric_begin, gui->summary.tile_prime_metric_ref, sizeof(slot->tile_prime_metric_begin) );
   memcpy( gui->summary.tile_prime_metric_ref, slot->tile_prime_metric_end, sizeof(gui->summary.tile_prime_metric_ref) );
+
+  fd_gui_printf_slot( gui, _slot[ 0 ] );
+  fd_hcache_snap_ws_broadcast( gui->hcache );
 }
 
 static void
@@ -1122,6 +1129,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
     gui->summary.slot_completed = _slot;
     fd_gui_printf_completed_slot( gui );
     FD_TEST( !fd_hcache_snap_ws_broadcast( gui->hcache ) );
+    FD_LOG_WARNING(( "Completed slot %lu", _slot ));
   }
 }
 
@@ -1134,6 +1142,8 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
   ulong failed_txn_count = msg[ 3 ];
   ulong compute_units = msg[ 4 ];
   ulong fees = msg[ 5 ];
+
+  FD_LOG_WARNING(( "Got completed slot %lu", _slot ));
 
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot );
@@ -1148,9 +1158,6 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
   slot->failed_txn_cnt = failed_txn_count;
   slot->compute_units  = compute_units;
   slot->fees           = fees;
-
-  fd_gui_printf_slot( gui, _slot );
-  fd_hcache_snap_ws_broadcast( gui->hcache );
 
   if( FD_UNLIKELY( gui->epoch.has_epoch[ 0 ] && _slot==gui->epoch.epochs[ 0 ].end_slot ) ) {
     gui->epoch.epochs[ 0 ].end_time = slot->completed_time;

@@ -568,7 +568,7 @@ fd_gui_printf_live_tile_timers( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "live_tile_timers" );
     jsonp_open_array( gui, "value" );
       fd_gui_tile_timers_t * cur  = gui->summary.tile_timers_snap[ (gui->summary.tile_timers_snap_idx+(timers_cnt-1UL))%timers_cnt ];
-      fd_gui_tile_timers_t * prev = gui->summary.tile_timers_snap[ (gui->summary.tile_timers_snap_idx+(timers_cnt-2UL))%timers_cnt ];
+      fd_gui_tile_timers_t * prev = gui->summary.tile_timers_snap[ (gui->summary.tile_timers_snap_idx+(timers_cnt-6UL))%timers_cnt ];
       fd_gui_printf_tile_timers( gui, prev, cur );
     jsonp_close_array( gui );
   jsonp_close_envelope( gui );
@@ -907,6 +907,28 @@ fd_gui_printf_peers_all( fd_gui_t * gui ) {
   jsonp_close_envelope( gui );
 }
 
+static fd_gui_txn_waterfall_t const *
+reference_waterfall( fd_gui_t const *      gui,
+                     fd_gui_slot_t const * slot ) {
+  if( FD_UNLIKELY( slot->prior_leader_slot==ULONG_MAX ) ) return NULL;
+
+  fd_gui_slot_t const * reference_slot = gui->slots[ slot->prior_leader_slot % FD_GUI_SLOTS_CNT ];
+  if( FD_LIKELY( reference_slot->slot==slot->prior_leader_slot ) ) return reference_slot->waterfall_end;
+  else                                                             return NULL;
+}
+
+static void
+fd_gui_printf_ts_tile_timers( fd_gui_t *                   gui,
+                              fd_gui_tile_timers_t const * prev,
+                              fd_gui_tile_timers_t const * cur ) {
+  jsonp_open_object( gui, NULL );
+    jsonp_ulong( gui, "timestamp_nanos", 0 );
+    jsonp_open_array( gui, "tile_timers" );
+      fd_gui_printf_tile_timers( gui, prev, cur );
+    jsonp_close_array( gui );
+  jsonp_close_object( gui );
+}
+
 void
 fd_gui_printf_slot( fd_gui_t * gui,
                     ulong      _slot ) {
@@ -925,38 +947,47 @@ fd_gui_printf_slot( fd_gui_t * gui,
 
   jsonp_open_envelope( gui, "slot", "update" );
     jsonp_open_object( gui, "value" );
-      jsonp_ulong( gui, "slot", _slot );
-      jsonp_bool( gui, "mine", slot->mine );
-      jsonp_bool( gui, "skipped", slot->skipped );
-      jsonp_string( gui, "level", level );
-      jsonp_ulong( gui, "transactions", slot->total_txn_cnt );
-      jsonp_ulong( gui, "vote_transactions", slot->vote_txn_cnt );
-      jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
-      jsonp_ulong( gui, "compute_units", slot->compute_units );
+      jsonp_open_object( gui, "publish" );
+        jsonp_ulong( gui, "slot", _slot );
+        jsonp_bool( gui, "mine", slot->mine );
+        jsonp_bool( gui, "skipped", slot->skipped );
+        jsonp_string( gui, "level", level );
+        if( FD_UNLIKELY( slot->total_txn_cnt==ULONG_MAX ) ) jsonp_null( gui, "transactions" );
+        else                                                jsonp_ulong( gui, "transactions", slot->total_txn_cnt );
+        if( FD_UNLIKELY( slot->vote_txn_cnt==ULONG_MAX ) ) jsonp_null( gui, "vote_transactions" );
+        else                                               jsonp_ulong( gui, "vote_transactions", slot->vote_txn_cnt );
+        if( FD_UNLIKELY( slot->failed_txn_cnt==ULONG_MAX ) ) jsonp_null( gui, "failed_transactions" );
+        else                                                 jsonp_ulong( gui, "failed_transactions", slot->failed_txn_cnt );
+        if( FD_UNLIKELY( slot->compute_units==ULONG_MAX ) ) jsonp_null( gui, "compute_units" );
+        else                                                jsonp_ulong( gui, "compute_units", slot->compute_units );
+      jsonp_close_object( gui );
+
+      if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_ENDED ) ) {
+        fd_gui_txn_waterfall_t const * ref = reference_waterfall( gui, slot );
+        if( FD_LIKELY( ref ) ) fd_gui_printf_waterfall( gui, ref, slot->waterfall_end );
+        else                   jsonp_null( gui, "waterfall" );
+
+        jsonp_open_array( gui, "tile_timers" );
+          fd_gui_tile_timers_t const * prev_timer = slot->tile_timers_begin;
+
+          ulong end = fd_ulong_if( slot->tile_timers_end_snap_idx<slot->tile_timers_begin_snap_idx, slot->tile_timers_end_snap_idx+sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0]), slot->tile_timers_end_snap_idx );
+          ulong stride = fd_ulong_max( 1UL, (end-slot->tile_timers_begin_snap_idx) / 40UL );
+
+          for( ulong sample_snap_idx=slot->tile_timers_begin_snap_idx; sample_snap_idx<end; sample_snap_idx+=stride ) {
+            fd_gui_printf_ts_tile_timers( gui, prev_timer, gui->summary.tile_timers_snap[ sample_snap_idx % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0])) ] );
+            prev_timer = gui->summary.tile_timers_snap[ sample_snap_idx % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0])) ];
+          }
+          fd_gui_printf_ts_tile_timers( gui, prev_timer, slot->tile_timers_end );
+        jsonp_close_array( gui );
+
+        fd_gui_printf_tile_prime_metric( gui, slot->tile_prime_metric_begin, slot->tile_prime_metric_end );
+      } else {
+        jsonp_null( gui, "waterfall" );
+        jsonp_null( gui, "tile_timers" );
+        jsonp_null( gui, "tile_primary_metric" );
+      }
     jsonp_close_object( gui );
   jsonp_close_envelope( gui );
-}
-
-static void
-fd_gui_printf_ts_tile_timers( fd_gui_t *                   gui,
-                              fd_gui_tile_timers_t const * prev,
-                              fd_gui_tile_timers_t const * cur ) {
-  jsonp_open_object( gui, NULL );
-    jsonp_ulong( gui, "timestamp_nanos", 0 );
-    jsonp_open_array( gui, "tile_timers" );
-      fd_gui_printf_tile_timers( gui, prev, cur );
-    jsonp_close_array( gui );
-  jsonp_close_object( gui );
-}
-
-static fd_gui_txn_waterfall_t const *
-reference_waterfall( fd_gui_t const *      gui,
-                     fd_gui_slot_t const * slot ) {
-  if( FD_UNLIKELY( slot->prior_leader_slot==ULONG_MAX ) ) return NULL;
-
-  fd_gui_slot_t const * reference_slot = gui->slots[ slot->prior_leader_slot % FD_GUI_SLOTS_CNT ];
-  if( FD_LIKELY( reference_slot->slot==slot->prior_leader_slot ) ) return reference_slot->waterfall_end;
-  else                                                             return NULL;
 }
 
 void

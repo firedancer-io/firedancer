@@ -174,6 +174,7 @@ struct fd_gui {
 
   fd_topo_t * topo;
 
+  ulong sample_10millis_cnt;
   long next_sample_100millis;
   long next_sample_10millis;
 
