@@ -1051,7 +1051,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   ulong last_failed_txn_cnt = 0UL;
   long  last_time_nanos     = 0L;
 
-  for( ulong i=0UL; i<=fd_ulong_min(_slot, 150UL); i++ ) {
+  for( ulong i=0UL; i<=fd_ulong_min(_slot, 10UL); i++ ) {
     ulong parent_idx = (_slot-i) % FD_GUI_SLOTS_CNT;
 
     fd_gui_slot_t * slot = gui->slots[ parent_idx ];
