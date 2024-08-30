@@ -11,6 +11,7 @@
 #include "../topo/fd_topo.h"
 
 #define FD_GUI_SLOTS_CNT (864000UL)
+#define FD_GUI_TPS_HISTORY_WINDOW_SZ (10UL)
 
 #define FD_GUI_SLOT_LEVEL_INCOMPLETE               (0)
 #define FD_GUI_SLOT_LEVEL_COMPLETED                (1)

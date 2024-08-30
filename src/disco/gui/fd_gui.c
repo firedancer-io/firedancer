@@ -116,6 +116,8 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_cluster,
     fd_gui_printf_identity_key,
     fd_gui_printf_uptime_nanos,
+    fd_gui_printf_skipped_history,
+    fd_gui_printf_tps_history,
     fd_gui_printf_startup_progress,
     fd_gui_printf_tiles,
     fd_gui_printf_balance,
@@ -1051,7 +1053,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   ulong last_failed_txn_cnt = 0UL;
   long  last_time_nanos     = 0L;
 
-  for( ulong i=0UL; i<=fd_ulong_min(_slot, 10UL); i++ ) {
+  for( ulong i=0UL; i<=fd_ulong_min( _slot, FD_GUI_TPS_HISTORY_WINDOW_SZ ); i++ ) {
     ulong parent_idx = (_slot-i) % FD_GUI_SLOTS_CNT;
 
     fd_gui_slot_t * slot = gui->slots[ parent_idx ];
@@ -1205,9 +1207,7 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
        longer optimistically confirmed. */
     for( ulong i=gui->summary.slot_optimistically_confirmed; i>=msg[ 0 ]; i-- ) {
       fd_gui_slot_t * slot = gui->slots[ i % FD_GUI_SLOTS_CNT ];
-      if( slot->slot == ULONG_MAX ) {
-        break;
-      }
+      if( FD_UNLIKELY( slot->slot==ULONG_MAX ) ) break;
       FD_TEST( slot->slot==i );
 
       slot->level = FD_GUI_SLOT_LEVEL_COMPLETED;

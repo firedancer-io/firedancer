@@ -230,7 +230,7 @@ fd_gui_printf_uptime_nanos( fd_gui_t * gui ) {
 
 void
 fd_gui_printf_skipped_history( fd_gui_t * gui ) {
-  jsonp_open_envelope( gui, "summary", "skipped_history" );
+  jsonp_open_envelope( gui, "slot", "skipped_history" );
     jsonp_open_array( gui, "value" );
       for( ulong i=0UL; i<FD_GUI_SLOTS_CNT; i++ ) {
         ulong _slot = gui->summary.slot_completed+(FD_GUI_SLOTS_CNT-i);
@@ -239,6 +239,67 @@ fd_gui_printf_skipped_history( fd_gui_t * gui ) {
         if( FD_UNLIKELY( slot->slot!=_slot ) ) break;
         if( FD_UNLIKELY( slot->skipped ) ) jsonp_ulong( gui, NULL, slot->slot );
       }
+    jsonp_close_array( gui );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_tps_history( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "tps_history" );
+    jsonp_open_array( gui, "value" );
+
+    for( ulong i=0UL; i<150UL; i++ ) {
+      ulong total_txn_cnt  = 0UL;
+      ulong vote_txn_cnt   = 0UL;
+      ulong failed_txn_cnt = 0UL;
+
+      ulong last_total_txn_cnt  = 0UL;
+      ulong last_vote_txn_cnt   = 0UL;
+      ulong last_failed_txn_cnt = 0UL;
+      long  last_time_nanos     = 0L;
+
+      ;
+
+      ulong start_slot = fd_ulong_if( gui->summary.slot_completed+i<=149, 0UL, gui->summary.slot_completed+i-149 );
+
+      for( ulong i=0UL; i<=fd_ulong_min( start_slot, FD_GUI_TPS_HISTORY_WINDOW_SZ ); i++ ) {
+        ulong parent_idx = (start_slot-i) % FD_GUI_SLOTS_CNT;
+
+        fd_gui_slot_t * slot = gui->slots[ parent_idx ];
+        if( FD_UNLIKELY( slot->slot==ULONG_MAX) ) break;
+
+        if( FD_UNLIKELY( slot->slot!=(start_slot-i) ) ) {
+          FD_LOG_ERR(( "_slot %lu i %lu we expect _slot-i %lu got slot->slot %lu", start_slot, i, start_slot-i, slot->slot ));
+        }
+
+        if( FD_LIKELY( !slot->skipped ) ) {
+          total_txn_cnt  += slot->total_txn_cnt;
+          vote_txn_cnt   += slot->vote_txn_cnt;
+          failed_txn_cnt += slot->failed_txn_cnt;
+
+          last_total_txn_cnt  = slot->total_txn_cnt;
+          last_vote_txn_cnt   = slot->vote_txn_cnt;
+          last_failed_txn_cnt = slot->failed_txn_cnt;
+          last_time_nanos     = slot->completed_time;
+        }
+      }
+
+      total_txn_cnt  -= last_total_txn_cnt;
+      vote_txn_cnt   -= last_vote_txn_cnt;
+      failed_txn_cnt -= last_failed_txn_cnt;
+
+      long now = fd_log_wallclock();
+      gui->summary.estimated_tps        = (total_txn_cnt *1000000000UL)/(ulong)(now-last_time_nanos);
+      gui->summary.estimated_vote_tps   = (vote_txn_cnt  *1000000000UL)/(ulong)(now-last_time_nanos);
+      gui->summary.estimated_failed_tps = (failed_txn_cnt*1000000000UL)/(ulong)(now-last_time_nanos);
+
+      jsonp_open_array( gui, NULL );
+        jsonp_ulong( gui, NULL, gui->summary.estimated_tps );
+        jsonp_ulong( gui, NULL, gui->summary.estimated_vote_tps );
+        jsonp_ulong( gui, NULL, gui->summary.estimated_failed_tps );
+      jsonp_close_array( gui );
+    }
+
     jsonp_close_array( gui );
   jsonp_close_envelope( gui );
 }

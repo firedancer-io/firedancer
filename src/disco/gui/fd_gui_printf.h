@@ -4,6 +4,8 @@ void fd_gui_printf_version( fd_gui_t * gui );
 void fd_gui_printf_cluster( fd_gui_t * gui );
 void fd_gui_printf_identity_key( fd_gui_t * gui );
 void fd_gui_printf_uptime_nanos( fd_gui_t * gui );
+void fd_gui_printf_skipped_history( fd_gui_t * gui );
+void fd_gui_printf_tps_history( fd_gui_t * gui );
 void fd_gui_printf_startup_progress( fd_gui_t * gui );
 void fd_gui_printf_tiles( fd_gui_t * gui );
 void fd_gui_printf_balance( fd_gui_t * gui );

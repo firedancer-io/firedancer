@@ -319,6 +319,17 @@ average from the prior 750 slots, or around five minutes. Live here
 means the estimate is republished whenever it changes, which is when
 a new slot is confirmed on the currently active fork.
 
+#### `summary.tps_history`
+| frequency | type         | example |
+|-----------|--------------|---------|
+| *Once*    | `number[][]` | `[[1430.2, 124.8, 479.4], [2484.4, 944.4, 194]]` |
+
+A list of the last 150 TPS samples taken by the validator. Currently the
+spacing between samples is poorly defined, but it's roughly one sample
+per slot. The outer array will have 150 elements, and each element will
+have 3 elements, which are `total_ts`, `vote_tps`, and `failed_tps` as
+defined below. Samples are listed from oldest first.
+
 #### `summary.estimated_tps`
 | frequency       | type     | example     |
 |-----------------|----------|-------------|
