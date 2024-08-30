@@ -1152,6 +1152,11 @@ fd_feature_id_t const ids[] = {
                   /* depVvnQ2UysGrhwdiwU42tCadZL8GcBb1i2GYhMopQv */
     .name       = "deprecate_legacy_vote_ixs" },
 
+  { .index      = offsetof(fd_features_t, partitioned_epoch_rewards_superfeature)>>3,
+    .id         = {"\x05\xb1\xf6\xd0\xa0\xbf\xfc\x81\xbc\x95\xde\xeb\x35\x7a\x88\x3e\xa6\x5e\x44\xce\xb5\x15\x5a\xd2\xb0\xb5\x57\xbf\x87\xf9\x4b\x53"},
+                  /* PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8 */
+    .name       = "partitioned_epoch_rewards_superfeature" },
+
   { .index = ULONG_MAX }
 };
 
@@ -1365,6 +1370,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x8e1411a93085cb0e: return &ids[ 199 ];
   case 0x0b9047b5bb9ef961: return &ids[ 200 ];
   case 0xa5a66405d0ab6309: return &ids[ 201 ];
+  case 0x81fcbfa0d0f6b105: return &ids[ 202 ];
   default: break;
   }
 
@@ -1575,5 +1581,6 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, ed25519_precompile_verify_strict     
 FD_STATIC_ASSERT( offsetof( fd_features_t, zk_elgamal_proof_program_enabled                        )>>3==199UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, move_stake_and_move_lamports_ixs                        )>>3==200UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, deprecate_legacy_vote_ixs                               )>>3==201UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, partitioned_epoch_rewards_superfeature                  )>>3==202UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

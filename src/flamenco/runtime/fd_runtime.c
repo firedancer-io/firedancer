@@ -2065,7 +2065,9 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
   slot_ctx->slot_bank.collected_rent = 0;
   slot_ctx->signature_cnt = 0;
 
-  if( slot_ctx->slot_bank.slot != 0 && FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
+  if( slot_ctx->slot_bank.slot != 0 && (
+      FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
+      FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) {
     fd_funk_start_write( slot_ctx->acc_mgr->funk );
     fd_distribute_partitioned_epoch_rewards( slot_ctx );
     fd_funk_end_write( slot_ctx->acc_mgr->funk );
@@ -3960,7 +3962,8 @@ void fd_process_new_epoch(
 
   /* Distribute rewards */
   fd_hash_t const * parent_blockhash = slot_ctx->slot_bank.block_hash_queue.last_hash;
-  if( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
+  if ( ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
+         FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) {
     fd_begin_partitioned_rewards( slot_ctx, parent_blockhash, parent_epoch );
   } else {
     fd_update_rewards( slot_ctx, parent_blockhash, parent_epoch );

@@ -2523,15 +2523,6 @@
       "comment": "https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L27"
     },
     {
-      "name": "point_value",
-      "type": "struct",
-      "fields": [
-        { "name": "rewards", "type": "ulong" },
-        { "name": "points", "type": "uint128" }
-      ],
-      "comment": "https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L21"
-    },
-    {
       "name": "calculated_stake_rewards",
       "type": "struct",
       "fields": [
