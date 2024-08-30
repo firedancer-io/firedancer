@@ -429,7 +429,7 @@ execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uc
   ulong pre_insn_cus = instr_ctx->txn_ctx->compute_meter;
   ulong heap_max = true ? instr_ctx->txn_ctx->heap_size : FD_VM_HEAP_DEFAULT; /* TODO:FIXME: fix this */
 
-  /* TODO: (topointon): correctly set check_align and check_size in vm setup */
+  /* TODO: (topointon): correctly set check_size in vm setup */
   vm = fd_vm_init(
     /* vm                    */ vm,
     /* instr_ctx             */ instr_ctx,

@@ -262,9 +262,6 @@ do{
     break;
   }
 
-  vm->check_align = input->vm_ctx.check_align;
-  vm->check_size  = input->vm_ctx.check_size;
-
   if( input->syscall_invocation.stack_prefix ) {
     uchar * stack    = input->syscall_invocation.stack_prefix->bytes;
     ulong   stack_sz = fd_ulong_min(input->syscall_invocation.stack_prefix->size, FD_VM_STACK_MAX);

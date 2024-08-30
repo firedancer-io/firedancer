@@ -13,7 +13,6 @@ fd_vm_exec_notrace( fd_vm_t * vm ) {
   if( FD_UNLIKELY( !vm ) ) return FD_VM_ERR_INVAL;
 
   /* Pull out variables needed for the fd_vm_interp_core template */
-  int   check_align = vm->check_align;
   ulong frame_max   = FD_VM_STACK_FRAME_MAX; /* FIXME: vm->frame_max to make this run-time configured */
 
   ulong const * FD_RESTRICT text          = vm->text;
@@ -49,7 +48,6 @@ fd_vm_exec_trace( fd_vm_t * vm ) {
   if( FD_UNLIKELY( !vm ) ) return FD_VM_ERR_INVAL;
 
   /* Pull out variables needed for the fd_vm_interp_core template */
-  int   check_align = vm->check_align;
   ulong frame_max   = FD_VM_STACK_FRAME_MAX; /* FIXME: vm->frame_max to make this run-time configured */
 
   ulong const * FD_RESTRICT text          = vm->text;
