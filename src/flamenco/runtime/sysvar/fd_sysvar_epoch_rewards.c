@@ -48,8 +48,6 @@ fd_sysvar_epoch_rewards_distribute(
     fd_exec_slot_ctx_t * slot_ctx,
     ulong distributed
 ) {
-    FD_TEST( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) );
-
     fd_sysvar_epoch_rewards_t epoch_rewards[1];
     if ( FD_UNLIKELY( fd_sysvar_epoch_rewards_read( epoch_rewards, slot_ctx ) == NULL ) ) {
       FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
@@ -71,7 +69,13 @@ fd_sysvar_epoch_rewards_set_inactive(
     if ( FD_UNLIKELY( fd_sysvar_epoch_rewards_read( epoch_rewards, slot_ctx ) == NULL ) ) {
       FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
     }
-    FD_TEST( epoch_rewards->distributed_rewards == epoch_rewards->total_rewards );
+
+    if ( FD_LIKELY( FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) {
+      FD_TEST( epoch_rewards->total_rewards >= epoch_rewards->distributed_rewards );
+    } else {
+      FD_TEST( epoch_rewards->total_rewards == epoch_rewards->distributed_rewards );
+    }
+    
 
     epoch_rewards->active = 0;
 
@@ -88,20 +92,27 @@ fd_sysvar_epoch_rewards_init(
     ulong distributed_rewards,
     ulong distribution_starting_block_height,
     ulong num_partitions,
-    uint128 total_points,
+    fd_point_value_t point_value,
     const fd_hash_t * last_blockhash
 ) {
-    FD_TEST( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) );
     FD_TEST( total_rewards >= distributed_rewards );
 
     fd_sysvar_epoch_rewards_t epoch_rewards = {
       .distribution_starting_block_height = distribution_starting_block_height,
       .num_partitions = num_partitions,
-      .total_points = total_points,
+      .total_points = point_value.points,
       .total_rewards = total_rewards,
       .distributed_rewards = distributed_rewards,
       .active = 1
     };
+    
+    /* On clusters where partitioned_epoch_rewards_superfeature is enabled, we should use point_value.rewards.
+       On other clusters, including those where enable_partitioned_epoch_reward is enabled, we should use total_rewards.
+       
+       https://github.com/anza-xyz/agave/blob/b9c9ecccbb05d9da774d600bdbef2cf210c57fa8/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L36-L43 */
+    if ( FD_LIKELY( FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) {
+      epoch_rewards.total_rewards = point_value.rewards;
+    }
 
     fd_memcpy( &epoch_rewards.parent_blockhash, last_blockhash, FD_HASH_FOOTPRINT );
 

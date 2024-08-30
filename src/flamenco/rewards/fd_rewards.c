@@ -736,16 +736,14 @@ calculate_validator_rewards(
     }
 
     /* Calculate the epoch reward points from stake/vote accounts */
-    fd_point_value_t point_value_result[1] = {0};
-    calculate_reward_points_partitioned( slot_ctx, stake_history, rewards, point_value_result );
-    result->total_points = point_value_result->points;
+    calculate_reward_points_partitioned( slot_ctx, stake_history, rewards, &result->point_value );
 
     /* Calculate the stake and vote rewards for each account */
     calculate_stake_vote_rewards(
         slot_ctx,
         stake_history,
         rewarded_epoch,
-        point_value_result,
+        &result->point_value,
         &result->calculate_stake_vote_rewards_result );
 }
 
@@ -870,7 +868,7 @@ calculate_rewards_for_partitioning(
     result->foundation_rate = rewards.foundation_rate;
     result->prev_epoch_duration_in_years = rewards.prev_epoch_duration_in_years;
     result->capitalization = slot_bank->capitalization;
-    result->total_points = validator_result->total_points;
+    fd_memcpy( &result->point_value, &validator_result->point_value, FD_POINT_VALUE_FOOTPRINT );
 }
 
 /* Calculate rewards from previous epoch and distribute vote rewards 
@@ -916,7 +914,7 @@ calculate_rewards_and_distribute_vote_rewards(
 
     /* Cheap because this doesn't copy all the rewards, just pointers to the dlist */
     fd_memcpy( &result->stake_rewards_by_partition, &rewards_calc_result->stake_rewards_by_partition, FD_STAKE_REWARD_CALCULATION_PARTITIONED_FOOTPRINT );
-    result->total_points = rewards_calc_result->total_points;
+    fd_memcpy( &result->point_value, &rewards_calc_result->point_value, FD_POINT_VALUE_FOOTPRINT );
 }
 
 /* Distributes a single partitioned reward to a single stake account */
@@ -1031,7 +1029,9 @@ distribute_epoch_rewards_in_partition(
     }
 
     /* Update the epoch rewards sysvar with the amount distributed and burnt */
-    if ( FD_LIKELY( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) ) {
+    if ( FD_LIKELY( ( 
+        FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
+        FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) ) {
         fd_sysvar_epoch_rewards_distribute( slot_ctx, lamports_distributed + lamports_burned );
     }
 
@@ -1141,7 +1141,7 @@ fd_begin_partitioned_rewards(
         rewards_result->distributed_rewards,
         distribution_starting_block_height,
         rewards_result->stake_rewards_by_partition.partitioned_stake_rewards.partitions_len,
-        rewards_result->total_points,
+        rewards_result->point_value,
         parent_blockhash
      );
 }

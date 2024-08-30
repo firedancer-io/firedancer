@@ -268,6 +268,16 @@ struct fd_vote_reward_t_mapnode {
     int redblack_color;
 };
 
+/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L21 */
+/* Encoded Size: Fixed (24 bytes) */
+struct __attribute__((aligned(8UL))) fd_point_value {
+  ulong rewards;
+  uint128 points;
+};
+typedef struct fd_point_value fd_point_value_t;
+#define FD_POINT_VALUE_FOOTPRINT sizeof(fd_point_value_t)
+#define FD_POINT_VALUE_ALIGN (8UL)
+
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L56 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_partitioned_stake_rewards {
@@ -315,7 +325,7 @@ typedef struct fd_calculate_stake_vote_rewards_result fd_calculate_stake_vote_re
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_calculate_validator_rewards_result {
   fd_calculate_stake_vote_rewards_result_t calculate_stake_vote_rewards_result;
-  uint128 total_points;
+  fd_point_value_t point_value;
 };
 typedef struct fd_calculate_validator_rewards_result fd_calculate_validator_rewards_result_t;
 #define FD_CALCULATE_VALIDATOR_REWARDS_RESULT_FOOTPRINT sizeof(fd_calculate_validator_rewards_result_t)
@@ -326,7 +336,7 @@ typedef struct fd_calculate_validator_rewards_result fd_calculate_validator_rewa
 struct __attribute__((aligned(8UL))) fd_calculate_rewards_and_distribute_vote_rewards_result {
   ulong total_rewards;
   ulong distributed_rewards;
-  uint128 total_points;
+  fd_point_value_t point_value;
   fd_stake_reward_calculation_partitioned_t stake_rewards_by_partition;
 };
 typedef struct fd_calculate_rewards_and_distribute_vote_rewards_result fd_calculate_rewards_and_distribute_vote_rewards_result_t;
@@ -345,7 +355,7 @@ struct __attribute__((aligned(8UL))) fd_partitioned_rewards_calculation {
   double foundation_rate;
   double prev_epoch_duration_in_years;
   ulong capitalization;
-  uint128 total_points;
+  fd_point_value_t point_value;
 };
 typedef struct fd_partitioned_rewards_calculation fd_partitioned_rewards_calculation_t;
 #define FD_PARTITIONED_REWARDS_CALCULATION_FOOTPRINT sizeof(fd_partitioned_rewards_calculation_t)

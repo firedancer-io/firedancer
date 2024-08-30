@@ -730,8 +730,12 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
      THIS MAY CHANGE IN THE FUTURE. If there are other parts of transaction execution that use
      the epoch rewards sysvar, we may need to update this.
   */
-  if ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) && !slot_ctx->sysvar_cache->has_epoch_rewards ) {
-    fd_sysvar_epoch_rewards_init( slot_ctx, 0, 0, 0, 0, 0, (fd_hash_t *) empty_bytes);
+  if ( ( 
+      FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) || 
+      FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature )
+      ) && !slot_ctx->sysvar_cache->has_epoch_rewards ) {
+    fd_point_value_t point_value = {0};
+    fd_sysvar_epoch_rewards_init( slot_ctx, 0, 0, 0, 0, point_value, (fd_hash_t *) empty_bytes);
   }
 
   /* Restore sysvar cache (again, since we may need to provide default sysvars) */

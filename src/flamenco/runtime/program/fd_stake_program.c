@@ -2466,9 +2466,8 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
       (ulong)ctx->instr->data + 1232UL<(ulong)decode.data )
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 
-  /* The EpochRewards sysvar only exists after the
-     enable_partitioned_epoch_reward feature is activated. If it exists, check
-     the `active` field */
+  /* The EpochRewards sysvar only exists after partitioned epoch rewards is activated.
+     If the sysvar exists, check the `active` field */
   fd_sysvar_epoch_rewards_t const * rewards = fd_sysvar_cache_epoch_rewards( ctx->slot_ctx->sysvar_cache );
   int epoch_rewards_active = (NULL != rewards) ? rewards->active : false;
 
