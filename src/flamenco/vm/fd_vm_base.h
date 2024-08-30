@@ -89,6 +89,59 @@
 #define FD_VM_CPI_ERR_INSTR_DATA_TOO_LARGE   (-42) /* detected instruction data too large */
 #define FD_VM_CPI_ERR_TOO_MANY_ACC_METAS     (-43) /* detected too many account metas */
 
+/* Syscall Errors
+   https://github.com/anza-xyz/agave/blob/v2.0.7/programs/bpf_loader/src/syscalls/mod.rs#L81 */
+
+#define FD_VM_ERR_SYSCALL_INVALID_STRING                          (-1)
+#define FD_VM_ERR_SYSCALL_ABORT                                   (-2)
+#define FD_VM_ERR_SYSCALL_PANIC                                   (-3)
+#define FD_VM_ERR_SYSCALL_INVOKE_CONTEXT_BORROW_FAILED            (-4)
+#define FD_VM_ERR_SYSCALL_MALFORMED_SIGNER_SEED                   (-5)
+#define FD_VM_ERR_SYSCALL_BAD_SEEDS                               (-6)
+#define FD_VM_ERR_SYSCALL_PROGRAM_NOT_SUPPORTED                   (-7)
+#define FD_VM_ERR_SYSCALL_UNALIGNED_POINTER                       (-8)
+#define FD_VM_ERR_SYSCALL_TOO_MANY_SIGNERS                        (-9)
+#define FD_VM_ERR_SYSCALL_INSTRUCTION_TOO_LARGE                   (-10)
+#define FD_VM_ERR_SYSCALL_TOO_MANY_ACCOUNTS                       (-11)
+#define FD_VM_ERR_SYSCALL_COPY_OVERLAPPING                        (-12)
+#define FD_VM_ERR_SYSCALL_RETURN_DATA_TOO_LARGE                   (-13)
+#define FD_VM_ERR_SYSCALL_TOO_MANY_SLICES                         (-14)
+#define FD_VM_ERR_SYSCALL_INVALID_LENGTH                          (-15)
+#define FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_DATA_LEN_EXCEEDED       (-16)
+#define FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED       (-17)
+#define FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED  (-18)
+#define FD_VM_ERR_SYSCALL_INVALID_ATTRIBUTE                       (-19)
+#define FD_VM_ERR_SYSCALL_INVALID_POINTER                         (-20)
+#define FD_VM_ERR_SYSCALL_ARITHMETIC_OVERFLOW                     (-21)
+
+#define FD_VM_ERR_SYSCALL_POSEIDON_INVALID_PARAMS                 (1)
+#define FD_VM_ERR_SYSCALL_POSEIDON_INVALID_ENDIANNESS             (2)
+
+/* EbpfError
+   https://github.com/solana-labs/rbpf/blob/v0.8.5/src/error.rs#L17 */
+
+#define FD_VM_ERR_EBPF_ELF_ERROR                                  (-1)
+#define FD_VM_ERR_EBPF_FUNCTION_ALREADY_REGISTERED                (-2)
+#define FD_VM_ERR_EBPF_CALL_DEPTH_EXCEEDED                        (-3)
+#define FD_VM_ERR_EBPF_EXIT_ROOT_CALL_FRAME                       (-4)
+#define FD_VM_ERR_EBPF_DIVIDE_BY_ZERO                             (-5)
+#define FD_VM_ERR_EBPF_DIVIDE_OVERFLOW                            (-6)
+#define FD_VM_ERR_EBPF_EXECUTION_OVERRUN                          (-7)
+#define FD_VM_ERR_EBPF_CALL_OUTSIDE_TEXT_SEGMENT                  (-8)
+#define FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS                  (-9)
+#define FD_VM_ERR_EBPF_JIT_NOT_COMPILED                           (-10)
+#define FD_VM_ERR_EBPF_INVALID_VIRTUAL_ADDRESS                    (-11)
+#define FD_VM_ERR_EBPF_INVALID_MEMORY_REGION                      (-12)
+#define FD_VM_ERR_EBPF_ACCESS_VIOLATION                           (-13)
+#define FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION                     (-14)
+#define FD_VM_ERR_EBPF_INVALID_INSTRUCTION                        (-15)
+#define FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION                    (-16)
+#define FD_VM_ERR_EBPF_EXHAUSTED_TEXT_SEGMENT                     (-17)
+#define FD_VM_ERR_EBPF_LIBC_INVOCATION_FAILED                     (-18)
+#define FD_VM_ERR_EBPF_VERIFIER_ERROR                             (-19)
+#define FD_VM_ERR_EBPF_SYSCALL_ERROR                              (-20)
+
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_vm_strerror converts an FD_VM_SUCCESS / FD_VM_ERR_* code into

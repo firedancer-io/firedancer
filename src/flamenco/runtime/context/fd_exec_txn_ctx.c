@@ -224,6 +224,9 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
 
   txn_ctx->instr_info_cnt     = 0;
   txn_ctx->instr_trace_length = 0;
+
+  txn_ctx->exec_err      = 0;
+  txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF;
 }
 
 void
