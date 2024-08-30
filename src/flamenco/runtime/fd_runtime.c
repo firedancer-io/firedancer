@@ -789,34 +789,34 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
 }
 
 /* fd_txn_sigverify_task and fd_txn_pre_execute_checks_task are responisble
-   for the bulk of the pre-transaction execution checks in the runtime. 
+   for the bulk of the pre-transaction execution checks in the runtime.
    They aim to preserve the ordering present in the Agave client to match
    parity in terms of error codes. Sigverify is kept seperate from the rest
    of the transaction checks for fuzzing convenience.
-   
-   For reference this is the general code path which contains all relevant 
+
+   For reference this is the general code path which contains all relevant
    pre-transactions checks in the v2.0.0 Agave client from upstream
    to downstream is as follows:
-  
+
    confirm_slot_entries() which calls verify_ticks()
-   (which is currently unimplemented in firedancer) and 
+   (which is currently unimplemented in firedancer) and
    verify_transaction(). verify_transaction() calls verify_and_hash_message()
    and verify_precompiles() which parallels fd_executor_txn_verify() and
    fd_executor_verify_precompiles().
-   
-   process_entries() contains a duplicate account check which is part of 
+
+   process_entries() contains a duplicate account check which is part of
    agave account lock acquiring. This is checked inline in
    fd_txn_pre_execute_checks_task().
-   
+
    load_and_execute_transactions() contains the function check_transactions().
    This contains check_age() and check_status_cache() which is paralleled by
    fd_check_transaction_age() and fd_executor_check_status_cache()
    respectively.
-   
+
    load_and_execute_sanitized_transactions() contains validate_fees()
-   which is responsible for executing the compute budget instructions, 
+   which is responsible for executing the compute budget instructions,
    validating the fee payer and collecting the fee. This is mirrored in
-   firedancer with fd_executor_compute_budget_program_execute_instructions() 
+   firedancer with fd_executor_compute_budget_program_execute_instructions()
    and fd_executor_collect_fees(). load_and_execute_sanitized_transactions()
    also checks the total data size of the accounts in load_accounts(), this
    is paralled by fd_executor_check_txn_data_sz(). */
@@ -859,7 +859,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
 
   int err;
 
-  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/transaction/sanitized.rs#L263-L275 
+  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/transaction/sanitized.rs#L263-L275
      TODO: Agave's precompile verification is done at the slot level, before batching and executing transactions. This logic should probably
      be moved in the future. The Agave call heirarchy looks something like this:
             process_single_slot
@@ -874,7 +874,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
                                           v
                                          ...
                                           v
-                              load_and_execute_transactions                                
+                              load_and_execute_transactions
   */
   err = fd_executor_verify_precompiles( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -1038,7 +1038,7 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   if( task_info->exec_res==0 ) {
     fd_txn_reclaim_accounts( task_info->txn_ctx );
   }
-  
+
   slot_ctx->slot_bank.collected_execution_fees += task_info->txn_ctx->execution_fee;
   slot_ctx->slot_bank.collected_priority_fees  += task_info->txn_ctx->priority_fee;
 
@@ -1407,6 +1407,10 @@ fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         sl
          Note: currently we only include logs, that are already serialized in protobuf. */
       ulong meta_sz = txn_ctx->log_collector.buf_sz;
       void * meta_laddr = fd_alloc_malloc( blockstore_alloc, 1, meta_sz );
+      if( meta_laddr == NULL ) {
+        fd_log_collector_delete( &txn_ctx->log_collector );
+        break;
+      }
       ulong  meta_gaddr = fd_wksp_gaddr_fast( blockstore_wksp, meta_laddr );
       fd_memcpy( meta_laddr, txn_ctx->log_collector.buf, meta_sz );
 
@@ -1472,7 +1476,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
       if( FD_UNLIKELY( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) {
         continue;
       }
-      
+
       fd_exec_txn_ctx_t * txn_ctx      = task_info[txn_idx].txn_ctx;
       int                 exec_txn_err = task_info[txn_idx].exec_res;
 
@@ -1609,7 +1613,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
           fd_valloc_free( txn_ctx->valloc, acc_rec_data );
         }
       }
-      
+
       fd_valloc_free( fd_scratch_virtual(), txn_ctx );
 
     }
@@ -1741,7 +1745,7 @@ fd_runtime_generate_wave( fd_execute_txn_task_info_t * task_infos,
 int
 fd_runtime_execute_pack_txns( fd_exec_slot_ctx_t * slot_ctx,
                               fd_capture_ctx_t *   capture_ctx,
-                              fd_txn_p_t *         txns, 
+                              fd_txn_p_t *         txns,
                               ulong                txn_cnt ) {
 
   FD_SCRATCH_SCOPE_BEGIN {
@@ -1785,7 +1789,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
     for( ulong i=0UL; i<num_batches; i++ ) {
       FD_SCRATCH_SCOPE_BEGIN {
 
-      fd_txn_p_t * txns    = all_txns + (BATCH_SIZE * i); 
+      fd_txn_p_t * txns    = all_txns + (BATCH_SIZE * i);
       ulong        txn_cnt = i+1UL==num_batches && rem ? rem : BATCH_SIZE;
 
       fd_execute_txn_task_info_t * task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
@@ -1835,8 +1839,6 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
         //  FD_LOG_WARNING(("Fail signature verification"));
         //}
 
-        //TODO: enable/disable execution recording according to config and before execution
-        // slot_ctx->enable_exec_recording = 1;
         res |= fd_runtime_prep_and_exec_txns_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, tpool );
         if( res != 0 ) {
           FD_LOG_DEBUG(("Fail prep 2"));
@@ -3729,14 +3731,14 @@ void fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
     fd_epoch_bank_t * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
 
     /* Copy epoch_bank->next_epoch_stakes into slot_ctx->slot_bank.epoch_stakes */
-    fd_vote_accounts_pair_t_map_release_tree( 
+    fd_vote_accounts_pair_t_map_release_tree(
       slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool,
       slot_ctx->slot_bank.epoch_stakes.vote_accounts_root );
     slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = NULL;
 
-    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum( 
+    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
       epoch_bank->next_epoch_stakes.vote_accounts_pool,
-      epoch_bank->next_epoch_stakes.vote_accounts_root ); 
+      epoch_bank->next_epoch_stakes.vote_accounts_root );
           n;
           n = fd_vote_accounts_pair_t_map_successor( epoch_bank->next_epoch_stakes.vote_accounts_pool, n ) ) {
 
@@ -3745,15 +3747,15 @@ void fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
         continue;
       }
 
-      fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire( 
+      fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire(
         slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool );
-      if ( FD_UNLIKELY( 
+      if ( FD_UNLIKELY(
           fd_vote_accounts_pair_t_map_free( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool ) == 0 ) ) {
         FD_LOG_ERR(( "slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool full" ));
       }
 
       fd_memcpy( &elem->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
-      fd_vote_accounts_pair_t_map_insert( 
+      fd_vote_accounts_pair_t_map_insert(
         slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool,
         &slot_ctx->slot_bank.epoch_stakes.vote_accounts_root,
         elem );
@@ -3770,16 +3772,16 @@ void fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
     fd_epoch_bank_t * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
 
     /* Copy epoch_ctx->epoch_bank->stakes.vote_accounts into epoch_bank->next_epoch_stakes */
-    fd_vote_accounts_pair_t_map_release_tree( 
+    fd_vote_accounts_pair_t_map_release_tree(
       epoch_bank->next_epoch_stakes.vote_accounts_pool,
       epoch_bank->next_epoch_stakes.vote_accounts_root );
 
     epoch_bank->next_epoch_stakes.vote_accounts_pool = fd_exec_epoch_ctx_next_epoch_stakes_join( slot_ctx->epoch_ctx );
     epoch_bank->next_epoch_stakes.vote_accounts_root = NULL;
 
-    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum( 
+    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
       epoch_bank->stakes.vote_accounts.vote_accounts_pool,
-      epoch_bank->stakes.vote_accounts.vote_accounts_root ); 
+      epoch_bank->stakes.vote_accounts.vote_accounts_root );
           n;
           n = fd_vote_accounts_pair_t_map_successor( epoch_bank->stakes.vote_accounts.vote_accounts_pool, n ) ) {
       fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_acquire( epoch_bank->next_epoch_stakes.vote_accounts_pool );
@@ -3928,13 +3930,13 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t* slot_ctx,
   fd_hash_t genesis_hash;
 
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  
+
   FD_SCRATCH_SCOPE_BEGIN {
     uchar * buf = fd_scratch_alloc(1UL, (ulong) sbuf.st_size);  /* TODO Make this a scratch alloc */
     ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
     close(fd);
 
-    
+
     fd_bincode_decode_ctx_t decode_ctx = {
       .data    = buf,
       .dataend = buf + n,
@@ -4000,7 +4002,7 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t* slot_ctx,
     int err = fd_runtime_process_genesis_block( slot_ctx, capture_ctx );
     if( FD_UNLIKELY( err  ) ) {
       FD_LOG_ERR(( "Genesis slot 0 execute failed with error %d", err ));
-    } 
+    }
   }
 
   slot_ctx->slot_bank.stake_account_keys.stake_accounts_root = NULL;
