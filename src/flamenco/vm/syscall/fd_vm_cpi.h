@@ -121,7 +121,7 @@ struct __attribute__((packed)) fd_vm_rust_instruction {
 typedef struct fd_vm_rust_instruction fd_vm_rust_instruction_t;
 
 #define FD_VM_RUST_ACCOUNT_META_SIZE  (34UL)
-#define FD_VM_RUST_ACCOUNT_META_ALIGN (8UL)
+#define FD_VM_RUST_ACCOUNT_META_ALIGN (1UL)
 
 struct __attribute__((packed)) fd_vm_rust_account_meta {
   uchar pubkey[32];

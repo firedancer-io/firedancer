@@ -504,14 +504,6 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
             || fd_vm_syscall_cpi_is_precompile(program_id));
 }
 
-/*
-TODO: check_align is set wrong in the runtime, ensure that it is set correctly:
-https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L869-L881.
-- Programs owned by the bpf_loader_deprecated should set this to false.
-- All other programs should set this to true.
-*/
-
-
 /**********************************************************************
   CROSS PROGRAM INVOCATION (C ABI)
  **********************************************************************/

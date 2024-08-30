@@ -1755,7 +1755,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     input_regions,
     input_regions_count,
     NULL,
-    (uchar)false );
+    input->vm_ctx.check_align );
 
   // Setup the vm state for execution
   if( fd_vm_setup_state_for_execution( vm ) != FD_VM_SUCCESS ) {
@@ -1776,9 +1776,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   vm->reg[9] = input->vm_ctx.r9;
   vm->reg[10] = input->vm_ctx.r10;
   vm->reg[11] = input->vm_ctx.r11;
-
-  vm->check_align = input->vm_ctx.check_align;
-  vm->check_size = input->vm_ctx.check_size;
 
   // Override initial part of the heap, if specified the syscall fuzzer input
   if( input->syscall_invocation.heap_prefix ) {
