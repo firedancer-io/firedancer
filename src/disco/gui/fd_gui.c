@@ -49,7 +49,6 @@ fd_gui_new( void *        shmem,
 
   gui->debug_in_leader_slot = ULONG_MAX;
 
-  gui->sample_10millis_cnt = 0UL;
   gui->next_sample_100millis = fd_log_wallclock();
   gui->next_sample_10millis  = fd_log_wallclock();
 
@@ -118,11 +117,7 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_identity_key,
     fd_gui_printf_uptime_nanos,
     fd_gui_printf_startup_progress,
-    fd_gui_printf_net_tile_count,
-    fd_gui_printf_quic_tile_count,
-    fd_gui_printf_verify_tile_count,
-    fd_gui_printf_bank_tile_count,
-    fd_gui_printf_shred_tile_count,
+    fd_gui_printf_tiles,
     fd_gui_printf_balance,
     fd_gui_printf_estimated_slot_duration_nanos,
     fd_gui_printf_root_slot,
@@ -487,13 +482,10 @@ fd_gui_poll( fd_gui_t * gui ) {
     fd_gui_tile_timers_snap( gui, gui->summary.tile_timers_snap[ gui->summary.tile_timers_snap_idx ]);
     gui->summary.tile_timers_snap_idx = (gui->summary.tile_timers_snap_idx+1UL) % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[ 0 ]));
 
-    if( FD_UNLIKELY( gui->sample_10millis_cnt && !(gui->sample_10millis_cnt%5UL) ) ) {
-      fd_gui_printf_live_tile_timers( gui );
-      fd_hcache_snap_ws_broadcast( gui->hcache );
-    }
+    fd_gui_printf_live_tile_timers( gui );
+    fd_hcache_snap_ws_broadcast( gui->hcache );
 
     gui->next_sample_10millis += 10L*1000L*1000L;
-    gui->sample_10millis_cnt += 1UL;
   }
 }
 

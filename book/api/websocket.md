@@ -213,40 +213,48 @@ before it is ready. The phases are,
 | waiting_for_supermajority_slot          | `number\|null` | If the phase is at least `waiting_for_supermajority` or later, and we are stopped waiting for supermajority, this is the slot that we are stopped at. Otherwise it is `null` |
 | waiting_for_supermajority_stake_percent | `number\|null` | If the phase is at least `waiting_for_supermajority` or later, and we are stopped waiting for supermajority, this is the percentage of stake that is currently online and gossiping to our node. Otherwise it is `null`. The validator will proceed with starting up once the stake percent reaches 80 |
 
-### `summary.net_tile_count`
+### `summary.tiles`
 | frequency  | type     | example |
 |------------|----------|---------|
-| *Once*     | `number` | `1`     |
+| *Once*     | `Tile[]` | below   |
 
-The number of `net` tiles in the validator topology.
+Information about the tile topology of Firedancer. This is a list of
+tiles in the system.
 
-### `summary.quic_tile_count`
-| frequency  | type     | example |
-|------------|----------|---------|
-| *Once*     | `number` | `1`     |
+**`Tile`**
+| Field   | Type    | Description
+|---------|---------|------------
+| kind    | `string` | What kind of tile it is. One of `net`, `quic`, `verify`, `dedup`, `pack`, `bank`, `poh`, `shred`, `store`, `sign`, `plugin`, or `http`.
+| kind_id | `number` | The index of the tile in its kind. For example, if there are four `verify` tiles they have `kind_id` values of 0, 1, 2, and 3 respectively.
 
-The number of `quic` tiles in the validator topology.
+::: details Example
 
-### `summary.verify_tile_count`
-| frequency  | type     | example |
-|------------|----------|---------|
-| *Once*     | `number` | `4`     |
+```json
+{
+    "topic": "summary",
+    "key": "tiles",
+    "value": [
+        { "tile": "net", "kind_id": 0 },
+        { "tile": "quic", "kind_id": 0 },
+        { "tile": "verify", "kind_id": 0 },
+        { "tile": "verify", "kind_id": 1 },
+        { "tile": "verify", "kind_id": 2 },
+        { "tile": "verify", "kind_id": 3 },
+        { "tile": "dedup", "kind_id": 0 },
+        { "tile": "pack", "kind_id": 0 },
+        { "tile": "bank", "kind_id": 0 },
+        { "tile": "bank", "kind_id": 1 },
+        { "tile": "poh", "kind_id": 0 },
+        { "tile": "shred", "kind_id": 0 },
+        { "tile": "store", "kind_id": 0 },
+        { "tile": "sign", "kind_id": 0 },
+        { "tile": "plugin", "kind_id": 0 }
+        { "tile": "http", "kind_id": 0 }
+    ]
+}
+```
 
-The number of `verify` tiles in the validator topology.
-
-### `summary.bank_tile_count`
-| frequency  | type     | example |
-|------------|----------|---------|
-| *Once*     | `number` | `2`     |
-
-The number of `bank` tiles in the validator topology.
-
-### `summary.shred_tile_count`
-| frequency  | type     | example |
-|------------|----------|---------|
-| *Once*     | `number` | `2`     |
-
-The number of `shred` tiles in the validator topology.
+:::
 
 ### `summary.balance`
 | frequency      | type     | example    |
@@ -492,9 +500,17 @@ potential underflow.
 
 
 #### `summary.live_tile_timers`
-| frequency        | type          | example |
-|------------------|---------------|---------|
-| *Once* + *10ms*  | `TileTimer[]` | below   |
+| frequency        | type       | example |
+|------------------|------------|---------|
+| *Once* + *10ms*  | `number[]` | below   |
+
+Live tile timers is an array, one entry per tile, of how idle the tile
+was in the preceding 10 millisecond sampling window. A value of `-1`
+indicates no sample was taken in the window, typically because the tile
+was contet switched out by the kernel or it is hung.
+
+The tiles appear in the same order here that they are reported when you
+first connect by the `summary.tiles` message.
 
 ::: details Example
 
@@ -503,33 +519,26 @@ potential underflow.
     "topic": "summary",
     "key": "live_tile_timers",
     "value": [
-        { "tile": "net", "kind_id": 0, "idle": 44.972112412 },
-        { "tile": "quic", "kind_id": 0, "idle": 90.12 },
-        { "tile": "verify", "kind_id": 0, "idle": 5.42148 },
-        { "tile": "verify", "kind_id": 1, "idle": 6.24870 },
-        { "tile": "verify", "kind_id": 2, "idle": 5.00158 },
-        { "tile": "verify", "kind_id": 3, "idle": 8.1111556 },
-        { "tile": "dedup", "kind_id": 0, "idle": 76.585 },
-        { "tile": "pack", "kind_id": 0, "idle": 44.225 },
-        { "tile": "bank", "kind_id": 0, "idle": 12.98 },
-        { "tile": "bank", "kind_id": 1, "idle": 16.2981 },
-        { "tile": "poh", "kind_id": 0, "idle": 43.857 },
-        { "tile": "shred", "kind_id": 0, "idle": 14.1 },
-        { "tile": "store", "kind_id": 0, "idle": 3.15716 },
-        { "tile": "sign", "kind_id": 0, "idle": 93.2456 },
-        { "tile": "metric", "kind_id": 0, "idle": 87.9987 }
+        44.972112412,
+        90.12,
+        5.42148,
+        6.24870,
+        5.00158,
+        8.1111556,
+        76.585,
+        44.225,
+        12.98,
+        16.2981,
+        43.857,
+        14.1,
+        3.15716,
+        93.2456,
+        87.998
     ]
 }
 ```
 
 :::
-
-**`TileTimer`**
-| Field      | Type     | Description
-|------------|----------|------------
-| tile       | `string` | One of `net`, `quic`, `verify`, `dedup`, `pack`, `bank`, `poh`, `shred`, `store`, `sign`, or `metric` indicating what the tile kind is
-| kind_id    | `number` | A number counting up from 0 indicating the index of the tile within its kind. If there are two `verify` tiles, they will have kind_id of `0` and `1`
-| idle       | `number` | Percentage idleness of the tile during the window being sampled. A value of -1 means that no sample was made on the tile during the window, likely because the tile was context switched out by the kernel or stuck |
 
 ### epoch
 Information about an epoch. Epochs are never modified once they have

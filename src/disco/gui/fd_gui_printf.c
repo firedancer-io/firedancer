@@ -316,39 +316,26 @@ fd_gui_printf_startup_progress( fd_gui_t * gui ) {
 }
 
 void
-fd_gui_printf_net_tile_count( fd_gui_t * gui ) {
-  jsonp_open_envelope( gui, "summary", "net_tile_count" );
-    jsonp_ulong( gui, "value", gui->summary.net_tile_cnt );
+fd_gui_printf_tiles( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "tiles" );
+    jsonp_open_array( gui, "value" );
+      for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
+        fd_topo_tile_t const * tile = &gui->topo->tiles[ i ];
+
+        if( FD_UNLIKELY( !strncmp( tile->name, "bench", 5UL ) ) ) {
+          /* bench tiles not reported */
+          continue;
+        }
+        
+        jsonp_open_object( gui, NULL );
+          jsonp_string( gui, "kind", tile->name );
+          jsonp_ulong( gui, "kind_id", tile->kind_id );
+        jsonp_close_object( gui );
+      }
+    jsonp_close_array( gui );
   jsonp_close_envelope( gui );
 }
 
-void
-fd_gui_printf_quic_tile_count( fd_gui_t * gui ) {
-  jsonp_open_envelope( gui, "summary", "quic_tile_count" );
-    jsonp_ulong( gui, "value", gui->summary.quic_tile_cnt );
-  jsonp_close_envelope( gui );
-}
-
-void
-fd_gui_printf_verify_tile_count( fd_gui_t * gui ) {
-  jsonp_open_envelope( gui, "summary", "verify_tile_count" );
-    jsonp_ulong( gui, "value", gui->summary.verify_tile_cnt );
-  jsonp_close_envelope( gui );
-}
-
-void
-fd_gui_printf_bank_tile_count( fd_gui_t * gui ) {
-  jsonp_open_envelope( gui, "summary", "bank_tile_count" );
-    jsonp_ulong( gui, "value", gui->summary.bank_tile_cnt );
-  jsonp_close_envelope( gui );
-}
-
-void
-fd_gui_printf_shred_tile_count( fd_gui_t * gui ) {
-  jsonp_open_envelope( gui, "summary", "shred_tile_count" );
-    jsonp_ulong( gui, "value", gui->summary.shred_tile_cnt );
-  jsonp_close_envelope( gui );
-}
 
 void
 fd_gui_printf_balance( fd_gui_t * gui ) {
@@ -553,11 +540,7 @@ fd_gui_printf_tile_timers( fd_gui_t *                   gui,
       idle = (double)(cur[ i ].caught_up_ticks - prev[ i ].caught_up_ticks) / (cur_total - prev_total);
     }
 
-    jsonp_open_object( gui, NULL );
-      jsonp_string( gui, "tile", tile->name );
-      jsonp_ulong( gui, "kind_id", tile->kind_id );
-      jsonp_double( gui, "idle", idle );
-    jsonp_close_object( gui );
+    jsonp_double( gui, NULL, idle );
   }
 }
 
@@ -568,7 +551,7 @@ fd_gui_printf_live_tile_timers( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "live_tile_timers" );
     jsonp_open_array( gui, "value" );
       fd_gui_tile_timers_t * cur  = gui->summary.tile_timers_snap[ (gui->summary.tile_timers_snap_idx+(timers_cnt-1UL))%timers_cnt ];
-      fd_gui_tile_timers_t * prev = gui->summary.tile_timers_snap[ (gui->summary.tile_timers_snap_idx+(timers_cnt-6UL))%timers_cnt ];
+      fd_gui_tile_timers_t * prev = gui->summary.tile_timers_snap[ (gui->summary.tile_timers_snap_idx+(timers_cnt-2UL))%timers_cnt ];
       fd_gui_printf_tile_timers( gui, prev, cur );
     jsonp_close_array( gui );
   jsonp_close_envelope( gui );
@@ -967,7 +950,7 @@ fd_gui_printf_slot( fd_gui_t * gui,
         if( FD_LIKELY( ref ) ) fd_gui_printf_waterfall( gui, ref, slot->waterfall_end );
         else                   jsonp_null( gui, "waterfall" );
 
-        jsonp_open_array( gui, "tile_timers" );
+        /*jsonp_open_array( gui, "tile_timers" );
           fd_gui_tile_timers_t const * prev_timer = slot->tile_timers_begin;
 
           ulong end = fd_ulong_if( slot->tile_timers_end_snap_idx<slot->tile_timers_begin_snap_idx, slot->tile_timers_end_snap_idx+sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0]), slot->tile_timers_end_snap_idx );
@@ -978,7 +961,7 @@ fd_gui_printf_slot( fd_gui_t * gui,
             prev_timer = gui->summary.tile_timers_snap[ sample_snap_idx % (sizeof(gui->summary.tile_timers_snap)/sizeof(gui->summary.tile_timers_snap[0])) ];
           }
           fd_gui_printf_ts_tile_timers( gui, prev_timer, slot->tile_timers_end );
-        jsonp_close_array( gui );
+        jsonp_close_array( gui );*/
 
         fd_gui_printf_tile_prime_metric( gui, slot->tile_prime_metric_begin, slot->tile_prime_metric_end );
       } else {
