@@ -12,25 +12,26 @@
 
 #define FD_HTTP_SERVER_CONNECTION_CLOSE_OK                           ( -1)
 #define FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED                      ( -2)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_EXPECTED_EOF                 ( -3)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET                   ( -4)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST                ( -5)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST                  ( -6)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_MISSING_CONENT_LENGTH_HEADER ( -7)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD               ( -8)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_PATH_TOO_LONG                ( -9)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_KEY                   (-10)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNEXPECTED_VERSION        (-11)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_KEY_HEADER        (-12)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_VERSION_HEADER    (-13)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_MASK                  (-14)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNKNOWN_OPCODE            (-15)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_OVERSIZE_FRAME            (-16)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW           (-17)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_UPGRADE           (-18)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_CONT_OPCODE      (-19)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE      (-20)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CONTROL_FRAME_TOO_LARGE   (-21)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_TOO_SLOW                     ( -3)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_EXPECTED_EOF                 ( -4)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET                   ( -5)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST                ( -6)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST                  ( -7)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_MISSING_CONENT_LENGTH_HEADER ( -8)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD               ( -9)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_PATH_TOO_LONG                (-10)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_KEY                   (-11)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNEXPECTED_VERSION        (-12)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_KEY_HEADER        (-13)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_VERSION_HEADER    (-14)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_MASK                  (-15)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNKNOWN_OPCODE            (-16)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_OVERSIZE_FRAME            (-17)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW           (-18)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_UPGRADE           (-19)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_CONT_OPCODE      (-20)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE      (-21)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CONTROL_FRAME_TOO_LARGE   (-22)
 
 /* Given a FD_HTTP_SERVER_CONNECTION_CLOSE_* reason code, a reason that
    a HTTP connection a client was closed, produce a human readable
@@ -105,6 +106,7 @@ struct fd_http_server_response {
 
   uchar const * body;        /* Response body to send, only sent if status is 200 */
   ulong         body_len;    /* Length of the response body */
+  ulong         last_off;
 };
 
 typedef struct fd_http_server_response fd_http_server_response_t;
@@ -112,6 +114,7 @@ typedef struct fd_http_server_response fd_http_server_response_t;
 struct fd_http_server_ws_frame {
   uchar const * data;
   ulong         data_len;
+  ulong         last_off;
 };
 
 typedef struct fd_http_server_ws_frame fd_http_server_ws_frame_t;
@@ -176,7 +179,7 @@ typedef struct fd_http_server_callbacks fd_http_server_callbacks_t;
 #define FD_HTTP_SERVER_CONNECTION_STATE_WRITING_BODY   2
 
 struct fd_http_server_connection {
-  int    state;
+  int          state;
 
   int          upgrade_websocket;
   ulong        request_bytes_len;
@@ -187,6 +190,14 @@ struct fd_http_server_connection {
 
   fd_http_server_response_t response;
   ulong  response_bytes_written;
+
+  /* The treap fields */
+  ushort left;
+  ushort right;
+  ushort parent;
+  ushort prio;
+  ushort prev;
+  ushort next;
 
   /* The memory for the request is placed at the end of the struct here...
   char request[ ]; */
@@ -215,6 +226,14 @@ struct fd_http_server_ws_connection {
   ulong                       send_frame_cnt;
   ulong                       send_frame_idx;
   fd_http_server_ws_frame_t * send_frames;
+
+  /* The treap fields */
+  ushort left;
+  ushort right;
+  ushort parent;
+  ushort prio;
+  ushort prev;
+  ushort next;
 };
 
 struct __attribute__((aligned(FD_HTTP_SERVER_ALIGN))) fd_http_server_private {
@@ -227,8 +246,8 @@ struct __attribute__((aligned(FD_HTTP_SERVER_ALIGN))) fd_http_server_private {
   ulong max_ws_recv_frame_len;
   ulong max_ws_send_frame_cnt;
 
-  ulong conn_id;
-  ulong ws_conn_id;
+  ulong evict_conn_id;
+  ulong evict_ws_conn_id;
 
   void * callback_ctx;
   fd_http_server_callbacks_t callbacks;
@@ -238,6 +257,9 @@ struct __attribute__((aligned(FD_HTTP_SERVER_ALIGN))) fd_http_server_private {
   struct fd_http_server_connection *    conns;
   struct fd_http_server_ws_connection * ws_conns;
   struct pollfd *                       pollfds;
+
+  void * conn_treap;
+  void * ws_conn_treap;
 
   /* The memory for conns and pollfds is placed at the end of the struct
      here...
@@ -338,6 +360,10 @@ fd_http_server_ws_broadcast( fd_http_server_t *        http,
 
 void
 fd_http_server_poll( fd_http_server_t * http );
+
+void
+fd_http_server_evict_until( fd_http_server_t * http,
+                            ulong              last_off );
 
 FD_PROTOTYPES_END
 

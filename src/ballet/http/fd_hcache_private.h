@@ -15,6 +15,7 @@ struct __attribute__((aligned(FD_HCACHE_ALIGN))) fd_hcache_private {
   int   snap_err; /* If there has been an error appending to the buffer */
   ulong snap_off; /* Start offset of the append buffer */
   ulong snap_len; /* Length of the append buffer */
+  ulong total_off;
 
   fd_http_server_t * server; /* Server to send to and evict connections from */
 

@@ -26,14 +26,13 @@ FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
 #define FD_HTTP_SERVER_METRICS_MAX_CONNS        8
 #define FD_HTTP_SERVER_METRICS_MAX_REQUEST_LEN  1024
-#define FD_HTTP_SERVER_METRICS_MAX_RESPONSE_LEN 16777216
 
-#define FD_HTTP_SERVER_GUI_MAX_CONNS             8
+#define FD_HTTP_SERVER_GUI_MAX_CONNS             1024
 #define FD_HTTP_SERVER_GUI_MAX_REQUEST_LEN       1024
-#define FD_HTTP_SERVER_GUI_MAX_WS_CONNS          2
+#define FD_HTTP_SERVER_GUI_MAX_WS_CONNS          1024
 #define FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN 1024
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
-#define FD_HTTP_SERVER_GUI_SEND_BUFFER_SZ        (1024UL*1024UL*1024UL) /* 1GiB reserved for buffering GUI websockets */
+#define FD_HTTP_SERVER_GUI_SEND_BUFFER_SZ        (5UL<<20UL) /* 5GiB reserved for buffering GUI websockets */
 
 const fd_http_server_params_t GUI_PARAMS = {
   .max_connection_cnt    = FD_HTTP_SERVER_GUI_MAX_CONNS,
@@ -83,7 +82,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof( fd_http_ctx_t ), sizeof( fd_http_ctx_t ) );
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(), fd_http_server_footprint( GUI_PARAMS ) );
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(), fd_http_server_footprint( METRICS_PARAMS ) );
-  l = FD_LAYOUT_APPEND( l, fd_hcache_align(),      fd_hcache_footprint( 5UL<<30UL ) );
+  l = FD_LAYOUT_APPEND( l, fd_hcache_align(),      fd_hcache_footprint( FD_HTTP_SERVER_GUI_SEND_BUFFER_SZ ) );
   l = FD_LAYOUT_APPEND( l, fd_hcache_align(),      fd_hcache_footprint( 32UL<<20UL ) );
   l = FD_LAYOUT_APPEND( l, fd_gui_align(),         fd_gui_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -167,11 +166,13 @@ metrics_http_request( fd_http_server_request_t const * request ) {
     fd_prometheus_format( ctx->topo, ctx->metrics_hcache );
 
     ulong body_len = 0UL;
-    uchar const * body = fd_hcache_snap_response( ctx->metrics_hcache, &body_len );
+    ulong last_off;
+    uchar const * body = fd_hcache_snap_response( ctx->metrics_hcache, &body_len, &last_off );
     return (fd_http_server_response_t){
       .status            = body ? 200 : 500,
       .body              = body,
       .body_len          = body_len,
+      .last_off          = last_off,
       .content_type      = "text/plain; version=0.0.4",
       .upgrade_websocket = 0,
     };
@@ -200,6 +201,7 @@ gui_http_request( fd_http_server_request_t const * request ) {
       .status            = 200,
       .body              = firedancer_svg,
       .body_len          = firedancer_svg_sz,
+      .last_off          = ULONG_MAX,
       .content_type      = "image/svg+xml",
       .upgrade_websocket = 0,
     };
@@ -225,6 +227,7 @@ gui_http_request( fd_http_server_request_t const * request ) {
         .status            = 200,
         .body              = STATIC_FILES[ i ].data,
         .body_len          = *(STATIC_FILES[ i ].data_len),
+        .last_off          = ULONG_MAX,
         .content_type      = content_type,
         .upgrade_websocket = 0,
       };
@@ -299,11 +302,11 @@ unprivileged_init( fd_topo_t *      topo,
 
                            FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(), fd_http_server_footprint( GUI_PARAMS ) );
                            FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(), fd_http_server_footprint( METRICS_PARAMS ) );
-  void * _gui_hcache     = FD_SCRATCH_ALLOC_APPEND( l, fd_hcache_align(),      fd_hcache_footprint( 5UL<<30UL ) );
+  void * _gui_hcache     = FD_SCRATCH_ALLOC_APPEND( l, fd_hcache_align(),      fd_hcache_footprint( FD_HTTP_SERVER_GUI_SEND_BUFFER_SZ ) );
   void * _metrics_hcache = FD_SCRATCH_ALLOC_APPEND( l, fd_hcache_align(),      fd_hcache_footprint( 32UL<<20UL ) );
   void * _gui            = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),         fd_gui_footprint() );
 
-  fd_hcache_t * gui_hcache = fd_hcache_join( fd_hcache_new( _gui_hcache, ctx->gui_server, 5UL<<30UL ) );
+  fd_hcache_t * gui_hcache = fd_hcache_join( fd_hcache_new( _gui_hcache, ctx->gui_server, FD_HTTP_SERVER_GUI_SEND_BUFFER_SZ ) );
   FD_TEST( gui_hcache );
 
   ctx->metrics_hcache = fd_hcache_join( fd_hcache_new( _metrics_hcache, ctx->metrics_server, 32UL<<20UL ) );

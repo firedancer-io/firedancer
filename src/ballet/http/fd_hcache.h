@@ -161,7 +161,8 @@ fd_hcache_memcpy( fd_hcache_t * hcache,
 
 uchar const *
 fd_hcache_snap_response( fd_hcache_t * hcache,
-                         ulong *       body_len );
+                         ulong *       body_len,
+                         ulong *       total_off );
 
 /* fd_hcache_snap_ws_send takes the current contents of the hcache and
    sends it to a connected WebSocket client of the HTTP server.  The

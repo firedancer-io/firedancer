@@ -1120,7 +1120,6 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
     gui->summary.slot_completed = _slot;
     fd_gui_printf_completed_slot( gui );
     FD_TEST( !fd_hcache_snap_ws_broadcast( gui->hcache ) );
-    FD_LOG_WARNING(( "Completed slot %lu", _slot ));
   }
 }
 
@@ -1134,7 +1133,7 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
   ulong compute_units = msg[ 4 ];
   ulong fees = msg[ 5 ];
 
-  FD_LOG_WARNING(( "Got completed slot %lu", _slot ));
+  // FD_LOG_WARNING(( "Got completed slot %lu", _slot ));
 
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot );
@@ -1147,7 +1146,6 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
        then later we replay this one anyway to track the bank fork. */
     slot->level = FD_GUI_SLOT_LEVEL_COMPLETED;
   }
-  slot->level          = FD_GUI_SLOT_LEVEL_COMPLETED;
   slot->total_txn_cnt  = total_txn_count;
   slot->vote_txn_cnt   = total_txn_count - nonvote_txn_count;
   slot->failed_txn_cnt = failed_txn_count;

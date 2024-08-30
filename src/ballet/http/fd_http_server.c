@@ -13,13 +13,48 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
+#define POOL_NAME       ws_conn_pool
+#define POOL_T          struct fd_http_server_ws_connection
+#define POOL_IDX_T      ushort
+#define POOL_NEXT       parent
+#include "../../util/tmpl/fd_pool.c"
+
+#define POOL_NAME       conn_pool
+#define POOL_T          struct fd_http_server_connection
+#define POOL_IDX_T      ushort
+#define POOL_NEXT       parent
+#include "../../util/tmpl/fd_pool.c"
+
+#define TREAP_NAME      ws_conn_treap
+#define TREAP_T         struct fd_http_server_ws_connection
+#define TREAP_QUERY_T   void *                                         /* We don't use query ... */
+#define TREAP_CMP(q,e)  (__extension__({ (void)(q); (void)(e); -1; })) /* which means we don't need to give a real
+                                                                          implementation to cmp either */
+#define TREAP_IDX_T     ushort
+#define TREAP_OPTIMIZE_ITERATION 1
+#define TREAP_LT(e0,e1) ((e0)->send_frames[ (e0)->send_frame_idx ].last_off<(e1)->send_frames[ (e1)->send_frame_idx ].last_off)
+
+#include "../../util/tmpl/fd_treap.c"
+
+#define TREAP_NAME      conn_treap
+#define TREAP_T         struct fd_http_server_connection
+#define TREAP_QUERY_T   void *                                         /* We don't use query ... */
+#define TREAP_CMP(q,e)  (__extension__({ (void)(q); (void)(e); -1; })) /* which means we don't need to give a real
+                                                                          implementation to cmp either */
+#define TREAP_IDX_T     ushort
+#define TREAP_OPTIMIZE_ITERATION 1
+#define TREAP_LT(e0,e1) ((e0)->response.last_off<(e1)->response.last_off)
+
+#include "../../util/tmpl/fd_treap.c"
+
 #define FD_HTTP_SERVER_DEBUG 1
 
 FD_FN_CONST char const *
 fd_http_server_connection_close_reason_str( int reason ) {
   switch( reason ) {
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_OK:                           return "success";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_OK:                           return "OK-Connection was closed normally";
     case FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED:                      return "EVICTED-Connection was evicted to make room for a new one";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_TOO_SLOW:                     return "TOO_SLOW-Client was too slow and did not read the reponse in time";
     case FD_HTTP_SERVER_CONNECTION_CLOSE_EXPECTED_EOF:                 return "EXPECTED_EOF-Client continued to send data when we expected no more";
     case FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET:                   return "PEER_RESET-Connection was reset by peer";
     case FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST:                return "LARGE_REQUEST-Request body was too large";
@@ -65,8 +100,10 @@ FD_FN_CONST ulong
 fd_http_server_footprint( fd_http_server_params_t params ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_private ),       sizeof( fd_http_server_t )                                                                         );
-  l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_connection ),    params.max_connection_cnt*sizeof( struct fd_http_server_connection )                               );
-  l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_ws_connection ), params.max_ws_connection_cnt*sizeof( struct fd_http_server_ws_connection )                         );
+  l = FD_LAYOUT_APPEND( l, conn_pool_align(),                              conn_pool_footprint( params.max_connection_cnt )                                                   );
+  l = FD_LAYOUT_APPEND( l, ws_conn_pool_align(),                           ws_conn_pool_footprint( params.max_ws_connection_cnt )                                             );
+  l = FD_LAYOUT_APPEND( l, conn_treap_align(),                             conn_treap_footprint( params.max_connection_cnt )                                                  );
+  l = FD_LAYOUT_APPEND( l, ws_conn_treap_align(),                          ws_conn_treap_footprint( params.max_ws_connection_cnt )                                            );
   l = FD_LAYOUT_APPEND( l, alignof( struct pollfd ),                       (params.max_connection_cnt+params.max_ws_connection_cnt+1UL)*sizeof( struct pollfd )               );
   l = FD_LAYOUT_APPEND( l, 1UL,                                            params.max_request_len*params.max_connection_cnt                                                   );
   l = FD_LAYOUT_APPEND( l, 1UL,                                            params.max_ws_recv_frame_len*params.max_ws_connection_cnt                                          );
@@ -91,8 +128,10 @@ fd_http_server_new( void *                     shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_http_server_t * http = FD_SCRATCH_ALLOC_APPEND( l,  FD_HTTP_SERVER_ALIGN,                         sizeof(fd_http_server_t)                                                             );
-  http->conns             = FD_SCRATCH_ALLOC_APPEND( l,  alignof(struct fd_http_server_connection),    params.max_connection_cnt*sizeof(struct fd_http_server_connection)                   );
-  http->ws_conns          = FD_SCRATCH_ALLOC_APPEND( l,  alignof(struct fd_http_server_ws_connection), params.max_ws_connection_cnt*sizeof(struct fd_http_server_ws_connection)             );
+  void * conn_pool        = FD_SCRATCH_ALLOC_APPEND( l,  conn_pool_align(),                            conn_pool_footprint( params.max_connection_cnt )                                     );
+  void * ws_conn_pool     = FD_SCRATCH_ALLOC_APPEND( l,  ws_conn_pool_align(),                         ws_conn_pool_footprint( params.max_ws_connection_cnt )                               );
+  http->conn_treap        = FD_SCRATCH_ALLOC_APPEND( l,  conn_treap_align(),                           conn_treap_footprint( params.max_connection_cnt )                                    );
+  http->ws_conn_treap     = FD_SCRATCH_ALLOC_APPEND( l,  ws_conn_treap_align(),                        ws_conn_treap_footprint( params.max_ws_connection_cnt )                              );
   http->pollfds           = FD_SCRATCH_ALLOC_APPEND( l,  alignof(struct pollfd),                       (params.max_connection_cnt+params.max_ws_connection_cnt+1UL)*sizeof( struct pollfd ) );
   char * _request_bytes   = FD_SCRATCH_ALLOC_APPEND( l,  1UL,                                          params.max_request_len*params.max_connection_cnt                                     );
   uchar * _ws_recv_bytes  = FD_SCRATCH_ALLOC_APPEND( l,  1UL,                                          params.max_ws_recv_frame_len*params.max_ws_connection_cnt                            );
@@ -100,19 +139,28 @@ fd_http_server_new( void *                     shmem,
 
   http->callbacks             = callbacks;
   http->callback_ctx          = callback_ctx;
-  http->conn_id               = 0UL;
-  http->ws_conn_id            = 0UL;
+  http->evict_conn_id         = 0UL;
+  http->evict_ws_conn_id      = 0UL;
   http->max_conns             = params.max_connection_cnt;
   http->max_ws_conns          = params.max_ws_connection_cnt;
   http->max_request_len       = params.max_request_len;
   http->max_ws_recv_frame_len = params.max_ws_recv_frame_len;
   http->max_ws_send_frame_cnt = params.max_ws_send_frame_cnt;
 
+  http->conns = conn_pool_join( conn_pool_new( conn_pool, params.max_connection_cnt ) );
+  conn_treap_join( conn_treap_new( http->conn_treap, params.max_connection_cnt ) );
+  conn_treap_seed( http->conns, params.max_connection_cnt, 42UL );
+
+  http->ws_conns = ws_conn_pool_join( ws_conn_pool_new( ws_conn_pool, params.max_ws_connection_cnt ) );
+  ws_conn_treap_join( ws_conn_treap_new( http->ws_conn_treap, params.max_ws_connection_cnt ) );
+  ws_conn_treap_seed( http->ws_conns, params.max_ws_connection_cnt, 42UL );
+
   for( ulong i=0UL; i<params.max_connection_cnt; i++ ) {
     http->pollfds[ i ].fd = -1;
     http->pollfds[ i ].events = POLLIN | POLLOUT;
     http->conns[ i ] = (struct fd_http_server_connection){
       .request_bytes = _request_bytes+i*params.max_request_len,
+      .parent = http->conns[ i ].parent,
     };
   }
 
@@ -122,6 +170,7 @@ fd_http_server_new( void *                     shmem,
     http->ws_conns[ i ] = (struct fd_http_server_ws_connection){
       .recv_bytes = _ws_recv_bytes+i*params.max_ws_recv_frame_len,
       .send_frames = _ws_send_frames+i*params.max_ws_send_frame_cnt,
+      .parent = http->ws_conns[ i ].parent,
     };
   }
 
@@ -229,12 +278,27 @@ close_conn( fd_http_server_t * http,
 #ifdef FD_HTTP_SERVER_DEBUG
   FD_LOG_NOTICE(( "Closing connection %lu (fd=%d) (%d-%s)", conn_idx, http->pollfds[ conn_idx ].fd, reason, fd_http_server_connection_close_reason_str( reason ) ));
 #endif
+
   if( FD_UNLIKELY( -1==close( http->pollfds[ conn_idx ].fd ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, strerror( errno ) ));
+
   http->pollfds[ conn_idx ].fd = -1;
   if( FD_LIKELY( conn_idx<http->max_conns ) ) {
     if( FD_LIKELY( http->callbacks.close    ) ) http->callbacks.close( conn_idx, reason, http->callback_ctx );
   } else {
     if( FD_LIKELY( http->callbacks.ws_close ) ) http->callbacks.ws_close( conn_idx-http->max_conns, reason, http->callback_ctx );
+  }
+
+  if( FD_UNLIKELY( conn_idx<http->max_conns ) ) {
+    struct fd_http_server_connection * conn = &http->conns[ conn_idx ];
+    if( FD_LIKELY( (conn->state==FD_HTTP_SERVER_CONNECTION_STATE_WRITING_HEADER || conn->state==FD_HTTP_SERVER_CONNECTION_STATE_WRITING_HEADER)
+                    && conn->response.last_off!=ULONG_MAX ) ) {
+      conn_treap_ele_remove( http->conn_treap, conn, http->conns );
+    }
+    conn_pool_ele_release( http->conns, conn );
+  } else {
+    struct fd_http_server_ws_connection * ws_conn = &http->ws_conns[ conn_idx-http->max_conns ];
+    if( FD_LIKELY( ws_conn->send_frame_cnt ) ) ws_conn_treap_ele_remove( http->ws_conn_treap, ws_conn, http->ws_conns );
+    ws_conn_pool_ele_release( http->ws_conns, ws_conn );
   }
 }
 
@@ -292,27 +356,37 @@ accept_conns( fd_http_server_t * http ) {
       else FD_LOG_ERR(( "accept failed (%i-%s)", errno, strerror( errno ) ));
     }
 
-    /* Just evict oldest connection if it's still alive, they were too slow. */
-    if( FD_UNLIKELY( -1!=http->pollfds[ http->conn_id ].fd ) ) close_conn( http, http->conn_id, FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED );
-
-    http->pollfds[ http->conn_id ].fd = fd;
-    http->conns[ http->conn_id ].state                  = FD_HTTP_SERVER_CONNECTION_STATE_READING;
-    http->conns[ http->conn_id ].request_bytes_read     = 0UL;
-    http->conns[ http->conn_id ].response_bytes_written = 0UL;
-
-    http->conns[ http->conn_id ].response.body_len          = 0UL;
-    http->conns[ http->conn_id ].response.content_type      = NULL;
-    http->conns[ http->conn_id ].response.upgrade_websocket = 0;
-    http->conns[ http->conn_id ].response.status            = 400;
-
-    if( FD_UNLIKELY( http->callbacks.open ) ) {
-      http->callbacks.open( http->conn_id, fd, http->callback_ctx );
+    if( FD_UNLIKELY( !conn_pool_free( http->conns ) ) ) {
+      conn_treap_rev_iter_t it = conn_treap_rev_iter_init( http->conn_treap, http->conns );
+      if( FD_LIKELY( !conn_treap_rev_iter_done( it ) ) ) {
+        ulong conn_id = conn_treap_rev_iter_idx( conn_treap_rev_iter_next( it, http->conns ) );
+        close_conn( http, conn_id, FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED );
+      } else {
+        /* If nobody is slow to read, just evict round robin */
+        close_conn( http, http->evict_conn_id, FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED );
+        http->evict_conn_id = (http->evict_conn_id+1UL) % http->max_conns;
+      }
     }
 
-    http->conn_id = (http->conn_id+1UL) % http->max_conns;
+    ulong conn_id = conn_pool_idx_acquire( http->conns );
+
+    http->pollfds[ conn_id ].fd = fd;
+    http->conns[ conn_id ].state                  = FD_HTTP_SERVER_CONNECTION_STATE_READING;
+    http->conns[ conn_id ].request_bytes_read     = 0UL;
+    http->conns[ conn_id ].response_bytes_written = 0UL;
+
+    http->conns[ conn_id ].response.body_len          = 0UL;
+    http->conns[ conn_id ].response.content_type      = NULL;
+    http->conns[ conn_id ].response.upgrade_websocket = 0;
+    http->conns[ conn_id ].response.status            = 400;
+    http->conns[ conn_id ].response.last_off          = ULONG_MAX;
+
+    if( FD_UNLIKELY( http->callbacks.open ) ) {
+      http->callbacks.open( conn_id, fd, http->callback_ctx );
+    }
 
 #ifdef FD_HTTP_SERVER_DEBUG
-    FD_LOG_NOTICE(( "Accepted connection %lu (fd=%d)", (http->conn_id+http->max_conns-1UL) % http->max_conns, fd ));
+    FD_LOG_NOTICE(( "Accepted connection %lu (fd=%d)", conn_id, fd ));
 #endif
   }
 }
@@ -497,6 +571,10 @@ read_conn_http( fd_http_server_t * http,
 #ifdef FD_HTTP_SERVER_DEBUG
   FD_LOG_NOTICE(( "Received %s request \"%s\" from %lu (fd=%d) response code %lu", fd_http_server_method_str( method_enum ), path_nul_terminated, conn_idx, http->pollfds[ conn_idx ].fd, conn->response.status ));
 #endif
+
+  if( FD_LIKELY( conn->response.last_off!=ULONG_MAX ) ) {
+    conn_treap_ele_insert( http->conn_treap, conn, http->conns );
+  }
 }
 
 static void
@@ -721,12 +799,23 @@ write_conn_http( fd_http_server_t * http,
           int fd = http->pollfds[ conn_idx ].fd;
           http->pollfds[ conn_idx ].fd = -1;
 
-          /* Just evict oldest ws connection if it's still alive, they
-             were too slow. */
-          ulong ws_conn_id = http->ws_conn_id;
-          if( FD_UNLIKELY( -1!=http->pollfds[ http->max_conns+ws_conn_id ].fd ) ) close_conn( http, http->max_conns+ws_conn_id, FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED );
+          struct fd_http_server_connection * conn = &http->conns[ conn_idx ];
+          if( FD_LIKELY( conn->response.last_off!=ULONG_MAX ) ) conn_treap_ele_remove( http->conn_treap, conn, http->conns );
+          conn_pool_ele_release( http->conns, conn );
+
+          if( FD_UNLIKELY( !ws_conn_pool_free( http->ws_conns ) ) ) {
+            ws_conn_treap_rev_iter_t it = ws_conn_treap_rev_iter_init( http->ws_conn_treap, http->ws_conns );
+            if( FD_LIKELY( !ws_conn_treap_rev_iter_done( it ) ) ) {
+              ulong ws_conn_id = ws_conn_treap_rev_iter_idx( ws_conn_treap_rev_iter_next( it, http->ws_conns ) );
+              close_conn( http, http->max_conns+ws_conn_id, FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED );
+            } else {
+              close_conn( http, http->max_conns+http->evict_ws_conn_id, FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED );
+              http->evict_ws_conn_id = (http->evict_ws_conn_id+1UL) % http->max_ws_conns;
+            }
+          }
+
+          ulong ws_conn_id = ws_conn_pool_idx_acquire( http->ws_conns );
           http->pollfds[ http->max_conns+ws_conn_id ].fd = fd;
-          http->ws_conn_id = (http->ws_conn_id+1UL) % http->max_ws_conns;
 
           http->ws_conns[ ws_conn_id ].pong_state               = FD_HTTP_SERVER_PONG_STATE_NONE;
           http->ws_conns[ ws_conn_id ].send_frame_cnt           = 0UL;
@@ -768,7 +857,7 @@ maybe_write_pong( fd_http_server_t * http,
   /* No need to pong if ....
 
       Client has not sent a ping */
-  if( FD_LIKELY( conn->pong_state==FD_HTTP_SERVER_PONG_STATE_NONE ) )       return 0;
+  if( FD_LIKELY( conn->pong_state==FD_HTTP_SERVER_PONG_STATE_NONE ) ) return 0;
   /*  We are in the middle of writing a data frame */
   if( FD_LIKELY( conn->send_frame_cnt && (conn->send_frame_state=FD_HTTP_SERVER_SEND_FRAME_STATE_DATA || conn->send_frame_bytes_written ) ) ) return 0;
 
@@ -865,6 +954,9 @@ write_conn_ws( fd_http_server_t * http,
         conn->send_frame_idx   = (conn->send_frame_idx+1UL) % http->max_ws_send_frame_cnt;
         conn->send_frame_cnt--;
         conn->send_frame_bytes_written = 0UL;
+
+        ws_conn_treap_ele_remove( http->ws_conn_treap, conn, http->ws_conns );
+        if( FD_LIKELY( conn->send_frame_cnt ) ) ws_conn_treap_ele_insert( http->ws_conn_treap, conn, http->ws_conns );
       }
       break;
     }
@@ -884,6 +976,10 @@ fd_http_server_ws_send( fd_http_server_t * http,
 
   conn->send_frames[ (conn->send_frame_idx+conn->send_frame_cnt) % http->max_ws_send_frame_cnt ] = frame;
   conn->send_frame_cnt++;
+
+  if( FD_LIKELY( conn->send_frame_cnt==1UL ) ) {
+    ws_conn_treap_ele_insert( http->ws_conn_treap, conn, http->ws_conns );
+  }
 }
 
 void
@@ -920,6 +1016,34 @@ fd_http_server_poll( fd_http_server_t * http ) {
       if( FD_UNLIKELY( -1==http->pollfds[ i ].fd ) ) continue;
       if( FD_LIKELY( http->pollfds[ i ].revents & POLLOUT ) ) write_conn( http, i );
       /* No need to handle POLLHUP, read() will return 0 soon enough. */
+    }
+  }
+}
+
+void
+fd_http_server_evict_until( fd_http_server_t * http,
+                            ulong              last_off ) {
+  conn_treap_fwd_iter_t next;
+  for( conn_treap_fwd_iter_t it=conn_treap_fwd_iter_init( http->conn_treap, http->conns ); !conn_treap_fwd_iter_idx( it ); it=next ) {
+    next = conn_treap_fwd_iter_next( it, http->conns );
+    struct fd_http_server_connection * conn = conn_treap_fwd_iter_ele( it, http->conns );
+
+    if( FD_UNLIKELY( conn->response.last_off<last_off ) ) {
+      close_conn( http, conn_treap_fwd_iter_idx( it ), FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED );
+    } else {
+      break;
+    }
+  }
+
+  ws_conn_treap_fwd_iter_t ws_next;
+  for( ws_conn_treap_fwd_iter_t it=ws_conn_treap_fwd_iter_init( http->ws_conn_treap, http->ws_conns ); !ws_conn_treap_fwd_iter_idx( it ); it=ws_next ) {
+    ws_next = ws_conn_treap_fwd_iter_next( it, http->ws_conns );
+    struct fd_http_server_ws_connection * conn = ws_conn_treap_fwd_iter_ele( it, http->ws_conns );
+
+    if( FD_UNLIKELY( conn->send_frames[ conn->send_frame_idx ].last_off<last_off ) ) {
+      close_conn( http, ws_conn_treap_fwd_iter_idx( it )+http->max_conns, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW );
+    } else {
+      break;
     }
   }
 }

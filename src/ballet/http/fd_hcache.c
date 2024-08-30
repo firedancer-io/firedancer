@@ -32,6 +32,7 @@ fd_hcache_new( void *             shmem,
 
   hcache->server = server;
 
+  hcache->total_off = 0UL;
   hcache->snap_off = 0UL;
   hcache->snap_len = 0UL;
   hcache->snap_err = 0;
@@ -114,33 +115,6 @@ fd_hcache_data_sz( fd_hcache_t * hcache ) {
 }
 
 static void
-fd_hcache_evict_conns( fd_hcache_t * hcache,
-                       ulong         snap_off,
-                       ulong         snap_len ) {
-  for( ulong i=0UL; i<hcache->server->max_conns; i++ ) {
-    if( FD_LIKELY( hcache->server->pollfds[ i ].fd==-1 ) ) continue;
-
-    struct fd_http_server_connection * conn = hcache->server->conns + i;
-    int evict = conn->response.body>=fd_hcache_private_data( hcache )+snap_off &&
-                conn->response.body<fd_hcache_private_data( hcache )+snap_off+snap_len;
-
-    if( FD_UNLIKELY( evict ) ) fd_http_server_close( hcache->server, i, FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED );
-  }
-
-  for( ulong i=0UL; i<hcache->server->max_ws_conns; i++ ) {
-    if( FD_LIKELY( hcache->server->pollfds[ hcache->server->max_conns+i ].fd==-1 ) ) continue;
-
-    struct fd_http_server_ws_connection * conn = hcache->server->ws_conns + i;
-    if( FD_UNLIKELY( conn->send_frame_cnt ) ) {
-      int evict = conn->send_frames[ conn->send_frame_idx ].data>=fd_hcache_private_data( hcache )+snap_off &&
-                  conn->send_frames[ conn->send_frame_idx ].data<fd_hcache_private_data( hcache )+snap_off+snap_len;
-
-      if( FD_UNLIKELY( evict ) ) fd_http_server_ws_close( hcache->server, i, FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED );
-    }
-  }
-}
-
-static void
 fd_hcache_reserve( fd_hcache_t * hcache,
                    ulong         len ) {
   ulong remaining = hcache->data_sz - (hcache->snap_off + hcache->snap_len);
@@ -159,8 +133,11 @@ fd_hcache_reserve( fd_hcache_t * hcache,
                  rest of the buffer behind where the snap was to
                  preserve the invariant that snaps are always evicted in
                  circular order. */
-      fd_hcache_evict_conns( hcache, hcache->snap_off+hcache->snap_len, remaining );
-      fd_hcache_evict_conns( hcache, 0UL, hcache->snap_len+len );
+      hcache->total_off += remaining+len;
+      ulong clamp = fd_ulong_if( hcache->total_off>=hcache->data_sz, hcache->total_off-hcache->data_sz, 0UL );
+      fd_http_server_evict_until( hcache->server, clamp );
+      // fd_hcache_evict_conns( hcache, hcache->snap_off+hcache->snap_len, remaining );
+      // fd_hcache_evict_conns( hcache, 0UL, hcache->snap_len+len );
       memmove( fd_hcache_private_data( hcache ),
                fd_hcache_private_data( hcache ) + hcache->snap_off,
                hcache->snap_len );
@@ -169,7 +146,10 @@ fd_hcache_reserve( fd_hcache_t * hcache,
   } else {
     /* The snap can fit in the buffer, we just need to evict whatever
         was there before. */
-    fd_hcache_evict_conns( hcache, hcache->snap_off+hcache->snap_len, len );
+    hcache->total_off += len;
+    ulong clamp = fd_ulong_if( hcache->total_off>=hcache->data_sz, hcache->total_off-hcache->data_sz, 0UL );
+    fd_http_server_evict_until( hcache->server, clamp );
+    //fd_hcache_evict_conns( hcache, hcache->snap_off+hcache->snap_len, len );
   }
 }
 
@@ -198,7 +178,8 @@ fd_hcache_printf( fd_hcache_t * hcache,
 
 uchar const *
 fd_hcache_snap_response( fd_hcache_t * hcache,
-                         ulong *       body_len ) {
+                         ulong *       body_len,
+                         ulong *       total_off ) {
   if( FD_UNLIKELY( hcache->snap_err ) ) {
     hcache->snap_err = 0;
     hcache->snap_off = 0UL;
@@ -209,8 +190,10 @@ fd_hcache_snap_response( fd_hcache_t * hcache,
   *body_len          = hcache->snap_len;
   uchar const * body = fd_hcache_private_data( hcache ) + hcache->snap_off;
 
+  hcache->total_off += hcache->snap_len;
   hcache->snap_off = (hcache->snap_off + hcache->snap_len) % hcache->data_sz;
   hcache->snap_len = 0UL;
+  *total_off = hcache->total_off;
   return body;
 }
 
@@ -227,6 +210,7 @@ fd_hcache_snap_ws_send( fd_hcache_t * hcache,
   fd_http_server_ws_frame_t frame = {
     .data     = fd_hcache_private_data( hcache ) + hcache->snap_off,
     .data_len = hcache->snap_len,
+    .last_off = hcache->total_off + hcache->snap_len,
   };
   fd_http_server_ws_send( hcache->server, ws_conn_id, frame );
 
@@ -248,6 +232,7 @@ fd_hcache_snap_ws_broadcast( fd_hcache_t * hcache ) {
   fd_http_server_ws_frame_t frame = {
     .data     = fd_hcache_private_data( hcache ) + hcache->snap_off,
     .data_len = hcache->snap_len,
+    .last_off = hcache->total_off + hcache->snap_len,
   };
   fd_http_server_ws_broadcast( hcache->server, frame );
 
