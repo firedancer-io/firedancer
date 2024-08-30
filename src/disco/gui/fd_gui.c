@@ -1183,7 +1183,37 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui,
 static void
 fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
                                              ulong *    msg ) {
-  gui->summary.slot_optimistically_confirmed = msg[ 0];
+  ulong _slot = msg[ 0 ];
+
+  for( ulong i=0UL; i<fd_ulong_min( _slot, FD_GUI_SLOTS_CNT ); i++ ) {
+    ulong parent_idx = (_slot-i) % FD_GUI_SLOTS_CNT;
+    fd_gui_slot_t * slot = gui->slots[ parent_idx ];
+    if( FD_UNLIKELY( slot->slot==ULONG_MAX) ) break;
+
+    if( FD_UNLIKELY( slot->slot!=(_slot-i) ) ) {
+      FD_LOG_ERR(( "_slot %lu i %lu we expect _slot-i %lu got slot->slot %lu", _slot, i, _slot-i, slot->slot ));
+    }
+    if( FD_UNLIKELY( slot->level>=FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED ) ) break;
+
+    slot->level = FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED;
+    fd_gui_printf_slot( gui, _slot );
+    fd_hcache_snap_ws_broadcast( gui->hcache );
+  }
+
+  if( FD_UNLIKELY( msg[ 0 ]<gui->summary.slot_optimistically_confirmed ) ) {
+    /* Optimistically confirmed slot went backwards ... mark some slots as no
+       longer optimistically confirmed. */
+    for( ulong i=msg[ 0 ]; i<=gui->summary.slot_optimistically_confirmed; i++ ) {
+      fd_gui_slot_t * slot = gui->slots[ i % FD_GUI_SLOTS_CNT ];
+      FD_TEST( slot->slot==i );
+
+      slot->level = FD_GUI_SLOT_LEVEL_COMPLETED;
+      fd_gui_printf_slot( gui, i );
+      fd_hcache_snap_ws_broadcast( gui->hcache );
+    }
+  }
+
+  gui->summary.slot_optimistically_confirmed = msg[ 0 ];
   fd_gui_printf_optimistically_confirmed_slot( gui );
   fd_hcache_snap_ws_broadcast( gui->hcache );
 }
@@ -1217,7 +1247,7 @@ fd_gui_handle_start_progress( fd_gui_t *    gui,
       gui->summary.startup_snapshot_progress_pct = *(msg + 1);
       gui->summary.startup_snapshot_slot = fd_ulong_load_8( msg + 2 );
       FD_LOG_WARNING(( "progress: downloading snapshot: slot=%lu", gui->summary.startup_snapshot_slot ));
-      break;
+            break;
     }
     case FD_GUI_START_PROGRESS_TYPE_CLEANING_BLOCK_STORE:
       FD_LOG_WARNING(( "progress: cleaning block store" ));

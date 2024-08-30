@@ -558,6 +558,7 @@ poh_link_t crds_shred;
 poh_link_t replay_plugin;
 poh_link_t gossip_plugin;
 poh_link_t start_progress_plugin;
+poh_link_t vote_listener_plugin;
 poh_link_t poh_plugin;
 
 static void
@@ -1795,6 +1796,13 @@ fd_ext_plugin_publish_start_progress( ulong   sig,
 }
 
 void
+fd_ext_plugin_publish_vote_listener( ulong   sig,
+                                     uchar * data,
+                                     ulong   data_len ) {
+  poh_link_publish( &vote_listener_plugin, sig, data, data_len );
+}
+
+void
 fd_ext_plugin_publish_periodic( ulong   sig,
                                 uchar * data,
                                 ulong   data_len ) {
@@ -1856,6 +1864,7 @@ unprivileged_init( fd_topo_t *      topo,
   poh_link_init( &gossip_plugin,         topo, tile, 5UL );
   poh_link_init( &poh_plugin,            topo, tile, 6UL );
   poh_link_init( &start_progress_plugin, topo, tile, 7UL );
+  poh_link_init( &vote_listener_plugin,  topo, tile, 8UL );
 
   FD_LOG_NOTICE(( "PoH waiting to be initialized by Agave client... %lu %lu", fd_poh_waiting_lock, fd_poh_returned_lock ));
   FD_VOLATILE( fd_poh_global_ctx ) = ctx;
@@ -1891,7 +1900,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->bank_in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->bank_in[i].mem, link->dcache, link->mtu );
   }
 
-  FD_TEST( tile->out_cnt==8UL );
+  FD_TEST( tile->out_cnt==9UL );
 
   ctx->stake_in.mem    = topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ ctx->stake_in_idx ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->stake_in.chunk0 = fd_dcache_compact_chunk0( ctx->stake_in.mem, topo->links[ tile->in_link_id[ ctx->stake_in_idx ] ].dcache );
