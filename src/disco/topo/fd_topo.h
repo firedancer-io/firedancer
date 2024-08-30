@@ -209,6 +209,7 @@ typedef struct {
 
       char  blockstore_checkpt[ PATH_MAX ];
       int   blockstore_publish;
+      int   tx_metadata_storage;
       char  capture[ PATH_MAX ];
       char  funk_checkpt[ PATH_MAX ];
       ulong funk_rec_max;

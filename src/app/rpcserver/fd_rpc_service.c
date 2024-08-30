@@ -564,6 +564,7 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
   }
 
   const char * err = fd_block_to_json(ws,
+                                      blockstore,
                                       ctx->call_id,
                                       blk_data,
                                       blk_sz,

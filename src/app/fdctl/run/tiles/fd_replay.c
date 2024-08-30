@@ -151,6 +151,7 @@ struct fd_replay_tile_ctx {
 
   char const * blockstore_checkpt;
   int          blockstore_publish;
+  int          tx_metadata_storage;
   char const * funk_checkpt;
   char const * genesis;
   char const * incremental;
@@ -656,8 +657,9 @@ after_frag( void *             _ctx,
         is_new_epoch_in_new_block = (int)is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot );
       }
 
-      fork->slot_ctx.slot_bank.prev_slot = fork->slot_ctx.slot_bank.slot;
-      fork->slot_ctx.slot_bank.slot      = curr_slot;
+      fork->slot_ctx.slot_bank.prev_slot   = fork->slot_ctx.slot_bank.slot;
+      fork->slot_ctx.slot_bank.slot        = curr_slot;
+      fork->slot_ctx.enable_exec_recording = ctx->tx_metadata_storage;
 
       if( is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot ) ) {
         FD_LOG_WARNING(("Epoch boundary"));
@@ -1378,6 +1380,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->blockstore_checkpt = tile->replay.blockstore_checkpt;
   ctx->blockstore_publish = tile->replay.blockstore_publish;
+  ctx->tx_metadata_storage = tile->replay.tx_metadata_storage;
   ctx->funk_checkpt       = tile->replay.funk_checkpt;
   ctx->genesis            = tile->replay.genesis;
   ctx->incremental        = tile->replay.incremental;

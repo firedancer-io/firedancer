@@ -192,7 +192,7 @@ fd_topo_firedancer( config_t * _config ) {
   fd_topo_tile_t * repair_tile = &topo->tiles[ fd_topo_find_tile( topo, "repair", 0UL ) ];
 
   /* Create a shared blockstore to be used by store and replay. */
-  fd_topo_obj_t * blockstore_obj = fd_topob_obj_concrete( topo, "blockstore", "bstore", fd_blockstore_align(), fd_blockstore_footprint(), 64UL * FD_SHMEM_GIGANTIC_PAGE_SZ );
+  fd_topo_obj_t * blockstore_obj = fd_topob_obj_concrete( topo, "blockstore", "bstore", fd_blockstore_align(), fd_blockstore_footprint(), ( config->rpc.extended_tx_metadata_storage ? 128UL : 64UL ) * FD_SHMEM_GIGANTIC_PAGE_SZ );
   fd_topob_tile_uses( topo, store_tile,  blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, repair_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -478,6 +478,7 @@ fd_topo_firedancer( config_t * _config ) {
 
       strncpy( tile->replay.blockstore_checkpt, config->tiles.replay.blockstore_checkpt, sizeof(tile->replay.blockstore_checkpt) );
       tile->replay.blockstore_publish = config->tiles.replay.blockstore_publish;
+      tile->replay.tx_metadata_storage = config->rpc.extended_tx_metadata_storage;
       strncpy( tile->replay.capture, config->tiles.replay.capture, sizeof(tile->replay.capture) );
       strncpy( tile->replay.funk_checkpt, config->tiles.replay.funk_checkpt, sizeof(tile->replay.funk_checkpt) );
       tile->replay.funk_rec_max = config->tiles.replay.funk_rec_max;
