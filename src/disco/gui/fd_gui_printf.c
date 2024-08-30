@@ -966,7 +966,7 @@ fd_gui_printf_slot( fd_gui_t * gui,
         fd_gui_printf_tile_prime_metric( gui, slot->tile_prime_metric_begin, slot->tile_prime_metric_end );
       } else {
         jsonp_null( gui, "waterfall" );
-        jsonp_null( gui, "tile_timers" );
+        // jsonp_null( gui, "tile_timers" );
         jsonp_null( gui, "tile_primary_metric" );
       }
     jsonp_close_object( gui );

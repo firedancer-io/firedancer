@@ -1203,8 +1203,11 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
   if( FD_UNLIKELY( msg[ 0 ]<gui->summary.slot_optimistically_confirmed ) ) {
     /* Optimistically confirmed slot went backwards ... mark some slots as no
        longer optimistically confirmed. */
-    for( ulong i=msg[ 0 ]; i<=gui->summary.slot_optimistically_confirmed; i++ ) {
+    for( ulong i=gui->summary.slot_optimistically_confirmed; i>=msg[ 0 ]; i-- ) {
       fd_gui_slot_t * slot = gui->slots[ i % FD_GUI_SLOTS_CNT ];
+      if( slot->slot == ULONG_MAX ) {
+        break;
+      }
       FD_TEST( slot->slot==i );
 
       slot->level = FD_GUI_SLOT_LEVEL_COMPLETED;
