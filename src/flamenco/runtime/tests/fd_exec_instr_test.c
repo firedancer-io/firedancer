@@ -586,7 +586,8 @@ _add_compact_u16(uchar ** data, ushort to_add) {
 static fd_execute_txn_task_info_t *
 _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
                               fd_exec_slot_ctx_t *               slot_ctx,
-                              fd_exec_test_txn_context_t const * test_ctx ) {
+                              fd_exec_test_txn_context_t const * test_ctx,
+                              ulong * failed_parse ) {
   uchar empty_bytes[64] = { 0 };
   fd_funk_t * funk = runner->funk;
 
@@ -876,6 +877,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_txn_t * txn_descriptor = (fd_txn_t *) fd_scratch_alloc( fd_txn_align(), fd_txn_footprint( instr_count, addr_table_cnt ) );
   ushort txn_raw_sz = (ushort) (txn_raw_cur_ptr - txn_raw_begin);
   if( !fd_txn_parse( txn_raw_begin, txn_raw_sz, txn_descriptor, NULL ) ) {
+    *failed_parse = 1UL;
     FD_LOG_WARNING(("could not parse txn descriptor"));
     return NULL;
   }
@@ -1395,17 +1397,16 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     fd_wksp_t *           wksp          = fd_wksp_attach( "wksp" );
     fd_alloc_t *          alloc         = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2 ), 2 ), 0 );
     uchar *               slot_ctx_mem  = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
-    fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
+    fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );\
+    ulong                 failed_parse  = 0UL;
 
     /* Create and exec transaction */
-    fd_execute_txn_task_info_t * task_info = _txn_context_create_and_exec( runner, slot_ctx, input );
-    if( task_info == NULL ) {
+    fd_execute_txn_task_info_t * task_info = _txn_context_create_and_exec( runner, slot_ctx, input, &failed_parse );
+
+    if( task_info == NULL && !failed_parse ) {
       _txn_context_destroy( runner, NULL, slot_ctx, wksp, alloc );
       return 0UL;
     }
-    fd_exec_txn_ctx_t * txn_ctx   = task_info->txn_ctx;
-
-    int exec_res = task_info->exec_res;
 
     /* Collect rent */
     //TODO: _txn_collect_rent( txn_ctx );
@@ -1420,6 +1421,22 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     if( FD_UNLIKELY( _l > output_end ) ) {
       abort();
     }
+
+    if( failed_parse ) {
+      txn_result->sanitization_error = 1UL;
+      txn_result->status = 999UL;
+
+      ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+      _txn_context_destroy( runner, NULL, slot_ctx, wksp, alloc );
+
+      *output = txn_result;
+      return actual_end - (ulong)output_buf;
+    }
+
+    fd_exec_txn_ctx_t * txn_ctx   = task_info->txn_ctx;
+
+    int exec_res = task_info->exec_res;
+
     fd_memset( txn_result, 0, sizeof(fd_exec_test_txn_result_t) );
 
     /* Capture basic results fields */

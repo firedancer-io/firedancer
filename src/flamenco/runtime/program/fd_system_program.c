@@ -614,6 +614,7 @@ fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   int result = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
+  FD_LOG_WARNING(( "fd_system_program_execute: discriminant=%d", instruction.discriminant ));
   switch( instruction.discriminant ) {
   case fd_system_program_instruction_enum_create_account: {
     result = fd_system_program_exec_create_account(
