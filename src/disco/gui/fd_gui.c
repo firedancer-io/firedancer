@@ -997,9 +997,6 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
   memcpy( gui->summary.txn_waterfall_reference, slot->waterfall_end, sizeof(gui->summary.txn_waterfall_reference) );
   memcpy( slot->tile_prime_metric_begin, gui->summary.tile_prime_metric_ref, sizeof(slot->tile_prime_metric_begin) );
   memcpy( gui->summary.tile_prime_metric_ref, slot->tile_prime_metric_end, sizeof(gui->summary.tile_prime_metric_ref) );
-
-  fd_gui_printf_slot( gui, _slot[ 0 ] );
-  fd_hcache_snap_ws_broadcast( gui->hcache );
 }
 
 static void
