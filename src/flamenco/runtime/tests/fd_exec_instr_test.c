@@ -566,6 +566,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   ctx->instr     = info;
 
   fd_log_collector_init( &ctx->txn_ctx->log_collector, 1 );
+  fd_base58_encode_32( ctx->instr->program_id_pubkey.uc, NULL, ctx->program_id_base58 );
 
   return 1;
 }
@@ -1789,9 +1790,20 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
 
   /* Actually invoke the syscall */
   int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
+  if( syscall_err ) {
+    fd_log_collector_program_failure( vm->instr_ctx );
+  }
 
   /* Capture the effects */
-  effects->error = -syscall_err;
+  int exec_err = vm->instr_ctx->txn_ctx->exec_err;
+  effects->error = 0;
+  if( syscall_err ) {
+    effects->error = exec_err <= 0 ? -exec_err : -1;
+    if( exec_err==0 ) {
+      FD_LOG_WARNING(( "TODO: syscall returns error, but exec_err not set. this is probably missing a log." ));
+      effects->error = -1;
+    }
+  }
   effects->r0 = syscall_err ? 0 : vm->reg[0]; // Save only on success
   effects->cu_avail = (ulong)vm->cu;
 
@@ -1817,15 +1829,10 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   effects->frame_count = vm->frame_cnt;
 
   fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log_collector;
-  ulong logs_len = fd_log_collector_debug_len( log );
-  if( logs_len ) {
-    FD_TEST_CUSTOM( logs_len==1, "We only support syscalls tests with at most 1 log msg" );
-    uchar const * msg; ulong msg_sz;
-    fd_log_collector_debug_get( log, 0, &msg, &msg_sz );
+  if( log->buf_sz ) {
     effects->log = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( msg_sz ) );
-    effects->log->size = (uint)msg_sz;
-    fd_memcpy( effects->log->bytes, msg, msg_sz );
+      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( log->buf_sz ) );
+    effects->log->size = (uint)fd_log_collector_debug_sprintf( log, (char *)effects->log->bytes, 0 );
   } else {
     effects->log = NULL;
   }

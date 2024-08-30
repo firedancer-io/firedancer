@@ -4,6 +4,7 @@
 #include "../../fd_flamenco_base.h"
 #include "../info/fd_instr_info.h"
 #include "../fd_acc_mgr.h"
+#include "../fd_executor_err.h"
 
 /* fd_exec_instr_ctx_t is the context needed to execute a single
    instruction (program invocation). */
@@ -29,12 +30,6 @@ struct __attribute__((aligned(8UL))) fd_exec_instr_ctx {
   /* Most instructions log the base58 program id multiple times, so it's
      convenient to compute it once and reuse it. */
   char program_id_base58[ FD_BASE58_ENCODED_32_SZ ];
-
-  /* Execution results (err)
-     TODO: we store `custom_err` inside txn_ctx, so maybe we should
-     store these inside txn_ctx as well? */
-  int vm_exec;
-  int instr_exec;
 
   fd_instr_info_t const * instr;
 };

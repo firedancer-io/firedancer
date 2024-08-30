@@ -3,6 +3,85 @@
 #include "../runtime/context/fd_exec_slot_ctx.h"
 #include "../features/fd_features.h"
 
+/* fd_vm_syscall_strerror() returns the error message corresponding to err,
+   intended to be logged by log_collector, or an empty string if the error code
+   should be omitted in logs for whatever reason.  Omitted examples are success,
+   panic (logged in place)...
+   See also fd_log_collector_program_failure(). */
+char const *
+fd_vm_syscall_strerror( int err ) {
+
+  switch( err ) {
+
+  case FD_VM_ERR_SYSCALL_INVALID_STRING:                         return "invalid utf-8 sequence"; // truncated
+  case FD_VM_ERR_SYSCALL_ABORT:                                  return "SBF program panicked";
+  case FD_VM_ERR_SYSCALL_PANIC:                                  return "SBF program Panicked in..."; // truncated
+  case FD_VM_ERR_SYSCALL_INVOKE_CONTEXT_BORROW_FAILED:           return "Cannot borrow invoke context";
+  case FD_VM_ERR_SYSCALL_MALFORMED_SIGNER_SEED:                  return "Malformed signer seed"; // truncated
+  case FD_VM_ERR_SYSCALL_BAD_SEEDS:                              return "Could not create program address with signer seeds"; // truncated
+  case FD_VM_ERR_SYSCALL_PROGRAM_NOT_SUPPORTED:                  return "Program not supported by inner instructions"; // truncated
+  case FD_VM_ERR_SYSCALL_UNALIGNED_POINTER:                      return "Unaligned pointer";
+  case FD_VM_ERR_SYSCALL_TOO_MANY_SIGNERS:                       return "Too many signers";
+  case FD_VM_ERR_SYSCALL_INSTRUCTION_TOO_LARGE:                  return "Instruction passed to inner instruction is too large"; // truncated
+  case FD_VM_ERR_SYSCALL_TOO_MANY_ACCOUNTS:                      return "Too many accounts passed to inner instruction";
+  case FD_VM_ERR_SYSCALL_COPY_OVERLAPPING:                       return "Overlapping copy";
+  case FD_VM_ERR_SYSCALL_RETURN_DATA_TOO_LARGE:                  return "Return data too large"; // truncated
+  case FD_VM_ERR_SYSCALL_TOO_MANY_SLICES:                        return "Hashing too many sequences";
+  case FD_VM_ERR_SYSCALL_INVALID_LENGTH:                         return "InvalidLength";
+  case FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_DATA_LEN_EXCEEDED:      return "Invoked an instruction with data that is too large"; // truncated
+  case FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED:      return "Invoked an instruction with too many accounts"; // truncated
+  case FD_VM_ERR_SYSCALL_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED: return "Invoked an instruction with too many account info's"; // truncated
+  case FD_VM_ERR_SYSCALL_INVALID_ATTRIBUTE:                      return "InvalidAttribute";
+  case FD_VM_ERR_SYSCALL_INVALID_POINTER:                        return "Invalid pointer";
+  case FD_VM_ERR_SYSCALL_ARITHMETIC_OVERFLOW:                    return "Arithmetic overflow";
+
+  case FD_VM_ERR_SYSCALL_POSEIDON_INVALID_PARAMS:                return "Syscall error: Invalid parameters.";
+  case FD_VM_ERR_SYSCALL_POSEIDON_INVALID_ENDIANNESS:            return "Syscall error: Invalid endianness.";
+
+  default: break;
+  }
+
+  return "";
+}
+
+/* fd_vm_ebpf_strerror() returns the error message corresponding to err,
+   intended to be logged by log_collector, or an empty string if the error code
+   should be omitted in logs for whatever reason.
+   See also fd_log_collector_program_failure(). */
+char const *
+fd_vm_ebpf_strerror( int err ) {
+
+  switch( err ) {
+
+  case FD_VM_ERR_EBPF_ELF_ERROR:                   return "ELF error"; // truncated
+  case FD_VM_ERR_EBPF_FUNCTION_ALREADY_REGISTERED: return "function was already registered"; // truncated
+  case FD_VM_ERR_EBPF_CALL_DEPTH_EXCEEDED:         return "exceeded max BPF to BPF call depth";
+  case FD_VM_ERR_EBPF_EXIT_ROOT_CALL_FRAME:        return "attempted to exit root call frame";
+  case FD_VM_ERR_EBPF_DIVIDE_BY_ZERO:              return "divide by zero at BPF instruction";
+  case FD_VM_ERR_EBPF_DIVIDE_OVERFLOW:             return "division overflow at BPF instruction";
+  case FD_VM_ERR_EBPF_EXECUTION_OVERRUN:           return "attempted to execute past the end of the text segment at BPF instruction";
+  case FD_VM_ERR_EBPF_CALL_OUTSIDE_TEXT_SEGMENT:   return "callx attempted to call outside of the text segment";
+  case FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS:   return "exceeded CUs meter at BPF instruction";
+  case FD_VM_ERR_EBPF_JIT_NOT_COMPILED:            return "program has not been JIT-compiled";
+  case FD_VM_ERR_EBPF_INVALID_VIRTUAL_ADDRESS:     return "invalid virtual address"; // truncated
+  case FD_VM_ERR_EBPF_INVALID_MEMORY_REGION:       return "Invalid memory region at index"; // truncated
+  case FD_VM_ERR_EBPF_ACCESS_VIOLATION:            return "Access violation"; // truncated
+  case FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION:      return "Access violation in stack frame"; // truncated
+  case FD_VM_ERR_EBPF_INVALID_INSTRUCTION:         return "invalid BPF instruction";
+  case FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION:     return "unsupported BPF instruction";
+  case FD_VM_ERR_EBPF_EXHAUSTED_TEXT_SEGMENT:      return "Compilation exhausted text segment at BPF instruction"; // truncated
+  case FD_VM_ERR_EBPF_LIBC_INVOCATION_FAILED:      return "Libc calling returned error code"; // truncated
+  case FD_VM_ERR_EBPF_VERIFIER_ERROR:              return "Verifier error"; // truncated
+  case FD_VM_ERR_EBPF_SYSCALL_ERROR:               return ""; // handled explicitly via fd_vm_syscall_strerror()
+
+  default: break;
+  }
+
+  return "";
+}
+
+/* fd_vm_strerror() returns the error message corresponding to err, used internally
+   for system logs, NOT for log_collector / transaction logs. */
 char const *
 fd_vm_strerror( int err ) {
 
