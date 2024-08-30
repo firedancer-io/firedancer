@@ -100,8 +100,6 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
                                           /**/            ulong * _ret )  {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  ulong r0 = 0UL;
-
   uchar * bump_seed = NULL;
 
   FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
@@ -113,7 +111,8 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
   if ( FD_UNLIKELY( err == FD_VM_ERR_INVALID_PDA ) ) {
     /* Place 1 in r0 if the PDA is invalid
        https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/mod.rs#L712 */
-    r0 = 1UL;
+    *_ret = 1UL;
+    return FD_VM_SUCCESS;
   } else if ( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -122,7 +121,7 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
   memcpy( out_haddr, derived->uc, sizeof(fd_pubkey_t) );
 
   /* Success */
-  *_ret = r0;
+  *_ret = 0UL;
   return FD_VM_SUCCESS;
 }
 
