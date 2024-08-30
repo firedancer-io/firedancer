@@ -108,8 +108,8 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
 
   fd_pubkey_t derived[1];
   int err = fd_vm_derive_pda( vm, program_id, seeds_vaddr, seeds_cnt, bump_seed, derived );
-  if ( FD_UNLIKELY( err == FD_VM_ERR_INVALID_PDA ) ) {
-    /* Place 1 in r0 if the PDA is invalid
+  if ( FD_UNLIKELY( err != FD_VM_SUCCESS ) ) {
+    /* Place 1 in r0 if we failed to derive a PDA
        https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/mod.rs#L712 */
     *_ret = 1UL;
     return FD_VM_SUCCESS;
