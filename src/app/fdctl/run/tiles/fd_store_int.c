@@ -395,7 +395,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
     fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, slot );
     if( block == NULL ) {
-      FD_LOG_ERR(( "could not find block" ));
+      FD_LOG_ERR(( "could not find block - slot: %lu", slot ));
     }
 
     fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );

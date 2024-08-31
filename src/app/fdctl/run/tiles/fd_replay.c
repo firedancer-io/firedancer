@@ -204,7 +204,7 @@ struct fd_replay_tile_ctx {
   ulong * bank_busy;
   ulong * smr;  /* supermajority root slot */
   ulong * poh;  /* proof-of-history slot */
-  uint poh_init_done;
+uint poh_init_done;
 
   int         vote;
   fd_pubkey_t validator_identity_pubkey[ 1 ];
@@ -1243,7 +1243,7 @@ after_credit( void *             _ctx,
 static void
 during_housekeeping( void * _ctx ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
-  fd_mcache_seq_update( ctx->poh_out_sync, ctx->poh_out_seq );
+  // fd_mcache_seq_update( ctx->poh_out_sync, ctx->poh_out_seq );
 
   ulong smr = fd_fseq_query( ctx->smr );
   if( FD_UNLIKELY( smr == ULONG_MAX ) ) return;
