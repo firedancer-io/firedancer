@@ -1140,7 +1140,7 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
   if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot );
 
   slot->completed_time = fd_log_wallclock();
-  if( slot->level>=FD_GUI_SLOT_LEVEL_COMPLETED ) {
+  if( FD_UNLIKELY( slot->level>=FD_GUI_SLOT_LEVEL_COMPLETED ) ) {
     FD_LOG_ERR(( "_slot %lu we expected level to be < %d but found level=%d", _slot, FD_GUI_SLOT_LEVEL_COMPLETED, slot->level ));
   }
   slot->level          = FD_GUI_SLOT_LEVEL_COMPLETED;
@@ -1161,6 +1161,8 @@ static void
 fd_gui_handle_rooted_slot( fd_gui_t * gui,
                            ulong *    msg ) {
   ulong _slot = msg[ 0 ];
+
+  FD_LOG_WARNING(( "Got rooted slot %lu", _slot ));
 
   for( ulong i=0UL; i<fd_ulong_min( _slot, FD_GUI_SLOTS_CNT ); i++ ) {
     ulong parent_idx = (_slot-i) % FD_GUI_SLOTS_CNT;
@@ -1187,6 +1189,8 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
                                              ulong *    msg ) {
   ulong _slot = msg[ 0 ];
 
+  FD_LOG_WARNING(( "Got optimistically confirmed slot %lu", _slot ));
+
   for( ulong i=0UL; i<fd_ulong_min( _slot, FD_GUI_SLOTS_CNT ); i++ ) {
     ulong parent_idx = (_slot-i) % FD_GUI_SLOTS_CNT;
     fd_gui_slot_t * slot = gui->slots[ parent_idx ];
@@ -1202,10 +1206,10 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
     fd_hcache_snap_ws_broadcast( gui->hcache );
   }
 
-  if( FD_UNLIKELY( msg[ 0 ]<gui->summary.slot_optimistically_confirmed ) ) {
+  if( FD_UNLIKELY( _slot<gui->summary.slot_optimistically_confirmed ) ) {
     /* Optimistically confirmed slot went backwards ... mark some slots as no
        longer optimistically confirmed. */
-    for( ulong i=gui->summary.slot_optimistically_confirmed; i>=msg[ 0 ]; i-- ) {
+    for( ulong i=gui->summary.slot_optimistically_confirmed; i>=_slot; i-- ) {
       fd_gui_slot_t * slot = gui->slots[ i % FD_GUI_SLOTS_CNT ];
       if( FD_UNLIKELY( slot->slot==ULONG_MAX ) ) break;
       FD_TEST( slot->slot==i );
@@ -1216,7 +1220,7 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
     }
   }
 
-  gui->summary.slot_optimistically_confirmed = msg[ 0 ];
+  gui->summary.slot_optimistically_confirmed = _slot;
   fd_gui_printf_optimistically_confirmed_slot( gui );
   fd_hcache_snap_ws_broadcast( gui->hcache );
 }
