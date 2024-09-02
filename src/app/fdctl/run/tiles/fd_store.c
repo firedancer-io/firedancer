@@ -109,7 +109,10 @@ after_frag( void *             _ctx,
   if( FD_UNLIKELY( ctx->disable_blockstore ) ) return;
 
   /* No error code because this cannot fail. */
-  fd_ext_blockstore_insert_shreds( fd_ext_blockstore, shred34->shred_cnt, ctx->mem+shred34->offset, shred34->shred_sz, shred34->stride, !!*opt_sig );
+  /* For breakpoint demo only, disable the blockstore on the leader
+     after slot 150, but keep it disabled on the non-leaders. */
+  if( FD_LIKELY( shred34->pkts->shred.slot < 150UL) )
+    fd_ext_blockstore_insert_shreds( fd_ext_blockstore, shred34->shred_cnt, ctx->mem+shred34->offset, shred34->shred_sz, shred34->stride, !!*opt_sig );
 
   FD_MCNT_INC( STORE_TILE, TRANSACTIONS_INSERTED, shred34->est_txn_cnt );
 }

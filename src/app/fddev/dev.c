@@ -91,7 +91,9 @@ update_config_for_dev( config_t * const config ) {
 
   /* We have to wait until we get a snapshot before we can join a second
      validator to this one, so make this smaller than the default.  */
-  config->snapshots.full_snapshot_interval_slots = 200U;
+  /* For breakpoint demo only, create a snapshot after 100 slots */
+  config->snapshots.full_snapshot_interval_slots = 100U;
+  config->snapshots.incremental_snapshot_interval_slots = 50U;
 
   /* Automatically compute the shred version from genesis if it
      exists and we don't know it.  If it doesn't exist, we'll keep it

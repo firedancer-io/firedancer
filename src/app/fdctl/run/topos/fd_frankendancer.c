@@ -148,7 +148,7 @@ fd_topo_frankendancer( config_t * config ) {
   /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "poh_pack",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "bank",   i,             "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "bank_poh",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "bank_poh",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  //FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "bank_poh",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
                        fd_topob_tile_out( topo, "poh",    0UL,                        "poh_pack",     0UL                                                );
@@ -231,7 +231,8 @@ fd_topo_frankendancer( config_t * config ) {
       tile->net.xdp_rx_queue_size = config->tiles.net.xdp_rx_queue_size;
       tile->net.xdp_tx_queue_size = config->tiles.net.xdp_tx_queue_size;
       tile->net.src_ip_addr       = config->tiles.net.ip_addr;
-      tile->net.zero_copy         = !!strcmp( config->tiles.net.xdp_mode, "skb" ); /* disable zc for skb */
+      //tile->net.zero_copy         = !!strcmp( config->tiles.net.xdp_mode, "skb" ); /* disable zc for skb */
+      tile->net.zero_copy         = 0;
       fd_memset( tile->net.xdp_mode, 0, 4 );
       fd_memcpy( tile->net.xdp_mode, config->tiles.net.xdp_mode, strnlen( config->tiles.net.xdp_mode, 3 ) );  /* GCC complains about strncpy */
 

@@ -582,6 +582,39 @@ after_frag( void *             _ctx,
     FD_TEST( ctx->fec_sets <= *out_fec_set );
     ctx->send_fec_set_idx = (ulong)(*out_fec_set - ctx->fec_sets);
     ctx->shredded_txn_cnt = 0UL;
+
+    /* For milestone 1.4 only, compute the number of transactions.  It
+       seems like this is somewhat tricky without doing a full
+       deshred+transaction parse, because transactions and microblocks
+       can both be variable sized, but we have some shortcuts for the
+       milestone 1.4 demo:
+        * This FEC set is exactly one microblock batch, which means that
+          the number of microblocks+ticks it constains is stored in the
+          first 8 bytes of the data payload region of the first shred.
+          That means the amount of non-transaction data stored in this
+          shred is 8+48*(first 8 bytes), and all the rest is transaction
+          data.
+        * All transactions other than the occasional vote are 178 bytes.
+          This means that we can count the transactions by dividing the
+          transaction data size by 178.  Votes are so infrequent, that
+          the average transaction size is something like 178.0001.
+          Plus, as long as we only have 1 vote per microblock batch,
+          since the vote size is 319<2*178, the floor division will
+          ensure it's only counted once.
+       All the shreds in an FEC set other than perhaps the last one have
+       the same data size, so we can do this whole computation in O(1),
+       and in particular without needing to check each shred.  We'll
+       just reuse the variable that the shredder side uses, since it's
+       exactly what we want (other than perhaps the name) and that
+       minimizes the change that we'll need to back out later. */
+    if( 1 ) {
+      ulong data_shred_cnt = (*out_fec_set)->data_shred_cnt;
+      fd_shred_t const * shred0 = (fd_shred_t const *) (*out_fec_set)->data_shreds[ 0 ];
+      fd_shred_t const * shredN = (fd_shred_t const *) (*out_fec_set)->data_shreds[ data_shred_cnt-1UL ];
+
+      ctx->shredded_txn_cnt = ( (data_shred_cnt-1UL) * fd_shred_payload_sz( shred0 ) + fd_shred_payload_sz( shredN )
+                                - 8UL - 48UL*FD_LOAD( ulong, fd_shred_data_payload( shred0 ) ) )/178UL;
+    }
   } else {
     /* We know we didn't get overrun, so advance the index */
     ctx->shredder_fec_set_idx = (ctx->shredder_fec_set_idx+1UL)%ctx->shredder_max_fec_set_idx;
@@ -599,7 +632,7 @@ after_frag( void *             _ctx,
   s34[ 2 ].shred_cnt =                         fd_ulong_min( set->parity_shred_cnt, 34UL );
   s34[ 3 ].shred_cnt = set->parity_shred_cnt - fd_ulong_min( set->parity_shred_cnt, 34UL );
 
-  ulong s34_cnt     = 2UL + !!(s34[ 1 ].shred_cnt) + !!(s34[ 3 ].shred_cnt);
+  ulong s34_cnt     = 1UL + !!(s34[ 1 ].shred_cnt);
   ulong txn_per_s34 = ctx->shredded_txn_cnt / s34_cnt;
 
   /* Attribute the transactions evenly to the non-empty shred34s */
@@ -614,9 +647,11 @@ after_frag( void *             _ctx,
   fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+0UL ), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
   if( FD_UNLIKELY( s34[ 1 ].shred_cnt ) )
     fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+1UL ), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
-  fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+2UL), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
-  if( FD_UNLIKELY( s34[ 3 ].shred_cnt ) )
-    fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+3UL ), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
+  // fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+2UL), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
+  // if( FD_UNLIKELY( s34[ 3 ].shred_cnt ) )
+  //   fd_mux_publish( mux, sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+3UL ), sizeof(fd_shred34_t), 0UL, ctx->tsorig, tspub );
+
+  FD_MCNT_INC( SHRED, TRANSACTIONS_COMPLETED, ctx->shredded_txn_cnt );
 
   /* Compute all the destinations for all the new shreds */
 
