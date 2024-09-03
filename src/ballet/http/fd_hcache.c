@@ -165,6 +165,7 @@ fd_hcache_printf( fd_hcache_t * hcache,
   va_end( ap );
 
   fd_hcache_reserve( hcache, printed_len );
+  if( FD_UNLIKELY( hcache->snap_err ) ) return;
 
   va_start( ap, fmt );
   vsnprintf( (char *)fd_hcache_private_data( hcache ) + hcache->snap_off + hcache->snap_len,
