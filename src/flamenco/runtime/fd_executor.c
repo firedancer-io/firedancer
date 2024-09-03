@@ -326,10 +326,10 @@ fd_executor_check_replenish_program_cache( fd_exec_txn_ctx_t * txn_ctx ) {
     }
 
     // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/transaction_processor.rs#L254
-    if( ( !fd_account_is_executable( account->const_meta ) ) ) {
-      continue;
-    }
-    
+    // Agave checks that the account owner is in PROGRAM_OWNERS (bpf_loader_upgradeable, bpf_loader, bpf_loader_deprecated, loader_v4)
+    // After that filtering, those accounts are used in replenish_program_cache to update the program cache
+    // Since we don't have a program cache, we only care about the checks that will cause sanitization errors
+
     // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L72
     if( !memcmp( account->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.uc, sizeof(fd_pubkey_t) ) ) {
       // ProgramAccountLoadResult::ProgramOfLoaderV4
@@ -352,33 +352,33 @@ fd_executor_check_replenish_program_cache( fd_exec_txn_ctx_t * txn_ctx ) {
     err = 0;
 
     // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L94
-    if( read_bpf_upgradeable_loader_state_for_program( txn_ctx, (uchar) i, program_loader_state, &err ) && fd_bpf_upgradeable_loader_state_is_program( program_loader_state ) ) {
-      // ProgramAccountLoadResult::ProgramOfLoaderV3
-      fd_bincode_decode_ctx_t ctx = {
-        .data    = (uchar *)account->const_meta + account->const_meta->hlen,
-        .dataend = (char *) ctx.data + account->const_meta->dlen,
-        .valloc  = fd_scratch_virtual(),
-      };
-
-      fd_bpf_upgradeable_loader_state_t loader_state[1];
-
-      // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L99
-      if( FD_LIKELY( !fd_bpf_upgradeable_loader_state_decode( loader_state, &ctx ) )){
-        fd_pubkey_t * programdata_pubkey = (fd_pubkey_t *)&loader_state->inner.program.programdata_address;
-
-        fd_borrowed_account_t * programdata_account = NULL;
-        err                                         = fd_txn_borrowed_account_executable_view( txn_ctx, programdata_pubkey, &programdata_account );
-
-        // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L99
-        if ( err!=FD_ACC_MGR_SUCCESS ) {
-          continue;
+    if( !memcmp( account->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.uc, sizeof(fd_pubkey_t) ) ) {
+      if( read_bpf_upgradeable_loader_state_for_program( txn_ctx, (uchar) i, program_loader_state, &err ) && fd_bpf_upgradeable_loader_state_is_program( program_loader_state ) ) {        // ProgramAccountLoadResult::ProgramOfLoaderV3
+        fd_bincode_decode_ctx_t ctx = {
+          .data    = (uchar *)account->const_meta + account->const_meta->hlen,
+          .dataend = (char *) ctx.data + account->const_meta->dlen,
+          .valloc  = fd_scratch_virtual(),
         };
 
-        ulong acc_size = programdata_account->const_meta->dlen;
-        // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L164
-        if( acc_size <= PROGRAMDATA_METADATA_SIZE  ) {
-          // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/transaction_processor.rs#L601
-          hit_max_limit = 1;
+        fd_bpf_upgradeable_loader_state_t loader_state[1];
+        // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L99
+        if( FD_LIKELY( !fd_bpf_upgradeable_loader_state_decode( loader_state, &ctx ) ) ) {
+          fd_pubkey_t * programdata_pubkey = (fd_pubkey_t *)&loader_state->inner.program.programdata_address;
+
+          fd_borrowed_account_t * programdata_account = NULL;
+          err = fd_txn_borrowed_account_executable_view( txn_ctx, programdata_pubkey, &programdata_account );
+
+          // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L99
+          if ( err!=FD_ACC_MGR_SUCCESS ) {
+            continue;
+          };
+
+          ulong acc_size = programdata_account->const_meta->dlen;
+          // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/program_loader.rs#L164
+          if( acc_size <= PROGRAMDATA_METADATA_SIZE  ) {
+            // https://github.com/anza-xyz/agave/blob/df892c42418047ade3365c1b3ddcf6c45f95d1f1/svm/src/transaction_processor.rs#L601
+            hit_max_limit = 1;
+          }
         }
       }
     }
