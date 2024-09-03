@@ -23,4 +23,5 @@ else
   cd ..
 fi
 
-./nanopb/generator/nanopb_generator.py -I ../.. -I ./protosol/proto -L "" -C ./protosol/proto/*.proto -D generated
+./nanopb/generator/nanopb_generator.py -I ../.. -I ./protosol/proto_v2 -L "" -C ./protosol/proto_v2/*.proto -D generated
+./nanopb/generator/nanopb_generator.py -I ../.. -I ./protosol/proto    -L "" -C ./protosol/proto/*.proto    -D generated

@@ -23,6 +23,9 @@ $(call add-objs,fd_hashes,fd_flamenco)
 $(call add-hdrs,fd_pubkey_utils.h)
 $(call add-objs,fd_pubkey_utils,fd_flamenco)
 
+$(call add-hdrs,fd_runtime_dump.h)
+$(call add-objs,fd_runtime_dump,fd_flamenco)
+
 $(call add-hdrs,fd_rent_lists.h)
 
 $(call add-hdrs,fd_runtime.h fd_runtime_init.h fd_runtime_err.h)
