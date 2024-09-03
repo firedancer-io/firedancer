@@ -1,6 +1,8 @@
 #include "tiles.h"
 
 #include "generated/http_import_dist.h"
+
+#include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
 #include "generated/http_seccomp.h"
 
 #include "../../version.h"
@@ -16,7 +18,6 @@
 
 #include <errno.h>
 #include <sys/types.h>
-#include <sys/socket.h>
 #include <unistd.h>
 #include <string.h>
 #include <poll.h>

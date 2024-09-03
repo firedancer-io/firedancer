@@ -11,6 +11,16 @@
 #                    this is the socket file descriptor.
 unsigned int logfile_fd, unsigned int gui_socket_fd, unsigned int metrics_socket_fd
 
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR and descriptor 4 is the logfile.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #
 # arg 0 is the file descriptor to fsync.
@@ -19,10 +29,11 @@ fsync: (eq (arg 0) logfile_fd)
 # server: serving pages over HTTP requires accepting connections
 #
 # arg 0 is the listen socket file descriptor to accept connections on
-accept: (and (or (eq (arg 0) gui_socket_fd)
+accept4: (and (or (eq (arg 0) gui_socket_fd)
                  (eq (arg 0) metrics_socket_fd))
-             (eq (arg 1) 0)
-             (eq (arg 2) 0))
+              (eq (arg 1) 0)
+              (eq (arg 2) 0)
+              (eq (arg 3) "SOCK_CLOEXEC|SOCK_NONBLOCK"))
 
 # server: serving pages over HTTP requires reading from connections
 read
