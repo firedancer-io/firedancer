@@ -160,8 +160,9 @@ Assumptions:
   serialization format.
 - callee_instr is not null.
 - callee_instr->acct_pubkeys is at least as long as callee_instr->acct_cnt
-- instr_ctx->txn_ctx->accounts_cnt is less than USHORT_MAX.
+- instr_ctx->txn_ctx->accounts_cnt is less than UCHAR_MAX.
   This is likely because the transaction is limited to 256 accounts.
+- callee_instr->program_id is set to UCHAR_MAX if account is not in instr_ctx->txn_ctx.
 - instruction_accounts is a 256-length empty array.
 
 Parameters:
@@ -315,8 +316,15 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
      program account is a valid instruction account.
      https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L635-L648 */
   fd_borrowed_account_t * program_rec = NULL;
-  int err = fd_txn_borrowed_account_view( instr_ctx->txn_ctx, &callee_instr->program_id_pubkey, &program_rec );
+
+  /* Caller is in charge of setting an appropriate sentinel value (i.e., UCHAR_MAX) for callee_instr->program_id if not found. */
+  int err = fd_txn_borrowed_account_view_idx( instr_ctx->txn_ctx, callee_instr->program_id, &program_rec );
   if( FD_UNLIKELY( err ) ) {
+    /* https://github.com/anza-xyz/agave/blob/a9ac3f55fcb2bc735db0d251eda89897a5dbaaaa/program-runtime/src/invoke_context.rs#L434 */
+    char id_b58[45]; ulong id_b58_len;
+    fd_base58_encode_32( callee_instr->program_id_pubkey.uc, &id_b58_len, id_b58 );
+    fd_log_collector_msg_many( instr_ctx, "Unknown program ", 16, id_b58, id_b58_len );
+    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
