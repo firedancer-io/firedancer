@@ -125,6 +125,7 @@ fd_hcache_reserve( fd_hcache_t * hcache,
       /* Case 1: The snap is going to be larger than the entire buffer,
                   there's no way to fit it even if we evict everything
                   else.  Mark the hcache as errored and exit. */
+      FD_LOG_WARNING(( "setting snap_err to 1 snap_len=%lu len=%lu data_sz=%lu snap_off=%lu", hcache->snap_len, len, hcache->data_sz, hcache->snap_off ));
       hcache->snap_err = 1;
       return;
     } else {

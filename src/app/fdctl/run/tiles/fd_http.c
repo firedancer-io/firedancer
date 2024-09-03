@@ -33,7 +33,7 @@ FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 #define FD_HTTP_SERVER_GUI_MAX_WS_CONNS          1024
 #define FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN 1024
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
-#define FD_HTTP_SERVER_GUI_SEND_BUFFER_SZ        (5UL<<20UL) /* 5GiB reserved for buffering GUI websockets */
+#define FD_HTTP_SERVER_GUI_SEND_BUFFER_SZ        (5UL<<30UL) /* 5GiB reserved for buffering GUI websockets */
 
 const fd_http_server_params_t GUI_PARAMS = {
   .max_connection_cnt    = FD_HTTP_SERVER_GUI_MAX_CONNS,
