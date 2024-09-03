@@ -1911,6 +1911,10 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
                                                         (void *)tmp_end, 
                                                         fd_ulong_sat_sub( output_end, tmp_end ) );
 
+  if( !!vm->input_mem_regions_cnt && !effects->input_data_regions ) {
+    goto error;
+  }
+
   /* Return the effects */
   ulong actual_end = tmp_end + input_regions_size;
   fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
