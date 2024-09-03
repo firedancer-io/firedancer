@@ -463,9 +463,14 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   txn_ctx->accounts_cnt += (uchar) txn_ctx->txn_descriptor->acct_addr_cnt;
 
   if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
+    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/runtime/src/bank/address_lookup_table.rs#L44-L48 */
+    fd_slot_hashes_t const * slot_hashes = fd_sysvar_cache_slot_hashes( txn_ctx->slot_ctx->sysvar_cache );
+    if( FD_UNLIKELY( !slot_hashes ) ) {
+      return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
+    }
+
     fd_pubkey_t readonly_lut_accs[128];
     ulong readonly_lut_accs_cnt = 0;
-
     FD_SCRATCH_SCOPE_BEGIN {
       // Set up accounts in the account look up tables.
       fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn_ctx->txn_descriptor );
@@ -473,20 +478,20 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
         fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
         fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + addr_lut->addr_off);
 
-        /* https://github.com/firedancer-io/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
+        /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
         FD_BORROWED_ACCOUNT_DECL(addr_lut_rec);
         int err = fd_acc_mgr_view(txn_ctx->slot_ctx->acc_mgr, txn_ctx->slot_ctx->funk_txn, (fd_pubkey_t *) addr_lut_acc, addr_lut_rec);
         if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
           return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
         }
 
-        /* https://github.com/firedancer-io/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L96-L114 */
+        /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L96-L114 */
         if( FD_UNLIKELY( memcmp( addr_lut_rec->const_meta->info.owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
           return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER;
         }
 
         /* Realistically impossible case, but need to make sure we don't cause an OOB data access
-           https://github.com/firedancer-io/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L205-L209 */
+           https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L205-L209 */
         if( FD_UNLIKELY( addr_lut_rec->const_meta->dlen < FD_LOOKUP_TABLE_META_SIZE ) ) {
           return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
         }
@@ -499,37 +504,52 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
           .valloc  = fd_scratch_virtual(),
         };
 
-        /* https://github.com/firedancer-io/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L197-L214 */
+        /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L197-L214 */
         if( FD_UNLIKELY( fd_address_lookup_table_state_decode( &addr_lookup_table_state, &decode_ctx ) ) ) {
           return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
         }
 
-        /* https://github.com/firedancer-io/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L200-L203 */
+        /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L200-L203 */
         if( FD_UNLIKELY( addr_lookup_table_state.discriminant != fd_address_lookup_table_state_enum_lookup_table ) ) {
           return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
         }
 
         /* Again probably an impossible case, but the ALUT data needs to be 32-byte aligned
-           https://github.com/firedancer-io/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L210-L214 */
+           https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L210-L214 */
         if( FD_UNLIKELY( ( addr_lut_rec->const_meta->dlen - FD_LOOKUP_TABLE_META_SIZE ) & 0x1fUL ) ) {
           return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
         }
 
-        ulong lookup_addrs_cnt = ( addr_lut_rec->const_meta->dlen - FD_LOOKUP_TABLE_META_SIZE ) >> 5UL; // = (dlen - 56) / 32
+        /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L101-L112 */
         fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&addr_lut_rec->const_data[FD_LOOKUP_TABLE_META_SIZE];
+        ulong lookup_addrs_cnt = ( addr_lut_rec->const_meta->dlen - FD_LOOKUP_TABLE_META_SIZE ) >> 5UL; // = (dlen - 56) / 32
 
+        /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L175-L176 */
+        ulong active_addresses_len;
+        err = fd_get_active_addresses_len( &addr_lookup_table_state.inner.lookup_table, 
+                                           txn_ctx->slot_ctx->slot_bank.slot,
+                                           slot_hashes->hashes,
+                                           lookup_addrs_cnt,
+                                           &active_addresses_len );
+        if( FD_UNLIKELY( err ) ) {
+          return err;
+        }
+
+        /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L169-L182 */
         uchar * writable_lut_idxs = (uchar *)txn_ctx->_txn_raw->raw + addr_lut->writable_off;
         for( ulong j = 0; j < addr_lut->writable_cnt; j++ ) {
-          if( writable_lut_idxs[j] >= lookup_addrs_cnt ) {
-            return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
+          /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L177-L181 */
+          if( writable_lut_idxs[j] >= active_addresses_len ) {
+            return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX;
           }
           txn_ctx->accounts[txn_ctx->accounts_cnt++] = lookup_addrs[writable_lut_idxs[j]];
         }
 
         uchar * readonly_lut_idxs = (uchar *)txn_ctx->_txn_raw->raw + addr_lut->readonly_off;
         for( ulong j = 0; j < addr_lut->readonly_cnt; j++ ) {
-          if( readonly_lut_idxs[j] >= lookup_addrs_cnt ) {
-            return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
+          /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L177-L181 */
+          if( readonly_lut_idxs[j] >= active_addresses_len ) {
+            return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX;
           }
           readonly_lut_accs[readonly_lut_accs_cnt++] = lookup_addrs[readonly_lut_idxs[j]];
         }
@@ -1709,7 +1729,7 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
   ulong starting_lamports = 0;
   ulong starting_dlen = 0;
 
-  /* https://github.com/firedancer-io/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L63 */
+  /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L63 */
   for( ulong idx = 0; idx < txn->accounts_cnt; idx++ ) {
     fd_borrowed_account_t * b = &txn->borrowed_accounts[idx];
 
@@ -1726,27 +1746,27 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
       uchar after_uninitialized  = b->meta->info.lamports == 0;
       uchar after_rent_exempt    = b->meta->info.lamports >= fd_rent_exempt_minimum_balance2( rent, b->meta->dlen );
 
-      /* https://github.com/firedancer-io/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L96 */
+      /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L96 */
       if( FD_LIKELY( memcmp( b->pubkey->key, fd_sysvar_incinerator_id.key, sizeof(fd_pubkey_t) ) != 0 ) ) {
-        /* https://github.com/firedancer-io/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L44 */
+        /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L44 */
         if( after_uninitialized || after_rent_exempt ) {
           // no-op
         } else {
-          /* https://github.com/firedancer-io/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L45-L59 */
+          /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L45-L59 */
           uchar before_uninitialized = b->starting_dlen == ULONG_MAX || b->starting_lamports == 0;
           uchar before_rent_exempt   = b->starting_dlen != ULONG_MAX && b->starting_lamports >= fd_rent_exempt_minimum_balance2( rent, b->starting_dlen );
 
-          /* https://github.com/firedancer-io/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L50 */
+          /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L50 */
           if( before_uninitialized || before_rent_exempt ) {
             FD_LOG_DEBUG(( "Rent exempt error for %32J Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu", b->pubkey->uc, b->meta->dlen, b->starting_dlen, b->meta->info.lamports, b->starting_lamports, fd_rent_exempt_minimum_balance2( rent, b->meta->dlen ), fd_rent_exempt_minimum_balance2( rent, b->starting_dlen ) ));
-            /* https://github.com/firedancer-io/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
+            /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
             return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
-          /* https://github.com/firedancer-io/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L56 */
+          /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L56 */
           } else if( (b->meta->dlen == b->starting_dlen) && b->meta->info.lamports <= b->starting_lamports ) {
             // no-op
           } else {
             FD_LOG_DEBUG(( "Rent exempt error for %32J Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu", b->pubkey->uc, b->meta->dlen, b->starting_dlen, b->meta->info.lamports, b->starting_lamports, fd_rent_exempt_minimum_balance2( rent, b->meta->dlen ), fd_rent_exempt_minimum_balance2( rent, b->starting_dlen ) ));
-            /* https://github.com/firedancer-io/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
+            /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
             return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
           }
         }
@@ -1770,7 +1790,7 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
     }
   }
 
-  /* https://github.com/firedancer-io/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/transaction_processor.rs#L839-L845
+  /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/transaction_processor.rs#L839-L845
      Should these just kill the client?  They are impossible yet solana just throws an error */
   if (ending_lamports != starting_lamports) {
     FD_LOG_DEBUG(("Lamport sum mismatch: starting %lu ending %lu", starting_lamports, ending_lamports));

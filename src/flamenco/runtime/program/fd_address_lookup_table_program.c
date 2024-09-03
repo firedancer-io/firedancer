@@ -123,28 +123,6 @@ fd_addrlut_status( fd_lookup_table_meta_t const * state,
   return FD_ADDRLUT_STATUS_DEACTIVATED;
 }
 
-// static ulong
-// find_slot_hash( fd_slot_hash_t const * hashes, ulong slot ) {
-
-//   ulong start = 0;
-//   ulong end = deq_fd_slot_hash_t_cnt( hashes );
-
-//   while (start < end) {
-//     ulong mid = start + (end - start) / 2;
-//     fd_slot_hash_t const * ele = deq_fd_slot_hash_t_peek_index_const( hashes, mid );
-
-//     if ( ele->slot == slot ) {
-//       return slot;
-//     } else if ( ele->slot < slot ) {
-//       start = mid + 1;
-//     } else {
-//       end = mid - 1;
-//     }
-//   }
-
-//   return ULONG_MAX;
-// }
-
 /* Note on uses of fd_borrowed_account_acquire_write_is_safe:
 
    In some places of this program, the Agave implementation acquires a
@@ -988,4 +966,94 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
   } FD_SCRATCH_SCOPE_END;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+/**********************************************************************/
+/* Public API                                                         */
+/**********************************************************************/
+
+static ulong
+find_slot_hash( fd_slot_hash_t const * hashes, ulong slot ) {
+  ulong start = 0UL;
+  ulong end = deq_fd_slot_hash_t_cnt( hashes );
+
+  while( start <= end ) {
+    ulong mid = start + (end - start) / 2UL;
+    fd_slot_hash_t const * ele = deq_fd_slot_hash_t_peek_index_const( hashes, mid );
+
+    if( ele->slot == slot ) {
+      return slot;
+    } else if( ele->slot > slot ) {
+      start = mid + 1UL;
+    } else {
+      if( mid == 0UL ) {
+        break;
+      }
+      end = mid - 1UL;
+    }
+  }
+
+  return ULONG_MAX;
+}
+
+/* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L81-L104 */
+static uchar
+status( fd_address_lookup_table_t const * self,
+        ulong                             current_slot,
+        fd_slot_hash_t const *            slot_hashes ) {
+  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L82-L83 */
+  if( self->meta.deactivation_slot == ULONG_MAX ) {
+    return FD_ADDRLUT_STATUS_ACTIVATED;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L84-L87 */
+  if( self->meta.deactivation_slot == current_slot ) {
+    return FD_ADDRLUT_STATUS_DEACTIVATING;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L88-L100 */
+  if( find_slot_hash( slot_hashes, self->meta.deactivation_slot ) != ULONG_MAX ) {
+    return FD_ADDRLUT_STATUS_DEACTIVATING;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L102 */
+  return FD_ADDRLUT_STATUS_DEACTIVATED;
+}
+
+/* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L72-L78 */
+static uchar
+is_active( fd_address_lookup_table_t const * self,
+           ulong                             current_slot,
+           fd_slot_hash_t const *            slot_hashes ) {
+  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L73-L77 */
+  switch( status( self, current_slot, slot_hashes ) ) {
+    case FD_ADDRLUT_STATUS_ACTIVATED:
+    case FD_ADDRLUT_STATUS_DEACTIVATING:
+      return 1;
+    case FD_ADDRLUT_STATUS_DEACTIVATED:
+      return 0;
+    default:
+      __builtin_unreachable();
+  }
+}
+
+/* Sets active_addresses_len on success
+   https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L142-L164 */
+int
+fd_get_active_addresses_len( fd_address_lookup_table_t * self,
+                             ulong                       current_slot,
+                             fd_slot_hash_t const *      slot_hashes,
+                             ulong                       addresses_len,
+                             ulong *                     active_addresses_len ) {
+  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L147-L152 */
+  if( FD_UNLIKELY( !is_active( self, current_slot, slot_hashes ) ) ) {
+    return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L157-L161 */
+  *active_addresses_len = ( current_slot > self->meta.last_extended_slot )
+      ? addresses_len
+      : self->meta.last_extended_slot_start_index;
+  
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
