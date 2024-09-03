@@ -1858,6 +1858,9 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   if( vm->heap_max ) {
     effects->heap = FD_SCRATCH_ALLOC_APPEND(
       l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
+    if( FD_UNLIKELY( _l > output_end ) ) {
+      goto error;
+    }
     effects->heap->size = (uint)vm->heap_max;
     fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
   } else {
@@ -1866,12 +1869,18 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
 
   effects->stack = FD_SCRATCH_ALLOC_APPEND(
     l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
+    if( FD_UNLIKELY( _l > output_end ) ) {
+      goto error;
+    }
   effects->stack->size = (uint)FD_VM_STACK_MAX;
   fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
 
   if( vm->rodata_sz ) {
     effects->rodata = FD_SCRATCH_ALLOC_APPEND(
       l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );
+    if( FD_UNLIKELY( _l > output_end ) ) {
+      goto error;
+    }
     effects->rodata->size = (uint)rodata_sz;
     fd_memcpy( effects->rodata->bytes, vm->rodata, rodata_sz );
   } else {
@@ -1884,6 +1893,9 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   if( log->buf_sz ) {
     effects->log = FD_SCRATCH_ALLOC_APPEND(
       l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( log->buf_sz ) );
+    if( FD_UNLIKELY( _l > output_end ) ) {
+      goto error;
+    }
     effects->log->size = (uint)fd_log_collector_debug_sprintf( log, (char *)effects->log->bytes, 0 );
   } else {
     effects->log = NULL;
