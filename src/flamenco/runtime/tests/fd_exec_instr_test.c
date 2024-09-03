@@ -1948,12 +1948,23 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       fd_pubkey_t * acct_pubkey = &instr_info->acct_pubkeys[i];
 
       fd_borrowed_account_t * acct = NULL;
-      /* Find (first) account in cpi_exec_effects->modified_accounts that matches pubkey*/
+      /* Find (first) account in cpi_exec_effects->modified_accounts that matches pubkey */
       for( uint j = 0UL; j < cpi_exec_effects->modified_accounts_count; ++j ) {
         fd_exec_test_acct_state_t * acct_state = &cpi_exec_effects->modified_accounts[j];
         if( memcmp( acct_state->address, acct_pubkey, sizeof(fd_pubkey_t) ) != 0 ) continue;
 
         /* Fetch borrowed account */
+        /* First check if account is read-only. 
+           TODO: have fd_txn_borrowed_account_modify_idx perform this check? */
+
+        if( fd_txn_borrowed_account_view_idx( txn_ctx, idx_in_txn, &acct ) ) {
+          break;
+        }
+        if( acct->meta == NULL ){
+          break;
+        }
+
+        /* Now borrow mutably (with resize) */
         int err = fd_txn_borrowed_account_modify_idx( txn_ctx,
                                                       idx_in_txn,
                                                       /* Do not reallocate if data is not going to be modified */
