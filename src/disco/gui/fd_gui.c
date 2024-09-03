@@ -1140,8 +1140,12 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
   if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot );
 
   slot->completed_time = fd_log_wallclock();
-  if( FD_UNLIKELY( slot->level>=FD_GUI_SLOT_LEVEL_COMPLETED ) ) {
-    FD_LOG_ERR(( "_slot %lu we expected level to be < %d but found level=%d", _slot, FD_GUI_SLOT_LEVEL_COMPLETED, slot->level ));
+  if( FD_LIKELY( slot->level<FD_GUI_SLOT_LEVEL_COMPLETED ) ) {
+    /* Typically a slot goes from INCOMPLETE to COMPLETED but it can
+       happen that it starts higher.  One such case is when we
+       optimistically confirm a higher slot that skips this one, but
+       then later we replay this one anyway to track the bank fork. */
+    slot->level = FD_GUI_SLOT_LEVEL_COMPLETED;
   }
   slot->level          = FD_GUI_SLOT_LEVEL_COMPLETED;
   slot->total_txn_cnt  = total_txn_count;
