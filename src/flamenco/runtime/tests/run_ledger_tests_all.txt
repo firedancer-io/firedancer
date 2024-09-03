@@ -55,3 +55,4 @@ src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-282232100 -s snapshot-2
 src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-586-partitioned-epoch-rewards -s snapshot-253151900-HVhfam8TtRFVwFto5fWkhgR4mbBJmUxcnxeKZoW5MrSD.tar.zst -p 45 -y 32 -m 5000000 -e 253152100 -c 2003 -o 9bn2vTJUsUcnpiZWbu2woSKtTGW3ErZC9ERv88SDqQjK
 src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-257039990-partitioned-epoch-rewards -s snapshot-257039990-BSgErEc6ppN4p91meqPvUiXPiEhbakBNHMQQ4wKmceYv.tar.zst -p 45 -y 32 -m 20000000 -e 257040003 -c 2003 -o 9bn2vTJUsUcnpiZWbu2woSKtTGW3ErZC9ERv88SDqQjK
 src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-282151715 -s snapshot-282151712-6qodKmgM9YNdoFzfRKPFmVh1Gv3McVzQ8pd1Gka1efdg.tar.zst -p 30 -y 16 -m 5000000 -e 282151717 -c 1190
+src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-286450148 -s snapshot-286450145-5kdyfTzRq8GHKgQAZNYLNGRR2MvoeG6CWrsm8uwG6QKF.tar.zst -p 30 -y 15 -m 5000000 -e 286450151 -c 1190

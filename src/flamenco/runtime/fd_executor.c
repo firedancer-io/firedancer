@@ -407,7 +407,7 @@ fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_runtime_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw, &execution_fee, &priority_fee );
 
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( txn_ctx->slot_ctx->epoch_ctx );
-  ulong             total_fee  = 0;
+  ulong             total_fee  = 0UL;
 
   // https://github.com/anza-xyz/agave/blob/2e6ca8c1f62db62c1db7f19c9962d4db43d0d550/sdk/src/fee.rs#L54
   if ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, remove_rounding_in_fee_calculation ) ) {
@@ -428,7 +428,14 @@ fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx ) {
      same (balanced) amount of lamports. This is done by comparing the 
      borrowed accounts starting lamports and comparing it to the sum of 
      the ending lamports. Therefore, we need to update the starting lamports
-     specifically for the fee payer. */
+     specifically for the fee payer. 
+     
+     This is especially important in the case where the transaction fails. This
+     is because we need to roll back the account to the balance AFTER the fee
+     is paid. It is also possible for the accounts data and owner to change.
+     This means that the entire state of the borrowed account must be rolled
+     back to this point. */
+
   rec->meta->info.lamports -= total_fee;
   rec->starting_lamports    = rec->meta->info.lamports;
 
@@ -1012,12 +1019,12 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     memcpy(borrowed_account->pubkey->key, acc, sizeof(*acc));
 
     if( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
-        void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
-        fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
+      void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
+      fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
     }
 
     fd_account_meta_t const * meta = borrowed_account->const_meta ? borrowed_account->const_meta : borrowed_account->meta;
-    if (meta == NULL) {
+    if( meta == NULL ) {
       static const fd_account_meta_t sentinel = { .magic = FD_ACCOUNT_META_MAGIC };
       borrowed_account->const_meta        = &sentinel;
       borrowed_account->starting_lamports = 0UL;
