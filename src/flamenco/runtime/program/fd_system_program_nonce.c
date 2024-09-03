@@ -982,7 +982,8 @@ fd_check_transaction_age( fd_exec_txn_ctx_t const * txn_ctx ) {
   uchar const * instr_data  = fd_txn_get_instr_data( txn_instr, txn_ctx->_txn_raw->raw );
   uchar const * instr_accts = fd_txn_get_instr_accts( txn_instr, txn_ctx->_txn_raw->raw );
 
-  if( FD_UNLIKELY( txn_instr->data_sz!=4UL || FD_LOAD( uint, instr_data ) != 
+  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/program/src/message/sanitized.rs#L356-L358 */
+  if( FD_UNLIKELY( txn_instr->data_sz<4UL || FD_LOAD( uint, instr_data ) != 
                    (uint)fd_system_program_instruction_enum_advance_nonce_account ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
