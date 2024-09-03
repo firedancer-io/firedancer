@@ -115,12 +115,12 @@ mitm_tx( void *                    ctx,
       }
       continue;
     }
-    
+
     /* send new packet */
     fd_aio_pkt_info_t batch_0[1] = { batch[j] };
     fd_aio_send( mitm_ctx->dst, batch_0, 1UL, NULL, 1 );
     PCAP(batch_0,1UL);
-      
+
     /* we aren't dropping or reordering, but we might have a prior reorder */
     if( mitm_ctx->reorder_sz > 0UL ) {
       fd_aio_pkt_info_t batch_1[1] = {{ .buf = mitm_ctx->reorder_buf, .buf_sz = (ushort)mitm_ctx->reorder_sz }};
@@ -168,7 +168,7 @@ static void
 my_tls_keylog( void *       quic_ctx,
                char const * line ) {
   (void)quic_ctx;
-  FD_LOG_WARNING(( "SECRET: %s", line ));
+  FD_LOG_DEBUG(( "SECRET: %s", line ));
   fd_pcapng_fwrite_tls_key_log( (uchar const *)line, (uint)strlen( line ), pcap_server_to_client.pcapng );
 }
 
@@ -200,7 +200,7 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
   (void)stream;
   (void)fin;
 
-  FD_LOG_NOTICE(( "received data from peer.  stream_id: %lu  size: %lu offset: %lu\n",
+  FD_LOG_DEBUG(( "received data from peer.  stream_id: %lu  size: %lu offset: %lu",
                 (ulong)stream->stream_id, data_sz, offset ));
   FD_LOG_HEXDUMP_DEBUG(( "received data", data, data_sz ));
 

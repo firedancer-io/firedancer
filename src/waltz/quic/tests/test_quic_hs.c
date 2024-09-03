@@ -17,7 +17,7 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
   FD_LOG_DEBUG(( "server rx stream data stream=%lu size=%lu offset=%lu",
                  stream->stream_id, data_sz, offset ));
   FD_TEST( fd_ulong_is_aligned( offset, 512UL ) );
-  FD_LOG_HEXDUMP_DEBUG(( "received data", data, data_sz ));
+  //FD_LOG_HEXDUMP_DEBUG(( "received data", data, data_sz ));
 
   FD_TEST( data_sz==512UL );
   FD_TEST( !fin );
