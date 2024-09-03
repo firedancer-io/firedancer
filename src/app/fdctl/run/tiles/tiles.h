@@ -78,6 +78,9 @@ struct fd_microblock_trailer {
      that the accounts have been fully processed and can be
      released to pack for reuse. */
   ulong bank_busy_seq;
+
+  /* Number of CUs used in the current microblock. */
+  ulong cus_used;
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 

@@ -46,8 +46,10 @@ run_cmd_perm( args_t *         args,
     fd_caps_check_capability( caps, NAME, CAP_SETGID,                  "call `setresgid(2)` to switch gid" );
   if( FD_UNLIKELY( config->development.netns.enabled ) )
     fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,               "call `setns(2)` to enter a network namespace" );
-  if( FD_UNLIKELY( config->tiles.metric.prometheus_listen_port<1024 ) )
+  if( FD_UNLIKELY( config->tiles.http.prometheus_listen_port<1024 ) )
     fd_caps_check_capability( caps, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
+  if( FD_UNLIKELY( config->tiles.http.gui_listen_port<1024 ) )
+    fd_caps_check_capability( caps, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving the GUI" );
 }
 
 struct pidns_clone_args {
@@ -320,6 +322,12 @@ main_pid_namespace( void * _args ) {
     } else if( FD_UNLIKELY( child_pids[ i ]!=exited_pid ) ) {
       FD_LOG_ERR(( "pidns wait4() returned unexpected pid %d %d", child_pids[ i ], exited_pid ));
     } else if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
+      /* If the tile died with a signal like SIGSEGV or SIGSYS it might
+         still be holding the lock, which would cause us to hang when
+         writing out the error, so don't require the lock here. */
+      int lock = 0;
+      fd_log_private_shared_lock = &lock;
+
       FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with signal %d (%s)\n", i, child_names[ i ], WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
       exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
     }
@@ -340,7 +348,7 @@ main_pid_namespace( void * _args ) {
   while( 1 ) {
     if( FD_UNLIKELY( -1==poll( fds, 1+child_cnt, -1 ) ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    for( ulong i=0; i<1+child_cnt; i++ ) {
+    for( ulong i=0UL; i<1UL+child_cnt; i++ ) {
       if( FD_UNLIKELY( fds[ i ].revents ) ) {
         /* Must have been POLLHUP, POLLERR and POLLNVAL are not possible. */
         if( FD_UNLIKELY( i==child_cnt ) ) {
@@ -349,13 +357,15 @@ main_pid_namespace( void * _args ) {
         }
 
         char * tile_name = child_names[ i ];
-        ulong  tile_id = config->topo.tiles[ i ].kind_id;
+        ulong  tile_idx = 0UL;
+        if( FD_LIKELY( i>0UL ) ) tile_idx = config->development.no_agave ? i : i-1UL;
+        ulong  tile_id = config->topo.tiles[ tile_idx ].kind_id;
 
         /* Child process died, reap it to figure out exit code. */
         int wstatus;
         int exited_pid = wait4( -1, &wstatus, (int)__WALL | (int)WNOHANG, NULL );
         if( FD_UNLIKELY( -1==exited_pid ) ) {
-          FD_LOG_ERR(( "pidns wait4() failed (%i-%s) %lu %hu", errno, fd_io_strerror( errno ), i, fds[i].revents ));
+          FD_LOG_ERR(( "pidns wait4() failed (%i-%s) %lu %hu", errno, fd_io_strerror( errno ), i, fds[ i ].revents ));
         } else if( FD_UNLIKELY( !exited_pid ) ) {
           /* Spurious wakeup, no child actually dead yet. */
           continue;
@@ -657,6 +667,21 @@ check_configure( config_t * const config ) {
 void
 run_firedancer_init( config_t * const config,
                      int              init_workspaces ) {
+  struct stat st;
+  int err = stat( config->consensus.identity_path, &st );
+  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `fdctl keys new identity --config <toml>`", config->consensus.identity_path ));
+  else if ( FD_UNLIKELY( -1==err ) )            FD_LOG_ERR(( "could not stat [consensus.identity_path] `%s` (%i-%s)", config->consensus.identity_path, errno, fd_io_strerror( errno ) ));
+
+  err = stat( config->consensus.vote_account_path, &st );
+  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.vote_account_path] key does not exist `%s`. You can generate an vote key at this path by running `fdctl keys new vote --config <toml>`", config->consensus.vote_account_path ));
+  else if ( FD_UNLIKELY( -1==err ) )            FD_LOG_ERR(( "could not stat [consensus.vote_account_path] `%s` (%i-%s)", config->consensus.vote_account_path, errno, fd_io_strerror( errno ) ));
+
+  for( ulong i=0UL; i<config->consensus.authorized_voter_paths_cnt; i++ ) {
+    err = stat( config->consensus.authorized_voter_paths[ i ], &st );
+    if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.authorized_voter_paths] key does not exist `%s`", config->consensus.authorized_voter_paths[ i ] ));
+    else if ( FD_UNLIKELY( -1==err ) )            FD_LOG_ERR(( "could not stat [consensus.authorized_voter_paths] `%s` (%i-%s)", config->consensus.authorized_voter_paths[ i ], errno, fd_io_strerror( errno ) ));
+  }
+
   check_configure( config );
   if( FD_LIKELY( init_workspaces ) ) initialize_workspaces( config );
   initialize_stacks( config );

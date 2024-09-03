@@ -461,6 +461,7 @@ quic_stream_notify( fd_quic_stream_t * stream,
   /* Abort reassembly slot if QUIC stream closes non-gracefully */
 
   if( FD_UNLIKELY( type!=FD_QUIC_NOTIFY_END ) ) {
+    FD_MCNT_INC( QUIC_TILE, REASSEMBLY_NOTIFY_ABORTED, 1UL );
     fd_tpu_reasm_cancel( reasm, slot );
     return;  /* not a successful stream close */
   }

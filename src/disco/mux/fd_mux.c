@@ -191,13 +191,12 @@ fd_mux_tile( fd_cnc_t *              cnc,
 
       this_in->mcache = in_mcache[ in_idx ];
       this_in->fseq   = in_fseq  [ in_idx ];
-      ulong const * this_in_sync = fd_mcache_seq_laddr_const( this_in->mcache );
 
       ulong depth    = fd_mcache_depth( this_in->mcache ); min_in_depth = fd_ulong_min( min_in_depth, depth );
       if( FD_UNLIKELY( depth > UINT_MAX ) ) { FD_LOG_WARNING(( "in_mcache[%lu] too deep", in_idx )); return 1; }
       this_in->depth = (uint)depth;
       this_in->idx   = (uint)in_idx;
-      this_in->seq   = fd_mcache_seq_query( this_in_sync ); /* FIXME: ALLOW OPTION FOR MANUAL SPECIFICATION? */
+      this_in->seq   = 0UL;
       this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in->seq, this_in->depth );
 
       this_in->accum[0] = 0U; this_in->accum[1] = 0U; this_in->accum[2] = 0U;
@@ -647,6 +646,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */
       this_in->seq = seq_test; /* Resume from here (probably reasonably current, could query in mcache sync instead) */
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ]++; /* No local accum since extremely rare, faster to use smaller cache line */
+      fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF ] += (uint)fd_seq_diff( seq_test, seq_found );
       /* Don't bother with spin as polling multiple locations */
       long next = fd_tickcount();
       fd_histf_sample( hist_ovrnr_ticks, (ulong)(next - now) );

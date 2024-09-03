@@ -42,6 +42,17 @@ export default defineConfig({
           ]
         }
       ] },
+
+      '/api': { base: '/api/', items: [
+        {
+          text: 'API',
+          items: [
+            { text: 'Commands Line Interface', link: 'cli' },
+            { text: 'Metrics', link: 'metrics' },
+            { text: 'WebSocket', link: 'websocket' },
+          ]
+        }
+      ] },
     },
 
     socialLinks: [

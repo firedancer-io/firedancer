@@ -126,7 +126,7 @@ during_frag( void * _ctx,
 
   fd_memcpy( dst, src, sz-sizeof(fd_microblock_bank_trailer_t) );
   fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( src+sz-sizeof(fd_microblock_bank_trailer_t) );
-  ctx->_bank = trailer->bank;
+  ctx->_bank     = trailer->bank;
 }
 
 static void
@@ -213,7 +213,8 @@ after_frag( void *             _ctx,
                                                                       executed_results,
                                                                       consumed_cus     );
 
-  ulong sanitized_idx = 0UL;
+  ulong sanitized_idx      = 0UL;
+  ulong total_executed_cus = 0UL;
   for( ulong i=0; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
 
@@ -228,8 +229,9 @@ after_frag( void *             _ctx,
     if( FD_UNLIKELY( executing_results[ sanitized_idx-1 ] ) ) continue;
 
     ctx->metrics.txn_executed[ executed_results[ sanitized_idx-1 ] ]++;
-    txn->flags        |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-    txn->executed_cus  = consumed_cus[ sanitized_idx-1UL ];
+    txn->flags         |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+    txn->executed_cus   = consumed_cus[ sanitized_idx-1UL ];
+    total_executed_cus += txn->executed_cus;
   }
 
   /* Commit must succeed so no failure path.  This function takes
@@ -249,6 +251,7 @@ after_frag( void *             _ctx,
   hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
   trailer->bank_idx      = ctx->kind_id;
   trailer->bank_busy_seq = seq;
+  trailer->cus_used      = total_executed_cus;
 
   /* MAX_MICROBLOCK_SZ - (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)) == 64
      so there's always 64 extra bytes at the end to stash the hash. */
