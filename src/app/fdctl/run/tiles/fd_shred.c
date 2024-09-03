@@ -613,7 +613,7 @@ after_frag( void *             _ctx,
       fd_shred_t const * shredN = (fd_shred_t const *) (*out_fec_set)->data_shreds[ data_shred_cnt-1UL ];
 
       ctx->shredded_txn_cnt = ( (data_shred_cnt-1UL) * fd_shred_payload_sz( shred0 ) + fd_shred_payload_sz( shredN )
-                                - 8UL - 48UL*FD_LOAD( ulong, fd_shred_data_payload( shred0 ) ) )/178UL;
+                                - 8UL - 48UL*FD_LOAD( ulong, fd_shred_data_payload( shred0 ) ) )/215UL;
     }
   } else {
     /* We know we didn't get overrun, so advance the index */

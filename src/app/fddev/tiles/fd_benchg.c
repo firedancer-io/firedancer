@@ -55,76 +55,66 @@ typedef struct __attribute__((packed)) {
   uchar signature[64];
   uchar _sig_cnt; /* also 1 */
   uchar ro_signed_cnt; /* = 0 */
-  uchar ro_unsigned_cnt; /* = 1 . Compute Budget Program */
-  uchar acct_addr_cnt; /* = 2 */
+  uchar ro_unsigned_cnt; /* = 1 . System program */
+  uchar acct_addr_cnt; /* = 3 */
   uchar fee_payer[32];
-  uchar compute_budget_program[32]; /* = {COMPUTE_BUDGET_PROG_ID} */
+  uchar dest_acct[32];
+  uchar system_program[32]; /* = {0} */
   uchar recent_blockhash[32];
-  uchar instr_cnt; /* = 2 */
+  uchar instr_cnt; /* = 1 */
   /* Start of instruction */
-  struct __attribute__((packed)) {
-    uchar prog_id; /* = 1 */
-    uchar acct_cnt; /* = 0 */
-    uchar data_sz; /* = 9 */
-    uchar set_cu_price; /* = 3 */
-    ulong micro_lamports_per_cu; /* Prefereably less than 10k or so */
-  } _1;
-  /* Start of second instruction */
-  struct __attribute__((packed)) {
-    uchar prog_id; /* = 1 */
-    uchar acct_cnt; /* = 0 */
-    uchar data_sz; /* = 5 */
-    uchar set_cu_limit; /* = 2 */
-    uint cus; /* = 300 */
-  } _2;
-} bench_transaction_t;
+  uchar prog_id; /* = 2 */
+  uchar acct_cnt; /* = 2 */
+  uchar acct_idx[2]; /* 0, 1 */
+  uchar data_sz; /* = 12 */
+  uint  transfer_descriminant; /* = 2 */
+  ulong lamports;
+} transfer_t;
 
 static inline void
 after_credit( void *             _ctx,
-              fd_mux_context_t * mux,
-              int *              opt_poll_in ) {
+              fd_mux_context_t *  mux,
+              int *               opt_poll_in ) {
   (void)opt_poll_in;
 
   fd_benchg_ctx_t * ctx = (fd_benchg_ctx_t *)_ctx;
-
   if( FD_UNLIKELY( !ctx->has_recent_blockhash ) ) return;
-
-  bench_transaction_t * txn = (bench_transaction_t *)fd_chunk_to_laddr( ctx->mem, ctx->out_chunk );
-  *txn = (bench_transaction_t){
+  transfer_t * transfer = (transfer_t *)fd_chunk_to_laddr( ctx->mem, ctx->out_chunk );
+  *transfer = (transfer_t){
     /* Fixed values */
     .sig_cnt         = 1,
     ._sig_cnt        = 1,
     .ro_signed_cnt   = 0,
     .ro_unsigned_cnt = 1,
-    .acct_addr_cnt   = 2,
-    .compute_budget_program  = {COMPUTE_BUDGET_PROG_ID},
-    .instr_cnt       = 2,
-    ._1.prog_id      = 1,
-    ._1.acct_cnt     = 0,
-    ._1.data_sz      = 9,
-    ._1.set_cu_price = 3,
-    ._2.prog_id      = 1,
-    ._2.acct_cnt     = 0,
-    ._2.data_sz      = 5,
-    ._2.set_cu_limit = 2,
-    ._2.cus          = 300,
+    .acct_addr_cnt   = 3,
+    .system_program  = {0},
+    .instr_cnt       = 1,
+    .prog_id         = 2,
+    .acct_cnt        = 2,
+    .acct_idx        = { 0, 1 },
+    .data_sz         = 12,
+    .transfer_descriminant = 2,
 
     /* Variable */
-    ._1.micro_lamports_per_cu = ctx->lamport_idx, /* Unique per transaction so they aren't duplicates */
+    .lamports = ctx->lamport_idx, /* Unique per transaction so they aren't duplicates */
   };
 
-  fd_memcpy( txn->fee_payer, ctx->acct_public_keys[ ctx->sender_idx ].uc, 32UL );
-  fd_memcpy( txn->recent_blockhash, ctx->recent_blockhash, 32UL );
+  ulong receiver_idx = fd_rng_ulong_roll( ctx->rng, ctx->acct_cnt-1UL );
+  receiver_idx = fd_ulong_if( receiver_idx>=ctx->sender_idx, receiver_idx+1UL, receiver_idx );
 
-  fd_ed25519_sign( txn->signature,
-                   &(txn->_sig_cnt),
-                   sizeof(bench_transaction_t)-65UL,
+  fd_memcpy( transfer->fee_payer, ctx->acct_public_keys[ ctx->sender_idx ].uc, 32UL );
+  fd_memcpy( transfer->dest_acct, ctx->acct_public_keys[ receiver_idx ].uc, 32UL );
+  fd_memcpy( transfer->recent_blockhash, ctx->recent_blockhash, 32UL );
+
+  fd_ed25519_sign( transfer->signature,
+                   &(transfer->_sig_cnt),
+                   sizeof(*transfer)-65UL,
                    ctx->acct_public_keys[ ctx->sender_idx ].uc,
                    ctx->acct_private_keys[ ctx->sender_idx ].uc,
                    ctx->sha );
 
-  fd_mux_publish( mux, 0UL, ctx->out_chunk, sizeof(bench_transaction_t), 0UL, 0UL, 0UL );
-  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(bench_transaction_t), ctx->out_chunk0, ctx->out_wmark );
+  fd_mux_publish( mux, 0UL, ctx->out_chunk, sizeof(*transfer), 0UL, 0UL, 0UL );
+  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(*transfer), ctx->out_chunk0, ctx->out_wmark );
 
   ctx->sender_idx = (ctx->sender_idx + 1UL) % ctx->acct_cnt;
   if( FD_UNLIKELY( !ctx->sender_idx ) ) {
