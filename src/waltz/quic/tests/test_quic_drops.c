@@ -168,7 +168,7 @@ static void
 my_tls_keylog( void *       quic_ctx,
                char const * line ) {
   (void)quic_ctx;
-  FD_LOG_WARNING(( "SECRET: %s", line ));
+  FD_LOG_DEBUG(( "SECRET: %s", line ));
   fd_pcapng_fwrite_tls_key_log( (uchar const *)line, (uint)strlen( line ), pcap_server_to_client.pcapng );
 }
 
@@ -200,7 +200,7 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
   (void)stream;
   (void)fin;
 
-  FD_LOG_NOTICE(( "received data from peer.  stream_id: %lu  size: %lu offset: %lu\n",
+  FD_LOG_DEBUG(( "received data from peer.  stream_id: %lu  size: %lu offset: %lu",
                 (ulong)stream->stream_id, data_sz, offset ));
   FD_LOG_HEXDUMP_DEBUG(( "received data", data, data_sz ));
 
