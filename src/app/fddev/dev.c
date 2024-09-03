@@ -114,6 +114,11 @@ update_config_for_dev( config_t * const config ) {
                                    NULL,
                                    "%s/vote-account.json",
                                    config->scratch_directory ) );
+  fd_topo_tile_t * http = &config->topo.tiles[ fd_topo_find_tile( &config->topo, "http", 0UL ) ];
+  http->http.is_voting = 1;
+  if( FD_LIKELY( !strcmp( http->http.cluster, "unknown" ) ) ) {
+    strcpy( http->http.cluster, "development" );
+  }
 }
 
 static void *

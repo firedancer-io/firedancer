@@ -3,6 +3,7 @@
 bin
 unit-test
 tmp
+frontend
 
 genhtml/
 target/
