@@ -459,7 +459,6 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
           elem->sz         = pay_sz;
           elem->meta_gaddr = 0;
           elem->meta_sz    = 0;
-          elem->meta_owned = 0;
 
           if( txns_cnt < MAX_TXNS ) {
             fd_block_txn_ref_t * ref = &txns[txns_cnt++];
@@ -518,7 +517,7 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   }
 
   /* block_gaddr 0 indicates it hasn't received all shreds yet.
-  
+
      TODO refactor to use FD_BLOCK_FLAG_COMPLETED. */
 
   if( FD_LIKELY( block_map_entry->block_gaddr == 0 ) ) {
@@ -557,16 +556,17 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   for( ulong j = 0; j < block->txns_cnt; ++j ) {
     fd_blockstore_txn_key_t sig;
     fd_memcpy( &sig, data + txns[j].id_off, sizeof( sig ) );
-    fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, &sig, NULL );
-    if( FD_LIKELY( txn_map_entry ) ) {
-      if( txn_map_entry->meta_gaddr && txn_map_entry->meta_owned ) {
-        fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, txn_map_entry->meta_gaddr ) );
-      }
-      fd_blockstore_txn_map_remove( txn_map, &sig );
-    }
+    fd_blockstore_txn_map_remove( txn_map, &sig );
   }
   if( block->micros_gaddr ) fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, block->micros_gaddr ) );
   if( block->txns_gaddr ) fd_alloc_free( alloc, txns );
+  ulong mgaddr = block->txns_meta_gaddr;
+  while( mgaddr ) {
+    ulong * laddr = fd_wksp_laddr_fast( wksp, mgaddr );
+    ulong mgaddr2 = laddr[0]; /* link to next allocation */
+    fd_alloc_free( alloc, laddr );
+    mgaddr = mgaddr2;
+  }
   fd_alloc_free( alloc, block );
   return;
 }
@@ -814,10 +814,10 @@ fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred ) {
      it is invariant that we must have a connected, linear chain for the
      SMR and its ancestors. */
 
-  if( FD_UNLIKELY( shred->slot <= blockstore->smr ) ) {  
+  if( FD_UNLIKELY( shred->slot <= blockstore->smr ) ) {
     return FD_BLOCKSTORE_OK;
   }
-   
+
   /* Check if we already have this shred */
 
   fd_buf_shred_t *     shred_pool = fd_blockstore_buf_shred_pool( blockstore );

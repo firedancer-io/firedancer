@@ -1413,47 +1413,59 @@ fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         sl
   fd_alloc_t * blockstore_alloc     = fd_wksp_laddr_fast( blockstore_wksp, blockstore->alloc_gaddr );
   fd_blockstore_txn_map_t * txn_map = fd_wksp_laddr_fast( blockstore_wksp, blockstore->txn_map_gaddr );
 
+  /* Get the total size of all logs */
+  ulong tot_meta_sz = 2*sizeof(ulong);
+  for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
+    fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
+    if( txn_ctx->log_collector.buf_sz ) {
+      ulong meta_sz = txn_ctx->log_collector.buf_sz;
+      tot_meta_sz += meta_sz;
+    }
+  }
+  uchar * cur_laddr = fd_alloc_malloc( blockstore_alloc, 1, tot_meta_sz );
+  if( cur_laddr == NULL ) {
+    return;
+  }
+
   fd_blockstore_start_write( blockstore );
+  fd_block_t * blk = fd_blockstore_block_query( blockstore, slot_ctx->slot_bank.slot );
+  /* Link to previous allocation */
+  ((ulong*)cur_laddr)[0] = blk->txns_meta_gaddr;
+  ((ulong*)cur_laddr)[1] = blk->txns_meta_sz;
+  blk->txns_meta_gaddr = fd_wksp_gaddr_fast( blockstore_wksp, cur_laddr );
+  blk->txns_meta_sz    = tot_meta_sz;
+  cur_laddr += 2*sizeof(ulong);
+
   for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
     fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
     if( txn_ctx->log_collector.buf_sz ) {
       /* Prepare metadata.
          Note: currently we only include logs, that are already serialized in protobuf. */
-      ulong meta_sz = txn_ctx->log_collector.buf_sz;
-      void * meta_laddr = fd_alloc_malloc( blockstore_alloc, 1, meta_sz );
-      if( meta_laddr == NULL ) {
-        fd_log_collector_delete( &txn_ctx->log_collector );
-        break;
-      }
+      ulong  meta_sz = txn_ctx->log_collector.buf_sz;
+      void * meta_laddr = cur_laddr;
       ulong  meta_gaddr = fd_wksp_gaddr_fast( blockstore_wksp, meta_laddr );
       fd_memcpy( meta_laddr, txn_ctx->log_collector.buf, meta_sz );
 
-      /* Update the first signature (meta_owned=1) */
+      /* Update all the signatures */
       char const * sig_p = (char const *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
       fd_blockstore_txn_key_t sig;
-      fd_memcpy( &sig, sig_p, sizeof(fd_blockstore_txn_key_t) );
-      fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, &sig, NULL );
-      if( FD_LIKELY( txn_map_entry ) ) {
-        txn_map_entry->meta_gaddr = meta_gaddr;
-        txn_map_entry->meta_sz    = meta_sz;
-        txn_map_entry->meta_owned = 1;
-      }
-
-      /* Update all other signatures (meta_owned=0) */
-      for( uchar i=1U; i<txn_ctx->txn_descriptor->signature_cnt; i++ ) {
-        sig_p += FD_ED25519_SIG_SZ;
+      for( uchar i=0U; i<txn_ctx->txn_descriptor->signature_cnt; i++ ) {
         fd_memcpy( &sig, sig_p, sizeof(fd_blockstore_txn_key_t) );
         fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, &sig, NULL );
         if( FD_LIKELY( txn_map_entry ) ) {
           txn_map_entry->meta_gaddr = meta_gaddr;
           txn_map_entry->meta_sz    = meta_sz;
-          txn_map_entry->meta_owned = 0;
         }
+        sig_p += FD_ED25519_SIG_SZ;
       }
 
+      cur_laddr += meta_sz;
     }
     fd_log_collector_delete( &txn_ctx->log_collector );
   }
+
+  FD_TEST( blk->txns_meta_gaddr + blk->txns_meta_sz == fd_wksp_gaddr_fast( blockstore_wksp, cur_laddr ) );
+
   fd_blockstore_end_write( blockstore );
 }
 
@@ -1473,6 +1485,9 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
       fd_funk_txn_t * txn_map = fd_funk_txn_map( capture_ctx->pruned_funk, fd_funk_wksp( capture_ctx->pruned_funk ) );
       prune_txn = fd_funk_txn_query( &prune_xid, txn_map );
     }
+
+    /* Store transaction metadata, including logs */
+    fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, txn_cnt );
 
     fd_txncache_insert_t * status_insert  = NULL;
     uchar *                results        = NULL;
@@ -1500,9 +1515,6 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
         fd_runtime_copy_accounts_to_pruned_funk( capture_ctx->pruned_funk, prune_txn, slot_ctx, txn_ctx );
         fd_funk_end_write( capture_ctx->pruned_funk );
       }
-
-      /* Store transaction metadata, including logs */
-      fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, txn_cnt );
 
       /* For ledgers that contain txn status, decode and write out for solcap */
       if( FD_UNLIKELY( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns ) ) {
