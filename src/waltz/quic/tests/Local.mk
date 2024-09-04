@@ -13,7 +13,7 @@ $(call make-unit-test,test_quic_conformance,test_quic_conformance,fd_quic fd_tls
 $(call run-unit-test,test_quic_hs)
 $(call run-unit-test,test_quic_streams)
 $(call run-unit-test,test_quic_conn)
-#$(call run-unit-test,test_quic_bw) -- broken because of fd_ip
+$(call run-unit-test,test_quic_bw)
 $(call run-unit-test,test_quic_layout)
 
 # fd_quic_tls unit tests
