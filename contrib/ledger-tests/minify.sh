@@ -63,7 +63,7 @@ minimize_snapshot_frank() {
   fi
 
   set -x
-  
+
   "$minf_fd_frank_minimize_tool" --cmd minify --rocksdb "$in_dir/rocksdb" --minified-rocksdb "$out_dir/rocksdb" --start-slot $start_slot --end-slot $end_slot --page-cnt $GIGANTIC_PAGES --copy-txn-status 1
   set +x
   
@@ -98,14 +98,17 @@ minimize_snapshot_solana() {
     return
   fi
 
+  # Make sure that we start on a rooted slot
+  local rooted_start_slot=$(find_rooted_slot $start_slot "-")
+
   rm -rf "$out_dir"
   cd "$in_dir" || exit
 
   rm -rf ledger_tool
-  "$SOLANA_LEDGER_TOOL" create-snapshot -l . $start_slot --minimized --ending-slot $end_slot
+  "$SOLANA_LEDGER_TOOL" create-snapshot -l . $rooted_start_slot --minimized --ending-slot $end_slot
   
   rm -rf ledger_tool
-  minimize_snapshot_frank $in_dir $out_dir $start_slot $end_slot
+  minimize_snapshot_frank $in_dir $out_dir $rooted_start_slot $end_slot
 }
 
 if [[ "$MODE" == "edge" ]]; then

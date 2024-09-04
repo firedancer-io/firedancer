@@ -110,8 +110,9 @@ slack_alert() {
     local replay_time=$(grep 'replay_time=' $metadata | cut -d'=' -f2)
     local replay_slots_before_mismatch=$((mismatch_slot - replay_start_slot))
     local epoch=$(grep 'epoch=' $metadata | cut -d'=' -f2)
+    local slot_range="${replay_start_slot}-${mismatch_slot}"
     
-    curl -X POST -H 'Content-type: application/json' --data "{\"text\":\"Network: $NETWORK \nEpoch: $epoch \nCommit: $GIT_COMMIT \nPatches: $PATCH_FILES \nAlert: $alert_message \nURL: $UPLOAD_URL/$NETWORK-$mismatch_slot.tar.gz \nSlots Replayed: $replay_slots_before_mismatch \nReplay Time: $replay_time's \"}" $SLACK_WEBHOOK_URL
+    curl -X POST -H 'Content-type: application/json' --data "{\"text\":\"Network: $NETWORK \nEpoch: $epoch \nCommit: $GIT_COMMIT \nPatches: $PATCH_FILES \nAlert: $alert_message \nURL: $UPLOAD_URL/$NETWORK-$mismatch_slot.tar.gz \nSlots Replayed: $replay_slots_before_mismatch \nSlot Range: $slot_range \nReplay Time: $replay_time's \"}" $SLACK_WEBHOOK_URL
 }
 
 alert_success() {
@@ -125,7 +126,11 @@ alert_success() {
     local replay_slots_before_success=$(echo "$end_info" | grep -oP 'slots: \K[0-9]+')
     local epoch=$(grep 'epoch=' $metadata | cut -d'=' -f2)
 
-    curl -X POST -H 'Content-type: application/json' --data "{\"text\":\"Network: $NETWORK \nEpoch: $epoch \nCommit: $GIT_COMMIT \nPatches: $PATCH_FILES \nAlert: $alert_message \nSlots Replayed: $replay_slots_before_success \nReplay Time: $replay_time's \"}" $SLACK_WEBHOOK_URL
+    local replay_start_slot=$(grep 'replay_start_slot=' $metadata | cut -d'=' -f2)
+    local replay_end_slot=$((replay_start_slot + replay_slots_before_success - 1))
+    local slot_range="${replay_start_slot}-${replay_end_slot}"
+
+    curl -X POST -H 'Content-type: application/json' --data "{\"text\":\"Network: $NETWORK \nEpoch: $epoch \nCommit: $GIT_COMMIT \nPatches: $PATCH_FILES \nAlert: $alert_message \nSlots Replayed: $replay_slots_before_success \nSlot Range: $slot_range \nReplay Time: $replay_time's \"}" $SLACK_WEBHOOK_URL
 }
 
 cd $FIREDANCER_DIR/ 
