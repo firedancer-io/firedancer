@@ -13,41 +13,42 @@
 /* Struct definitions */
 typedef struct fd_v2_seed_address {
     /* The seed address base. (32 bytes) */
-    pb_callback_t base;
+    pb_byte_t base[32];
     /* The seed path. (<= 32 bytes) */
-    pb_callback_t seed;
+    pb_byte_t seed[32];
     /* The seed address owner. (32 bytes) */
-    pb_callback_t owner;
+    pb_byte_t owner[32];
 } fd_v2_seed_address_t;
 
 typedef struct fd_v2_acct_state {
     /* The account address. (32 bytes) */
-    pb_callback_t address;
+    pb_byte_t address[32];
     /* Starting lamport balance. */
     uint64_t lamports;
     /* Account data is limited to 10 MiB. */
-    pb_callback_t data;
+    pb_bytes_array_t *data;
     /* Is an account executable */
     bool executable;
     /* All new accounts have a rent_epoch of ULONG_MAX. If omitted, 
 implies a value of ULONG_MAX. */
     uint64_t rent_epoch;
     /* Address of the program that owns this account. (32 bytes) */
-    pb_callback_t owner;
+    pb_byte_t owner[32];
     /* Seed address used by the fuzzing engine. */
     bool has_seed_addr;
     fd_v2_seed_address_t seed_addr;
 } fd_v2_acct_state_t;
 
 typedef struct fd_v2_feature {
-    pb_callback_t feature_id; /* Feature pubkey */
+    pb_byte_t feature_id[32]; /* Feature pubkey */
     uint64_t slot; /* Slot at which feature is activated */
 } fd_v2_feature_t;
 
 typedef struct fd_v2_leader_schedule {
     uint64_t epoch; /* Epoch number. */
-    pb_callback_t pubkey; /* Leader pubkey. */
-    pb_callback_t idxs; /* Indexes into the leader. */
+    pb_bytes_array_t *pubkey; /* Leader pubkey. */
+    pb_size_t idxs_count;
+    uint32_t *idxs; /* Indexes into the leader. */
 } fd_v2_leader_schedule_t;
 
 typedef struct fd_v2_rent_schedule {
@@ -60,21 +61,25 @@ typedef struct fd_v2_rent_schedule {
 } fd_v2_rent_schedule_t;
 
 typedef struct fd_v2_status_cache {
-    /* Vector of transaction hashes that exist in the status cache. */
+    /* Vector of transaction hashes that exist in the status cache.
+TODO: fill in the rest of the status cache. */
     pb_callback_t tx_hashes;
 } fd_v2_status_cache_t;
 
 typedef struct fd_v2_exec_env {
     /* Starting account states before harness execution. */
-    pb_callback_t acct_states;
+    pb_size_t acct_states_count;
+    struct fd_v2_acct_state *acct_states;
     /* Feature set for the execution. */
-    pb_callback_t features;
+    pb_size_t features_count;
+    struct fd_v2_feature *features;
     /* Leader schedule for the first epoch. This value is recomputed at the
 epoch boundary. */
     bool has_leader_schedule;
     fd_v2_leader_schedule_t leader_schedule;
     /* Slot envs to execute. */
-    pb_callback_t slots;
+    pb_size_t slots_count;
+    struct fd_v2_slot_env *slots;
     /* Status cache of recent transactions. */
     bool has_status_cache;
     fd_v2_status_cache_t status_cache;
@@ -84,9 +89,11 @@ epoch boundary. */
 
 typedef struct fd_v2_exec_effects {
     /* Slot effects. */
-    pb_callback_t slot_effects;
+    pb_size_t slot_effects_count;
+    struct fd_v2_slot_effects *slot_effects;
     /* Resulting account states at the end of execution. */
-    pb_callback_t acct_states;
+    pb_size_t acct_states_count;
+    struct fd_v2_acct_state *acct_states;
 } fd_v2_exec_effects_t;
 
 
@@ -95,22 +102,22 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
-#define FD_V2_SEED_ADDRESS_INIT_DEFAULT          {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
-#define FD_V2_ACCT_STATE_INIT_DEFAULT            {{{NULL}, NULL}, 0, {{NULL}, NULL}, 0, 0, {{NULL}, NULL}, false, FD_V2_SEED_ADDRESS_INIT_DEFAULT}
-#define FD_V2_FEATURE_INIT_DEFAULT               {{{NULL}, NULL}, 0}
-#define FD_V2_LEADER_SCHEDULE_INIT_DEFAULT       {0, {{NULL}, NULL}, {{NULL}, NULL}}
+#define FD_V2_SEED_ADDRESS_INIT_DEFAULT          {{0}, {0}, {0}}
+#define FD_V2_ACCT_STATE_INIT_DEFAULT            {{0}, 0, NULL, 0, 0, {0}, false, FD_V2_SEED_ADDRESS_INIT_DEFAULT}
+#define FD_V2_FEATURE_INIT_DEFAULT               {{0}, 0}
+#define FD_V2_LEADER_SCHEDULE_INIT_DEFAULT       {0, NULL, 0, NULL}
 #define FD_V2_RENT_SCHEDULE_INIT_DEFAULT         {0, {{NULL}, NULL}, 0}
 #define FD_V2_STATUS_CACHE_INIT_DEFAULT          {{{NULL}, NULL}}
-#define FD_V2_EXEC_ENV_INIT_DEFAULT              {{{NULL}, NULL}, {{NULL}, NULL}, false, FD_V2_LEADER_SCHEDULE_INIT_DEFAULT, {{NULL}, NULL}, false, FD_V2_STATUS_CACHE_INIT_DEFAULT, {{NULL}, NULL}}
-#define FD_V2_EXEC_EFFECTS_INIT_DEFAULT          {{{NULL}, NULL}, {{NULL}, NULL}}
-#define FD_V2_SEED_ADDRESS_INIT_ZERO             {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
-#define FD_V2_ACCT_STATE_INIT_ZERO               {{{NULL}, NULL}, 0, {{NULL}, NULL}, 0, 0, {{NULL}, NULL}, false, FD_V2_SEED_ADDRESS_INIT_ZERO}
-#define FD_V2_FEATURE_INIT_ZERO                  {{{NULL}, NULL}, 0}
-#define FD_V2_LEADER_SCHEDULE_INIT_ZERO          {0, {{NULL}, NULL}, {{NULL}, NULL}}
+#define FD_V2_EXEC_ENV_INIT_DEFAULT              {0, NULL, 0, NULL, false, FD_V2_LEADER_SCHEDULE_INIT_DEFAULT, 0, NULL, false, FD_V2_STATUS_CACHE_INIT_DEFAULT, {{NULL}, NULL}}
+#define FD_V2_EXEC_EFFECTS_INIT_DEFAULT          {0, NULL, 0, NULL}
+#define FD_V2_SEED_ADDRESS_INIT_ZERO             {{0}, {0}, {0}}
+#define FD_V2_ACCT_STATE_INIT_ZERO               {{0}, 0, NULL, 0, 0, {0}, false, FD_V2_SEED_ADDRESS_INIT_ZERO}
+#define FD_V2_FEATURE_INIT_ZERO                  {{0}, 0}
+#define FD_V2_LEADER_SCHEDULE_INIT_ZERO          {0, NULL, 0, NULL}
 #define FD_V2_RENT_SCHEDULE_INIT_ZERO            {0, {{NULL}, NULL}, 0}
 #define FD_V2_STATUS_CACHE_INIT_ZERO             {{{NULL}, NULL}}
-#define FD_V2_EXEC_ENV_INIT_ZERO                 {{{NULL}, NULL}, {{NULL}, NULL}, false, FD_V2_LEADER_SCHEDULE_INIT_ZERO, {{NULL}, NULL}, false, FD_V2_STATUS_CACHE_INIT_ZERO, {{NULL}, NULL}}
-#define FD_V2_EXEC_EFFECTS_INIT_ZERO             {{{NULL}, NULL}, {{NULL}, NULL}}
+#define FD_V2_EXEC_ENV_INIT_ZERO                 {0, NULL, 0, NULL, false, FD_V2_LEADER_SCHEDULE_INIT_ZERO, 0, NULL, false, FD_V2_STATUS_CACHE_INIT_ZERO, {{NULL}, NULL}}
+#define FD_V2_EXEC_EFFECTS_INIT_ZERO             {0, NULL, 0, NULL}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_V2_SEED_ADDRESS_BASE_TAG              1
@@ -143,35 +150,35 @@ extern "C" {
 
 /* Struct field encoding specification for nanopb */
 #define FD_V2_SEED_ADDRESS_FIELDLIST(X, a) \
-X(a, CALLBACK, SINGULAR, BYTES,    base,              1) \
-X(a, CALLBACK, SINGULAR, BYTES,    seed,              2) \
-X(a, CALLBACK, SINGULAR, BYTES,    owner,             3)
-#define FD_V2_SEED_ADDRESS_CALLBACK pb_default_field_callback
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, base,              1) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, seed,              2) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, owner,             3)
+#define FD_V2_SEED_ADDRESS_CALLBACK NULL
 #define FD_V2_SEED_ADDRESS_DEFAULT NULL
 
 #define FD_V2_ACCT_STATE_FIELDLIST(X, a) \
-X(a, CALLBACK, SINGULAR, BYTES,    address,           1) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, address,           1) \
 X(a, STATIC,   SINGULAR, UINT64,   lamports,          2) \
-X(a, CALLBACK, SINGULAR, BYTES,    data,              3) \
+X(a, POINTER,  SINGULAR, BYTES,    data,              3) \
 X(a, STATIC,   SINGULAR, BOOL,     executable,        4) \
 X(a, STATIC,   SINGULAR, UINT64,   rent_epoch,        5) \
-X(a, CALLBACK, SINGULAR, BYTES,    owner,             6) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, owner,             6) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  seed_addr,         7)
-#define FD_V2_ACCT_STATE_CALLBACK pb_default_field_callback
+#define FD_V2_ACCT_STATE_CALLBACK NULL
 #define FD_V2_ACCT_STATE_DEFAULT NULL
 #define fd_v2_acct_state_t_seed_addr_MSGTYPE fd_v2_seed_address_t
 
 #define FD_V2_FEATURE_FIELDLIST(X, a) \
-X(a, CALLBACK, SINGULAR, BYTES,    feature_id,        1) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, feature_id,        1) \
 X(a, STATIC,   SINGULAR, UINT64,   slot,              2)
-#define FD_V2_FEATURE_CALLBACK pb_default_field_callback
+#define FD_V2_FEATURE_CALLBACK NULL
 #define FD_V2_FEATURE_DEFAULT NULL
 
 #define FD_V2_LEADER_SCHEDULE_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT64,   epoch,             1) \
-X(a, CALLBACK, SINGULAR, BYTES,    pubkey,            2) \
-X(a, CALLBACK, REPEATED, UINT32,   idxs,              3)
-#define FD_V2_LEADER_SCHEDULE_CALLBACK pb_default_field_callback
+X(a, POINTER,  SINGULAR, BYTES,    pubkey,            2) \
+X(a, POINTER,  REPEATED, UINT32,   idxs,              3)
+#define FD_V2_LEADER_SCHEDULE_CALLBACK NULL
 #define FD_V2_LEADER_SCHEDULE_DEFAULT NULL
 
 #define FD_V2_RENT_SCHEDULE_FIELDLIST(X, a) \
@@ -187,10 +194,10 @@ X(a, CALLBACK, SINGULAR, BYTES,    tx_hashes,         1)
 #define FD_V2_STATUS_CACHE_DEFAULT NULL
 
 #define FD_V2_EXEC_ENV_FIELDLIST(X, a) \
-X(a, CALLBACK, REPEATED, MESSAGE,  acct_states,       1) \
-X(a, CALLBACK, REPEATED, MESSAGE,  features,          2) \
+X(a, POINTER,  REPEATED, MESSAGE,  acct_states,       1) \
+X(a, POINTER,  REPEATED, MESSAGE,  features,          2) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  leader_schedule,   3) \
-X(a, CALLBACK, REPEATED, MESSAGE,  slots,             4) \
+X(a, POINTER,  REPEATED, MESSAGE,  slots,             4) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  status_cache,      5) \
 X(a, CALLBACK, SINGULAR, BYTES,    block_hash_queue,   6)
 #define FD_V2_EXEC_ENV_CALLBACK pb_default_field_callback
@@ -202,9 +209,9 @@ X(a, CALLBACK, SINGULAR, BYTES,    block_hash_queue,   6)
 #define fd_v2_exec_env_t_status_cache_MSGTYPE fd_v2_status_cache_t
 
 #define FD_V2_EXEC_EFFECTS_FIELDLIST(X, a) \
-X(a, CALLBACK, REPEATED, MESSAGE,  slot_effects,      1) \
-X(a, CALLBACK, REPEATED, MESSAGE,  acct_states,       2)
-#define FD_V2_EXEC_EFFECTS_CALLBACK pb_default_field_callback
+X(a, POINTER,  REPEATED, MESSAGE,  slot_effects,      1) \
+X(a, POINTER,  REPEATED, MESSAGE,  acct_states,       2)
+#define FD_V2_EXEC_EFFECTS_CALLBACK NULL
 #define FD_V2_EXEC_EFFECTS_DEFAULT NULL
 #define fd_v2_exec_effects_t_slot_effects_MSGTYPE fd_v2_slot_effects_t
 #define fd_v2_exec_effects_t_acct_states_MSGTYPE fd_v2_acct_state_t
@@ -229,14 +236,15 @@ extern const pb_msgdesc_t fd_v2_exec_effects_t_msg;
 #define FD_V2_EXEC_EFFECTS_FIELDS &fd_v2_exec_effects_t_msg
 
 /* Maximum encoded size of messages (where known) */
-/* fd_v2_SeedAddress_size depends on runtime parameters */
 /* fd_v2_AcctState_size depends on runtime parameters */
-/* fd_v2_Feature_size depends on runtime parameters */
 /* fd_v2_LeaderSchedule_size depends on runtime parameters */
 /* fd_v2_RentSchedule_size depends on runtime parameters */
 /* fd_v2_StatusCache_size depends on runtime parameters */
 /* fd_v2_ExecEnv_size depends on runtime parameters */
 /* fd_v2_ExecEffects_size depends on runtime parameters */
+#define FD_V2_EXEC_V2_PB_H_MAX_SIZE              FD_V2_SEED_ADDRESS_SIZE
+#define FD_V2_FEATURE_SIZE                       45
+#define FD_V2_SEED_ADDRESS_SIZE                  102
 
 #ifdef __cplusplus
 } /* extern "C" */

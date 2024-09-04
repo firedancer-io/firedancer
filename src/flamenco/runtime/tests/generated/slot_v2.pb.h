@@ -13,7 +13,8 @@
 /* Struct definitions */
 typedef struct fd_v2_slot_env {
     /* Transactions within the given slot */
-    pb_callback_t txns;
+    pb_size_t txns_count;
+    struct fd_v2_txn_env *txns;
     /* Slot number for the given slot. */
     uint64_t slot_number;
     /* Previously executed slot. */
@@ -29,13 +30,14 @@ typedef struct fd_v2_slot_env {
     /* Last restart slot. */
     uint64_t last_restart_slot;
     /* Vector of account pubkeys that is set at the epoch boundary. */
-    pb_callback_t vote_accounts;
-    pb_callback_t stake_accounts;
+    pb_bytes_array_t *vote_accounts;
+    pb_bytes_array_t *stake_accounts;
 } fd_v2_slot_env_t;
 
 typedef struct fd_v2_slot_effects {
     /* The resulting state after each transaction in the slot */
-    pb_callback_t txn_envs;
+    pb_size_t txn_envs_count;
+    struct fd_v2_txn_effects *txn_envs;
     /* Capitalization for the end of the slot */
     uint64_t capitalization;
 } fd_v2_slot_effects_t;
@@ -46,10 +48,10 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
-#define FD_V2_SLOT_ENV_INIT_DEFAULT              {{{NULL}, NULL}, 0, 0, 0, 0, 0, 0, 0, {{NULL}, NULL}, {{NULL}, NULL}}
-#define FD_V2_SLOT_EFFECTS_INIT_DEFAULT          {{{NULL}, NULL}, 0}
-#define FD_V2_SLOT_ENV_INIT_ZERO                 {{{NULL}, NULL}, 0, 0, 0, 0, 0, 0, 0, {{NULL}, NULL}, {{NULL}, NULL}}
-#define FD_V2_SLOT_EFFECTS_INIT_ZERO             {{{NULL}, NULL}, 0}
+#define FD_V2_SLOT_ENV_INIT_DEFAULT              {0, NULL, 0, 0, 0, 0, 0, 0, 0, NULL, NULL}
+#define FD_V2_SLOT_EFFECTS_INIT_DEFAULT          {0, NULL, 0}
+#define FD_V2_SLOT_ENV_INIT_ZERO                 {0, NULL, 0, 0, 0, 0, 0, 0, 0, NULL, NULL}
+#define FD_V2_SLOT_EFFECTS_INIT_ZERO             {0, NULL, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_V2_SLOT_ENV_TXNS_TAG                  1
@@ -67,7 +69,7 @@ extern "C" {
 
 /* Struct field encoding specification for nanopb */
 #define FD_V2_SLOT_ENV_FIELDLIST(X, a) \
-X(a, CALLBACK, REPEATED, MESSAGE,  txns,              1) \
+X(a, POINTER,  REPEATED, MESSAGE,  txns,              1) \
 X(a, STATIC,   SINGULAR, UINT64,   slot_number,       2) \
 X(a, STATIC,   SINGULAR, UINT64,   prev_slot,         3) \
 X(a, STATIC,   SINGULAR, UINT64,   block_height,      4) \
@@ -75,16 +77,16 @@ X(a, STATIC,   SINGULAR, UINT64,   prev_lamports_per_sig,   5) \
 X(a, STATIC,   SINGULAR, UINT64,   parent_signature_cnt,   6) \
 X(a, STATIC,   SINGULAR, UINT64,   fee_rate,          7) \
 X(a, STATIC,   SINGULAR, UINT64,   last_restart_slot,   8) \
-X(a, CALLBACK, SINGULAR, BYTES,    vote_accounts,     9) \
-X(a, CALLBACK, SINGULAR, BYTES,    stake_accounts,   10)
-#define FD_V2_SLOT_ENV_CALLBACK pb_default_field_callback
+X(a, POINTER,  SINGULAR, BYTES,    vote_accounts,     9) \
+X(a, POINTER,  SINGULAR, BYTES,    stake_accounts,   10)
+#define FD_V2_SLOT_ENV_CALLBACK NULL
 #define FD_V2_SLOT_ENV_DEFAULT NULL
 #define fd_v2_slot_env_t_txns_MSGTYPE fd_v2_txn_env_t
 
 #define FD_V2_SLOT_EFFECTS_FIELDLIST(X, a) \
-X(a, CALLBACK, REPEATED, MESSAGE,  txn_envs,          1) \
+X(a, POINTER,  REPEATED, MESSAGE,  txn_envs,          1) \
 X(a, STATIC,   SINGULAR, UINT64,   capitalization,    2)
-#define FD_V2_SLOT_EFFECTS_CALLBACK pb_default_field_callback
+#define FD_V2_SLOT_EFFECTS_CALLBACK NULL
 #define FD_V2_SLOT_EFFECTS_DEFAULT NULL
 #define fd_v2_slot_effects_t_txn_envs_MSGTYPE fd_v2_txn_effects_t
 

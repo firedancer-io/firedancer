@@ -21,9 +21,11 @@ typedef struct fd_v2_txn_header {
 /* Address Lookup table related metadata. This is used to parse the data from 
 the lookup table accounts. from the account list. */
 typedef struct fd_v2_lut_entry {
-    pb_callback_t account_key;
-    pb_callback_t writable_indexes;
-    pb_callback_t readonly_indexes;
+    pb_byte_t account_key[32];
+    pb_size_t writable_indexes_count;
+    uint32_t *writable_indexes;
+    pb_size_t readonly_indexes_count;
+    uint32_t *readonly_indexes;
 } fd_v2_lut_entry_t;
 
 /* As a note, if the scope of the fuzzer is just an instruction, then all of
@@ -35,26 +37,32 @@ typedef struct fd_v2_txn_env {
     fd_v2_txn_header_t header;
     /* Determines if the transaction is legacy or not. */
     bool is_legacy;
-    pb_callback_t account_keys;
+    /* Account keys in order that they are passed into the transaction. The
+account data actually comes from higher level fuzzers. */
+    pb_bytes_array_t *account_keys;
     /* Instruction(s) that the transaction executes. */
-    pb_callback_t instructions;
+    pb_size_t instructions_count;
+    struct fd_v2_instr_env *instructions;
     /* Recent blockhash provided in the message. */
-    pb_callback_t recent_blockhash;
+    pb_bytes_array_t *recent_blockhash;
     /* Address table lookups that aren't availble in legacy messages. */
-    pb_callback_t alut_entires;
+    pb_size_t alut_entries_count;
+    struct fd_v2_lut_entry *alut_entries;
     /* The message hash. */
-    pb_callback_t message_hash;
+    pb_bytes_array_t *message_hash;
     /* The signatures needed in the transaction. */
-    pb_callback_t signatures;
+    pb_size_t signatures_count;
+    pb_bytes_array_t **signatures;
 } fd_v2_txn_env_t;
 
 typedef struct fd_v2_txn_effects {
     /* Transaction level error code. */
     bool txn_error;
     /* Resulting account states from each instruction execution. */
-    pb_callback_t instr_effects;
+    pb_size_t instr_effects_count;
+    struct fd_v2_instr_effects *instr_effects;
     /* Return data from the instruction */
-    pb_callback_t return_data;
+    pb_bytes_array_t *return_data;
     /* Consumed compute units by the instruction. This value will be used
 by fuzzers that operate at the transaction granularity. */
     uint64_t cus_remain;
@@ -70,13 +78,13 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define FD_V2_TXN_HEADER_INIT_DEFAULT            {0, 0, 0}
-#define FD_V2_LUT_ENTRY_INIT_DEFAULT             {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
-#define FD_V2_TXN_ENV_INIT_DEFAULT               {false, FD_V2_TXN_HEADER_INIT_DEFAULT, 0, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
-#define FD_V2_TXN_EFFECTS_INIT_DEFAULT           {0, {{NULL}, NULL}, {{NULL}, NULL}, 0, 0, 0}
+#define FD_V2_LUT_ENTRY_INIT_DEFAULT             {{0}, 0, NULL, 0, NULL}
+#define FD_V2_TXN_ENV_INIT_DEFAULT               {false, FD_V2_TXN_HEADER_INIT_DEFAULT, 0, NULL, 0, NULL, NULL, 0, NULL, NULL, 0, NULL}
+#define FD_V2_TXN_EFFECTS_INIT_DEFAULT           {0, 0, NULL, NULL, 0, 0, 0}
 #define FD_V2_TXN_HEADER_INIT_ZERO               {0, 0, 0}
-#define FD_V2_LUT_ENTRY_INIT_ZERO                {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
-#define FD_V2_TXN_ENV_INIT_ZERO                  {false, FD_V2_TXN_HEADER_INIT_ZERO, 0, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
-#define FD_V2_TXN_EFFECTS_INIT_ZERO              {0, {{NULL}, NULL}, {{NULL}, NULL}, 0, 0, 0}
+#define FD_V2_LUT_ENTRY_INIT_ZERO                {{0}, 0, NULL, 0, NULL}
+#define FD_V2_TXN_ENV_INIT_ZERO                  {false, FD_V2_TXN_HEADER_INIT_ZERO, 0, NULL, 0, NULL, NULL, 0, NULL, NULL, 0, NULL}
+#define FD_V2_TXN_EFFECTS_INIT_ZERO              {0, 0, NULL, NULL, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_V2_TXN_HEADER_NUM_REQUIRED_SIGNATURES_TAG 1
@@ -90,7 +98,7 @@ extern "C" {
 #define FD_V2_TXN_ENV_ACCOUNT_KEYS_TAG           3
 #define FD_V2_TXN_ENV_INSTRUCTIONS_TAG           4
 #define FD_V2_TXN_ENV_RECENT_BLOCKHASH_TAG       5
-#define FD_V2_TXN_ENV_ALUT_ENTIRES_TAG           6
+#define FD_V2_TXN_ENV_ALUT_ENTRIES_TAG           6
 #define FD_V2_TXN_ENV_MESSAGE_HASH_TAG           7
 #define FD_V2_TXN_ENV_SIGNATURES_TAG             8
 #define FD_V2_TXN_EFFECTS_TXN_ERROR_TAG          1
@@ -109,35 +117,35 @@ X(a, STATIC,   SINGULAR, UINT32,   num_readonly_unsigned_accounts,   3)
 #define FD_V2_TXN_HEADER_DEFAULT NULL
 
 #define FD_V2_LUT_ENTRY_FIELDLIST(X, a) \
-X(a, CALLBACK, SINGULAR, BYTES,    account_key,       1) \
-X(a, CALLBACK, REPEATED, UINT32,   writable_indexes,   2) \
-X(a, CALLBACK, REPEATED, UINT32,   readonly_indexes,   3)
-#define FD_V2_LUT_ENTRY_CALLBACK pb_default_field_callback
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, account_key,       1) \
+X(a, POINTER,  REPEATED, UINT32,   writable_indexes,   2) \
+X(a, POINTER,  REPEATED, UINT32,   readonly_indexes,   3)
+#define FD_V2_LUT_ENTRY_CALLBACK NULL
 #define FD_V2_LUT_ENTRY_DEFAULT NULL
 
 #define FD_V2_TXN_ENV_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  header,            1) \
 X(a, STATIC,   SINGULAR, BOOL,     is_legacy,         2) \
-X(a, CALLBACK, REPEATED, BYTES,    account_keys,      3) \
-X(a, CALLBACK, REPEATED, MESSAGE,  instructions,      4) \
-X(a, CALLBACK, SINGULAR, BYTES,    recent_blockhash,   5) \
-X(a, CALLBACK, REPEATED, MESSAGE,  alut_entires,      6) \
-X(a, CALLBACK, SINGULAR, BYTES,    message_hash,      7) \
-X(a, CALLBACK, REPEATED, BYTES,    signatures,        8)
-#define FD_V2_TXN_ENV_CALLBACK pb_default_field_callback
+X(a, POINTER,  SINGULAR, BYTES,    account_keys,      3) \
+X(a, POINTER,  REPEATED, MESSAGE,  instructions,      4) \
+X(a, POINTER,  SINGULAR, BYTES,    recent_blockhash,   5) \
+X(a, POINTER,  REPEATED, MESSAGE,  alut_entries,      6) \
+X(a, POINTER,  SINGULAR, BYTES,    message_hash,      7) \
+X(a, POINTER,  REPEATED, BYTES,    signatures,        8)
+#define FD_V2_TXN_ENV_CALLBACK NULL
 #define FD_V2_TXN_ENV_DEFAULT NULL
 #define fd_v2_txn_env_t_header_MSGTYPE fd_v2_txn_header_t
 #define fd_v2_txn_env_t_instructions_MSGTYPE fd_v2_instr_env_t
-#define fd_v2_txn_env_t_alut_entires_MSGTYPE fd_v2_lut_entry_t
+#define fd_v2_txn_env_t_alut_entries_MSGTYPE fd_v2_lut_entry_t
 
 #define FD_V2_TXN_EFFECTS_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BOOL,     txn_error,         1) \
-X(a, CALLBACK, REPEATED, MESSAGE,  instr_effects,     2) \
-X(a, CALLBACK, SINGULAR, BYTES,    return_data,       3) \
+X(a, POINTER,  REPEATED, MESSAGE,  instr_effects,     2) \
+X(a, POINTER,  SINGULAR, BYTES,    return_data,       3) \
 X(a, STATIC,   SINGULAR, UINT64,   cus_remain,        4) \
 X(a, STATIC,   SINGULAR, UINT64,   transaction_fee,   5) \
 X(a, STATIC,   SINGULAR, UINT64,   prioritization_fee,   6)
-#define FD_V2_TXN_EFFECTS_CALLBACK pb_default_field_callback
+#define FD_V2_TXN_EFFECTS_CALLBACK NULL
 #define FD_V2_TXN_EFFECTS_DEFAULT NULL
 #define fd_v2_txn_effects_t_instr_effects_MSGTYPE fd_v2_instr_effects_t
 
