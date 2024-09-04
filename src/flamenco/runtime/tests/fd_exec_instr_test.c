@@ -1320,10 +1320,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
 
   /* Capture error code */
 
-  if( exec_result )
-    effects->result = -exec_result;
-  else
-    effects->result = 0;
+  effects->result   = -exec_result;
   effects->cu_avail = ctx->txn_ctx->compute_meter;
 
   if( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {

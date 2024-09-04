@@ -63,7 +63,7 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
     if ( ret ) {
       FD_LOG_WARNING(("fd_compute_budget_program_instruction_decode failed"));
       FD_LOG_HEXDUMP_WARNING(("cbi data", data, instr->data_sz));
-      FD_TXN_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA, i );
+      FD_TXN_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, i );
       return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
     }
 
