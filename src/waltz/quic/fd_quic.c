@@ -784,6 +784,8 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
                          uchar const *     buf,
                          ulong             buf_sz,
                          fd_quic_frame_u * frame_union ) {
+  if( conn->state == FD_QUIC_CONN_STATE_DEAD ) return FD_QUIC_PARSE_FAIL;
+
   fd_quic_frame_context_t frame_context[1] = {{ quic, conn, pkt }};
 
   uchar const * p     = buf;
@@ -4561,9 +4563,10 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
         /* transmit the failure reason */
         fd_quic_conn_tx( quic, conn );
 
-        /* this will make the service call free the connection */
+        /* schedule another fd_quic_conn_service to free the conn */
         conn->state = FD_QUIC_CONN_STATE_DEAD; /* TODO need draining state wait for 3 * TPO */
         quic->metrics.conn_closed_cnt++;
+        fd_quic_reschedule_conn( conn, 0 );
 
         break;
 
@@ -4571,9 +4574,10 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
         /* transmit the failure reason */
         fd_quic_conn_tx( quic, conn );
 
-        /* this will make the service call free the connection */
+        /* schedule another fd_quic_conn_service to free the conn */
         conn->state = FD_QUIC_CONN_STATE_DEAD;
         quic->metrics.conn_aborted_cnt++;
+        fd_quic_reschedule_conn( conn, 0 );
 
         break;
 
@@ -6568,7 +6572,6 @@ fd_quic_frame_handle_handshake_done_frame(
       case FD_QUIC_CONN_STATE_PEER_CLOSE:
       case FD_QUIC_CONN_STATE_ABORT:
       case FD_QUIC_CONN_STATE_CLOSE_PENDING:
-      case FD_QUIC_CONN_STATE_DEAD:
         /* connection closing... nothing to do */
         return 0;
 
