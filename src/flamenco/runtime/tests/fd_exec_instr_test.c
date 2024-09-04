@@ -1415,7 +1415,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
       _txn_context_destroy( runner, NULL, slot_ctx, wksp, alloc );
       return 0UL;
     }
-    fd_exec_txn_ctx_t * txn_ctx   = task_info->txn_ctx;
+    fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
 
     int exec_res = task_info->exec_res;
 
@@ -1449,6 +1449,11 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     txn_result->has_fee_details                   = false;
 
     if( txn_result->sanitization_error ) {
+      /* If exec_res was an instruction error, capture the error number and idx */
+      if( exec_res == FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
+        txn_result->instruction_error = (uint32_t) -task_info->txn_ctx->exec_err;
+        txn_result->instruction_error_index = (uint32_t) task_info->txn_ctx->instr_err_idx;
+      }
       ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
       _txn_context_destroy( runner, txn_ctx, slot_ctx, wksp, alloc );
 

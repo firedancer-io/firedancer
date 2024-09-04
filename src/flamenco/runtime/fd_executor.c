@@ -955,8 +955,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       fd_log_collector_program_success( ctx );
     } else {
       if( !txn_ctx->exec_err ) {
-        txn_ctx->exec_err      = exec_result;
-        txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;
+        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, exec_result, txn_ctx->instr_err_idx );
       }
 
       if( !txn_ctx->failed_instr ) {

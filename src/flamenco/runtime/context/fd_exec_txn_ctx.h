@@ -124,6 +124,12 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 
 FD_PROTOTYPES_BEGIN
 
+#define FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, idx ) (__extension__({ \
+    txn_ctx->exec_err = err;                                           \
+    txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;               \
+    txn_ctx->instr_err_idx = idx;                                      \
+  }))
+
 void *
 fd_exec_txn_ctx_new( void * mem );
 
