@@ -3739,11 +3739,16 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     pkt_meta_var_idx = 0;
 
     /* do we have space for pkt_meta? */
-    pkt_meta = fd_quic_pkt_meta_allocate( &conn->pkt_meta_pool );
-    if( FD_UNLIKELY( !pkt_meta ) ) {
-      /* when there is no pkt_meta, it's best to keep processing acks
-       * until some pkt_meta are returned */
-      return;
+    if( !pkt_meta ) {
+      pkt_meta = fd_quic_pkt_meta_allocate( &conn->pkt_meta_pool );
+      if( FD_UNLIKELY( !pkt_meta ) ) {
+        /* when there is no pkt_meta, it's best to keep processing acks
+        * until some pkt_meta are returned */
+        return;
+      }
+    } else {
+      /* reuse packet number */
+      conn->pkt_number[pkt_meta->pn_space] = pkt_meta->pkt_number;
     }
 
     *pkt_meta = (fd_quic_pkt_meta_t){0};
@@ -3770,6 +3775,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
        even if we end up not sending */
     ulong pkt_number = conn->pkt_number[pn_space]++;
 
+    pkt_meta->pn_space   = (uchar)pn_space;
     pkt_meta->pkt_number = pkt_number;
 
     /* this is the start of a new quic packet
@@ -4484,6 +4490,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
 
   /* unused pkt_meta? deallocate */
   if( FD_UNLIKELY( pkt_meta ) ) {
+    conn->pkt_number[pkt_meta->pn_space] = pkt_meta->pkt_number;
     fd_quic_pkt_meta_deallocate( &conn->pkt_meta_pool, pkt_meta );
     pkt_meta = NULL;
   }
