@@ -189,7 +189,7 @@ main( int     argc,
   long rprt_ts = fd_log_wallclock() + (long)1e9;
 
   long start_ts = fd_log_wallclock();
-  long end_ts   = start_ts + (long)1e9; /* ten seconds */
+  long end_ts   = start_ts + (long)10e9; /* ten seconds */
   while(1) {
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
