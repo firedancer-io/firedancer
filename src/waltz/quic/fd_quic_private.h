@@ -134,9 +134,8 @@ struct fd_quic_pkt {
   uint               datagram_sz; /* length of the original datagram */
   uint               ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
   uint ping;
-# define ACK_FLAG_NOT_RQD 0
-# define ACK_FLAG_RQD     1
-# define ACK_FLAG_CANCEL  2
+# define ACK_FLAG_RQD     1 /* ack-eliciting */
+# define ACK_FLAG_CANCEL  2 /* do not send ACK to cause peer to retransmit */
 };
 
 FD_PROTOTYPES_BEGIN

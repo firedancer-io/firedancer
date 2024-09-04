@@ -48,22 +48,6 @@
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 
-/* FD_QUIC_OPT_EXTEND_SENT
- * This is a compile time option to specify whether ack ranges are extended even
- * when they have already been sent. This may have performance implications, but
- * needs some experimentation. So it remains an option */
-# define FD_QUIC_OPT_EXTEND_SENT 1
-
-/* FD_QUIC_OPT_SEND_ALL_ACKS
- * This is a compile time option to specify whether acks are sent even when they have
- * already been sent.
- * Ack ranges take up very little space. A missing ack can have severe consequences.
- * So it seems reasonable to send acks even when they have been sent already.
- * Note that this does NOT result in ack only packet being spammed. This only conditions
- * whether acks are included in the current packet, not whether a packet is sent
- * which may only contain acks. */
-# define FD_QUIC_OPT_SEND_ALL_ACKS 0
-
 /* FD_QUIC_PING_ENABLE
  *
  * This compile time option specifies whether the server should use
@@ -638,7 +622,8 @@ fd_quic_conn_error( fd_quic_conn_t * conn,
 /* returns the encoding level we should use for the next tx quic packet
    or all 1's if nothing to tx */
 static uint
-fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
+fd_quic_tx_enc_level( fd_quic_conn_t * conn,
+                      int              acks ) {
   uint enc_level = ~0u;
 
   uint  app_pn_space   = fd_quic_enc_level_to_pn_space( fd_quic_enc_level_appdata_id );
@@ -647,7 +632,6 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
   /* fd_quic_tx_enc_level( ... )
        check status - if closing, set based on handshake complete
        check for acks
-         find lowest enc level
        check for hs_data
          find lowest enc level
        if any, use lowest
@@ -690,33 +674,9 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
       }
   }
 
-  /* get peer_enc_level */
-  uint peer_enc_level = conn->peer_enc_level;
-
-  /* Check for acks to send */
-  fd_quic_state_t * state = fd_quic_get_state( conn->quic );
-  ulong             now   = state->now;
-
-  /* TODO replace enc_level with pn_space for ack index
-     not necessary until 0-rtt is supported */
-  /* use "pending" and "sent" lists for acks to speed up this check */
-  if( FD_UNLIKELY( acks ) ) {
-    for( uint k = peer_enc_level; k < 4; ++k ) {
-      fd_quic_ack_t * cur_ack_head = conn->acks_tx[k];
-      /* skip sent and non-mandatory */
-      while( cur_ack_head && (     (cur_ack_head->flags   & FD_QUIC_ACK_FLAGS_SENT)
-                               || !(cur_ack_head->flags   & FD_QUIC_ACK_FLAGS_MANDATORY)
-                               ||  (cur_ack_head->tx_time > now) ) ) {
-        cur_ack_head = cur_ack_head->next;
-      }
-      if( cur_ack_head ) {
-        return k;
-      }
-    }
-  }
-
   /* Check for handshake data to send */
   /* hs_data_empty is used to optimize the test */
+  uint peer_enc_level = conn->peer_enc_level;
   if( FD_UNLIKELY( !conn->hs_data_empty ) ) {
     fd_quic_tls_hs_data_t * hs_data   = NULL;
 
@@ -742,7 +702,6 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
     conn->hs_data_empty = 1;
   }
 
-  /* if we have acks to send or handshake data, then use that enc_level */
   if( enc_level != ~0u ) return enc_level;
 
   /* handshake done? */
@@ -757,6 +716,13 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
 
   if( conn->flags && conn->upd_pkt_number >= app_pkt_number ) {
     return fd_quic_enc_level_appdata_id;
+  }
+
+  /* pick enc_level of oldest ACK not yet sent */
+  fd_quic_ack_t const * oldest_ack = fd_quic_get_queued_ack( conn, conn->ack_queue_tail );
+  uint ack_enc_level = oldest_ack->enc_level; /* speculative load (might be invalid) */
+  if( conn->ack_queue_head != conn->ack_queue_tail && acks ) {
+    return ack_enc_level;
   }
 
   /* nothing to send */
@@ -2143,272 +2109,84 @@ fd_quic_reschedule_conn( fd_quic_conn_t * conn,
   conn->next_service_time = timeout;
 }
 
-/* fd_quic_ack_join is used to reduce the resources consumed managing acks */
-/* when a packet is received, an ack object is either allocated, or an existing */
-/* ack is extended. When an ack is extended, it may be that two ack ranges may */
-/* now be merged. This function does the merge */
-static void
-fd_quic_ack_join( fd_quic_conn_t * conn,
-                  uint             enc_level,
-                  fd_quic_ack_t *  cur_ack,
-                  fd_quic_ack_t *  nxt_ack ) {
-  if( FD_LIKELY( cur_ack->pkt_number.offset_hi == nxt_ack->pkt_number.offset_lo ) ) {
-    /* combine */
-    cur_ack->pkt_number.offset_hi = nxt_ack->pkt_number.offset_hi;
-    cur_ack->flags                = (uchar)( cur_ack->flags | ( nxt_ack->flags & FD_QUIC_ACK_FLAGS_MANDATORY ) );
-    cur_ack->tx_time              = fd_ulong_min( cur_ack->tx_time, nxt_ack->tx_time );
-    cur_ack->pkt_rcvd             = fd_ulong_max( cur_ack->pkt_rcvd, nxt_ack->pkt_rcvd );
-
-    /* ensure ack gets sent */
-    cur_ack->tx_pkt_number        = FD_QUIC_PKT_NUM_UNUSED;
-
-    /* free nxt_ack */
-    /* skip nxt_ack */
-    cur_ack->next = nxt_ack->next;
-
-    if( nxt_ack->next == NULL ) {
-      /* nxt_ack is last, so update end */
-      conn->acks_tx_end[enc_level] = cur_ack;
-    }
-
-    /* put nxt_ack in free list */
-    nxt_ack->next  = conn->acks_free;
-    conn->acks_free = nxt_ack;
-  }
-
+static int
+fd_quic_range_can_insert( fd_quic_range_t const * range,
+                          ulong                   idx ) {
+  return idx+1UL >= range->offset_lo && idx <= range->offset_hi;
 }
 
-/* fd_quic_ack_merge
- *
- * This function iterates thru available acks, and (under certain conditions)
- * merges compatible ranges.
- * The ranges are half open [lo, hi), so two ranges are compatible iff:
- *    prior->range.hi == current->range.lo
- *
- * Unless there are many missing packet numbers, these ranges should be very
- * dense. Merging like this ensures the linked list is kept small. */
 static void
-fd_quic_ack_merge( fd_quic_conn_t * conn, uint enc_level ) {
-  fd_quic_ack_t ** acks_tx = conn->acks_tx + enc_level;
-
-  fd_quic_ack_t * cur_ack = *acks_tx;
-  fd_quic_ack_t * pri_ack = NULL;
-
-  /* find the correct place in the list for the ack */
-  /* loop thru acks */
-
-  /* ensure we have a prior */
-  if( FD_LIKELY( cur_ack ) ) {
-    pri_ack = cur_ack;
-    cur_ack = cur_ack->next;
-  }
-
-  while( FD_LIKELY( cur_ack ) ) {
-    /* ranges adjacent */
-    if( FD_LIKELY( pri_ack->pkt_number.offset_hi == cur_ack->pkt_number.offset_lo ) ) {
-      /* merge */
-      fd_quic_ack_join( conn, enc_level, pri_ack, cur_ack );
-
-      /* list has changed, so reestablish pri_ack and cur_ack */
-      cur_ack = pri_ack->next;
-
-      /* cur_ack could be NULL here */
-      if( FD_UNLIKELY( !cur_ack ) ) break;
-    }
-
-    pri_ack = cur_ack;
-    cur_ack = cur_ack->next;
-  }
-
+fd_quic_range_insert( fd_quic_range_t * range,
+                      ulong             idx ) {
+  range->offset_lo = fd_ulong_min( range->offset_lo, idx );
+  range->offset_hi = fd_ulong_max( range->offset_hi, idx+1UL );
 }
 
-
-/* Generate acks and add to queue for future tx */
-/* This function now keeps the ack ranges in pkt_number range order */
-/* It also merges ranges whenever possible */
-/* In practise, this extra work is much cheaper than maintaining very long */
-/* unordered lists. This can happen when there is a high chance of packet reordering */
 void
-fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) {
-  uint enc_level = pkt->enc_level;
-  uint pn_space  = fd_quic_enc_level_to_pn_space( enc_level );
+fd_quic_ack_pkt( fd_quic_t *      quic,
+                 fd_quic_conn_t * conn,
+                 fd_quic_pkt_t *  pkt ) {
 
-  /* during frame processing acks for that packet may be cancelled */
-  if( pkt->ack_flag & ACK_FLAG_CANCEL ) {
-    return;
-  }
-
-  /* calculate new ack time
-     handshakes do not wait
-     non-ack-eliciting packets can wait, but not indefinitely */
-  fd_quic_state_t * state    = fd_quic_get_state( quic );
-  ulong             now      = state->now;
-  ulong             ack_time = now + 1;   /* initial and handshake ack-eliciting packets
-                                             should ack immediately */
-  uint ack_mandatory  = pkt->ack_flag & ACK_FLAG_RQD;
-  uint flag_mandatory = ack_mandatory ? FD_QUIC_ACK_FLAGS_MANDATORY : 0;
-
-  /* packet contains ack-eliciting frame */
-  if( ack_mandatory ) {
-    pkt->ack_flag = 0;
-    /* initial and handshake packets get ack'ed immediately */
-    if( enc_level != fd_quic_enc_level_initial_id &&
-        enc_level != fd_quic_enc_level_handshake_id ) {
-
-      ack_time = now + conn->peer_max_ack_delay;
-    }
-  } else {
-    /* not ack-eliciting */
-    /* if it's been too long, we can send a ping */
-    ack_time = now + fd_quic_get_service_interval( quic ); /* randomize */
-  }
-
-  fd_quic_reschedule_conn( conn, ack_time );
-
-  /* algo:
-     if there exists a last unsent ack, and the last ack refers to the prior packet
-       simply extend it
-     else
-       we need to add a new entry
-         allocate new entry
-           if none, free old entry, and reuse
-           if none, free old entry at another enc level
-           if none, horrible bug - die
-         if a prior ack refers to the prior packet number
-           copy the range into this one, and extend
-         insert at end
-           so the acks are in increasing order of packet number */
+  uint  ack_flag   = pkt->ack_flag;
+  uint  enc_level  = pkt->enc_level;
   ulong pkt_number = pkt->pkt_number;
+  if( pkt_number == FD_QUIC_PKT_NUM_UNUSED ) return;
+  if( ack_flag & ACK_FLAG_CANCEL           ) return;
+  int ack_required = ack_flag & ACK_FLAG_RQD;
 
-  fd_quic_ack_t ** acks_free   = &conn->acks_free;
-  fd_quic_ack_t ** acks_tx     = conn->acks_tx     + enc_level;
-  fd_quic_ack_t ** acks_tx_end = conn->acks_tx_end + enc_level;
-
-  fd_quic_ack_t * cur_ack = *acks_tx;
-  fd_quic_ack_t * pri_ack = NULL;
-
-  /* find the correct place in the list for the ack */
-  if( FD_LIKELY( cur_ack ) ) {
-    /* loop thru acks */
-
-    while( FD_LIKELY( cur_ack ) ) {
-      if( FD_UNLIKELY( pkt_number <= cur_ack->pkt_number.offset_hi ) ) break;
-
-      pri_ack = cur_ack;
-      cur_ack = cur_ack->next;
-    }
-
-    /* do we have a range we can extend? */
-    if( FD_LIKELY( cur_ack ) ) {
-      uint cur_flags = (uint)cur_ack->flags;
-      if( FD_LIKELY( FD_QUIC_OPT_EXTEND_SENT || !(cur_ack->flags & FD_QUIC_ACK_FLAGS_SENT ) ) ) {
-        if( FD_LIKELY( pkt_number == cur_ack->pkt_number.offset_hi ) ) {
-          /* combine extend */
-          cur_ack->pkt_number.offset_hi = pkt_number + 1;
-          cur_ack->tx_time              = fd_ulong_min( cur_ack->tx_time, ack_time );
-          cur_ack->pkt_rcvd             = fd_ulong_max( cur_ack->pkt_rcvd, pkt->rcv_time );
-
-          /* update the flags */
-          cur_ack->flags = (uchar)( ( cur_flags & ~FD_QUIC_ACK_FLAGS_SENT ) | flag_mandatory );
-
-          /* ensure ack gets sent */
-          cur_ack->tx_pkt_number        = FD_QUIC_PKT_NUM_UNUSED;
-
-          /* combine */
-          fd_quic_ack_t * nxt_ack = cur_ack->next;
-          if( FD_LIKELY( nxt_ack ) ) {
-            fd_quic_ack_join( conn, enc_level, cur_ack, nxt_ack );
-          }
-
-          return;
-        }
-
-        if( FD_LIKELY( pkt_number+1 == cur_ack->pkt_number.offset_lo ) ) {
-          /* combine extend */
-          cur_ack->pkt_number.offset_lo = pkt_number;
-          cur_ack->tx_time              = fd_ulong_min( cur_ack->tx_time, ack_time );
-          cur_ack->pkt_rcvd             = fd_ulong_max( cur_ack->pkt_rcvd, pkt->rcv_time );
-
-          /* update the flags */
-          cur_ack->flags = (uchar)( ( cur_flags & ~FD_QUIC_ACK_FLAGS_SENT ) | flag_mandatory );
-
-          /* ensure ack gets sent */
-          cur_ack->tx_pkt_number        = FD_QUIC_PKT_NUM_UNUSED;
-
-          /* combine */
-          if( FD_LIKELY( pri_ack ) ) {
-            fd_quic_ack_join( conn, enc_level, pri_ack, cur_ack );
-          }
-
-          return;
-        }
-      }
-    }
+  /* Calculate ACK wait time */
+  fd_quic_state_t * state    = fd_quic_get_state( quic );
+  ulong             deadline = state->now;
+  if( !ack_required ) {
+    deadline = ULONG_MAX;
+  } else if( enc_level == fd_quic_enc_level_appdata_id ) { /* FIXME support early data? */
+    deadline += conn->peer_max_ack_delay;
   }
 
-  /* already have an ack for this */
-  if( FD_UNLIKELY( cur_ack && pkt_number >= cur_ack->pkt_number.offset_lo
-                           && pkt_number <  cur_ack->pkt_number.offset_hi ) ) {
+  /* Can we merge pkt_number into the most recent ACK? */
+  uint            cached_seq = conn->ack_queue_head - 1U;
+  fd_quic_ack_t * cached_ack = fd_quic_get_queued_ack( conn, cached_seq );
+  if( enc_level > cached_ack->enc_level ) {
+
+    /* flush ACK queue if encryption level increases */
+    conn->ack_queue_head = conn->ack_queue_tail = 0U;
+    memset( conn->ack_queue, 0, sizeof(fd_quic_ack_t) );
+
+  } else if( fd_quic_range_can_insert( &cached_ack->pkt_number, pkt_number ) ) {
+
+    /* add packet number to existing range */
+    cached_ack->deadline = fd_ulong_min( cached_ack->deadline, deadline );
+    fd_quic_range_insert( &cached_ack->pkt_number, pkt_number );
+
+    /* re-enqueue most recent ACK (might have been sent already) */
+    FD_DEBUG( FD_LOG_DEBUG(( "conn=%p queue ACK for enc=%u pkt_num=%lu deadline=%ld range=[%lu,%lu) (merged)",
+        (void *)conn, enc_level, pkt_number, (long)cached_ack->deadline, cached_ack->pkt_number.offset_lo, cached_ack->pkt_number.offset_hi )); )
+    if( !ack_required ) return;
+    if( conn->ack_queue_head==conn->ack_queue_tail ) {
+      FD_DEBUG( FD_LOG_DEBUG(( "reusing last sent ACK range" )); )
+      conn->ack_queue_tail = cached_seq;
+    }
+    return;
+
+  }
+
+  /* Attempt to allocate another ACK queue entry */
+  if( conn->ack_queue_head - conn->ack_queue_tail >= FD_QUIC_ACK_QUEUE_CNT ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "ACK queue overflow! (excessive reordering)" )); )
+    /* FIXME count to metrics */
     return;
   }
 
-  /* ensure we are past the relevant ranges */
-  while( FD_LIKELY( cur_ack ) ) {
-    if( FD_UNLIKELY( pkt_number < cur_ack->pkt_number.offset_hi ) ) break;
-
-    pri_ack = cur_ack;
-    cur_ack = cur_ack->next;
-  }
-
-  /* we need to create a new ack range */
-  fd_quic_ack_t * ack = *acks_free;
-
-  if( FD_LIKELY( ack ) ) {
-    /* move head of free list to next ack */
-    *acks_free = ack->next;
-    ack->next = NULL;
-  } else {
-
-    /* free the oldest */
-    ack = *acks_tx;
-    if( FD_UNLIKELY( !ack ) ) {
-      fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
-      return;
-    }
-
-    if( ack->next == NULL ) {
-      *acks_tx_end = NULL;
-    }
-    *acks_tx = ack->next;
-  }
-
-  /* we have an ack, populate and insert in appropriate place */
-  ack->tx_pkt_number        = FD_QUIC_PKT_NUM_UNUSED; /* unset - indicates we haven't sent the ack yet */
-  ack->pkt_number.offset_lo = pkt_number;
-  ack->pkt_number.offset_hi = pkt_number + 1u;    /* offset_hi is the next one */
-  ack->next                 = *acks_tx;           /* points to head of list for current enc_level */
-  ack->enc_level            = (uchar)enc_level;   /* don't really need - it's implied */
-  ack->pn_space             = (uchar)pn_space;    /* don't really need - it's implied */
-  ack->flags                = ack_mandatory ? FD_QUIC_ACK_FLAGS_MANDATORY : 0u;
-  ack->tx_time              = ack_time;
-  ack->pkt_rcvd             = pkt->rcv_time;      /* the time the packet was received */
-
-  if( FD_LIKELY( pri_ack ) ) {
-    /* insert after prior */
-    if( pri_ack == *acks_tx_end ) {
-      /* track last in list */
-      *acks_tx_end = ack;
-    }
-    ack->next     = pri_ack->next;
-    pri_ack->next = ack;
-  } else {
-    if( !*acks_tx_end ) {
-      *acks_tx_end = ack;
-    }
-    /* insert at head */
-    ack->next = *acks_tx;
-    *acks_tx  = ack;
-  }
+  /* Start new pending ACK */
+  FD_DEBUG( FD_LOG_DEBUG(( "conn=%p queue ACK for enc=%u pkt_num=%lu", (void *)conn, enc_level, pkt_number )); )
+  fd_quic_ack_t * next_ack = fd_quic_get_queued_ack( conn, conn->ack_queue_head );
+  *next_ack = (fd_quic_ack_t) {
+    .deadline   = deadline,
+    .pkt_number = { .offset_lo = pkt_number, .offset_hi = pkt_number+1UL },
+    .enc_level  = (uchar)enc_level,
+    .pkt_rcvd   = pkt->rcv_time
+  };
+  conn->ack_queue_head += 1U;
 }
 
 /* process v1 quic packets
@@ -2532,9 +2310,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
   }
 
   /* if we get here we parsed all the frames, so ack the packet */
-  if( FD_LIKELY( pkt->pkt_number != FD_QUIC_PKT_NUM_UNUSED ) ) {
-    fd_quic_ack_pkt( quic, conn, pkt );
-  }
+  fd_quic_ack_pkt( quic, conn, pkt );
 
   cur_ptr += rc;
 
@@ -3587,7 +3363,6 @@ fd_quic_conn_tx( fd_quic_t *      quic,
      so only one member in use */
   union {
     fd_quic_crypto_frame_t       crypto;
-    fd_quic_ack_frame_t          ack;
     fd_quic_stream_frame_t       stream;
     fd_quic_max_stream_data_t    max_stream_data;
     fd_quic_max_data_frame_t     max_data;
@@ -3789,60 +3564,35 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     /* payload_end leaves room for TAG */
     uchar * payload_end = payload_ptr + payload_sz - FD_QUIC_CRYPTO_TAG_SZ;
 
-    /* put range of offsets into packet meta, so the data may be freed easily on
-       ack */
-
-    /* if we're sending at a particular enc level always include the unsent acks we can
-       regardless of the ack_time */
-
     /* if we have acks, add them */
-    if( FD_LIKELY( conn->acks_tx[enc_level] ) ) {
-      /* perform a merge on unsent acks before transmitting */
-      if(0) fd_quic_ack_merge( conn, enc_level );
-
-      fd_quic_ack_t * ack_head = conn->acks_tx[enc_level];
-      while( ack_head ) {
-
-        if( FD_QUIC_OPT_SEND_ALL_ACKS
-            || !(ack_head->flags & FD_QUIC_ACK_FLAGS_SENT )
-            || ack_head->tx_pkt_number == FD_QUIC_PKT_NUM_UNUSED ) {
-          /* put ack frame */
-          frame.ack.type            = 0x02u; /* type 0x02 is the base ack, 0x03 indicates ECN */
-          frame.ack.largest_ack     = ack_head->pkt_number.offset_hi - 1u;
-          frame.ack.ack_delay       = fd_quic_get_state( quic )->now - ack_head->pkt_rcvd;
-          frame.ack.ack_range_count = 0; /* no fragments */
-          frame.ack.first_ack_range = ack_head->pkt_number.offset_hi - ack_head->pkt_number.offset_lo - 1u;
-
-          /* calc size of ack frame */
-          ulong frame_sz = fd_quic_encode_footprint_ack_frame( &frame.ack );
-
-          if( payload_ptr + frame_sz < payload_end ) {
-            frame_sz = fd_quic_encode_ack_frame( payload_ptr,
-                (ulong)( payload_end - payload_ptr ),
-                &frame.ack );
-            if( FD_UNLIKELY( frame_sz == FD_QUIC_PARSE_FAIL ) ) {
-              /* shouldn't happen */
-              FD_LOG_WARNING(( "failed to encode ack" ));
-            } else {
-              payload_ptr  += frame_sz;
-              tot_frame_sz += frame_sz;
-
-              /* must add acks to packet metadata */
-              /* attributes on ack */
-              ack_head->tx_pkt_number = pkt_number;
-              ack_head->flags        |= FD_QUIC_ACK_FLAGS_SENT;
-              ack_head->tx_time       = now; /* ensure ack isn't sent again unnecessarily */
-
-              pkt_meta->flags        |= FD_QUIC_PKT_META_FLAGS_ACK;
-
-              /* ack frames don't really expire, but we still want to reclaim the pkt_meta */
-              pkt_meta->expiry = fd_ulong_min( pkt_meta->expiry, now + (ulong)1e9 );
-            }
-          }
-        }
-
-        ack_head = ack_head->next;
+    FD_DEBUG( if( conn->ack_queue_tail == conn->ack_queue_head ) FD_LOG_DEBUG(( "No ACKs to send" )); )
+    for( ; conn->ack_queue_tail != conn->ack_queue_head; conn->ack_queue_tail++ ) {
+      fd_quic_ack_t * ack = fd_quic_get_queued_ack( conn, conn->ack_queue_tail );
+      if( ack->enc_level != enc_level ) {
+        FD_DEBUG( FD_LOG_DEBUG(( "need encryption level %u for ACKs but have %u", ack->enc_level, enc_level )); )
+        break;
       }
+
+      /* Remove any ACK deadline in case we recycle this ACK object in
+         a future iteration */
+      ack->deadline = ULONG_MAX;
+
+      if( FD_UNLIKELY( ack->pkt_number.offset_lo == ack->pkt_number.offset_hi ) ) continue;
+      FD_DEBUG( FD_LOG_DEBUG(( "conn=%p sending ACK enc=%u range=[%lu,%lu)", (void *)conn, enc_level, ack->pkt_number.offset_lo, ack->pkt_number.offset_hi )); )
+      fd_quic_ack_frame_t ack_frame = {
+        .type            = 0x02, /* type 0x02 is the base ack, 0x03 indicates ECN */
+        .largest_ack     = ack->pkt_number.offset_hi - 1U,
+        .ack_delay       = ( now - ack->pkt_rcvd ) / 1000,
+        .ack_range_count = 0, /* no fragments */
+        .first_ack_range = ack->pkt_number.offset_hi - ack->pkt_number.offset_lo - 1U,
+      };
+      ulong frame_sz = fd_quic_encode_ack_frame( payload_ptr, (ulong)( payload_end - payload_ptr ), &ack_frame );
+      if( FD_UNLIKELY( frame_sz==FD_QUIC_ENCODE_FAIL ) ) {
+        FD_DEBUG( FD_LOG_DEBUG(( "insufficient buffer space to send ACK" )); )
+        break;
+      }
+      payload_ptr  += frame_sz;
+      tot_frame_sz += frame_sz;
     }
 
     /* closing? */
@@ -4225,7 +3975,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
 
     /* did we add any frames? */
 
-    if( !pkt_meta->flags ) {
+    if( !tot_frame_sz ) {
       /* we have data to add, but none was added, presumably due
          so space in the datagram */
       ulong free_bytes = (ulong)( payload_ptr - payload_end );
@@ -4337,16 +4087,6 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     pkt_meta->pn_space   = (uchar)pn_space;
     pkt_meta->enc_level  = (uchar)enc_level;
 
-    /* update ack metadata */
-    fd_quic_ack_t * cur_ack = conn->acks_tx[enc_level];
-    while( cur_ack ) {
-      if( cur_ack->tx_pkt_number == pkt_number ) {
-        cur_ack->flags |= FD_QUIC_ACK_FLAGS_SENT;
-      }
-
-      cur_ack = cur_ack->next;
-    }
-
     /* did we send handshake data? */
     if( pkt_meta->flags & FD_QUIC_PKT_META_FLAGS_HS_DATA ) {
       conn->hs_sent_bytes[enc_level] += hs_data_sz;
@@ -4398,22 +4138,16 @@ fd_quic_conn_tx( fd_quic_t *      quic,
       conn->handshake_done_send = 0;
     }
 
-    if( pkt_meta->flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR ) {
-      pkt_meta->flags &= ~FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR;
+    if( pkt_meta->flags ) {
+      /* add to sent list */
+      fd_quic_pkt_meta_push_back( &conn->pkt_meta_pool.sent_pkt_meta[enc_level], pkt_meta );
+
+      /* update rescheduling variable */
+      schedule = fd_ulong_min( schedule, pkt_meta->expiry );
+
+      /* clear pkt_meta for next loop */
+      pkt_meta = NULL;
     }
-
-    if( pkt_meta->flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR ) {
-      pkt_meta->flags &= ~FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR;
-    }
-
-    /* add to sent list */
-    fd_quic_pkt_meta_push_back( &conn->pkt_meta_pool.sent_pkt_meta[enc_level], pkt_meta );
-
-    /* update rescheduling variable */
-    schedule = fd_ulong_min( schedule, pkt_meta->expiry );
-
-    /* clear pkt_meta for next loop */
-    pkt_meta = NULL;
 
     if( enc_level == fd_quic_enc_level_appdata_id ) {
       /* short header must be last in datagram
@@ -4653,17 +4387,6 @@ fd_quic_conn_free( fd_quic_t *      quic,
   state->conns = conn;
   conn->state  = FD_QUIC_CONN_STATE_INVALID;
   state->free_conns++;
-
-  /* free acks */
-  for( ulong j = 0; j < 4; ++j ) {
-    /* add whole list to free list */
-    if( conn->acks_tx_end[j] ) {
-      conn->acks_tx_end[j]->next = conn->acks_free;
-      conn->acks_free            = conn->acks_tx[j];
-
-      conn->acks_tx[j] = conn->acks_tx_end[j] = NULL;
-    }
-  }
 
   quic->metrics.conn_active_cnt--;
 
@@ -4960,10 +4683,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   memset( &conn->peer[ peer_idx ].mac_addr, 0, 6 );
   conn->peer_cnt                      = 1;
 
-  /* initialize other ack members */
-  fd_memset( conn->acks_tx,     0, sizeof( conn->acks_tx ) );
-  fd_memset( conn->acks_tx_end, 0, sizeof( conn->acks_tx_end ) );
-
   /* flow control params */
   conn->rx_max_data = 0; /* this is what we advertise initially */
   conn->tx_max_data = 0;
@@ -5062,9 +4781,6 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
                         int                  force,
                         uint                 arg_enc_level ) {
 
-  /* flags for each enc_level */
-  uint reclaimed_acks = 0;
-
   ulong now = fd_quic_get_state( quic )->now;
 
   /* minimum pkt_meta required to be freed
@@ -5159,7 +4875,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
       continue;
     }
 
-    ulong pkt_number = pkt_meta->pkt_number;
+    FD_DEBUG( FD_LOG_DEBUG(( "Retrying enc=%u pkt_num=%lu", pkt_meta->enc_level, pkt_meta->pkt_number )) );
 
     /* set the data to retry */
     uint flags = pkt_meta->flags;
@@ -5247,23 +4963,6 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
         conn->upd_pkt_number  = FD_QUIC_PKT_NUM_PENDING;
       }
     }
-    if( flags & FD_QUIC_PKT_META_FLAGS_ACK                ) {
-      /* iterate thru the acks */
-      fd_quic_ack_t * cur_ack = conn->acks_tx[enc_level];
-      while( cur_ack ) {
-        if( cur_ack->tx_pkt_number == pkt_number ) {
-          reclaimed_acks |= 1U << enc_level;
-          cur_ack->tx_pkt_number = FD_QUIC_PKT_NUM_UNUSED;
-          cur_ack->tx_time       = now + 1u;
-
-          /* mark as unsent, and add mandatory flag */
-          cur_ack->flags         = (uchar)( ( cur_ack->flags & ~FD_QUIC_ACK_FLAGS_SENT )
-                                                             |  FD_QUIC_ACK_FLAGS_MANDATORY );
-        }
-
-        cur_ack = cur_ack->next;
-      }
-    }
     if( flags & FD_QUIC_PKT_META_FLAGS_CLOSE              ) {
       conn->flags &= ~FD_QUIC_CONN_FLAGS_CLOSE_SENT;
       conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
@@ -5282,14 +4981,6 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
 
     cnt_freed++;
   }
-
-  /* for each enc_level, if acks reclaimed perform merge */
-  for( uint k = 0; k < 4; ++k ) {
-    if( FD_LIKELY( reclaimed_acks & (1U<<k) ) ) {
-      /* perform a merge on unsent acks before transmitting */
-      fd_quic_ack_merge( conn, k );
-    }
-  }
 }
 
 /* reclaim resources associated with packet metadata
@@ -5299,12 +4990,8 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
                           fd_quic_pkt_meta_t * pkt_meta,
                           uint                 enc_level ) {
 
-  /* flag for whether acks have been reclaimed */
-  int             reclaimed_acks = 0;
-
-  uint            flags      = pkt_meta->flags;
-  ulong           pkt_number = pkt_meta->pkt_number;
-  fd_quic_range_t range      = pkt_meta->range;
+  uint            flags = pkt_meta->flags;
+  fd_quic_range_t range = pkt_meta->range;
 
   if( FD_UNLIKELY( flags & FD_QUIC_PKT_META_FLAGS_KEY_UPDATE ) ) {
     /* what key phase was used for packet? */
@@ -5588,56 +5275,6 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
         }
       }
     }
-  }
-
-  /* acks */
-  if( flags & FD_QUIC_PKT_META_FLAGS_ACK ) {
-    /* remove all acks with given packet number */
-    fd_quic_ack_t * cur_ack = conn->acks_tx[enc_level];
-    while( FD_LIKELY( cur_ack ) ) {
-      fd_quic_ack_t * next_ack = cur_ack->next;
-      if( FD_LIKELY( next_ack ) ) {
-        if( FD_LIKELY( next_ack->tx_pkt_number == pkt_number ) ) {
-          reclaimed_acks = 1;
-
-          /* remove next_ack */
-          if( next_ack->next == NULL ) {
-            /* next_ack is last, so update end */
-            conn->acks_tx_end[enc_level] = cur_ack;
-          }
-          cur_ack->next = next_ack->next;
-
-          /* put in free list */
-          next_ack->next  = conn->acks_free;
-          conn->acks_free = next_ack;
-        }
-      } else {
-        break;
-      }
-      cur_ack = cur_ack->next;
-    }
-
-    /* head treated separately */
-    cur_ack = conn->acks_tx[enc_level];
-    if( cur_ack && cur_ack->tx_pkt_number == pkt_number ) {
-      reclaimed_acks = 1;
-
-      /* remove cur_ack */
-      if( cur_ack->next == NULL ) {
-        /* cur_ack is last, so update end */
-        conn->acks_tx_end[enc_level] = NULL;
-      }
-      conn->acks_tx[enc_level] = cur_ack->next;
-
-      /* add to free list */
-      cur_ack->next   = conn->acks_free;
-      conn->acks_free = cur_ack;
-    }
-  }
-
-  if( FD_LIKELY( reclaimed_acks ) ) {
-    /* perform a merge on unsent acks before transmitting */
-    fd_quic_ack_merge( conn, enc_level );
   }
 }
 /* process lost packets

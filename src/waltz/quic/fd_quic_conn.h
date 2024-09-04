@@ -51,27 +51,13 @@ enum {
 typedef struct fd_quic_conn       fd_quic_conn_t;
 typedef struct fd_quic_ack        fd_quic_ack_t;
 
-/* we track the range of offsets we acked for handshake and stream data
-   these get freed when a packet containing the relevant acks is acked by the
-     peer
-   we try to send all acks stored each packet
-     we will "over ack"
-     it simplifies the ack logic since freeing one ack implies we can free
-       all preceding acks. ack ids are only increasing
-   enc_level of acks is implied by the list it's in */
+/* fd_quic_ack_t is used to generate ACK frames. */
 
 struct fd_quic_ack {
-  /* stores data about what was ack'ed */
-  ulong           tx_pkt_number; /* the packet number this ack range was or will be transmitted in */
-  ulong           tx_time;       /* the time the ack was sent, or should be sent */
-  ulong           pkt_rcvd;      /* the time the original packet was received */
+  ulong           deadline;      /* fd_log_wallclock deadline when ACK needs to be sent */
+  ulong           pkt_rcvd;      /* fd_log_wallclock timestamp when packet was received */
   fd_quic_range_t pkt_number;    /* range of packet numbers being acked */
-  fd_quic_ack_t * next;          /* next ack in linked list - e.g. free list */
   uchar           enc_level;
-  uchar           pn_space;
-  uchar           flags;
-# define FD_QUIC_ACK_FLAGS_SENT      (1u<<0u)
-# define FD_QUIC_ACK_FLAGS_MANDATORY (1u<<1u)
 };
 
 struct fd_quic_conn {
@@ -271,13 +257,19 @@ struct fd_quic_conn {
   ulong                   num_pkt_meta;
   fd_quic_pkt_meta_t *    pkt_meta_mem;    /* owns the memory */
 
-  fd_quic_ack_t *      acks;               /* array of acks allocate during init */
-  fd_quic_ack_t *      acks_free;          /* free list of acks */
+  /* ACK generation
 
-  /* list of acks to be transmitted at each encryption level */
-  fd_quic_ack_t *      acks_tx[4];
-  fd_quic_ack_t *      acks_tx_end[4];     /* the ends of each list in acks_tx */
+     FD_QUIC_ACK_QUEUE_CNT controls the number of disjoint ACK ranges
+     that can be acknowledged between two calls to fd_quic_service.
+     Higher values decrease retransmission rates in case of reordering.
+     Must be a power of 2.
 
+     Seq ack_queue_head-1 is always assumed to be valid. */
+
+# define FD_QUIC_ACK_QUEUE_CNT 8
+  fd_quic_ack_t        ack_queue[FD_QUIC_ACK_QUEUE_CNT];
+  uint                 ack_queue_head;     /* Next unused ACK queue seq */
+  uint                 ack_queue_tail;     /* Next not-yet-sent ACK queue sent */
   ulong                peer_max_ack_delay; /* limit on the delay we intentionally impose on acks
                                               in nanoseconds */
 
@@ -379,6 +371,12 @@ fd_quic_conn_get_max_streams( fd_quic_conn_t * conn, uint type );
    called whenever weight may have changed */
 void
 fd_quic_conn_update_weight( fd_quic_conn_t * conn, uint dirtype );
+
+FD_FN_PURE static inline fd_quic_ack_t *
+fd_quic_get_queued_ack( fd_quic_conn_t * conn,
+                        uint             idx ) {
+  return conn->ack_queue + (idx & (FD_QUIC_ACK_QUEUE_CNT-1));
+}
 
 
 FD_PROTOTYPES_END
