@@ -9,6 +9,7 @@
 
 #define BENCHG_TRANSACTION_MODE_SMALL   0
 #define BENCHG_TRANSACTION_MODE_LARGE   1
+#define BENCHG_TRANSACTION_MODE_TRANSFER 2
 
 typedef struct {
   fd_rng_t rng[ 1 ];
@@ -81,76 +82,115 @@ static const uchar HARDCODED_SIG[64] = { 0xdb,0x89,0x2c,0xaa,0x90,0x1f,0x80,0xcf
                       0x22,0x20,0xc6,0x7e,0xeb,0x9b,0xce,0x12,0x3a,0xd5,0x34,0xb8,0x1c,0x80,0x49,0x8a, \
                       0xb1,0x1e,0xbb,0xed,0xb2,0x24,0xf0,0x19,0x4b,0x85,0x3b,0x55,0x4b,0x41,0xbe,0x0a };
 
+typedef struct __attribute__((packed)) {
+	uchar sig_cnt; /* = 1 */
+	uchar signature[64];
+	uchar _sig_cnt; /* also 1 */
+	uchar ro_signed_cnt; /* ??? */
+	uchar ro_unsigned_cnt; /* ??? */
+	uchar acct_addr_cnt; /* = ??? */
+	uchar fee_payer[32];
+} single_signer_hdr_t;
 
 typedef struct __attribute__((packed)) {
-  struct __attribute__((packed)) {
-    uchar sig_cnt; /* = 1 */
-    uchar signature[64];
-    uchar _sig_cnt; /* also 1 */
-    uchar ro_signed_cnt; /* = 0 */
-    uchar ro_unsigned_cnt; /* = 2 . Compute Budget Program, Ed25519SV */
-    uchar acct_addr_cnt; /* = 3 */
-    uchar fee_payer[32];
-    uchar compute_budget_program[32]; /* = {COMPUTE_BUDGET_PROG_ID} */
-    uchar ed25519_sv_program[32]; /* = {..} */
-    uchar recent_blockhash[32];
-    uchar instr_cnt; /* = 2 */
-  } fixed;
+	uchar sig_cnt; /* = 1 */
+	uchar signature[64];
+	uchar _sig_cnt; /* also 1 */
+	uchar ro_signed_cnt; /* = 0 */
+	uchar ro_unsigned_cnt; /* = 1 . Compute Budget Program */
+	uchar acct_addr_cnt; /* = 2 */
+	uchar fee_payer[32];
+	uchar compute_budget_program[32]; /* = {COMPUTE_BUDGET_PROG_ID} */
+	uchar recent_blockhash[32];
+	uchar instr_cnt; /* = 2 */
   /* Start of instruction */
-  union __attribute__((packed)) {
-    struct __attribute__((packed)) {
-      struct __attribute__((packed)) {
-        uchar prog_id; /* = 1 */
-        uchar acct_cnt; /* = 0 */
-        uchar data_sz; /* = 9 */
-        uchar set_cu_price; /* = 3 */
-        ulong micro_lamports_per_cu; /* Prefereably less than 10k or so */
-      } _1;
-      /* Start of second instruction */
-      struct __attribute__((packed)) {
-        uchar prog_id; /* = 1 */
-        uchar acct_cnt; /* = 0 */
-        uchar data_sz; /* = 5 */
-        uchar set_cu_limit; /* = 2 */
-        uint cus; /* = 300 */
-      } _2;
-    } small;
+  struct __attribute__((packed)) {
+    uchar prog_id; /* = 1 */
+    uchar acct_cnt; /* = 0 */
+    uchar data_sz; /* = 9 */
+    uchar set_cu_price; /* = 3 */
+    ulong micro_lamports_per_cu; /* Prefereably less than 10k or so */
+  } _1;
+  /* Start of second instruction */
+  struct __attribute__((packed)) {
+    uchar prog_id; /* = 1 */
+    uchar acct_cnt; /* = 0 */
+    uchar data_sz; /* = 5 */
+    uchar set_cu_limit; /* = 2 */
+    uint cus; /* = 300 */
+  } _2;
+} small_noop_t;
 
-    struct __attribute__((packed)) {
-      struct __attribute__((packed)) {
-        uchar prog_id; /* = 1 */
-        uchar acct_cnt; /* = 0 */
-        uchar data_sz; /* = 9 */
-        uchar set_cu_price; /* = 3 */
-        ulong micro_lamports_per_cu; /* Prefereably less than 10k or so */
-      } _1;
-      /* Start of second instruction */
-      struct __attribute__((packed)) {
-        uchar prog_id; /* = 2 */
-        uchar acct_cnt; /* = 0 */
-        uchar data_sz_0; /* = 0xFA */
-        uchar data_sz_1; /* = 0x07 */
-        /* Offsets the follow count from here */
-        uchar signature_cnt; /* = 1 */
-        uchar _padding; /* ignored, set to 0 */
-        ushort signature_off;    /* = 56 */
-        ushort signature_ix_idx; /* = 0 */
-        ushort pubkey_off;       /* = 24 */
-        ushort pubkey_ix_idx;    /* = 0 */
-        ushort data_off;         /* = 120 */
-        ushort data_sz;          /* = 1 */
-        ushort data_ix_idx;      /* = 0 */
-        ulong  _padding2;        /* Set to anything */
-        uchar  hardcoded_pubkey[32];
-        uchar  hardcoded_sig[64];
-        uchar  message;          /* = 0 */
-        uchar  _padding3[897];   /* Set to anything */
-      } _2;
-    } large;
-  };
-} bench_transaction_t;
+typedef struct __attribute__((packed)) {
+  uchar sig_cnt; /* = 1 */
+  uchar signature[64];
+  uchar _sig_cnt; /* also 1 */
+  uchar ro_signed_cnt; /* = 0 */
+  uchar ro_unsigned_cnt; /* = 2 . Compute Budget Program, Ed25519SV */
+  uchar acct_addr_cnt; /* = 3 */
+  uchar fee_payer[32];
+  uchar compute_budget_program[32]; /* = {COMPUTE_BUDGET_PROG_ID} */
+  uchar ed25519_sv_program[32]; /* = { ED25519_SV } */
+  uchar recent_blockhash[32];
+  uchar instr_cnt; /* = 2 */
+  /* Start of instruction */
+  struct __attribute__((packed)) {
+    uchar prog_id; /* = 1 */
+    uchar acct_cnt; /* = 0 */
+    uchar data_sz; /* = 9 */
+    uchar set_cu_price; /* = 3 */
+    ulong micro_lamports_per_cu; /* Prefereably less than 10k or so */
+  } _1;
+  /* Start of second instruction */
+  struct __attribute__((packed)) {
+    uchar prog_id; /* = 2 */
+    uchar acct_cnt; /* = 0 */
+    uchar data_sz_0; /* = 0xFA */
+    uchar data_sz_1; /* = 0x07 */
+    /* Offsets the follow count from here */
+    uchar signature_cnt; /* = 1 */
+    uchar _padding; /* ignored, set to 0 */
+    ushort signature_off;    /* = 56 */
+    ushort signature_ix_idx; /* = 0 */
+    ushort pubkey_off;       /* = 24 */
+    ushort pubkey_ix_idx;    /* = 0 */
+    ushort data_off;         /* = 120 */
+    ushort data_sz;          /* = 1 */
+    ushort data_ix_idx;      /* = 0 */
+    ulong  _padding2;        /* Set to anything */
+    uchar  hardcoded_pubkey[32];
+    uchar  hardcoded_sig[64];
+    uchar  message;          /* = 0 */
+    uchar  _padding3[897];   /* Set to anything */
+  } _2;
+} large_noop_t;
 
-FD_STATIC_ASSERT( sizeof(bench_transaction_t)==1232UL, txn );
+typedef struct __attribute__((packed)) {
+  uchar sig_cnt; /* = 1 */
+  uchar signature[64];
+  uchar _sig_cnt; /* also 1 */
+  uchar ro_signed_cnt; /* = 0 */
+  uchar ro_unsigned_cnt; /* = 1 . System program */
+  uchar acct_addr_cnt; /* = 3 */
+  uchar fee_payer[32];
+  uchar transfer_dest[32];
+  uchar system_program[32]; /* = { 0 0 ...} */
+  uchar recent_blockhash[32];
+  uchar instr_cnt; /* = 1 */
+  /* Start of instruction */
+  struct __attribute__((packed)) {
+    uchar prog_id; /* = 2 */
+    uchar acct_cnt; /* = 2 */
+    uchar from_acct; /* = 0 */
+    uchar to_acct; /* = 1 */
+    uchar data_sz; /* = 9 */
+    uchar transfer; /* = 2 */
+    ulong lamports; /* variable */
+  } _1;
+} transfer_t;
+
+
+FD_STATIC_ASSERT( sizeof(large_noop_t)==1232UL, txn );
 
 static inline void
 after_credit( void *             _ctx,
@@ -162,95 +202,146 @@ after_credit( void *             _ctx,
 
   if( FD_UNLIKELY( !ctx->has_recent_blockhash ) ) return;
 
-  bench_transaction_t * txn = (bench_transaction_t *)fd_chunk_to_laddr( ctx->mem, ctx->out_chunk );
-  *txn = (bench_transaction_t){
-    /* Fixed values */
-    .fixed.sig_cnt         = 1,
-    .fixed._sig_cnt        = 1,
-    .fixed.ro_signed_cnt   = 0,
-    .fixed.ro_unsigned_cnt = 2,
-    .fixed.acct_addr_cnt   = 3,
-    .fixed.compute_budget_program  = {COMPUTE_BUDGET_PROG_ID},
-    .fixed.ed25519_sv_program      = {ED25519_SV_PROG_ID},
-    .fixed.instr_cnt       = 2 };
-
-  ulong transaction_size = 0UL;
-  if( ctx->transaction_mode==BENCHG_TRANSACTION_MODE_SMALL ) {
-    transaction_size = sizeof(txn->fixed) + sizeof(txn->small);
-    txn->small._1.prog_id      = 1;
-    txn->small._1.acct_cnt     = 0;
-    txn->small._1.data_sz      = 9;
-    txn->small._1.set_cu_price = 3;
-    txn->small._2.prog_id      = 1;
-    txn->small._2.acct_cnt     = 0;
-    txn->small._2.data_sz      = 5;
-    txn->small._2.set_cu_limit = 2;
-    txn->small._2.cus          = 300;
-
-    /* Variable */
-    txn->small._1.micro_lamports_per_cu = ctx->lamport_idx; /* Unique per transaction so they aren't duplicates */
-  } else if( ctx->transaction_mode==BENCHG_TRANSACTION_MODE_LARGE ) {
-    transaction_size = sizeof(txn->fixed) + sizeof(txn->large);
-    txn->large._1.prog_id      = 1;
-    txn->large._1.acct_cnt     = 0;
-    txn->large._1.data_sz      = 9;
-    txn->large._1.set_cu_price = 3;
-    txn->large._1.micro_lamports_per_cu = 0UL; /* Adjusted later */
-
-
-    txn->large._2.prog_id   = 2;
-    txn->large._2.acct_cnt  = 0;
-    txn->large._2.data_sz_0 = 0xFA;
-    txn->large._2.data_sz_1 = 0x07;
-
-    txn->large._2.signature_cnt   = 1;
-    txn->large._2._padding        = 0;
-    txn->large._2.signature_off   = 56;
-    txn->large._2.signature_ix_idx= 0;
-    txn->large._2.pubkey_off      = 24;
-    txn->large._2.pubkey_ix_idx   = 0;
-    memcpy( txn->large._2.hardcoded_pubkey, HARDCODED_PUBKEY, 32UL );
-    memcpy( txn->large._2.hardcoded_sig,    HARDCODED_SIG,    64UL );
-    txn->large._2.message         = 0;
-
-    txn->large._2._padding2 = ctx->lamport_idx * ctx->acct_cnt + ctx->sender_idx; /* Unique per transaction so they aren't duplicates */
-  } else {
-    FD_LOG_ERR(( "Unkown transaction mode %i", ctx->transaction_mode ));
-  }
-
   int is_contending = fd_rng_float_c( ctx->rng ) < ctx->contending_fraction;
   ulong sender_idx = fd_ulong_if( is_contending, 0UL, ctx->sender_idx );
 
   float norm = 4.0f + fd_rng_float_norm( ctx->rng );
   if( FD_UNLIKELY( norm<0.0f ) ) norm = 0.0f;
   ulong cu_price_spread = (ulong)(ctx->cu_price_spread * norm);
-  if( ctx->transaction_mode==BENCHG_TRANSACTION_MODE_SMALL ) {
-    txn->small._1.micro_lamports_per_cu += fd_ulong_if( is_contending, 1000000UL, 0UL ); /* +300 lamports */
-    txn->small._1.micro_lamports_per_cu += cu_price_spread;
-  } else if( ctx->transaction_mode==BENCHG_TRANSACTION_MODE_LARGE ) {
-    txn->large._1.micro_lamports_per_cu += fd_ulong_if( is_contending,   43000UL, 0UL ); /* +4 lamports/csu */
-    txn->large._1.micro_lamports_per_cu += cu_price_spread;
+
+  void * _txn = fd_chunk_to_laddr( ctx->mem, ctx->out_chunk );
+
+  ulong   transaction_size = 0UL;
+  uchar * recent_blockhash = NULL;
+
+  switch( ctx->transaction_mode ) {
+    case BENCHG_TRANSACTION_MODE_SMALL:
+      {
+        small_noop_t * txn = (small_noop_t *)_txn;
+
+        txn->sig_cnt         = 1;
+        txn->_sig_cnt        = 1;
+        txn->ro_signed_cnt   = 0;
+        txn->ro_unsigned_cnt = 1;
+        txn->acct_addr_cnt   = 2;
+        memcpy( txn->compute_budget_program, (uchar const[32]) { COMPUTE_BUDGET_PROG_ID }, 32UL );
+        txn->instr_cnt       = 2;
+        txn->_1.prog_id      = 1;
+        txn->_1.acct_cnt     = 0;
+        txn->_1.data_sz      = 9;
+        txn->_1.set_cu_price = 3;
+        txn->_2.prog_id      = 1;
+        txn->_2.acct_cnt     = 0;
+        txn->_2.data_sz      = 5;
+        txn->_2.set_cu_limit = 2;
+        txn->_2.cus          = 300;
+
+        /* Variable */
+        txn->_1.micro_lamports_per_cu = ctx->lamport_idx; /* Unique per transaction so they aren't duplicates */
+        txn->_1.micro_lamports_per_cu += fd_ulong_if( is_contending, 1000000UL, 0UL ); /* +300 lamports */
+        txn->_1.micro_lamports_per_cu += cu_price_spread;
+
+        transaction_size = sizeof(small_noop_t);
+        recent_blockhash = txn->recent_blockhash;
+      }
+      break;
+
+    case BENCHG_TRANSACTION_MODE_LARGE:
+      {
+        large_noop_t * txn = (large_noop_t *)_txn;
+
+        txn->sig_cnt         = 1;
+        txn->_sig_cnt        = 1;
+        txn->ro_signed_cnt   = 0;
+        txn->ro_unsigned_cnt = 2;
+        txn->acct_addr_cnt   = 3;
+        memcpy( txn->compute_budget_program, (uchar const[32]) { COMPUTE_BUDGET_PROG_ID }, 32UL );
+        memcpy( txn->ed25519_sv_program,     (uchar const[32]) { ED25519_SV_PROG_ID     }, 32UL );
+        txn->instr_cnt       = 2;
+
+        txn->_1.prog_id      = 1;
+        txn->_1.acct_cnt     = 0;
+        txn->_1.data_sz      = 9;
+        txn->_1.set_cu_price = 3;
+        txn->_1.micro_lamports_per_cu  = 0UL;
+        txn->_1.micro_lamports_per_cu += cu_price_spread;
+        txn->_1.micro_lamports_per_cu += fd_ulong_if( is_contending,   43000UL, 0UL ); /* +4 lamports/csu */
+
+
+        txn->_2.prog_id   = 2;
+        txn->_2.acct_cnt  = 0;
+        txn->_2.data_sz_0 = 0xFA;
+        txn->_2.data_sz_1 = 0x07;
+
+        txn->_2.signature_cnt   = 1;
+        txn->_2._padding        = 0;
+        txn->_2.signature_off   = 56;
+        txn->_2.signature_ix_idx= 0;
+        txn->_2.pubkey_off      = 24;
+        txn->_2.pubkey_ix_idx   = 0;
+        memcpy( txn->_2.hardcoded_pubkey, HARDCODED_PUBKEY, 32UL );
+        memcpy( txn->_2.hardcoded_sig,    HARDCODED_SIG,    64UL );
+        txn->_2.message         = 0;
+
+        txn->_2._padding2 = ctx->lamport_idx * ctx->acct_cnt + ctx->sender_idx; /* Unique per transaction so they aren't duplicates */
+
+        transaction_size = sizeof(large_noop_t);
+        recent_blockhash = txn->recent_blockhash;
+      }
+      break;
+
+    case BENCHG_TRANSACTION_MODE_TRANSFER:
+      {
+        transfer_t * txn = (transfer_t *)_txn;
+
+        txn->sig_cnt         = 1;
+        txn->_sig_cnt        = 1;
+        txn->ro_signed_cnt   = 0;
+        txn->ro_unsigned_cnt = 1;
+        txn->acct_addr_cnt   = 3;
+        memcpy( txn->transfer_dest, ctx->acct_public_keys[ sender_idx ].uc, 32UL );
+        for( ulong j=0UL; j<32UL; j++ ) txn->transfer_dest[ j ] ^= 0xFF;
+        memcpy( txn->system_program, (uchar const[32]) { SYS_PROG_ID }, 32UL );
+        txn->instr_cnt       = 1;
+
+        txn->_1.prog_id      = 2;
+        txn->_1.acct_cnt     = 2;
+        txn->_1.from_acct    = 0;
+        txn->_1.to_acct      = 1;
+        txn->_1.data_sz      = 9;
+        txn->_1.transfer     = 2;
+
+        txn->_1.lamports     = ctx->lamport_idx;
+
+        transaction_size = sizeof(transfer_t);
+        recent_blockhash = txn->recent_blockhash;
+      }
+      break;
+
+    default:
+      FD_LOG_ERR(( "Unkown transaction mode %i", ctx->transaction_mode ));
+      break;
   }
 
+  single_signer_hdr_t * txnh = (single_signer_hdr_t *)_txn;
+  fd_memcpy( txnh->fee_payer,  ctx->acct_public_keys[ sender_idx ].uc, 32UL );
+  fd_memcpy( recent_blockhash, ctx->recent_blockhash,                  32UL );
 
-  fd_memcpy( txn->fixed.fee_payer, ctx->acct_public_keys[ sender_idx ].uc, 32UL );
-  fd_memcpy( txn->fixed.recent_blockhash, ctx->recent_blockhash, 32UL );
-
-  fd_ed25519_sign( txn->fixed.signature,
-                   &(txn->fixed._sig_cnt),
+  fd_ed25519_sign( txnh->signature,
+                   &(txnh->_sig_cnt),
                    transaction_size-65UL,
                    ctx->acct_public_keys[ sender_idx ].uc,
                    ctx->acct_private_keys[ sender_idx ].uc,
                    ctx->sha );
 
   /* For the demo only, compute the transaction's value */
-  uchar _txn[FD_TXN_MAX_SZ] __attribute__((aligned(alignof(fd_txn_t))));
-  fd_txn_t * p_txn = (fd_txn_t *)_txn;
-  FD_TEST( fd_txn_parse( (uchar const *)txn, transaction_size, _txn, NULL ) );
+  uchar _txnt[FD_TXN_MAX_SZ] __attribute__((aligned(alignof(fd_txn_t))));
+  fd_txn_t * p_txn = (fd_txn_t *)_txnt;
+  FD_TEST( fd_txn_parse( (uchar const *)_txn, transaction_size, _txnt, NULL ) );
   uint  flags = 0UL;
   ulong fee   = 0UL;
   ulong sigs  = 0UL;
-  ulong cost_units = fd_pack_compute_cost( p_txn, (uchar const *)txn, &flags, NULL, &fee, &sigs );
+  ulong cost_units = fd_pack_compute_cost( p_txn, (uchar const *)_txn, &flags, NULL, &fee, &sigs );
   fee += 5000UL*(sigs+1UL);
 
   ctx->hist_data[ ctx->hist_cnt++ ] = ((float)fee)/(float)cost_units;
