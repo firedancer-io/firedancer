@@ -764,6 +764,7 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
                                fd_execute_txn_task_info_t * task_info,
                                fd_txn_p_t *                 txns,
                                ulong                        txn_cnt ) {
+  int res = 0;
   /* Loop across transactions */
   for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
     fd_txn_p_t * txn = &txns[txn_idx];
@@ -777,15 +778,15 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
 
     fd_rawtxn_b_t raw_txn = { .raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
 
-    int res = fd_execute_txn_prepare_start( slot_ctx, txn_ctx, txn_descriptor, &raw_txn );
-    if( res ) {
-      task_info[txn_idx].exec_res = res;
+    int err = fd_execute_txn_prepare_start( slot_ctx, txn_ctx, txn_descriptor, &raw_txn );
+    if( FD_UNLIKELY( err ) ) {
+      task_info[txn_idx].exec_res = err;
       txn->flags                  = 0U;
-      return res;
+      res |= err;
     }
   }
 
-  return FD_RUNTIME_EXECUTE_SUCCESS;
+  return res;
 }
 
 /* fd_txn_sigverify_task and fd_txn_pre_execute_checks_task are responisble
@@ -1843,12 +1844,15 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
       }
 
       ulong * incomplete_txn_idxs = fd_scratch_alloc( 8UL, txn_cnt * sizeof(ulong) );
-      ulong incomplete_txn_idxs_cnt = txn_cnt;
+      ulong incomplete_txn_idxs_cnt = 0;
       ulong incomplete_accounts_cnt = 0;
 
-      /* Setup all txns as incomplete and set the capture context */
+      /* Setup sanitized txns as incomplete and set the capture context */
       for( ulong i = 0; i < txn_cnt; i++ ) {
-        incomplete_txn_idxs[i] = i;
+        if( FD_UNLIKELY( !( task_infos[i].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
+          continue;
+        }
+        incomplete_txn_idxs[incomplete_txn_idxs_cnt++] = i;
         incomplete_accounts_cnt += task_infos[i].txn_ctx->accounts_cnt;
         task_infos[i].txn_ctx->capture_ctx = capture_ctx;
       }

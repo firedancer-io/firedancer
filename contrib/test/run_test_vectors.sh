@@ -33,6 +33,9 @@ cat contrib/test/syscall-fixtures/*.list | xargs -n 1000 ./$OBJDIR/unit-test/tes
 LOG=$LOG_PATH/test_exec_precompiles
 cat contrib/test/precompile-fixtures/*.list | xargs -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
 
+LOG=$LOG_PATH/test_exec_precompiles
+cat contrib/test/txn-fixtures/*.list | xargs -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG
+
 zstd -df dump/test-vectors/elf_loader/fixtures/*.zst
 LOG=$LOG_PATH/test_elf_loader
 cat contrib/test/elf-loader-fixtures.list | xargs -n 1000 ./$OBJDIR/unit-test/test_exec_sol_compat --log-path $LOG

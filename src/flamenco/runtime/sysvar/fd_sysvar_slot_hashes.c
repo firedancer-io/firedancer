@@ -26,11 +26,9 @@ void write_slot_hashes( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t* slot_ha
   fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_slot_hashes_id, enc, sz, slot_ctx->slot_bank.slot );
 }
 
-//void fd_sysvar_slot_hashes_init( fd_slot_ctx_ctx_t* slot_ctx ) {
-//  fd_slot_hashes_t slot_hashes;
-//  memset( &slot_hashes, 0, sizeof(fd_slot_hashes_t) );
-//  write_slot_hashes( slot_ctx, &slot_hashes );
-//}
+void fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t * slot_hashes ) {
+ write_slot_hashes( slot_ctx, slot_hashes );
+}
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L34 */
 void
