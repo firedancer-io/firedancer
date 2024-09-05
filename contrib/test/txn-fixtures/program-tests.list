@@ -26,3 +26,4 @@ dump/test-vectors/txn/fixtures/programs/crash-ebdcdc6274bbf5f326439bf13868124500
 dump/test-vectors/txn/fixtures/programs/d5e2332f53032ce4428b0b55e3a97c080c1db63e_1034518.fix
 dump/test-vectors/txn/fixtures/programs/deff84b60ea3c6284e621b4229f402c4274e4968_1446008.fix
 dump/test-vectors/txn/fixtures/programs/ed4565e33252bca4dc606bdce4aa48a650e75048_1366919.fix
+dump/test-vectors/txn/fixtures/programs/crash-3354ca5c9ba1c2ea78c33855ec5ced47dcf9f29e.fix

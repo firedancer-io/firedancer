@@ -351,10 +351,11 @@ fd_account_can_data_be_resized( fd_exec_instr_ctx_t const * instr_ctx,
     return 0;
   }
 
-  /* The resize can not exceed the per-transaction maximum */
+  /* The resize can not exceed the per-transaction maximum
+     https://github.com/firedancer-io/agave/blob/1e460f466da60a63c7308e267c053eec41dc1b1c/sdk/src/transaction_context.rs#L1107-L1111 */
   ulong length_delta = fd_ulong_sat_sub( new_length, acct->dlen );
-  instr_ctx->txn_ctx->accounts_resize_delta = fd_ulong_sat_add( instr_ctx->txn_ctx->accounts_resize_delta, length_delta );
-  if( FD_UNLIKELY( instr_ctx->txn_ctx->accounts_resize_delta>MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
+  ulong new_accounts_resize_delta = fd_ulong_sat_add( instr_ctx->txn_ctx->accounts_resize_delta, length_delta );
+  if( FD_UNLIKELY( new_accounts_resize_delta>MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED;
     return 0;
   }
