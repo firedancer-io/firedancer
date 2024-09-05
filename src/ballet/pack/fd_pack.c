@@ -9,7 +9,12 @@
 #include <stddef.h> /* for offsetof */
 #include "../../disco/metrics/fd_metrics.h"
 
-#define FD_PACK_USE_NON_TEMPORAL_MEMCPY 1
+/* After scheduling a transaction, pack doesn't read the bytes again, so it can
+   be helpful for performance to use non-temporal stores.  This prevents
+   actually imporatant data from being evicted by scheduled transactions.  This
+   requires AVX512. */
+#define FD_PACK_USE_NON_TEMPORAL_MEMCPY FD_HAS_AVX512
+
 
 /* Declare a bunch of helper structs used for pack-internal data
    structures. */
@@ -968,6 +973,8 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
   ulong min_bytes = ULONG_MAX;
 
   if( FD_UNLIKELY( (cu_limit<smallest_in_treap->cus) | (txn_limit==0UL) | (byte_limit<smallest_in_treap->bytes) ) ) {
+    // FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_CU_LIMIT,   cu_limit<smallest_in_treap->cus     );
+    // FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_BYTE_LIMIT, byte_limit<smallest_in_treap->bytes );
     sched_return_t to_return = { .cus_scheduled = 0UL, .txns_scheduled = 0UL, .bytes_scheduled = 0UL };
     return to_return;
   }
@@ -1058,43 +1065,44 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     FD_PACK_BITSET_OR( bitset_w_in_use,  cur->w_bitset  );
 
     if(
-#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
-        FD_LIKELY( cur->txn->payload_sz>=1024UL )
+#if FD_PACK_USE_NON_TEMPORAL_MEMCPY
+        /* TODO: The non-temporal memcpy seems best normally, but is it always
+           best? */
+        1 
 #else
         0
 #endif
       ) {
 #if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
-      _mm512_stream_si512( (void*)(out->payload+   0UL), _mm512_load_epi64( cur->txn->payload+   0UL ) );
-      _mm512_stream_si512( (void*)(out->payload+  64UL), _mm512_load_epi64( cur->txn->payload+  64UL ) );
-      _mm512_stream_si512( (void*)(out->payload+ 128UL), _mm512_load_epi64( cur->txn->payload+ 128UL ) );
-      _mm512_stream_si512( (void*)(out->payload+ 192UL), _mm512_load_epi64( cur->txn->payload+ 192UL ) );
-      _mm512_stream_si512( (void*)(out->payload+ 256UL), _mm512_load_epi64( cur->txn->payload+ 256UL ) );
-      _mm512_stream_si512( (void*)(out->payload+ 320UL), _mm512_load_epi64( cur->txn->payload+ 320UL ) );
-      _mm512_stream_si512( (void*)(out->payload+ 384UL), _mm512_load_epi64( cur->txn->payload+ 384UL ) );
-      _mm512_stream_si512( (void*)(out->payload+ 448UL), _mm512_load_epi64( cur->txn->payload+ 448UL ) );
-      _mm512_stream_si512( (void*)(out->payload+ 512UL), _mm512_load_epi64( cur->txn->payload+ 512UL ) );
-      _mm512_stream_si512( (void*)(out->payload+ 576UL), _mm512_load_epi64( cur->txn->payload+ 576UL ) );
-      _mm512_stream_si512( (void*)(out->payload+ 640UL), _mm512_load_epi64( cur->txn->payload+ 640UL ) );
-      _mm512_stream_si512( (void*)(out->payload+ 704UL), _mm512_load_epi64( cur->txn->payload+ 704UL ) );
-      _mm512_stream_si512( (void*)(out->payload+ 768UL), _mm512_load_epi64( cur->txn->payload+ 768UL ) );
-      _mm512_stream_si512( (void*)(out->payload+ 832UL), _mm512_load_epi64( cur->txn->payload+ 832UL ) );
-      _mm512_stream_si512( (void*)(out->payload+ 896UL), _mm512_load_epi64( cur->txn->payload+ 896UL ) );
-      _mm512_stream_si512( (void*)(out->payload+ 960UL), _mm512_load_epi64( cur->txn->payload+ 960UL ) );
-      _mm512_stream_si512( (void*)(out->payload+1024UL), _mm512_load_epi64( cur->txn->payload+1024UL ) );
-      _mm512_stream_si512( (void*)(out->payload+1088UL), _mm512_load_epi64( cur->txn->payload+1088UL ) );
-      _mm512_stream_si512( (void*)(out->payload+1152UL), _mm512_load_epi64( cur->txn->payload+1152UL ) );
-      _mm512_stream_si512( (void*)(out->payload+1216UL), _mm512_load_epi64( cur->txn->payload+1216UL ) );
-      /* Copied out to 1280 bytes, which copies some other fields we needed to
-         copy anyway. */
+
+      /* A non-temporal store followed by normal store to the
+         same cache line has a big performance penalty, so we want to do this
+         kind of carefully.  payload_sz and the other small fields are in the
+         19th cache line (counting from 0), which covers offset [1216, 1280),
+         so for the first loop, we only want to go up to 1216. */
+      ulong padded_sz = fd_ulong_min( 1216UL, fd_ulong_align_up( cur->txn->payload_sz, 64UL ) );
+      for( ulong k=0UL; k<padded_sz; k+=64UL ) _mm512_stream_si512( (void*)(out->payload+k), _mm512_load_epi64( cur->txn->payload+k) );
+
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, payload_sz   )>=1216UL,                                            nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, requested_cus)>=1216UL,                                            nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, executed_cus )>=1216UL,                                            nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, flags        )>=1216UL,                                            nt_memcpy );
+
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, payload_sz   )+sizeof(((fd_txn_p_t*)NULL)->payload_sz   )<=1280UL, nt_memcpy );
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, requested_cus)+sizeof(((fd_txn_p_t*)NULL)->requested_cus)<=1280UL, nt_memcpy );
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, executed_cus )+sizeof(((fd_txn_p_t*)NULL)->executed_cus )<=1280UL, nt_memcpy );
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, flags        )+sizeof(((fd_txn_p_t*)NULL)->flags        )<=1280UL, nt_memcpy );
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, _            )                                           <=1280UL, nt_memcpy );
-      const ulong offset_into_txn = 1280UL - offsetof(fd_txn_p_t, _ );
-      fd_memcpy( offset_into_txn+(uchar *)TXN(out), offset_into_txn+(uchar const *)txn,
-          fd_ulong_max( offset_into_txn, fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) )-offset_into_txn );
+
+      /* Copy offsets [1216, 1280) */
+      _mm512_stream_si512( (void*)(out->payload+1216UL), _mm512_load_epi64( cur->txn->payload+1216UL) );
+
+      /* Copy the fd_txn_t. The txn_p_t struct is 64 byte aligned, which means
+         that its size is a multiple of 64 bytes, which means this won't
+         overwrite data out of the bounds of the struct. */
+      padded_sz = fd_ulong_align_up( offsetof(fd_txn_p_t, _) + fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ), 64UL );
+      for( ulong k=1280UL; k<padded_sz; k+=64UL ) _mm512_stream_si512( (void*)(out->payload+k), _mm512_load_epi64( cur->txn->payload+k) );
+
 #endif
     } else {
       fd_memcpy( out->payload, cur->txn->payload, cur->txn->payload_sz                                           );
