@@ -194,9 +194,8 @@ void
 fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
                        fd_txn_t const * txn_descriptor,
                        fd_rawtxn_b_t const * txn_raw ) {
-  txn_ctx->compute_unit_limit = 200000;
+
   txn_ctx->compute_unit_price = 0;
-  txn_ctx->compute_meter      = 200000;
   txn_ctx->prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED;
   txn_ctx->custom_err         = UINT_MAX;
 
@@ -209,8 +208,8 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
   txn_ctx->accounts_resize_delta = 0;
 
   txn_ctx->txn_descriptor = txn_descriptor;
-  txn_ctx->_txn_raw->raw = txn_raw->raw;
-  txn_ctx->_txn_raw->txn_sz = txn_raw->txn_sz;
+  txn_ctx->_txn_raw->raw = txn_raw ? txn_raw->raw : NULL;
+  txn_ctx->_txn_raw->txn_sz = txn_raw ? txn_raw->txn_sz : 0UL;
 
   txn_ctx->num_instructions = 0;
   memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
@@ -224,6 +223,8 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
 
   txn_ctx->instr_info_cnt     = 0;
   txn_ctx->instr_trace_length = 0;
+  txn_ctx->return_data.len    = 0;
+
 }
 
 void

@@ -53,6 +53,8 @@ account data actually comes from higher level fuzzers. */
     /* The signatures needed in the transaction. */
     pb_size_t signatures_count;
     pb_bytes_array_t **signatures;
+    /* The amount of compute units that the transaction has. */
+    uint64_t cu_avail;
 } fd_v2_txn_env_t;
 
 typedef struct fd_v2_txn_effects {
@@ -79,11 +81,11 @@ extern "C" {
 /* Initializer values for message structs */
 #define FD_V2_TXN_HEADER_INIT_DEFAULT            {0, 0, 0}
 #define FD_V2_LUT_ENTRY_INIT_DEFAULT             {{0}, 0, NULL, 0, NULL}
-#define FD_V2_TXN_ENV_INIT_DEFAULT               {false, FD_V2_TXN_HEADER_INIT_DEFAULT, 0, NULL, 0, NULL, NULL, 0, NULL, NULL, 0, NULL}
+#define FD_V2_TXN_ENV_INIT_DEFAULT               {false, FD_V2_TXN_HEADER_INIT_DEFAULT, 0, NULL, 0, NULL, NULL, 0, NULL, NULL, 0, NULL, 0}
 #define FD_V2_TXN_EFFECTS_INIT_DEFAULT           {0, 0, NULL, NULL, 0, 0, 0}
 #define FD_V2_TXN_HEADER_INIT_ZERO               {0, 0, 0}
 #define FD_V2_LUT_ENTRY_INIT_ZERO                {{0}, 0, NULL, 0, NULL}
-#define FD_V2_TXN_ENV_INIT_ZERO                  {false, FD_V2_TXN_HEADER_INIT_ZERO, 0, NULL, 0, NULL, NULL, 0, NULL, NULL, 0, NULL}
+#define FD_V2_TXN_ENV_INIT_ZERO                  {false, FD_V2_TXN_HEADER_INIT_ZERO, 0, NULL, 0, NULL, NULL, 0, NULL, NULL, 0, NULL, 0}
 #define FD_V2_TXN_EFFECTS_INIT_ZERO              {0, 0, NULL, NULL, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -101,6 +103,7 @@ extern "C" {
 #define FD_V2_TXN_ENV_ALUT_ENTRIES_TAG           6
 #define FD_V2_TXN_ENV_MESSAGE_HASH_TAG           7
 #define FD_V2_TXN_ENV_SIGNATURES_TAG             8
+#define FD_V2_TXN_ENV_CU_AVAIL_TAG               9
 #define FD_V2_TXN_EFFECTS_TXN_ERROR_TAG          1
 #define FD_V2_TXN_EFFECTS_INSTR_EFFECTS_TAG      2
 #define FD_V2_TXN_EFFECTS_RETURN_DATA_TAG        3
@@ -131,7 +134,8 @@ X(a, POINTER,  REPEATED, MESSAGE,  instructions,      4) \
 X(a, POINTER,  SINGULAR, BYTES,    recent_blockhash,   5) \
 X(a, POINTER,  REPEATED, MESSAGE,  alut_entries,      6) \
 X(a, POINTER,  SINGULAR, BYTES,    message_hash,      7) \
-X(a, POINTER,  REPEATED, BYTES,    signatures,        8)
+X(a, POINTER,  REPEATED, BYTES,    signatures,        8) \
+X(a, STATIC,   SINGULAR, UINT64,   cu_avail,          9)
 #define FD_V2_TXN_ENV_CALLBACK NULL
 #define FD_V2_TXN_ENV_DEFAULT NULL
 #define fd_v2_txn_env_t_header_MSGTYPE fd_v2_txn_header_t

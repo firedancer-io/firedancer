@@ -1,9 +1,20 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_harness_dump_h
 #define HEADER_fd_src_flamenco_runtime_fd_harness_dump_h
 
+#include "../../funk/fd_funk.h"
 #include "../fd_flamenco_base.h"
 
 FD_PROTOTYPES_BEGIN
+
+struct fd_harness_ctx {
+   fd_wksp_t           * wksp;
+   fd_funk_t           * funk;
+   fd_exec_epoch_ctx_t * epoch_ctx;
+   fd_exec_slot_ctx_t  * slot_ctx;
+   fd_exec_txn_ctx_t   * txn_ctx;
+   fd_acc_mgr_t        * acc_mgr;
+};
+typedef struct fd_harness_ctx fd_harness_ctx_t;
 
 /* Dump execution state to protobuf format that capture the execution
    environment. */
@@ -24,16 +35,16 @@ fd_harness_dump_runtime( fd_exec_epoch_ctx_t * epoch_ctx );
    that captures the execution environment effects. */
 
 int
-fd_harness_exec_instr( char const * filename );
+fd_harness_exec_instr( uchar const * filename, ulong file_sz );
 
 int
-fd_harness_exec_txn( char const * filename );
+fd_harness_exec_txn( uchar const * filename, ulong file_sz );
 
 int
-fd_harness_exec_slot( char const * filename );
+fd_harness_exec_slot( uchar const * filename, ulong file_sz );
 
 int
-fd_harness_exec_runtime( char const * filename );
+fd_harness_exec_runtime( uchar const * filename, ulong file_sz );
 
 /* TODO: converters from old format to new */
 

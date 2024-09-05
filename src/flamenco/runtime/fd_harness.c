@@ -8,6 +8,9 @@
 #include "fd_system_ids.h"
 
 #include "../nanopb/pb_encode.h"
+#include "../nanopb/pb_decode.h"
+#include "sysvar/fd_sysvar_recent_hashes.h"
+
 
 #include "tests/generated/instr_v2.pb.h"
 #include "tests/generated/txn_v2.pb.h"
@@ -195,6 +198,7 @@ fd_harness_dump_instr( fd_exec_instr_ctx_t * instr_ctx ) {
   txn_env->header.num_required_signatures        = txn_ctx->txn_descriptor->signature_cnt;
   txn_env->header.num_readonly_signed_accounts   = txn_ctx->txn_descriptor->readonly_signed_cnt;
   txn_env->header.num_readonly_unsigned_accounts = txn_ctx->txn_descriptor->readonly_unsigned_cnt;
+  txn_env->cu_avail                              = txn_ctx->compute_unit_limit;
 
   txn_env->is_legacy = txn_ctx->txn_descriptor->transaction_version == FD_TXN_VLEGACY;
 
@@ -248,27 +252,188 @@ fd_harness_dump_runtime( fd_exec_epoch_ctx_t * epoch_ctx ) {
 
 /* Execute runtime environment ************************************************/
 
+static void
+fd_harness_exec_restore_sysvars( fd_harness_ctx_t * ctx ) {
+  fd_sysvar_cache_restore( ctx->slot_ctx->sysvar_cache, ctx->slot_ctx->acc_mgr, ctx->slot_ctx->funk_txn );
+} 
+
+static void
+fd_harness_exec_restore_features( fd_harness_ctx_t * ctx, fd_v2_exec_env_t * exec_env ) {
+  fd_exec_epoch_ctx_t * epoch_ctx = ctx->epoch_ctx;
+  fd_features_disable_all( &epoch_ctx->features );
+  for( uint i=0U; i<exec_env->features_count; i++ ) {
+    const char * feature = (const char *)exec_env->features[i].feature_id;
+    fd_features_enable_one_offs( &epoch_ctx->features, &feature, 1U, exec_env->features[i].slot );
+  }
+}
+
+static void
+fd_harness_exec_setup( fd_harness_ctx_t * ctx ) {
+
+  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
+  if( cpu_idx>=fd_shmem_cpu_cnt() ) {
+    cpu_idx = 0UL;
+  }
+  ctx->wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 3, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
+
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( ctx->wksp, fd_alloc_align(), fd_alloc_footprint(), 2UL ), 2UL ), 0UL );
+  
+  /* TODO: use scratch methods here and define things out */
+  void * smem = fd_wksp_alloc_laddr( ctx->wksp, fd_scratch_smem_align(), 1<<30, 22UL );
+  void * fmem = fd_wksp_alloc_laddr( ctx->wksp, fd_scratch_fmem_align(), 64UL,  22UL );
+   
+  fd_scratch_attach( smem, fmem, 1<<30, 64UL );
+
+  fd_scratch_push();
+
+  void * funk_mem = fd_scratch_alloc( fd_funk_align(), fd_funk_footprint() );
+  ctx->funk       = fd_funk_join( fd_funk_new( funk_mem, 999UL, (ulong)fd_tickcount(), 4UL+fd_tile_cnt(), 1024UL ) );
+
+  fd_funk_txn_xid_t xid[1] = {0};
+  xid[0] = fd_funk_generate_xid();
+  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( ctx->funk, NULL, xid, 1 );
+
+
+  uchar * epoch_ctx_mem = fd_scratch_alloc( fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( 128UL ) );
+  uchar * slot_ctx_mem  = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
+  uchar * txn_ctx_mem   = fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
+
+  ctx->epoch_ctx        = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, 128UL ) );
+  ctx->slot_ctx         = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
+  ctx->txn_ctx          = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem ) );
+
+  ctx->slot_ctx->acc_mgr = fd_acc_mgr_new( fd_scratch_alloc( FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), ctx->funk );
+
+  /* Hook everything up */
+
+  ctx->txn_ctx->valloc     = ctx->slot_ctx->valloc;
+  ctx->slot_ctx->epoch_ctx = ctx->epoch_ctx;
+  ctx->slot_ctx->funk_txn  = funk_txn;
+
+  /* TODO:FIXME: Finish assigning values to everything here */
+  fd_slot_bank_new( &ctx->slot_ctx->slot_bank );
+  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( ctx->slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
+  ctx->slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
+  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
+  fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
+}
+
+static void
+fd_harness_exec_load_acc( fd_harness_ctx_t *      ctx,
+                          fd_borrowed_account_t * borrowed_account, 
+                          fd_v2_acct_state_t *    acc ) {
+  
+  fd_acc_mgr_t *  acc_mgr  = ctx->slot_ctx->acc_mgr;
+  fd_funk_txn_t * funk_txn = ctx->slot_ctx->funk_txn;
+  fd_pubkey_t *   pubkey   = (fd_pubkey_t*)acc->address;
+
+  if( FD_UNLIKELY( fd_acc_mgr_view_raw( acc_mgr, funk_txn, pubkey, NULL, NULL ) ) ) {
+    /* Don't need to load in the accounts if it already exists. TODO: consider
+       even throwing an error here because it means the exec env is probably
+       busted. */
+    return;
+  }
+
+  fd_borrowed_account_init( borrowed_account );
+
+  int err = fd_acc_mgr_modify( /* acc_mgr     */ acc_mgr,
+                               /* txn         */ funk_txn,
+                               /* pubkey      */ pubkey,
+                               /* do_create   */ 1,
+                               /* min_data_sz */ acc->data->size,
+                                                 borrowed_account );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "Failed to load account into funk" ));
+  }
+
+  if( acc->data->size ) {
+    fd_memcpy( borrowed_account->data, borrowed_account, acc->data->size );
+  }
+  borrowed_account->starting_lamports     = acc->lamports;
+  borrowed_account->starting_dlen         = acc->data->size;
+  borrowed_account->meta->info.lamports   = acc->lamports;
+  borrowed_account->meta->info.executable = acc->executable;
+  borrowed_account->meta->info.rent_epoch = acc->rent_epoch;
+  borrowed_account->meta->dlen            = acc->data->size;
+  fd_memcpy( borrowed_account->meta->info.owner, acc->owner, sizeof(fd_pubkey_t) );
+
+  /* Make account read-only */
+  borrowed_account->meta = NULL;
+  borrowed_account->data = NULL;
+  borrowed_account->rec  = NULL;
+}
+
 int
-fd_harness_exec_instr( char const * filename ) {
+fd_harness_exec_instr( uchar const * filename, ulong file_sz ) {
+
   /* First read in file and decode the protobuf */
-  (void)filename;
+  fd_v2_exec_env_t exec_env = {0};
+
+  pb_istream_t istream = pb_istream_from_buffer( filename, file_sz );
+  int err = pb_decode_ex( &istream, &fd_v2_exec_env_t_msg, &exec_env, 0x01U );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "Failed to decode exec env pb at file=%s with size=%lu", filename, file_sz ));
+  }
+
+  fd_v2_txn_env_t *   txn_env   = &exec_env.slots[0].txns[0];
+  fd_v2_instr_env_t * instr_env = &txn_env->instructions[0];
+
+  /* Setup the basic execution environment: allocate contexts and important
+     data structures (funk, wksp, acc_mgr, etc. ) */
+  fd_harness_ctx_t ctx = {0};
+  fd_harness_exec_setup( &ctx );
+
+  /* Load in all account states into the borrowed accounts/acc_mgr.
+     Need to load in the transaction accounts, the corresponding programdata
+     accounts, and the sysvars in their own ways.
+     TODO: SPLIT INTO TWO BUCKETS. */
+  for( uint i=0U; i<exec_env.acct_states_count; i++ ) {
+    fd_v2_acct_state_t * acc = &exec_env.acct_states[i];
+    fd_harness_exec_load_acc( &ctx, &ctx.txn_ctx->borrowed_accounts[i], acc );
+  } 
+
+  ctx.txn_ctx->compute_unit_limit = txn_env->cu_avail;
+  ctx.txn_ctx->compute_meter      = txn_env->cu_avail;
+  fd_exec_txn_ctx_setup( ctx.txn_ctx, NULL, NULL );
+
+  /* Load in all features */
+  fd_harness_exec_restore_features( &ctx, &exec_env );
+
+  fd_instr_info_t instr = {0};
+  instr.data            = instr_env->data->bytes;
+  instr.data_sz         = (ushort)instr_env->data->size;
+
+  fd_pubkey_t * program_id = &ctx.txn_ctx->accounts[instr_env->program_id_idx];
+  fd_memcpy( &instr.program_id, program_id, sizeof(fd_pubkey_t) );
+
+  /* TODO: all of the cache stuff should go here */
+  fd_harness_exec_restore_sysvars( &ctx );
+
+  /* TODO: recent blockhash stuff */
+
+  /* TODO: fill out account flags and whatnot */
+
+
   return 0;
 }
 
 int
-fd_harness_exec_txn( char const * filename ) {
+fd_harness_exec_txn( uchar const * filename, ulong file_sz ) {
   (void)filename;
+  (void)file_sz;
   return 0;
 }
 
 int
-fd_harness_exec_slot( char const * filename ) {
+fd_harness_exec_slot( uchar const * filename, ulong file_sz ) {
   (void)filename;
+  (void)file_sz;
   return 0;
 }
 
 int
-fd_harness_exec_runtime( char const * filename ) {
+fd_harness_exec_runtime( uchar const * filename, ulong file_sz ) {
   (void)filename;
+  (void)file_sz;
   return 0;
 }
