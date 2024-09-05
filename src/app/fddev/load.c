@@ -44,6 +44,9 @@ load_cmd_args( int *    pargc,
   args->load.benchs      = fd_env_strip_cmdline_ulong ( pargc, pargv, "--num-benchs",   "-s",    0 );
   args->load.accounts    = fd_env_strip_cmdline_ulong ( pargc, pargv, "--num-accounts", NULL,    0 );
   args->load.connections = fd_env_strip_cmdline_ulong ( pargc, pargv, "--connections",  "-c",    0 );
+  args->load.transaction_mode    = fd_env_strip_cmdline_int  ( pargc, pargv, "--transaction-mode",    NULL, 0    );
+  args->load.contending_fraction = fd_env_strip_cmdline_float( pargc, pargv, "--contending-fraction", NULL, 0.0f );
+  args->load.cu_price_spread     = fd_env_strip_cmdline_float( pargc, pargv, "--cu-price-spread",     NULL, 0.0f );
 
   fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( args->load.affinity ), affinity, sizeof( args->load.affinity )-1UL ) );
 
@@ -103,6 +106,9 @@ load_cmd_fn( args_t *         args,
                   args->load.benchg,
                   args->load.benchs,
                   args->load.accounts,
+                  args->load.transaction_mode,
+                  args->load.contending_fraction,
+                  args->load.cu_price_spread,
                   args->load.connections,
                   args->load.tpu_port,
                   args->load.tpu_ip,
