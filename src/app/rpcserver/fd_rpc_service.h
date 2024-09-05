@@ -12,6 +12,7 @@
 #include <netinet/in.h>
 
 struct fd_rpcserver_args {
+  int               offline;
   fd_funk_t *       funk;
   fd_blockstore_t * blockstore;
   fd_wksp_t *       rep_notify_wksp;
