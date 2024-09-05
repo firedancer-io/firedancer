@@ -8,7 +8,7 @@
 #define FD_REPAIR_REQ_TYPE_NEED_HIGHEST_WINDOW_INDEX  (1U)
 #define FD_REPAIR_REQ_TYPE_NEED_ORPHAN                (2U)
 
-struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_repair_request {
+struct fd_repair_request {
   uint type;
   uint shred_index;
   ulong slot;
