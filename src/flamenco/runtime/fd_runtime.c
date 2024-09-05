@@ -819,8 +819,9 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
    validating the fee payer and collecting the fee. This is mirrored in
    firedancer with fd_executor_compute_budget_program_execute_instructions()
    and fd_executor_collect_fees(). load_and_execute_sanitized_transactions()
-   also checks the total data size of the accounts in load_accounts(), this
-   is paralled by fd_executor_check_txn_data_sz(). */
+   also checks the total data size of the accounts in load_accounts() and
+   validates the program accounts in load_transaction_accounts(). This
+   is paralled by fd_executor_check_txn_program_accounts_and_data_sz(). */
 
 static void FD_FN_UNUSED
 fd_txn_sigverify_task( void *tpool,
@@ -930,7 +931,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/account_loader.rs#L278-L284 */
-  err = fd_executor_check_txn_data_sz( txn_ctx );
+  err = fd_executor_check_txn_program_accounts_and_data_sz( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     task_info->txn->flags = 0U;
     task_info->exec_res   = err;

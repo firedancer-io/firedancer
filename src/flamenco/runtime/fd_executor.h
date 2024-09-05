@@ -145,7 +145,7 @@ FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );
 
 int
-fd_executor_check_txn_data_sz( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_check_txn_program_accounts_and_data_sz( fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_executor_check_replenish_program_cache( fd_exec_txn_ctx_t * txn_ctx );
