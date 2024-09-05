@@ -45,8 +45,8 @@
    consider the data shreds limit. */
 #define FD_PACK_MAX_DATA_PER_BLOCK (((32UL*1024UL-17UL)/31UL)*25871UL + 48UL)
 
-/* Optionally allow up to 128k shreds per block for benchmarking. */
-#define LARGER_MAX_DATA_PER_BLOCK  (((4UL*32UL*1024UL-17UL)/31UL)*25871UL + 48UL)
+/* Optionally allow up to 1M shreds per block for benchmarking. */
+#define LARGER_MAX_DATA_PER_BLOCK  (((32UL*32UL*1024UL-17UL)/31UL)*25871UL + 48UL)
 
 /* ---- End consensus-critical constants */
 
