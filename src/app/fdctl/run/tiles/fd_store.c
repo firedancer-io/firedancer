@@ -104,6 +104,7 @@ after_frag( void *             _ctx,
     FD_TEST( shred34->offset<*opt_sz  );
     FD_TEST( shred34->shred_cnt<=34UL );
     FD_TEST( shred34->stride==sizeof(shred34->pkts[0]) );
+    FD_TEST( shred34->offset + shred34->stride*(shred34->shred_cnt - 1UL) + shred34->shred_sz <= *opt_sz);
   }
 
   if( FD_UNLIKELY( ctx->disable_blockstore ) ) return;
