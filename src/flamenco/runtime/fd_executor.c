@@ -269,8 +269,21 @@ fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
+/* https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L458-L475 */
+static int
+accumulate_and_check_loaded_account_data_size( ulong   acc_size,
+                                               ulong   requested_loaded_accounts_data_size,
+                                               ulong * accumulated_account_size ) {
+  *accumulated_account_size = fd_ulong_sat_add( *accumulated_account_size, acc_size );
+  if( FD_UNLIKELY( *accumulated_account_size>requested_loaded_accounts_data_size ) ) {
+    return FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED;
+  }
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+/* https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L261-L442 */
 int
-fd_executor_check_txn_data_sz( fd_exec_txn_ctx_t * txn_ctx ) {
+fd_executor_check_txn_program_accounts_and_data_sz( fd_exec_txn_ctx_t * txn_ctx ) {
 
   ulong requested_loaded_accounts_data_size = 0UL;
 
@@ -281,32 +294,72 @@ fd_executor_check_txn_data_sz( fd_exec_txn_ctx_t * txn_ctx ) {
 
   ulong accumulated_account_size = 0UL;
 
-  ushort instr_cnt = txn_ctx->txn_descriptor->instr_cnt;
-  for( ushort i=0; i<instr_cnt; i++ ) {
-    fd_txn_instr_t  const * instr       = &txn_ctx->txn_descriptor->instr[i];
-
-    // https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L384-L386
-    fd_borrowed_account_t * program_acc = NULL;
-    int err = fd_txn_borrowed_account_view_idx( txn_ctx, instr->program_id, &program_acc );
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-      return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
-    }
-  }
-
+  // https://github.com/anza-xyz/agave/blob/eff8961dcf7880aa7e438463203611a8a0088554/svm/src/account_loader.rs#L315-L335
   for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
-
     // Check for max loaded acct size
     fd_borrowed_account_t * acct = NULL;
     int err        = fd_txn_borrowed_account_view_idx( txn_ctx, (uchar)i, &acct );
     ulong acc_size = err==FD_ACC_MGR_SUCCESS ? acct->const_meta->dlen : 0UL; 
   
-    accumulated_account_size = fd_ulong_sat_add( accumulated_account_size, acc_size );
+    err = accumulate_and_check_loaded_account_data_size( acc_size, requested_loaded_accounts_data_size, &accumulated_account_size );
+    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+      return err;
+    }
   }
 
-  if( FD_UNLIKELY( accumulated_account_size>requested_loaded_accounts_data_size ) ) {
-    return FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED;
+  // https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L377-L433
+  ushort instr_cnt = txn_ctx->txn_descriptor->instr_cnt;
+  for( ushort i=0; i<instr_cnt; i++ ) {
+    fd_txn_instr_t const * instr = &txn_ctx->txn_descriptor->instr[i];
+
+    // https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L384-L386
+    fd_borrowed_account_t * program_account = NULL;
+    int err = fd_txn_borrowed_account_view_idx( txn_ctx, instr->program_id, &program_account );
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+      return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
+    }
+
+    // https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L387-L389
+    if( FD_UNLIKELY( !memcmp( program_account->pubkey->key, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ) ) {
+      continue;
+    }
+
+    // https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L397-L400
+    if( FD_UNLIKELY( !fd_account_is_executable( program_account->const_meta ) ) ) {
+      return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
+    }
+
+    // https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L402-L405
+    // No FD_UNLIKELY or FD_LIKELY since it holds true for all native program invocations
+    if( !memcmp( program_account->const_meta->info.owner, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ) {
+      continue;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L406-L410
+       Side note: I don't think there's a single condition where this statement evaluates to false since builtins_start_index
+       seems to be tied to accounts.len(), so I'll skip this check. Moving on... */
+    
+    // https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L412-L429
+    FD_BORROWED_ACCOUNT_DECL( owner_account );
+    err = fd_acc_mgr_view( txn_ctx->slot_ctx->acc_mgr, txn_ctx->slot_ctx->funk_txn, (fd_pubkey_t *) program_account->const_meta->info.owner, owner_account );
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+      return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
+    }
+
+    // https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L413-L418
+    if( FD_UNLIKELY( memcmp( owner_account->const_meta->info.owner, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) 
+                  || !fd_account_is_executable( owner_account->const_meta ) ) ) {
+      return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
+    }
+
+    // https://github.com/anza-xyz/agave/blob/ae18213c19ea5335dfc75e6b6116def0f0910aff/svm/src/account_loader.rs#L419-L424
+    // TODO: Agave's implementation seems to double-count if the owner is part of the account keys...
+    err = accumulate_and_check_loaded_account_data_size( owner_account->const_meta->dlen, requested_loaded_accounts_data_size, &accumulated_account_size );
+    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+      return err;
+    }
   }
-  
+
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
