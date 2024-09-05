@@ -48,7 +48,7 @@ struct fd_entry_batch_header {
 };
 typedef struct fd_entry_batch_header fd_entry_batch_header_t;
 
-struct fd_txn_p {
+struct __attribute__((aligned(64))) fd_txn_p {
   uchar payload[FD_TPU_MTU];
   ulong payload_sz;
   uint  requested_cus; /* Populated by pack. Bank does not read this. */
