@@ -1812,16 +1812,20 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   effects->r0 = syscall_err ? 0 : vm->reg[0]; // Save only on success
   effects->cu_avail = (ulong)vm->cu;
 
-  effects->heap = FD_SCRATCH_ALLOC_APPEND(
-    l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
-  effects->heap->size = (uint)vm->heap_max;
-  fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
+  if( vm->heap_max ) {
+    effects->heap = FD_SCRATCH_ALLOC_APPEND(
+      l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
+    effects->heap->size = (uint)vm->heap_max;
+    fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
+  } else {
+    effects->heap = NULL;
+  }
 
   effects->stack = FD_SCRATCH_ALLOC_APPEND(
     l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
   effects->stack->size = (uint)FD_VM_STACK_MAX;
   fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
-  
+
   if( vm->rodata_sz ) {
     effects->rodata = FD_SCRATCH_ALLOC_APPEND(
       l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );

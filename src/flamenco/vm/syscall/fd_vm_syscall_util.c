@@ -199,13 +199,13 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L145-L152 */
 
-  ulong msg_sz = 13UL; /* "Program data:", no space */
+  ulong msg_sz = 14UL; /* "Program data: ", with space */
   for( ulong i=0UL; i<slice_cnt; i++ ) {
     ulong cur_len = slice[i].len;
     /* This fails the syscall in case of memory mapping issues */
     FD_VM_MEM_SLICE_HADDR_LD( vm, slice[i].addr, FD_VM_ALIGN_RUST_U8, cur_len );
     /* Every buffer will be base64 encoded + space separated */
-    msg_sz += (slice[i].len + 2)/3*4 + 1;
+    msg_sz += (slice[i].len + 2)/3*4 + (i > 0);
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L156 */
@@ -213,14 +213,14 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
   char msg[ FD_LOG_COLLECTOR_MAX ];
   ulong bytes_written = fd_log_collector_check_and_truncate( &vm->instr_ctx->txn_ctx->log_collector, msg_sz );
   if( FD_LIKELY( bytes_written < ULONG_MAX ) ) {
-    fd_memcpy( msg, "Program data:", 13 );
-    char * buf = msg + 13;
+    fd_memcpy( msg, "Program data: ", 14 );
+    char * buf = msg + 14;
 
     for( ulong i=0UL; i<slice_cnt; i++ ) {
       ulong cur_len = slice[i].len;
       void const * bytes = FD_VM_MEM_SLICE_HADDR_LD( vm, slice[i].addr, FD_VM_ALIGN_RUST_U8, cur_len );
 
-      *buf = ' '; ++buf;
+      if( i ) { *buf = ' '; ++buf; } /* skip first */
       buf += fd_base64_encode( buf, bytes, cur_len );
     }
     FD_TEST( (ulong)(buf-msg)==msg_sz );
