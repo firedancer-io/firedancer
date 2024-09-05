@@ -735,21 +735,16 @@ fd_sbpf_load_dynamic( fd_sbpf_loader_t *         loader,
     for( ulong i=0; i<elf->ehdr.e_shnum; i++ ) {
       if( shdrs[ i ].sh_addr == loader->dt_symtab ) {
         /* TODO: verify this ... */
+        /* Check section type */
         uint sh_type = shdrs[ i ].sh_type;
-        if( !( (sh_type==FD_ELF_SHT_SYMTAB) | (sh_type==FD_ELF_SHT_DYNSYM) ) ) {
-          continue;
-        }
+        // https://github.com/solana-labs/rbpf/blob/v0.8.5/src/elf_parser/mod.rs#L500
+        REQUIRE( (sh_type==FD_ELF_SHT_SYMTAB) | (sh_type==FD_ELF_SHT_DYNSYM) );
 
         shdr_dynsym = &shdrs[ i ];
         break;
       }
     }
     REQUIRE( shdr_dynsym );
-
-    /* Check section type */
-
-    uint sh_type = shdr_dynsym->sh_type;
-    REQUIRE( (sh_type==FD_ELF_SHT_SYMTAB) | (sh_type==FD_ELF_SHT_DYNSYM) );
 
     /* Check if out of bounds or misaligned */
 
