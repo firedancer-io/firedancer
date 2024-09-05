@@ -168,7 +168,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_scratch_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
     FD_TEST( syscalls );
 
-    fd_vm_syscall_register_all( syscalls, 0 );
+    fd_vm_syscall_register_slot( syscalls, slot_ctx, 0 );
 
     /* Load program */
 
