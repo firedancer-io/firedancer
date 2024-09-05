@@ -897,7 +897,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       .stack_height = txn_ctx->instr_stack_sz,
     };
 
-    // // defense in depth
+    // defense in depth
     if( instr->program_id >= txn_ctx->accounts_cnt ) {
       FD_LOG_WARNING(( "INVALID PROGRAM ID, RUNTIME BUG!!!" ));
       int exec_result = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;

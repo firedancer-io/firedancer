@@ -17,6 +17,22 @@
 #include "tests/generated/slot_v2.pb.h"
 #include "tests/generated/exec_v2.pb.h"
 
+static int
+fd_double_is_normal( double dbl ) {
+  ulong x = fd_dblbits( dbl );
+  int is_denorm =
+    ( fd_dblbits_bexp( x ) == 0 ) &
+    ( fd_dblbits_mant( x ) != 0 );
+  int is_inf =
+    ( fd_dblbits_bexp( x ) == 2047 ) &
+    ( fd_dblbits_mant( x ) ==    0 );
+  int is_nan =
+    ( fd_dblbits_bexp( x ) == 2047 ) &
+    ( fd_dblbits_mant( x ) !=    0 );
+  return !( is_denorm | is_inf | is_nan );
+}
+
+
 static void
 fd_harness_dump_file( fd_v2_exec_env_t * exec_env, char const * filename ) {
   /* Encode the protobuf and output to file */
@@ -254,7 +270,67 @@ fd_harness_dump_runtime( fd_exec_epoch_ctx_t * epoch_ctx ) {
 
 static void
 fd_harness_exec_restore_sysvars( fd_harness_ctx_t * ctx ) {
-  fd_sysvar_cache_restore( ctx->slot_ctx->sysvar_cache, ctx->slot_ctx->acc_mgr, ctx->slot_ctx->funk_txn );
+  fd_exec_slot_ctx_t * slot_ctx = ctx->slot_ctx;
+
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, slot_ctx->acc_mgr, slot_ctx->funk_txn );
+
+  /* Clock */
+  // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L466-L474
+  if( !slot_ctx->sysvar_cache->has_clock ) {
+    slot_ctx->sysvar_cache->has_clock = 1;
+    fd_sol_sysvar_clock_t sysvar_clock = {
+                                          .slot = 10,
+                                          .epoch_start_timestamp = 0,
+                                          .epoch = 0,
+                                          .leader_schedule_epoch = 0,
+                                          .unix_timestamp = 0
+                                        };
+    memcpy( slot_ctx->sysvar_cache->val_clock, &sysvar_clock, sizeof(fd_sol_sysvar_clock_t) );
+  }
+
+  /* Epoch schedule */
+  // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L476-L483
+  if ( !slot_ctx->sysvar_cache->has_epoch_schedule ) {
+    slot_ctx->sysvar_cache->has_epoch_schedule = 1;
+    fd_epoch_schedule_t sysvar_epoch_schedule = {
+                                                  .slots_per_epoch = 432000,
+                                                  .leader_schedule_slot_offset = 432000,
+                                                  .warmup = 1,
+                                                  .first_normal_epoch = 14,
+                                                  .first_normal_slot = 524256
+                                                };
+    memcpy( slot_ctx->sysvar_cache->val_epoch_schedule, &sysvar_epoch_schedule, sizeof(fd_epoch_schedule_t) );
+  }
+
+  /* Rent */
+  // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L487-L500
+  if ( !slot_ctx->sysvar_cache->has_rent ) {
+    slot_ctx->sysvar_cache->has_rent = 1;
+    fd_rent_t sysvar_rent = {
+                              .lamports_per_uint8_year = 3480,
+                              .exemption_threshold = 2.0,
+                              .burn_percent = 50
+                            };
+    memcpy( slot_ctx->sysvar_cache->val_rent, &sysvar_rent, sizeof(fd_rent_t) );
+  }
+
+  /* Handle undefined behavior if sysvars are malicious (!!!) */
+
+  /* A NaN rent exemption threshold is U.B. in Solana Labs */
+  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  if( rent ) {
+    if( ( !fd_double_is_normal( rent->exemption_threshold ) ) |
+        ( rent->exemption_threshold     <      0.0 ) |
+        ( rent->exemption_threshold     >    999.0 ) |
+        ( rent->lamports_per_uint8_year > UINT_MAX ) |
+        ( rent->burn_percent            >      100 ) ) {
+      return;
+    }
+
+    /* Override epoch bank settings */
+
+    slot_ctx->epoch_ctx->epoch_bank.rent = *rent;
+  }
 } 
 
 static void
@@ -270,52 +346,61 @@ fd_harness_exec_restore_features( fd_harness_ctx_t * ctx, fd_v2_exec_env_t * exe
 static void
 fd_harness_exec_setup( fd_harness_ctx_t * ctx ) {
 
+  /* Allocate new workspace */
+
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) {
     cpu_idx = 0UL;
   }
   ctx->wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 3, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
 
+  /* Declare an alloc from the wksp */
+
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( ctx->wksp, fd_alloc_align(), fd_alloc_footprint(), 2UL ), 2UL ), 0UL );
   
+  /* Allocate, attach, and push a scratch frame */
+
   /* TODO: use scratch methods here and define things out */
   void * smem = fd_wksp_alloc_laddr( ctx->wksp, fd_scratch_smem_align(), 1<<30, 22UL );
   void * fmem = fd_wksp_alloc_laddr( ctx->wksp, fd_scratch_fmem_align(), 64UL,  22UL );
-   
   fd_scratch_attach( smem, fmem, 1<<30, 64UL );
-
   fd_scratch_push();
+
+  /* Scratch allocate a funk that will exist for the scope of the execution */
 
   void * funk_mem = fd_scratch_alloc( fd_funk_align(), fd_funk_footprint() );
   ctx->funk       = fd_funk_join( fd_funk_new( funk_mem, 999UL, (ulong)fd_tickcount(), 4UL+fd_tile_cnt(), 1024UL ) );
 
-  fd_funk_txn_xid_t xid[1] = {0};
-  xid[0] = fd_funk_generate_xid();
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( ctx->funk, NULL, xid, 1 );
-
+  /* Allocate txn, slot, and epoch contexts */
 
   uchar * epoch_ctx_mem = fd_scratch_alloc( fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( 128UL ) );
   uchar * slot_ctx_mem  = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
   uchar * txn_ctx_mem   = fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
 
-  ctx->epoch_ctx        = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, 128UL ) );
-  ctx->slot_ctx         = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
-  ctx->txn_ctx          = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem ) );
+  ctx->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, 128UL ) );
+  ctx->slot_ctx  = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_alloc_virtual( alloc ) ) );
+  ctx->txn_ctx   = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem ) );
 
-  ctx->slot_ctx->acc_mgr = fd_acc_mgr_new( fd_scratch_alloc( FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), ctx->funk );
+  /* Allocate acc mgr and generate a funk transaction. Populate other slot ctx
+     fields needed for execution. */
 
-  /* Hook everything up */
+  fd_funk_txn_xid_t xid = fd_funk_generate_xid();
 
-  ctx->txn_ctx->valloc     = ctx->slot_ctx->valloc;
+  ctx->slot_ctx->acc_mgr   = fd_acc_mgr_new( fd_scratch_alloc( FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), ctx->funk );
+  ctx->slot_ctx->funk_txn  = fd_funk_txn_prepare( ctx->funk, NULL, &xid, 1 );
   ctx->slot_ctx->epoch_ctx = ctx->epoch_ctx;
-  ctx->slot_ctx->funk_txn  = funk_txn;
 
-  /* TODO:FIXME: Finish assigning values to everything here */
   fd_slot_bank_new( &ctx->slot_ctx->slot_bank );
-  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( ctx->slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
-  ctx->slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
-  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
-  fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
+
+  /* Populate relevant txn context fields */
+
+  fd_exec_txn_ctx_setup( ctx->txn_ctx, NULL, NULL );
+  ctx->txn_ctx->epoch_ctx = ctx->epoch_ctx;
+  ctx->txn_ctx->slot_ctx  = ctx->slot_ctx;
+  ctx->txn_ctx->funk_txn  = ctx->slot_ctx->funk_txn;
+  ctx->txn_ctx->acc_mgr   = ctx->slot_ctx->acc_mgr;
+  ctx->txn_ctx->valloc    = ctx->slot_ctx->valloc;
+
 }
 
 static void

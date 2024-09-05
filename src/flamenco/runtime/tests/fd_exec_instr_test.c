@@ -259,16 +259,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   ctx->txn_ctx    = txn_ctx;
   txn_ctx->valloc = slot_ctx->valloc;
 
-  /* Initial variables */
-  txn_ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
-  txn_ctx->heap_size                       = fd_ulong_max( txn_ctx->heap_size, FD_VM_HEAP_SIZE ); /* FIXME: bound this to FD_VM_HEAP_MAX?*/
-
-  /* Set up epoch context */
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
-  epoch_bank->rent.lamports_per_uint8_year = 3480;
-  epoch_bank->rent.exemption_threshold = 2;
-  epoch_bank->rent.burn_percent = 50;
-
   /* Create account manager */
 
   fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_scratch_alloc( FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), funk );
@@ -280,15 +270,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   slot_ctx->funk_txn  = funk_txn;
   slot_ctx->acc_mgr   = acc_mgr;
 
-
-  txn_ctx->epoch_ctx               = epoch_ctx;
-  txn_ctx->slot_ctx                = slot_ctx;
-  txn_ctx->funk_txn                = funk_txn;
-  txn_ctx->acc_mgr                 = acc_mgr;
-  txn_ctx->compute_unit_limit      = test_ctx->cu_avail;
-  txn_ctx->compute_unit_price      = 0;
-  txn_ctx->compute_meter           = test_ctx->cu_avail;
-
   /* Restore feature flags */
 
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_context.features;
@@ -299,14 +280,15 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   /* TODO: Restore slot_bank */
 
   fd_slot_bank_new( &slot_ctx->slot_bank );
-  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
-  slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
-  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
-  fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
 
   /* Set up txn context */
-  
   fd_exec_txn_ctx_setup( txn_ctx, NULL, NULL );
+  txn_ctx->epoch_ctx           = epoch_ctx;
+  txn_ctx->slot_ctx            = slot_ctx;
+  txn_ctx->funk_txn            = funk_txn;
+  txn_ctx->acc_mgr             = acc_mgr;
+  txn_ctx->compute_unit_limit  = test_ctx->cu_avail;
+  txn_ctx->compute_meter       = test_ctx->cu_avail;
 
   /* Set up instruction context */
 
@@ -323,32 +305,12 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Prepare borrowed account table (correctly handles aliasing) */
 
-  if( FD_UNLIKELY( test_ctx->accounts_count > 128 ) ) {
-    /* TODO remove this hardcoded constant */
-    REPORT( NOTICE, "too many accounts" );
-    return 0;
-  }
-
   fd_borrowed_account_t * borrowed_accts = txn_ctx->borrowed_accounts;
   fd_memset( borrowed_accts, 0, test_ctx->accounts_count * sizeof(fd_borrowed_account_t) );
   txn_ctx->accounts_cnt = test_ctx->accounts_count;
   for ( uint i = 0; i < test_ctx->accounts_count; i++ ) {
     memcpy( &(txn_ctx->accounts[i]), test_ctx->accounts[i].address, sizeof(fd_pubkey_t) );
   }
-  // fd_txn_t * txn_descriptor = (fd_txn_t *) fd_scratch_alloc( fd_txn_align(), fd_txn_footprint(1, 0) );
-  // // fd_memset(txn_descriptor, 0, fd_txn_footprint(1, 0) );
-  // // txn_descriptor->acct_addr_cnt = (ushort) test_ctx->accounts_count;
-  // // txn_descriptor->addr_table_adtl_cnt = 0;
-  // txn_ctx->txn_descriptor = txn_descriptor;
-
-  // /* Precompiles are allowed to read data from all instructions.
-  //    We need to at least set pointers to the current instruction.
-  //    Note: for simplicity we point the entire raw tx data to the
-  //    instruction data, this is probably something we can improve. */
-  // txn_descriptor->instr_cnt = 1;
-  // txn_ctx->_txn_raw->raw = info->data;
-  // txn_descriptor->instr[0].data_off = 0;
-  // txn_descriptor->instr[0].data_sz = info->data_sz;
 
   /* Load accounts into database */
 
@@ -405,9 +367,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     memcpy( slot_ctx->sysvar_cache->val_rent, &sysvar_rent, sizeof(fd_rent_t) );
   }
 
-  /* Set slot bank variables */
-  slot_ctx->slot_bank.slot = fd_sysvar_cache_clock( slot_ctx->sysvar_cache )->slot;
-
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 
   /* A NaN rent exemption threshold is U.B. in Solana Labs */
@@ -421,10 +380,15 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
       return 0;
 
     /* Override epoch bank settings */
-    epoch_bank->rent = *rent;
+
+    epoch_ctx->epoch_bank.rent = *rent;
   }
 
   /* Override most recent blockhash if given */
+  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
+  slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
+  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
+  fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
   fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
   if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
@@ -436,12 +400,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   }
 
   /* Load instruction accounts */
-
-  if( FD_UNLIKELY( test_ctx->instr_accounts_count > 128 ) ) {
-    /* TODO remove this hardcoded constant */
-    REPORT( NOTICE, "too many instruction accounts" );
-    return 0;
-  }
 
   uchar acc_idx_seen[256] = {0};
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {
