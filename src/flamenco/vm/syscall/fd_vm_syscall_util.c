@@ -185,7 +185,8 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L123-L128 */
 
-  fd_vm_vec_t const * slice = (fd_vm_vec_t const *)FD_VM_MEM_HADDR_LD( vm, slice_vaddr, FD_VM_VEC_ALIGN, slice_cnt*sizeof(fd_vm_vec_t) );
+  fd_vm_vec_t const * slice = (fd_vm_vec_t const *)FD_VM_MEM_HADDR_LD( vm, slice_vaddr, FD_VM_VEC_ALIGN,
+    fd_ulong_sat_mul( slice_cnt, sizeof(fd_vm_vec_t) ) );
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L130-L135 */
 
