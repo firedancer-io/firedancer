@@ -273,7 +273,11 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_T                 fd_pack_addr_use_t
 #define MAP_KEY_T             fd_acct_addr_t
 #define MAP_KEY_NULL          null_addr
-#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL(k, null_addr)
+#if FD_HAS_AVX
+# define MAP_KEY_INVAL(k)     _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
+#else
+# define MAP_KEY_INVAL(k)     MAP_KEY_EQUAL(k, null_addr)
+#endif
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
@@ -285,7 +289,11 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_T                 fd_pack_bitset_acct_mapping_t
 #define MAP_KEY_T             fd_acct_addr_t
 #define MAP_KEY_NULL          null_addr
-#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL(k, null_addr)
+#if FD_HAS_AVX
+# define MAP_KEY_INVAL(k)     _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
+#else
+# define MAP_KEY_INVAL(k)     MAP_KEY_EQUAL(k, null_addr)
+#endif
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
@@ -425,6 +433,8 @@ struct fd_pack_private {
 };
 
 typedef struct fd_pack_private fd_pack_t;
+
+FD_STATIC_ASSERT( offsetof(fd_pack_t, pending_txn_cnt)==FD_PACK_PENDING_TXN_CNT_OFF, txn_cnt_off );
 
 ulong
 fd_pack_footprint( ulong                    pack_depth,
@@ -1221,7 +1231,6 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   return scheduled;
 }
 
-ulong fd_pack_avail_txn_cnt( fd_pack_t const * pack ) { return pack->pending_txn_cnt; }
 ulong fd_pack_bank_tile_cnt( fd_pack_t const * pack ) { return pack->bank_tile_cnt;   }
 
 
