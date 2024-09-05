@@ -862,10 +862,14 @@ ingest( fd_ledger_args_t * args ) {
 
   /* At this point the account state has been ingested into funk. Intake rocksdb */
   if( args->start_slot == 0 ) {
-    args->start_slot = slot_ctx->slot_bank.slot;
+    args->start_slot = slot_ctx->slot_bank.slot + 1;
+  }
+  fd_blockstore_t * blockstore = args->blockstore;
+  if( blockstore ) {
+    blockstore->min = blockstore->max = blockstore->lps =
+      blockstore->hcs = blockstore->smr = slot_ctx->slot_bank.slot;
   }
 
-  fd_blockstore_t * blockstore = args->blockstore;
   if( args->funk_only ) {
     FD_LOG_NOTICE(( "using funk only, skipping blockstore ingest" ));
   } else if( args->shredcap ) {

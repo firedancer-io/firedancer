@@ -580,7 +580,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
 
   rocksdb_iter_destroy(iter);
 
-  fd_wksp_t * wksp = fd_wksp_containing( blockstore );
+  fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
   fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, slot );
   if( FD_LIKELY( block_map_entry && block_map_entry->block_gaddr ) ) {
     size_t vallen = 0;
@@ -718,6 +718,13 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     }
 
     FD_TEST( blk->txns_meta_gaddr + blk->txns_meta_sz == fd_wksp_gaddr_fast( wksp, cur_laddr ) );
+  }
+
+  if( slot > blockstore->max ) {
+    blockstore->max = blockstore->hcs = slot;
+  }
+  if( FD_LIKELY( block_map_entry ) ) {
+    block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_COMPLETED );
   }
 
   fd_blockstore_end_write(blockstore);
