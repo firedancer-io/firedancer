@@ -400,37 +400,54 @@ fd_log_collector_program_success( fd_exec_instr_ctx_t * ctx ) {
 }
 
 /* fd_log_collector_program_success logs:
-     "Program <ProgramIdBase58> failed: <err>" */
+     "Program <ProgramIdBase58> failed: <err>"
+
+   This function handles the logic to log the correct msg, based
+   on the type of error (InstructionError, SyscallError...).
+   https://github.com/anza-xyz/agave/blob/v2.0.6/program-runtime/src/invoke_context.rs#L535-L549
+
+   The error msg is obtained by external functions, e.g. fd_vm_syscall_strerror(),
+   and can be either a valid msg or an empty string.  Empty string represents
+   special handling of the error log, for example the syscall panic logs directly
+   the result, and therefore can be skipped at this stage. */
 static inline void
 fd_log_collector_program_failure( fd_exec_instr_ctx_t * ctx ) {
   if( FD_LIKELY( ctx->txn_ctx->log_collector.disabled ) ) {
     return;
   }
 
-  /* TODO: we need to distinguish at least between:
-     - InstructionError
-     - EbpfError::SyscallError
-     - ProgramError?
-     https://github.com/anza-xyz/agave/blob/v2.0.6/program-runtime/src/invoke_context.rs#L535-L549 */
-  extern char const * fd_vm_strerror( int err );
+  extern char const * fd_vm_ebpf_strerror( int err );
+  extern char const * fd_vm_syscall_strerror( int err );
   extern char const * fd_executor_instr_strerror( int err );
 
-  char custom_err[33];
-  const char * err;
-  if( ctx->txn_ctx->custom_err != UINT_MAX ) {
+  char custom_err[33] = { 0 };
+  const char * err = custom_err;
+  const fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx;
+  if( txn_ctx->custom_err != UINT_MAX ) {
     /* Max msg_sz = 32 <= 66 */
-    snprintf( custom_err, sizeof(custom_err), "custom program error: 0x%x", ctx->txn_ctx->custom_err );
-    err = (const char *)custom_err;
-  } else if( ctx->vm_exec ) {
-    err = fd_vm_strerror( ctx->vm_exec );
-  } else {
-    err = fd_executor_instr_strerror( ctx->instr_exec );
+    snprintf( custom_err, sizeof(custom_err), "custom program error: 0x%x", txn_ctx->custom_err );
+  } else if( txn_ctx->exec_err ) {
+    switch( txn_ctx->exec_err_kind ) {
+      case FD_EXECUTOR_ERR_KIND_SYSCALL:
+        err = fd_vm_syscall_strerror( txn_ctx->exec_err );
+        break;
+      case FD_EXECUTOR_ERR_KIND_INSTR:
+        err = fd_executor_instr_strerror( txn_ctx->exec_err );
+        break;
+      default:
+        err = fd_vm_ebpf_strerror( txn_ctx->exec_err );
+    }
   }
-  FD_TEST_CUSTOM( strlen(err)<=66,
-    "A transaction log was truncated unexpectedly. Please report to developers." );
 
-  /* Max msg_sz: 21 - 4 + 44 = 61 + err_sz <= 127 => we can use printf, as long as err_sz <= 66 */
-  fd_log_collector_printf_dangerous_max_127( ctx, "Program %s failed: %s", ctx->program_id_base58, err );
+  /* Skip empty string, this means that the msg has already been logged. */
+  if( FD_LIKELY( err[0] ) ) {
+    char err_prefix[ 17+FD_BASE58_ENCODED_32_SZ ]; // 17==strlen("Program  failed: ")
+    int err_prefix_len = sprintf( err_prefix, "Program %s failed: ", ctx->program_id_base58 );
+    if( err_prefix_len > 0 ) {
+      /* Equivalent to: "Program %s failed: %s" */
+      fd_log_collector_msg_many( ctx, err_prefix, (ulong)err_prefix_len, err, strlen(err) );
+    }
+  }
 }
 
 /* fd_log_collector_program_consumed logs:
@@ -486,7 +503,8 @@ fd_log_collector_debug_get( fd_log_collector_t const * log,
 
 static inline ulong
 fd_log_collector_debug_sprintf( fd_log_collector_t const * log,
-                                char *                     out ) {
+                                char *                     out,
+                                int                        filter_zero ) {
   ulong out_sz = 0;
 
   ulong pos = 0;
@@ -499,10 +517,15 @@ fd_log_collector_debug_sprintf( fd_log_collector_t const * log,
        Slow version of memcpy that skips \0, because a \0 can be in logs.
        Equivalent to:
        fd_memcpy( out + out_sz, buf, cur_sz ); out_sz += cur_sz; */
-    for( ulong i=0; i<cur_sz; i++ ) {
-      if( buf[i] ) {
-        out[ out_sz++ ] = (char)buf[i];
+    if( filter_zero ) {
+      for( ulong i=0; i<cur_sz; i++ ) {
+        if( buf[i] ) {
+          out[ out_sz++ ] = (char)buf[i];
+        }
       }
+    } else {
+      fd_memcpy( out+out_sz, buf, cur_sz );
+      out_sz += cur_sz;
     }
     out[ out_sz++ ] = '\n';
 
@@ -512,14 +535,15 @@ fd_log_collector_debug_sprintf( fd_log_collector_t const * log,
   }
 
   /* Remove the last \n, or return empty cstr */
-  out[ out_sz ? out_sz-1 : 0 ] = '\0';
+  out_sz = out_sz ? out_sz-1 : 0;
+  out[ out_sz ] = '\0';
   return out_sz;
 }
 
 static inline void
 fd_log_collector_private_debug( fd_log_collector_t const * log ) {
-  char out[16384];
-  fd_log_collector_debug_sprintf( log, out );
+  char out[FD_LOG_COLLECTOR_MAX + FD_LOG_COLLECTOR_EXTRA];
+  fd_log_collector_debug_sprintf( log, out, 1 );
   FD_LOG_WARNING(( "\n-----\n%s\n-----", out ));
 }
 

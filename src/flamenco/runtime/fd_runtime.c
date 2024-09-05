@@ -764,6 +764,7 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
                                fd_execute_txn_task_info_t * task_info,
                                fd_txn_p_t *                 txns,
                                ulong                        txn_cnt ) {
+  int res = 0;
   /* Loop across transactions */
   for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
     fd_txn_p_t * txn = &txns[txn_idx];
@@ -777,15 +778,15 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
 
     fd_rawtxn_b_t raw_txn = { .raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
 
-    int res = fd_execute_txn_prepare_start( slot_ctx, txn_ctx, txn_descriptor, &raw_txn );
-    if( res ) {
-      task_info[txn_idx].exec_res = res;
+    int err = fd_execute_txn_prepare_start( slot_ctx, txn_ctx, txn_descriptor, &raw_txn );
+    if( FD_UNLIKELY( err ) ) {
+      task_info[txn_idx].exec_res = err;
       txn->flags                  = 0U;
-      return res;
+      res |= err;
     }
   }
 
-  return FD_RUNTIME_EXECUTE_SUCCESS;
+  return res;
 }
 
 /* fd_txn_sigverify_task and fd_txn_pre_execute_checks_task are responisble
@@ -1289,8 +1290,22 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
 
   if( FD_UNLIKELY( exec_txn_err ) ) {
 
-    /* Reset lamports to after fee for borrowed account then save */
-    txn_ctx->borrowed_accounts[0].meta->info.lamports = txn_ctx->borrowed_accounts[0].starting_lamports;
+    /* Save the fee_payer. Everything but the fee balance should be reset.
+       TODO: an optimization here could be to use a dirty flag in the
+       borrowed account. If the borrowed account data has been changed in
+       any way, then the full account can be rolled back as it is done now.
+       However, most of the time the account data is not changed, and only
+       the lamport balance has to change. */
+    ulong                   post_fee_balance = txn_ctx->borrowed_accounts[0].starting_lamports;
+    fd_borrowed_account_t * borrowed_account = fd_borrowed_account_init( &txn_ctx->borrowed_accounts[0] );
+
+    fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[0], borrowed_account );
+    memcpy( borrowed_account->pubkey->key, &txn_ctx->accounts[0], sizeof(fd_pubkey_t) );
+    
+    void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
+    fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
+    borrowed_account->meta->info.lamports = post_fee_balance;
+
     fd_funk_start_write( slot_ctx->acc_mgr->funk );
     fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->borrowed_accounts[0] );
     fd_funk_end_write( slot_ctx->acc_mgr->funk );
@@ -1399,47 +1414,59 @@ fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         sl
   fd_alloc_t * blockstore_alloc     = fd_wksp_laddr_fast( blockstore_wksp, blockstore->alloc_gaddr );
   fd_blockstore_txn_map_t * txn_map = fd_wksp_laddr_fast( blockstore_wksp, blockstore->txn_map_gaddr );
 
+  /* Get the total size of all logs */
+  ulong tot_meta_sz = 2*sizeof(ulong);
+  for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
+    fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
+    if( txn_ctx->log_collector.buf_sz ) {
+      ulong meta_sz = txn_ctx->log_collector.buf_sz;
+      tot_meta_sz += meta_sz;
+    }
+  }
+  uchar * cur_laddr = fd_alloc_malloc( blockstore_alloc, 1, tot_meta_sz );
+  if( cur_laddr == NULL ) {
+    return;
+  }
+
   fd_blockstore_start_write( blockstore );
+  fd_block_t * blk = fd_blockstore_block_query( blockstore, slot_ctx->slot_bank.slot );
+  /* Link to previous allocation */
+  ((ulong*)cur_laddr)[0] = blk->txns_meta_gaddr;
+  ((ulong*)cur_laddr)[1] = blk->txns_meta_sz;
+  blk->txns_meta_gaddr = fd_wksp_gaddr_fast( blockstore_wksp, cur_laddr );
+  blk->txns_meta_sz    = tot_meta_sz;
+  cur_laddr += 2*sizeof(ulong);
+
   for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
     fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
     if( txn_ctx->log_collector.buf_sz ) {
       /* Prepare metadata.
          Note: currently we only include logs, that are already serialized in protobuf. */
-      ulong meta_sz = txn_ctx->log_collector.buf_sz;
-      void * meta_laddr = fd_alloc_malloc( blockstore_alloc, 1, meta_sz );
-      if( meta_laddr == NULL ) {
-        fd_log_collector_delete( &txn_ctx->log_collector );
-        break;
-      }
+      ulong  meta_sz = txn_ctx->log_collector.buf_sz;
+      void * meta_laddr = cur_laddr;
       ulong  meta_gaddr = fd_wksp_gaddr_fast( blockstore_wksp, meta_laddr );
       fd_memcpy( meta_laddr, txn_ctx->log_collector.buf, meta_sz );
 
-      /* Update the first signature (meta_owned=1) */
+      /* Update all the signatures */
       char const * sig_p = (char const *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
       fd_blockstore_txn_key_t sig;
-      fd_memcpy( &sig, sig_p, sizeof(fd_blockstore_txn_key_t) );
-      fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, &sig, NULL );
-      if( FD_LIKELY( txn_map_entry ) ) {
-        txn_map_entry->meta_gaddr = meta_gaddr;
-        txn_map_entry->meta_sz    = meta_sz;
-        txn_map_entry->meta_owned = 1;
-      }
-
-      /* Update all other signatures (meta_owned=0) */
-      for( uchar i=1U; i<txn_ctx->txn_descriptor->signature_cnt; i++ ) {
-        sig_p += FD_ED25519_SIG_SZ;
+      for( uchar i=0U; i<txn_ctx->txn_descriptor->signature_cnt; i++ ) {
         fd_memcpy( &sig, sig_p, sizeof(fd_blockstore_txn_key_t) );
         fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, &sig, NULL );
         if( FD_LIKELY( txn_map_entry ) ) {
           txn_map_entry->meta_gaddr = meta_gaddr;
           txn_map_entry->meta_sz    = meta_sz;
-          txn_map_entry->meta_owned = 0;
         }
+        sig_p += FD_ED25519_SIG_SZ;
       }
 
+      cur_laddr += meta_sz;
     }
     fd_log_collector_delete( &txn_ctx->log_collector );
   }
+
+  FD_TEST( blk->txns_meta_gaddr + blk->txns_meta_sz == fd_wksp_gaddr_fast( blockstore_wksp, cur_laddr ) );
+
   fd_blockstore_end_write( blockstore );
 }
 
@@ -1459,6 +1486,9 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
       fd_funk_txn_t * txn_map = fd_funk_txn_map( capture_ctx->pruned_funk, fd_funk_wksp( capture_ctx->pruned_funk ) );
       prune_txn = fd_funk_txn_query( &prune_xid, txn_map );
     }
+
+    /* Store transaction metadata, including logs */
+    fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, txn_cnt );
 
     fd_txncache_insert_t * status_insert  = NULL;
     uchar *                results        = NULL;
@@ -1487,9 +1517,6 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
         fd_funk_end_write( capture_ctx->pruned_funk );
       }
 
-      /* Store transaction metadata, including logs */
-      fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, txn_cnt );
-
       /* For ledgers that contain txn status, decode and write out for solcap */
       if( FD_UNLIKELY( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns ) ) {
         fd_runtime_write_transaction_status( capture_ctx, slot_ctx, txn_ctx, exec_txn_err );
@@ -1509,8 +1536,23 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
       }
 
       if( FD_UNLIKELY( exec_txn_err ) ) {
-        /* Save the fee_payer */
-        txn_ctx->borrowed_accounts[0].meta->info.lamports = txn_ctx->borrowed_accounts[0].starting_lamports;
+        /* Save the fee_payer. Everything but the fee balance should be reset.
+           TODO: an optimization here could be to use a dirty flag in the
+           borrowed account. If the borrowed account data has been changed in
+           any way, then the full account can be rolled back as it is done now.
+           However, most of the time the account data is not changed, and only
+           the lamport balance has to change. */
+        ulong                   post_fee_balance = txn_ctx->borrowed_accounts[0].starting_lamports;
+        fd_borrowed_account_t * borrowed_account = fd_borrowed_account_init( &txn_ctx->borrowed_accounts[0] );
+
+        fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[0], borrowed_account );
+        memcpy( borrowed_account->pubkey->key, &txn_ctx->accounts[0], sizeof(fd_pubkey_t) );
+
+        void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
+        fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
+        borrowed_account->meta->info.lamports = post_fee_balance;
+
+
         accounts_to_save[acc_idx++] = &txn_ctx->borrowed_accounts[0];
         for( ulong i=1UL; i<txn_ctx->accounts_cnt; i++ ) {
           if( txn_ctx->nonce_accounts[i] ) {
@@ -1802,12 +1844,15 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
       }
 
       ulong * incomplete_txn_idxs = fd_scratch_alloc( 8UL, txn_cnt * sizeof(ulong) );
-      ulong incomplete_txn_idxs_cnt = txn_cnt;
+      ulong incomplete_txn_idxs_cnt = 0;
       ulong incomplete_accounts_cnt = 0;
 
-      /* Setup all txns as incomplete and set the capture context */
+      /* Setup sanitized txns as incomplete and set the capture context */
       for( ulong i = 0; i < txn_cnt; i++ ) {
-        incomplete_txn_idxs[i] = i;
+        if( FD_UNLIKELY( !( task_infos[i].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
+          continue;
+        }
+        incomplete_txn_idxs[incomplete_txn_idxs_cnt++] = i;
         incomplete_accounts_cnt += task_infos[i].txn_ctx->accounts_cnt;
         task_infos[i].txn_ctx->capture_ctx = capture_ctx;
       }
@@ -3617,8 +3662,6 @@ FD_SCRATCH_SCOPE_BEGIN {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_stakes_t * stakes = &epoch_bank->stakes;
 
-  // TODO: do we need to update the vote accounts as well? Trying to update them breaks things
-
   // TODO: is this size correct if the same stake account is in both the slot and epoch cache? Is this possible?
   ulong stake_delegations_size = fd_delegation_pair_t_map_size(
     stakes->stake_delegations_pool, stakes->stake_delegations_root );
@@ -3723,7 +3766,7 @@ FD_SCRATCH_SCOPE_BEGIN {
 } FD_SCRATCH_SCOPE_END;
 }
 
-/* Save a copy of epoch_ctx->epoch_bank->stakes.vote_accounts into slot_ctx->slot_bank.epoch_stakes. */
+/* Replace the stakes in T-2 (slot_ctx->slot_bank.epoch_stakes) by the stakes at T-1 (epoch_bank->next_epoch_stakes) */
 static
 void fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_SCRATCH_SCOPE_BEGIN
@@ -3792,6 +3835,20 @@ void fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_SCRATCH_SCOPE_END;
 }
 
+/* Starting a new epoch.
+  New epoch:        T
+  Just ended epoch: T-1
+  Epoch before:     T-2
+
+  In this function:
+  - stakes in T-2 (slot_ctx->slot_bank.epoch_stakes) should be replaced by T-1 (epoch_bank->next_epoch_stakes)
+  - stakes at T-1 (epoch_bank->next_epoch_stakes) should be replaced by updated stakes at T (stakes->vote_accounts)
+  - leader schedule should be calculated using new T-2 stakes (slot_ctx->slot_bank.epoch_stakes)
+
+  Invariant during an epoch T:
+  epoch_bank->next_epoch_stakes    holds the stakes at T-1
+  slot_ctx->slot_bank.epoch_stakes holds the stakes at T-2
+ */
 /* process for the start of a new epoch */
 void fd_process_new_epoch(
     fd_exec_slot_ctx_t *slot_ctx,
@@ -3818,36 +3875,44 @@ void fd_process_new_epoch(
   else if (FD_FEATURE_ACTIVE(slot_ctx, update_hashes_per_tick2))
     epoch_bank->hashes_per_tick = UPDATED_HASHES_PER_TICK2;
 
-  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
-  if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
-
-  /* Updates `epoch_bank->stakes->epoch` with new epoch number,
-     and updates stake history sysvar accumulated values. */
+  /* Updates stake history sysvar accumulated values. */
   fd_stakes_activate_epoch( slot_ctx );
+
+  /* Update the stakes epoch value to the new epoch */
+  epoch_bank->stakes.epoch = epoch;
+
+  /* If appropiate, use the stakes at T-1 to generate the leader schedule instead of T-2.
+     This is due to a subtlety in how Agave's stake caches interact when loading from snapshots.
+     See the comment in fd_exec_slot_ctx_recover_. */
+  if( slot_ctx->slot_bank.has_use_preceeding_epoch_stakes && slot_ctx->slot_bank.use_preceeding_epoch_stakes == epoch ) {
+    fd_update_epoch_stakes( slot_ctx );
+  }
 
   /* Distribute rewards */
   fd_hash_t const * parent_blockhash = slot_ctx->slot_bank.block_hash_queue.last_hash;
-  if ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
+  if( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
     fd_begin_partitioned_rewards( slot_ctx, parent_blockhash, parent_epoch );
   } else {
     fd_update_rewards( slot_ctx, parent_blockhash, parent_epoch );
   }
 
-  refresh_vote_accounts( slot_ctx, history );
+  /* Updates stakes at time T */
+  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+  if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
 
+  refresh_vote_accounts( slot_ctx, history );
   fd_update_stake_delegations( slot_ctx );
 
-  fd_calculate_epoch_accounts_hash_values( slot_ctx );
-  FD_LOG_WARNING(("Leader schedule epoch %lu", fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot)));
+  /* Replace stakes at T-2 (slot_ctx->slot_bank.epoch_stakes) by stakes at T-1 (epoch_bank->next_epoch_stakes) */
   fd_update_epoch_stakes( slot_ctx );
 
-  fd_runtime_update_leaders(slot_ctx, slot_ctx->slot_bank.slot);
-  FD_LOG_WARNING(("Updated leader %32J", slot_ctx->leader->uc));
-
+  /* Replace stakes at T-1 (epoch_bank->next_epoch_stakes) by updated stakes at T (stakes->vote_accounts) */
   fd_update_next_epoch_stakes( slot_ctx );
 
-  /* Update the current epoch value */
-  epoch_bank->stakes.epoch = epoch;
+  /* Update current leaders using slot_ctx->slot_bank.epoch_stakes (new T-2 stakes) */
+  fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot );
+
+  fd_calculate_epoch_accounts_hash_values( slot_ctx );
 }
 
 /* Loads the sysvar cache. Expects acc_mgr, funk_txn, valloc to be non-NULL and valid. */

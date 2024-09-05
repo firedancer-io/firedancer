@@ -19,6 +19,8 @@ fd_vm_syscall_abort( FD_PARAM_UNUSED void *  _vm,
                      FD_PARAM_UNUSED ulong   r5,
                      FD_PARAM_UNUSED ulong * _ret ) {
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/mod.rs#L630 */
+  fd_vm_t * vm = (fd_vm_t *)_vm;
+  FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_ABORT );
   return FD_VM_ERR_ABORT;
 }
 
@@ -32,7 +34,8 @@ fd_vm_syscall_abort( FD_PARAM_UNUSED void *  _vm,
 #define FD_TRANSLATE_STRING( vm, vaddr, msg_sz ) (__extension__({          \
     char const * msg = FD_VM_MEM_SLICE_HADDR_LD( vm, vaddr, 1UL, msg_sz ); \
     if( FD_UNLIKELY( !fd_utf8_verify( msg, msg_sz ) ) ) {                  \
-      return FD_VM_ERR_INVAL; /* Err(SyscallError::InvalidString(...)) */  \
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_INVALID_STRING );   \
+      return FD_VM_ERR_SYSCALL_INVALID_STRING;                             \
     }                                                                      \
     msg;                                                                   \
 }))
@@ -51,28 +54,19 @@ fd_vm_syscall_sol_panic( /**/            void *  _vm,
 
      Note: this syscall is not used by the Rust SDK, only by the C SDK.
      Rust transforms `panic!()` into a log, followed by an abort.
-     It's unclear if this syscall actually makes any sense...
-
-     In Agave, this syscall throws SyscallError::Panic(file, line, column),
-     and then later on the runtime logs the error, including file, line column.
-     Since we can't easily propagate properties of an error in C, we do
-     the log here.  The format of this log is a bit tricky, so we limit the
-     log to a simple and realistic case where file_sz<=56 (where 56 comes from
-     internal constrains of our logging implementation).
-
-     TODO: log when file_sz>56 (note that also line & column have variable size!). */
-
+     It's unclear if this syscall actually makes any sense... */
   FD_VM_CU_UPDATE( vm, file_sz );
-  char const * file = FD_TRANSLATE_STRING( vm, file_vaddr, file_sz );
 
-  /* Max msg_sz: 37 - 6 + 20 + 20 + file_sz = 71 + file_sz <= 127 => file_sz <= 56 */
-  if( file_sz<=56 ) {
-    /* Note: when file_sz==0, file can be undefined. We use printf with "%.*s" to
-             protect against it. */
-    fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
-      "SBF program Panicked in %.*s at %lu:%lu", file_sz, file, line, column );
-  }
+  /* Validate string */
+  FD_TRANSLATE_STRING( vm, file_vaddr, file_sz );
 
+  /* Note: we truncate the log, ignoring file, line, column.
+     As mentioned above, it's unclear if anyone is even using this syscall,
+     so dealing with the complexity of Agave's log is a waste of time. */
+  (void)line;
+  (void)column;
+
+  FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_ERR_SYSCALL_PANIC );
   return FD_VM_ERR_PANIC;
 }
 
@@ -191,7 +185,8 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L123-L128 */
 
-  fd_vm_vec_t const * slice = (fd_vm_vec_t const *)FD_VM_MEM_HADDR_LD( vm, slice_vaddr, FD_VM_VEC_ALIGN, slice_cnt*sizeof(fd_vm_vec_t) );
+  fd_vm_vec_t const * slice = (fd_vm_vec_t const *)FD_VM_MEM_HADDR_LD( vm, slice_vaddr, FD_VM_VEC_ALIGN,
+    fd_ulong_sat_mul( slice_cnt, sizeof(fd_vm_vec_t) ) );
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L130-L135 */
 
@@ -205,13 +200,13 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L145-L152 */
 
-  ulong msg_sz = 13UL; /* "Program data:", no space */
+  ulong msg_sz = 14UL; /* "Program data: ", with space */
   for( ulong i=0UL; i<slice_cnt; i++ ) {
     ulong cur_len = slice[i].len;
     /* This fails the syscall in case of memory mapping issues */
     FD_VM_MEM_SLICE_HADDR_LD( vm, slice[i].addr, FD_VM_ALIGN_RUST_U8, cur_len );
     /* Every buffer will be base64 encoded + space separated */
-    msg_sz += (slice[i].len + 2)/3*4 + 1;
+    msg_sz += (slice[i].len + 2)/3*4 + (i > 0);
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L156 */
@@ -219,14 +214,14 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
   char msg[ FD_LOG_COLLECTOR_MAX ];
   ulong bytes_written = fd_log_collector_check_and_truncate( &vm->instr_ctx->txn_ctx->log_collector, msg_sz );
   if( FD_LIKELY( bytes_written < ULONG_MAX ) ) {
-    fd_memcpy( msg, "Program data:", 13 );
-    char * buf = msg + 13;
+    fd_memcpy( msg, "Program data: ", 14 );
+    char * buf = msg + 14;
 
     for( ulong i=0UL; i<slice_cnt; i++ ) {
       ulong cur_len = slice[i].len;
       void const * bytes = FD_VM_MEM_SLICE_HADDR_LD( vm, slice[i].addr, FD_VM_ALIGN_RUST_U8, cur_len );
 
-      *buf = ' '; ++buf;
+      if( i ) { *buf = ' '; ++buf; } /* skip first */
       buf += fd_base64_encode( buf, bytes, cur_len );
     }
     FD_TEST( (ulong)(buf-msg)==msg_sz );

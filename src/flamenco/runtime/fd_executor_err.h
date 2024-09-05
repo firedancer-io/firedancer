@@ -1,6 +1,12 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_executor_err_h
 #define HEADER_fd_src_flamenco_runtime_fd_executor_err_h
 
+/* Instruction error types */
+
+#define FD_EXECUTOR_ERR_KIND_EBPF    (0)
+#define FD_EXECUTOR_ERR_KIND_SYSCALL (1)
+#define FD_EXECUTOR_ERR_KIND_INSTR   (2)
+
 /* Instruction error codes */
 
 /* TODO make sure these are serialized consistently with solana_program::InstructionError */

@@ -14090,6 +14090,15 @@ int fd_slot_bank_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_block_hash_queue_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bincode_uint64_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_bank_decode_unsafe( fd_slot_bank_t * self, fd_bincode_decode_ctx_t * ctx ) {
@@ -14115,6 +14124,14 @@ void fd_slot_bank_decode_unsafe( fd_slot_bank_t * self, fd_bincode_decode_ctx_t 
   fd_bincode_uint64_decode_unsafe( &self->transaction_count, ctx );
   fd_bincode_bytes_decode_unsafe( &self->lthash[0], sizeof(self->lthash), ctx );
   fd_block_hash_queue_decode_unsafe( &self->block_hash_queue, ctx );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_use_preceeding_epoch_stakes = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->use_preceeding_epoch_stakes, ctx );
+    }
+  }
 }
 int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
@@ -14162,6 +14179,12 @@ int fd_slot_bank_encode( fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * 
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_block_hash_queue_encode( &self->block_hash_queue, ctx );
   if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_bool_encode( self->has_use_preceeding_epoch_stakes, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_use_preceeding_epoch_stakes ) {
+    err = fd_bincode_uint64_encode( self->use_preceeding_epoch_stakes, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
   return FD_BINCODE_SUCCESS;
 }
 enum {
@@ -14187,6 +14210,7 @@ enum {
   fd_slot_bank_transaction_count_TAG = (19 << 6) | FD_ARCHIVE_META_ULONG,
   fd_slot_bank_lthash_TAG = (20 << 6) | FD_ARCHIVE_META_UCHAR2048,
   fd_slot_bank_block_hash_queue_TAG = (21 << 6) | FD_ARCHIVE_META_STRUCT,
+  fd_slot_bank_use_preceeding_epoch_stakes_TAG = (22 << 6) | FD_ARCHIVE_META_OPTION,
 };
 int fd_slot_bank_decode_archival( fd_slot_bank_t * self, fd_bincode_decode_ctx_t * ctx ) {
   void const * data = ctx->data;
@@ -14362,6 +14386,22 @@ int fd_slot_bank_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx ) {
   if( FD_UNLIKELY( err ) ) return err;
   break;
   }
+  case (ushort)fd_slot_bank_use_preceeding_epoch_stakes_TAG: {
+  err = fd_archive_decode_setup_length( ctx, &offset );
+  if( FD_UNLIKELY( err ) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bincode_uint64_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  err = fd_archive_decode_check_length( ctx, offset );
+  if( FD_UNLIKELY( err ) ) return err;
+  break;
+  }
   default:
     err = fd_archive_decode_skip_field( ctx, tag );
     if( FD_UNLIKELY( err ) ) return err;
@@ -14474,6 +14514,18 @@ void fd_slot_bank_decode_archival_unsafe( fd_slot_bank_t * self, fd_bincode_deco
   case (ushort)fd_slot_bank_block_hash_queue_TAG: {
   fd_archive_decode_setup_length( ctx, &offset );
   fd_block_hash_queue_decode_archival_unsafe( &self->block_hash_queue, ctx );
+  break;
+  }
+  case (ushort)fd_slot_bank_use_preceeding_epoch_stakes_TAG: {
+  fd_archive_decode_setup_length( ctx, &offset );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_use_preceeding_epoch_stakes = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->use_preceeding_epoch_stakes, ctx );
+    }
+  }
   break;
   }
   default:
@@ -14617,6 +14669,18 @@ int fd_slot_bank_encode_archival( fd_slot_bank_t const * self, fd_bincode_encode
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_archive_encode_set_length( ctx, offset );
   if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_encode( (ushort)fd_slot_bank_use_preceeding_epoch_stakes_TAG, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_archive_encode_setup_length( ctx, &offset );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_bool_encode( self->has_use_preceeding_epoch_stakes, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_use_preceeding_epoch_stakes ) {
+    err = fd_bincode_uint64_encode( self->use_preceeding_epoch_stakes, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_archive_encode_set_length( ctx, offset );
+  if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint16_encode( FD_ARCHIVE_META_SENTINAL, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
@@ -14690,6 +14754,16 @@ int fd_slot_bank_decode_offsets( fd_slot_bank_off_t * self, fd_bincode_decode_ct
   self->block_hash_queue_off = (uint)( (ulong)ctx->data - (ulong)data );
   err = fd_block_hash_queue_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
+  self->use_preceeding_epoch_stakes_off = (uint)( (ulong)ctx->data - (ulong)data );
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bincode_uint64_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_bank_new(fd_slot_bank_t * self) {
@@ -14718,6 +14792,9 @@ void fd_slot_bank_destroy( fd_slot_bank_t * self, fd_bincode_destroy_ctx_t * ctx
   fd_stake_accounts_destroy( &self->stake_account_keys, ctx );
   fd_vote_accounts_destroy( &self->vote_account_keys, ctx );
   fd_block_hash_queue_destroy( &self->block_hash_queue, ctx );
+  if( self->has_use_preceeding_epoch_stakes ) {
+    self->has_use_preceeding_epoch_stakes = 0;
+  }
 }
 
 ulong fd_slot_bank_footprint( void ){ return FD_SLOT_BANK_FOOTPRINT; }
@@ -14747,6 +14824,11 @@ void fd_slot_bank_walk( void * w, fd_slot_bank_t const * self, fd_types_walk_fn_
   fun( w, &self->transaction_count, "transaction_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, self->lthash, "lthash", FD_FLAMENCO_TYPE_HASH16384, "uchar[2048]", level );
   fd_block_hash_queue_walk( w, &self->block_hash_queue, fun, "block_hash_queue", level );
+  if( !self->has_use_preceeding_epoch_stakes ) {
+    fun( w, NULL, "use_preceeding_epoch_stakes", FD_FLAMENCO_TYPE_NULL, "ulong", level );
+  } else {
+    fun( w, &self->use_preceeding_epoch_stakes, "use_preceeding_epoch_stakes", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_slot_bank", level-- );
 }
 ulong fd_slot_bank_size( fd_slot_bank_t const * self ) {
@@ -14773,6 +14855,10 @@ ulong fd_slot_bank_size( fd_slot_bank_t const * self ) {
   size += sizeof(ulong);
   size += sizeof(char) * 2048;
   size += fd_block_hash_queue_size( &self->block_hash_queue );
+  size += sizeof(char);
+  if( self->has_use_preceeding_epoch_stakes ) {
+    size += sizeof(ulong);
+  }
   return size;
 }
 

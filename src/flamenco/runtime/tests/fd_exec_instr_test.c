@@ -14,6 +14,7 @@
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
+#include "../sysvar/fd_sysvar_slot_hashes.h"
 #include "../sysvar/fd_sysvar_epoch_rewards.h"
 #include "../../../funk/fd_funk.h"
 #include "../../../util/bits/fd_float.h"
@@ -499,6 +500,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   ctx->instr     = info;
 
   fd_log_collector_init( &ctx->txn_ctx->log_collector, 1 );
+  fd_base58_encode_32( ctx->instr->program_id_pubkey.uc, NULL, ctx->program_id_base58 );
 
   return 1;
 }
@@ -623,6 +625,14 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   }
   if( slot_ctx->sysvar_cache->has_rent ) {
     epoch_bank->rent = *slot_ctx->sysvar_cache->val_rent;
+  }
+
+  /* Provde default slot hashes of size 1 if not provided */
+  if( !slot_ctx->sysvar_cache->has_slot_hashes ) {
+    fd_slot_hash_t * slot_hashes = deq_fd_slot_hash_t_alloc( fd_scratch_virtual(), 1 );
+    memset( &slot_hashes[0], 0, sizeof(fd_slot_hash_t) );
+    fd_slot_hashes_t default_slot_hashes = { .hashes = slot_hashes };
+    fd_sysvar_slot_hashes_init( slot_ctx, &default_slot_hashes );
   }
 
   /* Provide a default clock if not present */
@@ -1244,10 +1254,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
 
   /* Capture error code */
 
-  if( exec_result )
-    effects->result = -exec_result;
-  else
-    effects->result = 0;
+  effects->result   = -exec_result;
   effects->cu_avail = ctx->txn_ctx->compute_meter;
 
   if( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
@@ -1339,7 +1346,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
       _txn_context_destroy( runner, NULL, slot_ctx, wksp, alloc );
       return 0UL;
     }
-    fd_exec_txn_ctx_t * txn_ctx   = task_info->txn_ctx;
+    fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
 
     int exec_res = task_info->exec_res;
 
@@ -1373,6 +1380,11 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     txn_result->has_fee_details                   = false;
 
     if( txn_result->sanitization_error ) {
+      /* If exec_res was an instruction error, capture the error number and idx */
+      if( exec_res == FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
+        txn_result->instruction_error = (uint32_t) -task_info->txn_ctx->exec_err;
+        txn_result->instruction_error_index = (uint32_t) task_info->txn_ctx->instr_err_idx;
+      }
       ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
       _txn_context_destroy( runner, txn_ctx, slot_ctx, wksp, alloc );
 
@@ -1714,22 +1726,37 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
 
   /* Actually invoke the syscall */
   int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
+  if( syscall_err ) {
+    fd_log_collector_program_failure( vm->instr_ctx );
+  }
 
   /* Capture the effects */
-  effects->error = -syscall_err;
+  int exec_err = vm->instr_ctx->txn_ctx->exec_err;
+  effects->error = 0;
+  if( syscall_err ) {
+    effects->error = exec_err <= 0 ? -exec_err : -1;
+    if( exec_err==0 ) {
+      FD_LOG_WARNING(( "TODO: syscall returns error, but exec_err not set. this is probably missing a log." ));
+      effects->error = -1;
+    }
+  }
   effects->r0 = syscall_err ? 0 : vm->reg[0]; // Save only on success
   effects->cu_avail = (ulong)vm->cu;
 
-  effects->heap = FD_SCRATCH_ALLOC_APPEND(
-    l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
-  effects->heap->size = (uint)vm->heap_max;
-  fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
+  if( vm->heap_max ) {
+    effects->heap = FD_SCRATCH_ALLOC_APPEND(
+      l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
+    effects->heap->size = (uint)vm->heap_max;
+    fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
+  } else {
+    effects->heap = NULL;
+  }
 
   effects->stack = FD_SCRATCH_ALLOC_APPEND(
     l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
   effects->stack->size = (uint)FD_VM_STACK_MAX;
   fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
-  
+
   if( vm->rodata_sz ) {
     effects->rodata = FD_SCRATCH_ALLOC_APPEND(
       l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );
@@ -1742,15 +1769,10 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   effects->frame_count = vm->frame_cnt;
 
   fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log_collector;
-  ulong logs_len = fd_log_collector_debug_len( log );
-  if( logs_len ) {
-    FD_TEST_CUSTOM( logs_len==1, "We only support syscalls tests with at most 1 log msg" );
-    uchar const * msg; ulong msg_sz;
-    fd_log_collector_debug_get( log, 0, &msg, &msg_sz );
+  if( log->buf_sz ) {
     effects->log = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( msg_sz ) );
-    effects->log->size = (uint)msg_sz;
-    fd_memcpy( effects->log->bytes, msg, msg_sz );
+      l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( log->buf_sz ) );
+    effects->log->size = (uint)fd_log_collector_debug_sprintf( log, (char *)effects->log->bytes, 0 );
   } else {
     effects->log = NULL;
   }

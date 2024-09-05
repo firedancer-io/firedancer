@@ -74,7 +74,6 @@ test_pcapng_fwrite_idb( void ) {
     .name     = "eth0",
     .ip4_addr = {10, 0, 0, 1},
     .mac_addr = {0x06, 0x00, 0xde, 0xad, 0xbe, 0xef},
-    .tsresol  = FD_PCAPNG_TSRESOL_NS,
     .hardware = "A fake NIC"
   };
   FD_TEST( 1UL==fd_pcapng_fwrite_idb( FD_PCAPNG_LINKTYPE_ETHERNET, &opts, pcap ) );
@@ -148,7 +147,6 @@ test_pcapng_dogfood( void ) {
     .name     = "eth0",
     .ip4_addr = {10, 0, 0, 1},
     .mac_addr = {0x06, 0x00, 0xde, 0xad, 0xbe, 0xef},
-    .tsresol  = FD_PCAPNG_TSRESOL_NS,
     .hardware = "A fake NIC"
   };
   FD_TEST( 1UL==fd_pcapng_fwrite_idb( FD_PCAPNG_LINKTYPE_ETHERNET, &idb_opts, pcap ) );

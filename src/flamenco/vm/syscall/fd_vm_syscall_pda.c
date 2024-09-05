@@ -29,7 +29,8 @@ fd_vm_derive_pda( fd_vm_t *           vm,
                   uchar *             bump_seed,
                   fd_pubkey_t *       out ) {
 
-  fd_vm_vec_t const * seeds_haddr = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_vaddr, FD_VM_VEC_ALIGN, seeds_cnt*FD_VM_VEC_SIZE );
+  fd_vm_vec_t const * seeds_haddr = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_vaddr, FD_VM_VEC_ALIGN,
+    fd_ulong_sat_mul( seeds_cnt, FD_VM_VEC_SIZE ) );
 
   if ( seeds_cnt>FD_VM_PDA_SEEDS_MAX ) {
     return FD_VM_ERR_INVAL;

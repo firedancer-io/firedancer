@@ -183,8 +183,10 @@ struct fd_block {
   ulong shreds_cnt;
   ulong micros_gaddr; /* ptr to the list of fd_blockstore_micro_t */
   ulong micros_cnt;
-  ulong txns_gaddr; /* ptr to the list of fd_blockstore_txn_ref_t */
+  ulong txns_gaddr;   /* ptr to the list of fd_blockstore_txn_ref_t */
   ulong txns_cnt;
+  ulong txns_meta_gaddr; /* ptr to the allocation for txn meta data */
+  ulong txns_meta_sz;
 };
 typedef struct fd_block fd_block_t;
 
@@ -239,7 +241,6 @@ struct fd_blockstore_txn_map {
   ulong                   sz;
   ulong                   meta_gaddr; /* ptr to the transaction metadata */
   ulong                   meta_sz;    /* metadata size */
-  int                     meta_owned; /* does this entry "own" the metadata */
 };
 typedef struct fd_blockstore_txn_map fd_blockstore_txn_map_t;
 
@@ -338,7 +339,7 @@ fd_blockstore_delete( void * shblockstore );
    block data (fd_block_t) won't exist.  This is needed to bootstrap the
    various componenets for live replay (turbine, repair, etc.) */
 
-fd_blockstore_t * 
+fd_blockstore_t *
 fd_blockstore_init( fd_blockstore_t * blockstore, fd_slot_bank_t const * slot_bank );
 
 /* Accessor API */

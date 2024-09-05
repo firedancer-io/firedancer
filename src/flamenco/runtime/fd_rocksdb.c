@@ -580,7 +580,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
 
   rocksdb_iter_destroy(iter);
 
-  fd_wksp_t * wksp = fd_wksp_containing( blockstore );
+  fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
   fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, slot );
   if( FD_LIKELY( block_map_entry && block_map_entry->block_gaddr ) ) {
     size_t vallen = 0;
@@ -654,52 +654,77 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     }
   }
 
-  if( txnstatus ) {
-    fd_alloc_t * alloc = fd_wksp_laddr_fast( wksp, blockstore->alloc_gaddr );
-    fd_blockstore_txn_map_t *   txn_map   = fd_wksp_laddr_fast( wksp, blockstore->txn_map_gaddr );
-    if( FD_LIKELY( block_map_entry && block_map_entry->block_gaddr ) ) {
-      fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_map_entry->block_gaddr );
-      uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
-      fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
-      ulong meta_gaddr = 0;
-      ulong meta_sz = 0;
-      int meta_owned = 0;
-      ulong last_txn_off = ULONG_MAX;
-      for ( ulong j = 0; j < blk->txns_cnt; ++j ) {
+  if( txnstatus && FD_LIKELY( block_map_entry && block_map_entry->block_gaddr ) ) {
+    fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_map_entry->block_gaddr );
+    uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
+    fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
+
+    /* Compute the total size of the logs */
+    ulong tot_meta_sz = 2*sizeof(ulong);
+    for ( ulong j = 0; j < blk->txns_cnt; ++j ) {
+      if( j == 0 || txns[j].txn_off != txns[j-1].txn_off ) {
         fd_blockstore_txn_key_t sig;
         fd_memcpy( &sig, data + txns[j].id_off, sizeof( sig ) );
-        fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, &sig, NULL );
-        if( FD_UNLIKELY( !txn_map_entry ) ) {
-          char sig_str[ FD_BASE58_ENCODED_64_SZ ];
-          fd_base58_encode_64( fd_type_pun_const( sig.v ), NULL, sig_str );
-          FD_LOG_WARNING(( "missing transaction %s", sig_str ));
-          continue;
+        ulong sz;
+        void * raw = fd_rocksdb_get_txn_status_raw( db, slot, &sig, &sz );
+        if( raw != NULL ) {
+          free(raw);
+          tot_meta_sz += sz;
         }
-
-        if( txns[j].txn_off != last_txn_off ) {
-          last_txn_off = txns[j].txn_off;
-          ulong sz;
-          void * raw = fd_rocksdb_get_txn_status_raw( db, slot, &sig, &sz );
-          if( raw == NULL ) {
-            meta_gaddr = 0;
-            meta_sz = 0;
-            meta_owned = 0;
-          } else {
-            void * laddr = fd_alloc_malloc( alloc, 1, sz );
-            fd_memcpy(laddr, raw, sz);
-            free(raw);
-            meta_gaddr = fd_wksp_gaddr_fast( wksp, laddr );
-            meta_sz = sz;
-            meta_owned = 1;
-          }
-        }
-
-        txn_map_entry->meta_gaddr = meta_gaddr;
-        txn_map_entry->meta_sz = meta_sz;
-        txn_map_entry->meta_owned = meta_owned;
-        meta_owned = 0;
       }
     }
+    fd_alloc_t * alloc = fd_wksp_laddr_fast( wksp, blockstore->alloc_gaddr );
+    uchar * cur_laddr = fd_alloc_malloc( alloc, 1, tot_meta_sz );
+    if( cur_laddr == NULL ) {
+      fd_blockstore_end_write(blockstore);
+      return 0;
+    }
+    ((ulong*)cur_laddr)[0] = blk->txns_meta_gaddr; /* Link to previous allocation */
+    ((ulong*)cur_laddr)[1] = blk->txns_meta_sz;
+    blk->txns_meta_gaddr = fd_wksp_gaddr_fast( wksp, cur_laddr );
+    blk->txns_meta_sz    = tot_meta_sz;
+    cur_laddr += 2*sizeof(ulong);
+
+    /* Copy over the logs */
+    fd_blockstore_txn_map_t * txn_map = fd_wksp_laddr_fast( wksp, blockstore->txn_map_gaddr );
+    ulong meta_gaddr = 0;
+    ulong meta_sz = 0;
+    fd_blockstore_txn_key_t sig = { 0 };
+    for ( ulong j = 0; j < blk->txns_cnt; ++j ) {
+      if( j == 0 || txns[j].txn_off != txns[j-1].txn_off ) {
+        fd_memcpy( &sig, data + txns[j].id_off, sizeof( sig ) );
+        ulong sz;
+        void * raw = fd_rocksdb_get_txn_status_raw( db, slot, &sig, &sz );
+        if( raw == NULL ) {
+          meta_gaddr = 0;
+          meta_sz = 0;
+        } else {
+          fd_memcpy(cur_laddr, raw, sz);
+          free(raw);
+          meta_gaddr = fd_wksp_gaddr_fast( wksp, cur_laddr );
+          meta_sz = sz;
+          cur_laddr += sz;
+        }
+      }
+      fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, &sig, NULL );
+      if( FD_UNLIKELY( !txn_map_entry ) ) {
+        char sig_str[ FD_BASE58_ENCODED_64_SZ ];
+        fd_base58_encode_64( fd_type_pun_const( sig.v ), NULL, sig_str );
+        FD_LOG_WARNING(( "missing transaction %s", sig_str ));
+        continue;
+      }
+      txn_map_entry->meta_gaddr = meta_gaddr;
+      txn_map_entry->meta_sz = meta_sz;
+    }
+
+    FD_TEST( blk->txns_meta_gaddr + blk->txns_meta_sz == fd_wksp_gaddr_fast( wksp, cur_laddr ) );
+  }
+
+  if( slot > blockstore->max ) {
+    blockstore->max = blockstore->hcs = slot;
+  }
+  if( FD_LIKELY( block_map_entry ) ) {
+    block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_COMPLETED );
   }
 
   fd_blockstore_end_write(blockstore);

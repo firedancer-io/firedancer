@@ -329,11 +329,25 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     fd_epoch_epoch_stakes_pair_t * epochs  = oldbank->epoch_stakes;
     fd_epoch_stakes_t *            stakes0 = NULL;  /* current */
     fd_epoch_stakes_t *            stakes1 = NULL;  /* next */
-    for( ulong i=0UL; i < manifest->bank.epoch_stakes_len; i++ ) {
+    slot_ctx->slot_bank.has_use_preceeding_epoch_stakes = 1;
+    slot_ctx->slot_bank.use_preceeding_epoch_stakes     = epoch + 2UL;
+
+    for( ulong i=0UL; i < manifest->bank.epoch_stakes_len; i++ ) { 
       if( epochs[i].key == epoch )
         stakes0 = &epochs[i].value;
       if( epochs[i].key == epoch+1UL )
         stakes1 = &epochs[i].value;
+
+      /* When loading from a snapshot, Agave's stake caches mean that we have to special-case the epoch stakes
+         that are used for the second epoch E+2 after the snapshot epoch E.
+         
+         If the snapshot contains the epoch stakes for E+2, we should use those.
+         
+         If the snapshot does not, we should use the stakes at the end of the E-1 epoch, instead of E-2 as we do for
+         all other epochs. */
+      if ( epochs[i].key == epoch+2UL ) {
+        slot_ctx->slot_bank.has_use_preceeding_epoch_stakes = 0;
+      }
     }
     if( FD_UNLIKELY( (!stakes0) | (!stakes1) ) ) {
       FD_LOG_WARNING(( "snapshot missing EpochStakes for epochs %lu and/or %lu", epoch, epoch+1UL ));

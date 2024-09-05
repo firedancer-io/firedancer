@@ -187,7 +187,8 @@ fd_pcapng_idb_defaults( fd_pcapng_idb_opts_t * opt,
 /* fd_pcapng_fwrite_idb writes an IDB (Interface Description Block) to
    the stream pointed to by file.  Usually a successor of an SHB.  Refer
    to fd_pcapng_fwrite_shb for use of opt, file args. link_type is one
-   of FD_PCAPNG_LINKTYPE_*. */
+   of FD_PCAPNG_LINKTYPE_*.  opt->tsresol is ignored.  fd_pcapng always
+   writes TSRESOL==9 (nanoseconds). */
 
 /* FD_PCAPNG_LINKTYPE_*: Link types (currently only Ethernet supported) */
 
@@ -201,10 +202,8 @@ fd_pcapng_fwrite_idb( uint                         link_type,
 /* fd_pcapng_fwrite_pkt writes an EPB (Enhanced Packet Block) containing
    an ethernet frame at time ts (in nanos). Same semantics as fwrite
    (returns the number of packets written, which should be 1 on success
-   and 0 on failure). Current section's IDB tsresol==
-   FD_PCAPNG_TSRESOL_NS (initialized accordingly by
-   fd_pcapng_idb_defaults).  queue is the RX queue index on which this
-   packet was received on (-1 if unknown). */
+   and 0 on failure).  queue is the RX queue index on which this packet
+   was received on (-1 if unknown). */
 
 ulong
 fd_pcapng_fwrite_pkt( long         ts,

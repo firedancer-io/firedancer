@@ -1801,6 +1801,9 @@ initialize_account( ulong                         vote_acct_idx,
   rc = verify_authorized_signer( &vote_init->node_pubkey, signers );
   if( FD_UNLIKELY( rc ) ) return rc;
 
+  // reset the object
+  fd_vote_state_versioned_new( &versioned );
+
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1083
   vote_state_new( vote_init, clock, scratch_valloc, &versioned.inner.current );
   return set_vote_account_state( vote_acct_idx, vote_account, &versioned.inner.current, ctx );
@@ -2913,7 +2916,7 @@ upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
             default:
               __builtin_unreachable();
           }
-        
+
           fd_memcpy( &new_node->elem.key, vote_account->pubkey, sizeof(fd_pubkey_t));
           new_node->elem.value.lamports = vote_account->const_meta->info.lamports;
 
@@ -2924,6 +2927,7 @@ upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
           fd_memcpy( &new_node->elem.value.owner, vote_account->const_meta->info.owner, sizeof(fd_pubkey_t) );
           new_node->elem.value.executable = (uchar)vote_account->const_meta->info.executable;
           new_node->elem.value.rent_epoch = vote_account->const_meta->info.rent_epoch;
+          new_node->elem.stake            = 0UL;
           fd_vote_accounts_pair_t_map_insert( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, &slot_ctx->slot_bank.vote_account_keys.vote_accounts_root, new_node );
         } else {
           existing->elem.value.lamports = vote_account->const_meta->info.lamports;

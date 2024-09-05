@@ -2266,22 +2266,31 @@ fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
   gctx->funk = args->funk;
   gctx->blockstore = args->blockstore;
 
-  gctx->tpu_socket = socket(AF_INET, SOCK_DGRAM, 0);
-  if( gctx->tpu_socket == -1 ) {
-    FD_LOG_ERR(( "socket failed (%i-%s)", errno, strerror( errno ) ));
+  if( !args->offline ) {
+    gctx->tpu_socket = socket(AF_INET, SOCK_DGRAM, 0);
+    if( gctx->tpu_socket == -1 ) {
+      FD_LOG_ERR(( "socket failed (%i-%s)", errno, strerror( errno ) ));
+    }
+    struct sockaddr_in addrLocal;
+    memset( &addrLocal, 0, sizeof(addrLocal) );
+    addrLocal.sin_family = AF_INET;
+    if( bind(gctx->tpu_socket, (const struct sockaddr*)fd_type_pun_const(&addrLocal), sizeof(addrLocal)) == -1 ) {
+      FD_LOG_ERR(( "bind failed (%i-%s)", errno, strerror( errno ) ));
+    }
+    memcpy( &gctx->tpu_addr, &args->tpu_addr, sizeof(struct sockaddr_in) );
+  } else {
+    gctx->tpu_socket = -1;
   }
-  struct sockaddr_in addrLocal;
-  memset( &addrLocal, 0, sizeof(addrLocal) );
-  addrLocal.sin_family = AF_INET;
-  if( bind(gctx->tpu_socket, (const struct sockaddr*)fd_type_pun_const(&addrLocal), sizeof(addrLocal)) == -1 ) {
-    FD_LOG_ERR(( "bind failed (%i-%s)", errno, strerror( errno ) ));
-  }
-  memcpy( &gctx->tpu_addr, &args->tpu_addr, sizeof(struct sockaddr_in) );
 
   fd_valloc_t valloc = fd_libc_alloc_virtual();
   void * mem = fd_valloc_malloc( valloc, fd_perf_sample_deque_align(), fd_perf_sample_deque_footprint() );
   gctx->perf_samples = fd_perf_sample_deque_join( fd_perf_sample_deque_new( mem ) );
   FD_TEST( gctx->perf_samples );
+
+  fd_replay_notif_msg_t * msg = &gctx->last_slot_notify;
+  msg->type = FD_REPLAY_SLOT_TYPE;
+  msg->slot_exec.slot = args->blockstore->smr;
+  msg->slot_exec.root = args->blockstore->smr;
 
   FD_LOG_NOTICE(( "starting web server on port %u", (uint)args->port ));
   if (fd_webserver_start(args->port, args->params, args->hcache_size, &gctx->ws, ctx))

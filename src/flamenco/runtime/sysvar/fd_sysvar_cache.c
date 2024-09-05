@@ -86,43 +86,52 @@ FD_SYSVAR_CACHE_ITER(X)
 
 /* Restore sysvars */
 
+# define X( type, name )                                                  \
+void                                                                      \
+fd_sysvar_cache_restore_##name(                                           \
+  fd_sysvar_cache_t * cache,                                              \
+  fd_acc_mgr_t *      acc_mgr,                                            \
+  fd_funk_txn_t *     funk_txn) {                                         \
+  do {                                                                    \
+    fd_pubkey_t const * pubkey = &fd_sysvar_##name##_id;                  \
+    FD_BORROWED_ACCOUNT_DECL( account );                                  \
+    int view_err = fd_acc_mgr_view( acc_mgr, funk_txn, pubkey, account ); \
+    if( view_err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) break;                 \
+                                                                          \
+    if( view_err!=FD_ACC_MGR_SUCCESS ) {                                  \
+      char pubkey_cstr[ FD_BASE58_ENCODED_32_SZ ];                        \
+      FD_LOG_ERR(( "fd_acc_mgr_view(%s) failed (%d-%s)",                  \
+                  fd_acct_addr_cstr( pubkey_cstr, pubkey->key ),          \
+                  view_err, fd_acc_mgr_strerror( view_err ) ));           \
+    }                                                                     \
+                                                                          \
+    if( account->const_meta->info.lamports == 0UL ) break;                \
+                                                                          \
+    /* Destroy previous value */                                          \
+                                                                          \
+    fd_bincode_destroy_ctx_t destroy = { .valloc = cache->valloc };       \
+    type##_destroy( cache->val_##name, &destroy );                        \
+                                                                          \
+    /* Decode new value                                                   \
+      type##_decode() does not do heap allocations on failure */          \
+                                                                          \
+    fd_bincode_decode_ctx_t decode =                                      \
+      { .data    = account->const_data,                                   \
+        .dataend = account->const_data + account->const_meta->dlen,       \
+        .valloc  = cache->valloc };                                       \
+    int err = type##_decode( cache->val_##name, &decode );                \
+    cache->has_##name = (err==FD_BINCODE_SUCCESS);                        \
+  } while(0);                                                             \
+}
+  FD_SYSVAR_CACHE_ITER(X)
+# undef X
+
 void
 fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
                          fd_acc_mgr_t *      acc_mgr,
                          fd_funk_txn_t *     funk_txn ) {
-
 # define X( type, name )                                               \
-  do {                                                                 \
-    fd_pubkey_t const * pubkey = &fd_sysvar_##name##_id;               \
-    FD_BORROWED_ACCOUNT_DECL( account );                               \
-    int view_err = fd_acc_mgr_view( acc_mgr, funk_txn, pubkey, account );\
-    if( view_err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) break;              \
-                                                                       \
-    if( view_err!=FD_ACC_MGR_SUCCESS ) {                               \
-      char pubkey_cstr[ FD_BASE58_ENCODED_32_SZ ];                     \
-      FD_LOG_ERR(( "fd_acc_mgr_view(%s) failed (%d-%s)",               \
-                  fd_acct_addr_cstr( pubkey_cstr, pubkey->key ),       \
-                  view_err, fd_acc_mgr_strerror( view_err ) ));        \
-    }                                                                  \
-                                                                       \
-    if( account->const_meta->info.lamports == 0UL ) break;             \
-                                                                       \
-    /* Destroy previous value */                                       \
-                                                                       \
-    fd_bincode_destroy_ctx_t destroy = { .valloc = cache->valloc };    \
-    type##_destroy( cache->val_##name, &destroy );                     \
-                                                                       \
-    /* Decode new value                                                \
-      type##_decode() does not do heap allocations on failure */       \
-                                                                       \
-    fd_bincode_decode_ctx_t decode =                                   \
-      { .data    = account->const_data,                                \
-        .dataend = account->const_data + account->const_meta->dlen,    \
-        .valloc  = cache->valloc };                                    \
-    int err = type##_decode( cache->val_##name, &decode );             \
-    cache->has_##name = (err==FD_BINCODE_SUCCESS);                     \
-  } while(0);
-
+fd_sysvar_cache_restore_##name( cache, acc_mgr, funk_txn );
   FD_SYSVAR_CACHE_ITER(X)
 # undef X
 }

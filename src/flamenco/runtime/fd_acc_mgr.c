@@ -134,9 +134,10 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
 
   int err = FD_ACC_MGR_SUCCESS;
   fd_account_meta_t const * meta = fd_acc_mgr_view_raw( acc_mgr, txn, pubkey, &account->const_rec, &err );
-  if (FD_UNLIKELY( !fd_acc_exists( meta ) ) ) {
-    if (err != FD_ACC_MGR_SUCCESS)
+  if( FD_UNLIKELY( !fd_acc_exists( meta ) ) ) {
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       return err;
+    }
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
@@ -149,7 +150,7 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
   if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) )
     return FD_ACC_MGR_ERR_WRONG_MAGIC;
 
-  account->orig_rec = account->const_rec;
+  account->orig_rec  = account->const_rec;
   account->orig_meta = account->const_meta = meta;
   account->orig_data = account->const_data = (uchar const *)meta + meta->hlen;
 

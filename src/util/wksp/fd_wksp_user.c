@@ -263,7 +263,7 @@ fd_wksp_alloc_at_least( fd_wksp_t * wksp,
   ulong i = fd_wksp_private_free_treap_query( footprint, wksp, pinfo );
   if( FD_UNLIKELY( fd_wksp_private_pinfo_idx_is_null( i ) ) ) {
     fd_wksp_private_unlock( wksp );
-    FD_LOG_WARNING(( "no usable workspace free space available" ));
+    FD_LOG_WARNING(( "no free space available in workspace %s with data size %lu", wksp->name, wksp->data_max ));
     goto fail;
   }
 
@@ -525,7 +525,7 @@ fd_wksp_reset( fd_wksp_t * wksp,
   void * wksp_data = (void*)((ulong)wksp + fd_wksp_private_pinfo_off());
   fd_asan_poison( wksp_data, footprint - fd_wksp_private_pinfo_off() );
   fd_wksp_private_pinfo_t * pinfo_arr = fd_wksp_private_pinfo( wksp );
-  for( ulong i=0; i<wksp->part_max; i++ ) { 
+  for( ulong i=0; i<wksp->part_max; i++ ) {
     fd_asan_unpoison( &pinfo_arr[ i ], FD_WKSP_PRIVATE_PINFO_FOOTPRINT );
   }
 # endif

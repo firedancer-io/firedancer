@@ -112,6 +112,10 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong                       instr_trace_length;                           /* Number of instructions in the trace */
 
   fd_log_collector_t          log_collector;             /* Log collector instance */
+
+  /* Execution error and type, to match Agave. */
+  int exec_err;
+  int exec_err_kind;
 };
 
 #define FD_EXEC_TXN_CTX_ALIGN     (alignof(fd_exec_txn_ctx_t))
@@ -119,6 +123,12 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 #define FD_EXEC_TXN_CTX_MAGIC     (0x9AD93EE71469F4D7UL      ) /* random */
 
 FD_PROTOTYPES_BEGIN
+
+#define FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, idx ) (__extension__({ \
+    txn_ctx->exec_err = err;                                           \
+    txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;               \
+    txn_ctx->instr_err_idx = idx;                                      \
+  }))
 
 void *
 fd_exec_txn_ctx_new( void * mem );

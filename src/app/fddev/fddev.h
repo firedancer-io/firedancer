@@ -83,18 +83,18 @@ bench_cmd_fn( args_t *         args,
               config_t * const config );
 
 void
-spammer_cmd_args( int *    pargc,
-                  char *** pargv,
-                  args_t * args);
+load_cmd_args( int *    pargc,
+               char *** pargv,
+               args_t * args);
 
 void
-spammer_cmd_perm( args_t *         args,
-                  fd_caps_ctx_t *  caps,
-                  config_t * const config );
+load_cmd_perm( args_t *         args,
+               fd_caps_ctx_t *  caps,
+               config_t * const config );
 
 void
-spammer_cmd_fn( args_t *         args,
-                config_t * const config );
+load_cmd_fn( args_t *         args,
+             config_t * const config );
 
 void
 dump_cmd_args( int      * argc,
