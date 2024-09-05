@@ -62,7 +62,7 @@ fd_topo_frankendancer( config_t * config ) {
   /**/                 fd_topob_link( topo, "gossip_dedup", "gossip_dedup", 0,        2048UL,                                   FD_TPU_DCACHE_MTU,      1UL );
   /* dedup_pack is large currently because pack can encounter stalls when running at very high throughput rates that would
      otherwise cause drops. */
-  /**/                 fd_topob_link( topo, "dedup_pack",   "dedup_pack",   0,        4*65536UL,                                FD_TPU_DCACHE_MTU,      1UL );
+  /**/                 fd_topob_link( topo, "dedup_pack",   "dedup_pack",   0,        65536UL,                                  FD_TPU_DCACHE_MTU,      1UL );
   /**/                 fd_topob_link( topo, "stake_out",    "stake_out",    0,        128UL,                                    40UL + 40200UL * 40UL,  1UL );
   /* pack_bank is shared across all banks, so if one bank stalls due to complex transactions, the buffer neeeds to be large so that
      other banks can keep proceeding. */
