@@ -1837,25 +1837,10 @@ fd_quic_ack_pkt( fd_quic_t *      quic,
   if( ack_flag & ACK_FLAG_CANCEL           ) return;
   int ack_required = ack_flag & ACK_FLAG_RQD;
 
-  /* Calculate ACK wait time */
-  fd_quic_state_t * state    = fd_quic_get_state( quic );
-  ulong             deadline = 0UL;
-  if( enc_level == fd_quic_enc_level_appdata_id ) {
-    deadline = fd_ulong_if( ack_required, state->now + conn->peer_max_ack_delay, ULONG_MAX );
-  } else if( !ack_required ) {
-    return; /* if encryption level is lower than app data, don't bother ACKing ACKs */
-  }
-
   /* Can we merge pkt_number into the most recent ACK? */
   uint            cached_seq = conn->ack_queue_head - 1U;
   fd_quic_ack_t * cached_ack = fd_quic_get_queued_ack( conn, cached_seq );
-  if( enc_level > cached_ack->enc_level ) {
-
-    /* flush ACK queue if encryption level increases */
-    conn->ack_queue_head = conn->ack_queue_tail = 0U;
-    memset( conn->ack_queue, 0, sizeof(fd_quic_ack_t) );
-
-  } else if( fd_quic_range_can_insert( &cached_ack->pkt_number, pkt_number ) ) {
+  if( fd_quic_range_can_insert( &cached_ack->pkt_number, pkt_number ) ) {
 
     /* add packet number to existing range */
     if( deadline < cached_ack->deadline ) {

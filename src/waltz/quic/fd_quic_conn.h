@@ -3,6 +3,7 @@
 
 #include "fd_quic_common.h"
 #include "crypto/fd_quic_crypto_suites.h"
+#include "fd_quic_ack.h"
 #include "fd_quic_conn_id.h"
 #include "fd_quic_pkt_meta.h"
 #include "fd_rollset.h"
@@ -39,18 +40,6 @@ enum {
   /* QUIC permits the use of a generic code in place of a specific error code [...]
      such as handshake_failure (0x0128 in QUIC). */
   FD_QUIC_CONN_REASON_HANDSHAKE_FAILURE            = 0x128    /* Handshake failed. */
-};
-
-typedef struct fd_quic_conn       fd_quic_conn_t;
-typedef struct fd_quic_ack        fd_quic_ack_t;
-
-/* fd_quic_ack_t is used to generate ACK frames. */
-
-struct fd_quic_ack {
-  ulong           deadline;      /* fd_log_wallclock deadline when ACK needs to be sent */
-  ulong           pkt_rcvd;      /* fd_log_wallclock timestamp when packet was received */
-  fd_quic_range_t pkt_number;    /* range of packet numbers being acked */
-  uchar           enc_level;
 };
 
 struct fd_quic_conn {
@@ -254,6 +243,8 @@ struct fd_quic_conn {
   /* next connection in the free list, or in service list */
   uint next;
 };
+
+typedef struct fd_quic_conn fd_quic_conn_t;
 
 #define POOL_NAME  fd_quic_conn_pool
 #define POOL_T     fd_quic_conn_t

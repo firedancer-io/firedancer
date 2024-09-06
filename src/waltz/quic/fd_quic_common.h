@@ -25,7 +25,7 @@ typedef struct fd_quic_state_private fd_quic_state_t;
 typedef struct fd_quic_conn          fd_quic_conn_t;
 typedef struct fd_quic_pkt_meta      fd_quic_pkt_meta_t;
 
-struct fd_quic_range {
+struct __attribute__((aligned(16))) fd_quic_range {
   /* offset in [ offset_lo, offset_hi ) is considered inside the range */
   /* a zero-initialized range will be empty [0,0) */
   ulong offset_lo;
