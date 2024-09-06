@@ -58,9 +58,9 @@ fd_quic_dump_transport_param_desc( FILE * out ) {
   } while(0)
 
 
-int
+static int
 fd_quic_decode_transport_param( fd_quic_transport_params_t * params,
-                                uint                         id,
+                                ulong                        id,
                                 uchar const *                buf,
                                 ulong                        sz ) {
   // This compiles into a jump table, which is reasonably fast
@@ -68,7 +68,7 @@ fd_quic_decode_transport_param( fd_quic_transport_params_t * params,
 #define __( NAME, ID, TYPE, DFT, DESC, ... ) \
   case ID: { \
       FD_QUIC_PARSE_TP_##TYPE(NAME); \
-      return (int)id; \
+      return 0; \
     } \
 
   FD_QUIC_TRANSPORT_PARAMS( __, _ )
@@ -76,7 +76,7 @@ fd_quic_decode_transport_param( fd_quic_transport_params_t * params,
 
   }
 
-  return -1; // parameter with value id not known
+  return 0; /* ignore unknown IDs */
 }
 
 int
@@ -86,16 +86,11 @@ fd_quic_decode_transport_params( fd_quic_transport_params_t * params,
   while( buf_sz > 0 ) {
     /* upon success, this function adjusts buf and sz by bytes consumed */
     ulong param_id = fd_quic_tp_parse_varint( &buf, &buf_sz );
-    /* TODO use a named constant/macro for return value */
-    if( FD_UNLIKELY( param_id > ~(uint)0   ) ) return -1; /* parse failure */
-
     ulong param_sz = fd_quic_tp_parse_varint( &buf, &buf_sz );
-    if( FD_UNLIKELY( param_sz == ~(ulong)0 ) ) return -1; /* parse failure */
-    if( FD_UNLIKELY( param_sz >  buf_sz    ) ) return -1; /* length OOB */
+    if( FD_UNLIKELY( param_sz > buf_sz ) ) return -1; /* length OOB */
 
-    int consumed = fd_quic_decode_transport_param( params, (uint)param_id, buf, param_sz );
-    /* -1 is parameter not understood, which is simply ignored by spec */
-    if( FD_UNLIKELY( consumed < -1 ) ) return -1; /* parse failure */
+    int param_err = fd_quic_decode_transport_param( params, param_id, buf, param_sz );
+    if( FD_UNLIKELY( param_err ) ) return -1; /* parse failure */
 
     /* update buf and buf_sz */
     buf    += param_sz;
