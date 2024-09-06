@@ -665,7 +665,7 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
           return fd_quic_enc_level_appdata_id;
         } else if( fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_handshake_id ) ) {
           return fd_quic_enc_level_handshake_id;
-        } else {
+        } else if( fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_initial_id ) ) {
           return fd_quic_enc_level_initial_id;
         }
       }
@@ -1103,21 +1103,31 @@ fd_quic_conn_set_rx_max_data( fd_quic_conn_t * conn, ulong rx_max_data ) {
 
 /* packet processing */
 
-void
-fd_quic_ack_enc_level( fd_quic_conn_t * conn, uint enc_level ) {
-  if( FD_LIKELY( enc_level <= conn->peer_enc_level ) ) return;
+/* fd_quic_abandon_enc_level frees all resources associated encryption
+   levels less or equal to enc_level. */
 
-  /* peer encryption level has increased, so consider all lower levels
-     acked */
-  conn->peer_enc_level = (uchar)enc_level;
+void
+fd_quic_abandon_enc_level( fd_quic_conn_t * conn,
+                           uint             enc_level ) {
+  if( FD_LIKELY( !fd_uint_extract_bit( conn->keys_avail, (int)enc_level ) ) ) return;
 
   fd_quic_pkt_meta_pool_t * pool = &conn->pkt_meta_pool;
 
-  for( uint j = 0; j < enc_level; ++j ) {
+  for( uint j = 0; j <= enc_level; ++j ) {
+    conn->keys_avail = fd_uint_clear_bit( conn->keys_avail, (int)j );
+
+    /* return whole ACK list to free list */
+    if( conn->acks_tx_end[j] ) {
+      conn->acks_tx_end[j]->next = conn->acks_free;
+      conn->acks_free            = conn->acks_tx[j];
+
+      conn->acks_tx[j] = conn->acks_tx_end[j] = NULL;
+    }
+
+    /* treat all packets as ACKed (freeing handshake data, etc.) */
     fd_quic_pkt_meta_list_t * sent     = &pool->sent_pkt_meta[j];
     fd_quic_pkt_meta_t *      pkt_meta = sent->head;
     fd_quic_pkt_meta_t *      prior    = NULL; /* there is no prior, as this is the head */
-
     while( pkt_meta ) {
       fd_quic_reclaim_pkt_meta( conn, pkt_meta, j );
 
@@ -1131,9 +1141,6 @@ fd_quic_ack_enc_level( fd_quic_conn_t * conn, uint enc_level ) {
       pkt_meta = pool->sent_pkt_meta[j].head;
     }
   }
-
-  /* discard handshake data with lower enc_level */
-  /* TODO */
 }
 
 void
@@ -1219,7 +1226,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
      RFC 9001 specifies use of the TLS_AES_128_GCM_SHA256_ID suite for
      initial secrets and keys. */
 
-  uint enc_level = fd_quic_enc_level_initial_id;
+  uint const enc_level = fd_quic_enc_level_initial_id;
 
   /* Save the original destination conn ID for later.  In QUIC, peers
      choose their own "conn ID" (more like a peer ID) and indirectly
@@ -1519,6 +1526,10 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     }
   }
 
+  if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, (int)enc_level ) ) ) {
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   /* Decrypt incoming packet */
 
   /* header protection needs the offset to the packet number */
@@ -1651,10 +1662,14 @@ fd_quic_handle_v1_handshake(
     uchar *          cur_ptr,
     ulong            cur_sz
 ) {
-  uint enc_level = fd_quic_enc_level_handshake_id;
+  uint const enc_level = fd_quic_enc_level_handshake_id;
 
   if( FD_UNLIKELY( !conn ) ) {
     /* this can happen */
+    return FD_QUIC_PARSE_FAIL;
+  }
+
+  if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, (int)enc_level ) ) ) {
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -1684,12 +1699,6 @@ fd_quic_handle_v1_handshake(
   fd_quic_tls_hs_t * tls_hs = conn->tls_hs;
   if( FD_UNLIKELY( !tls_hs ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "no tls handshake" )) );
-    return FD_QUIC_PARSE_FAIL;
-  }
-
-  /* generate handshake secrets, keys etc */
-
-  if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, (int)enc_level ) ) ) {
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -1752,9 +1761,13 @@ fd_quic_handle_v1_handshake(
     return FD_QUIC_PARSE_FAIL;
   }
 
-  /* if peer encryption level increases, consider prior encryption
-     level pkt_meta acked */
-  fd_quic_ack_enc_level( conn, enc_level );
+  /* RFC 9000 Section 17.2.2.1. Abandoning Initial Packets
+     > A server stops sending and processing Initial packets when it
+     > receives its first Handshake packet. */
+  fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
+  if( FD_UNLIKELY( enc_level > conn->peer_enc_level ) ) {
+    conn->peer_enc_level = enc_level;
+  }
 
   /* handle frames */
   ulong         payload_off = pn_offset + pkt_number_sz;
@@ -1886,7 +1899,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
   }
 
   /* encryption level for one_rtt is "appdata" */
-  uint enc_level = fd_quic_enc_level_appdata_id;
+  uint const enc_level = fd_quic_enc_level_appdata_id;
 
   /* set on pkt for future processing */
   pkt->enc_level = enc_level;
@@ -1991,9 +2004,9 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
       return FD_QUIC_PARSE_FAIL;
     }
 
-  /* if peer encryption level increases, consider prior encryption
-     level pkt_meta acked */
-  fd_quic_ack_enc_level( conn, enc_level );
+  if( FD_UNLIKELY( enc_level > conn->peer_enc_level ) ) {
+    conn->peer_enc_level = enc_level;
+  }
 
   /* handle frames */
   ulong         payload_off = pn_offset + pkt_number_sz;
@@ -2849,12 +2862,12 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
 
   conn->keys_avail = fd_uint_set_bit( conn->keys_avail, (int)enc_level );
 
-  /* gen keys */
+  /* gen local keys */
   fd_quic_gen_keys(
       &conn->keys[enc_level][0],
       conn->secrets.secret[enc_level][0] );
 
-  /* gen initial keys */
+  /* gen peer keys */
   fd_quic_gen_keys(
       &conn->keys[enc_level][1],
       conn->secrets.secret[enc_level][1] );
@@ -3633,6 +3646,12 @@ fd_quic_conn_tx( fd_quic_t *      quic,
    * This ensures that ack-only packets only occur when nothing else needs
    * to be sent */
   uint enc_level = fd_quic_tx_enc_level( conn, 1 /* acks */ );
+  /* RFC 9000 Section 17.2.2.1. Abandoning Initial Packets
+     > A client stops both sending and processing Initial packets when
+     > it sends its first Handshake packet. */
+  if( quic->config.role==FD_QUIC_ROLE_CLIENT && enc_level==fd_quic_enc_level_handshake_id ) {
+    fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
+  }
 
   /* this test section is close to what we actually need
      just need to choose the packet number at which to start a
@@ -4526,6 +4545,14 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
 
             /* move straight to ACTIVE */
             conn->state = FD_QUIC_CONN_STATE_ACTIVE;
+
+            /* RFC 9001 4.9.2. Discarding Handshake Keys
+               > An endpoint MUST discard its Handshake keys when the
+               > TLS handshake is confirmed
+               RFC 9001 4.1.2. Handshake Confirmed
+               > [...] the TLS handshake is considered confirmed at the
+               > server when the handshake completes */
+            fd_quic_abandon_enc_level( conn, fd_quic_enc_level_handshake_id );
 
             /* user callback */
             fd_quic_cb_conn_new( quic, conn );
@@ -6577,6 +6604,14 @@ fd_quic_frame_handle_handshake_done_frame(
     /* either we treat this as a fatal error, or just warn
        if we don't tear down the connection we must move to ACTIVE */
   }
+
+  /* RFC 9001 4.9.2. Discarding Handshake Keys
+     > An endpoint MUST discard its Handshake keys when the
+     > TLS handshake is confirmed
+     RFC 9001 4.1.2. Handshake Confirmed
+     > At the client, the handshake is considered confirmed when a
+     > HANDSHAKE_DONE frame is received. */
+  fd_quic_abandon_enc_level( conn, fd_quic_enc_level_handshake_id );
 
   if( FD_UNLIKELY( !conn->tls_hs ) ) {
     /* sanity check */
