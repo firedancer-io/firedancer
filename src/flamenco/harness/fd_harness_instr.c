@@ -1,22 +1,5 @@
 #include "fd_harness.h"
 
-#include "fd_account.h"
-
-#include "context/fd_exec_txn_ctx.h"
-#include "context/fd_exec_instr_ctx.h"
-
-#include "fd_system_ids.h"
-
-#include "../nanopb/pb_encode.h"
-#include "../nanopb/pb_decode.h"
-#include "sysvar/fd_sysvar_recent_hashes.h"
-
-
-#include "tests/generated/instr_v2.pb.h"
-#include "tests/generated/txn_v2.pb.h"
-#include "tests/generated/slot_v2.pb.h"
-#include "tests/generated/exec_v2.pb.h"
-
 static int
 fd_double_is_normal( double dbl ) {
   ulong x = fd_dblbits( dbl );
@@ -32,13 +15,12 @@ fd_double_is_normal( double dbl ) {
   return !( is_denorm | is_inf | is_nan );
 }
 
-
 static void
 fd_harness_dump_file( fd_v2_exec_env_t * exec_env, char const * filename ) {
   /* Encode the protobuf and output to file */
   
   /* TODO: Find a better bound for the out buf size */
-  ulong out_buf_size = 100LU * 1024LU * 1024LU;
+  ulong out_buf_size = 100UL * 1024UL * 1024UL;
   uint8_t * out = fd_scratch_alloc( alignof(uint8_t), out_buf_size );
   pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
 
@@ -238,32 +220,11 @@ fd_harness_dump_instr( fd_exec_instr_ctx_t * instr_ctx ) {
 
   /* Now that the protobuf struct has been populated, dump the struct into
     a file. */
-  fd_harness_dump_file( &exec_env, "instrexec_env.pb" );
+  fd_harness_dump_file( &exec_env, "/data/ibhatt/instrexec_env.pb" );
 
   return 0;
 
   } FD_SCRATCH_SCOPE_END;
-}
-
-/* TODO: This is unimplemented. */
-int
-fd_harness_dump_txn( fd_exec_txn_ctx_t * txn_ctx ) {
-  (void)txn_ctx;
-  return 0;
-}
-
-/* TODO: This is unimplemented. */
-int
-fd_harness_dump_slot( fd_exec_slot_ctx_t * slot_ctx ) {
-  (void)slot_ctx;
-  return 0;
-}
-
-/* TODO: This is unimplemented. */
-int
-fd_harness_dump_runtime( fd_exec_epoch_ctx_t * epoch_ctx ) {
-  (void)epoch_ctx;
-  return 0;
 }
 
 /* Execute runtime environment ************************************************/
@@ -331,6 +292,22 @@ fd_harness_exec_restore_sysvars( fd_harness_ctx_t * ctx ) {
 
     slot_ctx->epoch_ctx->epoch_bank.rent = *rent;
   }
+
+  /* TODO: FIX THIS PLEASE THIS IS A MEGA MEGA HACK */
+  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
+  slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
+  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
+  fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
+  if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
+    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
+    if( last ) {
+      *recent_block_hash = *last;
+      slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      slot_ctx->prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
+    }
+  }
+
 } 
 
 static void
@@ -448,6 +425,47 @@ fd_harness_exec_load_acc( fd_harness_ctx_t *      ctx,
   borrowed_account->rec  = NULL;
 }
 
+static void
+fd_harness_exec_populate_instr( fd_harness_ctx_t * ctx,
+                                fd_v2_exec_env_t * exec_env,
+                                fd_instr_info_t *  instr ) {
+    
+  fd_v2_txn_env_t   * txn_env   = &exec_env->slots[0].txns[0];
+  fd_v2_instr_env_t * instr_env = &txn_env->instructions[0];
+  fd_exec_txn_ctx_t * txn_ctx   = ctx->txn_ctx;
+
+  instr->program_id = (uchar)instr_env->program_id_idx;
+  instr->data_sz    = (ushort)instr_env->data->size;
+  instr->acct_cnt   = (ushort)instr_env->accounts_count;
+
+  fd_memcpy( instr->data, instr_env->data->bytes, instr->data_sz );
+  fd_memcpy( &instr->program_id_pubkey, &txn_ctx->accounts[instr->program_id], sizeof(fd_pubkey_t) );
+
+  /* For each instruction account update accesses to transaction accounts. */
+  for( uint i=0U; i<instr->acct_cnt; i++ ) {
+    instr->acct_txn_idxs[i]     = (uchar)instr_env->accounts[i];
+    instr->acct_flags[i]        = 0;/* TODO: SET FLAGS */
+    fd_memcpy( &instr->acct_pubkeys[i], &txn_ctx->accounts[i], sizeof(fd_pubkey_t) );
+    instr->borrowed_accounts[i] = &txn_ctx->borrowed_accounts[instr_env->accounts[i]];
+
+    if( fd_txn_account_is_writable_idx( txn_ctx, (uchar)instr_env->accounts[i] ) ) {
+      instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
+
+      /* Need to update the borrowed accounts to reflect that they are writable. */
+      instr->borrowed_accounts[i]->meta = (void *)instr->borrowed_accounts[i]->const_meta;
+      instr->borrowed_accounts[i]->data = (void *)instr->borrowed_accounts[i]->const_data;
+      instr->borrowed_accounts[i]->rec  = (void *)instr->borrowed_accounts[i]->const_rec;
+    }
+
+    /* This is the equivalent of fd_txn_is_signer() but instead doesn't involve
+       constructing a txn_descriptor.  */
+    if( instr->acct_txn_idxs[i]<txn_env->header.num_required_signatures ) {
+      instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
+    }
+  }
+
+}
+
 int
 fd_harness_exec_instr( uchar const * filename, ulong file_sz ) {
 
@@ -461,7 +479,7 @@ fd_harness_exec_instr( uchar const * filename, ulong file_sz ) {
   }
 
   fd_v2_txn_env_t *   txn_env   = &exec_env.slots[0].txns[0];
-  fd_v2_instr_env_t * instr_env = &txn_env->instructions[0];
+  //fd_v2_instr_env_t * instr_env = &txn_env->instructions[0];
 
   /* Setup the basic execution environment: allocate contexts and important
      data structures (funk, wksp, acc_mgr, etc. ) */
@@ -484,41 +502,12 @@ fd_harness_exec_instr( uchar const * filename, ulong file_sz ) {
   /* Load in all features */
   fd_harness_exec_restore_features( &ctx, &exec_env );
 
-  fd_instr_info_t instr = {0};
-  instr.data            = instr_env->data->bytes;
-  instr.data_sz         = (ushort)instr_env->data->size;
-
-  fd_pubkey_t * program_id = &ctx.txn_ctx->accounts[instr_env->program_id_idx];
-  fd_memcpy( &instr.program_id, program_id, sizeof(fd_pubkey_t) );
-
   /* TODO: all of the cache stuff should go here */
   fd_harness_exec_restore_sysvars( &ctx );
 
-  /* TODO: recent blockhash stuff */
+  fd_instr_info_t instr = {0};
+  fd_harness_exec_populate_instr( &ctx, &exec_env, &instr );
 
-  /* TODO: fill out account flags and whatnot */
 
-
-  return 0;
-}
-
-int
-fd_harness_exec_txn( uchar const * filename, ulong file_sz ) {
-  (void)filename;
-  (void)file_sz;
-  return 0;
-}
-
-int
-fd_harness_exec_slot( uchar const * filename, ulong file_sz ) {
-  (void)filename;
-  (void)file_sz;
-  return 0;
-}
-
-int
-fd_harness_exec_runtime( uchar const * filename, ulong file_sz ) {
-  (void)filename;
-  (void)file_sz;
   return 0;
 }

@@ -1,4 +1,5 @@
 #include "fd_executor.h"
+
 #include "fd_acc_mgr.h"
 #include "fd_hashes.h"
 #include "fd_runtime_err.h"
@@ -26,6 +27,8 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/pack/fd_pack.h"
 #include "../../ballet/pack/fd_pack_cost.h"
+
+#include "../harness/fd_harness.h"
 
 #define SORT_NAME        sort_uint64_t
 #define SORT_KEY_T       uint64_t
@@ -856,6 +859,7 @@ int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
   FD_SCRATCH_SCOPE_BEGIN {
+
     ulong max_num_instructions = FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, limit_max_instruction_trace_length ) ? FD_MAX_INSTRUCTION_TRACE_LENGTH : ULONG_MAX;
     if( txn_ctx->num_instructions >= max_num_instructions ) {
       return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
@@ -877,6 +881,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       parent = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz - 1 ];
 
     fd_exec_instr_ctx_t * ctx = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz++ ];
+
     *ctx = (fd_exec_instr_ctx_t) {
       .instr     = instr,
       .txn_ctx   = txn_ctx,
@@ -890,6 +895,11 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       .depth     = parent ? (parent->depth+1    ) : 0,
       .child_cnt = 0U,
     };
+
+    if( true ) {
+      fd_harness_dump_instr( ctx );
+      FD_LOG_ERR(("DID THIS WORK"));
+    }
 
     /* Add the instruction to the trace */
     txn_ctx->instr_trace[ txn_ctx->instr_trace_length++ ] = (fd_exec_instr_trace_entry_t) {

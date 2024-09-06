@@ -1,8 +1,21 @@
-#ifndef HEADER_fd_src_flamenco_runtime_fd_harness_dump_h
-#define HEADER_fd_src_flamenco_runtime_fd_harness_dump_h
+#ifndef HEADER_fd_src_flamenco_harness_fd_harness_dump_h
+#define HEADER_fd_src_flamenco_harness_fd_harness_dump_h
 
 #include "../../funk/fd_funk.h"
 #include "../fd_flamenco_base.h"
+
+#include "../runtime/fd_account.h"
+
+#include "../runtime/context/fd_exec_txn_ctx.h"
+#include "../runtime/context/fd_exec_instr_ctx.h"
+
+#include "../runtime/fd_system_ids.h"
+
+#include "../nanopb/pb_encode.h"
+#include "../nanopb/pb_decode.h"
+#include "../runtime/sysvar/fd_sysvar_recent_hashes.h"
+
+#include "../runtime/tests/generated/exec_v2.pb.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -50,4 +63,4 @@ fd_harness_exec_runtime( uchar const * filename, ulong file_sz );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_fd_harness_h */
+#endif /* HEADER_fd_src_flamenco_harness_fd_harness_h */
