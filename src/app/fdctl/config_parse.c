@@ -373,6 +373,8 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   tiles.replay.status_cache                        );
   CFG_POP      ( ulong,  tiles.replay.tpool_thread_count                  );
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
+  CFG_POP      ( bool,   tiles.replay.in_wen_restart                      );
+  CFG_POP      ( cstr,   tiles.replay.wen_restart_coordinator             );
 
   CFG_POP      ( ulong,  tiles.store_int.blockstore_shred_max             );
   CFG_POP      ( ulong,  tiles.store_int.blockstore_block_max              );

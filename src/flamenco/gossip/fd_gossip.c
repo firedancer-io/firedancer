@@ -50,7 +50,7 @@
 /* Sha256 pre-image size for pings/pongs */
 #define FD_PING_PRE_IMAGE_SZ (48UL)
 /* Number of recognized CRDS enum members */
-#define FD_KNOWN_CRDS_ENUM_MAX (12UL)
+#define FD_KNOWN_CRDS_ENUM_MAX (14UL)
 
 #define FD_NANOSEC_TO_MILLI(_ts_) ((ulong)(_ts_/1000000))
 
@@ -792,6 +792,14 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
     pubkey = &crd->data.inner.contact_info_v2.from;
     wallclock = &crd->data.inner.contact_info_v2.wallclock;
     break;
+  case fd_crds_data_enum_restart_last_voted_fork_slots:
+    pubkey = &crd->data.inner.restart_last_voted_fork_slots.from;
+    wallclock = &crd->data.inner.restart_last_voted_fork_slots.wallclock;
+    break;
+  case fd_crds_data_enum_restart_heaviest_fork:
+    pubkey = &crd->data.inner.restart_heaviest_fork.from;
+    wallclock = &crd->data.inner.restart_heaviest_fork.wallclock;
+    break;
   default:
     return;
   }
@@ -1132,6 +1140,14 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   case fd_crds_data_enum_contact_info_v2:
     pubkey = &crd->data.inner.contact_info_v2.from;
     wallclock = crd->data.inner.contact_info_v2.wallclock;
+    break;
+  case fd_crds_data_enum_restart_last_voted_fork_slots:
+    pubkey = &crd->data.inner.restart_last_voted_fork_slots.from;
+    wallclock = crd->data.inner.restart_last_voted_fork_slots.wallclock;
+    break;
+  case fd_crds_data_enum_restart_heaviest_fork:
+    pubkey = &crd->data.inner.restart_heaviest_fork.from;
+    wallclock = crd->data.inner.restart_heaviest_fork.wallclock;
     break;
   default:
     wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* In millisecs */
