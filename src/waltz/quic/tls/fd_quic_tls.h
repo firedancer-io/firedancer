@@ -60,7 +60,7 @@
 
 /* number of bytes allocated for queued handshake data
    must be a multiple of FD_QUIC_TLS_HS_DATA_ALIGN */
-#define FD_QUIC_TLS_HS_DATA_SZ  (1u<<14u)
+#define FD_QUIC_TLS_HS_DATA_SZ  (2048UL)
 
 /* callback function prototypes */
 
