@@ -9,6 +9,8 @@ struct fd_http_static_file {
     const char * name;
     const uchar * data;
     ulong const * data_len;
+    const uchar * zstd_data;
+    ulong const * zstd_data_len;
 };
 
 typedef struct fd_http_static_file fd_http_static_file_t;

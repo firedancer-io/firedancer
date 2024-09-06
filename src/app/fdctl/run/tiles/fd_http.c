@@ -227,12 +227,32 @@ gui_http_request( fd_http_server_request_t const * request ) {
         else if( !strcmp( ext, ".woff2" ) ) content_type = "font/woff2";
       }
 
+      char const * cache_control = NULL;
+      if( FD_LIKELY( !strncmp( request->path, "/assets", 7 ) ) ) cache_control = "public, max-age=31536000, immutable";
+
+      const uchar * data = STATIC_FILES[ i ].data;
+      ulong data_len = *(STATIC_FILES[ i ].data_len);
+
+      int accepts_zstd = 0;
+      if( FD_LIKELY( request->headers.accept_encoding ) ) {
+        accepts_zstd = !!strstr( request->headers.accept_encoding, "zstd" );
+      }
+
+      char const * content_encoding = NULL;
+      if( FD_LIKELY( accepts_zstd && STATIC_FILES[ i ].zstd_data ) ) {
+        content_encoding = "zstd";
+        data = STATIC_FILES[ i ].zstd_data;
+        data_len = *(STATIC_FILES[ i ].zstd_data_len);
+      }
+
       return (fd_http_server_response_t){
         .status            = 200,
-        .body              = STATIC_FILES[ i ].data,
-        .body_len          = *(STATIC_FILES[ i ].data_len),
+        .body              = data,
+        .body_len          = data_len,
         .last_off          = ULONG_MAX,
         .content_type      = content_type,
+        .cache_control     = cache_control,
+        .content_encoding  = content_encoding,
         .upgrade_websocket = 0,
       };
     }

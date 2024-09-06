@@ -161,6 +161,8 @@ frontend:
 	echo "    const char * name;" >> src/app/fdctl/run/tiles/generated/http_import_dist.h; \
 	echo "    const uchar * data;" >> src/app/fdctl/run/tiles/generated/http_import_dist.h; \
 	echo "    ulong const * data_len;" >> src/app/fdctl/run/tiles/generated/http_import_dist.h; \
+	echo "    const uchar * zstd_data;" >> src/app/fdctl/run/tiles/generated/http_import_dist.h; \
+	echo "    ulong const * zstd_data_len;" >> src/app/fdctl/run/tiles/generated/http_import_dist.h; \
 	echo "};" >> src/app/fdctl/run/tiles/generated/http_import_dist.h; \
 	echo "" >> src/app/fdctl/run/tiles/generated/http_import_dist.h; \
 	echo "typedef struct fd_http_static_file fd_http_static_file_t;" >> src/app/fdctl/run/tiles/generated/http_import_dist.h; \
@@ -174,18 +176,29 @@ frontend:
 	echo "" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
 	counter=0; \
 	for file in $$(find src/app/fdctl/dist -type f); do \
+		if [[ "$$file" == *.svg || "$$file" == *.js || "$$file" == *.css ]]; then \
+			zstd -19 -o "$$file.zstd" "$$file"; \
+			echo "FD_IMPORT_BINARY( file$${counter}_zstd, \"$$file.zstd\" );" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
+		fi; \
 		echo "FD_IMPORT_BINARY( file$$counter, \"$$file\" );" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
 		counter=$$((counter + 1)); \
 	done; \
 	echo "" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
 	echo "fd_http_static_file_t STATIC_FILES[] = {" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
 	counter=0; \
-	for file in $$(find src/app/fdctl/dist -type f); do \
+	for file in $$(find src/app/fdctl/dist -type f ! -name "*.zstd"); do \
 		stripped_file=$$(echo $$file | sed 's|^src/app/fdctl/dist/||'); \
 		echo "    {" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
 		echo "        .name = \"/$$stripped_file\"," >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
 		echo "        .data = file$$counter," >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
-		echo "        .data_len = &file$${counter}_sz" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
+		echo "        .data_len = &file$${counter}_sz," >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
+		if [[ "$$file" == *.svg || "$$file" == *.js || "$$file" == *.css ]]; then \
+			echo "        .zstd_data = file$${counter}_zstd," >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
+			echo "        .zstd_data_len = &file$${counter}_zstd_sz" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
+		else \
+			echo "        .zstd_data = NULL," >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
+			echo "        .zstd_data_len = 0UL" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
+		fi; \
 		echo "    }," >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
 		counter=$$((counter + 1)); \
 	done; \
