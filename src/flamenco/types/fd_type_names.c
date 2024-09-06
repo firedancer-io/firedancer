@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 214
+#define FD_TYPE_NAME_COUNT 221
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_pubkey",
@@ -183,6 +183,13 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_gossip_incremental_snapshot_hashes",
  "fd_gossip_socket_entry",
  "fd_gossip_contact_info_v2",
+ "fd_restart_run_length_encoding_inner",
+ "fd_restart_run_length_encoding",
+ "fd_restart_raw_offsets_bitvec_u8_inner",
+ "fd_restart_raw_offsets_bitvec",
+ "fd_restart_raw_offsets",
+ "fd_restart_slots_offsets",
+ "fd_gossip_restart_last_voted_fork_slots",
  "fd_crds_data",
  "fd_crds_bloom",
  "fd_crds_filter",
