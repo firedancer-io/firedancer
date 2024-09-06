@@ -21,8 +21,6 @@
 #define FD_QUIC_CONN_STATE_ABORT              5 /* connection terminating due to error */
 #define FD_QUIC_CONN_STATE_CLOSE_PENDING      6 /* connection is closing */
 #define FD_QUIC_CONN_STATE_DEAD               7 /* connection about to be freed */
-#define FD_QUIC_CONN_STATE_CLOSING            8 /* waiting for a clean close (initiator) */
-#define FD_QUIC_CONN_STATE_DRAIN              9 /* waiting for a clean close (peer) */
 
 enum {
   FD_QUIC_CONN_REASON_NO_ERROR                     = 0x00,    /* No error */
