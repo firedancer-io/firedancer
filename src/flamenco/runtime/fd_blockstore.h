@@ -290,6 +290,7 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
   ulong lps;  /* latest processed slot */
   ulong hcs;  /* highest confirmed slot */
   ulong smr;  /* supermajority root. DO NOT MODIFY DIRECTLY, instead use fd_blockstore_publish */
+  ulong restart_slot; /* the slot chosen in wen-restart as the slot to restart from */
 
   /* Internal data structures */
 
