@@ -251,8 +251,8 @@ void
 fd_gui_printf_skipped_history( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "slot", "skipped_history" );
     jsonp_open_array( gui, "value" );
-      for( ulong i=0UL; i<FD_GUI_SLOTS_CNT; i++ ) {
-        ulong _slot = gui->summary.slot_completed+(FD_GUI_SLOTS_CNT-i);
+      for( ulong i=0UL; i<fd_ulong_min( gui->summary.slot_completed+1, FD_GUI_SLOTS_CNT ); i++ ) {
+        ulong _slot = gui->summary.slot_completed-i;
         fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
 
         if( FD_UNLIKELY( slot->slot!=_slot ) ) break;
@@ -281,7 +281,7 @@ fd_gui_printf_tps_history( fd_gui_t * gui ) {
 
       ulong start_slot = fd_ulong_if( gui->summary.slot_completed+i<=149, 0UL, gui->summary.slot_completed+i-149 );
 
-      for( ulong i=0UL; i<=fd_ulong_min( start_slot, FD_GUI_TPS_HISTORY_WINDOW_SZ ); i++ ) {
+      for( ulong i=0UL; i<fd_ulong_min( start_slot+1, FD_GUI_TPS_HISTORY_WINDOW_SZ ); i++ ) {
         ulong parent_idx = (start_slot-i) % FD_GUI_SLOTS_CNT;
 
         fd_gui_slot_t * slot = gui->slots[ parent_idx ];

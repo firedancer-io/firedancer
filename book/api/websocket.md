@@ -375,9 +375,10 @@ a new slot is confirmed on the currently active fork.
 
 A list of the last 150 TPS samples taken by the validator. Currently the
 spacing between samples is poorly defined, but it's roughly one sample
-per slot. The outer array will have 150 elements, and each element will
-have 3 elements, which are `total_ts`, `vote_tps`, and `failed_tps` as
-defined below. Samples are listed from oldest first.
+per slot. Each element in the outer array represents a sample, and the
+outer array will have up to 150 samples. Each sample will have 3
+elements, which are `total_tps`, `vote_tps`, and `failed_tps` as defined
+below. Samples are listed from oldest first.
 
 #### `summary.estimated_tps`
 | frequency       | type     | example     |

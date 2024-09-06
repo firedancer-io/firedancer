@@ -942,14 +942,14 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
   if( FD_UNLIKELY( start_slot==0UL ) ) {
     gui->epoch.epochs[ 0 ].start_time = fd_log_wallclock();
   } else {
-    gui->epoch.epochs[ 0 ].start_time = LONG_MAX;
+    gui->epoch.epochs[ idx ].start_time = LONG_MAX;
 
     for( ulong i=0UL; i<fd_ulong_min( start_slot-1UL, FD_GUI_SLOTS_CNT ); i++ ) {
       fd_gui_slot_t * slot = gui->slots[ (start_slot-i) % FD_GUI_SLOTS_CNT ];
       if( FD_UNLIKELY( slot->slot!=(start_slot-i) ) ) break;
       else if( FD_UNLIKELY( slot->skipped ) ) continue;
 
-      gui->epoch.epochs[ 0 ].start_time = slot->completed_time;
+      gui->epoch.epochs[ idx ].start_time = slot->completed_time;
       break;
     }
   }
@@ -1032,7 +1032,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
 
   ulong parent_slot_idx = 0UL;
 
-  for( ulong i=0UL; i<fd_ulong_min( _slot, FD_GUI_SLOTS_CNT ); i++ ) {
+  for( ulong i=0UL; i<fd_ulong_min( _slot+1, FD_GUI_SLOTS_CNT ); i++ ) {
     ulong parent_slot = _slot - i;
     ulong parent_idx = parent_slot % FD_GUI_SLOTS_CNT;
 
@@ -1087,7 +1087,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   ulong last_failed_txn_cnt = 0UL;
   long  last_time_nanos     = 0L;
 
-  for( ulong i=0UL; i<=fd_ulong_min( _slot, FD_GUI_TPS_HISTORY_WINDOW_SZ ); i++ ) {
+  for( ulong i=0UL; i<=fd_ulong_min( _slot+1, FD_GUI_TPS_HISTORY_WINDOW_SZ ); i++ ) {
     ulong parent_slot = _slot - i;
     ulong parent_idx = parent_slot % FD_GUI_SLOTS_CNT;
 
@@ -1131,7 +1131,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   ulong last_slot = _slot;
   long last_published = gui->slots[ _slot % FD_GUI_SLOTS_CNT ]->completed_time;
 
-  for( ulong i=0UL; i<fd_ulong_min( _slot, 750UL ); i++ ) {
+  for( ulong i=0UL; i<fd_ulong_min( _slot+1, 750UL ); i++ ) {
     ulong parent_slot = _slot - i;
     ulong parent_idx  = parent_slot % FD_GUI_SLOTS_CNT;
 
@@ -1201,6 +1201,8 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui,
 
   // FD_LOG_WARNING(( "Got rooted slot %lu", _slot ));
 
+  /* Slot 0 is always rooted.  No need to iterate all the way back to
+     i==_slot */
   for( ulong i=0UL; i<fd_ulong_min( _slot, FD_GUI_SLOTS_CNT ); i++ ) {
     ulong parent_slot = _slot - i;
     ulong parent_idx = parent_slot % FD_GUI_SLOTS_CNT;
@@ -1230,6 +1232,8 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
 
   // FD_LOG_WARNING(( "Got optimistically confirmed slot %lu", _slot ));
 
+  /* Slot 0 is always rooted.  No need to iterate all the way back to
+     i==_slot */
   for( ulong i=0UL; i<fd_ulong_min( _slot, FD_GUI_SLOTS_CNT ); i++ ) {
     ulong parent_slot = _slot - i;
     ulong parent_idx = parent_slot % FD_GUI_SLOTS_CNT;
