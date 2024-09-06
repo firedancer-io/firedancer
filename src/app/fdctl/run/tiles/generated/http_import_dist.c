@@ -2,12 +2,12 @@
 #include "http_import_dist.h"
 
 FD_IMPORT_BINARY( file0, "src/app/fdctl/dist/assets/firedancer_logo-CrgwxzPk.svg" );
-FD_IMPORT_BINARY( file1, "src/app/fdctl/dist/assets/inter-latin-400-normal-gitzw0hO.woff" );
-FD_IMPORT_BINARY( file2, "src/app/fdctl/dist/assets/index-DxabzDdu.css" );
-FD_IMPORT_BINARY( file3, "src/app/fdctl/dist/assets/firedancer-D_J0EzUc.svg" );
-FD_IMPORT_BINARY( file4, "src/app/fdctl/dist/assets/index-CXA2qkwx.js" );
-FD_IMPORT_BINARY( file5, "src/app/fdctl/dist/assets/inter-latin-400-normal-BOOGhInR.woff2" );
-FD_IMPORT_BINARY( file6, "src/app/fdctl/dist/assets/privateYou-DxC3xn7b.svg" );
+FD_IMPORT_BINARY( file1, "src/app/fdctl/dist/assets/privateYou-DxC3xn7b.svg" );
+FD_IMPORT_BINARY( file2, "src/app/fdctl/dist/assets/inter-latin-400-normal-BOOGhInR.woff2" );
+FD_IMPORT_BINARY( file3, "src/app/fdctl/dist/assets/index-SHBAFJyk.js" );
+FD_IMPORT_BINARY( file4, "src/app/fdctl/dist/assets/inter-latin-400-normal-gitzw0hO.woff" );
+FD_IMPORT_BINARY( file5, "src/app/fdctl/dist/assets/index-DxabzDdu.css" );
+FD_IMPORT_BINARY( file6, "src/app/fdctl/dist/assets/firedancer-D_J0EzUc.svg" );
 FD_IMPORT_BINARY( file7, "src/app/fdctl/dist/index.html" );
 
 fd_http_static_file_t STATIC_FILES[] = {
@@ -17,32 +17,32 @@ fd_http_static_file_t STATIC_FILES[] = {
         .data_len = &file0_sz
     },
     {
-        .name = "/assets/inter-latin-400-normal-gitzw0hO.woff",
+        .name = "/assets/privateYou-DxC3xn7b.svg",
         .data = file1,
         .data_len = &file1_sz
     },
     {
-        .name = "/assets/index-DxabzDdu.css",
+        .name = "/assets/inter-latin-400-normal-BOOGhInR.woff2",
         .data = file2,
         .data_len = &file2_sz
     },
     {
-        .name = "/assets/firedancer-D_J0EzUc.svg",
+        .name = "/assets/index-SHBAFJyk.js",
         .data = file3,
         .data_len = &file3_sz
     },
     {
-        .name = "/assets/index-CXA2qkwx.js",
+        .name = "/assets/inter-latin-400-normal-gitzw0hO.woff",
         .data = file4,
         .data_len = &file4_sz
     },
     {
-        .name = "/assets/inter-latin-400-normal-BOOGhInR.woff2",
+        .name = "/assets/index-DxabzDdu.css",
         .data = file5,
         .data_len = &file5_sz
     },
     {
-        .name = "/assets/privateYou-DxC3xn7b.svg",
+        .name = "/assets/firedancer-D_J0EzUc.svg",
         .data = file6,
         .data_len = &file6_sz
     },
