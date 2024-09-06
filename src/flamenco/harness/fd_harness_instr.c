@@ -20,7 +20,7 @@ fd_harness_dump_file( fd_v2_exec_env_t * exec_env, char const * filename ) {
   /* Encode the protobuf and output to file */
   
   /* TODO: Find a better bound for the out buf size */
-  ulong out_buf_size = 100UL * 1024UL * 1024UL;
+  ulong out_buf_size = 100UL * 1024UL * 1024U;
   uint8_t * out = fd_scratch_alloc( alignof(uint8_t), out_buf_size );
   pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
 
@@ -49,7 +49,7 @@ fd_harness_dump_acct_state( fd_borrowed_account_t const * borrowed_account,
 
   /* Data */
   output_account->data       = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( borrowed_account->const_meta->dlen ) );
-  output_account->data->size = (pb_size_t) borrowed_account->const_meta->dlen;
+  output_account->data->size = (uint)borrowed_account->const_meta->dlen;
   fd_memcpy( output_account->data->bytes, borrowed_account->const_data, borrowed_account->const_meta->dlen );
 
   /* Executable */
@@ -65,7 +65,7 @@ fd_harness_dump_acct_state( fd_borrowed_account_t const * borrowed_account,
   output_account->has_seed_addr = false;
 }
 
-static void
+static void FD_FN_UNUSED
 fd_harness_dump_features( fd_features_t const * features, fd_v2_feature_t * output_features ) {
   uint idx = 0U;
   for( fd_feature_id_t const *id = fd_feature_iter_init(); 
@@ -80,9 +80,9 @@ int
 fd_harness_dump_instr( fd_exec_instr_ctx_t * instr_ctx ) {
   FD_SCRATCH_SCOPE_BEGIN {
 
-  fd_exec_txn_ctx_t * txn_ctx = instr_ctx->txn_ctx;
+  fd_exec_txn_ctx_t * FD_FN_UNUSED txn_ctx = instr_ctx->txn_ctx;
 
-  fd_v2_exec_env_t exec_env = {0};
+  fd_v2_exec_env_t exec_env = FD_V2_EXEC_ENV_INIT_DEFAULT;
 
   /* In order to capture all of the accounts required to execute an instruction,
      we need to copy over:
@@ -111,116 +111,95 @@ fd_harness_dump_instr( fd_exec_instr_ctx_t * instr_ctx ) {
   fd_v2_acct_state_t * acct_states = fd_scratch_alloc( alignof(fd_v2_acct_state_t), 
                                                        sizeof(fd_v2_acct_state_t) * max_accs_to_save );
   exec_env.acct_states = acct_states;
+  exec_env.acct_states_count = (uint)max_accs_to_save;
 
   uint num_acct_states = 0U;
 
-  /* Copy the unrolled transaction accounts */
+  /* Copy the unrolled transaction acaccounts */
   for( uint i=0U; i<txn_ctx->accounts_cnt; i++ ) {
     fd_borrowed_account_t const * borrowed_account = &txn_ctx->borrowed_accounts[i];
     fd_v2_acct_state_t * output_account = &acct_states[num_acct_states++];
     fd_harness_dump_acct_state( borrowed_account, output_account );
   }
 
-  /* Copy the sysvar entries */
-  for( uint i=0U; i<num_sysvar_entries; i++ ) {
-    FD_BORROWED_ACCOUNT_DECL( borrowed_account );
-    int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, 
-                               &fd_relevant_sysvar_ids[i], borrowed_account );
-    if( FD_UNLIKELY( ret!=FD_ACC_MGR_SUCCESS ) ) {
-      continue;
-    }
+  // /* Copy the sysvar entries */
+  // for( uint i=0U; i<num_sysvar_entries; i++ ) {
+  //   FD_BORROWED_ACCOUNT_DECL( borrowed_account );
+  //   int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, 
+  //                              &fd_relevant_sysvar_ids[i], borrowed_account );
+  //   if( FD_UNLIKELY( ret!=FD_ACC_MGR_SUCCESS ) ) {
+  //     continue;
+  //   }
 
-    /* Make sure the account doesn't exist in the output accounts yet */
-    int account_exists = 0;
-    for( uint j=0U; j<txn_ctx->accounts_cnt; j++ ) {
-      if( !memcmp( acct_states[j].address, fd_relevant_sysvar_ids[i].uc, sizeof(fd_pubkey_t) ) ) {
-        account_exists = true;
-        break;
-      }
-    }
+  //   /* Make sure the account doesn't exist in the output accounts yet */
+  //   int account_exists = 0;
+  //   for( uint j=0U; j<txn_ctx->accounts_cnt; j++ ) {
+  //     if( !memcmp( acct_states[j].address, fd_relevant_sysvar_ids[i].uc, sizeof(fd_pubkey_t) ) ) {
+  //       account_exists = true;
+  //       break;
+  //     }
+  //   }
 
-    /* Copy it into output */
-    if( !account_exists ) {
-      fd_v2_acct_state_t * output_account = &acct_states[num_acct_states++];
-      fd_harness_dump_acct_state( borrowed_account, output_account );
-    }
-  }
+  //   /* Copy it into output */
+  //   if( !account_exists ) {
+  //     fd_v2_acct_state_t * output_account = &acct_states[num_acct_states++];
+  //     fd_harness_dump_acct_state( borrowed_account, output_account );
+  //   }
+  // }
+  // exec_env.acct_states_count = num_acct_states;
 
-  /* Copy in the executable accounts */
-  for( uint i=0U; i<txn_ctx->executable_cnt; i++ ) {
-    FD_BORROWED_ACCOUNT_DECL( borrowed_account );
-    int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, txn_ctx->executable_accounts[i].pubkey, borrowed_account );
-    if( FD_UNLIKELY( ret!=FD_ACC_MGR_SUCCESS ) ) {
-      continue;
-    }
-    /* Make sure the account doesn't exist in the output accounts yet */
-    bool account_exists = false;
-    for( uint j=0U; j<txn_ctx->accounts_cnt; j++ ) {
-      if( !memcmp( acct_states[j].address, txn_ctx->executable_accounts[i].pubkey->uc, sizeof(fd_pubkey_t) ) ) {
-        account_exists = true;
-        break;
-      }
-    }
-    /* Copy it into output */
-    if( !account_exists ) {
-      fd_v2_acct_state_t * output_account = &acct_states[num_acct_states++];
-      fd_harness_dump_acct_state( borrowed_account, output_account );
-    }
-  }
-  exec_env.acct_states_count = num_acct_states;
+  // /* Now that all relevant account states have been populated, copy over the
+  //    feature set into the execution environment protobuf. */
 
-  /* Now that all relevant account states have been populated, copy over the
-     feature set into the execution environment protobuf. */
+  // exec_env.features       = fd_scratch_alloc( alignof(fd_v2_feature_t), sizeof(fd_v2_feature_t) * FD_FEATURE_ID_CNT );
+  // exec_env.features_count = FD_FEATURE_ID_CNT;
+  // fd_harness_dump_features( &txn_ctx->epoch_ctx->features, exec_env.features );
 
-  exec_env.features       = fd_scratch_alloc( alignof(fd_v2_feature_t), sizeof(fd_v2_feature_t) * FD_FEATURE_ID_CNT );
-  exec_env.features_count = FD_FEATURE_ID_CNT;
-  fd_harness_dump_features( &txn_ctx->epoch_ctx->features, exec_env.features );
+  // /* The leader schedule, status cache, and block hash queue don't need to be
+  //    populated when dumping an instruction. */
 
-  /* The leader schedule, status cache, and block hash queue don't need to be
-     populated when dumping an instruction. */
+  // exec_env.slots_count = 1UL;
+  // exec_env.slots       = fd_scratch_alloc( alignof(fd_v2_slot_env_t), sizeof(fd_v2_slot_env_t) );
 
-  exec_env.slots_count = 1UL;
-  exec_env.slots       = fd_scratch_alloc( alignof(fd_v2_slot_env_t), sizeof(fd_v2_slot_env_t) );
+  // fd_v2_slot_env_t * slot_env = &exec_env.slots[0];
+  // slot_env->txns_count        = 1UL;
+  // slot_env->slot_number       = txn_ctx->slot_ctx->slot_bank.slot;
+  // slot_env->txns              = fd_scratch_alloc( alignof(fd_v2_txn_env_t), sizeof(fd_v2_txn_env_t) );
 
-  fd_v2_slot_env_t * slot_env = &exec_env.slots[0];
-  slot_env->txns_count        = 1UL;
-  slot_env->slot_number       = txn_ctx->slot_ctx->slot_bank.slot;
-  slot_env->txns              = fd_scratch_alloc( alignof(fd_v2_txn_env_t), sizeof(fd_v2_txn_env_t) );
+  // /* Populate the transaction environment with one instruction. At this point 
+  //    the address lookup table should be unrolled. The order of accounts and the 
+  //    transaction header should be populated. */
 
-  /* Populate the transaction environment with one instruction. At this point 
-     the address lookup table should be unrolled. The order of accounts and the 
-     transaction header should be populated. */
+  // fd_v2_txn_env_t * txn_env                      = &slot_env->txns[0];
+  // txn_env->has_header                            = true;
+  // txn_env->header.num_required_signatures        = txn_ctx->txn_descriptor->signature_cnt;
+  // txn_env->header.num_readonly_signed_accounts   = txn_ctx->txn_descriptor->readonly_signed_cnt;
+  // txn_env->header.num_readonly_unsigned_accounts = txn_ctx->txn_descriptor->readonly_unsigned_cnt;
+  // txn_env->cu_avail                              = txn_ctx->compute_unit_limit;
 
-  fd_v2_txn_env_t * txn_env                      = &slot_env->txns[0];
-  txn_env->has_header                            = true;
-  txn_env->header.num_required_signatures        = txn_ctx->txn_descriptor->signature_cnt;
-  txn_env->header.num_readonly_signed_accounts   = txn_ctx->txn_descriptor->readonly_signed_cnt;
-  txn_env->header.num_readonly_unsigned_accounts = txn_ctx->txn_descriptor->readonly_unsigned_cnt;
-  txn_env->cu_avail                              = txn_ctx->compute_unit_limit;
+  // txn_env->is_legacy = txn_ctx->txn_descriptor->transaction_version == FD_TXN_VLEGACY;
 
-  txn_env->is_legacy = txn_ctx->txn_descriptor->transaction_version == FD_TXN_VLEGACY;
+  // txn_env->account_keys = fd_scratch_alloc( alignof(fd_pubkey_t), sizeof(fd_pubkey_t) * txn_ctx->accounts_cnt );
+  // for( uint i=0U; i<txn_ctx->accounts_cnt; i++ ) {
+  //   fd_memcpy( &txn_env->account_keys[i], txn_ctx->borrowed_accounts[i].pubkey, sizeof(fd_pubkey_t) );
+  // }
 
-  txn_env->account_keys = fd_scratch_alloc( alignof(fd_pubkey_t), sizeof(fd_pubkey_t) * txn_ctx->accounts_cnt );
-  for( uint i=0U; i<txn_ctx->accounts_cnt; i++ ) {
-    fd_memcpy( &txn_env->account_keys[i], txn_ctx->borrowed_accounts[i].pubkey, sizeof(fd_pubkey_t) );
-  }
+  // txn_env->instructions_count = 1UL;
 
-  txn_env->instructions_count = 1UL;
+  // fd_v2_instr_env_t * instr_env = fd_scratch_alloc( alignof(fd_v2_instr_env_t), sizeof(fd_v2_instr_env_t) );
+  // instr_env->program_id_idx     = instr_ctx->instr->program_id;
+  // instr_env->accounts_count     = instr_ctx->instr->acct_cnt;
+  // instr_env->accounts           = fd_scratch_alloc( alignof(fd_v2_instr_acct_t), sizeof(fd_v2_instr_acct_t) * instr_ctx->instr->acct_cnt );
+  // for( uint i=0U; i<instr_env->accounts_count; i++ ) {
+  //   instr_env->accounts[i] = instr_ctx->instr->acct_txn_idxs[i];
+  // }
 
-  fd_v2_instr_env_t * instr_env = fd_scratch_alloc( alignof(fd_v2_instr_env_t), sizeof(fd_v2_instr_env_t) );
-  instr_env->program_id_idx     = instr_ctx->instr->program_id;
-  instr_env->accounts_count     = instr_ctx->instr->acct_cnt;
-  instr_env->accounts           = fd_scratch_alloc( alignof(fd_v2_instr_acct_t), sizeof(fd_v2_instr_acct_t) * instr_ctx->instr->acct_cnt );
-  for( uint i=0U; i<instr_env->accounts_count; i++ ) {
-    instr_env->accounts[i] = instr_ctx->instr->acct_txn_idxs[i];
-  }
-
-  instr_env->data       = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( instr_ctx->instr->data_sz ) );
-  instr_env->data->size = instr_ctx->instr->data_sz;
+  // instr_env->data       = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( instr_ctx->instr->data_sz ) );
+  // instr_env->data->size = instr_ctx->instr->data_sz;
 
   /* Now that the protobuf struct has been populated, dump the struct into
     a file. */
-  fd_harness_dump_file( &exec_env, "/data/ibhatt/instrexec_env.pb" );
+  fd_harness_dump_file( &exec_env, "/data/ibhatt/instrexec_env2.pb" );
 
   return 0;
 
