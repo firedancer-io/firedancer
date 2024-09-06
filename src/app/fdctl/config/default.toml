@@ -935,6 +935,21 @@ dynamic_port_range = "8900-9000"
         # in the pack tile.
         max_pending_transactions = 4096
 
+        # When a transaction consumes fewer CUs than it requests, the
+        # bank and pack tiles work together to adjust the block limits
+        # so that a different transaction can consmume the unspent CUs.
+        # This is normally desireable, as it typically leads to
+        # producing blocks with more transactions.
+        #
+        # In situations where transactions typically do not
+        # significantly over-request CUs, or when the CU limit is high
+        # enough so that over-requesting CUs does not impact how many
+        # transactions fit in a block, this can be disabled to improve
+        # performance.  It's not recommended (but allowed) to disable
+        # this option in a production cluster.
+        use_consumed_cus = true
+
+
     # The bank tile is what executes transactions and updates the
     # accounting state as a result of any operations performed by the
     # transactions.  Currently the bank tile is implemented by the

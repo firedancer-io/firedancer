@@ -173,6 +173,7 @@ typedef struct {
       ulong bank_tile_count;
       int   larger_max_cost_per_block;
       int   larger_shred_limits_per_block;
+      int   use_consumed_cus;
       char  identity_key_path[ PATH_MAX ];
     } pack;
 
