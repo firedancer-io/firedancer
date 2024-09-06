@@ -1097,7 +1097,8 @@ fd_feature_id_t const ids[] = {
   { .index      = offsetof(fd_features_t, deprecate_unused_legacy_vote_plumbing)>>3,
     .id         = {"\x51\x60\x3a\x65\xd2\x58\xf6\x81\xa9\x9d\x75\xfb\x82\x92\x01\x9d\x7c\xba\xba\x95\x17\x6d\x3b\xfd\xac\x4d\xba\x6f\x72\x50\xbc\x93"},
                   /* 6Uf8S75PVh91MYgPQSHnjRAPQq6an5BDv9vomrCwDqLe */
-    .name       = "deprecate_unused_legacy_vote_plumbing" },
+    .name       = "deprecate_unused_legacy_vote_plumbing",
+    .cleaned_up = 2010 },
 
   { .index      = offsetof(fd_features_t, reward_full_priority_fee)>>3,
     .id         = {"\x29\xb5\x7d\x02\xf6\x06\xf2\xf1\x3c\xe6\x5d\x22\xd1\xfc\x80\x59\xcd\x36\x5a\x6d\x1c\x97\x5a\xbf\x46\x0f\x48\x0e\x16\x11\xe2\xa4"},
