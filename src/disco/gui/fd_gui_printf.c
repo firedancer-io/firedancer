@@ -256,7 +256,7 @@ fd_gui_printf_skipped_history( fd_gui_t * gui ) {
         fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
 
         if( FD_UNLIKELY( slot->slot!=_slot ) ) break;
-        if( FD_UNLIKELY( slot->skipped ) ) jsonp_ulong( gui, NULL, slot->slot );
+        if( FD_UNLIKELY( slot->mine && slot->skipped ) ) jsonp_ulong( gui, NULL, slot->slot );
       }
     jsonp_close_array( gui );
   jsonp_close_envelope( gui );
