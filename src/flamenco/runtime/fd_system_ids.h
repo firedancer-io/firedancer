@@ -18,6 +18,7 @@ extern const fd_pubkey_t fd_sysvar_owner_id;
 extern const fd_pubkey_t fd_sysvar_last_restart_slot_id;
 extern const fd_pubkey_t fd_sysvar_instructions_id;
 extern const fd_pubkey_t fd_sysvar_incinerator_id;
+extern const fd_pubkey_t fd_sysvar_rewards_id;
 
 extern const fd_pubkey_t fd_solana_native_loader_id;
 extern const fd_pubkey_t fd_solana_feature_program_id;
@@ -39,22 +40,26 @@ extern const fd_pubkey_t fd_solana_spl_token_id;
 extern const fd_pubkey_t fd_solana_zk_token_proof_program_id;
 extern const fd_pubkey_t fd_solana_zk_elgamal_proof_program_id;
 
-/* fd_pubkey_is_{sysvar_id, builtin_program, sysvar_or_builtin} checks
-   whether the provided pubkey is included in the hardcoded list of
-   sysvars, builtin programs, or either, respectively.  They return 1 if
-   the pubkey is in the list and 0 otherwise.
+/* fd_pubkey_is_{pending, active}_reserved_key checks to see if the pubkey is
+   a reserved account. They return 1 if the pubkey is in the list, and 
+   0 otherwise.
+   
+   The main difference between the two is that pending reserved keys are feature gated.
+   To verify that the pubkey is a reserved key, the caller will need to check that either:
+     1. The pubkey is in the set of active reserved keys
+     2. The pubkey is in the set of pending reserved keys, AND the associated feature is active.
+     
+   At the time of writing, all pending reserved keys are feature-gated by add_new_reserved_account_keys.
+   However, as more reserved keys get added and placed behind feature gates, this API will need to change. 
+   
+   Instead of maintaining a map of sysvars and builtins, Agave recommends checking the sysvar owner account, or checking
+   the reserved keys below. 
+   https://github.com/anza-xyz/agave/blob/66c126b41ec2b55b3f747a4ac4e3ee6b439164a5/sdk/program/src/sysvar/mod.rs#L127-L130 */
+int 
+fd_pubkey_is_active_reserved_key( fd_pubkey_t const * acct );
 
-   fd_pubkey_is_sysvar_or_builtin( x ) returns
-   fd_pubkey_is_sysvar_id( x ) || fd_pubkey_is_builtin_program( x )
-   except only does one lookup instead of two. */
-int
-fd_pubkey_is_sysvar_id( fd_pubkey_t const * acct );
-
-int
-fd_pubkey_is_builtin_program( fd_pubkey_t const * acct );
-
-int
-fd_pubkey_is_sysvar_or_builtin( fd_pubkey_t const * acct );
+int 
+fd_pubkey_is_pending_reserved_key( fd_pubkey_t const * acct );
 
 FD_PROTOTYPES_END
 
