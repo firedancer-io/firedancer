@@ -1543,7 +1543,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
         if( FD_UNLIKELY( !programdata_state.inner.program_data.upgrade_authority_address ) ) {
           FD_LOG_WARNING(( "Cannot extend ProgramData accounts that are not upgradeable" ));
-          return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+          return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
         }
         upgrade_authority_address = programdata_state.inner.program_data.upgrade_authority_address;
       } else {
