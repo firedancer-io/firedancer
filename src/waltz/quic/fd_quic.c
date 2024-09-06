@@ -6569,13 +6569,16 @@ fd_quic_frame_handle_handshake_done_frame(
         /* connection closing... nothing to do */
         return 0;
 
+      case FD_QUIC_CONN_STATE_HANDSHAKE:
+        /* still handshaking... assume packet was reordered */
+        return FD_QUIC_PARSE_FAIL;
+
       case FD_QUIC_CONN_STATE_ACTIVE:
-        /* already active - probably received out of order */
+        /* duplicate frame? */
         return 0;
     }
 
-    /* either we treat this as a fatal error, or just warn
-       if we don't tear down the connection we must move to ACTIVE */
+    return FD_QUIC_PARSE_FAIL;
   }
 
   if( FD_UNLIKELY( !conn->tls_hs ) ) {
