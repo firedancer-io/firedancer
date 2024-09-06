@@ -24,8 +24,6 @@
 enum {
   FD_QUIC_TYPE_INGRESS = 1 << 0,
   FD_QUIC_TYPE_EGRESS  = 1 << 1,
-
-  FD_QUIC_TRANSPORT_PARAMS_RAW_SZ = 1200,
 };
 
 #define FD_QUIC_PKT_NUM_UNUSED  (~0ul)
@@ -134,7 +132,6 @@ struct fd_quic_pkt {
   uint               datagram_sz; /* length of the original datagram */
   uint               ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
   uint ping;
-# define ACK_FLAG_NOT_RQD 0
 # define ACK_FLAG_RQD     1
 # define ACK_FLAG_CANCEL  2
 };

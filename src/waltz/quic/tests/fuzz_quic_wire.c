@@ -160,7 +160,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
   conn->tx_max_data                            =       512UL;
   conn->tx_initial_max_stream_data_uni         =        64UL;
   conn->rx_max_data                            =       512UL;
-  conn->rx_initial_max_stream_data_uni         =        64UL;
   conn->tx_max_datagram_sz                     = FD_QUIC_MTU;
   fd_quic_conn_set_max_streams( conn, 0, 1 );
   fd_quic_conn_set_max_streams( conn, 1, 1 );

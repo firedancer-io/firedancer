@@ -329,8 +329,7 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
   conn->rx_max_data      = 0UL;
   conn->rx_tot_data      = 0UL;
   conn->rx_max_data_ackd = 0UL;
-  conn->tx_initial_max_stream_data_uni         = 0UL;
-  conn->rx_initial_max_stream_data_uni         = 0UL;
+  conn->tx_initial_max_stream_data_uni = 0UL;
 
   /* TODO set a realistic packet number */
 
