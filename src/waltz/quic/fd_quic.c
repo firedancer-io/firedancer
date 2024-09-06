@@ -24,13 +24,8 @@
 #include <fcntl.h>   /* for keylog open(2)  */
 #include <unistd.h>  /* for keylog close(2) */
 
-#include <sys/random.h>
 #include "../../ballet/x509/fd_x509_mock.h"
 #include "../../ballet/hex/fd_hex.h"
-
-#define CONN_FMT "%02x%02x%02x%02x%02x%02x%02x%02x"
-#define CONN_ID(CONN_ID) (CONN_ID)->conn_id[0], (CONN_ID)->conn_id[1], (CONN_ID)->conn_id[2], (CONN_ID)->conn_id[3],  \
-                         (CONN_ID)->conn_id[4], (CONN_ID)->conn_id[5], (CONN_ID)->conn_id[6], (CONN_ID)->conn_id[7]
 
 /* Declare priority queue for time based processing */
 #define PRQ_NAME      service_queue
@@ -5043,7 +5038,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   /* transport params */
   fd_quic_transport_params_t * our_tp  = &state->transport_params;
   conn->rx_max_data                    = our_tp->initial_max_data;
-  conn->rx_initial_max_stream_data_uni = our_tp->initial_max_stream_data_uni;
 
   /* update metrics */
   quic->metrics.conn_active_cnt++;

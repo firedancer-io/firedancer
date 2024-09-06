@@ -141,8 +141,6 @@ struct fd_quic_conn {
        duplicate packets should already have been dropped
      data received higher than this would be a gap
        ignore at present, assuming will be resent in order */
-  ulong tx_crypto_offset[4]; /* next handshake data (crypto) offset
-                                   one per encryption level */
   ulong rx_crypto_offset[4]; /* expected handshake data (crypto) offset
                                    one per encryption level */
 
@@ -313,7 +311,6 @@ struct fd_quic_conn {
 
   /* max stream data per stream type */
   ulong                tx_initial_max_stream_data_uni;
-  ulong                rx_initial_max_stream_data_uni;
 
   /* last tx packet num with max_data frame referring to this stream
      set to next_pkt_number to indicate a new max_data frame should be sent
@@ -321,7 +318,7 @@ struct fd_quic_conn {
        and update this value */
   ulong                upd_pkt_number;
 
-  /* current round-trip-time */
+  /* current round-trip-time (FIXME this never updates) */
   ulong                rtt;
 
   /* highest peer encryption level */
@@ -371,15 +368,6 @@ fd_quic_conn_get_context( fd_quic_conn_t * conn );
      FD_QUIC_CONN_MAX_STREAM_TYPE_BIDIR */
 FD_QUIC_API void
 fd_quic_conn_set_max_streams( fd_quic_conn_t * conn, uint type, ulong stream_cnt );
-
-
-/* get the current value for the concurrent streams for the specified type
-
-   type is one of:
-     FD_QUIC_CONN_MAX_STREAM_TYPE_UNIDIR
-     FD_QUIC_CONN_MAX_STREAM_TYPE_BIDIR */
-FD_QUIC_API ulong
-fd_quic_conn_get_max_streams( fd_quic_conn_t * conn, uint type );
 
 
 /* update the tree weight
